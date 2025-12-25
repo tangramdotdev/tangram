@@ -116,8 +116,8 @@ num-traits = "0.2"
 oauth2 = "5.0.0"
 octocrab = "0.48"
 owo-colors = "4"
-oxc = { git = "https://github.com/oxc-project/oxc", features = ["full"] }
-oxc_formatter = { git = "https://github.com/oxc-project/oxc" }
+oxc = { git = "https://github.com/tangramdotdev/oxc", features = ["full"] }
+oxc_formatter = { git = "https://github.com/tangramdotdev/oxc" }
 percent-encoding = "2"
 petgraph = "0.8"
 pin-project = "1"
@@ -184,7 +184,7 @@ tracing-tree = "0.4"
 unicode-segmentation = "1"
 unicode-width = "0.2"
 uuid = { version = "1", features = ["v7"] }
-v8 = { git = "https://github.com/tangramdotdev/rusty_v8", branch = "rusty-v8-archive-target-var" }
+v8 = { git = "https://github.com/tangramdotdev/rusty_v8" }
 webbrowser = "1"
 webpki-roots = "1"
 winnow = "0.7"
@@ -193,12 +193,8 @@ zed_extension_api = "0.7"
 zerocopy = { version = "0.8", features = ["derive"] }
 zstd = "0.13"
 
-[profile.dev.package.blake3]
-opt-level = 3
-overflow-checks = false
-
 [patch.crates-io]
-derive_more = { git = "https://github.com/jeltef/derive_more" }
+crc32fast = { git = "https://github.com/tangramdotdev/rust-crc32fast" }
 
 [workspace.metadata.cargo-shear]
 ignored = [

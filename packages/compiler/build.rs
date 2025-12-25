@@ -142,15 +142,14 @@ mod typescript {
 
 		{
 			// Create a context.
-			let handle_scope = &mut v8::HandleScope::new(&mut isolate);
-			let context = v8::Context::new(handle_scope, v8::ContextOptions::default());
-			handle_scope.set_default_context(context);
-			let scope = &mut v8::ContextScope::new(handle_scope, context);
+			v8::scope!(scope, &mut isolate);
+			let context = v8::Context::new(scope, v8::ContextOptions::default());
+			let scope = &mut v8::ContextScope::new(scope, context);
 
 			// Compile the script.
 			let path = out_dir_path.join("main.js");
-			let script = std::fs::read_to_string(path).unwrap();
-			let script = v8::String::new(scope, &script).unwrap();
+			let script_text = std::fs::read_to_string(path).unwrap();
+			let script_str = v8::String::new(scope, &script_text).unwrap();
 			let resource_name = v8::Integer::new(scope, 0).into();
 			let resource_line_offset = 0;
 			let resource_column_offset = 0;
@@ -174,10 +173,13 @@ mod typescript {
 				is_module,
 				host_defined_options,
 			);
-			let script = v8::Script::compile(scope, script, Some(&origin)).unwrap();
+			let script = v8::Script::compile(scope, script_str, Some(&origin)).unwrap();
 
 			// Run the script.
 			script.run(scope).unwrap();
+
+			// Set the default context for the snapshot.
+			scope.set_default_context(context);
 		}
 
 		// Create the snapshot.
@@ -185,7 +187,7 @@ mod typescript {
 
 		// Write the snapshot.
 		let path = out_dir_path.join("main.heapsnapshot");
-		std::fs::write(path, snapshot).unwrap();
+		std::fs::write(path, &*snapshot).unwrap();
 	}
 
 	fn fixup_source_map(path: impl AsRef<Path>) {

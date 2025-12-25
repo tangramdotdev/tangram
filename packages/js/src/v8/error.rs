@@ -1,13 +1,13 @@
 use {
 	super::State,
 	num::ToPrimitive as _,
-	std::{collections::BTreeMap, rc::Rc},
+	std::collections::BTreeMap,
 	tangram_client::prelude::*,
 	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 };
 
 pub(super) fn to_exception<'s>(
-	scope: &mut v8::HandleScope<'s>,
+	scope: &mut v8::PinScope<'s, '_>,
 	error: &tg::Error,
 ) -> Option<v8::Local<'s, v8::Value>> {
 	let context = scope.get_current_context();
@@ -46,7 +46,7 @@ pub(super) fn to_exception<'s>(
 
 pub(super) fn from_exception<'s>(
 	state: &State,
-	scope: &mut v8::HandleScope<'s>,
+	scope: &mut v8::PinScope<'s, '_>,
 	exception: v8::Local<'s, v8::Value>,
 ) -> Option<tg::Error> {
 	let context = scope.get_current_context();
@@ -171,12 +171,12 @@ pub(super) fn from_exception<'s>(
 }
 
 pub fn prepare_stack_trace_callback<'s>(
-	scope: &mut v8::HandleScope<'s>,
+	scope: &mut v8::PinScope<'s, '_>,
 	_error: v8::Local<v8::Value>,
 	call_sites: v8::Local<v8::Array>,
 ) -> v8::Local<'s, v8::Value> {
 	let context = scope.get_current_context();
-	let state = context.get_slot::<Rc<State>>().unwrap().clone();
+	let state = context.get_slot::<State>().unwrap().clone();
 	let global = context.global(scope);
 
 	// Get Tangram.Error.Location.fromData

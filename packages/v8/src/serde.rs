@@ -23,10 +23,10 @@ impl<T> Serialize for Serde<T>
 where
 	T: serde::Serialize,
 {
-	fn serialize<'a>(
+	fn serialize<'s>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
-	) -> tg::Result<v8::Local<'a, v8::Value>> {
+		scope: &mut v8::PinScope<'s, '_>,
+	) -> tg::Result<v8::Local<'s, v8::Value>> {
 		let serializer = Serializer::new(scope);
 		let value = self
 			.0
@@ -36,13 +36,13 @@ where
 	}
 }
 
-impl<'a, T> Deserialize<'a> for Serde<T>
+impl<'s, T> Deserialize<'s> for Serde<T>
 where
-	T: serde::de::DeserializeOwned + 'a,
+	T: serde::de::DeserializeOwned + 's,
 {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
+		scope: &mut v8::PinScope<'s, '_>,
+		value: v8::Local<'s, v8::Value>,
 	) -> tg::Result<Self> {
 		let deserializer = Deserializer::new(scope, value);
 		let value = T::deserialize(deserializer)

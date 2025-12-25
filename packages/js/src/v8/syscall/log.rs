@@ -2,7 +2,7 @@ use {super::State, std::rc::Rc, tangram_client::prelude::*, tangram_v8::Serde};
 
 pub fn log(
 	state: Rc<State>,
-	_scope: &mut v8::HandleScope,
+	_scope: &mut v8::PinScope<'_, '_>,
 	args: (Serde<tg::process::log::Stream>, String),
 ) -> tg::Result<()> {
 	let (Serde(stream), string) = args;

@@ -5,10 +5,10 @@ use {
 	tangram_client::prelude::*,
 };
 
-pub trait Deserialize<'a>: 'a + Sized {
+pub trait Deserialize<'s>: 's + Sized {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
-		value: v8::Local<'a, v8::Value>,
+		scope: &mut v8::PinScope<'s, '_>,
+		value: v8::Local<'s, v8::Value>,
 	) -> tg::Result<Self>;
 }
 
@@ -18,7 +18,7 @@ where
 	v8::Local<'a, v8::Value>: TryInto<v8::Local<'a, T>>,
 {
 	fn deserialize(
-		_scope: &mut v8::HandleScope<'a>,
+		_scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		value
@@ -29,7 +29,7 @@ where
 
 impl<'a> Deserialize<'a> for () {
 	fn deserialize(
-		_scope: &mut v8::HandleScope<'a>,
+		_scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		if !value.is_null_or_undefined() {
@@ -41,7 +41,7 @@ impl<'a> Deserialize<'a> for () {
 
 impl<'a> Deserialize<'a> for bool {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		let value = v8::Local::<v8::Boolean>::try_from(value)
@@ -53,7 +53,7 @@ impl<'a> Deserialize<'a> for bool {
 
 impl<'a> Deserialize<'a> for u8 {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
@@ -67,7 +67,7 @@ impl<'a> Deserialize<'a> for u8 {
 
 impl<'a> Deserialize<'a> for u16 {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
@@ -81,7 +81,7 @@ impl<'a> Deserialize<'a> for u16 {
 
 impl<'a> Deserialize<'a> for u32 {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
@@ -95,7 +95,7 @@ impl<'a> Deserialize<'a> for u32 {
 
 impl<'a> Deserialize<'a> for u64 {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
@@ -109,7 +109,7 @@ impl<'a> Deserialize<'a> for u64 {
 
 impl<'a> Deserialize<'a> for usize {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
@@ -123,7 +123,7 @@ impl<'a> Deserialize<'a> for usize {
 
 impl<'a> Deserialize<'a> for i8 {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
@@ -137,7 +137,7 @@ impl<'a> Deserialize<'a> for i8 {
 
 impl<'a> Deserialize<'a> for i16 {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
@@ -151,7 +151,7 @@ impl<'a> Deserialize<'a> for i16 {
 
 impl<'a> Deserialize<'a> for i32 {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
@@ -165,7 +165,7 @@ impl<'a> Deserialize<'a> for i32 {
 
 impl<'a> Deserialize<'a> for i64 {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
@@ -179,7 +179,7 @@ impl<'a> Deserialize<'a> for i64 {
 
 impl<'a> Deserialize<'a> for isize {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
@@ -193,7 +193,7 @@ impl<'a> Deserialize<'a> for isize {
 
 impl<'a> Deserialize<'a> for f32 {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
@@ -207,7 +207,7 @@ impl<'a> Deserialize<'a> for f32 {
 
 impl<'a> Deserialize<'a> for f64 {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		v8::Local::<v8::Number>::try_from(value)
@@ -222,7 +222,7 @@ where
 	T: Deserialize<'a>,
 {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		Ok(Self::new(<_>::deserialize(scope, value)?))
@@ -234,7 +234,7 @@ where
 	T: Deserialize<'a>,
 {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		Ok(Self::new(<_>::deserialize(scope, value)?))
@@ -247,7 +247,7 @@ where
 	R: Deserialize<'a>,
 {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		<_>::deserialize(scope, value)
@@ -261,7 +261,7 @@ where
 	T: Deserialize<'a>,
 {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		if value.is_null_or_undefined() {
@@ -277,7 +277,7 @@ where
 	T1: Deserialize<'a>,
 {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		let value = v8::Local::<v8::Array>::try_from(value)
@@ -297,7 +297,7 @@ where
 	T2: Deserialize<'a>,
 {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		let value = v8::Local::<v8::Array>::try_from(value)
@@ -323,7 +323,7 @@ where
 	T3: Deserialize<'a>,
 {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		let value = v8::Local::<v8::Array>::try_from(value)
@@ -355,7 +355,7 @@ where
 	T4: Deserialize<'a>,
 {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		let value = v8::Local::<v8::Array>::try_from(value)
@@ -389,7 +389,7 @@ where
 	T: Deserialize<'a>,
 {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		let value = v8::Local::<v8::Array>::try_from(value)
@@ -414,7 +414,7 @@ where
 	V: Deserialize<'a>,
 {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		let value = v8::Local::<v8::Object>::try_from(value)
@@ -439,7 +439,7 @@ where
 
 impl<'a> Deserialize<'a> for String {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		if !value.is_string() {
@@ -451,7 +451,7 @@ impl<'a> Deserialize<'a> for String {
 
 impl<'a> Deserialize<'a> for PathBuf {
 	fn deserialize(
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		if !value.is_string() {
@@ -465,7 +465,7 @@ impl<'a> Deserialize<'a> for PathBuf {
 
 impl<'a> Deserialize<'a> for Bytes {
 	fn deserialize(
-		_scope: &mut v8::HandleScope<'a>,
+		_scope: &mut v8::PinScope<'a, '_>,
 		value: v8::Local<'a, v8::Value>,
 	) -> tg::Result<Self> {
 		let uint8_array = v8::Local::<v8::Uint8Array>::try_from(value)

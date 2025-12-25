@@ -1,19 +1,18 @@
 use {
 	super::State,
-	std::rc::Rc,
 	tangram_client::prelude::*,
 	tangram_v8::{Serde, Serialize as _},
 };
 
 pub fn magic<'s>(
-	scope: &mut v8::HandleScope<'s>,
+	scope: &mut v8::PinScope<'s, '_>,
 	args: &v8::FunctionCallbackArguments,
 ) -> tg::Result<v8::Local<'s, v8::Value>> {
 	// Get the context.
 	let context = scope.get_current_context();
 
 	// Get the state.
-	let state = context.get_slot::<Rc<State>>().unwrap().clone();
+	let state = context.get_slot::<State>().unwrap().clone();
 
 	// Get the function.
 	let arg = args.get(1);

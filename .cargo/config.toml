@@ -1,2 +1,27 @@
 [build]
-incremental = false
+rustflags = ["-Zthreads=8"]
+
+[env]
+RUSTY_V8_MIRROR = "https://github.com/denoland/rusty_v8/releases/download"
+
+[profile.dev]
+codegen-backend = "cranelift"
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.package.blake3]
+opt-level = 3
+overflow-checks = false
+
+[profile.debugger]
+inherits = "dev"
+debug = true
+
+[resolver]
+feature-unification = "workspace"
+
+[unstable]
+codegen-backend = true
+feature-unification = true

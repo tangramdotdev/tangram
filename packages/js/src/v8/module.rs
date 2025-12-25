@@ -2,7 +2,7 @@ use {
 	super::{Module, State, error},
 	num::ToPrimitive as _,
 	sourcemap::SourceMap,
-	std::{collections::BTreeMap, rc::Rc},
+	std::collections::BTreeMap,
 	tangram_client::prelude::*,
 	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 };
@@ -15,7 +15,7 @@ enum ImportKind {
 
 /// Implement V8's dynamic import callback.
 pub fn host_import_module_dynamically_callback<'s>(
-	scope: &mut v8::HandleScope<'s>,
+	scope: &mut v8::PinScope<'s, '_>,
 	_host_defined_options: v8::Local<'s, v8::Data>,
 	resource_name: v8::Local<'s, v8::Value>,
 	specifier: v8::Local<'s, v8::String>,
@@ -25,7 +25,7 @@ pub fn host_import_module_dynamically_callback<'s>(
 	let context = scope.get_current_context();
 
 	// Get the state.
-	let state = context.get_slot::<Rc<State>>().unwrap().clone();
+	let state = context.get_slot::<State>().unwrap().clone();
 
 	// Determine the referrer and import.
 	let (referrer, import) = if specifier.to_rust_string_lossy(scope) == "!" {
@@ -72,11 +72,11 @@ pub fn host_import_module_dynamically_callback<'s>(
 
 	// Load the module if necessary.
 	let handler = v8::Function::builder(
-		|scope: &mut v8::HandleScope,
+		|scope: &mut v8::PinScope,
 		 args: v8::FunctionCallbackArguments,
 		 mut return_value: v8::ReturnValue| {
 			let context = scope.get_current_context();
-			let state = context.get_slot::<Rc<State>>().unwrap().clone();
+			let state = context.get_slot::<State>().unwrap().clone();
 
 			// Deserialize the module.
 			let value: v8::Local<v8::Value> = unsafe { std::mem::transmute(args.get(0)) };
@@ -115,12 +115,12 @@ pub fn host_import_module_dynamically_callback<'s>(
 
 	// Compile, instantiate, and evaluate the module.
 	let handler = v8::Function::builder(
-		|scope: &mut v8::HandleScope,
+		|scope: &mut v8::PinScope,
 		 args: v8::FunctionCallbackArguments,
 		 mut return_value: v8::ReturnValue| {
 			let arg = args.get(0);
 			let context = scope.get_current_context();
-			let state = context.get_slot::<Rc<State>>().unwrap().clone();
+			let state = context.get_slot::<State>().unwrap().clone();
 
 			let v8_module = if let Ok(index) = v8::Local::<v8::Integer>::try_from(arg) {
 				let index = index.value().to_usize().unwrap();
@@ -167,7 +167,7 @@ pub fn host_import_module_dynamically_callback<'s>(
 
 	// Await the evaluation and return the namespace.
 	let handler = v8::Function::builder(
-		|scope: &mut v8::HandleScope,
+		|scope: &mut v8::PinScope,
 		 args: v8::FunctionCallbackArguments,
 		 mut return_value: v8::ReturnValue| {
 			let array = v8::Local::<v8::Array>::try_from(args.get(0)).unwrap();
@@ -175,7 +175,7 @@ pub fn host_import_module_dynamically_callback<'s>(
 			let promise = v8::Local::<v8::Promise>::try_from(promise).unwrap();
 			let namespace = array.get_index(scope, 1).unwrap();
 			let handler = v8::Function::builder(
-				|_scope: &mut v8::HandleScope,
+				|_scope: &mut v8::PinScope,
 				 args: v8::FunctionCallbackArguments,
 				 mut return_value: v8::ReturnValue| {
 					return_value.set(args.data());
@@ -203,10 +203,10 @@ fn resolve_module_callback<'s>(
 	referrer: v8::Local<'s, v8::Module>,
 ) -> Option<v8::Local<'s, v8::Module>> {
 	// Get a scope for the callback.
-	let scope = unsafe { &mut v8::CallbackScope::new(context) };
+	v8::callback_scope!(unsafe scope, context);
 
 	// Get the state.
-	let state = context.get_slot::<Rc<State>>().unwrap().clone();
+	let state = context.get_slot::<State>().unwrap().clone();
 
 	// Get the module.
 	let result = state
@@ -257,12 +257,12 @@ fn resolve_module_callback<'s>(
 
 /// Resolve a module synchronously.
 fn resolve_module_sync(
-	scope: &mut v8::HandleScope,
+	scope: &mut v8::PinScope,
 	referrer: &tg::module::Data,
 	import: &tg::module::Import,
 ) -> Option<tg::module::Data> {
 	let context = scope.get_current_context();
-	let state = context.get_slot::<Rc<State>>().unwrap().clone();
+	let state = context.get_slot::<State>().unwrap().clone();
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
 		let handle = state.handle.clone();
@@ -290,9 +290,9 @@ fn resolve_module_sync(
 }
 
 // Load a module synchronously.
-fn load_module_sync(scope: &mut v8::HandleScope, module: &tg::module::Data) -> Option<String> {
+fn load_module_sync(scope: &mut v8::PinScope, module: &tg::module::Data) -> Option<String> {
 	let context = scope.get_current_context();
-	let state = context.get_slot::<Rc<State>>().unwrap().clone();
+	let state = context.get_slot::<State>().unwrap().clone();
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
 		let handle = state.handle.clone();
@@ -320,13 +320,13 @@ fn load_module_sync(scope: &mut v8::HandleScope, module: &tg::module::Data) -> O
 
 /// Compile a module.
 fn compile_module<'s>(
-	scope: &mut v8::HandleScope<'s>,
+	scope: &mut v8::PinScope<'s, '_>,
 	module: &tg::module::Data,
 	text: &str,
 ) -> Option<v8::Local<'s, v8::Module>> {
 	// Get the context and state.
 	let context = scope.get_current_context();
-	let state = context.get_slot::<Rc<State>>().unwrap().clone();
+	let state = context.get_slot::<State>().unwrap().clone();
 
 	// Transpile the module.
 	let output = tangram_compiler::Compiler::transpile(text, module);
@@ -403,7 +403,7 @@ fn compile_module<'s>(
 }
 
 fn parse_import<'s>(
-	scope: &mut v8::HandleScope<'s>,
+	scope: &mut v8::PinScope<'s, '_>,
 	specifier: v8::Local<'s, v8::String>,
 	attributes: v8::Local<'s, v8::FixedArray>,
 	kind: ImportKind,
@@ -419,7 +419,7 @@ fn parse_import<'s>(
 }
 
 fn parse_import_inner<'s>(
-	scope: &mut v8::HandleScope<'s>,
+	scope: &mut v8::PinScope<'s, '_>,
 	specifier: v8::Local<'s, v8::String>,
 	attributes: v8::Local<'s, v8::FixedArray>,
 	kind: ImportKind,
@@ -475,10 +475,10 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
 	meta: v8::Local<v8::Object>,
 ) {
 	// Get the scope.
-	let scope = unsafe { &mut v8::CallbackScope::new(context) };
+	v8::callback_scope!(unsafe scope, context);
 
 	// Get the state.
-	let state = context.get_slot::<Rc<State>>().unwrap().clone();
+	let state = context.get_slot::<State>().unwrap().clone();
 
 	// Get the module.
 	let module = state

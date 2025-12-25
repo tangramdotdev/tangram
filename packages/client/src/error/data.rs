@@ -156,7 +156,7 @@ impl Error {
 			if let Some(source) = &mut error.source
 				&& let tg::Either::Left(data) = &mut source.item
 			{
-				stack.push(&mut **data);
+				stack.push(data);
 			}
 		}
 	}

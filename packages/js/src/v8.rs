@@ -110,11 +110,11 @@ where
 	});
 
 	// Create the isolate params.
-	let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT);
+	let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT.into());
 
 	// Create the isolate.
 	let isolate = v8::Isolate::new(params);
-	let mut isolate = scopeguard::guard(isolate, |mut isolate| unsafe {
+	let mut isolate = scopeguard::guard(isolate, |isolate| unsafe {
 		isolate.enter();
 	});
 	unsafe { isolate.exit() };
@@ -147,7 +147,7 @@ where
 	// Create the context.
 	let context = {
 		// Create the context.
-		let scope = &mut v8::HandleScope::new(isolate.as_mut());
+		v8::scope!(scope, isolate.as_mut());
 		let context = v8::Context::new(scope, v8::ContextOptions::default());
 		let scope = &mut v8::ContextScope::new(scope, context);
 
@@ -169,7 +169,7 @@ where
 	// Call the start function.
 	let value = {
 		// Create a scope for the context.
-		let scope = &mut v8::HandleScope::new(isolate.as_mut());
+		v8::scope!(scope, isolate.as_mut());
 		let context = v8::Local::new(scope, context.clone());
 		let scope = &mut v8::ContextScope::new(scope, context);
 
@@ -203,7 +203,7 @@ where
 		let start = v8::Local::<v8::Function>::try_from(start).unwrap();
 
 		// Call the start function.
-		let scope = &mut v8::TryCatch::new(scope);
+		v8::tc_scope!(scope, scope);
 		let undefined = v8::undefined(scope);
 		let value = start.call(scope, undefined.into(), &[arg.into()]);
 		if scope.has_caught() {
@@ -254,10 +254,10 @@ where
 
 					{
 						// Create a scope for the context.
-						let scope = &mut v8::HandleScope::new(isolate.as_mut());
+						v8::scope!(scope, isolate.as_mut());
 						let context = v8::Local::new(scope, context.clone());
 						let scope = &mut v8::ContextScope::new(scope, context);
-						let scope = &mut v8::TryCatch::new(scope);
+						v8::tc_scope!(scope, scope);
 
 						// Resolve or reject the promise.
 						let promise_resolver = v8::Local::new(scope, promise_resolver);
@@ -313,7 +313,7 @@ where
 			// Get the result.
 			let result = {
 				// Create a scope for the context.
-				let scope = &mut v8::HandleScope::new(isolate.as_mut());
+				v8::scope!(scope, isolate.as_mut());
 				let context = v8::Local::new(scope, context.clone());
 				let scope = &mut v8::ContextScope::new(scope, context);
 
@@ -380,11 +380,11 @@ where
 }
 
 impl State {
-	pub fn create_promise<'a>(
+	pub fn create_promise<'s>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'s, '_>,
 		future: impl Future<Output = tg::Result<impl tangram_v8::Serialize + 'static>> + 'static,
-	) -> v8::Local<'a, v8::Promise> {
+	) -> v8::Local<'s, v8::Promise> {
 		// Create the promise.
 		let resolver = v8::PromiseResolver::new(scope).unwrap();
 		let promise = resolver.get_promise(scope);
@@ -413,13 +413,13 @@ impl State {
 /// Implement V8's promise rejection callback.
 extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
 	// Get the scope.
-	let scope = &mut unsafe { v8::CallbackScope::new(&message) };
+	v8::callback_scope!(unsafe scope, &message);
 
 	// Get the context.
 	let context = scope.get_current_context();
 
 	// Get the state.
-	let state = context.get_slot::<Rc<State>>().unwrap().clone();
+	let state = context.get_slot::<State>().unwrap().clone();
 
 	match message.get_event() {
 		v8::PromiseRejectEvent::PromiseRejectWithNoHandler => {

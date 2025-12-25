@@ -1,43 +1,43 @@
 use {num::ToPrimitive as _, serde::ser::Error as _};
 
-pub struct Serializer<'a, 's> {
-	scope: &'a mut v8::HandleScope<'s>,
+pub struct Serializer<'a, 's, 'p> {
+	scope: &'a mut v8::PinScope<'s, 'p>,
 }
 
-pub struct SerializeSeq<'a, 's> {
-	scope: &'a mut v8::HandleScope<'s>,
+pub struct SerializeSeq<'a, 's, 'p> {
+	scope: &'a mut v8::PinScope<'s, 'p>,
 	values: Vec<v8::Local<'s, v8::Value>>,
 }
 
-pub struct SerializeTuple<'a, 's> {
-	scope: &'a mut v8::HandleScope<'s>,
+pub struct SerializeTuple<'a, 's, 'p> {
+	scope: &'a mut v8::PinScope<'s, 'p>,
 	values: Vec<v8::Local<'s, v8::Value>>,
 }
 
-pub struct SerializeTupleStruct<'a, 's> {
-	scope: &'a mut v8::HandleScope<'s>,
+pub struct SerializeTupleStruct<'a, 's, 'p> {
+	scope: &'a mut v8::PinScope<'s, 'p>,
 	values: Vec<v8::Local<'s, v8::Value>>,
 }
 
-pub struct SerializeTupleVariant<'a, 's> {
-	scope: &'a mut v8::HandleScope<'s>,
+pub struct SerializeTupleVariant<'a, 's, 'p> {
+	scope: &'a mut v8::PinScope<'s, 'p>,
 	values: Vec<v8::Local<'s, v8::Value>>,
 	variant: &'static str,
 }
 
-pub struct SerializeMap<'a, 's> {
-	scope: &'a mut v8::HandleScope<'s>,
+pub struct SerializeMap<'a, 's, 'p> {
+	scope: &'a mut v8::PinScope<'s, 'p>,
 	key: Option<v8::Local<'s, v8::Value>>,
 	object: v8::Local<'s, v8::Object>,
 }
 
-pub struct SerializeStruct<'a, 's> {
-	scope: &'a mut v8::HandleScope<'s>,
+pub struct SerializeStruct<'a, 's, 'p> {
+	scope: &'a mut v8::PinScope<'s, 'p>,
 	object: v8::Local<'s, v8::Object>,
 }
 
-pub struct SerializeStructVariant<'a, 's> {
-	scope: &'a mut v8::HandleScope<'s>,
+pub struct SerializeStructVariant<'a, 's, 'p> {
+	scope: &'a mut v8::PinScope<'s, 'p>,
 	object: v8::Local<'s, v8::Object>,
 	variant: &'static str,
 }
@@ -45,22 +45,22 @@ pub struct SerializeStructVariant<'a, 's> {
 #[derive(Debug, derive_more::Display, derive_more::Error)]
 pub struct Error(Box<dyn std::error::Error + Send + Sync + 'static>);
 
-impl<'a, 's> Serializer<'a, 's> {
-	pub fn new(scope: &'a mut v8::HandleScope<'s>) -> Self {
+impl<'a, 's, 'p> Serializer<'a, 's, 'p> {
+	pub fn new(scope: &'a mut v8::PinScope<'s, 'p>) -> Self {
 		Self { scope }
 	}
 }
 
-impl<'a, 's> serde::Serializer for Serializer<'a, 's> {
+impl<'a, 's, 'p> serde::Serializer for Serializer<'a, 's, 'p> {
 	type Ok = v8::Local<'s, v8::Value>;
 	type Error = Error;
-	type SerializeSeq = SerializeSeq<'a, 's>;
-	type SerializeTuple = SerializeTuple<'a, 's>;
-	type SerializeTupleStruct = SerializeTupleStruct<'a, 's>;
-	type SerializeTupleVariant = SerializeTupleVariant<'a, 's>;
-	type SerializeMap = SerializeMap<'a, 's>;
-	type SerializeStruct = SerializeStruct<'a, 's>;
-	type SerializeStructVariant = SerializeStructVariant<'a, 's>;
+	type SerializeSeq = SerializeSeq<'a, 's, 'p>;
+	type SerializeTuple = SerializeTuple<'a, 's, 'p>;
+	type SerializeTupleStruct = SerializeTupleStruct<'a, 's, 'p>;
+	type SerializeTupleVariant = SerializeTupleVariant<'a, 's, 'p>;
+	type SerializeMap = SerializeMap<'a, 's, 'p>;
+	type SerializeStruct = SerializeStruct<'a, 's, 'p>;
+	type SerializeStructVariant = SerializeStructVariant<'a, 's, 'p>;
 
 	fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
 		Ok(v8::Boolean::new(self.scope, v).into())
@@ -269,7 +269,7 @@ impl<'a, 's> serde::Serializer for Serializer<'a, 's> {
 	}
 }
 
-impl<'s> serde::ser::SerializeSeq for SerializeSeq<'_, 's> {
+impl<'s> serde::ser::SerializeSeq for SerializeSeq<'_, 's, '_> {
 	type Ok = v8::Local<'s, v8::Value>;
 
 	type Error = Error;
@@ -288,7 +288,7 @@ impl<'s> serde::ser::SerializeSeq for SerializeSeq<'_, 's> {
 	}
 }
 
-impl<'s> serde::ser::SerializeTuple for SerializeTuple<'_, 's> {
+impl<'s> serde::ser::SerializeTuple for SerializeTuple<'_, 's, '_> {
 	type Ok = v8::Local<'s, v8::Value>;
 
 	type Error = Error;
@@ -307,7 +307,7 @@ impl<'s> serde::ser::SerializeTuple for SerializeTuple<'_, 's> {
 	}
 }
 
-impl<'s> serde::ser::SerializeTupleStruct for SerializeTupleStruct<'_, 's> {
+impl<'s> serde::ser::SerializeTupleStruct for SerializeTupleStruct<'_, 's, '_> {
 	type Ok = v8::Local<'s, v8::Value>;
 
 	type Error = Error;
@@ -326,7 +326,7 @@ impl<'s> serde::ser::SerializeTupleStruct for SerializeTupleStruct<'_, 's> {
 	}
 }
 
-impl<'s> serde::ser::SerializeTupleVariant for SerializeTupleVariant<'_, 's> {
+impl<'s> serde::ser::SerializeTupleVariant for SerializeTupleVariant<'_, 's, '_> {
 	type Ok = v8::Local<'s, v8::Value>;
 
 	type Error = Error;
@@ -350,7 +350,7 @@ impl<'s> serde::ser::SerializeTupleVariant for SerializeTupleVariant<'_, 's> {
 	}
 }
 
-impl<'s> serde::ser::SerializeMap for SerializeMap<'_, 's> {
+impl<'s> serde::ser::SerializeMap for SerializeMap<'_, 's, '_> {
 	type Ok = v8::Local<'s, v8::Value>;
 
 	type Error = Error;
@@ -382,7 +382,7 @@ impl<'s> serde::ser::SerializeMap for SerializeMap<'_, 's> {
 	}
 }
 
-impl<'s> serde::ser::SerializeStruct for SerializeStruct<'_, 's> {
+impl<'s> serde::ser::SerializeStruct for SerializeStruct<'_, 's, '_> {
 	type Ok = v8::Local<'s, v8::Value>;
 
 	type Error = Error;
@@ -402,7 +402,7 @@ impl<'s> serde::ser::SerializeStruct for SerializeStruct<'_, 's> {
 	}
 }
 
-impl<'s> serde::ser::SerializeStructVariant for SerializeStructVariant<'_, 's> {
+impl<'s> serde::ser::SerializeStructVariant for SerializeStructVariant<'_, 's, '_> {
 	type Ok = v8::Local<'s, v8::Value>;
 
 	type Error = Error;

@@ -361,7 +361,7 @@ impl State {
 				// - It is a bare file that isn't contained by any directories.
 				let publishable = index == 0
 					|| self.local_packages.iter().any(|referent| {
-						(*referent).clone().map(|r| r.id()) == node.package.clone().map(|r| r.id())
+						referent.clone().map(|r| r.id()) == node.package.clone().map(|r| r.id())
 					}) || !node
 					.incoming
 					.iter()

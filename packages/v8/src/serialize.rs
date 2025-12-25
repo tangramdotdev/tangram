@@ -6,10 +6,10 @@ use {
 };
 
 pub trait Serialize {
-	fn serialize<'a>(
+	fn serialize<'s>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
-	) -> tg::Result<v8::Local<'a, v8::Value>>;
+		scope: &mut v8::PinScope<'s, '_>,
+	) -> tg::Result<v8::Local<'s, v8::Value>>;
 }
 
 impl<T> Serialize for v8::Local<'_, T>
@@ -19,7 +19,7 @@ where
 {
 	fn serialize<'a>(
 		&self,
-		_scope: &mut v8::HandleScope<'a>,
+		_scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let local: v8::Local<'a, T> = unsafe { std::mem::transmute(*self) };
 		Ok(local.into())
@@ -32,7 +32,7 @@ where
 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		(*self).serialize(scope)
 	}
@@ -41,7 +41,7 @@ where
 impl Serialize for () {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		Ok(v8::undefined(scope).into())
 	}
@@ -50,7 +50,7 @@ impl Serialize for () {
 impl Serialize for bool {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		Ok(v8::Boolean::new(scope, *self).into())
 	}
@@ -59,7 +59,7 @@ impl Serialize for bool {
 impl Serialize for u8 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		Ok(v8::Number::new(
 			scope,
@@ -72,7 +72,7 @@ impl Serialize for u8 {
 impl Serialize for u16 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		Ok(v8::Number::new(
 			scope,
@@ -85,7 +85,7 @@ impl Serialize for u16 {
 impl Serialize for u32 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		Ok(v8::Number::new(
 			scope,
@@ -98,7 +98,7 @@ impl Serialize for u32 {
 impl Serialize for u64 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		Ok(v8::Number::new(
 			scope,
@@ -111,7 +111,7 @@ impl Serialize for u64 {
 impl Serialize for usize {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		Ok(v8::Number::new(
 			scope,
@@ -124,7 +124,7 @@ impl Serialize for usize {
 impl Serialize for i8 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		Ok(v8::Number::new(
 			scope,
@@ -137,7 +137,7 @@ impl Serialize for i8 {
 impl Serialize for i16 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		Ok(v8::Number::new(
 			scope,
@@ -150,7 +150,7 @@ impl Serialize for i16 {
 impl Serialize for i32 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		Ok(v8::Number::new(
 			scope,
@@ -163,7 +163,7 @@ impl Serialize for i32 {
 impl Serialize for i64 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		Ok(v8::Number::new(
 			scope,
@@ -176,7 +176,7 @@ impl Serialize for i64 {
 impl Serialize for isize {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		Ok(v8::Number::new(
 			scope,
@@ -189,7 +189,7 @@ impl Serialize for isize {
 impl Serialize for f32 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		Ok(v8::Number::new(
 			scope,
@@ -202,7 +202,7 @@ impl Serialize for f32 {
 impl Serialize for f64 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		Ok(v8::Number::new(scope, *self).into())
 	}
@@ -214,7 +214,7 @@ where
 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		self.as_ref().serialize(scope)
 	}
@@ -226,7 +226,7 @@ where
 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		self.as_ref().serialize(scope)
 	}
@@ -239,7 +239,7 @@ where
 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		match self {
 			tg::Either::Left(s) => s.serialize(scope),
@@ -254,7 +254,7 @@ where
 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		match self {
 			Some(value) => value.serialize(scope),
@@ -269,7 +269,7 @@ where
 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let value = self.0.serialize(scope)?;
 		let value = v8::Array::new_with_elements(scope, &[value]);
@@ -284,7 +284,7 @@ where
 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let value0 = self.0.serialize(scope)?;
 		let value1 = self.1.serialize(scope)?;
@@ -301,7 +301,7 @@ where
 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let value0 = self.0.serialize(scope)?;
 		let value1 = self.1.serialize(scope)?;
@@ -320,7 +320,7 @@ where
 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let value0 = self.0.serialize(scope)?;
 		let value1 = self.1.serialize(scope)?;
@@ -337,7 +337,7 @@ where
 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let values = self
 			.iter()
@@ -354,7 +354,7 @@ where
 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		self.as_slice().serialize(scope)
 	}
@@ -367,7 +367,7 @@ where
 {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let output = v8::Object::new(scope);
 		for (key, value) in self {
@@ -382,7 +382,7 @@ where
 impl Serialize for String {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		Ok(v8::String::new(scope, self)
 			.ok_or_else(|| tg::error!("failed to create the string"))?
@@ -393,7 +393,7 @@ impl Serialize for String {
 impl Serialize for PathBuf {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let string = self
 			.to_str()
@@ -407,7 +407,7 @@ impl Serialize for PathBuf {
 impl Serialize for Bytes {
 	fn serialize<'a>(
 		&self,
-		scope: &mut v8::HandleScope<'a>,
+		scope: &mut v8::PinScope<'a, '_>,
 	) -> tg::Result<v8::Local<'a, v8::Value>> {
 		let bytes = self.to_vec();
 		let len = bytes.len();

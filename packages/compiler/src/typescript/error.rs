@@ -9,14 +9,14 @@ use {
 };
 
 pub(super) fn to_exception<'s>(
-	scope: &mut v8::HandleScope<'s>,
+	scope: &mut v8::PinScope<'s, '_>,
 	error: &tg::Error,
 ) -> v8::Local<'s, v8::Value> {
 	Serde(error.to_data_or_id()).serialize(scope).unwrap()
 }
 
 pub(super) fn from_exception<'s>(
-	scope: &mut v8::HandleScope<'s>,
+	scope: &mut v8::PinScope<'s, '_>,
 	exception: v8::Local<'s, v8::Value>,
 ) -> tg::Error {
 	if exception.is_object() && !exception.is_native_error() {
@@ -74,7 +74,7 @@ pub(super) fn from_exception<'s>(
 }
 
 pub fn prepare_stack_trace_callback<'s>(
-	scope: &mut v8::HandleScope<'s>,
+	scope: &mut v8::PinScope<'s, '_>,
 	_error: v8::Local<v8::Value>,
 	call_sites: v8::Local<v8::Array>,
 ) -> v8::Local<'s, v8::Value> {

@@ -3,46 +3,46 @@ use {
 	serde::{Deserialize as _, Deserializer as _, de::Error as _},
 };
 
-pub struct Deserializer<'a, 's> {
-	scope: &'a mut v8::HandleScope<'s>,
+pub struct Deserializer<'a, 's, 'p> {
+	scope: &'a mut v8::PinScope<'s, 'p>,
 	value: v8::Local<'s, v8::Value>,
 }
 
-struct SeqAccess<'a, 's> {
+struct SeqAccess<'a, 's, 'p> {
 	array: v8::Local<'s, v8::Array>,
 	index: u32,
 	length: u32,
-	scope: &'a mut v8::HandleScope<'s>,
+	scope: &'a mut v8::PinScope<'s, 'p>,
 }
 
-struct MapAccess<'a, 's> {
-	scope: &'a mut v8::HandleScope<'s>,
+struct MapAccess<'a, 's, 'p> {
+	scope: &'a mut v8::PinScope<'s, 'p>,
 	index: u32,
 	keys: v8::Local<'s, v8::Array>,
 	object: v8::Local<'s, v8::Object>,
 }
 
-struct EnumAccess<'a, 's> {
+struct EnumAccess<'a, 's, 'p> {
 	content: v8::Local<'s, v8::Value>,
-	scope: &'a mut v8::HandleScope<'s>,
+	scope: &'a mut v8::PinScope<'s, 'p>,
 	tag: v8::Local<'s, v8::Value>,
 }
 
-struct VariantAccess<'a, 's> {
-	scope: &'a mut v8::HandleScope<'s>,
+struct VariantAccess<'a, 's, 'p> {
+	scope: &'a mut v8::PinScope<'s, 'p>,
 	value: v8::Local<'s, v8::Value>,
 }
 
 #[derive(Debug, derive_more::Display, derive_more::Error)]
 pub struct Error(Box<dyn std::error::Error + Send + Sync + 'static>);
 
-impl<'a, 's> Deserializer<'a, 's> {
-	pub fn new(scope: &'a mut v8::HandleScope<'s>, value: v8::Local<'s, v8::Value>) -> Self {
+impl<'a, 's, 'p> Deserializer<'a, 's, 'p> {
+	pub fn new(scope: &'a mut v8::PinScope<'s, 'p>, value: v8::Local<'s, v8::Value>) -> Self {
 		Self { scope, value }
 	}
 }
 
-impl serde::de::IntoDeserializer<'_, Error> for Deserializer<'_, '_> {
+impl serde::de::IntoDeserializer<'_, Error> for Deserializer<'_, '_, '_> {
 	type Deserializer = Self;
 
 	fn into_deserializer(self) -> Self::Deserializer {
@@ -50,7 +50,7 @@ impl serde::de::IntoDeserializer<'_, Error> for Deserializer<'_, '_> {
 	}
 }
 
-impl<'de> serde::Deserializer<'de> for Deserializer<'_, '_> {
+impl<'de> serde::Deserializer<'de> for Deserializer<'_, '_, '_> {
 	type Error = Error;
 
 	fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -378,7 +378,7 @@ impl<'de> serde::Deserializer<'de> for Deserializer<'_, '_> {
 	}
 }
 
-impl<'de> serde::de::SeqAccess<'de> for SeqAccess<'_, '_> {
+impl<'de> serde::de::SeqAccess<'de> for SeqAccess<'_, '_, '_> {
 	type Error = Error;
 
 	fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
@@ -399,7 +399,7 @@ impl<'de> serde::de::SeqAccess<'de> for SeqAccess<'_, '_> {
 	}
 }
 
-impl<'de> serde::de::MapAccess<'de> for MapAccess<'_, '_> {
+impl<'de> serde::de::MapAccess<'de> for MapAccess<'_, '_, '_> {
 	type Error = Error;
 
 	fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
@@ -434,10 +434,10 @@ impl<'de> serde::de::MapAccess<'de> for MapAccess<'_, '_> {
 	}
 }
 
-impl<'de, 'a, 's> serde::de::EnumAccess<'de> for EnumAccess<'a, 's> {
+impl<'de, 'a, 's, 'p> serde::de::EnumAccess<'de> for EnumAccess<'a, 's, 'p> {
 	type Error = Error;
 
-	type Variant = VariantAccess<'a, 's>;
+	type Variant = VariantAccess<'a, 's, 'p>;
 
 	fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
 	where
@@ -453,7 +453,7 @@ impl<'de, 'a, 's> serde::de::EnumAccess<'de> for EnumAccess<'a, 's> {
 	}
 }
 
-impl<'de> serde::de::VariantAccess<'de> for VariantAccess<'_, '_> {
+impl<'de> serde::de::VariantAccess<'de> for VariantAccess<'_, '_, '_> {
 	type Error = Error;
 
 	fn unit_variant(self) -> Result<(), Self::Error> {

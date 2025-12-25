@@ -14,7 +14,7 @@ mod sync;
 pub mod log;
 
 pub fn syscall<'s>(
-	scope: &mut v8::HandleScope<'s>,
+	scope: &mut v8::PinScope<'s, '_>,
 	args: v8::FunctionCallbackArguments<'s>,
 	mut return_value: v8::ReturnValue,
 ) {
@@ -68,20 +68,20 @@ pub fn syscall<'s>(
 }
 
 fn sync<'s, A, T, F>(
-	scope: &mut v8::HandleScope<'s>,
+	scope: &mut v8::PinScope<'s, '_>,
 	args: &v8::FunctionCallbackArguments,
 	f: F,
 ) -> tg::Result<v8::Local<'s, v8::Value>>
 where
 	A: tangram_v8::Deserialize<'s>,
 	T: tangram_v8::Serialize,
-	F: FnOnce(Rc<State>, &mut v8::HandleScope<'s>, A) -> tg::Result<T>,
+	F: FnOnce(Rc<State>, &mut v8::PinScope<'s, '_>, A) -> tg::Result<T>,
 {
 	// Get the context.
 	let context = scope.get_current_context();
 
 	// Get the state.
-	let state = context.get_slot::<Rc<State>>().unwrap().clone();
+	let state = context.get_slot::<State>().unwrap().clone();
 
 	// Collect the args.
 	let args = (1..args.length()).map(|i| args.get(i)).collect::<Vec<_>>();
@@ -103,7 +103,7 @@ where
 }
 
 fn async_<'s, A, T, F, Fut>(
-	scope: &mut v8::HandleScope<'s>,
+	scope: &mut v8::PinScope<'s, '_>,
 	args: &v8::FunctionCallbackArguments,
 	f: F,
 ) -> tg::Result<v8::Local<'s, v8::Value>>
@@ -117,7 +117,7 @@ where
 	let context = scope.get_current_context();
 
 	// Get the state.
-	let state = context.get_slot::<Rc<State>>().unwrap().clone();
+	let state = context.get_slot::<State>().unwrap().clone();
 
 	// Collect the args.
 	let args = (1..args.length()).map(|i| args.get(i)).collect::<Vec<_>>();

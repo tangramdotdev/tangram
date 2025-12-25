@@ -1,7 +1,7 @@
 use {
 	self::syscall::syscall,
 	crate::{Compiler, Request, Response},
-	std::sync::Mutex,
+	std::{rc::Rc, sync::Mutex},
 	tangram_client::prelude::*,
 	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 };
@@ -84,19 +84,19 @@ impl Typescript {
 
 fn run(compiler: &Compiler, mut request_receiver: RequestReceiver) {
 	// Create the isolate.
-	let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT);
+	let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT.into());
 	let mut isolate = v8::Isolate::new(params);
 
 	// Set the prepare stack trace callback.
 	isolate.set_prepare_stack_trace_callback(self::error::prepare_stack_trace_callback);
 
 	// Create the context.
-	let scope = &mut v8::HandleScope::new(&mut isolate);
+	v8::scope!(scope, &mut isolate);
 	let context = v8::Context::new(scope, v8::ContextOptions::default());
 	let scope = &mut v8::ContextScope::new(scope, context);
 
 	// Set the server on the context.
-	context.set_slot(compiler.clone());
+	context.set_slot(Rc::new(compiler.clone()));
 
 	// Add the syscall function to the global.
 	let syscall_string = v8::String::new_external_onebyte_static(scope, b"syscall").unwrap();
@@ -114,7 +114,7 @@ fn run(compiler: &Compiler, mut request_receiver: RequestReceiver) {
 
 	while let Some((request, response_sender)) = request_receiver.blocking_recv() {
 		// Create a try catch scope.
-		let scope = &mut v8::TryCatch::new(scope);
+		v8::tc_scope!(scope, scope);
 
 		// Serialize the request.
 		let result = Serde(request)

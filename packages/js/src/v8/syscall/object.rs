@@ -24,7 +24,7 @@ pub async fn get(
 
 pub fn id(
 	_state: Rc<State>,
-	_scope: &mut v8::HandleScope,
+	_scope: &mut v8::PinScope<'_, '_>,
 	args: (Serde<tg::object::Data>,),
 ) -> tg::Result<Serde<tg::object::Id>> {
 	let (Serde(data),) = args;

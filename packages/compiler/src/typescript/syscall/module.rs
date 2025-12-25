@@ -2,7 +2,7 @@ use {crate::Compiler, std::collections::BTreeMap, tangram_client::prelude::*, ta
 
 pub fn load(
 	compiler: &Compiler,
-	_scope: &mut v8::HandleScope,
+	_scope: &mut v8::PinScope<'_, '_>,
 	args: (Serde<tg::module::Data>,),
 ) -> tg::Result<String> {
 	let (Serde(module),) = args;
@@ -17,7 +17,7 @@ pub fn load(
 
 pub fn invalidated_resolutions(
 	compiler: &Compiler,
-	_scope: &mut v8::HandleScope,
+	_scope: &mut v8::PinScope<'_, '_>,
 	args: (Serde<tg::module::Data>,),
 ) -> tg::Result<bool> {
 	let (Serde(module),) = args;
@@ -77,7 +77,7 @@ pub fn invalidated_resolutions(
 
 pub fn resolve(
 	compiler: &Compiler,
-	_scope: &mut v8::HandleScope,
+	_scope: &mut v8::PinScope<'_, '_>,
 	args: (
 		Serde<tg::module::Data>,
 		String,
@@ -106,7 +106,7 @@ pub fn resolve(
 
 pub fn validate_resolutions(
 	compiler: &Compiler,
-	_scope: &mut v8::HandleScope,
+	_scope: &mut v8::PinScope<'_, '_>,
 	args: (Serde<tg::module::Data>,),
 ) -> tg::Result<()> {
 	let (Serde(module),) = args;
@@ -130,7 +130,7 @@ pub fn validate_resolutions(
 
 pub fn version(
 	compiler: &Compiler,
-	_scope: &mut v8::HandleScope,
+	_scope: &mut v8::PinScope<'_, '_>,
 	args: (Serde<tg::module::Data>,),
 ) -> tg::Result<String> {
 	let (Serde(module),) = args;
