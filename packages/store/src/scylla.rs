@@ -211,7 +211,7 @@ impl Store {
 				select (bytes, stream, combined_position, stdout_position, stderr_position, timestamp)
 				from logs
 				where
-					id = ? and index = ?
+					id = ? and log_index = ?
 				allow filtering;
 			"
 		);
@@ -232,7 +232,7 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				select (index, bytes, stream, combined_position, stdout_position, stderr_position, timestamp)
+				select (log_index, bytes, stream, combined_position, stdout_position, stderr_position, timestamp)
 				from logs
 				where id = ?
 				order by index desc
@@ -244,7 +244,7 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				insert into logs (id, index, bytes, stream, combined_position, stdout_position, stderr_position, timestamp)
+				insert into logs (id, log_index, bytes, stream, combined_position, stdout_position, stderr_position, timestamp)
 				values(?, ?, ?, ?, ?, ?, ?, ?)
 				if not exists;
 			"
@@ -478,7 +478,7 @@ impl crate::Store for Store {
 		#[derive(scylla::DeserializeRow)]
 		#[allow(dead_code)]
 		struct Row<'a> {
-			index: i64,
+			log_index: i64,
 			bytes: &'a [u8],
 			stream: i64,
 			combined_position: i64,
@@ -562,7 +562,7 @@ impl crate::Store for Store {
 		#[derive(scylla::DeserializeRow)]
 		#[allow(dead_code)]
 		struct Row<'a> {
-			index: i64,
+			log_index: i64,
 			bytes: &'a [u8],
 			stream: i64,
 			combined_position: i64,
@@ -579,7 +579,7 @@ impl crate::Store for Store {
 		let Some(row) = result.maybe_first_row::<Row>()? else {
 			return Ok(None);
 		};
-		Ok(Some(row.index.to_u64().unwrap()))
+		Ok(Some(row.log_index.to_u64().unwrap()))
 	}
 
 	async fn try_get_batch(
@@ -664,7 +664,7 @@ impl crate::Store for Store {
 			#[derive(scylla::DeserializeRow)]
 			#[allow(dead_code)]
 			struct LastRow<'a> {
-				index: i64,
+				log_index: i64,
 				bytes: &'a [u8],
 				stream: i64,
 				combined_position: i64,
@@ -679,7 +679,7 @@ impl crate::Store for Store {
 				.await?
 				.into_rows_result()?;
 			let row = result.maybe_first_row::<LastRow>()?.unwrap_or(LastRow {
-				index: 0,
+				log_index: 0,
 				bytes: &[],
 				stream: 0,
 				combined_position: 0,
@@ -689,7 +689,7 @@ impl crate::Store for Store {
 			});
 
 			// Get the data for this entry.
-			let index = row.index + 1;
+			let index = row.log_index + 1;
 			let bytes = arg.bytes.as_ref();
 			let stream = match arg.stream {
 				tg::process::log::Stream::Stdout => 1,

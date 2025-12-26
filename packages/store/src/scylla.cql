@@ -7,13 +7,12 @@ create table if not exists objects (
 
 create table if not exists logs (
 	id blob,
-	index bigint,
+	log_index bigint,
 	bytes blob,
 	stream bigint,
 	combined_position bigint,
 	stderr_position bigint,
 	stdout_position bigint,
 	timestamp bigint,
-	primary key (id, index)
+	primary key (id, log_index)
 );
-
