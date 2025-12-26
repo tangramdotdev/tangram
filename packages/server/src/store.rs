@@ -1,6 +1,6 @@
 use {bytes::Bytes, std::path::Path, tangram_client::prelude::*, tangram_store as store};
 
-pub use store::{CacheReference, DeleteArg, PutArg};
+pub use store::{CacheReference, DeleteArg, DeleteLogArg, PutArg, PutLogArg, ReadLogArg};
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
@@ -225,6 +225,65 @@ impl store::Store for Store {
 		}
 	}
 
+	async fn try_read_log(&self, arg: ReadLogArg) -> Result<Option<Bytes>, Self::Error> {
+		match self {
+			Self::Lmdb(lmdb) => lmdb.try_read_log(arg).await.map_err(Error::Lmdb),
+			Self::Memory(memory) => Ok(memory.try_read_log(arg)),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.try_read_log(arg).await.map_err(Error::Scylla),
+		}
+	}
+
+	async fn try_get_log_length(
+		&self,
+		id: &tg::process::Id,
+		stream: Option<tg::process::log::Stream>,
+	) -> Result<Option<u64>, Self::Error> {
+		match self {
+			Self::Lmdb(lmdb) => lmdb
+				.try_get_log_length(id, stream)
+				.await
+				.map_err(Error::Lmdb),
+			Self::Memory(memory) => Ok(memory.try_get_log_length(id, stream)),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla
+				.try_get_log_length(id, stream)
+				.await
+				.map_err(Error::Scylla),
+		}
+	}
+
+	async fn try_get_log_entry(
+		&self,
+		id: &tg::process::Id,
+		index: u64,
+	) -> Result<Option<store::log::Entry>, Self::Error> {
+		match self {
+			Self::Lmdb(lmdb) => lmdb.try_get_log_entry(id, index).await.map_err(Error::Lmdb),
+			Self::Memory(memory) => Ok(memory.try_get_log_entry(id, index)),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla
+				.try_get_log_entry(id, index)
+				.await
+				.map_err(Error::Scylla),
+		}
+	}
+
+	async fn try_get_num_log_entries(
+		&self,
+		id: &tg::process::Id,
+	) -> Result<Option<u64>, Self::Error> {
+		match self {
+			Self::Lmdb(lmdb) => lmdb.try_get_num_log_entries(id).await.map_err(Error::Lmdb),
+			Self::Memory(memory) => Ok(memory.try_get_num_log_entries(id)),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla
+				.try_get_num_log_entries(id)
+				.await
+				.map_err(Error::Scylla),
+		}
+	}
+
 	async fn try_get_batch(
 		&self,
 		ids: &[tg::object::Id],
@@ -269,6 +328,18 @@ impl store::Store for Store {
 		}
 	}
 
+	async fn put_log(&self, arg: PutLogArg) -> Result<(), Self::Error> {
+		match self {
+			Self::Lmdb(lmdb) => lmdb.put_log(arg).await.map_err(Error::Lmdb),
+			Self::Memory(memory) => {
+				memory.put_log(arg);
+				Ok(())
+			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.put_log(arg).await.map_err(Error::Scylla),
+		}
+	}
+
 	async fn put_batch(&self, args: Vec<PutArg>) -> Result<(), Self::Error> {
 		match self {
 			#[cfg(feature = "lmdb")]
@@ -292,6 +363,18 @@ impl store::Store for Store {
 			},
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla.delete(arg).await.map_err(Error::Scylla),
+		}
+	}
+
+	async fn delete_log(&self, arg: DeleteLogArg) -> Result<(), Self::Error> {
+		match self {
+			Self::Lmdb(lmdb) => lmdb.delete_log(arg).await.map_err(Error::Lmdb),
+			Self::Memory(memory) => {
+				memory.delete_log(arg);
+				Ok(())
+			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.delete_log(arg).await.map_err(Error::Scylla),
 		}
 	}
 
