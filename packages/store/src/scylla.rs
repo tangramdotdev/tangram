@@ -42,7 +42,9 @@ pub struct Store {
 	put_log_statement: scylla::statement::prepared::PreparedStatement,
 	get_log_by_index_statement: scylla::statement::prepared::PreparedStatement,
 	get_log_by_combined_position_statement: scylla::statement::prepared::PreparedStatement,
-	get_log_by_stream_position_statement: scylla::statement::prepared::PreparedStatement,
+	get_log_by_stdout_position_statement: scylla::statement::prepared::PreparedStatement,
+	get_log_by_stderr_position_statement: scylla::statement::prepared::PreparedStatement,
+
 	get_last_log_statement: scylla::statement::prepared::PreparedStatement,
 	session: scylla::client::session::Session,
 }
@@ -60,6 +62,7 @@ pub enum Error {
 	PagerExecution(scylla::errors::PagerExecutionError),
 	TypeCheckError(scylla::errors::TypeCheckError),
 	NextRowError(scylla::errors::NextRowError),
+	SingleRow(scylla::errors::SingleRowError),
 	Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
@@ -127,6 +130,7 @@ impl Store {
 		let mut get_statement = session.prepare(statement).await.map_err(|source| {
 			Error::other(tg::error!(!source, "failed to prepare the get statement"))
 		})?;
+
 		get_statement.set_consistency(scylla::statement::Consistency::One);
 
 		let statement = indoc!(
@@ -196,19 +200,7 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				select (bytes, stream, combined_position, stdout_position, stderr_position, timestamp)
-				from logs
-				where
-					id = ? and combined_position >= ?
-				allow filtering;
-			"
-		);
-		let mut get_log_by_combined_position_statement = session.prepare(statement).await?;
-		get_log_by_combined_position_statement.set_consistency(scylla::statement::Consistency::One);
-
-		let statement = indoc!(
-			"
-				select (bytes, stream, combined_position, stdout_position, stderr_position, timestamp)
+				select bytes, stream, combined_start, combined_end, stdout_start, stdout_end, stderr_start, stderr_end, timestamp
 				from logs
 				where
 					id = ? and log_index = ?
@@ -220,22 +212,49 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				select (bytes, stream, combined_position, stdout_position, stderr_position, timestamp)
+				select bytes, stream, combined_start, combined_end, stdout_start, stdout_end, stderr_start, stderr_end, timestamp
 				from logs
 				where
-					id = ? and stream = ? and combined_position >= ?
+					id = ? and combined_end > ? and combined_start <= ?
+				order by log_index asc
 				allow filtering;
 			"
 		);
-		let mut get_log_by_stream_position_statement = session.prepare(statement).await?;
-		get_log_by_stream_position_statement.set_consistency(scylla::statement::Consistency::One);
+		let mut get_log_by_combined_position_statement = session.prepare(statement).await?;
+		get_log_by_combined_position_statement.set_consistency(scylla::statement::Consistency::One);
 
 		let statement = indoc!(
 			"
-				select (log_index, bytes, stream, combined_position, stdout_position, stderr_position, timestamp)
+				select bytes, stream, combined_start, combined_end, stdout_start, stdout_end, stderr_start, stderr_end, timestamp
+				from logs
+				where
+					id = ? and stream = ? and stdout_end > ? and stdout_start <= ?
+				order by log_index asc
+				allow filtering;
+			"
+		);
+		let mut get_log_by_stdout_position_statement = session.prepare(statement).await?;
+		get_log_by_stdout_position_statement.set_consistency(scylla::statement::Consistency::One);
+
+		let statement = indoc!(
+			"
+				select bytes, stream, combined_start, combined_end, stdout_start, stdout_end, stderr_start, stderr_end, timestamp
+				from logs
+				where
+					id = ? and stream = ? and stderr_end > ? and stderr_start <= ?
+				order by log_index asc
+				allow filtering;
+			"
+		);
+		let mut get_log_by_stderr_position_statement = session.prepare(statement).await?;
+		get_log_by_stderr_position_statement.set_consistency(scylla::statement::Consistency::One);
+
+		let statement = indoc!(
+			"
+				select log_index, bytes, stream, combined_start, combined_end, stdout_start, stdout_end, stderr_start, stderr_end, timestamp
 				from logs
 				where id = ?
-				order by index desc
+				order by log_index desc
 				limit 1;
 			"
 		);
@@ -244,8 +263,8 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				insert into logs (id, log_index, bytes, stream, combined_position, stdout_position, stderr_position, timestamp)
-				values(?, ?, ?, ?, ?, ?, ?, ?)
+				insert into logs (id, log_index, bytes, stream, combined_start, combined_end, stdout_start, stdout_end, stderr_start, stderr_end, timestamp)
+				values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 				if not exists;
 			"
 		);
@@ -262,7 +281,8 @@ impl Store {
 			put_log_statement,
 			get_log_by_index_statement,
 			get_log_by_combined_position_statement,
-			get_log_by_stream_position_statement,
+			get_log_by_stdout_position_statement,
+			get_log_by_stderr_position_statement,
 			get_last_log_statement,
 			session,
 		};
@@ -397,32 +417,40 @@ impl crate::Store for Store {
 		use futures::TryStreamExt as _;
 
 		let id = arg.process.to_bytes().to_vec();
-		let position = arg.position.to_i64().unwrap();
+		let start_position = arg.position.to_i64().unwrap();
+		let end_position = start_position + arg.length.to_i64().unwrap();
 
 		#[derive(scylla::DeserializeRow)]
 		#[allow(dead_code)]
 		struct Row {
 			bytes: Vec<u8>,
 			stream: i64,
-			combined_position: i64,
-			stdout_position: i64,
-			stderr_position: i64,
+			combined_start: i64,
+			combined_end: i64,
+			stdout_start: i64,
+			stdout_end: i64,
+			stderr_start: i64,
+			stderr_end: i64,
 			timestamp: i64,
 		}
 
-		// Query for log entries starting from the given position using an iterator.
+		// Query for log entries that overlap the range [position, position + length).
 		let mut iter = if let Some(stream) = arg.stream {
-			let stream_value = match stream {
-				tg::process::log::Stream::Stdout => 1i64,
-				tg::process::log::Stream::Stderr => 2i64,
+			let (stream_value, statement) = match stream {
+				tg::process::log::Stream::Stdout => {
+					(1i64, self.get_log_by_stdout_position_statement.clone())
+				},
+				tg::process::log::Stream::Stderr => {
+					(2i64, self.get_log_by_stderr_position_statement.clone())
+				},
 			};
-			let params = (id, stream_value, position);
+			let params = (id, stream_value, start_position, end_position);
 			self.session
-				.execute_iter(self.get_log_by_stream_position_statement.clone(), params)
+				.execute_iter(statement, params)
 				.await?
 				.rows_stream::<Row>()?
 		} else {
-			let params = (id, position);
+			let params = (id, start_position, end_position);
 			self.session
 				.execute_iter(self.get_log_by_combined_position_statement.clone(), params)
 				.await?
@@ -432,19 +460,11 @@ impl crate::Store for Store {
 		let mut output = Vec::new();
 
 		while let Some(row) = iter.try_next().await? {
-			// Skip log entries not in this stream.
-			if arg.stream.is_some_and(|stream| {
-				(stream, row.stream) == (tg::process::log::Stream::Stdout, 1)
-					|| (stream, row.stream) == (tg::process::log::Stream::Stderr, 2)
-			}) {
-				continue;
-			}
-
-			// Get the position of this entry.
+			// Get the start position of this entry.
 			let entry_position = match arg.stream {
-				None => row.combined_position.to_u64().unwrap(),
-				Some(tg::process::log::Stream::Stdout) => row.stdout_position.to_u64().unwrap(),
-				Some(tg::process::log::Stream::Stderr) => row.stderr_position.to_u64().unwrap(),
+				None => row.combined_start.to_u64().unwrap(),
+				Some(tg::process::log::Stream::Stdout) => row.stdout_start.to_u64().unwrap(),
+				Some(tg::process::log::Stream::Stderr) => row.stderr_start.to_u64().unwrap(),
 			};
 
 			// Calculate offset into entry's bytes.
@@ -481,9 +501,12 @@ impl crate::Store for Store {
 			log_index: i64,
 			bytes: &'a [u8],
 			stream: i64,
-			combined_position: i64,
-			stdout_position: i64,
-			stderr_position: i64,
+			combined_start: i64,
+			combined_end: i64,
+			stdout_start: i64,
+			stdout_end: i64,
+			stderr_start: i64,
+			stderr_end: i64,
 			timestamp: i64,
 		}
 		let params = (id,);
@@ -495,14 +518,12 @@ impl crate::Store for Store {
 		let Some(row) = result.maybe_first_row::<Row>()? else {
 			return Ok(None);
 		};
-		let offset = match stream {
-			None => row.combined_position,
-			Some(tg::process::log::Stream::Stdout) => row.stdout_position,
-			Some(tg::process::log::Stream::Stderr) => row.stderr_position,
+		let length = match stream {
+			None => row.combined_end,
+			Some(tg::process::log::Stream::Stdout) => row.stdout_end,
+			Some(tg::process::log::Stream::Stderr) => row.stderr_end,
 		};
-		Ok(Some(
-			offset.to_u64().unwrap() + row.bytes.len().to_u64().unwrap(),
-		))
+		Ok(Some(length.to_u64().unwrap()))
 	}
 
 	async fn try_get_log_entry(
@@ -512,12 +533,16 @@ impl crate::Store for Store {
 	) -> Result<Option<crate::log::Entry>, Self::Error> {
 		let id = id.to_bytes().to_vec();
 		#[derive(scylla::DeserializeRow)]
+		#[allow(dead_code)]
 		struct Row<'a> {
 			bytes: &'a [u8],
 			stream: i64,
-			combined_position: i64,
-			stdout_position: i64,
-			stderr_position: i64,
+			combined_start: i64,
+			combined_end: i64,
+			stdout_start: i64,
+			stdout_end: i64,
+			stderr_start: i64,
+			stderr_end: i64,
 			timestamp: i64,
 		}
 		let params = (id, index.to_i64().unwrap());
@@ -530,16 +555,16 @@ impl crate::Store for Store {
 			return Ok(None);
 		};
 		let bytes = row.bytes.to_vec().into();
-		let combined_position = row.combined_position.to_u64().unwrap();
+		let combined_position = row.combined_start.to_u64().unwrap();
 		let (stream, stream_position) = if row.stream == 1 {
 			(
 				tg::process::log::Stream::Stdout,
-				row.stdout_position.to_u64().unwrap(),
+				row.stdout_start.to_u64().unwrap(),
 			)
 		} else if row.stream == 2 {
 			(
 				tg::process::log::Stream::Stderr,
-				row.stderr_position.to_u64().unwrap(),
+				row.stderr_start.to_u64().unwrap(),
 			)
 		} else {
 			return Ok(None);
@@ -565,9 +590,12 @@ impl crate::Store for Store {
 			log_index: i64,
 			bytes: &'a [u8],
 			stream: i64,
-			combined_position: i64,
-			stdout_position: i64,
-			stderr_position: i64,
+			combined_start: i64,
+			combined_end: i64,
+			stdout_start: i64,
+			stdout_end: i64,
+			stderr_start: i64,
+			stderr_end: i64,
 			timestamp: i64,
 		}
 		let params = (id,);
@@ -657,19 +685,17 @@ impl crate::Store for Store {
 		let id = arg.process.to_bytes().to_vec();
 		loop {
 			#[derive(scylla::DeserializeRow)]
-			struct Applied {
-				applied: bool,
-			}
-
-			#[derive(scylla::DeserializeRow)]
 			#[allow(dead_code)]
 			struct LastRow<'a> {
 				log_index: i64,
 				bytes: &'a [u8],
 				stream: i64,
-				combined_position: i64,
-				stdout_position: i64,
-				stderr_position: i64,
+				combined_start: i64,
+				combined_end: i64,
+				stdout_start: i64,
+				stdout_end: i64,
+				stderr_start: i64,
+				stderr_end: i64,
 				timestamp: i64,
 			}
 			let params = (id.as_slice(),);
@@ -678,13 +704,17 @@ impl crate::Store for Store {
 				.execute_unpaged(&self.get_last_log_statement, params)
 				.await?
 				.into_rows_result()?;
+
 			let row = result.maybe_first_row::<LastRow>()?.unwrap_or(LastRow {
 				log_index: 0,
 				bytes: &[],
 				stream: 0,
-				combined_position: 0,
-				stdout_position: 0,
-				stderr_position: 0,
+				combined_start: 0,
+				combined_end: 0,
+				stdout_start: 0,
+				stdout_end: 0,
+				stderr_start: 0,
+				stderr_end: 0,
 				timestamp: 0,
 			});
 
@@ -692,30 +722,43 @@ impl crate::Store for Store {
 			let index = row.log_index + 1;
 			let bytes = arg.bytes.as_ref();
 			let stream = match arg.stream {
-				tg::process::log::Stream::Stdout => 1,
-				tg::process::log::Stream::Stderr => 2,
+				tg::process::log::Stream::Stdout => 1i64,
+				tg::process::log::Stream::Stderr => 2i64,
 			};
-			let combined_position = row.combined_position + row.bytes.len().to_i64().unwrap();
-			let mut stdout_position = row.stdout_position;
-			if row.stream == 1 {
-				stdout_position += bytes.len().to_i64().unwrap();
-			}
-			let mut stderr_position = row.stderr_position;
-			if row.stream == 2 {
-				stderr_position += bytes.len().to_i64().unwrap();
-			}
+
+			// The new entry starts where the previous entry ended.
+			let combined_start = row.combined_end;
+			let combined_end = combined_start + bytes.len().to_i64().unwrap();
+
+			// For stdout/stderr, only advance if the previous entry was from that stream.
+			let (stdout_start, stdout_end) = if stream == 1 {
+				(row.stdout_end, row.stdout_end + bytes.len().to_i64().unwrap())
+			} else {
+				(row.stdout_end, row.stdout_end)
+			};
+			let (stderr_start, stderr_end) = if stream == 2 {
+				(row.stderr_end, row.stderr_end + bytes.len().to_i64().unwrap())
+			} else {
+				(row.stderr_end, row.stderr_end)
+			};
+
 			let timestamp = arg.timestamp;
 
 			// Try to insert this row.
 			let params = (
+				id.clone(),
 				index,
 				bytes,
 				stream,
-				combined_position,
-				stdout_position,
-				stderr_position,
+				combined_start,
+				combined_end,
+				stdout_start,
+				stdout_end,
+				stderr_start,
+				stderr_end,
 				timestamp,
 			);
+
 			let result = self
 				.session
 				.execute_unpaged(&self.put_log_statement, params)
@@ -723,9 +766,22 @@ impl crate::Store for Store {
 				.into_rows_result()?;
 
 			// If the row was inserted, exit the loop. Else try again.
-			if let Some(row) = result.maybe_first_row::<Applied>()?
-				&& row.applied
-			{
+			let result = result.single_row::<(
+				bool,            // applied
+				Option<Vec<u8>>, // id
+				Option<i64>,     // log_index
+				Option<Vec<u8>>, // bytes
+				Option<i64>,     // stream
+				Option<i64>,     // combined_start
+				Option<i64>,     // combined_end
+				Option<i64>,     // stdout_start
+				Option<i64>,     // stdout_end
+				Option<i64>,     // stderr_start
+				Option<i64>,     // stderr_end
+				Option<i64>,     // timestamp
+			)>()?;
+			let (applied, ..) = result;
+			if applied {
 				return Ok(());
 			}
 		}

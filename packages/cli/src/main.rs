@@ -666,7 +666,7 @@ impl Cli {
 		// Start the server.
 		let server = tangram_server::Server::start(config)
 			.await
-			.map_err(|source| dbg!(tg::error!(!source, "failed to start the server")))?;
+			.map_err(|source| tg::error!(!source, "failed to start the server"))?;
 
 		Ok(server)
 	}

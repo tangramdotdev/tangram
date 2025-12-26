@@ -10,9 +10,12 @@ create table if not exists logs (
 	log_index bigint,
 	bytes blob,
 	stream bigint,
-	combined_position bigint,
-	stderr_position bigint,
-	stdout_position bigint,
+	combined_start bigint,
+	combined_end bigint,
+	stdout_start bigint,
+	stdout_end bigint,
+	stderr_start bigint,
+	stderr_end bigint,
 	timestamp bigint,
 	primary key (id, log_index)
 );
