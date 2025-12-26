@@ -166,63 +166,73 @@ where
 		v8::Global::new(scope, context)
 	};
 
-	// Call the start function.
+	// Call the start function. Use a closure for setup so `?` returns from the closure,
+	// not the outer function, ensuring scopes drop before any early return.
 	let value: tg::Result<v8::Global<v8::Value>> = {
 		// Create a scope for the context.
 		v8::scope!(scope, isolate.as_mut());
 		let context = v8::Local::new(scope, context.clone());
 		let scope = &mut v8::ContextScope::new(scope, context);
 
-		// Create the arg.
+		// Create the arg object and populate it. The closure captures errors without
+		// returning from the outer function, so scopes will drop properly.
 		let arg = v8::Object::new(scope);
+		let setup_result = (|| -> tg::Result<()> {
+			// Set args.
+			let key = v8::String::new_external_onebyte_static(scope, b"args").unwrap();
+			let value = Serde(&args).serialize(scope)?;
+			arg.set(scope, key.into(), value);
 
-		// Set args.
-		let key = v8::String::new_external_onebyte_static(scope, b"args").unwrap();
-		let value = Serde(&args).serialize(scope)?;
-		arg.set(scope, key.into(), value);
+			// Set cwd.
+			let key = v8::String::new_external_onebyte_static(scope, b"cwd").unwrap();
+			let value =
+				Serde(cwd.to_str().ok_or_else(|| tg::error!("invalid cwd"))?).serialize(scope)?;
+			arg.set(scope, key.into(), value);
 
-		// Set cwd.
-		let key = v8::String::new_external_onebyte_static(scope, b"cwd").unwrap();
-		let value =
-			Serde(cwd.to_str().ok_or_else(|| tg::error!("invalid cwd"))?).serialize(scope)?;
-		arg.set(scope, key.into(), value);
+			// Set env.
+			let key = v8::String::new_external_onebyte_static(scope, b"env").unwrap();
+			let value = Serde(&env).serialize(scope)?;
+			arg.set(scope, key.into(), value);
 
-		// Set env.
-		let key = v8::String::new_external_onebyte_static(scope, b"env").unwrap();
-		let value = Serde(&env).serialize(scope)?;
-		arg.set(scope, key.into(), value);
+			// Set executable.
+			let key = v8::String::new_external_onebyte_static(scope, b"executable").unwrap();
+			let value = Serde(&executable).serialize(scope)?;
+			arg.set(scope, key.into(), value);
 
-		// Set executable.
-		let key = v8::String::new_external_onebyte_static(scope, b"executable").unwrap();
-		let value = Serde(&executable).serialize(scope)?;
-		arg.set(scope, key.into(), value);
+			Ok(())
+		})();
 
-		// Get the start function.
-		let start = v8::String::new_external_onebyte_static(scope, b"start").unwrap();
-		let start = context.global(scope).get(scope, start.into()).unwrap();
-		let start = v8::Local::<v8::Function>::try_from(start).unwrap();
+		// If setup failed, return the error.
+		if let Err(e) = setup_result {
+			Err(e)
+		} else {
+			// Get the start function.
+			let start = v8::String::new_external_onebyte_static(scope, b"start").unwrap();
+			let start = context.global(scope).get(scope, start.into()).unwrap();
+			let start = v8::Local::<v8::Function>::try_from(start).unwrap();
 
-		// Call the start function.
-		v8::tc_scope!(scope, scope);
-		let undefined = v8::undefined(scope);
-		let value = start.call(scope, undefined.into(), &[arg.into()]);
-		if scope.has_caught() {
-			if !scope.can_continue() {
-				if scope.has_terminated() {
-					Err(tg::error!("execution terminated"))
+			// Call the start function.
+			v8::tc_scope!(scope, scope);
+			let undefined = v8::undefined(scope);
+			let value = start.call(scope, undefined.into(), &[arg.into()]);
+			if scope.has_caught() {
+				if !scope.can_continue() {
+					if scope.has_terminated() {
+						Err(tg::error!("execution terminated"))
+					} else {
+						Err(tg::error!("unrecoverable error"))
+					}
 				} else {
-					Err(tg::error!("unrecoverable error"))
+					let exception = scope.exception().unwrap();
+					let error = self::error::from_exception(&state, scope, exception)
+						.unwrap_or_else(|| tg::error!("failed to get the exception"));
+					Err(error)
 				}
 			} else {
-				let exception = scope.exception().unwrap();
-				let error = self::error::from_exception(&state, scope, exception)
-					.unwrap_or_else(|| tg::error!("failed to get the exception"));
-				Err(error)
+				let value = value.unwrap();
+				// Make the value global.
+				Ok(v8::Global::new(scope, value))
 			}
-		} else {
-			let value = value.unwrap();
-			// Make the value global.
-			Ok(v8::Global::new(scope, value))
 		}
 	};
 
