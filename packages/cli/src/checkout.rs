@@ -114,6 +114,7 @@ impl Cli {
 		let arg = tg::checkout::Arg {
 			artifact: artifact.clone(),
 			dependencies,
+			extension: None,
 			force,
 			lock,
 			path,

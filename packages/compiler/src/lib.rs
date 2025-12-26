@@ -1,7 +1,7 @@
 use {
 	self::document::Document,
 	dashmap::DashMap,
-	futures::{FutureExt as _, TryStreamExt as _, future},
+	futures::{FutureExt as _, future},
 	lsp_types::{self as lsp, notification::Notification as _, request::Request as _},
 	std::{
 		collections::{BTreeSet, HashMap},
@@ -736,16 +736,25 @@ impl Compiler {
 		// Handle a path in the cache directory.
 		if let Ok(path) = path.strip_prefix(&self.cache_path) {
 			let kind = self.module_kind_for_path(path).await?;
+
+			// Parse the id.
 			let id = path
 				.components()
 				.next()
 				.ok_or_else(|| tg::error!("invalid path"))?
 				.as_os_str()
 				.to_str()
-				.ok_or_else(|| tg::error!("invalid path"))?
+				.ok_or_else(|| tg::error!("invalid path"))?;
+			let id = id
+				.strip_suffix(".tg.ts")
+				.or_else(|| id.strip_suffix(".tg.js"))
+				.or_else(|| id.strip_suffix(".d.ts"))
+				.unwrap_or(id);
+			let id = id
 				.parse::<tg::object::Id>()
 				.ok()
 				.ok_or_else(|| tg::error!("invalid path"))?;
+
 			let path = path.components().skip(1).collect::<PathBuf>();
 			let edge: tg::graph::data::Edge<tg::object::Id> = if path.as_os_str().is_empty() {
 				tg::graph::data::Edge::Object(id.clone())
@@ -774,6 +783,7 @@ impl Compiler {
 			};
 			let referent = tg::Referent { item, options };
 			let module = tg::module::Data { kind, referent };
+
 			return Ok(module);
 		}
 
@@ -961,12 +971,12 @@ impl Compiler {
 			},
 
 			tg::module::Data {
+				kind,
 				referent:
 					tg::Referent {
 						item: tg::module::data::Item::Edge(edge),
 						options,
 					},
-				..
 			} => {
 				let artifact = match edge {
 					tg::graph::data::Edge::Reference(reference) => {
@@ -986,18 +996,16 @@ impl Compiler {
 				} else {
 					artifact
 				};
-				let arg = tg::cache::Arg {
-					artifacts: vec![artifact.clone()],
-				};
-				self.handle
-					.cache(arg)
-					.await?
-					.map_ok(|_| ())
-					.try_collect::<()>()
-					.await?;
-
-				// If the referent has a tag, use the tags directory.
 				let path = if let (Some(tag), Some(id)) = (&options.tag, &options.id) {
+					let arg = tg::checkout::Arg {
+						artifact: id.clone().try_into()?,
+						dependencies: true,
+						extension: None,
+						force: false,
+						lock: None,
+						path: None,
+					};
+					tg::checkout(&self.handle, arg).await?;
 					let components: Vec<_> = tag.components().collect();
 					let mut path = self.tags_path.clone();
 					for (i, component) in components.iter().enumerate() {
@@ -1055,9 +1063,32 @@ impl Compiler {
 						path
 					}
 				} else if let (Some(id), Some(path)) = (&options.id, &options.path) {
-					self.cache_path.join(id.to_string()).join(path)
+					let arg = tg::checkout::Arg {
+						artifact: id.clone().try_into()?,
+						dependencies: true,
+						extension: None,
+						force: false,
+						lock: None,
+						path: None,
+					};
+					let output = tg::checkout(&self.handle, arg).await?;
+					output.join(path)
 				} else {
-					self.cache_path.join(artifact.to_string())
+					let extension = match kind {
+						tg::module::Kind::Js => Some(".tg.js".to_owned()),
+						tg::module::Kind::Ts => Some(".tg.ts".to_owned()),
+						tg::module::Kind::Dts => Some(".d.ts".to_owned()),
+						_ => None,
+					};
+					let arg = tg::checkout::Arg {
+						artifact: artifact.clone(),
+						dependencies: true,
+						extension,
+						force: false,
+						lock: None,
+						path: None,
+					};
+					tg::checkout(&self.handle, arg).await?
 				};
 
 				let uri = format!("file://{}", path.display()).parse().unwrap();

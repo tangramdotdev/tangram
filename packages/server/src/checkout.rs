@@ -64,6 +64,7 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to cache the artifact"))?;
 				let context = context.clone();
+				let extension = arg.extension.clone();
 				let stream = stream
 					.boxed()
 					.map({
@@ -73,12 +74,29 @@ impl Server {
 								tg::progress::Event::Output(()) => {
 									let path =
 										server.artifacts_path().join(arg.artifact.to_string());
+
+									// Add an extension if necessary.
+									let path = if let Some(extension) = &extension {
+										let path = server
+											.artifacts_path()
+											.join(format!("{}{extension}", arg.artifact));
+										std::fs::hard_link(&path, &path).ok();
+										path
+									} else {
+										path
+									};
+
+									// Map the path if necessary.
 									let path = if let Some(process) = &context.process {
 										process.guest_path_for_host_path(path)?
 									} else {
 										path
 									};
-									Ok(tg::progress::Event::Output(tg::checkout::Output { path }))
+
+									let output =
+										tg::progress::Event::Output(tg::checkout::Output { path });
+
+									Ok(output)
 								},
 								event => Ok(event.map_output(|()| unreachable!())),
 							})
@@ -88,6 +106,13 @@ impl Server {
 					.left_stream();
 				return Ok(stream);
 			}
+
+			// VFS is enabled. Return path with extension; VFS will strip it.
+			let path = if let Some(ext) = &arg.extension {
+				self.artifacts_path().join(format!("{}{ext}", arg.artifact))
+			} else {
+				path
+			};
 			let path = if let Some(process) = &context.process {
 				process.guest_path_for_host_path(path.clone())?
 			} else {

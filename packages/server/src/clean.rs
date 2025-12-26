@@ -192,10 +192,15 @@ impl Server {
 			let cache_entries = output.cache_entries.clone();
 			move || {
 				for artifact in &cache_entries {
-					let path = server.cache_path().join(artifact.to_string());
+					let cache_path = server.cache_path();
+					let path = cache_path.join(artifact.to_string());
 					tangram_util::fs::remove_sync(&path).map_err(
 						|source| tg::error!(!source, path = %path.display(), "failed to remove the file"),
 					)?;
+					for extension in [".tg.js", ".tg.ts", ".d.ts"] {
+						let path = cache_path.join(format!("{artifact}{extension}"));
+						tangram_util::fs::remove_sync(&path).ok();
+					}
 				}
 				Ok::<_, tg::Error>(())
 			}

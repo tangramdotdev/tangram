@@ -16,6 +16,9 @@ pub struct Arg {
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub dependencies: bool,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub extension: Option<String>,
+
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub force: bool,
 

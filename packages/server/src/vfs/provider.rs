@@ -109,6 +109,16 @@ impl vfs::Provider for Provider {
 			if parent != vfs::ROOT_NODE_ID {
 				break 'a None;
 			}
+			let name = name
+				.strip_suffix(".tg.ts")
+				.or_else(|| name.strip_suffix(".tg.js"))
+				.or_else(|| name.strip_suffix(".d.ts"))
+				.or_else(|| {
+					std::path::Path::new(name)
+						.file_stem()
+						.and_then(|s| s.to_str())
+				})
+				.unwrap_or(name);
 			let Ok(artifact) = name.parse() else {
 				return Ok(None);
 			};
