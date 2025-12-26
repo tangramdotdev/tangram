@@ -167,7 +167,7 @@ where
 	};
 
 	// Call the start function.
-	let value = {
+	let value: tg::Result<v8::Global<v8::Value>> = {
 		// Create a scope for the context.
 		v8::scope!(scope, isolate.as_mut());
 		let context = v8::Local::new(scope, context.clone());
@@ -209,26 +209,28 @@ where
 		if scope.has_caught() {
 			if !scope.can_continue() {
 				if scope.has_terminated() {
-					unsafe { scope.exit() };
-					return Err(tg::error!("execution terminated"));
+					Err(tg::error!("execution terminated"))
+				} else {
+					Err(tg::error!("unrecoverable error"))
 				}
-				unsafe { scope.exit() };
-				return Err(tg::error!("unrecoverable error"));
+			} else {
+				let exception = scope.exception().unwrap();
+				let error = self::error::from_exception(&state, scope, exception)
+					.unwrap_or_else(|| tg::error!("failed to get the exception"));
+				Err(error)
 			}
-			let exception = scope.exception().unwrap();
-			let error = self::error::from_exception(&state, scope, exception)
-				.unwrap_or_else(|| tg::error!("failed to get the exception"));
-			unsafe { scope.exit() };
-			return Err(error);
+		} else {
+			let value = value.unwrap();
+			// Make the value global.
+			Ok(v8::Global::new(scope, value))
 		}
-		let value = value.unwrap();
-
-		// Make the value global.
-		v8::Global::new(scope, value)
 	};
 
 	// Exit the isolate.
 	unsafe { isolate.exit() };
+
+	// Handle the result.
+	let value = value?;
 
 	// Run the event loop.
 	let future = poll_fn(|cx| {
@@ -252,7 +254,7 @@ where
 					// Enter the isolate.
 					unsafe { isolate.enter() };
 
-					{
+					let error: Option<tg::Error> = {
 						// Create a scope for the context.
 						v8::scope!(scope, isolate.as_mut());
 						let context = v8::Local::new(scope, context.clone());
@@ -282,22 +284,28 @@ where
 						if scope.has_caught() {
 							if !scope.can_continue() {
 								if scope.has_terminated() {
-									unsafe { scope.exit() };
-									return Poll::Ready(Err(tg::error!("execution terminated")));
+									Some(tg::error!("execution terminated"))
+								} else {
+									Some(tg::error!("unrecoverable error"))
 								}
-								unsafe { scope.exit() };
-								return Poll::Ready(Err(tg::error!("unrecoverable error")));
+							} else {
+								let exception = scope.exception().unwrap();
+								let error = self::error::from_exception(&state, scope, exception)
+									.unwrap_or_else(|| tg::error!("failed to get the exception"));
+								Some(error)
 							}
-							let exception = scope.exception().unwrap();
-							let error = self::error::from_exception(&state, scope, exception)
-								.unwrap_or_else(|| tg::error!("failed to get the exception"));
-							unsafe { scope.exit() };
-							return Poll::Ready(Err(error));
+						} else {
+							None
 						}
-					}
+					};
 
 					// Exit the isolate.
 					unsafe { isolate.exit() };
+
+					// Handle error.
+					if let Some(error) = error {
+						return Poll::Ready(Err(error));
+					}
 
 					// Continue.
 					continue;
