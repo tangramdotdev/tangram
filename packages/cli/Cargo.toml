@@ -15,13 +15,13 @@ name = "tangram"
 path = "src/main.rs"
 
 [features]
-boa = ["tangram_server/boa"]
 default = ["js", "lmdb", "typescript", "v8"]
 foundationdb = ["dep:foundationdb", "dep:tangram_fdb", "tangram_server/foundationdb"]
 js = ["tangram_server/js"]
 lmdb = ["tangram_server/lmdb"]
 nats = ["tangram_server/nats"]
 postgres = ["tangram_server/postgres"]
+quickjs = ["tangram_server/quickjs"]
 scylla = ["tangram_server/scylla"]
 typescript = ["tangram_server/typescript", "v8"]
 v8 = ["dep:v8", "tangram_server/v8"]

@@ -11,7 +11,7 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [features]
-boa = ["dep:boa_engine"]
+quickjs = ["dep:rquickjs"]
 v8 = ["dep:tangram_v8", "dep:v8"]
 
 [lints]
@@ -19,16 +19,17 @@ workspace = true
 
 [build-dependencies]
 data-encoding = { workspace = true }
+rquickjs = { workspace = true, optional = true }
 scopeguard = { workspace = true }
 serde_json = { workspace = true }
 v8 = { workspace = true, optional = true }
 
 [dependencies]
-boa_engine = { workspace = true, optional = true }
 bytes = { workspace = true }
 data-encoding = { workspace = true }
 futures = { workspace = true }
 num = { workspace = true }
+rquickjs = { workspace = true, optional = true }
 scopeguard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

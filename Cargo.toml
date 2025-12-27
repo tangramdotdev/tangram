@@ -83,6 +83,7 @@ data-encoding = "2"
 data-encoding-macro = "0.1"
 deno_core_icudata = "0.74"
 derive_more = { version = "2", features = ["full"] }
+erased-serde = "0.4"
 fastcdc = { version = "3", features = ["tokio"] }
 filetime = "0.2"
 flate2 = "1"
@@ -129,6 +130,8 @@ radix_trie = "0.3.0"
 rand = "0.9"
 ratatui = "0.29"
 reflink-copy = "0.1"
+rquickjs = { version = "0.11", features = ["full-async", "loader", "futures"] }
+rquickjs-serde = "0.4"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "stream", "rustls-tls"] }
 rusqlite = { version = "0.38", default-features = false, features = ["blob", "bundled", "functions"] }

@@ -14,16 +14,16 @@ version = { workspace = true }
 workspace = true
 
 [features]
-boa = ["tangram_js/boa"]
-default = ["js", "lmdb", "tangram_js/v8", "typescript"]
-v8 = ["js", "tangram_js/v8"]
+default = []
 foundationdb = []
 js = ["dep:tangram_js"]
 lmdb = ["tangram_store/lmdb"]
 nats = ["dep:async-nats", "tangram_messenger/nats"]
 postgres = ["dep:tokio-postgres", "tangram_database/postgres"]
+quickjs = ["tangram_js/quickjs"]
 scylla = ["tangram_store/scylla"]
 typescript = ["tangram_compiler/typescript"]
+v8 = ["tangram_js/v8"]
 
 [dependencies]
 async-broadcast = { workspace = true }

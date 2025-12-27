@@ -5,6 +5,9 @@ fn main() {
 
 	js();
 
+	#[cfg(feature = "quickjs")]
+	self::quickjs::bytecode();
+
 	#[cfg(feature = "v8")]
 	self::v8::snapshot();
 }
@@ -77,6 +80,33 @@ fn fixup_source_map(path: impl AsRef<Path>) {
 	}
 	let bytes = serde_json::to_vec(&json).unwrap();
 	std::fs::write(&path, bytes).unwrap();
+}
+
+#[cfg(feature = "quickjs")]
+mod quickjs {
+	use {rquickjs as qjs, std::path::PathBuf};
+
+	pub fn bytecode() {
+		let out_dir_path = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+
+		// Read the main.js.
+		let js_path = out_dir_path.join("main.js");
+		let js_source = std::fs::read_to_string(&js_path).unwrap();
+
+		// Create a qjs runtime.
+		let rt = qjs::Runtime::new().unwrap();
+		let ctx = qjs::Context::full(&rt).unwrap();
+
+		ctx.with(|ctx| {
+			// Compile the script to bytecode.
+			let module = qjs::Module::declare(ctx, "main", js_source).unwrap();
+			let bytecode = module.write(qjs::WriteOptions::default()).unwrap();
+
+			// Write the bytecode.
+			let bytecode_path = out_dir_path.join("main.bytecode");
+			std::fs::write(&bytecode_path, bytecode).unwrap();
+		});
+	}
 }
 
 #[cfg(feature = "v8")]

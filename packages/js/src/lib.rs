@@ -1,12 +1,12 @@
 use {futures::future::BoxFuture, std::sync::Arc, tangram_client as tg};
 
-#[cfg(feature = "boa")]
-pub mod boa;
+#[cfg(feature = "quickjs")]
+pub mod quickjs;
 #[cfg(feature = "v8")]
 pub mod v8;
 
-#[cfg(all(feature = "boa", not(feature = "v8")))]
-pub use self::boa::{Abort, run};
+#[cfg(all(feature = "quickjs", not(feature = "v8")))]
+pub use self::quickjs::{Abort, run};
 #[cfg(feature = "v8")]
 pub use self::v8::{Abort, run};
 
