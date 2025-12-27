@@ -174,6 +174,11 @@ pub trait Object: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::object::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
+	fn post_object_batch(
+		&self,
+		arg: tg::object::batch::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
 	fn touch_object(
 		&self,
 		id: &tg::object::Id,
@@ -642,6 +647,13 @@ impl tg::handle::Object for tg::Client {
 		arg: tg::object::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.put_object(id, arg)
+	}
+
+	fn post_object_batch(
+		&self,
+		arg: tg::object::batch::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.post_object_batch(arg)
 	}
 
 	fn touch_object(

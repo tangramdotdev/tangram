@@ -164,6 +164,10 @@ impl tg::handle::Object for Owned {
 	) -> tg::Result<()> {
 		self.0.touch_object(id, arg).await
 	}
+
+	async fn post_object_batch(&self, arg: tg::object::batch::Arg) -> tg::Result<()> {
+		self.0.post_object_batch(arg).await
+	}
 }
 
 impl tg::handle::Process for Owned {
@@ -626,6 +630,11 @@ impl tg::handle::Object for Server {
 		arg: tg::object::touch::Arg,
 	) -> tg::Result<()> {
 		self.touch_object_with_context(&Context::default(), id, arg)
+			.await
+	}
+
+	async fn post_object_batch(&self, arg: tg::object::batch::Arg) -> tg::Result<()> {
+		self.post_object_batch_with_context(&Context::default(), arg)
 			.await
 	}
 }
@@ -1122,6 +1131,10 @@ impl tg::handle::Object for ServerWithContext {
 		arg: tg::object::touch::Arg,
 	) -> tg::Result<()> {
 		self.0.touch_object_with_context(&self.1, id, arg).await
+	}
+
+	async fn post_object_batch(&self, arg: tg::object::batch::Arg) -> tg::Result<()> {
+		self.0.post_object_batch_with_context(&self.1, arg).await
 	}
 }
 

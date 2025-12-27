@@ -211,6 +211,13 @@ impl tg::handle::Object for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.put_object(id, arg)) }
 	}
 
+	fn post_object_batch(
+		&self,
+		arg: tg::object::batch::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.0.post_object_batch(arg)
+	}
+
 	fn touch_object(
 		&self,
 		id: &tg::object::Id,

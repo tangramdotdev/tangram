@@ -163,8 +163,8 @@ export namespace Value {
 			return;
 		}
 
-		// Sync.
-		let items = [];
+		// Store the objects.
+		let objects = [];
 		for (let object of unstored) {
 			if (object.state.object === undefined) {
 				continue;
@@ -172,9 +172,11 @@ export namespace Value {
 			let data = tg.Object.Object.toData(object.state.object);
 			let id = tg.handle.objectId(data);
 			object.state.id = id;
-			items.push({ id, data });
+			objects.push({ id, data });
 		}
-		await tg.handle.sync(items);
+		if (objects.length !== 0) {
+			await tg.handle.postObjectBatch({ objects });
+		}
 
 		// Mark all objects stored.
 		for (let object of unstored) {

@@ -49,6 +49,11 @@ declare global {
 	): tg.Command.Data.Executable;
 
 	function syscall(
+		syscall: "object_batch",
+		arg: tg.Handle.PostObjectBatchArg,
+	): Promise<void>;
+
+	function syscall(
 		syscall: "object_get",
 		id: tg.Object.Id,
 	): Promise<tg.Object.Data>;
@@ -78,11 +83,6 @@ declare global {
 	): Promise<Uint8Array>;
 
 	function syscall(syscall: "sleep", duration: number): Promise<void>;
-
-	function syscall(
-		syscall: "sync",
-		items: Array<tg.Handle.SyncItem>,
-	): Promise<void>;
 
 	function syscall(
 		syscall: "write",

@@ -2,13 +2,10 @@ use {
 	self::print::Printer,
 	crate::prelude::*,
 	bytes::Bytes,
-	futures::{StreamExt as _, stream},
 	std::{
 		collections::{BTreeMap, VecDeque},
-		pin::pin,
 		sync::Arc,
 	},
-	tangram_futures::stream::TryExt as _,
 	tokio::{sync::Semaphore, task::JoinSet},
 };
 
@@ -108,10 +105,12 @@ impl Value {
 		}
 		unstored.reverse();
 
-		// Sync.
-		let mut messages = Vec::new();
-		let message = tg::sync::Message::Get(tg::sync::GetMessage::End);
-		messages.push(Ok(message));
+		if unstored.is_empty() {
+			return Ok(());
+		}
+
+		// Store the objects.
+		let mut objects = Vec::with_capacity(unstored.len());
 		for object in &unstored {
 			if let Some(object_) = object.state().object() {
 				let data = object_.to_data();
@@ -120,24 +119,16 @@ impl Value {
 					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 				let id = tg::object::Id::new(data.kind(), &bytes);
 				object.state().set_id(id.clone());
-				let message = tg::sync::Message::Put(tg::sync::PutMessage::Item(
-					tg::sync::PutItemMessage::Object(tg::sync::PutItemObjectMessage { id, bytes }),
-				));
-				messages.push(Ok(message));
+				objects.push(tg::object::batch::Object { id, bytes });
 			}
 		}
-		let message = tg::sync::Message::Put(tg::sync::PutMessage::End);
-		messages.push(Ok(message));
-		let arg = tg::sync::Arg::default();
-		let stream = stream::iter(messages).boxed();
-		let stream = handle.sync(arg, stream).await?;
-		pin!(stream)
-			.try_last()
-			.await?
-			.ok_or_else(|| tg::error!("expected a message"))?
-			.try_unwrap_end()
-			.ok()
-			.ok_or_else(|| tg::error!("expected the end message"))?;
+		if !objects.is_empty() {
+			let arg = tg::object::batch::Arg {
+				objects,
+				..Default::default()
+			};
+			handle.post_object_batch(arg).await?;
+		}
 
 		// Mark all objects stored.
 		for object in &unstored {

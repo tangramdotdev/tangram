@@ -133,3 +133,33 @@ impl tg::Client {
 		Ok(Some(metadata))
 	}
 }
+
+impl Node {
+	#[must_use]
+	pub fn with_data_and_size(data: &tg::object::Data, size: u64) -> Self {
+		let (solvable, solved) = match data {
+			tg::object::Data::File(file) => match file {
+				tg::file::Data::Reference(_) => (false, true),
+				tg::file::Data::Node(node) => (node.solvable(), node.solved()),
+			},
+			tg::object::Data::Graph(graph) => {
+				graph
+					.nodes
+					.iter()
+					.fold((false, true), |(solvable, solved), node| {
+						if let tg::graph::data::Node::File(file) = node {
+							(solvable || file.solvable(), solved && file.solved())
+						} else {
+							(solvable, solved)
+						}
+					})
+			},
+			_ => (false, true),
+		};
+		Self {
+			size,
+			solvable,
+			solved,
+		}
+	}
+}

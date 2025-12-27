@@ -9,6 +9,7 @@ pub use self::{
 	visit::{Visitor, visit},
 };
 
+pub mod batch;
 pub mod data;
 pub mod get;
 pub mod handle;

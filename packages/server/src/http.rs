@@ -240,6 +240,9 @@ impl Server {
 			(http::Method::PUT, ["objects", object]) => server
 				.handle_put_object_request(request, &context, object)
 				.boxed(),
+			(http::Method::POST, ["objects", "batch"]) => server
+				.handle_post_object_batch_request(request, &context)
+				.boxed(),
 			(http::Method::POST, ["objects", object, "touch"]) => server
 				.handle_touch_object_request(request, &context, object)
 				.boxed(),

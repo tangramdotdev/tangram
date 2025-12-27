@@ -5,6 +5,7 @@ use {
 	tangram_client::prelude::*,
 };
 
+mod batch;
 mod blob;
 mod checksum;
 mod encoding;
@@ -13,7 +14,6 @@ mod magic;
 mod object;
 mod process;
 mod sleep;
-mod sync;
 
 struct Result<T>(tg::Result<T>);
 
@@ -48,6 +48,7 @@ pub fn syscall<'js>(
 		"encoding_yaml_encode" => qjs::Function::new(ctx.clone(), encoding::yaml_encode),
 		"log" => qjs::Function::new(ctx.clone(), log::log),
 		"magic" => qjs::Function::new(ctx.clone(), magic::magic),
+		"object_batch" => qjs::Function::new(ctx.clone(), Async(batch::object_batch)),
 		"object_get" => qjs::Function::new(ctx.clone(), Async(object::get)),
 		"object_id" => qjs::Function::new(ctx.clone(), object::id),
 		"process_get" => qjs::Function::new(ctx.clone(), Async(process::get)),
@@ -55,7 +56,6 @@ pub fn syscall<'js>(
 		"process_wait" => qjs::Function::new(ctx.clone(), Async(process::wait)),
 		"read" => qjs::Function::new(ctx.clone(), Async(blob::read)),
 		"sleep" => qjs::Function::new(ctx.clone(), Async(sleep::sleep)),
-		"sync" => qjs::Function::new(ctx.clone(), Async(sync::sync)),
 		"write" => qjs::Function::new(ctx.clone(), Async(blob::write)),
 		_ => {
 			return Err(qjs::Error::Io(std::io::Error::other(tg::error!(

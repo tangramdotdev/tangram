@@ -4,36 +4,44 @@ export let handle: tg.Handle = {
 	read(arg: tg.Handle.ReadArg): Promise<Uint8Array> {
 		return syscall("read", arg);
 	},
-	sync(items: Array<tg.Handle.SyncItem>): Promise<void> {
-		return syscall("sync", items);
-	},
+
 	write(bytes: string | Uint8Array): Promise<tg.Blob.Id> {
 		return syscall("write", bytes);
 	},
+
 	getObject(id) {
 		return syscall("object_get", id);
 	},
+
+	postObjectBatch(arg: tg.Handle.PostObjectBatchArg): Promise<void> {
+		return syscall("object_batch", arg);
+	},
+
 	getProcess(
 		id: tg.Process.Id,
 		remote: string | undefined,
 	): Promise<tg.Process.Data> {
 		return syscall("process_get", id, remote);
 	},
+
 	spawnProcess(arg: tg.Handle.SpawnArg): Promise<tg.Handle.SpawnOutput> {
 		return syscall("process_spawn", arg);
 	},
+
 	waitProcess(
 		id: tg.Process.Id,
 		remote: string | undefined,
 	): Promise<tg.Process.Wait.Data> {
 		return syscall("process_wait", id, remote);
 	},
+
 	checksum(
 		input: string | Uint8Array,
 		algorithm: tg.Checksum.Algorithm,
 	): tg.Checksum {
 		return syscall("checksum", input, algorithm);
 	},
+
 	encoding: {
 		base64: {
 			decode(value: string): Uint8Array {
@@ -84,15 +92,19 @@ export let handle: tg.Handle = {
 			},
 		},
 	},
+
 	log(stream: tg.Handle.LogStream, string: string): void {
 		syscall("log", stream, string);
 	},
+
 	magic(value: Function): tg.Command.Data.Executable {
 		return syscall("magic", value);
 	},
+
 	objectId(object: tg.Object.Data): tg.Object.Id {
 		return syscall("object_id", object);
 	},
+
 	sleep(duration: number): Promise<void> {
 		return syscall("sleep", duration);
 	},

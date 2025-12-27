@@ -2,6 +2,7 @@
 
 use {super::State, std::rc::Rc, tangram_client::prelude::*};
 
+mod batch;
 mod blob;
 mod checksum;
 mod encoding;
@@ -9,7 +10,6 @@ mod magic;
 mod object;
 mod process;
 mod sleep;
-mod sync;
 
 pub mod log;
 
@@ -38,6 +38,7 @@ pub fn syscall<'s>(
 		"encoding_yaml_encode" => sync(scope, &args, self::encoding::yaml_encode),
 		"log" => sync(scope, &args, self::log::log),
 		"magic" => self::magic::magic(scope, &args),
+		"object_batch" => async_(scope, &args, self::batch::object_batch),
 		"object_get" => async_(scope, &args, self::object::get),
 		"object_id" => sync(scope, &args, self::object::id),
 		"process_get" => async_(scope, &args, self::process::get),
@@ -45,7 +46,6 @@ pub fn syscall<'s>(
 		"process_wait" => async_(scope, &args, self::process::wait),
 		"read" => async_(scope, &args, self::blob::read),
 		"sleep" => async_(scope, &args, self::sleep::sleep),
-		"sync" => async_(scope, &args, self::sync::sync),
 		"write" => async_(scope, &args, self::blob::write),
 		_ => Err(tg::error!(%name, "unknown syscall")),
 	};

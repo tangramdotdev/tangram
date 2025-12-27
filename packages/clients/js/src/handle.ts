@@ -9,8 +9,6 @@ export let setHandle = (newHandle: Handle) => {
 export type Handle = {
 	read(arg: tg.Handle.ReadArg): Promise<Uint8Array>;
 
-	sync(items: Array<tg.Handle.SyncItem>): Promise<void>;
-
 	write(bytes: string | Uint8Array): Promise<tg.Blob.Id>;
 } & tg.Handle.Object &
 	tg.Handle.Process &
@@ -46,13 +44,16 @@ export namespace Handle {
 		remote: string | undefined;
 	};
 
-	export type SyncItem = {
-		id: tg.Object.Id;
-		data: tg.Object.Data;
+	export type PostObjectBatchArg = {
+		objects: Array<{
+			id: tg.Object.Id;
+			data: tg.Object.Data;
+		}>;
 	};
 
 	export type Object = {
 		getObject(id: tg.Object.Id): Promise<tg.Object.Data>;
+		postObjectBatch(arg: PostObjectBatchArg): Promise<void>;
 	};
 
 	export type Process = {
