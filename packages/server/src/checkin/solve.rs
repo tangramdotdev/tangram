@@ -34,14 +34,14 @@ struct Checkpoint {
 
 #[derive(Clone, Debug)]
 pub struct Candidate {
-	node: Option<usize>,
+	index: Option<usize>,
 	object: tg::object::Id,
 	tag: tg::Tag,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct Item {
-	node: usize,
+	index: usize,
 	variant: ItemVariant,
 }
 
@@ -78,7 +78,7 @@ enum TagInnerOutput {
 
 #[derive(Clone)]
 pub struct Referrer {
-	pub node: usize,
+	pub index: usize,
 	pub pattern: Option<tg::tag::Pattern>,
 }
 
@@ -188,9 +188,9 @@ impl Server {
 			return Ok(());
 		}
 
-		// If the item is solved, then add its destination's items to the queue and return.
-		if let Some(destination) = Self::checkin_solve_get_destination_for_item(checkpoint, &item) {
-			let destination = match destination {
+		// If the item is solved, then add the node if necessary, create the edge, and enqueue the node's items.
+		if let Some(edge) = Self::checkin_solve_get_solved_edge_for_item(checkpoint, &item) {
+			let index = match edge {
 				tg::graph::data::Edge::Reference(reference) => {
 					if let Some(graph_id) = &reference.graph {
 						let index = self
@@ -201,7 +201,7 @@ impl Server {
 								reference.index,
 							)
 							.await?;
-						Self::checkin_solve_update_edge_for_destination(checkpoint, index, &item);
+						Self::checkin_create_edge_for_item(checkpoint, &item, index);
 						Some(index)
 					} else {
 						Some(reference.index)
@@ -214,13 +214,13 @@ impl Server {
 						None
 					};
 					if let Some(index) = index {
-						Self::checkin_solve_update_edge_for_destination(checkpoint, index, &item);
+						Self::checkin_create_edge_for_item(checkpoint, &item, index);
 					}
 					index
 				},
 			};
-			if let Some(destination) = destination {
-				Self::checkin_solve_enqueue_items_for_node(checkpoint, destination);
+			if let Some(index) = index {
+				Self::checkin_solve_enqueue_items_for_node(checkpoint, index);
 			}
 			return Ok(());
 		}
@@ -250,13 +250,9 @@ impl Server {
 		.await
 	}
 
-	fn checkin_solve_update_edge_for_destination(
-		checkpoint: &mut Checkpoint,
-		index: usize,
-		item: &Item,
-	) {
+	fn checkin_create_edge_for_item(checkpoint: &mut Checkpoint, item: &Item, index: usize) {
 		let kind = checkpoint.graph.nodes.get(&index).unwrap().variant.kind();
-		let node = checkpoint.graph.nodes.get_mut(&item.node).unwrap();
+		let node = checkpoint.graph.nodes.get_mut(&item.index).unwrap();
 		match &item.variant {
 			ItemVariant::DirectoryEntry(name) => {
 				let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
@@ -303,7 +299,7 @@ impl Server {
 			.get_mut(&index)
 			.unwrap()
 			.referrers
-			.push(item.node);
+			.push(item.index);
 	}
 
 	async fn checkin_solve_visit_item_with_tag(
@@ -334,7 +330,7 @@ impl Server {
 
 		// Get the referrer.
 		let referrer = Referrer {
-			node: item.node,
+			index: item.index,
 			pattern: Some(pattern),
 		};
 
@@ -355,7 +351,7 @@ impl Server {
 				checkpoint
 					.graph
 					.nodes
-					.get_mut(&item.node)
+					.get_mut(&item.index)
 					.unwrap()
 					.variant
 					.unwrap_file_mut()
@@ -378,7 +374,7 @@ impl Server {
 					.get_mut(&referent.item)
 					.unwrap()
 					.referrers
-					.push(item.node);
+					.push(item.index);
 
 				// Add the referrer to the solution.
 				checkpoint.solutions.add_referrer(&key, referrer);
@@ -406,7 +402,7 @@ impl Server {
 				// Otherwise, remove the edges from the referrers and remove the solution's referent.
 				let referrers = checkpoint.solutions.get(&key).unwrap().referrers.clone();
 				'outer: for referrer in &referrers {
-					let node = checkpoint.graph.nodes.get_mut(&referrer.node).unwrap();
+					let node = checkpoint.graph.nodes.get_mut(&referrer.index).unwrap();
 					let Variant::File(file) = &mut node.variant else {
 						continue;
 					};
@@ -483,14 +479,14 @@ impl Server {
 				return Ok(TagInnerOutput::Unsolved);
 			}
 			return Err(tg::error!(
-				referrer = %Self::checkin_solve_get_referrer(state, &checkpoint.graph, item.node),
+				referrer = %Self::checkin_solve_get_referrer(state, &checkpoint.graph, item.index),
 				%pattern,
 				"no matching tags were found",
 			));
 		};
 
 		// Try to reuse a node if it exists. Otherwise, create a new node.
-		let node = if let Some(node) = candidate.node {
+		let node = if let Some(node) = candidate.index {
 			node
 		} else {
 			let id = candidate
@@ -525,7 +521,7 @@ impl Server {
 		checkpoint: &Checkpoint,
 		item: &Item,
 	) -> Option<Candidate> {
-		let lock_index = checkpoint.graph.nodes.get(&item.node).unwrap().lock_node?;
+		let lock_index = checkpoint.graph.nodes.get(&item.index).unwrap().lock_node?;
 		let candidate = Self::checkin_solve_get_lock_candidate_inner(checkpoint, item, lock_index)?;
 		if state
 			.updates
@@ -553,14 +549,14 @@ impl Server {
 		} else {
 			return None;
 		};
-		let node = if let Some(artifact) = referent.artifact() {
+		let index = if let Some(artifact) = referent.artifact() {
 			checkpoint.graph.artifacts.get(artifact).copied()
 		} else {
 			None
 		};
 		let object = referent.id().cloned()?;
 		let tag = referent.tag().cloned()?;
-		let candidate = Candidate { node, object, tag };
+		let candidate = Candidate { index, object, tag };
 		Some(candidate)
 	}
 
@@ -585,9 +581,9 @@ impl Server {
 			.into_iter()
 			.filter_map(|output| {
 				let object = output.item?.left()?;
-				let node = None;
+				let index = None;
 				let tag = output.tag;
-				let candidate = Candidate { node, object, tag };
+				let candidate = Candidate { index, object, tag };
 				Some(candidate)
 			})
 			.collect::<im::Vector<_>>();
@@ -880,7 +876,7 @@ impl Server {
 		let Some(lock) = &checkpoint.lock else {
 			return None;
 		};
-		let parent_index = checkpoint.graph.nodes.get(&item.node).unwrap().lock_node?;
+		let parent_index = checkpoint.graph.nodes.get(&item.index).unwrap().lock_node?;
 		let parent_node = lock.nodes.get(parent_index).unwrap();
 		match &item.variant {
 			ItemVariant::DirectoryEntry(name) => Some(
@@ -932,21 +928,21 @@ impl Server {
 		match &node.variant {
 			Variant::Directory(directory) => {
 				let items = directory.entries.keys().map(|name| Item {
-					node: index,
+					index,
 					variant: ItemVariant::DirectoryEntry(name.clone()),
 				});
 				checkpoint.queue.extend(items);
 			},
 			Variant::File(file) => {
 				let items = file.dependencies.keys().map(|reference| Item {
-					node: index,
+					index,
 					variant: ItemVariant::FileDependency(reference.clone()),
 				});
 				checkpoint.queue.extend(items);
 			},
 			Variant::Symlink(symlink) => {
 				let items = symlink.artifact.iter().map(|_| Item {
-					node: index,
+					index,
 					variant: ItemVariant::SymlinkArtifact,
 				});
 				checkpoint.queue.extend(items);
@@ -954,11 +950,11 @@ impl Server {
 		}
 	}
 
-	fn checkin_solve_get_destination_for_item(
+	fn checkin_solve_get_solved_edge_for_item(
 		checkpoint: &Checkpoint,
 		item: &Item,
 	) -> Option<tg::graph::data::Edge<tg::object::Id>> {
-		let node = checkpoint.graph.nodes.get(&item.node).unwrap();
+		let node = checkpoint.graph.nodes.get(&item.index).unwrap();
 		match &item.variant {
 			ItemVariant::DirectoryEntry(name) => {
 				let directory = node.variant.unwrap_directory_ref();
@@ -1017,7 +1013,7 @@ impl Server {
 		if let Some(solution) = checkpoint.solutions.get(key) {
 			for referrer in &solution.referrers {
 				let reference =
-					Self::checkin_solve_get_referrer(state, &checkpoint.graph, referrer.node);
+					Self::checkin_solve_get_referrer(state, &checkpoint.graph, referrer.index);
 				write!(message, "\ndepended on by {reference}").unwrap();
 				if let Some(pattern) = &referrer.pattern {
 					write!(message, " with pattern {pattern}").unwrap();
@@ -1162,10 +1158,10 @@ impl Solutions {
 			}
 		}
 		for referrer in &solution.referrers {
-			if let Some(patterns) = self.referrers.get_mut(&referrer.node) {
+			if let Some(patterns) = self.referrers.get_mut(&referrer.index) {
 				patterns.remove(key);
 				if patterns.is_empty() {
-					self.referrers.remove(&referrer.node);
+					self.referrers.remove(&referrer.index);
 				}
 			}
 		}
@@ -1183,10 +1179,10 @@ impl Solutions {
 			for pattern in &patterns {
 				if let Some(solution) = self.solutions.remove(pattern) {
 					for referrer in &solution.referrers {
-						if let Some(referrer_patterns) = self.referrers.get_mut(&referrer.node) {
+						if let Some(referrer_patterns) = self.referrers.get_mut(&referrer.index) {
 							referrer_patterns.remove(pattern);
 							if referrer_patterns.is_empty() {
-								self.referrers.remove(&referrer.node);
+								self.referrers.remove(&referrer.index);
 							}
 						}
 					}
@@ -1198,7 +1194,7 @@ impl Solutions {
 			let mut to_remove = Vec::new();
 			for pattern in patterns {
 				if let Some(solution) = self.solutions.get_mut(&pattern) {
-					solution.referrers.retain(|r| r.node != node);
+					solution.referrers.retain(|r| r.index != node);
 					if solution.referrers.is_empty() {
 						to_remove.push(pattern);
 					}
@@ -1232,7 +1228,7 @@ impl Solutions {
 
 	pub fn add_referrer(&mut self, key: &tg::tag::Pattern, referrer: Referrer) {
 		self.referrers
-			.entry(referrer.node)
+			.entry(referrer.index)
 			.or_default()
 			.insert(key.clone());
 		if let Some(solution) = self.solutions.get_mut(key) {
