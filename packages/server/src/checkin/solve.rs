@@ -201,135 +201,22 @@ impl Server {
 								reference.index,
 							)
 							.await?;
-						let kind = checkpoint.graph.nodes.get(&index).unwrap().variant.kind();
-						let node = checkpoint.graph.nodes.get_mut(&item.node).unwrap();
-						match &item.variant {
-							ItemVariant::DirectoryEntry(name) => {
-								let edge =
-									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-										graph: None,
-										index,
-										kind,
-									});
-								*node
-									.variant
-									.unwrap_directory_mut()
-									.entries
-									.get_mut(name)
-									.unwrap() = edge;
-							},
-							ItemVariant::FileDependency(reference) => {
-								let edge =
-									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-										graph: None,
-										index,
-										kind,
-									});
-								node.variant
-									.unwrap_file_mut()
-									.dependencies
-									.get_mut(reference)
-									.unwrap()
-									.get_or_insert_with(|| {
-										tg::graph::data::Dependency(tg::Referent::with_item(Some(
-											edge.clone(),
-										)))
-									})
-									.0
-									.item = Some(edge.clone());
-							},
-							ItemVariant::SymlinkArtifact => {
-								let edge =
-									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-										graph: None,
-										index,
-										kind,
-									});
-								*node.variant.unwrap_symlink_mut().artifact.as_mut().unwrap() =
-									edge;
-							},
-						}
-						checkpoint
-							.graph
-							.nodes
-							.get_mut(&index)
-							.unwrap()
-							.referrers
-							.push(item.node);
+						Self::checkin_solve_update_edge_for_destination(checkpoint, index, &item);
 						Some(index)
 					} else {
 						Some(reference.index)
 					}
 				},
 				tg::graph::data::Edge::Object(id) => {
-					let index = if let Ok(artifact_id) = tg::artifact::Id::try_from(id) {
-						Some(
-							self.checkin_solve_add_node(checkpoint, &item, &artifact_id)
-								.await?,
-						)
+					let index = if let Ok(id) = tg::artifact::Id::try_from(id) {
+						Some(self.checkin_solve_add_node(checkpoint, &item, &id).await?)
 					} else {
 						None
 					};
 					if let Some(index) = index {
-						let kind = checkpoint.graph.nodes.get(&index).unwrap().variant.kind();
-						let node = checkpoint.graph.nodes.get_mut(&item.node).unwrap();
-						match &item.variant {
-							ItemVariant::DirectoryEntry(name) => {
-								let edge =
-									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-										graph: None,
-										index,
-										kind,
-									});
-								*node
-									.variant
-									.unwrap_directory_mut()
-									.entries
-									.get_mut(name)
-									.unwrap() = edge;
-							},
-							ItemVariant::FileDependency(reference) => {
-								let edge =
-									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-										graph: None,
-										index,
-										kind,
-									});
-								node.variant
-									.unwrap_file_mut()
-									.dependencies
-									.get_mut(reference)
-									.unwrap()
-									.get_or_insert_with(|| {
-										tg::graph::data::Dependency(tg::Referent::with_item(Some(
-											edge.clone(),
-										)))
-									})
-									.0
-									.item = Some(edge.clone());
-							},
-							ItemVariant::SymlinkArtifact => {
-								let edge =
-									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-										graph: None,
-										index,
-										kind,
-									});
-								*node.variant.unwrap_symlink_mut().artifact.as_mut().unwrap() =
-									edge;
-							},
-						}
-						checkpoint
-							.graph
-							.nodes
-							.get_mut(&index)
-							.unwrap()
-							.referrers
-							.push(item.node);
-						Some(index)
-					} else {
-						None
+						Self::checkin_solve_update_edge_for_destination(checkpoint, index, &item);
 					}
+					index
 				},
 			};
 			if let Some(destination) = destination {
@@ -361,6 +248,62 @@ impl Server {
 			pattern.clone(),
 		)
 		.await
+	}
+
+	fn checkin_solve_update_edge_for_destination(
+		checkpoint: &mut Checkpoint,
+		index: usize,
+		item: &Item,
+	) {
+		let kind = checkpoint.graph.nodes.get(&index).unwrap().variant.kind();
+		let node = checkpoint.graph.nodes.get_mut(&item.node).unwrap();
+		match &item.variant {
+			ItemVariant::DirectoryEntry(name) => {
+				let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+					graph: None,
+					index,
+					kind,
+				});
+				*node
+					.variant
+					.unwrap_directory_mut()
+					.entries
+					.get_mut(name)
+					.unwrap() = edge;
+			},
+			ItemVariant::FileDependency(reference) => {
+				let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+					graph: None,
+					index,
+					kind,
+				});
+				node.variant
+					.unwrap_file_mut()
+					.dependencies
+					.get_mut(reference)
+					.unwrap()
+					.get_or_insert_with(|| {
+						tg::graph::data::Dependency(tg::Referent::with_item(Some(edge.clone())))
+					})
+					.0
+					.item = Some(edge.clone());
+			},
+			ItemVariant::SymlinkArtifact => {
+				let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+					graph: None,
+					index,
+					kind,
+				});
+				*node.variant.unwrap_symlink_mut().artifact.as_mut().unwrap() = edge;
+			},
+		}
+		checkpoint
+			.graph
+			.nodes
+			.get_mut(&index)
+			.unwrap()
+			.referrers
+			.push(item.node);
 	}
 
 	async fn checkin_solve_visit_item_with_tag(
