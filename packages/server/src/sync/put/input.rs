@@ -46,13 +46,13 @@ impl Server {
 						continue;
 					}
 					tracing::trace!(id = %message.id, "received stored object");
-					state.graph.lock().unwrap().update_object_for_put(
+					state.graph.lock().unwrap().update_object_remote(
 						&message.id,
 						None,
 						None,
-						Some(crate::object::stored::Output { subtree: true }),
+						Some(&crate::object::stored::Output { subtree: true }),
 					);
-					if state.graph.lock().unwrap().end_put(&state.arg) {
+					if state.graph.lock().unwrap().end_remote(&state.arg) {
 						state.queue.close();
 					}
 				},
@@ -79,8 +79,8 @@ impl Server {
 						.graph
 						.lock()
 						.unwrap()
-						.update_process_for_put(&id, None, Some(&stored));
-					if state.graph.lock().unwrap().end_put(&state.arg) {
+						.update_process_remote(&id, None, Some(&stored));
+					if state.graph.lock().unwrap().end_remote(&state.arg) {
 						state.queue.close();
 					}
 				},
@@ -89,8 +89,8 @@ impl Server {
 
 				tg::sync::GetMessage::End => {
 					tracing::trace!("received end");
-					state.graph.lock().unwrap().mark_put_end_received();
-					if state.graph.lock().unwrap().end_put(&state.arg) {
+					state.graph.lock().unwrap().mark_get_end_received();
+					if state.graph.lock().unwrap().end_remote(&state.arg) {
 						state.queue.close();
 					}
 					break;

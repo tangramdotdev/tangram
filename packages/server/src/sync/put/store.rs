@@ -100,11 +100,11 @@ impl Server {
 				.send(Ok(message))
 				.await
 				.map_err(|source| tg::error!(!source, "failed to send the put message"))?;
-			state.graph.lock().unwrap().update_object_for_put(
+			state.graph.lock().unwrap().update_object_remote(
 				&item.id,
 				None,
 				item.kind,
-				Some(crate::object::stored::Output { subtree: true }),
+				Some(&crate::object::stored::Output { subtree: true }),
 			);
 
 			// Enqueue the children.
@@ -126,7 +126,7 @@ impl Server {
 			}
 		}
 
-		if state.graph.lock().unwrap().end_put(&state.arg) {
+		if state.graph.lock().unwrap().end_remote(&state.arg) {
 			state.queue.close();
 		}
 
@@ -176,7 +176,7 @@ impl Server {
 				.graph
 				.lock()
 				.unwrap()
-				.update_process_for_put(&item.id, None, Some(&stored));
+				.update_process_remote(&item.id, None, Some(&stored));
 
 			// Enqueue the children.
 			if state.arg.recursive && item.eager {
@@ -274,7 +274,7 @@ impl Server {
 			}
 		}
 
-		if state.graph.lock().unwrap().end_put(&state.arg) {
+		if state.graph.lock().unwrap().end_remote(&state.arg) {
 			state.queue.close();
 		}
 

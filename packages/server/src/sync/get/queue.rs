@@ -95,7 +95,7 @@ impl Server {
 							true
 						} else {
 							let requested = Requested { eager: item.eager };
-							graph.update_object_for_get(
+							graph.update_object_local(
 								&item.id,
 								None,
 								None,
@@ -124,7 +124,7 @@ impl Server {
 
 				Some((stored, metadata)) => {
 					// Update the graph with stored and metadata.
-					state.graph.lock().unwrap().update_object_for_get(
+					state.graph.lock().unwrap().update_object_local(
 						&item.id,
 						None,
 						Some(stored.clone()),
@@ -158,7 +158,7 @@ impl Server {
 						)?;
 
 						// Update the graph with data.
-						state.graph.lock().unwrap().update_object_for_get(
+						state.graph.lock().unwrap().update_object_local(
 							&item.id,
 							Some(&data),
 							None,
@@ -173,7 +173,7 @@ impl Server {
 			}
 		}
 
-		let end = state.graph.lock().unwrap().end_get(&state.arg);
+		let end = state.graph.lock().unwrap().end_local(&state.arg);
 		if end {
 			state.queue.close();
 		}
@@ -209,7 +209,7 @@ impl Server {
 							true
 						} else {
 							let requested = Requested { eager: item.eager };
-							graph.update_process_for_get(
+							graph.update_process_local(
 								&item.id,
 								None,
 								None,
@@ -247,7 +247,7 @@ impl Server {
 						.data;
 
 					// Update the graph with stored and metadata and data.
-					state.graph.lock().unwrap().update_process_for_get(
+					state.graph.lock().unwrap().update_process_local(
 						&item.id,
 						Some(&data),
 						Some(stored.clone()),
@@ -284,7 +284,7 @@ impl Server {
 			}
 		}
 
-		let end = state.graph.lock().unwrap().end_get(&state.arg);
+		let end = state.graph.lock().unwrap().end_local(&state.arg);
 		if end {
 			state.queue.close();
 		}

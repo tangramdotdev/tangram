@@ -107,7 +107,7 @@ impl Server {
 				.graph
 				.lock()
 				.unwrap()
-				.update_object_for_put(&item.id, parent, item.kind, None);
+				.update_object_remote(&item.id, parent, item.kind, None);
 			let stored = stored.is_some_and(|stored| stored.subtree);
 			if !inserted || stored {
 				let item = super::index::ObjectItem { id: item.id };
@@ -128,7 +128,7 @@ impl Server {
 			}
 		}
 
-		if state.graph.lock().unwrap().end_put(&state.arg) {
+		if state.graph.lock().unwrap().end_remote(&state.arg) {
 			state.queue.close();
 		}
 
@@ -148,7 +148,7 @@ impl Server {
 				.graph
 				.lock()
 				.unwrap()
-				.update_process_for_put(&item.id, parent, None);
+				.update_process_remote(&item.id, parent, None);
 			let stored = stored.is_some_and(|stored| {
 				if state.arg.recursive {
 					stored.subtree
@@ -181,7 +181,7 @@ impl Server {
 			}
 		}
 
-		if state.graph.lock().unwrap().end_put(&state.arg) {
+		if state.graph.lock().unwrap().end_remote(&state.arg) {
 			state.queue.close();
 		}
 

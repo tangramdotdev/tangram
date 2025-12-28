@@ -152,7 +152,7 @@ impl Server {
 				},
 				..Default::default()
 			};
-			graph.update_object_for_get(
+			graph.update_object_local(
 				&item.id,
 				Some(&data),
 				None,
@@ -171,7 +171,7 @@ impl Server {
 			.sum();
 		state.progress.increment(0, objects, bytes);
 
-		let end = state.graph.lock().unwrap().end_get(&state.arg);
+		let end = state.graph.lock().unwrap().end_local(&state.arg);
 		if end {
 			state.queue.close();
 		}
@@ -235,7 +235,7 @@ impl Server {
 		// Update the graph for all processes.
 		let mut graph = state.graph.lock().unwrap();
 		for (id, data) in &batch {
-			graph.update_process_for_get(id, Some(data), None, None, Some(true), None);
+			graph.update_process_local(id, Some(data), None, None, Some(true), None);
 		}
 		drop(graph);
 
@@ -243,7 +243,7 @@ impl Server {
 		let processes = items.len().to_u64().unwrap();
 		state.progress.increment(processes, 0, 0);
 
-		let end = state.graph.lock().unwrap().end_get(&state.arg);
+		let end = state.graph.lock().unwrap().end_local(&state.arg);
 		if end {
 			state.queue.close();
 		}

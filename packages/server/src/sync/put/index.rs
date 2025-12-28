@@ -82,7 +82,7 @@ impl Server {
 			state.progress.increment(processes, objects, bytes);
 		}
 
-		if state.graph.lock().unwrap().end_put(&state.arg) {
+		if state.graph.lock().unwrap().end_remote(&state.arg) {
 			state.queue.close();
 		}
 
@@ -173,7 +173,7 @@ impl Server {
 				.increment(message.processes, message.objects, message.bytes);
 		}
 
-		if state.graph.lock().unwrap().end_put(&state.arg) {
+		if state.graph.lock().unwrap().end_remote(&state.arg) {
 			state.queue.close();
 		}
 
