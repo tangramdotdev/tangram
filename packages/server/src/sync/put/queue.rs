@@ -100,14 +100,14 @@ impl Server {
 	) -> tg::Result<()> {
 		for item in items {
 			let parent = item.parent.clone().map(|either| match either {
-				tg::Either::Left(id) => super::graph::Id::Object(id),
-				tg::Either::Right(id) => super::graph::Id::Process(id),
+				tg::Either::Left(id) => crate::sync::graph::Id::Object(id),
+				tg::Either::Right(id) => crate::sync::graph::Id::Process(id),
 			});
 			let (inserted, stored) = state
 				.graph
 				.lock()
 				.unwrap()
-				.update_object(&item.id, parent, item.kind, None);
+				.update_object_for_put(&item.id, parent, item.kind, None);
 			let stored = stored.is_some_and(|stored| stored.subtree);
 			if !inserted || stored {
 				let item = super::index::ObjectItem { id: item.id };
@@ -127,6 +127,11 @@ impl Server {
 					.map_err(|_| tg::error!("failed to send the object to the store task"))?;
 			}
 		}
+
+		if state.graph.lock().unwrap().end_put(&state.arg) {
+			state.queue.close();
+		}
+
 		Ok(())
 	}
 
@@ -138,12 +143,12 @@ impl Server {
 		store_process_sender: tokio::sync::mpsc::Sender<super::store::ProcessItem>,
 	) -> tg::Result<()> {
 		for item in items {
-			let parent = item.parent.clone().map(super::graph::Id::Process);
+			let parent = item.parent.clone().map(crate::sync::graph::Id::Process);
 			let (inserted, stored) = state
 				.graph
 				.lock()
 				.unwrap()
-				.update_process(&item.id, parent, None);
+				.update_process_for_put(&item.id, parent, None);
 			let stored = stored.is_some_and(|stored| {
 				if state.arg.recursive {
 					stored.subtree
@@ -175,6 +180,11 @@ impl Server {
 					.map_err(|_| tg::error!("failed to send the process to the store task"))?;
 			}
 		}
+
+		if state.graph.lock().unwrap().end_put(&state.arg) {
+			state.queue.close();
+		}
+
 		Ok(())
 	}
 }

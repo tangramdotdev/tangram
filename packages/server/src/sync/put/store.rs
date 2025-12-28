@@ -100,6 +100,12 @@ impl Server {
 				.send(Ok(message))
 				.await
 				.map_err(|source| tg::error!(!source, "failed to send the put message"))?;
+			state.graph.lock().unwrap().update_object_for_put(
+				&item.id,
+				None,
+				item.kind,
+				Some(crate::object::stored::Output { subtree: true }),
+			);
 
 			// Enqueue the children.
 			if item.eager {
@@ -118,6 +124,10 @@ impl Server {
 					});
 				state.queue.enqueue_objects(items);
 			}
+		}
+
+		if state.graph.lock().unwrap().end_put(&state.arg) {
+			state.queue.close();
 		}
 
 		Ok(())
@@ -161,6 +171,12 @@ impl Server {
 				.send(Ok(message))
 				.await
 				.map_err(|source| tg::error!(!source, "failed to send the put message"))?;
+			let stored = crate::process::stored::Output::default();
+			state
+				.graph
+				.lock()
+				.unwrap()
+				.update_process_for_put(&item.id, None, Some(&stored));
 
 			// Enqueue the children.
 			if state.arg.recursive && item.eager {
@@ -256,6 +272,10 @@ impl Server {
 					});
 				state.queue.enqueue_objects(items);
 			}
+		}
+
+		if state.graph.lock().unwrap().end_put(&state.arg) {
+			state.queue.close();
 		}
 
 		Ok(())

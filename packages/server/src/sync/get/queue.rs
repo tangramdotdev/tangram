@@ -2,7 +2,8 @@ use {
 	crate::{
 		Server,
 		sync::{
-			get::{State, graph::Requested},
+			get::State,
+			graph::Requested,
 			queue::{ObjectItem, ProcessItem},
 		},
 	},
@@ -94,7 +95,14 @@ impl Server {
 							true
 						} else {
 							let requested = Requested { eager: item.eager };
-							graph.update_object(&item.id, None, None, None, None, Some(requested));
+							graph.update_object_for_get(
+								&item.id,
+								None,
+								None,
+								None,
+								None,
+								Some(requested),
+							);
 							false
 						}
 					};
@@ -116,7 +124,7 @@ impl Server {
 
 				Some((stored, metadata)) => {
 					// Update the graph with stored and metadata.
-					state.graph.lock().unwrap().update_object(
+					state.graph.lock().unwrap().update_object_for_get(
 						&item.id,
 						None,
 						Some(stored.clone()),
@@ -150,7 +158,7 @@ impl Server {
 						)?;
 
 						// Update the graph with data.
-						state.graph.lock().unwrap().update_object(
+						state.graph.lock().unwrap().update_object_for_get(
 							&item.id,
 							Some(&data),
 							None,
@@ -165,7 +173,7 @@ impl Server {
 			}
 		}
 
-		let end = state.graph.lock().unwrap().end(&state.arg);
+		let end = state.graph.lock().unwrap().end_get(&state.arg);
 		if end {
 			state.queue.close();
 		}
@@ -201,7 +209,14 @@ impl Server {
 							true
 						} else {
 							let requested = Requested { eager: item.eager };
-							graph.update_process(&item.id, None, None, None, None, Some(requested));
+							graph.update_process_for_get(
+								&item.id,
+								None,
+								None,
+								None,
+								None,
+								Some(requested),
+							);
 							false
 						}
 					};
@@ -232,7 +247,7 @@ impl Server {
 						.data;
 
 					// Update the graph with stored and metadata and data.
-					state.graph.lock().unwrap().update_process(
+					state.graph.lock().unwrap().update_process_for_get(
 						&item.id,
 						Some(&data),
 						Some(stored.clone()),
@@ -269,7 +284,7 @@ impl Server {
 			}
 		}
 
-		let end = state.graph.lock().unwrap().end(&state.arg);
+		let end = state.graph.lock().unwrap().end_get(&state.arg);
 		if end {
 			state.queue.close();
 		}

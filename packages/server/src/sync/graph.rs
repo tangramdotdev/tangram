@@ -10,7 +10,9 @@ use {
 #[derive(Default)]
 pub struct Graph {
 	pub nodes: IndexMap<Id, Node, fnv::FnvBuildHasher>,
-	pub roots: HashSet<Id, fnv::FnvBuildHasher>,
+	pub get_roots: HashSet<Id, fnv::FnvBuildHasher>,
+	pub put_roots: HashSet<Id, fnv::FnvBuildHasher>,
+	pub put_end_received: bool,
 }
 
 #[derive(
@@ -46,22 +48,24 @@ pub enum Node {
 #[derive(Clone, Debug, Default)]
 pub struct ObjectNode {
 	pub children: Option<Vec<usize>>,
+	pub get_stored: Option<crate::object::stored::Output>,
 	pub marked: bool,
 	pub metadata: Option<tg::object::Metadata>,
 	pub parents: SmallVec<[usize; 1]>,
+	pub put_stored: Option<crate::object::stored::Output>,
 	pub requested: Option<Requested>,
-	pub stored: Option<crate::object::stored::Output>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct ProcessNode {
 	pub children: Option<Vec<usize>>,
+	pub get_stored: Option<crate::process::stored::Output>,
 	pub marked: bool,
 	pub metadata: Option<tg::process::Metadata>,
 	pub objects: Option<Vec<(usize, crate::index::message::ProcessObjectKind)>>,
 	pub parents: SmallVec<[usize; 1]>,
+	pub put_stored: Option<crate::process::stored::Output>,
 	pub requested: Option<Requested>,
-	pub stored: Option<crate::process::stored::Output>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -70,8 +74,18 @@ pub struct Requested {
 }
 
 impl Graph {
-	pub fn new(roots: &[tg::Either<tg::object::Id, tg::process::Id>]) -> Self {
-		let roots = roots
+	pub fn new(
+		get_roots: &[tg::Either<tg::object::Id, tg::process::Id>],
+		put_roots: &[tg::Either<tg::object::Id, tg::process::Id>],
+	) -> Self {
+		let get_roots = get_roots
+			.iter()
+			.map(|id| match id {
+				tg::Either::Left(id) => Id::Object(id.clone()),
+				tg::Either::Right(id) => Id::Process(id.clone()),
+			})
+			.collect();
+		let put_roots = put_roots
 			.iter()
 			.map(|id| match id {
 				tg::Either::Left(id) => Id::Object(id.clone()),
@@ -80,15 +94,23 @@ impl Graph {
 			.collect();
 		Graph {
 			nodes: IndexMap::default(),
-			roots,
+			get_roots,
+			put_roots,
+			put_end_received: false,
 		}
 	}
 
-	pub fn update_object(
+	/// Mark that the `GetMessage::End` has been received for the put side.
+	pub fn mark_put_end_received(&mut self) {
+		self.put_end_received = true;
+	}
+
+	/// Update an object node for the get side (receiving items).
+	pub fn update_object_for_get(
 		&mut self,
 		id: &tg::object::Id,
 		data: Option<&tg::object::Data>,
-		stored: Option<crate::object::stored::Output>,
+		get_stored: Option<crate::object::stored::Output>,
 		metadata: Option<tg::object::Metadata>,
 		marked: Option<bool>,
 		requested: Option<Requested>,
@@ -122,7 +144,7 @@ impl Graph {
 					.unwrap()
 					.1
 					.unwrap_object_ref()
-					.stored
+					.get_stored
 					.as_ref()
 					.is_some_and(|stored| stored.subtree)
 			})
@@ -133,7 +155,7 @@ impl Graph {
 			.unwrap()
 			.1
 			.unwrap_object_ref()
-			.stored
+			.get_stored
 			.as_ref()
 			.is_some_and(|stored| stored.subtree);
 
@@ -145,12 +167,12 @@ impl Graph {
 			.unwrap_object_mut();
 		if let Some(children) = children {
 			node.children = Some(children);
-			node.stored = Some(crate::object::stored::Output {
+			node.get_stored = Some(crate::object::stored::Output {
 				subtree: computed_stored.unwrap(),
 			});
 		}
-		if let Some(stored) = stored {
-			node.stored = Some(stored);
+		if let Some(get_stored) = get_stored {
+			node.get_stored = Some(get_stored);
 		}
 		if let Some(new_metadata) = metadata {
 			if let Some(existing) = &mut node.metadata {
@@ -181,22 +203,26 @@ impl Graph {
 			node.requested = Some(requested);
 		}
 
-		let new_stored = node.stored.as_ref().is_some_and(|stored| stored.subtree);
+		let new_stored = node
+			.get_stored
+			.as_ref()
+			.is_some_and(|stored| stored.subtree);
 		if !old_stored && new_stored {
 			let mut stack: Vec<usize> = node.parents.iter().copied().collect();
 			while let Some(parent_index) = stack.pop() {
-				if let Some(parents) = self.try_propagate_stored(parent_index) {
+				if let Some(parents) = self.try_propagate_get_stored(parent_index) {
 					stack.extend(parents);
 				}
 			}
 		}
 	}
 
-	pub fn update_process(
+	/// Update a process node for the get side (receiving items).
+	pub fn update_process_for_get(
 		&mut self,
 		id: &tg::process::Id,
 		data: Option<&tg::process::Data>,
-		stored: Option<crate::process::stored::Output>,
+		get_stored: Option<crate::process::stored::Output>,
 		metadata: Option<tg::process::Metadata>,
 		marked: Option<bool>,
 		requested: Option<Requested>,
@@ -271,10 +297,10 @@ impl Graph {
 			.unwrap()
 			.1
 			.unwrap_process_mut();
-		let node_old_stored = node.stored.clone();
+		let node_old_stored = node.get_stored.clone();
 
 		if let (Some(children), Some(objects)) = (&children, &objects) {
-			let new_stored = self.compute_process_stored(children, objects);
+			let new_stored = self.compute_process_get_stored(children, objects);
 			let merged_stored = Self::merge_process_stored(node_old_stored.as_ref(), new_stored);
 			let node = self
 				.nodes
@@ -282,7 +308,7 @@ impl Graph {
 				.unwrap()
 				.1
 				.unwrap_process_mut();
-			node.stored = Some(merged_stored);
+			node.get_stored = Some(merged_stored);
 		}
 
 		let node = self
@@ -294,10 +320,10 @@ impl Graph {
 		if let Some(children) = children {
 			node.children = Some(children);
 		}
-		if let Some(stored) = stored {
+		if let Some(get_stored) = get_stored {
 			// Merge with the existing stored, keeping true values.
-			let merged_stored = Self::merge_process_stored(node.stored.as_ref(), stored);
-			node.stored = Some(merged_stored);
+			let merged_stored = Self::merge_process_stored(node.get_stored.as_ref(), get_stored);
+			node.get_stored = Some(merged_stored);
 		}
 		if let Some(metadata) = metadata {
 			node.metadata = Some(metadata);
@@ -312,23 +338,239 @@ impl Graph {
 			node.requested = Some(requested);
 		}
 
-		if Self::should_propagate_process_stored(node_old_stored.as_ref(), node.stored.as_ref()) {
+		if Self::should_propagate_process_stored(node_old_stored.as_ref(), node.get_stored.as_ref())
+		{
 			let mut stack: Vec<usize> = node.parents.iter().copied().collect();
 			while let Some(parent_index) = stack.pop() {
-				if let Some(parents) = self.try_propagate_stored(parent_index) {
+				if let Some(parents) = self.try_propagate_get_stored(parent_index) {
 					stack.extend(parents);
 				}
 			}
 		}
 	}
 
-	pub fn get_process_stored(
+	/// Update an object node for the put side (sending items).
+	pub fn update_object_for_put(
+		&mut self,
+		id: &tg::object::Id,
+		parent: Option<Id>,
+		kind: Option<crate::sync::queue::ObjectKind>,
+		put_stored: Option<crate::object::stored::Output>,
+	) -> (bool, Option<crate::object::stored::Output>) {
+		let entry = self.nodes.entry(id.clone().into());
+		let inserted = matches!(entry, indexmap::map::Entry::Vacant(_));
+		let index = entry.index();
+		entry.or_insert_with(|| Node::Object(ObjectNode::default()));
+
+		let do_propagate = put_stored.is_some();
+		if let Some(put_stored) = put_stored {
+			let node = self
+				.nodes
+				.get_index_mut(index)
+				.unwrap()
+				.1
+				.unwrap_object_mut();
+			node.put_stored = Some(put_stored);
+		}
+
+		if let Some(parent) = parent {
+			// Get the parent index and node.
+			let (parent_index, _, parent_node) = self.nodes.get_full_mut(&parent).unwrap();
+
+			// Add the node as a child of the parent.
+			if let Some(children) = parent_node.children_mut().as_mut()
+				&& !children.contains(&index)
+			{
+				children.push(index);
+			}
+
+			// Add the parent to the node.
+			let (_, node) = self.nodes.get_index_mut(index).unwrap();
+			if !node.parents_mut().contains(&parent_index) {
+				node.parents_mut().push(parent_index);
+			}
+		}
+
+		// Search for a stored ancestor and propagate put_stored.
+		// Only propagate if put_stored is explicitly set (i.e., the object was actually sent).
+		if do_propagate {
+			let path = self.find_put_object_ancestor(index, kind);
+			if let Some(path) = path {
+				for index in path {
+					let (_, node) = self.nodes.get_index_mut(index).unwrap();
+					match node {
+						Node::Object(object) => {
+							object.put_stored =
+								Some(crate::object::stored::Output { subtree: true });
+						},
+						Node::Process(process) => {
+							let stored = process.put_stored.get_or_insert_with(Default::default);
+							match kind {
+								Some(crate::sync::queue::ObjectKind::Command) => {
+									stored.subtree_command = true;
+									stored.node_command = true;
+								},
+								Some(crate::sync::queue::ObjectKind::Error) => {
+									stored.subtree_error = true;
+									stored.node_error = true;
+								},
+								Some(crate::sync::queue::ObjectKind::Log) => {
+									stored.subtree_log = true;
+									stored.node_log = true;
+								},
+								Some(crate::sync::queue::ObjectKind::Output) => {
+									stored.subtree_output = true;
+									stored.node_output = true;
+								},
+								None => {
+									stored.subtree_command = true;
+									stored.subtree_output = true;
+									stored.node_command = true;
+									stored.node_log = true;
+									stored.node_output = true;
+								},
+							}
+						},
+					}
+				}
+			}
+		}
+
+		let put_stored = self
+			.nodes
+			.get_index(index)
+			.unwrap()
+			.1
+			.unwrap_object_ref()
+			.put_stored
+			.clone();
+
+		(inserted, put_stored)
+	}
+
+	/// Update a process node for the put side (sending items).
+	pub fn update_process_for_put(
+		&mut self,
+		id: &tg::process::Id,
+		parent: Option<Id>,
+		put_stored: Option<&crate::process::stored::Output>,
+	) -> (bool, Option<crate::process::stored::Output>) {
+		let entry = self.nodes.entry(id.clone().into());
+		let inserted = matches!(entry, indexmap::map::Entry::Vacant(_));
+		let index = entry.index();
+		entry.or_insert_with(|| Node::Process(ProcessNode::default()));
+
+		// Only run ancestor propagation if put_stored is explicitly set (i.e., the process was actually sent).
+		let do_propagate = put_stored.is_some();
+		if let Some(put_stored) = put_stored {
+			let node = self
+				.nodes
+				.get_index_mut(index)
+				.unwrap()
+				.1
+				.unwrap_process_mut();
+			node.put_stored = Some(put_stored.clone());
+		}
+		if let Some(parent) = parent {
+			// Get the parent index and node.
+			let (parent_index, _, parent_node) = self.nodes.get_full_mut(&parent).unwrap();
+
+			// Add the node as a child of the parent.
+			if let Some(children) = parent_node.children_mut().as_mut()
+				&& !children.contains(&index)
+			{
+				children.push(index);
+			}
+
+			// Add the parent to the node.
+			let (_, node) = self.nodes.get_index_mut(index).unwrap();
+			if !node.parents_mut().contains(&parent_index) {
+				node.parents_mut().push(parent_index);
+			}
+		}
+
+		// Search for stored ancestors and propagate put_stored.
+		// Only propagate if put_stored is explicitly set (i.e., the process was actually sent).
+		if !do_propagate {
+			let put_stored = self
+				.nodes
+				.get_index(index)
+				.unwrap()
+				.1
+				.unwrap_process_ref()
+				.put_stored
+				.clone();
+			return (inserted, put_stored);
+		}
+
+		if let Some(path) = self.find_put_process_ancestor(index, |stored| stored.subtree) {
+			let node = self
+				.nodes
+				.get_index_mut(index)
+				.unwrap()
+				.1
+				.unwrap_process_mut();
+			node.put_stored.get_or_insert_default().subtree = true;
+			self.propagate_put_process_field(&path, |stored| stored.subtree = true);
+		}
+
+		if let Some(path) = self.find_put_process_ancestor(index, |stored| stored.subtree_command) {
+			let node = self
+				.nodes
+				.get_index_mut(index)
+				.unwrap()
+				.1
+				.unwrap_process_mut();
+			node.put_stored.get_or_insert_default().subtree_command = true;
+			self.propagate_put_process_field(&path, |stored| stored.subtree_command = true);
+			let node = self
+				.nodes
+				.get_index_mut(index)
+				.unwrap()
+				.1
+				.unwrap_process_mut();
+			node.put_stored.get_or_insert_default().node_command = true;
+			self.propagate_put_process_field(&path, |stored| stored.node_command = true);
+		}
+
+		if let Some(path) = self.find_put_process_ancestor(index, |stored| stored.subtree_output) {
+			let node = self
+				.nodes
+				.get_index_mut(index)
+				.unwrap()
+				.1
+				.unwrap_process_mut();
+			node.put_stored.get_or_insert_default().subtree_output = true;
+			self.propagate_put_process_field(&path, |stored| stored.subtree_output = true);
+			let node = self
+				.nodes
+				.get_index_mut(index)
+				.unwrap()
+				.1
+				.unwrap_process_mut();
+			node.put_stored.get_or_insert_default().node_output = true;
+			self.propagate_put_process_field(&path, |stored| stored.node_output = true);
+		}
+
+		let put_stored = self
+			.nodes
+			.get_index(index)
+			.unwrap()
+			.1
+			.unwrap_process_ref()
+			.put_stored
+			.clone();
+
+		(inserted, put_stored)
+	}
+
+	pub fn get_process_get_stored(
 		&self,
 		id: &tg::process::Id,
 	) -> Option<&crate::process::stored::Output> {
 		self.nodes
 			.get(&Id::Process(id.clone()))
-			.and_then(|node| node.unwrap_process_ref().stored.as_ref())
+			.and_then(|node| node.unwrap_process_ref().get_stored.as_ref())
 	}
 
 	pub fn get_object_requested(&self, id: &tg::object::Id) -> Option<Requested> {
@@ -343,14 +585,17 @@ impl Graph {
 			.and_then(|node| node.unwrap_process_ref().requested.clone())
 	}
 
-	pub fn end(&self, arg: &tg::sync::Arg) -> bool {
-		self.roots.iter().all(|root| {
+	pub fn end_get(&self, arg: &tg::sync::Arg) -> bool {
+		self.get_roots.iter().all(|root| {
 			let Some(node) = self.nodes.get(root) else {
 				return false;
 			};
 			match node {
-				Node::Object(node) => node.stored.as_ref().is_some_and(|stored| stored.subtree),
-				Node::Process(node) => node.stored.as_ref().is_some_and(|stored| {
+				Node::Object(node) => node
+					.get_stored
+					.as_ref()
+					.is_some_and(|stored| stored.subtree),
+				Node::Process(node) => node.get_stored.as_ref().is_some_and(|stored| {
 					if arg.recursive {
 						stored.subtree
 							&& (!arg.commands || stored.subtree_command)
@@ -368,7 +613,38 @@ impl Graph {
 		})
 	}
 
-	fn compute_process_stored(
+	pub fn end_put(&self, arg: &tg::sync::Arg) -> bool {
+		if !self.put_end_received {
+			return false;
+		}
+		self.put_roots.iter().all(|root| {
+			let Some(node) = self.nodes.get(root) else {
+				return false;
+			};
+			match node {
+				Node::Object(node) => node
+					.put_stored
+					.as_ref()
+					.is_some_and(|stored| stored.subtree),
+				Node::Process(node) => node.put_stored.as_ref().is_some_and(|stored| {
+					if arg.recursive {
+						stored.subtree
+							&& (!arg.commands || stored.subtree_command)
+							&& (!arg.errors || stored.subtree_error)
+							&& (!arg.logs || stored.subtree_log)
+							&& (!arg.outputs || stored.subtree_output)
+					} else {
+						(!arg.commands || stored.node_command)
+							&& (!arg.errors || stored.node_error)
+							&& (!arg.logs || stored.node_log)
+							&& (!arg.outputs || stored.node_output)
+					}
+				}),
+			}
+		})
+	}
+
+	fn compute_process_get_stored(
 		&self,
 		children: &[usize],
 		objects: &[(usize, crate::index::message::ProcessObjectKind)],
@@ -388,7 +664,7 @@ impl Graph {
 			let child_stored = self
 				.nodes
 				.get_index(*child_index)
-				.and_then(|(_, node)| node.try_unwrap_process_ref().ok()?.stored.as_ref());
+				.and_then(|(_, node)| node.try_unwrap_process_ref().ok()?.get_stored.as_ref());
 			if let Some(child_stored) = child_stored {
 				stored.subtree = stored.subtree && child_stored.subtree;
 				stored.subtree_command = stored.subtree_command && child_stored.subtree_command;
@@ -405,7 +681,7 @@ impl Graph {
 			let object_stored = self
 				.nodes
 				.get_index(*object_index)
-				.and_then(|(_, node)| node.try_unwrap_object_ref().ok()?.stored.as_ref())
+				.and_then(|(_, node)| node.try_unwrap_object_ref().ok()?.get_stored.as_ref())
 				.is_some_and(|s| s.subtree);
 			match object_kind {
 				crate::index::message::ProcessObjectKind::Command => {
@@ -426,18 +702,18 @@ impl Graph {
 		stored
 	}
 
-	fn try_propagate_stored(&mut self, index: usize) -> Option<SmallVec<[usize; 1]>> {
+	fn try_propagate_get_stored(&mut self, index: usize) -> Option<SmallVec<[usize; 1]>> {
 		let (_, node) = self.nodes.get_index(index)?;
 		match node {
-			Node::Object(_) => self.try_propagate_object_stored(index),
-			Node::Process(_) => self.try_propagate_process_stored(index),
+			Node::Object(_) => self.try_propagate_object_get_stored(index),
+			Node::Process(_) => self.try_propagate_process_get_stored(index),
 		}
 	}
 
-	fn try_propagate_object_stored(&mut self, index: usize) -> Option<SmallVec<[usize; 1]>> {
+	fn try_propagate_object_get_stored(&mut self, index: usize) -> Option<SmallVec<[usize; 1]>> {
 		let (children, parents) = self.nodes.get_index(index).and_then(|(_, node)| {
 			let node = node.try_unwrap_object_ref().ok()?;
-			if node.stored.as_ref().is_some_and(|s| s.subtree) {
+			if node.get_stored.as_ref().is_some_and(|s| s.subtree) {
 				return None;
 			}
 			let children = node.children.as_ref()?.clone();
@@ -447,14 +723,14 @@ impl Graph {
 		let all_children_stored = children.iter().all(|child_index| {
 			self.nodes
 				.get_index(*child_index)
-				.and_then(|(_, node)| node.try_unwrap_object_ref().ok()?.stored.as_ref())
+				.and_then(|(_, node)| node.try_unwrap_object_ref().ok()?.get_stored.as_ref())
 				.is_some_and(|s| s.subtree)
 		});
 		if all_children_stored {
 			if let Some((_, node)) = self.nodes.get_index_mut(index)
 				&& let Ok(node) = node.try_unwrap_object_mut()
 			{
-				node.stored = Some(crate::object::stored::Output { subtree: true });
+				node.get_stored = Some(crate::object::stored::Output { subtree: true });
 			}
 			Some(parents)
 		} else {
@@ -462,21 +738,26 @@ impl Graph {
 		}
 	}
 
-	fn try_propagate_process_stored(&mut self, index: usize) -> Option<SmallVec<[usize; 1]>> {
+	fn try_propagate_process_get_stored(&mut self, index: usize) -> Option<SmallVec<[usize; 1]>> {
 		let (old_stored, children, objects, parents) =
 			self.nodes.get_index(index).and_then(|(_, node)| {
 				let node = node.try_unwrap_process_ref().ok()?;
 				let children = node.children.clone().unwrap_or_default();
 				let objects = node.objects.as_ref()?.clone();
-				Some((node.stored.clone(), children, objects, node.parents.clone()))
+				Some((
+					node.get_stored.clone(),
+					children,
+					objects,
+					node.parents.clone(),
+				))
 			})?;
-		let new_stored = self.compute_process_stored(&children, &objects);
+		let new_stored = self.compute_process_get_stored(&children, &objects);
 		let merged_stored = Self::merge_process_stored(old_stored.as_ref(), new_stored);
 		if Self::should_propagate_process_stored(old_stored.as_ref(), Some(&merged_stored)) {
 			if let Some((_, node)) = self.nodes.get_index_mut(index)
 				&& let Ok(process) = node.try_unwrap_process_mut()
 			{
-				process.stored = Some(merged_stored);
+				process.get_stored = Some(merged_stored);
 			}
 			Some(parents)
 		} else {
@@ -521,6 +802,93 @@ impl Graph {
 			node_output: old.node_output || new.node_output,
 		}
 	}
+
+	fn find_put_object_ancestor(
+		&self,
+		index: usize,
+		kind: Option<crate::sync::queue::ObjectKind>,
+	) -> Option<Vec<usize>> {
+		let mut stack = vec![vec![index]];
+		loop {
+			let Some(path) = stack.pop() else {
+				break None;
+			};
+			let index = *path.last().unwrap();
+			let node = self.nodes.get_index(index).unwrap().1;
+			let stored = match node {
+				Node::Object(object) => object
+					.put_stored
+					.as_ref()
+					.is_some_and(|stored| stored.subtree),
+				Node::Process(process) => {
+					process
+						.put_stored
+						.as_ref()
+						.is_some_and(|stored| match kind {
+							Some(crate::sync::queue::ObjectKind::Command) => {
+								stored.subtree_command || (path.len() == 2 && stored.node_command)
+							},
+							Some(crate::sync::queue::ObjectKind::Error) => {
+								stored.subtree_error || (path.len() == 2 && stored.node_error)
+							},
+							Some(crate::sync::queue::ObjectKind::Log) => {
+								stored.subtree_log || (path.len() == 2 && stored.node_log)
+							},
+							Some(crate::sync::queue::ObjectKind::Output) => {
+								stored.subtree_output || (path.len() == 2 && stored.node_output)
+							},
+							None => stored.subtree_command && stored.subtree_output,
+						})
+				},
+			};
+			if stored {
+				break Some(path);
+			}
+			for parent in node.parents() {
+				let mut path = path.clone();
+				assert!(!path.contains(parent));
+				path.push(*parent);
+				stack.push(path);
+			}
+		}
+	}
+
+	fn find_put_process_ancestor<F>(&self, index: usize, f: F) -> Option<Vec<usize>>
+	where
+		F: Fn(&crate::process::stored::Output) -> bool,
+	{
+		let mut stack = vec![vec![index]];
+		loop {
+			let Some(path) = stack.pop() else {
+				break None;
+			};
+			let index = *path.last().unwrap();
+			let node = self.nodes.get_index(index).unwrap().1.unwrap_process_ref();
+			let stored = node.put_stored.as_ref().is_some_and(&f);
+			if stored {
+				break Some(path);
+			}
+			for parent in &node.parents {
+				let mut path = path.clone();
+				assert!(!path.contains(parent));
+				path.push(*parent);
+				stack.push(path);
+			}
+		}
+	}
+
+	fn propagate_put_process_field<F>(&mut self, path: &[usize], f: F)
+	where
+		F: Fn(&mut crate::process::stored::Output),
+	{
+		for &index in path {
+			let (_, node) = self.nodes.get_index_mut(index).unwrap();
+			if let Node::Process(process) = node {
+				let stored = process.put_stored.get_or_insert_with(Default::default);
+				f(stored);
+			}
+		}
+	}
 }
 
 impl Node {
@@ -528,6 +896,27 @@ impl Node {
 		match self {
 			Node::Object(node) => &node.parents,
 			Node::Process(node) => &node.parents,
+		}
+	}
+
+	pub fn parents_mut(&mut self) -> &mut SmallVec<[usize; 1]> {
+		match self {
+			Node::Object(node) => &mut node.parents,
+			Node::Process(node) => &mut node.parents,
+		}
+	}
+
+	pub fn children(&self) -> Option<&Vec<usize>> {
+		match self {
+			Node::Object(node) => node.children.as_ref(),
+			Node::Process(node) => node.children.as_ref(),
+		}
+	}
+
+	pub fn children_mut(&mut self) -> &mut Option<Vec<usize>> {
+		match self {
+			Node::Object(node) => &mut node.children,
+			Node::Process(node) => &mut node.children,
 		}
 	}
 
