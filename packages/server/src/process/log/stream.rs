@@ -89,7 +89,7 @@ impl Server {
 						.try_get_log_length(state.stream)
 						.await?
 						.unwrap_or_default();
-					if dbg!(state.position) >= dbg!(length) {
+					if state.position >= length {
 						return Ok(None);
 					}
 				}
@@ -128,7 +128,6 @@ impl Server {
 						})
 						.unwrap_or_default()
 				};
-				dbg!(state.position);
 			}
 
 			// Get the next log entry.

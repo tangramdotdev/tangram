@@ -1,10 +1,7 @@
 use {
 	crate::Server,
 	bytes::Bytes,
-	futures::{
-		future,
-		stream::{self, FuturesOrdered},
-	},
+	futures::stream::FuturesOrdered,
 	indoc::formatdoc,
 	num::ToPrimitive,
 	std::{
@@ -159,7 +156,7 @@ impl Server {
 		let index_length = index.len().to_u64().unwrap();
 
 		// Write the header.
-		let mut header = vec![0];
+		let mut header = vec![0u8];
 		header.write_uvarint(index_length).await.unwrap();
 		header.extend_from_slice(&index);
 
