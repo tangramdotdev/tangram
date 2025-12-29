@@ -327,6 +327,21 @@ impl Server {
 			})
 			.detach();
 
+		// Publish the finish message.
+		tokio::spawn({
+			let server = self.clone();
+			let id = id.clone();
+			async move {
+				let message = Message { id: id.clone() };
+				server
+					.messenger
+					.stream_publish(format!("finish"), message)
+					.await
+					.inspect_err(|error| tracing::error!(%error, %id, "failed to publish"))
+					.ok();
+			}
+		});
+
 		// Publish the status.
 		tokio::spawn({
 			let server = self.clone();
@@ -424,7 +439,14 @@ impl Server {
 		_config: &crate::config::Finisher,
 		messages: Vec<(Vec<Message>, messenger::Acker)>,
 	) -> tg::Result<()> {
-		for (_messages, acker) in messages {
+		for (messages, acker) in messages {
+			for message in messages {
+				let process = message.id;
+				self.compact_process_log(&process)
+					.await
+					.inspect_err(|error| tracing::error!(?error, %process, "failed to compact log"))
+					.ok();
+			}
 			acker
 				.ack()
 				.await

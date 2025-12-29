@@ -2,6 +2,7 @@ use {
 	crate::Server,
 	bytes::Bytes,
 	futures::stream::FuturesOrdered,
+	indoc::formatdoc,
 	num::ToPrimitive,
 	std::{
 		collections::BTreeMap,
@@ -9,6 +10,7 @@ use {
 		sync::{Arc, Mutex},
 	},
 	tangram_client as tg,
+	tangram_database::{self as db, Database as _, Query as _},
 	tangram_store::Store as _,
 	tg::Handle,
 	tokio::io::AsyncReadExt as _,
@@ -96,11 +98,7 @@ impl Server {
 		Ok(index)
 	}
 
-	#[allow(dead_code)]
-	pub(crate) async fn write_log_to_blob(
-		&self,
-		process: &tg::process::Id,
-	) -> tg::Result<tg::Blob> {
+	pub(crate) async fn compact_process_log(&self, process: &tg::process::Id) -> tg::Result<()> {
 		let num_entries = self
 			.store
 			.try_get_num_log_entries(process)
@@ -195,9 +193,30 @@ impl Server {
 			},
 		];
 		let blob = tg::Blob::new(children);
-		blob.store(self)
+		let blob = blob
+			.store(self)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the blob"))?;
-		Ok(blob)
+
+		// Update the processes.
+		let connection = self
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!("failed to get db connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				update processes
+				set log = {p}2
+				where id = {p}1;
+			"
+		);
+		let params = db::params![process, blob];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		Ok(())
 	}
 }

@@ -783,12 +783,18 @@ impl crate::Store for Store {
 
 			// For stdout/stderr, only advance if the previous entry was from that stream.
 			let (stdout_start, stdout_end) = if stream == 1 {
-				(row.stdout_end, row.stdout_end + bytes.len().to_i64().unwrap())
+				(
+					row.stdout_end,
+					row.stdout_end + bytes.len().to_i64().unwrap(),
+				)
 			} else {
 				(row.stdout_end, row.stdout_end)
 			};
 			let (stderr_start, stderr_end) = if stream == 2 {
-				(row.stderr_end, row.stderr_end + bytes.len().to_i64().unwrap())
+				(
+					row.stderr_end,
+					row.stderr_end + bytes.len().to_i64().unwrap(),
+				)
 			} else {
 				(row.stderr_end, row.stderr_end)
 			};
