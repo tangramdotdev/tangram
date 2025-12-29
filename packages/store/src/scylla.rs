@@ -753,6 +753,7 @@ impl crate::Store for Store {
 		#[derive(scylla::DeserializeRow)]
 		#[allow(dead_code)]
 		struct AppliedRow {
+			#[scylla(rename = "[applied]")]
 			applied: bool,
 			id: Option<Vec<u8>>,
 			log_index: Option<i64>,
