@@ -172,26 +172,26 @@ impl Graph {
 		if let Some(stored) = stored {
 			node.local_stored = Some(stored);
 		}
-		if let Some(new_metadata) = metadata {
+		if let Some(metadata) = metadata {
 			if let Some(existing) = &mut node.metadata {
-				existing.node.size = new_metadata.node.size;
-				if new_metadata.subtree.count.is_some() {
-					existing.subtree.count = new_metadata.subtree.count;
+				existing.node.size = metadata.node.size;
+				if metadata.subtree.count.is_some() {
+					existing.subtree.count = metadata.subtree.count;
 				}
-				if new_metadata.subtree.depth.is_some() {
-					existing.subtree.depth = new_metadata.subtree.depth;
+				if metadata.subtree.depth.is_some() {
+					existing.subtree.depth = metadata.subtree.depth;
 				}
-				if new_metadata.subtree.size.is_some() {
-					existing.subtree.size = new_metadata.subtree.size;
+				if metadata.subtree.size.is_some() {
+					existing.subtree.size = metadata.subtree.size;
 				}
-				if new_metadata.subtree.solvable.is_some() {
-					existing.subtree.solvable = new_metadata.subtree.solvable;
+				if metadata.subtree.solvable.is_some() {
+					existing.subtree.solvable = metadata.subtree.solvable;
 				}
-				if new_metadata.subtree.solved.is_some() {
-					existing.subtree.solved = new_metadata.subtree.solved;
+				if metadata.subtree.solved.is_some() {
+					existing.subtree.solved = metadata.subtree.solved;
 				}
 			} else {
-				node.metadata = Some(new_metadata);
+				node.metadata = Some(metadata);
 			}
 		}
 		if let Some(marked) = marked {
@@ -258,6 +258,37 @@ impl Graph {
 				command_index,
 				crate::index::message::ProcessObjectKind::Command,
 			));
+
+			if let Some(error) = &data.error {
+				match error {
+					tg::Either::Left(error_data) => {
+						let mut error_children = BTreeSet::new();
+						error_data.children(&mut error_children);
+						for object_id in error_children {
+							let object_entry = self.nodes.entry(object_id.into());
+							let object_index = object_entry.index();
+							let object_node =
+								object_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
+							object_node.unwrap_object_mut().parents.push(index);
+							objects.push((
+								object_index,
+								crate::index::message::ProcessObjectKind::Error,
+							));
+						}
+					},
+					tg::Either::Right(error_id) => {
+						let error_entry = self
+							.nodes
+							.entry(tg::object::Id::from(error_id.clone()).into());
+						let error_index = error_entry.index();
+						let error_node =
+							error_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
+						error_node.unwrap_object_mut().parents.push(index);
+						objects
+							.push((error_index, crate::index::message::ProcessObjectKind::Error));
+					},
+				}
+			}
 
 			if let Some(log_id) = data.log.clone() {
 				let log_entry = self.nodes.entry(tg::object::Id::from(log_id).into());
@@ -401,27 +432,30 @@ impl Graph {
 							let stored = process.remote_stored.get_or_insert_with(Default::default);
 							match kind {
 								Some(crate::sync::queue::ObjectKind::Command) => {
-									stored.subtree_command = true;
 									stored.node_command = true;
+									stored.subtree_command = true;
 								},
 								Some(crate::sync::queue::ObjectKind::Error) => {
-									stored.subtree_error = true;
 									stored.node_error = true;
+									stored.subtree_error = true;
 								},
 								Some(crate::sync::queue::ObjectKind::Log) => {
-									stored.subtree_log = true;
 									stored.node_log = true;
+									stored.subtree_log = true;
 								},
 								Some(crate::sync::queue::ObjectKind::Output) => {
-									stored.subtree_output = true;
 									stored.node_output = true;
+									stored.subtree_output = true;
 								},
 								None => {
-									stored.subtree_command = true;
-									stored.subtree_output = true;
 									stored.node_command = true;
+									stored.node_error = true;
 									stored.node_log = true;
 									stored.node_output = true;
+									stored.subtree_command = true;
+									stored.subtree_error = true;
+									stored.subtree_log = true;
+									stored.subtree_output = true;
 								},
 							}
 						},
@@ -680,7 +714,10 @@ impl Graph {
 					stored.node_command = stored.node_command && object_stored;
 					stored.subtree_command = stored.subtree_command && object_stored;
 				},
-				crate::index::message::ProcessObjectKind::Error => {},
+				crate::index::message::ProcessObjectKind::Error => {
+					stored.node_error = stored.node_error && object_stored;
+					stored.subtree_error = stored.subtree_error && object_stored;
+				},
 				crate::index::message::ProcessObjectKind::Log => {
 					stored.node_log = stored.node_log && object_stored;
 					stored.subtree_log = stored.subtree_log && object_stored;
@@ -767,12 +804,15 @@ impl Graph {
 		let Some(new) = new else {
 			return false;
 		};
-		(!old.subtree && new.subtree)
-			|| (!old.subtree_command && new.subtree_command)
-			|| (!old.subtree_output && new.subtree_output)
-			|| (!old.node_command && new.node_command)
+		(!old.node_command && new.node_command)
+			|| (!old.node_error && new.node_error)
 			|| (!old.node_log && new.node_log)
 			|| (!old.node_output && new.node_output)
+			|| (!old.subtree && new.subtree)
+			|| (!old.subtree_command && new.subtree_command)
+			|| (!old.subtree_error && new.subtree_error)
+			|| (!old.subtree_log && new.subtree_log)
+			|| (!old.subtree_output && new.subtree_output)
 	}
 
 	fn merge_process_stored(

@@ -260,7 +260,12 @@ impl Server {
 					Self::sync_get_enqueue_process_children(state, &item.id, &data, Some(stored));
 
 					// Send a stored message if necessary.
-					if stored.subtree || stored.subtree_command || stored.subtree_output {
+					if stored.subtree
+						|| stored.subtree_command
+						|| stored.subtree_error
+						|| stored.subtree_log
+						|| stored.subtree_output
+					{
 						let message =
 							tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Process(
 								tg::sync::GetStoredProcessMessage {
