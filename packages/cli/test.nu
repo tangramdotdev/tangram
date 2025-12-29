@@ -387,7 +387,7 @@ export def artifact [artifact] {
 					xattr_write $pair.key $pair.value $path
 				}
 			}
-		'symlink' => {
+			'symlink' => {
 				ln -s $artifact.path $path
 			}
 		}
