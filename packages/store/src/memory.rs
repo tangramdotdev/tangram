@@ -108,56 +108,111 @@ impl Store {
 
 	#[must_use]
 	#[expect(clippy::needless_pass_by_value)]
-	pub fn try_read_log(&self, arg: ReadLogArg) -> Option<Bytes> {
-		let entry = self.logs.get(&arg.process)?;
-		let index = match arg.stream {
+	fn try_read_log(&self, arg: ReadLogArg) -> Option<Vec<crate::log::Entry>> {
+		let log = self.logs.get(&arg.process)?;
+		let mut index = match arg.stream {
 			Some(tg::process::log::Stream::Stderr) => {
-				if arg.position >= entry.stderr_position {
-					return Some(Bytes::new());
+				if arg.position >= log.stderr_position {
+					return Some(Vec::new());
 				}
-				let (_, index) = entry.stderr.range(0..=arg.position).next_back()?;
+				let (_, index) = log.stderr.range(0..=arg.position).next_back()?;
 				*index
 			},
 			Some(tg::process::log::Stream::Stdout) => {
-				if arg.position >= entry.stdout_position {
-					return Some(Bytes::new());
+				if arg.position >= log.stdout_position {
+					return Some(Vec::new());
 				}
-				let (_, index) = entry.stdout.range(0..=arg.position).next_back()?;
+				let (_, index) = log.stdout.range(0..=arg.position).next_back()?;
 				*index
 			},
 			None => {
-				if arg.position == entry.combined_position {
-					return Some(Bytes::new());
+				if arg.position == log.combined_position {
+					return Some(Vec::new());
 				}
-				let (_, index) = entry.combined.range(0..=arg.position).next_back()?;
+				let (_, index) = log.combined.range(0..=arg.position).next_back()?;
 				*index
 			},
 		};
-		let data = entry
-			.chunks
-			.range(index..)
-			.filter_map(|(_, chunk)| {
-				if arg.stream.is_some_and(|stream| stream == chunk.stream) {
-					Some((chunk.stream_position, &chunk.bytes))
-				} else if arg.stream.is_none() {
-					Some((chunk.combined_position, &chunk.bytes))
+
+		// So we know our starting point.
+		let mut remaining = arg.length;
+		let mut output = Vec::new();
+		let mut current: Option<crate::log::Entry> = None;
+
+		while remaining > 0 {
+			// Get the chunk at the current index.
+			let Some(chunk) = log.chunks.get(&index) else {
+				break;
+			};
+
+			// Skip chunks that do not match the stream filter.
+			if arg.stream.is_some_and(|stream| stream != chunk.stream) {
+				index += 1;
+				continue;
+			}
+
+			// Get the position based on stream filter.
+			let position = if arg.stream.is_some() {
+				chunk.stream_position
+			} else {
+				chunk.combined_position
+			};
+
+			// Handle edge case: chunk starts before arg.position.
+			let offset = arg.position.saturating_sub(position);
+
+			// Handle edge case: chunk extends beyond arg.position + arg.length.
+			let available = chunk.bytes.len().to_u64().unwrap().saturating_sub(offset);
+			let take = remaining.min(available);
+
+			// Slice the bytes if needed.
+			let bytes = if offset > 0 || take < chunk.bytes.len().to_u64().unwrap() {
+				chunk
+					.bytes
+					.slice(offset.to_usize().unwrap()..(offset + take).to_usize().unwrap())
+			} else {
+				chunk.bytes.clone()
+			};
+
+			// Combine sequential entries from the same stream.
+			if let Some(ref mut entry) = current {
+				if entry.stream == chunk.stream {
+					// Append bytes to current entry.
+					let mut combined = entry.bytes.to_vec();
+					combined.extend_from_slice(&bytes);
+					entry.bytes = combined.into();
 				} else {
-					None
+					// Different stream, push current and start new.
+					output.push(current.take().unwrap());
+					current = Some(crate::log::Entry {
+						bytes,
+						combined_position: chunk.combined_position + offset,
+						stream_position: chunk.stream_position + offset,
+						stream: chunk.stream,
+						timestamp: chunk.timestamp,
+					});
 				}
-			})
-			.take_while(|(position, _)| *position <= (arg.position + arg.length))
-			.fold(
-				Vec::with_capacity(arg.length.to_usize().unwrap()),
-				|mut output, (position, bytes)| {
-					let offset = arg.position.saturating_sub(position).to_usize().unwrap();
-					let length = bytes
-						.len()
-						.min(arg.length.to_usize().unwrap() - output.len());
-					output.extend_from_slice(&bytes[offset..(offset + length).min(bytes.len())]);
-					output
-				},
-			);
-		Some(data.into())
+			} else {
+				// Start first entry.
+				current = Some(crate::log::Entry {
+					bytes,
+					combined_position: chunk.combined_position + offset,
+					stream_position: chunk.stream_position + offset,
+					stream: chunk.stream,
+					timestamp: chunk.timestamp,
+				});
+			}
+
+			remaining -= take;
+			index += 1;
+		}
+
+		// Push the last entry if any.
+		if let Some(entry) = current {
+			output.push(entry);
+		}
+
+		Some(output)
 	}
 
 	#[must_use]
@@ -267,8 +322,8 @@ impl crate::Store for Store {
 		Ok(self.try_get(id))
 	}
 
-	async fn try_read_log(&self, arg: ReadLogArg) -> Result<Option<Bytes>, Self::Error> {
-		Ok(self.try_read_log(arg))
+	async fn try_read_log(&self, arg: ReadLogArg) -> Result<Vec<crate::log::Entry>, Self::Error> {
+		Ok(self.try_read_log(arg).unwrap_or_default())
 	}
 
 	async fn try_get_log_length(
@@ -354,6 +409,16 @@ impl crate::Error for Error {
 mod tests {
 	use super::*;
 
+	fn collect_bytes(entries: Option<Vec<crate::log::Entry>>) -> Option<Bytes> {
+		entries.map(|entries| {
+			entries
+				.into_iter()
+				.flat_map(|e| e.bytes.to_vec())
+				.collect::<Vec<_>>()
+				.into()
+		})
+	}
+
 	#[test]
 	fn test_put_and_read_log_single_chunk() {
 		let store = Store::new();
@@ -374,7 +439,7 @@ mod tests {
 			length: 11,
 			stream: Some(tg::process::log::Stream::Stdout),
 		});
-		assert_eq!(result, Some(Bytes::from("hello world")));
+		assert_eq!(collect_bytes(result), Some(Bytes::from("hello world")));
 
 		// Read a subset of the chunk.
 		let result = store.try_read_log(ReadLogArg {
@@ -383,7 +448,7 @@ mod tests {
 			length: 5,
 			stream: Some(tg::process::log::Stream::Stdout),
 		});
-		assert_eq!(result, Some(Bytes::from("world")));
+		assert_eq!(collect_bytes(result), Some(Bytes::from("world")));
 	}
 
 	#[test]
@@ -418,7 +483,7 @@ mod tests {
 			length: 11,
 			stream: Some(tg::process::log::Stream::Stdout),
 		});
-		assert_eq!(result, Some(Bytes::from("hello world")));
+		assert_eq!(collect_bytes(result), Some(Bytes::from("hello world")));
 	}
 
 	#[test]
@@ -453,7 +518,7 @@ mod tests {
 			length: 4,
 			stream: Some(tg::process::log::Stream::Stdout),
 		});
-		assert_eq!(result, Some(Bytes::from("AABB")));
+		assert_eq!(collect_bytes(result), Some(Bytes::from("AABB")));
 
 		// Read starting in the middle of the second chunk, across into the third.
 		let result = store.try_read_log(ReadLogArg {
@@ -462,7 +527,7 @@ mod tests {
 			length: 4,
 			stream: Some(tg::process::log::Stream::Stdout),
 		});
-		assert_eq!(result, Some(Bytes::from("BBCC")));
+		assert_eq!(collect_bytes(result), Some(Bytes::from("BBCC")));
 
 		// Read spanning all three chunks.
 		let result = store.try_read_log(ReadLogArg {
@@ -471,7 +536,7 @@ mod tests {
 			length: 8,
 			stream: Some(tg::process::log::Stream::Stdout),
 		});
-		assert_eq!(result, Some(Bytes::from("AABBBBCC")));
+		assert_eq!(collect_bytes(result), Some(Bytes::from("AABBBBCC")));
 	}
 
 	#[test]
@@ -506,7 +571,7 @@ mod tests {
 			length: 12,
 			stream: None,
 		});
-		assert_eq!(result, Some(Bytes::from("out1err1out2")));
+		assert_eq!(collect_bytes(result), Some(Bytes::from("out1err1out2")));
 
 		// Read only stdout.
 		let result = store.try_read_log(ReadLogArg {
@@ -515,7 +580,7 @@ mod tests {
 			length: 8,
 			stream: Some(tg::process::log::Stream::Stdout),
 		});
-		assert_eq!(result, Some(Bytes::from("out1out2")));
+		assert_eq!(collect_bytes(result), Some(Bytes::from("out1out2")));
 
 		// Read only stderr.
 		let result = store.try_read_log(ReadLogArg {
@@ -524,7 +589,7 @@ mod tests {
 			length: 4,
 			stream: Some(tg::process::log::Stream::Stderr),
 		});
-		assert_eq!(result, Some(Bytes::from("err1")));
+		assert_eq!(collect_bytes(result), Some(Bytes::from("err1")));
 	}
 
 	#[test]
@@ -553,7 +618,7 @@ mod tests {
 			length: 10,
 			stream: None,
 		});
-		assert_eq!(result, Some(Bytes::from("helloworld")));
+		assert_eq!(collect_bytes(result), Some(Bytes::from("helloworld")));
 
 		// Delete the log.
 		store.delete_log(DeleteLogArg {
@@ -569,7 +634,7 @@ mod tests {
 			length: 10,
 			stream: None,
 		});
-		assert_eq!(result, None);
+		assert!(result.is_none());
 	}
 
 	#[test]
@@ -629,7 +694,7 @@ mod tests {
 			length: 10,
 			stream: Some(tg::process::log::Stream::Stdout),
 		});
-		assert_eq!(result, Some(Bytes::new()));
+		assert_eq!(collect_bytes(result), Some(Bytes::new()));
 	}
 
 	#[test]
@@ -644,6 +709,6 @@ mod tests {
 			length: 10,
 			stream: None,
 		});
-		assert_eq!(result, None);
+		assert!(result.is_none())
 	}
 }

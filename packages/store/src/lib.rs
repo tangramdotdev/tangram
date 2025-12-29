@@ -53,7 +53,7 @@ pub trait Store {
 	fn try_read_log(
 		&self,
 		arg: ReadLogArg,
-	) -> impl std::future::Future<Output = std::result::Result<Option<Bytes>, Self::Error>> + Send;
+	) -> impl std::future::Future<Output = std::result::Result<Vec<log::Entry>, Self::Error>> + Send;
 
 	fn try_get_log_length(
 		&self,

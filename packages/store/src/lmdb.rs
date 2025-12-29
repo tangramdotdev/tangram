@@ -728,8 +728,8 @@ impl crate::Store for Store {
 		Ok(bytes)
 	}
 
-	async fn try_read_log(&self, arg: ReadLogArg) -> Result<Option<Bytes>, Self::Error> {
-		let bytes = tokio::task::spawn_blocking({
+	async fn try_read_log(&self, arg: ReadLogArg) -> Result<Vec<crate::log::Entry>, Self::Error> {
+		let entries = tokio::task::spawn_blocking({
 			let db = self.db;
 			let env = self.env.clone();
 			move || {
@@ -751,15 +751,19 @@ impl crate::Store for Store {
 						.map(|(_k, v)| v)
 				};
 				let Some(index) = index else {
-					return Ok(None);
+					return Ok(Vec::new());
 				};
 				let mut index = u64::from_le_bytes(
 					index
 						.try_into()
 						.map_err(|_| tg::error!("expected 8 bytes"))?,
 				);
+
+				let mut remaining = arg.length;
 				let mut output = Vec::new();
-				while output.len().to_u64().unwrap() < arg.length {
+				let mut current: Option<crate::log::Entry> = None;
+
+				while remaining > 0 {
 					let key = Key {
 						id: id.as_ref(),
 						kind: KeyKind::LogBytes(index),
@@ -771,43 +775,84 @@ impl crate::Store for Store {
 					else {
 						break;
 					};
-					let entry = tangram_serialize::from_slice::<crate::log::Entry>(val).map_err(
+					let chunk = tangram_serialize::from_slice::<crate::log::Entry>(val).map_err(
 						|source| tg::error!(!source, "failed to deserialize the log entry"),
 					)?;
 
-					// Get the position based on whether we are filtering by stream.
-					let position = match arg.stream {
-						None => entry.combined_position,
-						Some(stream) if stream == entry.stream => entry.stream_position,
-						Some(_stream) => {
-							index += 1;
-							continue;
-						},
-					};
-
-					// Calculate the offset into this entry's bytes.
-					let offset = arg.position.saturating_sub(position).to_usize().unwrap();
-
-					// Calculate how many bytes to take from this entry.
-					let remaining = arg.length.to_usize().unwrap() - output.len();
-					let available = entry.bytes.len().saturating_sub(offset);
-					let length = remaining.min(available);
-
-					// Extend output with the bytes from this entry.
-					if length > 0 {
-						output.extend_from_slice(&entry.bytes[offset..(offset + length)]);
+					// Skip chunks that do not match the stream filter.
+					if arg.stream.is_some_and(|stream| stream != chunk.stream) {
+						index += 1;
+						continue;
 					}
 
+					// Get the position based on stream filter.
+					let position = if arg.stream.is_some() {
+						chunk.stream_position
+					} else {
+						chunk.combined_position
+					};
+
+					// Handle edge case: chunk starts before arg.position.
+					let offset = arg.position.saturating_sub(position);
+
+					// Handle edge case: chunk extends beyond arg.position + arg.length.
+					let available = chunk.bytes.len().to_u64().unwrap().saturating_sub(offset);
+					let take = remaining.min(available);
+
+					// Slice the bytes if needed.
+					let bytes = if offset > 0 || take < chunk.bytes.len().to_u64().unwrap() {
+						chunk
+							.bytes
+							.slice(offset.to_usize().unwrap()..(offset + take).to_usize().unwrap())
+					} else {
+						chunk.bytes.clone()
+					};
+
+					// Combine sequential entries from the same stream.
+					if let Some(ref mut entry) = current {
+						if entry.stream == chunk.stream {
+							// Append bytes to current entry.
+							let mut combined = entry.bytes.to_vec();
+							combined.extend_from_slice(&bytes);
+							entry.bytes = combined.into();
+						} else {
+							// Different stream, push current and start new.
+							output.push(current.take().unwrap());
+							current = Some(crate::log::Entry {
+								bytes,
+								combined_position: chunk.combined_position + offset,
+								stream_position: chunk.stream_position + offset,
+								stream: chunk.stream,
+								timestamp: chunk.timestamp,
+							});
+						}
+					} else {
+						// Start first entry.
+						current = Some(crate::log::Entry {
+							bytes,
+							combined_position: chunk.combined_position + offset,
+							stream_position: chunk.stream_position + offset,
+							stream: chunk.stream,
+							timestamp: chunk.timestamp,
+						});
+					}
+
+					remaining -= take;
 					index += 1;
 				}
 
-				Ok::<_, tg::Error>(Some(output.into()))
+				// Push the last entry if any.
+				if let Some(entry) = current {
+					output.push(entry);
+				}
+
+				Ok::<_, tg::Error>(output)
 			}
 		})
 		.await
 		.map_err(Error::other)?
 		.map_err(Error::other)?;
-		Ok(bytes)
+		Ok(entries)
 	}
 
 	async fn try_get_log_length(
@@ -1168,6 +1213,14 @@ mod tests {
 	use super::*;
 	use crate::Store as _;
 
+	fn collect_bytes(entries: Vec<crate::log::Entry>) -> Bytes {
+		entries
+			.into_iter()
+			.flat_map(|e| e.bytes.to_vec())
+			.collect::<Vec<_>>()
+			.into()
+	}
+
 	#[tokio::test]
 	async fn test_put_and_read_log_single_chunk() {
 		let temp_dir = tempfile::tempdir().unwrap();
@@ -1199,7 +1252,7 @@ mod tests {
 			})
 			.await
 			.unwrap();
-		assert_eq!(result, Some(Bytes::from("hello world")));
+		assert_eq!(collect_bytes(result), Bytes::from("hello world"));
 
 		// Read a subset of the chunk.
 		let result = store
@@ -1211,7 +1264,7 @@ mod tests {
 			})
 			.await
 			.unwrap();
-		assert_eq!(result, Some(Bytes::from("world")));
+		assert_eq!(collect_bytes(result), Bytes::from("world"));
 	}
 
 	#[tokio::test]
@@ -1263,7 +1316,7 @@ mod tests {
 			})
 			.await
 			.unwrap();
-		assert_eq!(result, Some(Bytes::from("hello world")));
+		assert_eq!(collect_bytes(result), Bytes::from("hello world"));
 	}
 
 	#[tokio::test]
@@ -1315,7 +1368,7 @@ mod tests {
 			})
 			.await
 			.unwrap();
-		assert_eq!(result, Some(Bytes::from("AABB")));
+		assert_eq!(collect_bytes(result), Bytes::from("AABB"));
 
 		// Read starting in the middle of the second chunk, across into the third.
 		let result = store
@@ -1327,7 +1380,7 @@ mod tests {
 			})
 			.await
 			.unwrap();
-		assert_eq!(result, Some(Bytes::from("BBCC")));
+		assert_eq!(collect_bytes(result), Bytes::from("BBCC"));
 
 		// Read spanning all three chunks.
 		let result = store
@@ -1339,7 +1392,7 @@ mod tests {
 			})
 			.await
 			.unwrap();
-		assert_eq!(result, Some(Bytes::from("AABBBBCC")));
+		assert_eq!(collect_bytes(result), Bytes::from("AABBBBCC"));
 	}
 
 	#[tokio::test]
@@ -1391,7 +1444,7 @@ mod tests {
 			})
 			.await
 			.unwrap();
-		assert_eq!(result, Some(Bytes::from("out1err1out2")));
+		assert_eq!(collect_bytes(result), Bytes::from("out1err1out2"));
 
 		// Read only stdout.
 		let result = store
@@ -1403,7 +1456,7 @@ mod tests {
 			})
 			.await
 			.unwrap();
-		assert_eq!(result, Some(Bytes::from("out1out2")));
+		assert_eq!(collect_bytes(result), Bytes::from("out1out2"));
 
 		// Read only stderr.
 		let result = store
@@ -1415,7 +1468,7 @@ mod tests {
 			})
 			.await
 			.unwrap();
-		assert_eq!(result, Some(Bytes::from("err1")));
+		assert_eq!(collect_bytes(result), Bytes::from("err1"));
 	}
 
 	#[tokio::test]
@@ -1458,7 +1511,7 @@ mod tests {
 			})
 			.await
 			.unwrap();
-		assert_eq!(result, Some(Bytes::from("helloworld")));
+		assert_eq!(collect_bytes(result), Bytes::from("helloworld"));
 
 		// Delete the log.
 		store
@@ -1480,7 +1533,7 @@ mod tests {
 			})
 			.await
 			.unwrap();
-		assert_eq!(result, None);
+		assert!(result.is_empty());
 	}
 
 	#[tokio::test]
@@ -1574,7 +1627,7 @@ mod tests {
 			})
 			.await
 			.unwrap();
-		assert_eq!(result, Some(Bytes::new()));
+		assert_eq!(collect_bytes(result), Bytes::new());
 	}
 
 	#[tokio::test]
@@ -1597,6 +1650,6 @@ mod tests {
 			})
 			.await
 			.unwrap();
-		assert_eq!(result, None);
+		assert!(result.is_empty());
 	}
 }

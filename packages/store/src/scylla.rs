@@ -413,7 +413,7 @@ impl crate::Store for Store {
 		Ok(None)
 	}
 
-	async fn try_read_log(&self, arg: ReadLogArg) -> Result<Option<Bytes>, Self::Error> {
+	async fn try_read_log(&self, arg: ReadLogArg) -> Result<Vec<crate::log::Entry>, Self::Error> {
 		use futures::TryStreamExt as _;
 
 		let id = arg.process.to_bytes().to_vec();
@@ -457,36 +457,87 @@ impl crate::Store for Store {
 				.rows_stream::<Row>()?
 		};
 
+		let mut remaining = arg.length;
 		let mut output = Vec::new();
+		let mut current: Option<crate::log::Entry> = None;
 
-		while let Some(row) = iter.try_next().await? {
-			// Get the start position of this entry.
-			let entry_position = match arg.stream {
-				None => row.combined_start.to_u64().unwrap(),
-				Some(tg::process::log::Stream::Stdout) => row.stdout_start.to_u64().unwrap(),
-				Some(tg::process::log::Stream::Stderr) => row.stderr_start.to_u64().unwrap(),
+		while remaining > 0 {
+			let Some(row) = iter.try_next().await? else {
+				break;
 			};
 
-			// Calculate offset into entry's bytes.
-			let offset = arg
-				.position
-				.saturating_sub(entry_position)
-				.to_usize()
-				.unwrap();
+			// Determine the stream type.
+			let chunk_stream = if row.stream == 1 {
+				tg::process::log::Stream::Stdout
+			} else {
+				tg::process::log::Stream::Stderr
+			};
 
-			// Calculate how many bytes to take.
-			let remaining = arg.length - output.len().to_u64().unwrap();
-			let available = row.bytes.len() - offset;
-			let take = remaining
-				.min(available.to_u64().unwrap())
-				.to_usize()
-				.unwrap();
-			output.extend_from_slice(&row.bytes[offset..offset + take]);
-			if output.len().to_u64().unwrap() >= arg.length {
-				break;
+			// Get the position based on stream filter.
+			let position = if arg.stream.is_some() {
+				if chunk_stream == tg::process::log::Stream::Stdout {
+					row.stdout_start.to_u64().unwrap()
+				} else {
+					row.stderr_start.to_u64().unwrap()
+				}
+			} else {
+				row.combined_start.to_u64().unwrap()
+			};
+
+			// Handle edge case: chunk starts before arg.position.
+			let offset = arg.position.saturating_sub(position);
+
+			// Handle edge case: chunk extends beyond arg.position + arg.length.
+			let available = row.bytes.len().to_u64().unwrap().saturating_sub(offset);
+			let take = remaining.min(available);
+
+			// Slice the bytes if needed.
+			let bytes: Bytes = if offset > 0 || take < row.bytes.len().to_u64().unwrap() {
+				row.bytes[offset.to_usize().unwrap()..(offset + take).to_usize().unwrap()]
+					.to_vec()
+					.into()
+			} else {
+				row.bytes.into()
+			};
+
+			// Combine sequential entries from the same stream.
+			if let Some(ref mut entry) = current {
+				if entry.stream == chunk_stream {
+					// Append bytes to current entry.
+					let mut combined = entry.bytes.to_vec();
+					combined.extend_from_slice(&bytes);
+					entry.bytes = combined.into();
+				} else {
+					// Different stream, push current and start new.
+					output.push(current.take().unwrap());
+					current = Some(crate::log::Entry {
+						bytes,
+						combined_position: row.combined_start.to_u64().unwrap() + offset,
+						stream_position: position + offset,
+						stream: chunk_stream,
+						timestamp: row.timestamp,
+					});
+				}
+			} else {
+				// Start first entry.
+				current = Some(crate::log::Entry {
+					bytes,
+					combined_position: row.combined_start.to_u64().unwrap() + offset,
+					stream_position: position + offset,
+					stream: chunk_stream,
+					timestamp: row.timestamp,
+				});
 			}
+
+			remaining -= take;
 		}
-		Ok(Some(output.into()))
+
+		// Push the last entry if any.
+		if let Some(entry) = current {
+			output.push(entry);
+		}
+
+		Ok(output)
 	}
 
 	async fn try_get_log_length(

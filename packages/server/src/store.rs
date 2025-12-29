@@ -259,10 +259,10 @@ impl store::Store for Store {
 		}
 	}
 
-	async fn try_read_log(&self, arg: ReadLogArg) -> Result<Option<Bytes>, Self::Error> {
+	async fn try_read_log(&self, arg: ReadLogArg) -> Result<Vec<store::log::Entry>, Self::Error> {
 		match self {
 			Self::Lmdb(lmdb) => lmdb.try_read_log(arg).await.map_err(Error::Lmdb),
-			Self::Memory(memory) => Ok(memory.try_read_log(arg)),
+			Self::Memory(memory) => memory.try_read_log(arg).await.map_err(Error::Memory),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla.try_read_log(arg).await.map_err(Error::Scylla),
 		}
