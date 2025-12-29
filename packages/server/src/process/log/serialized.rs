@@ -203,7 +203,7 @@ impl Server {
 			.database
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!("failed to get db connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get db connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -212,7 +212,7 @@ impl Server {
 				where id = {p}1;
 			"
 		);
-		let params = db::params![process, blob];
+		let params = db::params![process.to_string(), blob.to_string()];
 		connection
 			.execute(statement.into(), params)
 			.await
