@@ -734,21 +734,40 @@ impl crate::Store for Store {
 
 	async fn put_log(&self, arg: PutLogArg) -> Result<(), Self::Error> {
 		let id = arg.process.to_bytes().to_vec();
+
+		#[derive(scylla::DeserializeRow)]
+		#[allow(dead_code)]
+		struct LastRow<'a> {
+			log_index: i64,
+			bytes: &'a [u8],
+			stream: i64,
+			combined_start: i64,
+			combined_end: i64,
+			stdout_start: i64,
+			stdout_end: i64,
+			stderr_start: i64,
+			stderr_end: i64,
+			timestamp: i64,
+		}
+
+		#[derive(scylla::DeserializeRow)]
+		#[allow(dead_code)]
+		struct AppliedRow {
+			applied: bool,
+			id: Option<Vec<u8>>,
+			log_index: Option<i64>,
+			bytes: Option<Vec<u8>>,
+			stream: Option<i64>,
+			combined_start: Option<i64>,
+			combined_end: Option<i64>,
+			stdout_start: Option<i64>,
+			stdout_end: Option<i64>,
+			stderr_start: Option<i64>,
+			stderr_end: Option<i64>,
+			timestamp: Option<i64>,
+		}
+
 		loop {
-			#[derive(scylla::DeserializeRow)]
-			#[allow(dead_code)]
-			struct LastRow<'a> {
-				log_index: i64,
-				bytes: &'a [u8],
-				stream: i64,
-				combined_start: i64,
-				combined_end: i64,
-				stdout_start: i64,
-				stdout_end: i64,
-				stderr_start: i64,
-				stderr_end: i64,
-				timestamp: i64,
-			}
 			let params = (id.as_slice(),);
 			let result = self
 				.session
@@ -823,22 +842,8 @@ impl crate::Store for Store {
 				.into_rows_result()?;
 
 			// If the row was inserted, exit the loop. Else try again.
-			let result = result.single_row::<(
-				bool,            // applied
-				Option<Vec<u8>>, // id
-				Option<i64>,     // log_index
-				Option<Vec<u8>>, // bytes
-				Option<i64>,     // stream
-				Option<i64>,     // combined_start
-				Option<i64>,     // combined_end
-				Option<i64>,     // stdout_start
-				Option<i64>,     // stdout_end
-				Option<i64>,     // stderr_start
-				Option<i64>,     // stderr_end
-				Option<i64>,     // timestamp
-			)>()?;
-			let (applied, ..) = result;
-			if applied {
+			let result = result.single_row::<AppliedRow>()?;
+			if result.applied {
 				return Ok(());
 			}
 		}

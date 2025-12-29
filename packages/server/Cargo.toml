@@ -93,4 +93,3 @@ tracing = { workspace = true }
 unicode-width = { workspace = true }
 uuid = { workspace = true }
 xattr = { workspace = true }
-zerocopy = { workspace = true }

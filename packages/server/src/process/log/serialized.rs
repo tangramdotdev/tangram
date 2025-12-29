@@ -1,7 +1,10 @@
 use {
 	crate::Server,
 	bytes::Bytes,
-	futures::stream::FuturesOrdered,
+	futures::{
+		future,
+		stream::{self, FuturesOrdered},
+	},
 	indoc::formatdoc,
 	num::ToPrimitive,
 	std::{
@@ -11,30 +14,12 @@ use {
 	},
 	tangram_client as tg,
 	tangram_database::{self as db, Database as _, Query as _},
+	tangram_futures::{read::Ext as _, write::Ext as _},
 	tangram_store::Store as _,
 	tg::Handle,
-	tokio::io::AsyncReadExt as _,
+	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
 	tokio_util::io::StreamReader,
-	zerocopy::{FromZeros as _, IntoBytes as _},
 };
-
-const MAGIC: [u8; 8] = *b"tgpcslog";
-
-#[derive(
-	Copy,
-	Clone,
-	Debug,
-	zerocopy::FromBytes,
-	zerocopy::IntoBytes,
-	zerocopy::Immutable,
-	zerocopy::KnownLayout,
-)]
-#[repr(C)]
-pub struct Header {
-	pub magic: [u8; 8],
-	pub index_length: u64,
-	pub entries_length: u64,
-}
 
 #[derive(Clone, Debug, Default, tangram_serialize::Serialize, tangram_serialize::Deserialize)]
 pub struct Index {
@@ -67,20 +52,21 @@ impl Server {
 		&self,
 		reader: &mut crate::read::Reader,
 	) -> tg::Result<Index> {
-		// Read the header.
-		let mut header = Header::new_zeroed();
-		reader
-			.read_exact(header.as_mut_bytes())
+		// Read the zero byte.
+		let zero = reader
+			.read_u8()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read the header"))?;
-
-		// Validate the header.
-		if header.magic != MAGIC {
-			return Err(tg::error!("expected a serialized process log"));
+			.map_err(|source| tg::error!(!source, "failed to read u8"))?;
+		if zero != 0 {
+			return Err(tg::error!("expected a 0 byte"));
 		}
 
 		// Read the index.
-		let mut index = vec![0u8; header.index_length.to_usize().unwrap()];
+		let index_length = reader
+			.read_uvarint()
+			.await
+			.map_err(|source| tg::error!(!source, "expected a uvarint"))?;
+		let mut index = vec![0u8; index_length.to_usize().unwrap()];
 		reader
 			.read_exact(&mut index)
 			.await
@@ -90,9 +76,15 @@ impl Server {
 		let mut index = tangram_serialize::from_slice::<Index>(&index)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the index"))?;
 
-		// The serialized offsets are relative to the end of the index, so bump all offsets by size_of(Header) + index.len();
+		// Get the current offset.
+		let offset = reader
+			.stream_position()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the stream position"))?;
+
+		// The serialized offsets are relative to the end of the index, so bump all the offsets.
 		for range in &mut index.entries {
-			range.offset += header.index_length + std::mem::size_of::<Header>().to_u64().unwrap();
+			range.offset += offset;
 		}
 
 		Ok(index)
@@ -164,32 +156,24 @@ impl Server {
 		// Serialize the index.
 		let state = Arc::into_inner(state).unwrap().into_inner().unwrap();
 		let index = tangram_serialize::to_vec(&state.index).unwrap();
-		let index_blob = self.write(Cursor::new(index.clone())).await?.blob;
+		let index_length = index.len().to_u64().unwrap();
 
-		// Serialize the header.
-		let header = Header {
-			magic: MAGIC,
-			index_length: index.len().to_u64().unwrap(),
-			entries_length: state.offset.to_u64().unwrap(),
-		};
-		let header_blob = self
-			.write(Cursor::new(header.as_bytes().to_vec()))
-			.await?
-			.blob;
+		// Write the header.
+		let mut header = vec![0];
+		header.write_uvarint(index_length).await.unwrap();
+		header.extend_from_slice(&index);
+
+		let header_blob = self.write(Cursor::new(header.clone())).await?.blob;
 
 		// Create the main blob.
 		let children = vec![
 			tg::blob::Child {
 				blob: tg::Blob::with_id(header_blob),
-				length: std::mem::size_of::<Header>().to_u64().unwrap(),
-			},
-			tg::blob::Child {
-				blob: tg::Blob::with_id(index_blob),
-				length: header.index_length,
+				length: header.len().to_u64().unwrap(),
 			},
 			tg::blob::Child {
 				blob: tg::Blob::with_id(entries_blob),
-				length: header.entries_length,
+				length: state.offset,
 			},
 		];
 		let blob = tg::Blob::new(children);
