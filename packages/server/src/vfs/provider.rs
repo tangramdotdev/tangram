@@ -1,12 +1,11 @@
 use {
-	crate::{Server, temp::Temp},
+	crate::Server,
 	bytes::Bytes,
 	dashmap::DashMap,
 	futures::TryStreamExt as _,
-	indoc::{formatdoc, indoc},
 	num::ToPrimitive as _,
-	rusqlite as sqlite,
 	std::{
+		collections::HashMap,
 		os::unix::ffi::OsStrExt as _,
 		path::{Path, PathBuf},
 		pin::pin,
@@ -16,21 +15,243 @@ use {
 		},
 	},
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
 	tangram_vfs as vfs,
 };
+#[cfg(feature = "sqlite")]
+use {
+	crate::temp::Temp,
+	indoc::{formatdoc, indoc},
+	rusqlite as sqlite,
+	tangram_database::{self as db, prelude::*},
+};
+
+enum Nodes {
+	#[cfg(feature = "sqlite")]
+	Sqlite(SqliteNodes),
+	Memory(MemoryNodes),
+}
+
+#[cfg(feature = "sqlite")]
+struct SqliteNodes {
+	database: Arc<db::sqlite::Database>,
+	#[expect(dead_code)]
+	temp: Temp,
+}
+
+struct MemoryNodes {
+	inner: tokio::sync::RwLock<MemoryNodesInner>,
+}
+
+struct MemoryNodesInner {
+	by_parent_name: HashMap<(u64, String), u64, fnv::FnvBuildHasher>,
+	by_id: HashMap<u64, NodeData, fnv::FnvBuildHasher>,
+}
+
+struct NodeData {
+	parent: u64,
+	artifact: Option<tg::artifact::Id>,
+	depth: u64,
+}
+
+impl Nodes {
+	async fn lookup(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
+		match self {
+			#[cfg(feature = "sqlite")]
+			Nodes::Sqlite(sqlite) => {
+				let connection = sqlite.database.connection().await.map_err(|error| {
+					tracing::error!(%error, "failed to get database a connection");
+					std::io::Error::from_raw_os_error(libc::EIO)
+				})?;
+				#[derive(db::row::Deserialize)]
+				struct Row {
+					id: u64,
+				}
+				let p = connection.p();
+				let statement = formatdoc!(
+					"
+						select id
+						from nodes
+						where parent = {p}1 and name = {p}2;
+					"
+				);
+				let params = db::params![parent, name];
+				let row = connection
+					.query_optional_into::<Row>(statement.into(), params)
+					.await
+					.map_err(|error| {
+						tracing::error!(%error, %parent, %name, "failed to get node data from database");
+						std::io::Error::from_raw_os_error(libc::EIO)
+					})?;
+				Ok(row.map(|r| r.id))
+			},
+			Nodes::Memory(memory) => {
+				let inner = memory.inner.read().await;
+				Ok(inner
+					.by_parent_name
+					.get(&(parent, name.to_owned()))
+					.copied())
+			},
+		}
+	}
+
+	async fn lookup_parent(&self, id: u64) -> std::io::Result<u64> {
+		match self {
+			#[cfg(feature = "sqlite")]
+			Nodes::Sqlite(sqlite) => {
+				let connection = sqlite.database.connection().await.map_err(|error| {
+					tracing::error!(%error, "failed to get database a connection");
+					std::io::Error::from_raw_os_error(libc::EIO)
+				})?;
+				#[derive(db::row::Deserialize)]
+				struct Row {
+					parent: u64,
+				}
+				let p = connection.p();
+				let statement = formatdoc!(
+					"
+						select parent
+						from nodes
+						where id = {p}1;
+					"
+				);
+				let params = db::params![id];
+				let row = connection
+					.query_one_into::<Row>(statement.into(), params)
+					.await
+					.map_err(|error| {
+						tracing::error!(%error, %id, "failed to get node parent from database");
+						std::io::Error::from_raw_os_error(libc::EIO)
+					})?;
+				Ok(row.parent)
+			},
+			Nodes::Memory(memory) => {
+				let inner = memory.inner.read().await;
+				inner.by_id.get(&id).map(|data| data.parent).ok_or_else(|| {
+					tracing::error!(%id, "node not found");
+					std::io::Error::from_raw_os_error(libc::ENOENT)
+				})
+			},
+		}
+	}
+
+	async fn get(&self, id: u64) -> std::io::Result<NodeData> {
+		match self {
+			#[cfg(feature = "sqlite")]
+			Nodes::Sqlite(sqlite) => {
+				let connection = sqlite.database.connection().await.map_err(|error| {
+					tracing::error!(%error, "failed to get a database connection");
+					std::io::Error::from_raw_os_error(libc::EIO)
+				})?;
+				#[derive(db::row::Deserialize)]
+				struct Row {
+					parent: u64,
+					#[tangram_database(as = "Option<db::value::FromStr>")]
+					artifact: Option<tg::artifact::Id>,
+					depth: u64,
+				}
+				let p = connection.p();
+				let statement = formatdoc!(
+					"
+						select parent, artifact, depth
+						from nodes
+						where id = {p}1;
+					"
+				);
+				let params = db::params![id];
+				let row = connection
+					.query_one_into::<Row>(statement.into(), params)
+					.await
+					.map_err(|error| {
+						tracing::error!(%error, %id, "failed to get the node data from the database");
+						std::io::Error::from_raw_os_error(libc::EIO)
+					})?;
+				Ok(NodeData {
+					parent: row.parent,
+					artifact: row.artifact,
+					depth: row.depth,
+				})
+			},
+			Nodes::Memory(memory) => {
+				let inner = memory.inner.read().await;
+				inner.by_id.get(&id).cloned().ok_or_else(|| {
+					tracing::error!(%id, "node not found");
+					std::io::Error::from_raw_os_error(libc::ENOENT)
+				})
+			},
+		}
+	}
+
+	fn insert(&self, id: u64, parent: u64, name: &str, artifact: tg::artifact::Id, depth: u64) {
+		match self {
+			#[cfg(feature = "sqlite")]
+			Nodes::Sqlite(sqlite) => {
+				let database = sqlite.database.clone();
+				let name = name.to_owned();
+				tokio::spawn(async move {
+					let Ok(connection) = database.write_connection().await.map_err(|error| {
+						tracing::error!(%error, "failed to get database a connection");
+					}) else {
+						return;
+					};
+					let p = connection.p();
+					let statement = formatdoc!(
+						"
+							insert into nodes (id, parent, name, artifact, depth)
+							values ({p}1, {p}2, {p}3, {p}4, {p}5)
+						"
+					);
+					let params = db::params![id, parent, name, artifact.to_bytes(), depth];
+					if let Err(error) = connection.execute(statement.into(), params).await {
+						tracing::error!(%error, %id, "failed to write node to the database");
+					}
+				});
+			},
+			Nodes::Memory(memory) => {
+				let inner = memory.inner.blocking_write();
+				Self::insert_memory_inner(inner, id, parent, name, artifact, depth);
+			},
+		}
+	}
+
+	fn insert_memory_inner(
+		mut inner: tokio::sync::RwLockWriteGuard<'_, MemoryNodesInner>,
+		id: u64,
+		parent: u64,
+		name: &str,
+		artifact: tg::artifact::Id,
+		depth: u64,
+	) {
+		inner.by_parent_name.insert((parent, name.to_owned()), id);
+		inner.by_id.insert(
+			id,
+			NodeData {
+				parent,
+				artifact: Some(artifact),
+				depth,
+			},
+		);
+	}
+}
+
+impl Clone for NodeData {
+	fn clone(&self) -> Self {
+		Self {
+			parent: self.parent,
+			artifact: self.artifact.clone(),
+			depth: self.depth,
+		}
+	}
+}
 
 pub struct Provider {
 	node_cache: moka::sync::Cache<u64, Node, fnv::FnvBuildHasher>,
 	node_count: AtomicU64,
 	file_handle_count: AtomicU64,
-	database: Arc<db::sqlite::Database>,
+	nodes: Nodes,
 	directory_handles: DashMap<u64, DirectoryHandle, fnv::FnvBuildHasher>,
 	file_handles: DashMap<u64, FileHandle, fnv::FnvBuildHasher>,
 	pending_nodes: Arc<DashMap<u64, Node, fnv::FnvBuildHasher>>,
 	server: Server,
-	#[expect(dead_code)]
-	temp: Temp,
 }
 
 pub struct DirectoryHandle {
@@ -74,33 +295,8 @@ impl vfs::Provider for Provider {
 			}
 		}
 
-		// First, try to look up in the database.
-		let connection = self.database.connection().await.map_err(|error| {
-			tracing::error!(%error, "failed to get database a connection");
-			std::io::Error::from_raw_os_error(libc::EIO)
-		})?;
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			id: u64,
-		}
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select id
-				from nodes
-				where parent = {p}1 and name = {p}2;
-			"
-		);
-		let params = db::params![parent, name];
-		let row = connection
-			.query_optional_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| {
-				tracing::error!(%error, %parent, %name, "failed to get node data from database");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
-		drop(connection);
-		if let Some(Row { id }) = row {
+		// First, try to look up in the nodes storage.
+		if let Some(id) = self.nodes.lookup(parent, name).await? {
 			return Ok(Some(id));
 		}
 
@@ -165,31 +361,7 @@ impl vfs::Provider for Provider {
 			return Ok(node.parent);
 		}
 
-		let connection = self.database.connection().await.map_err(|error| {
-			tracing::error!(%error, "failed to get database a connection");
-			std::io::Error::from_raw_os_error(libc::EIO)
-		})?;
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			parent: u64,
-		}
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select parent
-				from nodes
-				where id = {p}1;
-			"
-		);
-		let params = db::params![id];
-		let row = connection
-			.query_one_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| {
-				tracing::error!(%error, %id, "failed to get node parent from database");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
-		Ok(row.parent)
+		self.nodes.lookup_parent(id).await
 	}
 
 	async fn getattr(&self, id: u64) -> std::io::Result<vfs::Attrs> {
@@ -424,70 +596,93 @@ impl Provider {
 			.time_to_idle(options.cache_ttl)
 			.build_with_hasher(fnv::FnvBuildHasher::default());
 
-		// Create the database.
-		let temp = Temp::new(server);
-		tokio::fs::create_dir_all(&temp)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the database directory"))?;
-		let path = temp.path().join("vfs");
-		let initialize = Arc::new(|connection: &sqlite::Connection| {
-			connection.pragma_update(None, "auto_vaccum", "incremental")?;
-			connection.pragma_update(None, "busy_timeout", "5000")?;
-			connection.pragma_update(None, "cache_size", "-20000")?;
-			connection.pragma_update(None, "foreign_keys", "on")?;
-			connection.pragma_update(None, "journal_mode", "wal")?;
-			connection.pragma_update(None, "mmap_size", "2147483648")?;
-			connection.pragma_update(None, "recursive_triggers", "on")?;
-			connection.pragma_update(None, "synchronous", "normal")?;
-			connection.pragma_update(None, "temp_store", "memory")?;
-			Ok(())
-		});
-		let database_options = db::sqlite::DatabaseOptions {
-			connections: options.database_connections,
-			initialize,
-			path,
-		};
-		let database = db::sqlite::Database::new(database_options)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create database"))?;
-		let database = Arc::new(database);
-		let connection = database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		let statement = indoc!(
-			r"
-				create table nodes (
-					id integer primary key autoincrement,
-					parent integer not null,
-					name text,
-					artifact text,
-					depth integer not null
-				);
+		// Create the nodes storage.
+		#[cfg(feature = "sqlite")]
+		let nodes = {
+			let temp = Temp::new(server);
+			tokio::fs::create_dir_all(&temp)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the database directory"))?;
+			let path = temp.path().join("vfs");
+			let initialize = Arc::new(|connection: &sqlite::Connection| {
+				connection.pragma_update(None, "auto_vaccum", "incremental")?;
+				connection.pragma_update(None, "busy_timeout", "5000")?;
+				connection.pragma_update(None, "cache_size", "-20000")?;
+				connection.pragma_update(None, "foreign_keys", "on")?;
+				connection.pragma_update(None, "journal_mode", "wal")?;
+				connection.pragma_update(None, "mmap_size", "2147483648")?;
+				connection.pragma_update(None, "recursive_triggers", "on")?;
+				connection.pragma_update(None, "synchronous", "normal")?;
+				connection.pragma_update(None, "temp_store", "memory")?;
+				Ok(())
+			});
+			let database_options = db::sqlite::DatabaseOptions {
+				connections: options.database_connections,
+				initialize,
+				path,
+			};
+			let database = db::sqlite::Database::new(database_options)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create database"))?;
+			let database = Arc::new(database);
+			let connection = database
+				.write_connection()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			let statement = indoc!(
+				r"
+					create table nodes (
+						id integer primary key autoincrement,
+						parent integer not null,
+						name text,
+						artifact text,
+						depth integer not null
+					);
 
-				create index node_parent_name_index on nodes (parent, name);
-			"
-		);
-		connection
-			.with(move |connection, _cache| {
-				connection
-					.execute_batch(statement)
-					.map_err(|source| tg::error!(!source, "failed to create the database"))?;
-				Ok::<_, tg::Error>(())
+					create index node_parent_name_index on nodes (parent, name);
+				"
+			);
+			connection
+				.with(move |connection, _cache| {
+					connection
+						.execute_batch(statement)
+						.map_err(|source| tg::error!(!source, "failed to create the database"))?;
+					Ok::<_, tg::Error>(())
+				})
+				.await?;
+			let p = connection.p();
+			let statement = formatdoc!(
+				"
+					insert into nodes (id, parent, depth)
+					values ({p}1, {p}1, {p}2);
+				"
+			);
+			let params = db::params![vfs::ROOT_NODE_ID, 0];
+			connection
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to insert the root node"))?;
+			Nodes::Sqlite(SqliteNodes { database, temp })
+		};
+
+		#[cfg(not(feature = "sqlite"))]
+		let nodes = {
+			let mut by_id = HashMap::default();
+			by_id.insert(
+				vfs::ROOT_NODE_ID,
+				NodeData {
+					parent: vfs::ROOT_NODE_ID,
+					artifact: None,
+					depth: 0,
+				},
+			);
+			Nodes::Memory(MemoryNodes {
+				inner: tokio::sync::RwLock::new(MemoryNodesInner {
+					by_parent_name: HashMap::default(),
+					by_id,
+				}),
 			})
-			.await?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				insert into nodes (id, parent, depth)
-				values ({p}1, {p}1, {p}2);
-			"
-		);
-		let params = db::params![vfs::ROOT_NODE_ID, 0];
-		connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to insert the root node"))?;
+		};
 
 		// Create the provider.
 		let node_count = AtomicU64::new(1000);
@@ -500,12 +695,11 @@ impl Provider {
 			node_cache: cache,
 			node_count,
 			file_handle_count,
-			database,
+			nodes,
 			directory_handles,
 			file_handles,
 			pending_nodes,
 			server,
-			temp,
 		};
 
 		Ok(provider)
@@ -522,45 +716,12 @@ impl Provider {
 			return Ok(node.clone());
 		}
 
-		// Get a database connection.
-		let connection = self.database.connection().await.map_err(|error| {
-			tracing::error!(%error, "failed to get a database connection");
-			std::io::Error::from_raw_os_error(libc::EIO)
-		})?;
-
-		// Get the node from the database.
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			parent: u64,
-			#[tangram_database(as = "Option<db::value::FromStr>")]
-			artifact: Option<tg::artifact::Id>,
-			depth: u64,
-		}
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select parent, artifact, depth
-				from nodes
-				where id = {p}1;
-			"
-		);
-		let params = db::params![id];
-		let row = connection
-			.query_one_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|error| {
-				tracing::error!(%error, %id, "failed to get the node data from the database");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
-
-		// Create the node.
-		let parent = row.parent;
-		let artifact = row.artifact.map(tg::Artifact::with_id);
-		let depth = row.depth;
+		// Get the node from the nodes storage.
+		let data = self.nodes.get(id).await?;
 		let node = Node {
-			parent,
-			artifact,
-			depth,
+			parent: data.parent,
+			artifact: data.artifact.map(tg::Artifact::with_id),
+			depth: data.depth,
 		};
 
 		// Add the node to the cache.
@@ -584,7 +745,7 @@ impl Provider {
 		};
 
 		// Get the artifact id.
-		let artifact = artifact.id();
+		let artifact_id = artifact.id();
 
 		// Get a node ID.
 		let id = self.node_count.fetch_add(1, Ordering::Relaxed);
@@ -595,30 +756,15 @@ impl Provider {
 		// Insert into the pending nodes.
 		self.pending_nodes.insert(id, node);
 
-		// Insert the node.
-		tokio::spawn({
-			let database = self.database.clone();
-			let pending_nodes = self.pending_nodes.clone();
-			let name = name.to_owned();
-			async move {
-				let Ok(connection) = database.write_connection().await.map_err(|error| {
-					tracing::error!(%error, "failed to get database a connection");
-				}) else {
-					return;
-				};
-				let p = connection.p();
-				let statement = formatdoc!(
-					"
-						insert into nodes (id, parent, name, artifact, depth)
-						values ({p}1, {p}2, {p}3, {p}4, {p}5)
-					"
-				);
-				let params = db::params![id, parent, name, artifact.to_bytes(), depth];
-				if let Err(error) = connection.execute(statement.into(), params).await {
-					tracing::error!(%error, %id, "failed to write node to the database");
-				}
-				pending_nodes.remove(&id).unwrap();
-			}
+		// Insert the node into the nodes storage.
+		self.nodes.insert(id, parent, name, artifact_id, depth);
+
+		// Remove from pending nodes after storage insertion completes.
+		let pending_nodes = self.pending_nodes.clone();
+		tokio::spawn(async move {
+			// Give storage time to persist.
+			tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+			pending_nodes.remove(&id);
 		});
 
 		Ok(id)

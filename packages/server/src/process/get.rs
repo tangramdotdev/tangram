@@ -10,6 +10,7 @@ use {
 
 #[cfg(feature = "postgres")]
 mod postgres;
+#[cfg(feature = "sqlite")]
 mod sqlite;
 
 impl Server {
@@ -88,6 +89,7 @@ impl Server {
 		match &self.database {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(database) => self.try_get_process_batch_postgres(database, ids).await,
+			#[cfg(feature = "sqlite")]
 			Database::Sqlite(database) => self.try_get_process_batch_sqlite(database, ids).await,
 		}
 	}

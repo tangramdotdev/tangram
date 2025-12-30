@@ -2,6 +2,7 @@ use {crate::Server, tangram_client::prelude::*, tangram_util::serde::is_false};
 
 #[cfg(feature = "postgres")]
 mod postgres;
+#[cfg(feature = "sqlite")]
 mod sqlite;
 
 #[derive(
@@ -31,9 +32,8 @@ impl Server {
 			crate::index::Index::Postgres(database) => {
 				self.try_get_object_stored_postgres(database, id).await
 			},
-			crate::index::Index::Sqlite(database) => {
-				self.try_get_object_stored_sqlite(database, id).await
-			},
+			#[cfg(feature = "sqlite")]
+			crate::index::Index::Sqlite(database) => self.try_get_object_stored_sqlite(database, id).await,
 		}
 	}
 
@@ -48,6 +48,7 @@ impl Server {
 				self.try_get_object_stored_batch_postgres(database, ids)
 					.await
 			},
+			#[cfg(feature = "sqlite")]
 			crate::index::Index::Sqlite(database) => {
 				self.try_get_object_stored_batch_sqlite(database, ids).await
 			},
@@ -64,6 +65,7 @@ impl Server {
 				self.try_get_object_stored_and_metadata_postgres(database, id)
 					.await
 			},
+			#[cfg(feature = "sqlite")]
 			crate::index::Index::Sqlite(database) => {
 				self.try_get_object_stored_and_metadata_sqlite(database, id)
 					.await
@@ -81,6 +83,7 @@ impl Server {
 				self.try_get_object_stored_and_metadata_batch_postgres(database, ids)
 					.await
 			},
+			#[cfg(feature = "sqlite")]
 			crate::index::Index::Sqlite(database) => {
 				self.try_get_object_stored_and_metadata_batch_sqlite(database, ids)
 					.await
@@ -100,6 +103,7 @@ impl Server {
 				self.try_touch_object_and_get_stored_and_metadata_postgres(database, id, touched_at)
 					.await
 			},
+			#[cfg(feature = "sqlite")]
 			crate::index::Index::Sqlite(database) => {
 				self.try_touch_object_and_get_stored_and_metadata_sqlite(database, id, touched_at)
 					.await
@@ -120,6 +124,7 @@ impl Server {
 				)
 				.await
 			},
+			#[cfg(feature = "sqlite")]
 			crate::index::Index::Sqlite(database) => {
 				self.try_touch_object_and_get_stored_and_metadata_batch_sqlite(
 					database, ids, touched_at,

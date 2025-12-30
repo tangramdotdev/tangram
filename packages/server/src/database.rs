@@ -4,6 +4,7 @@ use {
 	tangram_database as db,
 };
 
+#[cfg(feature = "sqlite")]
 pub mod sqlite;
 
 #[derive(
@@ -19,6 +20,7 @@ pub mod sqlite;
 pub enum Error {
 	#[cfg(feature = "postgres")]
 	Postgres(db::postgres::Error),
+	#[cfg(feature = "sqlite")]
 	Sqlite(db::sqlite::Error),
 	Other(Box<dyn std::error::Error + Send + Sync>),
 }
@@ -29,6 +31,7 @@ pub enum Error {
 pub enum Database {
 	#[cfg(feature = "postgres")]
 	Postgres(db::postgres::Database),
+	#[cfg(feature = "sqlite")]
 	Sqlite(db::sqlite::Database),
 }
 
@@ -39,6 +42,7 @@ pub enum Database {
 pub enum DatabaseOptions {
 	#[cfg(feature = "postgres")]
 	Postgres(db::postgres::DatabaseOptions),
+	#[cfg(feature = "sqlite")]
 	Sqlite(db::sqlite::DatabaseOptions),
 }
 
@@ -48,6 +52,7 @@ pub enum DatabaseOptions {
 pub enum Connection {
 	#[cfg(feature = "postgres")]
 	Postgres(db::pool::Guard<db::postgres::Connection>),
+	#[cfg(feature = "sqlite")]
 	Sqlite(db::pool::Guard<db::sqlite::Connection>),
 }
 
@@ -58,6 +63,7 @@ pub enum Connection {
 pub enum ConnectionOptions {
 	#[cfg(feature = "postgres")]
 	Postgres(db::postgres::ConnectionOptions),
+	#[cfg(feature = "sqlite")]
 	Sqlite(db::sqlite::ConnectionOptions),
 }
 
@@ -67,6 +73,7 @@ pub enum ConnectionOptions {
 pub enum Transaction<'a> {
 	#[cfg(feature = "postgres")]
 	Postgres(db::postgres::Transaction<'a>),
+	#[cfg(feature = "sqlite")]
 	Sqlite(db::sqlite::Transaction<'a>),
 }
 
@@ -77,6 +84,7 @@ impl From<db::postgres::Error> for Error {
 	}
 }
 
+#[cfg(feature = "sqlite")]
 impl From<db::sqlite::Error> for Error {
 	fn from(error: db::sqlite::Error) -> Self {
 		Self::Sqlite(error)
@@ -88,6 +96,7 @@ impl db::Error for Error {
 		match self {
 			#[cfg(feature = "postgres")]
 			Self::Postgres(e) => e.is_retry(),
+			#[cfg(feature = "sqlite")]
 			Self::Sqlite(e) => e.is_retry(),
 			Self::Other(_) => false,
 		}
@@ -116,6 +125,7 @@ impl db::Database for Database {
 					.map_err(Error::Postgres)?;
 				Ok(Connection::Postgres(connection))
 			},
+			#[cfg(feature = "sqlite")]
 			Self::Sqlite(s) => {
 				let connection = s
 					.connection_with_options(options)
@@ -130,6 +140,7 @@ impl db::Database for Database {
 		match self {
 			#[cfg(feature = "postgres")]
 			Self::Postgres(s) => s.sync().await.map_err(Error::Postgres),
+			#[cfg(feature = "sqlite")]
 			Self::Sqlite(s) => s.sync().await.map_err(Error::Sqlite),
 		}
 	}
@@ -147,6 +158,7 @@ impl db::Connection for Connection {
 				let transaction = s.transaction().await.map_err(Error::Postgres)?;
 				Ok(Transaction::Postgres(transaction))
 			},
+			#[cfg(feature = "sqlite")]
 			Self::Sqlite(s) => {
 				let transaction = s.transaction().await.map_err(Error::Sqlite)?;
 				Ok(Transaction::Sqlite(transaction))
@@ -162,6 +174,7 @@ impl db::Transaction for Transaction<'_> {
 		match self {
 			#[cfg(feature = "postgres")]
 			Self::Postgres(s) => s.rollback().await.map_err(Error::Postgres),
+			#[cfg(feature = "sqlite")]
 			Self::Sqlite(s) => s.rollback().await.map_err(Error::Sqlite),
 		}
 	}
@@ -170,6 +183,7 @@ impl db::Transaction for Transaction<'_> {
 		match self {
 			#[cfg(feature = "postgres")]
 			Self::Postgres(s) => s.commit().await.map_err(Error::Postgres),
+			#[cfg(feature = "sqlite")]
 			Self::Sqlite(s) => s.commit().await.map_err(Error::Sqlite),
 		}
 	}
@@ -182,6 +196,7 @@ impl db::Query for Connection {
 		match self {
 			#[cfg(feature = "postgres")]
 			Self::Postgres(s) => s.p(),
+			#[cfg(feature = "sqlite")]
 			Self::Sqlite(s) => s.p(),
 		}
 	}
@@ -194,6 +209,7 @@ impl db::Query for Connection {
 		match self {
 			#[cfg(feature = "postgres")]
 			Self::Postgres(s) => s.execute(statement, params).await.map_err(Error::Postgres),
+			#[cfg(feature = "sqlite")]
 			Self::Sqlite(s) => s.execute(statement, params).await.map_err(Error::Sqlite),
 		}
 	}
@@ -209,6 +225,7 @@ impl db::Query for Connection {
 				let stream = s.query(statement, params).await.map_err(Error::Postgres)?;
 				Ok(stream.map(|result| result.map_err(Error::Postgres)).boxed())
 			},
+			#[cfg(feature = "sqlite")]
 			Self::Sqlite(s) => {
 				let stream = s.query(statement, params).await.map_err(Error::Sqlite)?;
 				Ok(stream.map(|result| result.map_err(Error::Sqlite)).boxed())
@@ -224,6 +241,7 @@ impl db::Query for Transaction<'_> {
 		match self {
 			#[cfg(feature = "postgres")]
 			Self::Postgres(s) => s.p(),
+			#[cfg(feature = "sqlite")]
 			Self::Sqlite(s) => s.p(),
 		}
 	}
@@ -236,6 +254,7 @@ impl db::Query for Transaction<'_> {
 		match self {
 			#[cfg(feature = "postgres")]
 			Self::Postgres(s) => s.execute(statement, params).await.map_err(Error::Postgres),
+			#[cfg(feature = "sqlite")]
 			Self::Sqlite(s) => s.execute(statement, params).await.map_err(Error::Sqlite),
 		}
 	}
@@ -251,6 +270,7 @@ impl db::Query for Transaction<'_> {
 				let stream = s.query(statement, params).await.map_err(Error::Postgres)?;
 				Ok(stream.map(|result| result.map_err(Error::Postgres)).boxed())
 			},
+			#[cfg(feature = "sqlite")]
 			Self::Sqlite(s) => {
 				let stream = s.query(statement, params).await.map_err(Error::Sqlite)?;
 				Ok(stream.map(|result| result.map_err(Error::Sqlite)).boxed())

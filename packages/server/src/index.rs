@@ -1,10 +1,11 @@
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+use tangram_database as db;
 use {
 	crate::{Context, Server},
 	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	std::{panic::AssertUnwindSafe, pin::pin, task::Poll, time::Duration},
 	tangram_client::prelude::*,
-	tangram_database as db,
 	tangram_futures::{
 		stream::Ext as _,
 		task::{Stop, Task},
@@ -19,6 +20,7 @@ pub use self::message::Message;
 pub mod message;
 #[cfg(feature = "postgres")]
 pub mod postgres;
+#[cfg(feature = "sqlite")]
 pub mod sqlite;
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
@@ -27,6 +29,7 @@ pub mod sqlite;
 pub enum Index {
 	#[cfg(feature = "postgres")]
 	Postgres(db::postgres::Database),
+	#[cfg(feature = "sqlite")]
 	Sqlite(db::sqlite::Database),
 }
 
@@ -298,6 +301,7 @@ impl Server {
 							)
 							.await?;
 						},
+						#[cfg(feature = "sqlite")]
 						Index::Sqlite(index) => {
 							self.indexer_task_handle_messages_sqlite(
 								index,
@@ -384,6 +388,7 @@ impl Server {
 				)
 				.await?;
 			},
+			#[cfg(feature = "sqlite")]
 			Index::Sqlite(index) => {
 				self.indexer_task_handle_messages_sqlite(
 					index,
@@ -416,6 +421,7 @@ impl Server {
 		match &self.index {
 			#[cfg(feature = "postgres")]
 			Index::Postgres(database) => self.indexer_handle_queue_postgres(config, database).await,
+			#[cfg(feature = "sqlite")]
 			Index::Sqlite(database) => self.indexer_handle_queue_sqlite(config, database).await,
 		}
 	}
@@ -424,6 +430,7 @@ impl Server {
 		match &self.index {
 			#[cfg(feature = "postgres")]
 			Index::Postgres(database) => self.indexer_get_transaction_id_postgres(database).await,
+			#[cfg(feature = "sqlite")]
 			Index::Sqlite(database) => self.indexer_get_transaction_id_sqlite(database).await,
 		}
 	}
@@ -435,6 +442,7 @@ impl Server {
 				self.indexer_get_queue_size_postgres(database, transaction_id)
 					.await
 			},
+			#[cfg(feature = "sqlite")]
 			Index::Sqlite(database) => {
 				self.indexer_get_queue_size_sqlite(database, transaction_id)
 					.await
@@ -506,6 +514,7 @@ impl Index {
 					.await
 					.map_err(|error| tg::error!(!error, "failed to sync the index"))?;
 			},
+			#[cfg(feature = "sqlite")]
 			Self::Sqlite(database) => {
 				database
 					.sync()

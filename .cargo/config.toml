@@ -5,7 +5,7 @@ rustflags = ["-Zthreads=8"]
 RUSTY_V8_MIRROR = "https://github.com/denoland/rusty_v8/releases/download"
 
 [profile.dev]
-codegen-backend = "cranelift"
+# codegen-backend = "cranelift"
 debug = "line-tables-only"
 
 [profile.dev.package."*"]

@@ -7,6 +7,7 @@ use {
 
 #[cfg(feature = "postgres")]
 mod postgres;
+#[cfg(feature = "sqlite")]
 mod sqlite;
 
 impl Server {
@@ -67,6 +68,7 @@ impl Server {
 		match &self.database {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(database) => self.list_processes_postgres(database).await,
+			#[cfg(feature = "sqlite")]
 			Database::Sqlite(database) => self.list_processes_sqlite(database).await,
 		}
 	}

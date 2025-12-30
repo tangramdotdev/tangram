@@ -271,18 +271,19 @@ impl Server {
 			database::Transaction::Postgres(_) => {
 				"with params as (select $1::text as command, $2::text as checksum)"
 			},
-			database::Transaction::Sqlite(_) => {
-				"with params as (select ?1 as command, ?2 as checksum)"
-			},
+			#[cfg(feature = "sqlite")]
+			database::Transaction::Sqlite(_) => "with params as (select ?1 as command, ?2 as checksum)",
 		};
 		let is = match &transaction {
 			#[cfg(feature = "postgres")]
 			database::Transaction::Postgres(_) => "is not distinct from",
+			#[cfg(feature = "sqlite")]
 			database::Transaction::Sqlite(_) => "is",
 		};
 		let isnt = match &transaction {
 			#[cfg(feature = "postgres")]
 			database::Transaction::Postgres(_) => "is distinct from",
+			#[cfg(feature = "sqlite")]
 			database::Transaction::Sqlite(_) => "is not",
 		};
 		let statement = formatdoc!(
@@ -393,13 +394,13 @@ impl Server {
 			database::Transaction::Postgres(_) => {
 				"with params as (select $1::text as command, $2::text as checksum)"
 			},
-			database::Transaction::Sqlite(_) => {
-				"with params as (select ?1 as command, ?2 as checksum)"
-			},
+			#[cfg(feature = "sqlite")]
+			database::Transaction::Sqlite(_) => "with params as (select ?1 as command, ?2 as checksum)",
 		};
 		let is = match &transaction {
 			#[cfg(feature = "postgres")]
 			database::Transaction::Postgres(_) => "is not distinct from",
+			#[cfg(feature = "sqlite")]
 			database::Transaction::Sqlite(_) => "is",
 		};
 		let statement = formatdoc!(
@@ -481,6 +482,7 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			},
+			#[cfg(feature = "sqlite")]
 			database::Transaction::Sqlite(transaction) => {
 				Self::update_parent_depths_sqlite(transaction, vec![id.to_string()])
 					.await
@@ -921,6 +923,7 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 			},
+			#[cfg(feature = "sqlite")]
 			database::Transaction::Sqlite(transaction) => {
 				Self::update_parent_depths_sqlite(transaction, vec![child.to_string()])
 					.await
@@ -931,6 +934,7 @@ impl Server {
 		Ok(())
 	}
 
+	#[cfg(feature = "sqlite")]
 	pub(crate) async fn update_parent_depths_sqlite(
 		transaction: &db::sqlite::Transaction<'_>,
 		child_ids: Vec<String>,

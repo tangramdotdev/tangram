@@ -7,6 +7,7 @@ use {
 
 #[cfg(feature = "postgres")]
 mod postgres;
+#[cfg(feature = "sqlite")]
 mod sqlite;
 
 impl Server {
@@ -49,6 +50,7 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to post the tag batch"))?;
 			},
+			#[cfg(feature = "sqlite")]
 			Database::Sqlite(database) => {
 				Self::post_tag_batch_sqlite(database, &arg)
 					.await

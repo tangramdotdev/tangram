@@ -1,3 +1,6 @@
+#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
+compile_error!("at least one database feature (postgres or sqlite) must be enabled");
+
 use {
 	self::{
 		context::Context, database::Database, index::Index, messenger::Messenger, store::Store,
@@ -309,16 +312,26 @@ impl Server {
 				}
 			},
 			self::config::Database::Sqlite(config) => {
-				let initialize = Arc::new(self::database::sqlite::initialize);
-				let options = db::sqlite::DatabaseOptions {
-					connections: config.connections.unwrap_or(parallelism),
-					initialize,
-					path: path.join(&config.path),
-				};
-				let database = db::sqlite::Database::new(options)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create the database"))?;
-				Database::Sqlite(database)
+				#[cfg(not(feature = "sqlite"))]
+				{
+					let _ = config;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with sqlite support"
+					));
+				}
+				#[cfg(feature = "sqlite")]
+				{
+					let initialize = Arc::new(self::database::sqlite::initialize);
+					let options = db::sqlite::DatabaseOptions {
+						connections: config.connections.unwrap_or(parallelism),
+						initialize,
+						path: path.join(&config.path),
+					};
+					let database = db::sqlite::Database::new(options)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to create the database"))?;
+					Database::Sqlite(database)
+				}
 			},
 		};
 
@@ -348,17 +361,27 @@ impl Server {
 				}
 			},
 			self::config::Index::Sqlite(options) => {
-				let initialize = Arc::new(self::index::sqlite::initialize);
-				let path = path.join("index");
-				let options = db::sqlite::DatabaseOptions {
-					connections: options.connections.unwrap_or(parallelism),
-					initialize,
-					path,
-				};
-				let database = db::sqlite::Database::new(options)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create the index"))?;
-				Index::Sqlite(database)
+				#[cfg(not(feature = "sqlite"))]
+				{
+					let _ = options;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with sqlite support"
+					));
+				}
+				#[cfg(feature = "sqlite")]
+				{
+					let initialize = Arc::new(self::index::sqlite::initialize);
+					let path = path.join("index");
+					let options = db::sqlite::DatabaseOptions {
+						connections: options.connections.unwrap_or(parallelism),
+						initialize,
+						path,
+					};
+					let database = db::sqlite::Database::new(options)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to create the index"))?;
+					Index::Sqlite(database)
+				}
 			},
 		};
 
@@ -534,9 +557,9 @@ impl Server {
 			watches,
 		}));
 
-		// Migrate the database.
-		#[cfg_attr(not(feature = "postgres"), expect(irrefutable_let_patterns))]
-		if let Database::Sqlite(database) = &server.database {
+		// Migrate the database if necessary.
+		#[cfg(feature = "sqlite")]
+		if let Ok(database) = server.database.try_unwrap_sqlite_ref() {
 			self::database::sqlite::migrate(database)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to migrate the database"))?;
@@ -583,7 +606,8 @@ impl Server {
 			}
 		}
 
-		// Migrate the index.
+		// Migrate the index if necessary.
+		#[cfg(feature = "sqlite")]
 		if let Ok(database) = server.index.try_unwrap_sqlite_ref() {
 			self::index::sqlite::migrate(database)
 				.await

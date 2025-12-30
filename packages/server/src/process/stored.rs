@@ -2,6 +2,7 @@ use {crate::Server, tangram_client::prelude::*, tangram_util::serde::is_false};
 
 #[cfg(feature = "postgres")]
 mod postgres;
+#[cfg(feature = "sqlite")]
 mod sqlite;
 
 #[expect(clippy::struct_field_names)]
@@ -74,9 +75,8 @@ impl Server {
 			crate::index::Index::Postgres(database) => {
 				self.try_get_process_stored_postgres(database, id).await
 			},
-			crate::index::Index::Sqlite(database) => {
-				self.try_get_process_stored_sqlite(database, id).await
-			},
+			#[cfg(feature = "sqlite")]
+			crate::index::Index::Sqlite(database) => self.try_get_process_stored_sqlite(database, id).await,
 		}
 	}
 
@@ -91,6 +91,7 @@ impl Server {
 				self.try_get_process_stored_batch_postgres(database, ids)
 					.await
 			},
+			#[cfg(feature = "sqlite")]
 			crate::index::Index::Sqlite(database) => {
 				self.try_get_process_stored_batch_sqlite(database, ids)
 					.await
@@ -108,6 +109,7 @@ impl Server {
 				self.try_get_process_stored_and_metadata_batch_postgres(database, ids)
 					.await
 			},
+			#[cfg(feature = "sqlite")]
 			crate::index::Index::Sqlite(database) => {
 				self.try_get_process_stored_and_metadata_batch_sqlite(database, ids)
 					.await
@@ -129,6 +131,7 @@ impl Server {
 				)
 				.await
 			},
+			#[cfg(feature = "sqlite")]
 			crate::index::Index::Sqlite(database) => {
 				self.try_touch_process_and_get_stored_and_metadata_sqlite(database, id, touched_at)
 					.await
@@ -149,6 +152,7 @@ impl Server {
 				)
 				.await
 			},
+			#[cfg(feature = "sqlite")]
 			crate::index::Index::Sqlite(database) => {
 				self.try_touch_process_and_get_stored_and_metadata_batch_sqlite(
 					database, ids, touched_at,

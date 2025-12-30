@@ -14,7 +14,6 @@ version = { workspace = true }
 workspace = true
 
 [features]
-default = ["lmdb"]
 lmdb = ["dep:heed"]
 scylla = ["dep:scylla"]
 

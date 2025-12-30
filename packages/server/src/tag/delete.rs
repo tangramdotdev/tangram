@@ -7,6 +7,7 @@ use {
 
 #[cfg(feature = "postgres")]
 mod postgres;
+#[cfg(feature = "sqlite")]
 mod sqlite;
 
 impl Server {
@@ -44,11 +45,10 @@ impl Server {
 			Database::Postgres(database) => Self::delete_tag_postgres(database, &arg.pattern, arg.recursive)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to delete the tag"))?,
-			Database::Sqlite(database) => {
-				Self::delete_tag_sqlite(database, &arg.pattern, arg.recursive)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to delete the tag"))?
-			},
+			#[cfg(feature = "sqlite")]
+			Database::Sqlite(database) => Self::delete_tag_sqlite(database, &arg.pattern, arg.recursive)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to delete the tag"))?,
 		};
 
 		// Send delete tag index messages.

@@ -9,6 +9,7 @@ use {
 
 #[cfg(feature = "postgres")]
 mod postgres;
+#[cfg(feature = "sqlite")]
 mod sqlite;
 
 impl Server {
@@ -49,6 +50,7 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to put the process"))?;
 			},
+			#[cfg(feature = "sqlite")]
 			Database::Sqlite(database) => {
 				Self::put_process_sqlite(id, &arg, database, now)
 					.await

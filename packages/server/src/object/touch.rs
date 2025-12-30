@@ -36,6 +36,7 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, %id, "failed to touch the object"))?;
 			},
+			#[cfg(feature = "sqlite")]
 			crate::index::Index::Sqlite(database) => {
 				self.touch_object_sqlite(database, id)
 					.await
@@ -83,6 +84,7 @@ impl Server {
 		Ok(())
 	}
 
+	#[cfg(feature = "sqlite")]
 	async fn touch_object_sqlite(
 		&self,
 		database: &db::sqlite::Database,

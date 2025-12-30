@@ -1,4 +1,6 @@
-use {bytes::Bytes, std::path::Path, tangram_client::prelude::*, tangram_store as store};
+#[cfg(feature = "lmdb")]
+use std::path::Path;
+use {bytes::Bytes, tangram_client::prelude::*, tangram_store as store};
 
 pub use store::{CacheReference, DeleteArg, PutArg};
 
@@ -73,6 +75,10 @@ impl Store {
 		Ok(Self::Scylla(scylla))
 	}
 
+	#[cfg_attr(
+		not(any(feature = "lmdb", feature = "scylla")),
+		expect(clippy::unnecessary_wraps)
+	)]
 	pub fn try_get_sync(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
 		match self {
 			#[cfg(feature = "lmdb")]
@@ -83,6 +89,10 @@ impl Store {
 		}
 	}
 
+	#[cfg_attr(
+		not(any(feature = "lmdb", feature = "scylla")),
+		expect(clippy::unnecessary_wraps)
+	)]
 	#[expect(dead_code)]
 	pub fn try_get_batch_sync(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Bytes>>> {
 		match self {
@@ -107,6 +117,10 @@ impl Store {
 		}
 	}
 
+	#[cfg_attr(
+		not(any(feature = "lmdb", feature = "scylla")),
+		expect(clippy::unnecessary_wraps)
+	)]
 	pub fn try_get_cache_reference_sync(
 		&self,
 		id: &tg::blob::Id,
@@ -120,6 +134,10 @@ impl Store {
 		}
 	}
 
+	#[cfg_attr(
+		not(any(feature = "lmdb", feature = "scylla")),
+		expect(clippy::unnecessary_wraps)
+	)]
 	pub fn put_sync(&self, arg: PutArg) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "lmdb")]
@@ -137,6 +155,10 @@ impl Store {
 		Ok(())
 	}
 
+	#[cfg_attr(
+		not(any(feature = "lmdb", feature = "scylla")),
+		expect(clippy::unnecessary_wraps)
+	)]
 	#[expect(dead_code)]
 	pub fn put_batch_sync(&self, args: Vec<PutArg>) -> tg::Result<()> {
 		match self {
@@ -155,6 +177,10 @@ impl Store {
 		Ok(())
 	}
 
+	#[cfg_attr(
+		not(any(feature = "lmdb", feature = "scylla")),
+		expect(clippy::unnecessary_wraps)
+	)]
 	#[expect(dead_code)]
 	pub fn delete_sync(&self, arg: DeleteArg) -> tg::Result<()> {
 		match self {
@@ -173,6 +199,10 @@ impl Store {
 		Ok(())
 	}
 
+	#[cfg_attr(
+		not(any(feature = "lmdb", feature = "scylla")),
+		expect(clippy::unnecessary_wraps)
+	)]
 	#[expect(dead_code)]
 	pub fn delete_batch_sync(&self, args: Vec<DeleteArg>) -> tg::Result<()> {
 		match self {
@@ -191,6 +221,10 @@ impl Store {
 		Ok(())
 	}
 
+	#[cfg_attr(
+		not(any(feature = "lmdb", feature = "scylla")),
+		expect(clippy::unnecessary_wraps)
+	)]
 	#[expect(dead_code)]
 	pub fn flush_sync(&self) -> tg::Result<()> {
 		match self {

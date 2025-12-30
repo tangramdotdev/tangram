@@ -54,6 +54,7 @@ impl Server {
 					returning status;
 				"
 			),
+			#[cfg(feature = "sqlite")]
 			database::Connection::Sqlite(_) => indoc!(
 				"
 					update processes

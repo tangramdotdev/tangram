@@ -17,6 +17,7 @@ use {
 
 #[cfg(feature = "postgres")]
 mod postgres;
+#[cfg(feature = "sqlite")]
 mod sqlite;
 
 struct InnerOutput {
@@ -180,6 +181,7 @@ impl Server {
 				self.cleaner_task_inner_postgres(database, max_touched_at, n)
 					.await?
 			},
+			#[cfg(feature = "sqlite")]
 			crate::index::Index::Sqlite(database) => {
 				self.cleaner_task_inner_sqlite(database, max_touched_at, n)
 					.await?

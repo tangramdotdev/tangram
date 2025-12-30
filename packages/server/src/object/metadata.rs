@@ -3,12 +3,12 @@ use indoc::formatdoc;
 use {
 	crate::{Context, Server},
 	futures::{FutureExt as _, future},
-	indoc::indoc,
-	rusqlite as sqlite,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
+#[cfg(feature = "sqlite")]
+use {indoc::indoc, rusqlite as sqlite};
 
 impl Server {
 	pub async fn try_get_object_metadata_with_context(
@@ -48,9 +48,8 @@ impl Server {
 			crate::index::Index::Postgres(database) => {
 				self.try_get_object_metadata_postgres(database, id).await
 			},
-			crate::index::Index::Sqlite(database) => {
-				self.try_get_object_metadata_sqlite(database, id).await
-			},
+			#[cfg(feature = "sqlite")]
+			crate::index::Index::Sqlite(database) => self.try_get_object_metadata_sqlite(database, id).await,
 		}
 	}
 
@@ -120,6 +119,7 @@ impl Server {
 		Ok(output)
 	}
 
+	#[cfg(feature = "sqlite")]
 	async fn try_get_object_metadata_sqlite(
 		&self,
 		database: &db::sqlite::Database,
@@ -140,6 +140,7 @@ impl Server {
 		Ok(output)
 	}
 
+	#[cfg(feature = "sqlite")]
 	pub(crate) fn try_get_object_metadata_sqlite_sync(
 		connection: &sqlite::Connection,
 		cache: &db::sqlite::Cache,

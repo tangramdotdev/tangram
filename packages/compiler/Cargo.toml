@@ -14,7 +14,6 @@ version = { workspace = true }
 workspace = true
 
 [features]
-default = []
 typescript = ["dep:tangram_v8", "dep:v8"]
 
 [build-dependencies]

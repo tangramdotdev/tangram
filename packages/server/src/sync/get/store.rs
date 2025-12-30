@@ -39,6 +39,7 @@ impl Server {
 	) -> tg::Result<()> {
 		// Choose the batch parameters.
 		let store_config = match &self.store {
+			#[cfg(feature = "lmdb")]
 			Store::Lmdb(_) => &self.config.sync.get.store.lmdb,
 			Store::Memory(_) => &self.config.sync.get.store.memory,
 			#[cfg(feature = "scylla")]
@@ -225,6 +226,7 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to put the processes"))?;
 			},
+			#[cfg(feature = "sqlite")]
 			Database::Sqlite(database) => {
 				Self::put_process_batch_sqlite(&batch_refs, database, now)
 					.await
