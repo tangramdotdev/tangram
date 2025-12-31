@@ -244,8 +244,8 @@ where
 	fn directory_object(&mut self, object: &tg::directory::Object) -> Result {
 		write!(self.writer, "tg.directory(")?;
 		match object {
-			tg::directory::Object::Reference(reference) => {
-				self.graph_reference(reference)?;
+			tg::directory::Object::Pointer(pointer) => {
+				self.graph_pointer(pointer)?;
 			},
 			tg::directory::Object::Node(node) => {
 				if !node.entries.is_empty() {
@@ -296,8 +296,8 @@ where
 	fn file_object(&mut self, object: &tg::file::Object) -> Result {
 		write!(self.writer, "tg.file(")?;
 		match object {
-			tg::file::Object::Reference(reference) => {
-				self.graph_reference(reference)?;
+			tg::file::Object::Pointer(pointer) => {
+				self.graph_pointer(pointer)?;
 			},
 			tg::file::Object::Node(node) => {
 				self.file_node(node, false)?;
@@ -372,8 +372,8 @@ where
 	fn symlink_object(&mut self, object: &tg::symlink::Object) -> Result {
 		write!(self.writer, "tg.symlink(")?;
 		match object {
-			tg::symlink::Object::Reference(reference) => {
-				self.graph_reference(reference)?;
+			tg::symlink::Object::Pointer(pointer) => {
+				self.graph_pointer(pointer)?;
 			},
 			tg::symlink::Object::Node(node) => {
 				self.symlink_node(node, false)?;
@@ -435,8 +435,8 @@ where
 
 	fn graph_edge_object(&mut self, edge: &tg::graph::Edge<tg::Object>) -> Result {
 		match edge {
-			tg::graph::Edge::Reference(reference) => {
-				self.graph_reference(reference)?;
+			tg::graph::Edge::Pointer(pointer) => {
+				self.graph_pointer(pointer)?;
 			},
 			tg::graph::Edge::Object(object) => {
 				self.object(object)?;
@@ -447,8 +447,8 @@ where
 
 	fn graph_edge_artifact(&mut self, edge: &tg::graph::Edge<tg::Artifact>) -> Result {
 		match edge {
-			tg::graph::Edge::Reference(reference) => {
-				self.graph_reference(reference)?;
+			tg::graph::Edge::Pointer(pointer) => {
+				self.graph_pointer(pointer)?;
 			},
 			tg::graph::Edge::Object(object) => {
 				self.artifact(object)?;
@@ -457,13 +457,13 @@ where
 		Ok(())
 	}
 
-	fn graph_reference(&mut self, reference: &tg::graph::Reference) -> Result {
+	fn graph_pointer(&mut self, pointer: &tg::graph::Pointer) -> Result {
 		self.start_map()?;
-		if let Some(graph) = &reference.graph {
+		if let Some(graph) = &pointer.graph {
 			self.map_entry("graph", |s| s.graph(graph))?;
 		}
-		self.map_entry("index", |s| s.number(reference.index.to_f64().unwrap()))?;
-		self.map_entry("kind", |s| s.string(&reference.kind.to_string()))?;
+		self.map_entry("index", |s| s.number(pointer.index.to_f64().unwrap()))?;
+		self.map_entry("kind", |s| s.string(&pointer.kind.to_string()))?;
 		self.finish_map()?;
 		Ok(())
 	}

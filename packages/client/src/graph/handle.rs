@@ -136,7 +136,7 @@ impl Graph {
 		let node = nodes
 			.get(index)
 			.ok_or_else(|| tg::error!("invalid node index"))?;
-		let artifact = tg::Artifact::with_reference(tg::graph::Reference {
+		let artifact = tg::Artifact::with_pointer(tg::graph::Pointer {
 			graph: Some(self.clone()),
 			index,
 			kind: node.kind(),

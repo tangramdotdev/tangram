@@ -126,14 +126,14 @@ impl Directory {
 	}
 
 	#[must_use]
-	pub fn with_reference(reference: tg::graph::Reference) -> Self {
-		Self::with_object(Object::Reference(reference))
+	pub fn with_pointer(pointer: tg::graph::Pointer) -> Self {
+		Self::with_object(Object::Pointer(pointer))
 	}
 
 	#[must_use]
 	pub fn with_edge(edge: tg::graph::Edge<Self>) -> Self {
 		match edge {
-			tg::graph::Edge::Reference(reference) => Self::with_reference(reference),
+			tg::graph::Edge::Pointer(pointer) => Self::with_pointer(pointer),
 			tg::graph::Edge::Object(directory) => directory,
 		}
 	}
@@ -153,7 +153,7 @@ impl Directory {
 	{
 		let object = self.object(handle).await?;
 		let entries = match object.as_ref() {
-			Object::Reference(object) => {
+			Object::Pointer(object) => {
 				let graph = object.graph.as_ref().unwrap();
 				let index = object.index;
 				let object = graph.object(handle).await?;
@@ -170,13 +170,12 @@ impl Directory {
 					.iter()
 					.map(|(name, edge)| {
 						let artifact = match edge {
-							tg::graph::Edge::Reference(reference) => {
-								let graph =
-									reference.graph.clone().unwrap_or_else(|| graph.clone());
-								tg::Artifact::with_reference(tg::graph::Reference {
+							tg::graph::Edge::Pointer(pointer) => {
+								let graph = pointer.graph.clone().unwrap_or_else(|| graph.clone());
+								tg::Artifact::with_pointer(tg::graph::Pointer {
 									graph: Some(graph),
-									index: reference.index,
-									kind: reference.kind,
+									index: pointer.index,
+									kind: pointer.kind,
 								})
 							},
 							tg::graph::Edge::Object(object) => object.clone(),
@@ -191,13 +190,12 @@ impl Directory {
 				.into_iter()
 				.map(|(name, edge)| {
 					let artifact = match edge {
-						tg::graph::Edge::Reference(reference) => {
-							let graph =
-								reference.graph.ok_or_else(|| tg::error!("missing graph"))?;
-							tg::Artifact::with_reference(tg::graph::Reference {
+						tg::graph::Edge::Pointer(pointer) => {
+							let graph = pointer.graph.ok_or_else(|| tg::error!("missing graph"))?;
+							tg::Artifact::with_pointer(tg::graph::Pointer {
 								graph: Some(graph),
-								index: reference.index,
-								kind: reference.kind,
+								index: pointer.index,
+								kind: pointer.kind,
 							})
 						},
 						tg::graph::Edge::Object(object) => object,
@@ -252,7 +250,7 @@ impl Directory {
 	{
 		let object = self.object(handle).await?;
 		let edge = match object.as_ref() {
-			Object::Reference(object) => {
+			Object::Pointer(object) => {
 				let graph = object.graph.as_ref().unwrap();
 				let index = object.index;
 				let object = graph.object(handle).await?;
@@ -266,12 +264,12 @@ impl Directory {
 					.ok_or_else(|| tg::error!("expected a directory"))?;
 				match directory.entries.get(name) {
 					None => None,
-					Some(tg::graph::Edge::Reference(reference)) => {
-						let graph = reference.graph.clone().unwrap_or_else(|| graph.clone());
-						Some(tg::graph::Edge::Reference(tg::graph::Reference {
+					Some(tg::graph::Edge::Pointer(pointer)) => {
+						let graph = pointer.graph.clone().unwrap_or_else(|| graph.clone());
+						Some(tg::graph::Edge::Pointer(tg::graph::Pointer {
 							graph: Some(graph),
-							index: reference.index,
-							kind: reference.kind,
+							index: pointer.index,
+							kind: pointer.kind,
 						}))
 					},
 					Some(tg::graph::Edge::Object(object)) => {
@@ -281,12 +279,12 @@ impl Directory {
 			},
 			Object::Node(node) => match node.entries.get(name).cloned() {
 				None => None,
-				Some(tg::graph::Edge::Reference(reference)) => {
-					let graph = reference.graph.ok_or_else(|| tg::error!("missing graph"))?;
-					Some(tg::graph::Edge::Reference(tg::graph::Reference {
+				Some(tg::graph::Edge::Pointer(pointer)) => {
+					let graph = pointer.graph.ok_or_else(|| tg::error!("missing graph"))?;
+					Some(tg::graph::Edge::Pointer(tg::graph::Pointer {
 						graph: Some(graph),
-						index: reference.index,
-						kind: reference.kind,
+						index: pointer.index,
+						kind: pointer.kind,
 					}))
 				},
 				Some(tg::graph::Edge::Object(object)) => Some(tg::graph::Edge::Object(object)),

@@ -271,7 +271,7 @@ declare namespace tg {
 
 		export namespace Arg {
 			type Object =
-				| tg.Graph.Arg.Reference
+				| tg.Graph.Arg.Pointer
 				| {
 						[key: string]:
 							| undefined
@@ -352,7 +352,7 @@ declare namespace tg {
 			| tg.File.Arg.Object;
 
 		export namespace Arg {
-			type Object = tg.Graph.Arg.Reference | tg.Graph.Arg.File;
+			type Object = tg.Graph.Arg.Pointer | tg.Graph.Arg.File;
 		}
 
 		export let raw: (
@@ -409,7 +409,7 @@ declare namespace tg {
 			| tg.Symlink.Arg.Object;
 
 		export namespace Arg {
-			type Object = tg.Graph.Arg.Reference | tg.Graph.Arg.Symlink;
+			type Object = tg.Graph.Arg.Pointer | tg.Graph.Arg.Symlink;
 		}
 	}
 
@@ -488,9 +488,9 @@ declare namespace tg {
 				path?: string | undefined;
 			};
 
-			export type Edge<T> = tg.Graph.Arg.Reference | T;
+			export type Edge<T> = tg.Graph.Arg.Pointer | T;
 
-			export type Reference =
+			export type Pointer =
 				| number
 				| {
 						graph?: tg.Graph | undefined;
@@ -527,9 +527,9 @@ declare namespace tg {
 			path: string | undefined;
 		};
 
-		export type Edge<T> = tg.Graph.Reference | T;
+		export type Edge<T> = tg.Graph.Pointer | T;
 
-		export type Reference = {
+		export type Pointer = {
 			graph?: tg.Graph | undefined;
 			index: number;
 			kind: tg.Artifact.Kind;

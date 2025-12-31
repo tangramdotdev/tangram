@@ -137,14 +137,14 @@ pub struct Symlink {
 #[try_unwrap(ref, ref_mut)]
 #[unwrap(ref, ref_mut)]
 pub enum Edge<T> {
-	Reference(Reference),
+	Pointer(Pointer),
 	Object(T),
 }
 
 impl From<Edge<tg::artifact::Id>> for Edge<tg::object::Id> {
 	fn from(value: Edge<tg::artifact::Id>) -> Self {
 		match value {
-			Edge::Reference(reference) => Self::Reference(reference),
+			Edge::Pointer(pointer) => Self::Pointer(pointer),
 			Edge::Object(id) => Self::Object(id.into()),
 		}
 	}
@@ -155,7 +155,7 @@ impl TryFrom<Edge<tg::object::Id>> for Edge<tg::artifact::Id> {
 
 	fn try_from(value: Edge<tg::object::Id>) -> tg::Result<Self> {
 		match value {
-			Edge::Reference(reference) => Ok(Self::Reference(reference)),
+			Edge::Pointer(pointer) => Ok(Self::Pointer(pointer)),
 			Edge::Object(id) => Ok(Self::Object(id.try_into()?)),
 		}
 	}
@@ -174,7 +174,7 @@ impl TryFrom<Edge<tg::object::Id>> for Edge<tg::artifact::Id> {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct Reference {
+pub struct Pointer {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
 	pub graph: Option<tg::graph::Id>,
@@ -431,7 +431,7 @@ impl Edge<tg::object::Id> {
 	#[must_use]
 	pub fn kind(&self) -> tg::object::Kind {
 		match self {
-			Edge::Reference(reference) => reference.kind.into(),
+			Edge::Pointer(pointer) => pointer.kind.into(),
 			Edge::Object(object) => object.kind(),
 		}
 	}
@@ -441,7 +441,7 @@ impl Edge<tg::artifact::Id> {
 	#[must_use]
 	pub fn artifact_kind(&self) -> tg::artifact::Kind {
 		match self {
-			Edge::Reference(reference) => reference.kind,
+			Edge::Pointer(pointer) => pointer.kind,
 			Edge::Object(object) => object.kind(),
 		}
 	}
@@ -453,8 +453,8 @@ where
 {
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		match self {
-			Self::Reference(reference) => {
-				reference.children(children);
+			Self::Pointer(pointer) => {
+				pointer.children(children);
 			},
 			Self::Object(object) => {
 				children.insert(object.clone().into());
@@ -463,7 +463,7 @@ where
 	}
 }
 
-impl Reference {
+impl Pointer {
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		if let Some(graph) = &self.graph {
 			children.insert(graph.clone().into());
@@ -477,7 +477,7 @@ where
 {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Self::Reference(reference) => write!(f, "{reference}"),
+			Self::Pointer(pointer) => write!(f, "{pointer}"),
 			Self::Object(object) => write!(f, "{object}"),
 		}
 	}
@@ -489,8 +489,8 @@ where
 {
 	type Err = tg::Error;
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		if let Ok(reference) = s.parse() {
-			Ok(Self::Reference(reference))
+		if let Ok(pointer) = s.parse() {
+			Ok(Self::Pointer(pointer))
 		} else if let Ok(object) = s.parse() {
 			Ok(Self::Object(object))
 		} else {
@@ -499,7 +499,7 @@ where
 	}
 }
 
-impl std::fmt::Display for Reference {
+impl std::fmt::Display for Pointer {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		if let Some(graph) = &self.graph {
 			write!(f, "graph={graph}&")?;
@@ -509,7 +509,7 @@ impl std::fmt::Display for Reference {
 	}
 }
 
-impl std::str::FromStr for Reference {
+impl std::str::FromStr for Pointer {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -532,7 +532,7 @@ impl std::str::FromStr for Reference {
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(untagged)]
-enum ReferenceSerde {
+enum PointerSerde {
 	String(String),
 	Object {
 		graph: Option<tg::graph::Id>,
@@ -541,19 +541,19 @@ enum ReferenceSerde {
 	},
 }
 
-impl TryFrom<ReferenceSerde> for Reference {
+impl TryFrom<PointerSerde> for Pointer {
 	type Error = tg::Error;
 
-	fn try_from(value: ReferenceSerde) -> Result<Self, Self::Error> {
+	fn try_from(value: PointerSerde) -> Result<Self, Self::Error> {
 		match value {
-			ReferenceSerde::String(string) => string.parse(),
-			ReferenceSerde::Object { graph, index, kind } => Ok(Self { graph, index, kind }),
+			PointerSerde::String(string) => string.parse(),
+			PointerSerde::Object { graph, index, kind } => Ok(Self { graph, index, kind }),
 		}
 	}
 }
 
-impl From<Reference> for ReferenceSerde {
-	fn from(value: Reference) -> Self {
+impl From<Pointer> for PointerSerde {
+	fn from(value: Pointer) -> Self {
 		Self::String(value.to_string())
 	}
 }

@@ -33,8 +33,8 @@ export class Directory {
 		return new tg.Directory({ id, stored: true });
 	}
 
-	static withReference(reference: tg.Graph.Reference): tg.Directory {
-		return new tg.Directory({ object: reference, stored: false });
+	static withPointer(pointer: tg.Graph.Pointer): tg.Directory {
+		return new tg.Directory({ object: pointer, stored: false });
 	}
 
 	static withObject(object: tg.Directory.Object): tg.Directory {
@@ -50,8 +50,8 @@ export class Directory {
 	): Promise<tg.Directory> {
 		if (args.length === 1) {
 			let arg = await tg.resolve(args[0]);
-			if (tg.Graph.Arg.Reference.is(arg)) {
-				return tg.Directory.withObject(tg.Graph.Reference.fromArg(arg));
+			if (tg.Graph.Arg.Pointer.is(arg)) {
+				return tg.Directory.withObject(tg.Graph.Pointer.fromArg(arg));
 			}
 		}
 		let resolved = await Promise.all(args.map(tg.resolve));
@@ -320,7 +320,7 @@ export namespace Directory {
 
 	export namespace Arg {
 		export type Object =
-			| tg.Graph.Arg.Reference
+			| tg.Graph.Arg.Pointer
 			| {
 					[key: string]:
 						| undefined
@@ -332,20 +332,20 @@ export namespace Directory {
 			  };
 	}
 
-	export type Object = tg.Graph.Reference | tg.Graph.Directory;
+	export type Object = tg.Graph.Pointer | tg.Graph.Directory;
 
 	export namespace Object {
 		export let toData = (object: tg.Directory.Object): tg.Directory.Data => {
 			if ("index" in object) {
-				return tg.Graph.Reference.toData(object);
+				return tg.Graph.Pointer.toData(object);
 			} else {
 				return tg.Graph.Directory.toData(object);
 			}
 		};
 
 		export let fromData = (data: tg.Directory.Data): tg.Directory.Object => {
-			if (tg.Graph.Data.Reference.is(data)) {
-				return tg.Graph.Reference.fromData(data);
+			if (tg.Graph.Data.Pointer.is(data)) {
+				return tg.Graph.Pointer.fromData(data);
 			} else {
 				return tg.Graph.Directory.fromData(data);
 			}
@@ -353,12 +353,12 @@ export namespace Directory {
 
 		export let children = (object: tg.Directory.Object): Array<tg.Object> => {
 			if ("index" in object) {
-				return tg.Graph.Reference.children(object);
+				return tg.Graph.Pointer.children(object);
 			} else {
 				return tg.Graph.Directory.children(object);
 			}
 		};
 	}
 
-	export type Data = tg.Graph.Data.Reference | tg.Graph.Data.Directory;
+	export type Data = tg.Graph.Data.Pointer | tg.Graph.Data.Directory;
 }

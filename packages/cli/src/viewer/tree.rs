@@ -466,8 +466,8 @@ where
 					match executable.module.referent.item.clone() {
 						tg::module::Item::Edge(edge) => {
 							let object = match edge {
-								tg::graph::Edge::Reference(reference) => {
-									reference.get(handle).await?.into()
+								tg::graph::Edge::Pointer(pointer) => {
+									pointer.get(handle).await?.into()
 								},
 								tg::graph::Edge::Object(object) => object,
 							};
@@ -570,8 +570,8 @@ where
 					let item = match referent.item.clone() {
 						tg::module::Item::Edge(edge) => {
 							let object = match edge {
-								tg::graph::Edge::Reference(reference) => {
-									reference.get(handle).await?.into()
+								tg::graph::Edge::Pointer(pointer) => {
+									pointer.get(handle).await?.into()
 								},
 								tg::graph::Edge::Object(object) => object,
 							};
@@ -721,18 +721,18 @@ where
 	) -> tg::Result<()> {
 		let object = directory.object(handle).await?;
 		let children: Vec<_> = match object.as_ref() {
-			tg::directory::Object::Reference(reference) => [
+			tg::directory::Object::Pointer(pointer) => [
 				(
 					"graph".to_owned(),
-					tg::Value::Object(reference.graph.clone().unwrap().into()),
+					tg::Value::Object(pointer.graph.clone().unwrap().into()),
 				),
 				(
 					"index".to_owned(),
-					tg::Value::Number(reference.index.to_f64().unwrap()),
+					tg::Value::Number(pointer.index.to_f64().unwrap()),
 				),
 				(
 					"kind".to_owned(),
-					tg::Value::String(reference.kind.to_string()),
+					tg::Value::String(pointer.kind.to_string()),
 				),
 			]
 			.into_iter()
@@ -744,7 +744,7 @@ where
 					.into_iter()
 					.map(async |(name, artifact)| {
 						let artifact = match artifact {
-							tg::graph::Edge::Reference(reference) => reference.get(handle).await?,
+							tg::graph::Edge::Pointer(pointer) => pointer.get(handle).await?,
 							tg::graph::Edge::Object(artifact) => artifact,
 						};
 						Ok::<_, tg::Error>((name, artifact.into()))
@@ -782,18 +782,18 @@ where
 		let object = file.object(handle).await?;
 
 		let children = match object.as_ref() {
-			tg::file::Object::Reference(reference) => [
+			tg::file::Object::Pointer(pointer) => [
 				(
 					"graph".to_owned(),
-					tg::Value::Object(reference.graph.clone().unwrap().into()),
+					tg::Value::Object(pointer.graph.clone().unwrap().into()),
 				),
 				(
 					"index".to_owned(),
-					tg::Value::Number(reference.index.to_f64().unwrap()),
+					tg::Value::Number(pointer.index.to_f64().unwrap()),
 				),
 				(
 					"kind".to_owned(),
-					tg::Value::String(reference.kind.to_string()),
+					tg::Value::String(pointer.kind.to_string()),
 				),
 			]
 			.into_iter()
@@ -818,8 +818,8 @@ where
 						};
 						if let Some(edge) = dependency.0.item() {
 							let item = match edge {
-								tg::graph::Edge::Reference(reference) => {
-									reference.get(handle).await?.into()
+								tg::graph::Edge::Pointer(pointer) => {
+									pointer.get(handle).await?.into()
 								},
 								tg::graph::Edge::Object(object) => object.clone(),
 							};
@@ -901,11 +901,11 @@ where
 							.into_iter()
 							.map(async |(name, edge)| {
 								let value = match edge {
-									tg::graph::Edge::Reference(mut reference) => {
-										if reference.graph.is_none() {
-											reference.graph.replace(graph.clone());
+									tg::graph::Edge::Pointer(mut pointer) => {
+										if pointer.graph.is_none() {
+											pointer.graph.replace(graph.clone());
 										}
-										reference.get(handle).await?.into()
+										pointer.get(handle).await?.into()
 									},
 									tg::graph::Edge::Object(artifact) => artifact.into(),
 								};
@@ -934,12 +934,12 @@ where
 								let mut map = BTreeMap::new();
 								if let Some(edge) = dependency.0.item() {
 									let item = match edge {
-										tg::graph::Edge::Reference(reference) => {
-											let mut reference = reference.clone();
-											if reference.graph.is_none() {
-												reference.graph.replace(graph.clone());
+										tg::graph::Edge::Pointer(pointer) => {
+											let mut pointer = pointer.clone();
+											if pointer.graph.is_none() {
+												pointer.graph.replace(graph.clone());
 											}
-											reference.get(handle).await?.into()
+											pointer.get(handle).await?.into()
 										},
 										tg::graph::Edge::Object(object) => object.clone(),
 									};
@@ -983,11 +983,11 @@ where
 					tg::graph::Node::Symlink(symlink) => {
 						if let Some(artifact) = symlink.artifact {
 							let artifact = match artifact {
-								tg::graph::Edge::Reference(mut reference) => {
-									if reference.graph.is_none() {
-										reference.graph.replace(graph.clone());
+								tg::graph::Edge::Pointer(mut pointer) => {
+									if pointer.graph.is_none() {
+										pointer.graph.replace(graph.clone());
 									}
-									reference.get(handle).await?.into()
+									pointer.get(handle).await?.into()
 								},
 								tg::graph::Edge::Object(object) => object.into(),
 							};
@@ -1405,18 +1405,18 @@ where
 	) -> tg::Result<()> {
 		let object = symlink.object(handle).await?;
 		let children = match object.as_ref() {
-			tg::symlink::Object::Reference(reference) => [
+			tg::symlink::Object::Pointer(pointer) => [
 				(
 					"graph".to_owned(),
-					tg::Value::Object(reference.graph.clone().unwrap().into()),
+					tg::Value::Object(pointer.graph.clone().unwrap().into()),
 				),
 				(
 					"index".to_owned(),
-					tg::Value::Number(reference.index.to_f64().unwrap()),
+					tg::Value::Number(pointer.index.to_f64().unwrap()),
 				),
 				(
 					"kind".to_owned(),
-					tg::Value::String(reference.kind.to_string()),
+					tg::Value::String(pointer.kind.to_string()),
 				),
 			]
 			.into_iter()
@@ -1425,9 +1425,7 @@ where
 				let mut children = Vec::new();
 				if let Some(artifact) = &node.artifact {
 					let artifact = match artifact {
-						tg::graph::Edge::Reference(reference) => {
-							reference.get(handle).await?.into()
-						},
+						tg::graph::Edge::Pointer(pointer) => pointer.get(handle).await?.into(),
 						tg::graph::Edge::Object(artifact) => artifact.clone().into(),
 					};
 					children.push(("artifact".to_owned(), tg::Value::Object(artifact)));

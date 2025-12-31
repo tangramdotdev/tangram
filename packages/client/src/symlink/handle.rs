@@ -117,14 +117,14 @@ impl Symlink {
 
 impl Symlink {
 	#[must_use]
-	pub fn with_reference(reference: tg::graph::Reference) -> Self {
-		Self::with_object(Object::Reference(reference))
+	pub fn with_pointer(pointer: tg::graph::Pointer) -> Self {
+		Self::with_object(Object::Pointer(pointer))
 	}
 
 	#[must_use]
 	pub fn with_edge(edge: tg::graph::Edge<Self>) -> Self {
 		match edge {
-			tg::graph::Edge::Reference(reference) => Self::with_reference(reference),
+			tg::graph::Edge::Pointer(pointer) => Self::with_pointer(pointer),
 			tg::graph::Edge::Object(symlink) => symlink,
 		}
 	}
@@ -159,7 +159,7 @@ impl Symlink {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Reference(object) => {
+			Object::Pointer(object) => {
 				let graph = object.graph.as_ref().unwrap();
 				let index = object.index;
 				let object = graph.object(handle).await?;
@@ -175,12 +175,12 @@ impl Symlink {
 					return Ok(None);
 				};
 				let artifact = match artifact {
-					tg::graph::Edge::Reference(reference) => {
-						let graph = reference.graph.clone().unwrap_or_else(|| graph.clone());
-						tg::Artifact::with_reference(tg::graph::Reference {
+					tg::graph::Edge::Pointer(pointer) => {
+						let graph = pointer.graph.clone().unwrap_or_else(|| graph.clone());
+						tg::Artifact::with_pointer(tg::graph::Pointer {
 							graph: Some(graph),
-							index: reference.index,
-							kind: reference.kind,
+							index: pointer.index,
+							kind: pointer.kind,
 						})
 					},
 					tg::graph::Edge::Object(object) => object.clone(),
@@ -192,12 +192,12 @@ impl Symlink {
 					return Ok(None);
 				};
 				let artifact = match artifact.clone() {
-					tg::graph::Edge::Reference(reference) => {
-						let graph = reference.graph.ok_or_else(|| tg::error!("missing graph"))?;
-						tg::Artifact::with_reference(tg::graph::Reference {
+					tg::graph::Edge::Pointer(pointer) => {
+						let graph = pointer.graph.ok_or_else(|| tg::error!("missing graph"))?;
+						tg::Artifact::with_pointer(tg::graph::Pointer {
 							graph: Some(graph),
-							index: reference.index,
-							kind: reference.kind,
+							index: pointer.index,
+							kind: pointer.kind,
 						})
 					},
 					tg::graph::Edge::Object(object) => object.clone(),
@@ -213,7 +213,7 @@ impl Symlink {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Reference(object) => {
+			Object::Pointer(object) => {
 				let graph = object.graph.as_ref().unwrap();
 				let index = object.index;
 				let object = graph.object(handle).await?;

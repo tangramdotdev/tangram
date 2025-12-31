@@ -65,7 +65,7 @@ where
 				.into_iter()
 				.enumerate()
 				.map(|(index, node)| {
-					let object: tg::Object = tg::Artifact::with_reference(tg::graph::Reference {
+					let object: tg::Object = tg::Artifact::with_pointer(tg::graph::Pointer {
 						graph: Some(graph.clone()),
 						index,
 						kind: node.kind(),

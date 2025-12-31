@@ -2,7 +2,7 @@ pub use self::{
 	data::Graph as Data,
 	handle::Graph as Handle,
 	id::Id,
-	object::{Dependency, Directory, Edge, File, Graph as Object, Node, Reference, Symlink},
+	object::{Dependency, Directory, Edge, File, Graph as Object, Node, Pointer, Symlink},
 };
 
 pub mod data;

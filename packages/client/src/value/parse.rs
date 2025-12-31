@@ -284,17 +284,17 @@ fn directory(input: &mut Input) -> ModalResult<tg::Object> {
 		("directory", whitespace, "(", whitespace),
 		cut_err(delimited(
 			whitespace,
-			alt((directory_reference, directory_node)),
+			alt((directory_pointer, directory_node)),
 			(whitespace, ")"),
 		)),
 	)
 	.parse_next(input)
 }
 
-fn directory_reference(input: &mut Input) -> ModalResult<tg::Object> {
-	graph_reference
-		.map(|reference| {
-			let object = tg::directory::Object::Reference(reference);
+fn directory_pointer(input: &mut Input) -> ModalResult<tg::Object> {
+	graph_pointer
+		.map(|pointer| {
+			let object = tg::directory::Object::Pointer(pointer);
 			tg::Directory::with_object(object).into()
 		})
 		.parse_next(input)
@@ -354,7 +354,7 @@ fn file(input: &mut Input) -> ModalResult<tg::Object> {
 		("file", whitespace, "(", whitespace),
 		cut_err(delimited(
 			whitespace,
-			alt((file_reference, file_node, file_string)),
+			alt((file_pointer, file_node, file_string)),
 			(whitespace, ")"),
 		)),
 	)
@@ -379,10 +379,10 @@ fn file_string(input: &mut Input) -> ModalResult<tg::Object> {
 		.parse_next(input)
 }
 
-fn file_reference(input: &mut Input) -> ModalResult<tg::Object> {
-	graph_reference
-		.map(|reference| {
-			let object = tg::file::Object::Reference(reference);
+fn file_pointer(input: &mut Input) -> ModalResult<tg::Object> {
+	graph_pointer
+		.map(|pointer| {
+			let object = tg::file::Object::Pointer(pointer);
 			tg::File::with_object(object).into()
 		})
 		.parse_next(input)
@@ -468,17 +468,17 @@ fn symlink(input: &mut Input) -> ModalResult<tg::Object> {
 		("symlink", whitespace, "(", whitespace),
 		cut_err(delimited(
 			whitespace,
-			alt((symlink_reference, symlink_node)),
+			alt((symlink_pointer, symlink_node)),
 			(whitespace, ")"),
 		)),
 	)
 	.parse_next(input)
 }
 
-fn symlink_reference(input: &mut Input) -> ModalResult<tg::Object> {
-	graph_reference
-		.map(|reference| {
-			let object = tg::symlink::Object::Reference(reference);
+fn symlink_pointer(input: &mut Input) -> ModalResult<tg::Object> {
+	graph_pointer
+		.map(|pointer| {
+			let object = tg::symlink::Object::Pointer(pointer);
 			tg::Symlink::with_object(object).into()
 		})
 		.parse_next(input)
@@ -839,7 +839,7 @@ fn template_inner(input: &mut Input) -> ModalResult<tg::Template> {
 	.parse_next(input)
 }
 
-fn graph_reference(input: &mut Input) -> ModalResult<tg::graph::Reference> {
+fn graph_pointer(input: &mut Input) -> ModalResult<tg::graph::Pointer> {
 	delimited(
 		("{", whitespace),
 		cut_err(separated(
@@ -882,20 +882,20 @@ fn graph_reference(input: &mut Input) -> ModalResult<tg::graph::Reference> {
 					kind = Some(value);
 				},
 				_ => {
-					return Err(tg::error!("unexpected field in graph reference: {}", key));
+					return Err(tg::error!("unexpected field in graph pointer: {}", key));
 				},
 			}
 		}
 		let index = index.ok_or_else(|| tg::error!("missing index field"))?;
 		let kind = kind.ok_or_else(|| tg::error!("missing kind field"))?;
-		Ok(tg::graph::Reference { graph, index, kind })
+		Ok(tg::graph::Pointer { graph, index, kind })
 	})
 	.parse_next(input)
 }
 
 fn graph_edge_artifact(input: &mut Input) -> ModalResult<tg::graph::Edge<tg::Artifact>> {
 	alt((
-		graph_reference.map(tg::graph::Edge::Reference),
+		graph_pointer.map(tg::graph::Edge::Pointer),
 		value.verify_map(|value| {
 			if let tg::Value::Object(value) = value {
 				tg::Artifact::try_from(value)

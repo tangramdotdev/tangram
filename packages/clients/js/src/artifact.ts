@@ -24,14 +24,14 @@ export namespace Artifact {
 		}
 	};
 
-	export let withReference = (reference: tg.Graph.Reference): tg.Artifact => {
-		switch (reference.kind) {
+	export let withPointer = (pointer: tg.Graph.Pointer): tg.Artifact => {
+		switch (pointer.kind) {
 			case "directory":
-				return tg.Directory.withReference(reference);
+				return tg.Directory.withPointer(pointer);
 			case "file":
-				return tg.File.withReference(reference);
+				return tg.File.withPointer(pointer);
 			case "symlink":
-				return tg.Symlink.withReference(reference);
+				return tg.Symlink.withPointer(pointer);
 			default:
 				throw new Error(`invalid artifact kind`);
 		}

@@ -324,8 +324,8 @@ impl Cli {
 			return;
 		};
 		let file = match edge {
-			tg::graph::Edge::Reference(reference) => {
-				let Ok(artifact) = reference.get(&handle).await else {
+			tg::graph::Edge::Pointer(pointer) => {
+				let Ok(artifact) = pointer.get(&handle).await else {
 					return;
 				};
 				let Ok(file) = artifact.try_unwrap_file() else {

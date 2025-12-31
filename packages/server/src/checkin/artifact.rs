@@ -70,13 +70,13 @@ impl Server {
 		// Create a reference artifact for the path if necessary.
 		let index = graph.paths.get(&arg.path).copied().unwrap();
 		let node = graph.nodes.get(&index).unwrap();
-		if let tg::graph::data::Edge::Reference(reference) = node.edge.as_ref().unwrap().clone() {
+		if let tg::graph::data::Edge::Pointer(pointer) = node.edge.as_ref().unwrap().clone() {
 			Self::checkin_create_reference_artifact(
 				graph,
 				store_args,
 				object_messages,
-				reference.graph.as_ref().unwrap(),
-				reference.index,
+				pointer.graph.as_ref().unwrap(),
+				pointer.index,
 				index,
 				touched_at,
 			)?;
@@ -104,13 +104,13 @@ impl Server {
 					.map(|(name, edge)| {
 						let name = name.clone();
 						let edge = match edge {
-							tg::graph::data::Edge::Reference(reference) => {
-								if reference.graph.is_none() {
-									let node = graph.nodes.get(&reference.index).unwrap();
+							tg::graph::data::Edge::Pointer(pointer) => {
+								if pointer.graph.is_none() {
+									let node = graph.nodes.get(&pointer.index).unwrap();
 									let edge = node.edge.as_ref().unwrap().clone();
 									match edge {
-										tg::graph::data::Edge::Reference(reference) => {
-											tg::graph::data::Edge::Reference(reference)
+										tg::graph::data::Edge::Pointer(pointer) => {
+											tg::graph::data::Edge::Pointer(pointer)
 										},
 										tg::graph::data::Edge::Object(id) => {
 											let id = id
@@ -120,8 +120,7 @@ impl Server {
 										},
 									}
 								} else {
-									let reference = reference.clone();
-									tg::graph::data::Edge::Reference(reference)
+									tg::graph::data::Edge::Pointer(pointer.clone())
 								}
 							},
 							tg::graph::data::Edge::Object(id) => {
@@ -151,13 +150,12 @@ impl Server {
 							return Ok::<_, tg::Error>((reference, None));
 						};
 						let edge = match dependency.item() {
-							Some(tg::graph::data::Edge::Reference(reference)) => {
-								if reference.graph.is_none() {
-									let node = graph.nodes.get(&reference.index).unwrap();
+							Some(tg::graph::data::Edge::Pointer(pointer)) => {
+								if pointer.graph.is_none() {
+									let node = graph.nodes.get(&pointer.index).unwrap();
 									Some(node.edge.as_ref().unwrap().clone())
 								} else {
-									let reference = reference.clone();
-									Some(tg::graph::data::Edge::Reference(reference))
+									Some(tg::graph::data::Edge::Pointer(pointer.clone()))
 								}
 							},
 							Some(tg::graph::data::Edge::Object(id)) => {
@@ -183,13 +181,13 @@ impl Server {
 				let artifact = match &symlink.artifact {
 					Some(edge) => {
 						let edge = match edge {
-							tg::graph::data::Edge::Reference(reference) => {
-								if reference.graph.is_none() {
-									let node = graph.nodes.get(&reference.index).unwrap();
+							tg::graph::data::Edge::Pointer(pointer) => {
+								if pointer.graph.is_none() {
+									let node = graph.nodes.get(&pointer.index).unwrap();
 									let edge = node.edge.as_ref().unwrap().clone();
 									match edge {
-										tg::graph::data::Edge::Reference(reference) => {
-											tg::graph::data::Edge::Reference(reference)
+										tg::graph::data::Edge::Pointer(pointer) => {
+											tg::graph::data::Edge::Pointer(pointer)
 										},
 										tg::graph::data::Edge::Object(id) => {
 											let id = id
@@ -199,8 +197,7 @@ impl Server {
 										},
 									}
 								} else {
-									let reference = reference.clone();
-									tg::graph::data::Edge::Reference(reference)
+									tg::graph::data::Edge::Pointer(pointer.clone())
 								}
 							},
 							tg::graph::data::Edge::Object(id) => {
@@ -268,28 +265,28 @@ impl Server {
 			let artifact_kind = node.variant.kind();
 			let data = match &node.variant {
 				Variant::Directory(_) => {
-					let reference = tg::graph::data::Reference {
+					let pointer = tg::graph::data::Pointer {
 						graph: Some(graph_id.clone()),
 						index: local,
 						kind: artifact_kind,
 					};
-					tg::object::Data::Directory(tg::directory::Data::Reference(reference))
+					tg::object::Data::Directory(tg::directory::Data::Pointer(pointer))
 				},
 				Variant::File(_) => {
-					let reference = tg::graph::data::Reference {
+					let pointer = tg::graph::data::Pointer {
 						graph: Some(graph_id.clone()),
 						index: local,
 						kind: artifact_kind,
 					};
-					tg::object::Data::File(tg::file::Data::Reference(reference))
+					tg::object::Data::File(tg::file::Data::Pointer(pointer))
 				},
 				Variant::Symlink(_) => {
-					let reference = tg::graph::data::Reference {
+					let pointer = tg::graph::data::Pointer {
 						graph: Some(graph_id.clone()),
 						index: local,
 						kind: artifact_kind,
 					};
-					tg::object::Data::Symlink(tg::symlink::Data::Reference(reference))
+					tg::object::Data::Symlink(tg::symlink::Data::Pointer(pointer))
 				},
 			};
 			let kind = data.kind();
@@ -297,13 +294,12 @@ impl Server {
 				.serialize()
 				.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 			let id = tg::object::Id::new(kind, &bytes);
-			node.edge.replace(tg::graph::data::Edge::Reference(
-				tg::graph::data::Reference {
+			node.edge
+				.replace(tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
 					graph: Some(graph_id.clone()),
 					index: local,
 					kind: artifact_kind,
-				},
-			));
+				}));
 			node.id.replace(id);
 		}
 
@@ -325,24 +321,22 @@ impl Server {
 					.map(|(name, edge)| {
 						let name = name.clone();
 						let edge = match edge {
-							tg::graph::data::Edge::Reference(reference) => {
-								if reference.graph.is_none() {
+							tg::graph::data::Edge::Pointer(pointer) => {
+								if pointer.graph.is_none() {
 									if let Some(index) =
-										scc.iter().position(|i| i == &reference.index)
+										scc.iter().position(|i| i == &pointer.index)
 									{
-										tg::graph::data::Edge::Reference(
-											tg::graph::data::Reference {
-												graph: None,
-												index,
-												kind: reference.kind,
-											},
-										)
+										tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
+											graph: None,
+											index,
+											kind: pointer.kind,
+										})
 									} else {
-										let node = graph.nodes.get(&reference.index).unwrap();
+										let node = graph.nodes.get(&pointer.index).unwrap();
 										let edge = node.edge.as_ref().unwrap().clone();
 										match edge {
-											tg::graph::data::Edge::Reference(reference) => {
-												tg::graph::data::Edge::Reference(reference)
+											tg::graph::data::Edge::Pointer(pointer) => {
+												tg::graph::data::Edge::Pointer(pointer)
 											},
 											tg::graph::data::Edge::Object(id) => {
 												let id = id.try_into().map_err(|_| {
@@ -353,8 +347,7 @@ impl Server {
 										}
 									}
 								} else {
-									let reference = reference.clone();
-									tg::graph::data::Edge::Reference(reference)
+									tg::graph::data::Edge::Pointer(pointer.clone())
 								}
 							},
 							tg::graph::data::Edge::Object(id) => {
@@ -383,25 +376,24 @@ impl Server {
 						};
 						let edge = dependency.item();
 						let edge = match edge {
-							Some(tg::graph::data::Edge::Reference(reference)) => {
-								if reference.graph.is_none() {
+							Some(tg::graph::data::Edge::Pointer(pointer)) => {
+								if pointer.graph.is_none() {
 									if let Some(index) =
-										scc.iter().position(|i| i == &reference.index)
+										scc.iter().position(|i| i == &pointer.index)
 									{
-										Some(tg::graph::data::Edge::Reference(
-											tg::graph::data::Reference {
+										Some(tg::graph::data::Edge::Pointer(
+											tg::graph::data::Pointer {
 												graph: None,
 												index,
-												kind: reference.kind,
+												kind: pointer.kind,
 											},
 										))
 									} else {
-										let node = graph.nodes.get(&reference.index).unwrap();
+										let node = graph.nodes.get(&pointer.index).unwrap();
 										Some(node.edge.as_ref().unwrap().clone())
 									}
 								} else {
-									let reference = reference.clone();
-									Some(tg::graph::data::Edge::Reference(reference))
+									Some(tg::graph::data::Edge::Pointer(pointer.clone()))
 								}
 							},
 							Some(tg::graph::data::Edge::Object(id)) => {
@@ -431,21 +423,20 @@ impl Server {
 			Variant::Symlink(symlink) => {
 				let artifact = if let Some(edge) = &symlink.artifact {
 					let edge = match edge {
-						tg::graph::data::Edge::Reference(reference) => {
-							if reference.graph.is_none() {
-								if let Some(index) = scc.iter().position(|i| i == &reference.index)
-								{
-									tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+						tg::graph::data::Edge::Pointer(pointer) => {
+							if pointer.graph.is_none() {
+								if let Some(index) = scc.iter().position(|i| i == &pointer.index) {
+									tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
 										graph: None,
 										index,
-										kind: reference.kind,
+										kind: pointer.kind,
 									})
 								} else {
-									let node = graph.nodes.get(&reference.index).unwrap();
+									let node = graph.nodes.get(&pointer.index).unwrap();
 									let edge = node.edge.as_ref().unwrap().clone();
 									match edge {
-										tg::graph::data::Edge::Reference(reference) => {
-											tg::graph::data::Edge::Reference(reference)
+										tg::graph::data::Edge::Pointer(pointer) => {
+											tg::graph::data::Edge::Pointer(pointer)
 										},
 										tg::graph::data::Edge::Object(id) => {
 											let id = id
@@ -456,8 +447,7 @@ impl Server {
 									}
 								}
 							} else {
-								let reference = reference.clone();
-								tg::graph::data::Edge::Reference(reference)
+								tg::graph::data::Edge::Pointer(pointer.clone())
 							}
 						},
 						tg::graph::data::Edge::Object(id) => {
@@ -491,28 +481,28 @@ impl Server {
 		let artifact_kind = node.variant.kind();
 		let data = match &node.variant {
 			Variant::Directory(_) => {
-				let reference = tg::graph::data::Reference {
+				let pointer = tg::graph::data::Pointer {
 					graph: Some(graph_id.clone()),
 					index: local,
 					kind: artifact_kind,
 				};
-				tg::directory::Data::Reference(reference).into()
+				tg::directory::Data::Pointer(pointer).into()
 			},
 			Variant::File(_) => {
-				let reference = tg::graph::data::Reference {
+				let pointer = tg::graph::data::Pointer {
 					graph: Some(graph_id.clone()),
 					index: local,
 					kind: artifact_kind,
 				};
-				tg::file::Data::Reference(reference).into()
+				tg::file::Data::Pointer(pointer).into()
 			},
 			Variant::Symlink(_) => {
-				let reference = tg::graph::data::Reference {
+				let pointer = tg::graph::data::Pointer {
 					graph: Some(graph_id.clone()),
 					index: local,
 					kind: artifact_kind,
 				};
-				tg::symlink::Data::Reference(reference).into()
+				tg::symlink::Data::Pointer(pointer).into()
 			},
 		};
 		let (_id, stored, metadata) = Self::checkin_create_artifact(
@@ -580,9 +570,9 @@ impl Server {
 		let mut stored = true;
 		let (node_solvable, node_solved) = if matches!(
 			data,
-			tg::object::Data::Directory(tg::directory::Data::Reference(_))
-				| tg::object::Data::File(tg::file::Data::Reference(_))
-				| tg::object::Data::Symlink(tg::symlink::Data::Reference(_))
+			tg::object::Data::Directory(tg::directory::Data::Pointer(_))
+				| tg::object::Data::File(tg::file::Data::Pointer(_))
+				| tg::object::Data::Symlink(tg::symlink::Data::Pointer(_))
 		) {
 			(false, true)
 		} else {
@@ -754,16 +744,16 @@ impl Server {
 		}
 	}
 
-	pub(super) async fn checkin_store_and_index_reference_artifact(
+	pub(super) async fn checkin_store_and_index_pointer_artifact(
 		&self,
 		node: &Node,
-		reference: &tg::graph::data::Reference,
+		pointer: &tg::graph::data::Pointer,
 	) -> tg::Result<tg::artifact::Id> {
-		// Create the reference artifact data.
+		// Create the pointer artifact data.
 		let data: tg::object::Data = match &node.variant {
-			Variant::Directory(_) => tg::directory::Data::Reference(reference.clone()).into(),
-			Variant::File(_) => tg::file::Data::Reference(reference.clone()).into(),
-			Variant::Symlink(_) => tg::symlink::Data::Reference(reference.clone()).into(),
+			Variant::Directory(_) => tg::directory::Data::Pointer(pointer.clone()).into(),
+			Variant::File(_) => tg::file::Data::Pointer(pointer.clone()).into(),
+			Variant::Symlink(_) => tg::symlink::Data::Pointer(pointer.clone()).into(),
 		};
 
 		// Serialize and compute the ID.

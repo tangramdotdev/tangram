@@ -979,9 +979,9 @@ impl Compiler {
 					},
 			} => {
 				let artifact = match edge {
-					tg::graph::data::Edge::Reference(reference) => {
-						let reference = tg::graph::Reference::try_from_data(reference.clone())?;
-						let artifact = tg::Artifact::with_reference(reference);
+					tg::graph::data::Edge::Pointer(pointer) => {
+						let pointer = tg::graph::Pointer::try_from_data(pointer.clone())?;
+						let artifact = tg::Artifact::with_pointer(pointer);
 						artifact.store(&self.handle).await?
 					},
 					tg::graph::data::Edge::Object(object) => object

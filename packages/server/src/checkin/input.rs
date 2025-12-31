@@ -607,7 +607,7 @@ impl Server {
 		match parent.variant {
 			ParentVariant::DirectoryEntry(name) => {
 				let edge: tg::graph::data::Edge<tg::artifact::Id> =
-					tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+					tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
 						graph: None,
 						index: child_index,
 						kind,
@@ -625,7 +625,7 @@ impl Server {
 
 			ParentVariant::FileDependency(reference) => {
 				let edge: tg::graph::data::Edge<tg::object::Id> =
-					tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+					tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
 						graph: None,
 						index: child_index,
 						kind,
@@ -673,7 +673,7 @@ impl Server {
 
 			ParentVariant::SymlinkArtifact => {
 				let edge: tg::graph::data::Edge<tg::artifact::Id> =
-					tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+					tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
 						graph: None,
 						index: child_index,
 						kind,
@@ -708,7 +708,7 @@ impl Server {
 					.ok()?
 					.entries
 					.get(name)?
-					.try_unwrap_reference_ref()
+					.try_unwrap_pointer_ref()
 					.ok()?
 					.index,
 			),
@@ -721,7 +721,7 @@ impl Server {
 					.as_ref()?
 					.item()
 					.as_ref()?
-					.try_unwrap_reference_ref()
+					.try_unwrap_pointer_ref()
 					.ok()?
 					.index,
 			),
@@ -731,7 +731,7 @@ impl Server {
 					.ok()?
 					.artifact
 					.as_ref()?
-					.try_unwrap_reference_ref()
+					.try_unwrap_pointer_ref()
 					.ok()?
 					.index,
 			),

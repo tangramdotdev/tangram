@@ -432,10 +432,10 @@ impl Server {
 		// Recurse into the entries.
 		for (name, edge) in &node.entries {
 			let mut edge = edge.clone();
-			if let tg::graph::data::Edge::Reference(reference) = &mut edge
-				&& reference.graph.is_none()
+			if let tg::graph::data::Edge::Pointer(pointer) = &mut edge
+				&& pointer.graph.is_none()
 			{
-				reference.graph = graph.clone();
+				pointer.graph = graph.clone();
 			}
 			let path = path.join(name);
 			let item = self
@@ -475,8 +475,8 @@ impl Server {
 				continue;
 			};
 			let mut edge = match dependency.item.clone() {
-				Some(tg::graph::data::Edge::Reference(graph)) => {
-					tg::graph::data::Edge::Reference(graph)
+				Some(tg::graph::data::Edge::Pointer(graph)) => {
+					tg::graph::data::Edge::Pointer(graph)
 				},
 				Some(tg::graph::data::Edge::Object(id)) => match id.try_into() {
 					Ok(id) => tg::graph::data::Edge::Object(id),
@@ -484,10 +484,10 @@ impl Server {
 				},
 				None => continue,
 			};
-			if let tg::graph::data::Edge::Reference(reference) = &mut edge
-				&& reference.graph.is_none()
+			if let tg::graph::data::Edge::Pointer(pointer) = &mut edge
+				&& pointer.graph.is_none()
 			{
-				reference.graph = graph.clone();
+				pointer.graph = graph.clone();
 			}
 			let item = self
 				.checkout_get_item(Some(&mut state.graphs), edge)
@@ -593,10 +593,10 @@ impl Server {
 			let mut target = PathBuf::new();
 
 			// Set the graph if necessary.
-			if let tg::graph::data::Edge::Reference(reference) = &mut edge
-				&& reference.graph.is_none()
+			if let tg::graph::data::Edge::Pointer(pointer) = &mut edge
+				&& pointer.graph.is_none()
 			{
-				reference.graph = graph.clone();
+				pointer.graph = graph.clone();
 			}
 
 			// Get the dependency node.
@@ -656,9 +656,9 @@ impl Server {
 		let mut local_graphs = HashMap::default();
 		let graphs = graphs.map_or(&mut local_graphs, |graphs| graphs);
 		match edge {
-			tg::graph::data::Edge::Reference(reference) => {
+			tg::graph::data::Edge::Pointer(pointer) => {
 				// Load the graph.
-				let graph = reference
+				let graph = pointer
 					.graph
 					.as_ref()
 					.ok_or_else(|| tg::error!("missing graph"))?;
@@ -679,18 +679,18 @@ impl Server {
 					.get(graph)
 					.unwrap()
 					.nodes
-					.get(reference.index)
+					.get(pointer.index)
 					.ok_or_else(|| tg::error!("invalid graph node"))?
 					.clone();
 
 				// Compute the id.
 				let data: tg::artifact::data::Artifact = match node.kind() {
 					tg::artifact::Kind::Directory => {
-						tg::directory::Data::Reference(reference.clone()).into()
+						tg::directory::Data::Pointer(pointer.clone()).into()
 					},
-					tg::artifact::Kind::File => tg::file::Data::Reference(reference.clone()).into(),
+					tg::artifact::Kind::File => tg::file::Data::Pointer(pointer.clone()).into(),
 					tg::artifact::Kind::Symlink => {
-						tg::symlink::Data::Reference(reference.clone()).into()
+						tg::symlink::Data::Pointer(pointer.clone()).into()
 					},
 				};
 				let id = tg::artifact::Id::new(node.kind(), &data.serialize()?);
@@ -714,15 +714,13 @@ impl Server {
 					.map_err(|_| tg::error!("expected artifact data"))?;
 
 				match data {
-					tg::artifact::data::Artifact::Directory(tg::directory::Data::Reference(
-						reference,
+					tg::artifact::data::Artifact::Directory(tg::directory::Data::Pointer(
+						pointer,
 					))
-					| tg::artifact::data::Artifact::File(tg::file::Data::Reference(reference))
-					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Reference(
-						reference,
-					)) => {
+					| tg::artifact::data::Artifact::File(tg::file::Data::Pointer(pointer))
+					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Pointer(pointer)) => {
 						// Load the graph.
-						let graph = reference
+						let graph = pointer
 							.graph
 							.as_ref()
 							.ok_or_else(|| tg::error!("missing graph"))?;
@@ -745,7 +743,7 @@ impl Server {
 							.get(graph)
 							.unwrap()
 							.nodes
-							.get(reference.index)
+							.get(pointer.index)
 							.ok_or_else(|| tg::error!("invalid graph node"))?
 							.clone();
 

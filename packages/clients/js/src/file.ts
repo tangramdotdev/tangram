@@ -70,8 +70,8 @@ export class File {
 		return new tg.File({ id, stored: true });
 	}
 
-	static withReference(reference: tg.Graph.Reference): tg.File {
-		return new tg.File({ object: reference, stored: false });
+	static withPointer(pointer: tg.Graph.Pointer): tg.File {
+		return new tg.File({ object: pointer, stored: false });
 	}
 
 	static withObject(object: tg.File.Object): tg.File {
@@ -85,8 +85,8 @@ export class File {
 	static async new(...args: tg.Args<tg.File.Arg>): Promise<tg.File> {
 		if (args.length === 1) {
 			let arg = await tg.resolve(args[0]);
-			if (tg.Graph.Arg.Reference.is(arg)) {
-				return tg.File.withObject(tg.Graph.Reference.fromArg(arg));
+			if (tg.Graph.Arg.Pointer.is(arg)) {
+				return tg.File.withObject(tg.Graph.Pointer.fromArg(arg));
 			}
 		}
 		let arg = await tg.File.arg(...args);
@@ -118,8 +118,8 @@ export class File {
 
 	static async arg(
 		...args: tg.Args<tg.File.Arg>
-	): Promise<Exclude<tg.File.Arg.Object, tg.Graph.Arg.Reference>> {
-		type Arg = Exclude<tg.File.Arg.Object, tg.Graph.Arg.Reference>;
+	): Promise<Exclude<tg.File.Arg.Object, tg.Graph.Arg.Pointer>> {
+		type Arg = Exclude<tg.File.Arg.Object, tg.Graph.Arg.Pointer>;
 		return await tg.Args.apply<tg.File.Arg, Arg>({
 			args,
 			map: async (arg) => {
@@ -327,23 +327,23 @@ export namespace File {
 		| tg.File.Arg.Object;
 
 	export namespace Arg {
-		export type Object = tg.Graph.Arg.Reference | tg.Graph.Arg.File;
+		export type Object = tg.Graph.Arg.Pointer | tg.Graph.Arg.File;
 	}
 
-	export type Object = tg.Graph.Reference | tg.Graph.File;
+	export type Object = tg.Graph.Pointer | tg.Graph.File;
 
 	export namespace Object {
 		export let toData = (object: tg.File.Object): tg.File.Data => {
 			if ("index" in object) {
-				return tg.Graph.Reference.toData(object);
+				return tg.Graph.Pointer.toData(object);
 			} else {
 				return tg.Graph.File.toData(object);
 			}
 		};
 
 		export let fromData = (data: tg.File.Data): tg.File.Object => {
-			if (tg.Graph.Data.Reference.is(data)) {
-				return tg.Graph.Reference.fromData(data);
+			if (tg.Graph.Data.Pointer.is(data)) {
+				return tg.Graph.Pointer.fromData(data);
 			} else {
 				return tg.Graph.File.fromData(data);
 			}
@@ -351,14 +351,14 @@ export namespace File {
 
 		export let children = (object: tg.File.Object): Array<tg.Object> => {
 			if ("index" in object) {
-				return tg.Graph.Reference.children(object);
+				return tg.Graph.Pointer.children(object);
 			} else {
 				return tg.Graph.File.children(object);
 			}
 		};
 	}
 
-	export type Data = tg.Graph.Data.Reference | tg.Graph.Data.File;
+	export type Data = tg.Graph.Data.Pointer | tg.Graph.Data.File;
 
 	export let raw = async (
 		strings: TemplateStringsArray,

@@ -334,9 +334,9 @@ export namespace Graph {
 			path?: string | undefined;
 		};
 
-		export type Edge<T> = tg.Graph.Arg.Reference | T;
+		export type Edge<T> = tg.Graph.Arg.Pointer | T;
 
-		export type Reference =
+		export type Pointer =
 			| number
 			| {
 					graph?: tg.Graph | undefined;
@@ -344,8 +344,8 @@ export namespace Graph {
 					kind?: tg.Artifact.Kind;
 			  };
 
-		export namespace Reference {
-			export let is = (value: unknown): value is tg.Graph.Arg.Reference => {
+		export namespace Pointer {
+			export let is = (value: unknown): value is tg.Graph.Arg.Pointer => {
 				return (
 					typeof value === "number" ||
 					(typeof value === "object" &&
@@ -676,7 +676,7 @@ export namespace Graph {
 		};
 	}
 
-	export type Edge<T> = tg.Graph.Reference | T;
+	export type Edge<T> = tg.Graph.Pointer | T;
 
 	export namespace Edge {
 		export let fromArg = <T>(
@@ -706,7 +706,7 @@ export namespace Graph {
 					kind?: tg.Artifact.Kind;
 				};
 				if (reference.kind !== undefined) {
-					return reference as tg.Graph.Reference;
+					return reference as tg.Graph.Pointer;
 				}
 				if (nodes === undefined) {
 					throw new Error("cannot infer kind without nodes context");
@@ -726,7 +726,7 @@ export namespace Graph {
 			f: (item: T) => U,
 		): tg.Graph.Data.Edge<U> => {
 			if (typeof object === "object" && object !== null && "index" in object) {
-				return tg.Graph.Reference.toData(object);
+				return tg.Graph.Pointer.toData(object);
 			} else {
 				return f(object);
 			}
@@ -741,7 +741,7 @@ export namespace Graph {
 				(typeof data === "object" && data !== null && "index" in data)
 			) {
 				try {
-					return tg.Graph.Reference.fromData(data);
+					return tg.Graph.Pointer.fromData(data);
 				} catch {}
 			}
 			return f(data as T);
@@ -752,7 +752,7 @@ export namespace Graph {
 			f: (item: T) => U,
 		): string => {
 			if (typeof object === "object" && object !== null && "index" in object) {
-				return tg.Graph.Reference.toDataString(object);
+				return tg.Graph.Pointer.toDataString(object);
 			} else {
 				return f(object);
 			}
@@ -763,7 +763,7 @@ export namespace Graph {
 			f: (item: string) => T,
 		): tg.Graph.Edge<T> => {
 			if (data.includes("index=")) {
-				return tg.Graph.Reference.fromDataString(data);
+				return tg.Graph.Pointer.fromDataString(data);
 			} else {
 				return f(data);
 			}
@@ -777,7 +777,7 @@ export namespace Graph {
 				object !== null &&
 				"index" in object
 			) {
-				return tg.Graph.Reference.children(object);
+				return tg.Graph.Pointer.children(object);
 			} else if (tg.Object.is(object)) {
 				return [object];
 			} else {
@@ -786,23 +786,21 @@ export namespace Graph {
 		};
 	}
 
-	export type Reference = {
+	export type Pointer = {
 		graph?: tg.Graph | undefined;
 		index: number;
 		kind: tg.Artifact.Kind;
 	};
 
-	export namespace Reference {
-		export let fromArg = (arg: tg.Graph.Arg.Reference): tg.Graph.Reference => {
+	export namespace Pointer {
+		export let fromArg = (arg: tg.Graph.Arg.Pointer): tg.Graph.Pointer => {
 			if (typeof arg === "number" || arg.kind === undefined) {
 				throw new Error("expected the kind field to be set");
 			}
-			return arg as tg.Graph.Reference;
+			return arg as tg.Graph.Pointer;
 		};
 
-		export let toData = (
-			object: tg.Graph.Reference,
-		): tg.Graph.Data.Reference => {
+		export let toData = (object: tg.Graph.Pointer): tg.Graph.Data.Pointer => {
 			let data: { graph?: tg.Graph.Id; index: number; kind: tg.Artifact.Kind };
 			if (object.graph !== undefined) {
 				data = {
@@ -816,18 +814,16 @@ export namespace Graph {
 			return data;
 		};
 
-		export let fromData = (
-			data: tg.Graph.Data.Reference,
-		): tg.Graph.Reference => {
+		export let fromData = (data: tg.Graph.Data.Pointer): tg.Graph.Pointer => {
 			if (typeof data === "string") {
-				return tg.Graph.Reference.fromDataString(data);
+				return tg.Graph.Pointer.fromDataString(data);
 			} else {
 				let graph = data.graph ? tg.Graph.withId(data.graph) : undefined;
 				return { graph, index: data.index, kind: data.kind };
 			}
 		};
 
-		export let toDataString = (object: tg.Graph.Reference): string => {
+		export let toDataString = (object: tg.Graph.Pointer): string => {
 			let string = "";
 			if (object.graph !== undefined) {
 				string += `graph=${object.graph.id}&`;
@@ -837,7 +833,7 @@ export namespace Graph {
 			return string;
 		};
 
-		export let fromDataString = (data: string): tg.Graph.Reference => {
+		export let fromDataString = (data: string): tg.Graph.Pointer => {
 			let graph: tg.Graph | undefined;
 			let index: number | undefined;
 			let kind: tg.Artifact.Kind | undefined;
@@ -869,7 +865,7 @@ export namespace Graph {
 			return { graph, index, kind };
 		};
 
-		export let children = (object: tg.Graph.Reference): Array<tg.Object> => {
+		export let children = (object: tg.Graph.Pointer): Array<tg.Object> => {
 			if (object.graph !== undefined) {
 				return [object.graph];
 			} else {
@@ -877,7 +873,7 @@ export namespace Graph {
 			}
 		};
 
-		export let is = (value: unknown): value is tg.Graph.Reference => {
+		export let is = (value: unknown): value is tg.Graph.Pointer => {
 			return (
 				typeof value === "object" &&
 				value !== null &&
@@ -917,9 +913,9 @@ export namespace Graph {
 			path?: string;
 		};
 
-		export type Edge<T> = tg.Graph.Data.Reference | T;
+		export type Edge<T> = tg.Graph.Data.Pointer | T;
 
-		export type Reference =
+		export type Pointer =
 			| string
 			| {
 					graph?: tg.Graph.Id;
@@ -927,8 +923,8 @@ export namespace Graph {
 					kind: tg.Artifact.Kind;
 			  };
 
-		export namespace Reference {
-			export let is = (value: unknown): value is tg.Graph.Data.Reference => {
+		export namespace Pointer {
+			export let is = (value: unknown): value is tg.Graph.Data.Pointer => {
 				return (
 					typeof value === "number" ||
 					typeof value === "string" ||

@@ -127,7 +127,7 @@ impl Server {
 
 			let (node_solvable, node_solved) = match &data {
 				tg::object::Data::File(file) => match file {
-					tg::file::Data::Reference(_) => (false, true),
+					tg::file::Data::Pointer(_) => (false, true),
 					tg::file::Data::Node(node) => (node.solvable(), node.solved()),
 				},
 				tg::object::Data::Graph(graph) => {

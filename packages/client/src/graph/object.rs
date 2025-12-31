@@ -47,14 +47,14 @@ pub struct Dependency(pub tg::Referent<Option<Edge<tg::Object>>>);
 	derive_more::Unwrap,
 )]
 pub enum Edge<T> {
-	Reference(Reference),
+	Pointer(Pointer),
 	Object(T),
 }
 
 impl From<Edge<tg::Artifact>> for Edge<tg::Object> {
 	fn from(value: Edge<tg::Artifact>) -> Self {
 		match value {
-			Edge::Reference(reference) => Self::Reference(reference),
+			Edge::Pointer(pointer) => Self::Pointer(pointer),
 			Edge::Object(artifact) => Self::Object(artifact.into()),
 		}
 	}
@@ -65,14 +65,14 @@ impl TryFrom<Edge<tg::Object>> for Edge<tg::Artifact> {
 
 	fn try_from(value: Edge<tg::Object>) -> tg::Result<Self> {
 		match value {
-			Edge::Reference(reference) => Ok(Self::Reference(reference)),
+			Edge::Pointer(pointer) => Ok(Self::Pointer(pointer)),
 			Edge::Object(object) => Ok(Self::Object(object.try_into()?)),
 		}
 	}
 }
 
 #[derive(Clone, Debug)]
-pub struct Reference {
+pub struct Pointer {
 	pub graph: Option<tg::Graph>,
 	pub index: usize,
 	pub kind: tg::artifact::Kind,
@@ -269,11 +269,11 @@ impl Edge<tg::Object> {
 	#[must_use]
 	pub fn to_data(&self) -> tg::graph::data::Edge<tg::object::Id> {
 		match self {
-			tg::graph::Edge::Reference(reference) => {
-				tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-					graph: reference.graph.as_ref().map(tg::Graph::id),
-					index: reference.index,
-					kind: reference.kind,
+			tg::graph::Edge::Pointer(pointer) => {
+				tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
+					graph: pointer.graph.as_ref().map(tg::Graph::id),
+					index: pointer.index,
+					kind: pointer.kind,
 				})
 			},
 			tg::graph::Edge::Object(object) => tg::graph::data::Edge::Object(object.id()),
@@ -285,11 +285,11 @@ impl Edge<tg::Artifact> {
 	#[must_use]
 	pub fn to_data_artifact(&self) -> tg::graph::data::Edge<tg::artifact::Id> {
 		match self {
-			tg::graph::Edge::Reference(reference) => {
-				tg::graph::data::Edge::Reference(tg::graph::data::Reference {
-					graph: reference.graph.as_ref().map(tg::Graph::id),
-					index: reference.index,
-					kind: reference.kind,
+			tg::graph::Edge::Pointer(pointer) => {
+				tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
+					graph: pointer.graph.as_ref().map(tg::Graph::id),
+					index: pointer.index,
+					kind: pointer.kind,
 				})
 			},
 			tg::graph::Edge::Object(object) => tg::graph::data::Edge::Object(object.id()),
@@ -307,8 +307,8 @@ where
 		U: Into<tg::object::Id>,
 	{
 		match data {
-			tg::graph::data::Edge::Reference(data) => {
-				Ok(Self::Reference(Reference::try_from_data(data)?))
+			tg::graph::data::Edge::Pointer(data) => {
+				Ok(Self::Pointer(Pointer::try_from_data(data)?))
 			},
 			tg::graph::data::Edge::Object(data) => Ok(Self::Object(
 				tg::Object::with_id(data.into())
@@ -326,22 +326,22 @@ where
 	#[must_use]
 	pub fn children(&self) -> Vec<tg::Object> {
 		match self {
-			Self::Reference(reference) => reference.children(),
+			Self::Pointer(pointer) => pointer.children(),
 			Self::Object(object) => vec![object.clone().into()],
 		}
 	}
 }
 
-impl Reference {
+impl Pointer {
 	#[must_use]
-	pub fn to_data(&self) -> tg::graph::data::Reference {
+	pub fn to_data(&self) -> tg::graph::data::Pointer {
 		let graph = self.graph.as_ref().map(tg::Graph::id);
 		let index = self.index;
 		let kind = self.kind;
-		tg::graph::data::Reference { graph, index, kind }
+		tg::graph::data::Pointer { graph, index, kind }
 	}
 
-	pub fn try_from_data(data: tg::graph::data::Reference) -> tg::Result<Self> {
+	pub fn try_from_data(data: tg::graph::data::Pointer) -> tg::Result<Self> {
 		let graph = data.graph.map(tg::Graph::with_id);
 		let index = data.index;
 		let kind = data.kind;
@@ -371,7 +371,7 @@ where
 {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Self::Reference(reference) => write!(f, "{reference}"),
+			Self::Pointer(pointer) => write!(f, "{pointer}"),
 			Self::Object(object) => write!(f, "{object}"),
 		}
 	}
@@ -383,8 +383,8 @@ where
 {
 	type Err = tg::Error;
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		if let Ok(reference) = s.parse() {
-			Ok(Self::Reference(reference))
+		if let Ok(pointer) = s.parse() {
+			Ok(Self::Pointer(pointer))
 		} else if let Ok(object) = s.parse() {
 			Ok(Self::Object(object))
 		} else {
@@ -393,7 +393,7 @@ where
 	}
 }
 
-impl std::fmt::Display for Reference {
+impl std::fmt::Display for Pointer {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		if let Some(graph) = &self.graph {
 			write!(f, "graph={graph}&")?;
@@ -403,7 +403,7 @@ impl std::fmt::Display for Reference {
 	}
 }
 
-impl std::str::FromStr for Reference {
+impl std::str::FromStr for Pointer {
 	type Err = tg::Error;
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		let value = serde_urlencoded::from_str::<BTreeMap<String, String>>(s)

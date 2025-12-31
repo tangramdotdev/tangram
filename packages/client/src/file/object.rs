@@ -5,7 +5,7 @@ pub struct Dependency(pub tg::Referent<Option<tg::Object>>);
 
 #[derive(Clone, Debug)]
 pub enum File {
-	Reference(tg::graph::Reference),
+	Pointer(tg::graph::Pointer),
 	Node(Node),
 }
 
@@ -13,23 +13,23 @@ pub type Node = tg::graph::File;
 
 impl File {
 	#[must_use]
-	pub fn with_reference(reference: tg::graph::Reference) -> Self {
-		Self::Reference(reference)
+	pub fn with_pointer(pointer: tg::graph::Pointer) -> Self {
+		Self::Pointer(pointer)
 	}
 
 	#[must_use]
 	pub fn to_data(&self) -> Data {
 		match self {
-			Self::Reference(reference) => Data::Reference(reference.to_data()),
+			Self::Pointer(pointer) => Data::Pointer(pointer.to_data()),
 			Self::Node(node) => Data::Node(node.to_data()),
 		}
 	}
 
 	pub fn try_from_data(data: Data) -> tg::Result<Self> {
 		match data {
-			Data::Reference(data) => {
-				let reference = tg::graph::Reference::try_from_data(data)?;
-				Ok(Self::Reference(reference))
+			Data::Pointer(data) => {
+				let pointer = tg::graph::Pointer::try_from_data(data)?;
+				Ok(Self::Pointer(pointer))
 			},
 			Data::Node(data) => {
 				let node = tg::graph::File::try_from_data(data)?;
@@ -41,7 +41,7 @@ impl File {
 	#[must_use]
 	pub fn children(&self) -> Vec<tg::Object> {
 		match self {
-			Self::Reference(reference) => reference.children(),
+			Self::Pointer(pointer) => pointer.children(),
 			Self::Node(node) => node.children(),
 		}
 	}

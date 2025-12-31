@@ -31,8 +31,8 @@ export class Symlink {
 		return new tg.Symlink({ id, stored: true });
 	}
 
-	static withReference(reference: tg.Graph.Reference): tg.Symlink {
-		return new tg.Symlink({ object: reference, stored: false });
+	static withPointer(pointer: tg.Graph.Pointer): tg.Symlink {
+		return new tg.Symlink({ object: pointer, stored: false });
 	}
 
 	static withObject(object: tg.Symlink.Object): tg.Symlink {
@@ -45,8 +45,8 @@ export class Symlink {
 
 	static async new(arg_: tg.Unresolved<tg.Symlink.Arg>): Promise<tg.Symlink> {
 		let arg = await tg.Symlink.arg(arg_);
-		if (tg.Graph.Arg.Reference.is(arg)) {
-			return tg.Symlink.withObject(tg.Graph.Reference.fromArg(arg));
+		if (tg.Graph.Arg.Pointer.is(arg)) {
+			return tg.Symlink.withObject(tg.Graph.Pointer.fromArg(arg));
 		}
 		return tg.Symlink.withObject({
 			artifact: tg.Graph.Edge.fromArg(arg.artifact),
@@ -204,23 +204,23 @@ export namespace Symlink {
 		| tg.Symlink.Arg.Object;
 
 	export namespace Arg {
-		export type Object = tg.Graph.Arg.Reference | tg.Graph.Arg.Symlink;
+		export type Object = tg.Graph.Arg.Pointer | tg.Graph.Arg.Symlink;
 	}
 
-	export type Object = tg.Graph.Reference | tg.Graph.Symlink;
+	export type Object = tg.Graph.Pointer | tg.Graph.Symlink;
 
 	export namespace Object {
 		export let toData = (object: tg.Symlink.Object): tg.Symlink.Data => {
 			if ("index" in object) {
-				return tg.Graph.Reference.toData(object);
+				return tg.Graph.Pointer.toData(object);
 			} else {
 				return tg.Graph.Symlink.toData(object);
 			}
 		};
 
 		export let fromData = (data: tg.Symlink.Data): tg.Symlink.Object => {
-			if (tg.Graph.Data.Reference.is(data)) {
-				return tg.Graph.Reference.fromData(data);
+			if (tg.Graph.Data.Pointer.is(data)) {
+				return tg.Graph.Pointer.fromData(data);
 			} else {
 				return tg.Graph.Symlink.fromData(data);
 			}
@@ -228,12 +228,12 @@ export namespace Symlink {
 
 		export let children = (object: tg.Symlink.Object): Array<tg.Object> => {
 			if ("index" in object) {
-				return tg.Graph.Reference.children(object);
+				return tg.Graph.Pointer.children(object);
 			} else {
 				return tg.Graph.Symlink.children(object);
 			}
 		};
 	}
 
-	export type Data = tg.Graph.Data.Reference | tg.Graph.Data.Symlink;
+	export type Data = tg.Graph.Data.Pointer | tg.Graph.Data.Symlink;
 }

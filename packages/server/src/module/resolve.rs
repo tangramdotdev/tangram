@@ -117,8 +117,8 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get the dependency edge"))?;
 
 		let object = match &dependency.0.item {
-			Some(tg::graph::Edge::Reference(reference)) => {
-				tg::Artifact::with_reference(reference.clone()).into()
+			Some(tg::graph::Edge::Pointer(pointer)) => {
+				tg::Artifact::with_pointer(pointer.clone()).into()
 			},
 			Some(tg::graph::Edge::Object(object)) => object.clone(),
 			None => return Err(tg::error!("dependency has no resolved item")),
@@ -141,11 +141,11 @@ impl Server {
 						.await
 						.map_err(|source| tg::error!(!source, "failed to get the entry edge"))?;
 					let edge: tg::graph::Edge<tg::Object> = match edge {
-						tg::graph::Edge::Reference(reference) => {
-							if reference.kind != tg::artifact::Kind::File {
+						tg::graph::Edge::Pointer(pointer) => {
+							if pointer.kind != tg::artifact::Kind::File {
 								return Err(tg::error!("expected a file"));
 							}
-							tg::graph::Edge::Reference(reference)
+							tg::graph::Edge::Pointer(pointer)
 						},
 						tg::graph::Edge::Object(artifact) => {
 							let file = artifact

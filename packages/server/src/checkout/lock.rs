@@ -99,9 +99,9 @@ impl Server {
 		edge: &tg::graph::data::Edge<tg::artifact::Id>,
 	) -> tg::Result<usize> {
 		let (id, node, graph) = match edge {
-			tg::graph::data::Edge::Reference(reference) => {
+			tg::graph::data::Edge::Pointer(pointer) => {
 				// Load the graph.
-				let graph = reference
+				let graph = pointer
 					.graph
 					.as_ref()
 					.ok_or_else(|| tg::error!("missing graph"))?;
@@ -125,17 +125,17 @@ impl Server {
 					.get(graph)
 					.unwrap()
 					.nodes
-					.get(reference.index)
+					.get(pointer.index)
 					.ok_or_else(|| tg::error!("invalid node index"))?;
 
 				// Compute the id.
 				let data: tg::artifact::data::Artifact = match node.kind() {
 					tg::artifact::Kind::Directory => {
-						tg::directory::Data::Reference(reference.clone()).into()
+						tg::directory::Data::Pointer(pointer.clone()).into()
 					},
-					tg::artifact::Kind::File => tg::file::Data::Reference(reference.clone()).into(),
+					tg::artifact::Kind::File => tg::file::Data::Pointer(pointer.clone()).into(),
 					tg::artifact::Kind::Symlink => {
-						tg::symlink::Data::Reference(reference.clone()).into()
+						tg::symlink::Data::Pointer(pointer.clone()).into()
 					},
 				};
 				let id = tg::artifact::Id::new(node.kind(), &data.serialize()?);
@@ -164,14 +164,12 @@ impl Server {
 					.map_err(|_| tg::error!(%id, "expected artifact data"))?;
 
 				match data {
-					tg::artifact::data::Artifact::Directory(tg::directory::Data::Reference(
-						reference,
+					tg::artifact::data::Artifact::Directory(tg::directory::Data::Pointer(
+						pointer,
 					))
-					| tg::artifact::data::Artifact::File(tg::file::Data::Reference(reference))
-					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Reference(
-						reference,
-					)) => {
-						let edge = tg::graph::data::Edge::Reference(reference);
+					| tg::artifact::data::Artifact::File(tg::file::Data::Pointer(pointer))
+					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Pointer(pointer)) => {
+						let edge = tg::graph::data::Edge::Pointer(pointer);
 						return self.checkout_create_lock_inner(state, &edge);
 					},
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Node(node)) => {
@@ -217,14 +215,14 @@ impl Server {
 			.entries
 			.into_iter()
 			.map(|(name, mut edge)| {
-				if let tg::graph::data::Edge::Reference(reference) = &mut edge
-					&& reference.graph.is_none()
+				if let tg::graph::data::Edge::Pointer(pointer) = &mut edge
+					&& pointer.graph.is_none()
 				{
-					reference.graph = graph.cloned();
+					pointer.graph = graph.cloned();
 				}
 				let kind = edge.artifact_kind();
 				let index = self.checkout_create_lock_inner(state, &edge)?;
-				let edge = tg::graph::data::Edge::Reference(tg::graph::data::Reference {
+				let edge = tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
 					graph: None,
 					index,
 					kind,
@@ -252,11 +250,11 @@ impl Server {
 				};
 				let referent = dependency.0;
 				let edge = match referent.item {
-					Some(tg::graph::data::Edge::Reference(mut reference)) => {
-						if reference.graph.is_none() {
-							reference.graph = graph.cloned();
+					Some(tg::graph::data::Edge::Pointer(mut pointer)) => {
+						if pointer.graph.is_none() {
+							pointer.graph = graph.cloned();
 						}
-						tg::graph::data::Edge::Reference(reference)
+						tg::graph::data::Edge::Pointer(pointer)
 					},
 					Some(tg::graph::data::Edge::Object(id)) => {
 						let id = id
@@ -274,13 +272,11 @@ impl Server {
 				} else {
 					None
 				};
-				let item = Some(tg::graph::data::Edge::Reference(
-					tg::graph::data::Reference {
-						graph: None,
-						index,
-						kind,
-					},
-				));
+				let item = Some(tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
+					graph: None,
+					index,
+					kind,
+				}));
 				let options = tg::referent::Options {
 					artifact,
 					..referent.options
@@ -309,20 +305,18 @@ impl Server {
 			.as_ref()
 			.map(|edge| {
 				let mut edge = edge.clone();
-				if let tg::graph::data::Edge::Reference(reference) = &mut edge
-					&& reference.graph.is_none()
+				if let tg::graph::data::Edge::Pointer(pointer) = &mut edge
+					&& pointer.graph.is_none()
 				{
-					reference.graph = graph.cloned();
+					pointer.graph = graph.cloned();
 				}
 				let kind = edge.artifact_kind();
 				let node_index = self.checkout_create_lock_inner(state, &edge)?;
-				Ok::<_, tg::Error>(tg::graph::data::Edge::Reference(
-					tg::graph::data::Reference {
-						graph: None,
-						index: node_index,
-						kind,
-					},
-				))
+				Ok::<_, tg::Error>(tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
+					graph: None,
+					index: node_index,
+					kind,
+				}))
 			})
 			.transpose()?;
 		let symlink = tg::graph::data::Symlink {

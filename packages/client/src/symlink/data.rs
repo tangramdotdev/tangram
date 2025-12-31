@@ -11,7 +11,7 @@ use {crate::prelude::*, byteorder::ReadBytesExt as _, bytes::Bytes, std::collect
 #[serde(untagged)]
 pub enum Symlink {
 	#[tangram_serialize(id = 0)]
-	Reference(tg::graph::data::Reference),
+	Pointer(tg::graph::data::Pointer),
 
 	#[tangram_serialize(id = 1)]
 	Node(Node),
@@ -21,8 +21,8 @@ pub type Node = tg::graph::data::Symlink;
 
 impl Symlink {
 	#[must_use]
-	pub fn with_reference(reference: tg::graph::data::Reference) -> Self {
-		Self::Reference(reference)
+	pub fn with_pointer(pointer: tg::graph::data::Pointer) -> Self {
+		Self::Pointer(pointer)
 	}
 
 	pub fn serialize(&self) -> tg::Result<Bytes> {
@@ -57,7 +57,7 @@ impl Symlink {
 
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		match self {
-			Self::Reference(reference) => reference.children(children),
+			Self::Pointer(pointer) => pointer.children(children),
 			Self::Node(node) => node.children(children),
 		}
 	}

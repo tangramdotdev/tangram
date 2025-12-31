@@ -129,14 +129,14 @@ impl File {
 	}
 
 	#[must_use]
-	pub fn with_reference(reference: tg::graph::Reference) -> Self {
-		Self::with_object(Object::Reference(reference))
+	pub fn with_pointer(pointer: tg::graph::Pointer) -> Self {
+		Self::with_object(Object::Pointer(pointer))
 	}
 
 	#[must_use]
 	pub fn with_edge(edge: tg::graph::Edge<Self>) -> Self {
 		match edge {
-			tg::graph::Edge::Reference(reference) => Self::with_reference(reference),
+			tg::graph::Edge::Pointer(pointer) => Self::with_pointer(pointer),
 			tg::graph::Edge::Object(file) => file,
 		}
 	}
@@ -147,7 +147,7 @@ impl File {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Reference(object) => {
+			Object::Pointer(object) => {
 				let graph = object.graph.as_ref().unwrap();
 				let index = object.index;
 				let object = graph.object(handle).await?;
@@ -174,9 +174,9 @@ impl File {
 	{
 		let object = self.object(handle).await?;
 		let dependencies = match object.as_ref() {
-			Object::Reference(reference) => {
-				let graph = reference.graph.as_ref().unwrap();
-				let index = reference.index;
+			Object::Pointer(pointer) => {
+				let graph = pointer.graph.as_ref().unwrap();
+				let index = pointer.index;
 				let object = graph.object(handle).await?;
 				let node = object
 					.nodes
@@ -195,12 +195,12 @@ impl File {
 								break 'a None;
 							};
 							let object = match dependency.0.item.clone() {
-								Some(tg::graph::Edge::Reference(reference)) => {
-									let graph = reference.graph.unwrap_or_else(|| graph.clone());
-									tg::Artifact::with_reference(tg::graph::Reference {
+								Some(tg::graph::Edge::Pointer(pointer)) => {
+									let graph = pointer.graph.unwrap_or_else(|| graph.clone());
+									tg::Artifact::with_pointer(tg::graph::Pointer {
 										graph: Some(graph),
-										index: reference.index,
-										kind: reference.kind,
+										index: pointer.index,
+										kind: pointer.kind,
 									})
 									.into()
 								},
@@ -231,14 +231,14 @@ impl File {
 								break 'a None;
 							};
 							let object: tg::Object = match dependency.0.item.clone() {
-								Some(tg::graph::Edge::Reference(reference)) => {
-									let graph = reference
+								Some(tg::graph::Edge::Pointer(pointer)) => {
+									let graph = pointer
 										.graph
 										.ok_or_else(|| tg::error!("expected a graph"))?;
-									tg::Artifact::with_reference(tg::graph::Reference {
+									tg::Artifact::with_pointer(tg::graph::Pointer {
 										graph: Some(graph),
-										index: reference.index,
-										kind: reference.kind,
+										index: pointer.index,
+										kind: pointer.kind,
 									})
 									.into()
 								},
@@ -288,8 +288,8 @@ impl File {
 			return Ok(None);
 		};
 		let item = match dependency.0.item {
-			Some(tg::graph::Edge::Reference(reference)) => {
-				Some(tg::Artifact::with_reference(reference).into())
+			Some(tg::graph::Edge::Pointer(pointer)) => {
+				Some(tg::Artifact::with_pointer(pointer).into())
 			},
 			Some(tg::graph::Edge::Object(object)) => Some(object),
 			None => None,
@@ -323,9 +323,9 @@ impl File {
 	{
 		let object = self.object(handle).await?;
 		let dependency = match object.as_ref() {
-			Object::Reference(reference_) => {
-				let graph = reference_.graph.as_ref().unwrap();
-				let index = reference_.index;
+			Object::Pointer(pointer) => {
+				let graph = pointer.graph.as_ref().unwrap();
+				let index = pointer.index;
 				let object = graph.object(handle).await?;
 				let node = object
 					.nodes
@@ -342,12 +342,12 @@ impl File {
 					return Ok(None);
 				};
 				let item = match dependency.0.item.clone() {
-					Some(tg::graph::Edge::Reference(reference)) => {
-						let graph = reference.graph.unwrap_or_else(|| graph.clone());
-						Some(tg::graph::Edge::Reference(tg::graph::Reference {
+					Some(tg::graph::Edge::Pointer(pointer)) => {
+						let graph = pointer.graph.unwrap_or_else(|| graph.clone());
+						Some(tg::graph::Edge::Pointer(tg::graph::Pointer {
 							graph: Some(graph),
-							index: reference.index,
-							kind: reference.kind,
+							index: pointer.index,
+							kind: pointer.kind,
 						}))
 					},
 					Some(tg::graph::Edge::Object(object)) => Some(tg::graph::Edge::Object(object)),
@@ -366,12 +366,12 @@ impl File {
 					return Ok(None);
 				};
 				let item = match dependency.0.item.clone() {
-					Some(tg::graph::Edge::Reference(reference)) => {
-						let graph = reference.graph.ok_or_else(|| tg::error!("missing graph"))?;
-						Some(tg::graph::Edge::Reference(tg::graph::Reference {
+					Some(tg::graph::Edge::Pointer(pointer)) => {
+						let graph = pointer.graph.ok_or_else(|| tg::error!("missing graph"))?;
+						Some(tg::graph::Edge::Pointer(tg::graph::Pointer {
 							graph: Some(graph),
-							index: reference.index,
-							kind: reference.kind,
+							index: pointer.index,
+							kind: pointer.kind,
 						}))
 					},
 					Some(tg::graph::Edge::Object(object)) => Some(tg::graph::Edge::Object(object)),
@@ -392,7 +392,7 @@ impl File {
 	{
 		let object = self.object(handle).await?;
 		match object.as_ref() {
-			Object::Reference(object) => {
+			Object::Pointer(object) => {
 				let graph = object.graph.as_ref().unwrap();
 				let index = object.index;
 				let object = graph.object(handle).await?;

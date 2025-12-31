@@ -169,11 +169,11 @@ impl Server {
 
 				// Determine the id.
 				let id = if path != output.path
-					&& let tg::graph::data::Edge::Reference(reference) = node.edge.as_ref().unwrap()
+					&& let tg::graph::data::Edge::Pointer(pointer) = node.edge.as_ref().unwrap()
 				{
-					// If the path differs from the output path and the edge is a reference, then store and index a reference artifact for the path.
+					// If the path differs from the output path and the edge is a pointer, then store and index a pointer artifact for the path.
 					let result = server
-						.checkin_store_and_index_reference_artifact(node, reference)
+						.checkin_store_and_index_pointer_artifact(node, pointer)
 						.await;
 					match result {
 						Ok(id) => id,

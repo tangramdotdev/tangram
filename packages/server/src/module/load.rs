@@ -55,9 +55,9 @@ impl Server {
 				..
 			} => {
 				let object = match edge {
-					tg::graph::data::Edge::Reference(reference) => {
-						let reference = tg::graph::Reference::try_from_data(reference.clone())?;
-						tg::Artifact::with_reference(reference).into()
+					tg::graph::data::Edge::Pointer(pointer) => {
+						let pointer = tg::graph::Pointer::try_from_data(pointer.clone())?;
+						tg::Artifact::with_pointer(pointer).into()
 					},
 					tg::graph::data::Edge::Object(object) => tg::Object::with_id(object.clone()),
 				};
@@ -99,9 +99,9 @@ impl Server {
 				};
 				let text = match item {
 					tg::module::data::Item::Edge(edge) => match edge {
-						tg::graph::data::Edge::Reference(reference) => {
+						tg::graph::data::Edge::Pointer(pointer) => {
 							format!(
-								r#"export default tg.{class}.withReference(tg.Graph.Reference.fromDataString("{reference}"));"#
+								r#"export default tg.{class}.withPointer(tg.Graph.Pointer.fromDataString("{pointer}"));"#
 							)
 						},
 						tg::graph::data::Edge::Object(object) => {

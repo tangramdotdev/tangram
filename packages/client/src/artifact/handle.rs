@@ -45,18 +45,18 @@ impl Artifact {
 	}
 
 	#[must_use]
-	pub fn with_reference(reference: tg::graph::Reference) -> Self {
-		match reference.kind {
-			tg::artifact::Kind::Directory => tg::Directory::with_reference(reference).into(),
-			tg::artifact::Kind::File => tg::File::with_reference(reference).into(),
-			tg::artifact::Kind::Symlink => tg::Symlink::with_reference(reference).into(),
+	pub fn with_pointer(pointer: tg::graph::Pointer) -> Self {
+		match pointer.kind {
+			tg::artifact::Kind::Directory => tg::Directory::with_pointer(pointer).into(),
+			tg::artifact::Kind::File => tg::File::with_pointer(pointer).into(),
+			tg::artifact::Kind::Symlink => tg::Symlink::with_pointer(pointer).into(),
 		}
 	}
 
 	#[must_use]
 	pub fn with_edge(edge: tg::graph::Edge<tg::Artifact>) -> Self {
 		match edge {
-			tg::graph::Edge::Reference(reference) => Self::with_reference(reference),
+			tg::graph::Edge::Pointer(pointer) => Self::with_pointer(pointer),
 			tg::graph::Edge::Object(artifact) => artifact,
 		}
 	}
