@@ -1,6 +1,6 @@
 import type * as tg from "./index.ts";
 
-export type MaybePromise<T> = T | Promise<T>;
+export type MaybePromise<T> = T | PromiseLike<T>;
 
 export type MaybeMutation<T extends tg.Value = tg.Value> = T | tg.Mutation<T>;
 
@@ -30,7 +30,7 @@ export type ValueOrMaybeMutationMap<T extends tg.Value = tg.Value> = T extends
 	? T
 	: T extends { [key: string]: tg.Value }
 		? {
-				[K in keyof T]?: T[K] | tg.Mutation<T[K]>;
+				[K in keyof T]?: tg.MaybeMutation<T[K]>;
 			}
 		: never;
 
@@ -43,6 +43,11 @@ export type UnresolvedArgs<T extends Array<tg.Value>> = {
 export type ResolvedArgs<T extends Array<tg.Unresolved<tg.Value>>> = {
 	[K in keyof T]: tg.Resolved<T[K]>;
 };
+
+export type Function<
+	A extends tg.UnresolvedArgs<Array<tg.Value>>,
+	R extends tg.ReturnValue,
+> = (...args: A) => R;
 
 export type ReturnValue = tg.MaybePromise<void> | tg.Unresolved<tg.Value>;
 

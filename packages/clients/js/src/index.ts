@@ -40,6 +40,7 @@ import { Symlink, symlink } from "./symlink.ts";
 import type { Tag } from "./tag.ts";
 import { Template, template } from "./template.ts";
 import type {
+	Function,
 	MaybeMutation,
 	MaybeMutationMap,
 	MaybePromise,
@@ -56,6 +57,7 @@ import { Value } from "./value.ts";
 export type {
 	ArchiveFormat,
 	CompressionFormat,
+	Function,
 	Handle,
 	MaybeMutation,
 	MaybeMutationMap,

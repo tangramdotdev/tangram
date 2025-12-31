@@ -2,6 +2,39 @@ import im from "immutable";
 import * as tg from "./index.ts";
 
 export type Unresolved<T extends tg.Value> = tg.MaybePromise<
+	T extends tg.Command<
+		infer A extends Array<tg.Value>,
+		infer R extends tg.Value
+	>
+		?
+				| T
+				| tg.Function<
+						UnresolvedFunctionArgs<A>,
+						UnresolvedFunctionReturnValue<R>
+				  >
+		: T extends
+					| undefined
+					| boolean
+					| number
+					| string
+					| tg.Object
+					| Uint8Array
+					| tg.Mutation
+					| tg.Template
+					| tg.Placeholder
+			? T
+			: T extends Array<infer U extends tg.Value>
+				? Array<tg.Unresolved<U>>
+				: T extends { [key: string]: tg.Value }
+					? { [K in keyof T]: tg.Unresolved<T[K]> }
+					: never
+>;
+
+type UnresolvedFunctionArgs<A extends Array<tg.Value>> = {
+	[K in keyof A]: UnresolvedFunctionReturnValue<A[K]>;
+};
+
+type UnresolvedFunctionReturnValue<T extends tg.Value> = tg.MaybePromise<
 	T extends
 		| undefined
 		| boolean
@@ -14,30 +47,33 @@ export type Unresolved<T extends tg.Value> = tg.MaybePromise<
 		| tg.Placeholder
 		? T
 		: T extends Array<infer U extends tg.Value>
-			? Array<tg.Unresolved<U>>
+			? Array<UnresolvedFunctionReturnValue<U>>
 			: T extends { [key: string]: tg.Value }
-				? { [K in keyof T]: tg.Unresolved<T[K]> }
+				? { [K in keyof T]: UnresolvedFunctionReturnValue<T[K]> }
 				: never
 >;
 
-export type Resolved<T extends tg.Unresolved<tg.Value>> = T extends
-	| undefined
-	| boolean
-	| number
-	| string
-	| tg.Object
-	| Uint8Array
-	| tg.Mutation
-	| tg.Template
-	| tg.Placeholder
-	? T
-	: T extends Array<infer U extends tg.Unresolved<tg.Value>>
-		? Array<tg.Resolved<U>>
-		: T extends { [key: string]: tg.Unresolved<tg.Value> }
-			? { [K in keyof T]: tg.Resolved<T[K]> }
-			: T extends Promise<infer U extends tg.Unresolved<tg.Value>>
-				? tg.Resolved<U>
-				: never;
+export type Resolved<T extends tg.Unresolved<tg.Value>> =
+	T extends PromiseLike<infer U extends tg.Unresolved<tg.Value>>
+		? tg.Resolved<U>
+		: T extends tg.Function<infer A, infer R>
+			? tg.Command<tg.ResolvedArgs<A>, tg.ResolvedReturnValue<R>>
+			: T extends
+						| undefined
+						| boolean
+						| number
+						| string
+						| tg.Object
+						| Uint8Array
+						| tg.Mutation
+						| tg.Template
+						| tg.Placeholder
+				? T
+				: T extends Array<infer U extends tg.Unresolved<tg.Value>>
+					? Array<tg.Resolved<U>>
+					: T extends { [key: string]: tg.Unresolved<tg.Value> }
+						? { [K in keyof T]: tg.Resolved<T[K]> }
+						: never;
 
 export let resolve = async <T extends tg.Unresolved<tg.Value>>(
 	value: T,
@@ -71,6 +107,8 @@ export let resolve = async <T extends tg.Unresolved<tg.Value>>(
 			value instanceof tg.Placeholder
 		) {
 			output = value as tg.Resolved<T>;
+		} else if (typeof value === "function") {
+			output = (await tg.command(value)) as tg.Resolved<T>;
 		} else if (value instanceof Array) {
 			output = (await Promise.all(
 				value.map((item) => inner(item, visited)),

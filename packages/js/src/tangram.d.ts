@@ -1636,6 +1636,39 @@ declare namespace tg {
 	 * ```
 	 */
 	export type Unresolved<T extends tg.Value> = tg.MaybePromise<
+		T extends tg.Command<
+			infer A extends Array<tg.Value>,
+			infer R extends tg.Value
+		>
+			?
+					| T
+					| tg.Function<
+							tg.UnresolvedFunctionArgs<A>,
+							tg.UnresolvedFunctionReturnValue<R>
+					  >
+			: T extends
+						| undefined
+						| boolean
+						| number
+						| string
+						| tg.Object
+						| Uint8Array
+						| tg.Mutation
+						| tg.Template
+						| tg.Placeholder
+				? T
+				: T extends Array<infer U extends tg.Value>
+					? Array<tg.Unresolved<U>>
+					: T extends { [key: string]: tg.Value }
+						? { [K in keyof T]: tg.Unresolved<T[K]> }
+						: never
+	>;
+
+	type UnresolvedFunctionArgs<A extends Array<tg.Value>> = {
+		[K in keyof A]: tg.UnresolvedFunctionReturnValue<A[K]>;
+	};
+
+	type UnresolvedFunctionReturnValue<T extends tg.Value> = tg.MaybePromise<
 		T extends
 			| undefined
 			| boolean
@@ -1648,9 +1681,9 @@ declare namespace tg {
 			| tg.Placeholder
 			? T
 			: T extends Array<infer U extends tg.Value>
-				? Array<tg.Unresolved<U>>
+				? Array<tg.UnresolvedFunctionReturnValue<U>>
 				: T extends { [key: string]: tg.Value }
-					? { [K in keyof T]: tg.Unresolved<T[K]> }
+					? { [K in keyof T]: tg.UnresolvedFunctionReturnValue<T[K]> }
 					: never
 	>;
 
@@ -1666,24 +1699,27 @@ declare namespace tg {
 	 * Resolved<Promise<Array<Promise<string>>>> = Array<string>
 	 * ```
 	 */
-	export type Resolved<T extends tg.Unresolved<tg.Value>> = T extends
-		| undefined
-		| boolean
-		| number
-		| string
-		| tg.Object
-		| Uint8Array
-		| tg.Mutation
-		| tg.Template
-		| tg.Placeholder
-		? T
-		: T extends Array<infer U extends tg.Unresolved<tg.Value>>
-			? Array<Resolved<U>>
-			: T extends { [key: string]: tg.Unresolved<tg.Value> }
-				? { [K in keyof T]: tg.Resolved<T[K]> }
-				: T extends Promise<infer U extends tg.Unresolved<tg.Value>>
-					? tg.Resolved<U>
-					: never;
+	export type Resolved<T extends tg.Unresolved<tg.Value>> =
+		T extends PromiseLike<infer U extends tg.Unresolved<tg.Value>>
+			? tg.Resolved<U>
+			: T extends tg.Function<infer A, infer R>
+				? tg.Command<tg.ResolvedArgs<A>, tg.ResolvedReturnValue<R>>
+				: T extends
+							| undefined
+							| boolean
+							| number
+							| string
+							| tg.Object
+							| Uint8Array
+							| tg.Mutation
+							| tg.Template
+							| tg.Placeholder
+					? T
+					: T extends Array<infer U extends tg.Unresolved<tg.Value>>
+						? Array<tg.Resolved<U>>
+						: T extends { [key: string]: tg.Unresolved<tg.Value> }
+							? { [K in keyof T]: tg.Resolved<T[K]> }
+							: never;
 
 	/** Sleep for the specified duration in seconds. */
 	export let sleep: (duration: number) => Promise<void>;
@@ -1694,7 +1730,7 @@ declare namespace tg {
 		tg.Unresolved<tg.ValueOrMaybeMutationMap<T>>
 	>;
 
-	type MaybePromise<T> = T | Promise<T>;
+	type MaybePromise<T> = T | PromiseLike<T>;
 
 	type MaybeMutation<T extends tg.Value = tg.Value> = T | tg.Mutation<T>;
 
@@ -1723,7 +1759,9 @@ declare namespace tg {
 		| Array<infer _U extends tg.Value>
 		? T
 		: T extends { [key: string]: tg.Value }
-			? tg.MaybeMutationMap<T>
+			? {
+					[K in keyof T]?: tg.MaybeMutation<T[K]>;
+				}
 			: never;
 
 	type MaybeReferent<T> = T | tg.Referent<T>;
@@ -1744,4 +1782,9 @@ declare namespace tg {
 			: T extends tg.Unresolved<tg.Value>
 				? tg.Resolved<T>
 				: never;
+
+	type Function<
+		A extends tg.UnresolvedArgs<Array<tg.Value>>,
+		R extends tg.ReturnValue,
+	> = (...args: A) => R;
 }

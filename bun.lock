@@ -4,11 +4,11 @@
   "workspaces": {
     "": {
       "dependencies": {
-        "@types/bun": "latest",
-        "esbuild": "latest",
-        "oxfmt": "latest",
-        "oxlint": "latest",
-        "typescript": "latest",
+        "@types/bun": "^1.3.5",
+        "esbuild": "^0.27.2",
+        "oxfmt": "^0.21.0",
+        "oxlint": "^1.36.0",
+        "typescript": "^5.9.3",
       },
     },
     "packages/clients/js": {
