@@ -1,6 +1,3 @@
-#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
-compile_error!("at least one database feature (postgres or sqlite) must be enabled");
-
 use {
 	self::{
 		context::Context, database::Database, index::Index, messenger::Messenger, store::Store,
