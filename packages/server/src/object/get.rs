@@ -210,18 +210,18 @@ impl Server {
 	}
 
 	async fn try_read_blob_from_cache(&self, id: &tg::blob::Id) -> tg::Result<Option<Bytes>> {
-		let cache_reference = self
+		let cache_pointer = self
 			.store
-			.try_get_cache_reference(&id.clone().into())
+			.try_get_cache_pointer(&id.clone().into())
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get the cache reference"))?;
-		let Some(cache_reference) = cache_reference else {
+			.map_err(|error| tg::error!(!error, "failed to get the cache pointer"))?;
+		let Some(cache_pointer) = cache_pointer else {
 			return Ok(None);
 		};
 
 		// Read the leaf from the file.
-		let mut path = self.cache_path().join(cache_reference.artifact.to_string());
-		if let Some(path_) = &cache_reference.path {
+		let mut path = self.cache_path().join(cache_pointer.artifact.to_string());
+		if let Some(path_) = &cache_pointer.path {
 			path.push(path_);
 		}
 		let mut file = match tokio::fs::File::open(path).await {
@@ -238,12 +238,12 @@ impl Server {
 		};
 
 		// Seek.
-		file.seek(std::io::SeekFrom::Start(cache_reference.position))
+		file.seek(std::io::SeekFrom::Start(cache_pointer.position))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to seek in the file"))?;
 
 		// Read.
-		let mut buffer = vec![0; 1 + cache_reference.length.to_usize().unwrap()];
+		let mut buffer = vec![0; 1 + cache_pointer.length.to_usize().unwrap()];
 		file.read_exact(&mut buffer[1..])
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read the leaf from the file"))?;
@@ -256,28 +256,28 @@ impl Server {
 		id: &tg::blob::Id,
 		file: &mut Option<File>,
 	) -> tg::Result<Option<Bytes>> {
-		// Get the cache reference.
-		let cache_reference = self.store.try_get_cache_reference_sync(id)?;
-		let Some(cache_reference) = cache_reference else {
+		// Get the cache pointer.
+		let cache_pointer = self.store.try_get_cache_pointer_sync(id)?;
+		let Some(cache_pointer) = cache_pointer else {
 			return Ok(None);
 		};
 
 		// Replace the file if necessary.
 		match file {
 			Some(File { artifact, path, .. })
-				if artifact == &cache_reference.artifact && path == &cache_reference.path => {},
+				if artifact == &cache_pointer.artifact && path == &cache_pointer.path => {},
 			_ => {
 				drop(file.take());
-				let mut path = self.cache_path().join(cache_reference.artifact.to_string());
-				if let Some(path_) = &cache_reference.path {
+				let mut path = self.cache_path().join(cache_pointer.artifact.to_string());
+				if let Some(path_) = &cache_pointer.path {
 					path = path.join(path_);
 				}
 				let file_ = std::fs::File::open(&path).map_err(
 					|source| tg::error!(!source, path = %path.display(), "failed to open the file"),
 				)?;
 				file.replace(File {
-					artifact: cache_reference.artifact.clone(),
-					path: cache_reference.path.clone(),
+					artifact: cache_pointer.artifact.clone(),
+					path: cache_pointer.path.clone(),
 					file: file_,
 				});
 			},
@@ -286,11 +286,11 @@ impl Server {
 		// Seek.
 		let file_handle = &mut file.as_mut().unwrap().file;
 		file_handle
-			.seek(std::io::SeekFrom::Start(cache_reference.position))
+			.seek(std::io::SeekFrom::Start(cache_pointer.position))
 			.map_err(|source| tg::error!(!source, "failed to seek the cache file"))?;
 
 		// Read.
-		let mut buffer = vec![0u8; 1 + cache_reference.length.to_usize().unwrap()];
+		let mut buffer = vec![0u8; 1 + cache_pointer.length.to_usize().unwrap()];
 		file_handle
 			.read_exact(&mut buffer[1..])
 			.map_err(|source| tg::error!(!source, "failed to read from the cache file"))?;

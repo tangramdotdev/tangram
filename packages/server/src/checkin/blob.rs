@@ -45,7 +45,7 @@ impl Server {
 			Some(total),
 		);
 
-		let cache_references = arg.options.cache_references;
+		let cache_pointers = arg.options.cache_pointers;
 		let blobs = stream::iter(nodes)
 			.map(|(index, path, size)| {
 				let progress = progress.clone();
@@ -57,7 +57,7 @@ impl Server {
 							let file = std::fs::File::open(&path).map_err(
 								|source| tg::error!(!source, path = %path.display(), "failed to open the file"),
 							)?;
-							let destination = if cache_references {
+							let destination = if cache_pointers {
 								None
 							} else {
 								Some(Destination::Store { touched_at })
@@ -99,11 +99,11 @@ impl Server {
 				}
 
 				// Create store arg only if needed.
-				// When cache_references is false, leaf blobs (bytes: None) are already stored.
-				let store_arg = if cache_references || bytes.is_some() {
+				// When cache_pointers is false, leaf blobs (bytes: None) are already stored.
+				let store_arg = if cache_pointers || bytes.is_some() {
 					Some(crate::store::PutArg {
 						bytes,
-						cache_reference: None,
+						cache_pointer: None,
 						id: id.clone(),
 						touched_at,
 					})

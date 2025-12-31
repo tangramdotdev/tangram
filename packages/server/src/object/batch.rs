@@ -29,7 +29,7 @@ impl Server {
 				id: object.id.clone(),
 				bytes: Some(object.bytes.clone()),
 				touched_at: now,
-				cache_reference: None,
+				cache_pointer: None,
 			})
 			.collect();
 		self.store

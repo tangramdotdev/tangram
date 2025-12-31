@@ -1,5 +1,5 @@
 use {
-	crate::{CacheReference, DeleteArg, Error as _, PutArg},
+	crate::{CachePointer, DeleteArg, Error as _, PutArg},
 	bytes::Bytes,
 	foundationdb_tuple::TuplePack as _,
 	heed as lmdb,
@@ -41,7 +41,7 @@ enum Request {
 
 struct Put {
 	bytes: Option<Bytes>,
-	cache_reference: Option<CacheReference>,
+	cache_pointer: Option<CachePointer>,
 	id: tg::object::Id,
 	touched_at: i64,
 }
@@ -60,7 +60,7 @@ struct Key<'a> {
 enum KeyKind {
 	Bytes,
 	TouchedAt,
-	CacheReference,
+	CachePointer,
 }
 
 impl Store {
@@ -174,10 +174,10 @@ impl Store {
 		Ok(Some((size, data)))
 	}
 
-	pub fn try_get_cache_reference_sync(
+	pub fn try_get_cache_pointer_sync(
 		&self,
 		id: &tg::object::Id,
-	) -> tg::Result<Option<CacheReference>> {
+	) -> tg::Result<Option<CachePointer>> {
 		let transaction = self
 			.env
 			.read_txn()
@@ -185,19 +185,19 @@ impl Store {
 		let id_bytes = id.to_bytes();
 		let key = Key {
 			id: id_bytes.as_ref(),
-			kind: KeyKind::CacheReference,
+			kind: KeyKind::CachePointer,
 		};
 		let Some(bytes) = self
 			.db
 			.get(&transaction, &key.pack_to_vec())
-			.map_err(|source| tg::error!(!source, %id, "failed to get the cache reference"))?
+			.map_err(|source| tg::error!(!source, %id, "failed to get the cache pointer"))?
 		else {
 			return Ok(None);
 		};
-		let reference = CacheReference::deserialize(bytes).map_err(
-			|source| tg::error!(!source, %id, "failed to deserialize the cache reference"),
+		let pointer = CachePointer::deserialize(bytes).map_err(
+			|source| tg::error!(!source, %id, "failed to deserialize the cache pointer"),
 		)?;
-		Ok::<_, tg::Error>(Some(reference))
+		Ok::<_, tg::Error>(Some(pointer))
 	}
 
 	fn task(env: &lmdb::Env, db: &Db, mut receiver: RequestReceiver) {
@@ -290,15 +290,15 @@ impl Store {
 		let touched_at = request.touched_at.to_le_bytes();
 		db.put(transaction, &key.pack_to_vec(), &touched_at)
 			.map_err(|source| tg::error!(!source, %id, "failed to put the touched_at"))?;
-		if let Some(cache_reference) = request.cache_reference {
+		if let Some(cache_pointer) = request.cache_pointer {
 			let id_bytes = id.to_bytes();
 			let key = Key {
 				id: id_bytes.as_ref(),
-				kind: KeyKind::CacheReference,
+				kind: KeyKind::CachePointer,
 			};
-			let value = cache_reference.serialize().unwrap();
+			let value = cache_pointer.serialize().unwrap();
 			db.put(transaction, &key.pack_to_vec(), &value)
-				.map_err(|source| tg::error!(!source, %id, "failed to put the cache reference"))?;
+				.map_err(|source| tg::error!(!source, %id, "failed to put the cache pointer"))?;
 		}
 		Ok(())
 	}
@@ -344,11 +344,10 @@ impl Store {
 			let id_bytes = id.to_bytes();
 			let key = Key {
 				id: id_bytes.as_ref(),
-				kind: KeyKind::CacheReference,
+				kind: KeyKind::CachePointer,
 			};
-			db.delete(transaction, &key.pack_to_vec()).map_err(
-				|source| tg::error!(!source, %id, "failed to delete the cache reference"),
-			)?;
+			db.delete(transaction, &key.pack_to_vec())
+				.map_err(|source| tg::error!(!source, %id, "failed to delete the cache pointer"))?;
 		}
 		Ok(())
 	}
@@ -360,7 +359,7 @@ impl Store {
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 		let request = Put {
 			bytes: arg.bytes,
-			cache_reference: arg.cache_reference,
+			cache_pointer: arg.cache_pointer,
 			id: arg.id,
 			touched_at: arg.touched_at,
 		};
@@ -382,7 +381,7 @@ impl Store {
 		for arg in args {
 			let request = Put {
 				bytes: arg.bytes,
-				cache_reference: arg.cache_reference,
+				cache_pointer: arg.cache_pointer,
 				id: arg.id,
 				touched_at: arg.touched_at,
 			};
@@ -517,11 +516,11 @@ impl crate::Store for Store {
 		Ok(bytes)
 	}
 
-	async fn try_get_cache_reference(
+	async fn try_get_cache_pointer(
 		&self,
 		id: &tg::object::Id,
-	) -> Result<Option<CacheReference>, Self::Error> {
-		let reference = tokio::task::spawn_blocking({
+	) -> Result<Option<CachePointer>, Self::Error> {
+		let pointer = tokio::task::spawn_blocking({
 			let db = self.db;
 			let env = self.env.clone();
 			let id = id.clone();
@@ -532,24 +531,24 @@ impl crate::Store for Store {
 				let id_bytes = id.to_bytes();
 				let key = Key {
 					id: id_bytes.as_ref(),
-					kind: KeyKind::CacheReference,
+					kind: KeyKind::CachePointer,
 				};
 				let Some(bytes) = db.get(&transaction, &key.pack_to_vec()).map_err(
-					|source| tg::error!(!source, %id, "failed to get the cache reference"),
+					|source| tg::error!(!source, %id, "failed to get the cache pointer"),
 				)?
 				else {
 					return Ok(None);
 				};
-				let reference = CacheReference::deserialize(bytes).map_err(
-					|source| tg::error!(!source, %id, "failed to deserialize the cache reference"),
+				let pointer = CachePointer::deserialize(bytes).map_err(
+					|source| tg::error!(!source, %id, "failed to deserialize the cache pointer"),
 				)?;
-				Ok::<_, tg::Error>(Some(reference))
+				Ok::<_, tg::Error>(Some(pointer))
 			}
 		})
 		.await
 		.map_err(|source| Error::other(tg::error!(!source, "failed to join the task")))?
 		.map_err(Error::other)?;
-		Ok(reference)
+		Ok(pointer)
 	}
 
 	async fn put(&self, arg: PutArg) -> Result<(), Self::Error> {
@@ -557,7 +556,7 @@ impl crate::Store for Store {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Put(Put {
 			bytes: arg.bytes,
-			cache_reference: arg.cache_reference,
+			cache_pointer: arg.cache_pointer,
 			id: arg.id,
 			touched_at: arg.touched_at,
 		});
@@ -583,7 +582,7 @@ impl crate::Store for Store {
 			args.into_iter()
 				.map(|arg| Put {
 					bytes: arg.bytes,
-					cache_reference: arg.cache_reference,
+					cache_pointer: arg.cache_pointer,
 					id: arg.id,
 					touched_at: arg.touched_at,
 				})
@@ -670,7 +669,7 @@ impl foundationdb_tuple::TuplePack for Key<'_> {
 		let column = match self.kind {
 			KeyKind::Bytes => 0,
 			KeyKind::TouchedAt => 1,
-			KeyKind::CacheReference => 2,
+			KeyKind::CachePointer => 2,
 		};
 		(0, self.id, column).pack(w, tuple_depth)
 	}

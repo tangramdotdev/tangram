@@ -18,7 +18,7 @@ let artifact = artifact {
 		}
 	'
 }
-let id = tg build --no-cache-references $artifact
+let id = tg build --no-cache-pointers $artifact
 
 let output = tg cache $id
 

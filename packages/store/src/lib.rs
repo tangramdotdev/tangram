@@ -29,10 +29,10 @@ pub trait Store {
 		ids: &[tg::object::Id],
 	) -> impl std::future::Future<Output = std::result::Result<Vec<Option<Bytes>>, Self::Error>> + Send;
 
-	fn try_get_cache_reference(
+	fn try_get_cache_pointer(
 		&self,
 		id: &tg::object::Id,
-	) -> impl std::future::Future<Output = std::result::Result<Option<CacheReference>, Self::Error>> + Send;
+	) -> impl std::future::Future<Output = std::result::Result<Option<CachePointer>, Self::Error>> + Send;
 
 	fn put(
 		&self,
@@ -62,7 +62,7 @@ pub trait Store {
 #[derive(Clone, Debug)]
 pub struct PutArg {
 	pub bytes: Option<Bytes>,
-	pub cache_reference: Option<CacheReference>,
+	pub cache_pointer: Option<CachePointer>,
 	pub id: tg::object::Id,
 	pub touched_at: i64,
 }
@@ -82,7 +82,7 @@ pub struct DeleteArg {
 	tangram_serialize::Serialize,
 	tangram_serialize::Deserialize,
 )]
-pub struct CacheReference {
+pub struct CachePointer {
 	#[tangram_serialize(id = 0)]
 	pub artifact: tg::artifact::Id,
 
@@ -97,15 +97,13 @@ pub struct CacheReference {
 	pub path: Option<PathBuf>,
 }
 
-impl CacheReference {
+impl CachePointer {
 	pub fn serialize(&self) -> Result<Bytes> {
 		let mut bytes = Vec::new();
 		bytes.push(0);
 		tangram_serialize::to_writer(&mut bytes, self).map_err(|source| {
-			let error: Box<dyn std::error::Error + Send + Sync> = Box::new(tg::error!(
-				!source,
-				"failed to serialize the cache reference"
-			));
+			let error: Box<dyn std::error::Error + Send + Sync> =
+				Box::new(tg::error!(!source, "failed to serialize the cache pointer"));
 			error
 		})?;
 		Ok(bytes.into())
@@ -123,18 +121,18 @@ impl CacheReference {
 			0 => tangram_serialize::from_reader(&mut reader).map_err(|source| {
 				let error: Box<dyn std::error::Error + Send + Sync> = Box::new(tg::error!(
 					!source,
-					"failed to deserialize the cache reference"
+					"failed to deserialize the cache pointer"
 				));
 				error
 			}),
 			b'{' => serde_json::from_slice(&bytes).map_err(|source| {
 				let error: Box<dyn std::error::Error + Send + Sync> = Box::new(tg::error!(
 					!source,
-					"failed to deserialize the cache reference"
+					"failed to deserialize the cache pointer"
 				));
 				error
 			}),
-			_ => Err("invalid cache reference format".into()),
+			_ => Err("invalid cache pointer format".into()),
 		}
 	}
 }

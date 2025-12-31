@@ -390,7 +390,7 @@ impl Server {
 		tracing::trace!(elapsed = ?start.elapsed(), "create objects");
 
 		// Cache.
-		if arg.options.cache_references {
+		if arg.options.cache_pointers {
 			if let Some(task) = fixup_task {
 				task.await
 					.map_err(|source| tg::error!(!source, "failed to run the fixup task"))?;

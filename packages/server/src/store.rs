@@ -2,7 +2,7 @@
 use std::path::Path;
 use {bytes::Bytes, tangram_client::prelude::*, tangram_store as store};
 
-pub use store::{CacheReference, DeleteArg, PutArg};
+pub use store::{CachePointer, DeleteArg, PutArg};
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
@@ -121,14 +121,14 @@ impl Store {
 		not(any(feature = "lmdb", feature = "scylla")),
 		expect(clippy::unnecessary_wraps)
 	)]
-	pub fn try_get_cache_reference_sync(
+	pub fn try_get_cache_pointer_sync(
 		&self,
 		id: &tg::blob::Id,
-	) -> tg::Result<Option<CacheReference>> {
+	) -> tg::Result<Option<CachePointer>> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.try_get_cache_reference_sync(&id.clone().into()),
-			Self::Memory(memory) => Ok(memory.try_get_cache_reference(&id.clone().into())),
+			Self::Lmdb(lmdb) => lmdb.try_get_cache_pointer_sync(&id.clone().into()),
+			Self::Memory(memory) => Ok(memory.try_get_cache_pointer(&id.clone().into())),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(_) => Err(tg::error!("unimplemented")),
 		}
@@ -272,19 +272,19 @@ impl store::Store for Store {
 		}
 	}
 
-	async fn try_get_cache_reference(
+	async fn try_get_cache_pointer(
 		&self,
 		id: &tg::object::Id,
-	) -> Result<Option<CacheReference>, Self::Error> {
+	) -> Result<Option<CachePointer>, Self::Error> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.try_get_cache_reference(id).await.map_err(Error::Lmdb),
-			Self::Memory(memory) => store::Store::try_get_cache_reference(memory, id)
+			Self::Lmdb(lmdb) => lmdb.try_get_cache_pointer(id).await.map_err(Error::Lmdb),
+			Self::Memory(memory) => store::Store::try_get_cache_pointer(memory, id)
 				.await
 				.map_err(Error::Memory),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla
-				.try_get_cache_reference(id)
+				.try_get_cache_pointer(id)
 				.await
 				.map_err(Error::Scylla),
 		}

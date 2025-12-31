@@ -43,7 +43,7 @@ pub struct Arg {
 pub struct Options {
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
-	pub cache_references: bool,
+	pub cache_pointers: bool,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -158,7 +158,7 @@ impl tg::Client {
 impl Default for Options {
 	fn default() -> Self {
 		Self {
-			cache_references: true,
+			cache_pointers: true,
 			destructive: false,
 			deterministic: false,
 			ignore: true,

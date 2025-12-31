@@ -1,5 +1,5 @@
 use {
-	crate::{CacheReference, DeleteArg, PutArg},
+	crate::{CachePointer, DeleteArg, PutArg},
 	bytes::Bytes,
 	dashmap::DashMap,
 	num::ToPrimitive as _,
@@ -10,7 +10,7 @@ pub struct Store(DashMap<tg::object::Id, Entry, tg::id::BuildHasher>);
 
 struct Entry {
 	bytes: Option<Bytes>,
-	cache_reference: Option<CacheReference>,
+	cache_pointer: Option<CachePointer>,
 	touched_at: i64,
 }
 
@@ -38,10 +38,10 @@ impl Store {
 	}
 
 	#[must_use]
-	pub fn try_get_cache_reference(&self, id: &tg::object::Id) -> Option<CacheReference> {
+	pub fn try_get_cache_pointer(&self, id: &tg::object::Id) -> Option<CachePointer> {
 		let entry = self.0.get(id)?;
-		let cache_reference = entry.cache_reference.clone()?;
-		Some(cache_reference)
+		let cache_pointer = entry.cache_pointer.clone()?;
+		Some(cache_pointer)
 	}
 
 	pub fn try_get_object_data(
@@ -62,7 +62,7 @@ impl Store {
 	pub fn put(&self, arg: PutArg) {
 		let entry = Entry {
 			bytes: arg.bytes,
-			cache_reference: arg.cache_reference,
+			cache_pointer: arg.cache_pointer,
 			touched_at: arg.touched_at,
 		};
 		self.0.insert(arg.id, entry);
@@ -110,11 +110,11 @@ impl crate::Store for Store {
 		Ok(self.try_get_batch(ids))
 	}
 
-	async fn try_get_cache_reference(
+	async fn try_get_cache_pointer(
 		&self,
 		id: &tg::object::Id,
-	) -> Result<Option<CacheReference>, Self::Error> {
-		Ok(self.try_get_cache_reference(id))
+	) -> Result<Option<CachePointer>, Self::Error> {
+		Ok(self.try_get_cache_pointer(id))
 	}
 
 	async fn put(&self, arg: PutArg) -> Result<(), Self::Error> {

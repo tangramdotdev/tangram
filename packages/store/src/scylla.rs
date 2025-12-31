@@ -1,5 +1,5 @@
 use {
-	crate::{CacheReference, DeleteArg, Error as _, PutArg},
+	crate::{CachePointer, DeleteArg, Error as _, PutArg},
 	bytes::Bytes,
 	futures::FutureExt as _,
 	indoc::indoc,
@@ -32,7 +32,7 @@ pub enum SpeculativeExecution {
 pub struct Store {
 	delete_statement: scylla::statement::prepared::PreparedStatement,
 	get_batch_statement: scylla::statement::prepared::PreparedStatement,
-	get_cache_reference_statement: scylla::statement::prepared::PreparedStatement,
+	get_cache_pointer_statement: scylla::statement::prepared::PreparedStatement,
 	get_statement: scylla::statement::prepared::PreparedStatement,
 	put_statement: scylla::statement::prepared::PreparedStatement,
 	session: scylla::client::session::Session,
@@ -134,23 +134,23 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				select cache_reference
+				select cache_pointer
 				from objects
 				where id = ?;
 			"
 		);
-		let mut get_cache_reference_statement =
+		let mut get_cache_pointer_statement =
 			session.prepare(statement).await.map_err(|source| {
 				Error::other(tg::error!(
 					!source,
-					"failed to prepare the get cache reference statement"
+					"failed to prepare the get cache pointer statement"
 				))
 			})?;
-		get_cache_reference_statement.set_consistency(scylla::statement::Consistency::One);
+		get_cache_pointer_statement.set_consistency(scylla::statement::Consistency::One);
 
 		let statement = indoc!(
 			"
-				insert into objects (id, bytes, cache_reference, touched_at)
+				insert into objects (id, bytes, cache_pointer, touched_at)
 				values (?, ?, ?, ?);
 			"
 		);
@@ -176,7 +176,7 @@ impl Store {
 		let scylla = Self {
 			delete_statement,
 			get_batch_statement,
-			get_cache_reference_statement,
+			get_cache_pointer_statement,
 			get_statement,
 			put_statement,
 			session,
@@ -253,15 +253,15 @@ impl Store {
 		Ok(map)
 	}
 
-	async fn try_get_cache_reference_inner(
+	async fn try_get_cache_pointer_inner(
 		&self,
 		id: &tg::object::Id,
 		statement: &scylla::statement::prepared::PreparedStatement,
-	) -> Result<Option<CacheReference>, Error> {
+	) -> Result<Option<CachePointer>, Error> {
 		let params = (id.to_bytes().to_vec(),);
 		#[derive(scylla::DeserializeRow)]
 		struct Row<'a> {
-			cache_reference: &'a [u8],
+			cache_pointer: &'a [u8],
 		}
 		let result = self
 			.session
@@ -279,11 +279,10 @@ impl Store {
 		else {
 			return Ok(None);
 		};
-		let cache_reference =
-			CacheReference::deserialize(row.cache_reference).map_err(|source| {
-				Error::other(tg::error!(!source, %id, "failed to deserialize the cache reference"))
-			})?;
-		Ok(Some(cache_reference))
+		let cache_pointer = CachePointer::deserialize(row.cache_pointer).map_err(|source| {
+			Error::other(tg::error!(!source, %id, "failed to deserialize the cache pointer"))
+		})?;
+		Ok(Some(cache_pointer))
 	}
 }
 
@@ -333,24 +332,24 @@ impl crate::Store for Store {
 		Ok(output)
 	}
 
-	async fn try_get_cache_reference(
+	async fn try_get_cache_pointer(
 		&self,
 		id: &tg::object::Id,
-	) -> Result<Option<CacheReference>, Self::Error> {
-		// Attempt to get the cache reference with the default consistency.
-		let cache_reference = self
-			.try_get_cache_reference_inner(id, &self.get_cache_reference_statement)
+	) -> Result<Option<CachePointer>, Self::Error> {
+		// Attempt to get the cache pointer with the default consistency.
+		let cache_pointer = self
+			.try_get_cache_pointer_inner(id, &self.get_cache_pointer_statement)
 			.await?;
-		if let Some(cache_reference) = cache_reference {
-			return Ok(Some(cache_reference));
+		if let Some(cache_pointer) = cache_pointer {
+			return Ok(Some(cache_pointer));
 		}
 
-		// Attempt to get the cache reference with local quorum consistency.
-		let mut statement = self.get_cache_reference_statement.clone();
+		// Attempt to get the cache pointer with local quorum consistency.
+		let mut statement = self.get_cache_pointer_statement.clone();
 		statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
-		let cache_reference = self.try_get_cache_reference_inner(id, &statement).await?;
-		if let Some(cache_reference) = cache_reference {
-			return Ok(Some(cache_reference));
+		let cache_pointer = self.try_get_cache_pointer_inner(id, &statement).await?;
+		if let Some(cache_pointer) = cache_pointer {
+			return Ok(Some(cache_pointer));
 		}
 
 		Ok(None)
@@ -360,16 +359,16 @@ impl crate::Store for Store {
 		let id = &arg.id;
 		let id_bytes = id.to_bytes().to_vec();
 		let bytes = arg.bytes;
-		let cache_reference = if let Some(cache_reference) = &arg.cache_reference {
-			let cache_reference = cache_reference.serialize().map_err(|source| {
-				Error::other(tg::error!(!source, %id, "failed to serialize the cache reference"))
+		let cache_pointer = if let Some(cache_pointer) = &arg.cache_pointer {
+			let cache_pointer = cache_pointer.serialize().map_err(|source| {
+				Error::other(tg::error!(!source, %id, "failed to serialize the cache pointer"))
 			})?;
-			Some(cache_reference)
+			Some(cache_pointer)
 		} else {
 			None
 		};
 		let touched_at = arg.touched_at;
-		let params = (id_bytes, bytes, cache_reference, touched_at);
+		let params = (id_bytes, bytes, cache_pointer, touched_at);
 		self.session
 			.execute_unpaged(&self.put_statement, params)
 			.await
@@ -397,18 +396,18 @@ impl crate::Store for Store {
 				let id = &arg.id;
 				let id_bytes = id.to_bytes().to_vec();
 				let bytes = arg.bytes.clone();
-				let cache_reference = if let Some(cache_reference) = &arg.cache_reference {
-					let cache_reference = cache_reference.serialize().map_err(|source| {
+				let cache_pointer = if let Some(cache_pointer) = &arg.cache_pointer {
+					let cache_pointer = cache_pointer.serialize().map_err(|source| {
 						Error::other(
-							tg::error!(!source, %id, "failed to serialize the cache reference"),
+							tg::error!(!source, %id, "failed to serialize the cache pointer"),
 						)
 					})?;
-					Some(cache_reference)
+					Some(cache_pointer)
 				} else {
 					None
 				};
 				let touched_at = arg.touched_at;
-				let params = (id_bytes, bytes, cache_reference, touched_at);
+				let params = (id_bytes, bytes, cache_pointer, touched_at);
 				Ok(params)
 			})
 			.collect::<Result<Vec<_>, Error>>()?;

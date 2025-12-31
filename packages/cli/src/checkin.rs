@@ -26,7 +26,7 @@ pub struct Args {
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Options {
 	#[command(flatten)]
-	pub cache_references: CacheReferences,
+	pub cache_pointers: CachePointers,
 
 	/// Check in the artifact more quickly by allowing it to be destroyed.
 	#[arg(long)]
@@ -203,31 +203,31 @@ impl UnsolvedDependencies {
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
-pub struct CacheReferences {
-	/// Whether to create cache references.
+pub struct CachePointers {
+	/// Whether to create cache pointers.
 	#[arg(
 		default_missing_value = "true",
 		long,
 		num_args = 0..=1,
-		overrides_with = "no_cache_references",
+		overrides_with = "no_cache_pointers",
 		require_equals = true,
 	)]
-	cache_references: Option<bool>,
+	cache_pointers: Option<bool>,
 
 	#[arg(
 		default_missing_value = "true",
 		long,
 		num_args = 0..=1,
-		overrides_with = "cache_references",
+		overrides_with = "cache_pointers",
 		require_equals = true,
 	)]
-	no_cache_references: Option<bool>,
+	no_cache_pointers: Option<bool>,
 }
 
-impl CacheReferences {
+impl CachePointers {
 	pub fn get(&self) -> bool {
-		self.cache_references
-			.or(self.no_cache_references.map(|v| !v))
+		self.cache_pointers
+			.or(self.no_cache_pointers.map(|v| !v))
 			.unwrap_or(true)
 	}
 }
@@ -266,7 +266,7 @@ impl Cli {
 impl Options {
 	pub fn to_options(&self) -> tg::checkin::Options {
 		tg::checkin::Options {
-			cache_references: self.cache_references.get(),
+			cache_pointers: self.cache_pointers.get(),
 			destructive: self.destructive,
 			deterministic: self.deterministic,
 			ignore: self.ignore.get(),

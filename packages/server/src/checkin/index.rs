@@ -21,7 +21,7 @@ impl Server {
 		let mut messages: Vec<crate::index::Message> = Vec::new();
 
 		// Create put cache entry messages.
-		if arg.options.cache_references {
+		if arg.options.cache_pointers {
 			if arg.options.destructive {
 				let index = graph.paths.get(root).unwrap();
 				let id = graph

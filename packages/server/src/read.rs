@@ -219,22 +219,20 @@ impl Server {
 impl Reader {
 	pub async fn new(server: &Server, blob: tg::Blob) -> tg::Result<Self> {
 		let id = blob.id();
-		let cache_reference = server
+		let cache_pointer = server
 			.store
-			.try_get_cache_reference(&id.clone().into())
+			.try_get_cache_pointer(&id.clone().into())
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the cache reference"))?;
-		let reader = if let Some(cache_reference) = cache_reference {
-			let mut path = server
-				.cache_path()
-				.join(cache_reference.artifact.to_string());
-			if let Some(path_) = &cache_reference.path {
+			.map_err(|error| tg::error!(!error, %id, "failed to get the cache pointer"))?;
+		let reader = if let Some(cache_pointer) = cache_pointer {
+			let mut path = server.cache_path().join(cache_pointer.artifact.to_string());
+			if let Some(path_) = &cache_pointer.path {
 				path.push(path_);
 			}
 			let file = tokio::fs::File::open(&path).await.map_err(
 				|source| tg::error!(!source, path = %path.display(), "failed to open the file"),
 			)?;
-			let reader = File::new(file, cache_reference.position, cache_reference.length)
+			let reader = File::new(file, cache_pointer.position, cache_pointer.length)
 				.await
 				.map_err(|source| tg::error!(!source, %id, "failed to create the file reader"))?;
 			Self::File(reader)
@@ -249,21 +247,19 @@ impl Reader {
 
 	pub fn new_sync(server: &Server, blob: tg::Blob) -> tg::Result<Self> {
 		let id = blob.id();
-		let cache_reference = server
+		let cache_pointer = server
 			.store
-			.try_get_cache_reference_sync(&id.clone())
-			.map_err(|error| tg::error!(!error, %id, "failed to get the cache reference"))?;
-		let reader = if let Some(cache_reference) = cache_reference {
-			let mut path = server
-				.cache_path()
-				.join(cache_reference.artifact.to_string());
-			if let Some(path_) = &cache_reference.path {
+			.try_get_cache_pointer_sync(&id.clone())
+			.map_err(|error| tg::error!(!error, %id, "failed to get the cache pointer"))?;
+		let reader = if let Some(cache_pointer) = cache_pointer {
+			let mut path = server.cache_path().join(cache_pointer.artifact.to_string());
+			if let Some(path_) = &cache_pointer.path {
 				path.push(path_);
 			}
 			let file = std::fs::File::open(&path).map_err(
 				|source| tg::error!(!source, path = %path.display(), "failed to open the file"),
 			)?;
-			let reader = File::new_sync(file, cache_reference.position, cache_reference.length)
+			let reader = File::new_sync(file, cache_pointer.position, cache_pointer.length)
 				.map_err(|source| tg::error!(!source, %id, "failed to create the file reader"))?;
 			Self::File(reader)
 		} else {

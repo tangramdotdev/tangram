@@ -108,7 +108,7 @@ impl Server {
 				Ok(crate::store::PutArg {
 					id: item.id.clone(),
 					bytes: Some(item.bytes.clone()),
-					cache_reference: None,
+					cache_pointer: None,
 					touched_at,
 				})
 			})

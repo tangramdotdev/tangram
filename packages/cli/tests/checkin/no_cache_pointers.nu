@@ -4,7 +4,7 @@ let server = spawn
 
 let path = artifact 'Hello, World!'
 
-let id = tg checkin --no-cache-references $path
+let id = tg checkin --no-cache-pointers $path
 tg index
 
 # Verify we can read the file contents using tg read.

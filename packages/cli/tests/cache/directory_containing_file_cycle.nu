@@ -22,7 +22,7 @@ let path = artifact {
 		}
 	'#
 }
-let id = tg build --no-cache-references $path
+let id = tg build --no-cache-pointers $path
 
 # Cache.
 tg cache $id

@@ -58,7 +58,7 @@ impl Server {
 		let blob = Arc::new(blob);
 
 		// Rename the temp file to the cache directory if necessary.
-		let cache_reference = if let Destination::Temp(temp) = destination {
+		let cache_pointer = if let Destination::Temp(temp) = destination {
 			let data = tg::file::Data::Node(tg::file::data::Node {
 				contents: Some(blob.id.clone()),
 				dependencies: BTreeMap::new(),
@@ -88,12 +88,12 @@ impl Server {
 		};
 
 		// Store.
-		self.write_store(&blob, cache_reference.clone(), touched_at)
+		self.write_store(&blob, cache_pointer.clone(), touched_at)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the blob"))?;
 
 		// Publish index messages.
-		self.write_index(&blob, cache_reference.clone(), touched_at)
+		self.write_index(&blob, cache_pointer.clone(), touched_at)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to index the blob"))?;
 
@@ -157,7 +157,7 @@ impl Server {
 					bytes.extend_from_slice(&chunk.data);
 					let arg = crate::store::PutArg {
 						bytes: Some(bytes.into()),
-						cache_reference: None,
+						cache_pointer: None,
 						id: blob.id.clone().into(),
 						touched_at: *touched_at,
 					};
@@ -251,7 +251,7 @@ impl Server {
 					bytes.extend_from_slice(&chunk.data);
 					let arg = crate::store::PutArg {
 						bytes: Some(bytes.into()),
-						cache_reference: None,
+						cache_pointer: None,
 						id: blob.id.clone().into(),
 						touched_at: *touched_at,
 					};
@@ -425,10 +425,10 @@ impl Server {
 	async fn write_store(
 		&self,
 		blob: &Output,
-		cache_reference: Option<(tg::artifact::Id, Option<PathBuf>)>,
+		cache_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		touched_at: i64,
 	) -> tg::Result<()> {
-		let arg = Self::write_store_args(blob, cache_reference.as_ref(), touched_at);
+		let arg = Self::write_store_args(blob, cache_pointer.as_ref(), touched_at);
 		self.store
 			.put_batch(arg)
 			.await
@@ -438,16 +438,16 @@ impl Server {
 
 	pub(crate) fn write_store_args(
 		blob: &Output,
-		cache_reference: Option<&(tg::artifact::Id, Option<PathBuf>)>,
+		cache_pointer: Option<&(tg::artifact::Id, Option<PathBuf>)>,
 		touched_at: i64,
 	) -> Vec<crate::store::PutArg> {
 		let mut args = Vec::new();
 		let mut stack = vec![blob];
 		while let Some(blob) = stack.pop() {
-			let cache_reference =
-				cache_reference
+			let cache_pointer =
+				cache_pointer
 					.as_ref()
-					.map(|(artifact, path)| crate::store::CacheReference {
+					.map(|(artifact, path)| crate::store::CachePointer {
 						artifact: artifact.clone(),
 						path: path.clone(),
 						position: blob.position,
@@ -455,7 +455,7 @@ impl Server {
 					});
 			args.push(crate::store::PutArg {
 				bytes: blob.bytes.clone(),
-				cache_reference,
+				cache_pointer,
 				id: blob.id.clone().into(),
 				touched_at,
 			});
@@ -467,10 +467,10 @@ impl Server {
 	async fn write_index(
 		&self,
 		blob: &Output,
-		cache_reference: Option<(tg::artifact::Id, Option<PathBuf>)>,
+		cache_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		touched_at: i64,
 	) -> tg::Result<()> {
-		let messages = Self::write_index_messages(blob, cache_reference, touched_at);
+		let messages = Self::write_index_messages(blob, cache_pointer, touched_at);
 		let message = crate::index::message::Messages(messages);
 		let _published = self
 			.messenger
@@ -482,7 +482,7 @@ impl Server {
 
 	pub(crate) fn write_index_messages(
 		blob: &Output,
-		cache_reference: Option<(tg::artifact::Id, Option<PathBuf>)>,
+		cache_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		touched_at: i64,
 	) -> Vec<crate::index::Message> {
 		// Collect the blobs in topological order.
@@ -498,9 +498,7 @@ impl Server {
 
 		// Create put object messages in reverse topological order.
 		for blob in blobs.into_iter().rev() {
-			let cache_entry = cache_reference
-				.as_ref()
-				.map(|(artifact, _)| artifact.clone());
+			let cache_entry = cache_pointer.as_ref().map(|(artifact, _)| artifact.clone());
 			let mut children = BTreeSet::new();
 			if let Some(data) = &blob.data {
 				data.children(&mut children);
@@ -518,7 +516,7 @@ impl Server {
 		}
 
 		// Create a cache entry message if necessary.
-		if let Some((artifact, _)) = cache_reference {
+		if let Some((artifact, _)) = cache_pointer {
 			let message =
 				crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
 					id: artifact,

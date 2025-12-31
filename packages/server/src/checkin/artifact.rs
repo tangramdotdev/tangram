@@ -55,8 +55,8 @@ impl Server {
 			}
 		}
 
-		// Update blob cache references now that artifact IDs are known.
-		Self::checkin_update_blob_cache_references(
+		// Update blob cache pointers now that artifact IDs are known.
+		Self::checkin_update_blob_cache_pointers(
 			arg,
 			graph,
 			store_args,
@@ -649,7 +649,7 @@ impl Server {
 		// Create the store arg.
 		let store_arg = crate::store::PutArg {
 			bytes: Some(bytes),
-			cache_reference: None,
+			cache_pointer: None,
 			id: id.clone(),
 			touched_at,
 		};
@@ -672,7 +672,7 @@ impl Server {
 	}
 
 	#[expect(clippy::too_many_arguments)]
-	fn checkin_update_blob_cache_references(
+	fn checkin_update_blob_cache_pointers(
 		arg: &tg::checkin::Arg,
 		graph: &Graph,
 		store_args: &mut StoreArgs,
@@ -682,8 +682,8 @@ impl Server {
 		sccs: &[Vec<usize>],
 		touched_at: i64,
 	) {
-		// Skip if cache references are disabled.
-		if !arg.options.cache_references {
+		// Skip if cache pointers are disabled.
+		if !arg.options.cache_pointers {
 			return;
 		}
 
@@ -732,19 +732,19 @@ impl Server {
 					});
 				}
 
-				// Update cache references for the blob and its children.
+				// Update cache pointers for the blob and its children.
 				let mut stack = vec![output.as_ref()];
 				while let Some(output) = stack.pop() {
 					let id: tg::object::Id = output.id.clone().into();
 
-					// Create and set the cache reference.
-					let cache_reference = crate::store::CacheReference {
+					// Create and set the cache pointer.
+					let cache_pointer = crate::store::CachePointer {
 						artifact: artifact.clone(),
 						path: path.clone(),
 						position: output.position,
 						length: output.length,
 					};
-					store_args.get_mut(&id).unwrap().cache_reference = Some(cache_reference);
+					store_args.get_mut(&id).unwrap().cache_pointer = Some(cache_pointer);
 					object_messages.get_mut(&id).unwrap().cache_entry = Some(artifact.clone());
 
 					// Add children to the stack.
@@ -776,7 +776,7 @@ impl Server {
 		// Store the object.
 		let store_arg = crate::store::PutArg {
 			bytes: Some(bytes),
-			cache_reference: None,
+			cache_pointer: None,
 			id: id.clone(),
 			touched_at,
 		};

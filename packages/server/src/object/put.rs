@@ -40,7 +40,7 @@ impl Server {
 			id: id.clone(),
 			bytes: Some(arg.bytes.clone()),
 			touched_at: now,
-			cache_reference: None,
+			cache_pointer: None,
 		};
 		self.store
 			.put(put_arg)
