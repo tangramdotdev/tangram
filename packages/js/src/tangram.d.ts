@@ -1730,7 +1730,7 @@ declare namespace tg {
 		tg.Unresolved<tg.ValueOrMaybeMutationMap<T>>
 	>;
 
-	type MaybePromise<T> = T | PromiseLike<T>;
+	type MaybePromise<T> = T | Promise<T> | PromiseLike<T>;
 
 	type MaybeMutation<T extends tg.Value = tg.Value> = T | tg.Mutation<T>;
 

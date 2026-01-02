@@ -1,6 +1,6 @@
 import type * as tg from "./index.ts";
 
-export type MaybePromise<T> = T | PromiseLike<T>;
+export type MaybePromise<T> = T | Promise<T> | PromiseLike<T>;
 
 export type MaybeMutation<T extends tg.Value = tg.Value> = T | tg.Mutation<T>;
 
