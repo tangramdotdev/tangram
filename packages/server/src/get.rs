@@ -18,15 +18,20 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 		let reference = reference.clone();
-		match &reference.item() {
+		let path = reference.options().path.clone();
+		let stream = match &reference.item() {
 			tg::reference::Item::Object(object) => {
 				let item = tg::Either::Left(object.clone());
+				let options = tg::referent::Options {
+					id: Some(object.clone()),
+					..tg::referent::Options::default()
+				};
 				let output = tg::get::Output {
-					referent: tg::Referent::with_item(item),
+					referent: tg::Referent::new(item, options),
 				};
 				let event = tg::progress::Event::Output(Some(output));
 				let stream = stream::once(future::ok(event));
-				Ok::<_, tg::Error>(stream.boxed())
+				stream.boxed()
 			},
 
 			tg::reference::Item::Process(process) => {
@@ -36,7 +41,7 @@ impl Server {
 				};
 				let event = tg::progress::Event::Output(Some(output));
 				let stream = stream::once(future::ok(event));
-				Ok::<_, tg::Error>(stream.boxed())
+				stream.boxed()
 			},
 
 			tg::reference::Item::Path(path) => {
@@ -66,7 +71,7 @@ impl Server {
 							tg::progress::Event::Output(output)
 						},
 					});
-				Ok::<_, tg::Error>(stream.boxed())
+				stream.boxed()
 			},
 
 			tg::reference::Item::Tag(tag) => {
@@ -82,25 +87,71 @@ impl Server {
 					let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 					return Ok::<_, tg::Error>(stream.boxed());
 				};
+
 				let item = item.ok_or_else(|| tg::error!("expected the tag to have an item"))?;
 				let id = item.as_ref().left().cloned();
 				let output = tg::get::Output {
 					referent: tg::Referent {
 						item,
 						options: tg::referent::Options {
-							artifact: None,
 							id,
-							name: None,
-							path: None,
 							tag: Some(tag),
+							..tg::referent::Options::default()
 						},
 					},
 				};
 				let event = tg::progress::Event::Output(Some(output));
 				let stream = stream::once(future::ok(event));
-				Ok::<_, tg::Error>(stream.boxed())
+				stream.boxed()
 			},
-		}
+		};
+
+		let server = self.clone();
+		let stream = stream.and_then(move |event| {
+			let path = path.clone();
+			let server = server.clone();
+			async move {
+				// Get the reference path if it was provided.
+				let Some(path) = path else {
+					return Ok::<_, tg::Error>(event);
+				};
+
+				// Only special-handle output events.
+				let tg::progress::Event::Output(Some(output)) = event else {
+					return Ok(event);
+				};
+
+				// If the referent.options has no id or tag, then return None - we could not resolve this reference.
+				if output.referent.options.id.is_none() && output.referent.options.tag.is_none() {
+					return Ok(tg::progress::Event::Output(None));
+				}
+
+				// Destructure the item/options.
+				let tg::Referent { item, mut options } = output.referent;
+
+				// If this was not a directory. then return None - we could not resolve the reference.
+				let tg::Either::Left(tg::object::Id::Directory(directory)) = item else {
+					return Ok(tg::progress::Event::Output(None));
+				};
+				let directory = tg::Directory::with_id(directory);
+
+				// Lookup the child.
+				let Some(child) = directory
+					.try_get(&server, &path)
+					.await
+					.map_err(|source| tg::error!(!source, directory = %directory.id(), path = %path.display(), "failed to lookup the path"))?  else {
+						// We could not resolve the reference, return None.
+						return Ok(tg::progress::Event::Output(None));
+					};
+				let item = tg::Either::Left(child.id().into());
+				options.path.replace(path);
+				let output = tg::get::Output {
+					referent: tg::Referent::new(item, options)
+				};
+				Ok(tg::progress::Event::Output(Some(output)))
+		}}).boxed();
+
+		Ok(stream)
 	}
 
 	pub(crate) async fn handle_get_request(

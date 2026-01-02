@@ -118,6 +118,39 @@ impl Server {
 			None => return Err(tg::error!("dependency has no resolved item")),
 		};
 
+		// If the reference has a path option and the object is a directory, look up the path.
+		let (object, dependency) = if let Some(reference_path) =
+			import.reference.options().path.as_ref()
+		{
+			let directory = object
+				.try_unwrap_directory_ref()
+				.ok()
+				.ok_or_else(|| tg::error!("expected a directory when using the path option"))?;
+			let artifact = directory
+				.try_get(self, reference_path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the artifact at the path"))?
+				.ok_or_else(
+					|| tg::error!(path = %reference_path.display(), "the path does not exist in the directory"),
+				)?;
+			let edge = tg::graph::Edge::Object(artifact.clone().into());
+			let path = dependency
+				.0
+				.path()
+				.map_or_else(|| reference_path.clone(), |p| p.join(reference_path));
+			let options = tg::referent::Options {
+				artifact: dependency.0.artifact().cloned(),
+				id: dependency.0.id().cloned(),
+				name: dependency.0.name().map(ToOwned::to_owned),
+				path: Some(path),
+				tag: dependency.0.tag().cloned(),
+			};
+			let dependency = tg::graph::Dependency(tg::Referent::new(Some(edge), options));
+			(artifact.into(), dependency)
+		} else {
+			(object, dependency)
+		};
+
 		let referent = match (import.kind, &object) {
 			(
 				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts),
