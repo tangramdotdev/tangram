@@ -1,4 +1,4 @@
-use {byteorder::ReadBytesExt as _, bytes::Bytes, std::path::PathBuf, tangram_client::prelude::*};
+use {bytes::Bytes, std::path::PathBuf, tangram_client::prelude::*};
 
 #[cfg(feature = "lmdb")]
 pub mod lmdb;
@@ -111,21 +111,20 @@ impl CachePointer {
 
 	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> Result<Self> {
 		let bytes = bytes.into();
-		let mut reader = std::io::Cursor::new(bytes.as_ref());
-		let format = reader.read_u8().map_err(|source| {
-			let error: Box<dyn std::error::Error + Send + Sync> =
-				Box::new(tg::error!(!source, "failed to read the format byte"));
-			error
-		})?;
+		let bytes = bytes.as_ref();
+		if bytes.is_empty() {
+			return Err("empty cache pointer data".into());
+		}
+		let format = bytes[0];
 		match format {
-			0 => tangram_serialize::from_reader(&mut reader).map_err(|source| {
+			0 => tangram_serialize::from_slice(&bytes[1..]).map_err(|source| {
 				let error: Box<dyn std::error::Error + Send + Sync> = Box::new(tg::error!(
 					!source,
 					"failed to deserialize the cache pointer"
 				));
 				error
 			}),
-			b'{' => serde_json::from_slice(&bytes).map_err(|source| {
+			b'{' => serde_json::from_slice(bytes).map_err(|source| {
 				let error: Box<dyn std::error::Error + Send + Sync> = Box::new(tg::error!(
 					!source,
 					"failed to deserialize the cache pointer"

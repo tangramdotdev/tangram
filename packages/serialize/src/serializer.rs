@@ -1,23 +1,19 @@
 use {
 	crate::{Kind, Serialize},
-	byteorder::{LittleEndian, WriteBytesExt as _},
 	num::ToPrimitive as _,
-	std::io::{Error, Result, Write},
+	std::io::{Error, Result},
 };
 
-pub struct Serializer<W>(W)
-where
-	W: Write;
+pub struct Serializer<'a>(&'a mut Vec<u8>);
 
-impl<W> Serializer<W>
-where
-	W: Write,
-{
-	pub fn new(writer: W) -> Serializer<W> {
-		Serializer(writer)
+impl<'a> Serializer<'a> {
+	#[must_use]
+	pub fn new(buffer: &'a mut Vec<u8>) -> Serializer<'a> {
+		Serializer(buffer)
 	}
 
-	pub fn into_inner(self) -> W {
+	#[must_use]
+	pub fn into_inner(self) -> &'a mut Vec<u8> {
 		self.0
 	}
 
@@ -29,12 +25,12 @@ where
 	}
 
 	pub fn write_kind(&mut self, kind: Kind) -> Result<()> {
-		self.0.write_u8(kind as u8)?;
+		self.0.push(kind as u8);
 		Ok(())
 	}
 
 	pub fn write_id(&mut self, id: u8) -> Result<()> {
-		self.0.write_u8(id)?;
+		self.0.push(id);
 		Ok(())
 	}
 
@@ -43,10 +39,10 @@ where
 		let mut value = value;
 		while value > 0x7f {
 			let byte = (value | 0x80) as u8;
-			self.0.write_u8(byte)?;
+			self.0.push(byte);
 			value >>= 7;
 		}
-		self.0.write_u8((value & 0x7f) as u8)?;
+		self.0.push((value & 0x7f) as u8);
 		Ok(())
 	}
 
@@ -74,8 +70,7 @@ where
 
 	pub fn serialize_bool(&mut self, value: bool) -> Result<()> {
 		self.write_kind(Kind::Bool)?;
-		let value = u8::from(value);
-		self.0.write_u8(value)?;
+		self.0.push(u8::from(value));
 		Ok(())
 	}
 
@@ -93,37 +88,37 @@ where
 
 	pub fn serialize_f32(&mut self, value: f32) -> Result<()> {
 		self.write_kind(Kind::F32)?;
-		self.0.write_f32::<LittleEndian>(value)?;
+		self.0.extend_from_slice(&value.to_le_bytes());
 		Ok(())
 	}
 
 	pub fn serialize_f64(&mut self, value: f64) -> Result<()> {
 		self.write_kind(Kind::F64)?;
-		self.0.write_f64::<LittleEndian>(value)?;
+		self.0.extend_from_slice(&value.to_le_bytes());
 		Ok(())
 	}
 
 	pub fn serialize_string(&mut self, value: &str) -> Result<()> {
 		self.write_kind(Kind::String)?;
 		self.write_len(value.len())?;
-		self.0.write_all(value.as_bytes())?;
+		self.0.extend_from_slice(value.as_bytes());
 		Ok(())
 	}
 
 	pub fn serialize_bytes(&mut self, value: &[u8]) -> Result<()> {
 		self.write_kind(Kind::Bytes)?;
 		self.write_len(value.len())?;
-		self.0.write_all(value)?;
+		self.0.extend_from_slice(value);
 		Ok(())
 	}
 
-	pub fn serialize_array<'a, T>(
+	pub fn serialize_array<'b, T>(
 		&mut self,
 		len: usize,
-		value: impl IntoIterator<Item = &'a T>,
+		value: impl IntoIterator<Item = &'b T>,
 	) -> Result<()>
 	where
-		T: 'a + Serialize,
+		T: 'b + Serialize,
 	{
 		self.write_kind(Kind::Array)?;
 		self.write_len(len)?;
@@ -137,14 +132,14 @@ where
 		Ok(())
 	}
 
-	pub fn serialize_map<'a, K, V>(
+	pub fn serialize_map<'b, K, V>(
 		&mut self,
 		len: usize,
-		value: impl IntoIterator<Item = (&'a K, &'a V)>,
+		value: impl IntoIterator<Item = (&'b K, &'b V)>,
 	) -> Result<()>
 	where
-		K: 'a + Serialize,
-		V: 'a + Serialize,
+		K: 'b + Serialize,
+		V: 'b + Serialize,
 	{
 		self.write_kind(Kind::Map)?;
 		self.write_len(len)?;

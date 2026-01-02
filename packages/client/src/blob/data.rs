@@ -1,9 +1,5 @@
 use {
-	crate::prelude::*,
-	byteorder::{ReadBytesExt as _, WriteBytesExt as _},
-	bytes::Bytes,
-	serde_with::serde_as,
-	std::{collections::BTreeSet, io::Write as _},
+	crate::prelude::*, bytes::Bytes, serde_with::serde_as, std::collections::BTreeSet,
 	tangram_util::serde::BytesBase64,
 };
 
@@ -61,11 +57,11 @@ impl Blob {
 		let mut bytes = Vec::new();
 		match self {
 			Self::Leaf(leaf) => {
-				bytes.write_u8(0).unwrap();
-				bytes.write_all(&leaf.bytes).unwrap();
+				bytes.push(0);
+				bytes.extend_from_slice(&leaf.bytes);
 			},
 			Self::Branch(branch) => {
-				bytes.write_u8(1).unwrap();
+				bytes.push(1);
 				bytes.push(0);
 				tangram_serialize::to_writer(&mut bytes, branch)
 					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
@@ -78,11 +74,11 @@ impl Blob {
 		let mut bytes = Vec::new();
 		match self {
 			Self::Leaf(leaf) => {
-				bytes.write_u8(0).unwrap();
-				bytes.write_all(&leaf.bytes).unwrap();
+				bytes.push(0);
+				bytes.extend_from_slice(&leaf.bytes);
 			},
 			Self::Branch(branch) => {
-				bytes.write_u8(1).unwrap();
+				bytes.push(1);
 				serde_json::to_writer(&mut bytes, branch)
 					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
 			},
@@ -109,14 +105,15 @@ impl Blob {
 				bytes: bytes.into_owned(),
 			}),
 			Kind::Branch => {
-				let mut reader = std::io::Cursor::new(bytes.as_ref());
-				let format = reader
-					.read_u8()
-					.map_err(|source| tg::error!(!source, "failed to read the format"))?;
+				let bytes = bytes.as_ref();
+				if bytes.is_empty() {
+					return Err(tg::error!("missing format byte"));
+				}
+				let format = bytes[0];
 				let branch = match format {
-					0 => tangram_serialize::from_reader(&mut reader)
+					0 => tangram_serialize::from_slice(&bytes[1..])
 						.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
-					b'{' => serde_json::from_slice(&bytes)
+					b'{' => serde_json::from_slice(bytes)
 						.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
 					_ => Err(tg::error!("invalid format")),
 				}?;

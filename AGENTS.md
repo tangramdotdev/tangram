@@ -4,7 +4,7 @@ Tangram is a build system and package manager that makes builds and tests fast a
 
 ## Checking
 
-Run `bun run check` to check changes for errors. Please run `cargo` commands with `--workspace` for better cache hits. Please prefer `cargo clippy` over `cargo check` and clear clippy warnings when you complete tasks.
+Run `bun run check` to check changes for errors. Please prefer `cargo clippy` over `cargo check` and clear clippy warnings when you complete tasks.
 
 ## Formatting
 

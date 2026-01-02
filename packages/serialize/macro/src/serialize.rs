@@ -183,9 +183,7 @@ impl Struct<'_> {
 			impl #impl_generics tangram_serialize::Serialize for #ident #ty_generics
 			#where_clause
 			{
-				fn serialize<W>(&self, serializer: &mut tangram_serialize::Serializer<W>) -> std::io::Result<()>
-				where
-					W: std::io::Write,
+				fn serialize(&self, serializer: &mut tangram_serialize::Serializer<'_>) -> std::io::Result<()>
 				{
 					#body
 				}
@@ -506,9 +504,7 @@ impl Enum<'_> {
 			impl #impl_generics tangram_serialize::Serialize for #ident #ty_generics
 			#where_clause
 			{
-				fn serialize<W>(&self, serializer: &mut tangram_serialize::Serializer<W>) -> ::std::io::Result<()>
-				where
-					W: ::std::io::Write,
+				fn serialize(&self, serializer: &mut tangram_serialize::Serializer<'_>) -> ::std::io::Result<()>
 				{
 					#body
 				}

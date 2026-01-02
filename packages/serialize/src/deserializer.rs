@@ -1,58 +1,76 @@
 use {
 	crate::{Deserialize, Kind},
-	byteorder::{LittleEndian, ReadBytesExt as _},
 	num::{FromPrimitive as _, ToPrimitive as _},
-	std::io::{Error, Read, Result, Seek},
+	std::io::{Error, Result},
 };
 
-pub struct Deserializer<R>(R)
-where
-	R: Read + Seek;
+pub struct Deserializer<'de> {
+	data: &'de [u8],
+	position: usize,
+}
 
-impl<R> Deserializer<R>
-where
-	R: Read + Seek,
-{
-	pub fn new(reader: R) -> Deserializer<R> {
-		Deserializer(reader)
+impl<'de> Deserializer<'de> {
+	#[must_use]
+	pub fn new(data: &'de [u8]) -> Deserializer<'de> {
+		Deserializer { data, position: 0 }
 	}
 
-	pub fn get(&self) -> &R {
-		&self.0
+	#[must_use]
+	pub fn data(&self) -> &'de [u8] {
+		self.data
 	}
 
-	pub fn get_mut(&mut self) -> &mut R {
-		&mut self.0
+	#[must_use]
+	pub fn position(&self) -> usize {
+		self.position
 	}
 
-	pub fn into_inner(self) -> R {
-		self.0
-	}
-
-	pub fn position(&mut self) -> Result<u64> {
-		self.0.stream_position()
-	}
-
-	pub fn seek(&mut self, position: u64) -> Result<()> {
-		self.0.seek(std::io::SeekFrom::Start(position))?;
+	pub fn seek(&mut self, position: usize) -> Result<()> {
+		if position > self.data.len() {
+			return Err(Error::other("seek position out of bounds"));
+		}
+		self.position = position;
 		Ok(())
+	}
+
+	#[must_use]
+	pub fn remaining(&self) -> &'de [u8] {
+		&self.data[self.position..]
+	}
+
+	fn read_byte(&mut self) -> Result<u8> {
+		if self.position >= self.data.len() {
+			return Err(Error::other("unexpected end of data"));
+		}
+		let byte = self.data[self.position];
+		self.position += 1;
+		Ok(byte)
+	}
+
+	fn read_exact(&mut self, len: usize) -> Result<&'de [u8]> {
+		if self.position + len > self.data.len() {
+			return Err(Error::other("unexpected end of data"));
+		}
+		let slice = &self.data[self.position..self.position + len];
+		self.position += len;
+		Ok(slice)
 	}
 
 	pub fn deserialize<T>(&mut self) -> Result<T>
 	where
-		T: Deserialize,
+		T: Deserialize<'de>,
 	{
 		T::deserialize(self)
 	}
 
 	pub fn read_kind(&mut self) -> Result<Kind> {
-		let value = self.0.read_u8()?;
+		let value = self.read_byte()?;
 		let kind = Kind::from_u8(value).ok_or_else(|| Error::other("invalid kind"))?;
 		Ok(kind)
 	}
 
 	pub fn ensure_kind(&mut self, kind: Kind) -> Result<Kind> {
-		let value = self.0.read_u8()?;
+		let value = self.read_byte()?;
 		let read =
 			num::FromPrimitive::from_u8(value).ok_or_else(|| Error::other("invalid kind"))?;
 		if read != kind {
@@ -62,8 +80,7 @@ where
 	}
 
 	pub fn read_id(&mut self) -> Result<u8> {
-		let id = self.0.read_u8()?;
-		Ok(id)
+		self.read_byte()
 	}
 
 	pub fn read_len(&mut self) -> Result<usize> {
@@ -81,20 +98,17 @@ where
 
 	pub fn deserialize_bool(&mut self) -> Result<bool> {
 		self.ensure_kind(Kind::Bool)?;
-		let value = self.read_bool()?;
-		Ok(value)
+		self.read_bool()
 	}
 
 	pub fn read_bool(&mut self) -> Result<bool> {
-		let value = self.0.read_u8()?;
-		let value = value != 0;
-		Ok(value)
+		let value = self.read_byte()?;
+		Ok(value != 0)
 	}
 
 	pub fn deserialize_uvarint(&mut self) -> Result<u64> {
 		self.ensure_kind(Kind::UVarint)?;
-		let value = self.read_uvarint()?;
-		Ok(value)
+		self.read_uvarint()
 	}
 
 	#[expect(clippy::cast_lossless)]
@@ -103,7 +117,7 @@ where
 		let mut shift: u8 = 0;
 		let mut success = false;
 		for _ in 0..10 {
-			let byte = self.0.read_u8()?;
+			let byte = self.read_byte()?;
 			value |= ((byte & 0x7f) as u64) << shift;
 			shift += 7;
 			if byte & 0x80 == 0 {
@@ -119,8 +133,7 @@ where
 
 	pub fn deserialize_ivarint(&mut self) -> Result<i64> {
 		self.ensure_kind(Kind::IVarint)?;
-		let value = self.read_ivarint()?;
-		Ok(value)
+		self.read_ivarint()
 	}
 
 	#[expect(clippy::cast_possible_wrap)]
@@ -136,65 +149,76 @@ where
 
 	pub fn deserialize_f32(&mut self) -> Result<f32> {
 		self.ensure_kind(Kind::F32)?;
-		let value = self.read_f32()?;
-		Ok(value)
+		self.read_f32()
 	}
 
 	pub fn read_f32(&mut self) -> Result<f32> {
-		let value = self.0.read_f32::<LittleEndian>()?;
-		Ok(value)
+		let bytes = self.read_exact(4)?;
+		Ok(f32::from_le_bytes(bytes.try_into().unwrap()))
 	}
 
 	pub fn deserialize_f64(&mut self) -> Result<f64> {
 		self.ensure_kind(Kind::F64)?;
-		let value = self.read_f64()?;
-		Ok(value)
+		self.read_f64()
 	}
 
 	pub fn read_f64(&mut self) -> Result<f64> {
-		let value = self.0.read_f64::<LittleEndian>()?;
-		Ok(value)
+		let bytes = self.read_exact(8)?;
+		Ok(f64::from_le_bytes(bytes.try_into().unwrap()))
 	}
 
-	pub fn deserialize_string(&mut self) -> Result<String> {
+	// Zero-copy string methods.
+	pub fn deserialize_str(&mut self) -> Result<&'de str> {
 		self.ensure_kind(Kind::String)?;
-		let value = self.read_string()?;
-		Ok(value)
+		self.read_str()
+	}
+
+	pub fn read_str(&mut self) -> Result<&'de str> {
+		let len = self.read_len()?;
+		let bytes = self.read_exact(len)?;
+		std::str::from_utf8(bytes).map_err(Error::other)
+	}
+
+	// Owned string (for backward compatibility).
+	pub fn deserialize_string(&mut self) -> Result<String> {
+		self.deserialize_str().map(String::from)
 	}
 
 	pub fn read_string(&mut self) -> Result<String> {
-		let len = self.read_len()?;
-		let mut value = vec![0u8; len];
-		self.0.read_exact(&mut value)?;
-		let value = String::from_utf8(value).map_err(Error::other)?;
-		Ok(value)
+		self.read_str().map(String::from)
 	}
 
-	pub fn deserialize_bytes(&mut self) -> Result<Vec<u8>> {
+	// Zero-copy bytes methods.
+	pub fn deserialize_byte_slice(&mut self) -> Result<&'de [u8]> {
 		self.ensure_kind(Kind::Bytes)?;
-		let value = self.read_bytes()?;
-		Ok(value)
+		self.read_byte_slice()
+	}
+
+	pub fn read_byte_slice(&mut self) -> Result<&'de [u8]> {
+		let len = self.read_len()?;
+		self.read_exact(len)
+	}
+
+	// Owned bytes (for backward compatibility).
+	pub fn deserialize_bytes(&mut self) -> Result<Vec<u8>> {
+		self.deserialize_byte_slice().map(Vec::from)
 	}
 
 	pub fn read_bytes(&mut self) -> Result<Vec<u8>> {
-		let len = self.read_len()?;
-		let mut value = vec![0u8; len];
-		self.0.read_exact(&mut value)?;
-		Ok(value)
+		self.read_byte_slice().map(Vec::from)
 	}
 
 	pub fn deserialize_array<T>(&mut self) -> Result<Vec<T>>
 	where
-		T: Deserialize,
+		T: Deserialize<'de>,
 	{
 		self.ensure_kind(Kind::Array)?;
-		let value = self.read_array()?;
-		Ok(value)
+		self.read_array()
 	}
 
 	pub fn read_array<T>(&mut self) -> Result<Vec<T>>
 	where
-		T: Deserialize,
+		T: Deserialize<'de>,
 	{
 		let len = self.read_len()?;
 		let mut array = Vec::with_capacity(len);
@@ -207,18 +231,17 @@ where
 
 	pub fn deserialize_map<K, V>(&mut self) -> Result<Vec<(K, V)>>
 	where
-		K: Deserialize,
-		V: Deserialize,
+		K: Deserialize<'de>,
+		V: Deserialize<'de>,
 	{
 		self.ensure_kind(Kind::Map)?;
-		let value = self.read_map()?;
-		Ok(value)
+		self.read_map()
 	}
 
 	pub fn read_map<K, V>(&mut self) -> Result<Vec<(K, V)>>
 	where
-		K: Deserialize,
-		V: Deserialize,
+		K: Deserialize<'de>,
+		V: Deserialize<'de>,
 	{
 		let len = self.read_len()?;
 		let mut map = Vec::with_capacity(len);

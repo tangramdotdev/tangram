@@ -203,7 +203,7 @@ impl Struct<'_> {
 		};
 
 		// Handle generics.
-		let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
+		let (_, ty_generics, where_clause) = self.generics.split_for_impl();
 
 		// Add Deserialize bounds for all type parameters.
 		let mut where_clause = where_clause.cloned().unwrap_or_else(|| syn::WhereClause {
@@ -211,32 +211,44 @@ impl Struct<'_> {
 			predicates: syn::punctuated::Punctuated::new(),
 		});
 
-		// Add the Deserialize bound for each type parameter.
-		for param in &self.generics.params {
+		// Collect the generic parameters (without angle brackets).
+		let generic_params = &self.generics.params;
+
+		// Add the Deserialize<'de> bound for each type parameter.
+		for param in generic_params {
 			if let syn::GenericParam::Type(type_param) = param {
 				let ident = &type_param.ident;
 				let predicate: syn::WherePredicate = syn::parse_quote! {
-					#ident: tangram_serialize::Deserialize
+					#ident: tangram_serialize::Deserialize<'de>
 				};
 				where_clause.predicates.push(predicate);
 			}
 		}
 
-		// Generate the code.
-		let code = quote! {
-			impl #impl_generics tangram_serialize::Deserialize for #ident #ty_generics
-			#where_clause
-			{
-				fn deserialize<R>(deserializer: &mut tangram_serialize::Deserializer<R>) -> ::std::io::Result<Self>
-				where
-					R: ::std::io::Read + ::std::io::Seek,
+		// Generate the code with 'de lifetime.
+		if generic_params.is_empty() {
+			quote! {
+				impl<'de> tangram_serialize::Deserialize<'de> for #ident #ty_generics
+				#where_clause
 				{
-					#body
+					fn deserialize(deserializer: &mut tangram_serialize::Deserializer<'de>) -> ::std::io::Result<Self>
+					{
+						#body
+					}
 				}
 			}
-		};
-
-		code
+		} else {
+			quote! {
+				impl<'de, #generic_params> tangram_serialize::Deserialize<'de> for #ident #ty_generics
+				#where_clause
+				{
+					fn deserialize(deserializer: &mut tangram_serialize::Deserializer<'de>) -> ::std::io::Result<Self>
+					{
+						#body
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -314,7 +326,7 @@ impl Enum<'_> {
 				.collect_vec();
 
 			quote! {
-				let start = deserializer.position()?;
+				let start = deserializer.position();
 				#(#variant_attempts)*
 				::std::result::Result::Err(::std::io::Error::new(::std::io::ErrorKind::Other, "No variant matched for untagged enum"))
 			}
@@ -443,7 +455,7 @@ impl Enum<'_> {
 		};
 
 		// Handle generics.
-		let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
+		let (_, ty_generics, where_clause) = self.generics.split_for_impl();
 
 		// Add Deserialize bounds for all type parameters.
 		let mut where_clause = where_clause.cloned().unwrap_or_else(|| syn::WhereClause {
@@ -451,31 +463,43 @@ impl Enum<'_> {
 			predicates: syn::punctuated::Punctuated::new(),
 		});
 
-		// Add the Deserialize bound for each type parameter.
-		for param in &self.generics.params {
+		// Collect the generic parameters (without angle brackets).
+		let generic_params = &self.generics.params;
+
+		// Add the Deserialize<'de> bound for each type parameter.
+		for param in generic_params {
 			if let syn::GenericParam::Type(type_param) = param {
 				let ident = &type_param.ident;
 				let predicate: syn::WherePredicate = syn::parse_quote! {
-					#ident: tangram_serialize::Deserialize
+					#ident: tangram_serialize::Deserialize<'de>
 				};
 				where_clause.predicates.push(predicate);
 			}
 		}
 
-		// Generate the code.
-		let code = quote! {
-			impl #impl_generics tangram_serialize::Deserialize for #ident #ty_generics
-			#where_clause
-			{
-				fn deserialize<R>(deserializer: &mut tangram_serialize::Deserializer<R>) -> ::std::io::Result<Self>
-				where
-					R: ::std::io::Read + ::std::io::Seek,
+		// Generate the code with 'de lifetime.
+		if generic_params.is_empty() {
+			quote! {
+				impl<'de> tangram_serialize::Deserialize<'de> for #ident #ty_generics
+				#where_clause
 				{
-					#body
+					fn deserialize(deserializer: &mut tangram_serialize::Deserializer<'de>) -> ::std::io::Result<Self>
+					{
+						#body
+					}
 				}
 			}
-		};
-
-		code
+		} else {
+			quote! {
+				impl<'de, #generic_params> tangram_serialize::Deserialize<'de> for #ident #ty_generics
+				#where_clause
+				{
+					fn deserialize(deserializer: &mut tangram_serialize::Deserializer<'de>) -> ::std::io::Result<Self>
+					{
+						#body
+					}
+				}
+			}
+		}
 	}
 }

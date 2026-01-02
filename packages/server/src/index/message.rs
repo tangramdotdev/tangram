@@ -1,6 +1,6 @@
 use {
-	byteorder::ReadBytesExt as _, bytes::Bytes, std::collections::BTreeSet,
-	tangram_client::prelude::*, tangram_messenger, tangram_util::serde::is_default,
+	bytes::Bytes, std::collections::BTreeSet, tangram_client::prelude::*, tangram_messenger,
+	tangram_util::serde::is_default,
 };
 
 #[derive(Clone, Debug)]
@@ -76,14 +76,15 @@ impl Message {
 
 	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
 		let bytes = bytes.into();
-		let mut reader = std::io::Cursor::new(bytes.as_ref());
-		let format = reader
-			.read_u8()
-			.map_err(|source| tg::error!(!source, "failed to read the format"))?;
+		let bytes = bytes.as_ref();
+		if bytes.is_empty() {
+			return Err(tg::error!("missing format byte"));
+		}
+		let format = bytes[0];
 		match format {
-			0 => tangram_serialize::from_reader(&mut reader)
+			0 => tangram_serialize::from_slice(&bytes[1..])
 				.map_err(|source| tg::error!(!source, "failed to deserialize the message")),
-			b'{' => serde_json::from_slice(&bytes)
+			b'{' => serde_json::from_slice(bytes)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the message")),
 			_ => Err(tg::error!("invalid format")),
 		}

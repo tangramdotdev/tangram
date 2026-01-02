@@ -248,13 +248,10 @@ where
 	L: tangram_serialize::Serialize,
 	R: tangram_serialize::Serialize,
 {
-	fn serialize<W>(
+	fn serialize(
 		&self,
-		serializer: &mut tangram_serialize::Serializer<W>,
-	) -> std::result::Result<(), std::io::Error>
-	where
-		W: std::io::Write,
-	{
+		serializer: &mut tangram_serialize::Serializer<'_>,
+	) -> std::result::Result<(), std::io::Error> {
 		serializer.write_kind(tangram_serialize::Kind::Enum)?;
 		match self {
 			Either::Left(left) => {
@@ -270,17 +267,14 @@ where
 	}
 }
 
-impl<L, R> tangram_serialize::Deserialize for Either<L, R>
+impl<'de, L, R> tangram_serialize::Deserialize<'de> for Either<L, R>
 where
-	L: tangram_serialize::Deserialize,
-	R: tangram_serialize::Deserialize,
+	L: tangram_serialize::Deserialize<'de>,
+	R: tangram_serialize::Deserialize<'de>,
 {
-	fn deserialize<R_>(
-		deserializer: &mut tangram_serialize::Deserializer<R_>,
-	) -> std::result::Result<Self, std::io::Error>
-	where
-		R_: std::io::Read + std::io::Seek,
-	{
+	fn deserialize(
+		deserializer: &mut tangram_serialize::Deserializer<'de>,
+	) -> std::result::Result<Self, std::io::Error> {
 		deserializer.ensure_kind(tangram_serialize::Kind::Enum)?;
 		let id = deserializer.read_id()?;
 		match id {

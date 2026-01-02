@@ -1,6 +1,6 @@
 use {
 	crate::{Deserialize, Kind, Serialize},
-	std::io::{Read, Result, Seek, Write},
+	std::io::Result,
 };
 
 #[derive(Clone, Debug)]
@@ -43,10 +43,7 @@ pub struct Enum {
 }
 
 impl Serialize for Value {
-	fn serialize<W>(&self, serializer: &mut crate::Serializer<W>) -> Result<()>
-	where
-		W: Write,
-	{
+	fn serialize(&self, serializer: &mut crate::Serializer<'_>) -> Result<()> {
 		match self {
 			Value::Null => {
 				serializer.serialize_null()?;
@@ -97,11 +94,8 @@ impl Serialize for Value {
 	}
 }
 
-impl Deserialize for Value {
-	fn deserialize<R>(deserializer: &mut crate::Deserializer<R>) -> Result<Self>
-	where
-		R: Read + Seek,
-	{
+impl Deserialize<'_> for Value {
+	fn deserialize(deserializer: &mut crate::Deserializer<'_>) -> Result<Self> {
 		let kind = deserializer.read_kind()?;
 		let value = match kind {
 			Kind::Null => Value::Null,

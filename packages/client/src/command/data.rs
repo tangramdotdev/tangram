@@ -1,6 +1,5 @@
 use {
 	crate::prelude::*,
-	byteorder::ReadBytesExt as _,
 	bytes::Bytes,
 	std::{
 		collections::{BTreeMap, BTreeSet},
@@ -150,14 +149,15 @@ impl Command {
 
 	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
 		let bytes = bytes.into();
-		let mut reader = std::io::Cursor::new(bytes.as_ref());
-		let format = reader
-			.read_u8()
-			.map_err(|source| tg::error!(!source, "failed to read the format"))?;
+		let bytes = bytes.as_ref();
+		if bytes.is_empty() {
+			return Err(tg::error!("missing format byte"));
+		}
+		let format = bytes[0];
 		match format {
-			0 => tangram_serialize::from_reader(&mut reader)
+			0 => tangram_serialize::from_slice(&bytes[1..])
 				.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
-			b'{' => serde_json::from_slice(&bytes)
+			b'{' => serde_json::from_slice(bytes)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the data")),
 			_ => Err(tg::error!("invalid format")),
 		}
