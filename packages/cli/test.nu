@@ -668,6 +668,8 @@ export def --env spawn [
 
 		nats stream create $'index_($id)' --discard new --retention work --subjects $'($id).index' --defaults
 		nats consumer create $'index_($id)' index --deliver all --max-pending 1000000 --pull --defaults
+		nats stream create $'finish_($id)' --discard new --retention work --subjects $'($id).finish' --defaults
+		nats consumer create $'finish_($id)' finish --deliver all --max-pending 1000000 --pull --defaults
 
 		cqlsh -e $"create keyspace \"store_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
 		cqlsh -k $'store_($id)' -f packages/store/src/scylla.cql
@@ -804,6 +806,8 @@ def cleanup [id: string] {
 	# Remove the NATS stream and consumer.
 	try { nats consumer rm -f $'index_($id)' index }
 	try { nats stream rm -f $'index_($id)' }
+	try { nats consumer rm -f $'finish_($id)' finish }
+	try { nats stream rm -f $'finish_($id)' }
 
 	# Drop the scylla keyspace.
 	try { cqlsh -e $"drop keyspace \"store_($id)\";" }

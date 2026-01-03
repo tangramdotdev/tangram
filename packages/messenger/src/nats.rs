@@ -188,7 +188,7 @@ impl Messenger {
 	where
 		T: Payload,
 	{
-		let name = self.stream_name(name);
+		let name = self.subject_name(name);
 		let bytes = payload.serialize()?;
 		let future = self
 			.jetstream
@@ -209,6 +209,7 @@ impl Messenger {
 	where
 		T: Payload,
 	{
+		let name = self.subject_name(name);
 		let mut futures = Vec::new();
 		for payload in payloads {
 			let bytes = payload.serialize()?;
