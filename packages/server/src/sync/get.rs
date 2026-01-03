@@ -145,19 +145,26 @@ impl Server {
 			}
 		});
 
-		// Spawn the index task after the get finishes, even if it is interrupted.
-		scopeguard::defer! {
-			self.tasks.spawn({
-				let server = self.clone();
-				|_| async move {
-					let result = server.sync_get_index_publish(state).await;
-					if let Err(error) = result {
-						tracing::error!(?error);
-					}
-				}
-				.instrument(tracing::Span::current())
-			}).detach();
-		}
+		// Spawn the index publish task after the get finishes, even if it is interrupted.
+		let index_publish_guard = scopeguard::guard((), {
+			let state = state.clone();
+			|()| {
+				self.tasks
+					.spawn({
+						let server = self.clone();
+						|_| {
+							async move {
+								let result = server.sync_get_index_publish(state).await;
+								if let Err(error) = result {
+									tracing::error!(?error);
+								}
+							}
+							.instrument(tracing::Span::current())
+						}
+					})
+					.detach();
+			}
+		});
 
 		// Await the futures.
 		future::try_join4(input_future, queue_future, index_future, store_future).await?;
@@ -168,6 +175,10 @@ impl Server {
 			.wait()
 			.await
 			.map_err(|source| tg::error!(!source, "the progress task panicked"))?;
+
+		// Defuse the index publish guard and publish directly.
+		scopeguard::ScopeGuard::into_inner(index_publish_guard);
+		self.sync_get_index_publish(state).await?;
 
 		Ok(())
 	}
