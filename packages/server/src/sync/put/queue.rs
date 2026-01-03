@@ -81,13 +81,6 @@ impl Server {
 		// Join the objects and processes futures.
 		futures::try_join!(objects_future, processes_future)?;
 
-		// Send the put end message.
-		state
-			.sender
-			.send(Ok(tg::sync::PutMessage::End))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to send the put end message"))?;
-
 		Ok(())
 	}
 

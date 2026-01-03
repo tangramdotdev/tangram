@@ -132,10 +132,15 @@ impl Server {
 			}
 		});
 
-		drop(state);
-
 		// Await the futures.
 		future::try_join3(queue_future, index_future, store_future).await?;
+
+		// Send the put end message after all futures complete.
+		state
+			.sender
+			.send(Ok(tg::sync::PutMessage::End))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to send the put end message"))?;
 
 		// Abort the input task.
 		input_task.abort();
