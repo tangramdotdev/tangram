@@ -3,7 +3,7 @@ use ../../test.nu *
 # Test metadata for a simple file with no dependencies.
 
 let local = spawn -n local
-let remote = spawn -n remote
+let remote = spawn --cloud -n remote
 
 let path = artifact {
 	tangram.ts: '

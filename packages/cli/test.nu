@@ -8,17 +8,45 @@ const repository_path = path self '../../'
 
 def main [
 	--accept (-a) # Accept all new and updated snapshots.
+	--clean # Clean up leftover test resources from postgres, scylla, and nats.
+	--cloud # Enable cloud database backends (postgres, scylla, nats) for spawn --cloud.
 	--jobs (-j): int # The number of concurrent tests to run.
 	--no-capture # Do not capture the output of each test. This sets --jobs to 1.
 	--print-passing-test-output # Print the output of passing tests.
 	--review (-r) # Review snapshots.
-	--timeout: duration = 10sec # The timeout for each test.
+	--timeout: duration = 30sec # The timeout for each test.
 	...filters: string # Filter tests.
 ] {
-	# Clean up test temp directories older than 1 hour.
-	for entry in (ls ($nu.temp-dir? | default $nu.temp-path?) | where name =~ 'tangram_test_' and type == dir and modified < ((date now) - 1hr)) {
-		chmod -R +w $entry.name
-		rm -rf $entry.name
+	# Clean up leftover test resources if requested.
+	if $clean {
+		let preserved_dbs = ['postgres', 'template0', 'template1', 'database', 'index']
+		let dbs = psql -U postgres -h localhost -t -c "SELECT datname FROM pg_database" | lines | str trim | where { $in not-in $preserved_dbs and $in != '' }
+		for db in $dbs {
+			print -e $"dropping postgres database ($db)"
+			try { dropdb -U postgres -h localhost $db }
+		}
+
+		let preserved_streams = ['index', 'finish']
+		let streams = nats stream ls -n | lines | where { $in not-in $preserved_streams }
+		for stream in $streams {
+			print -e $"deleting nats stream ($stream)"
+			try { nats stream rm -f $stream }
+		}
+
+		let preserved_keyspaces = ['system', 'system_auth', 'system_distributed', 'system_distributed_everywhere', 'system_schema', 'system_traces', 'system_views', 'store']
+		let keyspaces = cqlsh -e "SELECT JSON keyspace_name FROM system_schema.keyspaces" | lines | str trim | where { $in starts-with '{' } | each { $in | from json | get keyspace_name } | where { $in not-in $preserved_keyspaces }
+		for keyspace in $keyspaces {
+			print -e $"dropping scylla keyspace ($keyspace)"
+			try { cqlsh -e $"drop keyspace \"($keyspace)\";" e> /dev/null }
+		}
+
+		for entry in (ls ($nu.temp-dir? | default $nu.temp-path?) | where name =~ 'tangram_test_' and type == dir) {
+			print -e $"Removing temp directory: ($entry.name)"
+			chmod -R +w $entry.name
+			rm -rf $entry.name
+		}
+
+		return
 	}
 
 	# Add the debug build to the path.
@@ -73,6 +101,7 @@ def main [
 			let output = with-env {
 				TANGRAM_CONFIG: ($temp_path | path join "config.json"),
 				TANGRAM_MODE: client,
+				TANGRAM_TEST_CLOUD: (if $cloud { "1" } else { "" }),
 				TMPDIR: $temp_path,
 			} {
 				if $no_capture {
@@ -109,7 +138,7 @@ def main [
 				[]
 			}
 			for id in $ids {
-				cleanup $id
+				clean_databases $id
 			}
 
 			# Clean up the temp directory.
@@ -326,7 +355,6 @@ def main [
 			}
 
 			# Delete snapshots which were not touched and remove touched files.
-			# Only run cleanup if there were pending or inline snapshots to review.
 			if ($pending_paths | length) > 0 or ($inline_paths | length) > 0 {
 				for path in (glob $'($parsed.parent | path join $parsed.stem){.snapshot,/*.snapshot}') {
 					if not ($path | str replace '.snapshot' '.touched' | path exists) {
@@ -650,19 +678,22 @@ export def --env spawn [
 			kind: 'lmdb',
 			map_size: 10_485_760,
 		},
+		tokio_single_threaded: true,
+		v8_thread_pool_size: 1,
 	}
 
 	mut id: any = null
-	if $cloud {
+	# Only use cloud if both --cloud flag AND TANGRAM_TEST_CLOUD env are set
+	let use_cloud = $cloud and (($env.TANGRAM_TEST_CLOUD? | default "") | str length) > 0
+	if $use_cloud {
 		$id = random chars
 		$id ++ "\n" | save --append (($nu.temp-dir? | default $nu.temp-path?) | path join 'ids')
 		print -e $id
 
 		createdb -U postgres -h localhost $'database_($id)'
-		psql -U postgres -h localhost -d $'database_($id)' -f ($repository_path | path join 'packages/server/src/database/postgres.sql')
-
+		psql -U postgres -h localhost -d $'database_($id)' -f ($repository_path | path join packages/server/src/database/postgres.sql)
 		createdb -U postgres -h localhost $'index_($id)'
-		for path in (ls ($repository_path | path join 'packages/server/src/index/postgres') | get name | sort) {
+		for path in (ls ($repository_path | path join packages/server/src/index/postgres) | get name | sort) {
 			psql -U postgres -h localhost -d $'index_($id)' -f $path
 		}
 
@@ -677,10 +708,12 @@ export def --env spawn [
 		let config = {
 			database: {
 				kind: 'postgres',
+				connections: 1,
 				url: $'postgres://postgres@localhost:5432/database_($id)',
 			},
 			index: {
 				kind: 'postgres',
+				connections: 1,
 				url: $'postgres://postgres@localhost:5432/index_($id)',
 			},
 			indexer: {
@@ -695,6 +728,7 @@ export def --env spawn [
 			store: {
 				kind: 'scylla',
 				addr: 'localhost:9042',
+				connections: 1,
 				keyspace: $'store_($id)',
 			},
 			watchdog: {
@@ -798,7 +832,7 @@ export def --env spawn [
 	{ config: $config_path, directory: $directory_path, url: $url }
 }
 
-def cleanup [id: string] {
+def clean_databases [id: string] {
 	# Drop the postgres databases.
 	try { dropdb -U postgres -h localhost $'database_($id)' }
 	try { dropdb -U postgres -h localhost $'index_($id)' }

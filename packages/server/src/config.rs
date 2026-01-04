@@ -274,6 +274,8 @@ pub struct LmdbStore {
 #[serde(deny_unknown_fields)]
 pub struct ScyllaStore {
 	pub addr: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub connections: Option<usize>,
 	pub keyspace: String,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub password: Option<String>,

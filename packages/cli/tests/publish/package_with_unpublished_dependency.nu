@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-let remote = spawn -n remote
+let remote = spawn --cloud -n remote
 let local = spawn -n local -c {
 	remotes: [{ name: default, url: $remote.url }]
 }

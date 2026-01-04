@@ -2,7 +2,7 @@ use ../../test.nu *
 
 export def test [path: string, ...args] {
 	# Create a remote server.
-	let remote = spawn -n remote
+	let remote = spawn --cloud -n remote
 
 	# Create a local server.
 	let local = spawn -n local

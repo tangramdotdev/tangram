@@ -3,7 +3,7 @@ use ../../test.nu *
 # Test metadata for a directory with a tagged dependency.
 
 let local = spawn -n local
-let remote = spawn -n remote
+let remote = spawn --cloud -n remote
 
 # Tag a dependency.
 let dep_path = artifact {

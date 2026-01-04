@@ -1,13 +1,13 @@
 use ../../test.nu *
 
 # Create a remote server.
-let remote = spawn -n remote
+let remote = spawn --cloud -n remote
 
 # Create a local server.
 let local = spawn -n local
 
 # Create a source server.
-let source = spawn -n source
+let source = spawn --cloud -n source
 
 # Create a directory with many files to increase object count.
 let path = artifact {

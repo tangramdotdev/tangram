@@ -2,7 +2,7 @@ use ../../test.nu *
 
 export def test_push [...args] {
 	# Create a remote server.
-	let remote = spawn -n remote
+	let remote = spawn --cloud -n remote
 
 	# Create a local server.
 	let local = spawn -n local
@@ -18,7 +18,7 @@ export def test_push [...args] {
 
 export def test_pull [...args] {
 	# Create a remote server.
-	let remote = spawn -n remote
+	let remote = spawn --cloud -n remote
 
 	# Create a local server.
 	let local = spawn -n local

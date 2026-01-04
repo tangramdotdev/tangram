@@ -349,7 +349,13 @@ impl postgres::types::ToSql for super::Value {
 	{
 		match self {
 			super::Value::Null => Ok(postgres::types::IsNull::Yes),
-			super::Value::Integer(value) => value.to_sql(ty, out),
+			super::Value::Integer(value) => {
+				if *ty == postgres::types::Type::BOOL {
+					(*value != 0).to_sql(ty, out)
+				} else {
+					value.to_sql(ty, out)
+				}
+			},
 			super::Value::Real(value) => value.to_sql(ty, out),
 			super::Value::Text(value) => value.to_sql(ty, out),
 			super::Value::Blob(value) => value.as_ref().to_sql(ty, out),

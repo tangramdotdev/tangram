@@ -2,13 +2,13 @@ use ../../test.nu *
 
 export def test [...args] {
 	# Create a remote server.
-	let remote = spawn -n remote
+	let remote = spawn --cloud -n remote
 
 	# Create a local server.
 	let local = spawn -n local
 
 	# Create a source server.
-	let source = spawn -n source
+	let source = spawn --cloud -n source
 
 	# Create a module that spawns multiple child processes.
 	let path = artifact {

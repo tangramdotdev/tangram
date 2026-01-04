@@ -1,7 +1,7 @@
 use ../../test.nu *
 
 # Create remote and local servers.
-let remote = spawn -n remote
+let remote = spawn --cloud -n remote
 let local1 = spawn -n local -c {
 	remotes: [{ name: default, url: $remote.url }]
 }

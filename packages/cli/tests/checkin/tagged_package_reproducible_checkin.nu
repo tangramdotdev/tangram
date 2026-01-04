@@ -1,7 +1,7 @@
 use ../../test.nu *
 
 # Create a remote server and tag the foo object on it.
-let remote = spawn -n remote
+let remote = spawn --cloud -n remote
 let foo_path = artifact {
 	contents: 'foo'
 }

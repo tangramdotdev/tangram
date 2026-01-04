@@ -10,10 +10,10 @@ use ../../test.nu *
 let local = spawn -n local
 
 # Create the remote server (receives incremental puts).
-let remote = spawn -n remote
+let remote = spawn --cloud -n remote
 
 # Create another server (receives a full push for comparison).
-let other = spawn -n other
+let other = spawn --cloud -n other
 
 # Tag a dependency on the local server.
 let dep_path = artifact {

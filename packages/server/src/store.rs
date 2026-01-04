@@ -51,6 +51,7 @@ impl Store {
 	pub async fn new_scylla(config: &crate::config::ScyllaStore) -> Result<Self, Error> {
 		let config = store::scylla::Config {
 			addr: config.addr.clone(),
+			connections: config.connections,
 			keyspace: config.keyspace.clone(),
 			password: config.password.clone(),
 			speculative_execution: config.speculative_execution.as_ref().map(|se| match se {

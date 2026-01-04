@@ -16,6 +16,14 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub tokio_console: bool,
 
+	/// Use the tokio current thread runtime instead of the multi-threaded runtime.
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub tokio_single_threaded: bool,
+
+	/// Set the V8 thread pool size.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub v8_thread_pool_size: Option<u32>,
+
 	/// Configure tracing.
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default = "default_tracing")]

@@ -3,7 +3,7 @@ use ../../test.nu *
 # Test that blobs have correct metadata.
 
 let local = spawn -n local
-let remote = spawn -n remote
+let remote = spawn --cloud -n remote
 
 # Create a blob by writing data.
 let temp_file = mktemp -t

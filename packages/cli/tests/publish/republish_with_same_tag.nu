@@ -2,7 +2,7 @@
 # overwrites the tag to point to the new content. This ensures users can republish updated packages.
 use ../../test.nu *
 
-let remote = spawn -n remote
+let remote = spawn --cloud -n remote
 let local = spawn -n local -c {
 	remotes: [{ name: default, url: $remote.url }]
 }

@@ -77,10 +77,6 @@ spec:
         - name: scylla
           image: scylladb/scylla:latest
           args:
-            - --smp
-            - "1"
-            - --memory
-            - 512M
             - --overprovisioned
             - "1"
           ports:
@@ -137,10 +133,8 @@ spec:
             - containerPort: 4222
             - containerPort: 8222
           readinessProbe:
-            exec:
-              command:
-                - nats-server
-                - --help
+            tcpSocket:
+              port: 4222
             initialDelaySeconds: 1
             periodSeconds: 1
             timeoutSeconds: 5

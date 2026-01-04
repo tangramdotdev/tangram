@@ -3,7 +3,7 @@ use ../../test.nu *
 # Test metadata for a package with conflicting tag dependencies that cannot be solved.
 
 let local = spawn -n local
-let remote = spawn -n remote
+let remote = spawn --cloud -n remote
 
 # Create conflicting versions of a dependency.
 let c1 = artifact {

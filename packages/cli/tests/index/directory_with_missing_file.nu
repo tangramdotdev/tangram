@@ -10,10 +10,10 @@ use ../../test.nu *
 let local = spawn -n local
 
 # Create the remote server (receives partial puts for testing).
-let remote = spawn -n remote
+let remote = spawn --cloud -n remote
 
 # Create another server (receives a full push for comparison).
-let other = spawn -n other
+let other = spawn --cloud -n other
 
 let path = artifact {
 	tangram.ts: '

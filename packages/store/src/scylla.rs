@@ -11,6 +11,7 @@ use {
 #[derive(Clone, Debug)]
 pub struct Config {
 	pub addr: String,
+	pub connections: Option<usize>,
 	pub keyspace: String,
 	pub password: Option<String>,
 	pub speculative_execution: Option<SpeculativeExecution>,
@@ -92,6 +93,9 @@ impl Store {
 				.build()
 				.into_handle();
 			builder = builder.default_execution_profile_handle(handle);
+		}
+		if let Some(connections) = config.connections.and_then(std::num::NonZeroUsize::new) {
+			builder = builder.pool_size(scylla::client::PoolSize::PerHost(connections));
 		}
 		let session = builder.build().boxed().await.map_err(|source| {
 			Error::other(tg::error!(!source, addr = %config.addr, "failed to build the session"))
@@ -193,7 +197,7 @@ impl Store {
 		let params = (id.to_bytes().to_vec(),);
 		#[derive(scylla::DeserializeRow)]
 		struct Row<'a> {
-			bytes: &'a [u8],
+			bytes: Option<&'a [u8]>,
 		}
 		let result = self
 			.session
@@ -211,7 +215,10 @@ impl Store {
 		else {
 			return Ok(None);
 		};
-		let bytes = Bytes::copy_from_slice(row.bytes);
+		let Some(bytes) = row.bytes else {
+			return Ok(None);
+		};
+		let bytes = Bytes::copy_from_slice(bytes);
 		Ok(Some(bytes))
 	}
 
@@ -228,7 +235,7 @@ impl Store {
 		#[derive(scylla::DeserializeRow)]
 		struct Row<'a> {
 			id: &'a [u8],
-			bytes: &'a [u8],
+			bytes: Option<&'a [u8]>,
 		}
 		let result = self
 			.session
@@ -240,14 +247,20 @@ impl Store {
 		let map = result
 			.rows::<Row>()
 			.map_err(|source| Error::other(tg::error!(!source, "failed to iterate the rows")))?
-			.map(|result| {
-				result.map_err(Into::into).and_then(|row| {
-					let id = tg::object::Id::from_slice(row.id).map_err(|source| {
-						Error::other(tg::error!(!source, "failed to parse the id"))
-					})?;
-					let bytes = Bytes::copy_from_slice(row.bytes);
-					Ok((id, bytes))
-				})
+			.filter_map(|result| {
+				result
+					.map_err(Into::into)
+					.and_then(|row| {
+						let Some(bytes) = row.bytes else {
+							return Ok(None);
+						};
+						let id = tg::object::Id::from_slice(row.id).map_err(|source| {
+							Error::other(tg::error!(!source, "failed to parse the id"))
+						})?;
+						let bytes = Bytes::copy_from_slice(bytes);
+						Ok(Some((id, bytes)))
+					})
+					.transpose()
 			})
 			.collect::<Result<_, Error>>()?;
 		Ok(map)
@@ -261,7 +274,7 @@ impl Store {
 		let params = (id.to_bytes().to_vec(),);
 		#[derive(scylla::DeserializeRow)]
 		struct Row<'a> {
-			cache_pointer: &'a [u8],
+			cache_pointer: Option<&'a [u8]>,
 		}
 		let result = self
 			.session
@@ -279,7 +292,10 @@ impl Store {
 		else {
 			return Ok(None);
 		};
-		let cache_pointer = CachePointer::deserialize(row.cache_pointer).map_err(|source| {
+		let Some(cache_pointer) = row.cache_pointer else {
+			return Ok(None);
+		};
+		let cache_pointer = CachePointer::deserialize(cache_pointer).map_err(|source| {
 			Error::other(tg::error!(!source, %id, "failed to deserialize the cache pointer"))
 		})?;
 		Ok(Some(cache_pointer))

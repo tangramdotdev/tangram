@@ -296,7 +296,7 @@ fn main() -> std::process::ExitCode {
 		#[cfg(feature = "js")]
 		Command::Js(args) => {
 			#[cfg(feature = "v8")]
-			Cli::initialize_v8();
+			Cli::initialize_v8(0);
 			return Cli::command_js(&matches, args);
 		},
 		Command::Sandbox(args) => {
@@ -398,13 +398,28 @@ fn main() -> std::process::ExitCode {
 	// Initialize V8.
 	#[cfg(feature = "v8")]
 	if matches!(mode, Mode::Server) {
-		Cli::initialize_v8();
+		let thread_pool_size = config
+			.as_ref()
+			.and_then(|config| config.v8_thread_pool_size)
+			.unwrap_or(0);
+		Cli::initialize_v8(thread_pool_size);
 	}
 
 	// Create the tokio runtime.
-	let mut builder = tokio::runtime::Builder::new_multi_thread();
-	builder.enable_all();
-	let runtime = builder.build().unwrap();
+	let runtime = if config
+		.as_ref()
+		.is_some_and(|config| config.tokio_single_threaded)
+	{
+		tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap()
+	} else {
+		tokio::runtime::Builder::new_multi_thread()
+			.enable_all()
+			.build()
+			.unwrap()
+	};
 
 	// Create the CLI.
 	let mut cli = Cli {
@@ -1080,12 +1095,12 @@ impl Cli {
 
 	/// Initialize V8.
 	#[cfg(feature = "v8")]
-	fn initialize_v8() {
+	fn initialize_v8(thread_pool_size: u32) {
 		// Set the ICU data.
 		v8::icu::set_common_data_74(deno_core_icudata::ICU_DATA).unwrap();
 
 		// Initialize the platform.
-		let platform = v8::new_default_platform(0, true);
+		let platform = v8::new_default_platform(thread_pool_size, true);
 		v8::V8::initialize_platform(platform.make_shared());
 
 		// Initialize V8.

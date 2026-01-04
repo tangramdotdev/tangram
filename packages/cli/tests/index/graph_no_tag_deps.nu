@@ -3,7 +3,7 @@ use ../../test.nu *
 # Test metadata for a graph with cyclic local imports but no tag dependencies.
 
 let local = spawn -n local
-let remote = spawn -n remote
+let remote = spawn --cloud -n remote
 
 let path = artifact {
 	a.tg.ts: '

@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-let remote = spawn -n push
+let remote = spawn --cloud -n push
 let local = spawn -n local
 tg remote put default $remote.url
 
