@@ -4,5 +4,6 @@ tg.directory({
     "dependencies": {
       "a/%5E1": null,
     },
+    "module": "ts",
   }),
 })

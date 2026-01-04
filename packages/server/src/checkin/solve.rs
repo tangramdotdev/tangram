@@ -656,10 +656,12 @@ impl Server {
 					})
 					.collect();
 				let executable = file.executable;
+				let module = file.module;
 				Variant::File(File {
 					contents,
 					dependencies,
 					executable,
+					module,
 				})
 			},
 			tg::artifact::Data::Symlink(tg::symlink::Data::Node(symlink)) => {
@@ -816,6 +818,7 @@ impl Server {
 					contents,
 					dependencies,
 					executable: file.executable,
+					module: file.module,
 				})
 			},
 

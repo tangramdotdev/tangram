@@ -7,16 +7,19 @@ tg.directory({
           "item": tg.directory({
             "tangram.ts": tg.file({
               "contents": tg.blob(""),
+              "module": "ts",
             }),
           }),
           "path": "../baz",
         },
       },
+      "module": "ts",
     }),
   }),
   "baz": tg.directory({
     "tangram.ts": tg.file({
       "contents": tg.blob(""),
+      "module": "ts",
     }),
   }),
   "tangram.ts": tg.file({
@@ -31,11 +34,13 @@ tg.directory({
                 "item": tg.directory({
                   "tangram.ts": tg.file({
                     "contents": tg.blob(""),
+                    "module": "ts",
                   }),
                 }),
                 "path": "../baz",
               },
             },
+            "module": "ts",
           }),
         }),
         "path": "bar",
@@ -44,10 +49,12 @@ tg.directory({
         "item": tg.directory({
           "tangram.ts": tg.file({
             "contents": tg.blob(""),
+            "module": "ts",
           }),
         }),
         "path": "baz",
       },
     },
+    "module": "ts",
   }),
 })

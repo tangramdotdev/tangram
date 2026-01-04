@@ -92,7 +92,7 @@ snapshot -n complete_metadata $complete_metadata '
 	  "subtree": {
 	    "count": 3,
 	    "depth": 3,
-	    "size": 162,
+	    "size": 167,
 	    "solvable": true,
 	    "solved": false,
 	  },

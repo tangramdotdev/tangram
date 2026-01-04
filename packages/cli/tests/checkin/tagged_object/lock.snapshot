@@ -19,7 +19,8 @@
             "tag": "hello"
           }
         }
-      }
+      },
+      "module": "ts"
     }
   ]
 }

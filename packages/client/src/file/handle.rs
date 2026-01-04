@@ -410,6 +410,30 @@ impl File {
 		}
 	}
 
+	pub async fn module<H>(&self, handle: &H) -> tg::Result<Option<tg::module::Kind>>
+	where
+		H: tg::Handle,
+	{
+		let object = self.object(handle).await?;
+		match object.as_ref() {
+			Object::Pointer(object) => {
+				let graph = object.graph.as_ref().unwrap();
+				let index = object.index;
+				let object = graph.object(handle).await?;
+				let node = object
+					.nodes
+					.get(index)
+					.ok_or_else(|| tg::error!("invalid index"))?;
+				let file = node
+					.try_unwrap_file_ref()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a file"))?;
+				Ok(file.module)
+			},
+			Object::Node(node) => Ok(node.module),
+		}
+	}
+
 	pub async fn length<H>(&self, handle: &H) -> tg::Result<u64>
 	where
 		H: tg::Handle,

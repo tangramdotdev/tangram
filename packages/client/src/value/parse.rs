@@ -339,6 +339,7 @@ fn directory_node_entry(input: &mut Input) -> ModalResult<tg::graph::Edge<tg::Ar
 				contents: blob,
 				dependencies: BTreeMap::new(),
 				executable: false,
+				module: None,
 			};
 			let object = tg::file::Object::Node(node);
 			let file = tg::File::with_object(object);
@@ -372,6 +373,7 @@ fn file_string(input: &mut Input) -> ModalResult<tg::Object> {
 				contents: blob,
 				dependencies: BTreeMap::new(),
 				executable: false,
+				module: None,
 			};
 			let object = tg::file::Object::Node(node);
 			tg::File::with_object(object).into()
@@ -402,6 +404,7 @@ fn file_node(input: &mut Input) -> ModalResult<tg::Object> {
 		let mut contents = None;
 		let mut dependencies = BTreeMap::new();
 		let mut executable = false;
+		let mut module = None;
 		for (key, value) in entries {
 			match key.as_str() {
 				"contents" => {
@@ -446,6 +449,14 @@ fn file_node(input: &mut Input) -> ModalResult<tg::Object> {
 						.map_err(|_| tg::error!("expected boolean for executable"))?;
 					executable = *value;
 				},
+				"module" => {
+					let value = value
+						.try_unwrap_string_ref()
+						.map_err(|_| tg::error!("expected a string for module"))?
+						.parse()
+						.map_err(|_| tg::error!("expected a module kind"))?;
+					module.replace(value);
+				},
 				_ => {
 					return Err(tg::error!("unexpected field in file: {}", key));
 				},
@@ -456,6 +467,7 @@ fn file_node(input: &mut Input) -> ModalResult<tg::Object> {
 			contents,
 			dependencies,
 			executable,
+			module,
 		};
 		let object = tg::file::Object::Node(node);
 		Ok(tg::File::with_object(object).into())
@@ -990,6 +1002,7 @@ fn parse_graph_node(map: &tg::value::Map) -> tg::Result<tg::graph::Node> {
 	let mut contents = None;
 	let mut dependencies = BTreeMap::new();
 	let mut executable = false;
+	let mut module = None;
 	let mut artifact = None;
 	let mut path = None;
 	for (key, value) in map {
@@ -1063,6 +1076,14 @@ fn parse_graph_node(map: &tg::value::Map) -> tg::Result<tg::graph::Node> {
 					.map_err(|_| tg::error!("expected string for path"))?;
 				path = Some(PathBuf::from(value));
 			},
+			"module" => {
+				let value = value
+					.try_unwrap_string_ref()
+					.map_err(|_| tg::error!("expected a string for module"))?
+					.parse()
+					.map_err(|_| tg::error!("expected a module kind"))?;
+				module.replace(value);
+			},
 			_ => {
 				return Err(tg::error!("unexpected field in graph node: {}", key));
 			},
@@ -1078,6 +1099,7 @@ fn parse_graph_node(map: &tg::value::Map) -> tg::Result<tg::graph::Node> {
 				contents,
 				dependencies,
 				executable,
+				module,
 			}))
 		},
 		"symlink" => Ok(tg::graph::Node::Symlink(tg::graph::Symlink {

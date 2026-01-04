@@ -15,11 +15,12 @@
         "a/%5E1": {
           "item": null,
           "options": {
-            "id": "dir_01nsc2dyes4g87r7hxk4mxbcw3gh854a4c61hs03rzwh0w8q6a08v0",
+            "id": "dir_01cwzqn7gdw24k2pjzty9p42ppj6jv5abcszzs6xc0qbcesbrepy50",
             "tag": "a/1.0.0"
           }
         }
-      }
+      },
+      "module": "ts"
     }
   ]
 }

@@ -27,6 +27,7 @@ pub struct File {
 	pub contents: tg::Blob,
 	pub dependencies: BTreeMap<tg::Reference, Option<Dependency>>,
 	pub executable: bool,
+	pub module: Option<tg::module::Kind>,
 }
 
 #[derive(Clone, Debug)]
@@ -194,10 +195,12 @@ impl File {
 			})
 			.collect();
 		let executable = self.executable;
+		let module = self.module;
 		tg::graph::data::File {
 			contents,
 			dependencies,
 			executable,
+			module,
 		}
 	}
 
@@ -223,10 +226,12 @@ impl File {
 			})
 			.collect::<tg::Result<_>>()?;
 		let executable = data.executable;
+		let module = data.module;
 		let file = tg::graph::File {
 			contents,
 			dependencies,
 			executable,
+			module,
 		};
 		Ok(file)
 	}

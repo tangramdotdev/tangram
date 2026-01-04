@@ -56,6 +56,7 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 	if (
 		"executable" in arg &&
 		typeof arg.executable === "object" &&
+		!tg.Artifact.is(arg.executable) &&
 		"module" in arg.executable
 	) {
 		sourceOptions = {

@@ -705,25 +705,21 @@ impl Compiler {
 	}
 
 	async fn module_kind_for_path(&self, path: &Path) -> tg::Result<tg::module::Kind> {
-		let kind = if path.extension().is_some_and(|extension| extension == "js") {
-			tg::module::Kind::Js
-		} else if path.extension().is_some_and(|extension| extension == "ts") {
-			tg::module::Kind::Ts
+		if let Ok(kind) = tg::package::module_kind_for_path(path) {
+			return Ok(kind);
+		}
+		let metadata = tokio::fs::symlink_metadata(path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
+		if metadata.is_dir() {
+			Ok(tg::module::Kind::Directory)
+		} else if metadata.is_file() {
+			Ok(tg::module::Kind::File)
+		} else if metadata.is_symlink() {
+			Ok(tg::module::Kind::Symlink)
 		} else {
-			let metadata = tokio::fs::symlink_metadata(path)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the metadata"))?;
-			if metadata.is_dir() {
-				tg::module::Kind::Directory
-			} else if metadata.is_file() {
-				tg::module::Kind::File
-			} else if metadata.is_symlink() {
-				tg::module::Kind::Symlink
-			} else {
-				return Err(tg::error!("expected a directory, file, or symlink"));
-			}
-		};
-		Ok(kind)
+			Err(tg::error!("expected a directory, file, or symlink"))
+		}
 	}
 
 	async fn module_for_lsp_uri(&self, uri: &lsp::Uri) -> tg::Result<tg::module::Data> {
@@ -1077,7 +1073,6 @@ impl Compiler {
 					let extension = match kind {
 						tg::module::Kind::Js => Some(".tg.js".to_owned()),
 						tg::module::Kind::Ts => Some(".tg.ts".to_owned()),
-						tg::module::Kind::Dts => Some(".d.ts".to_owned()),
 						_ => None,
 					};
 					let arg = tg::checkout::Arg {

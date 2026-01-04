@@ -19,6 +19,7 @@ tg.directory({
                       "path": "tangram.ts",
                     },
                   },
+                  "module": "ts",
                 },
                 {
                   "kind": "file",
@@ -32,6 +33,7 @@ tg.directory({
                       "path": "foo.tg.ts",
                     },
                   },
+                  "module": "ts",
                 },
               ],
             }),
@@ -53,6 +55,7 @@ tg.directory({
                       "path": "tangram.ts",
                     },
                   },
+                  "module": "ts",
                 },
                 {
                   "kind": "file",
@@ -66,6 +69,7 @@ tg.directory({
                       "path": "foo.tg.ts",
                     },
                   },
+                  "module": "ts",
                 },
               ],
             }),
@@ -73,9 +77,10 @@ tg.directory({
             "kind": "file",
           },
         }),
-        "id": "dir_01k7kmkdhgmtdgkd7pw32gneznxe31fbmt7e21668z7rgd534hc4sg",
+        "id": "dir_01ek6ga05fvbp9wsn6phxwj27y07r3t4spw2ebn1m51mk3chv5nwzg",
         "tag": "a",
       },
     },
+    "module": "ts",
   }),
 })

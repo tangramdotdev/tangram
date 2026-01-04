@@ -11,15 +11,17 @@ tg.directory({
                 "item": tg.directory({
                   "tangram.ts": tg.file({
                     "contents": tg.blob("export default () => \"d/1.1.0\";"),
+                    "module": "ts",
                   }),
                 }),
-                "id": "dir_010k71h9yms5ypacm7eyea6x1ezw1v1891h00mx52k82xcqbq0mttg",
+                "id": "dir_01rsavphm7nnk73mtbkxawz4bhpsm94gqfb0pd194wys0dar4gynb0",
                 "tag": "d/1.1.0",
               },
             },
+            "module": "ts",
           }),
         }),
-        "id": "dir_01gxjcgm682hjmgtepvc5cj6xgbkxv05zae1r25seffd2eydw5j69g",
+        "id": "dir_011dqwmmm2k3bqxh2k4ena6dmzy9yse78cpcvdfqv701apyf0jy6e0",
         "tag": "b",
       },
       "c": {
@@ -31,17 +33,20 @@ tg.directory({
                 "item": tg.directory({
                   "tangram.ts": tg.file({
                     "contents": tg.blob("export default () => \"d/1.1.0\";"),
+                    "module": "ts",
                   }),
                 }),
-                "id": "dir_010k71h9yms5ypacm7eyea6x1ezw1v1891h00mx52k82xcqbq0mttg",
+                "id": "dir_01rsavphm7nnk73mtbkxawz4bhpsm94gqfb0pd194wys0dar4gynb0",
                 "tag": "d/1.1.0",
               },
             },
+            "module": "ts",
           }),
         }),
-        "id": "dir_01h3az9r0rbyec97ea9zzjrz6bgsr0m5qjzv8zthj4g4ht8dd3zyj0",
+        "id": "dir_017s7ea35qwm3ycj7yxdjb179sg0zcv8d9tnqhd54vcbjc3s09jpeg",
         "tag": "c",
       },
     },
+    "module": "ts",
   }),
 })

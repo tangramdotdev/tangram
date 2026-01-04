@@ -1,5 +1,6 @@
 tg.directory({
   "tangram.ts": tg.file({
     "contents": tg.blob("export default () => {};"),
+    "module": "ts",
   }),
 })

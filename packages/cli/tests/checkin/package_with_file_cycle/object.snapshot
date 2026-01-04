@@ -13,6 +13,7 @@ tg.file({
             "path": "tangram.ts",
           },
         },
+        "module": "ts",
       },
       {
         "kind": "file",
@@ -26,6 +27,7 @@ tg.file({
             "path": "foo.tg.ts",
           },
         },
+        "module": "ts",
       },
     ],
   }),

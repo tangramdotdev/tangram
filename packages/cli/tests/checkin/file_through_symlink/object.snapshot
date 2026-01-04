@@ -9,5 +9,6 @@ tg.directory({
         "path": "../b/e/d",
       },
     },
+    "module": "ts",
   }),
 })

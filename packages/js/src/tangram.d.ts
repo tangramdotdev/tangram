@@ -338,6 +338,9 @@ declare namespace tg {
 
 		/** Get this file's executable bit. */
 		executable(): Promise<boolean>;
+
+		/** Get this file's module kind. */
+		module(): Promise<string | undefined>;
 	}
 
 	export namespace File {

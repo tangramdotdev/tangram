@@ -23,6 +23,7 @@ tg.directory({
               "path": ".",
             },
           },
+          "module": "ts",
         },
       ],
     }),

@@ -8,12 +8,15 @@ pub const LOCKFILE_FILE_NAME: &str = "tangram.lock";
 
 pub fn module_kind_for_path(path: impl AsRef<Path>) -> tg::Result<tg::module::Kind> {
 	let path = path.as_ref();
-	if path.ends_with(".d.ts") {
+	let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+		return Err(tg::error!(path = %path.display(), "invalid path"));
+	};
+	if name.ends_with(".d.ts") {
 		Ok(tg::module::Kind::Dts)
-	} else if path.extension().is_some_and(|ext| ext == "ts") {
-		Ok(tg::module::Kind::Ts)
-	} else if path.extension().is_some_and(|ext| ext == "js") {
+	} else if name == "tangram.js" || name.ends_with(".tg.js") {
 		Ok(tg::module::Kind::Js)
+	} else if name == "tangram.ts" || name.ends_with(".tg.ts") {
+		Ok(tg::module::Kind::Ts)
 	} else {
 		Err(tg::error!(path = %path.display(), "unknown or missing file extension"))
 	}

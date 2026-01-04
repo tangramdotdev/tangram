@@ -2,6 +2,7 @@ tg.directory({
   "a": tg.directory({
     "tangram.ts": tg.file({
       "contents": tg.blob(""),
+      "module": "ts",
     }),
   }),
   "tangram.ts": tg.file({
@@ -11,10 +12,12 @@ tg.directory({
         "item": tg.directory({
           "tangram.ts": tg.file({
             "contents": tg.blob(""),
+            "module": "ts",
           }),
         }),
         "path": "a",
       },
     },
+    "module": "ts",
   }),
 })

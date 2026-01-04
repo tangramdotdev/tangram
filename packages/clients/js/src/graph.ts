@@ -82,11 +82,13 @@ export class Graph {
 						),
 					);
 					let executable = node.executable ?? false;
+					let module = node.module ?? undefined;
 					return {
 						kind: "file" as const,
 						contents,
 						dependencies,
 						executable,
+						module,
 					};
 				} else if (node.kind === "symlink") {
 					let artifact = tg.Graph.Edge.fromArg(node.artifact, arg.nodes);
@@ -327,6 +329,7 @@ export namespace Graph {
 				  }
 				| undefined;
 			executable?: boolean | undefined;
+			module?: string | undefined;
 		};
 
 		export type Symlink = {
@@ -491,6 +494,7 @@ export namespace Graph {
 			[reference: tg.Reference]: tg.Graph.Dependency | undefined;
 		};
 		executable: boolean;
+		module: string | undefined;
 	};
 
 	export namespace File {
@@ -539,6 +543,7 @@ export namespace Graph {
 					),
 				),
 				executable: data.executable ?? false,
+				module: data.module ?? undefined,
 			};
 		};
 
@@ -906,6 +911,7 @@ export namespace Graph {
 				[reference: tg.Reference]: tg.Graph.Dependency.Data | undefined;
 			};
 			executable?: boolean;
+			module?: string;
 		};
 
 		export type Symlink = {

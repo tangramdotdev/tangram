@@ -10,5 +10,6 @@ tg.directory({
         "tag": "hello",
       },
     },
+    "module": "ts",
   }),
 })

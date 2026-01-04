@@ -4,6 +4,7 @@ tg.directory({
   }),
   "dependency.tg.ts": tg.file({
     "contents": tg.blob(""),
+    "module": "ts",
   }),
   "tangram.ts": tg.file({
     "contents": tg.blob("import * as dependency from \"./dependency.tg.ts\";"),
@@ -11,9 +12,11 @@ tg.directory({
       "./dependency.tg.ts": {
         "item": tg.file({
           "contents": tg.blob(""),
+          "module": "ts",
         }),
         "path": "dependency.tg.ts",
       },
     },
+    "module": "ts",
   }),
 })

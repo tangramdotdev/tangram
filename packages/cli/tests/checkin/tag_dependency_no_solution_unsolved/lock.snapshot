@@ -15,18 +15,19 @@
         "a/*": {
           "item": null,
           "options": {
-            "id": "dir_01axfqeskenrmxgby6s3hj3x698w4pdfkcm6t1rdz1s5n9705da09g",
+            "id": "dir_0132qzkhjkw80qeegrckdnjnk0as4desh8h89f13xk3t4d31y3e5rg",
             "tag": "a/1.0.0"
           }
         },
         "b/*": {
           "item": null,
           "options": {
-            "id": "dir_018y9xaczb1ksxt56zdemkxpyt1tpqyk2qr6chebx1xdv46zqjq04g",
+            "id": "dir_01q5hb9gy206dmjyxdq531z335egg2qjy4fyjrfjj9ph0d0h3mwbvg",
             "tag": "b/1.0.0"
           }
         }
-      }
+      },
+      "module": "ts"
     }
   ]
 }
