@@ -2,7 +2,8 @@ use {
 	crate::{
 		Server,
 		sync::{
-			get::{State, graph::Requested},
+			get::State,
+			graph::Requested,
 			queue::{ObjectItem, ProcessItem},
 		},
 	},
@@ -94,7 +95,14 @@ impl Server {
 							true
 						} else {
 							let requested = Requested { eager: item.eager };
-							graph.update_object(&item.id, None, None, None, None, Some(requested));
+							graph.update_object_local(
+								&item.id,
+								None,
+								None,
+								None,
+								None,
+								Some(requested),
+							);
 							false
 						}
 					};
@@ -116,7 +124,7 @@ impl Server {
 
 				Some((stored, metadata)) => {
 					// Update the graph with stored and metadata.
-					state.graph.lock().unwrap().update_object(
+					state.graph.lock().unwrap().update_object_local(
 						&item.id,
 						None,
 						Some(stored.clone()),
@@ -150,7 +158,7 @@ impl Server {
 						)?;
 
 						// Update the graph with data.
-						state.graph.lock().unwrap().update_object(
+						state.graph.lock().unwrap().update_object_local(
 							&item.id,
 							Some(&data),
 							None,
@@ -165,7 +173,7 @@ impl Server {
 			}
 		}
 
-		let end = state.graph.lock().unwrap().end(&state.arg);
+		let end = state.graph.lock().unwrap().end_local(&state.arg);
 		if end {
 			state.queue.close();
 		}
@@ -201,7 +209,14 @@ impl Server {
 							true
 						} else {
 							let requested = Requested { eager: item.eager };
-							graph.update_process(&item.id, None, None, None, None, Some(requested));
+							graph.update_process_local(
+								&item.id,
+								None,
+								None,
+								None,
+								None,
+								Some(requested),
+							);
 							false
 						}
 					};
@@ -232,7 +247,7 @@ impl Server {
 						.data;
 
 					// Update the graph with stored and metadata and data.
-					state.graph.lock().unwrap().update_process(
+					state.graph.lock().unwrap().update_process_local(
 						&item.id,
 						Some(&data),
 						Some(stored.clone()),
@@ -245,7 +260,12 @@ impl Server {
 					Self::sync_get_enqueue_process_children(state, &item.id, &data, Some(stored));
 
 					// Send a stored message if necessary.
-					if stored.subtree || stored.subtree_command || stored.subtree_output {
+					if stored.subtree
+						|| stored.subtree_command
+						|| stored.subtree_error
+						|| stored.subtree_log
+						|| stored.subtree_output
+					{
 						let message =
 							tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Process(
 								tg::sync::GetStoredProcessMessage {
@@ -269,7 +289,7 @@ impl Server {
 			}
 		}
 
-		let end = state.graph.lock().unwrap().end(&state.arg);
+		let end = state.graph.lock().unwrap().end_local(&state.arg);
 		if end {
 			state.queue.close();
 		}

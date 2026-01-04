@@ -1,6 +1,5 @@
 use {
-	self::graph::Graph,
-	super::{progress::Progress, queue::Queue},
+	super::{graph::Graph, progress::Progress, queue::Queue},
 	crate::Server,
 	futures::{future, stream::BoxStream},
 	std::sync::{Arc, Mutex},
@@ -9,7 +8,6 @@ use {
 	tracing::Instrument as _,
 };
 
-mod graph;
 mod index;
 mod input;
 mod queue;
@@ -17,7 +15,7 @@ mod store;
 
 struct State {
 	arg: tg::sync::Arg,
-	graph: Mutex<Graph>,
+	graph: Arc<Mutex<Graph>>,
 	progress: Progress,
 	queue: Queue,
 	sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::PutMessage>>,
@@ -27,12 +25,10 @@ impl Server {
 	pub(super) async fn sync_put(
 		&self,
 		arg: tg::sync::Arg,
+		graph: Arc<Mutex<Graph>>,
 		stream: BoxStream<'static, tg::sync::GetMessage>,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::PutMessage>>,
 	) -> tg::Result<()> {
-		// Create the graph.
-		let graph = Mutex::new(Graph::new());
-
 		// Create the progress.
 		let progress = Progress::new();
 

@@ -46,12 +46,15 @@ impl Server {
 						continue;
 					}
 					tracing::trace!(id = %message.id, "received stored object");
-					state.graph.lock().unwrap().update_object(
+					state.graph.lock().unwrap().update_object_remote(
 						&message.id,
 						None,
 						None,
-						Some(crate::object::stored::Output { subtree: true }),
+						Some(&crate::object::stored::Output { subtree: true }),
 					);
+					if state.graph.lock().unwrap().end_remote(&state.arg) {
+						state.queue.close();
+					}
 				},
 
 				tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Process(message)) => {
@@ -76,14 +79,21 @@ impl Server {
 						.graph
 						.lock()
 						.unwrap()
-						.update_process(&id, None, Some(&stored));
+						.update_process_remote(&id, None, Some(&stored));
+					if state.graph.lock().unwrap().end_remote(&state.arg) {
+						state.queue.close();
+					}
 				},
 
 				tg::sync::GetMessage::Progress(_) => (),
 
 				tg::sync::GetMessage::End => {
 					tracing::trace!("received end");
-					state.queue.close();
+					state.graph.lock().unwrap().mark_get_end_received();
+					if state.graph.lock().unwrap().end_remote(&state.arg) {
+						state.queue.close();
+					}
+					break;
 				},
 			}
 		}

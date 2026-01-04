@@ -30,7 +30,7 @@ impl Server {
 						tg::object::Data::deserialize(message.id.kind(), message.bytes.as_ref())?;
 
 					// Update the graph with data.
-					state.graph.lock().unwrap().update_object(
+					state.graph.lock().unwrap().update_object_local(
 						&message.id,
 						Some(&data),
 						None,
@@ -40,7 +40,7 @@ impl Server {
 					);
 
 					// Close the queue if necessary.
-					if state.graph.lock().unwrap().end(&state.arg) {
+					if state.graph.lock().unwrap().end_local(&state.arg) {
 						state.queue.close();
 					}
 
@@ -80,7 +80,7 @@ impl Server {
 						tg::error!(!source, "failed to deserialize the process")
 					})?;
 					// Update the graph with data.
-					state.graph.lock().unwrap().update_process(
+					state.graph.lock().unwrap().update_process_local(
 						&message.id,
 						Some(&data),
 						None,
@@ -90,7 +90,7 @@ impl Server {
 					);
 
 					// Check if all roots are stored and close the queue if so.
-					if state.graph.lock().unwrap().end(&state.arg) {
+					if state.graph.lock().unwrap().end_local(&state.arg) {
 						state.queue.close();
 					}
 
@@ -109,7 +109,7 @@ impl Server {
 							.graph
 							.lock()
 							.unwrap()
-							.get_process_stored(&message.id)
+							.get_process_local_stored(&message.id)
 							.cloned();
 						Self::sync_get_enqueue_process_children(
 							state,

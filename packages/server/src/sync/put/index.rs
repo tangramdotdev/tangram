@@ -81,6 +81,11 @@ impl Server {
 			let bytes = metadata.subtree.size.unwrap_or_default();
 			state.progress.increment(processes, objects, bytes);
 		}
+
+		if state.graph.lock().unwrap().end_remote(&state.arg) {
+			state.queue.close();
+		}
+
 		Ok(())
 	}
 
@@ -167,6 +172,11 @@ impl Server {
 				.progress
 				.increment(message.processes, message.objects, message.bytes);
 		}
+
+		if state.graph.lock().unwrap().end_remote(&state.arg) {
+			state.queue.close();
+		}
+
 		Ok(())
 	}
 }

@@ -1,8 +1,11 @@
 use {
-	crate::{Context, Server},
+	crate::{Context, Server, sync::graph::Graph},
 	futures::{prelude::*, stream::BoxStream},
 	num::ToPrimitive as _,
-	std::panic::AssertUnwindSafe,
+	std::{
+		panic::AssertUnwindSafe,
+		sync::{Arc, Mutex},
+	},
 	tangram_client::prelude::*,
 	tangram_futures::{
 		read::Ext as _,
@@ -17,6 +20,7 @@ use {
 };
 
 mod get;
+mod graph;
 mod progress;
 mod put;
 mod queue;
@@ -111,6 +115,9 @@ impl Server {
 		mut stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::Message>>,
 	) -> tg::Result<()> {
+		// Create the graph.
+		let graph = Arc::new(Mutex::new(Graph::new(&arg.get, &arg.put)));
+
 		// Spawn the input task to receive the input.
 		let (get_input_sender, get_input_receiver) =
 			tokio::sync::mpsc::channel::<tg::sync::PutMessage>(256);
@@ -160,10 +167,11 @@ impl Server {
 		let get_future = {
 			let server = self.clone();
 			let arg = arg.clone();
+			let graph = graph.clone();
 			let stream = ReceiverStream::new(get_input_receiver).boxed();
 			async move {
 				server
-					.sync_get(arg, stream, get_output_sender)
+					.sync_get(arg, graph, stream, get_output_sender)
 					.instrument(tracing::debug_span!("get"))
 					.await
 			}
@@ -173,10 +181,11 @@ impl Server {
 		let put_future = {
 			let server = self.clone();
 			let arg = arg.clone();
+			let graph = graph.clone();
 			let stream = ReceiverStream::new(put_input_receiver).boxed();
 			async move {
 				server
-					.sync_put(arg, stream, put_output_sender)
+					.sync_put(arg, graph, stream, put_output_sender)
 					.instrument(tracing::debug_span!("put"))
 					.await
 			}

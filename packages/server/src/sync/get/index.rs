@@ -1,5 +1,5 @@
 use {
-	super::graph::{Graph, Node},
+	crate::sync::graph::{Graph, Node},
 	crate::{Server, index::message::ProcessObjectKind, sync::get::State},
 	futures::{StreamExt as _, TryStreamExt as _},
 	std::{collections::BTreeMap, sync::Arc},
@@ -81,7 +81,7 @@ impl Server {
 
 		for (item, output) in std::iter::zip(items, outputs) {
 			// Update the graph.
-			state.graph.lock().unwrap().update_object(
+			state.graph.lock().unwrap().update_object_local(
 				&item.id,
 				None,
 				output.as_ref().map(|(stored, _)| stored.clone()),
@@ -127,7 +127,7 @@ impl Server {
 					)?;
 
 					// Update the graph.
-					state.graph.lock().unwrap().update_object(
+					state.graph.lock().unwrap().update_object_local(
 						&item.id,
 						Some(&data),
 						None,
@@ -142,7 +142,7 @@ impl Server {
 			}
 		}
 
-		let end = state.graph.lock().unwrap().end(&state.arg);
+		let end = state.graph.lock().unwrap().end_local(&state.arg);
 		if end {
 			state.queue.close();
 		}
@@ -167,7 +167,7 @@ impl Server {
 
 		for (item, output) in std::iter::zip(items, outputs) {
 			// Update the graph.
-			state.graph.lock().unwrap().update_process(
+			state.graph.lock().unwrap().update_process_local(
 				&item.id,
 				None,
 				output.as_ref().map(|(stored, _)| stored.clone()),
@@ -216,7 +216,7 @@ impl Server {
 					.data;
 
 				// Update the graph.
-				state.graph.lock().unwrap().update_process(
+				state.graph.lock().unwrap().update_process_local(
 					&item.id,
 					Some(&data),
 					None,
@@ -230,7 +230,7 @@ impl Server {
 			}
 		}
 
-		let end = state.graph.lock().unwrap().end(&state.arg);
+		let end = state.graph.lock().unwrap().end_local(&state.arg);
 		if end {
 			state.queue.close();
 		}
@@ -887,7 +887,7 @@ impl Server {
 								children,
 								id,
 								metadata: node.metadata.clone().unwrap(),
-								stored: node.stored.clone().unwrap(),
+								stored: node.local_stored.clone().unwrap(),
 								touched_at,
 							});
 						messages.entry(level).or_insert(Vec::new()).push(message);
@@ -914,7 +914,7 @@ impl Server {
 									.unwrap_process()
 							})
 							.collect();
-						let stored = node.stored.clone().unwrap();
+						let stored = node.local_stored.clone().unwrap();
 						let metadata = node.metadata.clone().unwrap();
 						let objects = node
 							.objects
