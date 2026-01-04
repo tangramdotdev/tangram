@@ -2,13 +2,13 @@ use ../../test.nu *
 
 export def test [...args] {
 	# Create a remote server.
-	let remote_server = spawn -n remote
+	let remote = spawn -n remote
 
 	# Create a local server.
-	let local_server = spawn -n local
+	let local = spawn -n local
 
-	# Create a dummy server.
-	let dummy_server = spawn -n dummy
+	# Create a source server.
+	let source = spawn -n source
 
 	# Create a module that spawns a chain of 4 child processes: A -> B -> C -> D.
 	# A calls B, B calls C, C calls D, D returns a file.
@@ -37,35 +37,35 @@ export def test [...args] {
 	}
 
 	# Build the module on the dummy server.
-	let output = tg -u $dummy_server.url build -d $path | from json
+	let output = tg -u $source.url build -d $path | from json
 	let process_a_id = $output.process
 
 	# Wait for the process to finish.
-	tg -u $dummy_server.url wait $process_a_id
+	tg -u $source.url wait $process_a_id
 
 	# Get process A's data.
-	let process_a_data = tg -u $dummy_server.url get $process_a_id | from json
+	let process_a_data = tg -u $source.url get $process_a_id | from json
 	let command_a_id = $process_a_data.command
 	let output_a_id = $process_a_data.output.value
 	let children_a = $process_a_data.children
 
 	# Get process B (first child of A).
 	let process_b_id = $children_a | get 0 | get item
-	let process_b_data = tg -u $dummy_server.url get $process_b_id | from json
+	let process_b_data = tg -u $source.url get $process_b_id | from json
 	let command_b_id = $process_b_data.command
 	let output_b_id = $process_b_data.output.value
 	let children_b = $process_b_data.children
 
 	# Get process C (first child of B).
 	let process_c_id = $children_b | get 0 | get item
-	let process_c_data = tg -u $dummy_server.url get $process_c_id | from json
+	let process_c_data = tg -u $source.url get $process_c_id | from json
 	let command_c_id = $process_c_data.command
 	let output_c_id = $process_c_data.output.value
 	let children_c = $process_c_data.children
 
 	# Get process D (first child of C).
 	let process_d_id = $children_c | get 0 | get item
-	let process_d_data = tg -u $dummy_server.url get $process_d_id | from json
+	let process_d_data = tg -u $source.url get $process_d_id | from json
 	let command_d_id = $process_d_data.command
 	let output_d_id = $process_d_data.output.value
 
@@ -88,113 +88,113 @@ export def test [...args] {
 	}
 
 	# Get output blob.
-	let output_d_children = tg -u $dummy_server.url children $output_d_id | from json
+	let output_d_children = tg -u $source.url children $output_d_id | from json
 	let blob_d_id = $output_d_children | get 0
 
 	# Put process A to the local server (local has A).
-	tg -u $dummy_server.url get $process_a_id | tg -u $local_server.url put --id $process_a_id
+	tg -u $source.url get $process_a_id | tg -u $local.url put --id $process_a_id
 
 	# Put command A and its descendants to the local server.
-	tg -u $dummy_server.url get --bytes $command_a_id | tg -u $local_server.url put --bytes -k cmd
-	let command_a_descendants = get_command_descendants $dummy_server.url $command_a_id
+	tg -u $source.url get --bytes $command_a_id | tg -u $local.url put --bytes -k cmd
+	let command_a_descendants = get_command_descendants $source.url $command_a_id
 	for desc_id in $command_a_descendants {
 		let kind = $desc_id | str substring 0..<3
-		tg -u $dummy_server.url get --bytes $desc_id | tg -u $local_server.url put --bytes -k $kind
+		tg -u $source.url get --bytes $desc_id | tg -u $local.url put --bytes -k $kind
 	}
 
 	# Put output A to the local server (which is the same as output B, C, D since they pass through).
-	tg -u $dummy_server.url get --bytes $output_a_id | tg -u $local_server.url put --bytes -k fil
-	tg -u $dummy_server.url get --bytes $blob_d_id | tg -u $local_server.url put --bytes -k blob
+	tg -u $source.url get --bytes $output_a_id | tg -u $local.url put --bytes -k fil
+	tg -u $source.url get --bytes $blob_d_id | tg -u $local.url put --bytes -k blob
 
 	# Local does NOT have process B (the intermediate process is missing locally).
 
 	# Put process B, C, and D to the remote server (remote has everything from B downward).
-	tg -u $dummy_server.url get $process_b_id | tg -u $remote_server.url put --id $process_b_id
+	tg -u $source.url get $process_b_id | tg -u $remote.url put --id $process_b_id
 
 	# Put command B and its descendants to the remote server.
-	tg -u $dummy_server.url get --bytes $command_b_id | tg -u $remote_server.url put --bytes -k cmd
-	let command_b_descendants = get_command_descendants $dummy_server.url $command_b_id
+	tg -u $source.url get --bytes $command_b_id | tg -u $remote.url put --bytes -k cmd
+	let command_b_descendants = get_command_descendants $source.url $command_b_id
 	for desc_id in $command_b_descendants {
 		let kind = $desc_id | str substring 0..<3
-		tg -u $dummy_server.url get --bytes $desc_id | tg -u $remote_server.url put --bytes -k $kind
+		tg -u $source.url get --bytes $desc_id | tg -u $remote.url put --bytes -k $kind
 	}
 
 	# Put output B to the remote server.
-	tg -u $dummy_server.url get --bytes $output_b_id | tg -u $remote_server.url put --bytes -k fil
+	tg -u $source.url get --bytes $output_b_id | tg -u $remote.url put --bytes -k fil
 
 	# Put process C and D to the remote server.
-	tg -u $dummy_server.url get $process_c_id | tg -u $remote_server.url put --id $process_c_id
-	tg -u $dummy_server.url get $process_d_id | tg -u $remote_server.url put --id $process_d_id
+	tg -u $source.url get $process_c_id | tg -u $remote.url put --id $process_c_id
+	tg -u $source.url get $process_d_id | tg -u $remote.url put --id $process_d_id
 
 	# Put command C, D and their descendants to the remote server.
-	tg -u $dummy_server.url get --bytes $command_c_id | tg -u $remote_server.url put --bytes -k cmd
-	let command_c_descendants = get_command_descendants $dummy_server.url $command_c_id
+	tg -u $source.url get --bytes $command_c_id | tg -u $remote.url put --bytes -k cmd
+	let command_c_descendants = get_command_descendants $source.url $command_c_id
 	for desc_id in $command_c_descendants {
 		let kind = $desc_id | str substring 0..<3
-		tg -u $dummy_server.url get --bytes $desc_id | tg -u $remote_server.url put --bytes -k $kind
+		tg -u $source.url get --bytes $desc_id | tg -u $remote.url put --bytes -k $kind
 	}
 
-	tg -u $dummy_server.url get --bytes $command_d_id | tg -u $remote_server.url put --bytes -k cmd
-	let command_d_descendants = get_command_descendants $dummy_server.url $command_d_id
+	tg -u $source.url get --bytes $command_d_id | tg -u $remote.url put --bytes -k cmd
+	let command_d_descendants = get_command_descendants $source.url $command_d_id
 	for desc_id in $command_d_descendants {
 		let kind = $desc_id | str substring 0..<3
-		tg -u $dummy_server.url get --bytes $desc_id | tg -u $remote_server.url put --bytes -k $kind
+		tg -u $source.url get --bytes $desc_id | tg -u $remote.url put --bytes -k $kind
 	}
 
 	# Put outputs C and D to the remote server.
-	tg -u $dummy_server.url get --bytes $output_c_id | tg -u $remote_server.url put --bytes -k fil
-	tg -u $dummy_server.url get --bytes $output_d_id | tg -u $remote_server.url put --bytes -k fil
-	tg -u $dummy_server.url get --bytes $blob_d_id | tg -u $remote_server.url put --bytes -k blob
+	tg -u $source.url get --bytes $output_c_id | tg -u $remote.url put --bytes -k fil
+	tg -u $source.url get --bytes $output_d_id | tg -u $remote.url put --bytes -k fil
+	tg -u $source.url get --bytes $blob_d_id | tg -u $remote.url put --bytes -k blob
 
 	# Confirm process B is not on the local server.
-	let output = tg -u $local_server.url get $process_b_id | complete
+	let output = tg -u $local.url get $process_b_id | complete
 	failure $output
 
 	# Confirm process A is not on the remote server.
-	let output = tg -u $remote_server.url get $process_a_id | complete
+	let output = tg -u $remote.url get $process_a_id | complete
 	failure $output
 
 	# Index.
-	tg -u $local_server.url index
-	tg -u $remote_server.url index
+	tg -u $local.url index
+	tg -u $remote.url index
 
 	# Add the remote to the local server.
-	tg -u $local_server.url remote put default $remote_server.url
+	tg -u $local.url remote put default $remote.url
 
 	# Push the process with recursive and commands flags.
-	tg -u $local_server.url push $process_a_id --recursive --commands ...$args
+	tg -u $local.url push $process_a_id --recursive --commands ...$args
 
 	# Index.
-	tg -u $dummy_server.url index
-	tg -u $remote_server.url index
+	tg -u $source.url index
+	tg -u $remote.url index
 
 	# Confirm process A is on the remote and the same.
-	let dummy_process_a = tg -u $dummy_server.url get $process_a_id --pretty
-	let remote_process_a = tg -u $remote_server.url get $process_a_id --pretty
-	assert equal $dummy_process_a $remote_process_a
+	let source_process_a = tg -u $source.url get $process_a_id --pretty
+	let remote_process_a = tg -u $remote.url get $process_a_id --pretty
+	assert equal $source_process_a $remote_process_a
 
 	# Confirm process B is on the remote and the same.
-	let dummy_process_b = tg -u $dummy_server.url get $process_b_id --pretty
-	let remote_process_b = tg -u $remote_server.url get $process_b_id --pretty
-	assert equal $dummy_process_b $remote_process_b
+	let source_process_b = tg -u $source.url get $process_b_id --pretty
+	let remote_process_b = tg -u $remote.url get $process_b_id --pretty
+	assert equal $source_process_b $remote_process_b
 
 	# Confirm process C is on the remote and the same.
-	let dummy_process_c = tg -u $dummy_server.url get $process_c_id --pretty
-	let remote_process_c = tg -u $remote_server.url get $process_c_id --pretty
-	assert equal $dummy_process_c $remote_process_c
+	let source_process_c = tg -u $source.url get $process_c_id --pretty
+	let remote_process_c = tg -u $remote.url get $process_c_id --pretty
+	assert equal $source_process_c $remote_process_c
 
 	# Confirm process D is on the remote and the same.
-	let dummy_process_d = tg -u $dummy_server.url get $process_d_id --pretty
-	let remote_process_d = tg -u $remote_server.url get $process_d_id --pretty
-	assert equal $dummy_process_d $remote_process_d
+	let source_process_d = tg -u $source.url get $process_d_id --pretty
+	let remote_process_d = tg -u $remote.url get $process_d_id --pretty
+	assert equal $source_process_d $remote_process_d
 
 	# Confirm all commands are on the remote.
-	tg -u $remote_server.url get $command_a_id --pretty
-	tg -u $remote_server.url get $command_b_id --pretty
-	tg -u $remote_server.url get $command_c_id --pretty
-	tg -u $remote_server.url get $command_d_id --pretty
+	tg -u $remote.url get $command_a_id --pretty
+	tg -u $remote.url get $command_b_id --pretty
+	tg -u $remote.url get $command_c_id --pretty
+	tg -u $remote.url get $command_d_id --pretty
 
 	# Confirm all outputs are on the remote.
-	tg -u $remote_server.url get $output_a_id --pretty
-	tg -u $remote_server.url get $output_d_id --pretty
+	tg -u $remote.url get $output_a_id --pretty
+	tg -u $remote.url get $output_d_id --pretty
 }

@@ -7,13 +7,13 @@ use ../../test.nu *
 # that a full push produces identical metadata.
 
 # Create the local server.
-let local_server = spawn -n local
+let local = spawn -n local
 
 # Create the remote server (receives incremental puts).
-let remote_server = spawn -n remote
+let remote = spawn -n remote
 
-# Create the push server (receives a full push for comparison).
-let push_server = spawn -n push
+# Create another server (receives a full push for comparison).
+let other = spawn -n other
 
 # Tag a dependency on the local server.
 let dep_path = artifact {
@@ -21,7 +21,7 @@ let dep_path = artifact {
 		export default () => "dependency";
 	'
 }
-tg -u $local_server.url tag dep $dep_path
+tg -u $local.url tag dep $dep_path
 
 # Create a package that imports the tagged dependency.
 let path = artifact {
@@ -32,34 +32,34 @@ let path = artifact {
 }
 
 # Check in the package on the local server.
-let id = tg -u $local_server.url checkin $path
+let id = tg -u $local.url checkin $path
 let dir_id = $id
 
 # Get the file id.
-let output = tg -u $local_server.url children $id
+let output = tg -u $local.url children $id
 let fil_id = $output | from json | get 0
 
 # Get the blob id.
-let output = tg -u $local_server.url children $fil_id
+let output = tg -u $local.url children $fil_id
 let blb_id = $output | from json | get 0
 
 # Index the local server to get the expected metadata.
-tg -u $local_server.url index
-let expected_metadata = tg -u $local_server.url object metadata $dir_id --pretty
+tg -u $local.url index
+let expected_metadata = tg -u $local.url object metadata $dir_id --pretty
 
 # Put only the directory to the remote server.
-tg -u $local_server.url get --bytes $dir_id | tg -u $remote_server.url put --bytes -k dir
+tg -u $local.url get --bytes $dir_id | tg -u $remote.url put --bytes -k dir
 
 # The directory should exist on remote server, but file should not.
-let output = tg -u $remote_server.url get $dir_id | complete
+let output = tg -u $remote.url get $dir_id | complete
 success $output "directory should exist on remote server"
 
-let output = tg -u $remote_server.url get $fil_id | complete
+let output = tg -u $remote.url get $fil_id | complete
 failure $output "file should NOT exist on remote server"
 
 # Index and check metadata - should be incomplete.
-tg -u $remote_server.url index
-let incomplete_metadata = tg -u $remote_server.url object metadata $dir_id --pretty
+tg -u $remote.url index
+let incomplete_metadata = tg -u $remote.url object metadata $dir_id --pretty
 snapshot -n incomplete_metadata $incomplete_metadata '
 	{
 	  "node": {
@@ -71,11 +71,11 @@ snapshot -n incomplete_metadata $incomplete_metadata '
 '
 
 # Now put the file
-tg -u $local_server.url get --bytes $fil_id | tg -u $remote_server.url put --bytes -k fil
+tg -u $local.url get --bytes $fil_id | tg -u $remote.url put --bytes -k fil
 
 # Index and check metadata - should still be incomplete because blob is missing.
-tg -u $remote_server.url index
-let partial_metadata = tg -u $remote_server.url object metadata $dir_id --pretty
+tg -u $remote.url index
+let partial_metadata = tg -u $remote.url object metadata $dir_id --pretty
 snapshot -n partial_metadata $partial_metadata '
 	{
 	  "node": {
@@ -87,14 +87,14 @@ snapshot -n partial_metadata $partial_metadata '
 '
 
 # Now put the blob.
-tg -u $local_server.url get --bytes $blb_id | tg -u $remote_server.url put --bytes -k blob
+tg -u $local.url get --bytes $blb_id | tg -u $remote.url put --bytes -k blob
 
 # Put the tag.
-tg -u $remote_server.url tag dep $dep_path
+tg -u $remote.url tag dep $dep_path
 
 # Index and check metadata - should now be complete.
-tg -u $remote_server.url index
-let complete_metadata = tg -u $remote_server.url object metadata $dir_id --pretty
+tg -u $remote.url index
+let complete_metadata = tg -u $remote.url object metadata $dir_id --pretty
 snapshot -n complete_metadata $complete_metadata '
 	{
 	  "node": {
@@ -115,17 +115,17 @@ snapshot -n complete_metadata $complete_metadata '
 # Verify the complete metadata matches the expected metadata from the local server.
 assert equal $complete_metadata $expected_metadata
 
-# Now test push: add the push server as a remote and push the directory.
-tg -u $local_server.url remote put push $push_server.url
-tg -u $local_server.url push --remote push $dir_id
+# Now test push: add the other server as a remote and push the directory.
+tg -u $local.url remote put push $other.url
+tg -u $local.url push --remote push $dir_id
 
-# Also push the tag to the push server.
-tg -u $push_server.url tag dep $dep_path
+# Also push the tag to the other server.
+tg -u $other.url tag dep $dep_path
 
-# Index the push server and verify metadata matches.
-tg -u $push_server.url index
-let push_metadata = tg -u $push_server.url object metadata $dir_id --pretty
+# Index the other server and verify metadata matches.
+tg -u $other.url index
+let other_metadata = tg -u $other.url object metadata $dir_id --pretty
 
 # All three servers should have identical metadata.
-assert equal $push_metadata $expected_metadata
-assert equal $push_metadata $complete_metadata
+assert equal $other_metadata $expected_metadata
+assert equal $other_metadata $complete_metadata

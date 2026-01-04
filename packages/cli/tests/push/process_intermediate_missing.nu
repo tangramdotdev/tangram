@@ -2,16 +2,16 @@ use ../../test.nu *
 
 export def test [...args] {
 	# Create a remote server.
-	let remote_server = spawn -n remote
+	let remote = spawn -n remote
 
 	# Create a local server.
-	let local_server = spawn -n local
+	let local = spawn -n local
 
-	# Create a dummy server.
-	let dummy_server = spawn -n dummy
+	# Create a source server.
+	let source = spawn -n source
 
 	# Add the remote to the local server.
-	tg remote put default $remote_server.url
+	tg remote put default $remote.url
 
 	let path = artifact {
 		tangram.ts: '
@@ -22,19 +22,19 @@ export def test [...args] {
 	}
 
 	# Build the module.
-	let output = tg -u $dummy_server.url build -d $path | from json
+	let output = tg -u $source.url build -d $path | from json
 	let process_id = $output.process
 
 	# Wait for the process to finish.
-	tg -u $dummy_server.url wait $process_id
+	tg -u $source.url wait $process_id
 
 	# Get the process data.
-	let process_data = tg -u $dummy_server.url get $process_id | from json
+	let process_data = tg -u $source.url get $process_id | from json
 	let command_id = $process_data.command
 	let output_id = $process_data.output.value
 
 	# Get the output's children (the blob).
-	let output_children = tg -u $dummy_server.url children $output_id | from json
+	let output_children = tg -u $source.url children $output_id | from json
 	let blb_id = $output_children | get 0
 
 	# Get all the command's descendants recursively by manually traversing the tree.
@@ -43,7 +43,7 @@ export def test [...args] {
 	while ($to_visit | length) > 0 {
 		let current = $to_visit | first
 		$to_visit = ($to_visit | skip 1)
-		let children = tg -u $dummy_server.url children $current | from json
+		let children = tg -u $source.url children $current | from json
 		for child in $children {
 			if $child not-in $all_descendants {
 				$all_descendants = ($all_descendants | append $child)
@@ -53,52 +53,52 @@ export def test [...args] {
 	}
 
 	# Put the process to the local server.
-	tg -u $dummy_server.url get $process_id | tg -u $local_server.url put --id $process_id
+	tg -u $source.url get $process_id | tg -u $local.url put --id $process_id
 
 	# Put the command to the remote server (intermediate missing locally).
-	tg -u $dummy_server.url get --bytes $command_id | tg -u $remote_server.url put --bytes -k cmd
+	tg -u $source.url get --bytes $command_id | tg -u $remote.url put --bytes -k cmd
 
 	# Put the command's descendants to the remote server.
 	for child_id in $all_descendants {
 		let kind = $child_id | str substring 0..<3
-		tg -u $dummy_server.url get --bytes $child_id | tg -u $remote_server.url put --bytes -k $kind
+		tg -u $source.url get --bytes $child_id | tg -u $remote.url put --bytes -k $kind
 	}
 
 	# Put the output (file) to the local server.
-	tg -u $dummy_server.url get --bytes $output_id | tg -u $local_server.url put --bytes -k fil
+	tg -u $source.url get --bytes $output_id | tg -u $local.url put --bytes -k fil
 
 	# Put the blob to the local server.
-	tg -u $dummy_server.url get --bytes $blb_id | tg -u $local_server.url put --bytes -k blob
+	tg -u $source.url get --bytes $blb_id | tg -u $local.url put --bytes -k blob
 
 	# Confirm the command is not on the local server.
-	let output = tg -u $local_server.url get $command_id | complete
+	let output = tg -u $local.url get $command_id | complete
 	failure $output
 
 	# Confirm the file is not on the remote server.
-	let output = tg -u $remote_server.url get $output_id | complete
+	let output = tg -u $remote.url get $output_id | complete
 	failure $output
 
 	# Index.
-	tg -u $local_server.url index
-	tg -u $remote_server.url index
+	tg -u $local.url index
+	tg -u $remote.url index
 
 	# Add the remote to the local server.
-	tg -u $local_server.url remote put default $remote_server.url
+	tg -u $local.url remote put default $remote.url
 
 	# Push the process.
-	tg -u $local_server.url push $process_id --commands ...$args
+	tg -u $local.url push $process_id --commands ...$args
 
 	# Confirm the process is on the remote and the same.
-	let dummy_process = tg -u $dummy_server.url get $process_id --pretty
-	let remote_process = tg -u $remote_server.url get $process_id --pretty
-	assert equal $dummy_process $remote_process
+	let source_process = tg -u $source.url get $process_id --pretty
+	let remote_process = tg -u $remote.url get $process_id --pretty
+	assert equal $source_process $remote_process
 
 	# Index.
-	tg -u $dummy_server.url index
-	tg -u $remote_server.url index
+	tg -u $source.url index
+	tg -u $remote.url index
 
 	# Confirm metadata matches.
-	let dummy_metadata = tg -u $dummy_server.url process metadata $process_id --pretty
-	let remote_metadata = tg -u $remote_server.url process metadata $process_id --pretty
-	assert equal $dummy_metadata $remote_metadata
+	let source_metadata = tg -u $source.url process metadata $process_id --pretty
+	let remote_metadata = tg -u $remote.url process metadata $process_id --pretty
+	assert equal $source_metadata $remote_metadata
 }

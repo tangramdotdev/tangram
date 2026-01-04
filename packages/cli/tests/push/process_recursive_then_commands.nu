@@ -12,13 +12,13 @@ def collect_commands [process_id: string] {
 
 export def test [path: string, ...args] {
 	# Create a remote server.
-	let remote_server = spawn -n remote
+	let remote = spawn -n remote
 
 	# Create a local server.
-	let local_server = spawn -n local
+	let local = spawn -n local
 
 	# Add the remote.
-	tg remote put default $remote_server.url
+	tg remote put default $remote.url
 
 	# Build the module.
 	let output = tg build -d $path | from json
@@ -38,13 +38,13 @@ export def test [path: string, ...args] {
 
 	# Confirm the process is on the remote and the same.
 	let local_process = tg get $process_id --pretty
-	let remote_process = tg --url $remote_server.url get $process_id --pretty
+	let remote_process = tg --url $remote.url get $process_id --pretty
 	assert equal $local_process $remote_process
 
 	# Confirm output is present.
 	if (($output.output | describe) | str starts-with 'record') {
 		if $output.output.kind == "object" {
-			tg -u $remote_server.url get $output.output.value --pretty
+			tg -u $remote.url get $output.output.value --pretty
 		}
 	}
 
@@ -53,7 +53,7 @@ export def test [path: string, ...args] {
 
 	# For each command, confirm that they are NOT present on the remote.
 	for command in $commands {
-		let output = tg -u $remote_server.url get $command | complete
+		let output = tg -u $remote.url get $command | complete
 		failure $output
 	}
 
@@ -61,10 +61,10 @@ export def test [path: string, ...args] {
 	tg push "--recursive" "--commands" ...$args $process_id
 
 	# Index on the remote.
-	tg -u $remote_server.url index
+	tg -u $remote.url index
 
 	# Confirm that all expected fields are present in the top-level metadata.
-	let remote_metadata = tg -u $remote_server.url metadata $process_id | from json
+	let remote_metadata = tg -u $remote.url metadata $process_id | from json
 	assert ($remote_metadata.subtree?.count? != null) "the metadata should contain the subtree.count field"
 	assert ($remote_metadata.subtree?.command? != null) "the metadata should contain the subtree.command field"
 	assert ($remote_metadata.subtree?.output? != null) "the metadata should contain the subtree.output field"
@@ -73,6 +73,6 @@ export def test [path: string, ...args] {
 
 	# For each of the commands, confirm that they are present.
 	for command in $commands {
-		tg -u $remote_server.url get $command --pretty
+		tg -u $remote.url get $command --pretty
 	}
 }

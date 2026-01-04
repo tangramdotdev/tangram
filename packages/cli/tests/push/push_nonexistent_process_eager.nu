@@ -1,4 +1,4 @@
 use ../../test.nu *
-use ./nonexistant_process.nu test_push
+use ./nonexistent_process.nu test_push
 
 test_push "--eager"

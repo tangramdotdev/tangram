@@ -2,10 +2,10 @@ use ../../test.nu *
 
 # Create remote and local servers.
 let remote = spawn -n remote
-let local = spawn -n local -c {
+let local1 = spawn -n local -c {
 	remotes: [{ name: default, url: $remote.url }]
 }
-let local_two = spawn -n local_two -c {
+let local2 = spawn -n local_two -c {
 	remotes: [{ name: default, url: $remote.url }]
 }
 
@@ -29,7 +29,7 @@ tg tag test-pkg/1.0.0 $id
 tg push test-pkg/1.0.0
 
 # Build from the tag. This should pull the artifact from the remote.
-let output_two_id = tg -u $local_two.url build test-pkg/1.0.0
+let output_two_id = tg -u $local2.url build test-pkg/1.0.0
 
 # Verify the objects are the same.
 assert equal $output_id $output_two_id "objects should be the same"

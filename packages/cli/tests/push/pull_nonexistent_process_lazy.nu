@@ -1,4 +1,4 @@
 use ../../test.nu *
-use ./nonexistant_process.nu test_pull
+use ./nonexistent_process.nu test_pull
 
 test_pull "--lazy"

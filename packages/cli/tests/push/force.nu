@@ -1,13 +1,13 @@
 use ../../test.nu *
 
 # Create a remote server.
-let remote_server = spawn -n remote
+let remote = spawn -n remote
 
 # Create a local server.
-let local_server = spawn -n local
+let local = spawn -n local
 
 # Add the remote to the local server.
-let output = tg remote put default $remote_server.url | complete
+let output = tg remote put default $remote.url | complete
 success $output
 
 # Create a simple artifact.
@@ -32,7 +32,7 @@ snapshot $output.stderr '
 
 # Index both sides to update stored state.
 tg index
-tg --url $remote_server.url index
+tg --url $remote.url index
 
 # Second push without force - should push 0 objects because remote already has them.
 let output = tg push $id | complete
