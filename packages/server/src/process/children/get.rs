@@ -105,9 +105,9 @@ impl Server {
 				.to_i64()
 				.unwrap()
 				.checked_add(seek)
-				.ok_or_else(|| tg::error!("invalid offset"))?
+				.ok_or_else(|| tg::error!("invalid position"))?
 				.to_u64()
-				.ok_or_else(|| tg::error!("invalid offset"))?,
+				.ok_or_else(|| tg::error!("invalid position"))?,
 			None => 0,
 		};
 

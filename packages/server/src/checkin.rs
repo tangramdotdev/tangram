@@ -47,7 +47,7 @@ type IndexObjectMessages =
 
 type IndexCacheEntryMessages = Vec<crate::index::message::PutCacheEntry>;
 
-type StoreArgs = IndexMap<tg::object::Id, crate::store::PutArg, tg::id::BuildHasher>;
+type StoreArgs = IndexMap<tg::object::Id, crate::store::PutObjectArg, tg::id::BuildHasher>;
 
 impl Server {
 	#[tracing::instrument(fields(path = ?arg.path), level = "debug", name = "checkin", skip_all)]
@@ -300,7 +300,7 @@ impl Server {
 				.map(|result| {
 					result
 						.map_err(|source| tg::error!(!source, "the fixup task panicked"))
-						.and_then(|x| x)
+						.and_then(|result| result)
 				});
 			(Some(task), Some(sender))
 		} else {

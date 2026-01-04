@@ -641,7 +641,7 @@ impl Server {
 		}
 
 		// Create the store arg.
-		let store_arg = crate::store::PutArg {
+		let store_arg = crate::store::PutObjectArg {
 			bytes: Some(bytes),
 			cache_pointer: None,
 			id: id.clone(),
@@ -768,14 +768,14 @@ impl Server {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Store the object.
-		let store_arg = crate::store::PutArg {
+		let store_arg = crate::store::PutObjectArg {
 			bytes: Some(bytes),
 			cache_pointer: None,
 			id: id.clone(),
 			touched_at,
 		};
 		self.store
-			.put(store_arg)
+			.put_object(store_arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the reference artifact"))?;
 

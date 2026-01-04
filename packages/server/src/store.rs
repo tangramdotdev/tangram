@@ -1,8 +1,11 @@
 #[cfg(feature = "lmdb")]
 use std::path::Path;
-use {bytes::Bytes, tangram_client::prelude::*, tangram_store as store};
+use {tangram_client::prelude::*, tangram_store as store};
 
-pub use store::{CachePointer, DeleteArg, PutArg};
+pub use store::{
+	CachePointer, DeleteObjectArg, DeleteProcessLogArg, PutObjectArg, PutProcessLogArg,
+	ReadProcessLogArg,
+};
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
@@ -10,7 +13,9 @@ pub use store::{CachePointer, DeleteArg, PutArg};
 pub enum Store {
 	#[cfg(feature = "lmdb")]
 	Lmdb(store::lmdb::Store),
+
 	Memory(store::memory::Store),
+
 	#[cfg(feature = "scylla")]
 	Scylla(store::scylla::Store),
 }
@@ -19,9 +24,12 @@ pub enum Store {
 pub enum Error {
 	#[cfg(feature = "lmdb")]
 	Lmdb(store::lmdb::Error),
+
 	Memory(store::memory::Error),
+
 	#[cfg(feature = "scylla")]
 	Scylla(store::scylla::Error),
+
 	Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
@@ -80,11 +88,14 @@ impl Store {
 		not(any(feature = "lmdb", feature = "scylla")),
 		expect(clippy::unnecessary_wraps)
 	)]
-	pub fn try_get_sync(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
+	pub fn try_get_object_sync(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<store::Object<'static>>> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.try_get_sync(id),
-			Self::Memory(memory) => Ok(memory.try_get(id)),
+			Self::Lmdb(lmdb) => lmdb.try_get_object_sync(id),
+			Self::Memory(memory) => Ok(memory.try_get_object(id)),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(_) => Err(tg::error!("unimplemented")),
 		}
@@ -95,11 +106,14 @@ impl Store {
 		expect(clippy::unnecessary_wraps)
 	)]
 	#[expect(dead_code)]
-	pub fn try_get_batch_sync(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Bytes>>> {
+	pub fn try_get_object_batch_sync(
+		&self,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<store::Object<'static>>>> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.try_get_batch_sync(ids),
-			Self::Memory(memory) => Ok(memory.try_get_batch(ids)),
+			Self::Lmdb(lmdb) => lmdb.try_get_object_batch_sync(ids),
+			Self::Memory(memory) => Ok(memory.try_get_object_batch(ids)),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(_) => Err(tg::error!("unimplemented")),
 		}
@@ -122,31 +136,14 @@ impl Store {
 		not(any(feature = "lmdb", feature = "scylla")),
 		expect(clippy::unnecessary_wraps)
 	)]
-	pub fn try_get_cache_pointer_sync(
-		&self,
-		id: &tg::blob::Id,
-	) -> tg::Result<Option<CachePointer>> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.try_get_cache_pointer_sync(&id.clone().into()),
-			Self::Memory(memory) => Ok(memory.try_get_cache_pointer(&id.clone().into())),
-			#[cfg(feature = "scylla")]
-			Self::Scylla(_) => Err(tg::error!("unimplemented")),
-		}
-	}
-
-	#[cfg_attr(
-		not(any(feature = "lmdb", feature = "scylla")),
-		expect(clippy::unnecessary_wraps)
-	)]
-	pub fn put_sync(&self, arg: PutArg) -> tg::Result<()> {
+	pub fn put_object_sync(&self, arg: PutObjectArg) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => {
-				lmdb.put_sync(arg)?;
+				lmdb.put_object_sync(arg)?;
 			},
 			Self::Memory(memory) => {
-				memory.put(arg);
+				memory.put_object(arg);
 			},
 			#[cfg(feature = "scylla")]
 			Self::Scylla(_) => {
@@ -161,14 +158,14 @@ impl Store {
 		expect(clippy::unnecessary_wraps)
 	)]
 	#[expect(dead_code)]
-	pub fn put_batch_sync(&self, args: Vec<PutArg>) -> tg::Result<()> {
+	pub fn put_object_batch_sync(&self, args: Vec<PutObjectArg>) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => {
-				lmdb.put_batch_sync(args)?;
+				lmdb.put_object_batch_sync(args)?;
 			},
 			Self::Memory(memory) => {
-				memory.put_batch(args);
+				memory.put_object_batch(args);
 			},
 			#[cfg(feature = "scylla")]
 			Self::Scylla(_) => {
@@ -183,14 +180,14 @@ impl Store {
 		expect(clippy::unnecessary_wraps)
 	)]
 	#[expect(dead_code)]
-	pub fn delete_sync(&self, arg: DeleteArg) -> tg::Result<()> {
+	pub fn delete_object_sync(&self, arg: DeleteObjectArg) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => {
-				lmdb.delete_sync(arg)?;
+				lmdb.delete_object_sync(arg)?;
 			},
 			Self::Memory(memory) => {
-				memory.delete(arg);
+				memory.delete_object(arg);
 			},
 			#[cfg(feature = "scylla")]
 			Self::Scylla(_) => {
@@ -205,14 +202,14 @@ impl Store {
 		expect(clippy::unnecessary_wraps)
 	)]
 	#[expect(dead_code)]
-	pub fn delete_batch_sync(&self, args: Vec<DeleteArg>) -> tg::Result<()> {
+	pub fn delete_object_batch_sync(&self, args: Vec<DeleteObjectArg>) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => {
-				lmdb.delete_batch_sync(args)?;
+				lmdb.delete_object_batch_sync(args)?;
 			},
 			Self::Memory(memory) => {
-				memory.delete_batch(args);
+				memory.delete_object_batch(args);
 			},
 			#[cfg(feature = "scylla")]
 			Self::Scylla(_) => {
@@ -248,98 +245,154 @@ impl Store {
 impl store::Store for Store {
 	type Error = Error;
 
-	async fn try_get(&self, id: &tg::object::Id) -> Result<Option<Bytes>, Self::Error> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.try_get(id).await.map_err(Error::Lmdb),
-			Self::Memory(memory) => store::Store::try_get(memory, id)
-				.await
-				.map_err(Error::Memory),
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.try_get(id).await.map_err(Error::Scylla),
-		}
-	}
-
-	async fn try_get_batch(
-		&self,
-		ids: &[tg::object::Id],
-	) -> Result<Vec<Option<Bytes>>, Self::Error> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.try_get_batch(ids).await.map_err(Error::Lmdb),
-			Self::Memory(memory) => Ok(memory.try_get_batch(ids)),
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.try_get_batch(ids).await.map_err(Error::Scylla),
-		}
-	}
-
-	async fn try_get_cache_pointer(
+	async fn try_get_object(
 		&self,
 		id: &tg::object::Id,
-	) -> Result<Option<CachePointer>, Self::Error> {
+	) -> Result<Option<store::Object<'static>>, Self::Error> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.try_get_cache_pointer(id).await.map_err(Error::Lmdb),
-			Self::Memory(memory) => store::Store::try_get_cache_pointer(memory, id)
+			Self::Lmdb(lmdb) => lmdb.try_get_object(id).await.map_err(Error::Lmdb),
+			Self::Memory(memory) => store::Store::try_get_object(memory, id)
 				.await
 				.map_err(Error::Memory),
 			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.try_get_object(id).await.map_err(Error::Scylla),
+		}
+	}
+
+	async fn try_get_object_batch(
+		&self,
+		ids: &[tg::object::Id],
+	) -> Result<Vec<Option<store::Object<'static>>>, Self::Error> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => lmdb.try_get_object_batch(ids).await.map_err(Error::Lmdb),
+			Self::Memory(memory) => Ok(memory.try_get_object_batch(ids)),
+			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla
-				.try_get_cache_pointer(id)
+				.try_get_object_batch(ids)
 				.await
 				.map_err(Error::Scylla),
 		}
 	}
 
-	async fn put(&self, arg: PutArg) -> Result<(), Self::Error> {
+	async fn put_object(&self, arg: PutObjectArg) -> Result<(), Self::Error> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.put(arg).await.map_err(Error::Lmdb),
+			Self::Lmdb(lmdb) => lmdb.put_object(arg).await.map_err(Error::Lmdb),
 			Self::Memory(memory) => {
-				memory.put(arg);
+				memory.put_object(arg);
 				Ok(())
 			},
 			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.put(arg).await.map_err(Error::Scylla),
+			Self::Scylla(scylla) => scylla.put_object(arg).await.map_err(Error::Scylla),
 		}
 	}
 
-	async fn put_batch(&self, args: Vec<PutArg>) -> Result<(), Self::Error> {
+	async fn put_object_batch(&self, args: Vec<PutObjectArg>) -> Result<(), Self::Error> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.put_batch(args).await.map_err(Error::Lmdb),
+			Self::Lmdb(lmdb) => lmdb.put_object_batch(args).await.map_err(Error::Lmdb),
 			Self::Memory(memory) => {
-				memory.put_batch(args);
+				memory.put_object_batch(args);
 				Ok(())
 			},
 			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.put_batch(args).await.map_err(Error::Scylla),
+			Self::Scylla(scylla) => scylla.put_object_batch(args).await.map_err(Error::Scylla),
 		}
 	}
 
-	async fn delete(&self, arg: DeleteArg) -> Result<(), Self::Error> {
+	async fn delete_object(&self, arg: DeleteObjectArg) -> Result<(), Self::Error> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.delete(arg).await.map_err(Error::Lmdb),
+			Self::Lmdb(lmdb) => lmdb.delete_object(arg).await.map_err(Error::Lmdb),
 			Self::Memory(memory) => {
-				memory.delete(arg);
+				memory.delete_object(arg);
 				Ok(())
 			},
 			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.delete(arg).await.map_err(Error::Scylla),
+			Self::Scylla(scylla) => scylla.delete_object(arg).await.map_err(Error::Scylla),
 		}
 	}
 
-	async fn delete_batch(&self, args: Vec<DeleteArg>) -> Result<(), Self::Error> {
+	async fn delete_object_batch(&self, args: Vec<DeleteObjectArg>) -> Result<(), Self::Error> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.delete_batch(args).await.map_err(Error::Lmdb),
+			Self::Lmdb(lmdb) => lmdb.delete_object_batch(args).await.map_err(Error::Lmdb),
 			Self::Memory(memory) => {
-				memory.delete_batch(args);
+				memory.delete_object_batch(args);
 				Ok(())
 			},
 			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.delete_batch(args).await.map_err(Error::Scylla),
+			Self::Scylla(scylla) => scylla
+				.delete_object_batch(args)
+				.await
+				.map_err(Error::Scylla),
+		}
+	}
+
+	async fn try_read_process_log(
+		&self,
+		arg: ReadProcessLogArg,
+	) -> Result<Vec<store::ProcessLogEntry<'static>>, Self::Error> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => lmdb.try_read_process_log(arg).await.map_err(Error::Lmdb),
+			Self::Memory(memory) => memory
+				.try_read_process_log(arg)
+				.await
+				.map_err(Error::Memory),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla
+				.try_read_process_log(arg)
+				.await
+				.map_err(Error::Scylla),
+		}
+	}
+
+	async fn try_get_process_log_length(
+		&self,
+		id: &tg::process::Id,
+		stream: Option<tg::process::log::Stream>,
+	) -> Result<Option<u64>, Self::Error> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => lmdb
+				.try_get_process_log_length(id, stream)
+				.await
+				.map_err(Error::Lmdb),
+			Self::Memory(memory) => Ok(memory.try_get_process_log_length(id, stream)),
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla
+				.try_get_process_log_length(id, stream)
+				.await
+				.map_err(Error::Scylla),
+		}
+	}
+
+	async fn put_process_log(&self, arg: PutProcessLogArg) -> Result<(), Self::Error> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => lmdb.put_process_log(arg).await.map_err(Error::Lmdb),
+			Self::Memory(memory) => {
+				memory.put_process_log(arg);
+				Ok(())
+			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.put_process_log(arg).await.map_err(Error::Scylla),
+		}
+	}
+
+	async fn delete_process_log(&self, arg: DeleteProcessLogArg) -> Result<(), Self::Error> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(lmdb) => lmdb.delete_process_log(arg).await.map_err(Error::Lmdb),
+			Self::Memory(memory) => {
+				memory.delete_process_log(arg);
+				Ok(())
+			},
+			#[cfg(feature = "scylla")]
+			Self::Scylla(scylla) => scylla.delete_process_log(arg).await.map_err(Error::Scylla),
 		}
 	}
 

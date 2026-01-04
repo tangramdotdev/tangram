@@ -73,11 +73,10 @@ impl Server {
 			created_ats.push(data.created_at);
 			dequeued_ats.push(data.dequeued_at);
 			enqueued_ats.push(data.enqueued_at);
-			errors.push(
-				data.error
-					.as_ref()
-					.map(|error| serde_json::to_string(error).unwrap()),
-			);
+			errors.push(data.error.as_ref().map(|error| match error {
+				tg::Either::Left(data) => serde_json::to_string(data).unwrap(),
+				tg::Either::Right(id) => id.to_string(),
+			}));
 			error_codes.push(
 				data.error
 					.as_ref()

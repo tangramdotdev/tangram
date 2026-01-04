@@ -126,7 +126,7 @@ fn parse_mount(arg: &str) -> Result<Mount, String> {
 		match k {
 			"type" => {
 				if fstype.is_some() {
-					return Err("type already specified".to_string());
+					return Err("type already specified".to_owned());
 				}
 				let v = kv.next().ok_or_else(|| format!("expected a value {opt}"))?;
 				if v == "bind" {

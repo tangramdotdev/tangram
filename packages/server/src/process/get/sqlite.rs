@@ -127,13 +127,20 @@ impl Server {
 			.command
 			.parse()
 			.map_err(|source| tg::error!(!source, %id, "failed to parse the command"))?;
-		let error = row.error.map(|s| {
-			if s.starts_with('{') {
-				tg::Either::Left(serde_json::from_str(&s).unwrap())
-			} else {
-				tg::Either::Right(s.parse().unwrap())
-			}
-		});
+		let error = row
+			.error
+			.map(|s| {
+				if s.starts_with('{') {
+					serde_json::from_str(&s).map(tg::Either::Left).map_err(
+						|source| tg::error!(!source, %id, "failed to deserialize the error"),
+					)
+				} else {
+					s.parse()
+						.map(tg::Either::Right)
+						.map_err(|source| tg::error!(!source, %id, "failed to parse the error id"))
+				}
+			})
+			.transpose()?;
 		let expected_checksum = row
 			.expected_checksum
 			.map(|s| s.parse())

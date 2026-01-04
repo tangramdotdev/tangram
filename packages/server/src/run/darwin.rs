@@ -133,7 +133,7 @@ impl Server {
 					.build()
 					.unwrap()
 			} else {
-				"http://localhost:0".to_string().parse::<Uri>().unwrap()
+				"http://localhost:0".to_owned().parse::<Uri>().unwrap()
 			};
 			let listener = Server::listen(&url)
 				.await

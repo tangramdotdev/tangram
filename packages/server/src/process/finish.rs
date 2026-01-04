@@ -2,7 +2,7 @@ use {
 	crate::{Context, Server},
 	bytes::Bytes,
 	futures::{
-		Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
+		FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
 		stream::FuturesUnordered,
 	},
 	indoc::formatdoc,
@@ -257,24 +257,28 @@ impl Server {
 			data.command.clone().into(),
 			crate::index::message::ProcessObjectKind::Command,
 		);
-		let errors = data.error.as_ref().into_iter().flat_map(|e| match e {
-			tg::Either::Left(data) => {
-				let mut children = BTreeSet::new();
-				data.children(&mut children);
-				children
-					.into_iter()
-					.map(|object| {
-						let kind = crate::index::message::ProcessObjectKind::Error;
-						(object, kind)
-					})
-					.collect::<Vec<_>>()
-			},
-			tg::Either::Right(id) => {
-				let id = id.clone().into();
-				let kind = crate::index::message::ProcessObjectKind::Error;
-				vec![(id, kind)]
-			},
-		});
+		let errors = data
+			.error
+			.as_ref()
+			.into_iter()
+			.flat_map(|error| match error {
+				tg::Either::Left(data) => {
+					let mut children = BTreeSet::new();
+					data.children(&mut children);
+					children
+						.into_iter()
+						.map(|object| {
+							let kind = crate::index::message::ProcessObjectKind::Error;
+							(object, kind)
+						})
+						.collect::<Vec<_>>()
+				},
+				tg::Either::Right(id) => {
+					let id = id.clone().into();
+					let kind = crate::index::message::ProcessObjectKind::Error;
+					vec![(id, kind)]
+				},
+			});
 		let log = data.log.as_ref().map(|id| {
 			let id = id.clone().into();
 			let kind = crate::index::message::ProcessObjectKind::Log;
@@ -325,6 +329,21 @@ impl Server {
 				}
 			})
 			.detach();
+
+		// Publish the finish message.
+		tokio::spawn({
+			let server = self.clone();
+			let id = id.clone();
+			async move {
+				let message = Message { id: id.clone() };
+				server
+					.messenger
+					.stream_publish("finish".to_owned(), message)
+					.await
+					.inspect_err(|error| tracing::error!(%error, %id, "failed to publish"))
+					.ok();
+			}
+		});
 
 		// Publish the status.
 		tokio::spawn({
@@ -423,7 +442,15 @@ impl Server {
 		_config: &crate::config::Finisher,
 		messages: Vec<(Vec<Message>, messenger::Acker)>,
 	) -> tg::Result<()> {
-		for (_messages, acker) in messages {
+		for (messages, acker) in messages {
+			for message in messages {
+				let process = message.id;
+				self.compact_process_log(&process)
+					.boxed()
+					.await
+					.inspect_err(|error| tracing::error!(?error, %process, "failed to compact log"))
+					.ok();
+			}
 			acker
 				.ack()
 				.await

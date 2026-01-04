@@ -36,14 +36,14 @@ impl Server {
 
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
-		let put_arg = crate::store::PutArg {
+		let put_arg = crate::store::PutObjectArg {
 			id: id.clone(),
 			bytes: Some(arg.bytes.clone()),
 			touched_at: now,
 			cache_pointer: None,
 		};
 		self.store
-			.put(put_arg)
+			.put_object(put_arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the object"))?;
 

@@ -141,13 +141,22 @@ impl Server {
 				children.push(referent);
 			}
 
-			let error = row.error.map(|s| {
-				if s.starts_with('{') {
-					tg::Either::Left(serde_json::from_str(&s).unwrap())
-				} else {
-					tg::Either::Right(s.parse().unwrap())
-				}
-			});
+			let error = row
+				.error
+				.map(|s| {
+					if s.starts_with('{') {
+						serde_json::from_str(&s)
+							.map(tg::Either::Left)
+							.map_err(|source| {
+								tg::error!(!source, "failed to deserialize the error")
+							})
+					} else {
+						s.parse()
+							.map(tg::Either::Right)
+							.map_err(|source| tg::error!(!source, "failed to parse the error id"))
+					}
+				})
+				.transpose()?;
 			let data = tg::process::Data {
 				actual_checksum: row.actual_checksum,
 				cacheable: row.cacheable,

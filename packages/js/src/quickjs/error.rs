@@ -79,6 +79,7 @@ pub fn from_exception<'js>(
 		{
 			return Some(tg::Error::with_object(error));
 		}
+
 		// Clear any pending exception from the failed toData call.
 		let _ = ctx.catch();
 
@@ -134,7 +135,7 @@ pub fn from_exception<'js>(
 	// Get the message.
 	let message = object.get::<_, String>("message").ok();
 
-	// Get the stack - it should be an array of Location objects if prepareStackTrace worked.
+	// Get the stack.
 	let stack = object
 		.get::<_, qjs::Array>("stack")
 		.ok()
@@ -347,10 +348,10 @@ fn get_location(
 	}
 
 	// Handle "!" which is the root module.
-	// Otherwise, file_name should be a module data string.
 	let module_data = if file_name == "!" {
 		state.root.clone()
 	} else {
+		// Otherwise, the file name should be a module data string.
 		file_name.parse().ok()?
 	};
 

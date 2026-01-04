@@ -203,7 +203,7 @@ impl Struct<'_> {
 		};
 
 		// Handle generics.
-		let (_, ty_generics, where_clause) = self.generics.split_for_impl();
+		let (_, _, where_clause) = self.generics.split_for_impl();
 
 		// Add Deserialize bounds for all type parameters.
 		let mut where_clause = where_clause.cloned().unwrap_or_else(|| syn::WhereClause {
@@ -211,22 +211,52 @@ impl Struct<'_> {
 			predicates: syn::punctuated::Punctuated::new(),
 		});
 
-		// Collect the generic parameters (without angle brackets).
-		let generic_params = &self.generics.params;
+		// Separate lifetime parameters from type parameters. Lifetime parameters get replaced with 'de to enable zero-copy deserialization.
+		let lifetime_params: Vec<_> = self
+			.generics
+			.params
+			.iter()
+			.filter_map(|p| {
+				if let syn::GenericParam::Lifetime(lt) = p {
+					Some(lt)
+				} else {
+					None
+				}
+			})
+			.collect();
+		let type_params: Vec<_> = self
+			.generics
+			.params
+			.iter()
+			.filter_map(|p| {
+				if let syn::GenericParam::Type(tp) = p {
+					Some(tp)
+				} else {
+					None
+				}
+			})
+			.collect();
 
 		// Add the Deserialize<'de> bound for each type parameter.
-		for param in generic_params {
-			if let syn::GenericParam::Type(type_param) = param {
-				let ident = &type_param.ident;
-				let predicate: syn::WherePredicate = syn::parse_quote! {
-					#ident: tangram_serialize::Deserialize<'de>
-				};
-				where_clause.predicates.push(predicate);
-			}
+		for type_param in &type_params {
+			let ident = &type_param.ident;
+			let predicate: syn::WherePredicate = syn::parse_quote! {
+				#ident: tangram_serialize::Deserialize<'de>
+			};
+			where_clause.predicates.push(predicate);
 		}
 
-		// Generate the code with 'de lifetime.
-		if generic_params.is_empty() {
+		// Build ty_generics with lifetime params replaced by 'de.
+		let ty_generics = if lifetime_params.is_empty() && type_params.is_empty() {
+			quote! {}
+		} else {
+			let de_lifetimes = lifetime_params.iter().map(|_| quote! { 'de });
+			let type_idents = type_params.iter().map(|tp| &tp.ident);
+			quote! { <#(#de_lifetimes,)* #(#type_idents),*> }
+		};
+
+		// Generate the code with 'de lifetime. Type parameters are added to impl generics, but lifetime parameters are not (they get unified with 'de).
+		if type_params.is_empty() {
 			quote! {
 				impl<'de> tangram_serialize::Deserialize<'de> for #ident #ty_generics
 				#where_clause
@@ -239,7 +269,7 @@ impl Struct<'_> {
 			}
 		} else {
 			quote! {
-				impl<'de, #generic_params> tangram_serialize::Deserialize<'de> for #ident #ty_generics
+				impl<'de, #(#type_params),*> tangram_serialize::Deserialize<'de> for #ident #ty_generics
 				#where_clause
 				{
 					fn deserialize(deserializer: &mut tangram_serialize::Deserializer<'de>) -> ::std::io::Result<Self>
@@ -455,7 +485,7 @@ impl Enum<'_> {
 		};
 
 		// Handle generics.
-		let (_, ty_generics, where_clause) = self.generics.split_for_impl();
+		let (_, _, where_clause) = self.generics.split_for_impl();
 
 		// Add Deserialize bounds for all type parameters.
 		let mut where_clause = where_clause.cloned().unwrap_or_else(|| syn::WhereClause {
@@ -463,22 +493,54 @@ impl Enum<'_> {
 			predicates: syn::punctuated::Punctuated::new(),
 		});
 
-		// Collect the generic parameters (without angle brackets).
-		let generic_params = &self.generics.params;
+		// Separate lifetime parameters from type parameters. Lifetime parameters get replaced with 'de to enable zero-copy deserialization.
+		let lifetime_params: Vec<_> = self
+			.generics
+			.params
+			.iter()
+			.filter_map(|p| {
+				if let syn::GenericParam::Lifetime(lt) = p {
+					Some(lt)
+				} else {
+					None
+				}
+			})
+			.collect();
+		let type_params: Vec<_> = self
+			.generics
+			.params
+			.iter()
+			.filter_map(|p| {
+				if let syn::GenericParam::Type(tp) = p {
+					Some(tp)
+				} else {
+					None
+				}
+			})
+			.collect();
 
 		// Add the Deserialize<'de> bound for each type parameter.
-		for param in generic_params {
-			if let syn::GenericParam::Type(type_param) = param {
-				let ident = &type_param.ident;
-				let predicate: syn::WherePredicate = syn::parse_quote! {
-					#ident: tangram_serialize::Deserialize<'de>
-				};
-				where_clause.predicates.push(predicate);
-			}
+		for type_param in &type_params {
+			let ident = &type_param.ident;
+			let predicate: syn::WherePredicate = syn::parse_quote! {
+				#ident: tangram_serialize::Deserialize<'de>
+			};
+			where_clause.predicates.push(predicate);
 		}
 
+		// Build ty_generics with lifetime params replaced by 'de.
+		let ty_generics = if lifetime_params.is_empty() && type_params.is_empty() {
+			quote! {}
+		} else {
+			let de_lifetimes = lifetime_params.iter().map(|_| quote! { 'de });
+			let type_idents = type_params.iter().map(|tp| &tp.ident);
+			quote! { <#(#de_lifetimes,)* #(#type_idents),*> }
+		};
+
 		// Generate the code with 'de lifetime.
-		if generic_params.is_empty() {
+		// Type parameters are added to impl generics, but lifetime parameters are not
+		// (they get unified with 'de).
+		if type_params.is_empty() {
 			quote! {
 				impl<'de> tangram_serialize::Deserialize<'de> for #ident #ty_generics
 				#where_clause
@@ -491,7 +553,7 @@ impl Enum<'_> {
 			}
 		} else {
 			quote! {
-				impl<'de, #generic_params> tangram_serialize::Deserialize<'de> for #ident #ty_generics
+				impl<'de, #(#type_params),*> tangram_serialize::Deserialize<'de> for #ident #ty_generics
 				#where_clause
 				{
 					fn deserialize(deserializer: &mut tangram_serialize::Deserializer<'de>) -> ::std::io::Result<Self>

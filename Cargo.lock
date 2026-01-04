@@ -6508,6 +6508,7 @@ dependencies = [
  "serde_json",
  "tangram_client",
  "tangram_serialize",
+ "tempfile",
  "time",
  "tokio",
 ]

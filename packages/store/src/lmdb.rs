@@ -1,9 +1,13 @@
 use {
-	crate::{CachePointer, DeleteArg, Error as _, PutArg},
+	crate::{
+		CachePointer, DeleteObjectArg, DeleteProcessLogArg, Error as _, Object, ProcessLogEntry,
+		PutObjectArg, PutProcessLogArg, ReadProcessLogArg,
+	},
 	bytes::Bytes,
 	foundationdb_tuple::TuplePack as _,
 	heed as lmdb,
 	num::ToPrimitive as _,
+	std::borrow::Cow,
 	tangram_client::prelude::*,
 };
 
@@ -33,34 +37,51 @@ pub enum Error {
 }
 
 enum Request {
-	Put(Put),
-	PutBatch(Vec<Put>),
-	Delete(Delete),
-	DeleteBatch(Vec<Delete>),
+	Object(ObjectRequest),
+	ProcessLog(ProcessLogRequest),
 }
 
-struct Put {
+enum ObjectRequest {
+	Put(PutObject),
+	PutBatch(Vec<PutObject>),
+	Delete(DeleteObject),
+	DeleteBatch(Vec<DeleteObject>),
+}
+
+struct PutObject {
 	bytes: Option<Bytes>,
 	cache_pointer: Option<CachePointer>,
 	id: tg::object::Id,
 	touched_at: i64,
 }
 
-struct Delete {
+struct DeleteObject {
 	id: tg::object::Id,
 	now: i64,
 	ttl: u64,
 }
 
-struct Key<'a> {
-	id: &'a [u8],
-	kind: KeyKind,
+enum ProcessLogRequest {
+	Put(PutProcessLog),
+	Delete(DeleteProcessLog),
 }
 
-enum KeyKind {
-	Bytes,
-	TouchedAt,
-	CachePointer,
+struct PutProcessLog {
+	bytes: Bytes,
+	id: tg::process::Id,
+	stream: tg::process::log::Stream,
+	timestamp: i64,
+}
+
+struct DeleteProcessLog {
+	id: tg::process::Id,
+}
+
+#[derive(Debug)]
+enum Key<'a> {
+	Object(&'a tg::object::Id),
+	ProcessLogEntry(&'a tg::process::Id, u64),
+	ProcessLogStreamPosition(&'a tg::process::Id, tg::process::log::Stream, u64),
 }
 
 impl Store {
@@ -107,97 +128,72 @@ impl Store {
 		Ok(Self { db, env, sender })
 	}
 
-	pub fn try_get_sync(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
+	pub fn try_get_object_sync(&self, id: &tg::object::Id) -> tg::Result<Option<Object<'static>>> {
 		let transaction = self
 			.env
 			.read_txn()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-		let id_bytes = id.to_bytes();
-		let key = Key {
-			id: id_bytes.as_ref(),
-			kind: KeyKind::Bytes,
-		};
+		let key = Key::Object(id);
+		let key_bytes = key.pack_to_vec();
 		let Some(bytes) = self
 			.db
-			.get(&transaction, &key.pack_to_vec())
+			.get(&transaction, &key_bytes)
 			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
 		else {
 			return Ok(None);
 		};
-		let bytes = Bytes::copy_from_slice(bytes);
-		Ok::<_, tg::Error>(Some(bytes))
+		let value = Object::deserialize(bytes)
+			.map_err(|source| tg::error!(!source, %id, "failed to deserialize the object"))?;
+		Ok(Some(value))
 	}
 
-	pub fn try_get_batch_sync(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Bytes>>> {
+	pub fn try_get_object_batch_sync(
+		&self,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<Object<'static>>>> {
 		let transaction = self
 			.env
 			.read_txn()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 		let mut outputs = Vec::with_capacity(ids.len());
 		for id in ids {
-			let id_bytes = id.to_bytes();
-			let key = Key {
-				id: id_bytes.as_ref(),
-				kind: KeyKind::Bytes,
-			};
-			let bytes = self
+			let key = Key::Object(id);
+			let value = self
 				.db
 				.get(&transaction, &key.pack_to_vec())
 				.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
-				.map(Bytes::copy_from_slice);
-			outputs.push(bytes);
+				.and_then(|bytes| Object::deserialize(bytes).ok());
+			outputs.push(value);
 		}
-		Ok::<_, tg::Error>(outputs)
+		Ok(outputs)
 	}
 
 	pub fn try_get_object_data_sync(
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<(u64, tg::object::Data)>> {
-		let transaction = self.env.read_txn().unwrap();
+		let transaction = self
+			.env
+			.read_txn()
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 		let kind = id.kind();
-		let id_bytes = id.to_bytes();
-		let key = Key {
-			id: id_bytes.as_ref(),
-			kind: KeyKind::Bytes,
-		};
-		let Some(bytes) = self
+		let key = Key::Object(id);
+		let Some(raw_bytes) = self
 			.db
 			.get(&transaction, &key.pack_to_vec())
 			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
 		else {
 			return Ok(None);
 		};
-		let size = bytes.len().to_u64().unwrap();
-		let data = tg::object::Data::deserialize(kind, bytes)
+		let value = Object::deserialize(raw_bytes)
 			.map_err(|source| tg::error!(!source, %id, "failed to deserialize the object"))?;
-		Ok(Some((size, data)))
-	}
-
-	pub fn try_get_cache_pointer_sync(
-		&self,
-		id: &tg::object::Id,
-	) -> tg::Result<Option<CachePointer>> {
-		let transaction = self
-			.env
-			.read_txn()
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-		let id_bytes = id.to_bytes();
-		let key = Key {
-			id: id_bytes.as_ref(),
-			kind: KeyKind::CachePointer,
-		};
-		let Some(bytes) = self
-			.db
-			.get(&transaction, &key.pack_to_vec())
-			.map_err(|source| tg::error!(!source, %id, "failed to get the cache pointer"))?
-		else {
+		let Some(bytes) = value.bytes else {
 			return Ok(None);
 		};
-		let pointer = CachePointer::deserialize(bytes).map_err(
-			|source| tg::error!(!source, %id, "failed to deserialize the cache pointer"),
-		)?;
-		Ok::<_, tg::Error>(Some(pointer))
+		let size = bytes.len().to_u64().unwrap();
+		let data = tg::object::Data::deserialize(kind, &*bytes)
+			.map_err(|source| tg::error!(!source, %id, "failed to deserialize the object data"))?;
+		Ok(Some((size, data)))
 	}
 
 	fn task(env: &lmdb::Env, db: &Db, mut receiver: RequestReceiver) {
@@ -223,25 +219,35 @@ impl Store {
 			let mut responses = vec![];
 			for request in requests {
 				match request {
-					Request::Put(request) => {
-						let result = Self::task_put(env, db, &mut transaction, request);
+					Request::Object(ObjectRequest::Put(request)) => {
+						let result = Self::task_put_object(env, db, &mut transaction, request);
 						responses.push(result);
 					},
-					Request::PutBatch(requests) => {
+					Request::Object(ObjectRequest::PutBatch(requests)) => {
 						for request in requests {
-							let result = Self::task_put(env, db, &mut transaction, request);
+							let result = Self::task_put_object(env, db, &mut transaction, request);
 							responses.push(result);
 						}
 					},
-					Request::Delete(request) => {
-						let result = Self::task_delete(env, db, &mut transaction, request);
+					Request::Object(ObjectRequest::Delete(request)) => {
+						let result = Self::task_delete_object(env, db, &mut transaction, request);
 						responses.push(result);
 					},
-					Request::DeleteBatch(requests) => {
+					Request::Object(ObjectRequest::DeleteBatch(requests)) => {
 						for request in requests {
-							let result = Self::task_delete(env, db, &mut transaction, request);
+							let result =
+								Self::task_delete_object(env, db, &mut transaction, request);
 							responses.push(result);
 						}
+					},
+					Request::ProcessLog(ProcessLogRequest::Put(request)) => {
+						let result = Self::task_put_process_log(env, db, &mut transaction, request);
+						responses.push(result);
+					},
+					Request::ProcessLog(ProcessLogRequest::Delete(request)) => {
+						let result =
+							Self::task_delete_process_log(env, db, &mut transaction, request);
+						responses.push(result);
 					},
 				}
 			}
@@ -260,117 +266,227 @@ impl Store {
 		}
 	}
 
-	fn task_put(
+	fn task_put_object(
 		_env: &lmdb::Env,
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
-		request: Put,
+		request: PutObject,
 	) -> tg::Result<()> {
 		let id = &request.id;
-		if let Some(bytes) = request.bytes {
-			let id_bytes = id.to_bytes();
-			let key = Key {
-				id: id_bytes.as_ref(),
-				kind: KeyKind::Bytes,
-			};
-			let flags = lmdb::PutFlags::NO_OVERWRITE;
-			let result = db.put_with_flags(transaction, flags, &key.pack_to_vec(), &bytes);
-			match result {
-				Ok(()) | Err(lmdb::Error::Mdb(lmdb::MdbError::KeyExist)) => (),
-				Err(error) => {
-					return Err(tg::error!(!error, %id, "failed to put the object"));
-				},
-			}
-		}
-		let id_bytes = id.to_bytes();
-		let key = Key {
-			id: id_bytes.as_ref(),
-			kind: KeyKind::TouchedAt,
+		let key = Key::Object(id);
+		let key_bytes = key.pack_to_vec();
+
+		// Read existing value if any.
+		let existing = db
+			.get(transaction, &key_bytes)
+			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
+			.and_then(|bytes| Object::deserialize(bytes).ok());
+
+		// Determine bytes: use existing if present (NO_OVERWRITE semantics), otherwise use request.
+		let bytes = existing
+			.as_ref()
+			.and_then(|entry| entry.bytes.clone())
+			.or(request.bytes.map(|bytes| Cow::Owned(bytes.to_vec())));
+
+		// Merge cache_pointer: use request if provided, otherwise keep existing.
+		let cache_pointer = request
+			.cache_pointer
+			.or_else(|| existing.and_then(|entry| entry.cache_pointer));
+
+		let value = Object {
+			bytes,
+			touched_at: request.touched_at,
+			cache_pointer,
 		};
-		let touched_at = request.touched_at.to_le_bytes();
-		db.put(transaction, &key.pack_to_vec(), &touched_at)
-			.map_err(|source| tg::error!(!source, %id, "failed to put the touched_at"))?;
-		if let Some(cache_pointer) = request.cache_pointer {
-			let id_bytes = id.to_bytes();
-			let key = Key {
-				id: id_bytes.as_ref(),
-				kind: KeyKind::CachePointer,
-			};
-			let value = cache_pointer.serialize().unwrap();
-			db.put(transaction, &key.pack_to_vec(), &value)
-				.map_err(|source| tg::error!(!source, %id, "failed to put the cache pointer"))?;
-		}
+		let value_bytes = value.serialize().unwrap();
+		db.put(transaction, &key_bytes, &value_bytes)
+			.map_err(|source| tg::error!(!source, %id, "failed to put the object"))?;
 		Ok(())
 	}
 
 	#[expect(clippy::needless_pass_by_value)]
-	fn task_delete(
+	fn task_delete_object(
 		_env: &lmdb::Env,
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
-		request: Delete,
+		request: DeleteObject,
 	) -> tg::Result<()> {
 		let id = &request.id;
-		let id_bytes = id.to_bytes();
-		let key = Key {
-			id: id_bytes.as_ref(),
-			kind: KeyKind::TouchedAt,
-		};
-		let Some(touched_at) = db
-			.get(transaction, &key.pack_to_vec())
-			.map_err(|source| tg::error!(!source, %id, "failed to get the touched_at"))?
+		let key = Key::Object(id);
+		let key_bytes = key.pack_to_vec();
+
+		let Some(bytes) = db
+			.get(transaction, &key_bytes)
+			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
 		else {
 			return Ok(());
 		};
-		let touched_at = touched_at
-			.try_into()
-			.map_err(|source| tg::error!(!source, %id, "invalid touched_at"))?;
-		let touched_at = i64::from_le_bytes(touched_at);
-		if request.now - touched_at >= request.ttl.to_i64().unwrap() {
-			let id_bytes = id.to_bytes();
-			let key = Key {
-				id: id_bytes.as_ref(),
-				kind: KeyKind::Bytes,
-			};
-			db.delete(transaction, &key.pack_to_vec())
+		let value = Object::deserialize(bytes)
+			.map_err(|source| tg::error!(!source, %id, "failed to deserialize the object"))?;
+
+		if request.now - value.touched_at >= request.ttl.to_i64().unwrap() {
+			db.delete(transaction, &key_bytes)
 				.map_err(|source| tg::error!(!source, %id, "failed to delete the object"))?;
-			let id_bytes = id.to_bytes();
-			let key = Key {
-				id: id_bytes.as_ref(),
-				kind: KeyKind::TouchedAt,
-			};
-			db.delete(transaction, &key.pack_to_vec())
-				.map_err(|source| tg::error!(!source, %id, "failed to delete the touched_at"))?;
-			let id_bytes = id.to_bytes();
-			let key = Key {
-				id: id_bytes.as_ref(),
-				kind: KeyKind::CachePointer,
-			};
-			db.delete(transaction, &key.pack_to_vec())
-				.map_err(|source| tg::error!(!source, %id, "failed to delete the cache pointer"))?;
 		}
 		Ok(())
 	}
 
-	pub fn put_sync(&self, arg: PutArg) -> tg::Result<()> {
+	#[allow(clippy::needless_pass_by_value)]
+	fn task_put_process_log(
+		_env: &lmdb::Env,
+		db: &Db,
+		transaction: &mut lmdb::RwTxn<'_>,
+		request: PutProcessLog,
+	) -> tg::Result<()> {
+		let id = &request.id;
+
+		// Get the current combined position by finding the last entry.
+		let key = Key::ProcessLogEntry(id, u64::MAX);
+		let position = db
+			.get_lower_than_or_equal_to(transaction, &key.pack_to_vec())
+			.map_err(|source| tg::error!(!source, "failed to get the last combined entry"))?
+			.and_then(|(_, value)| {
+				tangram_serialize::from_slice::<ProcessLogEntry>(value)
+					.ok()
+					.map(|entry| entry.position + entry.bytes.len().to_u64().unwrap())
+			})
+			.unwrap_or(0);
+
+		// Get the current stream position by finding the last stream entry.
+		let stream_start_key = Key::ProcessLogStreamPosition(id, request.stream, 0);
+		let stream_start = stream_start_key.pack_to_vec();
+		let key = Key::ProcessLogStreamPosition(id, request.stream, u64::MAX);
+		let stream_position = db
+			.get_lower_than_or_equal_to(transaction, &key.pack_to_vec())
+			.map_err(|source| tg::error!(!source, "failed to get the last stream entry"))?
+			.and_then(|(key, value)| {
+				// Verify the key is actually for this stream, not a different one.
+				if key < stream_start.as_slice() {
+					return None;
+				}
+				u64::from_le_bytes(value.try_into().ok()?).into()
+			})
+			.map_or(0, |combined_pos| {
+				// Read the entry at this combined position to get stream_position.
+				let key = Key::ProcessLogEntry(id, combined_pos);
+				db.get(transaction, &key.pack_to_vec())
+					.ok()
+					.flatten()
+					.and_then(|value| tangram_serialize::from_slice::<ProcessLogEntry>(value).ok())
+					.map_or(0, |entry| {
+						entry.stream_position + entry.bytes.len().to_u64().unwrap()
+					})
+			});
+
+		// Create the log entry.
+		let entry = ProcessLogEntry {
+			bytes: Cow::Owned(request.bytes.to_vec()),
+			position,
+			stream_position,
+			stream: request.stream,
+			timestamp: request.timestamp,
+		};
+
+		// Store the primary entry keyed by combined position.
+		let key = Key::ProcessLogEntry(id, position);
+		let val = tangram_serialize::to_vec(&entry).unwrap();
+		db.put(transaction, &key.pack_to_vec(), &val)
+			.map_err(|source| tg::error!(!source, "failed to store the log entry"))?;
+
+		// Store the stream index pointer.
+		let key = Key::ProcessLogStreamPosition(id, request.stream, stream_position);
+		let val = position.to_le_bytes();
+		db.put(transaction, &key.pack_to_vec(), &val)
+			.map_err(|source| tg::error!(!source, "failed to store the stream index"))?;
+
+		Ok(())
+	}
+
+	#[expect(clippy::needless_pass_by_value)]
+	fn task_delete_process_log(
+		_env: &lmdb::Env,
+		db: &Db,
+		transaction: &mut lmdb::RwTxn<'_>,
+		request: DeleteProcessLog,
+	) -> tg::Result<()> {
+		let id = &request.id;
+
+		// Helper to delete all keys in a range.
+		let delete_range = |db: &Db,
+		                    transaction: &mut lmdb::RwTxn<'_>,
+		                    start: Vec<u8>,
+		                    end: Vec<u8>|
+		 -> tg::Result<()> {
+			let mut keys_to_delete = Vec::new();
+			let mut current_key = start.clone();
+			loop {
+				let Some((key, _)) = db
+					.get_greater_than_or_equal_to(transaction, &current_key)
+					.map_err(|source| tg::error!(!source, "failed to iterate log entries"))?
+				else {
+					break;
+				};
+				if key > end.as_slice() {
+					break;
+				}
+				keys_to_delete.push(key.to_vec());
+				current_key = key.to_vec();
+				current_key.push(0);
+			}
+			for key in keys_to_delete {
+				db.delete(transaction, &key)
+					.map_err(|source| tg::error!(!source, "failed to delete the log entry"))?;
+			}
+			Ok(())
+		};
+
+		// Delete all log entries.
+		let start_key = Key::ProcessLogEntry(id, 0);
+		let end_key = Key::ProcessLogEntry(id, u64::MAX);
+		delete_range(
+			db,
+			transaction,
+			start_key.pack_to_vec(),
+			end_key.pack_to_vec(),
+		)?;
+
+		// Delete all stream position entries.
+		for stream in [
+			tg::process::log::Stream::Stdout,
+			tg::process::log::Stream::Stderr,
+		] {
+			let start_key = Key::ProcessLogStreamPosition(id, stream, 0);
+			let end_key = Key::ProcessLogStreamPosition(id, stream, u64::MAX);
+			delete_range(
+				db,
+				transaction,
+				start_key.pack_to_vec(),
+				end_key.pack_to_vec(),
+			)?;
+		}
+
+		Ok(())
+	}
+
+	pub fn put_object_sync(&self, arg: PutObjectArg) -> tg::Result<()> {
 		let mut transaction = self
 			.env
 			.write_txn()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-		let request = Put {
+		let request = PutObject {
 			bytes: arg.bytes,
 			cache_pointer: arg.cache_pointer,
 			id: arg.id,
 			touched_at: arg.touched_at,
 		};
-		Self::task_put(&self.env, &self.db, &mut transaction, request)?;
+		Self::task_put_object(&self.env, &self.db, &mut transaction, request)?;
 		transaction
 			.commit()
 			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 		Ok(())
 	}
 
-	pub fn put_batch_sync(&self, args: Vec<PutArg>) -> tg::Result<()> {
+	pub fn put_object_batch_sync(&self, args: Vec<PutObjectArg>) -> tg::Result<()> {
 		if args.is_empty() {
 			return Ok(());
 		}
@@ -379,13 +495,13 @@ impl Store {
 			.write_txn()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 		for arg in args {
-			let request = Put {
+			let request = PutObject {
 				bytes: arg.bytes,
 				cache_pointer: arg.cache_pointer,
 				id: arg.id,
 				touched_at: arg.touched_at,
 			};
-			Self::task_put(&self.env, &self.db, &mut transaction, request)?;
+			Self::task_put_object(&self.env, &self.db, &mut transaction, request)?;
 		}
 		transaction
 			.commit()
@@ -393,24 +509,24 @@ impl Store {
 		Ok(())
 	}
 
-	pub fn delete_sync(&self, arg: DeleteArg) -> tg::Result<()> {
+	pub fn delete_object_sync(&self, arg: DeleteObjectArg) -> tg::Result<()> {
 		let mut transaction = self
 			.env
 			.write_txn()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-		let request = Delete {
+		let request = DeleteObject {
 			id: arg.id,
 			now: arg.now,
 			ttl: arg.ttl,
 		};
-		Self::task_delete(&self.env, &self.db, &mut transaction, request)?;
+		Self::task_delete_object(&self.env, &self.db, &mut transaction, request)?;
 		transaction
 			.commit()
 			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 		Ok(())
 	}
 
-	pub fn delete_batch_sync(&self, args: Vec<DeleteArg>) -> tg::Result<()> {
+	pub fn delete_object_batch_sync(&self, args: Vec<DeleteObjectArg>) -> tg::Result<()> {
 		if args.is_empty() {
 			return Ok(());
 		}
@@ -419,12 +535,12 @@ impl Store {
 			.write_txn()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 		for arg in args {
-			let request = Delete {
+			let request = DeleteObject {
 				id: arg.id,
 				now: arg.now,
 				ttl: arg.ttl,
 			};
-			Self::task_delete(&self.env, &self.db, &mut transaction, request)?;
+			Self::task_delete_object(&self.env, &self.db, &mut transaction, request)?;
 		}
 		transaction
 			.commit()
@@ -449,8 +565,11 @@ impl crate::Error for Error {
 impl crate::Store for Store {
 	type Error = Error;
 
-	async fn try_get(&self, id: &tg::object::Id) -> Result<Option<Bytes>, Self::Error> {
-		let bytes = tokio::task::spawn_blocking({
+	async fn try_get_object(
+		&self,
+		id: &tg::object::Id,
+	) -> Result<Option<Object<'static>>, Self::Error> {
+		let value = tokio::task::spawn_blocking({
 			let db = self.db;
 			let env = self.env.clone();
 			let id = id.clone();
@@ -458,35 +577,33 @@ impl crate::Store for Store {
 				let transaction = env
 					.read_txn()
 					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-				let id_bytes = id.to_bytes();
-				let key = Key {
-					id: id_bytes.as_ref(),
-					kind: KeyKind::Bytes,
-				};
-				let Some(bytes) = db
+				let key = Key::Object(&id);
+				let Some(raw_bytes) = db
 					.get(&transaction, &key.pack_to_vec())
 					.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
 				else {
 					return Ok(None);
 				};
-				let bytes = Bytes::copy_from_slice(bytes);
-				Ok::<_, tg::Error>(Some(bytes))
+				let value = Object::deserialize(raw_bytes).map_err(
+					|source| tg::error!(!source, %id, "failed to deserialize the object"),
+				)?;
+				Ok::<_, tg::Error>(Some(value))
 			}
 		})
 		.await
 		.map_err(|source| Error::other(tg::error!(!source, "failed to join the task")))?
 		.map_err(Error::other)?;
-		Ok(bytes)
+		Ok(value)
 	}
 
-	async fn try_get_batch(
+	async fn try_get_object_batch(
 		&self,
 		ids: &[tg::object::Id],
-	) -> Result<Vec<Option<Bytes>>, Self::Error> {
+	) -> Result<Vec<Option<Object<'static>>>, Self::Error> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
-		let bytes = tokio::task::spawn_blocking({
+		let values = tokio::task::spawn_blocking({
 			let db = self.db;
 			let env = self.env.clone();
 			let ids = ids.to_owned();
@@ -495,17 +612,13 @@ impl crate::Store for Store {
 					.read_txn()
 					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 				let mut outputs = Vec::with_capacity(ids.len());
-				for id in ids {
-					let id_bytes = id.to_bytes();
-					let key = Key {
-						id: id_bytes.as_ref(),
-						kind: KeyKind::Bytes,
-					};
-					let bytes = db
+				for id in &ids {
+					let key = Key::Object(id);
+					let value = db
 						.get(&transaction, &key.pack_to_vec())
 						.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
-						.map(Bytes::copy_from_slice);
-					outputs.push(bytes);
+						.and_then(|bytes| Object::deserialize(bytes).ok());
+					outputs.push(value);
 				}
 				Ok::<_, tg::Error>(outputs)
 			}
@@ -513,14 +626,285 @@ impl crate::Store for Store {
 		.await
 		.map_err(|source| Error::other(tg::error!(!source, "failed to join the task")))?
 		.map_err(Error::other)?;
-		Ok(bytes)
+		Ok(values)
 	}
 
-	async fn try_get_cache_pointer(
+	async fn put_object(&self, arg: PutObjectArg) -> Result<(), Self::Error> {
+		let id = arg.id.clone();
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request::Object(ObjectRequest::Put(PutObject {
+			bytes: arg.bytes,
+			cache_pointer: arg.cache_pointer,
+			id: arg.id,
+			touched_at: arg.touched_at,
+		}));
+		self.sender
+			.send((request, sender))
+			.await
+			.map_err(|source| {
+				Error::other(tg::error!(!source, %id, "failed to send the request"))
+			})?;
+		receiver
+			.await
+			.map_err(|_| Error::other(tg::error!(%id, "the task panicked")))?
+			.map_err(Error::other)?;
+		Ok(())
+	}
+
+	async fn put_object_batch(&self, args: Vec<PutObjectArg>) -> Result<(), Self::Error> {
+		if args.is_empty() {
+			return Ok(());
+		}
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request::Object(ObjectRequest::PutBatch(
+			args.into_iter()
+				.map(|arg| PutObject {
+					bytes: arg.bytes,
+					cache_pointer: arg.cache_pointer,
+					id: arg.id,
+					touched_at: arg.touched_at,
+				})
+				.collect(),
+		));
+		self.sender
+			.send((request, sender))
+			.await
+			.map_err(|source| Error::other(tg::error!(!source, "failed to send the request")))?;
+		receiver
+			.await
+			.map_err(|_| Error::other(tg::error!("the task panicked")))?
+			.map_err(Error::other)?;
+		Ok(())
+	}
+
+	async fn delete_object(&self, arg: DeleteObjectArg) -> Result<(), Self::Error> {
+		let id = arg.id.clone();
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request::Object(ObjectRequest::Delete(DeleteObject {
+			id: arg.id,
+			now: arg.now,
+			ttl: arg.ttl,
+		}));
+		self.sender
+			.send((request, sender))
+			.await
+			.map_err(|source| {
+				Error::other(tg::error!(!source, %id, "failed to send the request"))
+			})?;
+		receiver
+			.await
+			.map_err(|_| Error::other(tg::error!(%id, "the task panicked")))?
+			.map_err(Error::other)?;
+		Ok(())
+	}
+
+	async fn delete_object_batch(&self, args: Vec<DeleteObjectArg>) -> Result<(), Self::Error> {
+		if args.is_empty() {
+			return Ok(());
+		}
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request::Object(ObjectRequest::DeleteBatch(
+			args.into_iter()
+				.map(|arg| DeleteObject {
+					id: arg.id,
+					now: arg.now,
+					ttl: arg.ttl,
+				})
+				.collect(),
+		));
+		self.sender
+			.send((request, sender))
+			.await
+			.map_err(|source| Error::other(tg::error!(!source, "failed to send the request")))?;
+		receiver
+			.await
+			.map_err(|_| Error::other(tg::error!("the task panicked")))?
+			.map_err(Error::other)?;
+		Ok(())
+	}
+
+	async fn try_read_process_log(
 		&self,
-		id: &tg::object::Id,
-	) -> Result<Option<CachePointer>, Self::Error> {
-		let pointer = tokio::task::spawn_blocking({
+		arg: ReadProcessLogArg,
+	) -> Result<Vec<ProcessLogEntry<'static>>, Self::Error> {
+		let entries = tokio::task::spawn_blocking({
+			let db = self.db;
+			let env = self.env.clone();
+			move || {
+				let transaction = env
+					.read_txn()
+					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+				let id = &arg.process;
+
+				// Find the starting combined position.
+				let start_position = if let Some(stream) = arg.stream {
+					// For stream-specific reads, look up the stream index.
+					let stream_start_key = Key::ProcessLogStreamPosition(id, stream, 0);
+					let stream_start = stream_start_key.pack_to_vec();
+					let key = Key::ProcessLogStreamPosition(id, stream, arg.position);
+					let key = key.pack_to_vec();
+					let result = if arg.position == 0 {
+						db.get(&transaction, &key).map_err(|source| {
+							tg::error!(!source, "failed to get the stream index")
+						})?
+					} else {
+						db.get_lower_than_or_equal_to(&transaction, &key)
+							.map_err(|source| {
+								tg::error!(!source, "failed to get the stream index")
+							})?
+							.and_then(|(key, value)| {
+								// Verify the key is for this stream.
+								if key < stream_start.as_slice() {
+									return None;
+								}
+								Some(value)
+							})
+					};
+					let Some(bytes) = result else {
+						return Ok(Vec::new());
+					};
+					u64::from_le_bytes(
+						bytes
+							.try_into()
+							.map_err(|_| tg::error!("expected 8 bytes"))?,
+					)
+				} else {
+					// For combined reads, the position is the combined position.
+					arg.position
+				};
+
+				// Seek to the starting entry.
+				let key = Key::ProcessLogEntry(id, start_position);
+				let key = key.pack_to_vec();
+				let result = if start_position == 0 {
+					db.get(&transaction, &key)
+						.map_err(|source| tg::error!(!source, "failed to get the log entry"))?
+						.map(|value| (key.clone(), value))
+				} else {
+					db.get_lower_than_or_equal_to(&transaction, &key)
+						.map_err(|source| tg::error!(!source, "failed to get the log entry"))?
+						.map(|(key, value)| (key.to_vec(), value))
+				};
+				let Some((mut current_key, first_value)) = result else {
+					return Ok(Vec::new());
+				};
+
+				// Create an end key to bound iteration within combined entries.
+				let end_key = Key::ProcessLogEntry(id, u64::MAX);
+				let end_key = end_key.pack_to_vec();
+
+				let mut remaining = arg.length;
+				let mut output = Vec::new();
+				let mut current: Option<ProcessLogEntry> = None;
+
+				// Process the first entry.
+				let mut value = Some(first_value);
+
+				while remaining > 0 {
+					let val = if let Some(value) = value.take() {
+						value
+					} else {
+						// Get the next entry.
+						let Some(result) = db
+							.get_greater_than(&transaction, &current_key)
+							.map_err(|source| {
+								tg::error!(!source, "failed to get the next entry")
+							})?
+						else {
+							break;
+						};
+						// Check that we're still within combined entries.
+						if result.0 > end_key.as_slice() {
+							break;
+						}
+						current_key = result.0.to_vec();
+						result.1
+					};
+
+					let chunk = tangram_serialize::from_slice::<ProcessLogEntry>(val).map_err(
+						|source| tg::error!(!source, "failed to deserialize the log entry"),
+					)?;
+
+					// Skip chunks that do not match the stream filter.
+					if arg.stream.is_some_and(|stream| stream != chunk.stream) {
+						continue;
+					}
+
+					// Get the position based on stream filter.
+					let position = if arg.stream.is_some() {
+						chunk.stream_position
+					} else {
+						chunk.position
+					};
+
+					let offset = arg.position.saturating_sub(position);
+
+					let available = chunk.bytes.len().to_u64().unwrap().saturating_sub(offset);
+					let take = remaining.min(available);
+
+					let bytes: Cow<'_, [u8]> =
+						if offset > 0 || take < chunk.bytes.len().to_u64().unwrap() {
+							let start = offset.to_usize().unwrap();
+							let end = (offset + take).to_usize().unwrap();
+							Cow::Owned(chunk.bytes[start..end].to_vec())
+						} else {
+							chunk.bytes.clone()
+						};
+
+					// Combine sequential entries from the same stream.
+					if let Some(ref mut entry) = current {
+						if entry.stream == chunk.stream {
+							let mut combined = entry.bytes.to_vec();
+							combined.extend_from_slice(&bytes);
+							entry.bytes = Cow::Owned(combined);
+						} else {
+							output.push(current.take().unwrap());
+							current = Some(ProcessLogEntry {
+								bytes,
+								position: chunk.position + offset,
+								stream_position: chunk.stream_position + offset,
+								stream: chunk.stream,
+								timestamp: chunk.timestamp,
+							});
+						}
+					} else {
+						current = Some(ProcessLogEntry {
+							bytes,
+							position: chunk.position + offset,
+							stream_position: chunk.stream_position + offset,
+							stream: chunk.stream,
+							timestamp: chunk.timestamp,
+						});
+					}
+
+					remaining -= take;
+				}
+
+				// Push the last entry if any.
+				if let Some(entry) = current {
+					output.push(entry);
+				}
+
+				// Convert all entries to owned.
+				let output = output
+					.into_iter()
+					.map(ProcessLogEntry::into_static)
+					.collect();
+				Ok::<_, tg::Error>(output)
+			}
+		})
+		.await
+		.map_err(Error::other)?
+		.map_err(Error::other)?;
+		Ok(entries)
+	}
+
+	async fn try_get_process_log_length(
+		&self,
+		id: &tg::process::Id,
+		stream: Option<tg::process::log::Stream>,
+	) -> Result<Option<u64>, Self::Error> {
+		let length = tokio::task::spawn_blocking({
 			let db = self.db;
 			let env = self.env.clone();
 			let id = id.clone();
@@ -528,119 +912,102 @@ impl crate::Store for Store {
 				let transaction = env
 					.read_txn()
 					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-				let id_bytes = id.to_bytes();
-				let key = Key {
-					id: id_bytes.as_ref(),
-					kind: KeyKind::CachePointer,
+
+				let length = if let Some(stream) = stream {
+					// For stream-specific queries, find the last stream position entry.
+					let start_key = Key::ProcessLogStreamPosition(&id, stream, 0);
+					let start = start_key.pack_to_vec();
+					let key = Key::ProcessLogStreamPosition(&id, stream, u64::MAX);
+					let Some((found_key, value)) = db
+						.get_lower_than_or_equal_to(&transaction, &key.pack_to_vec())
+						.map_err(|source| tg::error!(!source, "failed to get the last entry"))?
+					else {
+						return Ok(None);
+					};
+
+					// Verify the key is for the stream we're querying.
+					if found_key < start.as_slice() {
+						return Ok(None);
+					}
+
+					// The value is a position pointer. Read that entry to get stream_position.
+					let position = u64::from_le_bytes(
+						value
+							.try_into()
+							.map_err(|_| tg::error!("expected 8 bytes"))?,
+					);
+					let entry_key = Key::ProcessLogEntry(&id, position);
+					let Some(entry_bytes) = db
+						.get(&transaction, &entry_key.pack_to_vec())
+						.map_err(|source| tg::error!(!source, "failed to get the log entry"))?
+					else {
+						return Ok(None);
+					};
+					let entry = tangram_serialize::from_slice::<ProcessLogEntry>(entry_bytes)
+						.map_err(|source| tg::error!(!source, "failed to deserialize entry"))?;
+					entry.stream_position + entry.bytes.len().to_u64().unwrap()
+				} else {
+					// For combined queries, find the last log entry.
+					let start_key = Key::ProcessLogEntry(&id, 0);
+					let start = start_key.pack_to_vec();
+					let key = Key::ProcessLogEntry(&id, u64::MAX);
+					let Some((found_key, value)) = db
+						.get_lower_than_or_equal_to(&transaction, &key.pack_to_vec())
+						.map_err(|source| tg::error!(!source, "failed to get the last entry"))?
+					else {
+						return Ok(None);
+					};
+
+					// Verify the key is for this process.
+					if found_key < start.as_slice() {
+						return Ok(None);
+					}
+
+					let entry = tangram_serialize::from_slice::<ProcessLogEntry>(value)
+						.map_err(|source| tg::error!(!source, "failed to deserialize entry"))?;
+					entry.position + entry.bytes.len().to_u64().unwrap()
 				};
-				let Some(bytes) = db.get(&transaction, &key.pack_to_vec()).map_err(
-					|source| tg::error!(!source, %id, "failed to get the cache pointer"),
-				)?
-				else {
-					return Ok(None);
-				};
-				let pointer = CachePointer::deserialize(bytes).map_err(
-					|source| tg::error!(!source, %id, "failed to deserialize the cache pointer"),
-				)?;
-				Ok::<_, tg::Error>(Some(pointer))
+
+				Ok::<_, tg::Error>(Some(length))
 			}
 		})
 		.await
-		.map_err(|source| Error::other(tg::error!(!source, "failed to join the task")))?
+		.map_err(Error::other)?
 		.map_err(Error::other)?;
-		Ok(pointer)
+		Ok(length)
 	}
 
-	async fn put(&self, arg: PutArg) -> Result<(), Self::Error> {
-		let id = arg.id.clone();
+	async fn put_process_log(&self, arg: PutProcessLogArg) -> Result<(), Self::Error> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::Put(Put {
+		let request = Request::ProcessLog(ProcessLogRequest::Put(PutProcessLog {
 			bytes: arg.bytes,
-			cache_pointer: arg.cache_pointer,
-			id: arg.id,
-			touched_at: arg.touched_at,
-		});
+			id: arg.process,
+			stream: arg.stream,
+			timestamp: arg.timestamp,
+		}));
 		self.sender
 			.send((request, sender))
 			.await
-			.map_err(|source| {
-				Error::other(tg::error!(!source, %id, "failed to send the request"))
-			})?;
+			.map_err(Error::other)?;
 		receiver
 			.await
-			.map_err(|_| Error::other(tg::error!(%id, "the task panicked")))?
+			.map_err(|_| Error::other("task panicked"))?
 			.map_err(Error::other)?;
 		Ok(())
 	}
 
-	async fn put_batch(&self, args: Vec<PutArg>) -> Result<(), Self::Error> {
-		if args.is_empty() {
-			return Ok(());
-		}
+	async fn delete_process_log(&self, arg: DeleteProcessLogArg) -> Result<(), Self::Error> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::PutBatch(
-			args.into_iter()
-				.map(|arg| Put {
-					bytes: arg.bytes,
-					cache_pointer: arg.cache_pointer,
-					id: arg.id,
-					touched_at: arg.touched_at,
-				})
-				.collect(),
-		);
+		let request = Request::ProcessLog(ProcessLogRequest::Delete(DeleteProcessLog {
+			id: arg.process,
+		}));
 		self.sender
 			.send((request, sender))
 			.await
-			.map_err(|source| Error::other(tg::error!(!source, "failed to send the request")))?;
-		receiver
-			.await
-			.map_err(|_| Error::other(tg::error!("the task panicked")))?
 			.map_err(Error::other)?;
-		Ok(())
-	}
-
-	async fn delete(&self, arg: DeleteArg) -> Result<(), Self::Error> {
-		let id = arg.id.clone();
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::Delete(Delete {
-			id: arg.id,
-			now: arg.now,
-			ttl: arg.ttl,
-		});
-		self.sender
-			.send((request, sender))
-			.await
-			.map_err(|source| {
-				Error::other(tg::error!(!source, %id, "failed to send the request"))
-			})?;
 		receiver
 			.await
-			.map_err(|_| Error::other(tg::error!(%id, "the task panicked")))?
-			.map_err(Error::other)?;
-		Ok(())
-	}
-
-	async fn delete_batch(&self, args: Vec<DeleteArg>) -> Result<(), Self::Error> {
-		if args.is_empty() {
-			return Ok(());
-		}
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::DeleteBatch(
-			args.into_iter()
-				.map(|arg| Delete {
-					id: arg.id,
-					now: arg.now,
-					ttl: arg.ttl,
-				})
-				.collect(),
-		);
-		self.sender
-			.send((request, sender))
-			.await
-			.map_err(|source| Error::other(tg::error!(!source, "failed to send the request")))?;
-		receiver
-			.await
-			.map_err(|_| Error::other(tg::error!("the task panicked")))?
+			.map_err(|_| Error::other("task panicked"))?
 			.map_err(Error::other)?;
 		Ok(())
 	}
@@ -666,11 +1033,626 @@ impl foundationdb_tuple::TuplePack for Key<'_> {
 		w: &mut W,
 		tuple_depth: foundationdb_tuple::TupleDepth,
 	) -> std::io::Result<foundationdb_tuple::VersionstampOffset> {
-		let column = match self.kind {
-			KeyKind::Bytes => 0,
-			KeyKind::TouchedAt => 1,
-			KeyKind::CachePointer => 2,
+		match self {
+			Key::Object(id) => (0, id.to_bytes().as_ref()).pack(w, tuple_depth),
+			Key::ProcessLogEntry(id, position) => {
+				(1, id.to_bytes().as_ref(), 0, *position).pack(w, tuple_depth)
+			},
+			Key::ProcessLogStreamPosition(id, tg::process::log::Stream::Stdout, position) => {
+				(1, id.to_bytes().as_ref(), 1, *position).pack(w, tuple_depth)
+			},
+			Key::ProcessLogStreamPosition(id, tg::process::log::Stream::Stderr, position) => {
+				(1, id.to_bytes().as_ref(), 2, *position).pack(w, tuple_depth)
+			},
+		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::Store as _;
+
+	fn collect_bytes(entries: Vec<ProcessLogEntry>) -> Bytes {
+		entries
+			.into_iter()
+			.flat_map(|entry| entry.bytes.to_vec())
+			.collect::<Vec<_>>()
+			.into()
+	}
+
+	#[tokio::test]
+	async fn test_put_and_read_log_single_chunk() {
+		let temp_dir = tempfile::tempdir().unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10,
+			path: temp_dir.path().join("test.lmdb"),
 		};
-		(0, self.id, column).pack(w, tuple_depth)
+		let store = Store::new(&config).unwrap();
+		let process = tg::process::Id::new();
+
+		// Insert a single chunk.
+		store
+			.put_process_log(PutProcessLogArg {
+				bytes: Bytes::from("hello world"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1000,
+			})
+			.await
+			.unwrap();
+
+		// Read the entire chunk.
+		let result = store
+			.try_read_process_log(ReadProcessLogArg {
+				process: process.clone(),
+				position: 0,
+				length: 11,
+				stream: Some(tg::process::log::Stream::Stdout),
+			})
+			.await
+			.unwrap();
+		assert_eq!(collect_bytes(result), Bytes::from("hello world"));
+
+		// Read a subset of the chunk.
+		let result = store
+			.try_read_process_log(ReadProcessLogArg {
+				process: process.clone(),
+				position: 6,
+				length: 5,
+				stream: Some(tg::process::log::Stream::Stdout),
+			})
+			.await
+			.unwrap();
+		assert_eq!(collect_bytes(result), Bytes::from("world"));
+	}
+
+	#[tokio::test]
+	async fn test_put_and_read_log_multiple_chunks() {
+		let temp_dir = tempfile::tempdir().unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10,
+			path: temp_dir.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+		let process = tg::process::Id::new();
+
+		// Insert multiple chunks.
+		store
+			.put_process_log(PutProcessLogArg {
+				bytes: Bytes::from("hello"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1000,
+			})
+			.await
+			.unwrap();
+		store
+			.put_process_log(PutProcessLogArg {
+				bytes: Bytes::from(" "),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1001,
+			})
+			.await
+			.unwrap();
+		store
+			.put_process_log(PutProcessLogArg {
+				bytes: Bytes::from("world"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1002,
+			})
+			.await
+			.unwrap();
+
+		// Read across all chunks.
+		let result = store
+			.try_read_process_log(ReadProcessLogArg {
+				process: process.clone(),
+				position: 0,
+				length: 11,
+				stream: Some(tg::process::log::Stream::Stdout),
+			})
+			.await
+			.unwrap();
+		assert_eq!(collect_bytes(result), Bytes::from("hello world"));
+	}
+
+	#[tokio::test]
+	async fn test_read_log_across_chunk_boundaries() {
+		let temp_dir = tempfile::tempdir().unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10,
+			path: temp_dir.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+		let process = tg::process::Id::new();
+
+		// Insert chunks: "AAAA" (0-3), "BBBB" (4-7), "CCCC" (8-11).
+		store
+			.put_process_log(PutProcessLogArg {
+				bytes: Bytes::from("AAAA"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1000,
+			})
+			.await
+			.unwrap();
+		store
+			.put_process_log(PutProcessLogArg {
+				bytes: Bytes::from("BBBB"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1001,
+			})
+			.await
+			.unwrap();
+		store
+			.put_process_log(PutProcessLogArg {
+				bytes: Bytes::from("CCCC"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1002,
+			})
+			.await
+			.unwrap();
+
+		// Read starting in the middle of the first chunk, across into the second.
+		let result = store
+			.try_read_process_log(ReadProcessLogArg {
+				process: process.clone(),
+				position: 2,
+				length: 4,
+				stream: Some(tg::process::log::Stream::Stdout),
+			})
+			.await
+			.unwrap();
+		assert_eq!(collect_bytes(result), Bytes::from("AABB"));
+
+		// Read starting in the middle of the second chunk, across into the third.
+		let result = store
+			.try_read_process_log(ReadProcessLogArg {
+				process: process.clone(),
+				position: 6,
+				length: 4,
+				stream: Some(tg::process::log::Stream::Stdout),
+			})
+			.await
+			.unwrap();
+		assert_eq!(collect_bytes(result), Bytes::from("BBCC"));
+
+		// Read spanning all three chunks.
+		let result = store
+			.try_read_process_log(ReadProcessLogArg {
+				process: process.clone(),
+				position: 2,
+				length: 8,
+				stream: Some(tg::process::log::Stream::Stdout),
+			})
+			.await
+			.unwrap();
+		assert_eq!(collect_bytes(result), Bytes::from("AABBBBCC"));
+	}
+
+	#[tokio::test]
+	async fn test_read_log_combined_stream() {
+		let temp_dir = tempfile::tempdir().unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10,
+			path: temp_dir.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+		let process = tg::process::Id::new();
+
+		// Insert interleaved stdout and stderr chunks.
+		store
+			.put_process_log(PutProcessLogArg {
+				bytes: Bytes::from("out1"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1000,
+			})
+			.await
+			.unwrap();
+		store
+			.put_process_log(PutProcessLogArg {
+				bytes: Bytes::from("err1"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stderr,
+				timestamp: 1001,
+			})
+			.await
+			.unwrap();
+		store
+			.put_process_log(PutProcessLogArg {
+				bytes: Bytes::from("out2"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1002,
+			})
+			.await
+			.unwrap();
+
+		// Read the combined stream.
+		let result = store
+			.try_read_process_log(ReadProcessLogArg {
+				process: process.clone(),
+				position: 0,
+				length: 12,
+				stream: None,
+			})
+			.await
+			.unwrap();
+		assert_eq!(collect_bytes(result), Bytes::from("out1err1out2"));
+
+		// Read only stdout.
+		let result = store
+			.try_read_process_log(ReadProcessLogArg {
+				process: process.clone(),
+				position: 0,
+				length: 8,
+				stream: Some(tg::process::log::Stream::Stdout),
+			})
+			.await
+			.unwrap();
+		assert_eq!(collect_bytes(result), Bytes::from("out1out2"));
+
+		// Read only stderr.
+		let result = store
+			.try_read_process_log(ReadProcessLogArg {
+				process: process.clone(),
+				position: 0,
+				length: 4,
+				stream: Some(tg::process::log::Stream::Stderr),
+			})
+			.await
+			.unwrap();
+		assert_eq!(collect_bytes(result), Bytes::from("err1"));
+	}
+
+	#[tokio::test]
+	async fn test_delete_log_removes_all_chunks() {
+		let temp_dir = tempfile::tempdir().unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10,
+			path: temp_dir.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+		let process = tg::process::Id::new();
+
+		// Insert some chunks.
+		store
+			.put_process_log(PutProcessLogArg {
+				bytes: Bytes::from("hello"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1000,
+			})
+			.await
+			.unwrap();
+		store
+			.put_process_log(PutProcessLogArg {
+				bytes: Bytes::from("world"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stderr,
+				timestamp: 1001,
+			})
+			.await
+			.unwrap();
+
+		// Verify the log exists.
+		let result = store
+			.try_read_process_log(ReadProcessLogArg {
+				process: process.clone(),
+				position: 0,
+				length: 10,
+				stream: None,
+			})
+			.await
+			.unwrap();
+		assert_eq!(collect_bytes(result), Bytes::from("helloworld"));
+
+		// Delete the log.
+		store
+			.delete_process_log(DeleteProcessLogArg {
+				process: process.clone(),
+			})
+			.await
+			.unwrap();
+
+		// Verify the log no longer exists.
+		let result = store
+			.try_read_process_log(ReadProcessLogArg {
+				process: process.clone(),
+				position: 0,
+				length: 10,
+				stream: None,
+			})
+			.await
+			.unwrap();
+		assert!(result.is_empty());
+	}
+
+	#[tokio::test]
+	async fn test_try_get_log_length() {
+		let temp_dir = tempfile::tempdir().unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10,
+			path: temp_dir.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+		let process = tg::process::Id::new();
+
+		// Insert chunks.
+		store
+			.put_process_log(PutProcessLogArg {
+				bytes: Bytes::from("hello"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1000,
+			})
+			.await
+			.unwrap();
+		store
+			.put_process_log(PutProcessLogArg {
+				bytes: Bytes::from("err"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stderr,
+				timestamp: 1001,
+			})
+			.await
+			.unwrap();
+		store
+			.put_process_log(PutProcessLogArg {
+				bytes: Bytes::from("world"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1002,
+			})
+			.await
+			.unwrap();
+
+		// Check lengths.
+		assert_eq!(
+			store
+				.try_get_process_log_length(&process, None)
+				.await
+				.unwrap(),
+			Some(13)
+		); // 5 + 3 + 5
+		assert_eq!(
+			store
+				.try_get_process_log_length(&process, Some(tg::process::log::Stream::Stdout))
+				.await
+				.unwrap(),
+			Some(10)
+		); // 5 + 5
+		assert_eq!(
+			store
+				.try_get_process_log_length(&process, Some(tg::process::log::Stream::Stderr))
+				.await
+				.unwrap(),
+			Some(3)
+		);
+	}
+
+	#[tokio::test]
+	async fn test_read_log_at_end_returns_empty() {
+		let temp_dir = tempfile::tempdir().unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10,
+			path: temp_dir.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+		let process = tg::process::Id::new();
+
+		// Insert a chunk.
+		store
+			.put_process_log(PutProcessLogArg {
+				bytes: Bytes::from("hello"),
+				process: process.clone(),
+				stream: tg::process::log::Stream::Stdout,
+				timestamp: 1000,
+			})
+			.await
+			.unwrap();
+
+		// Read at the end position.
+		let result = store
+			.try_read_process_log(ReadProcessLogArg {
+				process: process.clone(),
+				position: 5,
+				length: 10,
+				stream: Some(tg::process::log::Stream::Stdout),
+			})
+			.await
+			.unwrap();
+		assert_eq!(collect_bytes(result), Bytes::new());
+	}
+
+	#[tokio::test]
+	async fn test_read_log_nonexistent_process() {
+		let temp_dir = tempfile::tempdir().unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10,
+			path: temp_dir.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+		let process = tg::process::Id::new();
+
+		// Try to read from a process that does not exist.
+		let result = store
+			.try_read_process_log(ReadProcessLogArg {
+				process,
+				position: 0,
+				length: 10,
+				stream: None,
+			})
+			.await
+			.unwrap();
+		assert!(result.is_empty());
+	}
+
+	#[tokio::test]
+	async fn test_put_and_get_object() {
+		let temp_dir = tempfile::tempdir().unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10,
+			path: temp_dir.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+
+		// Create object data and ID.
+		let content = b"hello world";
+		let data = tg::object::Data::from(tg::blob::Data::Leaf(tg::blob::data::Leaf {
+			bytes: Bytes::from_static(content),
+		}));
+		let bytes = data.serialize().unwrap();
+		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
+
+		// Put the object.
+		store
+			.put_object(crate::PutObjectArg {
+				bytes: Some(bytes.clone()),
+				cache_pointer: None,
+				id: id.clone(),
+				touched_at: 12345,
+			})
+			.await
+			.unwrap();
+
+		// Get the object.
+		let result = store.try_get_object(&id).await.unwrap();
+		assert_eq!(
+			result.and_then(|object| object.bytes),
+			Some(Cow::Owned(bytes.to_vec()))
+		);
+	}
+
+	#[tokio::test]
+	async fn test_put_object_without_bytes_then_with_bytes() {
+		let temp_dir = tempfile::tempdir().unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10,
+			path: temp_dir.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+
+		// Create object data and ID.
+		let content = b"hello world";
+		let data = tg::object::Data::from(tg::blob::Data::Leaf(tg::blob::data::Leaf {
+			bytes: Bytes::from_static(content),
+		}));
+		let bytes = data.serialize().unwrap();
+		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
+
+		// Put without bytes first (should not store anything).
+		store
+			.put_object(crate::PutObjectArg {
+				bytes: None,
+				cache_pointer: None,
+				id: id.clone(),
+				touched_at: 12345,
+			})
+			.await
+			.unwrap();
+
+		// Verify object bytes do not exist (object may exist with bytes=None).
+		let result = store.try_get_object(&id).await.unwrap();
+		assert!(
+			result.is_none()
+				|| result
+					.as_ref()
+					.and_then(|object| object.bytes.as_ref())
+					.is_none()
+		);
+
+		// Put with bytes.
+		store
+			.put_object(crate::PutObjectArg {
+				bytes: Some(bytes.clone()),
+				cache_pointer: None,
+				id: id.clone(),
+				touched_at: 12346,
+			})
+			.await
+			.unwrap();
+
+		// Verify object now exists.
+		let result = store.try_get_object(&id).await.unwrap();
+		assert_eq!(
+			result.and_then(|object| object.bytes),
+			Some(Cow::Owned(bytes.to_vec()))
+		);
+	}
+
+	#[test]
+	fn test_put_and_get_object_sync() {
+		// This test mimics what the server does using sync functions.
+		let temp_dir = tempfile::tempdir().unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10,
+			path: temp_dir.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+
+		// Create object data and ID similar to server's write.rs.
+		let content = b"hello world";
+		let data = tg::object::Data::from(tg::blob::Data::Leaf(tg::blob::data::Leaf {
+			bytes: Bytes::from_static(content),
+		}));
+		let bytes = data.serialize().unwrap();
+		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
+
+		// Put the object using sync function (like server does).
+		store
+			.put_object_sync(crate::PutObjectArg {
+				bytes: Some(bytes.clone()),
+				cache_pointer: None,
+				id: id.clone(),
+				touched_at: 12345,
+			})
+			.unwrap();
+
+		// Get the object using sync function.
+		let result = store.try_get_object_sync(&id).unwrap();
+		assert_eq!(
+			result.and_then(|object| object.bytes),
+			Some(Cow::Owned(bytes.to_vec()))
+		);
+	}
+
+	#[tokio::test]
+	async fn test_put_batch_and_get_object() {
+		let temp_dir = tempfile::tempdir().unwrap();
+		let config = Config {
+			map_size: 1024 * 1024 * 10,
+			path: temp_dir.path().join("test.lmdb"),
+		};
+		let store = Store::new(&config).unwrap();
+
+		let content = b"hello world";
+		let data = tg::object::Data::from(tg::blob::Data::Leaf(tg::blob::data::Leaf {
+			bytes: Bytes::from_static(content),
+		}));
+		let bytes = data.serialize().unwrap();
+		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
+
+		store
+			.put_object_batch(vec![crate::PutObjectArg {
+				bytes: Some(bytes.clone()),
+				cache_pointer: None,
+				id: id.clone(),
+				touched_at: 12345,
+			}])
+			.await
+			.unwrap();
+
+		let result = store.try_get_object(&id).await.unwrap();
+		assert_eq!(
+			result.and_then(|object| object.bytes),
+			Some(Cow::Owned(bytes.to_vec()))
+		);
 	}
 }

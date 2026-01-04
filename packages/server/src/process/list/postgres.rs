@@ -1,7 +1,6 @@
 use {
 	crate::Server,
 	indoc::indoc,
-	itertools::Itertools as _,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -95,14 +94,24 @@ impl Server {
 				<Row as db::postgres::row::Deserialize>::deserialize(row)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
 			})
-			.map_ok(|row| {
-				let error = row.error.map(|s| {
-					if s.starts_with('{') {
-						tg::Either::Left(serde_json::from_str(&s).unwrap())
-					} else {
-						tg::Either::Right(s.parse().unwrap())
-					}
-				});
+			.map(|row| {
+				let row = row?;
+				let error = row
+					.error
+					.map(|s| {
+						if s.starts_with('{') {
+							serde_json::from_str(&s)
+								.map(tg::Either::Left)
+								.map_err(|source| {
+									tg::error!(!source, "failed to deserialize the error")
+								})
+						} else {
+							s.parse().map(tg::Either::Right).map_err(|source| {
+								tg::error!(!source, "failed to parse the error id")
+							})
+						}
+					})
+					.transpose()?;
 				let data = tg::process::Data {
 					actual_checksum: row.actual_checksum,
 					cacheable: row.cacheable,
@@ -127,7 +136,7 @@ impl Server {
 					stdin: row.stdin,
 					stdout: row.stdout,
 				};
-				tg::process::get::Output { id: row.id, data }
+				Ok(tg::process::get::Output { id: row.id, data })
 			})
 			.collect::<tg::Result<_>>()?;
 

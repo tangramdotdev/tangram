@@ -17,6 +17,9 @@ workspace = true
 lmdb = ["dep:heed"]
 scylla = ["dep:scylla"]
 
+[dev-dependencies]
+tempfile = { workspace = true }
+
 [dependencies]
 byteorder = { workspace = true }
 bytes = { workspace = true }

@@ -777,7 +777,7 @@ where
 				msg_controllen: std::mem::size_of_val(&control) as _,
 				msg_flags: 0,
 			});
-			let msg: *mut libc::msghdr = msg.as_mut() as _;
+			let msg: *mut libc::msghdr = std::ptr::from_mut(msg.as_mut());
 
 			// Receive the control message.
 			let ret = libc::recvmsg(fds[1], msg, 0);

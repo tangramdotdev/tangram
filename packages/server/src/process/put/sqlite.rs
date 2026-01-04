@@ -160,7 +160,7 @@ impl Server {
 
 		// Insert all processes and their children.
 		for (id, data) in items {
-			let error_string = data.error.as_ref().map(|e| match e {
+			let error_string = data.error.as_ref().map(|error| match error {
 				tg::Either::Left(data) => serde_json::to_string(data).unwrap(),
 				tg::Either::Right(id) => id.to_string(),
 			});
@@ -173,7 +173,7 @@ impl Server {
 			let output_json = data
 				.output
 				.as_ref()
-				.map(|o| serde_json::to_string(o).unwrap());
+				.map(|output| serde_json::to_string(output).unwrap());
 
 			let params = sqlite::params![
 				id.to_string(),

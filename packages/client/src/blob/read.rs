@@ -1,6 +1,6 @@
 use {
 	crate::prelude::*,
-	futures::{StreamExt as _, TryStreamExt as _},
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _},
 	tokio::io::AsyncBufRead,
 	tokio_util::io::StreamReader,
 };
@@ -17,7 +17,7 @@ impl tg::Blob {
 		let handle = handle.clone();
 		let id = self.store(&handle).await?.clone();
 		let arg = tg::read::Arg { blob: id, options };
-		let stream = handle.read(arg).await?.boxed();
+		let stream = handle.read(arg).boxed().await?.boxed();
 		let reader = StreamReader::new(
 			stream
 				.map_ok(|chunk| chunk.bytes)

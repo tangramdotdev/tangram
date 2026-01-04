@@ -98,10 +98,9 @@ impl Server {
 					data.children(&mut children);
 				}
 
-				// Create store arg only if needed.
-				// When cache_pointers is false, leaf blobs (bytes: None) are already stored.
+				// Create the store arg only if needed.
 				let store_arg = if cache_pointers || bytes.is_some() {
-					Some(crate::store::PutArg {
+					Some(crate::store::PutObjectArg {
 						bytes,
 						cache_pointer: None,
 						id: id.clone(),
@@ -111,7 +110,7 @@ impl Server {
 					None
 				};
 
-				// Create index message.
+				// Create the index message.
 				let index_message = crate::index::message::PutObject {
 					cache_entry: None,
 					children,
@@ -122,6 +121,7 @@ impl Server {
 				};
 
 				entries.push((id, store_arg, index_message));
+
 				stack.extend(&output.children);
 			}
 		}

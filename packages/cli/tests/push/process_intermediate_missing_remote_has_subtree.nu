@@ -8,7 +8,7 @@ export def test [...args] {
 	let local = spawn -n local
 
 	# Create a source server.
-	let source = spawn --cloud -n source
+	let source = spawn -n source
 
 	# Create a module that spawns a chain of 4 child processes: A -> B -> C -> D.
 	# A calls B, B calls C, C calls D, D returns a file.

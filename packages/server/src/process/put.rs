@@ -71,24 +71,29 @@ impl Server {
 			arg.data.command.clone().into(),
 			crate::index::message::ProcessObjectKind::Command,
 		));
-		let error = arg.data.error.as_ref().into_iter().flat_map(|e| match e {
-			tg::Either::Left(data) => {
-				let mut children = BTreeSet::new();
-				data.children(&mut children);
-				children
-					.into_iter()
-					.map(|object| {
-						let kind = crate::index::message::ProcessObjectKind::Error;
-						(object, kind)
-					})
-					.collect::<Vec<_>>()
-			},
-			tg::Either::Right(id) => {
-				let id = id.clone().into();
-				let kind = crate::index::message::ProcessObjectKind::Error;
-				vec![(id, kind)]
-			},
-		});
+		let error = arg
+			.data
+			.error
+			.as_ref()
+			.into_iter()
+			.flat_map(|error| match error {
+				tg::Either::Left(data) => {
+					let mut children = BTreeSet::new();
+					data.children(&mut children);
+					children
+						.into_iter()
+						.map(|object| {
+							let kind = crate::index::message::ProcessObjectKind::Error;
+							(object, kind)
+						})
+						.collect::<Vec<_>>()
+				},
+				tg::Either::Right(id) => {
+					let id = id.clone().into();
+					let kind = crate::index::message::ProcessObjectKind::Error;
+					vec![(id, kind)]
+				},
+			});
 		let log = arg.data.log.as_ref().map(|id| {
 			let id = id.clone().into();
 			let kind = crate::index::message::ProcessObjectKind::Log;

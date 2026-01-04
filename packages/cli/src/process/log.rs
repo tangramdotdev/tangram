@@ -24,6 +24,9 @@ pub struct Args {
 
 	#[arg(long)]
 	pub size: Option<u64>,
+
+	#[arg(long)]
+	pub stream: Option<tg::process::log::Stream>,
 }
 
 impl Cli {
@@ -38,6 +41,7 @@ impl Cli {
 			position: args.position.map(std::io::SeekFrom::Start),
 			remotes: args.remotes.remotes,
 			size: args.size,
+			stream: args.stream,
 		};
 		let mut log = process.log(&handle, arg).await.map_err(
 			|source| tg::error!(!source, id = %args.process, "failed to get the process log"),
@@ -45,16 +49,31 @@ impl Cli {
 
 		// Print the log.
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
+		let mut stderr = tokio::io::BufWriter::new(tokio::io::stderr());
 		while let Some(chunk) = log.try_next().await? {
-			stdout
-				.write_all(&chunk.bytes)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
+			match chunk.stream {
+				tg::process::log::Stream::Stdout => {
+					stdout
+						.write_all(&chunk.bytes)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
+				},
+				tg::process::log::Stream::Stderr => {
+					stderr
+						.write_all(&chunk.bytes)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to write to stderr"))?;
+				},
+			}
 		}
 		stdout
 			.flush()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
+		stderr
+			.flush()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to flush stderr"))?;
 
 		Ok(())
 	}

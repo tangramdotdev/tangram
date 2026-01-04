@@ -1062,7 +1062,7 @@ impl Server {
 				// Attempt to start the process.
 				let arg = tg::process::start::Arg {
 					local: None,
-					remotes: process.remote().cloned().map(|r| vec![r]),
+					remotes: process.remote().cloned().map(|remote| vec![remote]),
 				};
 				let result = server.start_process(process.id(), arg.clone()).await;
 				if let Err(error) = result {

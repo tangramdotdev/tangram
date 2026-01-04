@@ -8,7 +8,7 @@ export def test [...args] {
 	let local = spawn -n local
 
 	# Create a source server.
-	let source = spawn --cloud -n source
+	let source = spawn -n source
 
 	# Add the remote to the local server.
 	tg remote put default $remote.url

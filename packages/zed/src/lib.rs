@@ -17,7 +17,7 @@ impl zed::Extension for Extension {
 			.ok_or("failed to find the tangram binary")?;
 		let command = zed::Command {
 			command: tg,
-			args: vec!["lsp".to_string()],
+			args: vec!["lsp".to_owned()],
 			env: vec![],
 		};
 		Ok(command)

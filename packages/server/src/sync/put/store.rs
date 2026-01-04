@@ -1,6 +1,6 @@
 use {
 	crate::{Server, sync::put::State},
-	futures::{StreamExt as _, TryStreamExt as _},
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _},
 	std::{collections::BTreeSet, sync::Arc},
 	tangram_client::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
@@ -147,7 +147,7 @@ impl Server {
 
 		// Handle the processes.
 		for (item, output) in std::iter::zip(items, outputs) {
-			let Some(output) = output else {
+			let Some(mut output) = output else {
 				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage::Process(
 					tg::sync::PutMissingProcessMessage {
 						id: item.id.clone(),
@@ -156,6 +156,16 @@ impl Server {
 				state.sender.send(Ok(message)).await.ok();
 				continue;
 			};
+
+			// Compact the log if needed before sending the process data.
+			if item.eager && state.arg.logs && output.data.log.is_none() {
+				self.compact_process_log(&item.id).boxed().await.map_err(
+					|source| tg::error!(!source, process = %item.id, "failed to compact the log"),
+				)?;
+				output = self.try_get_process_local(&item.id).await?.ok_or_else(
+					|| tg::error!(process = %item.id, "failed to get the process after compaction"),
+				)?;
+			}
 
 			// Send the process.
 			let bytes = serde_json::to_string(&output.data)
@@ -239,16 +249,13 @@ impl Server {
 			}
 
 			// Enqueue the log.
-			if item.eager && state.arg.logs {
-				let id = output
-					.data
-					.log
-					.ok_or_else(|| tg::error!(process = %item.id, "expected a compacted log"))?
-					.clone()
-					.into();
+			if item.eager
+				&& state.arg.logs
+				&& let Some(log) = output.data.log.clone()
+			{
 				let item = crate::sync::queue::ObjectItem {
 					parent: Some(tg::Either::Right(item.id.clone())),
-					id,
+					id: log.into(),
 					kind: Some(crate::sync::queue::ObjectKind::Log),
 					eager: item.eager,
 				};

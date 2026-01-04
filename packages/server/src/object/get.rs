@@ -59,11 +59,15 @@ impl Server {
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		// Attempt to get the bytes from the store.
-		let mut bytes = self
+		let object = self
 			.store
-			.try_get(id)
+			.try_get_object(id)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
+
+		// Get the bytes from the object.
+		let mut bytes: Option<bytes::Bytes> =
+			object.and_then(|o| o.bytes.map(|b| b.into_owned().into()));
 
 		// If the bytes were not in the store, then attempt to read the bytes from the cache.
 		if bytes.is_none()
@@ -89,7 +93,11 @@ impl Server {
 		file: &mut Option<File>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		// Attempt to get the bytes from the store.
-		let mut bytes = self.store.try_get_sync(id)?;
+		let object = self.store.try_get_object_sync(id)?;
+
+		// Get the bytes from the object.
+		let mut bytes: Option<bytes::Bytes> =
+			object.and_then(|o| o.bytes.map(|b| b.into_owned().into()));
 
 		// If the bytes were not in the store, then attempt to read the bytes from the cache.
 		if bytes.is_none()
@@ -142,11 +150,17 @@ impl Server {
 		// Attempt to get the bytes from the store.
 		let mut outputs = self
 			.store
-			.try_get_batch(ids)
+			.try_get_object_batch(ids)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get objects"))?
 			.into_iter()
-			.map(|option| option.map(|bytes| tg::object::get::Output { bytes }))
+			.map(|option| {
+				option
+					.and_then(|o| o.bytes)
+					.map(|bytes| tg::object::get::Output {
+						bytes: bytes.into_owned().into(),
+					})
+			})
 			.collect::<Vec<_>>();
 
 		// If the bytes were not in the store, then attempt to read the bytes from the cache.
@@ -210,11 +224,12 @@ impl Server {
 	}
 
 	async fn try_read_blob_from_cache(&self, id: &tg::blob::Id) -> tg::Result<Option<Bytes>> {
-		let cache_pointer = self
+		let object = self
 			.store
-			.try_get_cache_pointer(&id.clone().into())
+			.try_get_object(&id.clone().into())
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get the cache pointer"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the object"))?;
+		let cache_pointer = object.and_then(|o| o.cache_pointer);
 		let Some(cache_pointer) = cache_pointer else {
 			return Ok(None);
 		};
@@ -257,7 +272,8 @@ impl Server {
 		file: &mut Option<File>,
 	) -> tg::Result<Option<Bytes>> {
 		// Get the cache pointer.
-		let cache_pointer = self.store.try_get_cache_pointer_sync(id)?;
+		let object = self.store.try_get_object_sync(&id.clone().into())?;
+		let cache_pointer = object.and_then(|o| o.cache_pointer);
 		let Some(cache_pointer) = cache_pointer else {
 			return Ok(None);
 		};

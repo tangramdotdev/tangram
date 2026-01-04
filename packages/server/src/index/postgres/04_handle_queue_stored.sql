@@ -293,7 +293,7 @@ begin
 				processes.id,
 				case
 					when
-						coalesce(error_objects.subtree_stored, false)
+						(error_objects.process is null or coalesce(error_objects.subtree_stored, false))
 						and (coalesce(child_processes.child_count, 0) = 0 or child_processes.all_stored)
 						then true
 					else false

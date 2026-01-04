@@ -219,11 +219,12 @@ impl Server {
 impl Reader {
 	pub async fn new(server: &Server, blob: tg::Blob) -> tg::Result<Self> {
 		let id = blob.id();
-		let cache_pointer = server
+		let object = server
 			.store
-			.try_get_cache_pointer(&id.clone().into())
+			.try_get_object(&id.clone().into())
 			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the cache pointer"))?;
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
+		let cache_pointer = object.and_then(|o| o.cache_pointer);
 		let reader = if let Some(cache_pointer) = cache_pointer {
 			let mut path = server.cache_path().join(cache_pointer.artifact.to_string());
 			if let Some(path_) = &cache_pointer.path {
@@ -247,10 +248,11 @@ impl Reader {
 
 	pub fn new_sync(server: &Server, blob: tg::Blob) -> tg::Result<Self> {
 		let id = blob.id();
-		let cache_pointer = server
+		let object = server
 			.store
-			.try_get_cache_pointer_sync(&id.clone())
-			.map_err(|error| tg::error!(!error, %id, "failed to get the cache pointer"))?;
+			.try_get_object_sync(&id.clone().into())
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
+		let cache_pointer = object.and_then(|o| o.cache_pointer);
 		let reader = if let Some(cache_pointer) = cache_pointer {
 			let mut path = server.cache_path().join(cache_pointer.artifact.to_string());
 			if let Some(path_) = &cache_pointer.path {

@@ -8,7 +8,7 @@ export def test [...args] {
 	let local = spawn -n local
 
 	# Create a source server.
-	let source = spawn --cloud -n source
+	let source = spawn -n source
 
 	let path = artifact {
 		tangram.ts: '

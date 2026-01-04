@@ -105,7 +105,7 @@ impl Server {
 		let args = items
 			.iter()
 			.map(|item| {
-				Ok(crate::store::PutArg {
+				Ok(crate::store::PutObjectArg {
 					id: item.id.clone(),
 					bytes: Some(item.bytes.clone()),
 					cache_pointer: None,
@@ -114,7 +114,7 @@ impl Server {
 			})
 			.collect::<tg::Result<_>>()?;
 		self.store
-			.put_batch(args)
+			.put_object_batch(args)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put objects"))?;
 

@@ -29,7 +29,7 @@ where
 {
 	fn deserialize_as(value: sqlite::types::Value) -> Result<U, Error> {
 		T::column_result((&value).into())
-			.map_err(|e| Error::Other(e.into()))?
+			.map_err(|error| Error::Other(error.into()))?
 			.try_into()
 			.map_err(Error::other)
 	}

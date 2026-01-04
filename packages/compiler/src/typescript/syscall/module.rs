@@ -63,7 +63,7 @@ pub fn invalidated_resolutions(
 			.ok()
 			.and_then(|metadata| metadata.modified().ok())
 			.and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-			.map(|d| d.as_secs());
+			.map(|t| t.as_secs());
 
 		// If the mtime could not be read, then assume no change.
 		let Some(current_mtime) = current_mtime else {

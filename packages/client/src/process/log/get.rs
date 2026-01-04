@@ -26,6 +26,9 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub size: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stream: Option<tg::process::log::Stream>,
 }
 
 #[derive(Clone, Debug)]
@@ -40,6 +43,7 @@ pub struct Chunk {
 	#[serde_as(as = "BytesBase64")]
 	pub bytes: Bytes,
 	pub position: u64,
+	pub stream: tg::process::log::Stream,
 }
 
 impl tg::Process {

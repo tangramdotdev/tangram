@@ -354,7 +354,7 @@ impl From<DownloadOptions> for tg::Value {
 	fn from(options: DownloadOptions) -> Self {
 		let mut map = BTreeMap::new();
 		if let Some(mode) = options.mode {
-			map.insert("mode".to_string(), mode.to_string().into());
+			map.insert("mode".to_owned(), mode.to_string().into());
 		}
 		tg::Value::Map(map)
 	}

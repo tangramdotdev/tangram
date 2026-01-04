@@ -103,7 +103,7 @@ impl Server {
 		let total = info.last_sequence.saturating_sub(info.first_sequence);
 		if last_sequence > 0 {
 			progress.start(
-				"messages".to_string(),
+				"messages".to_owned(),
 				"messages".to_owned(),
 				tg::progress::IndicatorFormat::Normal,
 				Some(0),
@@ -134,7 +134,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the queue size"))?;
 		progress.start(
-			"queue".to_string(),
+			"queue".to_owned(),
 			"queue".to_owned(),
 			tg::progress::IndicatorFormat::Normal,
 			Some(count),

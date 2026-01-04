@@ -7,7 +7,7 @@ let remote = spawn --cloud -n remote
 let local = spawn -n local
 
 # Create a source server.
-let source = spawn --cloud -n source
+let source = spawn -n source
 
 # Create a directory with many files to increase object count.
 let path = artifact {
