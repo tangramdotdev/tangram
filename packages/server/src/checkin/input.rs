@@ -414,7 +414,7 @@ impl Server {
 					dependencies.insert(reference, None);
 				}
 			}
-		} else if let Some(kind) = Self::checkin_detect_module_kind(&path) {
+		} else if let Some(kind) = Self::checkin_detect_module_kind(&path)? {
 			// Update the node.
 			state
 				.graph
@@ -749,24 +749,26 @@ impl Server {
 		}
 	}
 
-	#[must_use]
-	#[allow(clippy::case_sensitive_file_extension_comparisons)]
-	fn checkin_detect_module_kind(path: &Path) -> Option<tg::module::Kind> {
-		// Check filename patterns first.
-		let name = path.file_name()?.to_str()?;
-		if name.ends_with(".d.ts") {
-			return Some(tg::module::Kind::Dts);
+	fn checkin_detect_module_kind(path: &Path) -> tg::Result<Option<tg::module::Kind>> {
+		let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+			return Ok(None);
+		};
+		if name == "tangram.js" || name.ends_with(".tg.js") {
+			return Ok(Some(tg::module::Kind::Js));
 		}
 		if name == "tangram.ts" || name.ends_with(".tg.ts") {
-			return Some(tg::module::Kind::Ts);
+			return Ok(Some(tg::module::Kind::Ts));
 		}
-		if name == "tangram.js" || name.ends_with(".tg.js") {
-			return Some(tg::module::Kind::Js);
-		}
-		// Fall back to xattr for files without recognizable extensions.
-		if let Ok(Some(xattr)) = xattr::get(path, tg::file::MODULE_XATTR_NAME) {
-			return String::from_utf8(xattr).ok()?.parse().ok();
-		}
-		None
+		let Some(xattr) = xattr::get(path, tg::file::MODULE_XATTR_NAME)
+			.map_err(|source| tg::error!(!source, "failed to get the module xattr"))?
+		else {
+			return Ok(None);
+		};
+		let xattr = String::from_utf8(xattr)
+			.map_err(|source| tg::error!(!source, "the module xattr is not valid utf-8"))?;
+		let kind = xattr
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the module kind"))?;
+		Ok(Some(kind))
 	}
 }
