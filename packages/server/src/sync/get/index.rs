@@ -270,9 +270,14 @@ impl Server {
 		graph: &mut Graph,
 		message_max_bytes: usize,
 	) -> tg::Result<Vec<Vec<crate::index::message::Messages>>> {
-		// Get a topological ordering.
-		let toposort = petgraph::algo::toposort(&*graph, None)
-			.map_err(|_| tg::error!("failed to toposort the graph"))?;
+		// Get a topological ordering using Tarjan's algorithm.
+		let sccs = petgraph::algo::tarjan_scc(&*graph);
+		for scc in &sccs {
+			if scc.len() > 1 {
+				return Err(tg::error!("failed to toposort the graph"));
+			}
+		}
+		let toposort: Vec<usize> = sccs.into_iter().flatten().rev().collect();
 
 		// Set stored and metadata.
 		for index in toposort.into_iter().rev() {
@@ -881,13 +886,15 @@ impl Server {
 									.unwrap_object()
 							})
 							.collect();
+						let metadata = node.metadata.clone().unwrap();
+						let stored = node.local_stored.clone().unwrap();
 						let message =
 							crate::index::Message::PutObject(crate::index::message::PutObject {
 								cache_entry: None,
 								children,
 								id,
-								metadata: node.metadata.clone().unwrap(),
-								stored: node.local_stored.clone().unwrap(),
+								metadata,
+								stored,
 								touched_at,
 							});
 						messages.entry(level).or_insert(Vec::new()).push(message);
