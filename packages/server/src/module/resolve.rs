@@ -45,7 +45,7 @@ impl Server {
 			None
 		};
 
-		// If the kind is still not known, then infer it from the object's kind.
+		// If the kind is still not known, then infer it from the object's kind. If it is a file, use the module field.
 		let kind = if let Some(kind) = kind {
 			kind
 		} else {
@@ -54,7 +54,6 @@ impl Server {
 					tg::object::Kind::Blob => tg::module::Kind::Blob,
 					tg::object::Kind::Directory => tg::module::Kind::Directory,
 					tg::object::Kind::File => {
-						// Extract the module from the file, if it exists.
 						let edge = tg::graph::Edge::<tg::Artifact>::try_from_data(edge.clone())?;
 						let file = tg::Artifact::with_edge(edge)
 							.clone()

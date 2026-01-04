@@ -530,8 +530,9 @@ impl Server {
 				// Set the module xattr.
 				if let Some(module) = &node.module {
 					let module = module.to_string();
-					xattr::set(path, tg::file::MODULE_XATTR_NAME, module.as_bytes())
-						.map_err(|source| tg::error!(!source, "failed to write the module attr"))?;
+					xattr::set(path, tg::file::MODULE_XATTR_NAME, module.as_bytes()).map_err(
+						|source| tg::error!(!source, "failed to write the module xattr"),
+					)?;
 				}
 
 				// Set the permissions.
@@ -576,7 +577,7 @@ impl Server {
 			if let Some(module) = &node.module {
 				let module = module.to_string();
 				xattr::set(path, tg::file::MODULE_XATTR_NAME, module.as_bytes())
-					.map_err(|source| tg::error!(!source, "failed to write the module attr"))?;
+					.map_err(|source| tg::error!(!source, "failed to write the module xattr"))?;
 			}
 
 			// Set the permissions.
