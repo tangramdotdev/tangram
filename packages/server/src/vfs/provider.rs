@@ -113,10 +113,9 @@ impl vfs::Provider for Provider {
 			if parent != vfs::ROOT_NODE_ID {
 				break 'a None;
 			}
-			let name = name
-				.strip_suffix(".tg.ts")
+			let name = None
+				.or_else(|| name.strip_suffix(".tg.ts"))
 				.or_else(|| name.strip_suffix(".tg.js"))
-				.or_else(|| name.strip_suffix(".d.ts"))
 				.or_else(|| {
 					std::path::Path::new(name)
 						.file_stem()
@@ -330,19 +329,30 @@ impl vfs::Provider for Provider {
 		let Some(tg::Artifact::File(file)) = node.artifact else {
 			return Ok(None);
 		};
-		if name != tg::file::DEPENDENCIES_XATTR_NAME {
-			return Ok(None);
+		if name == tg::file::DEPENDENCIES_XATTR_NAME {
+			let dependencies = file.dependencies(&self.server).await.map_err(|error| {
+				tracing::error!(?error, "failed to get file dependencies");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
+			if dependencies.is_empty() {
+				return Ok(None);
+			}
+			let references = dependencies.keys().cloned().collect::<Vec<_>>();
+			let data = serde_json::to_vec(&references).unwrap();
+			return Ok(Some(data.into()));
 		}
-		let dependencies = file.dependencies(&self.server).await.map_err(|error| {
-			tracing::error!(?error, "failed to get file dependencies");
-			std::io::Error::from_raw_os_error(libc::EIO)
-		})?;
-		if dependencies.is_empty() {
-			return Ok(None);
+
+		if name == tg::file::MODULE_XATTR_NAME {
+			let module = file.module(&self.server).await.map_err(|error| {
+				tracing::error!(?error, "failed to get file's module");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
+			let Some(module) = module else {
+				return Ok(None);
+			};
+			return Ok(Some(module.to_string().as_bytes().to_vec().into()));
 		}
-		let references = dependencies.keys().cloned().collect::<Vec<_>>();
-		let data = serde_json::to_vec(&references).unwrap();
-		Ok(Some(data.into()))
+		Ok(None)
 	}
 
 	async fn opendir(&self, id: u64) -> std::io::Result<u64> {

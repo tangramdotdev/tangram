@@ -15,11 +15,12 @@
         "a?local=../a": {
           "item": null,
           "options": {
-            "id": "dir_01s7bx5nqy2mc2qanmg482z18vq7ddrnvvvk7sv1zwm6b6af781dd0",
+            "id": "dir_01mpxgv2ygpgm5x33vyj3tg0bbmcwcdnq3qa0krqr1c90d0282r830",
             "tag": "a"
           }
         }
-      }
+      },
+      "module": "ts"
     }
   ]
 }

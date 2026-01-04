@@ -15,11 +15,12 @@
         "cycle": {
           "item": null,
           "options": {
-            "id": "fil_01vp7kc4hv8bypy9v6nx30gp25qecmf7y7f5mr7eb0z55ef53hr390",
+            "id": "fil_01fq4vt52tr60sbyenxrr3f9rd2sw9k2r752774wp94j3m4h9tbrfg",
             "tag": "cycle"
           }
         }
-      }
+      },
+      "module": "ts"
     }
   ]
 }

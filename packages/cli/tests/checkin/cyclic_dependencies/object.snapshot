@@ -22,6 +22,7 @@ tg.directory({
             "path": "../bar",
           },
         },
+        "module": "ts",
       },
       {
         "kind": "directory",
@@ -44,6 +45,7 @@ tg.directory({
             "path": "../foo",
           },
         },
+        "module": "ts",
       },
     ],
   }),

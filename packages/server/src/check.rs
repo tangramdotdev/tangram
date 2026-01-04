@@ -47,7 +47,7 @@ impl Server {
 		// Create the compiler.
 		let compiler = self.create_compiler();
 
-		// Check the package.
+		// Check the modules.
 		let diagnostics = compiler
 			.check(arg.modules)
 			.await

@@ -11,6 +11,7 @@ tg.directory({
             },
             "tangram.ts": tg.file({
               "contents": tg.blob(""),
+              "module": "ts",
             }),
           },
         },
@@ -26,6 +27,7 @@ tg.directory({
               "path": ".",
             },
           },
+          "module": "ts",
         },
       ],
     }),

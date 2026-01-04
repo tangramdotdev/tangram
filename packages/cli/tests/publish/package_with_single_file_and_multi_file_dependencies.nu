@@ -15,7 +15,7 @@ let single_file_content = '
 '
 
 let single_file_dir = mktemp -d
-let single_file_path = $single_file_dir | path join "package.ts"
+let single_file_path = $single_file_dir | path join "package.tg.ts"
 $single_file_content | save $single_file_path
 
 let single_file_id = tg checkin $single_file_path
@@ -24,8 +24,8 @@ tg tag put test-single-file/1.0.0 $single_file_id | complete
 # Create a multi-file package with submodules.
 let multi_file_path = artifact {
 	tangram.ts: '
-		import { helper } from "./helper.ts";
-		import { util } from "./subdir/util.ts";
+		import { helper } from "./helper.tg.ts";
+		import { util } from "./subdir/util.tg.ts";
 
 		export default () => `Multi-file using: ${helper()} and ${util()}`;
 
@@ -33,11 +33,11 @@ let multi_file_path = artifact {
 			tag: "test-multi-file/1.0.0",
 		};
 	',
-	helper.ts: '
+	"helper.tg.ts": '
 		export let helper = () => "helper function";
 	',
 	subdir: {
-		util.ts: '
+		"util.tg.ts": '
 			export let util = () => "util function";
 		'
 	}
@@ -70,7 +70,7 @@ success $output
 let publish_count = $output.stderr | lines | where {|line| $line =~ "info tagged test-" } | length
 
 # We should only publish 3 packages: test-main, test-single-file, test-multi-file.
-# We should NOT publish helper.ts or util.ts as separate packages.
+# We should NOT publish helper.tg.ts or util.tg.ts as separate packages.
 let expected_msg = $"Expected 3 packages to be published but found ($publish_count)."
 assert equal $publish_count 3 $expected_msg
 

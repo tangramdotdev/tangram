@@ -15,11 +15,12 @@
         "foo": {
           "item": null,
           "options": {
-            "id": "fil_01xb6vpvcfg25gp2xcq9g3b8e229pkwcxew9zhz80gvq978dr3zfgg",
+            "id": "fil_01errf3d75w4h6hc0ewgx04jz11cd996405b4tajcgksa8krs5k2q0",
             "tag": "foo"
           }
         }
-      }
+      },
+      "module": "ts"
     }
   ]
 }

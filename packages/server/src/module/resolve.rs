@@ -38,28 +38,14 @@ impl Server {
 		let kind = if let Some(kind) = import.kind {
 			Some(kind)
 		} else if let Some(path) = referent.path() {
-			let extension = path.extension();
-			if extension.is_some_and(|extension| extension == "js") {
-				Some(tg::module::Kind::Js)
-			} else if extension.is_some_and(|extension| extension == "ts") {
-				Some(tg::module::Kind::Ts)
-			} else {
-				None
-			}
+			tg::package::module_kind_for_path(path).ok()
 		} else if let tg::module::data::Item::Path(path) = referent.item() {
-			let extension = path.extension();
-			if extension.is_some_and(|extension| extension == "js") {
-				Some(tg::module::Kind::Js)
-			} else if extension.is_some_and(|extension| extension == "ts") {
-				Some(tg::module::Kind::Ts)
-			} else {
-				None
-			}
+			tg::package::module_kind_for_path(path).ok()
 		} else {
 			None
 		};
 
-		// If the kind is still not known, then infer it from the object's kind.
+		// If the kind is still not known, then infer it from the object's kind. If it is a file, use the module field.
 		let kind = if let Some(kind) = kind {
 			kind
 		} else {
@@ -67,7 +53,15 @@ impl Server {
 				tg::module::data::Item::Edge(edge) => match edge.kind() {
 					tg::object::Kind::Blob => tg::module::Kind::Blob,
 					tg::object::Kind::Directory => tg::module::Kind::Directory,
-					tg::object::Kind::File => tg::module::Kind::File,
+					tg::object::Kind::File => {
+						let edge = tg::graph::Edge::<tg::Artifact>::try_from_data(edge.clone())?;
+						let file = tg::Artifact::with_edge(edge)
+							.clone()
+							.try_unwrap_file()
+							.ok()
+							.ok_or_else(|| tg::error!("expected a file"))?;
+						file.module(self).await?.unwrap_or(tg::module::Kind::File)
+					},
 					tg::object::Kind::Symlink => tg::module::Kind::Symlink,
 					tg::object::Kind::Graph => tg::module::Kind::Graph,
 					tg::object::Kind::Command => tg::module::Kind::Command,

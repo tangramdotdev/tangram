@@ -229,6 +229,7 @@ impl Server {
 				contents: None,
 				dependencies: BTreeMap::new(),
 				executable: metadata.permissions().mode() & 0o111 != 0,
+				module: None,
 			})
 		} else if metadata.is_symlink() {
 			let path = std::fs::read_link(&item.path)
@@ -413,7 +414,18 @@ impl Server {
 					dependencies.insert(reference, None);
 				}
 			}
-		} else if tg::package::is_module_path(&path) {
+		} else if let Some(kind) = Self::checkin_detect_module_kind(&path)? {
+			// Update the node.
+			state
+				.graph
+				.nodes
+				.get_mut(&index)
+				.unwrap()
+				.variant
+				.unwrap_file_mut()
+				.module
+				.replace(kind);
+
 			// Read the module.
 			let contents = std::fs::read(&path).map_err(
 				|source| tg::error!(!source, path = %path.display(), "failed to read the module"),
@@ -423,7 +435,6 @@ impl Server {
 			)?;
 
 			// Analyze.
-			let kind = tg::package::module_kind_for_path(&path)?;
 			let module = tg::module::Data {
 				kind,
 				referent: tg::Referent::with_item(tg::module::data::Item::Path(path.clone())),
@@ -736,5 +747,28 @@ impl Server {
 					.index,
 			),
 		}
+	}
+
+	fn checkin_detect_module_kind(path: &Path) -> tg::Result<Option<tg::module::Kind>> {
+		let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+			return Ok(None);
+		};
+		if name == "tangram.js" || name.ends_with(".tg.js") {
+			return Ok(Some(tg::module::Kind::Js));
+		}
+		if name == "tangram.ts" || name.ends_with(".tg.ts") {
+			return Ok(Some(tg::module::Kind::Ts));
+		}
+		let Some(xattr) = xattr::get(path, tg::file::MODULE_XATTR_NAME)
+			.map_err(|source| tg::error!(!source, "failed to get the module xattr"))?
+		else {
+			return Ok(None);
+		};
+		let xattr = String::from_utf8(xattr)
+			.map_err(|source| tg::error!(!source, "the module xattr is not valid utf-8"))?;
+		let kind = xattr
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the module kind"))?;
+		Ok(Some(kind))
 	}
 }

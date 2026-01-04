@@ -169,10 +169,12 @@ impl Server {
 					})
 					.collect::<tg::Result<_>>()?;
 				let executable = file.executable;
+				let module = file.module;
 				let data = tg::file::data::Node {
 					contents: Some(contents),
 					dependencies,
 					executable,
+					module,
 				};
 				tg::file::Data::Node(data).into()
 			},
@@ -413,10 +415,12 @@ impl Server {
 					})
 					.collect::<tg::Result<_>>()?;
 				let executable = file.executable;
+				let module = file.module;
 				let data = tg::graph::data::File {
 					contents: Some(contents),
 					dependencies,
 					executable,
+					module,
 				};
 				tg::graph::data::Node::File(data)
 			},

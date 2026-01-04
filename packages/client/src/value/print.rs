@@ -352,6 +352,9 @@ where
 		if file.executable {
 			self.map_entry("executable", |s| s.bool(file.executable))?;
 		}
+		if let Some(module) = &file.module {
+			self.map_entry("module", |s| s.string(&module.to_string()))?;
+		}
 		self.finish_map()
 	}
 

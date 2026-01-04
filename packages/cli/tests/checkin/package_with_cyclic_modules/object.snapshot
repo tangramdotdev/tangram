@@ -14,6 +14,7 @@ tg.directory({
               "path": "tangram.ts",
             },
           },
+          "module": "ts",
         },
         {
           "kind": "file",
@@ -27,6 +28,7 @@ tg.directory({
               "path": "foo.tg.ts",
             },
           },
+          "module": "ts",
         },
       ],
     }),
@@ -48,6 +50,7 @@ tg.directory({
               "path": "tangram.ts",
             },
           },
+          "module": "ts",
         },
         {
           "kind": "file",
@@ -61,6 +64,7 @@ tg.directory({
               "path": "foo.tg.ts",
             },
           },
+          "module": "ts",
         },
       ],
     }),

@@ -1,9 +1,4 @@
-use {
-	crate::Cli,
-	futures::prelude::*,
-	std::path::{Path, PathBuf},
-	tangram_client::prelude::*,
-};
+use {crate::Cli, futures::prelude::*, std::path::PathBuf, tangram_client::prelude::*};
 
 /// Spawn a process.
 #[derive(Clone, Debug, clap::Args)]
@@ -265,19 +260,7 @@ impl Cli {
 				} else {
 					referent.options.path.replace(root_module_file_name.into());
 				}
-				let kind = if Path::new(root_module_file_name)
-					.extension()
-					.is_some_and(|extension| extension == "js")
-				{
-					tg::module::Kind::Js
-				} else if Path::new(root_module_file_name)
-					.extension()
-					.is_some_and(|extension| extension == "ts")
-				{
-					tg::module::Kind::Ts
-				} else {
-					unreachable!();
-				};
+				let kind = tg::package::module_kind_for_path(root_module_file_name).unwrap();
 				let item = directory
 					.get_entry_edge(&handle, root_module_file_name)
 					.await?;
@@ -294,21 +277,27 @@ impl Cli {
 			},
 
 			tg::Object::File(file) => {
-				let path = referent.path().and_then(|path| {
-					if tg::package::is_module_path(path) {
-						Some(path)
-					} else {
-						None
-					}
+				let kind = referent.path().and_then(|path| {
+					tg::package::module_kind_for_path(path).ok().or_else(|| {
+						if let Ok(Some(xattr)) = xattr::get(path, tg::file::MODULE_XATTR_NAME)
+							&& let Some(kind) = String::from_utf8(xattr)
+								.ok()
+								.and_then(|s| s.parse::<tg::module::Kind>().ok())
+						{
+							Some(kind)
+						} else {
+							None
+						}
+					})
 				});
-				if let Some(path) = path {
-					let kind = if path.extension().is_some_and(|extension| extension == "js") {
-						tg::module::Kind::Js
-					} else if path.extension().is_some_and(|extension| extension == "ts") {
-						tg::module::Kind::Ts
-					} else {
-						unreachable!()
-					};
+				let kind = if kind.is_some() {
+					kind
+				} else {
+					file.module(&handle)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to get the module kind"))?
+				};
+				if let Some(kind) = kind {
 					let item = file.clone().into();
 					let item = tg::graph::Edge::Object(item);
 					let item = tg::module::Item::Edge(item);

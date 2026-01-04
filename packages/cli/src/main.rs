@@ -2,11 +2,7 @@ use {
 	clap::{CommandFactory as _, FromArgMatches as _},
 	futures::FutureExt as _,
 	num::ToPrimitive as _,
-	std::{
-		os::unix::process::CommandExt as _,
-		path::{Path, PathBuf},
-		time::Duration,
-	},
+	std::{os::unix::process::CommandExt as _, path::PathBuf, time::Duration},
 	tangram_client::{Client, prelude::*},
 	tangram_server::Owned as Server,
 	tangram_uri::Uri,
@@ -1014,7 +1010,6 @@ impl Cli {
 			.left()
 			.ok_or_else(|| tg::error!("expected an object"))?;
 		let mut referent = referent.map(|_| item);
-
 		let module = match referent.item.clone() {
 			tg::Object::Directory(directory) => {
 				let root_module_name = tg::package::try_get_root_module_file_name(
@@ -1030,19 +1025,7 @@ impl Cli {
 				} else {
 					referent.options.path.replace(root_module_name.into());
 				}
-				let kind = if Path::new(root_module_name)
-					.extension()
-					.is_some_and(|extension| extension == "js")
-				{
-					tg::module::Kind::Js
-				} else if Path::new(root_module_name)
-					.extension()
-					.is_some_and(|extension| extension == "ts")
-				{
-					tg::module::Kind::Ts
-				} else {
-					unreachable!();
-				};
+				let kind = tg::package::module_kind_for_path(root_module_name).unwrap();
 				let item = directory.get_entry_edge(&handle, root_module_name).await?;
 				let item = tg::module::Item::Edge(item.into());
 				let referent = referent.map(|_| item);
@@ -1056,13 +1039,7 @@ impl Cli {
 				if !tg::package::is_module_path(path) {
 					return Err(tg::error!("expected a module path"));
 				}
-				let kind = if path.extension().is_some_and(|extension| extension == "js") {
-					tg::module::Kind::Js
-				} else if path.extension().is_some_and(|extension| extension == "ts") {
-					tg::module::Kind::Ts
-				} else {
-					unreachable!()
-				};
+				let kind = tg::package::module_kind_for_path(path).unwrap();
 				let item = file.clone().into();
 				let item = tg::graph::Edge::Object(item);
 				let item = tg::module::Item::Edge(item);

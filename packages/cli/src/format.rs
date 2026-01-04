@@ -1,6 +1,6 @@
 use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*};
 
-/// Format a package.
+/// Format.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {

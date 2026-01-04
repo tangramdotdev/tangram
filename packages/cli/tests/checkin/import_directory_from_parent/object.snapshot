@@ -8,5 +8,6 @@ tg.directory({
         "path": "a",
       },
     },
+    "module": "ts",
   }),
 })

@@ -4,6 +4,7 @@ pub struct Builder {
 	contents: tg::Blob,
 	dependencies: BTreeMap<tg::Reference, Option<tg::file::Dependency>>,
 	executable: bool,
+	module: Option<tg::module::Kind>,
 }
 
 impl Builder {
@@ -13,6 +14,7 @@ impl Builder {
 			contents: contents.into(),
 			dependencies: BTreeMap::new(),
 			executable: false,
+			module: None,
 		}
 	}
 
@@ -38,6 +40,12 @@ impl Builder {
 	}
 
 	#[must_use]
+	pub fn module(mut self, module: Option<impl Into<tg::module::Kind>>) -> Self {
+		self.module = module.map(std::convert::Into::into);
+		self
+	}
+
+	#[must_use]
 	pub fn build(self) -> tg::File {
 		tg::File::with_object(tg::file::Object::Node(tg::file::object::Node {
 			contents: self.contents,
@@ -56,6 +64,7 @@ impl Builder {
 				})
 				.collect(),
 			executable: self.executable,
+			module: self.module,
 		}))
 	}
 }

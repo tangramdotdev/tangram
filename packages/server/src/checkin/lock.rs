@@ -327,7 +327,8 @@ impl Server {
 					let data = tg::graph::data::File {
 						contents: None,
 						dependencies,
-						executable: false,
+						executable: file.executable,
+						module: file.module,
 					};
 					(tg::graph::data::Node::File(data), children)
 				},

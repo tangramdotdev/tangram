@@ -18,7 +18,7 @@
             "kind": "directory"
           },
           "options": {
-            "id": "dir_01wdn188kc4t1nck9bs1d942a4ct20dbktd1f1fdrfky33b780tn10",
+            "id": "dir_01swbg9sr5r3cfxebss3vcayb1yevbxvs3f9r81799g3ptwbcyge90",
             "tag": "a/1.1.0"
           }
         },
@@ -28,11 +28,12 @@
             "kind": "directory"
           },
           "options": {
-            "id": "dir_013tvq7gtpz16t2w6qdzcgnakabev21fc5kxdr8ktee433e9ndyja0",
+            "id": "dir_01h3d54sa47k50ndf3yxhz7zkwr0rt2r073cadj8k0vy35fctk87eg",
             "tag": "b/1.0.0"
           }
         }
-      }
+      },
+      "module": "ts"
     },
     {
       "kind": "directory",
@@ -65,11 +66,12 @@
             "kind": "directory"
           },
           "options": {
-            "id": "dir_013tvq7gtpz16t2w6qdzcgnakabev21fc5kxdr8ktee433e9ndyja0",
+            "id": "dir_01h3d54sa47k50ndf3yxhz7zkwr0rt2r073cadj8k0vy35fctk87eg",
             "tag": "b/1.0.0"
           }
         }
-      }
+      },
+      "module": "ts"
     },
     {
       "kind": "file",
@@ -83,7 +85,8 @@
             "path": "tangram.ts"
           }
         }
-      }
+      },
+      "module": "ts"
     },
     {
       "kind": "file",
@@ -103,11 +106,12 @@
             "kind": "directory"
           },
           "options": {
-            "id": "dir_01wdn188kc4t1nck9bs1d942a4ct20dbktd1f1fdrfky33b780tn10",
+            "id": "dir_01swbg9sr5r3cfxebss3vcayb1yevbxvs3f9r81799g3ptwbcyge90",
             "tag": "a/1.1.0"
           }
         }
-      }
+      },
+      "module": "ts"
     }
   ]
 }

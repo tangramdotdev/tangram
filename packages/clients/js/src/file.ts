@@ -112,7 +112,8 @@ export class File {
 			}),
 		);
 		let executable = arg.executable ?? false;
-		let object = { contents, dependencies, executable };
+		let module = arg.module;
+		let object = { contents, dependencies, executable, module };
 		return tg.File.withObject(object);
 	}
 
@@ -295,6 +296,21 @@ export class File {
 			return node.executable;
 		} else {
 			return object.executable;
+		}
+	}
+
+	async module(): Promise<string | undefined> {
+		let object = await this.object();
+		if ("index" in object) {
+			let graph = object.graph;
+			tg.assert(graph !== undefined);
+			let nodes = await graph.nodes();
+			let node = nodes[object.index];
+			tg.assert(node !== undefined);
+			tg.assert(node.kind === "file");
+			return node.module;
+		} else {
+			return object.module;
 		}
 	}
 

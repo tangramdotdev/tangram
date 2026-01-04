@@ -91,6 +91,10 @@ pub struct File {
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_false")]
 	pub executable: bool,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 3, default, skip_serializing_if = "Option::is_none")]
+	pub module: Option<tg::module::Kind>,
 }
 
 #[serde_as]

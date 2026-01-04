@@ -11,5 +11,6 @@ tg.directory({
         "path": "../b/e",
       },
     },
+    "module": "ts",
   }),
 })

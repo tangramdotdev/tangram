@@ -1,6 +1,7 @@
 tg.directory({
   "bar.tg.ts": tg.file({
     "contents": tg.blob("export default bar = \"bar\";"),
+    "module": "ts",
   }),
   "foo.tg.ts": tg.symlink({
     "path": "bar.tg.ts",
@@ -15,5 +16,6 @@ tg.directory({
         "path": "foo.tg.ts",
       },
     },
+    "module": "ts",
   }),
 })

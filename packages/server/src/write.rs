@@ -63,6 +63,7 @@ impl Server {
 				contents: Some(blob.id.clone()),
 				dependencies: BTreeMap::new(),
 				executable: false,
+				module: None,
 			});
 			let id = tg::file::Id::new(&data.serialize()?);
 			let path = self.cache_path().join(id.to_string());
