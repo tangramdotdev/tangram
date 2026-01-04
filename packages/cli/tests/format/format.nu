@@ -18,8 +18,8 @@ let path = artifact {
 	tangram.ts: 'export default   "formatted"'
 }
 
-# Format the package.
+# Format.
 tg format $path
 
-# Snapshot the package.
+# Snapshot.
 snapshot --path $path

@@ -1,6 +1,6 @@
 use {crate::Cli, tangram_client::prelude::*};
 
-/// Check a package.
+/// Check.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {

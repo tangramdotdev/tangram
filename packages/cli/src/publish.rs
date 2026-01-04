@@ -7,7 +7,7 @@ use {
 	tangram_client::prelude::*,
 };
 
-/// Publish a package with its transitive dependencies.
+/// Publish a tag with its transitive local dependencies.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -23,7 +23,7 @@ pub struct Args {
 	#[arg(long, short)]
 	pub remote: Option<String>,
 
-	/// Override the tag for the root package.
+	/// Override the tag for the root.
 	#[arg(long, short)]
 	pub tag: Option<String>,
 }
