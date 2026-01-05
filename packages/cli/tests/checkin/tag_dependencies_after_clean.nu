@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-let remote = spawn --cloud -n remote
+let remote = spawn -n remote
 
 # Tag the referent on the remote server.
 let referent_path = artifact {
