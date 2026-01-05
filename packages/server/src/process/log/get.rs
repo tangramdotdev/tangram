@@ -2,7 +2,7 @@ use {
 	crate::{Context, Server},
 	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive,
-	std::time::Duration,
+	std::{io::SeekFrom, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::{
 		stream::Ext as _,
@@ -91,7 +91,7 @@ impl Server {
 	async fn try_get_process_log_local_task(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::log::get::Arg,
+		mut arg: tg::process::log::get::Arg,
 		sender: async_channel::Sender<tg::Result<tg::process::log::get::Event>>,
 	) -> tg::Result<()> {
 		// Subscribe to log events.
@@ -121,14 +121,6 @@ impl Server {
 
 		// Create the events stream.
 		let mut events = stream::select_all([log, status, interval]).boxed();
-
-		// Create the stream.
-		let mut stream = self
-			.process_log_stream(id, arg.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the log stream"))?;
-
-		let mut bytes_read = 0;
 		'outer: loop {
 			// Get the process's status.
 			let status = self
@@ -136,26 +128,36 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the process status"))?;
 
-			// Send as many data events as possible.
-			'inner: loop {
-				let Some(chunk) = stream.next().await else {
-					break 'inner;
-				};
+			// Create and drain the stream.
+			let mut stream = self
+				.process_log_stream(id, arg.clone())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the log stream"))?;
+			while let Some(chunk) = stream.next().await {
 				if let Ok(chunk) = &chunk {
-					bytes_read += chunk.bytes.len();
+					// Update position/length
+					arg.position.replace(SeekFrom::Start(chunk.position + chunk.bytes.len().to_u64().unwrap()));
+					if let Some(length) = &mut arg.length {
+						*length = length.signum()
+							* length
+								.abs()
+								.to_u64()
+								.unwrap()
+								.saturating_sub(chunk.bytes.len().to_u64().unwrap())
+								.to_i64()
+								.unwrap();
+					}
 				}
 				let event = chunk.map(tg::process::log::get::Event::Chunk);
+
+				// If we fail to send the event it means the connection has closed, so break the outer loop.
 				if sender.send(event).await.is_err() {
 					break 'outer;
 				}
 			}
 
 			// Send the finished event if we've reached the end of the stream.
-			if status.is_finished()
-				|| arg
-					.length
-					.is_some_and(|l| l.abs().to_usize().unwrap() <= bytes_read)
-			{
+			if status.is_finished() || arg.length.is_some_and(|l| l == 0) {
 				sender
 					.send(Ok(tg::process::log::get::Event::End))
 					.await

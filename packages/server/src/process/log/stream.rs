@@ -113,11 +113,12 @@ impl Server {
 				}
 
 				// If we are not reversing and hit EOF, we are done.
-				if !state.reverse {
-					let log_length = state.log_length.unwrap_or_default();
-					if state.position >= log_length {
-						return Ok(None);
-					}
+				if !state.reverse
+					&& state
+						.log_length
+						.is_some_and(|length| length <= state.position)
+				{
+					return Ok(None);
 				}
 
 				// Get as many entries from the log as possible.
