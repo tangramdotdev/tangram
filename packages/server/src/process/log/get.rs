@@ -136,7 +136,9 @@ impl Server {
 			while let Some(chunk) = stream.next().await {
 				if let Ok(chunk) = &chunk {
 					// Update position/length
-					arg.position.replace(SeekFrom::Start(chunk.position + chunk.bytes.len().to_u64().unwrap()));
+					arg.position.replace(SeekFrom::Start(
+						chunk.position + chunk.bytes.len().to_u64().unwrap(),
+					));
 					if let Some(length) = &mut arg.length {
 						*length = length.signum()
 							* length
