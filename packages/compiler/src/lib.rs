@@ -705,7 +705,7 @@ impl Compiler {
 	}
 
 	async fn module_kind_for_path(&self, path: &Path) -> tg::Result<tg::module::Kind> {
-		if let Ok(kind) = tg::package::module_kind_for_path(path) {
+		if let Ok(kind) = tg::module::module_kind_for_path(path) {
 			return Ok(kind);
 		}
 		let metadata = tokio::fs::symlink_metadata(path)
@@ -910,10 +910,10 @@ impl Compiler {
 			.ok_or_else(|| tg::error!(path = %path.display(), "invalid path"))?
 			.to_str()
 			.ok_or_else(|| tg::error!(path = %path.display(), "invalid path"))?;
-		if !tg::package::is_module_path(file_name.as_ref()) {
+		if !tg::module::is_module_path(file_name.as_ref()) {
 			return Err(tg::error!(path = %path.display(), "expected a module path"));
 		}
-		let kind = tg::package::module_kind_for_path(file_name)?;
+		let kind = tg::module::module_kind_for_path(file_name)?;
 		let module = tg::module::Data {
 			kind,
 			referent: tg::Referent::with_item(tg::module::data::Item::Path(path.to_owned())),
@@ -1129,7 +1129,7 @@ impl Compiler {
 		// Search ancestors for the lockfile.
 		let mut lockfile_path = None;
 		for ancestor in path.parent()?.ancestors() {
-			let candidate = ancestor.join(tg::package::LOCKFILE_FILE_NAME);
+			let candidate = ancestor.join(tg::module::LOCKFILE_FILE_NAME);
 			if tokio::fs::try_exists(&candidate).await.unwrap_or(false) {
 				lockfile_path = Some(candidate);
 				break;

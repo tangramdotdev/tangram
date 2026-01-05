@@ -13,7 +13,7 @@ impl Server {
 	pub(crate) fn checkin_try_read_lock(path: &Path) -> tg::Result<Option<tg::graph::Data>> {
 		// Try to read the lock contents.
 		let contents = if path.is_dir() {
-			let lockfile_path = path.join(tg::package::LOCKFILE_FILE_NAME);
+			let lockfile_path = path.join(tg::module::LOCKFILE_FILE_NAME);
 			Self::try_read_lockfile(&lockfile_path)?
 		} else if path.is_file() {
 			let lockfile_path = path.with_extension("lock");
@@ -89,7 +89,7 @@ impl Server {
 		if !root_node.solvable {
 			match root_node.variant {
 				Variant::Directory(_) => {
-					let lockfile_path = root.join(tg::package::LOCKFILE_FILE_NAME);
+					let lockfile_path = root.join(tg::module::LOCKFILE_FILE_NAME);
 					tangram_util::fs::remove(&lockfile_path).await.ok();
 				},
 				Variant::File(_) => {
@@ -124,7 +124,7 @@ impl Server {
 		match root_node.variant {
 			Variant::Directory(_) => {
 				// Determine the lockfile path.
-				let lockfile_path = root.join(tg::package::LOCKFILE_FILE_NAME);
+				let lockfile_path = root.join(tg::module::LOCKFILE_FILE_NAME);
 
 				// Remove an existing lockfile.
 				tangram_util::fs::remove(&lockfile_path).await.ok();

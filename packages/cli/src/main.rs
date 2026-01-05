@@ -1027,7 +1027,7 @@ impl Cli {
 		let mut referent = referent.map(|_| item);
 		let module = match referent.item.clone() {
 			tg::Object::Directory(directory) => {
-				let root_module_name = tg::package::try_get_root_module_file_name(
+				let root_module_name = tg::module::try_get_root_module_file_name(
 					&handle,
 					tg::Either::Left(&directory),
 				)
@@ -1040,7 +1040,7 @@ impl Cli {
 				} else {
 					referent.options.path.replace(root_module_name.into());
 				}
-				let kind = tg::package::module_kind_for_path(root_module_name).unwrap();
+				let kind = tg::module::module_kind_for_path(root_module_name).unwrap();
 				let item = directory.get_entry_edge(&handle, root_module_name).await?;
 				let item = tg::module::Item::Edge(item.into());
 				let referent = referent.map(|_| item);
@@ -1051,10 +1051,10 @@ impl Cli {
 				let path = referent
 					.path()
 					.ok_or_else(|| tg::error!("expected a path"))?;
-				if !tg::package::is_module_path(path) {
+				if !tg::module::is_module_path(path) {
 					return Err(tg::error!("expected a module path"));
 				}
-				let kind = tg::package::module_kind_for_path(path).unwrap();
+				let kind = tg::module::module_kind_for_path(path).unwrap();
 				let item = file.clone().into();
 				let item = tg::graph::Edge::Object(item);
 				let item = tg::module::Item::Edge(item);

@@ -247,7 +247,7 @@ impl Cli {
 			},
 
 			tg::Object::Directory(directory) => {
-				let root_module_file_name = tg::package::try_get_root_module_file_name(
+				let root_module_file_name = tg::module::try_get_root_module_file_name(
 					&handle,
 					tg::Either::Left(&directory),
 				)
@@ -260,7 +260,7 @@ impl Cli {
 				} else {
 					referent.options.path.replace(root_module_file_name.into());
 				}
-				let kind = tg::package::module_kind_for_path(root_module_file_name).unwrap();
+				let kind = tg::module::module_kind_for_path(root_module_file_name).unwrap();
 				let item = directory
 					.get_entry_edge(&handle, root_module_file_name)
 					.await?;
@@ -278,7 +278,7 @@ impl Cli {
 
 			tg::Object::File(file) => {
 				let kind = referent.path().and_then(|path| {
-					tg::package::module_kind_for_path(path).ok().or_else(|| {
+					tg::module::module_kind_for_path(path).ok().or_else(|| {
 						if let Ok(Some(xattr)) = xattr::get(path, tg::file::MODULE_XATTR_NAME)
 							&& let Some(kind) = String::from_utf8(xattr)
 								.ok()

@@ -222,14 +222,14 @@ async fn try_get_package_tag(
 		tg::Object::Directory(directory) => {
 			// Get the root file name.
 			let Some(name) =
-				tg::package::try_get_root_module_file_name(handle, tg::Either::Left(directory))
+				tg::module::try_get_root_module_file_name(handle, tg::Either::Left(directory))
 					.await?
 			else {
 				return Ok(None);
 			};
 
 			// Detect the kind.
-			let kind = tg::package::module_kind_for_path(name)?;
+			let kind = tg::module::module_kind_for_path(name)?;
 
 			// Extract the file.
 			let file = directory.get(handle, name).await?;
@@ -477,7 +477,7 @@ where
 			.insert(path.to_owned(), directory.item.clone().into());
 
 		// Keep track of files.
-		if tg::package::try_get_root_module_file_name(handle, tg::Either::Left(directory.item()))
+		if tg::module::try_get_root_module_file_name(handle, tg::Either::Left(directory.item()))
 			.await?
 			.is_some()
 		{

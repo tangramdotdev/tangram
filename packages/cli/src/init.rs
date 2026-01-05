@@ -21,7 +21,7 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, ?path, "failed to create the directory"))?;
 
 		// Check if there is already a root module for the path.
-		for name in tg::package::ROOT_MODULE_FILE_NAMES {
+		for name in tg::module::ROOT_MODULE_FILE_NAMES {
 			let module_path = path.join(name);
 			let exists = tokio::fs::try_exists(&module_path)
 				.await

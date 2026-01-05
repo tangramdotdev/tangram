@@ -29,7 +29,7 @@ impl Server {
 		if state.artifact.is_directory() {
 			let contents = serde_json::to_vec_pretty(&lock)
 				.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
-			let lockfile_path = state.path.join(tg::package::LOCKFILE_FILE_NAME);
+			let lockfile_path = state.path.join(tg::module::LOCKFILE_FILE_NAME);
 			std::fs::write(&lockfile_path, &contents).map_err(
 				|source| tg::error!(!source, path = %lockfile_path.display(), "failed to write the lockfile"),
 			)?;

@@ -510,7 +510,7 @@ impl Server {
 					|source| tg::error!(!source, path = %path.display(), "failed to get the metadata"),
 				)?;
 				if metadata.is_dir()
-					&& tg::package::try_get_root_module_file_name_sync(ancestor)?.is_some()
+					&& tg::module::try_get_root_module_file_name_sync(ancestor)?.is_some()
 					&& ignorer
 						.as_mut()
 						.map(|ignorer| ignorer.matches(Some(ancestor), &path, None))

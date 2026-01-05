@@ -45,7 +45,7 @@ impl Server {
 		if metadata.is_dir() {
 			self.format_directory(path, ignore)
 				.map_err(|source| tg::error!(!source, "failed to format the directory"))?;
-		} else if path.is_file() && tg::package::is_module_path(path) {
+		} else if path.is_file() && tg::module::is_module_path(path) {
 			Self::format_file(path)
 				.map_err(|source| tg::error!(!source, "failed to format the file"))?;
 		}

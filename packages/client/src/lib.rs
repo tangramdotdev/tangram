@@ -71,7 +71,6 @@ pub mod location;
 pub mod module;
 pub mod mutation;
 pub mod object;
-pub mod package;
 pub mod pipe;
 pub mod placeholder;
 pub mod position;

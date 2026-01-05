@@ -38,9 +38,9 @@ impl Server {
 		let kind = if let Some(kind) = import.kind {
 			Some(kind)
 		} else if let Some(path) = referent.path() {
-			tg::package::module_kind_for_path(path).ok()
+			tg::module::module_kind_for_path(path).ok()
 		} else if let tg::module::data::Item::Path(path) = referent.item() {
-			tg::package::module_kind_for_path(path).ok()
+			tg::module::module_kind_for_path(path).ok()
 		} else {
 			None
 		};
@@ -124,7 +124,7 @@ impl Server {
 				tg::Object::Directory(directory),
 			) => {
 				let path =
-					tg::package::try_get_root_module_file_name(self, tg::Either::Left(directory))
+					tg::module::try_get_root_module_file_name(self, tg::Either::Left(directory))
 						.await
 						.map_err(|source| {
 							tg::error!(!source, "failed to get the root module file name")
@@ -268,7 +268,7 @@ impl Server {
 					import.kind,
 					None | Some(tg::module::Kind::Js | tg::module::Kind::Ts)
 				) && let Some(root_module_name) =
-				tg::package::try_get_root_module_file_name(self, tg::Either::Right(&path)).await?
+				tg::module::try_get_root_module_file_name(self, tg::Either::Right(&path)).await?
 			{
 				let path = path.join(root_module_name);
 				let item = tg::module::data::Item::Path(path);

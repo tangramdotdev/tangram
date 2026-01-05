@@ -74,7 +74,7 @@ where
 		tg::command::data::Executable::Module(executable) => executable.module.clone(),
 
 		tg::command::data::Executable::Path(executable) => {
-			let kind = tg::package::module_kind_for_path(&executable.path)
+			let kind = tg::module::module_kind_for_path(&executable.path)
 				.map_err(|_| tg::error!("invalid executable"))?;
 			let item = tg::module::data::Item::Path(executable.path.clone());
 			let options = tg::referent::Options {
