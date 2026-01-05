@@ -122,10 +122,16 @@ impl Server {
 		let (object, dependency) = if let Some(reference_path) =
 			import.reference.options().path.as_ref()
 		{
-			let directory = object
+			let directory = dependency
+				.0
+				.options()
+				.id
+				.as_ref()
+				.ok_or_else(|| tg::error!("expected the referent to have an id"))?
 				.try_unwrap_directory_ref()
 				.ok()
-				.ok_or_else(|| tg::error!("expected a directory when using the path option"))?;
+				.ok_or_else(|| tg::error!("expected a directory"))?;
+			let directory = tg::Directory::with_id(directory.clone());
 			let artifact = directory
 				.try_get(self, reference_path)
 				.await
