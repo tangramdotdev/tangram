@@ -220,6 +220,9 @@ where
 	}
 
 	pub async fn run_fullscreen(&mut self, stop: Stop) -> tg::Result<()> {
+		// Make sure the root is selected. This is only necessary in the fullscreen viewer.
+		self.tree.ensure_root_selected();
+
 		// Create the terminal.
 		let tty = std::fs::OpenOptions::new()
 			.read(true)

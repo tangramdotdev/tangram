@@ -1757,7 +1757,7 @@ where
 		}));
 		let roots = vec![root.clone()];
 
-		let mut tree = Self {
+		Self {
 			handle: handle.clone(),
 			counter,
 			data,
@@ -1767,9 +1767,12 @@ where
 			selected: root.clone(),
 			selected_task: None,
 			viewer,
-		};
-		tree.select(root);
-		tree
+		}
+	}
+
+	pub fn ensure_root_selected(&mut self) {
+		let root = self.roots.first().unwrap().clone();
+		self.select(root);
 	}
 
 	fn nodes(&mut self) -> Vec<Rc<RefCell<Node>>> {
@@ -1803,7 +1806,6 @@ where
 		let mut log = process
 			.log(handle, tg::process::log::get::Arg::default())
 			.await?;
-
 		while let Some(chunk) = log.try_next().await? {
 			let chunk = String::from_utf8_lossy(&chunk.bytes);
 			for line in chunk.lines() {
@@ -1838,7 +1840,6 @@ where
 				update_sender.send(Box::new(update)).unwrap();
 			}
 		}
-
 		Ok(())
 	}
 
