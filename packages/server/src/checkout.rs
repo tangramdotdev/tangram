@@ -4,7 +4,7 @@ use {
 	num::ToPrimitive as _,
 	reflink_copy::reflink,
 	std::{
-		collections::{HashMap, HashSet},
+		collections::HashSet,
 		os::unix::fs::PermissionsExt as _,
 		panic::AssertUnwindSafe,
 		path::{Path, PathBuf},
@@ -23,10 +23,10 @@ struct State {
 	artifact: tg::artifact::Id,
 	artifacts_path: Option<PathBuf>,
 	artifacts_path_created: bool,
-	graphs: HashMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>,
 	path: PathBuf,
 	progress: crate::progress::Handle<tg::checkout::Output>,
 	visited: HashSet<tg::artifact::Id, tg::id::BuildHasher>,
+	visited_graphs: HashSet<tg::graph::Id, tg::id::BuildHasher>,
 	visiting: HashSet<tg::artifact::Id, tg::id::BuildHasher>,
 }
 
@@ -326,17 +326,17 @@ impl Server {
 					artifact,
 					artifacts_path,
 					artifacts_path_created: false,
-					graphs: HashMap::default(),
 					path,
 					progress,
 					visited: HashSet::default(),
+					visited_graphs: HashSet::default(),
 					visiting: HashSet::default(),
 				};
 
 				// Get the item.
 				let edge = tg::graph::data::Edge::Object(state.artifact.clone());
 				let item = server
-					.checkout_get_item(None, edge)
+					.checkout_get_item(edge)
 					.map_err(|source| tg::error!(!source, "failed to get the item"))?;
 
 				// Check out the artifact.
@@ -372,6 +372,13 @@ impl Server {
 		if !state.arg.dependencies {
 			return Ok(());
 		}
+
+		// If the item is in a graph, then check out the graph.
+		if let Some(graph_id) = &item.graph {
+			self.checkout_graph(state, graph_id)?;
+			return Ok(());
+		}
+
 		if !state.visited.insert(item.id.clone()) {
 			return Ok(());
 		}
@@ -393,6 +400,120 @@ impl Server {
 		state.visiting = visiting;
 
 		result
+	}
+
+	fn checkout_graph(&self, state: &mut State, graph_id: &tg::graph::Id) -> tg::Result<()> {
+		if !state.visited_graphs.insert(graph_id.clone()) {
+			return Ok(());
+		}
+
+		// Load the graph data.
+		let (_size, data) = self
+			.store
+			.try_get_object_data_sync(&graph_id.clone().into())
+			.map_err(|source| tg::error!(!source, "failed to get the graph data"))?
+			.ok_or_else(|| tg::error!("failed to load the graph"))?;
+		let graph_data: tg::graph::Data = data
+			.try_into()
+			.map_err(|_| tg::error!("expected graph data"))?;
+
+		// Get all items that need artifacts path entries.
+		let items = Self::checkout_entry_items_for_graph(graph_id, &graph_data)?;
+
+		// Ensure the artifacts path exists.
+		let artifacts_path = state
+			.artifacts_path
+			.clone()
+			.ok_or_else(|| tg::error!("cannot check out a dependency without an artifacts path"))?;
+		if !state.artifacts_path_created {
+			std::fs::create_dir_all(&artifacts_path).map_err(|source| {
+				tg::error!(!source, "failed to create the artifacts directory")
+			})?;
+			state.artifacts_path_created = true;
+		}
+
+		// Check out all the items in the graph.
+		for item in items {
+			// Skip if already visited.
+			if !state.visited.insert(item.id.clone()) {
+				continue;
+			}
+
+			let path = artifacts_path.join(item.id.to_string());
+
+			// Save and clear the visiting set for the dependency checkout.
+			let visiting = std::mem::take(&mut state.visiting);
+			let result = self.checkout_artifact(state, &path, &item);
+			state.visiting = visiting;
+
+			result?;
+		}
+
+		Ok(())
+	}
+
+	fn checkout_entry_items_for_graph(
+		graph_id: &tg::graph::Id,
+		graph_data: &tg::graph::Data,
+	) -> tg::Result<Vec<Item>> {
+		// Collect node indices which have incoming file dependency or symlink artifact edges in the graph.
+		let mut marks = HashSet::<usize, fnv::FnvBuildHasher>::default();
+		for node in &graph_data.nodes {
+			match node {
+				tg::graph::data::Node::File(file) => {
+					for dependency in file.dependencies.values().flatten() {
+						if let Some(tg::graph::data::Edge::Pointer(pointer)) = &dependency.item
+							&& pointer.graph.is_none()
+						{
+							marks.insert(pointer.index);
+						}
+					}
+				},
+				tg::graph::data::Node::Symlink(symlink) => {
+					if let Some(tg::graph::data::Edge::Pointer(pointer)) = &symlink.artifact
+						&& pointer.graph.is_none()
+					{
+						marks.insert(pointer.index);
+					}
+				},
+				tg::graph::data::Node::Directory(_) => {},
+			}
+		}
+
+		// Create items for nodes with incoming dependency edges.
+		let mut items = Vec::new();
+		for index in marks {
+			let node = graph_data
+				.nodes
+				.get(index)
+				.ok_or_else(|| tg::error!("invalid graph node index"))?
+				.clone();
+
+			let pointer = tg::graph::data::Pointer {
+				graph: Some(graph_id.clone()),
+				index,
+				kind: node.kind(),
+			};
+
+			// Compute the artifact ID.
+			let data: tg::artifact::data::Artifact = match node.kind() {
+				tg::artifact::Kind::Directory => {
+					tg::directory::Data::Pointer(pointer.clone()).into()
+				},
+				tg::artifact::Kind::File => tg::file::Data::Pointer(pointer.clone()).into(),
+				tg::artifact::Kind::Symlink => tg::symlink::Data::Pointer(pointer.clone()).into(),
+			};
+			let bytes = data.serialize()?;
+			let id = tg::artifact::Id::new(node.kind(), &bytes);
+
+			items.push(Item {
+				id,
+				node,
+				graph: Some(graph_id.clone()),
+			});
+		}
+
+		Ok(items)
 	}
 
 	fn checkout_artifact(&self, state: &mut State, path: &Path, item: &Item) -> tg::Result<()> {
@@ -439,7 +560,7 @@ impl Server {
 			}
 			let path = path.join(name);
 			let item = self
-				.checkout_get_item(Some(&mut state.graphs), edge)
+				.checkout_get_item(edge)
 				.map_err(|source| tg::error!(!source, "failed to get the item"))?;
 
 			// Check for a cycle.
@@ -490,7 +611,7 @@ impl Server {
 				pointer.graph = graph.clone();
 			}
 			let item = self
-				.checkout_get_item(Some(&mut state.graphs), edge)
+				.checkout_get_item(edge)
 				.map_err(|source| tg::error!(!source, "failed to get the item"))?;
 			if item.id != state.artifact {
 				self.checkout_dependency(state, &item)
@@ -616,7 +737,7 @@ impl Server {
 
 			// Get the dependency node.
 			let dependency_item = self
-				.checkout_get_item(Some(&mut state.graphs), edge)
+				.checkout_get_item(edge)
 				.map_err(|source| tg::error!(!source, "failed to get the item"))?;
 
 			if dependency_item.id == state.artifact {
@@ -663,36 +784,26 @@ impl Server {
 		Ok(())
 	}
 
-	fn checkout_get_item(
-		&self,
-		graphs: Option<&mut HashMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>>,
-		edge: tg::graph::data::Edge<tg::artifact::Id>,
-	) -> tg::Result<Item> {
-		let mut local_graphs = HashMap::default();
-		let graphs = graphs.map_or(&mut local_graphs, |graphs| graphs);
+	fn checkout_get_item(&self, edge: tg::graph::data::Edge<tg::artifact::Id>) -> tg::Result<Item> {
 		match edge {
 			tg::graph::data::Edge::Pointer(pointer) => {
 				// Load the graph.
-				let graph = pointer
+				let graph_id = pointer
 					.graph
 					.as_ref()
-					.ok_or_else(|| tg::error!("missing graph"))?;
-				if !graphs.contains_key(graph) {
-					let (_size, data) = self
-						.store
-						.try_get_object_data_sync(&graph.clone().into())
-						.map_err(|source| tg::error!(!source, "failed to get the graph data"))?
-						.ok_or_else(|| tg::error!("failed to load the graph"))?;
-					let data = data
-						.try_into()
-						.map_err(|_| tg::error!("expected graph data"))?;
-					graphs.insert(graph.clone(), data);
-				}
+					.ok_or_else(|| tg::error!("missing graph"))?
+					.clone();
+				let (_size, data) = self
+					.store
+					.try_get_object_data_sync(&graph_id.clone().into())
+					.map_err(|source| tg::error!(!source, "failed to get the graph data"))?
+					.ok_or_else(|| tg::error!("failed to load the graph"))?;
+				let graph_data: tg::graph::Data = data
+					.try_into()
+					.map_err(|_| tg::error!("expected graph data"))?;
 
 				// Get the node.
-				let node = graphs
-					.get(graph)
-					.unwrap()
+				let node = graph_data
 					.nodes
 					.get(pointer.index)
 					.ok_or_else(|| tg::error!("invalid graph node"))?
@@ -713,7 +824,7 @@ impl Server {
 				Ok(Item {
 					id,
 					node,
-					graph: Some(graph.clone()),
+					graph: Some(graph_id),
 				})
 			},
 
@@ -735,28 +846,22 @@ impl Server {
 					| tg::artifact::data::Artifact::File(tg::file::Data::Pointer(pointer))
 					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Pointer(pointer)) => {
 						// Load the graph.
-						let graph = pointer
+						let graph_id = pointer
 							.graph
 							.as_ref()
-							.ok_or_else(|| tg::error!("missing graph"))?;
-						if !graphs.contains_key(graph) {
-							let (_size, data) = self
-								.store
-								.try_get_object_data_sync(&graph.clone().into())
-								.map_err(|source| {
-									tg::error!(!source, "failed to get the graph data")
-								})?
-								.ok_or_else(|| tg::error!("failed to load the graph"))?;
-							let data = data
-								.try_into()
-								.map_err(|_| tg::error!("expected graph data"))?;
-							graphs.insert(graph.clone(), data);
-						}
+							.ok_or_else(|| tg::error!("missing graph"))?
+							.clone();
+						let (_size, data) = self
+							.store
+							.try_get_object_data_sync(&graph_id.clone().into())
+							.map_err(|source| tg::error!(!source, "failed to get the graph data"))?
+							.ok_or_else(|| tg::error!("failed to load the graph"))?;
+						let graph_data: tg::graph::Data = data
+							.try_into()
+							.map_err(|_| tg::error!("expected graph data"))?;
 
 						// Get the node.
-						let node = graphs
-							.get(graph)
-							.unwrap()
+						let node = graph_data
 							.nodes
 							.get(pointer.index)
 							.ok_or_else(|| tg::error!("invalid graph node"))?
@@ -765,7 +870,7 @@ impl Server {
 						Ok(Item {
 							id: id.clone(),
 							node,
-							graph: Some(graph.clone()),
+							graph: Some(graph_id),
 						})
 					},
 					tg::artifact::data::Artifact::Directory(tg::directory::Data::Node(node)) => {
