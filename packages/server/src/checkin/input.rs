@@ -391,6 +391,9 @@ impl Server {
 				} else {
 					reference.item().try_unwrap_path_ref().ok()
 				};
+				if reference.options().path.is_some() {
+					return Err(tg::error!("unexpected path option: cannot use a `path` option with a path or local dependency"));
+				}
 				if let Some(reference_path) = reference_path {
 					let parent = Parent {
 						index,

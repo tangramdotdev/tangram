@@ -61,9 +61,6 @@ impl Server {
 			},
 
 			tg::reference::Item::Path(path) => {
-				if reference.options().path.is_some() {
-					return Err(tg::error!("unexpected reference path option"));
-				}
 				let arg = tg::checkin::Arg {
 					options: arg.checkin.clone(),
 					path: path.clone(),
@@ -73,22 +70,66 @@ impl Server {
 					.checkin(arg)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to check in the path"))?
-					.map_ok(move |event| match event {
-						tg::progress::Event::Log(log) => tg::progress::Event::Log(log),
-						tg::progress::Event::Diagnostic(diagnostic) => {
-							tg::progress::Event::Diagnostic(diagnostic)
-						},
-						tg::progress::Event::Indicators(indicators) => {
-							tg::progress::Event::Indicators(indicators)
-						},
-						tg::progress::Event::Output(output) => {
-							let referent = tg::Referent {
-								item: tg::Either::Left(output.artifact.item.into()),
-								options: output.artifact.options,
-							};
-							let output = Some(tg::get::Output { referent });
-							tg::progress::Event::Output(output)
-						},
+					.and_then({
+						let server = self.clone();
+						let subpath = reference.options().path.clone();
+						move |event| {
+							let server = server.clone();
+							let subpath = subpath.clone();
+							async move {
+								match event {
+									tg::progress::Event::Log(log) => {
+										Ok(tg::progress::Event::Log(log))
+									},
+									tg::progress::Event::Diagnostic(diagnostic) => {
+										Ok(tg::progress::Event::Diagnostic(diagnostic))
+									},
+									tg::progress::Event::Indicators(indicators) => {
+										Ok(tg::progress::Event::Indicators(indicators))
+									},
+									tg::progress::Event::Output(output) => {
+										let item = output.artifact.item;
+										let options = output.artifact.options;
+										let output = match (subpath, item) {
+											(
+												Some(path),
+												tg::artifact::Id::Directory(directory),
+											) => {
+												let directory =
+													tg::Directory::with_id(directory.clone());
+												directory.try_get(&server, path).await?.map(
+													|artifact| {
+														let referent = tg::Referent {
+															item: tg::Either::Left(
+																artifact.id().into(),
+															),
+															options: tg::referent::Options {
+																id: Some(directory.id().into()),
+																..options
+															},
+														};
+														tg::get::Output { referent }
+													},
+												)
+											},
+											(Some(_), _) => {
+												return Err(tg::error!(
+													"unexpected reference path option"
+												));
+											},
+											(None, artifact) => {
+												let referent = tg::Referent::new(
+													tg::Either::Left(artifact.into()),
+													options,
+												);
+												Some(tg::get::Output { referent })
+											},
+										};
+										Ok::<_, tg::Error>(tg::progress::Event::Output(output))
+									},
+								}
+							}
+						}
 					});
 				stream.boxed()
 			},
