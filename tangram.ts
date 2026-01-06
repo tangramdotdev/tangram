@@ -1,11 +1,6 @@
 import bun from "bun" with { local: "../packages/packages/bun.tg.ts" };
-import foundationdb from "foundationdb" with {
-	local: "../packages/packages/foundationdb.tg.ts",
-};
-import { libclang } from "llvm" with { local: "../packages/packages/llvm" };
 import { cargo } from "rust" with { local: "../packages/packages/rust" };
 import xz from "xz" with { local: "../packages/packages/xz.tg.ts" };
-import zlib from "zlib" with { local: "../packages/packages/zlib.tg.ts" };
 import * as std from "std" with { local: "../packages/packages/std" };
 import { $ } from "std" with { local: "../packages/packages/std" };
 
@@ -13,7 +8,6 @@ import source from "." with { type: "directory" };
 
 export type Arg = {
 	build?: string;
-	foundationdb?: boolean;
 	host?: string;
 	nats?: boolean;
 	postgres?: boolean;
@@ -24,7 +18,6 @@ export type Arg = {
 export const build = async (arg?: Arg) => {
 	const {
 		build: build_,
-		foundationdb: useFoundationdb = false,
 		host: host_,
 		nats = false,
 		postgres = false,
@@ -36,7 +29,7 @@ export const build = async (arg?: Arg) => {
 	const cargoLock = await source.get("Cargo.lock").then(tg.File.expect);
 
 	// Collect environment.
-	const envs: Array<tg.Unresolved<std.env.Arg>> = [
+	const envs: std.Args<std.env.Arg> = [
 		bunEnvArg(build),
 		librustyv8(cargoLock, host),
 	];
@@ -63,27 +56,11 @@ export const build = async (arg?: Arg) => {
 	}
 	if (postgres) {
 		features.push("postgres");
+	} else {
+		features.push("sqlite");
 	}
 	if (scylla) {
 		features.push("scylla");
-	}
-	if (useFoundationdb) {
-		if (std.triple.os(host) !== "linux") {
-			throw new Error(
-				"the foundationdb feature is only available for Linux hosts",
-			);
-		}
-		features.push("foundationdb");
-		const fdbArtifact = foundationdb({ build, host });
-		envs.push(fdbArtifact, {
-			LIBCLANG_PATH: tg`${libclang({ build, host, sdk })}/lib`,
-			FDB_LIB_PATH: tg`${fdbArtifact}/lib`,
-		});
-		pre = tg`
-			${pre}
-			export LD_LIBRARY_PATH=$LIBRARY_PATH
-			export CPATH=$CPATH:$(gcc -print-sysroot)/include
-		`;
 	}
 
 	// Build tangram.
@@ -106,14 +83,6 @@ export const build = async (arg?: Arg) => {
 		.then((d) => d.get("lib"))
 		.then(tg.Directory.expect);
 	libraryPaths.push(xzLibDir);
-
-	// If building with foundationdb, additionally add zlib.
-	if (useFoundationdb) {
-		const zlibLibDir = zlib({ build, host })
-			.then((d) => d.get("lib"))
-			.then(tg.Directory.expect);
-		libraryPaths.push(zlibLibDir);
-	}
 
 	// Wrap and return.
 	const unwrapped = output
@@ -146,7 +115,6 @@ export const cloud = async (arg?: CloudArg) => {
 	return await build({
 		build: build_,
 		host: host_,
-		foundationdb: true,
 		nats: true,
 		postgres: true,
 		sdk,
@@ -182,6 +150,7 @@ export const nodeModules = async (hostArg?: string) => {
 
 	const output = await $`
 			cp -R ${workspaceSource}/. ${tg.output}
+			chmod -R u+w ${tg.output}
 			cd ${tg.output}
 			bun install --frozen-lockfile || true
 			mkdir -p packages/js/node_modules/@tangramdotdev
