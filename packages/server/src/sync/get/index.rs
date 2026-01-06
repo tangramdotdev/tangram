@@ -115,7 +115,7 @@ impl Server {
 				if !stored {
 					// Get the object.
 					let bytes = self
-						.try_get_object_local(&item.id)
+						.try_get_object_local(&item.id, false)
 						.await
 						.map_err(
 							|source| tg::error!(!source, id = %item.id, "failed to get the object locally"),

@@ -24,6 +24,7 @@ impl Server {
 				.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
 			let arg = tg::object::put::Arg {
 				bytes: arg.bytes,
+				metadata: arg.metadata,
 				local: None,
 				remotes: None,
 			};
@@ -72,13 +73,17 @@ impl Server {
 			_ => (false, true),
 		};
 
-		let metadata = tg::object::Metadata {
-			node: tg::object::metadata::Node {
-				size: arg.bytes.len().to_u64().unwrap(),
-				solvable: node_solvable,
-				solved: node_solved,
-			},
-			..Default::default()
+		let metadata = if let Some(metadata) = arg.metadata {
+			metadata
+		} else {
+			tg::object::Metadata {
+				node: tg::object::metadata::Node {
+					size: arg.bytes.len().to_u64().unwrap(),
+					solvable: node_solvable,
+					solved: node_solved,
+				},
+				..Default::default()
+			}
 		};
 		let message = crate::index::Message::PutObject(crate::index::message::PutObject {
 			cache_entry: None,
@@ -155,6 +160,7 @@ impl Server {
 
 		let arg = tg::object::put::Arg {
 			bytes,
+			metadata: query_arg.metadata,
 			local: query_arg.local,
 			remotes: query_arg.remotes,
 		};

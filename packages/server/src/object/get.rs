@@ -30,17 +30,17 @@ impl Server {
 		id: &tg::object::Id,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		// Attempt locally if requested.
-		if Self::local(arg.local, arg.remotes.as_ref())
-			&& let Some(output) = self
-				.try_get_object_local(id)
+		if Self::local(arg.local, arg.remotes.as_ref()) {
+			let metadata = arg.metadata;
+			let output = self
+				.try_get_object_local(id, metadata)
 				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to get the object locally"))?
-		{
-			return Ok(Some(output));
+				.map_err(|source| tg::error!(!source, %id, "failed to get the object locally"))?;
+			if let Some(output) = output {
+				return Ok(Some(output));
+			}
 		}
 
-		// Attempt remotely if requested.
 		let remotes = self
 			.remotes(arg.remotes)
 			.await
@@ -54,27 +54,21 @@ impl Server {
 		Ok(None)
 	}
 
-	pub async fn try_get_object_local(
+	pub(crate) async fn try_get_object_local(
 		&self,
 		id: &tg::object::Id,
+		metadata: bool,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		// Attempt to get the bytes from the store.
-		let object = self
-			.store
-			.try_get_object(id)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
-
-		// Get the bytes from the object.
-		let mut bytes: Option<bytes::Bytes> =
-			object.and_then(|o| o.bytes.map(|b| b.into_owned().into()));
-
-		// If the bytes were not in the store, then attempt to read the bytes from the cache.
-		if bytes.is_none()
-			&& let Ok(id) = id.try_unwrap_blob_ref()
-		{
-			bytes = self.try_read_blob_from_cache(id).await?;
-		}
+		let bytes_future = self.try_get_object_bytes_local(id);
+		let metadata_future = async {
+			if metadata {
+				self.try_get_object_metadata_local(id).await.ok().flatten()
+			} else {
+				None
+			}
+		};
+		let (bytes, metadata) = future::join(bytes_future, metadata_future).await;
+		let bytes = bytes?;
 
 		// If the bytes were not found, then return None.
 		let Some(bytes) = bytes else {
@@ -82,9 +76,27 @@ impl Server {
 		};
 
 		// Create the output.
-		let output = tg::object::get::Output { bytes };
+		let output = tg::object::get::Output { bytes, metadata };
 
 		Ok(Some(output))
+	}
+
+	async fn try_get_object_bytes_local(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
+		let object = self
+			.store
+			.try_get_object(id)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
+		let Some(object) = object else {
+			return Ok(None);
+		};
+		if let Some(bytes) = object.bytes {
+			return Ok(Some(bytes.into_owned().into()));
+		}
+		if let Some(cache_pointer) = object.cache_pointer {
+			return self.try_read_cache_pointer(&cache_pointer).await;
+		}
+		Ok(None)
 	}
 
 	pub(crate) fn try_get_object_sync(
@@ -92,37 +104,35 @@ impl Server {
 		id: &tg::object::Id,
 		file: &mut Option<File>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		// Attempt to get the bytes from the store.
 		let object = self.store.try_get_object_sync(id)?;
-
-		// Get the bytes from the object.
-		let mut bytes: Option<bytes::Bytes> =
-			object.and_then(|o| o.bytes.map(|b| b.into_owned().into()));
-
-		// If the bytes were not in the store, then attempt to read the bytes from the cache.
-		if bytes.is_none()
-			&& let Ok(id) = id.try_unwrap_blob_ref()
-		{
-			bytes = self.try_read_blob_from_cache_sync(id, file)?;
-		}
-
-		// If the bytes were not found, then return None.
-		let Some(bytes) = bytes else {
+		let Some(object) = object else {
 			return Ok(None);
 		};
-
-		// Create the output.
-		let output = tg::object::get::Output { bytes };
-
+		let bytes = if let Some(bytes) = object.bytes {
+			bytes.into_owned().into()
+		} else if let Some(cache_pointer) = object.cache_pointer {
+			let Some(bytes) = self.try_read_cache_pointer_sync(&cache_pointer, file)? else {
+				return Ok(None);
+			};
+			bytes
+		} else {
+			return Ok(None);
+		};
+		let output = tg::object::get::Output {
+			bytes,
+			metadata: None,
+		};
 		Ok(Some(output))
 	}
 
-	pub async fn try_get_object_batch(
+	#[expect(dead_code)]
+	pub(crate) async fn try_get_object_batch(
 		&self,
 		ids: &[tg::object::Id],
+		metadata: bool,
 	) -> tg::Result<Vec<Option<tg::object::get::Output>>> {
 		let outputs = self
-			.try_get_object_batch_local(ids)
+			.try_get_object_batch_local(ids, metadata)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the objects locally"))?;
 		let remotes = self
@@ -143,39 +153,60 @@ impl Server {
 		Ok(outputs)
 	}
 
-	pub async fn try_get_object_batch_local(
+	pub(crate) async fn try_get_object_batch_local(
 		&self,
 		ids: &[tg::object::Id],
+		metadata: bool,
 	) -> tg::Result<Vec<Option<tg::object::get::Output>>> {
-		// Attempt to get the bytes from the store.
-		let mut outputs = self
+		let bytes_future = self.try_get_object_bytes_batch_local(ids);
+		let metadata_future = async {
+			if metadata {
+				self.try_get_object_metadata_batch_local(ids).await.ok()
+			} else {
+				None
+			}
+			.unwrap_or_else(|| vec![None; ids.len()])
+		};
+
+		// Fetch bytes and metadata concurrently.
+		let (bytes, metadata) = future::join(bytes_future, metadata_future).await;
+		let bytes = bytes?;
+
+		// Create the outputs.
+		let outputs = std::iter::zip(bytes, metadata)
+			.map(|(bytes, metadata)| bytes.map(|bytes| tg::object::get::Output { bytes, metadata }))
+			.collect();
+
+		Ok(outputs)
+	}
+
+	async fn try_get_object_bytes_batch_local(
+		&self,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<Bytes>>> {
+		let output = self
 			.store
 			.try_get_object_batch(ids)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get objects"))?
+			.map_err(|error| tg::error!(!error, "failed to get objects"))?;
+		let output = output
 			.into_iter()
-			.map(|option| {
-				option
-					.and_then(|o| o.bytes)
-					.map(|bytes| tg::object::get::Output {
-						bytes: bytes.into_owned().into(),
-					})
-			})
-			.collect::<Vec<_>>();
-
-		// If the bytes were not in the store, then attempt to read the bytes from the cache.
-		for (id, output) in std::iter::zip(ids, outputs.iter_mut()) {
-			if output.is_none()
-				&& let Ok(id) = id.try_unwrap_blob_ref()
-			{
-				let bytes = self.try_read_blob_from_cache(id).await?;
-				if let Some(bytes) = bytes {
-					output.replace(tg::object::get::Output { bytes });
+			.map(|object| async {
+				let Some(object) = object else {
+					return Ok(None);
+				};
+				if let Some(bytes) = object.bytes {
+					return Ok(Some(bytes.into_owned().into()));
 				}
-			}
-		}
-
-		Ok(outputs)
+				if let Some(cache_pointer) = object.cache_pointer {
+					return self.try_read_cache_pointer(&cache_pointer).await;
+				}
+				Ok(None)
+			})
+			.collect::<FuturesOrdered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+		Ok(output)
 	}
 
 	async fn try_get_object_remote(
@@ -213,6 +244,7 @@ impl Server {
 			async move {
 				let arg = tg::object::put::Arg {
 					bytes: output.bytes.clone(),
+					metadata: output.metadata.clone(),
 					local: None,
 					remotes: None,
 				};
@@ -224,17 +256,10 @@ impl Server {
 		Ok(Some(output))
 	}
 
-	async fn try_read_blob_from_cache(&self, id: &tg::blob::Id) -> tg::Result<Option<Bytes>> {
-		let object = self
-			.store
-			.try_get_object(&id.clone().into())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the object"))?;
-		let cache_pointer = object.and_then(|o| o.cache_pointer);
-		let Some(cache_pointer) = cache_pointer else {
-			return Ok(None);
-		};
-
+	async fn try_read_cache_pointer(
+		&self,
+		cache_pointer: &tangram_store::CachePointer,
+	) -> tg::Result<Option<Bytes>> {
 		// Read the leaf from the file.
 		let mut path = self.cache_path().join(cache_pointer.artifact.to_string());
 		if let Some(path_) = &cache_pointer.path {
@@ -267,18 +292,11 @@ impl Server {
 		Ok(Some(buffer.into()))
 	}
 
-	fn try_read_blob_from_cache_sync(
+	fn try_read_cache_pointer_sync(
 		&self,
-		id: &tg::blob::Id,
+		cache_pointer: &tangram_store::CachePointer,
 		file: &mut Option<File>,
 	) -> tg::Result<Option<Bytes>> {
-		// Get the cache pointer.
-		let object = self.store.try_get_object_sync(&id.clone().into())?;
-		let cache_pointer = object.and_then(|o| o.cache_pointer);
-		let Some(cache_pointer) = cache_pointer else {
-			return Ok(None);
-		};
-
 		// Replace the file if necessary.
 		match file {
 			Some(File { artifact, path, .. })
@@ -324,15 +342,25 @@ impl Server {
 		let id = id
 			.parse()
 			.map_err(|source| tg::error!(!source, "failed to parse the object id"))?;
-		let arg = request
+		let arg: tg::object::get::Arg = request
 			.query_params()
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
 			.unwrap_or_default();
+
 		let Some(output) = self.try_get_object_with_context(context, &id, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
-		let response = http::Response::builder().bytes(output.bytes).unwrap();
+
+		// Build the response.
+		let mut response = http::Response::builder();
+		if let Some(metadata) = &output.metadata {
+			response = response
+				.header_json(tg::object::get::METADATA_HEADER, metadata)
+				.map_err(|source| tg::error!(!source, "failed to serialize the metadata"))?;
+		}
+		let response = response.bytes(output.bytes).unwrap();
+
 		Ok(response)
 	}
 }

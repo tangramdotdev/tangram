@@ -59,6 +59,7 @@ impl Cli {
 			// Put the object.
 			let arg = tg::object::put::Arg {
 				bytes,
+				metadata: None,
 				local: args.local.local,
 				remotes: args.remotes.remotes.clone(),
 			};

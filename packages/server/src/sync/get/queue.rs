@@ -148,7 +148,7 @@ impl Server {
 					} else {
 						// If the object is stored but its subtree is not stored, then enqueue the children.
 						let bytes = self
-							.try_get_object_local(&item.id)
+							.try_get_object_local(&item.id, false)
 							.await
 							.map_err(|source| tg::error!(!source, "failed to get the object"))?
 							.ok_or_else(|| tg::error!("expected the object to exist"))?

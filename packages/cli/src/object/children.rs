@@ -22,6 +22,7 @@ impl Cli {
 		let handle = self.handle().await?;
 		let arg = tg::object::get::Arg {
 			local: args.local.local,
+			metadata: false,
 			remotes: args.remotes.remotes,
 		};
 		let output = handle

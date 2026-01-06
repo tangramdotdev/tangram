@@ -1116,7 +1116,6 @@ impl Cli {
 		};
 		let config_tracing = config.and_then(|config| config.tracing.as_ref());
 		let output_layer = if tracing_filter.is_some() || config_tracing.is_some() {
-			// Use CLI argument, then config, then default filter.
 			let filter_string = tracing_filter
 				.or(config_tracing.map(|t| &t.filter))
 				.cloned()

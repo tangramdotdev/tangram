@@ -28,9 +28,10 @@ impl Cli {
 		if args.bytes {
 			let arg = tg::object::get::Arg {
 				local: args.local.local,
+				metadata: false,
 				remotes: args.remotes.remotes.clone(),
 			};
-			let tg::object::get::Output { bytes } = handle
+			let tg::object::get::Output { bytes, .. } = handle
 				.try_get_object(&args.object, arg)
 				.await
 				.map_err(
@@ -49,6 +50,7 @@ impl Cli {
 			.get_or_insert(crate::print::Depth::Finite(1));
 		let arg = tg::object::get::Arg {
 			local: args.local.local,
+			metadata: false,
 			remotes: args.remotes.remotes.clone(),
 		};
 		self.print_value(&value, args.print, arg).await?;

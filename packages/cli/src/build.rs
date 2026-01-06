@@ -280,7 +280,11 @@ impl Cli {
 
 		// Print the output.
 		if !output.is_null() {
-			let arg = tg::object::get::Arg { local, remotes };
+			let arg = tg::object::get::Arg {
+				local,
+				metadata: false,
+				remotes,
+			};
 			self.print_value(&output, options.print, arg).await?;
 		}
 

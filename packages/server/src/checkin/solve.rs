@@ -596,18 +596,17 @@ impl Server {
 		id: &tg::artifact::Id,
 	) -> tg::Result<usize> {
 		// Load the object and deserialize it.
-		let arg = tg::object::get::Arg::default();
+		let arg = tg::object::get::Arg {
+			metadata: true,
+			..Default::default()
+		};
 		let output = self
 			.get_object(&id.clone().into(), arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
 		let data = tg::artifact::Data::deserialize(id.kind(), output.bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
-
-		// Get the object's metadata.
-		let metadata = self
-			.try_get_object_metadata(&id.clone().into(), tg::object::metadata::Arg::default())
-			.await?;
+		let metadata = output.metadata;
 
 		// Create the checkin graph node.
 		let variant = match data {

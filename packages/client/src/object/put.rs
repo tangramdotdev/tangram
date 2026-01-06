@@ -16,6 +16,9 @@ pub struct Arg {
 	pub local: Option<bool>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub metadata: Option<tg::object::Metadata>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<CommaSeparatedString>")]
 	pub remotes: Option<Vec<String>>,
 }
