@@ -449,11 +449,11 @@ pub trait Ext: tg::Handle {
 	fn get_object(
 		&self,
 		id: &tg::object::Id,
+		arg: tg::object::get::Arg,
 	) -> impl Future<Output = tg::Result<tg::object::get::Output>> + Send {
-		let arg = tg::object::get::Arg::default();
 		self.try_get_object(id, arg).map(|result| {
 			result.and_then(|option| {
-				option.ok_or_else(|| tg::error!(%id, "expected the object to exist"))
+				option.ok_or_else(|| tg::error!(%id, "failed to find the object"))
 			})
 		})
 	}

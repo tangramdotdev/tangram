@@ -160,7 +160,7 @@ impl Server {
 
 		// Solve.
 		while let Some(item) = checkpoint.queue.pop_front() {
-			self.checkin_solve_visit_item(&mut state, &mut checkpoint, item)
+			self.checkin_solve_item(&mut state, &mut checkpoint, item)
 				.await?;
 		}
 
@@ -177,7 +177,7 @@ impl Server {
 		Ok(())
 	}
 
-	async fn checkin_solve_visit_item(
+	async fn checkin_solve_item(
 		&self,
 		state: &mut State,
 		checkpoint: &mut Checkpoint,
@@ -240,7 +240,7 @@ impl Server {
 			return Err(tg::error!(%reference, "expected reference to be a tag"));
 		};
 
-		self.checkin_solve_visit_item_with_tag(
+		self.checkin_solve_item_with_tag(
 			state,
 			checkpoint,
 			item,
@@ -302,7 +302,7 @@ impl Server {
 			.push(item.index);
 	}
 
-	async fn checkin_solve_visit_item_with_tag(
+	async fn checkin_solve_item_with_tag(
 		&self,
 		state: &mut State,
 		checkpoint: &mut Checkpoint,
@@ -325,7 +325,7 @@ impl Server {
 
 		// Solve the item.
 		let output = self
-			.checkin_solve_visit_item_with_tag_inner(state, checkpoint, &item, &key, &pattern)
+			.checkin_solve_item_with_tag_inner(state, checkpoint, &item, &key, &pattern)
 			.await?;
 
 		// Get the referrer.
@@ -429,7 +429,7 @@ impl Server {
 		Ok(())
 	}
 
-	async fn checkin_solve_visit_item_with_tag_inner(
+	async fn checkin_solve_item_with_tag_inner(
 		&self,
 		state: &State,
 		checkpoint: &mut Checkpoint,
@@ -437,7 +437,7 @@ impl Server {
 		key: &tg::tag::Pattern,
 		pattern: &tg::tag::Pattern,
 	) -> tg::Result<TagInnerOutput> {
-		// Check if the solution exists.
+		// Check if a solution exists for the key.
 		if let Some(solution) = checkpoint.solutions.get(key) {
 			let Some(referent) = &solution.referent else {
 				return Ok(TagInnerOutput::Unsolved);
@@ -596,8 +596,9 @@ impl Server {
 		id: &tg::artifact::Id,
 	) -> tg::Result<usize> {
 		// Load the object and deserialize it.
+		let arg = tg::object::get::Arg::default();
 		let output = self
-			.get_object(&id.clone().into())
+			.get_object(&id.clone().into(), arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
 		let data = tg::artifact::Data::deserialize(id.kind(), output.bytes)

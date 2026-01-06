@@ -15,7 +15,7 @@ name = "tangram"
 path = "src/main.rs"
 
 [features]
-default = ["js", "lmdb", "sqlite", "typescript", "v8"]
+default = ["js", "lmdb", "sqlite", "tls", "typescript", "v8"]
 foundationdb = ["dep:foundationdb", "dep:tangram_fdb", "tangram_server/foundationdb"]
 js = ["tangram_server/js"]
 lmdb = ["tangram_server/lmdb"]
@@ -24,6 +24,7 @@ postgres = ["tangram_server/postgres"]
 quickjs = ["tangram_server/quickjs"]
 sqlite = ["tangram_server/sqlite"]
 scylla = ["tangram_server/scylla"]
+tls = ["tangram_client/tls"]
 typescript = ["tangram_server/typescript", "v8"]
 v8 = ["dep:v8", "tangram_server/v8"]
 

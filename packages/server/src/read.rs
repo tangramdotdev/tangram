@@ -853,8 +853,9 @@ async fn poll_read_inner(
 		let object = if let Some(object) = object {
 			object
 		} else {
+			let arg = tg::object::get::Arg::default();
 			let bytes = server
-				.get_object(&id.unwrap())
+				.get_object(&id.unwrap(), arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the object"))?
 				.bytes;

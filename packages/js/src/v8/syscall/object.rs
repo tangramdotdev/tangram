@@ -11,7 +11,8 @@ pub async fn get(
 		.spawn({
 			let id = id.clone();
 			async move {
-				let tg::object::get::Output { bytes } = handle.get_object(&id).await?;
+				let arg = tg::object::get::Arg::default();
+				let tg::object::get::Output { bytes } = handle.get_object(&id, arg).await?;
 				let data = tg::object::Data::deserialize(id.kind(), bytes)?;
 				Ok::<_, tg::Error>(data)
 			}

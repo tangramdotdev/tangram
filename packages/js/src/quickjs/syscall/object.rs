@@ -15,7 +15,8 @@ pub async fn get(ctx: qjs::Ctx<'_>, id: Serde<tg::object::Id>) -> Result<Serde<t
 				let handle = state.handle.clone();
 				let id = id.clone();
 				async move {
-					let tg::object::get::Output { bytes } = handle.get_object(&id).await?;
+					let arg = tg::object::get::Arg::default();
+					let tg::object::get::Output { bytes } = handle.get_object(&id, arg).await?;
 					let data = tg::object::Data::deserialize(id.kind(), bytes)?;
 					Ok::<_, tg::Error>(data)
 				}

@@ -193,8 +193,9 @@ impl Server {
 				let client = self.get_remote_client(remote.clone()).await.map_err(
 					|source| tg::error!(!source, %remote, "failed to get the remote client"),
 				)?;
+				let arg = tg::object::get::Arg::default();
 				client
-					.get_object(id)
+					.get_object(id, arg)
 					.await
 					.map_err(|source| tg::error!(!source, %id, %remote, "failed to get the object"))
 			}
