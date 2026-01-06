@@ -45,9 +45,12 @@ impl Server {
 			.remotes(arg.remotes)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
-		if let Some(output) = self.try_get_object_remote(id, &remotes).await.map_err(
-			|source| tg::error!(!source, %id, "failed to get the object from the remote"),
-		)? {
+		if let Some(output) = self
+			.try_get_object_remote(id, &remotes, arg.metadata)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %id, "failed to get the object from the remote"),
+			)? {
 			return Ok(Some(output));
 		}
 
@@ -144,7 +147,7 @@ impl Server {
 				if let Some(output) = output {
 					return Ok(Some(output));
 				}
-				let output = self.try_get_object_remote(id, &remotes).await?;
+				let output = self.try_get_object_remote(id, &remotes, metadata).await?;
 				Ok::<_, tg::Error>(output)
 			})
 			.collect::<FuturesOrdered<_>>()
@@ -213,6 +216,7 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 		remotes: &[String],
+		metadata: bool,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		// Attempt to get the object from the remotes.
 		if remotes.is_empty() {
@@ -224,7 +228,10 @@ impl Server {
 				let client = self.get_remote_client(remote.clone()).await.map_err(
 					|source| tg::error!(!source, %remote, "failed to get the remote client"),
 				)?;
-				let arg = tg::object::get::Arg::default();
+				let arg = tg::object::get::Arg {
+					metadata,
+					..Default::default()
+				};
 				client
 					.get_object(id, arg)
 					.await
