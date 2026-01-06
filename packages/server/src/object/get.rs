@@ -342,7 +342,8 @@ impl Server {
 		let id = id
 			.parse()
 			.map_err(|source| tg::error!(!source, "failed to parse the object id"))?;
-		let arg: tg::object::get::Arg = request
+
+		let arg = request
 			.query_params()
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?

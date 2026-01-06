@@ -41,7 +41,7 @@ pub struct Candidate {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct Item {
-	index: usize,
+	referent: tg::Referent<usize>,
 	variant: ItemVariant,
 }
 
@@ -156,7 +156,8 @@ impl Server {
 			solutions: solutions.clone(),
 			visited: im::HashSet::default(),
 		};
-		Self::checkin_solve_enqueue_items_for_node(&mut checkpoint, *index);
+		let referent = tg::Referent::with_item(*index);
+		Self::checkin_solve_enqueue_items_for_node(&mut checkpoint, &referent);
 
 		// Solve.
 		while let Some(item) = checkpoint.queue.pop_front() {
@@ -220,7 +221,8 @@ impl Server {
 				},
 			};
 			if let Some(index) = index {
-				Self::checkin_solve_enqueue_items_for_node(checkpoint, index);
+				let referent = tg::Referent::with_item(index);
+				Self::checkin_solve_enqueue_items_for_node(checkpoint, &referent);
 			}
 			return Ok(());
 		}
@@ -252,7 +254,7 @@ impl Server {
 
 	fn checkin_create_edge_for_item(checkpoint: &mut Checkpoint, item: &Item, index: usize) {
 		let kind = checkpoint.graph.nodes.get(&index).unwrap().variant.kind();
-		let node = checkpoint.graph.nodes.get_mut(&item.index).unwrap();
+		let node = checkpoint.graph.nodes.get_mut(&item.referent.item).unwrap();
 		match &item.variant {
 			ItemVariant::DirectoryEntry(name) => {
 				let edge = tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
@@ -299,7 +301,7 @@ impl Server {
 			.get_mut(&index)
 			.unwrap()
 			.referrers
-			.push(item.index);
+			.push(item.referent.item);
 	}
 
 	async fn checkin_solve_item_with_tag(
@@ -330,7 +332,7 @@ impl Server {
 
 		// Get the referrer.
 		let referrer = Referrer {
-			index: item.index,
+			index: item.referent.item,
 			pattern: Some(pattern),
 		};
 
@@ -351,7 +353,7 @@ impl Server {
 				checkpoint
 					.graph
 					.nodes
-					.get_mut(&item.index)
+					.get_mut(&item.referent.item)
 					.unwrap()
 					.variant
 					.unwrap_file_mut()
@@ -372,13 +374,13 @@ impl Server {
 					.get_mut(&referent.item)
 					.unwrap()
 					.referrers
-					.push(item.index);
+					.push(item.referent.item);
 
 				// Add the referrer to the solution.
 				checkpoint.solutions.add_referrer(&key, referrer);
 
 				// Enqueue the node's items.
-				Self::checkin_solve_enqueue_items_for_node(checkpoint, referent.item);
+				Self::checkin_solve_enqueue_items_for_node(checkpoint, &referent);
 			},
 
 			TagInnerOutput::Conflicted => {
@@ -477,7 +479,7 @@ impl Server {
 				return Ok(TagInnerOutput::Unsolved);
 			}
 			return Err(tg::error!(
-				referrer = %Self::checkin_solve_get_referrer(state, &checkpoint.graph, item.index),
+				referrer = %Self::checkin_solve_get_referrer(state, &checkpoint.graph, item.referent.item),
 				%pattern,
 				"no matching tags were found",
 			));
@@ -519,7 +521,12 @@ impl Server {
 		checkpoint: &Checkpoint,
 		item: &Item,
 	) -> Option<Candidate> {
-		let lock_index = checkpoint.graph.nodes.get(&item.index).unwrap().lock_node?;
+		let lock_index = checkpoint
+			.graph
+			.nodes
+			.get(&item.referent.item)
+			.unwrap()
+			.lock_node?;
 		let candidate = Self::checkin_solve_get_lock_candidate_inner(checkpoint, item, lock_index)?;
 		if state
 			.updates
@@ -875,7 +882,12 @@ impl Server {
 		let Some(lock) = &checkpoint.lock else {
 			return None;
 		};
-		let parent_index = checkpoint.graph.nodes.get(&item.index).unwrap().lock_node?;
+		let parent_index = checkpoint
+			.graph
+			.nodes
+			.get(&item.referent.item)
+			.unwrap()
+			.lock_node?;
 		let parent_node = lock.nodes.get(parent_index).unwrap();
 		match &item.variant {
 			ItemVariant::DirectoryEntry(name) => Some(
@@ -914,9 +926,12 @@ impl Server {
 		}
 	}
 
-	fn checkin_solve_enqueue_items_for_node(checkpoint: &mut Checkpoint, index: usize) {
+	fn checkin_solve_enqueue_items_for_node(
+		checkpoint: &mut Checkpoint,
+		referent: &tg::Referent<usize>,
+	) {
 		// Get the node.
-		let node = checkpoint.graph.nodes.get(&index).unwrap();
+		let node = checkpoint.graph.nodes.get(&referent.item).unwrap();
 
 		// If the node is not solvable or is solved, then do not enqueue any of its items.
 		if !node.solvable || node.solved {
@@ -927,21 +942,21 @@ impl Server {
 		match &node.variant {
 			Variant::Directory(directory) => {
 				let items = directory.entries.keys().map(|name| Item {
-					index,
+					referent: referent.clone(),
 					variant: ItemVariant::DirectoryEntry(name.clone()),
 				});
 				checkpoint.queue.extend(items);
 			},
 			Variant::File(file) => {
 				let items = file.dependencies.keys().map(|reference| Item {
-					index,
+					referent: referent.clone(),
 					variant: ItemVariant::FileDependency(reference.clone()),
 				});
 				checkpoint.queue.extend(items);
 			},
 			Variant::Symlink(symlink) => {
 				let items = symlink.artifact.iter().map(|_| Item {
-					index,
+					referent: referent.clone(),
 					variant: ItemVariant::SymlinkArtifact,
 				});
 				checkpoint.queue.extend(items);
@@ -953,7 +968,7 @@ impl Server {
 		checkpoint: &Checkpoint,
 		item: &Item,
 	) -> Option<tg::graph::data::Edge<tg::object::Id>> {
-		let node = checkpoint.graph.nodes.get(&item.index).unwrap();
+		let node = checkpoint.graph.nodes.get(&item.referent.item).unwrap();
 		match &item.variant {
 			ItemVariant::DirectoryEntry(name) => {
 				let directory = node.variant.unwrap_directory_ref();

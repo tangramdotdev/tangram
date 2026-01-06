@@ -1,7 +1,7 @@
 use {
 	crate::prelude::*,
 	bytes::Bytes,
-	serde_with::serde_as,
+	serde_with::{DisplayFromStr, PickFirst, serde_as},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::{CommaSeparatedString, is_false},
 };
@@ -14,6 +14,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub local: Option<bool>,
 
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub metadata: bool,
 

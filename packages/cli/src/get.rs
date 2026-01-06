@@ -11,6 +11,10 @@ pub struct Args {
 	#[command(flatten)]
 	pub local: crate::util::args::Local,
 
+	/// Get the metadata.
+	#[arg(long)]
+	pub metadata: bool,
+
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
@@ -34,6 +38,7 @@ impl Cli {
 				let args = crate::object::get::Args {
 					bytes: args.bytes,
 					local: args.local,
+					metadata: args.metadata,
 					object,
 					print: args.print,
 					remotes: args.remotes,
