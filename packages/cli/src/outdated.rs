@@ -95,7 +95,7 @@ where
 				.await?
 				.data
 				.into_iter()
-				.map(|o| o.tag)
+				.map(|output| output.tag)
 				.next();
 
 			let mut components = pattern.components().collect::<Vec<_>>();
@@ -114,7 +114,7 @@ where
 				.await?
 				.data
 				.into_iter()
-				.map(|o| o.tag)
+				.map(|output| output.tag)
 				.next();
 
 			let entry = Entry {

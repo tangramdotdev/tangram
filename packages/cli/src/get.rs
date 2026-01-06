@@ -48,6 +48,7 @@ impl Cli {
 			tg::Either::Right(process) => {
 				let args = crate::process::get::Args {
 					local: args.local,
+					metadata: args.metadata,
 					print: args.print,
 					process,
 					remotes: args.remotes,

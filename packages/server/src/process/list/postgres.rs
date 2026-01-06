@@ -136,7 +136,12 @@ impl Server {
 					stdin: row.stdin,
 					stdout: row.stdout,
 				};
-				Ok(tg::process::get::Output { id: row.id, data })
+				let output = tg::process::get::Output {
+					id: row.id,
+					data,
+					metadata: None,
+				};
+				Ok(output)
 			})
 			.collect::<tg::Result<_>>()?;
 

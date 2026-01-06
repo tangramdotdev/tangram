@@ -77,7 +77,7 @@ impl Server {
 				return Err(tg::error!("expected the process to be finished"));
 			}
 			let output = server
-				.try_get_process_local(&id)
+				.try_get_process_local(&id, false)
 				.await
 				.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
 				.ok_or_else(|| tg::error!(%id, "failed to get the process"))?;

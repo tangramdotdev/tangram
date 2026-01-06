@@ -247,6 +247,7 @@ impl Server {
 		let output = tg::process::get::Output {
 			id: id.clone(),
 			data,
+			metadata: None,
 		};
 
 		Ok(Some(output))

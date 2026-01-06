@@ -141,7 +141,7 @@ impl Server {
 		// Get the processes.
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
 		let outputs = self
-			.try_get_process_batch_local(&ids)
+			.try_get_process_batch_local(&ids, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
 
@@ -162,9 +162,12 @@ impl Server {
 				self.compact_process_log(&item.id).boxed().await.map_err(
 					|source| tg::error!(!source, process = %item.id, "failed to compact the log"),
 				)?;
-				output = self.try_get_process_local(&item.id).await?.ok_or_else(
-					|| tg::error!(process = %item.id, "failed to get the process after compaction"),
-				)?;
+				output = self
+					.try_get_process_local(&item.id, false)
+					.await?
+					.ok_or_else(
+						|| tg::error!(process = %item.id, "failed to get the process after compaction"),
+					)?;
 			}
 
 			// Send the process.

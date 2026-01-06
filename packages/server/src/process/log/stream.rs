@@ -35,7 +35,7 @@ impl Server {
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::log::get::Chunk>>> {
 		// Attempt to create a blob reader.
 		let output = self
-			.try_get_process_local(id)
+			.try_get_process_local(id, false)
 			.await?
 			.ok_or_else(|| tg::error!("expected the process to exist"))?;
 

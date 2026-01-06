@@ -182,7 +182,11 @@ impl Server {
 				stdout: row.stdout,
 			};
 
-			let output = tg::process::get::Output { id: row.id, data };
+			let output = tg::process::get::Output {
+				id: row.id,
+				data,
+				metadata: None,
+			};
 			outputs.push(output);
 		}
 

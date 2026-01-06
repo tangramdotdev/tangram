@@ -91,7 +91,7 @@ impl Server {
 	pub(crate) async fn compact_process_log(&self, process: &tg::process::Id) -> tg::Result<()> {
 		// Check if the log is already compacted.
 		let output = self
-			.try_get_process_local(process)
+			.try_get_process_local(process, false)
 			.await?
 			.ok_or_else(|| tg::error!("expected the process to exist"))?;
 		if output.data.log.is_some() {

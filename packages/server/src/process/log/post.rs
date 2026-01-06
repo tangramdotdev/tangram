@@ -35,7 +35,7 @@ impl Server {
 
 		// Get the process data.
 		let data = self
-			.try_get_process_local(id)
+			.try_get_process_local(id, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the process"))?
 			.ok_or_else(|| tg::error!("not found"))?

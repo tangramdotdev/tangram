@@ -51,7 +51,7 @@ impl Server {
 	> {
 		// Check if the process exists locally.
 		if self
-			.try_get_process_local(id)
+			.try_get_process_local(id, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the process"))?
 			.is_none()

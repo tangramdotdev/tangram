@@ -240,7 +240,7 @@ impl Server {
 				Some((stored, metadata)) => {
 					// Get the process.
 					let data = self
-						.try_get_process_local(&item.id)
+						.try_get_process_local(&item.id, false)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to get the process"))?
 						.ok_or_else(|| tg::error!("expected the process to exist"))?

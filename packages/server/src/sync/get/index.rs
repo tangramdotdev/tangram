@@ -207,7 +207,7 @@ impl Server {
 
 				// Get the process.
 				let data = self
-					.try_get_process_local(&item.id)
+					.try_get_process_local(&item.id, false)
 					.await
 					.map_err(
 						|source| tg::error!(!source, id = %item.id, "failed to get the process locally"),

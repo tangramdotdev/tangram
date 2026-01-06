@@ -74,7 +74,7 @@ impl qjs::loader::Loader for Loader {
 			let module = module_data.clone();
 			async move {
 				let arg = tg::module::load::Arg { module };
-				let result = handle.load_module(arg).await.map(|o| o.text);
+				let result = handle.load_module(arg).await.map(|output| output.text);
 				sender.send(result).unwrap();
 			}
 		});

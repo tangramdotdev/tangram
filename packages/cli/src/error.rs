@@ -15,7 +15,11 @@ impl Cli {
 			let error_handle = &error_referent.item;
 
 			// Get the object from the handle.
-			let Some(error) = error_handle.state().object().map(|o| o.unwrap_error()) else {
+			let Some(error) = error_handle
+				.state()
+				.object()
+				.map(|object| object.unwrap_error())
+			else {
 				eprintln!("{} {}", "->".red(), error_handle.id());
 				continue;
 			};

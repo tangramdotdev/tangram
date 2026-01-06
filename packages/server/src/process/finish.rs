@@ -80,7 +80,7 @@ impl Server {
 
 		// Get the process.
 		let Some(tg::process::get::Output { data, .. }) = self
-			.try_get_process_local(id)
+			.try_get_process_local(id, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the process"))?
 		else {

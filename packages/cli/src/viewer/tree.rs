@@ -1166,8 +1166,8 @@ where
 			.into_iter()
 			.map(|(reference, option)| {
 				let item = option.and_then(|dependency| {
-					dependency.0.item.map(|o| tg::Referent {
-						item: Item::Package(Package(o)),
+					dependency.0.item.map(|object| tg::Referent {
+						item: Item::Package(Package(object)),
 						options: dependency.0.options,
 					})
 				});
