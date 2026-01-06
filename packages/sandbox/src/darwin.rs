@@ -48,7 +48,7 @@ pub fn spawn(command: Command) -> std::io::Result<std::process::ExitCode> {
 
 	// Set the environment.
 	unsafe {
-		for (key, _) in std::env::vars() {
+		for (key, _) in std::env::vars_os() {
 			std::env::remove_var(key);
 		}
 		for (key, value) in &command.env {

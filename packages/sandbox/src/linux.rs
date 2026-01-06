@@ -79,13 +79,19 @@ pub fn spawn(mut command: Command) -> std::io::Result<std::process::ExitCode> {
 				target.clone()
 			}
 		});
-
+		let source = mount.source.as_ref().map(cstring);
+		let flags = if let Some(source) = &source && mount.fstype.is_none() {
+			let existing = get_existing_mount_flags(source)?;
+			existing | mount.flags
+		} else {
+			mount.flags
+		};
 		// Create the mount.
 		let mount = Mount {
-			source: mount.source.as_ref().map(cstring),
+			source,
 			target: target.map(cstring),
 			fstype: mount.fstype.as_ref().map(cstring),
-			flags: mount.flags,
+			flags,
 			data: mount.data.clone(),
 		};
 		mounts.push(mount);
@@ -256,4 +262,32 @@ fn envstring(k: impl AsRef<OsStr>, v: impl AsRef<OsStr>) -> CString {
 		v.as_ref().to_string_lossy()
 	);
 	CString::new(string).unwrap()
+}
+
+fn get_existing_mount_flags(path: &CString) -> std::io::Result<libc::c_ulong> {
+	const FLAGS: [(u64, u64); 7] = [
+		(libc::MS_RDONLY, libc::ST_RDONLY),
+		(libc::MS_NODEV, libc::ST_NODEV),
+		(libc::MS_NOEXEC, libc::ST_NOEXEC),
+		(libc::MS_NOSUID, libc::ST_NOSUID),
+		(libc::MS_NOATIME, libc::ST_NOATIME),
+		(libc::MS_RELATIME, libc::ST_RELATIME),
+		(libc::MS_NODIRATIME, libc::ST_NODIRATIME),
+	];
+	let statfs = unsafe {
+		let mut statfs = std::mem::MaybeUninit::zeroed();
+		let ret = libc::statfs64(path.as_ptr(), statfs.as_mut_ptr());
+		if ret != 0 {
+			eprintln!("failed to statfs {}", path.to_string_lossy());
+			return Err(std::io::Error::last_os_error());
+		}
+		statfs.assume_init()
+	};
+	let mut flags = 0;
+	for (mount_flag, stat_flag) in FLAGS {
+		if (statfs.f_flags.abs().to_u64().unwrap() & stat_flag) != 0 {
+			flags |= mount_flag;
+		}
+	}
+	Ok(flags)
 }

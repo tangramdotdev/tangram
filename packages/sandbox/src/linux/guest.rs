@@ -83,7 +83,7 @@ fn mount_and_chroot(context: &mut Context) {
 
 			// The initial bind mount ignores flags other than MS_BIND and MS_REC. To support read-only bind mounts we must immediately remount the source/target pair with MS_REMOUNT to change the permissions of the mount point.
 			if (flags & libc::MS_BIND != 0) && (flags & libc::MS_RDONLY != 0) {
-				let flags = libc::MS_BIND | libc::MS_REC | libc::MS_REMOUNT | libc::MS_RDONLY;
+				let flags = flags | libc::MS_REMOUNT;
 				let ret = libc::mount(source, target, fstype, flags, data);
 				if ret == -1 {
 					abort_errno!("failed to remount bind mount as read-only {mount:#?}");
