@@ -1114,29 +1114,32 @@ impl Cli {
 		} else {
 			None
 		};
-		let output_layer = config
-			.as_ref()
-			.and_then(|config| config.tracing.as_ref())
-			.map(|tracing| {
-				// Prioritize CLI argument over config file.
-				let filter_string = tracing_filter.unwrap_or(&tracing.filter);
-				let filter = tracing_subscriber::filter::EnvFilter::try_new(filter_string).unwrap();
-				let format = tracing
-					.format
-					.unwrap_or(self::config::TracingFormat::Pretty);
-				let output_layer = match format {
-					self::config::TracingFormat::Json => tracing_subscriber::fmt::layer()
-						.with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
-						.with_writer(std::io::stderr)
-						.json()
-						.boxed(),
-					self::config::TracingFormat::Pretty => tracing_tree::HierarchicalLayer::new(2)
-						.with_bracketed_fields(true)
-						.with_span_retrace(true)
-						.boxed(),
-				};
-				output_layer.with_filter(filter)
-			});
+		let config_tracing = config.and_then(|config| config.tracing.as_ref());
+		let output_layer = if tracing_filter.is_some() || config_tracing.is_some() {
+			// Use CLI argument, then config, then default filter.
+			let filter_string = tracing_filter
+				.or(config_tracing.map(|t| &t.filter))
+				.cloned()
+				.unwrap_or_default();
+			let filter = tracing_subscriber::filter::EnvFilter::try_new(&filter_string).unwrap();
+			let format = config_tracing
+				.and_then(|t| t.format)
+				.unwrap_or(self::config::TracingFormat::Pretty);
+			let output_layer = match format {
+				self::config::TracingFormat::Json => tracing_subscriber::fmt::layer()
+					.with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
+					.with_writer(std::io::stderr)
+					.json()
+					.boxed(),
+				self::config::TracingFormat::Pretty => tracing_tree::HierarchicalLayer::new(2)
+					.with_bracketed_fields(true)
+					.with_span_retrace(true)
+					.boxed(),
+			};
+			Some(output_layer.with_filter(filter))
+		} else {
+			None
+		};
 		tracing_subscriber::registry()
 			.with(console_layer)
 			.with(output_layer)
