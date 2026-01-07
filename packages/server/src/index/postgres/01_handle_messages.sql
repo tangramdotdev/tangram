@@ -264,12 +264,14 @@ begin
 	-- Enqueue reference count for inserted rows only.
 	insert into object_queue (object, kind, transaction_id)
 	select id, 0, (select id from transaction_id)
-	from unnest(inserted_ids) as t(id);
+	from unnest(inserted_ids) as t(id)
+	on conflict (object, kind) do nothing;
 
 	-- Enqueue stored/metadata for inserted rows or rows where subtree changed.
 	insert into object_queue (object, kind, transaction_id)
 	select id, 1, (select id from transaction_id)
-	from unnest(changed_ids) as t(id);
+	from unnest(changed_ids) as t(id)
+	on conflict (object, kind) do nothing;
 
 	insert into object_children (object, child)
 	select ids[object_index], child
@@ -401,13 +403,15 @@ begin
 	-- Enqueue reference count for inserted rows only.
 	insert into process_queue (process, kind, transaction_id)
 	select id, 0, (select id from transaction_id)
-	from unnest(inserted_ids) as t(id);
+	from unnest(inserted_ids) as t(id)
+	on conflict (process, kind) do nothing;
 
 	-- Enqueue stored/metadata for inserted rows or rows where subtree changed.
 	insert into process_queue (process, kind, transaction_id)
 	select id, kind, (select id from transaction_id)
 	from unnest(changed_ids) as t(id)
-	cross join (values (1), (2), (3), (4), (5)) as kinds(kind);
+	cross join (values (1), (2), (3), (4), (5)) as kinds(kind)
+	on conflict (process, kind) do nothing;
 
 	insert into process_children (process, position, child)
 	select process_ids[process_index], position, child

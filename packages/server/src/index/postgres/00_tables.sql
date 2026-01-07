@@ -59,6 +59,8 @@ create table object_queue (
 	transaction_id int8 not null
 );
 
+create unique index object_queue_object_kind_index on object_queue (object, kind);
+
 create index object_queue_transaction_id_index on object_queue (transaction_id);
 
 create index object_queue_kind_index on object_queue (kind, id);
@@ -135,6 +137,8 @@ create table process_queue (
 	kind int8 not null,
 	transaction_id int8 not null
 );
+
+create unique index process_queue_process_kind_index on process_queue (process, kind);
 
 create index process_queue_transaction_id_index on process_queue (transaction_id);
 

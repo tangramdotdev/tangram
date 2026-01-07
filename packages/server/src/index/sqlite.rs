@@ -224,7 +224,8 @@ impl Server {
 		let queue_statement = indoc!(
 			"
 				insert into object_queue (object, kind, transaction_id)
-				values (?1, ?2, (select id from transaction_id));
+				values (?1, ?2, (select id from transaction_id))
+				on conflict (object, kind) do nothing;
 			"
 		);
 		let mut queue_statement = cache
@@ -614,7 +615,8 @@ impl Server {
 		let queue_statement = indoc!(
 			"
 				insert into process_queue (process, kind, transaction_id)
-				values (?1, ?2, (select id from transaction_id));
+				values (?1, ?2, (select id from transaction_id))
+				on conflict (process, kind) do nothing;
 			"
 		);
 		let mut queue_statement = cache
@@ -1382,7 +1384,8 @@ impl Server {
 				insert into object_queue (object, kind, transaction_id)
 				select object, 1, ?2
 				from object_children
-				where object_children.child = ?1;
+				where object_children.child = ?1
+				on conflict (object, kind) do nothing;
 			"
 		);
 		let mut enqueue_parents_statement =
@@ -1395,7 +1398,8 @@ impl Server {
 				insert into process_queue (process, kind, transaction_id)
 				select process, 2, ?2
 				from process_objects
-				where process_objects.object = ?1;
+				where process_objects.object = ?1
+				on conflict (process, kind) do nothing;
 			"
 		);
 		let mut enqueue_commands_processes_statement =
@@ -1408,7 +1412,8 @@ impl Server {
 				insert into process_queue (process, kind, transaction_id)
 				select process, 3, ?2
 				from process_objects
-				where process_objects.object = ?1;
+				where process_objects.object = ?1
+				on conflict (process, kind) do nothing;
 			"
 		);
 		let mut enqueue_errors_processes_statement =
@@ -1421,7 +1426,8 @@ impl Server {
 				insert into process_queue (process, kind, transaction_id)
 				select process, 4, ?2
 				from process_objects
-				where process_objects.object = ?1;
+				where process_objects.object = ?1
+				on conflict (process, kind) do nothing;
 			"
 		);
 		let mut enqueue_logs_processes_statement =
@@ -1434,7 +1440,8 @@ impl Server {
 				insert into process_queue (process, kind, transaction_id)
 				select process, 5, ?2
 				from process_objects
-				where process_objects.object = ?1;
+				where process_objects.object = ?1
+				on conflict (process, kind) do nothing;
 			"
 		);
 		let mut enqueue_outputs_processes_statement =
@@ -1625,7 +1632,8 @@ impl Server {
 				insert into process_queue (process, kind, transaction_id)
 				select process, 1, ?2
 				from process_children
-				where process_children.child = ?1;
+				where process_children.child = ?1
+				on conflict (process, kind) do nothing;
 			"
 		);
 		let mut enqueue_parents_process_statement =
@@ -1641,7 +1649,8 @@ impl Server {
 				insert into process_queue (process, kind, transaction_id)
 				select process, 2, ?2
 				from process_children
-				where process_children.child = ?1;
+				where process_children.child = ?1
+				on conflict (process, kind) do nothing;
 			"
 		);
 		let mut enqueue_parents_command_statement =
@@ -1658,7 +1667,8 @@ impl Server {
 				insert into process_queue (process, kind, transaction_id)
 				select process, 4, ?2
 				from process_children
-				where process_children.child = ?1;
+				where process_children.child = ?1
+				on conflict (process, kind) do nothing;
 			"
 		);
 		let mut enqueue_parents_log_statement =
@@ -1674,7 +1684,8 @@ impl Server {
 				insert into process_queue (process, kind, transaction_id)
 				select process, 5, ?2
 				from process_children
-				where process_children.child = ?1;
+				where process_children.child = ?1
+				on conflict (process, kind) do nothing;
 			"
 		);
 		let mut enqueue_parents_output_statement =
@@ -1690,7 +1701,8 @@ impl Server {
 				insert into process_queue (process, kind, transaction_id)
 				select process, 3, ?2
 				from process_children
-				where process_children.child = ?1;
+				where process_children.child = ?1
+				on conflict (process, kind) do nothing;
 			"
 		);
 		let mut enqueue_parents_error_statement =
