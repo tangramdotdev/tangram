@@ -4,6 +4,7 @@ use {std::path::PathBuf, std::sync::Arc, tangram_client::prelude::*};
 pub struct Context {
 	pub process: Option<Arc<Process>>,
 	pub token: Option<String>,
+	pub untrusted: bool,
 }
 
 #[derive(Clone, Debug)]

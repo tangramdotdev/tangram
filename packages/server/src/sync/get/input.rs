@@ -29,12 +29,17 @@ impl Server {
 					let data =
 						tg::object::Data::deserialize(message.id.kind(), message.bytes.as_ref())?;
 
-					// Update the graph with data.
+					// Update the graph with data and metadata.
+					let metadata = if state.context.untrusted {
+						None
+					} else {
+						message.metadata.clone()
+					};
 					state.graph.lock().unwrap().update_object_local(
 						&message.id,
 						Some(&data),
 						None,
-						None,
+						metadata,
 						None,
 						None,
 					);
@@ -62,6 +67,7 @@ impl Server {
 					let item = super::store::ObjectItem {
 						id: message.id,
 						bytes: message.bytes,
+						metadata: message.metadata,
 					};
 					store_object_sender
 						.send(item)
@@ -79,12 +85,18 @@ impl Server {
 					let data = serde_json::from_slice(&message.bytes).map_err(|source| {
 						tg::error!(!source, "failed to deserialize the process")
 					})?;
-					// Update the graph with data.
+
+					// Update the graph with data and metadata.
+					let metadata = if state.context.untrusted {
+						None
+					} else {
+						message.metadata.clone()
+					};
 					state.graph.lock().unwrap().update_process_local(
 						&message.id,
 						Some(&data),
 						None,
-						None,
+						metadata,
 						None,
 						None,
 					);
@@ -123,6 +135,7 @@ impl Server {
 					let item = super::store::ProcessItem {
 						id: message.id,
 						bytes: message.bytes,
+						metadata: message.metadata,
 					};
 					store_process_sender
 						.send(item)

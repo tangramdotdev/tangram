@@ -1,6 +1,6 @@
 use {
 	super::{graph::Graph, progress::Progress, queue::Queue},
-	crate::Server,
+	crate::{Context, Server},
 	futures::{future, stream::BoxStream},
 	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
@@ -15,6 +15,7 @@ mod store;
 
 struct State {
 	arg: tg::sync::Arg,
+	context: Context,
 	graph: Arc<Mutex<Graph>>,
 	progress: Progress,
 	queue: Queue,
@@ -25,6 +26,7 @@ impl Server {
 	pub(super) async fn sync_get(
 		&self,
 		arg: tg::sync::Arg,
+		context: Context,
 		graph: Arc<Mutex<Graph>>,
 		stream: BoxStream<'static, tg::sync::PutMessage>,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::GetMessage>>,
@@ -42,6 +44,7 @@ impl Server {
 		// Create the state.
 		let state = Arc::new(State {
 			arg,
+			context,
 			graph,
 			progress,
 			queue,

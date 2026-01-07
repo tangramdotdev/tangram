@@ -164,6 +164,7 @@ impl Cli {
 				force: false,
 				items,
 				logs: false,
+				metadata: false,
 				outputs: true,
 				recursive: false,
 				remote: Some(remote.clone()),

@@ -19,6 +19,9 @@ pub struct Args {
 	#[arg(alias = "log", long)]
 	pub logs: bool,
 
+	#[arg(long)]
+	pub metadata: bool,
+
 	#[command(flatten)]
 	pub outputs: Outputs,
 
@@ -112,6 +115,7 @@ impl Cli {
 			force: args.force,
 			items: items.clone(),
 			logs: args.logs,
+			metadata: args.metadata,
 			outputs: args.outputs.get(),
 			recursive: args.recursive,
 			remote: Some(args.remote.clone()),

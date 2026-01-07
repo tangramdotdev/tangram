@@ -71,7 +71,7 @@ impl Server {
 		// Get the objects.
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
 		let outputs = self
-			.try_get_object_batch_local(&ids, false)
+			.try_get_object_batch_local(&ids, state.arg.metadata)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the objects"))?;
 
@@ -93,6 +93,7 @@ impl Server {
 				tg::sync::PutItemObjectMessage {
 					id: item.id.clone(),
 					bytes: output.bytes.clone(),
+					metadata: output.metadata,
 				},
 			));
 			state
@@ -141,7 +142,7 @@ impl Server {
 		// Get the processes.
 		let ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
 		let outputs = self
-			.try_get_process_batch_local(&ids, false)
+			.try_get_process_batch_local(&ids, state.arg.metadata)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the processes"))?;
 
@@ -163,7 +164,7 @@ impl Server {
 					|source| tg::error!(!source, process = %item.id, "failed to compact the log"),
 				)?;
 				output = self
-					.try_get_process_local(&item.id, false)
+					.try_get_process_local(&item.id, true)
 					.await?
 					.ok_or_else(
 						|| tg::error!(process = %item.id, "failed to get the process after compaction"),
@@ -177,6 +178,7 @@ impl Server {
 				tg::sync::PutItemProcessMessage {
 					id: item.id.clone(),
 					bytes: bytes.into(),
+					metadata: output.metadata,
 				},
 			));
 			state

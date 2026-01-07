@@ -105,14 +105,9 @@ impl Server {
 		// Get the metadata if requested.
 		let metadata_future = async {
 			if metadata {
-				let results: Vec<_> = futures::future::join_all(
-					ids.iter().map(|id| self.try_get_process_metadata_local(id)),
-				)
-				.await;
-				results
-					.into_iter()
-					.map(|result| result.ok().flatten())
-					.collect::<Vec<_>>()
+				self.try_get_process_metadata_batch_local(ids)
+					.await
+					.unwrap_or_else(|_| vec![None; ids.len()])
 			} else {
 				vec![None; ids.len()]
 			}

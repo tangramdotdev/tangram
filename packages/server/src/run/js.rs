@@ -69,7 +69,7 @@ impl Server {
 				};
 				let context = Context {
 					process: Some(Arc::new(process)),
-					token: None,
+					..Default::default()
 				};
 				let handle = ServerWithContext(server, context);
 				tangram_js::run(

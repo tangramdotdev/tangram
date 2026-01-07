@@ -29,7 +29,7 @@ impl Server {
 	#[tracing::instrument(fields(get = ?arg.get, put = ?arg.put), level = "debug", name = "sync", skip_all)]
 	pub(crate) async fn sync_with_context(
 		&self,
-		_context: &Context,
+		context: &Context,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
@@ -47,6 +47,7 @@ impl Server {
 				get: arg.get,
 				local: None,
 				logs: arg.logs,
+				metadata: arg.metadata,
 				outputs: arg.outputs,
 				put: arg.put,
 				recursive: arg.recursive,
@@ -63,12 +64,14 @@ impl Server {
 		let (sender, receiver) = tokio::sync::mpsc::channel(4096);
 		let task = Task::spawn({
 			let server = self.clone();
+			let context = context.clone();
 			|_| {
 				async move {
-					let result = AssertUnwindSafe(server.sync_task(arg, stream, sender.clone()))
-						.catch_unwind()
-						.instrument(tracing::Span::current())
-						.await;
+					let result =
+						AssertUnwindSafe(server.sync_task(&context, arg, stream, sender.clone()))
+							.catch_unwind()
+							.instrument(tracing::Span::current())
+							.await;
 					match result {
 						Ok(Ok(())) => (),
 						Ok(Err(error)) => {
@@ -111,6 +114,7 @@ impl Server {
 
 	async fn sync_task(
 		&self,
+		context: &Context,
 		arg: tg::sync::Arg,
 		mut stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::Message>>,
@@ -167,11 +171,12 @@ impl Server {
 		let get_future = {
 			let server = self.clone();
 			let arg = arg.clone();
+			let context = context.clone();
 			let graph = graph.clone();
 			let stream = ReceiverStream::new(get_input_receiver).boxed();
 			async move {
 				server
-					.sync_get(arg, graph, stream, get_output_sender)
+					.sync_get(arg, context, graph, stream, get_output_sender)
 					.instrument(tracing::debug_span!("get"))
 					.await
 			}
@@ -249,7 +254,9 @@ impl Server {
 
 			// Validate object IDs.
 			if let tg::sync::Message::Put(tg::sync::PutMessage::Item(
-				tg::sync::PutItemMessage::Object(tg::sync::PutItemObjectMessage { id, bytes }),
+				tg::sync::PutItemMessage::Object(tg::sync::PutItemObjectMessage {
+					id, bytes, ..
+				}),
 			)) = &message
 			{
 				let actual = tg::object::Id::new(id.kind(), bytes);

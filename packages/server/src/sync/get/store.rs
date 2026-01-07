@@ -11,11 +11,13 @@ use {
 pub struct ObjectItem {
 	pub id: tg::object::Id,
 	pub bytes: Bytes,
+	pub metadata: Option<tg::object::Metadata>,
 }
 
 pub struct ProcessItem {
 	pub id: tg::process::Id,
 	pub bytes: Bytes,
+	pub metadata: Option<tg::process::Metadata>,
 }
 
 impl Server {
@@ -118,41 +120,51 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put objects"))?;
 
-		// Mark the nodes as stored.
+		// Update the graph.
 		let mut graph = state.graph.lock().unwrap();
 		for item in &items {
+			// Deserialize the bytes.
 			let data = tg::object::Data::deserialize(item.id.kind(), item.bytes.as_ref())
 				.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
-			let size = item.bytes.len().to_u64().unwrap();
 
-			let (node_solvable, node_solved) = match &data {
-				tg::object::Data::File(file) => match file {
-					tg::file::Data::Pointer(_) => (false, true),
-					tg::file::Data::Node(node) => (node.solvable(), node.solved()),
-				},
-				tg::object::Data::Graph(graph) => {
-					graph
-						.nodes
-						.iter()
-						.fold((false, true), |(solvable, solved), node| {
-							if let tg::graph::data::Node::File(file) = node {
-								(solvable || file.solvable(), solved && file.solved())
-							} else {
-								(solvable, solved)
-							}
-						})
-				},
-				_ => (false, true),
-			};
+			// Get the metadata.
+			let metadata = if state.context.untrusted {
+				None
+			} else {
+				item.metadata.clone()
+			}
+			.unwrap_or_else(|| {
+				let size = item.bytes.len().to_u64().unwrap();
+				let (node_solvable, node_solved) = match &data {
+					tg::object::Data::File(file) => match file {
+						tg::file::Data::Pointer(_) => (false, true),
+						tg::file::Data::Node(node) => (node.solvable(), node.solved()),
+					},
+					tg::object::Data::Graph(graph) => {
+						graph
+							.nodes
+							.iter()
+							.fold((false, true), |(solvable, solved), node| {
+								if let tg::graph::data::Node::File(file) = node {
+									(solvable || file.solvable(), solved && file.solved())
+								} else {
+									(solvable, solved)
+								}
+							})
+					},
+					_ => (false, true),
+				};
+				tg::object::Metadata {
+					node: tg::object::metadata::Node {
+						size,
+						solvable: node_solvable,
+						solved: node_solved,
+					},
+					..Default::default()
+				}
+			});
 
-			let metadata = tg::object::Metadata {
-				node: tg::object::metadata::Node {
-					size,
-					solvable: node_solvable,
-					solved: node_solved,
-				},
-				..Default::default()
-			};
+			// Update the graph.
 			graph.update_object_local(
 				&item.id,
 				Some(&data),
@@ -205,20 +217,25 @@ impl Server {
 		state: &State,
 		items: Vec<ProcessItem>,
 	) -> tg::Result<()> {
-		// Deserialize all processes once.
-		let batch: Vec<(tg::process::Id, tg::process::Data)> = items
-			.iter()
+		// Deserialize all processes.
+		let count = items.len();
+		let batch: Vec<(
+			tg::process::Id,
+			tg::process::Data,
+			Option<tg::process::Metadata>,
+		)> = items
+			.into_iter()
 			.map(|item| {
 				let data = serde_json::from_slice(&item.bytes).map_err(|source| {
 					tg::error!(!source, "failed to deserialize the process data")
 				})?;
-				Ok((item.id.clone(), data))
+				Ok((item.id, data, item.metadata))
 			})
 			.collect::<tg::Result<_>>()?;
 
-		// Put the processes to the database.
+		// Write the processes to the database.
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let batch_refs: Vec<_> = batch.iter().map(|(id, data)| (id, data)).collect();
+		let batch_refs: Vec<_> = batch.iter().map(|(id, data, _)| (id, data)).collect();
 		match &self.database {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(database) => {
@@ -234,15 +251,20 @@ impl Server {
 			},
 		}
 
-		// Update the graph for all processes.
+		// Update the graph.
 		let mut graph = state.graph.lock().unwrap();
-		for (id, data) in &batch {
-			graph.update_process_local(id, Some(data), None, None, Some(true), None);
+		for (id, data, metadata) in &batch {
+			let metadata = if state.context.untrusted {
+				None
+			} else {
+				metadata.clone()
+			};
+			graph.update_process_local(id, Some(data), None, metadata, Some(true), None);
 		}
 		drop(graph);
 
 		// Update the progress.
-		let processes = items.len().to_u64().unwrap();
+		let processes = count.to_u64().unwrap();
 		state.progress.increment(processes, 0, 0);
 
 		let end = state.graph.lock().unwrap().end_local(&state.arg);

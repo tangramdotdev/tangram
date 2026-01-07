@@ -25,6 +25,9 @@ pub struct Arg {
 	pub logs: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
+	pub metadata: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub outputs: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -105,6 +108,7 @@ impl Default for Arg {
 			force: false,
 			items: Vec::new(),
 			logs: false,
+			metadata: false,
 			outputs: true,
 			recursive: false,
 			remote: None,

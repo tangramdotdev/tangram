@@ -178,6 +178,7 @@ impl Server {
 
 		// Update the context.
 		context.token = request.token(None).map(ToOwned::to_owned);
+		context.untrusted = true;
 
 		let method = request.method().clone();
 		let path = request.uri().path().to_owned();

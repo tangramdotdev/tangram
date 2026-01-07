@@ -47,6 +47,10 @@ pub struct Arg {
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
+	pub metadata: bool,
+
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_false")]
 	pub outputs: bool,
 
 	#[serde_as(as = "CommaSeparatedString")]
@@ -201,6 +205,9 @@ pub struct PutItemObjectMessage {
 
 	#[tangram_serialize(id = 1)]
 	pub bytes: Bytes,
+
+	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
+	pub metadata: Option<tg::object::Metadata>,
 }
 
 #[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
@@ -210,6 +217,9 @@ pub struct PutItemProcessMessage {
 
 	#[tangram_serialize(id = 1)]
 	pub bytes: Bytes,
+
+	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
+	pub metadata: Option<tg::process::Metadata>,
 }
 
 #[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]

@@ -277,7 +277,7 @@ impl Server {
 				return Err(tg::error!("failed to toposort the graph"));
 			}
 		}
-		let toposort: Vec<usize> = sccs.into_iter().flatten().rev().collect();
+		let toposort = sccs.into_iter().flatten().rev().collect::<Vec<_>>();
 
 		// Set stored and metadata.
 		for index in toposort.into_iter().rev() {
@@ -290,14 +290,11 @@ impl Server {
 					let Some(metadata) = &node.metadata else {
 						continue;
 					};
+					let existing_subtree = metadata.subtree.clone();
 
-					// Initialize the metadata from existing node metadata.
+					// Initialize the metadata.
 					let mut metadata = tg::object::Metadata {
-						node: tg::object::metadata::Node {
-							size: metadata.node.size,
-							solvable: metadata.node.solvable,
-							solved: metadata.node.solved,
-						},
+						node: metadata.node.clone(),
 						subtree: tg::object::metadata::Subtree {
 							count: Some(1),
 							depth: Some(1),
@@ -365,6 +362,9 @@ impl Server {
 							)
 							.map(|(a, b)| a && b);
 					}
+
+					// Merge in existing subtree metadata.
+					merge_subtree(&mut metadata.subtree, &existing_subtree);
 
 					// Update the node.
 					let (_, node) = graph.nodes.get_index_mut(index).unwrap();
@@ -847,6 +847,24 @@ impl Server {
 						}
 					}
 
+					// Merge existing metadata where computed is None.
+					if let Some(existing) = &node.metadata {
+						// Merge node metadata.
+						merge_subtree(&mut metadata.node.command, &existing.node.command);
+						merge_subtree(&mut metadata.node.error, &existing.node.error);
+						merge_subtree(&mut metadata.node.log, &existing.node.log);
+						merge_subtree(&mut metadata.node.output, &existing.node.output);
+
+						// Merge subtree metadata.
+						if metadata.subtree.count.is_none() {
+							metadata.subtree.count = existing.subtree.count;
+						}
+						merge_subtree(&mut metadata.subtree.command, &existing.subtree.command);
+						merge_subtree(&mut metadata.subtree.error, &existing.subtree.error);
+						merge_subtree(&mut metadata.subtree.log, &existing.subtree.log);
+						merge_subtree(&mut metadata.subtree.output, &existing.subtree.output);
+					}
+
 					// Update the node.
 					let (_, node) = graph.nodes.get_index_mut(index).unwrap();
 					let node_inner = node.unwrap_process_mut();
@@ -984,5 +1002,26 @@ impl Server {
 		let messages = batched.into_values().rev().collect();
 
 		Ok(messages)
+	}
+}
+
+fn merge_subtree(
+	computed: &mut tg::object::metadata::Subtree,
+	existing: &tg::object::metadata::Subtree,
+) {
+	if computed.count.is_none() {
+		computed.count = existing.count;
+	}
+	if computed.depth.is_none() {
+		computed.depth = existing.depth;
+	}
+	if computed.size.is_none() {
+		computed.size = existing.size;
+	}
+	if computed.solvable.is_none() {
+		computed.solvable = existing.solvable;
+	}
+	if computed.solved.is_none() {
+		computed.solved = existing.solved;
 	}
 }

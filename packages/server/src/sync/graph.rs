@@ -135,6 +135,7 @@ impl Graph {
 		} else {
 			None
 		};
+
 		let computed_stored = children.as_ref().map(|children| {
 			children.iter().all(|child| {
 				self.nodes
@@ -147,6 +148,7 @@ impl Graph {
 					.is_some_and(|stored| stored.subtree)
 			})
 		});
+
 		let old_stored = self
 			.nodes
 			.get_index(index)
@@ -163,40 +165,26 @@ impl Graph {
 			.unwrap()
 			.1
 			.unwrap_object_mut();
+
 		if let Some(children) = children {
 			node.children = Some(children);
 			node.local_stored = Some(crate::object::stored::Output {
 				subtree: computed_stored.unwrap(),
 			});
 		}
+
 		if let Some(stored) = stored {
 			node.local_stored = Some(stored);
 		}
+
 		if let Some(metadata) = metadata {
-			if let Some(existing) = &mut node.metadata {
-				existing.node.size = metadata.node.size;
-				if metadata.subtree.count.is_some() {
-					existing.subtree.count = metadata.subtree.count;
-				}
-				if metadata.subtree.depth.is_some() {
-					existing.subtree.depth = metadata.subtree.depth;
-				}
-				if metadata.subtree.size.is_some() {
-					existing.subtree.size = metadata.subtree.size;
-				}
-				if metadata.subtree.solvable.is_some() {
-					existing.subtree.solvable = metadata.subtree.solvable;
-				}
-				if metadata.subtree.solved.is_some() {
-					existing.subtree.solved = metadata.subtree.solved;
-				}
-			} else {
-				node.metadata = Some(metadata);
-			}
+			node.metadata = Some(metadata);
 		}
+
 		if let Some(marked) = marked {
 			node.marked = marked;
 		}
+
 		if let Some(requested) = requested {
 			node.requested = Some(requested);
 		}
@@ -249,8 +237,8 @@ impl Graph {
 		let objects = if let Some(data) = data {
 			let mut objects: Vec<(usize, crate::index::message::ProcessObjectKind)> = Vec::new();
 
-			let command_id: tg::object::Id = data.command.clone().into();
-			let command_entry = self.nodes.entry(command_id.into());
+			let command: tg::object::Id = data.command.clone().into();
+			let command_entry = self.nodes.entry(command.into());
 			let command_index = command_entry.index();
 			let command_node = command_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
 			command_node.unwrap_object_mut().parents.push(index);
@@ -290,8 +278,8 @@ impl Graph {
 				}
 			}
 
-			if let Some(log_id) = data.log.clone() {
-				let log_entry = self.nodes.entry(tg::object::Id::from(log_id).into());
+			if let Some(log) = data.log.clone() {
+				let log_entry = self.nodes.entry(tg::object::Id::from(log).into());
 				let log_index = log_entry.index();
 				let log_node = log_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
 				log_node.unwrap_object_mut().parents.push(index);
@@ -345,22 +333,28 @@ impl Graph {
 			.unwrap()
 			.1
 			.unwrap_process_mut();
+
 		if let Some(children) = children {
 			node.children = Some(children);
 		}
+
 		if let Some(stored) = stored {
 			let merged = Self::merge_process_stored(node.local_stored.as_ref(), stored);
 			node.local_stored = Some(merged);
 		}
+
 		if let Some(metadata) = metadata {
 			node.metadata = Some(metadata);
 		}
+
 		if let Some(objects) = objects {
 			node.objects = Some(objects);
 		}
+
 		if let Some(marked) = marked {
 			node.marked = marked;
 		}
+
 		if let Some(requested) = requested {
 			node.requested = Some(requested);
 		}
