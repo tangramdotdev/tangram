@@ -79,27 +79,32 @@ begin
 	insert into object_queue (object, kind, transaction_id)
 	select distinct object_children.object, 1, (select id from transaction_id)
 	from object_children
-	where object_children.child = any(dequeued_objects);
+	where object_children.child = any(dequeued_objects)
+	on conflict (object, kind) do nothing;
 
 	insert into process_queue (process, kind, transaction_id)
 	select distinct process_objects.process, 2, (select id from transaction_id)
 	from process_objects
-	where process_objects.object = any(dequeued_objects);
+	where process_objects.object = any(dequeued_objects)
+	on conflict (process, kind) do nothing;
 
 	insert into process_queue (process, kind, transaction_id)
 	select distinct process_objects.process, 5, (select id from transaction_id)
 	from process_objects
-	where process_objects.object = any(dequeued_objects);
+	where process_objects.object = any(dequeued_objects)
+	on conflict (process, kind) do nothing;
 
 	insert into process_queue (process, kind, transaction_id)
 	select distinct process_objects.process, 4, (select id from transaction_id)
 	from process_objects
-	where process_objects.object = any(dequeued_objects);
+	where process_objects.object = any(dequeued_objects)
+	on conflict (process, kind) do nothing;
 
 	insert into process_queue (process, kind, transaction_id)
 	select distinct process_objects.process, 3, (select id from transaction_id)
 	from process_objects
-	where process_objects.object = any(dequeued_objects);
+	where process_objects.object = any(dequeued_objects)
+	on conflict (process, kind) do nothing;
 
 	n := n - coalesce(array_length(dequeued_objects, 1), 0);
 end;
@@ -180,7 +185,8 @@ begin
 		insert into process_queue (process, kind, transaction_id)
 		select distinct process_children.process, 1, (select id from transaction_id)
 		from process_children
-		where process_children.child = any(children_processes);
+		where process_children.child = any(children_processes)
+		on conflict (process, kind) do nothing;
 	end if;
 
 	if array_length(commands_processes, 1) > 0 then
@@ -269,7 +275,8 @@ begin
 		insert into process_queue (process, kind, transaction_id)
 		select distinct process_children.process, 2, (select id from transaction_id)
 		from process_children
-		where process_children.child = any(commands_processes);
+		where process_children.child = any(commands_processes)
+		on conflict (process, kind) do nothing;
 	end if;
 
 	if array_length(errors_processes, 1) > 0 then
@@ -370,7 +377,8 @@ begin
 		insert into process_queue (process, kind, transaction_id)
 		select distinct process_children.process, 3, (select id from transaction_id)
 		from process_children
-		where process_children.child = any(errors_processes);
+		where process_children.child = any(errors_processes)
+		on conflict (process, kind) do nothing;
 	end if;
 
 	if array_length(logs_processes, 1) > 0 then
@@ -471,7 +479,8 @@ begin
 		insert into process_queue (process, kind, transaction_id)
 		select distinct process_children.process, 4, (select id from transaction_id)
 		from process_children
-		where process_children.child = any(logs_processes);
+		where process_children.child = any(logs_processes)
+		on conflict (process, kind) do nothing;
 	end if;
 
 	if array_length(outputs_processes, 1) > 0 then
@@ -572,7 +581,8 @@ begin
 		insert into process_queue (process, kind, transaction_id)
 		select distinct process_children.process, 5, (select id from transaction_id)
 		from process_children
-		where process_children.child = any(outputs_processes);
+		where process_children.child = any(outputs_processes)
+		on conflict (process, kind) do nothing;
 	end if;
 
 	n := n

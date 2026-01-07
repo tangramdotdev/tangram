@@ -19,6 +19,8 @@ create table cache_entry_queue (
 	transaction_id integer not null
 );
 
+create unique index cache_entry_queue_cache_entry_index on cache_entry_queue (cache_entry);
+
 create index cache_entry_queue_transaction_id_index on cache_entry_queue (transaction_id);
 
 create table objects (
@@ -58,6 +60,8 @@ create table object_queue (
 	object blob not null,
 	transaction_id integer not null
 );
+
+create unique index object_queue_object_kind_index on object_queue (object, kind);
 
 create index object_queue_transaction_id_index on object_queue (transaction_id);
 
@@ -135,6 +139,8 @@ create table process_queue (
 	kind integer not null,
 	transaction_id integer not null
 );
+
+create unique index process_queue_process_kind_index on process_queue (process, kind);
 
 create index process_queue_transaction_id_index on process_queue (transaction_id);
 
