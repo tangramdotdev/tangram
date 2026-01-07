@@ -1,7 +1,5 @@
 use {
-	super::util::{
-		cache_children, render_args_dash_a, render_args_string, render_env, which, whoami,
-	},
+	super::util::{cache_children, render_args_dash_a, render_args_string, render_env, whoami},
 	crate::{Context, Server, temp::Temp},
 	indoc::formatdoc,
 	std::{
@@ -137,23 +135,7 @@ impl Server {
 				tg::command::data::Executable::Module(_) => {
 					return Err(tg::error!("invalid executable"));
 				},
-				tg::command::data::Executable::Path(executable) if root_mounted => {
-					which(&executable.path, &env)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to find the executable"))?
-				},
-				tg::command::data::Executable::Path(executable) => {
-					let host_artifacts_path = self.artifacts_path();
-					let env = render_env(&command.env, &host_artifacts_path, &output_path)?;
-					let executable = which(&executable.path, &env)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to find the executable"))?;
-					if let Ok(subpath) = executable.strip_prefix(&host_artifacts_path) {
-						artifacts_path.join(subpath)
-					} else {
-						executable
-					}
-				},
+				tg::command::data::Executable::Path(executable) => executable.path.clone(),
 			},
 		};
 

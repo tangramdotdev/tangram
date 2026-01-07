@@ -40,7 +40,7 @@ pub fn main(mut context: Context) -> ! {
 		}
 
 		// Finally, exec the process.
-		libc::execve(
+		libc::execvpe(
 			context.executable.as_ptr(),
 			context.argv.as_ptr().cast(),
 			context.envp.as_ptr().cast(),

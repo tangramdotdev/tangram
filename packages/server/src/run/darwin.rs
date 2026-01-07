@@ -1,7 +1,5 @@
 use {
-	super::util::{
-		cache_children, render_args_dash_a, render_args_string, render_env, which, whoami,
-	},
+	super::util::{cache_children, render_args_dash_a, render_args_string, render_env, whoami},
 	crate::{Context, Server, temp::Temp},
 	std::{
 		collections::BTreeMap,
@@ -110,9 +108,7 @@ impl Server {
 				tg::command::data::Executable::Module(_) => {
 					return Err(tg::error!("invalid executable"));
 				},
-				tg::command::data::Executable::Path(executable) => which(&executable.path, &env)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to find the executable"))?,
+				tg::command::data::Executable::Path(executable) => executable.path.clone(),
 			},
 		};
 
