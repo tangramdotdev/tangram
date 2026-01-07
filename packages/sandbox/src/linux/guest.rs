@@ -46,7 +46,7 @@ pub fn main(mut context: Context) -> ! {
 			context.envp.as_ptr().cast(),
 		);
 
-		abort_errno!("execve failed")
+		abort_errno!("execvpe failed")
 	}
 }
 
