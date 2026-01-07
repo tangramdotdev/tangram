@@ -26,7 +26,7 @@ impl Server {
 
 		// Try remotes.
 		let remotes = self
-			.remotes(arg.remotes.clone())
+			.remotes(arg.local, arg.remotes.clone())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
 		if let Some(size) = self

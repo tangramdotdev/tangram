@@ -1104,7 +1104,14 @@ impl Server {
 		}
 	}
 
-	pub async fn remotes(&self, remotes: Option<Vec<String>>) -> tg::Result<Vec<String>> {
+	pub async fn remotes(
+		&self,
+		local: Option<bool>,
+		remotes: Option<Vec<String>>,
+	) -> tg::Result<Vec<String>> {
+		if local == Some(true) {
+			return Ok(Vec::new());
+		}
 		if let Some(remotes) = remotes {
 			return Ok(remotes);
 		}

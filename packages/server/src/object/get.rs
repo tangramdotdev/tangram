@@ -42,7 +42,7 @@ impl Server {
 		}
 
 		let remotes = self
-			.remotes(arg.remotes)
+			.remotes(arg.local, arg.remotes)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
 		if let Some(output) = self
@@ -139,7 +139,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the objects locally"))?;
 		let remotes = self
-			.remotes(None)
+			.remotes(None, None)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
 		let outputs = std::iter::zip(ids, outputs)
