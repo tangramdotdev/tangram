@@ -80,7 +80,9 @@ pub fn spawn(mut command: Command) -> std::io::Result<std::process::ExitCode> {
 			}
 		});
 		let source = mount.source.as_ref().map(cstring);
-		let flags = if let Some(source) = &source && mount.fstype.is_none() {
+		let flags = if let Some(source) = &source
+			&& mount.fstype.is_none()
+		{
 			let existing = get_existing_mount_flags(source)?;
 			existing | mount.flags
 		} else {
