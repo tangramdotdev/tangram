@@ -943,6 +943,7 @@ impl Cli {
 		reference: &tg::Reference,
 	) -> tg::Result<tg::Referent<tg::Either<tg::Object, tg::Process>>> {
 		self.get_reference_with_arg(reference, tg::get::Arg::default())
+			.boxed()
 			.await
 	}
 
