@@ -2,10 +2,7 @@ use {
 	crate::Server,
 	bytes::Bytes,
 	futures::{future, stream},
-	std::{
-		collections::BTreeMap,
-		path::{Path, PathBuf},
-	},
+	std::{collections::BTreeMap, path::Path},
 	tangram_client::prelude::*,
 };
 
@@ -197,27 +194,6 @@ pub fn render_value_string(
 		},
 		_ => Ok(tg::Value::try_from_data(value.clone()).unwrap().to_string()),
 	}
-}
-
-pub async fn which(exe: &Path, env: &BTreeMap<String, String>) -> tg::Result<PathBuf> {
-	if exe.is_absolute() || exe.components().count() > 1 {
-		return Ok(exe.to_owned());
-	}
-	let Some(pathenv) = env.get("PATH") else {
-		return Ok(exe.to_owned());
-	};
-	let name = exe.components().next();
-	let Some(std::path::Component::Normal(name)) = name else {
-		return Err(tg::error!(path = %exe.display(), "invalid executable path"));
-	};
-	let sep = ":";
-	for path in pathenv.split(sep) {
-		let path = Path::new(path).join(name);
-		if tokio::fs::try_exists(&path).await.ok() == Some(true) {
-			return Ok(path);
-		}
-	}
-	Err(tg::error!(path = %exe.display(), "failed to find the executable"))
 }
 
 pub fn whoami() -> tg::Result<String> {

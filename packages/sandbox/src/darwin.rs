@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Command,
-		common::{CStringVec, abort_errno, cstring, envstring},
+		common::{CStringVec, abort_errno, cstring},
 	},
 	indoc::writedoc,
 	num::ToPrimitive as _,
@@ -16,28 +16,26 @@ use {
 struct Context {
 	argv: CStringVec,
 	cwd: CString,
-	envp: CStringVec,
 	executable: CString,
 	profile: CString,
 }
 
 #[expect(clippy::needless_pass_by_value)]
 pub fn spawn(command: Command) -> std::io::Result<std::process::ExitCode> {
-	// Create argv, cwd, and envp strings.
+	// Create the argv.
 	let argv = std::iter::once(cstring(&command.executable))
 		.chain(command.trailing.iter().map(cstring))
 		.collect::<CStringVec>();
+
+	// Create the cwd.
 	let cwd = command
 		.cwd
 		.clone()
 		.map_or_else(std::env::current_dir, Ok::<_, std::io::Error>)
 		.inspect_err(|_| eprintln!("failed to get cwd"))
 		.map(cstring)?;
-	let envp = command
-		.env
-		.iter()
-		.map(|(k, v)| envstring(k, v))
-		.collect::<CStringVec>();
+
+	// Create the executable.
 	let executable = cstring(&command.executable);
 
 	if command.chroot.is_some() {
@@ -48,6 +46,16 @@ pub fn spawn(command: Command) -> std::io::Result<std::process::ExitCode> {
 		return Err(std::io::Error::other("uid/gid is not allowed on darwin"));
 	}
 
+	// Set the environment.
+	unsafe {
+		for (key, _) in std::env::vars_os() {
+			std::env::remove_var(key);
+		}
+		for (key, value) in &command.env {
+			std::env::set_var(key, value);
+		}
+	}
+
 	// Create the sandbox profile.
 	let profile = create_sandbox_profile(&command);
 
@@ -55,7 +63,6 @@ pub fn spawn(command: Command) -> std::io::Result<std::process::ExitCode> {
 	let context = Context {
 		argv,
 		cwd,
-		envp,
 		executable,
 		profile,
 	};
@@ -87,11 +94,7 @@ pub fn spawn(command: Command) -> std::io::Result<std::process::ExitCode> {
 
 		// Exec.
 		unsafe {
-			libc::execve(
-				context.executable.as_ptr(),
-				context.argv.as_ptr(),
-				context.envp.as_ptr(),
-			);
+			libc::execvp(context.executable.as_ptr(), context.argv.as_ptr());
 			abort_errno!("failed to exec");
 		}
 	}

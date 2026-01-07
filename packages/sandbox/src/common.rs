@@ -20,15 +20,6 @@ pub fn cstring(s: impl AsRef<OsStr>) -> CString {
 	CString::new(s.as_ref().as_bytes()).unwrap()
 }
 
-pub fn envstring(k: impl AsRef<OsStr>, v: impl AsRef<OsStr>) -> CString {
-	let string = format!(
-		"{}={}",
-		k.as_ref().to_string_lossy(),
-		v.as_ref().to_string_lossy()
-	);
-	CString::new(string).unwrap()
-}
-
 impl FromIterator<CString> for CStringVec {
 	fn from_iter<T: IntoIterator<Item = CString>>(iter: T) -> Self {
 		let mut strings = Vec::new();

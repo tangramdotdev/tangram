@@ -149,7 +149,7 @@ export class Command<
 					let host = tg.process.env.TANGRAM_HOST;
 					return {
 						args: ["-c", arg],
-						executable: "/bin/sh",
+						executable: "sh",
 						host,
 					};
 				} else if (arg instanceof tg.Command) {
