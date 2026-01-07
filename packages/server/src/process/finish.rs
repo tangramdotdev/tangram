@@ -65,7 +65,7 @@ impl Server {
 		// If the task for the process is not the current task, then abort it.
 		if self
 			.process_tasks
-			.get_task_id(id)
+			.try_get_id(id)
 			.is_some_and(|task_id| task_id != tokio::task::id())
 		{
 			self.process_tasks.abort(id);

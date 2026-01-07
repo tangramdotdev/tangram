@@ -149,8 +149,16 @@ where
 		task
 	}
 
-	pub fn get_task_id(&self, key: &K) -> Option<tokio::task::Id> {
+	pub fn try_get_id(&self, key: &K) -> Option<tokio::task::Id> {
 		self.map.get(key).map(|task| task.id())
+	}
+
+	pub fn try_get(&self, key: &K) -> Option<Shared<T, C>> {
+		self.map.get(key).map(|entry| {
+			let mut task = entry.value().clone();
+			task.attach();
+			task
+		})
 	}
 
 	pub fn abort(&self, key: &K) {
