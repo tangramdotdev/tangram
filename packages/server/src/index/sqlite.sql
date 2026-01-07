@@ -19,6 +19,8 @@ create table cache_entry_queue (
 	transaction_id integer not null
 );
 
+create unique index cache_entry_queue_cache_entry_index on cache_entry_queue (cache_entry);
+
 create index cache_entry_queue_transaction_id_index on cache_entry_queue (transaction_id);
 
 create table objects (

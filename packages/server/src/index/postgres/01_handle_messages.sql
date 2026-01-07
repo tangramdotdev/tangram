@@ -195,7 +195,8 @@ begin
 
 		insert into cache_entry_queue (cache_entry, transaction_id)
 		select id, (select id from transaction_id)
-		from unnest(inserted_ids) as t(id);
+		from unnest(inserted_ids) as t(id)
+		on conflict (cache_entry) do nothing;
 	end if;
 end;
 $$;

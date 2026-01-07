@@ -98,7 +98,8 @@ impl Server {
 		let queue_statement = indoc!(
 			"
 				insert into cache_entry_queue (cache_entry, transaction_id)
-				values (?1, (select id from transaction_id));
+				values (?1, (select id from transaction_id))
+				on conflict (cache_entry) do nothing;
 			"
 		);
 		let mut queue_statement = cache
