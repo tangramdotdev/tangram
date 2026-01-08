@@ -7,7 +7,7 @@
         "artifacts": {
           "kind": "directory",
           "entries": {
-            "dir_013p89qfn365enkjbfsgqhyc1f02rm5wc1adqhvaeacdzr9r3vdvzg": {
+            "dir_010ttfanqe16ebhvzhzvm04xd7wh7jg2ytswba1kjdykpv908fqrag": {
               "kind": "directory",
               "entries": {
                 "file.txt": {
@@ -28,14 +28,14 @@
       "kind": "file",
       "contents": "bar",
       "xattrs": {
-        "user.tangram.dependencies": "[\"dir_013p89qfn365enkjbfsgqhyc1f02rm5wc1adqhvaeacdzr9r3vdvzg\"]"
+        "user.tangram.dependencies": "[\"dir_010ttfanqe16ebhvzhzvm04xd7wh7jg2ytswba1kjdykpv908fqrag\"]"
       }
     },
     "foo.txt": {
       "kind": "file",
       "contents": "foo",
       "xattrs": {
-        "user.tangram.dependencies": "[\"dir_013p89qfn365enkjbfsgqhyc1f02rm5wc1adqhvaeacdzr9r3vdvzg\"]"
+        "user.tangram.dependencies": "[\"dir_010ttfanqe16ebhvzhzvm04xd7wh7jg2ytswba1kjdykpv908fqrag\"]"
       }
     }
   }

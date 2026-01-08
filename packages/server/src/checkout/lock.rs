@@ -194,7 +194,7 @@ impl Server {
 		state.nodes.push(None);
 		let node = match node {
 			tg::graph::data::Node::Directory(node) => {
-				self.checkout_create_lock_directory(state, node, graph.as_ref())?
+				self.checkout_create_lock_directory(state, &node, graph.as_ref())?
 			},
 			tg::graph::data::Node::File(node) => {
 				self.checkout_create_lock_file(state, node, graph.as_ref())?
@@ -211,11 +211,14 @@ impl Server {
 	fn checkout_create_lock_directory(
 		&self,
 		state: &mut State,
-		node: tg::graph::data::Directory,
+		node: &tg::graph::data::Directory,
 		graph: Option<&tg::graph::Id>,
 	) -> tg::Result<tg::graph::data::Node> {
-		let entries = node
-			.entries
+		// Collect all entries from the directory, flattening branches.
+		let all_entries = crate::directory::collect_directory_entries(&self.store, node, graph)?;
+
+		// Transform each entry for the lock.
+		let entries = all_entries
 			.into_iter()
 			.map(|(name, mut edge)| {
 				if let tg::graph::data::Edge::Pointer(pointer) = &mut edge
@@ -233,7 +236,9 @@ impl Server {
 				Ok::<_, tg::Error>((name, edge))
 			})
 			.collect::<tg::Result<_>>()?;
-		let directory = tg::graph::data::Directory { entries };
+
+		let leaf = tg::graph::data::DirectoryLeaf { entries };
+		let directory = tg::graph::data::Directory::Leaf(leaf);
 		let node = tg::graph::data::Node::Directory(directory);
 		Ok(node)
 	}
@@ -377,13 +382,9 @@ impl Server {
 			}
 
 			let lock_node = match node {
-				tg::graph::data::Node::Directory(dir) => self
-					.checkout_create_lock_directory_graph(
-						state,
-						dir.clone(),
-						graph_id,
-						&graph_to_lock,
-					)?,
+				tg::graph::data::Node::Directory(dir) => {
+					self.checkout_create_lock_directory_graph(state, dir, graph_id, &graph_to_lock)?
+				},
 				tg::graph::data::Node::File(file) => self.checkout_create_lock_file_graph(
 					state,
 					file.clone(),
@@ -406,12 +407,16 @@ impl Server {
 	fn checkout_create_lock_directory_graph(
 		&self,
 		state: &mut State,
-		node: tg::graph::data::Directory,
+		node: &tg::graph::data::Directory,
 		graph_id: &tg::graph::Id,
 		graph_to_lock: &HashMap<usize, usize, fnv::FnvBuildHasher>,
 	) -> tg::Result<tg::graph::data::Node> {
-		let entries = node
-			.entries
+		// Collect all entries, flattening branches recursively.
+		let all_entries =
+			crate::directory::collect_directory_entries(&self.store, node, Some(graph_id))?;
+
+		// Process entries to create lock pointers.
+		let entries = all_entries
 			.into_iter()
 			.map(|(name, edge)| {
 				let (kind, index) = match &edge {
@@ -443,7 +448,8 @@ impl Server {
 				Ok::<_, tg::Error>((name, edge))
 			})
 			.collect::<tg::Result<_>>()?;
-		let directory = tg::graph::data::Directory { entries };
+		let leaf = tg::graph::data::DirectoryLeaf { entries };
+		let directory = tg::graph::data::Directory::Leaf(leaf);
 		let node = tg::graph::data::Node::Directory(directory);
 		Ok(node)
 	}
