@@ -116,7 +116,7 @@ def main [
 			let end = date now
 			let duration = $end - $start
 
-			# If the test passed, then delete snapshots which were not touched and remove touch files.
+			# If the test passed, delete snapshots which were not touched and remove touch files.
 			if $output.exit_code == 0 {
 				let parent_path = $test.path | path dirname
 				let stem = $test.path | path parse | get stem
@@ -276,16 +276,6 @@ def main [
 				}
 				$source | save -f $test.path
 				rm $inline_path
-			}
-
-			# Delete snapshots which were not touched and remove touched files.
-			for path in (glob $'($parsed.parent | path join $parsed.stem){.snapshot,/*.snapshot}') {
-				if not ($path | str replace '.snapshot' '.touched' | path exists) {
-					rm $path
-				}
-			}
-			for path in (glob $'($parsed.parent | path join $parsed.stem){.touched,/*.touched}') {
-				rm $path
 			}
 		}
 	}
@@ -456,36 +446,55 @@ export def doc [string: string] {
 		}
 	}
 
-	# Get the number of leading tabs to remove. Filter out lines that are empty or contain only tabs and spaces.
+	# Get the common leading whitespace prefix. Filter out lines that are empty or contain only whitespace.
 	let non_whitespace_lines = $lines | where { |line|
 		let trimmed = $line | str trim
 		($trimmed | str length) > 0
 	}
-	let leading_tabs_count = if ($non_whitespace_lines | length) > 0 {
-		$non_whitespace_lines
-			| each { |line|
-				# Find the position of the first non-tab character.
-				let chars = $line | split chars
-				mut count = 0
-				for char in $chars {
-					if $char == "\t" {
-						$count = $count + 1
-					} else {
-						break
-					}
-				}
-				$count
+
+	# Extract leading whitespace from each non-empty line.
+	let leading_whitespace = $non_whitespace_lines | each { |line|
+		let chars = $line | split chars
+		mut ws = ""
+		for char in $chars {
+			if $char == "\t" or $char == " " {
+				$ws = $ws + $char
+			} else {
+				break
 			}
-			| math min
-	} else {
-		0
+		}
+		$ws
 	}
 
-	# Remove the leading tabs from each line and combine them with newlines.
+	# Find the common prefix of all leading whitespace strings.
+	let common_prefix = if ($leading_whitespace | length) > 0 {
+		$leading_whitespace | reduce { |it, acc|
+			let acc_len = $acc | str length
+			let it_len = $it | str length
+			let min_len = if $acc_len < $it_len { $acc_len } else { $it_len }
+			mut prefix_len = 0
+			let acc_chars = $acc | split chars
+			let it_chars = $it | split chars
+			for i in 0..<$min_len {
+				if ($acc_chars | get $i) == ($it_chars | get $i) {
+					$prefix_len = $prefix_len + 1
+				} else {
+					break
+				}
+			}
+			$acc | str substring ..<$prefix_len
+		}
+	} else {
+		""
+	}
+
+	let prefix_len = $common_prefix | str length
+
+	# Remove the common prefix from each line and combine them with newlines.
 	let result = $lines
 		| each { |line|
-			if ($line | str length) >= $leading_tabs_count {
-				$line | str substring $leading_tabs_count..
+			if ($line | str length) >= $prefix_len {
+				$line | str substring $prefix_len..
 			} else {
 				$line
 			}
@@ -878,7 +887,7 @@ def get_indent [source: string, position: int] {
 	let line_start = $before | str index-of "\n" --end
 	let line_start = if $line_start == -1 { 0 } else { $line_start + 1 }
 	let line_prefix = $source | str substring $line_start..<$position
-	$line_prefix | parse --regex '^(\s*)' | get capture0.0? | default ''
+	$line_prefix | parse --regex '^(\s*)' | get 0.capture0? | default ''
 }
 
 export def --env success [

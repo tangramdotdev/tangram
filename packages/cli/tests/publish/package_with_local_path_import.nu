@@ -53,7 +53,7 @@ let extract_published_id = {|package_name: string|
 	if $line == null {
 		error make { msg: $"($package_name) should have a published ID in output." }
 	}
-	let id_part = $line | parse --regex 'dir_([a-z0-9]+)' | get capture0.0?
+	let id_part = $line | parse --regex 'dir_([a-z0-9]+)' | get 0.capture0?
 	if $id_part == null {
 		error make { msg: $"Failed to extract ID for ($package_name)." }
 	}
