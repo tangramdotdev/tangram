@@ -2,7 +2,6 @@ use ../../test.nu *
 
 let server = spawn
 
-# Create and tag dependencies.
 let foo_path = artifact {
 	tangram.ts: '// foo'
 }
@@ -13,7 +12,6 @@ let bar_path = artifact {
 }
 tg tag bar $bar_path
 
-# Create the main artifact.
 let path = artifact {
 	tangram.ts: '
 		import * as foo from "foo";
@@ -21,6 +19,11 @@ let path = artifact {
 	'
 }
 
-# Run tree command with package kind.
-let output = tg tree $path --kind=package
-snapshot $output
+tg tag root $path
+let output = tg tree root --kind=package
+snapshot $output '
+	root: dir_019hj0yzc2k2aheg8714gcwatt3f0v9adse1gbe4fczkmhdebgdhkg
+	├╴bar: dir_01kabb91xy8q9mhn2w11n6vqzvfveqsxm2e89gxhk9n51f84rrv040
+	│ └╴foo: dir_01t8nppn4cd2e6myjy4dk9t5z01gp2sz6rk8k48npyqdv55g38nn70
+	└╴foo: dir_01t8nppn4cd2e6myjy4dk9t5z01gp2sz6rk8k48npyqdv55g38nn70
+'
