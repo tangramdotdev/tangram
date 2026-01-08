@@ -1,7 +1,10 @@
 use {
 	crate::{
 		Server,
-		checkin::graph::{Contents, Directory, File, Graph, Node, Symlink, Variant},
+		checkin::{
+			graph::{Contents, Directory, File, Graph, Node, Symlink, Variant},
+			subpath::Subpath,
+		},
 	},
 	smallvec::SmallVec,
 	std::{
@@ -81,12 +84,6 @@ enum TagInnerOutput {
 pub struct Referrer {
 	pub index: usize,
 	pub pattern: Option<tg::tag::Pattern>,
-}
-
-#[derive(Clone)]
-pub struct Subpath {
-	pub node: usize,
-	pub reference: tg::Reference,
 }
 
 impl Server {
@@ -173,39 +170,11 @@ impl Server {
 				.await?;
 		}
 
-		// Resolve paths.
-		let old_graph = checkpoint.graph.clone(); // Clone of the graph before fixups.
-		for subpath in checkpoint.subpaths {
-			let path = subpath.reference.options().path.as_ref().unwrap();
-			let node = &mut checkpoint.graph.nodes[&subpath.node];
-			let file = node
-				.variant
-				.try_unwrap_file_mut()
-				.map_err(|_| tg::error!("expected a file"))?;
-			let Some(dependency) = file
-				.dependencies
-				.get_mut(&subpath.reference)
-				.ok_or_else(|| tg::error!("expected a dependency"))?
-			else {
-				continue;
-			};
-			let Some(item) = dependency.item.take() else {
-				continue;
-			};
-			let fixed = match item {
-				tg::graph::data::Edge::Object(object) => {
-					self.checkin_solve_resolve_path_with_object(object, &path)
-						.await?
-				},
-				tg::graph::data::Edge::Pointer(pointer) => {
-					self.checkin_solve_resolve_path_with_index(pointer.index, &path, &old_graph)
-						.await?
-				},
-			};
-			// Should this be allowed?
-			let resolved = fixed.ok_or_else(|| tg::error!("expected an item at the path"))?;
-			dependency.item.replace(resolved);
-		}
+		// Resolve subpaths.
+		let subpaths = checkpoint.subpaths.into_iter().collect::<Vec<_>>();
+		self.checkin_resolve_subpaths(&subpaths, &mut checkpoint.graph)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to resolve subpaths"))?;
 
 		// Mark all new nodes as solved.
 		for index in next..checkpoint.graph.next {
@@ -287,7 +256,7 @@ impl Server {
 		// Add this edge to the subpaths if necessary.
 		if reference.options().path.is_some() {
 			let subpath = Subpath {
-				node: item.index,
+				index: *item.referent.item(),
 				reference: reference.clone(),
 			};
 			checkpoint.subpaths.push_back(subpath);
@@ -1176,87 +1145,6 @@ impl Server {
 			}
 			reference.to_string_lossy().into_owned()
 		}
-	}
-
-	async fn checkin_solve_resolve_path_with_index(
-		&self,
-		mut index: usize,
-		path: &Path,
-		graph: &Graph,
-	) -> tg::Result<Option<tg::graph::data::Edge<tg::object::Id>>> {
-		let mut stack = vec![];
-		let mut components = path.components().peekable();
-		while let Some(component) = components.next() {
-			match component {
-				std::path::Component::CurDir => (),
-				std::path::Component::ParentDir => {
-					let Some(next) = stack.pop() else {
-						return Ok(None);
-					};
-					index = next;
-				},
-				std::path::Component::Normal(component) => {
-					let name = component
-						.to_str()
-						.ok_or_else(|| tg::error!(path = %path.display(), "invalid path"))?;
-					let directory = graph.nodes[&index]
-						.variant
-						.try_unwrap_directory_ref()
-						.map_err(|_| tg::error!("expected a directory"))?;
-					let Some(edge) = directory.entries.get(name) else {
-						return Ok(None);
-					};
-					match edge {
-						tg::graph::data::Edge::Object(object) => {
-							if components.peek().is_none() {
-								return Ok(Some(tg::graph::data::Edge::Object(
-									object.clone().into(),
-								)));
-							}
-							let directory = object.clone().into();
-							let path = components.collect::<PathBuf>();
-							return self
-								.checkin_solve_resolve_path_with_object(directory, &path)
-								.await;
-						},
-						tg::graph::data::Edge::Pointer(pointer) if pointer.graph.is_none() => {
-							stack.push(index);
-							index = pointer.index;
-						},
-						tg::graph::data::Edge::Pointer(pointer) if pointer.graph.is_none() => {
-							stack.push(index);
-							index = pointer.index;
-						},
-					}
-				},
-				_ => return Err(tg::error!(path = %path.display(), "invalid path")),
-			}
-		}
-		let kind = graph.nodes[&index].variant.kind();
-		Ok(Some(tg::graph::data::Edge::Pointer(
-			tg::graph::data::Pointer {
-				graph: None,
-				index,
-				kind,
-			},
-		)))
-	}
-
-	async fn checkin_solve_resolve_path_with_object(
-		&self,
-		object: tg::object::Id,
-		path: &Path,
-	) -> tg::Result<Option<tg::graph::data::Edge<tg::object::Id>>> {
-		let directory = object
-			.try_unwrap_directory()
-			.map_err(|_| tg::error!("expected a directory"))?;
-		let directory = tg::Directory::with_id(directory.clone());
-		let child = directory
-			.try_get(self, &path)
-			.await
-			.map_err(|source| tg::error!(!source, path = %path.display(), "failed to resolve path"))?;
-		let edge = child.map(|artifact| tg::graph::data::Edge::Object(artifact.id().into()));
-		return Ok(edge);
 	}
 }
 
