@@ -1,0 +1,29 @@
+{
+  "kind": "directory",
+  "entries": {
+    "a.txt": {
+      "kind": "file",
+      "contents": "File A"
+    },
+    "b.txt": {
+      "kind": "file",
+      "contents": "File B"
+    },
+    "c.txt": {
+      "kind": "file",
+      "contents": "File C"
+    },
+    "d.txt": {
+      "kind": "file",
+      "contents": "File D"
+    },
+    "e.txt": {
+      "kind": "file",
+      "contents": "File E"
+    },
+    "f.txt": {
+      "kind": "file",
+      "contents": "File F"
+    }
+  }
+}
