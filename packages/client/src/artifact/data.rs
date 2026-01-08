@@ -31,11 +31,18 @@ impl Artifact {
 		}
 	}
 
-	pub fn deserialize<'a>(kind: Kind, bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
+	pub fn deserialize<'a>(
+		kind: tg::artifact::Kind,
+		bytes: impl Into<tg::bytes::Cow<'a>>,
+	) -> tg::Result<Self> {
 		match kind {
-			Kind::Directory => Ok(Self::Directory(tg::directory::Data::deserialize(bytes)?)),
-			Kind::File => Ok(Self::File(tg::file::Data::deserialize(bytes)?)),
-			Kind::Symlink => Ok(Self::Symlink(tg::symlink::Data::deserialize(bytes)?)),
+			tg::artifact::Kind::Directory => {
+				Ok(Self::Directory(tg::directory::Data::deserialize(bytes)?))
+			},
+			tg::artifact::Kind::File => Ok(Self::File(tg::file::Data::deserialize(bytes)?)),
+			tg::artifact::Kind::Symlink => {
+				Ok(Self::Symlink(tg::symlink::Data::deserialize(bytes)?))
+			},
 		}
 	}
 

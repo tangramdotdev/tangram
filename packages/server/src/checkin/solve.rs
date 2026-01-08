@@ -3,6 +3,7 @@ use {
 		Server,
 		checkin::graph::{Contents, Directory, File, Graph, Node, Symlink, Variant},
 	},
+	dashmap::DashMap,
 	smallvec::SmallVec,
 	std::{
 		fmt::Write as _,
@@ -12,24 +13,62 @@ use {
 	tangram_client::prelude::*,
 };
 
+const PREFETCH_CONCURRENCY: usize = 16;
+
 struct State<'a> {
 	arg: &'a tg::checkin::Arg,
 	checkpoints: Vec<Checkpoint>,
+	prefetch: Prefetch,
 	root: PathBuf,
+}
+
+type Objects = Arc<DashMap<tg::object::Id, tg::object::get::Output, tg::id::BuildHasher>>;
+
+type ObjectTasks = tangram_futures::task::Map<
+	tg::object::Id,
+	tg::Result<tg::object::get::Output>,
+	(),
+	tg::id::BuildHasher,
+>;
+
+type Tags = Arc<DashMap<tg::tag::Pattern, tg::tag::list::Output, fnv::FnvBuildHasher>>;
+
+type TagTasks = tangram_futures::task::Map<
+	tg::tag::Pattern,
+	tg::Result<tg::tag::list::Output>,
+	(),
+	fnv::FnvBuildHasher,
+>;
+
+#[derive(Clone)]
+struct Prefetch {
+	object_tasks: ObjectTasks,
+	objects: Objects,
+	semaphore: Arc<tokio::sync::Semaphore>,
+	tag_tasks: TagTasks,
+	tags: Tags,
 }
 
 #[derive(Clone)]
 struct Checkpoint {
 	candidates: Option<im::Vector<Candidate>>,
 	graph: Graph,
-	graphs: im::HashMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>,
-	graph_nodes: im::HashMap<(tg::graph::Id, usize), usize, fnv::FnvBuildHasher>,
+	graphs: Graphs,
+	graph_nodes: GraphNodes,
 	listed: bool,
 	queue: im::Vector<Item>,
 	lock: Option<Arc<tg::graph::Data>>,
 	solutions: Solutions,
 	visited: im::HashSet<Item, fnv::FnvBuildHasher>,
 }
+
+type Graphs = im::HashMap<
+	tg::graph::Id,
+	(tg::graph::Data, Option<tg::object::Metadata>),
+	tg::id::BuildHasher,
+>;
+
+type GraphNodes = im::HashMap<(tg::graph::Id, usize), usize, fnv::FnvBuildHasher>;
 
 #[derive(Clone, Debug)]
 struct Candidate {
@@ -138,6 +177,13 @@ impl Server {
 		let mut state = State {
 			arg,
 			checkpoints: Vec::new(),
+			prefetch: Prefetch {
+				object_tasks: tangram_futures::task::Map::default(),
+				objects: Arc::new(DashMap::default()),
+				semaphore: Arc::new(tokio::sync::Semaphore::new(PREFETCH_CONCURRENCY)),
+				tag_tasks: tangram_futures::task::Map::default(),
+				tags: Arc::new(DashMap::default()),
+			},
 			root: root.to_owned(),
 		};
 
@@ -194,6 +240,7 @@ impl Server {
 					if let Some(graph_id) = &pointer.graph {
 						let index = self
 							.checkin_solve_add_graph_node(
+								state,
 								checkpoint,
 								&item,
 								graph_id,
@@ -208,7 +255,10 @@ impl Server {
 				},
 				tg::graph::data::Edge::Object(id) => {
 					let index = if let Ok(id) = tg::artifact::Id::try_from(id) {
-						Some(self.checkin_solve_add_node(checkpoint, &item, &id).await?)
+						Some(
+							self.checkin_solve_add_node(state, checkpoint, &item, &id)
+								.await?,
+						)
 					} else {
 						None
 					};
@@ -459,7 +509,7 @@ impl Server {
 		// If there are no candidates left and tags have not been listed yet, then list them.
 		if checkpoint.candidates.as_ref().unwrap().is_empty() && !checkpoint.listed {
 			let candidates = self
-				.checkin_solve_get_tag_candidates(pattern)
+				.checkin_solve_get_tag_candidates(state, pattern)
 				.await
 				.map_err(|error| tg::error!(!error, %pattern, "failed to list tags"))?;
 			checkpoint.candidates.replace(candidates);
@@ -492,7 +542,8 @@ impl Server {
 				.clone()
 				.try_into()
 				.map_err(|_| tg::error!("expected an artifact"))?;
-			self.checkin_solve_add_node(checkpoint, item, &id).await?
+			self.checkin_solve_add_node(state, checkpoint, item, &id)
+				.await?
 		};
 
 		// Create the referent.
@@ -566,19 +617,12 @@ impl Server {
 
 	async fn checkin_solve_get_tag_candidates(
 		&self,
+		state: &State<'_>,
 		pattern: &tg::tag::Pattern,
 	) -> tg::Result<im::Vector<Candidate>> {
 		let output = self
-			.list_tags(tg::tag::list::Arg {
-				length: None,
-				local: None,
-				pattern: pattern.clone(),
-				recursive: false,
-				remotes: None,
-				reverse: false,
-			})
-			.await
-			.map_err(|source| tg::error!(!source, %pattern, "failed to list tags"))?;
+			.checkin_solve_list_tags(&state.prefetch, pattern)
+			.await?;
 
 		let candidates = output
 			.data
@@ -597,22 +641,17 @@ impl Server {
 
 	async fn checkin_solve_add_node(
 		&self,
+		state: &State<'_>,
 		checkpoint: &mut Checkpoint,
 		item: &Item,
 		id: &tg::artifact::Id,
 	) -> tg::Result<usize> {
-		// Load the object and deserialize it.
-		let arg = tg::object::get::Arg {
-			metadata: true,
-			..Default::default()
-		};
+		// Get the object.
 		let output = self
-			.get_object(&id.clone().into(), arg)
-			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
-		let data = tg::artifact::Data::deserialize(id.kind(), output.bytes)
+			.checkin_solve_get_object(&state.prefetch, &id.clone().into())
+			.await?;
+		let data = tg::artifact::Data::deserialize(id.kind(), output.bytes.clone())
 			.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
-		let metadata = output.metadata;
 
 		// Create the checkin graph node.
 		let variant = match data {
@@ -623,7 +662,7 @@ impl Server {
 					return Err(tg::error!("invalid artifact"));
 				};
 				return self
-					.checkin_solve_add_graph_node(checkpoint, item, &graph, pointer.index)
+					.checkin_solve_add_graph_node(state, checkpoint, item, &graph, pointer.index)
 					.await;
 			},
 			tg::artifact::Data::Directory(tg::directory::Data::Node(directory)) => {
@@ -688,7 +727,8 @@ impl Server {
 			path: None,
 			path_metadata: None,
 			referrers: SmallVec::new(),
-			solvable: metadata
+			solvable: output
+				.metadata
 				.as_ref()
 				.and_then(|metadata| metadata.subtree.solvable)
 				.unwrap_or(true),
@@ -707,6 +747,7 @@ impl Server {
 
 	async fn checkin_solve_add_graph_node(
 		&self,
+		state: &State<'_>,
 		checkpoint: &mut Checkpoint,
 		item: &Item,
 		graph_id: &tg::graph::Id,
@@ -719,15 +760,17 @@ impl Server {
 		}
 
 		// Load the graph data from the cache or fetch it.
-		let graph_data = if let Some(cached) = checkpoint.graphs.get(graph_id) {
+		let (graph_data, graph_metadata) = if let Some(cached) = checkpoint.graphs.get(graph_id) {
 			cached
 		} else {
-			let graph = tg::Graph::with_id(graph_id.clone());
-			let data = graph
-				.data(self)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get graph data"))?;
-			checkpoint.graphs.insert(graph_id.clone(), data);
+			let output = self
+				.checkin_solve_get_object(&state.prefetch, &graph_id.clone().into())
+				.await?;
+			let data = tg::graph::Data::deserialize(output.bytes)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
+			checkpoint
+				.graphs
+				.insert(graph_id.clone(), (data, output.metadata));
 			checkpoint.graphs.get(graph_id).unwrap()
 		};
 
@@ -736,14 +779,6 @@ impl Server {
 			.nodes
 			.get(node_index)
 			.ok_or_else(|| tg::error!("graph node index out of bounds"))?;
-
-		// Get the graph's metadata.
-		let metadata = self
-			.try_get_object_metadata(
-				&graph_id.clone().into(),
-				tg::object::metadata::Arg::default(),
-			)
-			.await?;
 
 		// Create the checkin graph node.
 		let variant = match graph_node {
@@ -857,7 +892,7 @@ impl Server {
 			path: None,
 			path_metadata: None,
 			referrers: SmallVec::new(),
-			solvable: metadata
+			solvable: graph_metadata
 				.as_ref()
 				.and_then(|metadata| metadata.subtree.solvable)
 				.unwrap_or(true),
@@ -1127,6 +1162,212 @@ impl Server {
 			}
 			reference.to_string_lossy().into_owned()
 		}
+	}
+
+	async fn checkin_solve_get_object(
+		&self,
+		prefetch: &Prefetch,
+		id: &tg::object::Id,
+	) -> tg::Result<tg::object::get::Output> {
+		if let Some(output) = prefetch.objects.get(id).map(|value| value.clone()) {
+			return Ok(output);
+		}
+		let task = self.checkin_solve_get_or_spawn_object_task(prefetch, id);
+		let output = task
+			.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "the object task panicked"))??;
+		Ok(output)
+	}
+
+	fn checkin_solve_get_or_spawn_object_task(
+		&self,
+		prefetch: &Prefetch,
+		id: &tg::object::Id,
+	) -> tangram_futures::task::Shared<tg::Result<tg::object::get::Output>, ()> {
+		prefetch.object_tasks.get_or_spawn(id.clone(), {
+			let server = self.clone();
+			let id = id.clone();
+			let prefetch = prefetch.clone();
+			move |_| async move {
+				// Acquire a permit to limit concurrent requests.
+				let _permit = prefetch.semaphore.acquire().await;
+
+				// Get the object.
+				let arg = tg::object::get::Arg {
+					metadata: true,
+					..Default::default()
+				};
+				let output = server
+					.get_object(&id, arg)
+					.await
+					.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
+				let data = tg::object::Data::deserialize(id.kind(), output.bytes.clone())
+					.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
+
+				// Spawn tasks to prefetch the children.
+				match &data {
+					tg::object::Data::Directory(tg::directory::Data::Pointer(pointer))
+					| tg::object::Data::File(tg::file::Data::Pointer(pointer))
+					| tg::object::Data::Symlink(tg::symlink::Data::Pointer(pointer)) => {
+						if let Some(graph_id) = &pointer.graph {
+							server.checkin_solve_get_or_spawn_object_task(
+								&prefetch,
+								&graph_id.clone().into(),
+							);
+						}
+					},
+
+					tg::object::Data::Directory(tg::directory::Data::Node(directory)) => {
+						let node = tg::graph::data::Node::Directory(directory.clone());
+						server.checkin_solve_prefetch_from_graph_node(&prefetch, &node);
+					},
+					tg::object::Data::File(tg::file::Data::Node(file)) => {
+						let node = tg::graph::data::Node::File(file.clone());
+						server.checkin_solve_prefetch_from_graph_node(&prefetch, &node);
+					},
+					tg::object::Data::Symlink(tg::symlink::Data::Node(symlink)) => {
+						let node = tg::graph::data::Node::Symlink(symlink.clone());
+						server.checkin_solve_prefetch_from_graph_node(&prefetch, &node);
+					},
+
+					tg::object::Data::Graph(graph) => {
+						for node in &graph.nodes {
+							server.checkin_solve_prefetch_from_graph_node(&prefetch, node);
+						}
+					},
+
+					_ => {},
+				}
+
+				prefetch.objects.insert(id, output.clone());
+
+				Ok(output)
+			}
+		})
+	}
+
+	fn checkin_solve_prefetch_from_graph_node(
+		&self,
+		prefetch: &Prefetch,
+		node: &tg::graph::data::Node,
+	) {
+		match node {
+			tg::graph::data::Node::Directory(directory) => {
+				for edge in directory.entries.values() {
+					self.checkin_solve_prefetch_from_artifact_edge(prefetch, edge);
+				}
+			},
+			tg::graph::data::Node::File(file) => {
+				for reference in file.dependencies.keys() {
+					if let tg::reference::Item::Tag(pattern) = reference.item() {
+						self.checkin_solve_get_or_spawn_tag_task(prefetch, pattern);
+					}
+				}
+				for dependency in file.dependencies.values() {
+					if let Some(dependency) = dependency
+						&& let Some(edge) = &dependency.0.item
+					{
+						self.checkin_solve_prefetch_from_object_edge(prefetch, edge);
+					}
+				}
+			},
+			tg::graph::data::Node::Symlink(symlink) => {
+				if let Some(edge) = &symlink.artifact {
+					self.checkin_solve_prefetch_from_artifact_edge(prefetch, edge);
+				}
+			},
+		}
+	}
+
+	fn checkin_solve_prefetch_from_artifact_edge(
+		&self,
+		prefetch: &Prefetch,
+		edge: &tg::graph::data::Edge<tg::artifact::Id>,
+	) {
+		match edge {
+			tg::graph::data::Edge::Object(id) => {
+				self.checkin_solve_get_or_spawn_object_task(prefetch, &id.clone().into());
+			},
+			tg::graph::data::Edge::Pointer(pointer) => {
+				if let Some(graph_id) = &pointer.graph {
+					self.checkin_solve_get_or_spawn_object_task(prefetch, &graph_id.clone().into());
+				}
+			},
+		}
+	}
+
+	fn checkin_solve_prefetch_from_object_edge(
+		&self,
+		prefetch: &Prefetch,
+		edge: &tg::graph::data::Edge<tg::object::Id>,
+	) {
+		match edge {
+			tg::graph::data::Edge::Object(id) => {
+				self.checkin_solve_get_or_spawn_object_task(prefetch, id);
+			},
+			tg::graph::data::Edge::Pointer(pointer) => {
+				if let Some(graph_id) = &pointer.graph {
+					self.checkin_solve_get_or_spawn_object_task(prefetch, &graph_id.clone().into());
+				}
+			},
+		}
+	}
+
+	async fn checkin_solve_list_tags(
+		&self,
+		prefetch: &Prefetch,
+		pattern: &tg::tag::Pattern,
+	) -> tg::Result<tg::tag::list::Output> {
+		if let Some(output) = prefetch.tags.get(pattern).map(|value| value.clone()) {
+			return Ok(output);
+		}
+		let task = self.checkin_solve_get_or_spawn_tag_task(prefetch, pattern);
+		let output = task
+			.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "the tag task panicked"))??;
+		Ok(output)
+	}
+
+	fn checkin_solve_get_or_spawn_tag_task(
+		&self,
+		prefetch: &Prefetch,
+		pattern: &tg::tag::Pattern,
+	) -> tangram_futures::task::Shared<tg::Result<tg::tag::list::Output>, ()> {
+		prefetch.tag_tasks.get_or_spawn(pattern.clone(), {
+			let server = self.clone();
+			let pattern = pattern.clone();
+			let prefetch = prefetch.clone();
+			move |_| async move {
+				// Acquire a permit to limit concurrent requests.
+				let _permit = prefetch.semaphore.acquire().await;
+
+				// List tags.
+				let output = server
+					.list_tags(tg::tag::list::Arg {
+						length: None,
+						local: None,
+						pattern: pattern.clone(),
+						recursive: false,
+						remotes: None,
+						reverse: false,
+					})
+					.await
+					.map_err(|source| tg::error!(!source, %pattern, "failed to list tags"))?;
+
+				// Prefetch the first candidate's object.
+				if let Some(output) = output.data.last()
+					&& let Some(id) = output.item.as_ref().and_then(|item| item.as_ref().left())
+				{
+					server.checkin_solve_get_or_spawn_object_task(&prefetch, id);
+				}
+
+				prefetch.tags.insert(pattern, output.clone());
+
+				Ok(output)
+			}
+		})
 	}
 }
 
