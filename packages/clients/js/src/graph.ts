@@ -52,7 +52,7 @@ export class Graph {
 						}),
 					);
 					return {
-						kind: "directory" as const,
+						kind: "leaf" as const,
 						entries,
 					};
 				} else if (node.kind === "file") {
@@ -274,7 +274,8 @@ export class Graph {
 		let node = nodes[index];
 		tg.assert(node !== undefined, "invalid graph index");
 		switch (node.kind) {
-			case "directory": {
+			case "leaf":
+			case "branch": {
 				return tg.Directory.withObject({
 					graph: this,
 					index,
@@ -386,13 +387,29 @@ export namespace Graph {
 		| tg.Graph.DirectoryNode
 		| tg.Graph.FileNode
 		| tg.Graph.SymlinkNode;
-	export type DirectoryNode = { kind: "directory" } & tg.Graph.Directory;
+	export type DirectoryNode =
+		| tg.Graph.DirectoryLeafNode
+		| tg.Graph.DirectoryBranchNode;
+	export type DirectoryLeafNode = { kind: "leaf" } & Omit<
+		tg.Graph.DirectoryLeaf,
+		"kind"
+	>;
+	export type DirectoryBranchNode = { kind: "branch" } & Omit<
+		tg.Graph.DirectoryBranch,
+		"kind"
+	>;
 	export type FileNode = { kind: "file" } & tg.Graph.File;
 	export type SymlinkNode = { kind: "symlink" } & tg.Graph.Symlink;
 
 	export namespace Node {
+		export let isDirectory = (
+			node: tg.Graph.Node,
+		): node is tg.Graph.DirectoryNode => {
+			return node.kind === "leaf" || node.kind === "branch";
+		};
+
 		export let toData = (object: tg.Graph.Node): tg.Graph.Data.Node => {
-			if (object.kind === "directory") {
+			if (object.kind === "leaf" || object.kind === "branch") {
 				return {
 					kind: "directory",
 					...tg.Graph.Directory.toData(object),
@@ -414,10 +431,7 @@ export namespace Graph {
 
 		export let fromData = (data: tg.Graph.Data.Node): tg.Graph.Node => {
 			if (data.kind === "directory") {
-				return {
-					kind: "directory",
-					...tg.Graph.Directory.fromData(data),
-				};
+				return tg.Graph.Directory.fromData(data);
 			} else if (data.kind === "file") {
 				return {
 					kind: "file",
@@ -435,7 +449,8 @@ export namespace Graph {
 
 		export let children = (node: Node): Array<tg.Object> => {
 			switch (node.kind) {
-				case "directory": {
+				case "leaf":
+				case "branch": {
 					return tg.Graph.Directory.children(node);
 				}
 				case "file": {
@@ -448,43 +463,95 @@ export namespace Graph {
 		};
 	}
 
-	export type Directory = {
+	export type Directory = tg.Graph.DirectoryLeaf | tg.Graph.DirectoryBranch;
+
+	export type DirectoryLeaf = {
+		kind: "leaf";
 		entries: { [name: string]: tg.Graph.Edge<tg.Artifact> };
+	};
+
+	export type DirectoryBranch = {
+		kind: "branch";
+		children: Array<tg.Graph.DirectoryChild>;
+	};
+
+	export type DirectoryChild = {
+		directory: tg.Graph.Edge<tg.Directory>;
+		count: number;
+		last: string;
 	};
 
 	export namespace Directory {
 		export let toData = (
 			object: tg.Graph.Directory,
 		): tg.Graph.Data.Directory => {
-			let data: tg.Graph.Data.Directory = {};
-			if (globalThis.Object.entries(object.entries).length > 0) {
-				data.entries = globalThis.Object.fromEntries(
-					globalThis.Object.entries(object.entries).map(([name, artifact]) => [
-						name,
-						tg.Graph.Edge.toData(artifact, (artifact) => artifact.id),
-					]),
-				);
+			if (object.kind === "leaf") {
+				let data: tg.Graph.Data.DirectoryLeaf = {};
+				if (globalThis.Object.entries(object.entries).length > 0) {
+					data.entries = globalThis.Object.fromEntries(
+						globalThis.Object.entries(object.entries).map(
+							([name, artifact]) => [
+								name,
+								tg.Graph.Edge.toData(artifact, (artifact) => artifact.id),
+							],
+						),
+					);
+				}
+				return data;
+			} else {
+				return {
+					children: object.children.map((child) => ({
+						directory: tg.Graph.Edge.toData(child.directory, (dir) => dir.id),
+						count: child.count,
+						last: child.last,
+					})),
+				};
 			}
-			return data;
 		};
 
 		export let fromData = (
 			data: tg.Graph.Data.Directory,
 		): tg.Graph.Directory => {
-			return {
-				entries: globalThis.Object.fromEntries(
-					globalThis.Object.entries(data.entries ?? {}).map(([name, edge]) => [
-						name,
-						tg.Graph.Edge.fromData(edge, tg.Artifact.withId),
-					]),
-				),
-			};
+			// Distinguish Leaf from Branch by checking for children field.
+			if ("children" in data && data.children !== undefined) {
+				let branch = data as tg.Graph.Data.DirectoryBranch;
+				return {
+					kind: "branch",
+					children: branch.children.map((child) => ({
+						directory: tg.Graph.Edge.fromData(
+							child.directory,
+							tg.Directory.withId,
+						),
+						count: child.count,
+						last: child.last,
+					})),
+				};
+			} else {
+				let leaf = data as tg.Graph.Data.DirectoryLeaf;
+				return {
+					kind: "leaf",
+					entries: globalThis.Object.fromEntries(
+						globalThis.Object.entries(leaf.entries ?? {}).map(
+							([name, edge]) => [
+								name,
+								tg.Graph.Edge.fromData(edge, tg.Artifact.withId),
+							],
+						),
+					),
+				};
+			}
 		};
 
 		export let children = (object: tg.Graph.Directory): Array<tg.Object> => {
-			return globalThis.Object.entries(object.entries).flatMap(([_, edge]) =>
-				tg.Graph.Edge.children(edge),
-			);
+			if (object.kind === "leaf") {
+				return globalThis.Object.entries(object.entries).flatMap(([_, edge]) =>
+					tg.Graph.Edge.children(edge),
+				);
+			} else {
+				return object.children.flatMap((child) =>
+					tg.Graph.Edge.children(child.directory),
+				);
+			}
 		};
 	}
 
@@ -901,8 +968,22 @@ export namespace Graph {
 		export type FileNode = { kind: "file" } & tg.Graph.Data.File;
 		export type SymlinkNode = { kind: "symlink" } & tg.Graph.Data.Symlink;
 
-		export type Directory = {
+		export type Directory =
+			| tg.Graph.Data.DirectoryLeaf
+			| tg.Graph.Data.DirectoryBranch;
+
+		export type DirectoryLeaf = {
 			entries?: { [name: string]: tg.Graph.Data.Edge<tg.Artifact.Id> };
+		};
+
+		export type DirectoryBranch = {
+			children: Array<tg.Graph.Data.DirectoryChild>;
+		};
+
+		export type DirectoryChild = {
+			directory: tg.Graph.Data.Edge<tg.Directory.Id>;
+			count: number;
+			last: string;
 		};
 
 		export type File = {

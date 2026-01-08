@@ -735,24 +735,31 @@ where
 			]
 			.into_iter()
 			.collect(),
-			tg::directory::Object::Node(node) => {
-				let entries = node
-					.entries
-					.clone()
-					.into_iter()
-					.map(async |(name, artifact)| {
-						let artifact = match artifact {
-							tg::graph::Edge::Pointer(pointer) => pointer.get(handle).await?,
-							tg::graph::Edge::Object(artifact) => artifact,
-						};
-						Ok::<_, tg::Error>((name, artifact.into()))
-					})
-					.collect::<FuturesUnordered<_>>()
-					.try_collect()
-					.await?;
-				[("entries".to_owned(), tg::Value::Map(entries))]
-					.into_iter()
-					.collect()
+			tg::directory::Object::Node(node) => match node {
+				tg::graph::Directory::Leaf(leaf) => {
+					let entries = leaf
+						.entries
+						.clone()
+						.into_iter()
+						.map(async |(name, artifact)| {
+							let artifact = match artifact {
+								tg::graph::Edge::Pointer(pointer) => pointer.get(handle).await?,
+								tg::graph::Edge::Object(artifact) => artifact,
+							};
+							Ok::<_, tg::Error>((name, artifact.into()))
+						})
+						.collect::<FuturesUnordered<_>>()
+						.try_collect()
+						.await?;
+					[("entries".to_owned(), tg::Value::Map(entries))]
+						.into_iter()
+						.collect()
+				},
+				tg::graph::Directory::Branch(_branch) => {
+					[("kind".to_owned(), tg::Value::String("branch".to_owned()))]
+						.into_iter()
+						.collect()
+				},
 			},
 		};
 		directory.unload();
@@ -893,26 +900,31 @@ where
 					tg::Value::String(node.kind().to_string()),
 				);
 				match node {
-					tg::graph::Node::Directory(directory) => {
-						let entries = directory
-							.entries
-							.into_iter()
-							.map(async |(name, edge)| {
-								let value = match edge {
-									tg::graph::Edge::Pointer(mut pointer) => {
-										if pointer.graph.is_none() {
-											pointer.graph.replace(graph.clone());
-										}
-										pointer.get(handle).await?.into()
-									},
-									tg::graph::Edge::Object(artifact) => artifact.into(),
-								};
-								Ok::<_, tg::Error>((name, tg::Value::Object(value)))
-							})
-							.collect::<FuturesUnordered<_>>()
-							.try_collect()
-							.await?;
-						map.insert("entries".into(), tg::Value::Map(entries));
+					tg::graph::Node::Directory(directory) => match directory {
+						tg::graph::Directory::Leaf(leaf) => {
+							let entries = leaf
+								.entries
+								.into_iter()
+								.map(async |(name, edge)| {
+									let value: tg::Object = match edge {
+										tg::graph::Edge::Pointer(mut pointer) => {
+											if pointer.graph.is_none() {
+												pointer.graph.replace(graph.clone());
+											}
+											pointer.get(handle).await?.into()
+										},
+										tg::graph::Edge::Object(artifact) => artifact.into(),
+									};
+									Ok::<_, tg::Error>((name, tg::Value::Object(value)))
+								})
+								.collect::<FuturesUnordered<_>>()
+								.try_collect()
+								.await?;
+							map.insert("entries".into(), tg::Value::Map(entries));
+						},
+						tg::graph::Directory::Branch(_branch) => {
+							map.insert("kind".into(), tg::Value::String("branch".to_owned()));
+						},
 					},
 					tg::graph::Node::File(file) => {
 						map.insert("contents".into(), tg::Value::Object(file.contents.into()));

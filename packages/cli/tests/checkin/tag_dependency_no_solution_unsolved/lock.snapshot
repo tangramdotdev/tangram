@@ -15,14 +15,14 @@
         "a/*": {
           "item": null,
           "options": {
-            "id": "dir_01r17tmc1yz32vc9mmedsej38h7t2yb3myzebbewwbn2qx510600mg",
+            "id": "dir_019kxxsypc6272tve6qm85a5gjvzhatrk0rxv02ancm7wr0hk9qvjg",
             "tag": "a/1.0.0"
           }
         },
         "b/*": {
           "item": null,
           "options": {
-            "id": "dir_01gwxxn7bp9pfxspzfks6xktq1n4f1r1pbpqcfm4nmkckr637fn7jg",
+            "id": "dir_01ps7xrvt0n9gx2x89crqwmz392aha90tyhengqn6fk7qz43kp5edg",
             "tag": "b/1.0.0"
           }
         }

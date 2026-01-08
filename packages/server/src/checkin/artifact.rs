@@ -5,9 +5,10 @@ use {
 			Graph, IndexCacheEntryMessages, IndexObjectMessages, StoreArgs,
 			graph::{Contents, Node, Petgraph, Variant},
 		},
+		config::CheckinDirectory,
 	},
 	num::ToPrimitive as _,
-	std::{collections::BTreeSet, path::Path},
+	std::{collections::BTreeMap, collections::BTreeSet, path::Path},
 	tangram_client::prelude::*,
 	tangram_messenger::prelude::*,
 	tangram_store::prelude::*,
@@ -24,6 +25,7 @@ impl Server {
 		cache_entry_messages: &mut IndexCacheEntryMessages,
 		root: &Path,
 		touched_at: i64,
+		directory_config: &CheckinDirectory,
 	) -> tg::Result<()> {
 		// Run Tarjan's algorithm and reverse the order of each strongly connected component.
 		let mut sccs = petgraph::algo::tarjan_scc(&Petgraph { graph, next });
@@ -49,6 +51,7 @@ impl Server {
 					object_messages,
 					scc[0],
 					touched_at,
+					directory_config,
 				)?;
 			} else {
 				Self::checkin_create_graph(graph, store_args, object_messages, scc, touched_at)?;
@@ -91,6 +94,7 @@ impl Server {
 		object_messages: &mut IndexObjectMessages,
 		index: usize,
 		touched_at: i64,
+		directory_config: &CheckinDirectory,
 	) -> tg::Result<()> {
 		// Get the node.
 		let node = graph.nodes.get(&index).unwrap();
@@ -98,7 +102,7 @@ impl Server {
 		// Create the object.
 		let data = match &node.variant {
 			Variant::Directory(directory) => {
-				let entries = directory
+				let entries: BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>> = directory
 					.entries
 					.iter()
 					.map(|(name, edge)| {
@@ -131,8 +135,16 @@ impl Server {
 						Ok::<_, tg::Error>((name, edge))
 					})
 					.collect::<tg::Result<_>>()?;
-				let data = tg::directory::data::Node { entries };
-				tg::directory::Data::Node(data).into()
+
+				// Build the directory structure, potentially as a tree for large directories.
+				let node = Self::build_directory_tree(
+					entries,
+					store_args,
+					object_messages,
+					touched_at,
+					directory_config,
+				)?;
+				tg::directory::Data::Node(node).into()
 			},
 
 			Variant::File(file) => {
@@ -360,7 +372,8 @@ impl Server {
 						Ok::<_, tg::Error>((name, edge))
 					})
 					.collect::<tg::Result<_>>()?;
-				let data = tg::graph::data::Directory { entries };
+				let leaf = tg::graph::data::DirectoryLeaf { entries };
+				let data = tg::graph::data::Directory::Leaf(leaf);
 				tg::graph::data::Node::Directory(data)
 			},
 			Variant::File(file) => {
@@ -802,5 +815,161 @@ impl Server {
 		let id = id.try_into().unwrap();
 
 		Ok(id)
+	}
+
+	/// Build a directory tree structure from entries.
+	/// If the number of entries exceeds `max_leaf_entries`, the directory is split into a tree.
+	fn build_directory_tree(
+		entries: BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>,
+		store_args: &mut StoreArgs,
+		object_messages: &mut IndexObjectMessages,
+		touched_at: i64,
+		config: &CheckinDirectory,
+	) -> tg::Result<tg::graph::data::Directory> {
+		// If the entries fit in a single leaf, return a leaf.
+		if entries.len() <= config.max_leaf_entries {
+			return Ok(tg::graph::data::Directory::Leaf(
+				tg::graph::data::DirectoryLeaf { entries },
+			));
+		}
+
+		// Split entries into chunks and create leaf children.
+		let entries_vec: Vec<_> = entries.into_iter().collect();
+		let mut children = Vec::new();
+
+		for chunk in entries_vec.chunks(config.max_leaf_entries) {
+			let chunk_entries: BTreeMap<_, _> = chunk.iter().cloned().collect();
+			let count = chunk_entries.len().to_u64().unwrap();
+			let last = chunk_entries.keys().last().unwrap().clone();
+
+			// Create the leaf directory.
+			let leaf = tg::graph::data::DirectoryLeaf {
+				entries: chunk_entries,
+			};
+			let leaf_data = tg::graph::data::Directory::Leaf(leaf);
+
+			// Store the leaf directory and get its ID.
+			let id =
+				Self::store_directory_node(&leaf_data, store_args, object_messages, touched_at)?;
+
+			children.push(tg::graph::data::DirectoryChild {
+				directory: tg::graph::data::Edge::Object(id),
+				count,
+				last,
+			});
+		}
+
+		// If too many children, create intermediate branches.
+		Self::build_branch_tree(children, store_args, object_messages, touched_at, config)
+	}
+
+	/// Recursively build branch nodes when there are too many children.
+	fn build_branch_tree(
+		children: Vec<tg::graph::data::DirectoryChild>,
+		store_args: &mut StoreArgs,
+		object_messages: &mut IndexObjectMessages,
+		touched_at: i64,
+		config: &CheckinDirectory,
+	) -> tg::Result<tg::graph::data::Directory> {
+		// If the children fit in a single branch, return a branch.
+		if children.len() <= config.max_branch_children {
+			return Ok(tg::graph::data::Directory::Branch(
+				tg::graph::data::DirectoryBranch { children },
+			));
+		}
+
+		// Split children into chunks and create branch children.
+		let mut branch_children = Vec::new();
+
+		for chunk in children.chunks(config.max_branch_children) {
+			let chunk_vec: Vec<_> = chunk.to_vec();
+			let count = chunk_vec.iter().map(|c| c.count).sum();
+			let last = chunk_vec.last().unwrap().last.clone();
+
+			// Create the branch.
+			let branch_data =
+				tg::graph::data::Directory::Branch(tg::graph::data::DirectoryBranch {
+					children: chunk_vec,
+				});
+
+			// Store the branch and get its ID.
+			let id =
+				Self::store_directory_node(&branch_data, store_args, object_messages, touched_at)?;
+
+			branch_children.push(tg::graph::data::DirectoryChild {
+				directory: tg::graph::data::Edge::Object(id),
+				count,
+				last,
+			});
+		}
+
+		// Recursively build if still too many children.
+		Self::build_branch_tree(
+			branch_children,
+			store_args,
+			object_messages,
+			touched_at,
+			config,
+		)
+	}
+
+	/// Store a directory node and return its ID.
+	fn store_directory_node(
+		directory: &tg::graph::data::Directory,
+		store_args: &mut StoreArgs,
+		object_messages: &mut IndexObjectMessages,
+		touched_at: i64,
+	) -> tg::Result<tg::directory::Id> {
+		// Create the directory data.
+		let data: tg::object::Data = tg::directory::Data::Node(directory.clone()).into();
+		let kind = data.kind();
+		let bytes = data
+			.serialize()
+			.map_err(|source| tg::error!(!source, "failed to serialize the directory"))?;
+		let id = tg::object::Id::new(kind, &bytes);
+
+		// Collect children IDs.
+		let mut children_ids = BTreeSet::new();
+		data.children(&mut children_ids);
+
+		// Compute metadata.
+		let metadata = tg::object::Metadata {
+			node: tg::object::metadata::Node {
+				size: bytes.len().to_u64().unwrap(),
+				solvable: false,
+				solved: true,
+			},
+			subtree: tg::object::metadata::Subtree {
+				count: Some(1),
+				depth: Some(1),
+				size: Some(bytes.len().to_u64().unwrap()),
+				solvable: Some(false),
+				solved: Some(true),
+			},
+		};
+
+		// Create the store arg.
+		let store_arg = crate::store::PutObjectArg {
+			bytes: Some(bytes),
+			cache_pointer: None,
+			id: id.clone(),
+			touched_at,
+		};
+
+		// Create the index message.
+		let index_message = crate::index::message::PutObject {
+			cache_entry: None,
+			children: children_ids,
+			id: id.clone(),
+			metadata,
+			stored: crate::object::stored::Output { subtree: true },
+			touched_at,
+		};
+
+		// Insert into maps.
+		store_args.insert(id.clone(), store_arg);
+		object_messages.insert(id.clone(), index_message);
+
+		Ok(id.try_into().unwrap())
 	}
 }
