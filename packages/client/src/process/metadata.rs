@@ -99,6 +99,34 @@ pub struct Subtree {
 	pub output: tg::object::metadata::Subtree,
 }
 
+impl Metadata {
+	pub fn merge(&mut self, other: &Self) {
+		self.node.merge(&other.node);
+		self.subtree.merge(&other.subtree);
+	}
+}
+
+impl Node {
+	pub fn merge(&mut self, other: &Self) {
+		self.command.merge(&other.command);
+		self.error.merge(&other.error);
+		self.log.merge(&other.log);
+		self.output.merge(&other.output);
+	}
+}
+
+impl Subtree {
+	pub fn merge(&mut self, other: &Self) {
+		if self.count.is_none() {
+			self.count = other.count;
+		}
+		self.command.merge(&other.command);
+		self.error.merge(&other.error);
+		self.log.merge(&other.log);
+		self.output.merge(&other.output);
+	}
+}
+
 impl tg::Client {
 	pub async fn try_get_process_metadata(
 		&self,

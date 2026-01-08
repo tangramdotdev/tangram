@@ -98,6 +98,32 @@ pub struct Subtree {
 	pub solved: Option<bool>,
 }
 
+impl Metadata {
+	pub fn merge(&mut self, other: &Self) {
+		self.subtree.merge(&other.subtree);
+	}
+}
+
+impl Subtree {
+	pub fn merge(&mut self, other: &Self) {
+		if self.count.is_none() {
+			self.count = other.count;
+		}
+		if self.depth.is_none() {
+			self.depth = other.depth;
+		}
+		if self.size.is_none() {
+			self.size = other.size;
+		}
+		if self.solvable.is_none() {
+			self.solvable = other.solvable;
+		}
+		if self.solved.is_none() {
+			self.solved = other.solved;
+		}
+	}
+}
+
 impl tg::Client {
 	pub async fn try_get_object_metadata(
 		&self,

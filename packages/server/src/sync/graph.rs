@@ -177,7 +177,10 @@ impl Graph {
 			node.local_stored = Some(stored);
 		}
 
-		if let Some(metadata) = metadata {
+		if let Some(mut metadata) = metadata {
+			if let Some(existing) = &node.metadata {
+				metadata.merge(existing);
+			}
 			node.metadata = Some(metadata);
 		}
 
@@ -343,7 +346,10 @@ impl Graph {
 			node.local_stored = Some(merged);
 		}
 
-		if let Some(metadata) = metadata {
+		if let Some(mut metadata) = metadata {
+			if let Some(existing) = &node.metadata {
+				metadata.merge(existing);
+			}
 			node.metadata = Some(metadata);
 		}
 
