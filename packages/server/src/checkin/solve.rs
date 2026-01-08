@@ -12,11 +12,10 @@ use {
 	tangram_client::prelude::*,
 };
 
-struct State {
+struct State<'a> {
+	arg: &'a tg::checkin::Arg,
 	checkpoints: Vec<Checkpoint>,
 	root: PathBuf,
-	unsolved_dependencies: bool,
-	updates: Vec<tg::tag::Pattern>,
 }
 
 #[derive(Clone)]
@@ -33,7 +32,7 @@ struct Checkpoint {
 }
 
 #[derive(Clone, Debug)]
-pub struct Candidate {
+struct Candidate {
 	index: Option<usize>,
 	object: tg::object::Id,
 	tag: tg::Tag,
@@ -137,10 +136,9 @@ impl Server {
 	) -> tg::Result<()> {
 		// Create the state
 		let mut state = State {
+			arg,
 			checkpoints: Vec::new(),
 			root: root.to_owned(),
-			unsolved_dependencies: arg.options.unsolved_dependencies,
-			updates: arg.updates.clone(),
 		};
 
 		// Create the first checkpoint.
@@ -180,7 +178,7 @@ impl Server {
 
 	async fn checkin_solve_item(
 		&self,
-		state: &mut State,
+		state: &mut State<'_>,
 		checkpoint: &mut Checkpoint,
 		item: Item,
 	) -> tg::Result<()> {
@@ -236,7 +234,7 @@ impl Server {
 			.clone();
 
 		let tg::reference::Item::Tag(pattern) = reference.item() else {
-			if state.unsolved_dependencies {
+			if state.arg.options.unsolved_dependencies {
 				return Ok(());
 			}
 			return Err(tg::error!(%reference, "expected reference to be a tag"));
@@ -306,7 +304,7 @@ impl Server {
 
 	async fn checkin_solve_item_with_tag(
 		&self,
-		state: &mut State,
+		state: &mut State<'_>,
 		checkpoint: &mut Checkpoint,
 		item: Item,
 		reference: tg::Reference,
@@ -394,7 +392,7 @@ impl Server {
 				checkpoint.solutions.add_referrer(&key, referrer);
 
 				// If unsolved dependencies is false, then error.
-				if !state.unsolved_dependencies {
+				if !state.arg.options.unsolved_dependencies {
 					let error = Self::checkin_solve_backtrack_error(state, checkpoint, &key);
 					return Err(error);
 				}
@@ -433,7 +431,7 @@ impl Server {
 
 	async fn checkin_solve_item_with_tag_inner(
 		&self,
-		state: &State,
+		state: &State<'_>,
 		checkpoint: &mut Checkpoint,
 		item: &Item,
 		key: &tg::tag::Pattern,
@@ -470,7 +468,7 @@ impl Server {
 
 		// Get the next candidate.
 		let Some(candidate) = checkpoint.candidates.as_mut().unwrap().pop_back() else {
-			if state.unsolved_dependencies {
+			if state.arg.options.unsolved_dependencies {
 				let solution = Solution {
 					referent: None,
 					referrers: vec![],
@@ -517,7 +515,7 @@ impl Server {
 	}
 
 	fn checkin_solve_get_lock_candidate(
-		state: &State,
+		state: &State<'_>,
 		checkpoint: &Checkpoint,
 		item: &Item,
 	) -> Option<Candidate> {
@@ -529,6 +527,7 @@ impl Server {
 			.lock_node?;
 		let candidate = Self::checkin_solve_get_lock_candidate_inner(checkpoint, item, lock_index)?;
 		if state
+			.arg
 			.updates
 			.iter()
 			.any(|pattern| pattern.matches(&candidate.tag))
@@ -999,7 +998,10 @@ impl Server {
 		}
 	}
 
-	fn checkin_solve_backtrack(state: &mut State, key: &tg::tag::Pattern) -> Option<Checkpoint> {
+	fn checkin_solve_backtrack(
+		state: &mut State<'_>,
+		key: &tg::tag::Pattern,
+	) -> Option<Checkpoint> {
 		let position = state
 			.checkpoints
 			.iter()
@@ -1040,7 +1042,7 @@ impl Server {
 		})
 	}
 
-	fn checkin_solve_get_referrer(state: &State, graph: &Graph, node: usize) -> String {
+	fn checkin_solve_get_referrer(state: &State<'_>, graph: &Graph, node: usize) -> String {
 		let mut tag = None;
 		let mut id = None;
 		let mut components = vec![];
