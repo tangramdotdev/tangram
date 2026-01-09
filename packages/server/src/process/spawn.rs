@@ -897,7 +897,7 @@ impl Server {
 						select pc.child as process, r.path || ' ' || pc.child
 						from reachable r
 						join process_children pc on r.process = pc.process
-						where instr(r.path, pc.child) = 0
+						where r.path not like '%' || pc.child || '%'
 					)
 					select
 						{p}1 || ' ' || path as cycle
