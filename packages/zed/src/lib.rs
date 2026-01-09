@@ -12,15 +12,14 @@ impl zed::Extension for Extension {
 		_language_server_id: &zed::LanguageServerId,
 		worktree: &zed::Worktree,
 	) -> Result<zed::Command> {
-		let tg = worktree
+		let path = worktree
 			.which("tangram")
 			.ok_or("failed to find the tangram binary")?;
-		let command = zed::Command {
-			command: tg,
+		Ok(zed::Command {
+			command: path,
 			args: vec!["lsp".to_owned()],
 			env: vec![],
-		};
-		Ok(command)
+		})
 	}
 }
 
