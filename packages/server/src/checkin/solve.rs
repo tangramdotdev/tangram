@@ -1191,7 +1191,7 @@ impl Server {
 			let prefetch = prefetch.clone();
 			move |_| async move {
 				// Acquire a permit to limit concurrent requests.
-				let _permit = prefetch.semaphore.acquire().await;
+				let permit = prefetch.semaphore.acquire().await;
 
 				// Get the object.
 				let arg = tg::object::get::Arg {
@@ -1205,39 +1205,49 @@ impl Server {
 				let data = tg::object::Data::deserialize(id.kind(), output.bytes.clone())
 					.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
 
-				// Spawn tasks to prefetch the children.
-				match &data {
-					tg::object::Data::Directory(tg::directory::Data::Pointer(pointer))
-					| tg::object::Data::File(tg::file::Data::Pointer(pointer))
-					| tg::object::Data::Symlink(tg::symlink::Data::Pointer(pointer)) => {
-						if let Some(graph_id) = &pointer.graph {
-							server.checkin_solve_get_or_spawn_object_task(
-								&prefetch,
-								&graph_id.clone().into(),
-							);
-						}
-					},
+				// Drop the permit.
+				drop(permit);
 
-					tg::object::Data::Directory(tg::directory::Data::Node(directory)) => {
-						let node = tg::graph::data::Node::Directory(directory.clone());
-						server.checkin_solve_prefetch_from_graph_node(&prefetch, &node);
-					},
-					tg::object::Data::File(tg::file::Data::Node(file)) => {
-						let node = tg::graph::data::Node::File(file.clone());
-						server.checkin_solve_prefetch_from_graph_node(&prefetch, &node);
-					},
-					tg::object::Data::Symlink(tg::symlink::Data::Node(symlink)) => {
-						let node = tg::graph::data::Node::Symlink(symlink.clone());
-						server.checkin_solve_prefetch_from_graph_node(&prefetch, &node);
-					},
+				// If the object is solvable, then spawn tasks to prefetch its descendant objects and tags.
+				let solvable = output
+					.metadata
+					.as_ref()
+					.and_then(|metadata| metadata.subtree.solvable)
+					.unwrap_or(true);
+				if solvable {
+					match &data {
+						tg::object::Data::Directory(tg::directory::Data::Pointer(pointer))
+						| tg::object::Data::File(tg::file::Data::Pointer(pointer))
+						| tg::object::Data::Symlink(tg::symlink::Data::Pointer(pointer)) => {
+							if let Some(graph_id) = &pointer.graph {
+								server.checkin_solve_get_or_spawn_object_task(
+									&prefetch,
+									&graph_id.clone().into(),
+								);
+							}
+						},
 
-					tg::object::Data::Graph(graph) => {
-						for node in &graph.nodes {
-							server.checkin_solve_prefetch_from_graph_node(&prefetch, node);
-						}
-					},
+						tg::object::Data::Directory(tg::directory::Data::Node(directory)) => {
+							let node = tg::graph::data::Node::Directory(directory.clone());
+							server.checkin_solve_prefetch_from_graph_node(&prefetch, &node);
+						},
+						tg::object::Data::File(tg::file::Data::Node(file)) => {
+							let node = tg::graph::data::Node::File(file.clone());
+							server.checkin_solve_prefetch_from_graph_node(&prefetch, &node);
+						},
+						tg::object::Data::Symlink(tg::symlink::Data::Node(symlink)) => {
+							let node = tg::graph::data::Node::Symlink(symlink.clone());
+							server.checkin_solve_prefetch_from_graph_node(&prefetch, &node);
+						},
 
-					_ => {},
+						tg::object::Data::Graph(graph) => {
+							for node in &graph.nodes {
+								server.checkin_solve_prefetch_from_graph_node(&prefetch, node);
+							}
+						},
+
+						_ => {},
+					}
 				}
 
 				prefetch.objects.insert(id, output.clone());
@@ -1341,7 +1351,7 @@ impl Server {
 			let prefetch = prefetch.clone();
 			move |_| async move {
 				// Acquire a permit to limit concurrent requests.
-				let _permit = prefetch.semaphore.acquire().await;
+				let permit = prefetch.semaphore.acquire().await;
 
 				// List tags.
 				let output = server
@@ -1355,6 +1365,9 @@ impl Server {
 					})
 					.await
 					.map_err(|source| tg::error!(!source, %pattern, "failed to list tags"))?;
+
+				// Drop the permit.
+				drop(permit);
 
 				// Prefetch the first candidate's object.
 				if let Some(output) = output.data.last()
