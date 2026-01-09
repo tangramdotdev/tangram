@@ -26,7 +26,7 @@ impl Cli {
 			.get_reference_with_arg(&args.reference, arg)
 			.await?
 			.try_map(|item| item.left().ok_or_else(|| tg::error!("expected an object")))?;
-		tg::object::visit(&handle, &mut visitor, &referent)
+		tg::object::visit(&handle, &mut visitor, &referent, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to walk objects"))?;
 		let output = visitor.entries.into_iter().collect::<Vec<_>>();

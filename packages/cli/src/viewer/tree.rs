@@ -1156,10 +1156,10 @@ where
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
 		let mut visitor = PackageVisitor {
-			root: package.item().id(),
 			dependencies: BTreeMap::new(),
+			package: package.clone(),
 		};
-		tg::object::visit(handle, &mut visitor, &package).await?;
+		tg::object::visit(handle, &mut visitor, &package, true).await?;
 		let dependencies = visitor
 			.dependencies
 			.into_iter()
@@ -2317,8 +2317,8 @@ impl std::fmt::Display for Display {
 }
 
 struct PackageVisitor {
-	root: tg::object::Id,
 	dependencies: BTreeMap<tg::Reference, Option<tg::file::Dependency>>,
+	package: tg::Referent<tg::Object>,
 }
 
 impl<H> tg::object::Visitor<H> for PackageVisitor
@@ -2333,8 +2333,10 @@ where
 		Ok(true)
 	}
 	async fn visit_file(&mut self, handle: &H, file: tg::Referent<&tg::File>) -> tg::Result<bool> {
-		dbg!(&file);
-		if tg::object::Id::from(file.item().id()) != self.root && file.path().is_none() {
+		if file.path().is_some()
+			&& ((file.tag().is_some() && file.tag() != self.package.tag())
+				|| (file.id().is_some() && file.id() != self.package.id()))
+		{
 			return Ok(false);
 		}
 		let dependencies = file.item().dependencies(handle).await?;
@@ -2350,6 +2352,6 @@ where
 		_handle: &H,
 		_symlink: tg::Referent<&tg::Symlink>,
 	) -> tg::Result<bool> {
-		Ok(true)
+		Ok(false)
 	}
 }
