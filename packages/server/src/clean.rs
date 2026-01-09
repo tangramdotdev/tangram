@@ -15,6 +15,8 @@ use {
 	tangram_store::prelude::*,
 };
 
+#[cfg(feature = "foundationdb")]
+mod fdb;
 #[cfg(feature = "postgres")]
 mod postgres;
 #[cfg(feature = "sqlite")]
@@ -176,6 +178,11 @@ impl Server {
 		let max_touched_at = now - ttl.as_secs().to_i64().unwrap();
 
 		let output = match &self.index {
+			#[cfg(feature = "foundationdb")]
+			crate::index::Index::Fdb(database) => {
+				self.cleaner_task_inner_fdb(database, max_touched_at, n)
+					.await?
+			},
 			#[cfg(feature = "postgres")]
 			crate::index::Index::Postgres(database) => {
 				self.cleaner_task_inner_postgres(database, max_touched_at, n)

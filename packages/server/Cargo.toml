@@ -14,7 +14,7 @@ version = { workspace = true }
 workspace = true
 
 [features]
-foundationdb = []
+foundationdb = ["dep:foundationdb", "dep:foundationdb-tuple"]
 js = ["dep:tangram_js"]
 lmdb = ["tangram_store/lmdb"]
 nats = ["dep:async-nats", "tangram_messenger/nats"]
@@ -39,6 +39,8 @@ derive_more = { workspace = true }
 fastcdc = { workspace = true }
 filetime = { workspace = true }
 fnv = { workspace = true }
+foundationdb = { workspace = true, optional = true }
+foundationdb-tuple = { workspace = true, optional = true }
 futures = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }

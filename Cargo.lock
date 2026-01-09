@@ -6453,6 +6453,8 @@ dependencies = [
  "fastcdc",
  "filetime",
  "fnv",
+ "foundationdb",
+ "foundationdb-tuple",
  "futures",
  "http",
  "http-body-util",

@@ -1,5 +1,7 @@
 use {crate::Server, tangram_client::prelude::*, tangram_util::serde::is_false};
 
+#[cfg(feature = "foundationdb")]
+mod fdb;
 #[cfg(feature = "postgres")]
 mod postgres;
 #[cfg(feature = "sqlite")]
@@ -28,6 +30,8 @@ impl Server {
 		id: &tg::object::Id,
 	) -> tg::Result<Option<Output>> {
 		match &self.index {
+			#[cfg(feature = "foundationdb")]
+			crate::index::Index::Fdb(database) => self.try_get_object_stored_fdb(database, id).await,
 			#[cfg(feature = "postgres")]
 			crate::index::Index::Postgres(database) => {
 				self.try_get_object_stored_postgres(database, id).await
@@ -43,6 +47,8 @@ impl Server {
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<Output>>> {
 		match &self.index {
+			#[cfg(feature = "foundationdb")]
+			crate::index::Index::Fdb(database) => self.try_get_object_stored_batch_fdb(database, ids).await,
 			#[cfg(feature = "postgres")]
 			crate::index::Index::Postgres(database) => {
 				self.try_get_object_stored_batch_postgres(database, ids)
@@ -60,6 +66,11 @@ impl Server {
 		id: &tg::object::Id,
 	) -> tg::Result<Option<(Output, tg::object::Metadata)>> {
 		match &self.index {
+			#[cfg(feature = "foundationdb")]
+			crate::index::Index::Fdb(database) => {
+				self.try_get_object_stored_and_metadata_fdb(database, id)
+					.await
+			},
 			#[cfg(feature = "postgres")]
 			crate::index::Index::Postgres(database) => {
 				self.try_get_object_stored_and_metadata_postgres(database, id)
@@ -78,6 +89,11 @@ impl Server {
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<(Output, tg::object::Metadata)>>> {
 		match &self.index {
+			#[cfg(feature = "foundationdb")]
+			crate::index::Index::Fdb(database) => {
+				self.try_get_object_stored_and_metadata_batch_fdb(database, ids)
+					.await
+			},
 			#[cfg(feature = "postgres")]
 			crate::index::Index::Postgres(database) => {
 				self.try_get_object_stored_and_metadata_batch_postgres(database, ids)
@@ -98,6 +114,11 @@ impl Server {
 		touched_at: i64,
 	) -> tg::Result<Option<(Output, tg::object::Metadata)>> {
 		match &self.index {
+			#[cfg(feature = "foundationdb")]
+			crate::index::Index::Fdb(database) => {
+				self.try_touch_object_and_get_stored_and_metadata_fdb(database, id, touched_at)
+					.await
+			},
 			#[cfg(feature = "postgres")]
 			crate::index::Index::Postgres(database) => {
 				self.try_touch_object_and_get_stored_and_metadata_postgres(database, id, touched_at)
@@ -117,6 +138,13 @@ impl Server {
 		touched_at: i64,
 	) -> tg::Result<Vec<Option<(Output, tg::object::Metadata)>>> {
 		match &self.index {
+			#[cfg(feature = "foundationdb")]
+			crate::index::Index::Fdb(database) => {
+				self.try_touch_object_and_get_stored_and_metadata_batch_fdb(
+					database, ids, touched_at,
+				)
+				.await
+			},
 			#[cfg(feature = "postgres")]
 			crate::index::Index::Postgres(database) => {
 				self.try_touch_object_and_get_stored_and_metadata_batch_postgres(

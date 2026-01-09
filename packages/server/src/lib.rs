@@ -1,3 +1,5 @@
+#[cfg(feature = "foundationdb")]
+use foundationdb as fdb;
 use {
 	self::{
 		context::Context, database::Database, index::Index, messenger::Messenger, store::Store,
@@ -338,6 +340,21 @@ impl Server {
 
 		// Create the index.
 		let index = match &config.index {
+			self::config::Index::Fdb(options) => {
+				#[cfg(not(feature = "foundationdb"))]
+				{
+					let _ = options;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with foundationdb support"
+					));
+				}
+				#[cfg(feature = "foundationdb")]
+				{
+					let database = fdb::Database::new(Some(options.cluster_file.to_str().unwrap()))
+						.map_err(|source| tg::error!(!source, "failed to create the index"))?;
+					Index::Fdb(Arc::new(database))
+				}
+			},
 			self::config::Index::Postgres(options) => {
 				#[cfg(not(feature = "postgres"))]
 				{

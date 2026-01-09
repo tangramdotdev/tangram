@@ -17,6 +17,8 @@ use {
 
 pub use self::message::Message;
 
+#[cfg(feature = "foundationdb")]
+pub mod fdb;
 pub mod message;
 #[cfg(feature = "postgres")]
 pub mod postgres;
@@ -27,6 +29,8 @@ pub mod sqlite;
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Index {
+	#[cfg(feature = "foundationdb")]
+	Fdb(std::sync::Arc<foundationdb::Database>),
 	#[cfg(feature = "postgres")]
 	Postgres(db::postgres::Database),
 	#[cfg(feature = "sqlite")]
@@ -287,6 +291,20 @@ impl Server {
 				if n >= config.insert_batch_size {
 					// Handle the messages.
 					match &self.index {
+						#[cfg(feature = "foundationdb")]
+						Index::Fdb(database) => {
+							self.indexer_task_handle_messages_fdb(
+								database,
+								put_cache_entry_messages,
+								put_object_messages,
+								touch_object_messages,
+								put_process_messages,
+								touch_process_messages,
+								put_tag_messages,
+								delete_tag_messages,
+							)
+							.await?;
+						},
 						#[cfg(feature = "postgres")]
 						Index::Postgres(index) => {
 							self.indexer_task_handle_messages_postgres(
@@ -374,6 +392,20 @@ impl Server {
 
 		// Handle the messages.
 		match &self.index {
+			#[cfg(feature = "foundationdb")]
+			Index::Fdb(database) => {
+				self.indexer_task_handle_messages_fdb(
+					database,
+					put_cache_entry_messages,
+					put_object_messages,
+					touch_object_messages,
+					put_process_messages,
+					touch_process_messages,
+					put_tag_messages,
+					delete_tag_messages,
+				)
+				.await?;
+			},
 			#[cfg(feature = "postgres")]
 			Index::Postgres(index) => {
 				self.indexer_task_handle_messages_postgres(
@@ -419,6 +451,8 @@ impl Server {
 
 	async fn indexer_handle_queue(&self, config: &crate::config::Indexer) -> tg::Result<usize> {
 		match &self.index {
+			#[cfg(feature = "foundationdb")]
+			Index::Fdb(database) => self.indexer_handle_queue_fdb(config, database).await,
 			#[cfg(feature = "postgres")]
 			Index::Postgres(database) => self.indexer_handle_queue_postgres(config, database).await,
 			#[cfg(feature = "sqlite")]
@@ -428,6 +462,8 @@ impl Server {
 
 	async fn indexer_get_transaction_id(&self) -> tg::Result<u64> {
 		match &self.index {
+			#[cfg(feature = "foundationdb")]
+			Index::Fdb(_) => Ok(0), // FDB uses versionstamps, not transaction IDs.
 			#[cfg(feature = "postgres")]
 			Index::Postgres(database) => self.indexer_get_transaction_id_postgres(database).await,
 			#[cfg(feature = "sqlite")]
@@ -437,6 +473,8 @@ impl Server {
 
 	async fn indexer_get_queue_size(&self, transaction_id: u64) -> tg::Result<u64> {
 		match &self.index {
+			#[cfg(feature = "foundationdb")]
+			Index::Fdb(database) => self.indexer_get_queue_size_fdb(database).await,
 			#[cfg(feature = "postgres")]
 			Index::Postgres(database) => {
 				self.indexer_get_queue_size_postgres(database, transaction_id)
@@ -507,6 +545,10 @@ impl Index {
 	#[expect(dead_code)]
 	pub async fn sync(&self) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(_) => {
+				// FDB does not require explicit sync.
+			},
 			#[cfg(feature = "postgres")]
 			Self::Postgres(database) => {
 				database

@@ -5,6 +5,8 @@ use {
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
+#[cfg(feature = "foundationdb")]
+mod fdb;
 #[cfg(feature = "postgres")]
 mod postgres;
 #[cfg(feature = "sqlite")]
@@ -44,6 +46,8 @@ impl Server {
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Metadata>> {
 		match &self.index {
+			#[cfg(feature = "foundationdb")]
+			crate::index::Index::Fdb(database) => self.try_get_process_metadata_fdb(database, id).await,
 			#[cfg(feature = "postgres")]
 			crate::index::Index::Postgres(database) => {
 				self.try_get_process_metadata_postgres(database, id).await
@@ -60,6 +64,10 @@ impl Server {
 		ids: &[tg::process::Id],
 	) -> tg::Result<Vec<Option<tg::process::Metadata>>> {
 		match &self.index {
+			#[cfg(feature = "foundationdb")]
+			crate::index::Index::Fdb(database) => {
+				self.try_get_process_metadata_batch_fdb(database, ids).await
+			},
 			#[cfg(feature = "postgres")]
 			crate::index::Index::Postgres(database) => {
 				self.try_get_process_metadata_batch_postgres(database, ids)

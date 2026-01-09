@@ -4,6 +4,8 @@ use {
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
+#[cfg(feature = "foundationdb")]
+mod fdb;
 #[cfg(feature = "postgres")]
 mod postgres;
 #[cfg(feature = "sqlite")]
@@ -33,6 +35,12 @@ impl Server {
 		}
 
 		match &self.index {
+			#[cfg(feature = "foundationdb")]
+			crate::index::Index::Fdb(database) => {
+				self.touch_object_fdb(database, id)
+					.await
+					.map_err(|source| tg::error!(!source, %id, "failed to touch the object"))?;
+			},
 			#[cfg(feature = "postgres")]
 			crate::index::Index::Postgres(database) => {
 				self.touch_object_postgres(database, id)
