@@ -30,6 +30,7 @@ mod checksum;
 mod clean;
 mod context;
 mod database;
+mod directory;
 mod document;
 mod format;
 mod get;
