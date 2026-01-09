@@ -256,6 +256,12 @@ impl Server {
 			.try_unwrap_path_ref()
 			.ok());
 		if let Some(path) = path {
+			// Note: we have no way of representing the parent of this, as in the case of an edge referrer which will have (id|tag).is_some()
+			let path = if let Some(subpath) = import.reference.options().path.as_ref() {
+				path.join(subpath)
+			} else {
+				path.to_owned()
+			};
 			let path =
 				tangram_util::fs::canonicalize_parent(&referrer.item.parent().unwrap().join(path))
 					.await
