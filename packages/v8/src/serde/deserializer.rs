@@ -306,9 +306,10 @@ impl<'de> serde::Deserializer<'de> for Deserializer<'_, '_, '_> {
 	{
 		let object = v8::Local::<v8::Object>::try_from(self.value)
 			.map_err(|_| Error::custom("expected an object"))?;
-		let keys = object
-			.get_property_names(self.scope, v8::GetPropertyNamesArgs::default())
-			.unwrap();
+		let args = v8::GetPropertyNamesArgsBuilder::new()
+			.key_conversion(v8::KeyConversionMode::ConvertToString)
+			.build();
+		let keys = object.get_own_property_names(self.scope, args).unwrap();
 		visitor.visit_map(MapAccess {
 			index: 0,
 			keys,
@@ -346,9 +347,10 @@ impl<'de> serde::Deserializer<'de> for Deserializer<'_, '_, '_> {
 			})
 		} else if self.value.is_object() {
 			let object = v8::Local::<v8::Object>::try_from(self.value).unwrap();
-			let keys = object
-				.get_property_names(self.scope, v8::GetPropertyNamesArgs::default())
-				.unwrap();
+			let args = v8::GetPropertyNamesArgsBuilder::new()
+				.key_conversion(v8::KeyConversionMode::ConvertToString)
+				.build();
+			let keys = object.get_own_property_names(self.scope, args).unwrap();
 			let tag = keys
 				.get_index(self.scope, 0)
 				.ok_or_else(|| Error::custom("expected at least one key"))?;

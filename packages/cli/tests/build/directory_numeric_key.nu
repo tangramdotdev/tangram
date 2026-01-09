@@ -1,0 +1,17 @@
+use ../../test.nu *
+
+let server = spawn
+
+let path = artifact {
+	tangram.ts: '
+		export default async () => {
+			return tg.directory({
+				"0": "hello",
+			});
+		};
+	'
+}
+
+# Build.
+let output = tg build $path
+snapshot $output 'dir_01z1ptabtrr22nw2je446awvz1cjz6j5m2xs873mfmx923tkkazq3g'

@@ -50,6 +50,7 @@ pub fn syscall<'s>(
 
 		Err(error) => {
 			// Throw an exception.
+			let error = tg::error!(!error, %name, "the syscall failed");
 			let exception = super::error::to_exception(scope, &error);
 			scope.throw_exception(exception);
 		},
