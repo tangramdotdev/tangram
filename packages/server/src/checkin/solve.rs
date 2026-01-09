@@ -187,6 +187,11 @@ impl Server {
 			root: root.to_owned(),
 		};
 
+		// Prefetch from the lock.
+		if let Some(lock) = &lock {
+			self.checkin_solve_prefetch_from_lock(&state.prefetch, lock);
+		}
+
 		// Create the first checkpoint.
 		let index = graph.paths.get(root).unwrap();
 		let mut checkpoint = Checkpoint {
@@ -1161,6 +1166,19 @@ impl Server {
 				reference.push(path);
 			}
 			reference.to_string_lossy().into_owned()
+		}
+	}
+
+	fn checkin_solve_prefetch_from_lock(&self, prefetch: &Prefetch, lock: &tg::graph::Data) {
+		for node in &lock.nodes {
+			self.checkin_solve_prefetch_from_graph_node(prefetch, node);
+			if let tg::graph::data::Node::File(file) = node {
+				for dependency in file.dependencies.values().flatten() {
+					if let Some(id) = dependency.id() {
+						self.checkin_solve_get_or_spawn_object_task(prefetch, id);
+					}
+				}
+			}
 		}
 	}
 
