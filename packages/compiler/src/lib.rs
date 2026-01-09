@@ -741,10 +741,9 @@ impl Compiler {
 				.as_os_str()
 				.to_str()
 				.ok_or_else(|| tg::error!("invalid path"))?;
-			let id = id
-				.strip_suffix(".tg.ts")
+			let id = None
 				.or_else(|| id.strip_suffix(".tg.js"))
-				.or_else(|| id.strip_suffix(".d.ts"))
+				.or_else(|| id.strip_suffix(".tg.ts"))
 				.unwrap_or(id);
 			let id = id
 				.parse::<tg::object::Id>()
@@ -852,7 +851,12 @@ impl Compiler {
 				.ok_or_else(|| tg::error!("invalid artifact path"))?
 				.as_os_str()
 				.to_str()
-				.ok_or_else(|| tg::error!("invalid artifact path"))?
+				.ok_or_else(|| tg::error!("invalid artifact path"))?;
+			let id = None
+				.or_else(|| id.strip_suffix(".tg.js"))
+				.or_else(|| id.strip_suffix(".tg.ts"))
+				.unwrap_or(id);
+			let id = id
 				.parse::<tg::object::Id>()
 				.ok()
 				.ok_or_else(|| tg::error!("invalid artifact ID"))?;
@@ -881,8 +885,13 @@ impl Compiler {
 						.into()
 				};
 
-			// Create the tag.
-			let tag = tg::Tag::new(tag_components.join("/"));
+			// Create the tag, stripping any extension from the last component.
+			let tag_string = tag_components.join("/");
+			let tag_string = None
+				.or_else(|| tag_string.strip_suffix(".tg.js"))
+				.or_else(|| tag_string.strip_suffix(".tg.ts"))
+				.unwrap_or(&tag_string);
+			let tag = tg::Tag::new(tag_string);
 
 			// Create the referent.
 			let item = tg::module::data::Item::Edge(edge);
@@ -993,10 +1002,15 @@ impl Compiler {
 					artifact
 				};
 				let path = if let (Some(tag), Some(id)) = (&options.tag, &options.id) {
+					let extension = match kind {
+						tg::module::Kind::Js => Some(".tg.js".to_owned()),
+						tg::module::Kind::Ts => Some(".tg.ts".to_owned()),
+						_ => None,
+					};
 					let arg = tg::checkout::Arg {
 						artifact: id.clone().try_into()?,
 						dependencies: true,
-						extension: None,
+						extension: extension.clone(),
 						force: false,
 						lock: None,
 						path: None,
@@ -1046,17 +1060,35 @@ impl Compiler {
 						target.push("..");
 					}
 					target.push("artifacts");
-					target.push(id.to_string());
+					if options.path.is_none() {
+						if let Some(ext) = &extension {
+							target.push(format!("{id}{ext}"));
+						} else {
+							target.push(id.to_string());
+						}
+					} else {
+						target.push(id.to_string());
+					}
 
 					// Create the symlink.
-					tokio::fs::symlink(&target, &path)
+					let add_extension = options.path.is_none() && extension.is_some();
+					let symlink_path = if add_extension {
+						let ext = extension.as_ref().unwrap();
+						let mut symlink_path = path.clone();
+						let file_name = symlink_path.file_name().unwrap().to_str().unwrap();
+						symlink_path.set_file_name(format!("{file_name}{ext}"));
+						symlink_path
+					} else {
+						path.clone()
+					};
+					tokio::fs::symlink(&target, &symlink_path)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
 
 					if let Some(path_) = &options.path {
-						path.join(path_)
+						symlink_path.join(path_)
 					} else {
-						path
+						symlink_path
 					}
 				} else if let (Some(id), Some(path)) = (&options.id, &options.path) {
 					let arg = tg::checkout::Arg {

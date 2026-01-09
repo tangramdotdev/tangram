@@ -77,11 +77,11 @@ impl Server {
 
 									// Add an extension if necessary.
 									let path = if let Some(extension) = &extension {
-										let path = server
+										let path_with_extension = server
 											.artifacts_path()
 											.join(format!("{}{extension}", arg.artifact));
-										std::fs::hard_link(&path, &path).ok();
-										path
+										std::fs::hard_link(&path, &path_with_extension).ok();
+										path_with_extension
 									} else {
 										path
 									};
