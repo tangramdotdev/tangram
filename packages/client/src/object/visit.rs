@@ -8,6 +8,7 @@ pub async fn visit<H, V>(
 	handle: &H,
 	visitor: &mut V,
 	object: &tg::Referent<tg::Object>,
+	inherit: bool,
 ) -> tg::Result<()>
 where
 	H: tg::Handle,
@@ -80,16 +81,22 @@ where
 				.entries(handle)
 				.await?
 				.into_iter()
-				.map(|(name, object)| tg::Referent {
-					item: object.into(),
-					options: tg::referent::Options {
-						path: Some(
-							referent
-								.path()
-								.map_or_else(|| name.clone().into(), |p| p.join(&name)),
-						),
-						..tg::referent::Options::default()
-					},
+				.map(|(name, object)| {
+					let mut child = tg::Referent {
+						item: object.into(),
+						options: tg::referent::Options {
+							path: Some(
+								referent
+									.path()
+									.map_or_else(|| name.clone().into(), |p| p.join(&name)),
+							),
+							..tg::referent::Options::default()
+						},
+					};
+					if inherit {
+						child.inherit(&referent);
+					}
+					child
 				})
 				.collect::<Vec<_>>(),
 			tg::Object::File(file) => file
@@ -103,7 +110,9 @@ where
 						item,
 						options: dependency.0.options,
 					};
-					child.inherit(&referent);
+					if inherit {
+						child.inherit(&referent);
+					}
 					Some(child)
 				})
 				.collect::<Vec<_>>(),
