@@ -113,7 +113,7 @@ struct Args {
 	#[arg(long, short)]
 	quiet: bool,
 
-	#[arg(env = "TANGRAM_TOKEN")]
+	#[arg(env = "TANGRAM_TOKEN", long)]
 	token: Option<String>,
 
 	/// Override the tracing filter.
