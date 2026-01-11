@@ -99,6 +99,12 @@ impl Cli {
 				indent,
 			)
 			.await?;
+			if stdout.get_ref().is_tty() {
+				stdout
+					.flush()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
+			}
 		}
 		if pretty {
 			stdout
