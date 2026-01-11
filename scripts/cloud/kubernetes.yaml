@@ -28,7 +28,7 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: postgres:latest
+          image: postgres:18.1
           env:
             - name: POSTGRES_HOST_AUTH_METHOD
               value: trust
@@ -75,7 +75,7 @@ spec:
     spec:
       containers:
         - name: scylla
-          image: scylladb/scylla:latest
+          image: scylladb/scylla:2025.3
           args:
             - --overprovisioned
             - "1"
@@ -126,7 +126,7 @@ spec:
     spec:
       containers:
         - name: nats
-          image: nats:latest
+          image: nats:2.12
           args:
             - --jetstream
           ports:
@@ -139,3 +139,59 @@ spec:
             periodSeconds: 1
             timeoutSeconds: 5
             failureThreshold: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fdb
+spec:
+  type: LoadBalancer
+  selector:
+    app: fdb
+  ports:
+    - port: 4500
+      targetPort: 4500
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fdb
+  labels:
+    app: fdb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fdb
+  template:
+    metadata:
+      labels:
+        app: fdb
+    spec:
+      containers:
+        - name: fdb
+          image: foundationdb/foundationdb:7.4.5
+          env:
+            - name: FDB_PORT
+              value: "4500"
+            - name: FDB_NETWORKING_MODE
+              value: host
+          ports:
+            - containerPort: 4500
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - bash
+                  - -c
+                  - "until fdbcli --exec 'configure new single memory' 2>/dev/null; do sleep 0.1; done"
+          readinessProbe:
+            exec:
+              command:
+                - fdbcli
+                - --exec
+                - status
+            initialDelaySeconds: 5
+            periodSeconds: 1
+            timeoutSeconds: 5
+            failureThreshold: 30
