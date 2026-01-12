@@ -5,6 +5,7 @@ use {
 	std::pin::pin,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
+	tangram_futures::stream::TryExt as _,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 };
@@ -24,12 +25,39 @@ impl Server {
 		context: &Context,
 		mut arg: tg::process::spawn::Arg,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
+		// If the process context is set, update the parent, remotes, and retry.
+		if let Some(process) = &context.process {
+			arg.parent = Some(process.id.clone());
+			if let Some(remote) = &process.remote {
+				arg.remotes = Some(vec![remote.clone()]);
+			}
+			arg.retry = process.retry;
+		}
+
 		// Forward to remote if requested.
 		if let Some(name) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			// Push the command.
+			let push_arg = tg::push::Arg {
+				commands: true,
+				items: vec![tg::Either::Left(arg.command.item().clone().into())],
+				remote: Some(name.clone()),
+				..Default::default()
+			};
+			let stream = self
+				.push(push_arg)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to push the command"))?;
+			std::pin::pin!(stream)
+				.try_last()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to push the command"))?;
+
 			let remote = self
 				.get_remote_client(name.clone())
 				.await
 				.map_err(|source| tg::error!(!source, %name, "failed to get the remote client"))?;
+
+			// Spawn the process.
 			let arg = tg::process::spawn::Arg {
 				local: None,
 				remotes: None,
@@ -42,16 +70,8 @@ impl Server {
 				output.remote.replace(name.clone());
 				output
 			});
-			return Ok(output);
-		}
 
-		// If the process context is set, update the parent, remotes, and retry.
-		if let Some(process) = &context.process {
-			arg.parent = Some(process.id.clone());
-			if let Some(remote) = &process.remote {
-				arg.remotes = Some(vec![remote.clone()]);
-			}
-			arg.retry = process.retry;
+			return Ok(output);
 		}
 
 		// Get the host.
