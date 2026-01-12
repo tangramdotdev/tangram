@@ -175,20 +175,17 @@ async fn run_session(arg: Arg<'_>, pty: &tg::pty::Id) -> tg::Result<u8> {
 	} else {
 		match state.stdin.as_ref() {
 			Some(tg::process::Stdio::Pipe(pipe)) => {
-				// Inline get_pipe_receiver.
-				let receiver = {
-					let pipe_state = server
-						.pipes
-						.get(pipe)
-						.ok_or_else(|| tg::error!("failed to find the pipe"))?;
-					let fd = pipe_state
-						.receiver
-						.as_fd()
-						.try_clone_to_owned()
-						.map_err(|source| tg::error!(!source, "failed to clone the receiver"))?;
-					tokio::net::unix::pipe::Receiver::from_owned_fd_unchecked(fd)
-						.map_err(|source| tg::error!(!source, "failed to clone the receiver"))?
-				};
+				let pipe = server
+					.pipes
+					.get(pipe)
+					.ok_or_else(|| tg::error!("failed to find the pipe"))?;
+				let fd = pipe
+					.receiver
+					.as_fd()
+					.try_clone_to_owned()
+					.map_err(|source| tg::error!(!source, "failed to clone the receiver"))?;
+				let receiver = tokio::net::unix::pipe::Receiver::from_owned_fd_unchecked(fd)
+					.map_err(|source| tg::error!(!source, "io error"))?;
 				let fd = receiver
 					.into_blocking_fd()
 					.map_err(|source| tg::error!(!source, "failed to get the fd from the pipe"))?;
@@ -210,22 +207,19 @@ async fn run_session(arg: Arg<'_>, pty: &tg::pty::Id) -> tg::Result<u8> {
 	// Handle stdout.
 	let (stdout, stdout_reader) = match state.stdout.as_ref() {
 		Some(tg::process::Stdio::Pipe(pipe)) => {
-			// Inline get_pipe_sender.
-			let sender = {
-				let pipe_state = server
-					.pipes
-					.get(pipe)
-					.ok_or_else(|| tg::error!("failed to find the pipe"))?;
-				let fd = pipe_state
-					.sender
-					.as_ref()
-					.ok_or_else(|| tg::error!("the pipe is closed"))?
-					.as_fd()
-					.try_clone_to_owned()
-					.map_err(|source| tg::error!(!source, "failed to clone the sender"))?;
-				tokio::net::unix::pipe::Sender::from_owned_fd_unchecked(fd)
-					.map_err(|source| tg::error!(!source, "failed to clone the sender"))?
-			};
+			let pipe = server
+				.pipes
+				.get(pipe)
+				.ok_or_else(|| tg::error!("failed to find the pipe"))?;
+			let fd = pipe
+				.sender
+				.as_ref()
+				.ok_or_else(|| tg::error!("the pipe is closed"))?
+				.as_fd()
+				.try_clone_to_owned()
+				.map_err(|source| tg::error!(!source, "failed to clone the sender"))?;
+			let sender = tokio::net::unix::pipe::Sender::from_owned_fd_unchecked(fd)
+				.map_err(|source| tg::error!(!source, "io error"))?;
 			let fd = sender
 				.into_blocking_fd()
 				.map_err(|source| tg::error!(!source, "failed to get the fd from the pipe"))?;
@@ -253,22 +247,19 @@ async fn run_session(arg: Arg<'_>, pty: &tg::pty::Id) -> tg::Result<u8> {
 	// Handle stderr.
 	let (stderr, stderr_reader) = match state.stderr.as_ref() {
 		Some(tg::process::Stdio::Pipe(pipe)) => {
-			// Inline get_pipe_sender.
-			let sender = {
-				let pipe_state = server
-					.pipes
-					.get(pipe)
-					.ok_or_else(|| tg::error!("failed to find the pipe"))?;
-				let fd = pipe_state
-					.sender
-					.as_ref()
-					.ok_or_else(|| tg::error!("the pipe is closed"))?
-					.as_fd()
-					.try_clone_to_owned()
-					.map_err(|source| tg::error!(!source, "failed to clone the sender"))?;
-				tokio::net::unix::pipe::Sender::from_owned_fd_unchecked(fd)
-					.map_err(|source| tg::error!(!source, "failed to clone the sender"))?
-			};
+			let pipe = server
+				.pipes
+				.get(pipe)
+				.ok_or_else(|| tg::error!("failed to find the pipe"))?;
+			let fd = pipe
+				.sender
+				.as_ref()
+				.ok_or_else(|| tg::error!("the pipe is closed"))?
+				.as_fd()
+				.try_clone_to_owned()
+				.map_err(|source| tg::error!(!source, "failed to clone the sender"))?;
+			let sender = tokio::net::unix::pipe::Sender::from_owned_fd_unchecked(fd)
+				.map_err(|source| tg::error!(!source, "io error"))?;
 			let fd = sender
 				.into_blocking_fd()
 				.map_err(|source| tg::error!(!source, "failed to get the fd from the pipe"))?;
@@ -397,20 +388,17 @@ async fn run_inner(arg: Arg<'_>) -> tg::Result<u8> {
 	} else {
 		match state.stdin.as_ref() {
 			Some(tg::process::Stdio::Pipe(pipe)) => {
-				// Inline get_pipe_receiver.
-				let receiver = {
-					let pipe_state = server
-						.pipes
-						.get(pipe)
-						.ok_or_else(|| tg::error!("failed to find the pipe"))?;
-					let fd = pipe_state
-						.receiver
-						.as_fd()
-						.try_clone_to_owned()
-						.map_err(|source| tg::error!(!source, "failed to clone the receiver"))?;
-					tokio::net::unix::pipe::Receiver::from_owned_fd_unchecked(fd)
-						.map_err(|source| tg::error!(!source, "failed to clone the receiver"))?
-				};
+				let pipe = server
+					.pipes
+					.get(pipe)
+					.ok_or_else(|| tg::error!("failed to find the pipe"))?;
+				let fd = pipe
+					.receiver
+					.as_fd()
+					.try_clone_to_owned()
+					.map_err(|source| tg::error!(!source, "failed to clone the receiver"))?;
+				let receiver = tokio::net::unix::pipe::Receiver::from_owned_fd_unchecked(fd)
+					.map_err(|source| tg::error!(!source, "io error"))?;
 				let fd = receiver
 					.into_blocking_fd()
 					.map_err(|source| tg::error!(!source, "failed to get the fd from the pipe"))?;
@@ -430,22 +418,19 @@ async fn run_inner(arg: Arg<'_>) -> tg::Result<u8> {
 	// Handle stdout.
 	let (stdout, stdout_reader) = match state.stdout.as_ref() {
 		Some(tg::process::Stdio::Pipe(pipe)) => {
-			// Inline get_pipe_sender.
-			let sender = {
-				let pipe_state = server
-					.pipes
-					.get(pipe)
-					.ok_or_else(|| tg::error!("failed to find the pipe"))?;
-				let fd = pipe_state
-					.sender
-					.as_ref()
-					.ok_or_else(|| tg::error!("the pipe is closed"))?
-					.as_fd()
-					.try_clone_to_owned()
-					.map_err(|source| tg::error!(!source, "failed to clone the sender"))?;
-				tokio::net::unix::pipe::Sender::from_owned_fd_unchecked(fd)
-					.map_err(|source| tg::error!(!source, "failed to clone the sender"))?
-			};
+			let pipe = server
+				.pipes
+				.get(pipe)
+				.ok_or_else(|| tg::error!("failed to find the pipe"))?;
+			let fd = pipe
+				.sender
+				.as_ref()
+				.ok_or_else(|| tg::error!("the pipe is closed"))?
+				.as_fd()
+				.try_clone_to_owned()
+				.map_err(|source| tg::error!(!source, "failed to clone the sender"))?;
+			let sender = tokio::net::unix::pipe::Sender::from_owned_fd_unchecked(fd)
+				.map_err(|source| tg::error!(!source, "io error"))?;
 			let fd = sender
 				.into_blocking_fd()
 				.map_err(|source| tg::error!(!source, "failed to get the fd from the pipe"))?;
@@ -470,22 +455,19 @@ async fn run_inner(arg: Arg<'_>) -> tg::Result<u8> {
 	// Handle stderr.
 	let (stderr, stderr_reader) = match state.stderr.as_ref() {
 		Some(tg::process::Stdio::Pipe(pipe)) => {
-			// Inline get_pipe_sender.
-			let sender = {
-				let pipe_state = server
-					.pipes
-					.get(pipe)
-					.ok_or_else(|| tg::error!("failed to find the pipe"))?;
-				let fd = pipe_state
-					.sender
-					.as_ref()
-					.ok_or_else(|| tg::error!("the pipe is closed"))?
-					.as_fd()
-					.try_clone_to_owned()
-					.map_err(|source| tg::error!(!source, "failed to clone the sender"))?;
-				tokio::net::unix::pipe::Sender::from_owned_fd_unchecked(fd)
-					.map_err(|source| tg::error!(!source, "failed to clone the sender"))?
-			};
+			let pipe = server
+				.pipes
+				.get(pipe)
+				.ok_or_else(|| tg::error!("failed to find the pipe"))?;
+			let fd = pipe
+				.sender
+				.as_ref()
+				.ok_or_else(|| tg::error!("the pipe is closed"))?
+				.as_fd()
+				.try_clone_to_owned()
+				.map_err(|source| tg::error!(!source, "failed to clone the sender"))?;
+			let sender = tokio::net::unix::pipe::Sender::from_owned_fd_unchecked(fd)
+				.map_err(|source| tg::error!(!source, "io error"))?;
 			let fd = sender
 				.into_blocking_fd()
 				.map_err(|source| tg::error!(!source, "failed to get the fd from the pipe"))?;

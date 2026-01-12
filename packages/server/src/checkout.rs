@@ -107,21 +107,23 @@ impl Server {
 				return Ok(stream);
 			}
 
-			// VFS is enabled. Return path with extension; VFS will strip it.
 			let path = if let Some(ext) = &arg.extension {
 				self.artifacts_path().join(format!("{}{ext}", arg.artifact))
 			} else {
 				path
 			};
+
 			let path = if let Some(process) = &context.process {
 				process.guest_path_for_host_path(path.clone())?
 			} else {
 				path
 			};
+
 			let output = tg::checkout::Output { path };
 			let event = tg::progress::Event::Output(output);
 			let stream = stream::once(future::ok(event));
 			let stream = stream.right_stream().left_stream();
+
 			return Ok(stream);
 		}
 
