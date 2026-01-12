@@ -108,15 +108,15 @@ impl tg::Client {
 	) -> tg::Result<hyper::client::conn::http1::SendRequest<Body>> {
 		match url.scheme() {
 			Some("http+unix") => {
-				let path = url.host().ok_or_else(|| tg::error!("invalid url"))?;
+				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let path = PathBuf::from(path);
 				Self::connect_unix_h1(&path).await
 			},
 			Some("http") => {
-				let host = url.host().ok_or_else(|| tg::error!("invalid url"))?;
+				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let port = url
 					.port_or_known_default()
-					.ok_or_else(|| tg::error!("invalid url"))?;
+					.ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				Self::connect_tcp_h1(host, port).await
 			},
 			Some("https") => {
@@ -135,19 +135,19 @@ impl tg::Client {
 					Self::connect_tcp_tls_h1(host, port).await
 				}
 			},
-			_ => Err(tg::error!("invalid url")),
+			_ => Err(tg::error!(%url, "invalid url")),
 		}
 	}
 
 	async fn connect_h2(url: &Uri) -> tg::Result<hyper::client::conn::http2::SendRequest<Body>> {
 		match url.scheme() {
 			Some("http+unix") => {
-				let path = url.host().ok_or_else(|| tg::error!("invalid url"))?;
+				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let path = PathBuf::from(path);
 				Self::connect_unix_h2(&path).await
 			},
 			Some("http") => {
-				let host = url.host().ok_or_else(|| tg::error!("invalid url"))?;
+				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let port = url
 					.port_or_known_default()
 					.ok_or_else(|| tg::error!("invalid url"))?;
@@ -160,14 +160,14 @@ impl tg::Client {
 				}
 				#[cfg(feature = "tls")]
 				{
-					let host = url.domain().ok_or_else(|| tg::error!("invalid url"))?;
+					let host = url.domain().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 					let port = url
 						.port_or_known_default()
-						.ok_or_else(|| tg::error!("invalid url"))?;
+						.ok_or_else(|| tg::error!(%url, "invalid url"))?;
 					Self::connect_tcp_tls_h2(host, port).await
 				}
 			},
-			_ => Err(tg::error!("invalid url")),
+			_ => Err(tg::error!(%url, "invalid url")),
 		}
 	}
 
