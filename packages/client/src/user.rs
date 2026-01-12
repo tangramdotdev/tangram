@@ -32,6 +32,7 @@ impl tg::Client {
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
+			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
 			.header(http::header::AUTHORIZATION, format!("Bearer {token}"))
 			.empty()
 			.unwrap();
