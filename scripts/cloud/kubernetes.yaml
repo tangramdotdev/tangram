@@ -79,6 +79,8 @@ spec:
           args:
             - --overprovisioned
             - "1"
+            - "--rpc-address"
+            - "localhost"
           ports:
             - containerPort: 9042
           readinessProbe:
