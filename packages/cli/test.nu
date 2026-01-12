@@ -54,6 +54,19 @@ def main [
 	ln -sf tangram target/debug/tg
 	path add ($repository_path | path join 'target/debug')
 
+	# Determine the number of concurrent tests to run.
+	let jobs = $jobs | default (sys cpu | length)
+	let jobs = if $no_capture {
+		1
+	} else {
+		$jobs
+	}
+
+	# Initialize cloud resources if cloud is enabled.
+	if $cloud {
+		init_cloud_resources $jobs
+	}
+
 	# Get the matching tests.
 	let filter = if ($filters | is-empty) {
 		'.*'
@@ -72,19 +85,12 @@ def main [
 	mut pending = $tests
 	mut running = []
 	mut results = []
+	mut available_indices = if $cloud { 0..<$jobs | collect } else { [] }
 
 	let start = date now
 	let total = $pending | length
 
-	# Determine the number of concurrent tests to run.
-	let jobs = $jobs | default (sys cpu | length)
-	let jobs = if $no_capture {
-		1
-	} else {
-		$jobs
-	}
-
-	def spawn [test: record] {
+	def spawn [test: record, job_index: any] {
 		job spawn {
 			# Create a temp directory for this test.
 			let temp_path = mktemp -d -t tangram_test_XXXXXX | path expand
@@ -102,6 +108,7 @@ def main [
 				TANGRAM_CONFIG: ($temp_path | path join "config.json"),
 				TANGRAM_MODE: client,
 				TANGRAM_TEST_CLOUD: (if $cloud { "1" } else { "" }),
+				TANGRAM_TEST_JOB_INDEX: (if $job_index != null { $job_index | into string } else { "" }),
 				TMPDIR: $temp_path,
 			} {
 				if $no_capture {
@@ -130,15 +137,21 @@ def main [
 				}
 			}
 
-			# Clean up the cloud resource.
-			let ids_path = $temp_path | path join 'ids'
-			let ids = if ($ids_path | path exists) {
-				open $ids_path | lines | where { $in != '' }
+			# Clean up the cloud resources.
+			if $job_index != null {
+				# Clear data for reuse.
+				clear_cloud_resources $job_index
 			} else {
-				[]
-			}
-			for id in $ids {
-				clean_databases $id
+				# Legacy cleanup for non-indexed cloud resources.
+				let ids_path = $temp_path | path join 'ids'
+				let ids = if ($ids_path | path exists) {
+					open $ids_path | lines | where { $in != '' }
+				} else {
+					[]
+				}
+				for id in $ids {
+					clean_databases $id
+				}
 			}
 
 			# Clean up the temp directory.
@@ -150,6 +163,7 @@ def main [
 				duration: $duration,
 				name: $test.name,
 				output: $output,
+				job_index: $job_index,
 			}
 			$result | job send 0
 		}
@@ -159,7 +173,9 @@ def main [
 	while ($running | length) < $jobs and ($pending | length) > 0 {
 		let test = $pending | first
 		$pending = $pending | skip 1
-		let id = spawn $test
+		let job_index = if $cloud { $available_indices | first } else { null }
+		if $cloud { $available_indices = $available_indices | skip 1 }
+		let id = spawn $test $job_index
 		$running = $running | append { id: $id, name: $test.name, start: (date now) }
 	}
 
@@ -200,11 +216,18 @@ def main [
 			# Remove the completed job from the running list.
 			$running = $running | where name != $result.name
 
+			# Return the job index to the available list.
+			if $result.job_index? != null {
+				$available_indices = $available_indices | append $result.job_index
+			}
+
 			# Spawn a new job if there are more tests to run.
 			if ($pending | length) > 0 {
 				let test = $pending | first
 				$pending = $pending | skip 1
-				let id = spawn $test
+				let job_index = if $cloud { $available_indices | first } else { null }
+				if $cloud { $available_indices = $available_indices | skip 1 }
+				let id = spawn $test $job_index
 				$running = $running | append { id: $id, name: $test.name, start: (date now) }
 			}
 		}
@@ -695,24 +718,33 @@ export def --env spawn [
 	# Only use cloud if both --cloud flag AND TANGRAM_TEST_CLOUD env are set
 	let use_cloud = $cloud and (($env.TANGRAM_TEST_CLOUD? | default "") | str length) > 0
 	if $use_cloud {
-		$id = random chars
-		$id ++ "\n" | save --append (($nu.temp-dir? | default $nu.temp-path?) | path join 'ids')
-		print -e $id
+		# Check if a job index is provided (pre-created resources).
+		let job_index = $env.TANGRAM_TEST_JOB_INDEX? | default ""
+		if ($job_index | str length) > 0 {
+			# Use pre-created resources by job index.
+			$id = $job_index
+			print -e $"Using cloud resources for job index ($id)"
+		} else {
+			# Legacy path: create new resources with random ID.
+			$id = random chars
+			$id ++ "\n" | save --append (($nu.temp-dir? | default $nu.temp-path?) | path join 'ids')
+			print -e $id
 
-		createdb -U postgres -h localhost $'database_($id)'
-		psql -U postgres -h localhost -d $'database_($id)' -f ($repository_path | path join packages/server/src/database/postgres.sql)
-		createdb -U postgres -h localhost $'index_($id)'
-		for path in (ls ($repository_path | path join packages/server/src/index/postgres) | get name | sort) {
-			psql -U postgres -h localhost -d $'index_($id)' -f $path
+			createdb -U postgres -h localhost $'database_($id)'
+			psql -U postgres -h localhost -d $'database_($id)' -f ($repository_path | path join packages/server/src/database/postgres.sql)
+			createdb -U postgres -h localhost $'index_($id)'
+			for path in (ls ($repository_path | path join packages/server/src/index/postgres) | get name | sort) {
+				psql -U postgres -h localhost -d $'index_($id)' -f $path
+			}
+
+			nats stream create $'index_($id)' --discard new --retention work --subjects $'($id).index' --defaults
+			nats consumer create $'index_($id)' index --deliver all --max-pending 1000000 --pull --defaults
+			nats stream create $'finish_($id)' --discard new --retention work --subjects $'($id).finish' --defaults
+			nats consumer create $'finish_($id)' finish --deliver all --max-pending 1000000 --pull --defaults
+
+			cqlsh -e $"create keyspace \"store_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
+			cqlsh -k $'store_($id)' -f packages/store/src/scylla.cql
 		}
-
-		nats stream create $'index_($id)' --discard new --retention work --subjects $'($id).index' --defaults
-		nats consumer create $'index_($id)' index --deliver all --max-pending 1000000 --pull --defaults
-		nats stream create $'finish_($id)' --discard new --retention work --subjects $'($id).finish' --defaults
-		nats consumer create $'finish_($id)' finish --deliver all --max-pending 1000000 --pull --defaults
-
-		cqlsh -e $"create keyspace \"store_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
-		cqlsh -k $'store_($id)' -f packages/store/src/scylla.cql
 
 		let config = {
 			database: {
@@ -854,6 +886,55 @@ def clean_databases [id: string] {
 
 	# Drop the scylla keyspace.
 	try { cqlsh -e $"drop keyspace \"store_($id)\";" }
+}
+
+def init_cloud_resources [jobs: int] {
+	for i in 0..<$jobs {
+		print -e $"Creating cloud resources for job index ($i)"
+
+		# Drop existing resources first to ensure fresh schemas.
+		clean_databases $i
+
+		# Create postgres databases.
+		createdb -U postgres -h localhost $'database_($i)'
+		psql -U postgres -h localhost -d $'database_($i)' -f ($repository_path | path join packages/server/src/database/postgres.sql)
+		createdb -U postgres -h localhost $'index_($i)'
+		for path in (ls ($repository_path | path join packages/server/src/index/postgres) | get name | sort) {
+			psql -U postgres -h localhost -d $'index_($i)' -f $path
+		}
+
+		# Create NATS streams.
+		nats stream create $'index_($i)' --discard new --retention work --subjects $'($i).index' --defaults
+		nats consumer create $'index_($i)' index --deliver all --max-pending 1000000 --pull --defaults
+		nats stream create $'finish_($i)' --discard new --retention work --subjects $'($i).finish' --defaults
+		nats consumer create $'finish_($i)' finish --deliver all --max-pending 1000000 --pull --defaults
+
+		# Create Scylla keyspace.
+		cqlsh -e $"create keyspace \"store_($i)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
+		cqlsh -k $'store_($i)' -f packages/store/src/scylla.cql
+	}
+}
+
+def clear_cloud_resources [index: int] {
+	# Truncate postgres database tables.
+	try {
+		psql -U postgres -h localhost -d $'database_($index)' -c 'TRUNCATE processes, process_tokens, process_children, pipes, ptys, remotes, tags, users, tokens RESTART IDENTITY CASCADE'
+	}
+
+	# Truncate postgres index tables and reset transaction_id.
+	try {
+		psql -U postgres -h localhost -d $'index_($index)' -c 'TRUNCATE cache_entries, cache_entry_queue, objects, object_children, object_queue, processes, process_children, process_objects, process_queue, tags RESTART IDENTITY CASCADE'
+		psql -U postgres -h localhost -d $'index_($index)' -c 'UPDATE transaction_id SET id = 0'
+	}
+
+	# Purge NATS streams.
+	try { nats stream purge -f $'index_($index)' }
+	try { nats stream purge -f $'finish_($index)' }
+
+	# Truncate Scylla tables.
+	try { cqlsh -k $'store_($index)' -e 'TRUNCATE objects' }
+	try { cqlsh -k $'store_($index)' -e 'TRUNCATE process_log_entries' }
+	try { cqlsh -k $'store_($index)' -e 'TRUNCATE process_log_stream_positions' }
 }
 
 def diff [old: string, new: string, --path] {
