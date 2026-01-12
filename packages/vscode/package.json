@@ -1,10 +1,33 @@
 {
+	"name": "tangram",
+	"displayName": "Tangram",
+	"version": "0.0.0",
+	"description": "Tangram extension for Visual Studio Code.",
 	"categories": [
-		"Programming Languages",
 		"Formatters",
 		"Linters",
-		"Other"
+		"Other",
+		"Programming Languages"
 	],
+	"license": "MIT",
+	"repository": {
+		"url": "https://github.com/tangramdotdev/tangram"
+	},
+	"publisher": "tangramdotdev",
+	"main": "./extension.js",
+	"scripts": {
+		"build": "esbuild --bundle --outfile=extension.js --format=cjs --sourcemap --platform=node --external:vscode extension.ts && vsce package --no-dependencies --no-update-package-json --no-git-tag-version",
+		"check": "tsgo && oxlint extension.ts",
+		"format": "oxfmt --write extension.ts"
+	},
+	"dependencies": {
+		"vscode-languageclient": "^9.0.1"
+	},
+	"devDependencies": {
+		"@types/node": "^22.5.4",
+		"@types/vscode": "^1.92.0",
+		"@vscode/vsce": "^3.1.0"
+	},
 	"contributes": {
 		"commands": [
 			{
@@ -109,31 +132,8 @@
 			}
 		]
 	},
-	"dependencies": {
-		"vscode-languageclient": "^9.0.1"
-	},
-	"description": "Tangram extension for Visual Studio Code.",
-	"devDependencies": {
-		"@types/node": "^22.5.4",
-		"@types/vscode": "^1.92.0",
-		"@vscode/vsce": "^3.1.0"
-	},
-	"displayName": "Tangram",
+	"icon": "tangram.png",
 	"engines": {
 		"vscode": "^1.92.0"
-	},
-	"icon": "tangram.png",
-	"license": "MIT",
-	"main": "./extension.js",
-	"name": "tangram",
-	"publisher": "tangramdotdev",
-	"repository": {
-		"url": "https://github.com/tangramdotdev/tangram"
-	},
-	"scripts": {
-		"build": "esbuild --bundle --outfile=extension.js --format=cjs --sourcemap --platform=node --external:vscode extension.ts && vsce package --no-dependencies --no-update-package-json --no-git-tag-version",
-		"check": "tsc && oxlint extension.ts",
-		"format": "oxfmt --write extension.ts"
-	},
-	"version": "0.0.0"
+	}
 }

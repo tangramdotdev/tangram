@@ -1,9 +1,9 @@
 {
 	"name": "@tangramdotdev/typescript",
 	"private": true,
+	"type": "module",
 	"scripts": {
-		"check": "tsc && oxlint src",
+		"check": "tsgo && oxlint src",
 		"format": "oxfmt --write src"
-	},
-	"type": "module"
+	}
 }

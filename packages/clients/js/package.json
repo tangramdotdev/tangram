@@ -1,12 +1,12 @@
 {
-	"main": "src/index.ts",
 	"name": "@tangramdotdev/client",
 	"private": true,
+	"type": "module",
+	"main": "src/index.ts",
 	"scripts": {
-		"check": "tsc && oxlint src",
+		"check": "tsgo && oxlint src",
 		"format": "oxfmt --write src"
 	},
-	"type": "module",
 	"dependencies": {
 		"immutable": "^4.3.7"
 	}

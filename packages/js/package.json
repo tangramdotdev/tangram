@@ -1,11 +1,11 @@
 {
 	"name": "@tangramdotdev/js",
 	"private": true,
+	"type": "module",
 	"scripts": {
-		"check": "tsc && oxlint ./src/main.ts",
+		"check": "tsgo && oxlint ./src/main.ts",
 		"format": "oxfmt --write ./src/tangram.d.ts ./src/main.ts"
 	},
-	"type": "module",
 	"dependencies": {
 		"@tangramdotdev/client": "workspace:*"
 	}
