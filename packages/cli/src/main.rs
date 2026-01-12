@@ -47,6 +47,8 @@ mod publish;
 mod pull;
 mod push;
 mod put;
+#[cfg(feature = "python")]
+mod python;
 mod read;
 mod remote;
 mod run;
@@ -212,6 +214,10 @@ enum Command {
 	#[command(alias = "ls")]
 	List(self::tag::list::Args),
 
+	#[cfg(feature = "python")]
+	#[command(hide = true)]
+	Py(self::python::Args),
+
 	Log(self::process::log::Args),
 
 	Lsp(self::lsp::Args),
@@ -298,6 +304,10 @@ fn main() -> std::process::ExitCode {
 			#[cfg(feature = "v8")]
 			Cli::initialize_v8(0);
 			return Cli::command_js(&matches, args);
+		},
+		#[cfg(feature = "python")]
+		Command::Py(args) => {
+			return Cli::command_py(&matches, args);
 		},
 		Command::Sandbox(args) => {
 			return Cli::command_sandbox(args);
@@ -829,6 +839,10 @@ impl Cli {
 		match args.command {
 			#[cfg(feature = "js")]
 			Command::Js(_) => {
+				unreachable!()
+			},
+			#[cfg(feature = "python")]
+			Command::Py(_) => {
 				unreachable!()
 			},
 			Command::Builtin(_) | Command::Sandbox(_) | Command::Session(_) => {

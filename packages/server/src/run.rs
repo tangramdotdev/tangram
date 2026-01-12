@@ -16,6 +16,8 @@ pub mod darwin;
 pub mod js;
 #[cfg(target_os = "linux")]
 pub mod linux;
+#[cfg(feature = "python")]
+pub mod python;
 
 #[derive(Clone, Debug)]
 pub struct Output {
@@ -256,6 +258,9 @@ impl Server {
 				#[cfg(feature = "js")]
 				"js" if sandboxed => self.run_js(process).await,
 
+				#[cfg(feature = "python")]
+				"python" if sandboxed => self.run_python(process).await,
+
 				#[cfg(target_os = "macos")]
 				"builtin" => self.run_darwin(process).await,
 
@@ -267,6 +272,12 @@ impl Server {
 
 				#[cfg(all(feature = "js", target_os = "linux"))]
 				"js" => self.run_linux(process).await,
+
+				#[cfg(all(feature = "python", target_os = "macos"))]
+				"python" => self.run_darwin(process).await,
+
+				#[cfg(all(feature = "python", target_os = "linux"))]
+				"python" => self.run_linux(process).await,
 
 				#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
 				"aarch64-darwin" => self.run_darwin(process).await,

@@ -1,0 +1,38 @@
+[package]
+name = "tangram_python"
+
+description = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+publish = false
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[build-dependencies]
+pyo3-build-config = { workspace = true }
+
+[dependencies]
+bytes = { workspace = true }
+data-encoding = { workspace = true }
+futures = { workspace = true }
+include_dir = { workspace = true }
+num = { workspace = true }
+pyo3 = { workspace = true }
+pyo3-async-runtimes = { workspace = true }
+pythonize = { workspace = true }
+scopeguard = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+tangram_client = { workspace = true }
+tangram_either = { workspace = true }
+tangram_futures = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }

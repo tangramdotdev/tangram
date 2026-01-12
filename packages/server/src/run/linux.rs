@@ -90,7 +90,7 @@ impl Server {
 
 		// Render the args.
 		let mut args = match command.host.as_str() {
-			"builtin" | "js" => render_args_dash_a(&command.args),
+			"builtin" | "js" | "python" => render_args_dash_a(&command.args),
 			_ => render_args_string(&command.args, &artifacts_path, &output_path)?,
 		};
 
@@ -120,6 +120,15 @@ impl Server {
 					tg::error!(!source, "failed to get the current executable")
 				})?;
 				args.insert(0, "js".to_owned());
+				args.insert(1, command.executable.to_string());
+				tg
+			},
+
+			"python" => {
+				let tg = tangram_util::env::current_exe().map_err(|source| {
+					tg::error!(!source, "failed to get the current executable")
+				})?;
+				args.insert(0, "py".to_owned());
 				args.insert(1, command.executable.to_string());
 				tg
 			},

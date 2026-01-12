@@ -44,6 +44,50 @@ impl Server {
 				Ok(tg::module::load::Output { text })
 			},
 
+			// Handle a Python module from a path.
+			tg::module::Data {
+				kind: tg::module::Kind::Py | tg::module::Kind::Pyi,
+				referent:
+					tg::Referent {
+						item: tg::module::data::Item::Path(path),
+						..
+					},
+				..
+			} => {
+				let text = tokio::fs::read_to_string(&path).await.map_err(
+					|source| tg::error!(!source, path = %path.display(), "failed to read the file"),
+				)?;
+				Ok(tg::module::load::Output { text })
+			},
+
+			// Handle a Python module from an object.
+			tg::module::Data {
+				kind: tg::module::Kind::Py | tg::module::Kind::Pyi,
+				referent:
+					tg::Referent {
+						item: tg::module::data::Item::Edge(edge),
+						..
+					},
+				..
+			} => {
+				let object = match edge {
+					tg::graph::data::Edge::Pointer(pointer) => {
+						let pointer = tg::graph::Pointer::try_from_data(pointer.clone())?;
+						tg::Artifact::with_pointer(pointer).into()
+					},
+					tg::graph::data::Edge::Object(object) => tg::Object::with_id(object.clone()),
+				};
+				let file = object
+					.try_unwrap_file()
+					.ok()
+					.ok_or_else(|| tg::error!("expected a file"))?;
+				let text = file
+					.text(self)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the file text"))?;
+				Ok(tg::module::load::Output { text })
+			},
+
 			// Handle a JS or TS module from an object.
 			tg::module::Data {
 				kind: tg::module::Kind::Js | tg::module::Kind::Ts,

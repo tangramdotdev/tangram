@@ -35,6 +35,8 @@ pub enum Kind {
 	Js,
 	Ts,
 	Dts,
+	Py,
+	Pyi,
 	Object,
 	Artifact,
 	Blob,
@@ -119,6 +121,8 @@ impl std::fmt::Display for Kind {
 			Self::Js => write!(f, "js"),
 			Self::Ts => write!(f, "ts"),
 			Self::Dts => write!(f, "dts"),
+			Self::Py => write!(f, "py"),
+			Self::Pyi => write!(f, "pyi"),
 			Self::Object => write!(f, "object"),
 			Self::Artifact => write!(f, "artifact"),
 			Self::Blob => write!(f, "blob"),
@@ -140,6 +144,8 @@ impl std::str::FromStr for Kind {
 			"js" => Ok(Self::Js),
 			"ts" => Ok(Self::Ts),
 			"dts" => Ok(Self::Dts),
+			"py" => Ok(Self::Py),
+			"pyi" => Ok(Self::Pyi),
 			"object" => Ok(Self::Object),
 			"artifact" => Ok(Self::Artifact),
 			"blob" => Ok(Self::Blob),
@@ -155,7 +161,7 @@ impl std::str::FromStr for Kind {
 }
 
 /// The possible file names for the root module in a package.
-pub const ROOT_MODULE_FILE_NAMES: &[&str] = &["tangram.js", "tangram.ts"];
+pub const ROOT_MODULE_FILE_NAMES: &[&str] = &["tangram.js", "tangram.ts", "tangram.py"];
 
 /// The file name of a lockfile.
 pub const LOCKFILE_FILE_NAME: &str = "tangram.lock";
@@ -171,8 +177,22 @@ pub fn module_kind_for_path(path: impl AsRef<Path>) -> tg::Result<tg::module::Ki
 		Ok(tg::module::Kind::Js)
 	} else if name == "tangram.ts" || name.ends_with(".tg.ts") {
 		Ok(tg::module::Kind::Ts)
+	} else if name == "tangram.py" || name.ends_with(".tg.py") || name.ends_with(".py") {
+		Ok(tg::module::Kind::Py)
+	} else if name.ends_with(".pyi") {
+		Ok(tg::module::Kind::Pyi)
 	} else {
 		Err(tg::error!(path = %path.display(), "unknown or missing file extension"))
+	}
+}
+
+/// Get the host for a module kind.
+#[must_use]
+pub fn host_for_module_kind(kind: tg::module::Kind) -> &'static str {
+	match kind {
+		tg::module::Kind::Js | tg::module::Kind::Ts | tg::module::Kind::Dts => "js",
+		tg::module::Kind::Py | tg::module::Kind::Pyi => "python",
+		_ => "js",
 	}
 }
 
@@ -187,6 +207,8 @@ pub fn is_module_path(path: &Path) -> bool {
 	tg::module::ROOT_MODULE_FILE_NAMES.contains(&name)
 		|| name.ends_with(".tg.js")
 		|| name.ends_with(".tg.ts")
+		|| name.ends_with(".tg.py")
+		|| name.ends_with(".py")
 }
 
 #[must_use]
@@ -209,7 +231,10 @@ pub fn is_non_root_module_path(path: &Path) -> bool {
 		return false;
 	};
 	!tg::module::ROOT_MODULE_FILE_NAMES.contains(&name)
-		&& (name.ends_with(".tg.js") || name.ends_with(".tg.ts"))
+		&& (name.ends_with(".tg.js")
+			|| name.ends_with(".tg.ts")
+			|| name.ends_with(".tg.py")
+			|| name.ends_with(".py"))
 }
 
 pub async fn try_get_root_module_file_name<H>(

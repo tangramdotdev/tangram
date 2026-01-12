@@ -15,12 +15,13 @@ name = "tangram"
 path = "src/main.rs"
 
 [features]
-default = ["js", "lmdb", "sqlite", "tls", "typescript", "v8"]
+default = ["js", "lmdb", "python", "sqlite", "tls", "typescript", "v8"]
 foundationdb = ["dep:foundationdb", "dep:tangram_fdb", "tangram_server/foundationdb"]
 js = ["tangram_server/js"]
 lmdb = ["tangram_server/lmdb"]
 nats = ["tangram_server/nats"]
 postgres = ["tangram_server/postgres"]
+python = ["dep:tangram_python", "tangram_server/python"]
 quickjs = ["tangram_server/quickjs"]
 sqlite = ["tangram_server/sqlite"]
 scylla = ["tangram_server/scylla"]
@@ -63,14 +64,15 @@ tangram_client = { workspace = true }
 tangram_fdb = { workspace = true, optional = true }
 tangram_futures = { workspace = true }
 tangram_js = { workspace = true }
+tangram_python = { workspace = true, optional = true }
 tangram_sandbox = { workspace = true }
 tangram_server = { workspace = true }
 tangram_session = { workspace = true }
 tangram_uri = { workspace = true }
 tangram_util = { workspace = true }
 tokio = { workspace = true }
-tokio-util = { workspace = true }
 tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing-tree = { workspace = true }

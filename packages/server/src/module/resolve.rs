@@ -183,6 +183,8 @@ impl Server {
 					tg::module::Kind::Js
 					| tg::module::Kind::Ts
 					| tg::module::Kind::Dts
+					| tg::module::Kind::Py
+					| tg::module::Kind::Pyi
 					| tg::module::Kind::File,
 				),
 				tg::Object::File(_),
@@ -208,7 +210,14 @@ impl Server {
 				}
 			},
 			(
-				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts | tg::module::Kind::Dts),
+				None
+				| Some(
+					tg::module::Kind::Js
+					| tg::module::Kind::Ts
+					| tg::module::Kind::Dts
+					| tg::module::Kind::Py
+					| tg::module::Kind::Pyi,
+				),
 				_,
 			) => {
 				return Err(tg::error!("expected a file"));

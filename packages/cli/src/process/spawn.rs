@@ -261,6 +261,7 @@ impl Cli {
 					referent.options.path.replace(root_module_file_name.into());
 				}
 				let kind = tg::module::module_kind_for_path(root_module_file_name).unwrap();
+				let host = tg::module::host_for_module_kind(kind).to_owned();
 				let item = directory
 					.get_entry_edge(&handle, root_module_file_name)
 					.await?;
@@ -268,7 +269,6 @@ impl Cli {
 				let referent = tg::Referent::with_item(item);
 				let module = tg::Module { kind, referent };
 				let export = reference.export().unwrap_or("default").to_owned();
-				let host = "js".to_owned();
 				let executable = tg::command::Executable::Module(tg::command::ModuleExecutable {
 					module,
 					export: Some(export),
@@ -298,13 +298,13 @@ impl Cli {
 						.map_err(|source| tg::error!(!source, "failed to get the module kind"))?
 				};
 				if let Some(kind) = kind {
+					let host = tg::module::host_for_module_kind(kind).to_owned();
 					let item = file.clone().into();
 					let item = tg::graph::Edge::Object(item);
 					let item = tg::module::Item::Edge(item);
 					let referent = tg::Referent::with_item(item);
 					let module = tg::Module { kind, referent };
 					let export = reference.export().unwrap_or("default").to_owned();
-					let host = "js".to_owned();
 					let executable =
 						tg::command::Executable::Module(tg::command::ModuleExecutable {
 							module,
