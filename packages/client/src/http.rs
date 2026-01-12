@@ -160,7 +160,9 @@ impl tg::Client {
 				}
 				#[cfg(feature = "tls")]
 				{
-					let host = url.domain().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+					let host = url
+						.domain()
+						.ok_or_else(|| tg::error!(%url, "invalid url"))?;
 					let port = url
 						.port_or_known_default()
 						.ok_or_else(|| tg::error!(%url, "invalid url"))?;
