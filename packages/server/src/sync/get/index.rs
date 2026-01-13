@@ -2,7 +2,7 @@ use {
 	crate::sync::graph::{Graph, Node},
 	crate::{Server, index::message::ProcessObjectKind, sync::get::State},
 	futures::{StreamExt as _, TryStreamExt as _},
-	std::{collections::BTreeMap, sync::Arc},
+	std::sync::Arc,
 	tangram_client::prelude::*,
 	tangram_messenger::prelude::*,
 	tangram_store::prelude::*,
@@ -254,14 +254,12 @@ impl Server {
 		.map_err(|source| tg::error!(!source, "failed to create the index messages"))?;
 
 		// Publish the messages.
-		for messages in messages {
-			self.messenger
-				.stream_batch_publish("index".to_owned(), messages)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to publish the messages"))?
-				.await
-				.map_err(|source| tg::error!(!source, "failed to publish the messages"))?;
-		}
+		self.messenger
+			.stream_batch_publish("index".to_owned(), messages)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish the messages"))?
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish the messages"))?;
 
 		Ok(())
 	}
@@ -269,18 +267,18 @@ impl Server {
 	fn sync_get_index_create_messages(
 		graph: &mut Graph,
 		message_max_bytes: usize,
-	) -> tg::Result<Vec<Vec<crate::index::message::Messages>>> {
-		// Get a topological ordering using Tarjan's algorithm.
+	) -> tg::Result<Vec<crate::index::message::Messages>> {
+		// Get a reverse topological ordering using Tarjan's algorithm.
 		let sccs = petgraph::algo::tarjan_scc(&*graph);
 		for scc in &sccs {
 			if scc.len() > 1 {
-				return Err(tg::error!("failed to toposort the graph"));
+				return Err(tg::error!("the graph had a cycle"));
 			}
 		}
-		let toposort = sccs.into_iter().flatten().rev().collect::<Vec<_>>();
+		let indices = sccs.into_iter().flatten().collect::<Vec<_>>();
 
 		// Set stored and metadata.
-		for index in toposort.into_iter().rev() {
+		for index in indices {
 			let (_, node) = graph.nodes.get_index(index).unwrap();
 			match node {
 				Node::Object(node) => {
@@ -863,14 +861,14 @@ impl Server {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Create the messages.
-		let mut messages = BTreeMap::new();
+		let mut messages = Vec::new();
 		let mut stack = graph
 			.nodes
 			.iter()
 			.enumerate()
-			.filter_map(|(index, (_, node))| node.parents().is_empty().then_some((index, 0)))
+			.filter_map(|(index, (_, node))| node.parents().is_empty().then_some(index))
 			.collect::<Vec<_>>();
-		while let Some((index, level)) = stack.pop() {
+		while let Some(index) = stack.pop() {
 			let (id, node) = graph.nodes.get_index(index).unwrap();
 			match node {
 				Node::Object(node) => {
@@ -902,10 +900,10 @@ impl Server {
 								stored,
 								touched_at,
 							});
-						messages.entry(level).or_insert(Vec::new()).push(message);
+						messages.push(message);
 					}
 					if let Some(children) = node.children.as_ref() {
-						stack.extend(children.iter().map(|index| (*index, level + 1)));
+						stack.extend(children.iter().copied());
 					}
 				},
 				Node::Process(node) => {
@@ -954,40 +952,35 @@ impl Server {
 								stored,
 								touched_at,
 							});
-						messages.entry(level).or_insert(Vec::new()).push(message);
+						messages.push(message);
 					}
 					if let Some(children) = node.children.as_ref() {
-						stack.extend(children.iter().map(|index| (*index, level + 1)));
+						stack.extend(children.iter().copied());
 					}
 					if let Some(objects) = node.objects.as_ref() {
-						stack.extend(objects.iter().map(|(index, _)| (*index, level + 1)));
+						stack.extend(objects.iter().map(|(index, _)| *index));
 					}
 				},
 			}
 		}
 
-		// Batch and serialize the messages.
-		let mut batched = BTreeMap::new();
-		for (level, messages) in messages {
-			let mut batches = Vec::new();
-			let mut messages = messages.into_iter().peekable();
-			while let Some(message) = messages.next() {
-				let mut batch = vec![message];
-				let mut batch_bytes = batch[0].serialize()?.len();
-				while let Some(message) = messages.peek() {
-					batch_bytes += message.serialize()?.len();
-					if batch_bytes > message_max_bytes {
-						break;
-					}
-					let message = messages.next().unwrap();
-					batch.push(message);
+		// Batch the messages.
+		let mut batches = Vec::new();
+		let mut messages = messages.into_iter().peekable();
+		while let Some(message) = messages.next() {
+			let mut batch = vec![message];
+			let mut batch_bytes = batch[0].serialize()?.len();
+			while let Some(message) = messages.peek() {
+				batch_bytes += message.serialize()?.len();
+				if batch_bytes > message_max_bytes {
+					break;
 				}
-				batches.push(crate::index::message::Messages(batch));
+				let message = messages.next().unwrap();
+				batch.push(message);
 			}
-			batched.insert(level, batches);
+			batches.push(crate::index::message::Messages(batch));
 		}
-		let messages = batched.into_values().rev().collect();
 
-		Ok(messages)
+		Ok(batches)
 	}
 }

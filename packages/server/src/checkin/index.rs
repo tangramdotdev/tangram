@@ -55,6 +55,10 @@ impl Server {
 			messages.push(message);
 		}
 
+		// Reverse the messages to put them in topological order.
+		messages.reverse();
+
+		// Publish the messages.
 		let message = crate::index::message::Messages(messages);
 		self.messenger
 			.stream_publish("index".to_owned(), message)
