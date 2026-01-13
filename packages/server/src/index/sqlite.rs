@@ -1800,7 +1800,12 @@ impl Server {
 					left join process_objects on process_objects.process = processes.id and process_objects.kind = 2
 					left join objects on objects.id = process_objects.object
 					where processes.id = ?1
-					and processes.node_log_stored = 0
+					and (
+						processes.node_log_stored = 0 or
+						processes.node_log_count is null or
+						processes.node_log_depth is null or
+						processes.node_log_size is null
+					)
 					group by processes.id
 				) as updates
 				where processes.id = updates.id
@@ -1987,7 +1992,12 @@ impl Server {
 					left join process_children on process_children.process = processes.id
 					left join processes child_processes on child_processes.id = process_children.child
 					where processes.id = ?1
-					and processes.subtree_log_stored = 0
+					and (
+						processes.subtree_log_stored = 0 or
+						processes.subtree_log_count is null or
+						processes.subtree_log_depth is null or
+						processes.subtree_log_size is null
+					)
 					group by processes.id
 				) as updates
 				where processes.id = updates.id
