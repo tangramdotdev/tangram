@@ -37,17 +37,12 @@ impl std::io::Write for Writer {
 		}
 		Ok(buf.len())
 	}
+
 	fn flush(&mut self) -> std::io::Result<()> {
 		let bytes = self.buf.clone();
 		self.buf.clear();
 		super::log::log_inner(self.state.clone(), tg::process::log::Stream::Stderr, bytes)
 			.map_err(|error| std::io::Error::other(error))
-	}
-}
-
-impl tg::progress::Writer for Writer {
-	fn is_terminal(&self) -> bool {
-		false
 	}
 }
 
@@ -82,7 +77,7 @@ pub async fn spawn(
 		state,
 	};
 	let handle = writer.state.handle.clone();
-	let output = tg::progress::write_progress_stream(&handle, stream, false, writer).await?;
+	let output = tg::progress::write_progress_stream(&handle, stream, writer, false).await?;
 	Ok(Serde(output))
 }
 

@@ -244,24 +244,10 @@ impl std::str::FromStr for Level {
 	}
 }
 
-pub trait Writer
-where
-	Self: std::io::Write,
-{
-	fn is_terminal(&self) -> bool {
-		false
-	}
-}
-
-impl Writer for std::io::Stderr {
-	fn is_terminal(&self) -> bool {
-		<Self as std::io::IsTerminal>::is_terminal(self)
-	}
-}
-
 struct State<H, T, W> {
 	handle: H,
 	indicators: IndexMap<String, tg::progress::Indicator>,
+	is_tty: bool,
 	lines: Option<u16>,
 	output: Option<T>,
 	writer: W,
@@ -270,37 +256,17 @@ struct State<H, T, W> {
 pub async fn write_progress_stream<H, T, W>(
 	handle: &H,
 	stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>>,
-	quiet: bool,
 	writer: W,
+	is_tty: bool,
 ) -> tg::Result<T>
 where
 	H: tg::Handle,
-	W: Writer,
+	W: std::io::Write,
 {
-	if quiet {
-		let output = pin!(stream)
-			.try_last()
-			.await?
-			.ok_or_else(|| tg::error!("expected an event"))?
-			.try_unwrap_output()
-			.ok()
-			.ok_or_else(|| tg::error!("expected the output"))?;
-		return Ok(output);
-	}
-
-	if !writer.is_terminal() {
-		let stream = pin!(stream);
-		let output = stream
-			.try_last()
-			.await?
-			.and_then(|event| event.try_unwrap_output().ok())
-			.ok_or_else(|| tg::error!("stream ended without output"))?;
-		return Ok(output);
-	}
-
 	let mut state = State {
 		handle: handle.clone(),
 		indicators: IndexMap::new(),
+		is_tty,
 		lines: None,
 		writer,
 		output: None,
@@ -345,7 +311,7 @@ where
 impl<H, T, W> State<H, T, W>
 where
 	H: tg::Handle,
-	W: Writer,
+	W: std::io::Write,
 {
 	async fn render_progress_stream_update(&mut self, event: tg::progress::Event<T>) {
 		match event {
@@ -389,16 +355,16 @@ where
 	}
 
 	fn clear(&mut self) {
-		match self.lines.take() {
-			Some(n) if n > 0 => {
-				ct::queue!(
-					self.writer,
-					ct::cursor::MoveToPreviousLine(n),
-					ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
-				)
-				.unwrap();
-			},
-			_ => (),
+		let n = self.lines.take();
+		if let Some(n) = n
+			&& self.is_tty
+		{
+			ct::queue!(
+				self.writer,
+				ct::cursor::MoveToPreviousLine(n),
+				ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
+			)
+			.unwrap();
 		}
 	}
 

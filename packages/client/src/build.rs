@@ -1,4 +1,7 @@
-use {crate::prelude::*, std::path::PathBuf};
+use {
+	crate::prelude::*,
+	std::{io::IsTerminal as _, path::PathBuf},
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct Arg {
@@ -62,7 +65,9 @@ where
 		stdout: None,
 	};
 	let stream = tg::Process::spawn(handle, arg).await?;
-	let process = tg::progress::write_progress_stream(handle, stream, false, std::io::stderr())
+	let writer = std::io::stderr();
+	let is_tty = writer.is_terminal();
+	let process = tg::progress::write_progress_stream(handle, stream, writer, is_tty)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
 	let output = process.output(handle).await?;

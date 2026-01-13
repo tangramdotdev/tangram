@@ -1,8 +1,6 @@
-use futures::TryStreamExt;
-
 use {
 	crate::prelude::*,
-	futures::Stream,
+	futures::{Stream, TryStreamExt as _},
 	std::{
 		ops::Deref,
 		sync::{Arc, Mutex, RwLock},
