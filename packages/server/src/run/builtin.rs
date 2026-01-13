@@ -24,7 +24,7 @@ impl Server {
 		let logger = std::sync::Arc::new({
 			let server = self.clone();
 			let process = process.clone();
-			move |stream: tg::process::log::Stream, message: String| {
+			move |stream: tg::process::log::Stream, message: Vec<u8>| {
 				let server = server.clone();
 				let process = process.clone();
 				async move { crate::run::util::log(&server, &process, stream, message).await }

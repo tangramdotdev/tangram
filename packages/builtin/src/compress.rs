@@ -103,7 +103,11 @@ where
 
 	// Log that the compression finished.
 	let message = "finished compressing\n";
-	logger(tg::process::log::Stream::Stderr, message.to_owned()).await?;
+	logger(
+		tg::process::log::Stream::Stderr,
+		message.to_owned().into_bytes(),
+	)
+	.await?;
 
 	let output = if is_file {
 		tg::File::with_contents(blob).into()

@@ -24,6 +24,7 @@ blake3 = { workspace = true }
 byte-unit = { workspace = true }
 byteorder = { workspace = true }
 bytes = { workspace = true }
+crossterm = { workspace = true }
 data-encoding = { workspace = true }
 data-encoding-macro = { workspace = true }
 derive_more = { workspace = true }
@@ -33,8 +34,10 @@ http-body-util = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
 indoc = { workspace = true }
+indexmap = { workspace = true }
 itertools = { workspace = true }
 lsp-types = { workspace = true }
+miette = { workspace = true }
 mime = { workspace = true }
 num = { workspace = true }
 regex = { workspace = true }

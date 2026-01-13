@@ -127,7 +127,11 @@ where
 
 	// Log that the extraction finished.
 	let message = "finished extracting\n";
-	logger(tg::process::log::Stream::Stderr, message.to_owned()).await?;
+	logger(
+		tg::process::log::Stream::Stderr,
+		message.to_owned().into_bytes(),
+	)
+	.await?;
 
 	let output = artifact.into();
 

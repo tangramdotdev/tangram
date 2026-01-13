@@ -1,6 +1,6 @@
 use {
 	crate::prelude::*,
-	futures::{future::BoxFuture, prelude::*, stream::BoxStream},
+	futures::{StreamExt, future::BoxFuture, prelude::*, stream::BoxStream},
 	tangram_futures::{BoxAsyncBufRead, BoxAsyncRead, BoxAsyncWrite},
 };
 
@@ -230,7 +230,12 @@ pub trait Process: Send + Sync + 'static {
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
-	) -> BoxFuture<'_, tg::Result<Option<tg::process::spawn::Output>>>;
+	) -> BoxFuture<
+		'_,
+		tg::Result<
+			BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>,
+		>,
+	>;
 
 	fn start_process<'a>(
 		&'a self,
@@ -708,8 +713,13 @@ where
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
-	) -> BoxFuture<'_, tg::Result<Option<tg::process::spawn::Output>>> {
-		self.try_spawn_process(arg).boxed()
+	) -> BoxFuture<
+		'_,
+		tg::Result<
+			BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>,
+		>,
+	> {
+		self.try_spawn_process(arg).map_ok(StreamExt::boxed).boxed()
 	}
 
 	fn start_process<'a>(

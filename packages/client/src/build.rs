@@ -61,7 +61,10 @@ where
 		stdin: None,
 		stdout: None,
 	};
-	let process = tg::Process::spawn(handle, arg).await?;
+	let stream = tg::Process::spawn(handle, arg).await?;
+	let process = tg::progress::write_progress_stream(handle, stream, false, std::io::stderr())
+		.await
+		.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
 	let output = process.output(handle).await?;
 	Ok(output)
 }

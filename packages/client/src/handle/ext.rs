@@ -1,7 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{
-		FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future,
+		FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
 		stream::{self, BoxStream},
 	},
 	num::ToPrimitive as _,
@@ -461,9 +461,21 @@ pub trait Ext: tg::Handle {
 	fn spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::spawn::Output>> + Send {
-		self.try_spawn_process(arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("expected a process")))
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::process::spawn::Output>>>
+			+ Send
+			+ 'static,
+		>,
+	> {
+		self.try_spawn_process(arg).map_ok(|stream| {
+			stream.and_then(|event| {
+				future::ready(
+					event.try_map_output(|item| {
+						item.ok_or_else(|| tg::error!("expected a process"))
+					}),
+				)
+			})
 		})
 	}
 

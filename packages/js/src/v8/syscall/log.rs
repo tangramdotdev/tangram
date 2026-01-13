@@ -6,11 +6,19 @@ pub fn log(
 	args: (Serde<tg::process::log::Stream>, String),
 ) -> tg::Result<()> {
 	let (Serde(stream), string) = args;
+	log_inner(state, stream, string.into_bytes())
+}
+
+pub(crate) fn log_inner(
+	state: Rc<State>,
+	stream: tg::process::log::Stream,
+	bytes: Vec<u8>,
+) -> tg::Result<()> {
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
 		let logger = state.logger.clone();
 		async move {
-			let result = (logger)(stream, string).await;
+			let result = (logger)(stream, bytes).await;
 			sender.send(result).unwrap();
 		}
 	});

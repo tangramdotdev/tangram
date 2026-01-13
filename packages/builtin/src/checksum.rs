@@ -112,7 +112,11 @@ where
 
 	// Log that the checksum computation finished.
 	let message = "finished computing checksum\n";
-	logger(tg::process::log::Stream::Stderr, message.to_owned()).await?;
+	logger(
+		tg::process::log::Stream::Stderr,
+		message.to_owned().into_bytes(),
+	)
+	.await?;
 
 	let checksum = writer.finalize();
 	Ok(checksum)
@@ -171,7 +175,11 @@ where
 
 	// Log that the checksum computation finished.
 	let message = "finished computing checksum\n";
-	logger(tg::process::log::Stream::Stderr, message.to_owned()).await?;
+	logger(
+		tg::process::log::Stream::Stderr,
+		message.to_owned().into_bytes(),
+	)
+	.await?;
 
 	Ok(checksum)
 }

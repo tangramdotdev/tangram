@@ -11,7 +11,7 @@ pub use self::quickjs::{Abort, run};
 pub use self::v8::{Abort, run};
 
 pub type Logger = Arc<
-	dyn Fn(tg::process::log::Stream, String) -> BoxFuture<'static, tg::Result<()>>
+	dyn Fn(tg::process::log::Stream, Vec<u8>) -> BoxFuture<'static, tg::Result<()>>
 		+ Send
 		+ Sync
 		+ 'static,
