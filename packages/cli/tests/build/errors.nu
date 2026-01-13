@@ -15,8 +15,7 @@ let path = artifact {
 }
 
 # Build and get process ID.
-let output = tg build -d $path | from json
-let process_id = $output.process
+let process_id = tg build -d $path | str trim
 
 # Wait for process to complete.
 tg wait $process_id

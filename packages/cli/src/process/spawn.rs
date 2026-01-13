@@ -16,6 +16,10 @@ pub struct Args {
 	/// Set arguments.
 	#[arg(index = 2, trailing_var_arg = true)]
 	pub trailing: Vec<String>,
+
+	/// Print the full spawn output instead of just the process ID.
+	#[arg(long, short)]
+	pub verbose: bool,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -201,7 +205,11 @@ impl Cli {
 			)
 			.boxed()
 			.await?;
-		self.print_serde(output, args.print).await?;
+		if args.verbose {
+			self.print_serde(output, args.print).await?;
+		} else {
+			Self::print_display(&output.process);
+		}
 		Ok(())
 	}
 

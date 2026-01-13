@@ -9,7 +9,7 @@ let path = artifact {
 		export default () => {};
 	'#
 }
-let id = tg build -d $path | from json | get process
+let id = tg build -d $path | str trim
 tg wait $id
 
 tg index

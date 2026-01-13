@@ -14,7 +14,7 @@ let path = artifact {
 	'
 }
 
-let id = tg build -d $path | from json | get process
+let id = tg build -d $path | str trim
 tg wait $id
 
 let combined = tg process log $id o+e>| complete

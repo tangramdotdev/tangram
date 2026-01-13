@@ -21,16 +21,16 @@ let path = artifact {
 }
 
 # Build all exports and get their process IDs.
-let a_process = tg process spawn --sandbox ($path + '#a') | from json | get process
+let a_process = tg process spawn --sandbox ($path + '#a') | str trim
 tg process output $a_process
 
-let b_process = tg process spawn --sandbox ($path + '#b') | from json | get process
+let b_process = tg process spawn --sandbox ($path + '#b') | str trim
 
-let c_process = tg process spawn --sandbox ($path + '#c') | from json | get process
+let c_process = tg process spawn --sandbox ($path + '#c') | str trim
 
-let d_process = tg process spawn --sandbox ($path + '#d') | from json | get process
+let d_process = tg process spawn --sandbox ($path + '#d') | str trim
 
-let e_process = tg process spawn --sandbox ($path + '#e') | from json | get process
+let e_process = tg process spawn --sandbox ($path + '#e') | str trim
 
 tg wait $a_process
 tg wait $b_process

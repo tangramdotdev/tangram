@@ -56,6 +56,10 @@ pub struct Options {
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
+	/// Print the full spawn output instead of just the process ID.
+	#[arg(long, short)]
+	pub verbose: bool,
+
 	#[command(flatten)]
 	pub spawn: crate::process::spawn::Options,
 }
@@ -298,7 +302,11 @@ impl Cli {
 
 		// If the detach flag is set, then print the process ID and return.
 		if options.detach {
-			self.print_serde(output, options.print).await?;
+			if options.verbose {
+				self.print_serde(output, options.print).await?;
+			} else {
+				Self::print_display(&output.process);
+			}
 			return Ok(());
 		}
 
@@ -355,6 +363,17 @@ impl Cli {
 
 		// Handle the result.
 		let wait = result.map_err(|source| tg::error!(!source, "failed to await the process"))?;
+
+		// Print verbose output if requested.
+		if options.verbose {
+			let output = tg::process::wait::Output {
+				error: wait.error.as_ref().map(tg::Error::to_data_or_id),
+				exit: wait.exit,
+				output: wait.output.as_ref().map(tg::Value::to_data),
+			};
+			self.print_serde(output, options.print.clone()).await?;
+			return Ok(());
+		}
 
 		// Set the exit.
 		if wait.exit != 0 {
@@ -439,7 +458,7 @@ impl Cli {
 		}
 
 		// Print the output.
-		if !output.is_null() {
+		if !options.verbose && !output.is_null() {
 			let arg = tg::object::get::Arg {
 				local,
 				metadata: false,

@@ -37,8 +37,7 @@ export def test [...args] {
 	}
 
 	# Build the module on the dummy server.
-	let output = tg -u $source.url build -d $path | from json
-	let process_a_id = $output.process
+	let process_a_id = tg -u $source.url build -d $path | str trim
 
 	# Wait for the process to finish.
 	tg -u $source.url wait $process_a_id

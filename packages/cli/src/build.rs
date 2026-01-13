@@ -41,11 +41,15 @@ pub struct Options {
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
+	/// Print the full spawn output instead of just the process ID.
+	#[arg(long, short)]
+	pub verbose: bool,
+
 	#[command(flatten)]
 	pub spawn: crate::process::spawn::Options,
 
 	/// The view to display if the process's stdio is not attached.
-	#[arg(default_value = "inline", long, short)]
+	#[arg(default_value = "inline", long)]
 	pub view: View,
 }
 
@@ -84,7 +88,11 @@ impl Cli {
 
 		// If the detach flag is set, then print the process ID and return.
 		if options.detach {
-			self.print_serde(output, options.print).await?;
+			if options.verbose {
+				self.print_serde(output, options.print).await?;
+			} else {
+				Self::print_display(&output.process);
+			}
 			return Ok(());
 		}
 
@@ -197,6 +205,17 @@ impl Cli {
 
 			result?
 		};
+
+		// Print verbose output if requested.
+		if options.verbose {
+			let output = tg::process::wait::Output {
+				error: wait.error.as_ref().map(tg::Error::to_data_or_id),
+				exit: wait.exit,
+				output: wait.output.as_ref().map(tg::Value::to_data),
+			};
+			self.print_serde(output, options.print.clone()).await?;
+			return Ok(());
+		}
 
 		// Set the exit.
 		if wait.exit != 0 {

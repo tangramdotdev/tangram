@@ -11,10 +11,7 @@ export def test [path: string, ...args] {
 	tg remote put default $remote.url | complete
 
 	# Build the module.
-	let output = tg build -d $path | from json
-
-	# Parse the process ID.
-	let process_id = $output.process
+	let process_id = tg build -d $path | str trim
 
 	# Wait for the process to finish.
 	tg wait $process_id
