@@ -85,7 +85,7 @@ def main [
 	mut pending = $tests
 	mut running = []
 	mut results = []
-	mut available_indices = if $cloud { 0..<$jobs | collect } else { [] }
+	mut available_indices = if $cloud { 0..<$jobs | each { $in } } else { [] }
 
 	let start = date now
 	let total = $pending | length
@@ -873,7 +873,7 @@ export def --env spawn [
 	{ config: $config_path, directory: $directory_path, url: $url }
 }
 
-def clean_databases [id: string] {
+def clean_databases [id: number] {
 	# Drop the postgres databases.
 	try { dropdb -U postgres -h localhost $'database_($id)' }
 	try { dropdb -U postgres -h localhost $'index_($id)' }
