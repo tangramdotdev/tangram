@@ -1,11 +1,15 @@
 use {
 	crate::{Context, ProcessPermit, Server, database},
-	futures::{FutureExt as _, future},
+	futures::{
+		FutureExt as _, StreamExt as _, TryStreamExt, future,
+		stream::{self, BoxStream, FuturesUnordered},
+	},
 	indoc::{formatdoc, indoc},
 	std::pin::pin,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+	tangram_futures::{stream::Ext as _, task::Task},
+	tangram_http::{Body, request::Ext as _},
 	tangram_messenger::prelude::*,
 };
 
@@ -23,28 +27,9 @@ impl Server {
 		&self,
 		context: &Context,
 		mut arg: tg::process::spawn::Arg,
-	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		// Forward to remote if requested.
-		if let Some(name) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let remote = self
-				.get_remote_client(name.clone())
-				.await
-				.map_err(|source| tg::error!(!source, %name, "failed to get the remote client"))?;
-			let arg = tg::process::spawn::Arg {
-				local: None,
-				remotes: None,
-				..arg
-			};
-			let output = remote.try_spawn_process(arg).await.map_err(
-				|source| tg::error!(!source, %name, "failed to spawn process on remote"),
-			)?;
-			let output = output.map(|mut output| {
-				output.remote.replace(name.clone());
-				output
-			});
-			return Ok(output);
-		}
-
+	) -> tg::Result<
+		BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>,
+	> {
 		// If the process context is set, update the parent, remotes, and retry.
 		if let Some(process) = &context.process {
 			arg.parent = Some(process.id.clone());
@@ -52,6 +37,78 @@ impl Server {
 				arg.remotes = Some(vec![remote.clone()]);
 			}
 			arg.retry = process.retry;
+		}
+
+		// Create the progress.
+		let progress = crate::progress::Handle::new();
+
+		// Spawn the task.
+		let task = Task::spawn({
+			let server = self.clone();
+			let progress = progress.clone();
+			async move |_| match server.try_spawn_process_task(arg, &progress).await {
+				Ok(output) => progress.output(output),
+				Err(error) => {
+					progress.error(error);
+					progress.output(None);
+				},
+			}
+		});
+
+		Ok(progress.stream().attach(task).boxed())
+	}
+
+	async fn try_spawn_process_task(
+		&self,
+		arg: tg::process::spawn::Arg,
+		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
+	) -> tg::Result<Option<tg::process::spawn::Output>> {
+		// Forward to remote if requested.
+		if let Some(name) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			// Push the command.
+			let push_arg = tg::push::Arg {
+				commands: true,
+				items: vec![tg::Either::Left(arg.command.item().clone().into())],
+				remote: Some(name.clone()),
+				..Default::default()
+			};
+			let stream = self
+				.push(push_arg)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to push the command"))?;
+			let mut stream = pin!(stream);
+			while let Some(event) = stream.try_next().await? {
+				if event.is_output() {
+					break;
+				}
+				progress.forward(Ok(event));
+			}
+
+			let remote = self
+				.get_remote_client(name.clone())
+				.await
+				.map_err(|source| tg::error!(!source, %name, "failed to get the remote client"))?;
+
+			// Spawn the process.
+			let arg = tg::process::spawn::Arg {
+				local: None,
+				remotes: None,
+				..arg
+			};
+			let stream = remote.try_spawn_process(arg).await.map_err(
+				|source| tg::error!(!source, %name, "failed to spawn process on remote"),
+			)?;
+			let mut stream = pin!(stream);
+
+			// Forward any events.
+			while let Some(event) = stream.next().await {
+				if let Ok(tg::progress::Event::Output(output)) = event {
+					return Ok(output);
+				} else {
+					progress.forward(event);
+				}
+			}
+			return Err(tg::error!("expected an output"));
 		}
 
 		// Get the host.
@@ -778,14 +835,14 @@ impl Server {
 		arg: &tg::process::spawn::Arg,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		// Find a process.
-		let futures = self
+		let streams = self
 			.get_remote_clients()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the remote clients"))?
 			.into_iter()
 			.map(|(name, client)| {
 				let arg = arg.clone();
-				Box::pin(async move {
+				async move {
 					let arg = tg::process::spawn::Arg {
 						cached: Some(true),
 						local: None,
@@ -793,22 +850,35 @@ impl Server {
 						remotes: None,
 						..arg.clone()
 					};
-					let mut output = client.spawn_process(arg).await?;
-					output.remote.replace(name);
-					Ok::<_, tg::Error>(Some(output))
-				})
+					let stream = client
+						.spawn_process(arg)
+						.await?
+						.map_ok(move |event| {
+							event.map_output(|mut output| {
+								output.remote.replace(name.clone());
+								output
+							})
+						})
+						.boxed();
+					Ok::<_, tg::Error>(stream)
+				}
 			})
-			.collect::<Vec<_>>();
+			.collect::<FuturesUnordered<_>>()
+			.collect::<Vec<_>>()
+			.await
+			.into_iter()
+			.filter_map(|stream| stream.ok())
+			.collect::<Vec<_>>(); // resolves https://github.com/rust-lang/rust/issues/64552
 
-		// Wait for the first response.
-		if futures.is_empty() {
-			return Ok(None);
+		// Wait for the first output.
+		let stream = stream::iter(streams).flatten();
+		let mut stream = pin!(stream);
+		while let Some(event) = stream.next().await {
+			if let Ok(tg::progress::Event::Output(output)) = event {
+				return Ok(Some(output));
+			}
 		}
-		let Ok((Some(output), _)) = future::select_ok(futures).await else {
-			return Ok(None);
-		};
-
-		Ok(Some(output))
+		Ok(None)
 	}
 
 	async fn add_process_child(
@@ -1088,18 +1158,46 @@ impl Server {
 		request: http::Request<Body>,
 		context: &Context,
 	) -> tg::Result<http::Response<Body>> {
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+
 		let arg = request
 			.json()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
-		let output = self
+
+		let stream = self
 			.try_spawn_process_with_context(context, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
-		let response = http::Response::builder()
-			.json(output)
-			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?
-			.unwrap();
+
+		let (content_type, body) = match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			Some((mime::TEXT, mime::EVENT_STREAM)) => {
+				let content_type = mime::TEXT_EVENT_STREAM;
+				let stream = stream.map(|result| match result {
+					Ok(event) => event.try_into(),
+					Err(error) => error.try_into(),
+				});
+				(Some(content_type), Body::with_sse_stream(stream))
+			},
+
+			_ => {
+				return Err(tg::error!(?accept, "invalid accept header"));
+			},
+		};
+
+		// Create the response.
+		let mut response = http::Response::builder();
+		if let Some(content_type) = content_type {
+			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
+		}
+		let response = response.body(body).unwrap();
+
 		Ok(response)
 	}
 }

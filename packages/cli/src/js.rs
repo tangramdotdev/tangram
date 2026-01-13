@@ -1,4 +1,6 @@
-use {crate::Cli, futures::FutureExt as _, tangram_client::prelude::*};
+use {
+	crate::Cli, futures::FutureExt as _, tangram_client::prelude::*, tokio::io::AsyncWriteExt as _,
+};
 
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -83,14 +85,14 @@ impl Cli {
 		let executable = args.executable;
 
 		// Create a logger that writes to stdio.
-		let logger = std::sync::Arc::new(|stream: tg::process::log::Stream, string: String| {
+		let logger = std::sync::Arc::new(|stream: tg::process::log::Stream, message: Vec<u8>| {
 			async move {
 				match stream {
 					tg::process::log::Stream::Stdout => {
-						print!("{string}");
+						tokio::io::stdout().write_all(&message).await.ok();
 					},
 					tg::process::log::Stream::Stderr => {
-						eprint!("{string}");
+						tokio::io::stderr().write_all(&message).await.ok();
 					},
 				}
 				Ok(())

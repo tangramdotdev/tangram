@@ -42,15 +42,24 @@ pub async fn archive<H>(
 where
 	H: tg::Handle,
 {
-	let command = archive_command(artifact, format, compression);
-	let command = command.store(handle).await?;
-	let command = tg::Referent::with_item(command);
-	let arg = tg::process::spawn::Arg::with_command(command);
-	let output = tg::Process::spawn(handle, arg)
-		.await?
-		.wait(handle)
-		.await?
-		.into_output()?;
+	let output = tg::build::build(
+		handle,
+		tg::build::Arg {
+			host: Some("builtin".into()),
+			args: vec![
+				artifact.clone().into(),
+				format.to_string().into(),
+				compression
+					.map(|compression| compression.to_string())
+					.into(),
+			],
+			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
+				path: "archive".into(),
+			})),
+			..tg::build::Arg::default()
+		},
+	)
+	.await?;
 	let blob = output.try_into()?;
 	Ok(blob)
 }
@@ -79,15 +88,18 @@ pub async fn bundle<H>(artifact: &tg::Artifact, handle: &H) -> tg::Result<tg::Ar
 where
 	H: tg::Handle,
 {
-	let command = bundle_command(artifact);
-	let command = command.store(handle).await?;
-	let command = tg::Referent::with_item(command);
-	let arg = tg::process::spawn::Arg::with_command(command);
-	let output = tg::Process::spawn(handle, arg)
-		.await?
-		.wait(handle)
-		.await?
-		.into_output()?;
+	let output = tg::build::build(
+		handle,
+		tg::build::Arg {
+			host: Some("builtin".into()),
+			args: vec![artifact.clone().into()],
+			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
+				path: "bundle".into(),
+			})),
+			..tg::build::Arg::default()
+		},
+	)
+	.await?;
 	let artifact = output.try_into()?;
 	Ok(artifact)
 }
@@ -110,15 +122,18 @@ pub async fn checksum<H>(
 where
 	H: tg::Handle,
 {
-	let command = checksum_command(input.cloned(), algorithm);
-	let command = command.store(handle).await?;
-	let command = tg::Referent::with_item(command);
-	let arg = tg::process::spawn::Arg::with_command(command);
-	let output = tg::Process::spawn(handle, arg)
-		.await?
-		.wait(handle)
-		.await?
-		.into_output()?;
+	let output = tg::build::build(
+		handle,
+		tg::build::Arg {
+			host: Some("builtin".into()),
+			args: vec![input.cloned().into(), algorithm.to_string().into()],
+			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
+				path: "checksum".into(),
+			})),
+			..tg::build::Arg::default()
+		},
+	)
+	.await?;
 	let checksum = output
 		.try_unwrap_string()
 		.ok()
@@ -149,15 +164,18 @@ pub async fn compress<H>(
 where
 	H: tg::Handle,
 {
-	let command = compress_command(input, format);
-	let command = command.store(handle).await?;
-	let command = tg::Referent::with_item(command);
-	let arg = tg::process::spawn::Arg::with_command(command);
-	let output = tg::Process::spawn(handle, arg)
-		.await?
-		.wait(handle)
-		.await?
-		.into_output()?;
+	let output = tg::build::build(
+		handle,
+		tg::build::Arg {
+			host: Some("builtin".into()),
+			args: vec![input.clone().into(), format.to_string().into()],
+			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
+				path: "compress".into(),
+			})),
+			..tg::build::Arg::default()
+		},
+	)
+	.await?;
 	let blob = output.try_into()?;
 	Ok(blob)
 }
@@ -176,15 +194,18 @@ pub async fn decompress<H>(input: &tg::Blob, handle: &H) -> tg::Result<tg::Blob>
 where
 	H: tg::Handle,
 {
-	let command = decompress_command(input);
-	let command = command.store(handle).await?;
-	let command = tg::Referent::with_item(command);
-	let arg = tg::process::spawn::Arg::with_command(command);
-	let output = tg::Process::spawn(handle, arg)
-		.await?
-		.wait(handle)
-		.await?
-		.into_output()?;
+	let output = tg::build::build(
+		handle,
+		tg::build::Arg {
+			host: Some("builtin".into()),
+			args: vec![input.clone().into()],
+			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
+				path: "decompress".into(),
+			})),
+			..tg::build::Arg::default()
+		},
+	)
+	.await?;
 	let blob = output.try_into()?;
 	Ok(blob)
 }
@@ -208,15 +229,21 @@ pub async fn download<H>(
 where
 	H: tg::Handle,
 {
-	let command = download_command(url, options);
-	let command = command.store(handle).await?;
-	let command = tg::Referent::with_item(command);
-	let arg = tg::process::spawn::Arg::with_command_and_checksum(command, Some(checksum.clone()));
-	let output = tg::Process::spawn(handle, arg)
-		.await?
-		.wait(handle)
-		.await?
-		.into_output()?;
+	let output = tg::build::build(
+		handle,
+		tg::build::Arg {
+			host: Some("builtin".into()),
+			args: std::iter::once(url.to_string().into())
+				.chain(options.map(tg::Value::from))
+				.collect(),
+			checksum: Some(checksum.clone()),
+			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
+				path: "download".into(),
+			})),
+			..tg::build::Arg::default()
+		},
+	)
+	.await?;
 	let output = if output.is_blob() {
 		tg::Either::Left(output.try_into()?)
 	} else if output.is_artifact() {
@@ -244,15 +271,18 @@ pub async fn extract<H>(handle: &H, input: &tg::Blob) -> tg::Result<tg::Artifact
 where
 	H: tg::Handle,
 {
-	let command = extract_command(input);
-	let command = command.store(handle).await?;
-	let command = tg::Referent::with_item(command);
-	let arg = tg::process::spawn::Arg::with_command(command);
-	let output = tg::Process::spawn(handle, arg)
-		.await?
-		.wait(handle)
-		.await?
-		.into_output()?;
+	let output = tg::build::build(
+		handle,
+		tg::build::Arg {
+			host: Some("builtin".into()),
+			args: vec![input.clone().into()],
+			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
+				path: "extract".into(),
+			})),
+			..tg::build::Arg::default()
+		},
+	)
+	.await?;
 	let artifact = output.try_into()?;
 	Ok(artifact)
 }

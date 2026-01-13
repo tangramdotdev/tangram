@@ -292,7 +292,13 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::process::spawn::Output>>> + Send;
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>
+			+ Send
+			+ 'static,
+		>,
+	> + Send;
 
 	fn start_process(
 		&self,
@@ -676,7 +682,13 @@ impl tg::handle::Process for tg::Client {
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::process::spawn::Output>>> {
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>
+			+ Send
+			+ 'static,
+		>,
+	> + Send {
 		self.try_spawn_process(arg)
 	}
 

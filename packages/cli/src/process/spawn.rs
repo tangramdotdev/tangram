@@ -446,26 +446,6 @@ impl Cli {
 		// Determine the retry.
 		let retry = options.retry;
 
-		// If remotes are set, then push the command.
-		if let Some(remotes) = options.remotes.remotes.as_ref() {
-			for remote in remotes {
-				let id = command.id();
-				let arg = tg::push::Arg {
-					commands: true,
-					items: vec![tg::Either::Left(id.into())],
-					remote: Some(remote.clone()),
-					..Default::default()
-				};
-				let stream = handle
-					.push(arg)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to push"))?;
-				self.render_progress_stream(stream)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to push the command"))?;
-			}
-		}
-
 		// Get the mounts.
 		let mut mounts = Vec::new();
 		if !sandbox {
@@ -503,10 +483,11 @@ impl Cli {
 			stdin,
 			stdout,
 		};
-		let output = handle
+		let stream = handle
 			.spawn_process(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
+		let output = self.render_progress_stream(stream).await?;
 
 		// Tag the process if requested.
 		if let Some(tag) = options.tag {

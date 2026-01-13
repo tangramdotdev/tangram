@@ -379,7 +379,13 @@ impl tg::handle::Process for Handle {
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::process::spawn::Output>>> {
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>
+			+ Send
+			+ 'static,
+		>,
+	> + Send {
 		self.0.try_spawn_process(arg)
 	}
 

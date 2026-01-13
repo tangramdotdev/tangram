@@ -552,10 +552,22 @@ where
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::process::spawn::Output>>> {
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>
+			+ Send
+			+ 'static,
+		>,
+	> + Send {
 		match self {
-			tg::Either::Left(s) => s.try_spawn_process(arg).left_future(),
-			tg::Either::Right(s) => s.try_spawn_process(arg).right_future(),
+			tg::Either::Left(s) => s
+				.try_spawn_process(arg)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			tg::Either::Right(s) => s
+				.try_spawn_process(arg)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
 		}
 	}
 

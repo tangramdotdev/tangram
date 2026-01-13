@@ -1,5 +1,6 @@
 use {
 	crate::prelude::*,
+	futures::{Stream, TryStreamExt as _},
 	std::{
 		ops::Deref,
 		sync::{Arc, Mutex, RwLock},
@@ -161,13 +162,19 @@ impl Process {
 		Ok(self.load(handle).await?.map(|state| &state.retry))
 	}
 
-	pub async fn spawn<H>(handle: &H, arg: tg::process::spawn::Arg) -> tg::Result<tg::Process>
+	pub async fn spawn<H>(
+		handle: &H,
+		arg: tg::process::spawn::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<tg::Process>>> + Send>
 	where
 		H: tg::Handle,
 	{
-		let output = handle.spawn_process(arg).await?;
-		let process = tg::Process::new(output.process, None, output.remote, None, output.token);
-		Ok(process)
+		let stream = handle.spawn_process(arg).await?.map_ok(|event| {
+			event.map_output(|output| {
+				tg::Process::new(output.process, None, output.remote, None, output.token)
+			})
+		});
+		Ok(stream)
 	}
 
 	pub async fn wait<H>(&self, handle: &H) -> tg::Result<tg::process::Wait>

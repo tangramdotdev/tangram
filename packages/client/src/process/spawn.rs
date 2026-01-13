@@ -1,5 +1,6 @@
 use {
 	crate::prelude::*,
+	futures::{Stream, TryStreamExt as _, future},
 	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::{CommaSeparatedString, is_false},
@@ -60,13 +61,17 @@ impl tg::Client {
 	pub async fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
-	) -> tg::Result<Option<tg::process::spawn::Output>> {
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>
+		+ Send
+		+ 'static,
+	> {
 		let method = http::Method::POST;
 		let uri = "/processes/spawn";
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
+			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
 			.json(arg)
 			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
 			.unwrap();
@@ -74,20 +79,27 @@ impl tg::Client {
 			.send(request)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
-		if response.status() == http::StatusCode::NOT_FOUND {
-			return Ok(None);
-		}
 		if !response.status().is_success() {
 			let error = response.json().await.map_err(|source| {
 				tg::error!(!source, "failed to deserialize the error response")
 			})?;
 			return Err(error);
 		}
-		let output = response
-			.json()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the response"))?;
-		Ok(output)
+		let stream = response
+			.sse()
+			.map_err(|source| tg::error!(!source, "failed to read an event"))
+			.and_then(|event| {
+				future::ready(
+					if event.event.as_deref().is_some_and(|event| event == "error") {
+						match event.try_into() {
+							Ok(error) | Err(error) => Err(error),
+						}
+					} else {
+						event.try_into()
+					},
+				)
+			});
+		Ok(stream)
 	}
 }
 

@@ -44,7 +44,7 @@ pub async fn log(
 	server: &Server,
 	process: &tg::Process,
 	stream: tg::process::log::Stream,
-	message: String,
+	message: Vec<u8>,
 ) -> tg::Result<()> {
 	let state = process
 		.load(server)
@@ -78,7 +78,7 @@ pub async fn log(
 async fn log_inner(
 	server: &Server,
 	stdio: &tg::process::Stdio,
-	message: String,
+	message: Vec<u8>,
 	remote: Option<&String>,
 ) -> tg::Result<()> {
 	match stdio {
@@ -95,7 +95,11 @@ async fn log_inner(
 				.map_err(|source| tg::error!(!source, "failed to write to the pipe"))?;
 		},
 		tg::process::Stdio::Pty(id) => {
-			let bytes = Bytes::from(message.replace('\n', "\r\n"));
+			let bytes = if let Ok(string) = std::str::from_utf8(&message) {
+				Bytes::from(string.replace('\n', "\r\n"))
+			} else {
+				Bytes::from(message)
+			};
 			let stream = stream::once(future::ok(tg::pty::Event::Chunk(bytes)));
 			let arg = tg::pty::write::Arg {
 				local: None,

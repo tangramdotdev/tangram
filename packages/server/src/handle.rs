@@ -181,7 +181,11 @@ impl tg::handle::Process for Owned {
 	async fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
-	) -> tg::Result<Option<tg::process::spawn::Output>> {
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>
+		+ Send
+		+ 'static,
+	> {
 		self.0.try_spawn_process(arg).await
 	}
 
@@ -651,7 +655,11 @@ impl tg::handle::Process for Server {
 	async fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
-	) -> tg::Result<Option<tg::process::spawn::Output>> {
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>
+		+ Send
+		+ 'static,
+	> {
 		self.try_spawn_process_with_context(&Context::default(), arg)
 			.await
 	}
@@ -1149,7 +1157,11 @@ impl tg::handle::Process for ServerWithContext {
 	async fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
-	) -> tg::Result<Option<tg::process::spawn::Output>> {
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>
+		+ Send
+		+ 'static,
+	> {
 		self.0.try_spawn_process_with_context(&self.1, arg).await
 	}
 

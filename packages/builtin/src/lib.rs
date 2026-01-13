@@ -18,7 +18,7 @@ mod extract;
 mod util;
 
 pub type Logger = Arc<
-	dyn Fn(tg::process::log::Stream, String) -> BoxFuture<'static, tg::Result<()>>
+	dyn Fn(tg::process::log::Stream, Vec<u8>) -> BoxFuture<'static, tg::Result<()>>
 		+ Send
 		+ Sync
 		+ 'static,
@@ -81,7 +81,7 @@ pub(crate) async fn log_progress_stream<T: Send + std::fmt::Debug>(
 		};
 		for indicator in indicators {
 			let message = format!("{indicator}\n");
-			logger(tg::process::log::Stream::Stderr, message).await?;
+			logger(tg::process::log::Stream::Stderr, message.into_bytes()).await?;
 		}
 	}
 	Ok(())
