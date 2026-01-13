@@ -145,6 +145,11 @@ impl Server {
 							.send(Ok(message))
 							.await
 							.map_err(|source| tg::error!(!source, "failed to send the message"))?;
+
+						// Increment the progress.
+						let objects = metadata.subtree.count.unwrap_or(1);
+						let bytes = metadata.subtree.size.unwrap_or(metadata.node.size);
+						state.progress.increment_skipped(0, objects, bytes);
 					} else {
 						// If the object is stored but its subtree is not stored, then enqueue the children.
 						let bytes = self
@@ -168,6 +173,9 @@ impl Server {
 						);
 
 						Self::sync_get_enqueue_object_children(state, &item.id, &data, item.kind);
+
+						// Increment the progress.
+						state.progress.increment_skipped(0, 1, metadata.node.size);
 					}
 				},
 			}

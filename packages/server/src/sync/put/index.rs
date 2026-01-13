@@ -79,7 +79,7 @@ impl Server {
 			let processes = 0;
 			let objects = metadata.subtree.count.unwrap_or_default();
 			let bytes = metadata.subtree.size.unwrap_or_default();
-			state.progress.increment(processes, objects, bytes);
+			state.progress.increment_skipped(processes, objects, bytes);
 		}
 
 		if state.graph.lock().unwrap().end_remote(&state.arg) {
@@ -105,72 +105,72 @@ impl Server {
 			let Some((_stored, metadata)) = output else {
 				continue;
 			};
-			let mut message = tg::sync::ProgressMessage::default();
+			let mut processes = 0;
+			let mut objects = 0;
+			let mut bytes = 0;
 			if state.arg.recursive {
 				if let Some(count) = metadata.subtree.count {
-					message.processes += count;
+					processes += count;
 				}
 				if state.arg.commands {
 					if let Some(commands_count) = metadata.subtree.command.count {
-						message.objects += commands_count;
+						objects += commands_count;
 					}
 					if let Some(commands_size) = metadata.subtree.command.size {
-						message.bytes += commands_size;
+						bytes += commands_size;
 					}
 				}
 				if state.arg.errors {
 					if let Some(errors_count) = metadata.subtree.error.count {
-						message.objects += errors_count;
+						objects += errors_count;
 					}
 					if let Some(errors_size) = metadata.subtree.error.size {
-						message.bytes += errors_size;
+						bytes += errors_size;
 					}
 				}
 				if state.arg.logs {
 					if let Some(logs_count) = metadata.subtree.log.count {
-						message.objects += logs_count;
+						objects += logs_count;
 					}
 					if let Some(logs_size) = metadata.subtree.log.size {
-						message.bytes += logs_size;
+						bytes += logs_size;
 					}
 				}
 				if state.arg.outputs {
 					if let Some(outputs_count) = metadata.subtree.output.count {
-						message.objects += outputs_count;
+						objects += outputs_count;
 					}
 					if let Some(outputs_size) = metadata.subtree.output.size {
-						message.bytes += outputs_size;
+						bytes += outputs_size;
 					}
 				}
 			} else {
 				if state.arg.commands {
 					if let Some(command_count) = metadata.node.command.count {
-						message.objects += command_count;
+						objects += command_count;
 					}
 					if let Some(command_size) = metadata.node.command.size {
-						message.bytes += command_size;
+						bytes += command_size;
 					}
 				}
 				if state.arg.logs {
 					if let Some(logs_count) = metadata.subtree.log.count {
-						message.objects += logs_count;
+						objects += logs_count;
 					}
 					if let Some(logs_size) = metadata.subtree.log.size {
-						message.bytes += logs_size;
+						bytes += logs_size;
 					}
 				}
 				if state.arg.outputs {
 					if let Some(output_count) = metadata.node.output.count {
-						message.objects += output_count;
+						objects += output_count;
 					}
 					if let Some(output_size) = metadata.node.output.size {
-						message.bytes += output_size;
+						bytes += output_size;
 					}
 				}
 			}
-			state
-				.progress
-				.increment(message.processes, message.objects, message.bytes);
+			state.progress.increment_skipped(processes, objects, bytes);
 		}
 
 		if state.graph.lock().unwrap().end_remote(&state.arg) {

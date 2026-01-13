@@ -256,11 +256,7 @@ impl Server {
 		S: tg::Handle,
 		D: tg::Handle,
 	{
-		let output = Arc::new(Mutex::new(tg::push::Output {
-			processes: 0,
-			objects: 0,
-			bytes: 0,
-		}));
+		let output = Arc::new(Mutex::new(tg::push::Output::default()));
 
 		// Set the progress to zero.
 		progress.set("processes", 0);
@@ -319,13 +315,13 @@ impl Server {
 			while let Some(message) = push_output_stream.try_next().await? {
 				match message {
 					tg::sync::Message::Put(tg::sync::PutMessage::Progress(message)) => {
-						progress.increment("processes", message.processes);
-						progress.increment("objects", message.objects);
-						progress.increment("bytes", message.bytes);
-						let mut output = output.lock().unwrap();
-						output.processes += message.processes;
-						output.objects += message.objects;
-						output.bytes += message.bytes;
+						let processes = message.skipped.processes + message.transferred.processes;
+						let objects = message.skipped.objects + message.transferred.objects;
+						let bytes = message.skipped.bytes + message.transferred.bytes;
+						progress.increment("processes", processes);
+						progress.increment("objects", objects);
+						progress.increment("bytes", bytes);
+						*output.lock().unwrap() += &message;
 					},
 					tg::sync::Message::End => {
 						return Ok(());
@@ -347,13 +343,13 @@ impl Server {
 			while let Some(message) = pull_output_stream.try_next().await? {
 				match message {
 					tg::sync::Message::Get(tg::sync::GetMessage::Progress(message)) => {
-						progress.increment("processes", message.processes);
-						progress.increment("objects", message.objects);
-						progress.increment("bytes", message.bytes);
-						let mut output = output.lock().unwrap();
-						output.processes += message.processes;
-						output.objects += message.objects;
-						output.bytes += message.bytes;
+						let processes = message.skipped.processes + message.transferred.processes;
+						let objects = message.skipped.objects + message.transferred.objects;
+						let bytes = message.skipped.bytes + message.transferred.bytes;
+						progress.increment("processes", processes);
+						progress.increment("objects", objects);
+						progress.increment("bytes", bytes);
+						*output.lock().unwrap() += &message;
 					},
 					tg::sync::Message::End => {
 						return Ok(());

@@ -26,11 +26,12 @@ let id = tg build $path
 let output = tg push $id | complete
 success $output
 snapshot $output.stderr '
-	info pushed 0 processes, 2 objects, 58 B
+	info skipped 0 processes, 0 objects, 0 B
+	info transferred 0 processes, 2 objects, 58 B
 
 '
 
-# Index both sides to update stored state.
+# Index both sides.
 tg index
 tg --url $remote.url index
 
@@ -38,14 +39,16 @@ tg --url $remote.url index
 let output = tg push $id | complete
 success $output
 snapshot $output.stderr '
-	info pushed 0 processes, 0 objects, 0 B
+	info skipped 0 processes, 2 objects, 58 B
+	info transferred 0 processes, 0 objects, 0 B
 
 '
 
 # Third push with force - should push objects.
-let output = tg push $id --force | complete
+let output = tg push --force $id | complete
 success $output
 snapshot $output.stderr '
-	info pushed 0 processes, 2 objects, 58 B
+	info skipped 0 processes, 0 objects, 0 B
+	info transferred 0 processes, 2 objects, 58 B
 
 '

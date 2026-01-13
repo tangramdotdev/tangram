@@ -182,7 +182,7 @@ impl Server {
 			.iter()
 			.map(|item| item.bytes.len().to_u64().unwrap())
 			.sum();
-		state.progress.increment(0, objects, bytes);
+		state.progress.increment_transferred(0, objects, bytes);
 
 		let end = state.graph.lock().unwrap().end_local(&state.arg);
 		if end {
@@ -265,7 +265,7 @@ impl Server {
 
 		// Update the progress.
 		let processes = count.to_u64().unwrap();
-		state.progress.increment(processes, 0, 0);
+		state.progress.increment_transferred(processes, 0, 0);
 
 		let end = state.graph.lock().unwrap().end_local(&state.arg);
 		if end {

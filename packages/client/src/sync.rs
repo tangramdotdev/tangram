@@ -7,7 +7,7 @@ use {
 	serde_with::{DisplayFromStr, PickFirst, serde_as},
 	tangram_futures::{read::Ext, stream::Ext as _, task::Task, write::Ext as _},
 	tangram_http::{Body, response::Ext as _},
-	tangram_util::serde::{CommaSeparatedString, is_false},
+	tangram_util::serde::{CommaSeparatedString, is_default, is_false},
 	tokio::io::AsyncReadExt as _,
 	tokio_stream::wrappers::ReceiverStream,
 	tokio_util::io::StreamReader,
@@ -253,6 +253,23 @@ pub struct PutMissingProcessMessage {
 	tangram_serialize::Serialize,
 )]
 pub struct ProgressMessage {
+	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_default")]
+	pub skipped: ProgressMessageAmounts,
+
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
+	pub transferred: ProgressMessageAmounts,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	Eq,
+	PartialEq,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct ProgressMessageAmounts {
 	#[tangram_serialize(id = 0, default, skip_serializing_if = "num::Zero::is_zero")]
 	pub processes: u64,
 

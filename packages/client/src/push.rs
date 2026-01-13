@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, TryStreamExt as _, future},
+	std::ops::AddAssign,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::is_false,
 };
@@ -39,6 +40,12 @@ pub struct Arg {
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Output {
+	pub skipped: Amounts,
+	pub transferred: Amounts,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Amounts {
 	pub processes: u64,
 	pub objects: u64,
 	pub bytes: u64,
@@ -113,5 +120,20 @@ impl Default for Arg {
 			recursive: false,
 			remote: None,
 		}
+	}
+}
+
+impl AddAssign<&tg::sync::ProgressMessage> for Output {
+	fn add_assign(&mut self, other: &tg::sync::ProgressMessage) {
+		self.skipped += &other.skipped;
+		self.transferred += &other.transferred;
+	}
+}
+
+impl AddAssign<&tg::sync::ProgressMessageAmounts> for Amounts {
+	fn add_assign(&mut self, other: &tg::sync::ProgressMessageAmounts) {
+		self.processes += other.processes;
+		self.objects += other.objects;
+		self.bytes += other.bytes;
 	}
 }
