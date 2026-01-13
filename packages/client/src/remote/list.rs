@@ -21,7 +21,10 @@ impl tg::Client {
 		let query = serde_urlencoded::to_string(&arg)
 			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
 		let uri = format!("/remotes?{query}");
-		let request = http::request::Builder::default().method(method).uri(uri);
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string());
 		let request = request.empty().unwrap();
 		let response = self
 			.send(request)

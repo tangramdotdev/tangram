@@ -19,6 +19,7 @@ impl tg::Client {
 			.unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
+			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
 			.uri(uri.to_string())
 			.empty()
 			.unwrap();
