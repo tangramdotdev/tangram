@@ -5,7 +5,6 @@ use {
 	indexmap::IndexMap,
 	num::ToPrimitive as _,
 	std::{fmt::Write as _, path::Path, pin::pin, time::Duration},
-	tangram_futures::stream::TryExt as _,
 	tokio::io::AsyncReadExt as _,
 };
 
