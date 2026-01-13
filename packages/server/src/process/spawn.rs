@@ -224,12 +224,12 @@ impl Server {
 					return Ok::<_, tg::Error>(None);
 				}
 				if cacheable && matches!(arg.cached, None | Some(true)) {
-					let Some(output) = self
-						.try_get_cached_process_remote(&arg)
-						.await
-						.map_err(|source| {
-							tg::error!(!source, "failed to get a cached remote process")
-						})?
+					let Some(output) =
+						self.try_get_cached_process_remote(&arg)
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to get a cached remote process")
+							})?
 					else {
 						return Ok(None);
 					};
@@ -302,7 +302,7 @@ impl Server {
 				|source| tg::error!(!source, %parent, child = %output.process, "failed to add the process as a child"),
 			)?;
 		}
-		
+
 		Ok(Some(output))
 	}
 

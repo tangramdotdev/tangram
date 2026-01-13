@@ -1,4 +1,6 @@
-use {crate::Cli, futures::FutureExt as _, tangram_client::prelude::*, tokio::io::AsyncWriteExt as _};
+use {
+	crate::Cli, futures::FutureExt as _, tangram_client::prelude::*, tokio::io::AsyncWriteExt as _,
+};
 
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]

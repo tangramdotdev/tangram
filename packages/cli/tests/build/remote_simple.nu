@@ -39,7 +39,7 @@ let path = artifact {
 };
 
 # Run a remote build
-let id = tg build --remote -d $path | from json | get process
+let id = tg build --remote -d $path
 let output = tg wait $id | from json
 assert ($output.exit == 0)
 snapshot $output.output '42'
