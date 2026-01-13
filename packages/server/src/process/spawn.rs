@@ -102,10 +102,8 @@ impl Server {
 
 			// Forward any events.
 			while let Some(event) = stream.next().await {
-				if let Ok(tg::progress::Event::Output(output)) = event {
+				if let Some(output) = progress.forward(event) {
 					return Ok(output);
-				} else {
-					progress.forward(event);
 				}
 			}
 			return Err(tg::error!("expected an output"));
@@ -867,7 +865,7 @@ impl Server {
 			.collect::<Vec<_>>()
 			.await
 			.into_iter()
-			.filter_map(|stream| stream.ok())
+			.filter_map(std::result::Result::ok)
 			.collect::<Vec<_>>(); // resolves https://github.com/rust-lang/rust/issues/64552
 
 		// Wait for the first output.

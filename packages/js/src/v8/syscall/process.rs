@@ -37,12 +37,12 @@ impl std::io::Write for Writer {
 		}
 		Ok(buf.len())
 	}
-
+	
 	fn flush(&mut self) -> std::io::Result<()> {
 		let bytes = self.buf.clone();
 		self.buf.clear();
 		super::log::log_inner(self.state.clone(), tg::process::log::Stream::Stderr, bytes)
-			.map_err(|error| std::io::Error::other(error))
+			.map_err(std::io::Error::other)
 	}
 }
 
