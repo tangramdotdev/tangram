@@ -367,7 +367,7 @@ impl Consumer {
 	{
 		let config = BatchConfig {
 			max_bytes: None,
-			max_messages: None,
+			max_messages: Some(1),
 			timeout: None,
 		};
 		self.batch_subscribe(config).await

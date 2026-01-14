@@ -1,16 +1,28 @@
 use {
 	crate::{Context, Server},
-	futures::{StreamExt as _, future, stream},
+	bytes::Bytes,
+	futures::{StreamExt as _, TryStreamExt, future, stream},
 	indoc::formatdoc,
-	num::ToPrimitive as _,
-	std::{pin::pin, time::Duration},
+	std::pin::pin,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::task::Stop,
 	tangram_http::{Body, request::Ext as _},
-	tangram_messenger::prelude::*,
-	tokio_stream::wrappers::IntervalStream,
+	tangram_messenger::{self as messenger, prelude::*},
 };
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct Message {
+	#[tangram_serialize(id = 0)]
+	pub id: tg::process::Id,
+}
 
 impl Server {
 	pub(crate) async fn try_dequeue_process_with_context(
@@ -18,65 +30,83 @@ impl Server {
 		context: &Context,
 		_arg: tg::process::dequeue::Arg,
 	) -> tg::Result<Option<tg::process::dequeue::Output>> {
+		tracing::info!("request to dequeue process");
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
-		// Create the event stream.
-		let created = self
-			.messenger
-			.subscribe::<()>("processes.created".to_owned(), Some("queue".to_owned()))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
-			.map(|_| ());
-		let created = pin!(created);
-		let interval =
-			IntervalStream::new(tokio::time::interval(Duration::from_secs(60))).map(|_| ());
-		let mut events = stream::select(created, interval);
 
-		// Attempt to dequeue a process after each event.
-		while let Some(()) = events.next().await {
+		// Subscribe to the consumer stream.
+		let stream = self
+			.messenger
+			.get_stream("queue".into())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the stream"))?;
+		let consumer = stream
+			.get_consumer("queue".into())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the consumer"))?;
+		let enqueued = consumer.subscribe::<Message>().await.map_err(|source| {
+			tg::error!(!source, "failed to subscribe to the process queue stream")
+		})?;
+
+		let mut enqueued = pin!(enqueued);
+
+		// Attempt to dequeue a process from the stream.
+		while let Some(message) = enqueued
+			.try_next()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to dequeue a process"))?
+		{
+			let (payload, acker) = message.split();
+			tracing::info!(?payload, "received a message");
+
+			// Get a database connection.
 			let connection = self
 				.database
 				.write_connection()
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+			// Update the process's status.
 			let p = connection.p();
 			let statement = formatdoc!(
 				"
 					update processes
 					set
 						status = 'dequeued',
-						dequeued_at = {p}1
-					where id in (
-						select id
-						from processes
-						where
-							status = 'enqueued' or
-							(status = 'dequeued' and dequeued_at <= {p}2)
-						order by enqueued_at
-						limit 1
-					)
-					returning id;
+						dequeued_at = {p}2
+					where
+						id = {p}1 and status = 'enqueued';
 				"
 			);
 			let now = time::OffsetDateTime::now_utc().unix_timestamp();
-			let timeout = self.config.advanced.process_dequeue_timeout;
-			let time = now - timeout.as_secs().to_i64().unwrap();
-			let params = db::params![now, time];
-			let Some(id) = connection
-				.query_optional_value_into::<db::value::Serde<tg::process::Id>>(
-					statement.into(),
-					params,
-				)
+			let params = db::params![payload.id.to_string(), now];
+			let result = connection
+				.execute(statement.into(), params)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-				.map(|value| value.0)
-			else {
-				continue;
-			};
-			return Ok(Some(tg::process::dequeue::Output { process: id }));
-		}
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
+			// Only return the process if we successfully changed the status of the process.
+			if result == 0 {
+				continue;
+			}
+
+			// Ack the message.
+			acker
+				.ack()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to ack the message"))?;
+
+			// Publish a message that the status changed.
+			let subject = format!("processes.{}.status", payload.id);
+			self.messenger.publish(subject, ()).await.ok();
+
+			// Return the dequeued process.
+			let output = tg::process::dequeue::Output {
+				process: payload.id,
+			};
+			return Ok(Some(output));
+		}
 		Ok(None)
 	}
 
@@ -136,5 +166,41 @@ impl Server {
 		let response = response.body(body).unwrap();
 
 		Ok(response)
+	}
+}
+
+impl Message {
+	pub fn serialize(&self) -> tg::Result<Bytes> {
+		let mut bytes = Vec::new();
+		bytes.push(0);
+		tangram_serialize::to_writer(&mut bytes, self)
+			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
+		Ok(bytes.into())
+	}
+
+	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
+		let bytes = bytes.into();
+		let bytes = bytes.as_ref();
+		if bytes.is_empty() {
+			return Err(tg::error!("missing format byte"));
+		}
+		let format = bytes[0];
+		match format {
+			0 => tangram_serialize::from_slice(&bytes[1..])
+				.map_err(|source| tg::error!(!source, "failed to deserialize the message")),
+			b'{' => serde_json::from_slice(bytes)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the message")),
+			_ => Err(tg::error!("invalid format")),
+		}
+	}
+}
+
+impl messenger::Payload for Message {
+	fn serialize(&self) -> Result<Bytes, messenger::Error> {
+		Message::serialize(self).map_err(messenger::Error::other)
+	}
+
+	fn deserialize(bytes: Bytes) -> Result<Self, messenger::Error> {
+		Message::deserialize(bytes).map_err(messenger::Error::other)
 	}
 }
