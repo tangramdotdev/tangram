@@ -156,6 +156,10 @@ impl Server {
 				if sender.send(event).await.is_err() {
 					break 'outer;
 				}
+
+				if arg.length.is_some_and(|length| length == 0) {
+					break;
+				}
 			}
 
 			// Send the finished event if we've reached the end of the stream.

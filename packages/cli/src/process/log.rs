@@ -27,6 +27,9 @@ pub struct Args {
 
 	#[arg(long)]
 	pub stream: Option<tg::process::log::Stream>,
+
+	#[arg(long)]
+	pub json: bool,
 }
 
 impl Cli {
@@ -50,7 +53,21 @@ impl Cli {
 		// Print the log.
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
 		let mut stderr = tokio::io::BufWriter::new(tokio::io::stderr());
+		let mut first = true;
 		while let Some(chunk) = log.try_next().await? {
+			if args.json {
+				let mut json = serde_json::to_string(&chunk)
+					.map_err(|source| tg::error!(!source, "failed to serialize the chunk"))?;
+				if !first {
+					json.insert(0, '\n');
+				}
+				stdout
+					.write_all(json.as_bytes())
+					.await
+					.map_err(|source| tg::error!(!source, "failed to write to stdout"))?;
+				first = false;
+				continue;
+			}
 			match chunk.stream {
 				tg::process::log::Stream::Stdout => {
 					stdout

@@ -1,7 +1,10 @@
 use {
-	super::{Item, Options, Package, data, log::Log},
-	crossterm as ct,
-	futures::{TryStreamExt as _, future, stream::FuturesUnordered},
+	super::{Item, Log, Options, Package, data},
+	crossterm::{
+		self as ct,
+		event::{KeyModifiers, MouseEventKind},
+	},
+	futures::{TryFutureExt as _, TryStreamExt as _, future, stream::FuturesUnordered},
 	num::ToPrimitive as _,
 	ratatui::{self as tui, prelude::*},
 	std::{
@@ -17,6 +20,8 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
+	unicode_segmentation::UnicodeSegmentation as _,
+	unicode_width::UnicodeWidthStr,
 };
 
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -25,11 +30,12 @@ pub struct Tree<H> {
 	handle: H,
 	counter: UpdateCounter,
 	data: data::UpdateSender,
+	num_rendered_columns: usize,
 	rect: Option<Rect>,
 	roots: Vec<Rc<RefCell<Node>>>,
 	selected: Rc<RefCell<Node>>,
 	selected_task: Option<Task<()>>,
-	scroll: usize,
+	scroll: (usize, usize),
 	viewer: super::UpdateSender<H>,
 }
 
@@ -157,13 +163,6 @@ where
 		ancestors
 	}
 
-	fn bottom(&mut self) {
-		let nodes = self.nodes();
-		self.select(nodes.last().unwrap().clone());
-		let height = self.rect.as_ref().unwrap().height.to_usize().unwrap();
-		self.scroll = nodes.len().saturating_sub(height);
-	}
-
 	fn collapse(&mut self) {
 		if matches!(self.selected.borrow().expanded, Some(true)) {
 			let mut node = self.selected.borrow_mut();
@@ -185,7 +184,7 @@ where
 					.iter()
 					.position(|n| Rc::ptr_eq(n, &parent))
 					.unwrap();
-				self.scroll = self.scroll.min(index);
+				self.scroll.0 = self.scroll.0.min(index);
 				self.select(parent);
 			}
 		}
@@ -361,10 +360,38 @@ where
 			.unwrap();
 		let index = (index + 1).min(nodes.len() - 1);
 		self.select(nodes[index].clone());
+		self.clamp_scroll(index);
+	}
+
+	fn clamp_scroll(&mut self, index: usize) {
 		let height = self.rect.as_ref().unwrap().height.to_usize().unwrap();
-		if index >= self.scroll + height {
-			self.scroll += 1;
+		if index >= self.scroll.0 + height {
+			self.scroll.0 = index.saturating_sub(height.saturating_sub(1));
 		}
+		if index < self.scroll.0 {
+			self.scroll.0 = index;
+		}
+	}
+
+	fn scroll_down(&mut self) {
+		let nodes = self.nodes();
+		let height = self.rect.map_or(0, |r| r.height.to_usize().unwrap());
+		let max = nodes.len().saturating_sub(height);
+		self.scroll.0 = (self.scroll.0 + 1).min(max);
+	}
+
+	fn scroll_up(&mut self) {
+		self.scroll.0 = self.scroll.0.saturating_sub(1);
+	}
+
+	fn scroll_left(&mut self) {
+		self.scroll.1 = self.scroll.1.saturating_sub(1);
+	}
+
+	fn scroll_right(&mut self) {
+		let width = self.rect.map_or(0, |r| r.width.to_usize().unwrap());
+		let max = self.num_rendered_columns.saturating_sub(width);
+		self.scroll.1 = (self.scroll.1 + 1).min(max);
 	}
 
 	pub(crate) fn expand(&mut self) {
@@ -425,16 +452,26 @@ where
 				.map(|child| child.blob.clone().into())
 				.collect(),
 		};
+		let metadata = get_object_metadata_as_value(handle, blob.id()).await?;
+
 		blob.unload();
 		let handle = handle.clone();
 		let value = tg::Value::Array(children);
 		let update = move |node: Rc<RefCell<Node>>| {
 			let item = tg::Referent::with_item(Item::Value(value));
 			let child = Self::create_node(&handle, &node, Some("children".to_owned()), Some(item));
+			let metadata = Self::create_node(
+				&handle,
+				&node,
+				Some("metadata".to_owned()),
+				Some(tg::Referent::with_item(Item::Value(metadata))),
+			);
 			node.borrow_mut().children.push(child);
+			node.borrow_mut().children.push(metadata);
 			node.borrow_mut().guard.replace(guard);
 		};
 		update_sender.send(Box::new(update)).unwrap();
+
 		Ok(())
 	}
 
@@ -515,6 +552,7 @@ where
 			mounts.push(tg::Value::Map(map));
 		}
 		children.push(("mounts".to_owned(), tg::Value::Array(mounts)));
+		let metadata = get_object_metadata_as_value(handle, command.id()).await?;
 		command.unload();
 
 		// Send the update.
@@ -525,6 +563,13 @@ where
 				let child = Self::create_node(&handle, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
+			let metadata = Self::create_node(
+				&handle,
+				&node,
+				Some("metadata".to_owned()),
+				Some(tg::Referent::with_item(Item::Value(metadata))),
+			);
+			node.borrow_mut().children.push(metadata);
 			node.borrow_mut().guard.replace(guard);
 		};
 		update_sender.send(Box::new(update)).unwrap();
@@ -704,6 +749,7 @@ where
 			));
 		}
 
+		let metadata = get_object_metadata_as_value(handle, error.id()).await?;
 		error.unload();
 
 		// Send the update.
@@ -714,6 +760,13 @@ where
 				let child = Self::create_node(&handle, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
+			let metadata = Self::create_node(
+				&handle,
+				&node,
+				Some("metadata".to_owned()),
+				Some(tg::Referent::with_item(Item::Value(metadata))),
+			);
+			node.borrow_mut().children.push(metadata);
 			node.borrow_mut().guard.replace(guard);
 		};
 		update_sender.send(Box::new(update)).unwrap();
@@ -798,6 +851,7 @@ where
 				},
 			},
 		};
+		let metadata = get_object_metadata_as_value(handle, directory.id()).await?;
 		directory.unload();
 
 		// Send the update.
@@ -808,6 +862,13 @@ where
 				let child = Self::create_node(&handle, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
+			let metadata = Self::create_node(
+				&handle,
+				&node,
+				Some("metadata".to_owned()),
+				Some(tg::Referent::with_item(Item::Value(metadata))),
+			);
+			node.borrow_mut().children.push(metadata);
 			node.borrow_mut().guard.replace(guard);
 		};
 		update_sender.send(Box::new(update)).unwrap();
@@ -900,6 +961,7 @@ where
 				children
 			},
 		};
+		let metadata = get_object_metadata_as_value(handle, file.id()).await?;
 		file.unload();
 
 		// Send the update.
@@ -911,6 +973,13 @@ where
 				let child = Self::create_node(&handle, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
+			let metadata = Self::create_node(
+				&handle,
+				&node,
+				Some("metadata".to_owned()),
+				Some(tg::Referent::with_item(Item::Value(metadata))),
+			);
+			node.borrow_mut().children.push(metadata);
 		};
 		update_sender.send(Box::new(update)).unwrap();
 		Ok(())
@@ -922,8 +991,9 @@ where
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
-		// Get the graph nodes and unload the object immediately.
+		// Get the graph nodes and metadata, then unload the object immediately.
 		let nodes = graph.nodes(handle).await?;
+		let metadata = get_object_metadata_as_value(handle, graph.id()).await?;
 		graph.unload();
 
 		// Convert nodes to tg::Value::Maps
@@ -1088,6 +1158,13 @@ where
 			let item = tg::Referent::with_item(Item::Value(value));
 			let child = Self::create_node(&handle, &node, Some("nodes".to_owned()), Some(item));
 			node.borrow_mut().children.push(child);
+			let metadata_node = Self::create_node(
+				&handle,
+				&node,
+				Some("metadata".to_owned()),
+				Some(tg::Referent::with_item(Item::Value(metadata))),
+			);
+			node.borrow_mut().children.push(metadata_node);
 		};
 		update_sender.send(Box::new(update)).unwrap();
 		Ok(())
@@ -1366,6 +1443,7 @@ where
 
 		let command = process.command(handle).await?;
 		let value = tg::Value::Object(command.clone().into());
+		let metadata = get_process_metadata_as_value(handle, process.id()).await?;
 		update_sender
 			.send({
 				let handle = handle.clone();
@@ -1373,13 +1451,20 @@ where
 				Box::new(move |node| {
 					node.borrow_mut().guard.replace(guard);
 					if node.borrow().options.show_process_commands {
-						let child = Self::create_node(
+						let command = Self::create_node(
 							&handle,
 							&node,
 							Some("command".to_owned()),
 							Some(tg::Referent::with_item(Item::Value(value))),
 						);
-						node.borrow_mut().children.push(child);
+						let metadata = Self::create_node(
+							&handle,
+							&node,
+							Some("metadata".to_owned()),
+							Some(tg::Referent::with_item(Item::Value(metadata))),
+						);
+						node.borrow_mut().children.push(command);
+						node.borrow_mut().children.push(metadata);
 					}
 				})
 			})
@@ -1523,6 +1608,7 @@ where
 				children
 			},
 		};
+		let metadata = get_object_metadata_as_value(handle, symlink.id()).await?;
 		symlink.unload();
 
 		// Send the update.
@@ -1534,6 +1620,13 @@ where
 				let child = Self::create_node(&handle, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
+			let metadata_node = Self::create_node(
+				&handle,
+				&node,
+				Some("metadata".to_owned()),
+				Some(tg::Referent::with_item(Item::Value(metadata))),
+			);
+			node.borrow_mut().children.push(metadata_node);
 		};
 		update_sender.send(Box::new(update)).unwrap();
 
@@ -1696,6 +1789,27 @@ where
 				_ => (),
 			}
 		}
+		if let ct::event::Event::Mouse(event) = event {
+			match &event.kind {
+				MouseEventKind::ScrollDown => {
+					if event.modifiers.contains(KeyModifiers::SHIFT) {
+						self.scroll_left();
+					} else {
+						self.scroll_down();
+					}
+				},
+				MouseEventKind::ScrollUp => {
+					if event.modifiers.contains(KeyModifiers::SHIFT) {
+						self.scroll_right();
+					} else {
+						self.scroll_up();
+					}
+				},
+				MouseEventKind::ScrollLeft => self.scroll_left(),
+				MouseEventKind::ScrollRight => self.scroll_right(),
+				_ => (),
+			}
+		}
 	}
 
 	fn is_last_child(node: &Rc<RefCell<Node>>) -> bool {
@@ -1853,9 +1967,10 @@ where
 			handle: handle.clone(),
 			counter,
 			data,
+			num_rendered_columns: 0,
 			rect: None,
 			roots,
-			scroll: 0,
+			scroll: (0, 0),
 			selected: root.clone(),
 			selected_task: None,
 			viewer,
@@ -2092,7 +2207,7 @@ where
 		// Filter by the scroll and height.
 		let nodes = nodes
 			.into_iter()
-			.skip(self.scroll)
+			.skip(self.scroll.0)
 			.take(rect.height.to_usize().unwrap());
 
 		// Render the nodes.
@@ -2158,7 +2273,27 @@ where
 			}
 
 			line.push_span(node.borrow().title.clone());
-			tui::widgets::Paragraph::new(line).render(rect, buffer);
+
+			// Update the number of columns that we've written to the line.
+			self.num_rendered_columns = line
+				.spans
+				.iter()
+				.map(|span| {
+					span.content
+						.graphemes(false)
+						.map(UnicodeWidthStr::width)
+						.sum()
+				})
+				.max()
+				.unwrap_or_default();
+			let max = self
+				.num_rendered_columns
+				.saturating_sub(rect.width.to_usize().unwrap());
+			self.scroll.1 = self.scroll.1.min(max);
+
+			tui::widgets::Paragraph::new(line)
+				.scroll((0, self.scroll.1.to_u16().unwrap()))
+				.render(rect, buffer);
 		}
 
 		self.rect.replace(rect);
@@ -2203,12 +2338,26 @@ where
 						match referent.item {
 							Item::Process(process) => handle
 								.get_process(process.id())
-								.await
-								.and_then(|output| {
-									serde_json::to_string_pretty(&output).map_err(|source| {
-										tg::error!(!source, "failed to serialize the process data")
-									})
+								.and_then(async |output: tg::process::get::Output| {
+									#[derive(serde::Serialize)]
+									struct ProcessData {
+										process: tg::process::get::Output,
+										metadata: Option<tg::process::Metadata>,
+									}
+									let metadata = handle
+										.try_get_process_metadata(
+											process.id(),
+											tg::process::metadata::Arg::default(),
+										)
+										.await?;
+									let data = ProcessData {
+										process: output,
+										metadata,
+									};
+									let output = serde_json::to_string_pretty(&data).unwrap();
+									Ok::<_, tg::Error>(output)
 								})
+								.await
 								.unwrap_or_else(|error| error.to_string()),
 							Item::Value(tg::Value::Object(tg::Object::Blob(blob))) => {
 								super::util::format_blob(&handle, &blob)
@@ -2219,7 +2368,19 @@ where
 								let value = match value {
 									tg::Value::Object(object) => {
 										object.load(&handle).await.ok();
-										tg::Value::Object(object)
+										let metadata =
+											get_object_metadata_as_value(&handle, object.id())
+												.await
+												.unwrap_or_else(|error| {
+													tg::Value::String(error.to_string())
+												});
+										let value = [
+											("object".into(), tg::Value::Object(object)),
+											("metadata".into(), metadata),
+										]
+										.into_iter()
+										.collect();
+										tg::Value::Map(value)
 									},
 									value => value,
 								};
@@ -2233,7 +2394,19 @@ where
 							},
 							Item::Package(package) => {
 								package.0.load(&handle).await.ok();
-								let value = tg::Value::Object(package.0);
+								let metadata =
+									get_object_metadata_as_value(&handle, package.0.id())
+										.await
+										.unwrap_or_else(|error| {
+											tg::Value::String(error.to_string())
+										});
+								let value = [
+									("package".into(), tg::Value::Object(package.0)),
+									("metadata".into(), metadata),
+								]
+								.into_iter()
+								.collect();
+								let value = tg::Value::Map(value);
 								let options = tg::value::print::Options {
 									depth: Some(1),
 									style: tg::value::print::Style::Pretty { indentation: "  " },
@@ -2272,10 +2445,17 @@ where
 		}
 	}
 
+	fn bottom(&mut self) {
+		let nodes = self.nodes();
+		self.select(nodes.last().unwrap().clone());
+		let height = self.rect.as_ref().unwrap().height.to_usize().unwrap();
+		self.scroll.0 = nodes.len().saturating_sub(height);
+	}
+
 	fn top(&mut self) {
 		let nodes = self.nodes();
 		self.select(nodes.first().unwrap().clone());
-		self.scroll = 0;
+		self.scroll.0 = 0;
 	}
 
 	fn up(&mut self) {
@@ -2286,9 +2466,7 @@ where
 			.unwrap();
 		let index = index.saturating_sub(1);
 		self.select(nodes[index].clone());
-		if index < self.scroll {
-			self.scroll = self.scroll.saturating_sub(1);
-		}
+		self.clamp_scroll(index);
 	}
 
 	pub fn update(&mut self) {
@@ -2431,4 +2609,104 @@ where
 	) -> tg::Result<bool> {
 		Ok(false)
 	}
+}
+
+async fn get_process_metadata_as_value(
+	handle: &impl tg::Handle,
+	id: &tg::process::Id,
+) -> tg::Result<tg::Value> {
+	let Some(metadata) = handle
+		.try_get_process_metadata(id, tg::process::metadata::Arg::default())
+		.await?
+	else {
+		return Ok(tg::Value::Null);
+	};
+	let node = [
+		("command".into(), subtree_to_value(&metadata.node.command)),
+		("error".into(), subtree_to_value(&metadata.node.error)),
+		("log".into(), subtree_to_value(&metadata.node.log)),
+		("output".into(), subtree_to_value(&metadata.node.output)),
+	]
+	.into_iter()
+	.collect();
+	let node = tg::Value::Map(node);
+	let subtree = [
+		("command".into(), subtree_to_value(&metadata.subtree.command)),
+		(
+			"count".into(),
+			metadata
+				.subtree
+				.count
+				.map_or(tg::Value::Null, |n| n.to_f64().unwrap().into()),
+		),
+		("error".into(), subtree_to_value(&metadata.subtree.error)),
+		("log".into(), subtree_to_value(&metadata.subtree.log)),
+		("output".into(), subtree_to_value(&metadata.subtree.output)),
+	]
+	.into_iter()
+	.collect();
+	let subtree = tg::Value::Map(subtree);
+	let metadata = [("node".into(), node), ("subtree".into(), subtree)]
+		.into_iter()
+		.collect();
+	Ok(tg::Value::Map(metadata))
+}
+
+async fn get_object_metadata_as_value(
+	handle: &impl tg::Handle,
+	id: impl Into<tg::object::Id>,
+) -> tg::Result<tg::Value> {
+	let Some(metadata) = handle
+		.try_get_object_metadata(&id.into(), tg::object::metadata::Arg::default())
+		.await?
+	else {
+		return Ok(tg::Value::Null);
+	};
+	let node = [
+		("size".into(), metadata.node.size.to_f64().unwrap().into()),
+		("solvable".into(), metadata.node.solvable.into()),
+		("solved".into(), metadata.node.solved.into()),
+	]
+	.into_iter()
+	.collect();
+	let node = tg::Value::Map(node);
+	let subtree = subtree_to_value(&metadata.subtree);
+	let metadata = [("node".into(), node), ("subtree".into(), subtree)]
+		.into_iter()
+		.collect();
+	Ok(tg::Value::Map(metadata))
+}
+
+fn subtree_to_value(subtree: &tg::object::metadata::Subtree) -> tg::Value {
+	let subtree = [
+		(
+			"count".into(),
+			subtree
+				.count
+				.map_or(tg::Value::Null, |n| n.to_f64().unwrap().into()),
+		),
+		(
+			"depth".into(),
+			subtree
+				.depth
+				.map_or(tg::Value::Null, |n| n.to_f64().unwrap().into()),
+		),
+		(
+			"size".into(),
+			subtree
+				.size
+				.map_or(tg::Value::Null, |n| n.to_f64().unwrap().into()),
+		),
+		(
+			"solvable".into(),
+			subtree.solvable.map_or(tg::Value::Null, tg::Value::from),
+		),
+		(
+			"solved".into(),
+			subtree.solved.map_or(tg::Value::Null, tg::Value::from),
+		),
+	]
+	.into_iter()
+	.collect();
+	tg::Value::Map(subtree)
 }

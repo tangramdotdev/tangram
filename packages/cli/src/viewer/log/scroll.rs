@@ -28,6 +28,12 @@ pub enum Error {
 	Prepend,
 }
 
+pub struct Lines {
+	pub content: Vec<String>,
+	pub start: u64,
+	pub end: u64,
+}
+
 // Helper struct that represent the state of the grapheme parser.
 struct GraphemeParserState<'a, 'b> {
 	buffer: &'b mut Vec<u8>,
@@ -61,7 +67,19 @@ impl Scroll {
 		})
 	}
 
-	pub fn scroll_up(
+	pub fn scroll(
+		&mut self,
+		height: isize,
+		chunks: &[tg::process::log::get::Chunk],
+	) -> tg::Result<usize, Error> {
+		match height.cmp(&0) {
+			std::cmp::Ordering::Equal => Ok(0),
+			std::cmp::Ordering::Less => self.scroll_up(height.abs().to_usize().unwrap(), chunks),
+			std::cmp::Ordering::Greater => self.scroll_down(height.to_usize().unwrap(), chunks),
+		}
+	}
+
+	fn scroll_up(
 		&mut self,
 		height: usize,
 		chunks: &[tg::process::log::get::Chunk],
@@ -87,7 +105,7 @@ impl Scroll {
 		Ok(count)
 	}
 
-	pub fn scroll_down(
+	fn scroll_down(
 		&mut self,
 		height: usize,
 		chunks: &[tg::process::log::get::Chunk],
@@ -116,7 +134,7 @@ impl Scroll {
 	pub fn read_lines(
 		&mut self,
 		chunks: &[tg::process::log::get::Chunk],
-	) -> tg::Result<Vec<String>, Error> {
+	) -> tg::Result<Lines, Error> {
 		read_lines_inner(
 			&mut self.buffer,
 			self.start,
@@ -198,23 +216,29 @@ fn scroll_down_inner(
 
 fn read_lines_inner(
 	buffer: &mut Vec<u8>,
-	mut position: u64,
+	position: u64,
 	max_width: usize,
 	num_lines: usize,
 	chunks: &[tg::process::log::get::Chunk],
-) -> tg::Result<Vec<String>, Error> {
+) -> tg::Result<Lines, Error> {
+	let mut result = Lines {
+		start: position,
+		end: position,
+		content: Vec::with_capacity(num_lines),
+	};
 	let last = chunks.last().unwrap();
 	let last = last.position + last.bytes.len().to_u64().unwrap();
-	let mut lines = Vec::with_capacity(num_lines);
 	'outer: for _ in 0..num_lines {
 		let mut line = String::with_capacity(max_width);
 		let mut width = 0;
 		loop {
-			if position == last {
-				lines.push(line.replace('\n', "").replace('\t', "  "));
+			if result.end == last {
+				result
+					.content
+					.push(line.replace('\n', "").replace('\t', "  "));
 				break 'outer;
 			}
-			let (grapheme, next_position) = next_grapheme(buffer, position, true, chunks)?;
+			let (grapheme, next_position) = next_grapheme(buffer, result.end, true, chunks)?;
 			let is_newline = grapheme.ends_with('\n');
 			let grapheme_width = if grapheme == "\n" || grapheme == "\r\n" {
 				0
@@ -226,14 +250,16 @@ fn read_lines_inner(
 				break;
 			}
 			line.push_str(grapheme);
-			position = next_position;
+			result.end = next_position;
 			if is_newline {
 				break;
 			}
 		}
-		lines.push(line.replace('\n', "").replace('\t', "  "));
+		result
+			.content
+			.push(line.replace('\n', "").replace('\t', "  "));
 	}
-	Ok(lines)
+	Ok(result)
 }
 
 // Advance the scroll position by one grapheme forward or backward, and return the grapheme and its end position.
@@ -485,7 +511,6 @@ impl GraphemeParserState<'_, '_> {
 
 			num_bytes += 1;
 		};
-
 		if is_valid_utf8 {
 			num_bytes += 1;
 		}
@@ -519,7 +544,7 @@ mod tests {
 		let lines = scroll.read_lines(&chunks).unwrap();
 		assert_eq!(init_start, start);
 		assert_eq!(init_end, end);
-		assert_eq!(init_lines, lines);
+		assert_eq!(init_lines.content, lines.content);
 	}
 
 	#[test]
@@ -591,7 +616,10 @@ mod tests {
 				+ chunks.last().unwrap().bytes.len().to_u64().unwrap(),
 		};
 		let lines = scroll.read_lines(&chunks).unwrap();
-		assert_eq!(&lines, &["1——👍👌👉👈——", "2——👍👌👉👈——", "3——👍👌👉👈——"]);
+		assert_eq!(
+			&lines.content,
+			&["1——👍👌👉👈——", "2——👍👌👉👈——", "3——👍👌👉👈——"]
+		);
 
 		// Tailing case.
 		let chunks = vec![
@@ -613,7 +641,7 @@ mod tests {
 		let mut scroll = Scroll::new(Rect::new(0, 0, 20, 10), &chunks).unwrap();
 		let lines = scroll.read_lines(&chunks).unwrap();
 		assert_eq!(
-			&lines,
+			&lines.content,
 			&[
 				"\"0——👍👌👉👈——\"",
 				"\"1——👍👌👉👈——\"",
@@ -634,8 +662,8 @@ mod tests {
 		}];
 		let mut scroll = Scroll::new(Rect::new(0, 0, 2, 4), &chunks).unwrap();
 		let lines = scroll.read_lines(&chunks).unwrap();
-		assert_eq!(&lines[0], "😀");
-		assert_eq!(&lines[1], "😀");
+		assert_eq!(&lines.content[0], "😀");
+		assert_eq!(&lines.content[1], "😀");
 	}
 
 	#[test]
@@ -654,7 +682,7 @@ mod tests {
 		}
 		let mut scroll = Scroll::new(Rect::new(0, 0, 80, 40), &chunks).unwrap();
 		let lines = scroll.read_lines(&chunks).unwrap();
-		assert_eq!(lines.len(), chunks.len() + 1);
+		assert_eq!(lines.content.len(), chunks.len() + 1);
 	}
 
 	#[test]

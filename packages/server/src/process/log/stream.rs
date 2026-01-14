@@ -121,14 +121,18 @@ impl Server {
 					return Ok(None);
 				}
 
+				// Compute the length and position.
+				let length = state.read_length.unwrap_or(4096);
+				let position = if state.reverse {
+					state.position.saturating_sub(length)
+				} else {
+					state.position
+				};
+
 				// Get as many entries from the log as possible.
 				state.entries = state
 					.inner
-					.try_read_process_log(
-						state.position,
-						state.read_length.unwrap_or(4096),
-						state.stream,
-					)
+					.try_read_process_log(position, length, state.stream)
 					.await?
 					.into();
 
@@ -153,14 +157,18 @@ impl Server {
 						index,
 					});
 
+					// Compute the position and length.
+					let length = state.read_length.unwrap_or(4096);
+					let position = if state.reverse {
+						state.position.saturating_sub(length)
+					} else {
+						state.position
+					};
+
 					// Retry reading from the blob.
 					state.entries = state
 						.inner
-						.try_read_process_log(
-							state.position,
-							state.read_length.unwrap_or(4096),
-							state.stream,
-						)
+						.try_read_process_log(position, length, state.stream)
 						.await?
 						.into();
 				}
