@@ -1,7 +1,7 @@
 use {
 	crate::{
-		CachePointer, DeleteObjectArg, DeleteProcessLogArg, Error as _, PutObjectArg,
-		PutProcessLogArg, ReadProcessLogArg,
+		CachePointer, DeleteObjectArg, DeleteProcessLogArg, PutObjectArg, PutProcessLogArg,
+		ReadProcessLogArg,
 	},
 	bytes::Bytes,
 	futures::{FutureExt as _, TryStreamExt as _},
@@ -55,31 +55,8 @@ pub struct Store {
 	session: scylla::client::session::Session,
 }
 
-#[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
-pub enum Error {
-	Deserialization(scylla::deserialize::DeserializationError),
-	Execution(scylla::errors::ExecutionError),
-	IntoRowsResult(scylla::errors::IntoRowsResultError),
-	MaybeFirstRow(scylla::errors::MaybeFirstRowError),
-	NewSession(scylla::errors::NewSessionError),
-	NextRowError(scylla::errors::NextRowError),
-	Other(Box<dyn std::error::Error + Send + Sync>),
-	PagerExecution(scylla::errors::PagerExecutionError),
-	Prepare(scylla::errors::PrepareError),
-	Rows(scylla::errors::RowsError),
-	SingleRow(scylla::errors::SingleRowError),
-	TypeCheckError(scylla::errors::TypeCheckError),
-	UseKeyspace(scylla::errors::UseKeyspaceError),
-}
-
-impl crate::Error for Error {
-	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
-		Self::Other(error.into())
-	}
-}
-
 impl Store {
-	pub async fn new(config: &Config) -> Result<Self, Error> {
+	pub async fn new(config: &Config) -> tg::Result<Self> {
 		let mut builder =
 			scylla::client::session_builder::SessionBuilder::new().known_node(&config.addr);
 		if let (Some(username), Some(password)) = (&config.username, &config.password) {
@@ -117,17 +94,12 @@ impl Store {
 		if let Some(connections) = config.connections.and_then(std::num::NonZeroUsize::new) {
 			builder = builder.pool_size(scylla::client::PoolSize::PerHost(connections));
 		}
-		let session = builder.build().boxed().await.map_err(|source| {
-			Error::other(tg::error!(!source, addr = %config.addr, "failed to build the session"))
-		})?;
-		session
-			.use_keyspace(&config.keyspace, true)
-			.await
-			.map_err(|source| {
-				Error::other(
-					tg::error!(!source, keyspace = %config.keyspace, "failed to use the keyspace"),
-				)
-			})?;
+		let session = builder.build().boxed().await.map_err(
+			|source| tg::error!(!source, addr = %config.addr, "failed to build the session"),
+		)?;
+		session.use_keyspace(&config.keyspace, true).await.map_err(
+			|source| tg::error!(!source, keyspace = %config.keyspace, "failed to use the keyspace"),
+		)?;
 
 		let statement = indoc!(
 			"
@@ -135,12 +107,10 @@ impl Store {
 				where id = ? if touched_at < ?;
 			"
 		);
-		let mut delete_object_statement = session.prepare(statement).await.map_err(|source| {
-			Error::other(tg::error!(
-				!source,
-				"failed to prepare the delete statement"
-			))
-		})?;
+		let mut delete_object_statement = session
+			.prepare(statement)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to prepare the delete statement"))?;
 		delete_object_statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
 
 		let statement = indoc!(
@@ -150,13 +120,10 @@ impl Store {
 				where id in ?;
 			"
 		);
-		let mut get_object_batch_statement =
-			session.prepare(statement).await.map_err(|source| {
-				Error::other(tg::error!(
-					!source,
-					"failed to prepare the get batch statement"
-				))
-			})?;
+		let mut get_object_batch_statement = session
+			.prepare(statement)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to prepare the get batch statement"))?;
 		get_object_batch_statement.set_consistency(scylla::statement::Consistency::One);
 
 		let statement = indoc!(
@@ -168,10 +135,7 @@ impl Store {
 		);
 		let mut get_object_cache_pointer_statement =
 			session.prepare(statement).await.map_err(|source| {
-				Error::other(tg::error!(
-					!source,
-					"failed to prepare the get cache pointer statement"
-				))
+				tg::error!(!source, "failed to prepare the get cache pointer statement")
 			})?;
 		get_object_cache_pointer_statement.set_consistency(scylla::statement::Consistency::One);
 
@@ -182,9 +146,10 @@ impl Store {
 				where id = ?;
 			"
 		);
-		let mut get_object_statement = session.prepare(statement).await.map_err(|source| {
-			Error::other(tg::error!(!source, "failed to prepare the get statement"))
-		})?;
+		let mut get_object_statement = session
+			.prepare(statement)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to prepare the get statement"))?;
 		get_object_statement.set_consistency(scylla::statement::Consistency::One);
 
 		let statement = indoc!(
@@ -193,9 +158,10 @@ impl Store {
 				values (?, ?, ?, ?);
 			"
 		);
-		let mut put_object_statement = session.prepare(statement).await.map_err(|source| {
-			Error::other(tg::error!(!source, "failed to prepare the put statement"))
-		})?;
+		let mut put_object_statement = session
+			.prepare(statement)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to prepare the put statement"))?;
 		put_object_statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
 
 		// Process log statements.
@@ -205,7 +171,10 @@ impl Store {
 				where process = ?;
 			"
 		);
-		let mut delete_process_log_entries_statement = session.prepare(statement).await?;
+		let mut delete_process_log_entries_statement = session
+			.prepare(statement)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to prepare statement"))?;
 		delete_process_log_entries_statement
 			.set_consistency(scylla::statement::Consistency::LocalQuorum);
 
@@ -215,7 +184,10 @@ impl Store {
 				where process = ?;
 			"
 		);
-		let mut delete_process_log_stream_positions_statement = session.prepare(statement).await?;
+		let mut delete_process_log_stream_positions_statement = session
+			.prepare(statement)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to prepare statement"))?;
 		delete_process_log_stream_positions_statement
 			.set_consistency(scylla::statement::Consistency::LocalQuorum);
 
@@ -226,7 +198,10 @@ impl Store {
 				where process = ? and position = ?;
 			"
 		);
-		let mut get_combined_statement = session.prepare(statement).await?;
+		let mut get_combined_statement = session
+			.prepare(statement)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to prepare statement"))?;
 		get_combined_statement.set_consistency(scylla::statement::Consistency::One);
 
 		let statement = indoc!(
@@ -238,7 +213,10 @@ impl Store {
 				limit 1;
 			"
 		);
-		let mut get_last_combined_statement = session.prepare(statement).await?;
+		let mut get_last_combined_statement = session
+			.prepare(statement)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to prepare statement"))?;
 		get_last_combined_statement.set_consistency(scylla::statement::Consistency::One);
 
 		let statement = indoc!(
@@ -250,7 +228,10 @@ impl Store {
 				limit 1;
 			"
 		);
-		let mut get_last_stream_statement = session.prepare(statement).await?;
+		let mut get_last_stream_statement = session
+			.prepare(statement)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to prepare statement"))?;
 		get_last_stream_statement.set_consistency(scylla::statement::Consistency::One);
 
 		let statement = indoc!(
@@ -262,7 +243,10 @@ impl Store {
 				limit 1;
 			"
 		);
-		let mut get_stream_index_at_or_before_statement = session.prepare(statement).await?;
+		let mut get_stream_index_at_or_before_statement = session
+			.prepare(statement)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to prepare statement"))?;
 		get_stream_index_at_or_before_statement
 			.set_consistency(scylla::statement::Consistency::One);
 
@@ -273,7 +257,10 @@ impl Store {
 				if not exists;
 			"
 		);
-		let mut put_combined_statement = session.prepare(statement).await?;
+		let mut put_combined_statement = session
+			.prepare(statement)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to prepare statement"))?;
 		put_combined_statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
 
 		let statement = indoc!(
@@ -282,7 +269,10 @@ impl Store {
 				values (?, ?, ?, ?);
 			"
 		);
-		let mut put_stream_statement = session.prepare(statement).await?;
+		let mut put_stream_statement = session
+			.prepare(statement)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to prepare statement"))?;
 		put_stream_statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
 
 		let statement = indoc!(
@@ -292,7 +282,10 @@ impl Store {
 				where process = ? and position >= ?;
 			"
 		);
-		let mut read_combined_statement = session.prepare(statement).await?;
+		let mut read_combined_statement = session
+			.prepare(statement)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to prepare statement"))?;
 		read_combined_statement.set_consistency(scylla::statement::Consistency::One);
 
 		let scylla = Self {
@@ -320,7 +313,7 @@ impl Store {
 		&self,
 		id: &tg::object::Id,
 		statement: &scylla::statement::prepared::PreparedStatement,
-	) -> Result<Option<Bytes>, Error> {
+	) -> tg::Result<Option<Bytes>> {
 		let params = (id.to_bytes().to_vec(),);
 		#[derive(scylla::DeserializeRow)]
 		struct Row<'a> {
@@ -331,14 +324,12 @@ impl Store {
 			.execute_unpaged(statement, params)
 			.boxed()
 			.await
-			.map_err(|source| {
-				Error::other(tg::error!(!source, %id, "failed to execute the query"))
-			})?
+			.map_err(|source| tg::error!(!source, %id, "failed to execute the query"))?
 			.into_rows_result()
-			.map_err(|source| Error::other(tg::error!(!source, %id, "failed to get the rows")))?;
+			.map_err(|source| tg::error!(!source, %id, "failed to get the rows"))?;
 		let Some(row) = result
 			.maybe_first_row::<Row>()
-			.map_err(|source| Error::other(tg::error!(!source, %id, "failed to get the row")))?
+			.map_err(|source| tg::error!(!source, %id, "failed to get the row"))?
 		else {
 			return Ok(None);
 		};
@@ -353,7 +344,7 @@ impl Store {
 		&self,
 		ids: &[tg::object::Id],
 		statement: &scylla::statement::prepared::PreparedStatement,
-	) -> Result<HashMap<tg::object::Id, Bytes, tg::id::BuildHasher>, Error> {
+	) -> tg::Result<HashMap<tg::object::Id, Bytes, tg::id::BuildHasher>> {
 		let id_bytes = ids
 			.iter()
 			.map(|id| id.to_bytes().to_vec())
@@ -368,28 +359,27 @@ impl Store {
 			.session
 			.execute_unpaged(statement, params)
 			.await
-			.map_err(|source| Error::other(tg::error!(!source, "failed to execute the query")))?
+			.map_err(|source| tg::error!(!source, "failed to execute the query"))?
 			.into_rows_result()
-			.map_err(|source| Error::other(tg::error!(!source, "failed to get the rows")))?;
+			.map_err(|source| tg::error!(!source, "failed to get the rows"))?;
 		let map = result
 			.rows::<Row>()
-			.map_err(|source| Error::other(tg::error!(!source, "failed to iterate the rows")))?
+			.map_err(|source| tg::error!(!source, "failed to iterate the rows"))?
 			.filter_map(|result| {
 				result
-					.map_err(Into::into)
+					.map_err(|source| tg::error!(!source, "failed to get the row"))
 					.and_then(|row| {
 						let Some(bytes) = row.bytes else {
 							return Ok(None);
 						};
-						let id = tg::object::Id::from_slice(row.id).map_err(|source| {
-							Error::other(tg::error!(!source, "failed to parse the id"))
-						})?;
+						let id = tg::object::Id::from_slice(row.id)
+							.map_err(|source| tg::error!(!source, "failed to parse the id"))?;
 						let bytes = Bytes::copy_from_slice(bytes);
 						Ok(Some((id, bytes)))
 					})
 					.transpose()
 			})
-			.collect::<Result<_, Error>>()?;
+			.collect::<tg::Result<_>>()?;
 		Ok(map)
 	}
 
@@ -397,7 +387,7 @@ impl Store {
 		&self,
 		id: &tg::object::Id,
 		statement: &scylla::statement::prepared::PreparedStatement,
-	) -> Result<Option<CachePointer>, Error> {
+	) -> tg::Result<Option<CachePointer>> {
 		let params = (id.to_bytes().to_vec(),);
 		#[derive(scylla::DeserializeRow)]
 		struct Row<'a> {
@@ -408,34 +398,30 @@ impl Store {
 			.execute_unpaged(statement, params)
 			.boxed()
 			.await
-			.map_err(|source| {
-				Error::other(tg::error!(!source, %id, "failed to execute the query"))
-			})?
+			.map_err(|source| tg::error!(!source, %id, "failed to execute the query"))?
 			.into_rows_result()
-			.map_err(|source| Error::other(tg::error!(!source, %id, "failed to get the rows")))?;
+			.map_err(|source| tg::error!(!source, %id, "failed to get the rows"))?;
 		let Some(row) = result
 			.maybe_first_row::<Row>()
-			.map_err(|source| Error::other(tg::error!(!source, %id, "failed to get the row")))?
+			.map_err(|source| tg::error!(!source, %id, "failed to get the row"))?
 		else {
 			return Ok(None);
 		};
 		let Some(cache_pointer) = row.cache_pointer else {
 			return Ok(None);
 		};
-		let cache_pointer = CachePointer::deserialize(cache_pointer).map_err(|source| {
-			Error::other(tg::error!(!source, %id, "failed to deserialize the cache pointer"))
-		})?;
+		let cache_pointer = CachePointer::deserialize(cache_pointer).map_err(
+			|source| tg::error!(!source, %id, "failed to deserialize the cache pointer"),
+		)?;
 		Ok(Some(cache_pointer))
 	}
 }
 
 impl crate::Store for Store {
-	type Error = Error;
-
 	async fn try_get_object(
 		&self,
 		id: &tg::object::Id,
-	) -> Result<Option<crate::Object<'static>>, Self::Error> {
+	) -> tg::Result<Option<crate::Object<'static>>> {
 		// Attempt to get the object with the default consistency.
 		let bytes = self.try_get_inner(id, &self.get_object_statement).await?;
 		if let Some(bytes) = bytes {
@@ -474,7 +460,7 @@ impl crate::Store for Store {
 	async fn try_get_object_batch(
 		&self,
 		ids: &[tg::object::Id],
-	) -> Result<Vec<Option<crate::Object<'static>>>, Self::Error> {
+	) -> tg::Result<Vec<Option<crate::Object<'static>>>> {
 		// Attempt to get the objects with the default consistency.
 		let mut map = self
 			.get_batch_inner(ids, &self.get_object_batch_statement)
@@ -507,14 +493,14 @@ impl crate::Store for Store {
 		Ok(output)
 	}
 
-	async fn put_object(&self, arg: PutObjectArg) -> Result<(), Self::Error> {
+	async fn put_object(&self, arg: PutObjectArg) -> tg::Result<()> {
 		let id = &arg.id;
 		let id_bytes = id.to_bytes().to_vec();
 		let bytes = arg.bytes;
 		let cache_pointer = if let Some(cache_pointer) = &arg.cache_pointer {
-			let cache_pointer = cache_pointer.serialize().map_err(|source| {
-				Error::other(tg::error!(!source, %id, "failed to serialize the cache pointer"))
-			})?;
+			let cache_pointer = cache_pointer.serialize().map_err(
+				|source| tg::error!(!source, %id, "failed to serialize the cache pointer"),
+			)?;
 			Some(cache_pointer)
 		} else {
 			None
@@ -524,13 +510,11 @@ impl crate::Store for Store {
 		self.session
 			.execute_unpaged(&self.put_object_statement, params)
 			.await
-			.map_err(|source| {
-				Error::other(tg::error!(!source, %id, "failed to execute the query"))
-			})?;
+			.map_err(|source| tg::error!(!source, %id, "failed to execute the query"))?;
 		Ok(())
 	}
 
-	async fn put_object_batch(&self, args: Vec<PutObjectArg>) -> Result<(), Self::Error> {
+	async fn put_object_batch(&self, args: Vec<PutObjectArg>) -> tg::Result<()> {
 		if args.is_empty() {
 			return Ok(());
 		}
@@ -549,11 +533,9 @@ impl crate::Store for Store {
 				let id_bytes = id.to_bytes().to_vec();
 				let bytes = arg.bytes.clone();
 				let cache_pointer = if let Some(cache_pointer) = &arg.cache_pointer {
-					let cache_pointer = cache_pointer.serialize().map_err(|source| {
-						Error::other(
-							tg::error!(!source, %id, "failed to serialize the cache pointer"),
-						)
-					})?;
+					let cache_pointer = cache_pointer.serialize().map_err(
+						|source| tg::error!(!source, %id, "failed to serialize the cache pointer"),
+					)?;
 					Some(cache_pointer)
 				} else {
 					None
@@ -562,15 +544,15 @@ impl crate::Store for Store {
 				let params = (id_bytes, bytes, cache_pointer, touched_at);
 				Ok(params)
 			})
-			.collect::<Result<Vec<_>, Error>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 		self.session
 			.batch(&batch, params)
 			.await
-			.map_err(|source| Error::other(tg::error!(!source, "failed to execute the batch")))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the batch"))?;
 		Ok(())
 	}
 
-	async fn delete_object(&self, arg: DeleteObjectArg) -> Result<(), Self::Error> {
+	async fn delete_object(&self, arg: DeleteObjectArg) -> tg::Result<()> {
 		let id = &arg.id;
 		let id_bytes = id.to_bytes().to_vec();
 		let max_touched_at = arg.now - arg.ttl.to_i64().unwrap();
@@ -578,13 +560,11 @@ impl crate::Store for Store {
 		self.session
 			.execute_unpaged(&self.delete_object_statement, params)
 			.await
-			.map_err(|source| {
-				Error::other(tg::error!(!source, %id, "failed to execute the query"))
-			})?;
+			.map_err(|source| tg::error!(!source, %id, "failed to execute the query"))?;
 		Ok(())
 	}
 
-	async fn delete_object_batch(&self, args: Vec<DeleteObjectArg>) -> Result<(), Self::Error> {
+	async fn delete_object_batch(&self, args: Vec<DeleteObjectArg>) -> tg::Result<()> {
 		if args.is_empty() {
 			return Ok(());
 		}
@@ -607,14 +587,14 @@ impl crate::Store for Store {
 		self.session
 			.batch(&batch, params)
 			.await
-			.map_err(|source| Error::other(tg::error!(!source, "failed to execute the batch")))?;
+			.map_err(|source| tg::error!(!source, "failed to execute the batch"))?;
 		Ok(())
 	}
 
 	async fn try_read_process_log(
 		&self,
 		arg: ReadProcessLogArg,
-	) -> Result<Vec<crate::ProcessLogEntry<'static>>, Self::Error> {
+	) -> tg::Result<Vec<crate::ProcessLogEntry<'static>>> {
 		let process = arg.process.to_bytes().to_vec();
 
 		// Find the starting position.
@@ -633,10 +613,13 @@ impl crate::Store for Store {
 			let result = self
 				.session
 				.execute_unpaged(&self.get_stream_index_at_or_before_statement, params)
-				.await?
-				.into_rows_result()?;
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the query"))?
+				.into_rows_result()
+				.map_err(|source| tg::error!(!source, "failed to get the rows"))?;
 			result
-				.maybe_first_row::<StreamRow>()?
+				.maybe_first_row::<StreamRow>()
+				.map_err(|source| tg::error!(!source, "failed to get the row"))?
 				.map(|row| row.position.to_u64().unwrap())
 		} else {
 			Some(arg.position)
@@ -659,15 +642,21 @@ impl crate::Store for Store {
 		let mut iter = self
 			.session
 			.execute_iter(self.read_combined_statement.clone(), params)
-			.await?
-			.rows_stream::<Row>()?;
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the query"))?
+			.rows_stream::<Row>()
+			.map_err(|source| tg::error!(!source, "failed to get the rows stream"))?;
 
 		let mut remaining = arg.length;
 		let mut output = Vec::new();
 		let mut current: Option<crate::ProcessLogEntry> = None;
 
 		while remaining > 0 {
-			let Some(row) = iter.try_next().await? else {
+			let Some(row) = iter
+				.try_next()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+			else {
 				break;
 			};
 
@@ -745,7 +734,7 @@ impl crate::Store for Store {
 		&self,
 		id: &tg::process::Id,
 		stream: Option<tg::process::log::Stream>,
-	) -> Result<Option<u64>, Self::Error> {
+	) -> tg::Result<Option<u64>> {
 		let process = id.to_bytes().to_vec();
 
 		match stream {
@@ -760,9 +749,14 @@ impl crate::Store for Store {
 				let result = self
 					.session
 					.execute_unpaged(&self.get_last_combined_statement, params)
-					.await?
-					.into_rows_result()?;
-				let Some(row) = result.maybe_first_row::<Row>()? else {
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the query"))?
+					.into_rows_result()
+					.map_err(|source| tg::error!(!source, "failed to get the rows"))?;
+				let Some(row) = result
+					.maybe_first_row::<Row>()
+					.map_err(|source| tg::error!(!source, "failed to get the row"))?
+				else {
 					return Ok(None);
 				};
 				Ok(Some(
@@ -786,9 +780,14 @@ impl crate::Store for Store {
 				let result = self
 					.session
 					.execute_unpaged(&self.get_last_stream_statement, params)
-					.await?
-					.into_rows_result()?;
-				let Some(index_row) = result.maybe_first_row::<StreamRow>()? else {
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the query"))?
+					.into_rows_result()
+					.map_err(|source| tg::error!(!source, "failed to get the rows"))?;
+				let Some(index_row) = result
+					.maybe_first_row::<StreamRow>()
+					.map_err(|source| tg::error!(!source, "failed to get the row"))?
+				else {
 					return Ok(None);
 				};
 
@@ -802,9 +801,14 @@ impl crate::Store for Store {
 				let result = self
 					.session
 					.execute_unpaged(&self.get_combined_statement, params)
-					.await?
-					.into_rows_result()?;
-				let Some(entry_row) = result.maybe_first_row::<EntryRow>()? else {
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the query"))?
+					.into_rows_result()
+					.map_err(|source| tg::error!(!source, "failed to get the rows"))?;
+				let Some(entry_row) = result
+					.maybe_first_row::<EntryRow>()
+					.map_err(|source| tg::error!(!source, "failed to get the row"))?
+				else {
 					return Ok(None);
 				};
 
@@ -816,7 +820,7 @@ impl crate::Store for Store {
 		}
 	}
 
-	async fn put_process_log(&self, arg: PutProcessLogArg) -> Result<(), Self::Error> {
+	async fn put_process_log(&self, arg: PutProcessLogArg) -> tg::Result<()> {
 		let process = arg.process.to_bytes().to_vec();
 		let stream = match arg.stream {
 			tg::process::log::Stream::Stdout => 1i32,
@@ -860,32 +864,46 @@ impl crate::Store for Store {
 			let result = self
 				.session
 				.execute_unpaged(&self.get_last_combined_statement, params)
-				.await?
-				.into_rows_result()?;
-			let position = result.maybe_first_row::<LastEntryRow>()?.map_or(0, |row| {
-				row.position.to_u64().unwrap() + row.bytes.len().to_u64().unwrap()
-			});
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the query"))?
+				.into_rows_result()
+				.map_err(|source| tg::error!(!source, "failed to get the rows"))?;
+			let position = result
+				.maybe_first_row::<LastEntryRow>()
+				.map_err(|source| tg::error!(!source, "failed to get the row"))?
+				.map_or(0, |row| {
+					row.position.to_u64().unwrap() + row.bytes.len().to_u64().unwrap()
+				});
 
 			let params = (&process, stream);
 			let result = self
 				.session
 				.execute_unpaged(&self.get_last_stream_statement, params)
-				.await?
-				.into_rows_result()?;
-			let stream_position =
-				if let Some(index_row) = result.maybe_first_row::<LastStreamPositionRow>()? {
-					let params = (&process, index_row.position);
-					let result = self
-						.session
-						.execute_unpaged(&self.get_combined_statement, params)
-						.await?
-						.into_rows_result()?;
-					result.maybe_first_row::<EntryInfoRow>()?.map_or(0, |row| {
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the query"))?
+				.into_rows_result()
+				.map_err(|source| tg::error!(!source, "failed to get the rows"))?;
+			let stream_position = if let Some(index_row) = result
+				.maybe_first_row::<LastStreamPositionRow>()
+				.map_err(|source| tg::error!(!source, "failed to get the row"))?
+			{
+				let params = (&process, index_row.position);
+				let result = self
+					.session
+					.execute_unpaged(&self.get_combined_statement, params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the query"))?
+					.into_rows_result()
+					.map_err(|source| tg::error!(!source, "failed to get the rows"))?;
+				result
+					.maybe_first_row::<EntryInfoRow>()
+					.map_err(|source| tg::error!(!source, "failed to get the row"))?
+					.map_or(0, |row| {
 						row.stream_position.to_u64().unwrap() + row.bytes.len().to_u64().unwrap()
 					})
-				} else {
-					0
-				};
+			} else {
+				0
+			};
 
 			let params = (
 				&process,
@@ -898,10 +916,14 @@ impl crate::Store for Store {
 			let result = self
 				.session
 				.execute_unpaged(&self.put_combined_statement, params)
-				.await?
-				.into_rows_result()?;
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the query"))?
+				.into_rows_result()
+				.map_err(|source| tg::error!(!source, "failed to get the rows"))?;
 
-			let row = result.single_row::<Row>()?;
+			let row = result
+				.single_row::<Row>()
+				.map_err(|source| tg::error!(!source, "failed to get the row"))?;
 			if !row.applied {
 				continue;
 			}
@@ -921,19 +943,21 @@ impl crate::Store for Store {
 		}
 	}
 
-	async fn delete_process_log(&self, arg: DeleteProcessLogArg) -> Result<(), Self::Error> {
+	async fn delete_process_log(&self, arg: DeleteProcessLogArg) -> tg::Result<()> {
 		let process = arg.process.to_bytes().to_vec();
 		let params = (&process,);
 		self.session
 			.execute_unpaged(&self.delete_process_log_entries_statement, params)
-			.await?;
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the query"))?;
 		self.session
 			.execute_unpaged(&self.delete_process_log_stream_positions_statement, params)
-			.await?;
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the query"))?;
 		Ok(())
 	}
 
-	async fn flush(&self) -> Result<(), Self::Error> {
+	async fn flush(&self) -> tg::Result<()> {
 		Ok(())
 	}
 }

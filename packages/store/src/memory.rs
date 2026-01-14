@@ -20,11 +20,6 @@ struct ProcessLogs {
 	stream_positions: BTreeMap<(tg::process::log::Stream, u64), u64>,
 }
 
-#[derive(Debug, derive_more::Display, derive_more::Error)]
-pub enum Error {
-	Other(Box<dyn std::error::Error + Send + Sync>),
-}
-
 impl Store {
 	#[must_use]
 	pub fn new() -> Self {
@@ -271,38 +266,33 @@ impl Default for Store {
 }
 
 impl crate::Store for Store {
-	type Error = Error;
-
-	async fn try_get_object(
-		&self,
-		id: &tg::object::Id,
-	) -> Result<Option<Object<'static>>, Self::Error> {
+	async fn try_get_object(&self, id: &tg::object::Id) -> tg::Result<Option<Object<'static>>> {
 		Ok(self.try_get_object(id))
 	}
 
 	async fn try_get_object_batch(
 		&self,
 		ids: &[tg::object::Id],
-	) -> Result<Vec<Option<Object<'static>>>, Self::Error> {
+	) -> tg::Result<Vec<Option<Object<'static>>>> {
 		Ok(self.try_get_object_batch(ids))
 	}
 
-	async fn put_object(&self, arg: PutObjectArg) -> Result<(), Self::Error> {
+	async fn put_object(&self, arg: PutObjectArg) -> tg::Result<()> {
 		self.put_object(arg);
 		Ok(())
 	}
 
-	async fn put_object_batch(&self, args: Vec<PutObjectArg>) -> Result<(), Self::Error> {
+	async fn put_object_batch(&self, args: Vec<PutObjectArg>) -> tg::Result<()> {
 		self.put_object_batch(args);
 		Ok(())
 	}
 
-	async fn delete_object(&self, arg: DeleteObjectArg) -> Result<(), Self::Error> {
+	async fn delete_object(&self, arg: DeleteObjectArg) -> tg::Result<()> {
 		self.delete_object(arg);
 		Ok(())
 	}
 
-	async fn delete_object_batch(&self, args: Vec<DeleteObjectArg>) -> Result<(), Self::Error> {
+	async fn delete_object_batch(&self, args: Vec<DeleteObjectArg>) -> tg::Result<()> {
 		self.delete_object_batch(args);
 		Ok(())
 	}
@@ -310,7 +300,7 @@ impl crate::Store for Store {
 	async fn try_read_process_log(
 		&self,
 		arg: ReadProcessLogArg,
-	) -> Result<Vec<ProcessLogEntry<'static>>, Self::Error> {
+	) -> tg::Result<Vec<ProcessLogEntry<'static>>> {
 		Ok(self.try_read_process_log(arg))
 	}
 
@@ -318,29 +308,23 @@ impl crate::Store for Store {
 		&self,
 		id: &tg::process::Id,
 		stream: Option<tg::process::log::Stream>,
-	) -> Result<Option<u64>, Self::Error> {
+	) -> tg::Result<Option<u64>> {
 		Ok(self.try_get_process_log_length(id, stream))
 	}
 
-	async fn put_process_log(&self, arg: PutProcessLogArg) -> Result<(), Self::Error> {
+	async fn put_process_log(&self, arg: PutProcessLogArg) -> tg::Result<()> {
 		self.put_process_log(arg);
 		Ok(())
 	}
 
-	async fn delete_process_log(&self, arg: DeleteProcessLogArg) -> Result<(), Self::Error> {
+	async fn delete_process_log(&self, arg: DeleteProcessLogArg) -> tg::Result<()> {
 		self.delete_process_log(arg);
 		Ok(())
 	}
 
-	async fn flush(&self) -> Result<(), Self::Error> {
+	async fn flush(&self) -> tg::Result<()> {
 		self.flush();
 		Ok(())
-	}
-}
-
-impl crate::Error for Error {
-	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
-		Self::Other(error.into())
 	}
 }
 

@@ -7,14 +7,8 @@ pub mod memory;
 pub mod scylla;
 
 pub mod prelude {
-	pub use super::{Error as _, Store as _};
+	pub use super::Store as _;
 }
-
-pub trait Error: std::error::Error + Send + Sync + 'static {
-	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self;
-}
-
-pub type Result<T, E = Box<dyn std::error::Error + Send + Sync>> = std::result::Result<T, E>;
 
 #[derive(Clone, Debug)]
 pub struct PutObjectArg {
@@ -106,96 +100,87 @@ pub struct ProcessLogEntry<'a> {
 }
 
 pub trait Store {
-	type Error: Error;
-
 	fn try_get_object(
 		&self,
 		id: &tg::object::Id,
-	) -> impl std::future::Future<Output = Result<Option<Object<'static>>, Self::Error>> + Send;
+	) -> impl std::future::Future<Output = tg::Result<Option<Object<'static>>>> + Send;
 
 	fn try_get_object_batch(
 		&self,
 		ids: &[tg::object::Id],
-	) -> impl std::future::Future<Output = Result<Vec<Option<Object<'static>>>, Self::Error>> + Send;
+	) -> impl std::future::Future<Output = tg::Result<Vec<Option<Object<'static>>>>> + Send;
 
 	fn put_object(
 		&self,
 		arg: PutObjectArg,
-	) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
+	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
 	fn put_object_batch(
 		&self,
 		args: Vec<PutObjectArg>,
-	) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
+	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
 	fn delete_object(
 		&self,
 		arg: DeleteObjectArg,
-	) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
+	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
 	fn delete_object_batch(
 		&self,
 		args: Vec<DeleteObjectArg>,
-	) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
+	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
 	fn try_read_process_log(
 		&self,
 		arg: ReadProcessLogArg,
-	) -> impl std::future::Future<Output = Result<Vec<ProcessLogEntry<'static>>, Self::Error>> + Send;
+	) -> impl std::future::Future<Output = tg::Result<Vec<ProcessLogEntry<'static>>>> + Send;
 
 	fn try_get_process_log_length(
 		&self,
 		id: &tg::process::Id,
 		stream: Option<tg::process::log::Stream>,
-	) -> impl std::future::Future<Output = Result<Option<u64>, Self::Error>> + Send;
+	) -> impl std::future::Future<Output = tg::Result<Option<u64>>> + Send;
 
 	fn put_process_log(
 		&self,
 		arg: PutProcessLogArg,
-	) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
+	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
 	fn delete_process_log(
 		&self,
 		arg: DeleteProcessLogArg,
-	) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
+	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
-	fn flush(&self) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
+	fn flush(&self) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 }
 
 impl Object<'_> {
-	pub fn serialize(&self) -> Result<Bytes> {
+	pub fn serialize(&self) -> tg::Result<Bytes> {
 		let mut bytes = Vec::new();
 		bytes.push(0);
-		tangram_serialize::to_writer(&mut bytes, self).map_err(|source| {
-			let error: Box<dyn std::error::Error + Send + Sync> =
-				Box::new(tg::error!(!source, "failed to serialize the object value"));
-			error
-		})?;
+		tangram_serialize::to_writer(&mut bytes, self)
+			.map_err(|source| tg::error!(!source, "failed to serialize the object value"))?;
 		Ok(bytes.into())
 	}
 }
 
 impl Object<'static> {
-	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> Result<Self> {
+	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
 		let bytes = bytes.into();
 		let bytes = bytes.as_ref();
 		if bytes.is_empty() {
-			return Err("empty object value data".into());
+			return Err(tg::error!("empty object value data"));
 		}
 		let format = bytes[0];
 		match format {
 			0 => {
 				let object: Object<'_> =
 					tangram_serialize::from_slice(&bytes[1..]).map_err(|source| {
-						let error: Box<dyn std::error::Error + Send + Sync> = Box::new(tg::error!(
-							!source,
-							"failed to deserialize the object value"
-						));
-						error
+						tg::error!(!source, "failed to deserialize the object value")
 					})?;
 				Ok(object.into_static())
 			},
-			_ => Err("invalid object value format".into()),
+			_ => Err(tg::error!("invalid object value format")),
 		}
 	}
 }
@@ -212,40 +197,27 @@ impl Object<'_> {
 }
 
 impl CachePointer {
-	pub fn serialize(&self) -> Result<Bytes> {
+	pub fn serialize(&self) -> tg::Result<Bytes> {
 		let mut bytes = Vec::new();
 		bytes.push(0);
-		tangram_serialize::to_writer(&mut bytes, self).map_err(|source| {
-			let error: Box<dyn std::error::Error + Send + Sync> =
-				Box::new(tg::error!(!source, "failed to serialize the cache pointer"));
-			error
-		})?;
+		tangram_serialize::to_writer(&mut bytes, self)
+			.map_err(|source| tg::error!(!source, "failed to serialize the cache pointer"))?;
 		Ok(bytes.into())
 	}
 
-	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> Result<Self> {
+	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
 		let bytes = bytes.into();
 		let bytes = bytes.as_ref();
 		if bytes.is_empty() {
-			return Err("empty cache pointer data".into());
+			return Err(tg::error!("empty cache pointer data"));
 		}
 		let format = bytes[0];
 		match format {
-			0 => tangram_serialize::from_slice(&bytes[1..]).map_err(|source| {
-				let error: Box<dyn std::error::Error + Send + Sync> = Box::new(tg::error!(
-					!source,
-					"failed to deserialize the cache pointer"
-				));
-				error
-			}),
-			b'{' => serde_json::from_slice(bytes).map_err(|source| {
-				let error: Box<dyn std::error::Error + Send + Sync> = Box::new(tg::error!(
-					!source,
-					"failed to deserialize the cache pointer"
-				));
-				error
-			}),
-			_ => Err("invalid cache pointer format".into()),
+			0 => tangram_serialize::from_slice(&bytes[1..])
+				.map_err(|source| tg::error!(!source, "failed to deserialize the cache pointer")),
+			b'{' => serde_json::from_slice(bytes)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the cache pointer")),
+			_ => Err(tg::error!("invalid cache pointer format")),
 		}
 	}
 }

@@ -1,7 +1,7 @@
 use {
 	crate::{
-		CachePointer, DeleteObjectArg, DeleteProcessLogArg, Error as _, Object, ProcessLogEntry,
-		PutObjectArg, PutProcessLogArg, ReadProcessLogArg,
+		CachePointer, DeleteObjectArg, DeleteProcessLogArg, Object, ProcessLogEntry, PutObjectArg,
+		PutProcessLogArg, ReadProcessLogArg,
 	},
 	bytes::Bytes,
 	foundationdb_tuple::TuplePack as _,
@@ -29,12 +29,6 @@ type RequestSender = tokio::sync::mpsc::Sender<(Request, ResponseSender)>;
 type RequestReceiver = tokio::sync::mpsc::Receiver<(Request, ResponseSender)>;
 type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<()>>;
 type _ResponseReceiver = tokio::sync::oneshot::Receiver<tg::Result<()>>;
-
-#[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
-pub enum Error {
-	Lmdb(lmdb::Error),
-	Other(Box<dyn std::error::Error + Send + Sync>),
-}
 
 enum Request {
 	Object(ObjectRequest),
@@ -85,14 +79,16 @@ enum Key<'a> {
 }
 
 impl Store {
-	pub fn new(config: &Config) -> Result<Self, Error> {
+	pub fn new(config: &Config) -> tg::Result<Self> {
 		std::fs::OpenOptions::new()
 			.create(true)
 			.truncate(false)
 			.read(true)
 			.write(true)
 			.open(&config.path)
-			.map_err(Error::other)?;
+			.map_err(
+				|source| tg::error!(!source, path = %config.path.display(), "failed to open the lmdb file"),
+			)?;
 		let env = unsafe {
 			lmdb::EnvOpenOptions::new()
 				.map_size(config.map_size)
@@ -105,18 +101,16 @@ impl Store {
 				)
 				.open(&config.path)
 				.map_err(|source| {
-					Error::other(
-						tg::error!(!source, path = %config.path.display(), "failed to open the lmdb environment"),
-					)
+					tg::error!(!source, path = %config.path.display(), "failed to open the lmdb environment")
 				})?
 		};
 		let mut transaction = env.write_txn().unwrap();
 		let db = env
 			.create_database(&mut transaction, None)
-			.map_err(|source| Error::other(tg::error!(!source, "failed to create the database")))?;
-		transaction.commit().map_err(|source| {
-			Error::other(tg::error!(!source, "failed to commit the transaction"))
-		})?;
+			.map_err(|source| tg::error!(!source, "failed to create the database"))?;
+		transaction
+			.commit()
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 		// Create the thread.
 		let (sender, receiver) = tokio::sync::mpsc::channel(256);
@@ -556,20 +550,9 @@ impl Store {
 	}
 }
 
-impl crate::Error for Error {
-	fn other(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
-		Self::Other(error.into())
-	}
-}
-
 impl crate::Store for Store {
-	type Error = Error;
-
-	async fn try_get_object(
-		&self,
-		id: &tg::object::Id,
-	) -> Result<Option<Object<'static>>, Self::Error> {
-		let value = tokio::task::spawn_blocking({
+	async fn try_get_object(&self, id: &tg::object::Id) -> tg::Result<Option<Object<'static>>> {
+		tokio::task::spawn_blocking({
 			let db = self.db;
 			let env = self.env.clone();
 			let id = id.clone();
@@ -587,23 +570,21 @@ impl crate::Store for Store {
 				let value = Object::deserialize(raw_bytes).map_err(
 					|source| tg::error!(!source, %id, "failed to deserialize the object"),
 				)?;
-				Ok::<_, tg::Error>(Some(value))
+				Ok(Some(value))
 			}
 		})
 		.await
-		.map_err(|source| Error::other(tg::error!(!source, "failed to join the task")))?
-		.map_err(Error::other)?;
-		Ok(value)
+		.map_err(|source| tg::error!(!source, "failed to join the task"))?
 	}
 
 	async fn try_get_object_batch(
 		&self,
 		ids: &[tg::object::Id],
-	) -> Result<Vec<Option<Object<'static>>>, Self::Error> {
+	) -> tg::Result<Vec<Option<Object<'static>>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
-		let values = tokio::task::spawn_blocking({
+		tokio::task::spawn_blocking({
 			let db = self.db;
 			let env = self.env.clone();
 			let ids = ids.to_owned();
@@ -620,16 +601,14 @@ impl crate::Store for Store {
 						.and_then(|bytes| Object::deserialize(bytes).ok());
 					outputs.push(value);
 				}
-				Ok::<_, tg::Error>(outputs)
+				Ok(outputs)
 			}
 		})
 		.await
-		.map_err(|source| Error::other(tg::error!(!source, "failed to join the task")))?
-		.map_err(Error::other)?;
-		Ok(values)
+		.map_err(|source| tg::error!(!source, "failed to join the task"))?
 	}
 
-	async fn put_object(&self, arg: PutObjectArg) -> Result<(), Self::Error> {
+	async fn put_object(&self, arg: PutObjectArg) -> tg::Result<()> {
 		let id = arg.id.clone();
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Object(ObjectRequest::Put(PutObject {
@@ -641,17 +620,13 @@ impl crate::Store for Store {
 		self.sender
 			.send((request, sender))
 			.await
-			.map_err(|source| {
-				Error::other(tg::error!(!source, %id, "failed to send the request"))
-			})?;
+			.map_err(|source| tg::error!(!source, %id, "failed to send the request"))?;
 		receiver
 			.await
-			.map_err(|_| Error::other(tg::error!(%id, "the task panicked")))?
-			.map_err(Error::other)?;
-		Ok(())
+			.map_err(|_| tg::error!(%id, "the task panicked"))?
 	}
 
-	async fn put_object_batch(&self, args: Vec<PutObjectArg>) -> Result<(), Self::Error> {
+	async fn put_object_batch(&self, args: Vec<PutObjectArg>) -> tg::Result<()> {
 		if args.is_empty() {
 			return Ok(());
 		}
@@ -669,15 +644,13 @@ impl crate::Store for Store {
 		self.sender
 			.send((request, sender))
 			.await
-			.map_err(|source| Error::other(tg::error!(!source, "failed to send the request")))?;
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		receiver
 			.await
-			.map_err(|_| Error::other(tg::error!("the task panicked")))?
-			.map_err(Error::other)?;
-		Ok(())
+			.map_err(|_| tg::error!("the task panicked"))?
 	}
 
-	async fn delete_object(&self, arg: DeleteObjectArg) -> Result<(), Self::Error> {
+	async fn delete_object(&self, arg: DeleteObjectArg) -> tg::Result<()> {
 		let id = arg.id.clone();
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Object(ObjectRequest::Delete(DeleteObject {
@@ -688,17 +661,13 @@ impl crate::Store for Store {
 		self.sender
 			.send((request, sender))
 			.await
-			.map_err(|source| {
-				Error::other(tg::error!(!source, %id, "failed to send the request"))
-			})?;
+			.map_err(|source| tg::error!(!source, %id, "failed to send the request"))?;
 		receiver
 			.await
-			.map_err(|_| Error::other(tg::error!(%id, "the task panicked")))?
-			.map_err(Error::other)?;
-		Ok(())
+			.map_err(|_| tg::error!(%id, "the task panicked"))?
 	}
 
-	async fn delete_object_batch(&self, args: Vec<DeleteObjectArg>) -> Result<(), Self::Error> {
+	async fn delete_object_batch(&self, args: Vec<DeleteObjectArg>) -> tg::Result<()> {
 		if args.is_empty() {
 			return Ok(());
 		}
@@ -715,19 +684,17 @@ impl crate::Store for Store {
 		self.sender
 			.send((request, sender))
 			.await
-			.map_err(|source| Error::other(tg::error!(!source, "failed to send the request")))?;
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		receiver
 			.await
-			.map_err(|_| Error::other(tg::error!("the task panicked")))?
-			.map_err(Error::other)?;
-		Ok(())
+			.map_err(|_| tg::error!("the task panicked"))?
 	}
 
 	async fn try_read_process_log(
 		&self,
 		arg: ReadProcessLogArg,
-	) -> Result<Vec<ProcessLogEntry<'static>>, Self::Error> {
-		let entries = tokio::task::spawn_blocking({
+	) -> tg::Result<Vec<ProcessLogEntry<'static>>> {
+		tokio::task::spawn_blocking({
 			let db = self.db;
 			let env = self.env.clone();
 			move || {
@@ -890,21 +857,19 @@ impl crate::Store for Store {
 					.into_iter()
 					.map(ProcessLogEntry::into_static)
 					.collect();
-				Ok::<_, tg::Error>(output)
+				Ok(output)
 			}
 		})
 		.await
-		.map_err(Error::other)?
-		.map_err(Error::other)?;
-		Ok(entries)
+		.map_err(|source| tg::error!(!source, "failed to join the task"))?
 	}
 
 	async fn try_get_process_log_length(
 		&self,
 		id: &tg::process::Id,
 		stream: Option<tg::process::log::Stream>,
-	) -> Result<Option<u64>, Self::Error> {
-		let length = tokio::task::spawn_blocking({
+	) -> tg::Result<Option<u64>> {
+		tokio::task::spawn_blocking({
 			let db = self.db;
 			let env = self.env.clone();
 			let id = id.clone();
@@ -968,16 +933,14 @@ impl crate::Store for Store {
 					entry.position + entry.bytes.len().to_u64().unwrap()
 				};
 
-				Ok::<_, tg::Error>(Some(length))
+				Ok(Some(length))
 			}
 		})
 		.await
-		.map_err(Error::other)?
-		.map_err(Error::other)?;
-		Ok(length)
+		.map_err(|source| tg::error!(!source, "failed to join the task"))?
 	}
 
-	async fn put_process_log(&self, arg: PutProcessLogArg) -> Result<(), Self::Error> {
+	async fn put_process_log(&self, arg: PutProcessLogArg) -> tg::Result<()> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::ProcessLog(ProcessLogRequest::Put(PutProcessLog {
 			bytes: arg.bytes,
@@ -988,15 +951,13 @@ impl crate::Store for Store {
 		self.sender
 			.send((request, sender))
 			.await
-			.map_err(Error::other)?;
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		receiver
 			.await
-			.map_err(|_| Error::other("task panicked"))?
-			.map_err(Error::other)?;
-		Ok(())
+			.map_err(|_| tg::error!("the task panicked"))?
 	}
 
-	async fn delete_process_log(&self, arg: DeleteProcessLogArg) -> Result<(), Self::Error> {
+	async fn delete_process_log(&self, arg: DeleteProcessLogArg) -> tg::Result<()> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::ProcessLog(ProcessLogRequest::Delete(DeleteProcessLog {
 			id: arg.process,
@@ -1004,15 +965,13 @@ impl crate::Store for Store {
 		self.sender
 			.send((request, sender))
 			.await
-			.map_err(Error::other)?;
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		receiver
 			.await
-			.map_err(|_| Error::other("task panicked"))?
-			.map_err(Error::other)?;
-		Ok(())
+			.map_err(|_| tg::error!("the task panicked"))?
 	}
 
-	async fn flush(&self) -> Result<(), Self::Error> {
+	async fn flush(&self) -> tg::Result<()> {
 		tokio::task::spawn_blocking({
 			let env = self.env.clone();
 			move || {
@@ -1021,9 +980,7 @@ impl crate::Store for Store {
 			}
 		})
 		.await
-		.map_err(|source| Error::other(tg::error!(!source, "failed to join the task")))?
-		.map_err(Error::other)?;
-		Ok(())
+		.map_err(|source| tg::error!(!source, "failed to join the task"))?
 	}
 }
 
