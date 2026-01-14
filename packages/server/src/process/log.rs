@@ -1,7 +1,7 @@
 use {
 	crate::{Server, store::ReadProcessLogArg},
 	indoc::formatdoc,
-	num::ToPrimitive,
+	num::ToPrimitive as _,
 	std::io::Cursor,
 	tangram_client as tg,
 	tangram_database::{self as db, Database as _, Query as _},

@@ -1,6 +1,6 @@
 use {
 	crate::prelude::*,
-	futures::{StreamExt, future::BoxFuture, prelude::*, stream::BoxStream},
+	futures::{future::BoxFuture, prelude::*, stream::BoxStream},
 	tangram_futures::{BoxAsyncBufRead, BoxAsyncRead, BoxAsyncWrite},
 };
 
@@ -719,7 +719,9 @@ where
 			BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>,
 		>,
 	> {
-		self.try_spawn_process(arg).map_ok(StreamExt::boxed).boxed()
+		self.try_spawn_process(arg)
+			.map_ok(futures::StreamExt::boxed)
+			.boxed()
 	}
 
 	fn start_process<'a>(

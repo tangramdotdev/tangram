@@ -10,7 +10,7 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_futures::{read::Ext as _, write::Ext as _},
-	tokio::io::{AsyncReadExt as _, AsyncWriteExt},
+	tokio::io::{AsyncReadExt as _, AsyncWriteExt as _},
 };
 
 #[derive(Clone)]

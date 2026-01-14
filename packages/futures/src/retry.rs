@@ -1,5 +1,5 @@
 use {
-	num::ToPrimitive,
+	num::ToPrimitive as _,
 	std::{ops::ControlFlow, time::Duration},
 };
 

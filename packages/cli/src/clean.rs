@@ -1,5 +1,5 @@
 use {
-	crate::Cli, num::ToPrimitive, std::os::unix::fs::PermissionsExt as _,
+	crate::Cli, num::ToPrimitive as _, std::os::unix::fs::PermissionsExt as _,
 	tangram_client::prelude::*,
 };
 

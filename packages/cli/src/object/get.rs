@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client::prelude::*, tokio::io::AsyncWriteExt};
+use {crate::Cli, tangram_client::prelude::*, tokio::io::AsyncWriteExt as _};
 
 /// Get an object.
 #[derive(Clone, Debug, clap::Args)]

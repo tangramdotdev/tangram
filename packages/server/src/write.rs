@@ -2,7 +2,7 @@ use {
 	crate::{Context, Server, temp::Temp},
 	bytes::Bytes,
 	futures::TryStreamExt as _,
-	itertools::Itertools,
+	itertools::Itertools as _,
 	num::ToPrimitive as _,
 	std::{
 		collections::{BTreeMap, BTreeSet},

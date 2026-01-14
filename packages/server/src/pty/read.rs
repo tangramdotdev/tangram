@@ -2,7 +2,7 @@ use {
 	crate::{Context, Server},
 	bytes::Bytes,
 	futures::{FutureExt as _, Stream, StreamExt as _, future, stream},
-	num::ToPrimitive,
+	num::ToPrimitive as _,
 	std::os::fd::AsRawFd as _,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stop,

@@ -4,7 +4,7 @@ use {
 	bytes::Bytes,
 	futures::{Stream, TryStreamExt as _, future},
 	http_body_util::{BodyExt as _, BodyStream, StreamBody},
-	num::ToPrimitive,
+	num::ToPrimitive as _,
 	std::pin::{Pin, pin},
 	tokio::io::{AsyncBufRead, AsyncRead},
 	tokio_util::io::{ReaderStream, StreamReader},

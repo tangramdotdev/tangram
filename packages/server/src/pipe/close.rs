@@ -2,7 +2,7 @@ use {
 	crate::{Context, Server},
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
-	tokio::io::AsyncWriteExt,
+	tokio::io::AsyncWriteExt as _,
 };
 
 impl Server {

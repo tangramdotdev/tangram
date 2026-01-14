@@ -1,6 +1,7 @@
 use {
 	super::Result,
 	crate::quickjs::{StateHandle, serde::Serde},
+	futures::{StreamExt as _, TryStreamExt as _, future},
 	rquickjs as qjs,
 	tangram_client::prelude::*,
 };
@@ -38,14 +39,31 @@ pub async fn spawn(
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	let Serde(arg) = arg;
 	let result = async {
-		let output = state
+		let stream = state
 			.main_runtime_handle
 			.spawn({
 				let handle = state.handle.clone();
-				async move { handle.spawn_process(arg).await }
+				async move {
+					let stream = handle
+						.try_spawn_process(arg)
+						.await?
+						.and_then(|event| {
+							let result = event.try_map_output(
+								|output: Option<tg::process::spawn::Output>| {
+									output.ok_or_else(|| tg::error!("expected a process"))
+								},
+							);
+							future::ready(result)
+						})
+						.boxed();
+					Ok::<_, tg::Error>(stream)
+				}
 			})
 			.await
 			.map_err(|source| tg::error!(!source, "the task panicked"))??;
+		let writer = super::log::Writer::new(state.clone(), tg::process::log::Stream::Stderr);
+		let handle = state.handle.clone();
+		let output = tg::progress::write_progress_stream(&handle, stream, writer, false).await?;
 		Ok(output)
 	}
 	.await;

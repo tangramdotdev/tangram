@@ -1,7 +1,7 @@
 use {
 	crate::prelude::*,
 	bytes::Bytes,
-	num::ToPrimitive,
+	num::ToPrimitive as _,
 	std::{collections::BTreeMap, path::PathBuf},
 	winnow::{
 		ascii::float,

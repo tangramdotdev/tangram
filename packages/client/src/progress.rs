@@ -61,8 +61,8 @@ impl<T> Event<T> {
 	pub fn map_output<U>(self, f: impl FnOnce(T) -> U) -> Event<U> {
 		match self {
 			Self::Log(log) => Event::Log(log),
-			Self::Diagnostic(diagnostic) => Event::Diagnostic::<U>(diagnostic),
-			Self::Indicators(indicators) => Event::Indicators::<U>(indicators),
+			Self::Diagnostic(diagnostic) => Event::Diagnostic(diagnostic),
+			Self::Indicators(indicators) => Event::Indicators(indicators),
 			Self::Output(value) => Event::Output(f(value)),
 		}
 	}
@@ -252,15 +252,14 @@ struct State<H, T, W> {
 	writer: W,
 }
 
-pub async fn write_progress_stream<H, T, W>(
+pub async fn write_progress_stream<H, T>(
 	handle: &H,
 	stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>>,
-	writer: W,
+	writer: impl std::io::Write,
 	is_tty: bool,
 ) -> tg::Result<T>
 where
 	H: tg::Handle,
-	W: std::io::Write,
 {
 	let mut state = State {
 		handle: handle.clone(),

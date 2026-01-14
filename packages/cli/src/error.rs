@@ -4,7 +4,7 @@ use {
 	crossterm::style::Stylize as _,
 	std::{fmt::Write as _, path::Path},
 	tangram_client::prelude::*,
-	tokio::io::AsyncReadExt,
+	tokio::io::AsyncReadExt as _,
 };
 
 impl Cli {

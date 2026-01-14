@@ -1,7 +1,7 @@
 use {
 	futures::FutureExt as _,
 	std::{
-		os::unix::fs::{MetadataExt, PermissionsExt as _},
+		os::unix::fs::{MetadataExt as _, PermissionsExt as _},
 		path::{Path, PathBuf},
 	},
 };

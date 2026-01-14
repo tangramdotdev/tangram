@@ -1,7 +1,7 @@
 use {
 	crate::{Context, ProcessPermit, Server, database},
 	futures::{
-		FutureExt as _, StreamExt as _, TryStreamExt, future,
+		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
 		stream::{self, BoxStream, FuturesUnordered},
 	},
 	indoc::{formatdoc, indoc},

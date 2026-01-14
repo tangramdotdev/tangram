@@ -11,7 +11,7 @@ use {
 		read::Ext as _,
 		stream::Ext as _,
 		task::{Stop, Task},
-		write::Ext,
+		write::Ext as _,
 	},
 	tangram_http::{Body, request::Ext as _},
 	tokio::io::AsyncReadExt as _,

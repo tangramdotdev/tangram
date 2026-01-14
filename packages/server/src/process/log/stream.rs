@@ -4,7 +4,7 @@ use {
 		StreamExt as _,
 		stream::{self, BoxStream},
 	},
-	num::ToPrimitive,
+	num::ToPrimitive as _,
 	std::{collections::VecDeque, io::SeekFrom},
 	tangram_client::prelude::*,
 	tangram_store::Store as _,
