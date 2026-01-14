@@ -1,5 +1,6 @@
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 use tangram_database as db;
+use tangram_index::{self as index, prelude::*};
 use {
 	crate::{Context, Server},
 	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
@@ -18,19 +19,354 @@ use {
 pub use self::message::Message;
 
 pub mod message;
-#[cfg(feature = "postgres")]
-pub mod postgres;
-#[cfg(feature = "sqlite")]
-pub mod sqlite;
+
+// Re-export types from the index crate.
+pub use index::{ObjectStored, ProcessStored};
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Index {
 	#[cfg(feature = "postgres")]
-	Postgres(db::postgres::Database),
+	Postgres(index::postgres::Index),
 	#[cfg(feature = "sqlite")]
-	Sqlite(db::sqlite::Database),
+	Sqlite(index::sqlite::Index),
+}
+
+impl Index {
+	#[cfg(feature = "postgres")]
+	pub fn new_postgres(database: db::postgres::Database) -> Self {
+		Self::Postgres(index::postgres::Index::new(database))
+	}
+
+	#[cfg(feature = "sqlite")]
+	pub fn new_sqlite(database: db::sqlite::Database) -> Self {
+		Self::Sqlite(index::sqlite::Index::new(database))
+	}
+}
+
+// Implement the Index trait by delegation.
+impl index::Index for Index {
+	async fn try_get_object_metadata(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<tg::object::Metadata>> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => index.try_get_object_metadata(id).await,
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => index.try_get_object_metadata(id).await,
+		}
+	}
+
+	async fn try_get_object_metadata_batch(
+		&self,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<tg::object::Metadata>>> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => index.try_get_object_metadata_batch(ids).await,
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => index.try_get_object_metadata_batch(ids).await,
+		}
+	}
+
+	async fn try_get_object_stored(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<index::ObjectStored>> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => index.try_get_object_stored(id).await,
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => index.try_get_object_stored(id).await,
+		}
+	}
+
+	async fn try_get_object_stored_batch(
+		&self,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<index::ObjectStored>>> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => index.try_get_object_stored_batch(ids).await,
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => index.try_get_object_stored_batch(ids).await,
+		}
+	}
+
+	async fn try_get_object_stored_and_metadata(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<(index::ObjectStored, tg::object::Metadata)>> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => index.try_get_object_stored_and_metadata(id).await,
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => index.try_get_object_stored_and_metadata(id).await,
+		}
+	}
+
+	async fn try_get_object_stored_and_metadata_batch(
+		&self,
+		ids: &[tg::object::Id],
+	) -> tg::Result<Vec<Option<(index::ObjectStored, tg::object::Metadata)>>> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => index.try_get_object_stored_and_metadata_batch(ids).await,
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => index.try_get_object_stored_and_metadata_batch(ids).await,
+		}
+	}
+
+	async fn try_touch_object_and_get_stored_and_metadata(
+		&self,
+		id: &tg::object::Id,
+		touched_at: i64,
+	) -> tg::Result<Option<(index::ObjectStored, tg::object::Metadata)>> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => {
+				index
+					.try_touch_object_and_get_stored_and_metadata(id, touched_at)
+					.await
+			},
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => {
+				index
+					.try_touch_object_and_get_stored_and_metadata(id, touched_at)
+					.await
+			},
+		}
+	}
+
+	async fn try_touch_object_and_get_stored_and_metadata_batch(
+		&self,
+		ids: &[tg::object::Id],
+		touched_at: i64,
+	) -> tg::Result<Vec<Option<(index::ObjectStored, tg::object::Metadata)>>> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => {
+				index
+					.try_touch_object_and_get_stored_and_metadata_batch(ids, touched_at)
+					.await
+			},
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => {
+				index
+					.try_touch_object_and_get_stored_and_metadata_batch(ids, touched_at)
+					.await
+			},
+		}
+	}
+
+	async fn try_get_process_metadata(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::Metadata>> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => index.try_get_process_metadata(id).await,
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => index.try_get_process_metadata(id).await,
+		}
+	}
+
+	async fn try_get_process_metadata_batch(
+		&self,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Vec<Option<tg::process::Metadata>>> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => index.try_get_process_metadata_batch(ids).await,
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => index.try_get_process_metadata_batch(ids).await,
+		}
+	}
+
+	async fn try_get_process_stored(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<index::ProcessStored>> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => index.try_get_process_stored(id).await,
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => index.try_get_process_stored(id).await,
+		}
+	}
+
+	async fn try_get_process_stored_batch(
+		&self,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Vec<Option<index::ProcessStored>>> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => index.try_get_process_stored_batch(ids).await,
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => index.try_get_process_stored_batch(ids).await,
+		}
+	}
+
+	async fn try_get_process_stored_and_metadata_batch(
+		&self,
+		ids: &[tg::process::Id],
+	) -> tg::Result<Vec<Option<(index::ProcessStored, tg::process::Metadata)>>> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => index.try_get_process_stored_and_metadata_batch(ids).await,
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => index.try_get_process_stored_and_metadata_batch(ids).await,
+		}
+	}
+
+	async fn try_touch_process_and_get_stored_and_metadata(
+		&self,
+		id: &tg::process::Id,
+		touched_at: i64,
+	) -> tg::Result<Option<(index::ProcessStored, tg::process::Metadata)>> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => {
+				index
+					.try_touch_process_and_get_stored_and_metadata(id, touched_at)
+					.await
+			},
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => {
+				index
+					.try_touch_process_and_get_stored_and_metadata(id, touched_at)
+					.await
+			},
+		}
+	}
+
+	async fn try_touch_process_and_get_stored_and_metadata_batch(
+		&self,
+		ids: &[tg::process::Id],
+		touched_at: i64,
+	) -> tg::Result<Vec<Option<(index::ProcessStored, tg::process::Metadata)>>> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => {
+				index
+					.try_touch_process_and_get_stored_and_metadata_batch(ids, touched_at)
+					.await
+			},
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => {
+				index
+					.try_touch_process_and_get_stored_and_metadata_batch(ids, touched_at)
+					.await
+			},
+		}
+	}
+
+	async fn handle_messages(
+		&self,
+		put_cache_entry: Vec<index::PutCacheEntryArg>,
+		put_object: Vec<index::PutObjectArg>,
+		touch_object: Vec<index::TouchObjectArg>,
+		put_process: Vec<index::PutProcessArg>,
+		touch_process: Vec<index::TouchProcessArg>,
+		put_tag: Vec<index::PutTagArg>,
+		delete_tag: Vec<index::DeleteTagArg>,
+	) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => {
+				index
+					.handle_messages(
+						put_cache_entry,
+						put_object,
+						touch_object,
+						put_process,
+						touch_process,
+						put_tag,
+						delete_tag,
+					)
+					.await
+			},
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => {
+				index
+					.handle_messages(
+						put_cache_entry,
+						put_object,
+						touch_object,
+						put_process,
+						touch_process,
+						put_tag,
+						delete_tag,
+					)
+					.await
+			},
+		}
+	}
+
+	async fn handle_queue(&self, batch_size: usize) -> tg::Result<usize> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => index.handle_queue(batch_size).await,
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => index.handle_queue(batch_size).await,
+		}
+	}
+
+	async fn get_transaction_id(&self) -> tg::Result<u64> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => index.get_transaction_id().await,
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => index.get_transaction_id().await,
+		}
+	}
+
+	async fn get_queue_size(&self, transaction_id: u64) -> tg::Result<u64> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => index.get_queue_size(transaction_id).await,
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => index.get_queue_size(transaction_id).await,
+		}
+	}
+
+	async fn clean(&self, max_touched_at: i64, n: usize) -> tg::Result<index::CleanOutput> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => index.clean(max_touched_at, n).await,
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => index.clean(max_touched_at, n).await,
+		}
+	}
+
+	async fn touch_object(&self, id: &tg::object::Id) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => index.touch_object(id).await,
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => index.touch_object(id).await,
+		}
+	}
+
+	async fn touch_process(&self, id: &tg::process::Id) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => index.touch_process(id).await,
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => index.touch_process(id).await,
+		}
+	}
+
+	async fn sync(&self) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "postgres")]
+			Self::Postgres(index) => index.sync().await,
+			#[cfg(feature = "sqlite")]
+			Self::Sqlite(index) => index.sync().await,
+		}
+	}
 }
 
 impl Server {
@@ -126,11 +462,13 @@ impl Server {
 
 		// Wait until the index's queue no longer has items whose transaction id is less than or equal to the current transaction id.
 		let transaction_id = self
-			.indexer_get_transaction_id()
+			.index
+			.get_transaction_id()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the transaction id"))?;
 		let count = self
-			.indexer_get_queue_size(transaction_id)
+			.index
+			.get_queue_size(transaction_id)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the queue size"))?;
 		progress.start(
@@ -142,7 +480,8 @@ impl Server {
 		);
 		loop {
 			let count = self
-				.indexer_get_queue_size(transaction_id)
+				.index
+				.get_queue_size(transaction_id)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the queue size"))?;
 			progress.set("queue", count);
@@ -172,7 +511,7 @@ impl Server {
 				match futures::poll!(stream.try_next()) {
 					Poll::Ready(result) => result,
 					Poll::Pending => {
-						let result = self.indexer_handle_queue(config).await;
+						let result = self.index.handle_queue(config.queue_batch_size).await;
 						let n = match result {
 							Ok(n) => n,
 							Err(error) => {
@@ -286,36 +625,75 @@ impl Server {
 			for message in messages {
 				if n >= config.insert_batch_size {
 					// Handle the messages.
-					match &self.index {
-						#[cfg(feature = "postgres")]
-						Index::Postgres(index) => {
-							self.indexer_task_handle_messages_postgres(
-								index,
-								put_cache_entry_messages,
-								put_object_messages,
-								touch_object_messages,
-								put_process_messages,
-								touch_process_messages,
-								put_tag_messages,
-								delete_tag_messages,
-							)
-							.await?;
-						},
-						#[cfg(feature = "sqlite")]
-						Index::Sqlite(index) => {
-							self.indexer_task_handle_messages_sqlite(
-								index,
-								put_cache_entry_messages,
-								put_object_messages,
-								touch_object_messages,
-								put_process_messages,
-								touch_process_messages,
-								put_tag_messages,
-								delete_tag_messages,
-							)
-							.await?;
-						},
-					}
+					let put_cache_entry_arg = put_cache_entry_messages
+						.drain(..)
+						.map(|m: message::PutCacheEntry| index::PutCacheEntryArg {
+							id: m.id,
+							touched_at: m.touched_at,
+						})
+						.collect();
+					let put_object_arg = put_object_messages
+						.drain(..)
+						.map(|m: message::PutObject| index::PutObjectArg {
+							cache_entry: m.cache_entry,
+							children: m.children,
+							id: m.id,
+							metadata: m.metadata,
+							stored: m.stored,
+							touched_at: m.touched_at,
+						})
+						.collect();
+					let touch_object_arg = touch_object_messages
+						.drain(..)
+						.map(|m: message::TouchObject| index::TouchObjectArg {
+							id: m.id,
+							touched_at: m.touched_at,
+						})
+						.collect();
+					let put_process_arg = put_process_messages
+						.drain(..)
+						.map(|m: message::PutProcess| index::PutProcessArg {
+							children: m.children,
+							id: m.id,
+							metadata: m.metadata,
+							objects: m
+								.objects
+								.into_iter()
+								.map(|(id, kind)| (id, kind.into()))
+								.collect(),
+							stored: m.stored,
+							touched_at: m.touched_at,
+						})
+						.collect();
+					let touch_process_arg = touch_process_messages
+						.drain(..)
+						.map(|m: message::TouchProcess| index::TouchProcessArg {
+							id: m.id,
+							touched_at: m.touched_at,
+						})
+						.collect();
+					let put_tag_arg = put_tag_messages
+						.drain(..)
+						.map(|m: message::PutTagMessage| index::PutTagArg {
+							tag: m.tag,
+							item: m.item,
+						})
+						.collect();
+					let delete_tag_arg = delete_tag_messages
+						.drain(..)
+						.map(|m: message::DeleteTag| index::DeleteTagArg { tag: m.tag })
+						.collect();
+					self.index
+						.handle_messages(
+							put_cache_entry_arg,
+							put_object_arg,
+							touch_object_arg,
+							put_process_arg,
+							touch_process_arg,
+							put_tag_arg,
+							delete_tag_arg,
+						)
+						.await?;
 
 					// Acknowledge the messages.
 					future::try_join_all(ackers.drain(..).map(async |acker| {
@@ -328,13 +706,6 @@ impl Server {
 
 					// Reset the state.
 					n = 0;
-					put_cache_entry_messages = Vec::new();
-					put_object_messages = Vec::new();
-					touch_object_messages = Vec::new();
-					put_process_messages = Vec::new();
-					touch_process_messages = Vec::new();
-					put_tag_messages = Vec::new();
-					delete_tag_messages = Vec::new();
 				}
 
 				// Add the message.
@@ -373,36 +744,75 @@ impl Server {
 		}
 
 		// Handle the messages.
-		match &self.index {
-			#[cfg(feature = "postgres")]
-			Index::Postgres(index) => {
-				self.indexer_task_handle_messages_postgres(
-					index,
-					put_cache_entry_messages,
-					put_object_messages,
-					touch_object_messages,
-					put_process_messages,
-					touch_process_messages,
-					put_tag_messages,
-					delete_tag_messages,
-				)
-				.await?;
-			},
-			#[cfg(feature = "sqlite")]
-			Index::Sqlite(index) => {
-				self.indexer_task_handle_messages_sqlite(
-					index,
-					put_cache_entry_messages,
-					put_object_messages,
-					touch_object_messages,
-					put_process_messages,
-					touch_process_messages,
-					put_tag_messages,
-					delete_tag_messages,
-				)
-				.await?;
-			},
-		}
+		let put_cache_entry_arg = put_cache_entry_messages
+			.drain(..)
+			.map(|m: message::PutCacheEntry| index::PutCacheEntryArg {
+				id: m.id,
+				touched_at: m.touched_at,
+			})
+			.collect();
+		let put_object_arg = put_object_messages
+			.drain(..)
+			.map(|m: message::PutObject| index::PutObjectArg {
+				cache_entry: m.cache_entry,
+				children: m.children,
+				id: m.id,
+				metadata: m.metadata,
+				stored: m.stored,
+				touched_at: m.touched_at,
+			})
+			.collect();
+		let touch_object_arg = touch_object_messages
+			.drain(..)
+			.map(|m: message::TouchObject| index::TouchObjectArg {
+				id: m.id,
+				touched_at: m.touched_at,
+			})
+			.collect();
+		let put_process_arg = put_process_messages
+			.drain(..)
+			.map(|m: message::PutProcess| index::PutProcessArg {
+				children: m.children,
+				id: m.id,
+				metadata: m.metadata,
+				objects: m
+					.objects
+					.into_iter()
+					.map(|(id, kind)| (id, kind.into()))
+					.collect(),
+				stored: m.stored,
+				touched_at: m.touched_at,
+			})
+			.collect();
+		let touch_process_arg = touch_process_messages
+			.drain(..)
+			.map(|m: message::TouchProcess| index::TouchProcessArg {
+				id: m.id,
+				touched_at: m.touched_at,
+			})
+			.collect();
+		let put_tag_arg = put_tag_messages
+			.drain(..)
+			.map(|m: message::PutTagMessage| index::PutTagArg {
+				tag: m.tag,
+				item: m.item,
+			})
+			.collect();
+		let delete_tag_arg = delete_tag_messages
+			.drain(..)
+			.map(|m: message::DeleteTag| index::DeleteTagArg { tag: m.tag })
+			.collect();
+		self.index
+			.handle_messages(
+				put_cache_entry_arg,
+				put_object_arg,
+				touch_object_arg,
+				put_process_arg,
+				touch_process_arg,
+				put_tag_arg,
+				delete_tag_arg,
+			)
+			.await?;
 
 		// Acknowledge the messages.
 		future::try_join_all(ackers.drain(..).map(async |acker| {
@@ -415,39 +825,6 @@ impl Server {
 		.await?;
 
 		Ok(())
-	}
-
-	async fn indexer_handle_queue(&self, config: &crate::config::Indexer) -> tg::Result<usize> {
-		match &self.index {
-			#[cfg(feature = "postgres")]
-			Index::Postgres(database) => self.indexer_handle_queue_postgres(config, database).await,
-			#[cfg(feature = "sqlite")]
-			Index::Sqlite(database) => self.indexer_handle_queue_sqlite(config, database).await,
-		}
-	}
-
-	async fn indexer_get_transaction_id(&self) -> tg::Result<u64> {
-		match &self.index {
-			#[cfg(feature = "postgres")]
-			Index::Postgres(database) => self.indexer_get_transaction_id_postgres(database).await,
-			#[cfg(feature = "sqlite")]
-			Index::Sqlite(database) => self.indexer_get_transaction_id_sqlite(database).await,
-		}
-	}
-
-	async fn indexer_get_queue_size(&self, transaction_id: u64) -> tg::Result<u64> {
-		match &self.index {
-			#[cfg(feature = "postgres")]
-			Index::Postgres(database) => {
-				self.indexer_get_queue_size_postgres(database, transaction_id)
-					.await
-			},
-			#[cfg(feature = "sqlite")]
-			Index::Sqlite(database) => {
-				self.indexer_get_queue_size_sqlite(database, transaction_id)
-					.await
-			},
-		}
 	}
 
 	pub(crate) async fn handle_index_request(
@@ -500,28 +877,5 @@ impl Server {
 		let response = response.body(body).unwrap();
 
 		Ok(response)
-	}
-}
-
-impl Index {
-	#[expect(dead_code)]
-	pub async fn sync(&self) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "postgres")]
-			Self::Postgres(database) => {
-				database
-					.sync()
-					.await
-					.map_err(|error| tg::error!(!error, "failed to sync the index"))?;
-			},
-			#[cfg(feature = "sqlite")]
-			Self::Sqlite(database) => {
-				database
-					.sync()
-					.await
-					.map_err(|error| tg::error!(!error, "failed to sync the index"))?;
-			},
-		}
-		Ok(())
 	}
 }

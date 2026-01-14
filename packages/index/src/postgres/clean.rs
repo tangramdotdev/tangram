@@ -1,19 +1,15 @@
 use {
-	super::{InnerOutput, Server},
+	super::Index,
+	crate::CleanOutput,
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
 
-impl Server {
-	#[cfg(feature = "postgres")]
-	pub(super) async fn cleaner_task_inner_postgres(
-		&self,
-		database: &db::postgres::Database,
-		max_touched_at: i64,
-		n: usize,
-	) -> tg::Result<InnerOutput> {
-		let mut connection = database
+impl Index {
+	pub async fn clean(&self, max_touched_at: i64, n: usize) -> tg::Result<CleanOutput> {
+		let mut connection = self
+			.database
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -55,7 +51,7 @@ impl Server {
 
 		drop(connection);
 
-		let output = InnerOutput {
+		let output = CleanOutput {
 			bytes: row.deleted_bytes,
 			cache_entries: row.deleted_cache_entries,
 			objects: row.deleted_objects,

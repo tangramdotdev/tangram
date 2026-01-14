@@ -2,12 +2,8 @@ use {
 	crate::{Context, Server},
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _},
+	tangram_index::prelude::*,
 };
-
-#[cfg(feature = "postgres")]
-mod postgres;
-#[cfg(feature = "sqlite")]
-mod sqlite;
 
 impl Server {
 	pub(crate) async fn touch_process_with_context(
@@ -36,20 +32,10 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 
-		match &self.index {
-			#[cfg(feature = "postgres")]
-			crate::index::Index::Postgres(database) => {
-				self.touch_process_postgres(database, id)
-					.await
-					.map_err(|source| tg::error!(!source, %id, "failed to touch the process"))?;
-			},
-			#[cfg(feature = "sqlite")]
-			crate::index::Index::Sqlite(database) => {
-				self.touch_process_sqlite(database, id)
-					.await
-					.map_err(|source| tg::error!(!source, %id, "failed to touch the process"))?;
-			},
-		}
+		self.index
+			.touch_process(id)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to touch the process"))?;
 
 		Ok(())
 	}

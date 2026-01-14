@@ -354,7 +354,7 @@ impl Server {
 					let database = db::postgres::Database::new(options)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to create the index"))?;
-					Index::Postgres(database)
+					Index::new_postgres(database)
 				}
 			},
 			self::config::Index::Sqlite(options) => {
@@ -367,7 +367,7 @@ impl Server {
 				}
 				#[cfg(feature = "sqlite")]
 				{
-					let initialize = Arc::new(self::index::sqlite::initialize);
+					let initialize = Arc::new(tangram_index::sqlite::initialize);
 					let path = path.join("index");
 					let options = db::sqlite::DatabaseOptions {
 						connections: options.connections.unwrap_or(parallelism),
@@ -377,7 +377,7 @@ impl Server {
 					let database = db::sqlite::Database::new(options)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to create the index"))?;
-					Index::Sqlite(database)
+					Index::new_sqlite(database)
 				}
 			},
 		};
@@ -605,8 +605,9 @@ impl Server {
 
 		// Migrate the index if necessary.
 		#[cfg(feature = "sqlite")]
-		if let Ok(database) = server.index.try_unwrap_sqlite_ref() {
-			self::index::sqlite::migrate(database)
+		if let Ok(index) = server.index.try_unwrap_sqlite_ref() {
+			index
+				.migrate()
 				.await
 				.map_err(|source| tg::error!(!source, "failed to migrate the index"))?;
 		}

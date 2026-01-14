@@ -4,6 +4,7 @@ use {
 	futures::{StreamExt as _, TryStreamExt as _},
 	std::sync::Arc,
 	tangram_client::prelude::*,
+	tangram_index::prelude::*,
 	tangram_messenger::prelude::*,
 	tangram_store::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
@@ -75,6 +76,7 @@ impl Server {
 		// Touch the objects and get stored and metadata.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let outputs = self
+			.index
 			.try_touch_object_and_get_stored_and_metadata_batch(&ids, touched_at)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to touch and get object metadata"))?;
@@ -161,6 +163,7 @@ impl Server {
 		// Touch the processes and get stored and metadata.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let outputs = self
+			.index
 			.try_touch_process_and_get_stored_and_metadata_batch(&ids, touched_at)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to touch and get process metadata"))?;
