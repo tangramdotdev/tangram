@@ -39,6 +39,7 @@ impl Server {
 			let permit = ProcessPermit(tg::Either::Left(permit));
 
 			// Try to dequeue a process locally or from one of the remotes.
+			tracing::info!("waiting for a process");
 			let arg = tg::process::dequeue::Arg::default();
 			let futures = std::iter::once(
 				self.dequeue_process(arg)
@@ -60,6 +61,7 @@ impl Server {
 					.boxed()
 				})
 			}));
+
 			let process = match future::select_ok(futures).await {
 				Ok((process, _)) => process,
 				Err(error) => {
@@ -68,6 +70,7 @@ impl Server {
 					continue;
 				},
 			};
+			tracing::info!(process = %process.id(),"dequeud process");
 
 			// Attempt to start the process.
 			let arg = tg::process::start::Arg {

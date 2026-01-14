@@ -179,13 +179,20 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
-		// If a permit has been acquired, then spawn the process task. Otherwise, spawn tasks to publish the created message and spawn the process task when the parent's permit is acquired.
+		// If a permit has been acquired, then spawn the process task. Otherwise, enqueue the process and create a task to spawn the process task when the parent's permit is acquired.
 		if let Some(output) = &mut output {
 			if let Some(permit) = output.permit.take() {
 				let process = tg::Process::new(output.id.clone(), None, None, None, None);
 				self.spawn_process_task(&process, permit);
 			} else {
-				self.spawn_process_created_message_task();
+				let payload = crate::process::dequeue::Message {
+					id: output.id.clone(),
+				};
+				let _fut = self
+					.messenger
+					.stream_publish("queue".into(), payload)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to enqueue the process"))?;
 				self.spawn_process_parent_permit_task(&arg, &output.id);
 			}
 		}
@@ -1072,20 +1079,6 @@ impl Server {
 		}
 
 		Ok(())
-	}
-
-	fn spawn_process_created_message_task(&self) {
-		tokio::spawn({
-			let server = self.clone();
-			async move {
-				server
-					.messenger
-					.publish("processes.created".to_owned(), ())
-					.await
-					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
-					.ok();
-			}
-		});
 	}
 
 	fn spawn_publish_process_child_message_task(&self, parent: &tg::process::Id) {
