@@ -3,7 +3,7 @@ use {
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_http::{Body, response::builder::Ext as _},
+	tangram_http::{Body, request::Ext as _},
 };
 
 impl Server {
@@ -41,14 +41,39 @@ impl Server {
 
 	pub(crate) async fn handle_delete_remote_request(
 		&self,
-		_request: http::Request<Body>,
+		request: http::Request<Body>,
 		context: &Context,
 		name: &str,
 	) -> tg::Result<http::Response<Body>> {
+		// Get the accept header.
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+
+		// Delete the remote.
 		self.delete_remote_with_context(context, name)
 			.await
 			.map_err(|source| tg::error!(!source, %name, "failed to delete the remote"))?;
-		let response = http::Response::builder().empty().unwrap();
+
+		// Create the response.
+		match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			Some((mime::APPLICATION, mime::JSON)) => (),
+			_ => {
+				return Err(tg::error!(?accept, "invalid accept header"));
+			},
+		}
+
+		let response = http::Response::builder()
+			.header(
+				http::header::CONTENT_TYPE,
+				mime::APPLICATION_JSON.to_string(),
+			)
+			.body(Body::empty())
+			.unwrap();
 		Ok(response)
 	}
 }

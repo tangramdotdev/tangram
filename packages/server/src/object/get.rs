@@ -346,22 +346,45 @@ impl Server {
 		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
+		// Get the accept header.
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+
+		// Parse the object id.
 		let id = id
 			.parse()
 			.map_err(|source| tg::error!(!source, "failed to parse the object id"))?;
 
+		// Get the arg.
 		let arg = request
 			.query_params()
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
 			.unwrap_or_default();
 
+		// Get the object.
 		let Some(output) = self.try_get_object_with_context(context, &id, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
 
+		// Validate the accept header.
+		match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			Some((mime::APPLICATION, mime::OCTET_STREAM)) => (),
+			_ => {
+				return Err(tg::error!(?accept, "invalid accept header"));
+			},
+		}
+
 		// Build the response.
-		let mut response = http::Response::builder();
+		let mut response = http::Response::builder().header(
+			http::header::CONTENT_TYPE,
+			mime::APPLICATION_OCTET_STREAM.to_string(),
+		);
 		if let Some(metadata) = &output.metadata {
 			response = response
 				.header_json(tg::object::get::METADATA_HEADER, metadata)

@@ -5,7 +5,7 @@ use {
 	std::pin::pin,
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Stop},
-	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+	tangram_http::{Body, request::Ext as _},
 	tokio::io::AsyncWriteExt as _,
 };
 
@@ -67,6 +67,12 @@ impl Server {
 		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<Body>> {
+		// Get the accept header.
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+
 		// Parse the ID.
 		let id = id
 			.parse()
@@ -124,7 +130,23 @@ impl Server {
 			.await?;
 
 		// Create the response.
-		let response = http::Response::builder().empty().unwrap();
+		match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			Some((mime::APPLICATION, mime::JSON)) => (),
+			_ => {
+				return Err(tg::error!(?accept, "invalid accept header"));
+			},
+		}
+
+		let response = http::Response::builder()
+			.header(
+				http::header::CONTENT_TYPE,
+				mime::APPLICATION_JSON.to_string(),
+			)
+			.body(Body::empty())
+			.unwrap();
 
 		Ok(response)
 	}

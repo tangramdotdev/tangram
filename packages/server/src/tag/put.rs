@@ -1,7 +1,7 @@
 use {
 	crate::{Context, Server, database::Database},
 	tangram_client::prelude::*,
-	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+	tangram_http::{Body, request::Ext as _},
 	tangram_messenger::prelude::*,
 };
 
@@ -85,16 +85,45 @@ impl Server {
 		context: &Context,
 		tag: &[&str],
 	) -> tg::Result<http::Response<Body>> {
+		// Get the accept header.
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+
+		// Parse the tag.
 		let tag = tag
 			.join("/")
 			.parse()
 			.map_err(|source| tg::error!(!source, "failed to parse the tag"))?;
+
+		// Get the arg.
 		let arg = request
 			.json()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
+
+		// Put the tag.
 		self.put_tag_with_context(context, &tag, arg).await?;
-		let response = http::Response::builder().empty().unwrap();
+
+		// Create the response.
+		match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			Some((mime::APPLICATION, mime::JSON)) => (),
+			_ => {
+				return Err(tg::error!(?accept, "invalid accept header"));
+			},
+		}
+
+		let response = http::Response::builder()
+			.header(
+				http::header::CONTENT_TYPE,
+				mime::APPLICATION_JSON.to_string(),
+			)
+			.body(Body::empty())
+			.unwrap();
 		Ok(response)
 	}
 }

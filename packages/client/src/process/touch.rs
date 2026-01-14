@@ -27,6 +27,11 @@ impl tg::Client {
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
+			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
+			.header(
+				http::header::CONTENT_TYPE,
+				mime::APPLICATION_JSON.to_string(),
+			)
 			.json(arg)
 			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
 			.unwrap();

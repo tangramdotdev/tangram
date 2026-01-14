@@ -3,7 +3,7 @@ use {
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_http::{Body, response::builder::Ext as _},
+	tangram_http::{Body, request::Ext as _},
 	tangram_uri::Uri,
 };
 
@@ -50,21 +50,48 @@ impl Server {
 
 	pub(crate) async fn handle_get_remote_request(
 		&self,
-		_request: http::Request<Body>,
+		request: http::Request<Body>,
 		context: &Context,
 		name: &str,
 	) -> tg::Result<http::Response<Body>> {
+		// Get the accept header.
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+
+		// Get the remote.
 		let Some(output) = self
 			.try_get_remote_with_context(context, name)
 			.await
 			.map_err(|source| tg::error!(!source, %name, "failed to get the remote"))?
 		else {
-			return Ok(http::Response::builder().not_found().empty().unwrap());
+			return Ok(http::Response::builder()
+				.status(http::StatusCode::NOT_FOUND)
+				.body(Body::empty())
+				.unwrap());
 		};
-		let response = http::Response::builder()
-			.json(output)
-			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?
-			.unwrap();
+
+		// Create the response.
+		let (content_type, body) = match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			Some((mime::APPLICATION, mime::JSON)) => {
+				let content_type = mime::APPLICATION_JSON;
+				let body = serde_json::to_vec(&output).unwrap();
+				(Some(content_type), Body::with_bytes(body))
+			},
+			_ => {
+				return Err(tg::error!(?accept, "invalid accept header"));
+			},
+		};
+
+		let mut response = http::Response::builder();
+		if let Some(content_type) = content_type {
+			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
+		}
+		let response = response.body(body).unwrap();
 		Ok(response)
 	}
 }

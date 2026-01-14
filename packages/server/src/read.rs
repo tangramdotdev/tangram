@@ -163,6 +163,12 @@ impl Server {
 		request: http::Request<Body>,
 		context: &Context,
 	) -> tg::Result<http::Response<Body>> {
+		// Get the accept header.
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+
 		// Get the query.
 		let arg = request
 			.query_params()
@@ -174,6 +180,17 @@ impl Server {
 		let Some(stream) = self.try_read_stream_with_context(context, arg).await? else {
 			return Ok(http::Response::builder().not_found().empty().unwrap());
 		};
+
+		// Validate the accept header.
+		match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			Some((mime::APPLICATION, mime::OCTET_STREAM)) => (),
+			_ => {
+				return Err(tg::error!(?accept, "invalid accept header"));
+			},
+		}
 
 		// Stop the stream when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
@@ -206,7 +223,10 @@ impl Server {
 		let body = Body::with_stream(frames);
 
 		// Create the response.
-		let mut response = http::Response::builder();
+		let mut response = http::Response::builder().header(
+			http::header::CONTENT_TYPE,
+			mime::APPLICATION_OCTET_STREAM.to_string(),
+		);
 		if let Some(position) = position {
 			response = response.header("x-tg-position", position);
 		}
