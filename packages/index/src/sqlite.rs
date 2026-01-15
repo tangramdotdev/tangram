@@ -14,7 +14,6 @@ mod clean;
 mod indexer;
 mod metadata;
 mod queue;
-mod row;
 mod stored;
 mod touch;
 mod transaction;
