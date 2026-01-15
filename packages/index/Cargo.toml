@@ -1,10 +1,20 @@
 [package]
 name = "tangram_index"
-version = "0.0.0"
-edition = "2024"
+
+description = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+publish = false
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
 
 [features]
-postgres = ["dep:tokio-postgres", "dep:tangram_futures", "tangram_database/postgres"]
+postgres = ["dep:tangram_futures", "dep:tokio-postgres", "tangram_database/postgres"]
 sqlite = ["dep:rusqlite", "tangram_database/sqlite"]
 
 [dependencies]
