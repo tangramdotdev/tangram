@@ -7,6 +7,10 @@ use {
 
 pub mod builder;
 
+static REGEX: LazyLock<Regex> = LazyLock::new(|| {
+	Regex::new(r"^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?").unwrap()
+});
+
 /// Characters that must be percent-encoded in query parameter values.
 /// This encodes `=`, `&`, `#`, and other special chars, but NOT `/`.
 const QUERY_VALUE_ENCODE_SET: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
@@ -18,21 +22,6 @@ const QUERY_VALUE_ENCODE_SET: &percent_encoding::AsciiSet = &percent_encoding::C
 	.add(b'=')
 	.add(b'&')
 	.add(b'+');
-
-/// Encode a query parameter value, preserving `/` characters.
-#[must_use]
-pub fn encode_query_value(value: &str) -> String {
-	percent_encoding::utf8_percent_encode(value, QUERY_VALUE_ENCODE_SET).to_string()
-}
-
-/// Decode a percent-encoded query parameter value.
-pub fn decode_query_value(value: &str) -> Result<Cow<'_, str>, std::str::Utf8Error> {
-	percent_encoding::percent_decode_str(value).decode_utf8()
-}
-
-static REGEX: LazyLock<Regex> = LazyLock::new(|| {
-	Regex::new(r"^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?").unwrap()
-});
 
 #[derive(
 	Clone,
@@ -276,4 +265,15 @@ impl std::str::FromStr for Uri {
 			fragment,
 		})
 	}
+}
+
+/// Encode a query parameter value, preserving `/` characters.
+#[must_use]
+pub fn encode_query_value(value: &str) -> String {
+	percent_encoding::utf8_percent_encode(value, QUERY_VALUE_ENCODE_SET).to_string()
+}
+
+/// Decode a percent-encoded query parameter value.
+pub fn decode_query_value(value: &str) -> Result<Cow<'_, str>, std::str::Utf8Error> {
+	percent_encoding::percent_decode_str(value).decode_utf8()
 }
