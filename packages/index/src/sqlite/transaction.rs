@@ -1,6 +1,10 @@
 use {
-	super::Index, indoc::indoc, num::ToPrimitive as _, rusqlite as sqlite,
-	tangram_client::prelude::*, tangram_database::prelude::*,
+	super::Index,
+	indoc::indoc,
+	num::ToPrimitive as _,
+	rusqlite as sqlite,
+	tangram_client::prelude::*,
+	tangram_database::{self as db, prelude::*},
 };
 
 impl Index {
@@ -76,5 +80,23 @@ impl Index {
 			})
 			.await?;
 		Ok(count)
+	}
+
+	pub(super) fn increment_transaction_id(
+		transaction: &sqlite::Transaction<'_>,
+		cache: &db::sqlite::Cache,
+	) -> tg::Result<()> {
+		let statement = indoc!(
+			"
+				update transaction_id set id = id + 1;
+			"
+		);
+		let mut statement = cache
+			.get(transaction, statement.into())
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		statement
+			.execute([])
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		Ok(())
 	}
 }
