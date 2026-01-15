@@ -551,13 +551,13 @@ impl Server {
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))
 		{
-			Some((mime::APPLICATION, mime::JSON)) => {
+			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => {
 				let content_type = mime::APPLICATION_JSON;
 				let body = serde_json::to_vec(&output).unwrap();
 				(Some(content_type), Body::with_bytes(body))
 			},
-			_ => {
-				return Err(tg::error!(?accept, "invalid accept header"));
+			Some((type_, subtype)) => {
+				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
 			},
 		};
 

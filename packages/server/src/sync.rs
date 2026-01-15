@@ -274,40 +274,48 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to start the sync"))?;
 
+		// Validate the accept header.
+		let sync_content_type: mime::Mime = tg::sync::CONTENT_TYPE.parse().unwrap();
+		match accept.as_ref() {
+			None => (),
+			Some(accept) if accept.type_() == mime::STAR && accept.subtype() == mime::STAR => (),
+			Some(accept) if *accept == sync_content_type => (),
+			Some(accept) => {
+				let type_ = accept.type_();
+				let subtype = accept.subtype();
+				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
+			},
+		}
+
 		// Create the response body.
 		let stop = async move {
 			stop.wait().await;
 		};
 		let stream = stream.take_until(stop);
-		let (content_type, body) = if accept == Some(tg::sync::CONTENT_TYPE.parse().unwrap()) {
-			let content_type = Some(tg::sync::CONTENT_TYPE);
-			let stream = stream.then(|result| async {
-				let frame = match result {
-					Ok(message) => {
-						let message = tangram_serialize::to_vec(&message).unwrap();
-						let mut bytes = Vec::with_capacity(9 + message.len());
-						bytes
-							.write_uvarint(message.len().to_u64().unwrap())
-							.await
-							.unwrap();
-						bytes.write_all(&message).await.unwrap();
-						hyper::body::Frame::data(bytes.into())
-					},
-					Err(error) => {
-						let mut trailers = http::HeaderMap::new();
-						trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
-						let json = serde_json::to_string(&error.to_data_or_id()).unwrap();
-						trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
-						hyper::body::Frame::trailers(trailers)
-					},
-				};
-				Ok::<_, tg::Error>(frame)
-			});
-			let body = Body::with_stream(stream);
-			(content_type, body)
-		} else {
-			return Err(tg::error!(?accept, "invalid accept header"));
-		};
+		let content_type = Some(tg::sync::CONTENT_TYPE);
+		let stream = stream.then(|result| async {
+			let frame = match result {
+				Ok(message) => {
+					let message = tangram_serialize::to_vec(&message).unwrap();
+					let mut bytes = Vec::with_capacity(9 + message.len());
+					bytes
+						.write_uvarint(message.len().to_u64().unwrap())
+						.await
+						.unwrap();
+					bytes.write_all(&message).await.unwrap();
+					hyper::body::Frame::data(bytes.into())
+				},
+				Err(error) => {
+					let mut trailers = http::HeaderMap::new();
+					trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
+					let json = serde_json::to_string(&error.to_data_or_id()).unwrap();
+					trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
+					hyper::body::Frame::trailers(trailers)
+				},
+			};
+			Ok::<_, tg::Error>(frame)
+		});
+		let body = Body::with_stream(stream);
 
 		// Create the response.
 		let mut response = http::Response::builder();
