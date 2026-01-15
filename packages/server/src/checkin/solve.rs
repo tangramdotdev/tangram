@@ -767,7 +767,7 @@ impl Server {
 		}
 
 		// Load the graph data from the cache or fetch it.
-		let (graph_data, graph_metadata) = if let Some(cached) = checkpoint.graphs.get(graph_id) {
+		let (graph_data, _graph_metadata) = if let Some(cached) = checkpoint.graphs.get(graph_id) {
 			cached
 		} else {
 			let output = self
@@ -900,10 +900,7 @@ impl Server {
 			path: None,
 			path_metadata: None,
 			referrers: SmallVec::new(),
-			solvable: graph_metadata
-				.as_ref()
-				.and_then(|metadata| metadata.subtree.solvable)
-				.unwrap_or(true),
+			solvable: true,
 			solved: false,
 			stored: crate::index::ObjectStored::default(),
 			variant,
