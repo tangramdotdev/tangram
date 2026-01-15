@@ -16,12 +16,12 @@ use {
 	tokio_stream::wrappers::IntervalStream,
 };
 
-pub use self::message::Message;
+pub use {
+	self::message::Message,
+	index::{ObjectStored, ProcessStored},
+};
 
 pub mod message;
-
-// Re-export types from the index crate.
-pub use index::{ObjectStored, ProcessStored};
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
