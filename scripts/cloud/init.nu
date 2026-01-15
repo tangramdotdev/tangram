@@ -2,7 +2,7 @@ createdb -U postgres -h localhost database
 psql -U postgres -h localhost -d database -f packages/server/src/database/postgres.sql
 
 createdb -U postgres -h localhost index
-for path in (ls packages/server/src/index/postgres/*.sql | get name | sort) {
+for path in (glob packages/index/src/postgres/*.sql | sort) {
 	psql -U postgres -h localhost -d index -f $path
 }
 

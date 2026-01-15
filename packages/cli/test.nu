@@ -702,7 +702,7 @@ export def --env spawn [
 		createdb -U postgres -h localhost $'database_($id)'
 		psql -U postgres -h localhost -d $'database_($id)' -f ($repository_path | path join packages/server/src/database/postgres.sql)
 		createdb -U postgres -h localhost $'index_($id)'
-		for path in (ls ($repository_path | path join packages/server/src/index/postgres) | get name | sort) {
+		for path in (glob ($repository_path | path join packages/index/src/postgres/*.sql) | sort) {
 			psql -U postgres -h localhost -d $'index_($id)' -f $path
 		}
 
