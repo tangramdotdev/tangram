@@ -183,7 +183,6 @@ impl crate::Index for Index {
 	}
 
 	async fn sync(&self) -> tg::Result<()> {
-		// PostgreSQL does not need explicit sync.
 		Ok(())
 	}
 }
