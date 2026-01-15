@@ -90,7 +90,7 @@ impl Server {
 			children,
 			id: id.clone(),
 			metadata,
-			stored: crate::object::stored::Output::default(),
+			stored: crate::index::ObjectStored::default(),
 			touched_at: now,
 		});
 		self.tasks

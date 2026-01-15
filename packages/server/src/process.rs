@@ -19,7 +19,6 @@ pub(crate) mod signal;
 pub(crate) mod spawn;
 pub(crate) mod start;
 pub(crate) mod status;
-pub(crate) mod stored;
 pub(crate) mod touch;
 pub(crate) mod wait;
 

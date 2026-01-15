@@ -330,7 +330,7 @@ impl Server {
 		state: &State,
 		id: &tg::process::Id,
 		data: &tg::process::Data,
-		stored: Option<&crate::process::stored::Output>,
+		stored: Option<&crate::index::ProcessStored>,
 	) {
 		// Enqueue the children if necessary.
 		if state.arg.recursive

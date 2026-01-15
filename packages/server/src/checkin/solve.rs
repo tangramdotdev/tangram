@@ -740,7 +740,7 @@ impl Server {
 				.and_then(|metadata| metadata.subtree.solvable)
 				.unwrap_or(true),
 			solved: false,
-			stored: crate::object::stored::Output::default(),
+			stored: crate::index::ObjectStored::default(),
 			variant,
 		};
 
@@ -905,7 +905,7 @@ impl Server {
 				.and_then(|metadata| metadata.subtree.solvable)
 				.unwrap_or(true),
 			solved: false,
-			stored: crate::object::stored::Output::default(),
+			stored: crate::index::ObjectStored::default(),
 			variant,
 		};
 

@@ -116,7 +116,7 @@ impl Server {
 					children,
 					id: id.clone(),
 					metadata,
-					stored: crate::object::stored::Output { subtree: true },
+					stored: crate::index::ObjectStored { subtree: true },
 					touched_at,
 				};
 

@@ -510,7 +510,7 @@ impl Server {
 				children,
 				id,
 				metadata: blob.metadata.clone(),
-				stored: crate::object::stored::Output { subtree: true },
+				stored: crate::index::ObjectStored { subtree: true },
 				touched_at,
 			});
 			messages.push(message);
