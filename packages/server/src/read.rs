@@ -186,9 +186,9 @@ impl Server {
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))
 		{
-			Some((mime::APPLICATION, mime::OCTET_STREAM)) => (),
-			_ => {
-				return Err(tg::error!(?accept, "invalid accept header"));
+			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::OCTET_STREAM)) => (),
+			Some((type_, subtype)) => {
+				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
 			},
 		}
 

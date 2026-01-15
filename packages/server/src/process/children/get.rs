@@ -374,7 +374,7 @@ impl Server {
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))
 		{
-			Some((mime::TEXT, mime::EVENT_STREAM)) => {
+			None | Some((mime::STAR, mime::STAR) | (mime::TEXT, mime::EVENT_STREAM)) => {
 				let content_type = mime::TEXT_EVENT_STREAM;
 				let stream = stream.map(|result| match result {
 					Ok(event) => event.try_into(),
@@ -383,8 +383,8 @@ impl Server {
 				(Some(content_type), Body::with_sse_stream(stream))
 			},
 
-			_ => {
-				return Err(tg::error!(?accept, "invalid accept header"));
+			Some((type_, subtype)) => {
+				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
 			},
 		};
 

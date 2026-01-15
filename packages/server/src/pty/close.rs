@@ -81,19 +81,13 @@ impl Server {
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))
 		{
-			Some((mime::APPLICATION, mime::JSON)) => (),
-			_ => {
-				return Err(tg::error!(?accept, "invalid accept header"));
+			None | Some((mime::STAR, mime::STAR)) => (),
+			Some((type_, subtype)) => {
+				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
 			},
 		}
 
-		let response = http::Response::builder()
-			.header(
-				http::header::CONTENT_TYPE,
-				mime::APPLICATION_JSON.to_string(),
-			)
-			.body(Body::empty())
-			.unwrap();
+		let response = http::Response::builder().body(Body::empty()).unwrap();
 		Ok(response)
 	}
 }

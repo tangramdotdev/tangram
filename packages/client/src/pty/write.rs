@@ -41,7 +41,6 @@ impl tg::Client {
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
 			.header(
 				http::header::CONTENT_TYPE,
 				mime::TEXT_EVENT_STREAM.to_string(),
