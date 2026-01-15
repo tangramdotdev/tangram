@@ -57,7 +57,7 @@ snapshot -n metadata $metadata '
 	  "subtree": {
 	    "count": 10,
 	    "depth": 5,
-	    "size": 915,
+	    "size": 911,
 	    "solvable": true,
 	    "solved": false,
 	  },
@@ -79,7 +79,7 @@ snapshot -n file_metadata $file_metadata '
 	  "subtree": {
 	    "count": 10,
 	    "depth": 5,
-	    "size": 844,
+	    "size": 840,
 	    "solvable": true,
 	    "solved": false,
 	  },
@@ -101,7 +101,7 @@ snapshot -n file_b_metadata $file_b_metadata '
 	  "subtree": {
 	    "count": 10,
 	    "depth": 5,
-	    "size": 844,
+	    "size": 840,
 	    "solvable": true,
 	    "solved": false,
 	  },
@@ -124,7 +124,7 @@ snapshot -n graph_metadata $graph_metadata '
 	  "subtree": {
 	    "count": 9,
 	    "depth": 4,
-	    "size": 793,
+	    "size": 789,
 	    "solvable": true,
 	    "solved": false,
 	  },

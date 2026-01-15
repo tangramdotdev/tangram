@@ -166,7 +166,7 @@ impl Reference {
 	pub fn to_uri(&self) -> Uri {
 		let path = self.item.to_string();
 		let mut builder = Uri::builder();
-		builder = builder.path(&path);
+		builder = builder.path_raw(&path);
 		let mut query = Vec::new();
 		if let Some(local) = &self.options.local {
 			let local = local.to_string_lossy();
@@ -300,6 +300,6 @@ mod tests {
 
 		let tag = "std/<0.0.1".parse().unwrap();
 		let reference = tg::Reference::with_tag(tag).to_string();
-		assert_snapshot!(reference, @"std/%3C0.0.1");
+		assert_snapshot!(reference, @"std/<0.0.1");
 	}
 }

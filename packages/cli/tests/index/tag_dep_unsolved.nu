@@ -51,7 +51,7 @@ snapshot -n metadata $metadata '
 	  "subtree": {
 	    "count": 9,
 	    "depth": 5,
-	    "size": 648,
+	    "size": 644,
 	    "solvable": true,
 	    "solved": false,
 	  },

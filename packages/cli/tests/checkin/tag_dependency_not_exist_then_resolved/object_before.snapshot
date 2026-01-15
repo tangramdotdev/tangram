@@ -2,7 +2,7 @@ tg.directory({
   "tangram.ts": tg.file({
     "contents": tg.blob("import * as a from \"a/^1\";"),
     "dependencies": {
-      "a/%5E1": null,
+      "a/^1": null,
     },
     "module": "ts",
   }),
