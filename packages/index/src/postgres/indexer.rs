@@ -1,8 +1,9 @@
 use {
-	super::message::{
-		DeleteTag, PutCacheEntry, PutObject, PutProcess, PutTagMessage, TouchObject, TouchProcess,
+	super::Index,
+	crate::{
+		DeleteTagArg, PutCacheEntryArg, PutObjectArg, PutProcessArg, PutTagArg, TouchObjectArg,
+		TouchProcessArg,
 	},
-	crate::Server,
 	indoc::indoc,
 	num::ToPrimitive as _,
 	std::collections::{HashMap, HashSet},
@@ -10,24 +11,24 @@ use {
 	tangram_database::{self as db, prelude::*},
 };
 
-impl Server {
+impl Index {
 	#[expect(clippy::too_many_arguments)]
-	pub(super) async fn indexer_task_handle_messages_postgres(
+	pub async fn handle_messages(
 		&self,
-		database: &db::postgres::Database,
-		put_cache_entry_messages: Vec<PutCacheEntry>,
-		put_object_messages: Vec<PutObject>,
-		touch_object_messages: Vec<TouchObject>,
-		put_process_messages: Vec<PutProcess>,
-		touch_process_messages: Vec<TouchProcess>,
-		put_tag_messages: Vec<PutTagMessage>,
-		delete_tag_messages: Vec<DeleteTag>,
+		put_cache_entry_messages: Vec<PutCacheEntryArg>,
+		put_object_messages: Vec<PutObjectArg>,
+		touch_object_messages: Vec<TouchObjectArg>,
+		put_process_messages: Vec<PutProcessArg>,
+		touch_process_messages: Vec<TouchProcessArg>,
+		put_tag_messages: Vec<PutTagArg>,
+		delete_tag_messages: Vec<DeleteTagArg>,
 	) -> tg::Result<()> {
 		let options = db::ConnectionOptions {
 			kind: db::ConnectionKind::Write,
 			priority: db::Priority::Low,
 		};
-		let mut connection = database
+		let mut connection = self
+			.database
 			.connection_with_options(options)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -40,7 +41,7 @@ impl Server {
 
 		let put_cache_entry_messages: HashMap<
 			&tg::artifact::Id,
-			&PutCacheEntry,
+			&PutCacheEntryArg,
 			tg::id::BuildHasher,
 		> = put_cache_entry_messages.iter().fold(
 			HashMap::with_hasher(tg::id::BuildHasher),
@@ -66,7 +67,7 @@ impl Server {
 			.collect::<Vec<_>>();
 
 		// Prepare put object parameters.
-		let put_object_messages: HashMap<&tg::object::Id, &PutObject, tg::id::BuildHasher> =
+		let put_object_messages: HashMap<&tg::object::Id, &PutObjectArg, tg::id::BuildHasher> =
 			put_object_messages
 				.iter()
 				.map(|message| (&message.id, message))
@@ -156,7 +157,7 @@ impl Server {
 			.collect::<Vec<_>>();
 
 		// Prepare touch object parameters.
-		let touch_object_messages: HashMap<&tg::object::Id, &TouchObject, tg::id::BuildHasher> =
+		let touch_object_messages: HashMap<&tg::object::Id, &TouchObjectArg, tg::id::BuildHasher> =
 			touch_object_messages.iter().fold(
 				HashMap::with_hasher(tg::id::BuildHasher),
 				|mut messages, message| {
@@ -181,7 +182,7 @@ impl Server {
 			.collect::<Vec<_>>();
 
 		// Prepare put process parameters.
-		let put_process_messages: HashMap<&tg::process::Id, &PutProcess, tg::id::BuildHasher> =
+		let put_process_messages: HashMap<&tg::process::Id, &PutProcessArg, tg::id::BuildHasher> =
 			put_process_messages
 				.iter()
 				.map(|message| (&message.id, message))
@@ -546,21 +547,24 @@ impl Server {
 			.collect::<Vec<_>>();
 
 		// Prepare touch process parameters.
-		let touch_process_messages: HashMap<&tg::process::Id, &TouchProcess, tg::id::BuildHasher> =
-			touch_process_messages.iter().fold(
-				HashMap::with_hasher(tg::id::BuildHasher),
-				|mut messages, message| {
-					messages
-						.entry(&message.id)
-						.and_modify(|existing| {
-							if message.touched_at > existing.touched_at {
-								*existing = message;
-							}
-						})
-						.or_insert(message);
-					messages
-				},
-			);
+		let touch_process_messages: HashMap<
+			&tg::process::Id,
+			&TouchProcessArg,
+			tg::id::BuildHasher,
+		> = touch_process_messages.iter().fold(
+			HashMap::with_hasher(tg::id::BuildHasher),
+			|mut messages, message| {
+				messages
+					.entry(&message.id)
+					.and_modify(|existing| {
+						if message.touched_at > existing.touched_at {
+							*existing = message;
+						}
+					})
+					.or_insert(message);
+				messages
+			},
+		);
 		let touch_process_touched_ats = touch_process_messages
 			.values()
 			.map(|message| message.touched_at)
@@ -571,7 +575,7 @@ impl Server {
 			.collect::<Vec<_>>();
 
 		// Prepare put tag parameters.
-		let put_tag_messages: HashMap<&str, &PutTagMessage, fnv::FnvBuildHasher> = put_tag_messages
+		let put_tag_messages: HashMap<&str, &PutTagArg, fnv::FnvBuildHasher> = put_tag_messages
 			.iter()
 			.map(|message| (message.tag.as_str(), message))
 			.collect();
@@ -581,9 +585,12 @@ impl Server {
 			.collect::<Vec<_>>();
 		let put_tag_items = put_tag_messages
 			.values()
-			.map(|message| match &message.item {
-				tg::Either::Left(process_id) => process_id.to_bytes().to_vec(),
-				tg::Either::Right(object_id) => object_id.to_bytes().to_vec(),
+			.map(|message| {
+				let item: &tg::Either<tg::object::Id, tg::process::Id> = &message.item;
+				match item {
+					tg::Either::Left(object_id) => object_id.to_bytes().to_vec(),
+					tg::Either::Right(process_id) => process_id.to_bytes().to_vec(),
+				}
 			})
 			.collect::<Vec<_>>();
 
@@ -755,18 +762,13 @@ impl Server {
 		Ok(())
 	}
 
-	pub(super) async fn indexer_handle_queue_postgres(
-		&self,
-		config: &crate::config::Indexer,
-		database: &db::postgres::Database,
-	) -> tg::Result<usize> {
-		let batch_size = config.queue_batch_size;
-
+	pub async fn handle_queue(&self, batch_size: usize) -> tg::Result<usize> {
 		let options = db::ConnectionOptions {
 			kind: db::ConnectionKind::Write,
 			priority: db::Priority::Low,
 		};
-		let mut connection = database
+		let mut connection = self
+			.database
 			.connection_with_options(options)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -795,63 +797,5 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 		Ok(n)
-	}
-
-	pub(super) async fn indexer_get_transaction_id_postgres(
-		&self,
-		database: &db::postgres::Database,
-	) -> tg::Result<u64> {
-		let options = db::ConnectionOptions {
-			kind: db::ConnectionKind::Read,
-			priority: db::Priority::Low,
-		};
-		let connection = database
-			.connection_with_options(options)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		let statement = indoc!(
-			"
-				select id from transaction_id;
-			"
-		);
-		let params = db::params![];
-		let id = connection
-			.query_one_value_into(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		Ok(id)
-	}
-
-	pub(super) async fn indexer_get_queue_size_postgres(
-		&self,
-		database: &db::postgres::Database,
-		transaction_id: u64,
-	) -> tg::Result<u64> {
-		let options = db::ConnectionOptions {
-			kind: db::ConnectionKind::Read,
-			priority: db::Priority::Low,
-		};
-		let connection = database
-			.connection_with_options(options)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-		let statement = indoc!(
-			"
-				select
-					(select count(*) from cache_entry_queue where transaction_id <= $1) +
-					(select count(*) from object_queue where transaction_id <= $1) +
-					(select count(*) from process_queue where transaction_id <= $1);
-			"
-		);
-		let params = db::params![transaction_id];
-		let count = connection
-			.query_one_value_into(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		Ok(count)
 	}
 }

@@ -11,21 +11,10 @@ use {
 		task::{Stop, Task},
 	},
 	tangram_http::{Body, request::Ext as _},
+	tangram_index::prelude::*,
 	tangram_messenger::prelude::*,
 	tangram_store::prelude::*,
 };
-
-#[cfg(feature = "postgres")]
-mod postgres;
-#[cfg(feature = "sqlite")]
-mod sqlite;
-
-struct InnerOutput {
-	bytes: u64,
-	cache_entries: Vec<tg::artifact::Id>,
-	objects: Vec<tg::object::Id>,
-	processes: Vec<tg::process::Id>,
-}
 
 impl Server {
 	pub(crate) async fn clean_with_context(
@@ -172,21 +161,11 @@ impl Server {
 		now: i64,
 		ttl: Duration,
 		n: usize,
-	) -> tg::Result<InnerOutput> {
+	) -> tg::Result<tangram_index::CleanOutput> {
 		let max_touched_at = now - ttl.as_secs().to_i64().unwrap();
 
-		let output = match &self.index {
-			#[cfg(feature = "postgres")]
-			crate::index::Index::Postgres(database) => {
-				self.cleaner_task_inner_postgres(database, max_touched_at, n)
-					.await?
-			},
-			#[cfg(feature = "sqlite")]
-			crate::index::Index::Sqlite(database) => {
-				self.cleaner_task_inner_sqlite(database, max_touched_at, n)
-					.await?
-			},
-		};
+		// Clean.
+		let output = self.index.clean(max_touched_at, n).await?;
 
 		// Delete cache entries.
 		tokio::task::spawn_blocking({

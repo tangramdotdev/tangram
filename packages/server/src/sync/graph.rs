@@ -48,23 +48,23 @@ pub enum Node {
 #[derive(Clone, Debug, Default)]
 pub struct ObjectNode {
 	pub children: Option<Vec<usize>>,
-	pub local_stored: Option<crate::object::stored::Output>,
+	pub local_stored: Option<crate::index::ObjectStored>,
 	pub marked: bool,
 	pub metadata: Option<tg::object::Metadata>,
 	pub parents: SmallVec<[usize; 1]>,
-	pub remote_stored: Option<crate::object::stored::Output>,
+	pub remote_stored: Option<crate::index::ObjectStored>,
 	pub requested: Option<Requested>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct ProcessNode {
 	pub children: Option<Vec<usize>>,
-	pub local_stored: Option<crate::process::stored::Output>,
+	pub local_stored: Option<crate::index::ProcessStored>,
 	pub marked: bool,
 	pub metadata: Option<tg::process::Metadata>,
 	pub objects: Option<Vec<(usize, crate::index::message::ProcessObjectKind)>>,
 	pub parents: SmallVec<[usize; 1]>,
-	pub remote_stored: Option<crate::process::stored::Output>,
+	pub remote_stored: Option<crate::index::ProcessStored>,
 	pub requested: Option<Requested>,
 }
 
@@ -108,7 +108,7 @@ impl Graph {
 		&mut self,
 		id: &tg::object::Id,
 		data: Option<&tg::object::Data>,
-		stored: Option<crate::object::stored::Output>,
+		stored: Option<crate::index::ObjectStored>,
 		metadata: Option<tg::object::Metadata>,
 		marked: Option<bool>,
 		requested: Option<Requested>,
@@ -168,7 +168,7 @@ impl Graph {
 
 		if let Some(children) = children {
 			node.children = Some(children);
-			node.local_stored = Some(crate::object::stored::Output {
+			node.local_stored = Some(crate::index::ObjectStored {
 				subtree: computed_stored.unwrap(),
 			});
 		}
@@ -210,7 +210,7 @@ impl Graph {
 		&mut self,
 		id: &tg::process::Id,
 		data: Option<&tg::process::Data>,
-		stored: Option<crate::process::stored::Output>,
+		stored: Option<crate::index::ProcessStored>,
 		metadata: Option<tg::process::Metadata>,
 		marked: Option<bool>,
 		requested: Option<Requested>,
@@ -383,8 +383,8 @@ impl Graph {
 		id: &tg::object::Id,
 		parent: Option<Id>,
 		kind: Option<crate::sync::queue::ObjectKind>,
-		stored: Option<&crate::object::stored::Output>,
-	) -> (bool, Option<crate::object::stored::Output>) {
+		stored: Option<&crate::index::ObjectStored>,
+	) -> (bool, Option<crate::index::ObjectStored>) {
 		let entry = self.nodes.entry(id.clone().into());
 		let inserted = matches!(entry, indexmap::map::Entry::Vacant(_));
 		let index = entry.index();
@@ -426,7 +426,7 @@ impl Graph {
 					match node {
 						Node::Object(object) => {
 							object.remote_stored =
-								Some(crate::object::stored::Output { subtree: true });
+								Some(crate::index::ObjectStored { subtree: true });
 						},
 						Node::Process(process) => {
 							let stored = process.remote_stored.get_or_insert_with(Default::default);
@@ -480,8 +480,8 @@ impl Graph {
 		&mut self,
 		id: &tg::process::Id,
 		parent: Option<Id>,
-		stored: Option<&crate::process::stored::Output>,
-	) -> (bool, Option<crate::process::stored::Output>) {
+		stored: Option<&crate::index::ProcessStored>,
+	) -> (bool, Option<crate::index::ProcessStored>) {
 		let entry = self.nodes.entry(id.clone().into());
 		let inserted = matches!(entry, indexmap::map::Entry::Vacant(_));
 		let index = entry.index();
@@ -593,7 +593,7 @@ impl Graph {
 	pub fn get_process_local_stored(
 		&self,
 		id: &tg::process::Id,
-	) -> Option<&crate::process::stored::Output> {
+	) -> Option<&crate::index::ProcessStored> {
 		self.nodes
 			.get(&Id::Process(id.clone()))
 			.and_then(|node| node.unwrap_process_ref().local_stored.as_ref())
@@ -674,8 +674,8 @@ impl Graph {
 		&self,
 		children: &[usize],
 		objects: &[(usize, crate::index::message::ProcessObjectKind)],
-	) -> crate::process::stored::Output {
-		let mut stored = crate::process::stored::Output {
+	) -> crate::index::ProcessStored {
+		let mut stored = crate::index::ProcessStored {
 			node_command: true,
 			node_error: true,
 			node_log: true,
@@ -759,7 +759,7 @@ impl Graph {
 			if let Some((_, node)) = self.nodes.get_index_mut(index)
 				&& let Ok(node) = node.try_unwrap_object_mut()
 			{
-				node.local_stored = Some(crate::object::stored::Output { subtree: true });
+				node.local_stored = Some(crate::index::ObjectStored { subtree: true });
 			}
 			Some(parents)
 		} else {
@@ -795,8 +795,8 @@ impl Graph {
 	}
 
 	fn should_propagate_process_stored(
-		old: Option<&crate::process::stored::Output>,
-		new: Option<&crate::process::stored::Output>,
+		old: Option<&crate::index::ProcessStored>,
+		new: Option<&crate::index::ProcessStored>,
 	) -> bool {
 		let Some(old) = old else {
 			return new.is_some();
@@ -816,13 +816,13 @@ impl Graph {
 	}
 
 	fn merge_process_stored(
-		old: Option<&crate::process::stored::Output>,
-		new: crate::process::stored::Output,
-	) -> crate::process::stored::Output {
+		old: Option<&crate::index::ProcessStored>,
+		new: crate::index::ProcessStored,
+	) -> crate::index::ProcessStored {
 		let Some(old) = old else {
 			return new;
 		};
-		crate::process::stored::Output {
+		crate::index::ProcessStored {
 			subtree: old.subtree || new.subtree,
 			subtree_command: old.subtree_command || new.subtree_command,
 			subtree_error: old.subtree_error || new.subtree_error,
@@ -887,7 +887,7 @@ impl Graph {
 
 	fn find_process_remote_ancestor<F>(&self, index: usize, f: F) -> Option<Vec<usize>>
 	where
-		F: Fn(&crate::process::stored::Output) -> bool,
+		F: Fn(&crate::index::ProcessStored) -> bool,
 	{
 		let mut stack = vec![vec![index]];
 		loop {
@@ -911,7 +911,7 @@ impl Graph {
 
 	fn propagate_process_remote_field<F>(&mut self, path: &[usize], f: F)
 	where
-		F: Fn(&mut crate::process::stored::Output),
+		F: Fn(&mut crate::index::ProcessStored),
 	{
 		for &index in path {
 			let (_, node) = self.nodes.get_index_mut(index).unwrap();

@@ -227,7 +227,7 @@ impl Server {
 
 		// Update the node.
 		let node = graph.nodes.get_mut(&index).unwrap();
-		node.stored = crate::object::stored::Output { subtree: stored };
+		node.stored = crate::index::ObjectStored { subtree: stored };
 		node.metadata = Some(metadata);
 		node.edge.replace(tg::graph::data::Edge::Object(id.clone()));
 		node.id.replace(id.clone());
@@ -520,7 +520,7 @@ impl Server {
 
 		// Update the node.
 		let node = graph.nodes.get_mut(&global).unwrap();
-		node.stored = crate::object::stored::Output { subtree: stored };
+		node.stored = crate::index::ObjectStored { subtree: stored };
 		node.metadata = Some(metadata);
 
 		Ok(())
@@ -654,7 +654,7 @@ impl Server {
 			children: children_ids,
 			id: id.clone(),
 			metadata: metadata.clone(),
-			stored: crate::object::stored::Output { subtree: stored },
+			stored: crate::index::ObjectStored { subtree: stored },
 			touched_at,
 		};
 

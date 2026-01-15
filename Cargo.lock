@@ -6352,6 +6352,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "tangram_index"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "derive_more",
+ "fnv",
+ "futures",
+ "indoc",
+ "itertools 0.14.0",
+ "num",
+ "num-derive",
+ "num-traits",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tangram_client",
+ "tangram_database",
+ "tangram_futures",
+ "tangram_serialize",
+ "tangram_util",
+ "time",
+ "tokio-postgres",
+]
+
+[[package]]
 name = "tangram_js"
 version = "0.0.0"
 dependencies = [
@@ -6477,6 +6503,7 @@ dependencies = [
  "tangram_futures",
  "tangram_http",
  "tangram_ignore",
+ "tangram_index",
  "tangram_js",
  "tangram_messenger",
  "tangram_serialize",

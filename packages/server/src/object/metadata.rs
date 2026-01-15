@@ -3,12 +3,8 @@ use {
 	futures::{FutureExt as _, future},
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _},
+	tangram_index::prelude::*,
 };
-
-#[cfg(feature = "postgres")]
-mod postgres;
-#[cfg(feature = "sqlite")]
-mod sqlite;
 
 impl Server {
 	pub async fn try_get_object_metadata_with_context(
@@ -43,32 +39,14 @@ impl Server {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::Metadata>> {
-		match &self.index {
-			#[cfg(feature = "postgres")]
-			crate::index::Index::Postgres(database) => {
-				self.try_get_object_metadata_postgres(database, id).await
-			},
-			#[cfg(feature = "sqlite")]
-			crate::index::Index::Sqlite(database) => self.try_get_object_metadata_sqlite(database, id).await,
-		}
+		self.index.try_get_object_metadata(id).await
 	}
 
 	pub(crate) async fn try_get_object_metadata_batch_local(
 		&self,
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<tg::object::Metadata>>> {
-		match &self.index {
-			#[cfg(feature = "postgres")]
-			crate::index::Index::Postgres(database) => {
-				self.try_get_object_metadata_batch_postgres(database, ids)
-					.await
-			},
-			#[cfg(feature = "sqlite")]
-			crate::index::Index::Sqlite(database) => {
-				self.try_get_object_metadata_batch_sqlite(database, ids)
-					.await
-			},
-		}
+		self.index.try_get_object_metadata_batch(ids).await
 	}
 
 	async fn try_get_object_metadata_remote(

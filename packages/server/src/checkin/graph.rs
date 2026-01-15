@@ -30,7 +30,7 @@ pub struct Node {
 	pub referrers: SmallVec<[usize; 1]>,
 	pub solvable: bool,
 	pub solved: bool,
-	pub stored: crate::object::stored::Output,
+	pub stored: crate::index::ObjectStored,
 	pub variant: Variant,
 }
 
@@ -197,7 +197,7 @@ pub enum Contents {
 	Write(Box<crate::write::Output>),
 	Id {
 		id: tg::blob::Id,
-		stored: crate::object::stored::Output,
+		stored: crate::index::ObjectStored,
 		metadata: Option<tg::object::Metadata>,
 	},
 }

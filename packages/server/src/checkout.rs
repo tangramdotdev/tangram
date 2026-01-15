@@ -13,6 +13,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{Body, request::Ext as _},
+	tangram_index::prelude::*,
 	tangram_util::read::InspectReader,
 };
 
@@ -215,6 +216,7 @@ impl Server {
 	) -> tg::Result<()> {
 		// Check if the artifact's subtree is stored.
 		let stored = self
+			.index
 			.try_get_object_stored(&artifact.clone().into())
 			.await
 			.map_err(
@@ -241,6 +243,7 @@ impl Server {
 
 		// Check if the artifact's subtree is stored.
 		let stored = self
+			.index
 			.try_get_object_stored(&artifact.clone().into())
 			.await
 			.map_err(

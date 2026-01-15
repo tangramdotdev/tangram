@@ -1,5 +1,9 @@
 use {
-	bytes::Bytes, std::collections::BTreeSet, tangram_client::prelude::*, tangram_messenger,
+	crate::index::{ObjectStored, ProcessStored},
+	bytes::Bytes,
+	std::collections::BTreeSet,
+	tangram_client::prelude::*,
+	tangram_messenger,
 	tangram_util::serde::is_default,
 };
 
@@ -141,7 +145,7 @@ pub struct PutObject {
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(id = 5, default, skip_serializing_if = "is_default")]
-	pub stored: crate::object::stored::Output,
+	pub stored: ObjectStored,
 
 	#[tangram_serialize(id = 6)]
 	pub touched_at: i64,
@@ -189,7 +193,7 @@ pub struct PutProcess {
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_default")]
-	pub stored: crate::process::stored::Output,
+	pub stored: ProcessStored,
 
 	#[tangram_serialize(id = 5)]
 	pub touched_at: i64,
@@ -283,6 +287,17 @@ impl std::str::FromStr for ProcessObjectKind {
 			"log" => Ok(Self::Log),
 			"output" => Ok(Self::Output),
 			_ => Err(tg::error!("invalid kind")),
+		}
+	}
+}
+
+impl From<ProcessObjectKind> for tangram_index::ProcessObjectKind {
+	fn from(kind: ProcessObjectKind) -> Self {
+		match kind {
+			ProcessObjectKind::Command => Self::Command,
+			ProcessObjectKind::Error => Self::Error,
+			ProcessObjectKind::Log => Self::Log,
+			ProcessObjectKind::Output => Self::Output,
 		}
 	}
 }

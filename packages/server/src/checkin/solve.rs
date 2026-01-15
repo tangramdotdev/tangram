@@ -11,6 +11,7 @@ use {
 		sync::Arc,
 	},
 	tangram_client::prelude::*,
+	tangram_index::prelude::*,
 };
 
 const PREFETCH_CONCURRENCY: usize = 16;
@@ -678,17 +679,18 @@ impl Server {
 			tg::artifact::Data::File(tg::file::Data::Node(file)) => {
 				let contents = if let Some(id) = file.contents {
 					let (stored, metadata) = self
+						.index
 						.try_get_object_stored_and_metadata(&id.clone().into())
 						.await
 						.ok()
 						.flatten()
 						.unwrap_or((
-							crate::object::stored::Output::default(),
+							tangram_index::ObjectStored::default(),
 							tg::object::Metadata::default(),
 						));
 					Some(Contents::Id {
 						id,
-						stored: stored.clone(),
+						stored,
 						metadata: Some(metadata),
 					})
 				} else {
@@ -738,7 +740,7 @@ impl Server {
 				.and_then(|metadata| metadata.subtree.solvable)
 				.unwrap_or(true),
 			solved: false,
-			stored: crate::object::stored::Output::default(),
+			stored: crate::index::ObjectStored::default(),
 			variant,
 		};
 
@@ -811,17 +813,18 @@ impl Server {
 			tg::graph::data::Node::File(file) => {
 				let contents = if let Some(id) = file.contents.clone() {
 					let (stored, metadata) = self
+						.index
 						.try_get_object_stored_and_metadata(&id.clone().into())
 						.await
 						.ok()
 						.flatten()
 						.unwrap_or((
-							crate::object::stored::Output::default(),
+							tangram_index::ObjectStored::default(),
 							tg::object::Metadata::default(),
 						));
 					Some(Contents::Id {
 						id,
-						stored: stored.clone(),
+						stored,
 						metadata: Some(metadata),
 					})
 				} else {
@@ -902,7 +905,7 @@ impl Server {
 				.and_then(|metadata| metadata.subtree.solvable)
 				.unwrap_or(true),
 			solved: false,
-			stored: crate::object::stored::Output::default(),
+			stored: crate::index::ObjectStored::default(),
 			variant,
 		};
 

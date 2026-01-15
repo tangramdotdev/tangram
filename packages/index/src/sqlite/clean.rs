@@ -1,20 +1,16 @@
 use {
-	super::{InnerOutput, Server},
-	bytes::Bytes,
+	super::Index,
+	crate::CleanOutput,
 	indoc::formatdoc,
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
 
-impl Server {
-	pub(super) async fn cleaner_task_inner_sqlite(
-		&self,
-		database: &db::sqlite::Database,
-		max_touched_at: i64,
-		mut n: usize,
-	) -> tg::Result<InnerOutput> {
-		let mut connection = database
+impl Index {
+	pub async fn clean(&self, max_touched_at: i64, mut n: usize) -> tg::Result<CleanOutput> {
+		let mut connection = self
+			.database
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -34,7 +30,7 @@ impl Server {
 		);
 		let params = db::params![max_touched_at, n];
 		let cache_entries_ = transaction
-			.query_all_value_into::<Bytes>(statement.into(), params)
+			.query_all_value_into::<bytes::Bytes>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.into_iter()
@@ -91,7 +87,7 @@ impl Server {
 		);
 		let params = db::params![max_touched_at, n];
 		let objects_ = transaction
-			.query_all_value_into::<Bytes>(statement.into(), params)
+			.query_all_value_into::<bytes::Bytes>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.into_iter()
@@ -205,7 +201,7 @@ impl Server {
 		);
 		let params = db::params![max_touched_at, n];
 		let processes_ = transaction
-			.query_all_value_into::<Bytes>(statement.into(), params)
+			.query_all_value_into::<bytes::Bytes>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.into_iter()
@@ -313,7 +309,7 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
-		let output = InnerOutput {
+		let output = CleanOutput {
 			bytes,
 			cache_entries,
 			objects,
@@ -321,5 +317,13 @@ impl Server {
 		};
 
 		Ok(output)
+	}
+
+	pub async fn sync(&self) -> tg::Result<()> {
+		self.database
+			.sync()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to sync the database"))?;
+		Ok(())
 	}
 }

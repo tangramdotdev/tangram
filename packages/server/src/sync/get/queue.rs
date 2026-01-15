@@ -10,6 +10,7 @@ use {
 	futures::{StreamExt as _, TryStreamExt as _},
 	std::{collections::BTreeSet, sync::Arc},
 	tangram_client::prelude::*,
+	tangram_index::prelude::*,
 };
 
 impl Server {
@@ -77,7 +78,8 @@ impl Server {
 		let outputs = if state.arg.force {
 			vec![None; ids.len()]
 		} else {
-			self.try_touch_object_and_get_stored_and_metadata_batch(&ids, touched_at)
+			self.index
+				.try_touch_object_and_get_stored_and_metadata_batch(&ids, touched_at)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to touch the objects"))?
 		};
@@ -200,6 +202,7 @@ impl Server {
 		// Touch the processes and get stored and metadata.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let outputs = self
+			.index
 			.try_touch_process_and_get_stored_and_metadata_batch(&ids, touched_at)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to touch the processes"))?;
@@ -327,7 +330,7 @@ impl Server {
 		state: &State,
 		id: &tg::process::Id,
 		data: &tg::process::Data,
-		stored: Option<&crate::process::stored::Output>,
+		stored: Option<&crate::index::ProcessStored>,
 	) {
 		// Enqueue the children if necessary.
 		if state.arg.recursive

@@ -2,12 +2,8 @@ use {
 	crate::{Context, Server},
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _},
+	tangram_index::prelude::*,
 };
-
-#[cfg(feature = "postgres")]
-mod postgres;
-#[cfg(feature = "sqlite")]
-mod sqlite;
 
 impl Server {
 	pub async fn touch_object_with_context(
@@ -32,20 +28,10 @@ impl Server {
 			return Ok(());
 		}
 
-		match &self.index {
-			#[cfg(feature = "postgres")]
-			crate::index::Index::Postgres(database) => {
-				self.touch_object_postgres(database, id)
-					.await
-					.map_err(|source| tg::error!(!source, %id, "failed to touch the object"))?;
-			},
-			#[cfg(feature = "sqlite")]
-			crate::index::Index::Sqlite(database) => {
-				self.touch_object_sqlite(database, id)
-					.await
-					.map_err(|source| tg::error!(!source, %id, "failed to touch the object"))?;
-			},
-		}
+		self.index
+			.touch_object(id)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to touch the object"))?;
 
 		Ok(())
 	}

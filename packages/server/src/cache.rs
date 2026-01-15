@@ -16,6 +16,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{Body, request::Ext as _},
+	tangram_index::prelude::*,
 	tangram_messenger::prelude::*,
 	tangram_util::read::InspectReader,
 };
@@ -133,6 +134,7 @@ impl Server {
 			let artifact = artifact.clone();
 			async move {
 				server
+					.index
 					.try_get_object_stored(&artifact.into())
 					.await
 					.map(Option::unwrap_or_default)
@@ -165,6 +167,7 @@ impl Server {
 			let artifact = artifact.clone();
 			async move {
 				server
+					.index
 					.try_get_object_stored(&artifact.into())
 					.await
 					.map(Option::unwrap_or_default)

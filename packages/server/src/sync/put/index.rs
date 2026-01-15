@@ -3,6 +3,7 @@ use {
 	futures::{StreamExt as _, TryStreamExt as _},
 	std::sync::Arc,
 	tangram_client::prelude::*,
+	tangram_index::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
 
@@ -67,6 +68,7 @@ impl Server {
 	) -> tg::Result<()> {
 		let ids = items.into_iter().map(|item| item.id).collect::<Vec<_>>();
 		let outputs = self
+			.index
 			.try_get_object_stored_and_metadata_batch(&ids)
 			.await
 			.map_err(|source| {
@@ -96,6 +98,7 @@ impl Server {
 	) -> tg::Result<()> {
 		let ids = items.into_iter().map(|item| item.id).collect::<Vec<_>>();
 		let outputs = self
+			.index
 			.try_get_process_stored_and_metadata_batch(&ids)
 			.await
 			.map_err(|source| {
