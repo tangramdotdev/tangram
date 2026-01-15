@@ -19,7 +19,7 @@ tg tag root $root_path
 
 let output = tg tree root --kind=package
 snapshot $output '
-	root: dir_01st3kec6e36n61n81awfrzjbepe7nmk6smb3hfmmp9w1ts10dfxeg
-	└╴middle/2.0.0: dir_01gv2z0a181v3p50hykym6fexsmhd47q5kkyy7xnbertwycxs3hn90
+	root: dir_01122vxkz6fnd0yxzqp58wqmct4zr42xm09v6b7ekf3rcgfhfdyb2g
+	└╴middle/2.0.0: dir_015h430gqsgvjjzda147kmm2mkpwknvpjrhxnqbfb4w1sm6eymkgyg
 	  └╴leaf/1.0.0: dir_010amcfrw5b59n7arj7s890qbarq3fpc0jmzhpqchjmn1y485m1mm0
 '

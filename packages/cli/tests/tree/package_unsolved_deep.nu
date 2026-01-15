@@ -25,8 +25,8 @@ tg tag root $id
 
 let output = tg tree root --kind=package
 snapshot $output '
-	root: dir_013nes48jz9t47v28g986mvgeez7g315rn032qh6t1vkvzw69kssqg
-	└╴middle/1.0.0: dir_01y83qbfqn306vzqa1s4fdvzqxt82zdmp64zk66gj2t0tp98238nqg
-	  ├╴ghost/%5E1: null
+	root: dir_01661vx5rfw3ebf2r3m8ksqy9sq5c4jmmymccapwwxamxydqspvzc0
+	└╴middle/1.0.0: dir_018kdbjpswww54x0f4qcv0gmz3arkmf3pf3kg9sy0g61bke3w1nedg
+	  ├╴ghost/^1: null
 	  └╴leaf/1.0.0: dir_010amcfrw5b59n7arj7s890qbarq3fpc0jmzhpqchjmn1y485m1mm0
 '
