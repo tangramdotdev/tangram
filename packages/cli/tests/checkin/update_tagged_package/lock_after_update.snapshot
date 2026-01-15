@@ -12,7 +12,7 @@
     {
       "kind": "file",
       "dependencies": {
-        "a/%5E1": {
+        "a/^1": {
           "item": null,
           "options": {
             "id": "dir_01d2wvpdaajzr09jp6z75pne9tpqkx05k7sp3b87pbxxp9b722ca90",

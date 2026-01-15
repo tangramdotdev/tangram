@@ -7,7 +7,7 @@ tg.directory({
           "tangram.ts": tg.file({
             "contents": tg.blob("import d from \"d/^1\";\nexport default () => \"b\";"),
             "dependencies": {
-              "d/%5E1": {
+              "d/^1": {
                 "item": tg.directory({
                   "tangram.ts": tg.file({
                     "contents": tg.blob("export default () => \"d/1.1.0\";"),
@@ -21,7 +21,7 @@ tg.directory({
             "module": "ts",
           }),
         }),
-        "id": "dir_011dqwmmm2k3bqxh2k4ena6dmzy9yse78cpcvdfqv701apyf0jy6e0",
+        "id": "dir_01x6j7t8zdbwsq0tb7q1xpd7bhhkpbh3rypc7n7hzeqmfrns0m1ak0",
         "tag": "b",
       },
       "c": {
@@ -29,7 +29,7 @@ tg.directory({
           "tangram.ts": tg.file({
             "contents": tg.blob("import d from \"d/^1.0\";\nexport default () => \"c\";"),
             "dependencies": {
-              "d/%5E1.0": {
+              "d/^1.0": {
                 "item": tg.directory({
                   "tangram.ts": tg.file({
                     "contents": tg.blob("export default () => \"d/1.1.0\";"),
@@ -43,7 +43,7 @@ tg.directory({
             "module": "ts",
           }),
         }),
-        "id": "dir_017s7ea35qwm3ycj7yxdjb179sg0zcv8d9tnqhd54vcbjc3s09jpeg",
+        "id": "dir_019ehtv5k0f5c2y4y6fcsv7rm03vkbc9ywba9d4kk8zqrdyfkq70yg",
         "tag": "c",
       },
     },
