@@ -1649,6 +1649,7 @@ declare namespace tg {
 							tg.UnresolvedFunctionArgs<A>,
 							tg.UnresolvedFunctionReturnValue<R>
 					  >
+					| ((...args: Array<never>) => tg.MaybePromise<R | void>)
 			: T extends
 						| undefined
 						| boolean

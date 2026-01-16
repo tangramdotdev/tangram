@@ -12,6 +12,7 @@ export type Unresolved<T extends tg.Value> = tg.MaybePromise<
 						UnresolvedFunctionArgs<A>,
 						UnresolvedFunctionReturnValue<R>
 				  >
+				| ((...args: Array<never>) => tg.MaybePromise<R | void>)
 		: T extends
 					| undefined
 					| boolean
