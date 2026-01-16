@@ -14,4 +14,4 @@ let path = artifact {
 
 # Build.
 let output = tg build $path
-snapshot $output 'dir_01z1ptabtrr22nw2je446awvz1cjz6j5m2xs873mfmx923tkkazq3g'
+snapshot $output 'dir_017yd51z6sgrxvdnaf7hsjhg8186p707y4536v1b0js196cxhs58w0'

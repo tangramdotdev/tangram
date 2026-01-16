@@ -7,12 +7,12 @@ tg.directory({
           "tangram.ts": tg.file({
             "contents": tg.blob("import * as c from \"c/^1\""),
             "dependencies": {
-              "c/%5E1": null,
+              "c/^1": null,
             },
             "module": "ts",
           }),
         }),
-        "id": "dir_019kxxsypc6272tve6qm85a5gjvzhatrk0rxv02ancm7wr0hk9qvjg",
+        "id": "dir_01ngpqvdtr9zpg8tpdza13184n5xkr7jkvnda2sh7p9xkkfmre3zy0",
         "tag": "a/1.0.0",
       },
       "b/*": {
@@ -20,12 +20,12 @@ tg.directory({
           "tangram.ts": tg.file({
             "contents": tg.blob("import * as c from \"c/^2\""),
             "dependencies": {
-              "c/%5E2": null,
+              "c/^2": null,
             },
             "module": "ts",
           }),
         }),
-        "id": "dir_01ps7xrvt0n9gx2x89crqwmz392aha90tyhengqn6fk7qz43kp5edg",
+        "id": "dir_017gz8gee3rhgcsejckackbbqkxcv8payzb6v4xxvkfsv3fywd9s1g",
         "tag": "b/1.0.0",
       },
     },
