@@ -270,7 +270,7 @@ impl Server {
 				edge => edge,
 			};
 
-			// Add teh edge to the item.
+			// Add the edge to the item.
 			Self::checkin_add_edge_for_item(checkpoint, &item, edge.clone());
 
 			// If the edge is a pointer into the checkin graph, enqueue its outgoing edges.
