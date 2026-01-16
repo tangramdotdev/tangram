@@ -6358,6 +6358,7 @@ dependencies = [
  "bytes",
  "derive_more",
  "fnv",
+ "foundationdb",
  "futures",
  "indoc",
  "itertools 0.14.0",

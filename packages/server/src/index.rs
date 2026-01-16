@@ -27,6 +27,8 @@ pub mod message;
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Index {
+	#[cfg(feature = "foundationdb")]
+	Fdb(index::fdb::Index),
 	#[cfg(feature = "postgres")]
 	Postgres(index::postgres::Index),
 	#[cfg(feature = "sqlite")]
@@ -34,6 +36,11 @@ pub enum Index {
 }
 
 impl Index {
+	#[cfg(feature = "foundationdb")]
+	pub fn new_fdb(cluster_path: &std::path::Path) -> tg::Result<Self> {
+		Ok(Self::Fdb(index::fdb::Index::new(cluster_path)?))
+	}
+
 	#[cfg(feature = "postgres")]
 	pub fn new_postgres(database: db::postgres::Database) -> Self {
 		Self::Postgres(index::postgres::Index::new(database))
@@ -52,6 +59,8 @@ impl index::Index for Index {
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_object_metadata(id).await,
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => index.try_get_object_metadata(id).await,
 			#[cfg(feature = "sqlite")]
@@ -64,6 +73,8 @@ impl index::Index for Index {
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<tg::object::Metadata>>> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_object_metadata_batch(ids).await,
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => index.try_get_object_metadata_batch(ids).await,
 			#[cfg(feature = "sqlite")]
@@ -76,6 +87,8 @@ impl index::Index for Index {
 		id: &tg::object::Id,
 	) -> tg::Result<Option<index::ObjectStored>> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_object_stored(id).await,
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => index.try_get_object_stored(id).await,
 			#[cfg(feature = "sqlite")]
@@ -88,6 +101,8 @@ impl index::Index for Index {
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<index::ObjectStored>>> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_object_stored_batch(ids).await,
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => index.try_get_object_stored_batch(ids).await,
 			#[cfg(feature = "sqlite")]
@@ -100,6 +115,8 @@ impl index::Index for Index {
 		id: &tg::object::Id,
 	) -> tg::Result<Option<(index::ObjectStored, tg::object::Metadata)>> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_object_stored_and_metadata(id).await,
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => index.try_get_object_stored_and_metadata(id).await,
 			#[cfg(feature = "sqlite")]
@@ -112,6 +129,8 @@ impl index::Index for Index {
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<(index::ObjectStored, tg::object::Metadata)>>> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_object_stored_and_metadata_batch(ids).await,
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => index.try_get_object_stored_and_metadata_batch(ids).await,
 			#[cfg(feature = "sqlite")]
@@ -125,6 +144,12 @@ impl index::Index for Index {
 		touched_at: i64,
 	) -> tg::Result<Option<(index::ObjectStored, tg::object::Metadata)>> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => {
+				index
+					.try_touch_object_and_get_stored_and_metadata(id, touched_at)
+					.await
+			},
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => {
 				index
@@ -146,6 +171,12 @@ impl index::Index for Index {
 		touched_at: i64,
 	) -> tg::Result<Vec<Option<(index::ObjectStored, tg::object::Metadata)>>> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => {
+				index
+					.try_touch_object_and_get_stored_and_metadata_batch(ids, touched_at)
+					.await
+			},
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => {
 				index
@@ -166,6 +197,8 @@ impl index::Index for Index {
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Metadata>> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_process_metadata(id).await,
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => index.try_get_process_metadata(id).await,
 			#[cfg(feature = "sqlite")]
@@ -178,6 +211,8 @@ impl index::Index for Index {
 		ids: &[tg::process::Id],
 	) -> tg::Result<Vec<Option<tg::process::Metadata>>> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_process_metadata_batch(ids).await,
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => index.try_get_process_metadata_batch(ids).await,
 			#[cfg(feature = "sqlite")]
@@ -190,6 +225,8 @@ impl index::Index for Index {
 		id: &tg::process::Id,
 	) -> tg::Result<Option<index::ProcessStored>> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_process_stored(id).await,
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => index.try_get_process_stored(id).await,
 			#[cfg(feature = "sqlite")]
@@ -202,6 +239,8 @@ impl index::Index for Index {
 		ids: &[tg::process::Id],
 	) -> tg::Result<Vec<Option<index::ProcessStored>>> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_process_stored_batch(ids).await,
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => index.try_get_process_stored_batch(ids).await,
 			#[cfg(feature = "sqlite")]
@@ -214,6 +253,8 @@ impl index::Index for Index {
 		ids: &[tg::process::Id],
 	) -> tg::Result<Vec<Option<(index::ProcessStored, tg::process::Metadata)>>> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_process_stored_and_metadata_batch(ids).await,
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => index.try_get_process_stored_and_metadata_batch(ids).await,
 			#[cfg(feature = "sqlite")]
@@ -227,6 +268,12 @@ impl index::Index for Index {
 		touched_at: i64,
 	) -> tg::Result<Option<(index::ProcessStored, tg::process::Metadata)>> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => {
+				index
+					.try_touch_process_and_get_stored_and_metadata(id, touched_at)
+					.await
+			},
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => {
 				index
@@ -248,6 +295,12 @@ impl index::Index for Index {
 		touched_at: i64,
 	) -> tg::Result<Vec<Option<(index::ProcessStored, tg::process::Metadata)>>> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => {
+				index
+					.try_touch_process_and_get_stored_and_metadata_batch(ids, touched_at)
+					.await
+			},
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => {
 				index
@@ -274,6 +327,20 @@ impl index::Index for Index {
 		delete_tag: Vec<index::DeleteTagArg>,
 	) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => {
+				index
+					.handle_messages(
+						put_cache_entry,
+						put_object,
+						touch_object,
+						put_process,
+						touch_process,
+						put_tag,
+						delete_tag,
+					)
+					.await
+			},
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => {
 				index
@@ -307,6 +374,8 @@ impl index::Index for Index {
 
 	async fn handle_queue(&self, batch_size: usize) -> tg::Result<usize> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.handle_queue(batch_size).await,
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => index.handle_queue(batch_size).await,
 			#[cfg(feature = "sqlite")]
@@ -316,6 +385,8 @@ impl index::Index for Index {
 
 	async fn get_transaction_id(&self) -> tg::Result<u64> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.get_transaction_id().await,
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => index.get_transaction_id().await,
 			#[cfg(feature = "sqlite")]
@@ -325,6 +396,8 @@ impl index::Index for Index {
 
 	async fn get_queue_size(&self, transaction_id: u64) -> tg::Result<u64> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.get_queue_size(transaction_id).await,
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => index.get_queue_size(transaction_id).await,
 			#[cfg(feature = "sqlite")]
@@ -334,6 +407,8 @@ impl index::Index for Index {
 
 	async fn clean(&self, max_touched_at: i64, n: usize) -> tg::Result<index::CleanOutput> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.clean(max_touched_at, n).await,
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => index.clean(max_touched_at, n).await,
 			#[cfg(feature = "sqlite")]
@@ -343,6 +418,8 @@ impl index::Index for Index {
 
 	async fn touch_object(&self, id: &tg::object::Id) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.touch_object(id).await,
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => index.touch_object(id).await,
 			#[cfg(feature = "sqlite")]
@@ -352,6 +429,8 @@ impl index::Index for Index {
 
 	async fn touch_process(&self, id: &tg::process::Id) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.touch_process(id).await,
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => index.touch_process(id).await,
 			#[cfg(feature = "sqlite")]
@@ -361,6 +440,8 @@ impl index::Index for Index {
 
 	async fn sync(&self) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.sync().await,
 			#[cfg(feature = "postgres")]
 			Self::Postgres(index) => index.sync().await,
 			#[cfg(feature = "sqlite")]

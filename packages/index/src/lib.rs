@@ -1,5 +1,7 @@
 use {std::collections::BTreeSet, tangram_client::prelude::*, tangram_util::serde::is_false};
 
+#[cfg(feature = "foundationdb")]
+pub mod fdb;
 #[cfg(feature = "postgres")]
 pub mod postgres;
 #[cfg(feature = "sqlite")]

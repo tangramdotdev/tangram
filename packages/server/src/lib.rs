@@ -337,6 +337,20 @@ impl Server {
 
 		// Create the index.
 		let index = match &config.index {
+			self::config::Index::Fdb(options) => {
+				#[cfg(not(feature = "foundationdb"))]
+				{
+					let _ = options;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with foundationdb support"
+					));
+				}
+				#[cfg(feature = "foundationdb")]
+				{
+					Index::new_fdb(&options.cluster)
+						.map_err(|source| tg::error!(!source, "failed to create the index"))?
+				}
+			},
 			self::config::Index::Postgres(options) => {
 				#[cfg(not(feature = "postgres"))]
 				{

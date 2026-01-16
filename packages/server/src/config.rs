@@ -186,8 +186,15 @@ pub struct Http {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum Index {
+	Fdb(FdbIndex),
 	Postgres(PostgresIndex),
 	Sqlite(SqliteIndex),
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct FdbIndex {
+	pub cluster: PathBuf,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -563,6 +570,14 @@ impl Default for Finisher {
 		Self {
 			message_batch_size: 1024,
 			message_batch_timeout: Duration::from_millis(100),
+		}
+	}
+}
+
+impl Default for FdbIndex {
+	fn default() -> Self {
+		Self {
+			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
 		}
 	}
 }
