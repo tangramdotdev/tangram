@@ -555,15 +555,18 @@ impl Server {
 			|source| tg::error!(!source, path = %path.display(), "failed to create the directory"),
 		)?;
 
+		// Collect all entries, recursively flattening branches.
+		let entries =
+			crate::directory::collect_directory_entries(&self.store, node, graph.as_ref())?;
+
 		// Recurse into the entries.
-		for (name, edge) in &node.entries {
-			let mut edge = edge.clone();
+		for (name, mut edge) in entries {
 			if let tg::graph::data::Edge::Pointer(pointer) = &mut edge
 				&& pointer.graph.is_none()
 			{
 				pointer.graph = graph.clone();
 			}
-			let path = path.join(name);
+			let path = path.join(&name);
 			let item = self
 				.checkout_get_item(edge)
 				.map_err(|source| tg::error!(!source, "failed to get the item"))?;

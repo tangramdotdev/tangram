@@ -386,6 +386,7 @@ impl Server {
 			&mut cache_entry_messages,
 			root,
 			touched_at,
+			&self.config.checkin.directory,
 		)?;
 		tracing::trace!(elapsed = ?start.elapsed(), "create objects");
 

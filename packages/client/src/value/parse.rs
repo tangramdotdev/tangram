@@ -313,14 +313,16 @@ fn directory_node(input: &mut Input) -> ModalResult<tg::Object> {
 		)
 		.map(|entries: Vec<(String, tg::graph::Edge<tg::Artifact>)>| {
 			let entries = entries.into_iter().collect::<BTreeMap<_, _>>();
-			let node = tg::graph::Directory { entries };
+			let leaf = tg::graph::DirectoryLeaf { entries };
+			let node = tg::graph::Directory::Leaf(leaf);
 			let object = tg::directory::Object::Node(node);
 			tg::Directory::with_object(object).into()
 		}),
 		whitespace.map(|()| {
-			let node = tg::graph::Directory {
+			let leaf = tg::graph::DirectoryLeaf {
 				entries: BTreeMap::new(),
 			};
+			let node = tg::graph::Directory::Leaf(leaf);
 			let object = tg::directory::Object::Node(node);
 			tg::Directory::with_object(object).into()
 		}),
@@ -1091,7 +1093,10 @@ fn parse_graph_node(map: &tg::value::Map) -> tg::Result<tg::graph::Node> {
 	}
 	let kind = kind.ok_or_else(|| tg::error!("missing kind field"))?;
 	match kind.as_str() {
-		"directory" => Ok(tg::graph::Node::Directory(tg::graph::Directory { entries })),
+		"directory" => {
+			let leaf = tg::graph::DirectoryLeaf { entries };
+			Ok(tg::graph::Node::Directory(tg::graph::Directory::Leaf(leaf)))
+		},
 		"file" => {
 			let contents =
 				contents.ok_or_else(|| tg::error!("missing contents field for file node"))?;
