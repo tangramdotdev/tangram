@@ -293,7 +293,7 @@ impl State {
 		}
 
 		// Visit all the objects.
-		tg::object::visit(handle, self, root).await
+		tg::object::visit(handle, self, root, false).await
 	}
 
 	/// Second pass, build the graph.

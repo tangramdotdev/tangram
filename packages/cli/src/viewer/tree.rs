@@ -206,9 +206,7 @@ where
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let options = parent.borrow().options.clone();
 		let parent = Rc::downgrade(parent);
-		let title = referent
-			.as_ref()
-			.map_or(String::new(), |referent| Self::item_title(referent.item()));
+		let title = referent.as_ref().map_or(String::new(), Self::item_title);
 		let expand = match referent.as_ref().map(tg::Referent::item) {
 			Some(Item::Package(package)) if options.expand_packages => expanded_nodes
 				.borrow_mut()
@@ -1159,8 +1157,9 @@ where
 	) -> tg::Result<()> {
 		let mut visitor = PackageVisitor {
 			dependencies: BTreeMap::new(),
+			package: package.clone(),
 		};
-		tg::object::visit(handle, &mut visitor, &package).await?;
+		tg::object::visit(handle, &mut visitor, &package, true).await?;
 		let dependencies = visitor
 			.dependencies
 			.into_iter()
@@ -1181,7 +1180,17 @@ where
 
 			// Add the dependencies.
 			for (label, item) in dependencies {
-				let child = Self::create_node(&handle, &node, Some(label), item);
+				let child = if let Some(item) = item {
+					let label = Self::item_label(&item);
+					Self::create_node(&handle, &node, label, Some(item))
+				} else {
+					Self::create_node(
+						&handle,
+						&node,
+						Some(label),
+						Some(tg::Referent::with_item(Item::Value(tg::Value::Null))),
+					)
+				};
 				node.borrow_mut().children.push(child);
 			}
 		};
@@ -1627,9 +1636,22 @@ where
 		false
 	}
 
-	fn item_title(item: &Item) -> String {
-		match item {
-			Item::Package(package) => Self::object_id(&package.0),
+	fn item_label(referent: &tg::Referent<Item>) -> Option<String> {
+		if let Some(tag) = referent.tag() {
+			return Some(tag.to_string());
+		}
+		if let Some(id) = referent.id() {
+			return Some(id.to_string());
+		}
+		if let Some(path) = referent.path() {
+			return Some(path.display().to_string());
+		}
+		None
+	}
+
+	fn item_title(referent: &tg::Referent<Item>) -> String {
+		match referent.item() {
+			Item::Package(package) => package.0.id().to_string(),
 			Item::Tag(pattern) => pattern.to_string(),
 			Item::Value(value) => match value {
 				tg::Value::Null => "null".to_owned(),
@@ -1656,13 +1678,6 @@ where
 		}
 	}
 
-	fn item_label(item: &Item) -> Option<String> {
-		match item {
-			Item::Package(_) => Some("package".into()),
-			_ => None,
-		}
-	}
-
 	pub fn new(
 		handle: &H,
 		referent: tg::Referent<Item>,
@@ -1674,8 +1689,8 @@ where
 		let expanded_nodes = Rc::new(RefCell::new(HashSet::new()));
 		let options = Rc::new(options);
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
-		let label = Self::item_label(referent.item());
-		let title = Self::item_title(referent.item());
+		let label = Self::item_label(&referent);
+		let title = Self::item_title(&referent);
 		let expand = match referent.item() {
 			Item::Package(package) if options.expand_packages => expanded_nodes
 				.borrow_mut()
@@ -2303,6 +2318,7 @@ impl std::fmt::Display for Display {
 
 struct PackageVisitor {
 	dependencies: BTreeMap<tg::Reference, Option<tg::file::Dependency>>,
+	package: tg::Referent<tg::Object>,
 }
 
 impl<H> tg::object::Visitor<H> for PackageVisitor
@@ -2317,11 +2333,18 @@ where
 		Ok(true)
 	}
 	async fn visit_file(&mut self, handle: &H, file: tg::Referent<&tg::File>) -> tg::Result<bool> {
-		if file.path().is_none() {
+		if file.path().is_some()
+			&& ((file.tag().is_some() && file.tag() != self.package.tag())
+				|| (file.id().is_some() && file.id() != self.package.id()))
+		{
 			return Ok(false);
 		}
 		let dependencies = file.item().dependencies(handle).await?;
-		self.dependencies.extend(dependencies);
+		self.dependencies.extend(
+			dependencies
+				.into_iter()
+				.filter(|(reference, _)| reference.item().is_tag()),
+		);
 		Ok(true)
 	}
 	async fn visit_symlink(
@@ -2329,6 +2352,6 @@ where
 		_handle: &H,
 		_symlink: tg::Referent<&tg::Symlink>,
 	) -> tg::Result<bool> {
-		Ok(true)
+		Ok(false)
 	}
 }
