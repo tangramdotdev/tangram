@@ -128,21 +128,24 @@ impl<T> Referent<T> {
 	}
 
 	pub fn inherit<U>(&mut self, parent: &tg::Referent<U>) {
+		// Only inherit ID and tag if this referent doesn't have them.
 		if self.id().is_none() && self.tag().is_none() {
 			self.options.id = parent.options.id.clone();
 			self.options.tag = parent.options.tag.clone();
-			match (&self.options.path, &parent.options.path) {
-				(None, Some(parent_path)) => {
-					let path = parent_path.clone();
-					self.options.path = Some(path);
-				},
-				(Some(self_path), Some(parent_path)) => {
-					let path = parent_path.parent().unwrap().join(self_path);
-					let path = tangram_util::path::normalize(&path);
-					self.options.path = Some(path);
-				},
-				_ => (),
-			}
+		}
+		// Always resolve the path, even if the item has an ID. The path is contextual
+		// based on where the import is, and we need it for re-checkin during publish.
+		match (&self.options.path, &parent.options.path) {
+			(None, Some(parent_path)) => {
+				let path = parent_path.clone();
+				self.options.path = Some(path);
+			},
+			(Some(self_path), Some(parent_path)) => {
+				let path = parent_path.parent().unwrap().join(self_path);
+				let path = tangram_util::path::normalize(&path);
+				self.options.path = Some(path);
+			},
+			_ => (),
 		}
 	}
 }
