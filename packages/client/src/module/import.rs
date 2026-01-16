@@ -37,8 +37,13 @@ impl Import {
 				let attributes = serde_json::from_value::<tg::reference::Options>(attributes)
 					.map_err(|source| tg::error!(!source, "invalid attributes"))?;
 				let local = attributes.local.or(reference.options().local.clone());
+				let path = attributes.path.or(reference.options().path.clone());
 				let remote = attributes.remote.or(reference.options().remote.clone());
-				let options = tg::reference::Options { local, remote };
+				let options = tg::reference::Options {
+					local,
+					path,
+					remote,
+				};
 				tg::Reference::with_item_and_options(reference.item().clone(), options)
 			}
 		} else {

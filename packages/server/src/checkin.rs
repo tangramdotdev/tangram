@@ -26,6 +26,7 @@ mod input;
 mod lock;
 mod solve;
 mod store;
+mod subpath;
 
 pub(crate) use self::{graph::Graph, solve::Solutions};
 
@@ -309,13 +310,14 @@ impl Server {
 
 		// Collect input.
 		let start = Instant::now();
-		let mut graph = tokio::task::spawn_blocking({
+		let (mut graph, subpaths) = tokio::task::spawn_blocking({
 			let server = self.clone();
 			let arg = arg.clone();
 			let artifacts_path = artifacts_path.clone();
 			let lock = lock.clone();
 			let progress = progress.clone();
 			let root = root.to_owned();
+			let mut subpaths = Vec::new();
 			move || {
 				server.checkin_input(
 					&arg,
@@ -327,12 +329,16 @@ impl Server {
 					next,
 					progress,
 					&root,
+					&mut subpaths,
 				)?;
-				Ok::<_, tg::Error>(graph)
+				Ok::<_, tg::Error>((graph, subpaths))
 			}
 		})
 		.await
 		.map_err(|source| tg::error!(!source, "the checkin input task panicked"))??;
+		self.checkin_resolve_subpaths(&subpaths, &mut graph)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to resolve input subpaths"))?;
 		tracing::trace!(elapsed = ?start.elapsed(), "collect input");
 
 		// Solve.

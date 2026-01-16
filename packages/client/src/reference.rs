@@ -65,6 +65,9 @@ pub struct Options {
 	pub local: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
 }
 
@@ -146,6 +149,9 @@ impl Reference {
 						"local" => {
 							options.local.replace(value.into_owned().into());
 						},
+						"path" => {
+							options.path.replace(value.into_owned().into());
+						},
 						"remote" => {
 							options.remote.replace(value.into_owned());
 						},
@@ -173,6 +179,12 @@ impl Reference {
 			let local = tangram_uri::encode_query_value(&local);
 			let local = format!("local={local}");
 			query.push(local);
+		}
+		if let Some(path) = &self.options.path {
+			let path = path.to_string_lossy();
+			let path = tangram_uri::encode_query_value(&path);
+			let path = format!("path={path}");
+			query.push(path);
 		}
 		if let Some(remote) = &self.options.remote {
 			let remote = tangram_uri::encode_query_value(remote);
