@@ -116,11 +116,18 @@ impl Cli {
 		for mut item in plan {
 			// Check in the artifact if requested. This is only possible if the root is referred to by path and the item has a path.
 			if let Some(options) = item.checkin {
-				let path = reference.item().unwrap_path_ref().join(
-					item.referent
-						.path()
-						.ok_or_else(|| tg::error!("expected a path!"))?,
-				);
+				// The item path is resolved to be CWD-relative by inherit() during visiting.
+				// However, it may be empty if the item is at the root of a directory package
+				// (normalize removes "." components). In that case, use the reference path.
+				let item_path = item
+					.referent
+					.path()
+					.ok_or_else(|| tg::error!("expected a path!"))?;
+				let path = if item_path.as_os_str().is_empty() {
+					reference.item().unwrap_path_ref().to_owned()
+				} else {
+					item_path.to_owned()
+				};
 				let path = tangram_util::fs::canonicalize_parent(&path)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
