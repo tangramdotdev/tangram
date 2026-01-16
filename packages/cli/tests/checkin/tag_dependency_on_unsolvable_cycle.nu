@@ -16,6 +16,7 @@ let cycle_path = artifact {
 
 let cycle_id = tg checkin ($cycle_path | path join 'foo.tg.ts')
 tg tag cycle $cycle_id
+tg index
 
 # Create a package that imports the cycle by tag.
 let path = artifact {
@@ -25,7 +26,6 @@ let path = artifact {
 }
 
 let id = tg checkin $path
-tg index
 
 let object = tg object get --blobs --depth=inf --pretty $id
 snapshot -n object $object
