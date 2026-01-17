@@ -1,6 +1,7 @@
 use {
-	super::{Index, Key, ObjectValue, ProcessValue},
+	super::{Index, Key, ObjectKind, ProcessKind},
 	crate::{ObjectStored, ProcessStored},
+	foundationdb::options::MutationType,
 	foundationdb_tuple::TuplePack as _,
 	tangram_client::prelude::*,
 };
@@ -11,36 +12,38 @@ impl Index {
 		id: &tg::object::Id,
 		touched_at: i64,
 	) -> tg::Result<Option<(ObjectStored, tg::object::Metadata)>> {
-		let key = Key::Object(id).pack_to_vec();
-
 		let txn = self
 			.database
 			.create_trx()
 			.map_err(|source| tg::error!(!source, "failed to create transaction"))?;
 
-		// Get the current value.
-		let value = txn
-			.get(&key, false)
+		// Check if the object exists by looking for the touched_at field.
+		let touched_at_key = Key::ObjectField {
+			id,
+			field: ObjectKind::TouchedAt,
+		}
+		.pack_to_vec();
+		let touched_at_value = txn
+			.get(&touched_at_key, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get object"))?;
-		let Some(value) = value else {
+			.map_err(|source| tg::error!(!source, "failed to get object touched_at"))?;
+		if touched_at_value.is_none() {
 			return Ok(None);
-		};
-		let mut value = tangram_serialize::from_slice::<ObjectValue>(&value)
-			.map_err(|source| tg::error!(!source, "failed to deserialize object value"))?;
-
-		// Update touched_at if the new value is greater.
-		if touched_at > value.touched_at {
-			value.touched_at = touched_at;
-			let serialized = tangram_serialize::to_vec(&value)
-				.map_err(|source| tg::error!(!source, "failed to serialize object value"))?;
-			txn.set(&key, &serialized);
-			txn.commit()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to commit transaction"))?;
 		}
 
-		Ok(Some((value.stored, value.metadata)))
+		// Use atomic max to update touched_at.
+		let touched_at_bytes = touched_at.to_be_bytes();
+		txn.atomic_op(&touched_at_key, &touched_at_bytes, MutationType::Max);
+
+		// Combined range scan for stored and metadata fields.
+		let (stored, metadata) = Self::read_object_stored_and_metadata(&txn, id).await?;
+
+		// Commit the transaction.
+		txn.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit transaction"))?;
+
+		Ok(Some((stored, metadata)))
 	}
 
 	pub async fn try_touch_object_and_get_stored_and_metadata_batch(
@@ -57,47 +60,37 @@ impl Index {
 			.create_trx()
 			.map_err(|source| tg::error!(!source, "failed to create transaction"))?;
 
-		let values = futures::future::try_join_all(ids.iter().map(|id| async {
-			let key = Key::Object(id).pack_to_vec();
-			let value = txn
-				.get(&key, false)
+		let touched_at_bytes = touched_at.to_be_bytes();
+
+		let results = futures::future::try_join_all(ids.iter().map(|id| async {
+			// Check if the object exists by looking for the touched_at field.
+			let touched_at_key = Key::ObjectField {
+				id,
+				field: ObjectKind::TouchedAt,
+			}
+			.pack_to_vec();
+			let touched_at_value = txn
+				.get(&touched_at_key, false)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get object"))?;
-			let Some(value) = value else {
+				.map_err(|source| tg::error!(!source, "failed to get object touched_at"))?;
+			if touched_at_value.is_none() {
 				return Ok::<_, tg::Error>(None);
-			};
-			let value = tangram_serialize::from_slice::<ObjectValue>(&value)
-				.map_err(|source| tg::error!(!source, "failed to deserialize object value"))?;
-			Ok(Some(value))
+			}
+
+			// Use atomic max to update touched_at.
+			txn.atomic_op(&touched_at_key, &touched_at_bytes, MutationType::Max);
+
+			// Combined range scan for stored and metadata fields.
+			let (stored, metadata) = Self::read_object_stored_and_metadata(&txn, id).await?;
+
+			Ok(Some((stored, metadata)))
 		}))
 		.await?;
 
-		let mut results = Vec::with_capacity(ids.len());
-		let mut needs_commit = false;
-		for (id, value) in ids.iter().zip(values) {
-			let Some(mut value) = value else {
-				results.push(None);
-				continue;
-			};
-
-			// Update touched_at if the new value is greater.
-			if touched_at > value.touched_at {
-				value.touched_at = touched_at;
-				let serialized = tangram_serialize::to_vec(&value)
-					.map_err(|source| tg::error!(!source, "failed to serialize object value"))?;
-				let key = Key::Object(id).pack_to_vec();
-				txn.set(&key, &serialized);
-				needs_commit = true;
-			}
-
-			results.push(Some((value.stored, value.metadata)));
-		}
-
-		if needs_commit {
-			txn.commit()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to commit transaction"))?;
-		}
+		// Commit the transaction.
+		txn.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit transaction"))?;
 
 		Ok(results)
 	}
@@ -107,36 +100,38 @@ impl Index {
 		id: &tg::process::Id,
 		touched_at: i64,
 	) -> tg::Result<Option<(ProcessStored, tg::process::Metadata)>> {
-		let key = Key::Process(id).pack_to_vec();
-
 		let txn = self
 			.database
 			.create_trx()
 			.map_err(|source| tg::error!(!source, "failed to create transaction"))?;
 
-		// Get the current value.
-		let value = txn
-			.get(&key, false)
+		// Check if the process exists by looking for the touched_at field.
+		let touched_at_key = Key::ProcessField {
+			id,
+			field: ProcessKind::TouchedAt,
+		}
+		.pack_to_vec();
+		let touched_at_value = txn
+			.get(&touched_at_key, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get process"))?;
-		let Some(value) = value else {
+			.map_err(|source| tg::error!(!source, "failed to get process touched_at"))?;
+		if touched_at_value.is_none() {
 			return Ok(None);
-		};
-		let mut value = tangram_serialize::from_slice::<ProcessValue>(&value)
-			.map_err(|source| tg::error!(!source, "failed to deserialize process value"))?;
-
-		// Update touched_at if the new value is greater.
-		if touched_at > value.touched_at {
-			value.touched_at = touched_at;
-			let serialized = tangram_serialize::to_vec(&value)
-				.map_err(|source| tg::error!(!source, "failed to serialize process value"))?;
-			txn.set(&key, &serialized);
-			txn.commit()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to commit transaction"))?;
 		}
 
-		Ok(Some((value.stored, value.metadata)))
+		// Use atomic max to update touched_at.
+		let touched_at_bytes = touched_at.to_be_bytes();
+		txn.atomic_op(&touched_at_key, &touched_at_bytes, MutationType::Max);
+
+		// Combined range scan for stored and metadata fields.
+		let (stored, metadata) = Self::read_process_stored_and_metadata(&txn, id).await?;
+
+		// Commit the transaction.
+		txn.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit transaction"))?;
+
+		Ok(Some((stored, metadata)))
 	}
 
 	pub async fn try_touch_process_and_get_stored_and_metadata_batch(
@@ -153,115 +148,105 @@ impl Index {
 			.create_trx()
 			.map_err(|source| tg::error!(!source, "failed to create transaction"))?;
 
-		let values = futures::future::try_join_all(ids.iter().map(|id| async {
-			let key = Key::Process(id).pack_to_vec();
-			let value = txn
-				.get(&key, false)
+		let touched_at_bytes = touched_at.to_be_bytes();
+
+		let results = futures::future::try_join_all(ids.iter().map(|id| async {
+			// Check if the process exists by looking for the touched_at field.
+			let touched_at_key = Key::ProcessField {
+				id,
+				field: ProcessKind::TouchedAt,
+			}
+			.pack_to_vec();
+			let touched_at_value = txn
+				.get(&touched_at_key, false)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get process"))?;
-			let Some(value) = value else {
+				.map_err(|source| tg::error!(!source, "failed to get process touched_at"))?;
+			if touched_at_value.is_none() {
 				return Ok::<_, tg::Error>(None);
-			};
-			let value = tangram_serialize::from_slice::<ProcessValue>(&value)
-				.map_err(|source| tg::error!(!source, "failed to deserialize process value"))?;
-			Ok(Some(value))
+			}
+
+			// Use atomic max to update touched_at.
+			txn.atomic_op(&touched_at_key, &touched_at_bytes, MutationType::Max);
+
+			// Combined range scan for stored and metadata fields.
+			let (stored, metadata) = Self::read_process_stored_and_metadata(&txn, id).await?;
+
+			Ok(Some((stored, metadata)))
 		}))
 		.await?;
 
-		let mut results = Vec::with_capacity(ids.len());
-		let mut needs_commit = false;
-		for (id, value) in ids.iter().zip(values) {
-			let Some(mut value) = value else {
-				results.push(None);
-				continue;
-			};
-
-			// Update touched_at if the new value is greater.
-			if touched_at > value.touched_at {
-				value.touched_at = touched_at;
-				let serialized = tangram_serialize::to_vec(&value)
-					.map_err(|source| tg::error!(!source, "failed to serialize process value"))?;
-				let key = Key::Process(id).pack_to_vec();
-				txn.set(&key, &serialized);
-				needs_commit = true;
-			}
-
-			results.push(Some((value.stored, value.metadata)));
-		}
-
-		if needs_commit {
-			txn.commit()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to commit transaction"))?;
-		}
+		// Commit the transaction.
+		txn.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit transaction"))?;
 
 		Ok(results)
 	}
 
 	pub async fn touch_object(&self, id: &tg::object::Id) -> tg::Result<()> {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let key = Key::Object(id).pack_to_vec();
 
 		let txn = self
 			.database
 			.create_trx()
 			.map_err(|source| tg::error!(!source, "failed to create transaction"))?;
 
-		// Get the current value.
-		let value = txn
-			.get(&key, false)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get object"))?;
-		let Some(value) = value else {
-			return Err(tg::error!("failed to find the object"));
-		};
-		let mut value = tangram_serialize::from_slice::<ObjectValue>(&value)
-			.map_err(|source| tg::error!(!source, "failed to deserialize object value"))?;
-
-		// Update touched_at if the new value is greater.
-		if touched_at > value.touched_at {
-			value.touched_at = touched_at;
-			let serialized = tangram_serialize::to_vec(&value)
-				.map_err(|source| tg::error!(!source, "failed to serialize object value"))?;
-			txn.set(&key, &serialized);
-			txn.commit()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to commit transaction"))?;
+		// Check if the object exists by looking for the touched_at field.
+		let touched_at_key = Key::ObjectField {
+			id,
+			field: ObjectKind::TouchedAt,
 		}
+		.pack_to_vec();
+		let touched_at_value = txn
+			.get(&touched_at_key, false)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get object touched_at"))?;
+		if touched_at_value.is_none() {
+			return Err(tg::error!("failed to find the object"));
+		}
+
+		// Use atomic max to update touched_at.
+		let touched_at_bytes = touched_at.to_be_bytes();
+		txn.atomic_op(&touched_at_key, &touched_at_bytes, MutationType::Max);
+
+		// Commit the transaction.
+		txn.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit transaction"))?;
 
 		Ok(())
 	}
 
 	pub async fn touch_process(&self, id: &tg::process::Id) -> tg::Result<()> {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let key = Key::Process(id).pack_to_vec();
 
 		let txn = self
 			.database
 			.create_trx()
 			.map_err(|source| tg::error!(!source, "failed to create transaction"))?;
 
-		// Get the current value.
-		let value = txn
-			.get(&key, false)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get process"))?;
-		let Some(value) = value else {
-			return Err(tg::error!("failed to find the process"));
-		};
-		let mut value = tangram_serialize::from_slice::<ProcessValue>(&value)
-			.map_err(|source| tg::error!(!source, "failed to deserialize process value"))?;
-
-		// Update touched_at if the new value is greater.
-		if touched_at > value.touched_at {
-			value.touched_at = touched_at;
-			let serialized = tangram_serialize::to_vec(&value)
-				.map_err(|source| tg::error!(!source, "failed to serialize process value"))?;
-			txn.set(&key, &serialized);
-			txn.commit()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to commit transaction"))?;
+		// Check if the process exists by looking for the touched_at field.
+		let touched_at_key = Key::ProcessField {
+			id,
+			field: ProcessKind::TouchedAt,
 		}
+		.pack_to_vec();
+		let touched_at_value = txn
+			.get(&touched_at_key, false)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get process touched_at"))?;
+		if touched_at_value.is_none() {
+			return Err(tg::error!("failed to find the process"));
+		}
+
+		// Use atomic max to update touched_at.
+		let touched_at_bytes = touched_at.to_be_bytes();
+		txn.atomic_op(&touched_at_key, &touched_at_bytes, MutationType::Max);
+
+		// Commit the transaction.
+		txn.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit transaction"))?;
 
 		Ok(())
 	}

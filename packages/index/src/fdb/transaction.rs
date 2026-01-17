@@ -1,5 +1,5 @@
 use {
-	super::{Index, Key, subspace},
+	super::{Index, Key, Kind},
 	foundationdb::options::MutationType,
 	foundationdb_tuple::TuplePack as _,
 	futures::TryFutureExt as _,
@@ -26,15 +26,15 @@ impl Index {
 			.map_err(|source| tg::error!(!source, "failed to create transaction"))?;
 
 		let cache_entry_key = Key::QueueCount {
-			queue: subspace::CACHE_ENTRY_QUEUE,
+			queue: Kind::CacheEntryQueue,
 		}
 		.pack_to_vec();
 		let object_key = Key::QueueCount {
-			queue: subspace::OBJECT_QUEUE,
+			queue: Kind::ObjectQueue,
 		}
 		.pack_to_vec();
 		let process_key = Key::QueueCount {
-			queue: subspace::PROCESS_QUEUE,
+			queue: Kind::ProcessQueue,
 		}
 		.pack_to_vec();
 
@@ -84,7 +84,7 @@ impl Index {
 		Ok(count)
 	}
 
-	pub fn increment_queue_count(txn: &foundationdb::Transaction, queue: i32, delta: i64) {
+	pub fn increment_queue_count(txn: &foundationdb::Transaction, queue: Kind, delta: i64) {
 		let key = Key::QueueCount { queue }.pack_to_vec();
 		let value = delta.to_le_bytes();
 		txn.atomic_op(&key, &value, MutationType::Add);

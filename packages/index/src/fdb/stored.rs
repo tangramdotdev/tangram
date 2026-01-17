@@ -1,5 +1,5 @@
 use {
-	super::{Index, Key, ObjectValue, ProcessValue},
+	super::{Index, Key, ObjectKind, ProcessKind},
 	crate::{ObjectStored, ProcessStored},
 	foundationdb_tuple::TuplePack as _,
 	tangram_client::prelude::*,
@@ -10,21 +10,29 @@ impl Index {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<ObjectStored>> {
-		let key = Key::Object(id).pack_to_vec();
 		let txn = self
 			.database
 			.create_trx()
 			.map_err(|source| tg::error!(!source, "failed to create transaction"))?;
-		let value = txn
-			.get(&key, false)
+
+		// Check if the object exists by looking for the touched_at field.
+		let touched_at_key = Key::ObjectField {
+			id,
+			field: ObjectKind::TouchedAt,
+		}
+		.pack_to_vec();
+		let touched_at_value = txn
+			.get(&touched_at_key, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get object"))?;
-		let Some(value) = value else {
+			.map_err(|source| tg::error!(!source, "failed to get object touched_at"))?;
+		if touched_at_value.is_none() {
 			return Ok(None);
-		};
-		let value = tangram_serialize::from_slice::<ObjectValue>(&value)
-			.map_err(|source| tg::error!(!source, "failed to deserialize object value"))?;
-		Ok(Some(value.stored))
+		}
+
+		// Range scan for stored fields.
+		let stored = Self::read_object_stored(&txn, id).await?;
+
+		Ok(Some(stored))
 	}
 
 	pub async fn try_get_object_stored_batch(
@@ -41,17 +49,24 @@ impl Index {
 			.map_err(|source| tg::error!(!source, "failed to create transaction"))?;
 
 		let outputs = futures::future::try_join_all(ids.iter().map(|id| async {
-			let key = Key::Object(id).pack_to_vec();
-			let value = txn
-				.get(&key, false)
+			// Check if the object exists by looking for the touched_at field.
+			let touched_at_key = Key::ObjectField {
+				id,
+				field: ObjectKind::TouchedAt,
+			}
+			.pack_to_vec();
+			let touched_at_value = txn
+				.get(&touched_at_key, false)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get object"))?;
-			let Some(value) = value else {
+				.map_err(|source| tg::error!(!source, "failed to get object touched_at"))?;
+			if touched_at_value.is_none() {
 				return Ok(None);
-			};
-			let value = tangram_serialize::from_slice::<ObjectValue>(&value)
-				.map_err(|source| tg::error!(!source, "failed to deserialize object value"))?;
-			Ok::<_, tg::Error>(Some(value.stored))
+			}
+
+			// Range scan for stored fields.
+			let stored = Self::read_object_stored(&txn, id).await?;
+
+			Ok::<_, tg::Error>(Some(stored))
 		}))
 		.await?;
 
@@ -62,21 +77,29 @@ impl Index {
 		&self,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<(ObjectStored, tg::object::Metadata)>> {
-		let key = Key::Object(id).pack_to_vec();
 		let txn = self
 			.database
 			.create_trx()
 			.map_err(|source| tg::error!(!source, "failed to create transaction"))?;
-		let value = txn
-			.get(&key, false)
+
+		// Check if the object exists by looking for the touched_at field.
+		let touched_at_key = Key::ObjectField {
+			id,
+			field: ObjectKind::TouchedAt,
+		}
+		.pack_to_vec();
+		let touched_at_value = txn
+			.get(&touched_at_key, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get object"))?;
-		let Some(value) = value else {
+			.map_err(|source| tg::error!(!source, "failed to get object touched_at"))?;
+		if touched_at_value.is_none() {
 			return Ok(None);
-		};
-		let value = tangram_serialize::from_slice::<ObjectValue>(&value)
-			.map_err(|source| tg::error!(!source, "failed to deserialize object value"))?;
-		Ok(Some((value.stored, value.metadata)))
+		}
+
+		// Combined range scan for stored and metadata fields.
+		let (stored, metadata) = Self::read_object_stored_and_metadata(&txn, id).await?;
+
+		Ok(Some((stored, metadata)))
 	}
 
 	pub async fn try_get_object_stored_and_metadata_batch(
@@ -93,17 +116,24 @@ impl Index {
 			.map_err(|source| tg::error!(!source, "failed to create transaction"))?;
 
 		let outputs = futures::future::try_join_all(ids.iter().map(|id| async {
-			let key = Key::Object(id).pack_to_vec();
-			let value = txn
-				.get(&key, false)
+			// Check if the object exists by looking for the touched_at field.
+			let touched_at_key = Key::ObjectField {
+				id,
+				field: ObjectKind::TouchedAt,
+			}
+			.pack_to_vec();
+			let touched_at_value = txn
+				.get(&touched_at_key, false)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get object"))?;
-			let Some(value) = value else {
+				.map_err(|source| tg::error!(!source, "failed to get object touched_at"))?;
+			if touched_at_value.is_none() {
 				return Ok(None);
-			};
-			let value = tangram_serialize::from_slice::<ObjectValue>(&value)
-				.map_err(|source| tg::error!(!source, "failed to deserialize object value"))?;
-			Ok::<_, tg::Error>(Some((value.stored, value.metadata)))
+			}
+
+			// Combined range scan for stored and metadata fields.
+			let (stored, metadata) = Self::read_object_stored_and_metadata(&txn, id).await?;
+
+			Ok::<_, tg::Error>(Some((stored, metadata)))
 		}))
 		.await?;
 
@@ -114,21 +144,29 @@ impl Index {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<ProcessStored>> {
-		let key = Key::Process(id).pack_to_vec();
 		let txn = self
 			.database
 			.create_trx()
 			.map_err(|source| tg::error!(!source, "failed to create transaction"))?;
-		let value = txn
-			.get(&key, false)
+
+		// Check if the process exists by looking for the touched_at field.
+		let touched_at_key = Key::ProcessField {
+			id,
+			field: ProcessKind::TouchedAt,
+		}
+		.pack_to_vec();
+		let touched_at_value = txn
+			.get(&touched_at_key, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get process"))?;
-		let Some(value) = value else {
+			.map_err(|source| tg::error!(!source, "failed to get process touched_at"))?;
+		if touched_at_value.is_none() {
 			return Ok(None);
-		};
-		let value = tangram_serialize::from_slice::<ProcessValue>(&value)
-			.map_err(|source| tg::error!(!source, "failed to deserialize process value"))?;
-		Ok(Some(value.stored))
+		}
+
+		// Range scan for stored fields.
+		let stored = Self::read_process_stored(&txn, id).await?;
+
+		Ok(Some(stored))
 	}
 
 	pub async fn try_get_process_stored_batch(
@@ -145,17 +183,24 @@ impl Index {
 			.map_err(|source| tg::error!(!source, "failed to create transaction"))?;
 
 		let outputs = futures::future::try_join_all(ids.iter().map(|id| async {
-			let key = Key::Process(id).pack_to_vec();
-			let value = txn
-				.get(&key, false)
+			// Check if the process exists by looking for the touched_at field.
+			let touched_at_key = Key::ProcessField {
+				id,
+				field: ProcessKind::TouchedAt,
+			}
+			.pack_to_vec();
+			let touched_at_value = txn
+				.get(&touched_at_key, false)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get process"))?;
-			let Some(value) = value else {
+				.map_err(|source| tg::error!(!source, "failed to get process touched_at"))?;
+			if touched_at_value.is_none() {
 				return Ok(None);
-			};
-			let value = tangram_serialize::from_slice::<ProcessValue>(&value)
-				.map_err(|source| tg::error!(!source, "failed to deserialize process value"))?;
-			Ok::<_, tg::Error>(Some(value.stored))
+			}
+
+			// Range scan for stored fields.
+			let stored = Self::read_process_stored(&txn, id).await?;
+
+			Ok::<_, tg::Error>(Some(stored))
 		}))
 		.await?;
 
@@ -176,17 +221,24 @@ impl Index {
 			.map_err(|source| tg::error!(!source, "failed to create transaction"))?;
 
 		let outputs = futures::future::try_join_all(ids.iter().map(|id| async {
-			let key = Key::Process(id).pack_to_vec();
-			let value = txn
-				.get(&key, false)
+			// Check if the process exists by looking for the touched_at field.
+			let touched_at_key = Key::ProcessField {
+				id,
+				field: ProcessKind::TouchedAt,
+			}
+			.pack_to_vec();
+			let touched_at_value = txn
+				.get(&touched_at_key, false)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get process"))?;
-			let Some(value) = value else {
+				.map_err(|source| tg::error!(!source, "failed to get process touched_at"))?;
+			if touched_at_value.is_none() {
 				return Ok(None);
-			};
-			let value = tangram_serialize::from_slice::<ProcessValue>(&value)
-				.map_err(|source| tg::error!(!source, "failed to deserialize process value"))?;
-			Ok::<_, tg::Error>(Some((value.stored, value.metadata)))
+			}
+
+			// Combined range scan for stored and metadata fields.
+			let (stored, metadata) = Self::read_process_stored_and_metadata(&txn, id).await?;
+
+			Ok::<_, tg::Error>(Some((stored, metadata)))
 		}))
 		.await?;
 

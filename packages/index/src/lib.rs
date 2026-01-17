@@ -88,15 +88,6 @@ pub struct ProcessStored {
 	pub subtree_output: bool,
 }
 
-/// The output of a clean operation.
-#[derive(Clone, Debug, Default)]
-pub struct CleanOutput {
-	pub bytes: u64,
-	pub cache_entries: Vec<tg::artifact::Id>,
-	pub objects: Vec<tg::object::Id>,
-	pub processes: Vec<tg::process::Id>,
-}
-
 /// The kind of object associated with a process.
 #[derive(
 	Clone,
@@ -112,47 +103,23 @@ pub struct CleanOutput {
 pub enum ProcessObjectKind {
 	#[tangram_serialize(id = 0)]
 	Command = 0,
+
 	#[tangram_serialize(id = 1)]
 	Error = 1,
+
 	#[tangram_serialize(id = 2)]
 	Log = 2,
+
 	#[tangram_serialize(id = 3)]
 	Output = 3,
 }
 
-impl std::fmt::Display for ProcessObjectKind {
-	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Command => write!(formatter, "command"),
-			Self::Error => write!(formatter, "error"),
-			Self::Log => write!(formatter, "log"),
-			Self::Output => write!(formatter, "output"),
-		}
-	}
-}
-
-impl std::str::FromStr for ProcessObjectKind {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		match s {
-			"command" => Ok(Self::Command),
-			"error" => Ok(Self::Error),
-			"log" => Ok(Self::Log),
-			"output" => Ok(Self::Output),
-			_ => Err(tg::error!("invalid kind")),
-		}
-	}
-}
-
-/// The kind of work to do for an object in the queue.
 #[derive(Clone, Copy, Debug, num_derive::FromPrimitive, num_derive::ToPrimitive)]
 pub enum ObjectQueueKind {
 	ReferenceCount = 0,
 	Stored = 1,
 }
 
-/// The kind of work to do for a process in the queue.
 #[derive(Clone, Copy, Debug, num_derive::FromPrimitive, num_derive::ToPrimitive)]
 pub enum ProcessQueueKind {
 	ReferenceCount = 0,
@@ -219,10 +186,15 @@ pub struct DeleteTagArg {
 	pub tag: String,
 }
 
-/// The index trait defines database operations for the index.
-pub trait Index {
-	// Object metadata operations.
+#[derive(Clone, Debug, Default)]
+pub struct CleanOutput {
+	pub bytes: u64,
+	pub cache_entries: Vec<tg::artifact::Id>,
+	pub objects: Vec<tg::object::Id>,
+	pub processes: Vec<tg::process::Id>,
+}
 
+pub trait Index {
 	fn try_get_object_metadata(
 		&self,
 		id: &tg::object::Id,
@@ -232,8 +204,6 @@ pub trait Index {
 		&self,
 		ids: &[tg::object::Id],
 	) -> impl std::future::Future<Output = tg::Result<Vec<Option<tg::object::Metadata>>>> + Send;
-
-	// Object stored operations.
 
 	fn try_get_object_stored(
 		&self,
@@ -271,8 +241,6 @@ pub trait Index {
 		Output = tg::Result<Vec<Option<(ObjectStored, tg::object::Metadata)>>>,
 	> + Send;
 
-	// Process metadata operations.
-
 	fn try_get_process_metadata(
 		&self,
 		id: &tg::process::Id,
@@ -282,8 +250,6 @@ pub trait Index {
 		&self,
 		ids: &[tg::process::Id],
 	) -> impl std::future::Future<Output = tg::Result<Vec<Option<tg::process::Metadata>>>> + Send;
-
-	// Process stored operations.
 
 	fn try_get_process_stored(
 		&self,
@@ -317,8 +283,6 @@ pub trait Index {
 		Output = tg::Result<Vec<Option<(ProcessStored, tg::process::Metadata)>>>,
 	> + Send;
 
-	// Indexer operations.
-
 	#[allow(clippy::too_many_arguments)]
 	fn handle_messages(
 		&self,
@@ -343,8 +307,6 @@ pub trait Index {
 		transaction_id: u64,
 	) -> impl std::future::Future<Output = tg::Result<u64>> + Send;
 
-	// Touch operations.
-
 	fn touch_object(
 		&self,
 		id: &tg::object::Id,
@@ -355,15 +317,36 @@ pub trait Index {
 		id: &tg::process::Id,
 	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
-	// Cleaner operations.
-
 	fn clean(
 		&self,
 		max_touched_at: i64,
 		batch_size: usize,
 	) -> impl std::future::Future<Output = tg::Result<CleanOutput>> + Send;
 
-	// Sync operations.
-
 	fn sync(&self) -> impl std::future::Future<Output = tg::Result<()>> + Send;
+}
+
+impl std::fmt::Display for ProcessObjectKind {
+	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Command => write!(formatter, "command"),
+			Self::Error => write!(formatter, "error"),
+			Self::Log => write!(formatter, "log"),
+			Self::Output => write!(formatter, "output"),
+		}
+	}
+}
+
+impl std::str::FromStr for ProcessObjectKind {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		match s {
+			"command" => Ok(Self::Command),
+			"error" => Ok(Self::Error),
+			"log" => Ok(Self::Log),
+			"output" => Ok(Self::Output),
+			_ => Err(tg::error!("invalid kind")),
+		}
+	}
 }
