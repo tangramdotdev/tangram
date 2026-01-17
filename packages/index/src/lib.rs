@@ -145,6 +145,24 @@ impl std::str::FromStr for ProcessObjectKind {
 	}
 }
 
+/// The kind of work to do for an object in the queue.
+#[derive(Clone, Copy, Debug, num_derive::FromPrimitive, num_derive::ToPrimitive)]
+pub enum ObjectQueueKind {
+	ReferenceCount = 0,
+	Stored = 1,
+}
+
+/// The kind of work to do for a process in the queue.
+#[derive(Clone, Copy, Debug, num_derive::FromPrimitive, num_derive::ToPrimitive)]
+pub enum ProcessQueueKind {
+	ReferenceCount = 0,
+	Stored = 1,
+	Command = 2,
+	Error = 3,
+	Log = 4,
+	Output = 5,
+}
+
 /// Arguments for putting a cache entry.
 #[derive(Clone, Debug)]
 pub struct PutCacheEntryArg {

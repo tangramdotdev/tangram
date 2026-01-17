@@ -6359,6 +6359,7 @@ dependencies = [
  "derive_more",
  "fnv",
  "foundationdb",
+ "foundationdb-tuple",
  "futures",
  "indoc",
  "itertools 0.14.0",

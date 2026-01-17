@@ -14,7 +14,7 @@ version = { workspace = true }
 workspace = true
 
 [features]
-foundationdb = ["dep:foundationdb"]
+foundationdb = ["dep:foundationdb", "dep:foundationdb-tuple"]
 postgres = ["dep:tangram_futures", "dep:tokio-postgres", "tangram_database/postgres"]
 sqlite = ["dep:rusqlite", "tangram_database/sqlite"]
 
@@ -23,6 +23,7 @@ bytes = { workspace = true }
 derive_more = { workspace = true }
 fnv = { workspace = true }
 foundationdb = { workspace = true, optional = true }
+foundationdb-tuple = { workspace = true, optional = true }
 futures = { workspace = true }
 indoc = { workspace = true }
 itertools = { workspace = true }
