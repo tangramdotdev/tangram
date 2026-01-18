@@ -85,8 +85,6 @@ pub struct Advanced {
 	pub disable_version_check: bool,
 	pub internal_error_locations: bool,
 	pub preserve_temp_directories: bool,
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub process_dequeue_timeout: Duration,
 	pub single_directory: bool,
 	pub single_process: bool,
 }
@@ -510,7 +508,6 @@ impl Default for Advanced {
 		Self {
 			disable_version_check: false,
 			internal_error_locations: false,
-			process_dequeue_timeout: Duration::from_secs(3600),
 			preserve_temp_directories: false,
 			single_directory: true,
 			single_process: true,

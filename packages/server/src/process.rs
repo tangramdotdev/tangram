@@ -7,7 +7,6 @@ use {
 
 pub(crate) mod cancel;
 pub(crate) mod children;
-pub(crate) mod dequeue;
 pub(crate) mod finish;
 pub(crate) mod get;
 pub(crate) mod heartbeat;
@@ -15,6 +14,7 @@ pub(crate) mod list;
 pub(crate) mod log;
 pub(crate) mod metadata;
 pub(crate) mod put;
+pub(crate) mod queue;
 pub(crate) mod signal;
 pub(crate) mod spawn;
 pub(crate) mod start;
