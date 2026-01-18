@@ -378,6 +378,7 @@ impl Server {
 		// Create artifacts.
 		let start = Instant::now();
 		Self::checkin_create_artifacts(
+			&self.config.checkin,
 			&arg,
 			&mut graph,
 			next,

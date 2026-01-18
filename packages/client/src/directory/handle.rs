@@ -122,7 +122,9 @@ impl Directory {
 			.into_iter()
 			.map(|(name, artifact)| (name, tg::graph::Edge::Object(artifact)))
 			.collect();
-		Self::with_object(Object::Node(tg::directory::object::Node { entries }))
+		let leaf = tg::graph::DirectoryLeaf { entries };
+		let node = tg::graph::Directory::Leaf(leaf);
+		Self::with_object(Object::Node(node))
 	}
 
 	#[must_use]
@@ -165,46 +167,88 @@ impl Directory {
 					.try_unwrap_directory_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected a directory"))?;
-				directory
-					.entries
-					.iter()
-					.map(|(name, edge)| {
-						let artifact = match edge {
-							tg::graph::Edge::Pointer(pointer) => {
-								let graph = pointer.graph.clone().unwrap_or_else(|| graph.clone());
-								tg::Artifact::with_pointer(tg::graph::Pointer {
-									graph: Some(graph),
-									index: pointer.index,
-									kind: pointer.kind,
-								})
-							},
-							tg::graph::Edge::Object(object) => object.clone(),
-						};
-						Ok::<_, tg::Error>((name.clone(), artifact))
-					})
-					.collect::<tg::Result<_>>()?
+				Box::pin(Self::entries_from_graph_directory(
+					handle,
+					directory,
+					Some(graph.clone()),
+				))
+				.await?
 			},
-			Object::Node(node) => node
+			Object::Node(node) => {
+				Box::pin(Self::entries_from_graph_directory(handle, node, None)).await?
+			},
+		};
+		Ok(entries)
+	}
+
+	async fn entries_from_graph_directory<H>(
+		handle: &H,
+		directory: &tg::graph::Directory,
+		graph: Option<tg::Graph>,
+	) -> tg::Result<BTreeMap<String, tg::Artifact>>
+	where
+		H: tg::Handle,
+	{
+		match directory {
+			tg::graph::Directory::Leaf(leaf) => leaf
 				.entries
-				.clone()
-				.into_iter()
+				.iter()
 				.map(|(name, edge)| {
 					let artifact = match edge {
 						tg::graph::Edge::Pointer(pointer) => {
-							let graph = pointer.graph.ok_or_else(|| tg::error!("missing graph"))?;
+							let graph = pointer
+								.graph
+								.clone()
+								.or_else(|| graph.clone())
+								.ok_or_else(|| tg::error!("missing graph"))?;
 							tg::Artifact::with_pointer(tg::graph::Pointer {
 								graph: Some(graph),
 								index: pointer.index,
 								kind: pointer.kind,
 							})
 						},
-						tg::graph::Edge::Object(object) => object,
+						tg::graph::Edge::Object(object) => object.clone(),
 					};
-					Ok::<_, tg::Error>((name, artifact))
+					Ok::<_, tg::Error>((name.clone(), artifact))
 				})
-				.collect::<tg::Result<_>>()?,
-		};
-		Ok(entries)
+				.collect::<tg::Result<_>>(),
+			tg::graph::Directory::Branch(branch) => {
+				let mut entries = BTreeMap::new();
+				for child in &branch.children {
+					let child_dir =
+						Self::resolve_directory_edge(handle, &child.directory, graph.clone())
+							.await?;
+					let child_entries = child_dir.entries(handle).await?;
+					entries.extend(child_entries);
+				}
+				Ok(entries)
+			},
+		}
+	}
+
+	async fn resolve_directory_edge<H>(
+		_handle: &H,
+		edge: &tg::graph::Edge<tg::Directory>,
+		graph: Option<tg::Graph>,
+	) -> tg::Result<tg::Directory>
+	where
+		H: tg::Handle,
+	{
+		match edge {
+			tg::graph::Edge::Pointer(pointer) => {
+				let graph = pointer
+					.graph
+					.clone()
+					.or(graph)
+					.ok_or_else(|| tg::error!("missing graph"))?;
+				Ok(tg::Directory::with_pointer(tg::graph::Pointer {
+					graph: Some(graph),
+					index: pointer.index,
+					kind: tg::artifact::Kind::Directory,
+				}))
+			},
+			tg::graph::Edge::Object(directory) => Ok(directory.clone()),
+		}
 	}
 
 	pub async fn get_entry<H>(&self, handle: &H, name: &str) -> tg::Result<tg::Artifact>
@@ -262,35 +306,66 @@ impl Directory {
 					.try_unwrap_directory_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected a directory"))?;
-				match directory.entries.get(name) {
-					None => None,
-					Some(tg::graph::Edge::Pointer(pointer)) => {
-						let graph = pointer.graph.clone().unwrap_or_else(|| graph.clone());
-						Some(tg::graph::Edge::Pointer(tg::graph::Pointer {
-							graph: Some(graph),
-							index: pointer.index,
-							kind: pointer.kind,
-						}))
-					},
-					Some(tg::graph::Edge::Object(object)) => {
-						Some(tg::graph::Edge::Object(object.clone()))
-					},
-				}
+				Box::pin(Self::get_entry_from_graph_directory(
+					handle,
+					directory,
+					name,
+					Some(graph.clone()),
+				))
+				.await?
 			},
-			Object::Node(node) => match node.entries.get(name).cloned() {
-				None => None,
-				Some(tg::graph::Edge::Pointer(pointer)) => {
-					let graph = pointer.graph.ok_or_else(|| tg::error!("missing graph"))?;
-					Some(tg::graph::Edge::Pointer(tg::graph::Pointer {
-						graph: Some(graph),
-						index: pointer.index,
-						kind: pointer.kind,
-					}))
-				},
-				Some(tg::graph::Edge::Object(object)) => Some(tg::graph::Edge::Object(object)),
+			Object::Node(node) => {
+				Box::pin(Self::get_entry_from_graph_directory(
+					handle, node, name, None,
+				))
+				.await?
 			},
 		};
 		Ok(edge)
+	}
+
+	async fn get_entry_from_graph_directory<H>(
+		handle: &H,
+		directory: &tg::graph::Directory,
+		name: &str,
+		graph: Option<tg::Graph>,
+	) -> tg::Result<Option<tg::graph::Edge<tg::Artifact>>>
+	where
+		H: tg::Handle,
+	{
+		match directory {
+			tg::graph::Directory::Leaf(leaf) => match leaf.entries.get(name) {
+				None => Ok(None),
+				Some(tg::graph::Edge::Pointer(pointer)) => {
+					let graph = pointer
+						.graph
+						.clone()
+						.or(graph)
+						.ok_or_else(|| tg::error!("missing graph"))?;
+					Ok(Some(tg::graph::Edge::Pointer(tg::graph::Pointer {
+						graph: Some(graph),
+						index: pointer.index,
+						kind: pointer.kind,
+					})))
+				},
+				Some(tg::graph::Edge::Object(object)) => {
+					Ok(Some(tg::graph::Edge::Object(object.clone())))
+				},
+			},
+			tg::graph::Directory::Branch(branch) => {
+				let child_index = branch
+					.children
+					.iter()
+					.position(|child| child.last.as_str() >= name);
+				let Some(index) = child_index else {
+					return Ok(None);
+				};
+				let child = &branch.children[index];
+				let child_dir =
+					Self::resolve_directory_edge(handle, &child.directory, graph).await?;
+				child_dir.try_get_entry_edge(handle, name).await
+			},
+		}
 	}
 
 	pub async fn get<H>(&self, handle: &H, path: impl AsRef<Path>) -> tg::Result<tg::Artifact>

@@ -713,16 +713,13 @@ impl Server {
 		let parent_index = state.graph.nodes.get(&parent.index).unwrap().lock_node?;
 		let parent_node = &lock.nodes[parent_index];
 		match &parent.variant {
-			ParentVariant::DirectoryEntry(name) => Some(
-				parent_node
-					.try_unwrap_directory_ref()
-					.ok()?
-					.entries
-					.get(name)?
-					.try_unwrap_pointer_ref()
-					.ok()?
-					.index,
-			),
+			ParentVariant::DirectoryEntry(name) => {
+				let directory = parent_node.try_unwrap_directory_ref().ok()?;
+				let leaf = directory
+					.try_unwrap_leaf_ref()
+					.expect("lock directories must be leaves");
+				Some(leaf.entries.get(name)?.try_unwrap_pointer_ref().ok()?.index)
+			},
 			ParentVariant::FileDependency(reference) => Some(
 				parent_node
 					.try_unwrap_file_ref()

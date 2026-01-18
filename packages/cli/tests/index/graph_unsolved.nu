@@ -50,14 +50,14 @@ let metadata = tg -u $local.url object metadata --pretty $id
 snapshot -n metadata $metadata '
 	{
 	  "node": {
-	    "size": 122,
+	    "size": 124,
 	    "solvable": false,
 	    "solved": true,
 	  },
 	  "subtree": {
 	    "count": 10,
 	    "depth": 5,
-	    "size": 911,
+	    "size": 917,
 	    "solvable": true,
 	    "solved": false,
 	  },
@@ -79,7 +79,7 @@ snapshot -n file_metadata $file_metadata '
 	  "subtree": {
 	    "count": 10,
 	    "depth": 5,
-	    "size": 840,
+	    "size": 844,
 	    "solvable": true,
 	    "solved": false,
 	  },
@@ -101,7 +101,7 @@ snapshot -n file_b_metadata $file_b_metadata '
 	  "subtree": {
 	    "count": 10,
 	    "depth": 5,
-	    "size": 840,
+	    "size": 844,
 	    "solvable": true,
 	    "solved": false,
 	  },
@@ -124,7 +124,7 @@ snapshot -n graph_metadata $graph_metadata '
 	  "subtree": {
 	    "count": 9,
 	    "depth": 4,
-	    "size": 789,
+	    "size": 793,
 	    "solvable": true,
 	    "solved": false,
 	  },

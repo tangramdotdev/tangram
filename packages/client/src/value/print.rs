@@ -248,16 +248,45 @@ where
 				self.graph_pointer(pointer)?;
 			},
 			tg::directory::Object::Node(node) => {
-				if !node.entries.is_empty() {
+				self.directory_node_entries(node)?;
+			},
+		}
+		write!(self.writer, ")")?;
+		Ok(())
+	}
+
+	fn directory_node_entries(&mut self, node: &tg::directory::object::Node) -> Result {
+		match node {
+			tg::graph::Directory::Leaf(leaf) => {
+				if !leaf.entries.is_empty() {
 					self.start_map()?;
-					for (name, edge) in &node.entries {
+					for (name, edge) in &leaf.entries {
 						self.map_entry(name, |s| s.graph_edge_artifact(edge))?;
 					}
 					self.finish_map()?;
 				}
 			},
+			tg::graph::Directory::Branch(branch) => {
+				self.start_map()?;
+				self.map_entry("children", |s| {
+					s.start_array()?;
+					for child in &branch.children {
+						s.array_value(|s| {
+							s.start_map()?;
+							s.map_entry("directory", |s| s.graph_edge_directory(&child.directory))?;
+							s.map_entry("count", |s| {
+								write!(s.writer, "{}", child.count)?;
+								Ok(())
+							})?;
+							s.map_entry("last", |s| s.string(&child.last))?;
+							s.finish_map()
+						})?;
+					}
+					s.finish_array()
+				})?;
+				self.finish_map()?;
+			},
 		}
-		write!(self.writer, ")")?;
 		Ok(())
 	}
 
@@ -266,15 +295,37 @@ where
 		if tag {
 			self.map_entry("kind", |s| s.string("directory"))?;
 		}
-		if !directory.entries.is_empty() {
-			self.map_entry("entries", |s| {
-				s.start_map()?;
-				for (name, edge) in &directory.entries {
-					s.map_entry(name, |s| s.graph_edge_artifact(edge))?;
+		match directory {
+			tg::graph::Directory::Leaf(leaf) => {
+				if !leaf.entries.is_empty() {
+					self.map_entry("entries", |s| {
+						s.start_map()?;
+						for (name, edge) in &leaf.entries {
+							s.map_entry(name, |s| s.graph_edge_artifact(edge))?;
+						}
+						s.finish_map()?;
+						Ok(())
+					})?;
 				}
-				s.finish_map()?;
-				Ok(())
-			})?;
+			},
+			tg::graph::Directory::Branch(branch) => {
+				self.map_entry("children", |s| {
+					s.start_array()?;
+					for child in &branch.children {
+						s.array_value(|s| {
+							s.start_map()?;
+							s.map_entry("directory", |s| s.graph_edge_directory(&child.directory))?;
+							s.map_entry("count", |s| {
+								write!(s.writer, "{}", child.count)?;
+								Ok(())
+							})?;
+							s.map_entry("last", |s| s.string(&child.last))?;
+							s.finish_map()
+						})?;
+					}
+					s.finish_array()
+				})?;
+			},
 		}
 		self.finish_map()
 	}
@@ -455,6 +506,18 @@ where
 			},
 			tg::graph::Edge::Object(object) => {
 				self.artifact(object)?;
+			},
+		}
+		Ok(())
+	}
+
+	fn graph_edge_directory(&mut self, edge: &tg::graph::Edge<tg::Directory>) -> Result {
+		match edge {
+			tg::graph::Edge::Pointer(pointer) => {
+				self.graph_pointer(pointer)?;
+			},
+			tg::graph::Edge::Object(object) => {
+				self.directory(object)?;
 			},
 		}
 		Ok(())

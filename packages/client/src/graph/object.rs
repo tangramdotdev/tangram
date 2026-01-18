@@ -17,9 +17,29 @@ pub enum Node {
 	Symlink(Symlink),
 }
 
+#[derive(Clone, Debug, derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
+#[try_unwrap(ref)]
+#[unwrap(ref)]
+pub enum Directory {
+	Leaf(DirectoryLeaf),
+	Branch(DirectoryBranch),
+}
+
 #[derive(Clone, Debug)]
-pub struct Directory {
+pub struct DirectoryLeaf {
 	pub entries: BTreeMap<String, Edge<tg::Artifact>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct DirectoryBranch {
+	pub children: Vec<DirectoryChild>,
+}
+
+#[derive(Clone, Debug)]
+pub struct DirectoryChild {
+	pub directory: Edge<tg::Directory>,
+	pub count: u64,
+	pub last: String,
 }
 
 #[derive(Clone, Debug)]
@@ -151,28 +171,100 @@ impl Node {
 impl Directory {
 	#[must_use]
 	pub fn to_data(&self) -> tg::graph::data::Directory {
+		match self {
+			Self::Leaf(leaf) => tg::graph::data::Directory::Leaf(leaf.to_data()),
+			Self::Branch(branch) => tg::graph::data::Directory::Branch(branch.to_data()),
+		}
+	}
+
+	pub fn try_from_data(data: tg::graph::data::Directory) -> tg::Result<Self> {
+		match data {
+			tg::graph::data::Directory::Leaf(leaf) => {
+				Ok(Self::Leaf(DirectoryLeaf::try_from_data(leaf)?))
+			},
+			tg::graph::data::Directory::Branch(branch) => {
+				Ok(Self::Branch(DirectoryBranch::try_from_data(branch)?))
+			},
+		}
+	}
+
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		match self {
+			Self::Leaf(leaf) => leaf.children(),
+			Self::Branch(branch) => branch.children(),
+		}
+	}
+}
+
+impl DirectoryLeaf {
+	#[must_use]
+	pub fn to_data(&self) -> tg::graph::data::DirectoryLeaf {
 		let entries = self
 			.entries
 			.clone()
 			.into_iter()
 			.map(|(name, edge)| (name, edge.to_data_artifact()))
 			.collect();
-		tg::graph::data::Directory { entries }
+		tg::graph::data::DirectoryLeaf { entries }
 	}
 
-	pub fn try_from_data(data: tg::graph::data::Directory) -> tg::Result<Self> {
+	pub fn try_from_data(data: tg::graph::data::DirectoryLeaf) -> tg::Result<Self> {
 		let entries = data
 			.entries
 			.into_iter()
 			.map(|(name, edge)| Ok((name, Edge::try_from_data(edge)?)))
 			.collect::<tg::Result<_>>()?;
-		let directory = tg::graph::Directory { entries };
-		Ok(directory)
+		Ok(Self { entries })
 	}
 
 	#[must_use]
 	pub fn children(&self) -> Vec<tg::Object> {
 		self.entries.values().flat_map(Edge::children).collect()
+	}
+}
+
+impl DirectoryBranch {
+	#[must_use]
+	pub fn to_data(&self) -> tg::graph::data::DirectoryBranch {
+		let children = self.children.iter().map(DirectoryChild::to_data).collect();
+		tg::graph::data::DirectoryBranch { children }
+	}
+
+	pub fn try_from_data(data: tg::graph::data::DirectoryBranch) -> tg::Result<Self> {
+		let children = data
+			.children
+			.into_iter()
+			.map(tg::graph::DirectoryChild::try_from_data)
+			.collect::<tg::Result<_>>()?;
+		Ok(Self { children })
+	}
+
+	#[must_use]
+	pub fn children(&self) -> Vec<tg::Object> {
+		self.children
+			.iter()
+			.flat_map(|child| child.directory.children())
+			.collect()
+	}
+}
+
+impl DirectoryChild {
+	#[must_use]
+	pub fn to_data(&self) -> tg::graph::data::DirectoryChild {
+		tg::graph::data::DirectoryChild {
+			directory: self.directory.to_data_directory(),
+			count: self.count,
+			last: self.last.clone(),
+		}
+	}
+
+	pub fn try_from_data(data: tg::graph::data::DirectoryChild) -> tg::Result<Self> {
+		Ok(Self {
+			directory: Edge::try_from_data(data.directory)?,
+			count: data.count,
+			last: data.last,
+		})
 	}
 }
 
@@ -289,6 +381,22 @@ impl Edge<tg::Object> {
 impl Edge<tg::Artifact> {
 	#[must_use]
 	pub fn to_data_artifact(&self) -> tg::graph::data::Edge<tg::artifact::Id> {
+		match self {
+			tg::graph::Edge::Pointer(pointer) => {
+				tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
+					graph: pointer.graph.as_ref().map(tg::Graph::id),
+					index: pointer.index,
+					kind: pointer.kind,
+				})
+			},
+			tg::graph::Edge::Object(object) => tg::graph::data::Edge::Object(object.id()),
+		}
+	}
+}
+
+impl Edge<tg::Directory> {
+	#[must_use]
+	pub fn to_data_directory(&self) -> tg::graph::data::Edge<tg::directory::Id> {
 		match self {
 			tg::graph::Edge::Pointer(pointer) => {
 				tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {

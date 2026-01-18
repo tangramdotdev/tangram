@@ -3,6 +3,7 @@
 // oxlint-disable no-unused-private-class-members
 
 declare interface ImportAttributes {
+	// @ts-expect-error
 	path?: string;
 }
 
@@ -272,15 +273,32 @@ declare namespace tg {
 		export namespace Arg {
 			type Object =
 				| tg.Graph.Arg.Pointer
-				| {
-						[key: string]:
-							| undefined
-							| string
-							| Uint8Array
-							| tg.Blob
-							| tg.Artifact
-							| tg.Directory.Arg.Object;
-				  };
+				| tg.Directory.Arg.Branch
+				| tg.Directory.Arg.Leaf;
+
+			type Leaf = {
+				[key: string]:
+					| undefined
+					| string
+					| Uint8Array
+					| tg.Blob
+					| tg.Artifact
+					| tg.Directory.Arg.Object;
+			};
+
+			type Branch = {
+				children: Array<tg.Directory.Arg.Child>;
+			};
+
+			namespace Branch {
+				let is: (value: unknown) => value is tg.Directory.Arg.Branch;
+			}
+
+			type Child = {
+				directory: tg.Directory.Arg.Object | tg.Directory;
+				count: number;
+				last: string;
+			};
 		}
 	}
 
@@ -513,8 +531,30 @@ declare namespace tg {
 
 		type SymlinkNode = { kind: "symlink" } & tg.Graph.Symlink;
 
-		type Directory = {
+		type Directory = tg.Graph.DirectoryLeaf | tg.Graph.DirectoryBranch;
+
+		namespace Directory {
+			export let isLeaf: (
+				directory: tg.Graph.Directory,
+			) => directory is tg.Graph.DirectoryLeaf;
+
+			export let isBranch: (
+				directory: tg.Graph.Directory,
+			) => directory is tg.Graph.DirectoryBranch;
+		}
+
+		type DirectoryLeaf = {
 			entries: { [name: string]: tg.Graph.Edge<tg.Artifact> };
+		};
+
+		type DirectoryBranch = {
+			children: Array<tg.Graph.DirectoryChild>;
+		};
+
+		type DirectoryChild = {
+			directory: tg.Graph.Edge<tg.Directory>;
+			count: number;
+			last: string;
 		};
 
 		type File = {
@@ -537,6 +577,10 @@ declare namespace tg {
 			index: number;
 			kind: tg.Artifact.Kind;
 		};
+
+		export namespace Pointer {
+			export let is: (value: unknown) => value is tg.Graph.Pointer;
+		}
 
 		export type Dependency = tg.Referent<tg.Graph.Edge<tg.Object> | undefined>;
 	}

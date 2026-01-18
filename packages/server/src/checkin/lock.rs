@@ -216,7 +216,10 @@ impl Server {
 				match (lock_node, &node.variant) {
 					// If a directory removed an entry that was present in the lock, then the lock changed.
 					(tg::graph::data::Node::Directory(lock), Variant::Directory(node)) => {
-						for name in lock.entries.keys() {
+						let lock_leaf = lock
+							.try_unwrap_leaf_ref()
+							.expect("lock directories must be leaves");
+						for name in lock_leaf.entries.keys() {
 							if !node.entries.contains_key(name) {
 								return true;
 							}
@@ -306,7 +309,8 @@ impl Server {
 							children.push(pointer.index);
 						}
 					}
-					let data = tg::graph::data::Directory { entries };
+					let leaf = tg::graph::data::DirectoryLeaf { entries };
+					let data = tg::graph::data::Directory::Leaf(leaf);
 					(tg::graph::data::Node::Directory(data), children)
 				},
 
@@ -363,12 +367,14 @@ impl Server {
 		for node in &mut nodes {
 			match node {
 				tg::graph::data::Node::Directory(directory) => {
-					for edge in directory.entries.values_mut() {
-						if let tg::graph::data::Edge::Pointer(pointer) = edge
-							&& pointer.graph.is_none()
-							&& let Some(lock_index) = mapping.get(&pointer.index)
-						{
-							pointer.index = *lock_index;
+					if let tg::graph::data::Directory::Leaf(leaf) = directory {
+						for edge in leaf.entries.values_mut() {
+							if let tg::graph::data::Edge::Pointer(pointer) = edge
+								&& pointer.graph.is_none()
+								&& let Some(lock_index) = mapping.get(&pointer.index)
+							{
+								pointer.index = *lock_index;
+							}
 						}
 					}
 				},
@@ -410,12 +416,19 @@ impl Server {
 			let marked = scc.iter().copied().any(|index| {
 				marks[index]
 					|| match &lock.nodes[index] {
-						tg::graph::data::Node::Directory(directory) => directory
-							.entries
-							.values()
-							.filter_map(|edge| edge.try_unwrap_pointer_ref().ok())
-							.filter(|pointer| pointer.graph.is_none())
-							.any(|pointer| marks[pointer.index]),
+						tg::graph::data::Node::Directory(directory) => {
+							if let tg::graph::data::Directory::Leaf(leaf) = directory {
+								leaf.entries
+									.values()
+									.filter_map(|edge: &tg::graph::data::Edge<tg::artifact::Id>| {
+										edge.try_unwrap_pointer_ref().ok()
+									})
+									.filter(|pointer| pointer.graph.is_none())
+									.any(|pointer| marks[pointer.index])
+							} else {
+								false
+							}
+						},
 						tg::graph::data::Node::File(file) => {
 							file.dependencies.iter().any(|(reference, option)| {
 								let Some(dependency) = option else {
@@ -467,20 +480,22 @@ impl Server {
 		for node in &mut nodes {
 			match node {
 				tg::graph::data::Node::Directory(directory) => {
-					// Remove unmarked entries.
-					directory.entries.retain(|_name, edge| match edge {
-						tg::graph::data::Edge::Pointer(pointer) => {
-							// Keep references to external graphs.
-							pointer.graph.is_some() || marks[pointer.index]
-						},
-						tg::graph::data::Edge::Object(_) => true,
-					});
+					if let tg::graph::data::Directory::Leaf(leaf) = directory {
+						// Remove unmarked entries.
+						leaf.entries.retain(|_name, edge| match edge {
+							tg::graph::data::Edge::Pointer(pointer) => {
+								// Keep references to external graphs.
+								pointer.graph.is_some() || marks[pointer.index]
+							},
+							tg::graph::data::Edge::Object(_) => true,
+						});
 
-					for edge in directory.entries.values_mut() {
-						if let tg::graph::data::Edge::Pointer(pointer) = edge
-							&& pointer.graph.is_none()
-						{
-							pointer.index = map.get(&pointer.index).copied().unwrap();
+						for edge in leaf.entries.values_mut() {
+							if let tg::graph::data::Edge::Pointer(pointer) = edge
+								&& pointer.graph.is_none()
+							{
+								pointer.index = map.get(&pointer.index).copied().unwrap();
+							}
 						}
 					}
 				},
@@ -579,15 +594,20 @@ impl<'a> petgraph::visit::IntoNeighbors for &Petgraph<'a> {
 
 	fn neighbors(self, id: Self::NodeId) -> Self::Neighbors {
 		match &self.0.nodes[id] {
-			tg::graph::data::Node::Directory(directory) => directory
-				.entries
-				.values()
-				.filter_map(|edge| {
-					let pointer = edge.try_unwrap_pointer_ref().ok()?;
-					// Only return indices for pointers to the current graph.
-					pointer.graph.is_none().then_some(pointer.index)
-				})
-				.boxed(),
+			tg::graph::data::Node::Directory(directory) => {
+				if let tg::graph::data::Directory::Leaf(leaf) = directory {
+					leaf.entries
+						.values()
+						.filter_map(|edge: &tg::graph::data::Edge<tg::artifact::Id>| {
+							let pointer = edge.try_unwrap_pointer_ref().ok()?;
+							// Only return indices for pointers to the current graph.
+							pointer.graph.is_none().then_some(pointer.index)
+						})
+						.boxed()
+				} else {
+					std::iter::empty::<usize>().boxed()
+				}
+			},
 			tg::graph::data::Node::File(file) => file
 				.dependencies
 				.values()
