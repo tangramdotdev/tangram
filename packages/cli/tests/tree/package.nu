@@ -22,8 +22,8 @@ let path = artifact {
 tg tag root $path
 let output = tg tree root --kind=package
 snapshot $output '
-	root: dir_019hj0yzc2k2aheg8714gcwatt3f0v9adse1gbe4fczkmhdebgdhkg
-	├╴bar: dir_01kabb91xy8q9mhn2w11n6vqzvfveqsxm2e89gxhk9n51f84rrv040
-	│ └╴foo: dir_01t8nppn4cd2e6myjy4dk9t5z01gp2sz6rk8k48npyqdv55g38nn70
-	└╴foo: dir_01t8nppn4cd2e6myjy4dk9t5z01gp2sz6rk8k48npyqdv55g38nn70
+	root: dir_01tjvqvxqgs8sdck7j4539gnqjc8fx1sngnsmjp3e31eq74z8738h0
+	├╴bar: dir_01qnktgdfmzvp8zq4nc7a7dw9p31792v4246jvz5d5k0npw5jx8m50
+	│ └╴foo: dir_01w9htt4zcpbb5d40p8p2jr3gejqww5ger62rgsgyndg7z78zxf5r0
+	└╴foo: dir_01w9htt4zcpbb5d40p8p2jr3gejqww5ger62rgsgyndg7z78zxf5r0
 '

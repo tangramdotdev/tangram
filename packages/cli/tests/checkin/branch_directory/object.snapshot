@@ -1,0 +1,34 @@
+tg.directory({
+  "children": [
+    {
+      "directory": tg.directory({
+        "a.txt": tg.file({
+          "contents": tg.blob("File A"),
+        }),
+        "b.txt": tg.file({
+          "contents": tg.blob("File B"),
+        }),
+        "c.txt": tg.file({
+          "contents": tg.blob("File C"),
+        }),
+        "d.txt": tg.file({
+          "contents": tg.blob("File D"),
+        }),
+      }),
+      "count": 4,
+      "last": "d.txt",
+    },
+    {
+      "directory": tg.directory({
+        "e.txt": tg.file({
+          "contents": tg.blob("File E"),
+        }),
+        "f.txt": tg.file({
+          "contents": tg.blob("File F"),
+        }),
+      }),
+      "count": 2,
+      "last": "f.txt",
+    },
+  ],
+})

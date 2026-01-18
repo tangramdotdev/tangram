@@ -49,6 +49,30 @@ pub enum Node {
 	Symlink(Symlink),
 }
 
+#[derive(
+	Clone,
+	Debug,
+	Eq,
+	PartialEq,
+	derive_more::IsVariant,
+	derive_more::TryUnwrap,
+	derive_more::Unwrap,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(untagged)]
+#[try_unwrap(ref)]
+#[unwrap(ref)]
+pub enum Directory {
+	#[tangram_serialize(id = 0)]
+	Leaf(DirectoryLeaf),
+
+	#[tangram_serialize(id = 1)]
+	Branch(DirectoryBranch),
+}
+
 #[serde_as]
 #[derive(
 	Clone,
@@ -60,11 +84,47 @@ pub enum Node {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct Directory {
+pub struct DirectoryLeaf {
 	#[serde_as(as = "BTreeMap<_, PickFirst<(_, DisplayFromStr)>>")]
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	#[tangram_serialize(id = 0, default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub entries: BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct DirectoryBranch {
+	#[tangram_serialize(id = 0)]
+	pub children: Vec<DirectoryChild>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct DirectoryChild {
+	#[tangram_serialize(id = 0)]
+	pub directory: tg::graph::data::Edge<tg::directory::Id>,
+
+	#[tangram_serialize(id = 1)]
+	pub count: u64,
+
+	#[tangram_serialize(id = 2)]
+	pub last: String,
 }
 
 #[serde_as]
@@ -370,7 +430,7 @@ impl Graph {
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		for node in &self.nodes {
 			match node {
-				tg::graph::data::Node::Directory(node) => node.children(children),
+				tg::graph::data::Node::Directory(directory) => directory.children(children),
 				tg::graph::data::Node::File(file) => file.children(children),
 				tg::graph::data::Node::Symlink(symlink) => symlink.children(children),
 			}
@@ -391,8 +451,25 @@ impl Node {
 
 impl Directory {
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
+		match self {
+			Self::Leaf(leaf) => leaf.children(children),
+			Self::Branch(branch) => branch.children(children),
+		}
+	}
+}
+
+impl DirectoryLeaf {
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		for edge in self.entries.values() {
 			edge.children(children);
+		}
+	}
+}
+
+impl DirectoryBranch {
+	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
+		for child in &self.children {
+			child.directory.children(children);
 		}
 	}
 }

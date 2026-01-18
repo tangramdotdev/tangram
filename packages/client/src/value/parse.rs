@@ -302,6 +302,19 @@ fn directory_pointer(input: &mut Input) -> ModalResult<tg::Object> {
 
 fn directory_node(input: &mut Input) -> ModalResult<tg::Object> {
 	alt((
+		// Branch directory: { children: [...] }
+		delimited(
+			("{", whitespace, "children", whitespace, ":", whitespace),
+			cut_err(directory_branch_children),
+			(whitespace, opt(","), whitespace, "}"),
+		)
+		.map(|children: Vec<tg::graph::DirectoryChild>| {
+			let branch = tg::graph::DirectoryBranch { children };
+			let node = tg::graph::Directory::Branch(branch);
+			let object = tg::directory::Object::Node(node);
+			tg::Directory::with_object(object).into()
+		}),
+		// Leaf directory: { "name": entry, ... }
 		delimited(
 			("{", whitespace),
 			cut_err(separated(
@@ -313,18 +326,67 @@ fn directory_node(input: &mut Input) -> ModalResult<tg::Object> {
 		)
 		.map(|entries: Vec<(String, tg::graph::Edge<tg::Artifact>)>| {
 			let entries = entries.into_iter().collect::<BTreeMap<_, _>>();
-			let node = tg::graph::Directory { entries };
+			let leaf = tg::graph::DirectoryLeaf { entries };
+			let node = tg::graph::Directory::Leaf(leaf);
 			let object = tg::directory::Object::Node(node);
 			tg::Directory::with_object(object).into()
 		}),
+		// Empty directory
 		whitespace.map(|()| {
-			let node = tg::graph::Directory {
+			let leaf = tg::graph::DirectoryLeaf {
 				entries: BTreeMap::new(),
 			};
+			let node = tg::graph::Directory::Leaf(leaf);
 			let object = tg::directory::Object::Node(node);
 			tg::Directory::with_object(object).into()
 		}),
 	))
+	.parse_next(input)
+}
+
+fn directory_branch_children(input: &mut Input) -> ModalResult<Vec<tg::graph::DirectoryChild>> {
+	delimited(
+		("[", whitespace),
+		separated(0.., directory_branch_child, (whitespace, ",", whitespace)),
+		(whitespace, opt(","), whitespace, "]"),
+	)
+	.parse_next(input)
+}
+
+fn directory_branch_child(input: &mut Input) -> ModalResult<tg::graph::DirectoryChild> {
+	delimited(
+		("{", whitespace),
+		(
+			preceded(
+				("directory", whitespace, ":", whitespace),
+				graph_edge_directory,
+			),
+			preceded(
+				(
+					whitespace, ",", whitespace, "count", whitespace, ":", whitespace,
+				),
+				number,
+			),
+			preceded(
+				(
+					whitespace, ",", whitespace, "last", whitespace, ":", whitespace,
+				),
+				string,
+			),
+			(whitespace, opt(",")),
+		),
+		(whitespace, "}"),
+	)
+	.try_map(|(directory, count, last, _)| {
+		let count = count
+			.to_u64()
+			.ok_or_else(|| tg::error!("expected count to be a non-negative integer"))?;
+		Ok::<_, tg::Error>(tg::graph::DirectoryChild {
+			directory,
+			count,
+			last,
+		})
+	})
 	.parse_next(input)
 }
 
@@ -921,6 +983,20 @@ fn graph_edge_artifact(input: &mut Input) -> ModalResult<tg::graph::Edge<tg::Art
 	.parse_next(input)
 }
 
+fn graph_edge_directory(input: &mut Input) -> ModalResult<tg::graph::Edge<tg::Directory>> {
+	alt((
+		graph_pointer.map(tg::graph::Edge::Pointer),
+		value.verify_map(|value| {
+			if let tg::Value::Object(tg::Object::Directory(directory)) = value {
+				Some(tg::graph::Edge::Object(directory))
+			} else {
+				None
+			}
+		}),
+	))
+	.parse_next(input)
+}
+
 fn parse_dependency(map: &tg::value::Map) -> tg::Result<tg::graph::Dependency> {
 	let mut item = None;
 	let mut artifact = None;
@@ -1091,7 +1167,10 @@ fn parse_graph_node(map: &tg::value::Map) -> tg::Result<tg::graph::Node> {
 	}
 	let kind = kind.ok_or_else(|| tg::error!("missing kind field"))?;
 	match kind.as_str() {
-		"directory" => Ok(tg::graph::Node::Directory(tg::graph::Directory { entries })),
+		"directory" => {
+			let leaf = tg::graph::DirectoryLeaf { entries };
+			Ok(tg::graph::Node::Directory(tg::graph::Directory::Leaf(leaf)))
+		},
 		"file" => {
 			let contents =
 				contents.ok_or_else(|| tg::error!("missing contents field for file node"))?;

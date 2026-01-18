@@ -120,6 +120,7 @@ pub struct Oauth {
 pub struct Checkin {
 	pub blob: CheckinBlob,
 	pub cache: CheckinCache,
+	pub directory: CheckinDirectory,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -133,6 +134,13 @@ pub struct CheckinBlob {
 pub struct CheckinCache {
 	pub batch_size: usize,
 	pub concurrency: usize,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct CheckinDirectory {
+	pub max_branch_children: usize,
+	pub max_leaf_entries: usize,
 }
 
 #[serde_as]
@@ -521,6 +529,15 @@ impl Default for CheckinCache {
 		Self {
 			batch_size: 128,
 			concurrency: 8,
+		}
+	}
+}
+
+impl Default for CheckinDirectory {
+	fn default() -> Self {
+		Self {
+			max_branch_children: 128,
+			max_leaf_entries: 1024,
 		}
 	}
 }

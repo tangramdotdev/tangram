@@ -53,7 +53,7 @@ let incomplete_metadata = tg -u $remote.url object metadata $dir_id --pretty
 snapshot -n incomplete_metadata $incomplete_metadata '
 	{
 	  "node": {
-	    "size": 58,
+	    "size": 60,
 	    "solvable": false,
 	    "solved": true,
 	  },
@@ -69,7 +69,7 @@ let partial_metadata = tg -u $remote.url object metadata $dir_id --pretty
 snapshot -n partial_metadata $partial_metadata '
 	{
 	  "node": {
-	    "size": 58,
+	    "size": 60,
 	    "solvable": false,
 	    "solved": true,
 	  },
@@ -85,14 +85,14 @@ let complete_metadata = tg -u $remote.url object metadata $dir_id --pretty
 snapshot -n complete_metadata $complete_metadata '
 	{
 	  "node": {
-	    "size": 58,
+	    "size": 60,
 	    "solvable": false,
 	    "solved": true,
 	  },
 	  "subtree": {
 	    "count": 3,
 	    "depth": 3,
-	    "size": 167,
+	    "size": 169,
 	    "solvable": true,
 	    "solved": false,
 	  },

@@ -1,0 +1,58 @@
+{
+  "kind": "directory",
+  "entries": {
+    "dir_01m11xebc51a3337fy2bc931wj5ecphzy3t2ycf6k9c19h4x0cg710": {
+      "kind": "directory",
+      "entries": {
+        "a.txt": {
+          "kind": "file",
+          "contents": "File A"
+        },
+        "b.txt": {
+          "kind": "file",
+          "contents": "File B"
+        },
+        "c.txt": {
+          "kind": "file",
+          "contents": "File C"
+        },
+        "d.txt": {
+          "kind": "file",
+          "contents": "File D"
+        },
+        "e.txt": {
+          "kind": "file",
+          "contents": "File E"
+        },
+        "f.txt": {
+          "kind": "file",
+          "contents": "File F"
+        }
+      }
+    },
+    "fil_0125khwv62jgp0as42y5q3kh4wyvw9mc2dved91v91zmjmd4yrrwn0": {
+      "kind": "file",
+      "contents": "File A"
+    },
+    "fil_01cp1kf072tv91w4wexkdj79jeb429pn76n14va506xcjwpjndbhz0": {
+      "kind": "file",
+      "contents": "File D"
+    },
+    "fil_01p0bkqcbsqxtvw6gkz1w4je4ms0yn0hrgz6cc1wew4d8d9yrwgdjg": {
+      "kind": "file",
+      "contents": "File B"
+    },
+    "fil_01v8thtw53pp7pb6xpqjex23x95zkwj35ym8ems75hrwsck4g6m6n0": {
+      "kind": "file",
+      "contents": "File C"
+    },
+    "fil_01vjcwrq1331m1k6hnw8jge05s9sjzqp2ybhqb5zqn67envzntw4fg": {
+      "kind": "file",
+      "contents": "File F"
+    },
+    "fil_01xtjr6daxfw559nwgj87cd7bc1fwy06jmpdx46x5e240w3cay8h60": {
+      "kind": "file",
+      "contents": "File E"
+    }
+  }
+}

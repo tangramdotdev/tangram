@@ -1,13 +1,13 @@
 {
   "node": {
-    "size": 144,
+    "size": 146,
     "solvable": false,
     "solved": true,
   },
   "subtree": {
     "count": 21,
     "depth": 7,
-    "size": 1206,
+    "size": 1220,
     "solvable": false,
     "solved": true,
   },

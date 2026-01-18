@@ -53,6 +53,18 @@ export class Directory {
 			if (tg.Graph.Arg.Pointer.is(arg)) {
 				return tg.Directory.withObject(tg.Graph.Pointer.fromArg(arg));
 			}
+			if (tg.Directory.Arg.Branch.is(arg)) {
+				let children: Array<tg.Graph.DirectoryChild> = [];
+				for (let child of arg.children) {
+					let directory = await tg.Directory.new(child.directory);
+					children.push({
+						directory,
+						count: child.count,
+						last: child.last,
+					});
+				}
+				return tg.Directory.withObject({ children });
+			}
 		}
 		let resolved = await Promise.all(args.map(tg.resolve));
 		let entries = await resolved.reduce<
@@ -267,22 +279,7 @@ export class Directory {
 
 	async *[Symbol.asyncIterator](): AsyncIterator<[string, tg.Artifact]> {
 		let object = await this.object();
-		let entries: { [key: string]: tg.Artifact } | undefined;
-		if ("entries" in object) {
-			entries = Object.fromEntries(
-				await Promise.all(
-					Object.entries(object.entries).map(async ([name, edge]) => {
-						tg.assert(typeof edge === "object", "expected an obejct");
-						if ("index" in edge) {
-							tg.assert(edge.graph !== undefined, "missing graph");
-							let artifact = await edge.graph.get(edge.index);
-							return [name, artifact];
-						}
-						return [name, edge];
-					}),
-				),
-			);
-		} else {
+		if (tg.Graph.Pointer.is(object)) {
 			let graph = object.graph;
 			tg.assert(graph !== undefined);
 			let nodes = await graph.nodes();
@@ -291,24 +288,74 @@ export class Directory {
 				node !== undefined && node.kind === "directory",
 				"expected a directory",
 			);
-			entries = Object.fromEntries(
-				await Promise.all(
-					Object.entries(node.entries).map(async ([name, edge]) => {
-						if (typeof edge === "number") {
-							let artifact = await graph.get(edge);
-							return [name, artifact];
-						} else if ("index" in edge) {
-							let artifact = await (edge.graph ?? graph).get(edge.index);
-							return [name, artifact];
-						}
-						return [name, edge];
-					}),
-				),
-			);
+			if ("entries" in node) {
+				for (let [name, edge] of Object.entries(node.entries)) {
+					if (typeof edge === "number") {
+						let artifact = await graph.get(edge);
+						yield [name, artifact];
+					} else if ("index" in edge) {
+						let artifact = await (edge.graph ?? graph).get(edge.index);
+						yield [name, artifact];
+					} else {
+						yield [name, edge];
+					}
+				}
+			} else {
+				for (let child of node.children) {
+					let childDir = await Directory.resolveEdgeInGraph(
+						child.directory,
+						graph,
+					);
+					for await (let entry of childDir) {
+						yield entry;
+					}
+				}
+			}
+		} else if (tg.Graph.Directory.isLeaf(object)) {
+			for (let [name, edge] of Object.entries(object.entries)) {
+				tg.assert(typeof edge === "object", "expected an object");
+				if (tg.Graph.Pointer.is(edge)) {
+					tg.assert(edge.graph !== undefined, "missing graph");
+					let artifact = await edge.graph.get(edge.index);
+					yield [name, artifact];
+				} else {
+					yield [name, edge];
+				}
+			}
+		} else {
+			for (let child of object.children) {
+				let childDir = await Directory.resolveEdge(child.directory);
+				for await (let entry of childDir) {
+					yield entry;
+				}
+			}
 		}
-		tg.assert(entries !== undefined);
-		for (let [name, artifact] of Object.entries(entries)) {
-			yield [name, artifact];
+	}
+
+	static async resolveEdge(
+		edge: tg.Graph.Edge<tg.Directory>,
+	): Promise<tg.Directory> {
+		if (tg.Graph.Pointer.is(edge)) {
+			tg.assert(edge.graph !== undefined, "missing graph for directory edge");
+			let artifact = await edge.graph.get(edge.index);
+			tg.assert(artifact instanceof tg.Directory, "expected a directory");
+			return artifact;
+		} else {
+			return edge;
+		}
+	}
+
+	static async resolveEdgeInGraph(
+		edge: tg.Graph.Edge<tg.Directory>,
+		graph: tg.Graph,
+	): Promise<tg.Directory> {
+		if (tg.Graph.Pointer.is(edge)) {
+			let g = edge.graph ?? graph;
+			let artifact = await g.get(edge.index);
+			tg.assert(artifact instanceof tg.Directory, "expected a directory");
+			return artifact;
+		} else {
+			return edge;
 		}
 	}
 }
@@ -321,22 +368,46 @@ export namespace Directory {
 	export namespace Arg {
 		export type Object =
 			| tg.Graph.Arg.Pointer
-			| {
-					[key: string]:
-						| undefined
-						| string
-						| Uint8Array
-						| tg.Blob
-						| tg.Artifact
-						| tg.Directory.Arg.Object;
-			  };
+			| tg.Directory.Arg.Leaf
+			| tg.Directory.Arg.Branch;
+
+		export type Leaf = {
+			[key: string]:
+				| undefined
+				| string
+				| Uint8Array
+				| tg.Blob
+				| tg.Artifact
+				| tg.Directory.Arg.Object;
+		};
+
+		export type Branch = {
+			children: Array<tg.Directory.Arg.Child>;
+		};
+
+		export namespace Branch {
+			export let is = (value: unknown): value is tg.Directory.Arg.Branch => {
+				return (
+					typeof value === "object" &&
+					value !== null &&
+					"children" in value &&
+					Array.isArray((value as tg.Directory.Arg.Branch).children)
+				);
+			};
+		}
+
+		export type Child = {
+			directory: tg.Directory.Arg.Object | tg.Directory;
+			count: number;
+			last: string;
+		};
 	}
 
 	export type Object = tg.Graph.Pointer | tg.Graph.Directory;
 
 	export namespace Object {
 		export let toData = (object: tg.Directory.Object): tg.Directory.Data => {
-			if ("index" in object) {
+			if (tg.Graph.Pointer.is(object)) {
 				return tg.Graph.Pointer.toData(object);
 			} else {
 				return tg.Graph.Directory.toData(object);
@@ -352,7 +423,7 @@ export namespace Directory {
 		};
 
 		export let children = (object: tg.Directory.Object): Array<tg.Object> => {
-			if ("index" in object) {
+			if (tg.Graph.Pointer.is(object)) {
 				return tg.Graph.Pointer.children(object);
 			} else {
 				return tg.Graph.Directory.children(object);
