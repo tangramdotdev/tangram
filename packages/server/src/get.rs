@@ -1,6 +1,7 @@
 use {
 	crate::{Context, Server},
-	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream},
+	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream, stream::BoxStream},
+	std::path::Path,
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _},
 };
@@ -17,90 +18,161 @@ impl Server {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
-		let reference = reference.clone();
-		match &reference.item() {
+		let stream = match reference.item() {
 			tg::reference::Item::Object(object) => {
-				let item = tg::Either::Left(object.clone());
-				let output = tg::get::Output {
-					referent: tg::Referent::with_item(item),
-				};
-				let event = tg::progress::Event::Output(Some(output));
-				let stream = stream::once(future::ok(event));
-				Ok::<_, tg::Error>(stream.boxed())
+				self.try_get_with_object(object, reference.options())
+					.await?
 			},
-
-			tg::reference::Item::Process(process) => {
-				let item = tg::Either::Right(process.clone());
-				let output = tg::get::Output {
-					referent: tg::Referent::with_item(item),
-				};
-				let event = tg::progress::Event::Output(Some(output));
-				let stream = stream::once(future::ok(event));
-				Ok::<_, tg::Error>(stream.boxed())
-			},
-
 			tg::reference::Item::Path(path) => {
-				let arg = tg::checkin::Arg {
-					options: arg.checkin.clone(),
-					path: path.clone(),
-					updates: Vec::new(),
-				};
-				let stream = self
-					.checkin(arg)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to check in the path"))?
-					.map_ok(move |event| match event {
-						tg::progress::Event::Log(log) => tg::progress::Event::Log(log),
-						tg::progress::Event::Diagnostic(diagnostic) => {
-							tg::progress::Event::Diagnostic(diagnostic)
-						},
-						tg::progress::Event::Indicators(indicators) => {
-							tg::progress::Event::Indicators(indicators)
-						},
-						tg::progress::Event::Output(output) => {
-							let referent = tg::Referent {
-								item: tg::Either::Left(output.artifact.item.into()),
-								options: output.artifact.options,
-							};
-							let output = Some(tg::get::Output { referent });
-							tg::progress::Event::Output(output)
-						},
-					});
-				Ok::<_, tg::Error>(stream.boxed())
+				self.try_get_with_path(path, reference.options(), arg)
+					.await?
 			},
-
+			tg::reference::Item::Process(process) => {
+				Self::try_get_with_process(process, reference.options())?
+			},
 			tg::reference::Item::Tag(tag) => {
-				let tag_arg = tg::tag::get::Arg {
-					local: arg.local,
-					remotes: arg.remotes.clone(),
-				};
-				let Some(tg::tag::get::Output { item, tag, .. }) = self
-					.try_get_tag(tag, tag_arg)
-					.await
-					.map_err(|source| tg::error!(!source, %tag, "failed to get the tag"))?
-				else {
-					let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
-					return Ok::<_, tg::Error>(stream.boxed());
-				};
-				let item = item.ok_or_else(|| tg::error!("expected the tag to have an item"))?;
+				self.try_get_with_tag(tag, reference.options(), arg).await?
+			},
+		};
+		Ok(stream)
+	}
+
+	async fn try_get_with_object(
+		&self,
+		object: &tg::object::Id,
+		options: &tg::reference::Options,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
+		let referent = tg::Referent::with_item(tg::Either::Left(object.clone()));
+		let output = tg::get::Output { referent };
+		let output = self
+			.try_get_apply_path(output, options.path.as_deref())
+			.await?;
+		let event = tg::progress::Event::Output(output);
+		let stream = stream::once(future::ok(event));
+		Ok(stream.boxed())
+	}
+
+	async fn try_get_with_path(
+		&self,
+		path: &Path,
+		options: &tg::reference::Options,
+		arg: tg::get::Arg,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
+		let checkin_arg = tg::checkin::Arg {
+			options: arg.checkin.clone(),
+			path: path.to_owned(),
+			updates: Vec::new(),
+		};
+		let options = options.clone();
+		let stream = self
+			.checkin(checkin_arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to check in the path"))?
+			.and_then({
+				let server = self.clone();
+				move |event| {
+					let server = server.clone();
+					let options = options.clone();
+					async move {
+						match event {
+							tg::progress::Event::Log(log) => Ok(tg::progress::Event::Log(log)),
+							tg::progress::Event::Diagnostic(diagnostic) => {
+								Ok(tg::progress::Event::Diagnostic(diagnostic))
+							},
+							tg::progress::Event::Indicators(indicators) => {
+								Ok(tg::progress::Event::Indicators(indicators))
+							},
+							tg::progress::Event::Output(checkin_output) => {
+								let referent = tg::Referent::new(
+									tg::Either::Left(checkin_output.artifact.item.into()),
+									checkin_output.artifact.options,
+								);
+								let output = tg::get::Output { referent };
+								let output = server
+									.try_get_apply_path(output, options.path.as_deref())
+									.await?;
+								Ok::<_, tg::Error>(tg::progress::Event::Output(output))
+							},
+						}
+					}
+				}
+			});
+		Ok(stream.boxed())
+	}
+
+	fn try_get_with_process(
+		process: &tg::process::Id,
+		options: &tg::reference::Options,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
+		let referent = tg::Referent::with_item(tg::Either::Right(process.clone()));
+		let output = tg::get::Output { referent };
+		if options.path.is_some() {
+			return Err(tg::error!("cannot get path in process"));
+		}
+		let event = tg::progress::Event::Output(Some(output));
+		let stream = stream::once(future::ok(event));
+		Ok(stream.boxed())
+	}
+
+	async fn try_get_with_tag(
+		&self,
+		pattern: &tg::tag::Pattern,
+		options: &tg::reference::Options,
+		arg: tg::get::Arg,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
+		let tag_arg = tg::tag::get::Arg {
+			local: arg.local,
+			remotes: arg.remotes.clone(),
+		};
+		let Some(tg::tag::get::Output { item, tag, .. }) = self
+			.try_get_tag(pattern, tag_arg)
+			.await
+			.map_err(|source| tg::error!(!source, %pattern, "failed to get the tag"))?
+		else {
+			let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
+			return Ok(stream.boxed());
+		};
+		let output = match item {
+			Some(item) => {
 				let id = item.as_ref().left().cloned();
-				let output = tg::get::Output {
-					referent: tg::Referent {
-						item,
-						options: tg::referent::Options {
-							artifact: None,
-							id,
-							name: None,
-							path: None,
-							tag: Some(tag),
-						},
+				let referent = tg::Referent {
+					item,
+					options: tg::referent::Options {
+						id,
+						tag: Some(tag),
+						..tg::referent::Options::default()
 					},
 				};
-				let event = tg::progress::Event::Output(Some(output));
-				let stream = stream::once(future::ok(event));
-				Ok::<_, tg::Error>(stream.boxed())
+				let output = tg::get::Output { referent };
+				self.try_get_apply_path(output, options.path.as_deref())
+					.await?
 			},
-		}
+			None => None,
+		};
+		let event = tg::progress::Event::Output(output);
+		let stream = stream::once(future::ok(event));
+		Ok(stream.boxed())
+	}
+
+	async fn try_get_apply_path(
+		&self,
+		mut output: tg::get::Output,
+		path: Option<&Path>,
+	) -> tg::Result<Option<tg::get::Output>> {
+		let Some(path) = path else {
+			return Ok(Some(output));
+		};
+		let tg::Either::Left(tg::object::Id::Directory(directory)) = &output.referent.item else {
+			return Err(tg::error!("unexpected reference path option"));
+		};
+		let directory = tg::Directory::with_id(directory.clone());
+		let Some(artifact) = directory.try_get(self, path).await? else {
+			return Ok(None);
+		};
+		output.referent.item = tg::Either::Left(artifact.id().into());
+		output.referent.options.id = Some(directory.id().into());
+		output.referent.options.path = Some(path.to_owned());
+		Ok(Some(output))
 	}
 
 	pub(crate) async fn handle_get_request(

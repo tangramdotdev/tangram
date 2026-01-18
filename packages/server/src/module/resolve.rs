@@ -256,6 +256,11 @@ impl Server {
 			.try_unwrap_path_ref()
 			.ok());
 		if let Some(path) = path {
+			let path = if let Some(p) = import.reference.options().path.as_ref() {
+				path.join(p)
+			} else {
+				path.to_owned()
+			};
 			let path =
 				tangram_util::fs::canonicalize_parent(&referrer.item.parent().unwrap().join(path))
 					.await
@@ -280,14 +285,21 @@ impl Server {
 			Ok(referent)
 		} else {
 			// Perform a checkin to ensure the watch is available.
+			let options = tg::checkin::Options {
+				unsolved_dependencies: true,
+				watch: true,
+				..Default::default()
+			};
+			let path = if let Some(p) = import.reference.options().path.as_ref() {
+				referrer.item().parent().unwrap().join(p)
+			} else {
+				referrer.item().to_path_buf()
+			};
+			let updates = Vec::new();
 			let arg = tg::checkin::Arg {
-				options: tg::checkin::Options {
-					unsolved_dependencies: true,
-					watch: true,
-					..Default::default()
-				},
-				path: referrer.item().to_path_buf(),
-				updates: Vec::new(),
+				options,
+				path,
+				updates,
 			};
 			let context = Context::default();
 			let stream = self
