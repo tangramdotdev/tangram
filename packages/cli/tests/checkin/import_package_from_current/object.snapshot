@@ -24,7 +24,9 @@ tg.directory({
                 "index": 0,
                 "kind": "directory",
               },
-              "path": ".",
+              "options": {
+                "path": ".",
+              },
             },
           },
           "module": "ts",

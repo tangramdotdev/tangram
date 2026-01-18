@@ -11,7 +11,9 @@ tg.directory({
                 "index": 0,
                 "kind": "file",
               },
-              "path": "tangram.ts",
+              "options": {
+                "path": "tangram.ts",
+              },
             },
           },
           "module": "ts",

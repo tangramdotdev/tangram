@@ -11,7 +11,9 @@ tg.directory({
           "contents": tg.blob(""),
           "module": "ts",
         }),
-        "path": "b.tg.ts",
+        "options": {
+          "path": "b.tg.ts",
+        },
       },
     },
     "module": "ts",

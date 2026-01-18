@@ -10,7 +10,9 @@ tg.directory({
               "module": "ts",
             }),
           }),
-          "path": "../baz",
+          "options": {
+            "path": "../baz",
+          },
         },
       },
       "module": "ts",
@@ -37,13 +39,17 @@ tg.directory({
                     "module": "ts",
                   }),
                 }),
-                "path": "../baz",
+                "options": {
+                  "path": "../baz",
+                },
               },
             },
             "module": "ts",
           }),
         }),
-        "path": "bar",
+        "options": {
+          "path": "bar",
+        },
       },
       "./baz": {
         "item": tg.directory({
@@ -52,7 +58,9 @@ tg.directory({
             "module": "ts",
           }),
         }),
-        "path": "baz",
+        "options": {
+          "path": "baz",
+        },
       },
     },
     "module": "ts",

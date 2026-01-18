@@ -999,11 +999,7 @@ fn graph_edge_directory(input: &mut Input) -> ModalResult<tg::graph::Edge<tg::Di
 
 fn parse_dependency(map: &tg::value::Map) -> tg::Result<tg::graph::Dependency> {
 	let mut item = None;
-	let mut artifact = None;
-	let mut id = None;
-	let mut name = None;
-	let mut path = None;
-	let mut tag = None;
+	let mut options = tg::referent::Options::default();
 	for (key, value) in map {
 		match key.as_str() {
 			"item" => {
@@ -1014,6 +1010,29 @@ fn parse_dependency(map: &tg::value::Map) -> tg::Result<tg::graph::Dependency> {
 					item = Some(Some(tg::graph::Edge::Object(value.clone())));
 				}
 			},
+			"options" => {
+				let value = value
+					.try_unwrap_map_ref()
+					.map_err(|_| tg::error!("expected map for options"))?;
+				options = parse_referent_options(value)?;
+			},
+			_ => {
+				return Err(tg::error!("unexpected field in referent: {}", key));
+			},
+		}
+	}
+	let item = item.flatten();
+	Ok(tg::graph::Dependency(tg::Referent { item, options }))
+}
+
+fn parse_referent_options(map: &tg::value::Map) -> tg::Result<tg::referent::Options> {
+	let mut artifact = None;
+	let mut id = None;
+	let mut name = None;
+	let mut path = None;
+	let mut tag = None;
+	for (key, value) in map {
+		match key.as_str() {
 			"artifact" => {
 				let value = value
 					.try_unwrap_string_ref()
@@ -1057,19 +1076,17 @@ fn parse_dependency(map: &tg::value::Map) -> tg::Result<tg::graph::Dependency> {
 				);
 			},
 			_ => {
-				return Err(tg::error!("unexpected field in referent: {}", key));
+				return Err(tg::error!("unexpected field in referent options: {}", key));
 			},
 		}
 	}
-	let item = item.flatten();
-	let options = tg::referent::Options {
+	Ok(tg::referent::Options {
 		artifact,
 		id,
 		name,
 		path,
 		tag,
-	};
-	Ok(tg::graph::Dependency(tg::Referent { item, options }))
+	})
 }
 
 fn parse_graph_node(map: &tg::value::Map) -> tg::Result<tg::graph::Node> {
@@ -1302,11 +1319,7 @@ fn parse_module(value: &tg::Value) -> tg::Result<tg::Module> {
 
 fn parse_module_referent(map: &tg::value::Map) -> tg::Result<tg::Referent<tg::module::Item>> {
 	let mut item = None;
-	let mut artifact = None;
-	let mut id = None;
-	let mut name = None;
-	let mut path = None;
-	let mut tag = None;
+	let mut options = tg::referent::Options::default();
 	for (key, value) in map {
 		match key.as_str() {
 			"item" => {
@@ -1325,47 +1338,11 @@ fn parse_module_referent(map: &tg::value::Map) -> tg::Result<tg::Referent<tg::mo
 					return Err(tg::error!("expected string or object for item"));
 				}
 			},
-			"artifact" => {
+			"options" => {
 				let value = value
-					.try_unwrap_string_ref()
-					.map_err(|_| tg::error!("expected string for artifact"))?;
-				artifact = Some(
-					value
-						.parse()
-						.map_err(|error| tg::error!(!error, "failed to parse artifact"))?,
-				);
-			},
-			"id" => {
-				let value = value
-					.try_unwrap_string_ref()
-					.map_err(|_| tg::error!("expected string for id"))?;
-				id = Some(
-					value
-						.parse()
-						.map_err(|error| tg::error!(!error, "failed to parse id"))?,
-				);
-			},
-			"name" => {
-				let value = value
-					.try_unwrap_string_ref()
-					.map_err(|_| tg::error!("expected string for name"))?;
-				name = Some(value.clone());
-			},
-			"path" => {
-				let value = value
-					.try_unwrap_string_ref()
-					.map_err(|_| tg::error!("expected string for path"))?;
-				path = Some(PathBuf::from(value));
-			},
-			"tag" => {
-				let value = value
-					.try_unwrap_string_ref()
-					.map_err(|_| tg::error!("expected string for tag"))?;
-				tag = Some(
-					value
-						.parse()
-						.map_err(|error| tg::error!(!error, "failed to parse tag"))?,
-				);
+					.try_unwrap_map_ref()
+					.map_err(|_| tg::error!("expected map for options"))?;
+				options = parse_referent_options(value)?;
 			},
 			_ => {
 				return Err(tg::error!("unexpected field in module referent: {}", key));
@@ -1373,13 +1350,6 @@ fn parse_module_referent(map: &tg::value::Map) -> tg::Result<tg::Referent<tg::mo
 		}
 	}
 	let item = item.ok_or_else(|| tg::error!("missing item field"))?;
-	let options = tg::referent::Options {
-		artifact,
-		id,
-		name,
-		path,
-		tag,
-	};
 	Ok(tg::Referent { item, options })
 }
 

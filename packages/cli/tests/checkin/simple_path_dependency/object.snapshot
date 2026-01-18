@@ -9,7 +9,9 @@ tg.directory({
             "module": "ts",
           }),
         }),
-        "path": "../bar",
+        "options": {
+          "path": "../bar",
+        },
       },
     },
     "module": "ts",

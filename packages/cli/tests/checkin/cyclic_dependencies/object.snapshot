@@ -19,7 +19,9 @@ tg.directory({
               "index": 2,
               "kind": "directory",
             },
-            "path": "../bar",
+            "options": {
+              "path": "../bar",
+            },
           },
         },
         "module": "ts",
@@ -42,7 +44,9 @@ tg.directory({
               "index": 0,
               "kind": "directory",
             },
-            "path": "../foo",
+            "options": {
+              "path": "../foo",
+            },
           },
         },
         "module": "ts",

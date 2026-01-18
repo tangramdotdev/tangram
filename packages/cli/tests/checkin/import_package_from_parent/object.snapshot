@@ -15,7 +15,9 @@ tg.directory({
             "module": "ts",
           }),
         }),
-        "path": "a",
+        "options": {
+          "path": "a",
+        },
       },
     },
     "module": "ts",

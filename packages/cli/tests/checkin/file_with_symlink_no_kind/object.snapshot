@@ -14,7 +14,9 @@ tg.directory({
           "contents": tg.blob("export default bar = \"bar\";"),
           "module": "ts",
         }),
-        "path": "bar.tg.ts",
+        "options": {
+          "path": "bar.tg.ts",
+        },
       },
     },
     "module": "ts",

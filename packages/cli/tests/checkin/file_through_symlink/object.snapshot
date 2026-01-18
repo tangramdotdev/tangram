@@ -6,7 +6,9 @@ tg.directory({
         "item": tg.file({
           "contents": tg.blob("hello, world!"),
         }),
-        "path": "../b/e/d",
+        "options": {
+          "path": "../b/e/d",
+        },
       },
     },
     "module": "ts",

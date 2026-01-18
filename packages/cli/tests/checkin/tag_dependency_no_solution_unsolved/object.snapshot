@@ -12,8 +12,10 @@ tg.directory({
             "module": "ts",
           }),
         }),
-        "id": "dir_01ngpqvdtr9zpg8tpdza13184n5xkr7jkvnda2sh7p9xkkfmre3zy0",
-        "tag": "a/1.0.0",
+        "options": {
+          "id": "dir_01ngpqvdtr9zpg8tpdza13184n5xkr7jkvnda2sh7p9xkkfmre3zy0",
+          "tag": "a/1.0.0",
+        },
       },
       "b/*": {
         "item": tg.directory({
@@ -25,8 +27,10 @@ tg.directory({
             "module": "ts",
           }),
         }),
-        "id": "dir_017gz8gee3rhgcsejckackbbqkxcv8payzb6v4xxvkfsv3fywd9s1g",
-        "tag": "b/1.0.0",
+        "options": {
+          "id": "dir_017gz8gee3rhgcsejckackbbqkxcv8payzb6v4xxvkfsv3fywd9s1g",
+          "tag": "b/1.0.0",
+        },
       },
     },
     "module": "ts",

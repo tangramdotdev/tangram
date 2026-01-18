@@ -14,7 +14,9 @@ tg.directory({
           "contents": tg.blob(""),
           "module": "ts",
         }),
-        "path": "dependency.tg.ts",
+        "options": {
+          "path": "dependency.tg.ts",
+        },
       },
     },
     "module": "ts",

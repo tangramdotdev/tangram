@@ -8,7 +8,9 @@ tg.directory({
             "contents": tg.blob("hello, world!"),
           }),
         }),
-        "path": "../b/e",
+        "options": {
+          "path": "../b/e",
+        },
       },
     },
     "module": "ts",

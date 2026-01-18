@@ -13,7 +13,9 @@ tg.directory({
         "item": tg.symlink({
           "path": "bar.tg.ts",
         }),
-        "path": "foo.tg.ts",
+        "options": {
+          "path": "foo.tg.ts",
+        },
       },
     },
     "module": "ts",

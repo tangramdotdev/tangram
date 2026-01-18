@@ -6,8 +6,10 @@ tg.directory({
         "item": tg.file({
           "contents": tg.blob("Hello, world!"),
         }),
-        "id": "fil_01sp9ta6qgjk4msgsw7fxck19fxxeqec551wbsc8w9gjvm59vs9w00",
-        "tag": "hello",
+        "options": {
+          "id": "fil_01sp9ta6qgjk4msgsw7fxck19fxxeqec551wbsc8w9gjvm59vs9w00",
+          "tag": "hello",
+        },
       },
     },
     "module": "ts",

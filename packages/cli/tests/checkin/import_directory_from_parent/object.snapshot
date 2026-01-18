@@ -5,7 +5,9 @@ tg.directory({
     "dependencies": {
       "./a": {
         "item": tg.directory(),
-        "path": "a",
+        "options": {
+          "path": "a",
+        },
       },
     },
     "module": "ts",

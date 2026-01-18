@@ -10,7 +10,9 @@ tg.file({
               "index": 1,
               "kind": "file",
             },
-            "path": "tangram.ts",
+            "options": {
+              "path": "tangram.ts",
+            },
           },
         },
         "module": "ts",
@@ -24,7 +26,9 @@ tg.file({
               "index": 0,
               "kind": "file",
             },
-            "path": "foo.tg.ts",
+            "options": {
+              "path": "foo.tg.ts",
+            },
           },
         },
         "module": "ts",

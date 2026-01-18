@@ -377,20 +377,8 @@ where
 						if let Some(item) = dependency.0.item() {
 							s.map_entry("item", |s| s.graph_edge_object(item))?;
 						}
-						if let Some(artifact) = dependency.0.artifact() {
-							s.map_entry("artifact", |s| s.string(&artifact.to_string()))?;
-						}
-						if let Some(id) = dependency.0.id() {
-							s.map_entry("id", |s| s.string(&id.to_string()))?;
-						}
-						if let Some(name) = dependency.0.name() {
-							s.map_entry("name", |s| s.string(name))?;
-						}
-						if let Some(path) = dependency.0.path() {
-							s.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
-						}
-						if let Some(tag) = dependency.0.tag() {
-							s.map_entry("tag", |s| s.string(tag.as_str()))?;
+						if dependency.0.options != tg::referent::Options::default() {
+							s.map_entry("options", |s| s.referent_options(&dependency.0.options))?;
 						}
 						s.finish_map()?;
 						Ok(())
@@ -750,17 +738,34 @@ where
 				tg::module::Item::Edge(edge) => s.graph_edge_object(edge),
 				tg::module::Item::Path(path) => s.string(path.to_string_lossy().as_ref()),
 			})?;
-			if let Some(path) = &value.referent.path() {
-				s.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
-			}
-			if let Some(tag) = &value.referent.tag() {
-				s.map_entry("tag", |s| s.string(tag.as_str()))?;
+			if value.referent.options != tg::referent::Options::default() {
+				s.map_entry("options", |s| s.referent_options(&value.referent.options))?;
 			}
 			s.finish_map()?;
 			Ok(())
 		})?;
 		self.finish_map()?;
 		Ok(())
+	}
+
+	pub fn referent_options(&mut self, options: &tg::referent::Options) -> Result {
+		self.start_map()?;
+		if let Some(artifact) = &options.artifact {
+			self.map_entry("artifact", |s| s.string(&artifact.to_string()))?;
+		}
+		if let Some(id) = &options.id {
+			self.map_entry("id", |s| s.string(&id.to_string()))?;
+		}
+		if let Some(name) = &options.name {
+			self.map_entry("name", |s| s.string(name))?;
+		}
+		if let Some(path) = &options.path {
+			self.map_entry("path", |s| s.string(path.to_string_lossy().as_ref()))?;
+		}
+		if let Some(tag) = &options.tag {
+			self.map_entry("tag", |s| s.string(tag.as_str()))?;
+		}
+		self.finish_map()
 	}
 
 	pub fn bytes(&mut self, value: &Bytes) -> Result {

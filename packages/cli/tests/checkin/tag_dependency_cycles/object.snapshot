@@ -24,8 +24,10 @@ tg.directory({
                       "index": 2,
                       "kind": "directory",
                     },
-                    "id": "dir_01zp51yz7v92dwny4m5jvr3vkf33086z9vpjmhc0sk7rkt35pp8qg0",
-                    "tag": "b/1.0.0",
+                    "options": {
+                      "id": "dir_01zp51yz7v92dwny4m5jvr3vkf33086z9vpjmhc0sk7rkt35pp8qg0",
+                      "tag": "b/1.0.0",
+                    },
                   },
                 },
                 "module": "ts",
@@ -52,7 +54,9 @@ tg.directory({
                       "index": 4,
                       "kind": "file",
                     },
-                    "path": "tangram.ts",
+                    "options": {
+                      "path": "tangram.ts",
+                    },
                   },
                 },
                 "module": "ts",
@@ -66,15 +70,19 @@ tg.directory({
                       "index": 3,
                       "kind": "file",
                     },
-                    "path": "foo.tg.ts",
+                    "options": {
+                      "path": "foo.tg.ts",
+                    },
                   },
                   "a/*": {
                     "item": {
                       "index": 0,
                       "kind": "directory",
                     },
-                    "id": "dir_01nw818dthjf3d9zn3vb0gnw2be83zjvenzty15be6355k8v1tyvgg",
-                    "tag": "a/1.1.0",
+                    "options": {
+                      "id": "dir_01nw818dthjf3d9zn3vb0gnw2be83zjvenzty15be6355k8v1tyvgg",
+                      "tag": "a/1.1.0",
+                    },
                   },
                 },
                 "module": "ts",
@@ -84,8 +92,10 @@ tg.directory({
           "index": 0,
           "kind": "directory",
         },
-        "id": "dir_01nw818dthjf3d9zn3vb0gnw2be83zjvenzty15be6355k8v1tyvgg",
-        "tag": "a/1.1.0",
+        "options": {
+          "id": "dir_01nw818dthjf3d9zn3vb0gnw2be83zjvenzty15be6355k8v1tyvgg",
+          "tag": "a/1.1.0",
+        },
       },
       "b/*": {
         "item": {
@@ -109,8 +119,10 @@ tg.directory({
                       "index": 2,
                       "kind": "directory",
                     },
-                    "id": "dir_01zp51yz7v92dwny4m5jvr3vkf33086z9vpjmhc0sk7rkt35pp8qg0",
-                    "tag": "b/1.0.0",
+                    "options": {
+                      "id": "dir_01zp51yz7v92dwny4m5jvr3vkf33086z9vpjmhc0sk7rkt35pp8qg0",
+                      "tag": "b/1.0.0",
+                    },
                   },
                 },
                 "module": "ts",
@@ -137,7 +149,9 @@ tg.directory({
                       "index": 4,
                       "kind": "file",
                     },
-                    "path": "tangram.ts",
+                    "options": {
+                      "path": "tangram.ts",
+                    },
                   },
                 },
                 "module": "ts",
@@ -151,15 +165,19 @@ tg.directory({
                       "index": 3,
                       "kind": "file",
                     },
-                    "path": "foo.tg.ts",
+                    "options": {
+                      "path": "foo.tg.ts",
+                    },
                   },
                   "a/*": {
                     "item": {
                       "index": 0,
                       "kind": "directory",
                     },
-                    "id": "dir_01nw818dthjf3d9zn3vb0gnw2be83zjvenzty15be6355k8v1tyvgg",
-                    "tag": "a/1.1.0",
+                    "options": {
+                      "id": "dir_01nw818dthjf3d9zn3vb0gnw2be83zjvenzty15be6355k8v1tyvgg",
+                      "tag": "a/1.1.0",
+                    },
                   },
                 },
                 "module": "ts",
@@ -169,8 +187,10 @@ tg.directory({
           "index": 2,
           "kind": "directory",
         },
-        "id": "dir_01zp51yz7v92dwny4m5jvr3vkf33086z9vpjmhc0sk7rkt35pp8qg0",
-        "tag": "b/1.0.0",
+        "options": {
+          "id": "dir_01zp51yz7v92dwny4m5jvr3vkf33086z9vpjmhc0sk7rkt35pp8qg0",
+          "tag": "b/1.0.0",
+        },
       },
     },
     "module": "ts",
