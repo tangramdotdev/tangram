@@ -13,7 +13,11 @@
       "kind": "file",
       "dependencies": {
         "cycle": {
-          "item": null,
+          "item": {
+            "graph": "gph_01qh19pcxcv296r0p2m1savfmqkcqnh83abvmd0ye4pepqm75aakbg",
+            "index": 0,
+            "kind": "file"
+          },
           "options": {
             "id": "fil_01fq4vt52tr60sbyenxrr3f9rd2sw9k2r752774wp94j3m4h9tbrfg",
             "tag": "cycle"

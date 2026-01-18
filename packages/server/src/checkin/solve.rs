@@ -55,7 +55,7 @@ struct Checkpoint {
 	candidates: Option<im::Vector<Candidate>>,
 	graph: Graph,
 	graphs: Graphs,
-	graph_nodes: GraphNodes,
+	graph_pointers: GraphPointers,
 	listed: bool,
 	queue: im::Vector<Item>,
 	lock: Option<Arc<tg::graph::Data>>,
@@ -69,7 +69,8 @@ type Graphs = im::HashMap<
 	tg::id::BuildHasher,
 >;
 
-type GraphNodes = im::HashMap<(tg::graph::Id, usize), usize, fnv::FnvBuildHasher>;
+type GraphPointers =
+	im::HashMap<(tg::graph::Id, usize), tg::graph::data::Pointer, fnv::FnvBuildHasher>;
 
 #[derive(Clone, Debug)]
 struct Candidate {
@@ -105,12 +106,12 @@ pub struct Solutions {
 
 #[derive(Clone)]
 pub struct Solution {
-	pub referent: Option<tg::Referent<usize>>,
+	pub referent: Option<tg::Referent<tg::graph::data::Edge<tg::object::Id>>>,
 	pub referrers: Vec<Referrer>,
 }
 
 enum TagInnerOutput {
-	Solved(tg::Referent<usize>),
+	Solved(tg::Referent<tg::graph::data::Edge<tg::object::Id>>),
 	Conflicted,
 	Unsolved,
 }
@@ -199,7 +200,7 @@ impl Server {
 			candidates: None,
 			graph: graph.clone(),
 			graphs: im::HashMap::default(),
-			graph_nodes: im::HashMap::default(),
+			graph_pointers: im::HashMap::default(),
 			listed: false,
 			lock: lock.clone(),
 			queue: im::Vector::new(),
@@ -239,45 +240,46 @@ impl Server {
 			return Ok(());
 		}
 
-		// If the item is solved, then add the node if necessary, create the edge, and enqueue the node's items.
+		// Check if the edge is already solved.
 		if let Some(edge) = Self::checkin_solve_get_solved_edge_for_item(checkpoint, &item) {
-			let index = match edge {
-				tg::graph::data::Edge::Pointer(pointer) => {
-					if let Some(graph_id) = &pointer.graph {
-						let index = self
-							.checkin_solve_add_graph_node(
-								state,
-								checkpoint,
-								&item,
-								graph_id,
-								pointer.index,
-							)
-							.await?;
-						Self::checkin_create_edge_for_item(checkpoint, &item, index);
-						Some(index)
-					} else {
-						Some(pointer.index)
-					}
-				},
-				tg::graph::data::Edge::Object(id) => {
-					let index = if let Ok(id) = tg::artifact::Id::try_from(id) {
-						Some(
-							self.checkin_solve_add_node(state, checkpoint, &item, &id)
-								.await?,
+			// Try to remap the edge if necessary.
+			let edge = match edge {
+				// If this is a pointer to within a graph, create a new graph node pointer.
+				tg::graph::data::Edge::Pointer(pointer) if pointer.graph.is_some() => {
+					let pointer = self
+						.checkin_solve_create_graph_pointer(
+							state,
+							checkpoint,
+							&item,
+							pointer.graph.as_ref().unwrap(),
+							pointer.index,
 						)
-					} else {
-						None
-					};
-					if let Some(index) = index {
-						Self::checkin_create_edge_for_item(checkpoint, &item, index);
-					}
-					index
+						.await?;
+					tg::graph::data::Edge::Pointer(pointer)
 				},
+
+				// If this is an artifact edge, try to create a new edge pointing to it.
+				tg::graph::data::Edge::Object(id) if id.is_artifact() => {
+					let id = id.try_into().unwrap();
+					self.checkin_solve_create_edge_for_artifact(state, checkpoint, &item, &id)
+						.await?
+				},
+
+				// Otherwise reuse the existing edge.
+				edge => edge,
 			};
-			if let Some(index) = index {
-				let referent = tg::Referent::with_item(index);
+
+			// Add the edge to the item.
+			Self::checkin_add_edge_for_item(checkpoint, &item, edge.clone());
+
+			// If the edge is a pointer into the checkin graph, enqueue its outgoing edges.
+			if let Some(pointer) = edge.try_unwrap_pointer_ref().ok()
+				&& pointer.graph.is_none()
+			{
+				let referent = tg::Referent::with_item(pointer.index);
 				Self::checkin_solve_enqueue_items_for_node(checkpoint, &referent);
 			}
+
 			return Ok(());
 		}
 
@@ -306,16 +308,34 @@ impl Server {
 		.await
 	}
 
-	fn checkin_create_edge_for_item(checkpoint: &mut Checkpoint, item: &Item, index: usize) {
-		let kind = checkpoint.graph.nodes.get(&index).unwrap().variant.kind();
+	fn checkin_add_edge_for_item(
+		checkpoint: &mut Checkpoint,
+		item: &Item,
+		edge: tg::graph::data::Edge<tg::object::Id>,
+	) {
+		if let Ok(pointer) = edge.try_unwrap_pointer_ref()
+			&& pointer.graph.is_none()
+		{
+			checkpoint
+				.graph
+				.nodes
+				.get_mut(&pointer.index)
+				.unwrap()
+				.referrers
+				.push(item.referent.item);
+		}
 		let node = checkpoint.graph.nodes.get_mut(&item.referent.item).unwrap();
 		match &item.variant {
 			ItemVariant::DirectoryEntry(name) => {
-				let edge = tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
-					graph: None,
-					index,
-					kind,
-				});
+				let edge = match edge {
+					tg::graph::data::Edge::Object(object) => {
+						let artifact = object.try_into().unwrap();
+						tg::graph::data::Edge::Object(artifact)
+					},
+					tg::graph::data::Edge::Pointer(pointer) => {
+						tg::graph::data::Edge::Pointer(pointer)
+					},
+				};
 				*node
 					.variant
 					.unwrap_directory_mut()
@@ -324,11 +344,6 @@ impl Server {
 					.unwrap() = edge;
 			},
 			ItemVariant::FileDependency(reference) => {
-				let edge = tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
-					graph: None,
-					index,
-					kind,
-				});
 				node.variant
 					.unwrap_file_mut()
 					.dependencies
@@ -341,21 +356,18 @@ impl Server {
 					.item = Some(edge.clone());
 			},
 			ItemVariant::SymlinkArtifact => {
-				let edge = tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
-					graph: None,
-					index,
-					kind,
-				});
+				let edge = match edge {
+					tg::graph::data::Edge::Object(object) => {
+						let artifact = object.try_into().unwrap();
+						tg::graph::data::Edge::Object(artifact)
+					},
+					tg::graph::data::Edge::Pointer(pointer) => {
+						tg::graph::data::Edge::Pointer(pointer)
+					},
+				};
 				*node.variant.unwrap_symlink_mut().artifact.as_mut().unwrap() = edge;
 			},
 		}
-		checkpoint
-			.graph
-			.nodes
-			.get_mut(&index)
-			.unwrap()
-			.referrers
-			.push(item.referent.item);
 	}
 
 	async fn checkin_solve_item_with_tag(
@@ -396,14 +408,7 @@ impl Server {
 				// Checkpoint.
 				state.checkpoints.push(checkpoint.clone());
 
-				// Create the edge.
-				let kind = checkpoint
-					.graph
-					.nodes
-					.get(&referent.item)
-					.unwrap()
-					.variant
-					.kind();
+				// Add the edge.
 				checkpoint
 					.graph
 					.nodes
@@ -415,26 +420,25 @@ impl Server {
 					.iter_mut()
 					.find_map(|(r, option)| (r == &reference).then_some(option))
 					.unwrap()
-					.replace(tg::graph::data::Dependency(referent.clone().map(|item| {
-						Some(tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
-							graph: None,
-							index: item,
-							kind,
-						}))
-					})));
-				checkpoint
-					.graph
-					.nodes
-					.get_mut(&referent.item)
-					.unwrap()
-					.referrers
-					.push(item.referent.item);
+					.replace(tg::graph::data::Dependency(referent.clone().map(Some)));
 
 				// Add the referrer to the solution.
 				checkpoint.solutions.add_referrer(&key, referrer);
 
-				// Enqueue the node's items.
-				Self::checkin_solve_enqueue_items_for_node(checkpoint, &referent);
+				// Add the referrer to the target node and enqueue its items.
+				if let Ok(pointer) = referent.item().try_unwrap_pointer_ref()
+					&& pointer.graph.is_none()
+				{
+					checkpoint
+						.graph
+						.nodes
+						.get_mut(&pointer.index)
+						.unwrap()
+						.referrers
+						.push(item.referent.item);
+					let referent = referent.clone().map(|_| pointer.index);
+					Self::checkin_solve_enqueue_items_for_node(checkpoint, &referent);
+				}
 			},
 
 			TagInnerOutput::Conflicted => {
@@ -474,11 +478,9 @@ impl Server {
 				checkpoint.solutions.clear_referent(&key);
 			},
 
-			TagInnerOutput::Unsolved => {
-				// Add the referrer to the solution.
-				checkpoint.solutions.add_referrer(&key, referrer);
-			},
+			TagInnerOutput::Unsolved => checkpoint.solutions.add_referrer(&key, referrer),
 		}
+
 		// Remove the candidates.
 		checkpoint.candidates.take();
 
@@ -539,16 +541,20 @@ impl Server {
 			));
 		};
 
-		// Try to reuse a node if it exists. Otherwise, create a new node.
-		let node = if let Some(node) = candidate.index {
-			node
+		// Try to reuse a node if it exists. Otherwise, create a new edge.
+		let edge = if let Some(index) = candidate.index {
+			tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
+				graph: None,
+				index,
+				kind: checkpoint.graph.nodes[&index].variant.kind(),
+			})
 		} else {
 			let id = candidate
 				.object
 				.clone()
 				.try_into()
 				.map_err(|_| tg::error!("expected an artifact"))?;
-			self.checkin_solve_add_node(state, checkpoint, item, &id)
+			self.checkin_solve_create_edge_for_artifact(state, checkpoint, item, &id)
 				.await?
 		};
 
@@ -558,7 +564,7 @@ impl Server {
 			tag: Some(candidate.tag),
 			..Default::default()
 		};
-		let referent = tg::Referent::new(node, options);
+		let referent = tg::Referent::new(edge, options);
 
 		let solution = Solution {
 			referent: Some(referent.clone()),
@@ -645,31 +651,44 @@ impl Server {
 		Ok(candidates)
 	}
 
-	async fn checkin_solve_add_node(
+	async fn checkin_solve_create_edge_for_artifact(
 		&self,
 		state: &State<'_>,
 		checkpoint: &mut Checkpoint,
 		item: &Item,
 		id: &tg::artifact::Id,
-	) -> tg::Result<usize> {
+	) -> tg::Result<tg::graph::data::Edge<tg::object::Id>> {
 		// Get the object.
 		let output = self
 			.checkin_solve_get_object(&state.prefetch, &id.clone().into())
 			.await?;
 		let data = tg::artifact::Data::deserialize(id.kind(), output.bytes.clone())
 			.map_err(|source| tg::error!(!source, "failed to deserialize the object"))?;
+		let kind = data.kind();
 
-		// Create the checkin graph node.
+		// Try to create a checkin graph node.
 		let variant = match data {
 			tg::artifact::Data::Directory(tg::directory::Data::Pointer(pointer))
 			| tg::artifact::Data::File(tg::file::Data::Pointer(pointer))
 			| tg::artifact::Data::Symlink(tg::symlink::Data::Pointer(pointer)) => {
-				let Some(graph) = pointer.graph else {
+				// Cannot add nodes that are missing their graph.
+				let Some(graph) = &pointer.graph else {
 					return Err(tg::error!("invalid artifact"));
 				};
-				return self
-					.checkin_solve_add_graph_node(state, checkpoint, item, &graph, pointer.index)
-					.await;
+
+				// Get a pointer to the graph node.
+				let pointer = self
+					.checkin_solve_create_graph_pointer(
+						state,
+						checkpoint,
+						item,
+						graph,
+						pointer.index,
+					)
+					.await?;
+
+				// Otherwise return a pointer to the original graph.
+				return Ok(tg::graph::data::Edge::Pointer(pointer));
 			},
 			tg::artifact::Data::Directory(tg::directory::Data::Node(directory)) => {
 				Variant::Directory(Directory {
@@ -749,21 +768,28 @@ impl Server {
 		checkpoint.graph.next += 1;
 		checkpoint.graph.nodes.insert(index, Box::new(node));
 
-		Ok(index)
+		let pointer = tg::graph::data::Pointer {
+			graph: None,
+			index,
+			kind,
+		};
+		let edge = tg::graph::data::Edge::Pointer(pointer);
+
+		Ok(edge)
 	}
 
-	async fn checkin_solve_add_graph_node(
+	async fn checkin_solve_create_graph_pointer(
 		&self,
 		state: &State<'_>,
 		checkpoint: &mut Checkpoint,
 		item: &Item,
 		graph_id: &tg::graph::Id,
 		node_index: usize,
-	) -> tg::Result<usize> {
+	) -> tg::Result<tg::graph::data::Pointer> {
 		// Check if this graph node has already been added.
 		let key = (graph_id.clone(), node_index);
-		if let Some(index) = checkpoint.graph_nodes.get(&key).copied() {
-			return Ok(index);
+		if let Some(pointer) = checkpoint.graph_pointers.get(&key).cloned() {
+			return Ok(pointer);
 		}
 
 		// Load the graph data from the cache or fetch it.
@@ -786,6 +812,22 @@ impl Server {
 			.nodes
 			.get(node_index)
 			.ok_or_else(|| tg::error!("graph node index out of bounds"))?;
+
+		// If the graph is not solvable then do not create a node.
+		if graph_metadata
+			.as_ref()
+			.is_some_and(|graph| !graph.node.solvable)
+		{
+			let pointer = tg::graph::data::Pointer {
+				graph: Some(graph_id.clone()),
+				index: node_index,
+				kind: graph_node.kind(),
+			};
+			checkpoint
+				.graph_pointers
+				.insert((graph_id.clone(), node_index), pointer.clone());
+			return Ok(pointer);
+		}
 
 		// Create the checkin graph node.
 		let variant = match graph_node {
@@ -900,10 +942,7 @@ impl Server {
 			path: None,
 			path_metadata: None,
 			referrers: SmallVec::new(),
-			solvable: graph_metadata
-				.as_ref()
-				.and_then(|metadata| metadata.subtree.solvable)
-				.unwrap_or(true),
+			solvable: true,
 			solved: false,
 			stored: crate::index::ObjectStored::default(),
 			variant,
@@ -914,10 +953,17 @@ impl Server {
 		checkpoint.graph.next += 1;
 		checkpoint.graph.nodes.insert(index, Box::new(node));
 
-		// Cache the mapping.
-		checkpoint.graph_nodes.insert(key, index);
+		// Create the pointer.
+		let pointer = tg::graph::data::Pointer {
+			graph: None,
+			index,
+			kind: graph_node.kind(),
+		};
 
-		Ok(index)
+		// Cache the mapping.
+		checkpoint.graph_pointers.insert(key, pointer.clone());
+
+		Ok(pointer)
 	}
 
 	fn checkin_solve_get_lock_node(checkpoint: &Checkpoint, item: &Item) -> Option<usize> {
@@ -1085,11 +1131,11 @@ impl Server {
 		})
 	}
 
-	fn checkin_solve_get_referrer(state: &State<'_>, graph: &Graph, node: usize) -> String {
+	fn checkin_solve_get_referrer(state: &State<'_>, graph: &Graph, index: usize) -> String {
 		let mut tag = None;
 		let mut id = None;
 		let mut components = vec![];
-		let mut current = node;
+		let mut current = index;
 		while tag.is_none() && id.is_none() {
 			let Some(parent) = graph
 				.nodes
@@ -1421,16 +1467,21 @@ impl Solutions {
 	pub fn insert(&mut self, key: tg::tag::Pattern, solution: Solution) {
 		if let Some(existing) = self.solutions.get(&key)
 			&& let Some(referent) = &existing.referent
-			&& let Some(patterns) = self.referents.get_mut(&referent.item)
+			&& let Some(pointer) = referent.item().try_unwrap_pointer_ref().ok()
+			&& pointer.graph.is_none()
+			&& let Some(patterns) = self.referents.get_mut(&pointer.index)
 		{
 			patterns.remove(&key);
 			if patterns.is_empty() {
-				self.referents.remove(&referent.item);
+				self.referents.remove(&pointer.index);
 			}
 		}
-		if let Some(referent) = &solution.referent {
+		if let Some(referent) = &solution.referent
+			&& let Some(pointer) = referent.item().try_unwrap_pointer_ref().ok()
+			&& pointer.graph.is_none()
+		{
 			self.referents
-				.entry(referent.item)
+				.entry(pointer.index)
 				.or_default()
 				.insert(key.clone());
 		}
@@ -1439,12 +1490,19 @@ impl Solutions {
 
 	pub fn remove(&mut self, key: &tg::tag::Pattern) -> Option<Solution> {
 		let solution = self.solutions.remove(key)?;
-		if let Some(referent) = &solution.referent
-			&& let Some(patterns) = self.referents.get_mut(&referent.item)
-		{
+		let Some(referent) = &solution.referent else {
+			return Some(solution);
+		};
+		let Some(pointer) = referent.item().try_unwrap_pointer_ref().ok() else {
+			return Some(solution);
+		};
+		if pointer.graph.is_some() {
+			return Some(solution);
+		}
+		if let Some(patterns) = self.referents.get_mut(&pointer.index) {
 			patterns.remove(key);
 			if patterns.is_empty() {
-				self.referents.remove(&referent.item);
+				self.referents.remove(&pointer.index);
 			}
 		}
 		for referrer in &solution.referrers {
@@ -1468,7 +1526,7 @@ impl Solutions {
 		if let Some(patterns) = self.referents.remove(&node) {
 			for pattern in &patterns {
 				if let Some(solution) = self.solutions.remove(pattern) {
-					for referrer in &solution.referrers {
+					for referrer in solution.referrers {
 						if let Some(referrer_patterns) = self.referrers.get_mut(&referrer.index) {
 							referrer_patterns.remove(pattern);
 							if referrer_patterns.is_empty() {
@@ -1493,11 +1551,13 @@ impl Solutions {
 			for pattern in to_remove {
 				if let Some(solution) = self.solutions.remove(&pattern)
 					&& let Some(referent) = &solution.referent
-					&& let Some(referent_patterns) = self.referents.get_mut(&referent.item)
+					&& let Some(pointer) = referent.item().try_unwrap_pointer_ref().ok()
+					&& pointer.graph.is_none()
+					&& let Some(referent_patterns) = self.referents.get_mut(&pointer.index)
 				{
 					referent_patterns.remove(&pattern);
 					if referent_patterns.is_empty() {
-						self.referents.remove(&referent.item);
+						self.referents.remove(&pointer.index);
 					}
 				}
 			}
@@ -1507,11 +1567,13 @@ impl Solutions {
 	pub fn clear_referent(&mut self, key: &tg::tag::Pattern) {
 		if let Some(solution) = self.solutions.get_mut(key)
 			&& let Some(referent) = solution.referent.take()
-			&& let Some(patterns) = self.referents.get_mut(&referent.item)
+			&& let Some(pointer) = referent.item().try_unwrap_pointer_ref().ok()
+			&& pointer.graph.is_none()
+			&& let Some(patterns) = self.referents.get_mut(&pointer.index)
 		{
 			patterns.remove(key);
 			if patterns.is_empty() {
-				self.referents.remove(&referent.item);
+				self.referents.remove(&pointer.index);
 			}
 		}
 	}
