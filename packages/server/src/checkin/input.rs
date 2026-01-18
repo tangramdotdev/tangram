@@ -1,6 +1,9 @@
 use {
 	super::graph::{Directory, File, Node, Symlink, Variant},
-	crate::{Server, checkin::Graph},
+	crate::{
+		Server,
+		checkin::{Graph, subpath::Subpath},
+	},
 	smallvec::SmallVec,
 	std::{
 		collections::BTreeMap,
@@ -20,6 +23,7 @@ struct State<'a> {
 	lock: Option<&'a tg::graph::Data>,
 	progress: crate::progress::Handle<super::TaskOutput>,
 	root: &'a Path,
+	subpaths: &'a mut Vec<Subpath>,
 }
 
 struct Item {
@@ -51,6 +55,7 @@ impl Server {
 		next: usize,
 		progress: crate::progress::Handle<super::TaskOutput>,
 		root: &Path,
+		subpaths: &mut Vec<Subpath>,
 	) -> tg::Result<()> {
 		// Start the progress indicators.
 		progress.spinner("traversing", "traversing");
@@ -79,6 +84,7 @@ impl Server {
 			lock,
 			progress,
 			root,
+			subpaths,
 		};
 
 		// Add the root path to the stack.
@@ -391,6 +397,16 @@ impl Server {
 				} else {
 					reference.item().try_unwrap_path_ref().ok()
 				};
+				let reference_path = if let Some(subpath) = &reference.options().path
+					&& let Some(path) = reference_path
+				{
+					if subpath.is_absolute() {
+						return Err(tg::error!(%reference, "invalid reference"));
+					}
+					Some(path.join(subpath))
+				} else {
+					reference_path.cloned()
+				};
 				if let Some(reference_path) = reference_path {
 					let parent = Parent {
 						index,
@@ -406,6 +422,12 @@ impl Server {
 					});
 					dependencies.insert(reference, None);
 				} else if let Ok(id) = reference.item().try_unwrap_object_ref() {
+					if reference.options().path.is_some() {
+						state.subpaths.push(Subpath {
+							index,
+							reference: reference.clone(),
+						});
+					}
 					let dependency = tg::graph::data::Dependency(tg::Referent::with_item(Some(
 						tg::graph::data::Edge::Object(id.clone()),
 					)));
@@ -456,6 +478,16 @@ impl Server {
 				} else {
 					reference.item().try_unwrap_path_ref().ok()
 				};
+				let reference_path = if let Some(subpath) = &reference.options().path
+					&& let Some(path) = reference_path
+				{
+					if subpath.is_absolute() {
+						return Err(tg::error!(%reference, "invalid reference"));
+					}
+					Some(path.join(subpath))
+				} else {
+					reference_path.cloned()
+				};
 				if let Some(reference_path) = reference_path {
 					let parent = Parent {
 						index,
@@ -486,6 +518,12 @@ impl Server {
 						parent: Some(parent),
 					});
 				} else if let Ok(id) = reference.item().try_unwrap_object_ref() {
+					if reference.options().path.is_some() {
+						state.subpaths.push(Subpath {
+							index,
+							reference: reference.clone(),
+						});
+					}
 					let dependency = tg::graph::data::Dependency(tg::Referent::with_item(Some(
 						tg::graph::data::Edge::Object(id.clone()),
 					)));

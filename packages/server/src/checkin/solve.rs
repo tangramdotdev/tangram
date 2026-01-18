@@ -1,7 +1,10 @@
 use {
 	crate::{
 		Server,
-		checkin::graph::{Contents, Directory, File, Graph, Node, Symlink, Variant},
+		checkin::{
+			graph::{Contents, Directory, File, Graph, Node, Symlink, Variant},
+			subpath::Subpath,
+		},
 	},
 	dashmap::DashMap,
 	smallvec::SmallVec,
@@ -57,6 +60,7 @@ struct Checkpoint {
 	graphs: Graphs,
 	graph_pointers: GraphPointers,
 	listed: bool,
+	subpaths: im::Vector<Subpath>,
 	queue: im::Vector<Item>,
 	lock: Option<Arc<tg::graph::Data>>,
 	solutions: Solutions,
@@ -205,6 +209,7 @@ impl Server {
 			lock: lock.clone(),
 			queue: im::Vector::new(),
 			solutions: solutions.clone(),
+			subpaths: im::Vector::new(),
 			visited: im::HashSet::default(),
 		};
 		let referent = tg::Referent::with_item(*index);
@@ -215,6 +220,12 @@ impl Server {
 			self.checkin_solve_item(&mut state, &mut checkpoint, item)
 				.await?;
 		}
+
+		// Resolve subpaths.
+		let subpaths = checkpoint.subpaths.into_iter().collect::<Vec<_>>();
+		self.checkin_resolve_subpaths(&subpaths, &mut checkpoint.graph)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to resolve subpaths"))?;
 
 		// Mark all new nodes as solved.
 		for index in next..checkpoint.graph.next {
@@ -297,6 +308,15 @@ impl Server {
 			}
 			return Err(tg::error!(%reference, "expected reference to be a tag"));
 		};
+
+		// Add this edge to the subpaths if necessary.
+		if reference.options().path.is_some() {
+			let subpath = Subpath {
+				index: *item.referent.item(),
+				reference: reference.clone(),
+			};
+			checkpoint.subpaths.push_back(subpath);
+		}
 
 		self.checkin_solve_item_with_tag(
 			state,
