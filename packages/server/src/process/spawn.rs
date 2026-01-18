@@ -5,7 +5,7 @@ use {
 		stream::{self, BoxStream, FuturesUnordered},
 	},
 	indoc::{formatdoc, indoc},
-	std::pin::pin,
+	std::{fmt::Write, pin::pin},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::{stream::Ext as _, task::Task},
@@ -954,7 +954,47 @@ impl Server {
 
 		// If adding this child creates a cycle, return an error.
 		if cycle {
-			return Err(tg::error!("adding this child process creates a cycle"));
+			// Try to reconstruct the cycle path by walking from the child through its
+			// descendants until we find a path back to the parent.
+			let statement = formatdoc!(
+				"
+					with recursive reachable (current_process, path) as (
+						select {p}2, {p}2
+
+						union
+
+						select pc.child, r.path || ' ' || pc.child
+						from reachable r
+						join process_children pc on r.current_process = pc.process
+						where r.path not like '%' || pc.child || '%'
+					)
+					select
+						{p}1 || ' ' || path as cycle
+					from reachable
+					where current_process = {p}1
+					limit 1;
+				"
+			);
+			let params = db::params![parent.to_string(), child.to_string()];
+			let cycle = transaction
+				.query_one_value_into::<String>(statement.into(), params)
+				.await
+				.inspect_err(|error| tracing::error!(?error, "failed to get the cycle"))
+				.ok();
+			let mut message = String::from("adding this child process creates a cycle");
+			if let Some(cycle) = cycle {
+				let processes = cycle.split(' ').collect::<Vec<_>>();
+				for i in 0..processes.len() - 1 {
+					let parent = processes[i];
+					let child = processes[i + 1];
+					if i == 0 {
+						write!(&mut message, "\n{parent} tried to add child {child}").unwrap();
+					} else {
+						write!(&mut message, "\n{parent} has child {child}").unwrap();
+					}
+				}
+			}
+			return Err(tg::error!("{message}"));
 		}
 
 		// Add the child to the database.
