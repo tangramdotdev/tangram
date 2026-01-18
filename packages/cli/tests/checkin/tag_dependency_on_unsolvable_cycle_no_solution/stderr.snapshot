@@ -1,0 +1,5 @@
+error an error occurred
+-> failed to solve dependencies
+-> failed to solve c/*
+   depended on by a/1.0.0?path=tangram.ts with pattern c/^1
+   depended on by b/1.0.0?path=tangram.ts with pattern c/^2

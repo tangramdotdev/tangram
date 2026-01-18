@@ -26,6 +26,7 @@ let path = artifact {
 }
 
 let id = tg checkin $path
+tg index
 
 let object = tg object get --blobs --depth=inf --pretty $id
 snapshot -n object $object
