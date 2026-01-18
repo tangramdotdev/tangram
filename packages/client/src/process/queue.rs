@@ -16,8 +16,8 @@ pub struct Output {
 impl tg::Client {
 	pub async fn try_dequeue_process(
 		&self,
-		arg: tg::process::dequeue::Arg,
-	) -> tg::Result<Option<tg::process::dequeue::Output>> {
+		arg: tg::process::queue::Arg,
+	) -> tg::Result<Option<tg::process::queue::Output>> {
 		let method = http::Method::POST;
 		let uri = "/processes/dequeue";
 		let request = http::request::Builder::default()
@@ -76,10 +76,10 @@ impl tg::Client {
 	}
 }
 
-impl TryFrom<tg::process::dequeue::Output> for tangram_http::sse::Event {
+impl TryFrom<tg::process::queue::Output> for tangram_http::sse::Event {
 	type Error = tg::Error;
 
-	fn try_from(value: tg::process::dequeue::Output) -> Result<Self, Self::Error> {
+	fn try_from(value: tg::process::queue::Output) -> Result<Self, Self::Error> {
 		let data = serde_json::to_string(&value)
 			.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
 		let event = tangram_http::sse::Event {
@@ -90,7 +90,7 @@ impl TryFrom<tg::process::dequeue::Output> for tangram_http::sse::Event {
 	}
 }
 
-impl TryFrom<tangram_http::sse::Event> for tg::process::dequeue::Output {
+impl TryFrom<tangram_http::sse::Event> for tg::process::queue::Output {
 	type Error = tg::Error;
 
 	fn try_from(value: tangram_http::sse::Event) -> Result<Self, Self::Error> {

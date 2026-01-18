@@ -464,6 +464,27 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to create the finish consumer"))?;
 		}
 
+		// Create the process stream if the messenger is memory.
+		if messenger.is_memory() {
+			let stream_config = tangram_messenger::StreamConfig {
+				discard: tangram_messenger::DiscardPolicy::New,
+				max_bytes: None,
+				max_messages: None,
+				retention: tangram_messenger::RetentionPolicy::WorkQueue,
+			};
+			let stream = messenger
+				.create_stream("queue".to_owned(), stream_config)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the queue stream"))?;
+			let consumer_config = tangram_messenger::ConsumerConfig {
+				deliver: tangram_messenger::DeliverPolicy::All,
+			};
+			stream
+				.create_consumer("queue".to_owned(), consumer_config)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the queue consumer"))?;
+		}
+
 		// Create the pipes and ptys.
 		let pipes = DashMap::default();
 		let ptys = DashMap::default();

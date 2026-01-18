@@ -497,8 +497,8 @@ where
 
 	fn try_dequeue_process(
 		&self,
-		arg: tg::process::dequeue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::process::dequeue::Output>>> {
+		arg: tg::process::queue::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::queue::Output>>> {
 		match self {
 			tg::Either::Left(s) => s.try_dequeue_process(arg).left_future(),
 			tg::Either::Right(s) => s.try_dequeue_process(arg).right_future(),

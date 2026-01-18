@@ -235,8 +235,8 @@ impl tg::handle::Process for Owned {
 
 	async fn try_dequeue_process(
 		&self,
-		arg: tg::process::dequeue::Arg,
-	) -> tg::Result<Option<tg::process::dequeue::Output>> {
+		arg: tg::process::queue::Arg,
+	) -> tg::Result<Option<tg::process::queue::Output>> {
 		self.0.try_dequeue_process(arg).await
 	}
 
@@ -715,8 +715,8 @@ impl tg::handle::Process for Server {
 
 	async fn try_dequeue_process(
 		&self,
-		arg: tg::process::dequeue::Arg,
-	) -> tg::Result<Option<tg::process::dequeue::Output>> {
+		arg: tg::process::queue::Arg,
+	) -> tg::Result<Option<tg::process::queue::Output>> {
 		self.try_dequeue_process_with_context(&Context::default(), arg)
 			.await
 	}
@@ -1215,8 +1215,8 @@ impl tg::handle::Process for ServerWithContext {
 
 	async fn try_dequeue_process(
 		&self,
-		arg: tg::process::dequeue::Arg,
-	) -> tg::Result<Option<tg::process::dequeue::Output>> {
+		arg: tg::process::queue::Arg,
+	) -> tg::Result<Option<tg::process::queue::Output>> {
 		self.0.try_dequeue_process_with_context(&self.1, arg).await
 	}
 

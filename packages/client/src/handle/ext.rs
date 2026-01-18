@@ -114,8 +114,8 @@ pub trait Ext: tg::Handle {
 
 	fn dequeue_process(
 		&self,
-		arg: tg::process::dequeue::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::dequeue::Output>> + Send {
+		arg: tg::process::queue::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::queue::Output>> + Send {
 		self.try_dequeue_process(arg).map(|result| {
 			result
 				.and_then(|option| option.ok_or_else(|| tg::error!("failed to dequeue a process")))

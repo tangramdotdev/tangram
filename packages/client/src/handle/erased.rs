@@ -200,8 +200,8 @@ pub trait Process: Send + Sync + 'static {
 
 	fn try_dequeue_process(
 		&self,
-		arg: tg::process::dequeue::Arg,
-	) -> BoxFuture<'_, tg::Result<Option<tg::process::dequeue::Output>>>;
+		arg: tg::process::queue::Arg,
+	) -> BoxFuture<'_, tg::Result<Option<tg::process::queue::Output>>>;
 
 	fn finish_process<'a>(
 		&'a self,
@@ -673,8 +673,8 @@ where
 
 	fn try_dequeue_process(
 		&self,
-		arg: tg::process::dequeue::Arg,
-	) -> BoxFuture<'_, tg::Result<Option<tg::process::dequeue::Output>>> {
+		arg: tg::process::queue::Arg,
+	) -> BoxFuture<'_, tg::Result<Option<tg::process::queue::Output>>> {
 		self.try_dequeue_process(arg).boxed()
 	}
 

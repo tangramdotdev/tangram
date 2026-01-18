@@ -16,7 +16,6 @@ pub use self::{
 pub mod cancel;
 pub mod children;
 pub mod data;
-pub mod dequeue;
 pub mod finish;
 pub mod get;
 pub mod heartbeat;
@@ -26,6 +25,7 @@ pub mod log;
 pub mod metadata;
 pub mod mount;
 pub mod put;
+pub mod queue;
 pub mod signal;
 pub mod spawn;
 pub mod start;

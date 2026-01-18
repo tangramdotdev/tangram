@@ -339,8 +339,8 @@ impl tg::handle::Process for Handle {
 
 	fn try_dequeue_process(
 		&self,
-		arg: tg::process::dequeue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::process::dequeue::Output>>> {
+		arg: tg::process::queue::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::queue::Output>>> {
 		self.0.try_dequeue_process(arg)
 	}
 

@@ -710,6 +710,8 @@ export def --env spawn [
 		nats consumer create $'index_($id)' index --deliver all --max-pending 1000000 --pull --defaults
 		nats stream create $'finish_($id)' --discard new --retention work --subjects $'($id).finish' --defaults
 		nats consumer create $'finish_($id)' finish --deliver all --max-pending 1000000 --pull --defaults
+		nats stream create $'queue_($id)' --discard new --retention work --subjects $'($id).queue' --defaults
+		nats consumer create $'queue_($id)' queue --deliver all --max-pending 1000000 --pull --defaults
 
 		cqlsh -e $"create keyspace \"store_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
 		cqlsh -k $'store_($id)' -f packages/store/src/scylla.cql

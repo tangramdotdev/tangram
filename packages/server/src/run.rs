@@ -39,7 +39,7 @@ impl Server {
 			let permit = ProcessPermit(tg::Either::Left(permit));
 
 			// Try to dequeue a process locally or from one of the remotes.
-			let arg = tg::process::dequeue::Arg::default();
+			let arg = tg::process::queue::Arg::default();
 			let futures = std::iter::once(
 				self.dequeue_process(arg)
 					.map_ok(|output| tg::Process::new(output.process, None, None, None, None))
@@ -51,7 +51,7 @@ impl Server {
 					let remote = name.to_owned();
 					async move {
 						let client = server.get_remote_client(remote).await?;
-						let arg = tg::process::dequeue::Arg::default();
+						let arg = tg::process::queue::Arg::default();
 						let output = client.dequeue_process(arg).await?;
 						let process =
 							tg::Process::new(output.process, None, Some(name.clone()), None, None);
@@ -60,6 +60,7 @@ impl Server {
 					.boxed()
 				})
 			}));
+
 			let process = match future::select_ok(futures).await {
 				Ok((process, _)) => process,
 				Err(error) => {
