@@ -1687,12 +1687,7 @@ declare namespace tg {
 			infer A extends Array<tg.Value>,
 			infer R extends tg.Value
 		>
-			?
-					| T
-					| tg.Function<
-							tg.UnresolvedFunctionArgs<A>,
-							tg.UnresolvedFunctionReturnValue<R>
-					  >
+			? UnresolvedCommand<A, R>
 			: T extends
 						| undefined
 						| boolean
@@ -1711,11 +1706,16 @@ declare namespace tg {
 						: never
 	>;
 
-	type UnresolvedFunctionArgs<A extends Array<tg.Value>> = {
-		[K in keyof A]: tg.UnresolvedFunctionReturnValue<A[K]>;
-	};
+	type UnresolvedCommand<A extends Array<tg.Value>, R extends tg.Value> =
+		| tg.Command<A, R>
+		| tg.Function<
+				{
+					[K in keyof A]: UnresolvedWithoutCommand<A[K]>;
+				},
+				UnresolvedWithoutCommand<R>
+		  >;
 
-	type UnresolvedFunctionReturnValue<T extends tg.Value> = tg.MaybePromise<
+	type UnresolvedWithoutCommand<T extends tg.Value> = tg.MaybePromise<
 		T extends
 			| undefined
 			| boolean
@@ -1728,9 +1728,9 @@ declare namespace tg {
 			| tg.Placeholder
 			? T
 			: T extends Array<infer U extends tg.Value>
-				? Array<tg.UnresolvedFunctionReturnValue<U>>
+				? Array<UnresolvedWithoutCommand<U>>
 				: T extends { [key: string]: tg.Value }
-					? { [K in keyof T]: tg.UnresolvedFunctionReturnValue<T[K]> }
+					? { [K in keyof T]: UnresolvedWithoutCommand<T[K]> }
 					: never
 	>;
 
