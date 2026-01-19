@@ -294,6 +294,15 @@ where
 		self.counter.is_finished()
 	}
 
+	pub fn has_process(&self) -> bool {
+		self.roots.iter().any(|root| {
+			root.borrow()
+				.referent
+				.as_ref()
+				.is_some_and(|referent| matches!(referent.item(), Item::Process(_)))
+		})
+	}
+
 	fn display_node(node: &Rc<RefCell<Node>>, now: u128) -> Option<Display> {
 		// Clear the guard.
 		node.borrow_mut().guard.take();

@@ -330,8 +330,10 @@ where
 			None
 		};
 
-		// Hide the cursor
-		if let Some(tty) = tty.as_mut() {
+		// Hide the cursor if necessary.
+		if self.tree.has_process()
+			&& let Some(tty) = tty.as_mut()
+		{
 			ct::queue!(tty, ct::cursor::Hide)
 				.map_err(|source| tg::error!(!source, "failed to write to the terminal"))?;
 		}
@@ -343,7 +345,9 @@ where
 
 			// If we are finished rendering, then clear the screen and show the cursor.
 			if stop.stopped() || self.tree.is_finished() {
-				if let Some(tty) = tty.as_mut() {
+				if self.tree.has_process()
+					&& let Some(tty) = tty.as_mut()
+				{
 					ct::queue!(
 						tty,
 						ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
@@ -355,8 +359,10 @@ where
 				break;
 			}
 
-			// If stdout is a terminal, then render the tree.
-			if let Some(tty) = tty.as_mut() {
+			// If live and stdout is a terminal, render the tree. Otherwise, clear guards.
+			if self.tree.has_process()
+				&& let Some(tty) = tty.as_mut()
+			{
 				// Render the tree.
 				let tree = self.tree.display().to_string();
 
