@@ -1,8 +1,12 @@
 use {
 	crate::{Context, Server},
 	futures::{FutureExt as _, StreamExt as _, future, stream},
+	std::sync::{
+		Arc,
+		atomic::{AtomicBool, Ordering},
+	},
 	tangram_client::prelude::*,
-	tangram_futures::{stream::TryExt as _, task::Stop},
+	tangram_futures::{future::Ext as _, stream::TryExt as _, task::Stop},
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
 };
 
@@ -18,27 +22,74 @@ impl Server {
 		>,
 	> {
 		// Try local first if requested.
-		if Self::local(arg.local, arg.remotes.as_ref())
+		let future = if Self::local(arg.local, arg.remotes.as_ref())
 			&& let Some(future) = self
 				.try_wait_process_local(id)
 				.await
 				.map_err(|source| tg::error!(!source, %id, "failed to wait for the process"))?
 		{
-			return Ok(Some(future.left_future()));
-		}
+			Some(future.left_future())
+		} else {
+			// Try remotes.
+			let remote_names = self
+				.remotes(arg.local, arg.remotes.clone())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
+			self.try_wait_process_remote(id, &remote_names)
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, "failed to wait for the process on the remote"),
+				)?
+				.map(futures::FutureExt::right_future)
+		};
 
-		// Try remotes.
-		let remotes = self
-			.remotes(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
-		if let Some(future) = self.try_wait_process_remote(id, &remotes).await.map_err(
-			|source| tg::error!(!source, %id, "failed to wait for the process on the remote"),
-		)? {
-			return Ok(Some(future.right_future()));
-		}
+		// If no future was found, return None.
+		let Some(future) = future else {
+			return Ok(None);
+		};
 
-		Ok(None)
+		// If a token is provided, attach a cancellation guard.
+		let future = if let Some(token) = arg.token.clone() {
+			let cancel = Arc::new(AtomicBool::new(true));
+
+			// Map the future to defuse on success.
+			let future = {
+				let cancel = cancel.clone();
+				future.map(
+					move |result: tg::Result<Option<tg::process::wait::Output>>| {
+						if result.is_ok() {
+							cancel.store(false, Ordering::SeqCst);
+						}
+						result
+					},
+				)
+			};
+
+			// Create guard that cancels if not defused.
+			let guard = {
+				let server = self.clone();
+				let id = id.clone();
+				let arg = arg.clone();
+				scopeguard::guard((), move |()| {
+					if cancel.load(Ordering::SeqCst) {
+						let arg = tg::process::cancel::Arg {
+							local: arg.local,
+							remotes: arg.remotes,
+							token: token.clone(),
+						};
+						tokio::spawn(async move {
+							server.cancel_process(&id, arg).await.ok();
+						});
+					}
+				})
+			};
+
+			future.attach(guard).left_future()
+		} else {
+			future.right_future()
+		};
+
+		Ok(Some(future))
 	}
 
 	async fn try_wait_process_local(
@@ -111,6 +162,7 @@ impl Server {
 		let arg = tg::process::wait::Arg {
 			local: None,
 			remotes: None,
+			token: None,
 		};
 		let futures = remotes.iter().map(|remote| {
 			let id = id.clone();

@@ -24,6 +24,7 @@ impl Cli {
 		let arg = tg::process::wait::Arg {
 			local: args.local.local,
 			remotes: args.remotes.remotes,
+			token: None,
 		};
 		let wait = handle.wait_process(process, arg).await.map_err(
 			|source| tg::error!(!source, id = %process, "failed to wait for the process"),

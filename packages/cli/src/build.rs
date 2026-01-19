@@ -118,7 +118,7 @@ impl Cli {
 		let wait = if status.is_finished() {
 			let output = process
 				.item()
-				.wait(&handle)
+				.wait(&handle, tg::process::wait::Arg::default())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the output"))?;
 			Some(output)
@@ -192,7 +192,10 @@ impl Cli {
 			});
 
 			// Await the process.
-			let result = process.item().wait(&handle).await;
+			let result = process
+				.item()
+				.wait(&handle, tg::process::wait::Arg::default())
+				.await;
 
 			// Abort the cancel task.
 			cancel_task.abort();

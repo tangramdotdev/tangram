@@ -177,21 +177,22 @@ impl Process {
 		Ok(stream)
 	}
 
-	pub async fn wait<H>(&self, handle: &H) -> tg::Result<tg::process::Wait>
+	pub async fn wait<H>(
+		&self,
+		handle: &H,
+		arg: tg::process::wait::Arg,
+	) -> tg::Result<tg::process::Wait>
 	where
 		H: tg::Handle,
 	{
-		handle
-			.wait_process(&self.id, tg::process::wait::Arg::default())
-			.await?
-			.try_into()
+		handle.wait_process(&self.id, arg).await?.try_into()
 	}
 
 	pub async fn output<H>(&self, handle: &H) -> tg::Result<tg::Value>
 	where
 		H: tg::Handle,
 	{
-		let wait = self.wait(handle).await?;
+		let wait = self.wait(handle, tg::process::wait::Arg::default()).await?;
 		let output = wait.into_output()?;
 		Ok(output)
 	}
