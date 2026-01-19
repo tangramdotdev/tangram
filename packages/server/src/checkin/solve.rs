@@ -265,7 +265,7 @@ impl Server {
 						.await?
 				},
 
-				// Otherwise reuse the existing edge.
+				// Otherwise, reuse the existing edge.
 				edge => edge,
 			};
 
@@ -558,9 +558,14 @@ impl Server {
 				.await?
 		};
 
-		// Create the referent.
+		let path = item
+			.variant
+			.try_unwrap_file_dependency_ref()
+			.ok()
+			.and_then(|reference| reference.options().path.clone());
 		let options = tg::referent::Options {
 			id: Some(candidate.object),
+			path,
 			tag: Some(candidate.tag),
 			..Default::default()
 		};

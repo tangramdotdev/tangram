@@ -140,7 +140,7 @@ impl Server {
 				// Get the node.
 				let node = state.graph.nodes.get(index).unwrap();
 
-				// Check if the node has solveable dependencies.
+				// Check if the node has solvable dependencies.
 				if let Variant::File(file) = &node.variant
 					&& file.dependencies.keys().any(tg::Reference::is_solvable)
 				{
@@ -406,9 +406,20 @@ impl Server {
 					});
 					dependencies.insert(reference, None);
 				} else if let Ok(id) = reference.item().try_unwrap_object_ref() {
-					let dependency = tg::graph::data::Dependency(tg::Referent::with_item(Some(
-						tg::graph::data::Edge::Object(id.clone()),
-					)));
+					let path = reference.options().path.clone();
+					let options = if path.is_some() {
+						tg::referent::Options {
+							id: Some(id.clone()),
+							path,
+							..Default::default()
+						}
+					} else {
+						tg::referent::Options::default()
+					};
+					let dependency = tg::graph::data::Dependency(tg::Referent {
+						item: Some(tg::graph::data::Edge::Object(id.clone())),
+						options,
+					});
 					dependencies.insert(reference, Some(dependency));
 				} else {
 					dependencies.insert(reference, None);
@@ -486,9 +497,20 @@ impl Server {
 						parent: Some(parent),
 					});
 				} else if let Ok(id) = reference.item().try_unwrap_object_ref() {
-					let dependency = tg::graph::data::Dependency(tg::Referent::with_item(Some(
-						tg::graph::data::Edge::Object(id.clone()),
-					)));
+					let path = reference.options().path.clone();
+					let options = if path.is_some() {
+						tg::referent::Options {
+							id: Some(id.clone()),
+							path,
+							..Default::default()
+						}
+					} else {
+						tg::referent::Options::default()
+					};
+					let dependency = tg::graph::data::Dependency(tg::Referent {
+						item: Some(tg::graph::data::Edge::Object(id.clone())),
+						options,
+					});
 					dependencies.insert(reference, Some(dependency));
 				} else {
 					dependencies.insert(reference, None);
@@ -661,6 +683,11 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to diff the paths"))?;
 				let path = if path.as_os_str().is_empty() {
 					".".into()
+				} else {
+					path
+				};
+				let path = if let Some(reference_path) = reference.options().path.as_ref() {
+					path.join(reference_path)
 				} else {
 					path
 				};

@@ -4,11 +4,15 @@ use {
 		checkin::{
 			Graph, IndexCacheEntryMessages, IndexObjectMessages, StoreArgs,
 			graph::{Contents, Node, Petgraph, Variant},
+			path::Paths,
 		},
 		config::Checkin,
 	},
 	num::ToPrimitive as _,
-	std::{collections::BTreeMap, collections::BTreeSet, path::Path},
+	std::{
+		collections::{BTreeMap, BTreeSet},
+		path::Path,
+	},
 	tangram_client::prelude::*,
 	tangram_messenger::prelude::*,
 	tangram_store::prelude::*,
@@ -20,6 +24,7 @@ impl Server {
 		config: &Checkin,
 		arg: &tg::checkin::Arg,
 		graph: &mut Graph,
+		paths: &Paths,
 		next: usize,
 		store_args: &mut StoreArgs,
 		object_messages: &mut IndexObjectMessages,
@@ -48,13 +53,21 @@ impl Server {
 				Self::checkin_create_node_artifact(
 					config,
 					graph,
+					paths,
 					store_args,
 					object_messages,
 					scc[0],
 					touched_at,
 				)?;
 			} else {
-				Self::checkin_create_graph(graph, store_args, object_messages, scc, touched_at)?;
+				Self::checkin_create_graph(
+					graph,
+					paths,
+					store_args,
+					object_messages,
+					scc,
+					touched_at,
+				)?;
 			}
 		}
 
@@ -91,6 +104,7 @@ impl Server {
 	fn checkin_create_node_artifact(
 		config: &Checkin,
 		graph: &mut Graph,
+		paths: &Paths,
 		store_args: &mut StoreArgs,
 		object_messages: &mut IndexObjectMessages,
 		index: usize,
@@ -159,25 +173,25 @@ impl Server {
 					.map(|(reference, option)| {
 						let reference = reference.clone();
 						let Some(dependency) = option else {
-							return Ok::<_, tg::Error>((reference, None));
+							return Ok((reference, None));
 						};
-						let edge = match dependency.item() {
-							Some(tg::graph::data::Edge::Pointer(pointer)) => {
-								if pointer.graph.is_none() {
-									let node = graph.nodes.get(&pointer.index).unwrap();
-									Some(node.edge.as_ref().unwrap().clone())
-								} else {
-									Some(tg::graph::data::Edge::Pointer(pointer.clone()))
-								}
+						let edge = if let Some(edge) = paths.get(&(index, reference.clone())) {
+							Some(edge.clone())
+						} else {
+							dependency.item().clone()
+						};
+						let edge = match edge {
+							Some(tg::graph::data::Edge::Pointer(pointer))
+								if pointer.graph.is_none() =>
+							{
+								let node = graph.nodes.get(&pointer.index).unwrap();
+								Some(node.edge.as_ref().unwrap().clone())
 							},
-							Some(tg::graph::data::Edge::Object(id)) => {
-								let id = id.clone();
-								Some(tg::graph::data::Edge::Object(id))
-							},
+							Some(edge) => Some(edge),
 							None => None,
 						};
 						let referent = dependency.0.clone().map(|_| edge);
-						Ok::<_, tg::Error>((reference, Some(tg::graph::data::Dependency(referent))))
+						Ok((reference, Some(tg::graph::data::Dependency(referent))))
 					})
 					.collect::<tg::Result<_>>()?;
 				let executable = file.executable;
@@ -250,6 +264,7 @@ impl Server {
 
 	fn checkin_create_graph(
 		graph: &mut Graph,
+		paths: &Paths,
 		store_args: &mut StoreArgs,
 		object_messages: &mut IndexObjectMessages,
 		scc: &[usize],
@@ -258,7 +273,7 @@ impl Server {
 		// Create the nodes.
 		let mut nodes = Vec::with_capacity(scc.len());
 		for index in scc {
-			Self::checkin_create_graph_node(graph, scc, &mut nodes, *index)?;
+			Self::checkin_create_graph_node(graph, paths, scc, &mut nodes, *index)?;
 		}
 
 		// Create the graph object.
@@ -322,6 +337,7 @@ impl Server {
 
 	fn checkin_create_graph_node(
 		graph: &Graph,
+		paths: &Paths,
 		scc: &[usize],
 		nodes: &mut Vec<tg::graph::data::Node>,
 		index: usize,
@@ -382,46 +398,46 @@ impl Server {
 					Some(Contents::Id { id, .. }) => id.clone(),
 					None => return Err(tg::error!("expected the contents to be set")),
 				};
+				// Apply path options to dependencies using the paths map.
 				let dependencies = file
 					.dependencies
 					.iter()
 					.map(|(reference, option)| {
 						let Some(dependency) = option else {
-							return Ok::<_, tg::Error>((reference.clone(), None));
+							return Ok((reference.clone(), None));
 						};
-						let edge = dependency.item();
+						let edge = if let Some(edge) = paths.get(&(index, reference.clone())) {
+							Some(edge.clone())
+						} else {
+							dependency.item().clone()
+						};
 						let edge = match edge {
-							Some(tg::graph::data::Edge::Pointer(pointer)) => {
-								if pointer.graph.is_none() {
-									if let Some(index) =
-										scc.iter().position(|i| i == &pointer.index)
-									{
-										Some(tg::graph::data::Edge::Pointer(
-											tg::graph::data::Pointer {
-												graph: None,
-												index,
-												kind: pointer.kind,
-											},
-										))
-									} else {
-										let node = graph.nodes.get(&pointer.index).unwrap();
-										Some(node.edge.as_ref().unwrap().clone())
-									}
+							Some(tg::graph::data::Edge::Pointer(pointer))
+								if pointer.graph.is_none() =>
+							{
+								if let Some(scc_index) =
+									scc.iter().position(|i| i == &pointer.index)
+								{
+									let kind =
+										graph.nodes.get(&pointer.index).unwrap().variant.kind();
+									Some(tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
+										graph: None,
+										index: scc_index,
+										kind,
+									}))
 								} else {
-									Some(tg::graph::data::Edge::Pointer(pointer.clone()))
+									let node = graph.nodes.get(&pointer.index).unwrap();
+									Some(node.edge.as_ref().unwrap().clone())
 								}
 							},
-							Some(tg::graph::data::Edge::Object(id)) => {
-								let id = id.clone();
-								Some(tg::graph::data::Edge::Object(id))
-							},
+							Some(edge) => Some(edge),
 							None => None,
 						};
 						let referent = tg::Referent {
 							item: edge,
 							options: dependency.options.clone(),
 						};
-						Ok::<_, tg::Error>((
+						Ok((
 							reference.clone(),
 							Some(tg::graph::data::Dependency(referent)),
 						))

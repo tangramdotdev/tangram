@@ -24,6 +24,7 @@ mod graph;
 mod index;
 mod input;
 mod lock;
+mod path;
 mod solve;
 mod store;
 
@@ -352,6 +353,14 @@ impl Server {
 			tracing::trace!(elapsed = ?start.elapsed(), "solve");
 		}
 
+		// Get reference path edges.
+		let start = Instant::now();
+		let paths = self
+			.checkin_path_get_edges(&graph, next)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get reference path edges"))?;
+		tracing::trace!(elapsed = ?start.elapsed(), "get path edges");
+
 		// Set the touch time.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
@@ -381,6 +390,7 @@ impl Server {
 			&self.config.checkin,
 			&arg,
 			&mut graph,
+			&paths,
 			next,
 			&mut store_args,
 			&mut object_messages,
