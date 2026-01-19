@@ -169,7 +169,11 @@ impl Server {
 		let Some(artifact) = directory.try_get(self, path).await? else {
 			return Ok(None);
 		};
-		output.referent.item = tg::Either::Left(artifact.id().into());
+		let id = artifact
+			.store(self)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to store the artifact"))?;
+		output.referent.item = tg::Either::Left(id.into());
 		output.referent.options.id = Some(directory.id().into());
 		output.referent.options.path = Some(path.to_owned());
 		Ok(Some(output))
