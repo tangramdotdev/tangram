@@ -132,6 +132,39 @@ impl Server {
 					.await?
 					.into();
 
+				// If the store returned empty but we have not reached EOF, the log may have been compacted and deleted. Try to fall back to reading from the blob.
+				if state.entries.is_empty()
+					&& state
+						.log_length
+						.is_some_and(|length| length > state.position)
+					&& let Inner::Store(inner) = &state.inner
+					&& let Some(output) = inner
+						.server
+						.try_get_process_local(&inner.process, false)
+						.await? && let Some(blob_id) = output.data.log
+				{
+					// The log was compacted. Switch to reading from the blob.
+					let blob = tg::Blob::with_id(blob_id);
+					let mut reader = crate::read::Reader::new(&inner.server, blob).await?;
+					let index = inner.server.read_log_index_from_blob(&mut reader).await?;
+					state.inner = Inner::Blob(BlobInner {
+						entry: 0,
+						reader,
+						index,
+					});
+
+					// Retry reading from the blob.
+					state.entries = state
+						.inner
+						.try_read_process_log(
+							state.position,
+							state.read_length.unwrap_or(4096),
+							state.stream,
+						)
+						.await?
+						.into();
+				}
+
 				// Update the stream position.
 				let boundary = if state.reverse {
 					state.entries.front()

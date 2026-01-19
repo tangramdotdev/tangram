@@ -1,5 +1,8 @@
 use {
-	crate::{Server, store::ReadProcessLogArg},
+	crate::{
+		Server,
+		store::{DeleteProcessLogArg, ReadProcessLogArg},
+	},
 	indoc::formatdoc,
 	num::ToPrimitive as _,
 	std::io::Cursor,
@@ -171,6 +174,14 @@ impl Server {
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Delete the log from the store.
+		self.store
+			.delete_process_log(DeleteProcessLogArg {
+				process: process.clone(),
+			})
+			.await
+			.map_err(|source| tg::error!(!source, "failed to delete the process log from store"))?;
 
 		Ok(())
 	}
