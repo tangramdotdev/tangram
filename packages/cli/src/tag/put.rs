@@ -32,7 +32,9 @@ impl Cli {
 			checkin: args.checkin.to_options(),
 			..Default::default()
 		};
-		let referent = self.get_reference_with_arg(&args.reference, arg).await?;
+		let referent = self
+			.get_reference_with_arg(&args.reference, arg, true)
+			.await?;
 		let item = referent
 			.item
 			.map_left(|process| process.id().clone())

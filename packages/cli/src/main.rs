@@ -942,7 +942,7 @@ impl Cli {
 		&mut self,
 		reference: &tg::Reference,
 	) -> tg::Result<tg::Referent<tg::Either<tg::Object, tg::Process>>> {
-		self.get_reference_with_arg(reference, tg::get::Arg::default())
+		self.get_reference_with_arg(reference, tg::get::Arg::default(), true)
 			.boxed()
 			.await
 	}
@@ -951,6 +951,7 @@ impl Cli {
 		&mut self,
 		reference: &tg::Reference,
 		arg: tg::get::Arg,
+		relative_paths: bool,
 	) -> tg::Result<tg::Referent<tg::Either<tg::Object, tg::Process>>> {
 		let handle = self.handle().await?;
 
@@ -983,6 +984,7 @@ impl Cli {
 			&& referent.tag().is_none()
 			&& relative
 			&& let Some(path) = referent.path()
+			&& relative_paths
 		{
 			let current_dir = std::env::current_dir()
 				.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;

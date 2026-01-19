@@ -23,7 +23,7 @@ impl Cli {
 			..Default::default()
 		};
 		let referent = self
-			.get_reference_with_arg(&args.reference, arg)
+			.get_reference_with_arg(&args.reference, arg, true)
 			.await?
 			.try_map(|item| item.left().ok_or_else(|| tg::error!("expected an object")))?;
 		tg::object::visit(&handle, &mut visitor, &referent, false)

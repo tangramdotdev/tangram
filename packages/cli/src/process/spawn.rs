@@ -233,7 +233,7 @@ impl Cli {
 			checkin: options.checkin.to_options(),
 			..Default::default()
 		};
-		let referent = self.get_reference_with_arg(&reference, arg).await?;
+		let referent = self.get_reference_with_arg(&reference, arg, true).await?;
 		let item = referent
 			.item
 			.clone()
