@@ -148,7 +148,7 @@ impl Server {
 		let index_publish_guard = scopeguard::guard((), {
 			let state = state.clone();
 			|()| {
-				self.tasks
+				self.index_tasks
 					.spawn({
 						let server = self.clone();
 						|_| {

@@ -71,7 +71,7 @@ impl Server {
 		}
 
 		// Spawn a task to publish the index messages.
-		self.tasks
+		self.index_tasks
 			.spawn(|_| {
 				let server = self.clone();
 				async move {

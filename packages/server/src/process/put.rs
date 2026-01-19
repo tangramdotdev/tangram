@@ -120,7 +120,7 @@ impl Server {
 			objects,
 			touched_at: now,
 		});
-		self.tasks
+		self.index_tasks
 			.spawn(|_| {
 				let server = self.clone();
 				async move {

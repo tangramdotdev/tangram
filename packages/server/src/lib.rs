@@ -85,6 +85,7 @@ pub struct State {
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
 	http: Option<Http>,
 	index: Index,
+	index_tasks: tangram_futures::task::Set<()>,
 	library: Mutex<Option<Arc<Temp>>>,
 	#[cfg_attr(not(feature = "js"), expect(dead_code))]
 	local_pool_handle: OnceLock<tokio_util::task::LocalPoolHandle>,
@@ -98,7 +99,6 @@ pub struct State {
 	ptys: DashMap<tg::pty::Id, pty::Pty, tg::id::BuildHasher>,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	store: Store,
-	tasks: tangram_futures::task::Set<()>,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
 	vfs: Mutex<Option<self::vfs::Server>>,
@@ -383,6 +383,9 @@ impl Server {
 			},
 		};
 
+		// Create the index tasks.
+		let index_tasks = tangram_futures::task::Set::default();
+
 		// Create the library.
 		let library = Mutex::new(None);
 
@@ -529,9 +532,6 @@ impl Server {
 			},
 		};
 
-		// Create the tasks.
-		let tasks = tangram_futures::task::Set::default();
-
 		// Create the temp paths.
 		let temps = DashSet::default();
 
@@ -557,6 +557,7 @@ impl Server {
 			diagnostics,
 			http,
 			index,
+			index_tasks,
 			library,
 			local_pool_handle,
 			lock,
@@ -569,7 +570,6 @@ impl Server {
 			ptys,
 			remotes,
 			store,
-			tasks,
 			temps,
 			version,
 			vfs,
@@ -935,9 +935,9 @@ impl Server {
 				}
 				tracing::trace!("cache tasks");
 
-				// Abort the tasks.
-				server.tasks.abort_all();
-				server.tasks.wait().await;
+				// Abort the index tasks.
+				server.index_tasks.abort_all();
+				server.index_tasks.wait().await;
 
 				// Abort the cleaner task.
 				if let Some(task) = cleaner_task {
@@ -1173,7 +1173,7 @@ impl Drop for Owned {
 		self.cache_tasks.abort_all();
 		self.library.lock().unwrap().take();
 		self.process_tasks.abort_all();
-		self.tasks.abort_all();
+		self.index_tasks.abort_all();
 		self.vfs.lock().unwrap().take();
 		self.watches.clear();
 	}

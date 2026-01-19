@@ -93,7 +93,7 @@ impl Server {
 			stored: crate::index::ObjectStored::default(),
 			touched_at: now,
 		});
-		self.tasks
+		self.index_tasks
 			.spawn(|_| {
 				let server = self.clone();
 				async move {

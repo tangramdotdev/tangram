@@ -897,7 +897,7 @@ impl Server {
 			id: item.id,
 			touched_at,
 		});
-		self.tasks
+		self.index_tasks
 			.spawn(|_| {
 				let server = self.clone();
 				async move {

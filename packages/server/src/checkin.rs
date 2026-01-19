@@ -472,7 +472,7 @@ impl Server {
 		}
 
 		// Spawn the index task.
-		self.tasks
+		self.index_tasks
 			.spawn({
 				let server = self.clone();
 				let arg = arg.clone();
