@@ -110,9 +110,7 @@ where
 						item,
 						options: dependency.0.options,
 					};
-					if inherit {
-						child.inherit(&referent);
-					}
+					child.inherit(&referent);
 					Some(child)
 				})
 				.collect::<Vec<_>>(),

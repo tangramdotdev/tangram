@@ -27,7 +27,9 @@ impl Cli {
 		};
 
 		for reference in &args.references {
-			let referent = self.get_reference_with_arg(reference, arg.clone()).await?;
+			let referent = self
+				.get_reference_with_arg(reference, arg.clone(), true)
+				.await?;
 			let tg::Either::Left(object) = referent.item() else {
 				return Err(tg::error!("expected an object"));
 			};

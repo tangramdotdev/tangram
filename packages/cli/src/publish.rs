@@ -53,9 +53,15 @@ struct State {
 struct Item {
 	referent: tg::Referent<tg::object::Id>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	checkin: Option<tg::checkin::Options>,
+	checkin: Option<Checkin>,
 	tag: tg::Tag,
 	push: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct Checkin {
+	path: PathBuf,
+	options: tg::checkin::Options,
 }
 
 impl Cli {
@@ -70,7 +76,7 @@ impl Cli {
 
 		// Obtain the artifact (can be a file or directory).
 		let referent = self
-			.get_reference(&reference)
+			.get_reference_with_arg(&reference, tg::get::Arg::default(), false)
 			.await?
 			.try_map(|item| item.left().ok_or_else(|| tg::error!("expected an object")))?;
 
@@ -115,21 +121,13 @@ impl Cli {
 		// Execute the plan.
 		for mut item in plan {
 			// Check in the artifact if requested. This is only possible if the root is referred to by path and the item has a path.
-			if let Some(options) = item.checkin {
-				let path = reference.item().unwrap_path_ref().join(
-					item.referent
-						.path()
-						.ok_or_else(|| tg::error!("expected a path!"))?,
-				);
-				let path = tangram_util::fs::canonicalize_parent(&path)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+			if let Some(checkin) = item.checkin {
 				let args = tg::checkin::Arg {
-					path: path.clone(),
-					options,
+					path: checkin.path.clone(),
+					options: checkin.options,
 					updates: Vec::new(),
 				};
-				let artifact = tg::checkin(&handle, args).await.map_err(|source| tg::error!(!source, path = %path.display(), "failed to checkin local package during publishing"))?;
+				let artifact = tg::checkin(&handle, args).await.map_err(|source| tg::error!(!source, path = %checkin.path.display(), "failed to checkin local package during publishing"))?;
 				item.referent.item = artifact.id().into();
 			}
 			if item.push {
@@ -258,18 +256,17 @@ async fn try_get_package_tag(
 		module,
 		export: Some("metadata".to_owned()),
 	});
-	let arg = tg::run::Arg {
+	let arg = tg::build::Arg {
 		host: Some("js".to_owned()),
 		executable: Some(executable),
 		..Default::default()
 	};
-	let Ok(output) = tg::run::run(handle, arg).await else {
+	let Ok(output) = tg::build::build(handle, arg).await else {
 		return Ok(None);
 	};
 	let map = output
 		.try_unwrap_map()
 		.map_err(|_| tg::error!("expected metadata to be a map"))?;
-
 	let tag = map
 		.get("tag")
 		.ok_or_else(|| tg::error!("metadata missing 'tag' field"))?
@@ -380,15 +377,35 @@ impl State {
 					continue;
 				};
 
-				// If this node has no local dependencies then we don't have to check it in again
-				let checkin = (!node.outgoing.is_empty()).then(|| tg::checkin::Options {
-					local_dependencies: false,
-					lock: None,
-					solve: true,
-					..tg::checkin::Options::default()
-				});
+				// If this node has no local dependencies then we don't have to check it in again.
+				let checkin = if node.outgoing.is_empty() {
+					None
+				} else {
+					let path = node
+						.package
+						.path()
+						.ok_or_else(|| tg::error!("missing path"))?;
+					let path =
+						tangram_util::fs::canonicalize_parent(&path)
+							.await
+							.map_err(|source| {
+								tg::error!(
+									!source,
+									path = %path.display(),
+									"failed to canonicalize the path"
+								)
+							})?;
+					let options = tg::checkin::Options {
+						local_dependencies: false,
+						lock: None,
+						solve: true,
+						..tg::checkin::Options::default()
+					};
+					let checkin = Checkin { path, options };
+					Some(checkin)
+				};
 
-				// If this is in a strongly connected component add a checkin step without dependencies
+				// If this is in a strongly connected component add a checkin step without dependencies.
 				items.push(Item {
 					referent: node.package.clone().map(|object| object.id()),
 					checkin,
@@ -414,13 +431,29 @@ impl State {
 					}
 
 					// Otherwise, we need to check this local package in twice.
+					let path = item
+						.referent
+						.path()
+						.ok_or_else(|| tg::error!("missing path"))?;
+					let path =
+						tangram_util::fs::canonicalize_parent(&path)
+							.await
+							.map_err(|source| {
+								tg::error!(
+									!source,
+									path = %path.display(),
+									"failed to canonicalize the path"
+								)
+							})?;
+					let options = tg::checkin::Options {
+						local_dependencies: false,
+						lock: None,
+						solve: false,
+						..tg::checkin::Options::default()
+					};
+					let checkin = Checkin { path, options };
 					plan.push(Item {
-						checkin: Some(tg::checkin::Options {
-							local_dependencies: false,
-							lock: None,
-							solve: false,
-							..tg::checkin::Options::default()
-						}),
+						checkin: Some(checkin),
 						push: false,
 						..item.clone()
 					});
@@ -476,6 +509,15 @@ where
 		handle: &H,
 		directory: tg::Referent<&tg::Directory>,
 	) -> tg::Result<bool> {
+		if directory
+			.options
+			.path
+			.as_ref()
+			.is_some_and(|p| p == &PathBuf::from(""))
+		{
+			return Err(tg::error!(id = ?directory.id(), "invalid path (1)"));
+		}
+
 		// Track local tags.
 		if let Some(tag) = directory.tag() {
 			self.tags.push((tag.clone(), directory.item().id().into()));
@@ -498,6 +540,14 @@ where
 	}
 
 	async fn visit_file(&mut self, handle: &H, file: tg::Referent<&tg::File>) -> tg::Result<bool> {
+		if file
+			.options
+			.path
+			.as_ref()
+			.is_some_and(|p| p == &PathBuf::from(""))
+		{
+			return Err(tg::error!(id = ?file.id(), "invalid path (2)"));
+		}
 		// Track local tags.
 		if let Some(tag) = file.tag() {
 			self.tags.push((tag.clone(), file.item().id().into()));
@@ -537,6 +587,14 @@ where
 		_handle: &H,
 		symlink: tg::Referent<&tg::Symlink>,
 	) -> tg::Result<bool> {
+		if symlink
+			.options
+			.path
+			.as_ref()
+			.is_some_and(|p| p == &PathBuf::from(""))
+		{
+			return Err(tg::error!("invalid path"));
+		}
 		// Track local tags.
 		if let Some(tag) = symlink.tag() {
 			self.tags.push((tag.clone(), symlink.item().id().into()));
