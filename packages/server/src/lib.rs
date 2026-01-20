@@ -847,6 +847,20 @@ impl Server {
 				}
 				tracing::trace!("process tasks");
 
+				// Close all PTYs.
+				let pty_ids = server
+					.ptys
+					.iter()
+					.map(|r| r.key().clone())
+					.collect::<Vec<_>>();
+				for pty in pty_ids {
+					server
+						.close_pty(&pty, tg::pty::close::Arg::default())
+						.await
+						.ok();
+				}
+				tracing::trace!("close ptys");
+
 				// Stop the HTTP task.
 				if let Some(task) = http_task {
 					task.stop();

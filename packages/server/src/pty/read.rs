@@ -71,7 +71,9 @@ impl Server {
 					let error = std::io::Error::last_os_error();
 					#[cfg(target_os = "linux")]
 					{
-						if error.raw_os_error() == Some(libc::EIO) {
+						if error.raw_os_error() == Some(libc::EIO)
+							|| error.raw_os_error() == Some(libc::EBADF)
+						{
 							return Ok(None);
 						}
 					}
