@@ -33,7 +33,7 @@ impl Server {
 
 		// Create the pty.
 		let id = tg::pty::Id::new();
-		let pty = super::Pty::new(self, arg.size)
+		let pty = super::Pty::new(self, arg.size, id.clone())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the pty"))?;
 		self.ptys.insert(id.clone(), pty);

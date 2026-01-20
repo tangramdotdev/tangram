@@ -1,8 +1,11 @@
 use {
 	crate::{Server, temp::Temp},
+	bytes::Bytes,
+	futures::TryFutureExt as _,
+	num::ToPrimitive,
 	std::{
 		ffi::{CStr, CString},
-		os::fd::{FromRawFd as _, OwnedFd},
+		os::fd::{AsRawFd, FromRawFd as _, OwnedFd},
 	},
 	tangram_client::prelude::*,
 };
@@ -15,16 +18,22 @@ mod size;
 mod write;
 
 pub(crate) struct Pty {
-	master: Option<OwnedFd>,
-	slave: Option<OwnedFd>,
-	#[expect(dead_code)]
-	name: CString,
+	pub(crate) master: Option<OwnedFd>,
+	pub(crate) slave: Option<OwnedFd>,
+	pub(crate) name: CString,
 	session: Option<tokio::process::Child>,
+	sender: tokio::sync::mpsc::UnboundedSender<WriteMessage>,
+	pub(crate) task: tokio::task::JoinHandle<tg::Result<()>>,
 	pub(crate) temp: Temp,
 }
 
+enum WriteMessage {
+	Size(tg::pty::Size),
+	Chunk { master: bool, bytes: Bytes },
+}
+
 impl Pty {
-	async fn new(server: &Server, size: tg::pty::Size) -> tg::Result<Self> {
+	async fn new(server: &Server, size: tg::pty::Size, id: tg::pty::Id) -> tg::Result<Self> {
 		let (master, slave, name) = unsafe {
 			// Create the pty.
 			let mut win_size = libc::winsize {
@@ -80,11 +89,87 @@ impl Pty {
 			.map_err(|source| tg::error!(!source, "failed to spawn the session process"))?;
 		let session = Some(session);
 
+		// Create a sender/receiver pair.
+		let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+
+		// Spawn a task to handle writes.
+		let task = tokio::task::spawn(
+			{
+				let server = server.clone();
+				async move {
+					while let Some(message) = receiver.recv().await {
+						// Break out of the loop if we can't get the PTY or any of its fds.
+						let Some(pty) = server.ptys.get(&id) else {
+							break;
+						};
+						let Some(master_fd) = pty.master.as_ref().map(AsRawFd::as_raw_fd) else {
+							break;
+						};
+						let Some(slave_fd) = pty.slave.as_ref().map(AsRawFd::as_raw_fd) else {
+							break;
+						};
+
+						// Drop the handle to the PTY to avoid a deadlock when read requests come in.
+						drop(pty);
+
+						// Handle the message.
+						match message {
+							WriteMessage::Chunk { master, bytes } => {
+								tokio::task::spawn_blocking({
+									let fd = if master {
+										master_fd.as_raw_fd()
+									} else {
+										slave_fd.as_raw_fd()
+									};
+									move || unsafe {
+										let mut bytes = bytes.as_ref();
+										while !bytes.is_empty() {
+											let n =
+												libc::write(fd, bytes.as_ptr().cast(), bytes.len());
+											if n < 0 {
+												let error = std::io::Error::last_os_error();
+												if error.raw_os_error() == Some(libc::EBADF) {
+													break;
+												}
+												return Err(error);
+											}
+											let n = n.to_usize().unwrap();
+											if n == 0 {
+												break;
+											}
+											bytes = &bytes[n..];
+										}
+										Ok(())
+									}
+								})
+								.await
+								.map_err(|source| {
+									tg::error!(!source, "the pty write task panicked")
+								})?
+								.map_err(|source| tg::error!(!source, "failed to write to the"))?;
+							},
+							WriteMessage::Size(size) => {
+								Server::pty_write_set_size(master_fd.as_raw_fd(), size)
+									.await
+									.map_err(|source| {
+										tg::error!(!source, "failed to change the size")
+									})?;
+							},
+						}
+					}
+					Ok::<_, tg::Error>(())
+				}
+			}
+			.inspect_err(|error| tracing::error!(?error, "failed to write th")),
+		);
+
 		let pty = Self {
 			master,
 			slave,
 			name,
 			session,
+			sender,
+			task,
 			temp,
 		};
 

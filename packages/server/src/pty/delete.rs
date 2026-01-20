@@ -31,7 +31,11 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 
-		self.ptys.remove(id);
+		let Some((_, pty)) = self.ptys.remove(id) else {
+			return Ok(());
+		};
+
+		pty.task.abort();
 
 		Ok(())
 	}

@@ -1,7 +1,7 @@
 use {
 	crate::{Context, Server, database::Database},
 	num::ToPrimitive as _,
-	std::time::Duration,
+	std::{os::fd::AsRawFd, time::Duration},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, request::Ext as _},
@@ -85,7 +85,17 @@ impl Server {
 				.collect(),
 			pipes: Some(self.pipes.iter().map(|entry| entry.key().clone()).collect()),
 			processes: Some(processes),
-			ptys: Some(self.ptys.iter().map(|entry| entry.key().clone()).collect()),
+			ptys: Some(
+				self.ptys
+					.iter()
+					.map(|entry| tg::health::Pty {
+						id: entry.key().clone(),
+						master: entry.value().master.as_ref().map(AsRawFd::as_raw_fd),
+						slave: entry.value().slave.as_ref().map(AsRawFd::as_raw_fd),
+						name: entry.value().name.to_string_lossy().into(),
+					})
+					.collect(),
+			),
 			version: Some(self.version.clone()),
 		};
 

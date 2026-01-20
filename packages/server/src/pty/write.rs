@@ -1,11 +1,7 @@
 use {
 	crate::{Context, Server},
 	futures::{Stream, StreamExt as _, future, stream::TryStreamExt as _},
-	num::ToPrimitive as _,
-	std::{
-		os::fd::{AsRawFd as _, RawFd},
-		pin::pin,
-	},
+	std::{os::fd::RawFd, pin::pin},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Stop},
 	tangram_http::{Body, request::Ext as _},
@@ -36,66 +32,44 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to write to the pty on remote"));
 		}
 
+		// Get the sender.
 		let pty = self
 			.ptys
-			.get_mut(id)
+			.get(id)
 			.ok_or_else(|| tg::error!("failed to get the pty"))?;
-		let fd = if arg.master {
-			pty.master
-				.as_ref()
-				.ok_or_else(|| tg::error!("the pty master is closed"))?
-				.as_raw_fd()
-		} else {
-			pty.slave
-				.as_ref()
-				.ok_or_else(|| tg::error!("the pty slave is closed"))?
-				.as_raw_fd()
-		};
+		let sender = pty.sender.clone();
 		drop(pty);
 
+		// Drain the stream as fast as possible, buffering messages in the channel if the PTY cannot consume them fast enough.
 		let mut stream = pin!(stream);
 		while let Some(event) = stream
 			.try_next()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read from the stream"))?
+			.map_err(|source| tg::error!(!source, "failed to read from the write stream"))?
 		{
 			match event {
-				tg::pty::Event::Chunk(chunk) => {
-					tokio::task::spawn_blocking(move || unsafe {
-						let mut chunk = chunk.as_ref();
-						while !chunk.is_empty() {
-							let n = libc::write(fd, chunk.as_ptr().cast(), chunk.len());
-							if n < 0 {
-								let error = std::io::Error::last_os_error();
-								return Err(error);
-							}
-							let n = n.to_usize().unwrap();
-							if n == 0 {
-								break;
-							}
-							chunk = &chunk[n..];
-						}
-						Ok(())
-					})
-					.await
-					.map_err(|source| tg::error!(!source, "the pty write task panicked"))?
-					.map_err(|source| tg::error!(!source, "failed to write to the pty"))?;
+				tg::pty::Event::Chunk(bytes) => {
+					let message = super::WriteMessage::Chunk {
+						master: arg.master,
+						bytes,
+					};
+					sender
+						.send(message)
+						.map_err(|_| tg::error!("the pty was closed"))?;
 				},
 				tg::pty::Event::Size(size) => {
-					Self::pty_write_set_size(fd.as_raw_fd(), size)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to change the size"))?;
+					let message = super::WriteMessage::Size(size);
+					sender
+						.send(message)
+						.map_err(|_| tg::error!("the pty was closed"))?;
 				},
-				tg::pty::Event::End => {
-					return Err(tg::error!("cannot write an end event"));
-				},
+				tg::pty::Event::End => break,
 			}
 		}
-
 		Ok(())
 	}
 
-	async fn pty_write_set_size(fd: RawFd, size: tg::pty::Size) -> std::io::Result<()> {
+	pub(super) async fn pty_write_set_size(fd: RawFd, size: tg::pty::Size) -> std::io::Result<()> {
 		tokio::task::spawn_blocking(move || unsafe {
 			let mut winsize = libc::winsize {
 				ws_col: size.cols,

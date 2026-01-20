@@ -18,7 +18,7 @@ pub struct Health {
 	pub processes: Option<Processes>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub ptys: Option<Vec<tg::pty::Id>>,
+	pub ptys: Option<Vec<Pty>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub version: Option<String>,
@@ -36,6 +36,14 @@ pub struct Processes {
 	pub permits: Option<u64>,
 
 	pub started: u64,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Pty {
+	pub id: tg::pty::Id,
+	pub master: Option<i32>,
+	pub slave: Option<i32>,
+	pub name: String,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

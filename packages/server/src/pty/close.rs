@@ -36,6 +36,7 @@ impl Server {
 			.ptys
 			.get_mut(id)
 			.ok_or_else(|| tg::error!("failed to get the pty"))?;
+		pty.task.abort();
 		if arg.master {
 			pty.master.take();
 		} else {
