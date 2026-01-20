@@ -72,7 +72,6 @@ impl Server {
 					#[cfg(target_os = "linux")]
 					{
 						if error.raw_os_error() == Some(libc::EIO)
-							|| error.raw_os_error() == Some(libc::EBADF)
 						{
 							return Ok(None);
 						}
