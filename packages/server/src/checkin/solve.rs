@@ -76,6 +76,8 @@ type GraphPointers =
 struct Candidate {
 	index: Option<usize>,
 	object: tg::object::Id,
+	#[expect(dead_code)]
+	remote: Option<String>,
 	tag: tg::Tag,
 }
 
@@ -525,7 +527,7 @@ impl Server {
 		}
 
 		// Get the next candidate.
-		let Some(candidate) = checkpoint.candidates.as_mut().unwrap().pop_back() else {
+		let Some(candidate) = checkpoint.candidates.as_mut().unwrap().pop_front() else {
 			if state.arg.options.unsolved_dependencies {
 				let solution = Solution {
 					referent: None,
@@ -587,6 +589,13 @@ impl Server {
 		checkpoint: &Checkpoint,
 		item: &Item,
 	) -> Option<Candidate> {
+		// If local_dependencies is true and the reference has a local option, do not use the lock candidate.
+		if let ItemVariant::FileDependency(reference) = &item.variant
+			&& state.arg.options.local_dependencies
+			&& reference.options().local.is_some()
+		{
+			return None;
+		}
 		let lock_index = checkpoint
 			.graph
 			.nodes
@@ -628,7 +637,13 @@ impl Server {
 		};
 		let object = referent.id().cloned()?;
 		let tag = referent.tag().cloned()?;
-		let candidate = Candidate { index, object, tag };
+		let remote = None;
+		let candidate = Candidate {
+			index,
+			object,
+			remote,
+			tag,
+		};
 		Some(candidate)
 	}
 
@@ -647,11 +662,17 @@ impl Server {
 			.filter_map(|output| {
 				let object = output.item?.left()?;
 				let index = None;
+				let remote = output.remote;
 				let tag = output.tag;
-				let candidate = Candidate { index, object, tag };
+				let candidate = Candidate {
+					index,
+					object,
+					remote,
+					tag,
+				};
 				Some(candidate)
 			})
-			.collect::<im::Vector<_>>();
+			.collect();
 
 		Ok(candidates)
 	}
@@ -1629,7 +1650,7 @@ impl Server {
 						pattern: pattern.clone(),
 						recursive: false,
 						remotes: None,
-						reverse: false,
+						reverse: true,
 					})
 					.await
 					.map_err(|source| tg::error!(!source, %pattern, "failed to list tags"))?;
@@ -1638,7 +1659,7 @@ impl Server {
 				drop(permit);
 
 				// Prefetch the first candidate's object.
-				if let Some(output) = output.data.last()
+				if let Some(output) = output.data.first()
 					&& let Some(id) = output.item.as_ref().and_then(|item| item.as_ref().left())
 				{
 					server.checkin_solve_get_or_spawn_object_task(&prefetch, id);

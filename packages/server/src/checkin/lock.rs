@@ -111,7 +111,7 @@ impl Server {
 		}
 
 		// Create the lock.
-		let new_lock = Self::checkin_create_lock(graph, root);
+		let new_lock = Self::checkin_create_lock(graph, root, arg.options.local_dependencies);
 
 		// If this is a locked checkin, then verify the lock is unchanged.
 		if arg.options.locked && lock.is_some_and(|existing| new_lock.nodes != existing.nodes) {
@@ -272,7 +272,11 @@ impl Server {
 		})
 	}
 
-	fn checkin_create_lock(graph: &Graph, root: &Path) -> tg::graph::Data {
+	fn checkin_create_lock(
+		graph: &Graph,
+		root: &Path,
+		local_dependencies: bool,
+	) -> tg::graph::Data {
 		// Get the root node index.
 		let root_index = *graph.paths.get(root).unwrap();
 
@@ -403,10 +407,10 @@ impl Server {
 		let lock = tg::graph::Data { nodes };
 
 		// Strip the lock.
-		Self::strip_lock(lock)
+		Self::strip_lock(lock, local_dependencies)
 	}
 
-	pub(crate) fn strip_lock(lock: tg::graph::Data) -> tg::graph::Data {
+	pub(crate) fn strip_lock(lock: tg::graph::Data, local_dependencies: bool) -> tg::graph::Data {
 		// Run Tarjan's algorithm.
 		let sccs = petgraph::algo::tarjan_scc(&Petgraph(&lock));
 
@@ -431,6 +435,9 @@ impl Server {
 						},
 						tg::graph::data::Node::File(file) => {
 							file.dependencies.iter().any(|(reference, option)| {
+								if local_dependencies && reference.options().local.is_some() {
+									return false;
+								}
 								let Some(dependency) = option else {
 									return false;
 								};
@@ -502,6 +509,9 @@ impl Server {
 				tg::graph::data::Node::File(file) => {
 					// Remove unmarked dependencies.
 					file.dependencies.retain(|reference, option| {
+						if local_dependencies && reference.options().local.is_some() {
+							return false;
+						}
 						let Some(dependency) = option else {
 							return false;
 						};

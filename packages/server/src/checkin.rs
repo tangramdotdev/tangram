@@ -282,13 +282,15 @@ impl Server {
 			(graph, lock, solutions, version)
 		};
 
-		// Read the lock if it was not retrieved from the watcher.
+		// Read the lock if it was not retrieved from the watcher and the lock option is set.
 		let lock = if let Some(lock) = lock {
 			Some(lock)
-		} else {
+		} else if arg.options.lock.is_some() {
 			Self::checkin_try_read_lock(root)
 				.map_err(|source| tg::error!(!source, "failed to read the lock"))?
 				.map(Arc::new)
+		} else {
+			None
 		};
 
 		// Get the next node index.

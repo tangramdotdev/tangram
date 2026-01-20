@@ -65,6 +65,19 @@ impl Server {
 			.data
 			.extend(remote_outputs.into_iter().flat_map(|output| output.data));
 
+		// Sort by tag, then by remote (local first for ties).
+		if arg.reverse {
+			output.data.sort_by(|a, b| match b.tag.cmp(&a.tag) {
+				std::cmp::Ordering::Equal => a.remote.cmp(&b.remote),
+				other => other,
+			});
+		} else {
+			output.data.sort_by(|a, b| match a.tag.cmp(&b.tag) {
+				std::cmp::Ordering::Equal => a.remote.cmp(&b.remote),
+				other => other,
+			});
+		}
+
 		Ok(output)
 	}
 
