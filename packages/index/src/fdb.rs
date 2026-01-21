@@ -106,8 +106,9 @@ enum CacheEntryField {
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
 #[repr(u8)]
 enum CacheEntryCoreField {
-	TouchedAt = 0,
-	ReferenceCount = 1,
+	Exists = 0,
+	TouchedAt = 1,
+	ReferenceCount = 2,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
