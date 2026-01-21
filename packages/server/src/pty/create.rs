@@ -1,6 +1,8 @@
 use {
 	crate::{Context, Server},
+	indoc::formatdoc,
 	tangram_client::prelude::*,
+	tangram_database::{self as db, Database, Query},
 	tangram_http::{Body, request::Ext as _},
 };
 
@@ -36,6 +38,32 @@ impl Server {
 		let pty = super::Pty::new(self, arg.size)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the pty"))?;
+
+		// Update the the database.
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				insert into ptys
+				values ({p}1, {p}2, {p}3);
+			"
+		);
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let params = db::params![
+			id.to_string(),
+			now,
+			serde_json::to_string(&arg.size).unwrap()
+		];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Update the server.
 		self.ptys.insert(id.clone(), pty);
 
 		// Create the output.

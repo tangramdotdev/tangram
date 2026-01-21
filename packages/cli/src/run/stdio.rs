@@ -48,18 +48,19 @@ where
 				// Write to stdin until it is finished or the task is stopped.
 				let future = match &stdin {
 					tg::process::Stdio::Pipe(id) => {
-						let stream = stream
-							.map(|bytes| bytes.map(tg::pipe::Event::Chunk))
-							.take_until(stop.wait())
-							.boxed();
+						let stream = stream.take_until(stop.wait());
 						async {
-							let arg = tg::pipe::write::Arg {
-								local: None,
-								remotes: remote.clone().map(|r| vec![r]),
-							};
-							handle.write_pipe(id, arg, stream).await.map_err(
-								|source| tg::error!(!source, %id, "failed to write to the pipe"),
-							)?;
+							let mut stream = pin!(stream);
+							while let Some(bytes) = stream.try_next().await? {
+								let arg = tg::pipe::write::Arg {
+									bytes,
+									local: None,
+									remotes: remote.clone().map(|r| vec![r]),
+								};
+								handle.write_pipe(id, arg).await.map_err(
+									|source| tg::error!(!source, %id, "failed to write to the pipe"),
+								)?;
+							}
 							Ok::<_, tg::Error>(())
 						}
 						.boxed()
@@ -77,19 +78,38 @@ where
 						let sigwinch_stream = sigwinch_stream(tty)?;
 
 						// Merge the streams.
-						let stream = stream::select(stdin_stream, sigwinch_stream)
-							.take_until(stop.wait())
-							.boxed();
+						let stream =
+							stream::select(stdin_stream, sigwinch_stream).take_until(stop.wait());
 
 						async {
-							let arg = tg::pty::write::Arg {
-								local: None,
-								master: true,
-								remotes: remote.clone().map(|r| vec![r]),
-							};
-							handle.write_pty(id, arg, stream).await.map_err(
-								|source| tg::error!(!source, %id, "failed to write to the pty"),
-							)?;
+							let mut stream = pin!(stream);
+							while let Some(event) = stream.try_next().await? {
+								match event {
+									tg::pty::Event::Chunk(bytes) => {
+										let arg = tg::pty::write::Arg {
+											bytes,
+											local: None,
+											master: true,
+											remotes: remote.clone().map(|r| vec![r]),
+										};
+										handle.write_pty(id, arg).await.map_err(
+											|source| tg::error!(!source, %id, "failed to write to the pty"),
+										)?;
+									},
+									tg::pty::Event::Size(size) => {
+										let arg = tg::pty::size::put::Arg {
+											local: None,
+											master: true,
+											size,
+											remotes: remote.clone().map(|r| vec![r]),
+										};
+										handle.put_pty_size(id, arg).await.map_err(
+											|source| tg::error!(!source, %id, "failed to write to the pty"),
+										)?;
+									},
+									tg::pty::Event::End => break,
+								}
+							}
 							Ok::<_, tg::Error>(())
 						}
 						.boxed()

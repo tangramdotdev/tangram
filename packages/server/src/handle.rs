@@ -355,13 +355,8 @@ impl tg::handle::Pipe for Owned {
 		self.0.try_read_pipe(id, arg).await
 	}
 
-	async fn write_pipe(
-		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::write::Arg,
-		stream: BoxStream<'static, tg::Result<tg::pipe::Event>>,
-	) -> tg::Result<()> {
-		self.0.write_pipe(id, arg, stream).await
+	async fn write_pipe(&self, id: &tg::pipe::Id, arg: tg::pipe::write::Arg) -> tg::Result<()> {
+		self.0.write_pipe(id, arg).await
 	}
 }
 
@@ -381,9 +376,13 @@ impl tg::handle::Pty for Owned {
 	async fn get_pty_size(
 		&self,
 		id: &tg::pty::Id,
-		arg: tg::pty::read::Arg,
+		arg: tg::pty::size::get::Arg,
 	) -> tg::Result<Option<tg::pty::Size>> {
 		self.0.get_pty_size(id, arg).await
+	}
+
+	async fn put_pty_size(&self, id: &tg::pty::Id, arg: tg::pty::size::put::Arg) -> tg::Result<()> {
+		self.0.put_pty_size(id, arg).await
 	}
 
 	async fn try_read_pty(
@@ -394,13 +393,8 @@ impl tg::handle::Pty for Owned {
 		self.0.try_read_pty(id, arg).await
 	}
 
-	async fn write_pty(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::write::Arg,
-		stream: BoxStream<'static, tg::Result<tg::pty::Event>>,
-	) -> tg::Result<()> {
-		self.0.write_pty(id, arg, stream).await
+	async fn write_pty(&self, id: &tg::pty::Id, arg: tg::pty::write::Arg) -> tg::Result<()> {
+		self.0.write_pty(id, arg).await
 	}
 }
 
@@ -848,13 +842,8 @@ impl tg::handle::Pipe for Server {
 			.await
 	}
 
-	async fn write_pipe(
-		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::write::Arg,
-		stream: BoxStream<'static, tg::Result<tg::pipe::Event>>,
-	) -> tg::Result<()> {
-		self.write_pipe_with_context(&Context::default(), id, arg, stream)
+	async fn write_pipe(&self, id: &tg::pipe::Id, arg: tg::pipe::write::Arg) -> tg::Result<()> {
+		self.write_pipe_with_context(&Context::default(), id, arg)
 			.await
 	}
 }
@@ -877,9 +866,14 @@ impl tg::handle::Pty for Server {
 	async fn get_pty_size(
 		&self,
 		id: &tg::pty::Id,
-		arg: tg::pty::read::Arg,
+		arg: tg::pty::size::get::Arg,
 	) -> tg::Result<Option<tg::pty::Size>> {
 		self.try_get_pty_size_with_context(&Context::default(), id, arg)
+			.await
+	}
+
+	async fn put_pty_size(&self, id: &tg::pty::Id, arg: tg::pty::size::put::Arg) -> tg::Result<()> {
+		self.try_put_pty_size_with_context(&Context::default(), id, arg)
 			.await
 	}
 
@@ -892,13 +886,8 @@ impl tg::handle::Pty for Server {
 			.await
 	}
 
-	async fn write_pty(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::write::Arg,
-		stream: BoxStream<'static, tg::Result<tg::pty::Event>>,
-	) -> tg::Result<()> {
-		self.write_pty_with_context(&Context::default(), id, arg, stream)
+	async fn write_pty(&self, id: &tg::pty::Id, arg: tg::pty::write::Arg) -> tg::Result<()> {
+		self.write_pty_with_context(&Context::default(), id, arg)
 			.await
 	}
 }
@@ -1345,15 +1334,8 @@ impl tg::handle::Pipe for ServerWithContext {
 		self.0.try_read_pipe_with_context(&self.1, id, arg).await
 	}
 
-	async fn write_pipe(
-		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::write::Arg,
-		stream: BoxStream<'static, tg::Result<tg::pipe::Event>>,
-	) -> tg::Result<()> {
-		self.0
-			.write_pipe_with_context(&self.1, id, arg, stream)
-			.await
+	async fn write_pipe(&self, id: &tg::pipe::Id, arg: tg::pipe::write::Arg) -> tg::Result<()> {
+		self.0.write_pipe_with_context(&self.1, id, arg).await
 	}
 }
 
@@ -1373,9 +1355,13 @@ impl tg::handle::Pty for ServerWithContext {
 	async fn get_pty_size(
 		&self,
 		id: &tg::pty::Id,
-		arg: tg::pty::read::Arg,
+		arg: tg::pty::size::get::Arg,
 	) -> tg::Result<Option<tg::pty::Size>> {
 		self.0.try_get_pty_size_with_context(&self.1, id, arg).await
+	}
+
+	async fn put_pty_size(&self, id: &tg::pty::Id, arg: tg::pty::size::put::Arg) -> tg::Result<()> {
+		self.0.try_put_pty_size_with_context(&self.1, id, arg).await
 	}
 
 	async fn try_read_pty(
@@ -1386,15 +1372,8 @@ impl tg::handle::Pty for ServerWithContext {
 		self.0.try_read_pty_with_context(&self.1, id, arg).await
 	}
 
-	async fn write_pty(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::write::Arg,
-		stream: BoxStream<'static, tg::Result<tg::pty::Event>>,
-	) -> tg::Result<()> {
-		self.0
-			.write_pty_with_context(&self.1, id, arg, stream)
-			.await
+	async fn write_pty(&self, id: &tg::pty::Id, arg: tg::pty::write::Arg) -> tg::Result<()> {
+		self.0.write_pty_with_context(&self.1, id, arg).await
 	}
 }
 
