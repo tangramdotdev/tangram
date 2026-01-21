@@ -1,8 +1,12 @@
 use {
-	crate::prelude::*, bytes::Bytes, futures::{
+	crate::prelude::*,
+	bytes::Bytes,
+	futures::{
 		FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
 		stream::{self, BoxStream},
-	}, num::ToPrimitive as _, std::{
+	},
+	num::ToPrimitive as _,
+	std::{
 		io::SeekFrom,
 		sync::{Arc, Mutex},
 	},
@@ -533,9 +537,7 @@ pub trait Ext: tg::Handle {
 		id: &tg::pipe::Id,
 		arg: tg::pipe::read::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<Bytes>> + Send + 'static>,
-		>,
+		Output = tg::Result<Option<impl Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
 	> + Send {
 		let id = id.clone();
 		async move {
@@ -547,27 +549,26 @@ pub trait Ext: tg::Handle {
 			struct State {
 				stream: Option<BoxStream<'static, tg::Result<tg::pipe::Event>>>,
 				arg: tg::pipe::read::Arg,
-				end: bool,
 			}
 			let state = State {
 				stream: Some(stream),
 				arg,
-				end: false,
 			};
 			let state = Arc::new(Mutex::new(state));
 			let stream = stream::try_unfold(state.clone(), move |state| {
 				let handle = handle.clone();
 				let id = id.clone();
 				async move {
-					if state.lock().unwrap().end {
-						return Ok(None);
-					}
 					let stream = state.lock().unwrap().stream.take();
 					let stream = if let Some(stream) = stream {
 						stream
 					} else {
 						let arg = state.lock().unwrap().arg.clone();
-						handle.try_read_pipe_stream(&id, arg).await?.unwrap().boxed()
+						handle
+							.try_read_pipe_stream(&id, arg)
+							.await?
+							.unwrap()
+							.boxed()
 					};
 					Ok::<_, tg::Error>(Some((stream, state)))
 				}
@@ -588,9 +589,7 @@ pub trait Ext: tg::Handle {
 		id: &tg::pty::Id,
 		arg: tg::pty::read::Arg,
 	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<Bytes>> + Send + 'static>,
-		>,
+		Output = tg::Result<Option<impl Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
 	> + Send {
 		let id = id.clone();
 		async move {

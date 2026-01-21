@@ -54,7 +54,7 @@ impl Server {
 				remotes: None,
 			};
 			let stream = client
-				.sync_stream(arg, stream)
+				.sync(arg, stream)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to sync with remote"))?;
 			return Ok(stream.boxed());

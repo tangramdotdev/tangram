@@ -69,7 +69,7 @@ pub trait Handle:
 		tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>>,
 	>;
 
-	fn sync_stream<'a>(
+	fn sync<'a>(
 		&'a self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
@@ -482,12 +482,12 @@ where
 		self.push(arg).map_ok(futures::StreamExt::boxed).boxed()
 	}
 
-	fn sync_stream<'a>(
+	fn sync<'a>(
 		&'a self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>>> {
-		self.sync_stream(arg, stream)
+		self.sync(arg, stream)
 			.map_ok(futures::StreamExt::boxed)
 			.boxed()
 	}

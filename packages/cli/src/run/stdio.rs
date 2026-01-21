@@ -39,16 +39,16 @@ where
 			let remote = stdio.remote.clone();
 			let stdin = stdio.stdin.clone();
 			let tty = stdio.tty.clone();
-			let stream = crate::util::stdio::stdin_stream();
+			
 			async move {
 				let Some(stdin) = stdin else {
 					return Ok(());
 				};
+				let stream = crate::util::stdio::stdin_stream().take_until(stop.wait());
 
 				// Write to stdin until it is finished or the task is stopped.
 				let future = match &stdin {
-					tg::process::Stdio::Pipe(id) => {
-						let stream = stream.take_until(stop.wait());
+					tg::process::Stdio::Pipe(id) => {		
 						async {
 							let mut stream = pin!(stream);
 							while let Some(bytes) = stream.try_next().await? {
@@ -70,7 +70,7 @@ where
 						let Some(tty) = tty else {
 							return Err(tg::error!("expected a tty"));
 						};
-						
+
 						// Spawn a task to handle sigwinch, which is canceled after stdin is finished.
 						let sigwinch_task = Task::spawn({
 							let handle = handle.clone();

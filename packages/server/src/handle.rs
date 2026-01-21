@@ -87,12 +87,12 @@ impl tg::Handle for Owned {
 		self.0.push(arg).await
 	}
 
-	async fn sync_stream(
+	async fn sync(
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static> {
-		self.0.sync_stream(arg, stream).await
+		self.0.sync(arg, stream).await
 	}
 
 	async fn try_get(
@@ -544,7 +544,7 @@ impl tg::Handle for Server {
 		self.push_with_context(&Context::default(), arg).await
 	}
 
-	async fn sync_stream(
+	async fn sync(
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
@@ -1050,7 +1050,7 @@ impl tg::Handle for ServerWithContext {
 		self.0.push_with_context(&self.1, arg).await
 	}
 
-	async fn sync_stream(
+	async fn sync(
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,

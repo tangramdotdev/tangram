@@ -189,7 +189,7 @@ where
 		}
 	}
 
-	fn sync_stream(
+	fn sync(
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
@@ -198,11 +198,11 @@ where
 	> {
 		match self {
 			tg::Either::Left(s) => s
-				.sync_stream(arg, stream)
+				.sync(arg, stream)
 				.map(|result| result.map(futures::StreamExt::left_stream))
 				.left_future(),
 			tg::Either::Right(s) => s
-				.sync_stream(arg, stream)
+				.sync(arg, stream)
 				.map(|result| result.map(futures::StreamExt::right_stream))
 				.right_future(),
 		}

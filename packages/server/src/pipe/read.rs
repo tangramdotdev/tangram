@@ -1,6 +1,6 @@
 use {
 	crate::{Context, Server},
-	futures::{FutureExt as _, Stream, StreamExt as _, future},
+	futures::{FutureExt as _, Stream, StreamExt as _, future, stream},
 	std::os::fd::AsFd as _,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
@@ -57,10 +57,10 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to clone the receiver"))?;
 
 		let stream = ReaderStream::new(receiver).map(|result| match result {
-			Ok(bytes) if bytes.is_empty() => Ok(tg::pipe::Event::End),
 			Ok(bytes) => Ok(tg::pipe::Event::Chunk(bytes)),
 			Err(source) => Err(tg::error!(!source, "failed to read pipe")),
-		});
+		})
+		.chain(stream::once(future::ok(tg::pipe::Event::End)));
 
 		Ok(Some(stream))
 	}

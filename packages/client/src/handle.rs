@@ -108,7 +108,7 @@ pub trait Handle:
 		>,
 	> + Send;
 
-	fn sync_stream(
+	fn sync(
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
@@ -575,14 +575,14 @@ impl tg::Handle for tg::Client {
 		self.push(arg)
 	}
 
-	fn sync_stream(
+	fn sync(
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> impl Future<
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
 	> {
-		self.sync_stream(arg, stream)
+		self.sync(arg, stream)
 	}
 
 	fn try_get(

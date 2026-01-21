@@ -117,14 +117,14 @@ impl tg::Handle for Handle {
 		self.0.push(arg)
 	}
 
-	fn sync_stream(
+	fn sync(
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> impl Future<
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
 	> {
-		self.0.sync_stream(arg, stream)
+		self.0.sync(arg, stream)
 	}
 
 	fn try_get(
