@@ -5,7 +5,7 @@ use {
 	},
 	crate::{Object, ObjectStored, Process, ProcessStored},
 	foundationdb as fdb,
-	foundationdb_tuple::TuplePack as _,
+	foundationdb_tuple::{Subspace, TuplePack as _},
 	futures::TryStreamExt as _,
 	num_traits::ToPrimitive as _,
 	tangram_client::prelude::*,
@@ -57,35 +57,34 @@ impl Index {
 		txn: &fdb::Transaction,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<Object>> {
-		let start = (
-			Kind::Object.to_i32().unwrap(),
-			id.to_bytes().as_ref(),
-			0i32,
-			0i32,
-		)
-			.pack_to_vec();
-		let end = (
-			Kind::Object.to_i32().unwrap(),
-			id.to_bytes().as_ref(),
-			3i32,
-			0i32,
-		)
-			.pack_to_vec();
+		let prefix = (Kind::Object.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+		};
 
-		let entries: Vec<_> = txn
-			.get_ranges_keyvalues(
-				fdb::RangeOption {
-					begin: fdb::KeySelector::first_greater_or_equal(start),
-					end: fdb::KeySelector::first_greater_or_equal(end),
-					mode: fdb::options::StreamingMode::WantAll,
-					..Default::default()
-				},
-				false,
-			)
-			.try_collect()
+		let entries = txn
+			.get_ranges_keyvalues(range, true)
+			.try_collect::<Vec<_>>()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to scan object fields"))?;
 
+		let exists_key = (
+			Kind::Object.to_i32().unwrap(),
+			id.to_bytes().as_ref(),
+			ObjectField::Core(ObjectCoreField::Exists),
+		)
+			.pack_to_vec();
+		let mut exists_key_end = exists_key.clone();
+		exists_key_end.push(0x00);
+		txn.add_conflict_range(
+			&exists_key,
+			&exists_key_end,
+			fdb::options::ConflictRangeType::Read,
+		)
+		.map_err(|source| tg::error!(!source, "failed to add read conflict range"))?;
+
+		let mut exists = false;
 		let mut touched_at: Option<i64> = None;
 		let mut metadata = tg::object::Metadata::default();
 		let mut stored = ObjectStored::default();
@@ -98,6 +97,9 @@ impl Index {
 
 			match field {
 				ObjectField::Core(field) => match field {
+					ObjectCoreField::Exists => {
+						exists = true;
+					},
 					ObjectCoreField::TouchedAt => {
 						let value = value
 							.try_into()
@@ -117,9 +119,12 @@ impl Index {
 			}
 		}
 
-		let Some(touched_at) = touched_at else {
+		if !exists {
 			return Ok(None);
-		};
+		}
+
+		let touched_at =
+			touched_at.ok_or_else(|| tg::error!("object exists but touched_at is not set"))?;
 
 		Ok(Some(Object {
 			metadata,
@@ -132,35 +137,35 @@ impl Index {
 		txn: &fdb::Transaction,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<Process>> {
-		let start = (
-			Kind::Process.to_i32().unwrap(),
-			id.to_bytes().as_ref(),
-			0i32,
-			0i32,
-		)
-			.pack_to_vec();
-		let end = (
-			Kind::Process.to_i32().unwrap(),
-			id.to_bytes().as_ref(),
-			3i32,
-			0i32,
-		)
-			.pack_to_vec();
+		let prefix = (Kind::Process.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
+		};
 
-		let entries: Vec<_> = txn
-			.get_ranges_keyvalues(
-				fdb::RangeOption {
-					begin: fdb::KeySelector::first_greater_or_equal(start),
-					end: fdb::KeySelector::first_greater_or_equal(end),
-					mode: fdb::options::StreamingMode::WantAll,
-					..Default::default()
-				},
-				false,
-			)
-			.try_collect()
+		let entries = txn
+			.get_ranges_keyvalues(range, true)
+			.try_collect::<Vec<_>>()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to scan process fields"))?;
 
+		// Add conflict on Exists only, so deletion causes retry but TouchedAt updates don't.
+		let exists_key = (
+			Kind::Process.to_i32().unwrap(),
+			id.to_bytes().as_ref(),
+			ProcessField::Core(ProcessCoreField::Exists),
+		)
+			.pack_to_vec();
+		let mut exists_key_end = exists_key.clone();
+		exists_key_end.push(0x00);
+		txn.add_conflict_range(
+			&exists_key,
+			&exists_key_end,
+			fdb::options::ConflictRangeType::Read,
+		)
+		.map_err(|source| tg::error!(!source, "failed to add read conflict range"))?;
+
+		let mut exists = false;
 		let mut touched_at: Option<i64> = None;
 		let mut metadata = tg::process::Metadata::default();
 		let mut stored = ProcessStored::default();
@@ -173,6 +178,9 @@ impl Index {
 
 			match field {
 				ProcessField::Core(field) => match field {
+					ProcessCoreField::Exists => {
+						exists = true;
+					},
 					ProcessCoreField::TouchedAt => {
 						let value = value
 							.try_into()
@@ -190,9 +198,12 @@ impl Index {
 			}
 		}
 
-		let Some(touched_at) = touched_at else {
+		if !exists {
 			return Ok(None);
-		};
+		}
+
+		let touched_at =
+			touched_at.ok_or_else(|| tg::error!("process exists but touched_at is not set"))?;
 
 		Ok(Some(Process {
 			metadata,

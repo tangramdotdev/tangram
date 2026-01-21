@@ -128,9 +128,10 @@ enum ObjectField {
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
 #[repr(u8)]
 enum ObjectCoreField {
-	TouchedAt = 0,
-	ReferenceCount = 1,
-	CacheEntry = 2,
+	Exists = 0,
+	TouchedAt = 1,
+	ReferenceCount = 2,
+	CacheEntry = 3,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
@@ -170,8 +171,9 @@ enum ProcessField {
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
 #[repr(u8)]
 enum ProcessCoreField {
-	TouchedAt = 0,
-	ReferenceCount = 1,
+	Exists = 0,
+	TouchedAt = 1,
+	ReferenceCount = 2,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
