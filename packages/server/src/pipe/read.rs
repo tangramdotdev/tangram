@@ -86,7 +86,7 @@ impl Server {
 					|source| tg::error!(!source, %remote, "failed to get the remote client"),
 				)?;
 				client
-					.try_read_pipe(id, arg)
+					.try_read_pipe_stream(id, arg)
 					.await
 					.map_err(|source| tg::error!(!source, %remote, "failed to read the pipe"))?
 					.ok_or_else(|| tg::error!("not found"))

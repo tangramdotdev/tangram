@@ -69,7 +69,7 @@ pub trait Handle:
 		tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>>,
 	>;
 
-	fn sync<'a>(
+	fn sync_stream<'a>(
 		&'a self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
@@ -277,7 +277,7 @@ pub trait Pipe: Send + Sync + 'static {
 		arg: tg::pipe::delete::Arg,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
-	fn try_read_pipe<'a>(
+	fn try_read_pipe_stream<'a>(
 		&'a self,
 		id: &'a tg::pipe::Id,
 		arg: tg::pipe::read::Arg,
@@ -320,7 +320,7 @@ pub trait Pty: Send + Sync + 'static {
 		arg: tg::pty::size::put::Arg,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
-	fn try_read_pty<'a>(
+	fn try_read_pty_stream<'a>(
 		&'a self,
 		id: &'a tg::pty::Id,
 		arg: tg::pty::read::Arg,
@@ -482,12 +482,12 @@ where
 		self.push(arg).map_ok(futures::StreamExt::boxed).boxed()
 	}
 
-	fn sync<'a>(
+	fn sync_stream<'a>(
 		&'a self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>>> {
-		self.sync(arg, stream)
+		self.sync_stream(arg, stream)
 			.map_ok(futures::StreamExt::boxed)
 			.boxed()
 	}
@@ -785,12 +785,12 @@ where
 		self.delete_pipe(id, arg).boxed()
 	}
 
-	fn try_read_pipe<'a>(
+	fn try_read_pipe_stream<'a>(
 		&'a self,
 		id: &'a tg::pipe::Id,
 		arg: tg::pipe::read::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::pipe::Event>>>>> {
-		self.try_read_pipe(id, arg)
+		self.try_read_pipe_stream(id, arg)
 			.map_ok(|option| option.map(futures::StreamExt::boxed))
 			.boxed()
 	}
@@ -847,12 +847,12 @@ where
 		self.put_pty_size(id, arg).boxed()
 	}
 
-	fn try_read_pty<'a>(
+	fn try_read_pty_stream<'a>(
 		&'a self,
 		id: &'a tg::pty::Id,
 		arg: tg::pty::read::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::pty::Event>>>>> {
-		tg::handle::Pty::try_read_pty(self, id, arg)
+		tg::handle::Pty::try_read_pty_stream(self, id, arg)
 			.map_ok(|opt| opt.map(futures::StreamExt::boxed))
 			.boxed()
 	}

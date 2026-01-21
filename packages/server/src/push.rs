@@ -284,7 +284,7 @@ impl Server {
 		};
 		let push_input_stream = ReceiverStream::new(pull_output_receiver).map(Ok).boxed();
 		let push_output_stream = src
-			.sync(push_arg, push_input_stream)
+			.sync_stream(push_arg, push_input_stream)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the push stream"))?;
 
@@ -305,7 +305,7 @@ impl Server {
 		};
 		let pull_input_stream = ReceiverStream::new(push_output_receiver).map(Ok).boxed();
 		let pull_output_stream = dst
-			.sync(pull_arg, pull_input_stream)
+			.sync_stream(pull_arg, pull_input_stream)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the pull stream"))?;
 

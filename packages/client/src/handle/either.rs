@@ -189,7 +189,7 @@ where
 		}
 	}
 
-	fn sync(
+	fn sync_stream(
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
@@ -198,11 +198,11 @@ where
 	> {
 		match self {
 			tg::Either::Left(s) => s
-				.sync(arg, stream)
+				.sync_stream(arg, stream)
 				.map(|result| result.map(futures::StreamExt::left_stream))
 				.left_future(),
 			tg::Either::Right(s) => s
-				.sync(arg, stream)
+				.sync_stream(arg, stream)
 				.map(|result| result.map(futures::StreamExt::right_stream))
 				.right_future(),
 		}
@@ -654,7 +654,7 @@ where
 		}
 	}
 
-	fn try_read_pipe(
+	fn try_read_pipe_stream(
 		&self,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::read::Arg,
@@ -665,11 +665,11 @@ where
 	> {
 		match self {
 			tg::Either::Left(s) => s
-				.try_read_pipe(id, arg)
+				.try_read_pipe_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
 				.left_future(),
 			tg::Either::Right(s) => s
-				.try_read_pipe(id, arg)
+				.try_read_pipe_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
 		}
@@ -746,7 +746,7 @@ where
 		}
 	}
 
-	fn try_read_pty(
+	fn try_read_pty_stream(
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::read::Arg,
@@ -757,11 +757,11 @@ where
 	> {
 		match self {
 			tg::Either::Left(s) => s
-				.try_read_pty(id, arg)
+				.try_read_pty_stream(id, arg)
 				.map(|result| result.map(|opt| opt.map(futures::StreamExt::left_stream)))
 				.left_future(),
 			tg::Either::Right(s) => s
-				.try_read_pty(id, arg)
+				.try_read_pty_stream(id, arg)
 				.map(|result| result.map(|opt| opt.map(futures::StreamExt::right_stream)))
 				.right_future(),
 		}

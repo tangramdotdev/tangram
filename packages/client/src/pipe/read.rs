@@ -19,7 +19,7 @@ pub struct Arg {
 }
 
 impl tg::Client {
-	pub async fn try_read_pipe(
+	pub async fn try_read_pipe_stream(
 		&self,
 		id: &tg::pipe::Id,
 		arg: Arg,

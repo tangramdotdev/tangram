@@ -144,7 +144,7 @@ impl Server {
 		// Update the database.
 		let connection = self
 			.database
-			.connection()
+			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 		let p = connection.p();

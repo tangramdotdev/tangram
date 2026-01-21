@@ -117,14 +117,14 @@ impl tg::Handle for Handle {
 		self.0.push(arg)
 	}
 
-	fn sync(
+	fn sync_stream(
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> impl Future<
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
 	> {
-		self.0.sync(arg, stream)
+		self.0.sync_stream(arg, stream)
 	}
 
 	fn try_get(
@@ -448,7 +448,7 @@ impl tg::handle::Pipe for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.delete_pipe(id, arg)) }
 	}
 
-	fn try_read_pipe(
+	fn try_read_pipe_stream(
 		&self,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::read::Arg,
@@ -459,7 +459,7 @@ impl tg::handle::Pipe for Handle {
 	> {
 		unsafe {
 			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
-				self.0.try_read_pipe(id, arg),
+				self.0.try_read_pipe_stream(id, arg),
 			)
 		}
 	}
@@ -513,7 +513,7 @@ impl tg::handle::Pty for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.put_pty_size(id, arg)) }
 	}
 
-	fn try_read_pty(
+	fn try_read_pty_stream(
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::read::Arg,
@@ -524,7 +524,7 @@ impl tg::handle::Pty for Handle {
 	> {
 		unsafe {
 			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
-				self.0.try_read_pty(id, arg),
+				self.0.try_read_pty_stream(id, arg),
 			)
 		}
 	}

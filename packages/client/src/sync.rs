@@ -281,7 +281,7 @@ pub struct ProgressMessageAmounts {
 }
 
 impl tg::Client {
-	pub async fn sync(
+	pub async fn sync_stream(
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,

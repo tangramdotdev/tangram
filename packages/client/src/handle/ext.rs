@@ -1,11 +1,8 @@
 use {
-	crate::prelude::*,
-	futures::{
+	crate::prelude::*, bytes::Bytes, futures::{
 		FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
 		stream::{self, BoxStream},
-	},
-	num::ToPrimitive as _,
-	std::{
+	}, num::ToPrimitive as _, std::{
 		io::SeekFrom,
 		sync::{Arc, Mutex},
 	},
@@ -529,6 +526,111 @@ pub trait Ext: tg::Handle {
 		self.try_get_tag(tag, arg).map(|result| {
 			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the tag")))
 		})
+	}
+
+	fn try_read_pipe(
+		&self,
+		id: &tg::pipe::Id,
+		arg: tg::pipe::read::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<Bytes>> + Send + 'static>,
+		>,
+	> + Send {
+		let id = id.clone();
+		async move {
+			let handle = self.clone();
+			let Some(stream) = handle.try_read_pipe_stream(&id, arg.clone()).await? else {
+				return Ok(None);
+			};
+			let stream = stream.boxed();
+			struct State {
+				stream: Option<BoxStream<'static, tg::Result<tg::pipe::Event>>>,
+				arg: tg::pipe::read::Arg,
+				end: bool,
+			}
+			let state = State {
+				stream: Some(stream),
+				arg,
+				end: false,
+			};
+			let state = Arc::new(Mutex::new(state));
+			let stream = stream::try_unfold(state.clone(), move |state| {
+				let handle = handle.clone();
+				let id = id.clone();
+				async move {
+					if state.lock().unwrap().end {
+						return Ok(None);
+					}
+					let stream = state.lock().unwrap().stream.take();
+					let stream = if let Some(stream) = stream {
+						stream
+					} else {
+						let arg = state.lock().unwrap().arg.clone();
+						handle.try_read_pipe_stream(&id, arg).await?.unwrap().boxed()
+					};
+					Ok::<_, tg::Error>(Some((stream, state)))
+				}
+			})
+			.try_flatten()
+			.take_while(|event| future::ready(!matches!(event, Ok(tg::pipe::Event::End))))
+			.map(|event| match event {
+				Ok(tg::pipe::Event::Chunk(chunk)) => Ok(chunk),
+				Err(e) => Err(e),
+				_ => unreachable!(),
+			});
+			Ok(Some(stream))
+		}
+	}
+
+	fn try_read_pty(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::read::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<Bytes>> + Send + 'static>,
+		>,
+	> + Send {
+		let id = id.clone();
+		async move {
+			let handle = self.clone();
+			let Some(stream) = handle.try_read_pty_stream(&id, arg.clone()).await? else {
+				return Ok(None);
+			};
+			let stream = stream.boxed();
+			struct State {
+				stream: Option<BoxStream<'static, tg::Result<tg::pty::Event>>>,
+				arg: tg::pty::read::Arg,
+			}
+			let state = State {
+				stream: Some(stream),
+				arg,
+			};
+			let state = Arc::new(Mutex::new(state));
+			let stream = stream::try_unfold(state.clone(), move |state| {
+				let handle = handle.clone();
+				let id = id.clone();
+				async move {
+					let stream = state.lock().unwrap().stream.take();
+					let stream = if let Some(stream) = stream {
+						stream
+					} else {
+						let arg = state.lock().unwrap().arg.clone();
+						handle.try_read_pty_stream(&id, arg).await?.unwrap().boxed()
+					};
+					Ok::<_, tg::Error>(Some((stream, state)))
+				}
+			})
+			.try_flatten()
+			.take_while(|event| future::ready(!matches!(event, Ok(tg::pty::Event::End))))
+			.map(|event| match event {
+				Ok(tg::pty::Event::Chunk(chunk)) => Ok(chunk),
+				Err(e) => Err(e),
+				_ => unreachable!(),
+			});
+			Ok(Some(stream))
+		}
 	}
 }
 

@@ -108,7 +108,7 @@ pub trait Handle:
 		>,
 	> + Send;
 
-	fn sync(
+	fn sync_stream(
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
@@ -343,7 +343,7 @@ pub trait Pipe: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::pipe::delete::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn try_read_pipe(
+	fn try_read_pipe_stream(
 		&self,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::read::Arg,
@@ -390,7 +390,7 @@ pub trait Pty: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::pty::size::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn try_read_pty(
+	fn try_read_pty_stream(
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::read::Arg,
@@ -575,14 +575,14 @@ impl tg::Handle for tg::Client {
 		self.push(arg)
 	}
 
-	fn sync(
+	fn sync_stream(
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> impl Future<
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
 	> {
-		self.sync(arg, stream)
+		self.sync_stream(arg, stream)
 	}
 
 	fn try_get(
@@ -874,7 +874,7 @@ impl tg::handle::Pipe for tg::Client {
 		self.delete_pipe(id, arg)
 	}
 
-	fn try_read_pipe(
+	fn try_read_pipe_stream(
 		&self,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::read::Arg,
@@ -883,7 +883,7 @@ impl tg::handle::Pipe for tg::Client {
 			Option<impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static>,
 		>,
 	> {
-		self.try_read_pipe(id, arg)
+		self.try_read_pipe_stream(id, arg)
 	}
 
 	fn write_pipe(
@@ -935,7 +935,7 @@ impl tg::handle::Pty for tg::Client {
 		self.put_pty_size(id, arg)
 	}
 
-	fn try_read_pty(
+	fn try_read_pty_stream(
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::read::Arg,
@@ -944,7 +944,7 @@ impl tg::handle::Pty for tg::Client {
 			Option<impl Stream<Item = tg::Result<tg::pty::Event>> + Send + 'static>,
 		>,
 	> {
-		self.try_read_pty(id, arg)
+		self.try_read_pty_stream(id, arg)
 	}
 
 	fn write_pty(

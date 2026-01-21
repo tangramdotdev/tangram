@@ -1,6 +1,6 @@
 use {
 	super::Options,
-	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future},
 	std::{
 		io::IsTerminal as _,
 		mem::MaybeUninit,
@@ -9,7 +9,7 @@ use {
 		sync::Arc,
 	},
 	tangram_client::prelude::*,
-	tangram_futures::task::Stop,
+	tangram_futures::task::{Stop, Task},
 	tokio::io::{AsyncWrite, AsyncWriteExt as _},
 };
 
@@ -70,46 +70,38 @@ where
 						let Some(tty) = tty else {
 							return Err(tg::error!("expected a tty"));
 						};
-
-						// Create the chunk stream.
-						let stdin_stream = stream.map(|bytes| bytes.map(tg::pty::Event::Chunk));
-
-						// Create the sigwinch stream.
-						let sigwinch_stream = sigwinch_stream(tty)?;
-
-						// Merge the streams.
-						let stream =
-							stream::select(stdin_stream, sigwinch_stream).take_until(stop.wait());
-
-						async {
-							let mut stream = pin!(stream);
-							while let Some(event) = stream.try_next().await? {
-								match event {
-									tg::pty::Event::Chunk(bytes) => {
-										let arg = tg::pty::write::Arg {
-											bytes,
-											local: None,
-											master: true,
-											remotes: remote.clone().map(|r| vec![r]),
-										};
-										handle.write_pty(id, arg).await.map_err(
-											|source| tg::error!(!source, %id, "failed to write to the pty"),
-										)?;
-									},
-									tg::pty::Event::Size(size) => {
-										let arg = tg::pty::size::put::Arg {
-											local: None,
-											master: true,
-											size,
-											remotes: remote.clone().map(|r| vec![r]),
-										};
-										handle.put_pty_size(id, arg).await.map_err(
-											|source| tg::error!(!source, %id, "failed to write to the pty"),
-										)?;
-									},
-									tg::pty::Event::End => break,
-								}
+						
+						// Spawn a task to handle sigwinch, which is canceled after stdin is finished.
+						let sigwinch_task = Task::spawn({
+							let handle = handle.clone();
+							let pty = id.clone();
+							let tty = Arc::clone(&tty);
+							let remote = remote.clone();
+							|_stop| async move {
+								sigwinch_task(&handle, tty, pty, remote)
+									.await
+									.inspect_err(|error| eprintln!("sigwinch task failed: {error}"))
+									.ok();
 							}
+						});
+
+						// Spawn the stdio task.
+						let handle = handle.clone();
+						let remote = remote.clone();
+						async move {
+							let mut stream = pin!(stream);
+							while let Some(bytes) = stream.try_next().await? {
+								let arg = tg::pty::write::Arg {
+									bytes,
+									local: None,
+									master: true,
+									remotes: remote.clone().map(|r| vec![r]),
+								};
+								handle.write_pty(id, arg).await.map_err(
+									|source| tg::error!(!source, %id, "failed to write to the pty"),
+								)?;
+							}
+							sigwinch_task.abort();
 							Ok::<_, tg::Error>(())
 						}
 						.boxed()
@@ -209,7 +201,6 @@ where
 				.try_read_pipe(id, arg)
 				.await?
 				.ok_or_else(|| tg::error!("pipe not found"))?
-				.try_filter_map(|event| future::ok(event.try_unwrap_chunk().ok()))
 				.left_stream()
 		},
 		tg::process::Stdio::Pty(id) => {
@@ -222,7 +213,6 @@ where
 				.try_read_pty(id, arg)
 				.await?
 				.ok_or_else(|| tg::error!("pty not found"))?
-				.try_filter_map(|event| future::ok(event.try_unwrap_chunk().ok()))
 				.right_stream()
 		},
 	};
@@ -241,33 +231,34 @@ where
 }
 
 /// Create a stream of tty size change events.
-pub fn sigwinch_stream(
+pub async fn sigwinch_task<H>(
+	handle: &H,
 	tty: Arc<Tty>,
-) -> tg::Result<impl Stream<Item = Result<tg::pty::Event, tg::Error>>> {
+	pty: tg::pty::Id,
+	remote: Option<String>,
+) -> tg::Result<()>
+where
+	H: tg::Handle,
+{
 	// Create the signal handler.
-	let signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::window_change())
+	let mut signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::window_change())
 		.map_err(|source| tg::error!(!source, "failed to create signal handler"))?;
 
-	// Create the size stream using try_unfold.
-	let stream = stream::try_unfold(signal, move |mut signal| {
-		let tty = tty.clone();
-		async move {
-			// Wait for the next signal.
-			let Some(()) = signal.recv().await else {
-				return Ok(None);
-			};
-
-			// Get the size.
-			let size = tty.get_size()?;
-
-			// Create the event.
-			let event = tg::pty::Event::Size(size);
-
-			Ok(Some((event, signal)))
-		}
-	});
-
-	Ok(stream)
+	// Wait for the next signal.
+	while let Some(()) = signal.recv().await {
+		let size = tty.get_size()?;
+		let arg = tg::pty::size::put::Arg {
+			local: None,
+			master: true,
+			size,
+			remotes: remote.clone().map(|r| vec![r]),
+		};
+		handle
+			.put_pty_size(&pty, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to put the pty size"))?;
+	}
+	Ok(())
 }
 
 impl Stdio {
