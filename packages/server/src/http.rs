@@ -317,7 +317,7 @@ impl Server {
 			(http::Method::GET, ["pipes", pipe, "read"]) => server
 				.handle_read_pipe_request(request, &context, pipe)
 				.boxed(),
-			(http::Method::POST, ["pipes", pipe]) => server
+			(http::Method::POST, ["pipes", pipe, "write"]) => server
 				.handle_write_pipe_request(request, &context, pipe)
 				.boxed(),
 
@@ -337,7 +337,7 @@ impl Server {
 			(http::Method::GET, ["ptys", pty, "read"]) => server
 				.handle_read_pty_request(request, &context, pty)
 				.boxed(),
-			(http::Method::POST, ["ptys", pty]) => server
+			(http::Method::POST, ["ptys", pty, "write"]) => server
 				.handle_write_pty_request(request, &context, pty)
 				.boxed(),
 
