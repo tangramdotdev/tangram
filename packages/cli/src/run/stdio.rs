@@ -39,7 +39,7 @@ where
 			let remote = stdio.remote.clone();
 			let stdin = stdio.stdin.clone();
 			let tty = stdio.tty.clone();
-			
+
 			async move {
 				let Some(stdin) = stdin else {
 					return Ok(());
@@ -48,23 +48,21 @@ where
 
 				// Write to stdin until it is finished or the task is stopped.
 				let future = match &stdin {
-					tg::process::Stdio::Pipe(id) => {		
-						async {
-							let mut stream = pin!(stream);
-							while let Some(bytes) = stream.try_next().await? {
-								let arg = tg::pipe::write::Arg {
-									bytes,
-									local: None,
-									remotes: remote.clone().map(|r| vec![r]),
-								};
-								handle.write_pipe(id, arg).await.map_err(
-									|source| tg::error!(!source, %id, "failed to write to the pipe"),
-								)?;
-							}
-							Ok::<_, tg::Error>(())
+					tg::process::Stdio::Pipe(id) => async {
+						let mut stream = pin!(stream);
+						while let Some(bytes) = stream.try_next().await? {
+							let arg = tg::pipe::write::Arg {
+								bytes,
+								local: None,
+								remotes: remote.clone().map(|r| vec![r]),
+							};
+							handle.write_pipe(id, arg).await.map_err(
+								|source| tg::error!(!source, %id, "failed to write to the pipe"),
+							)?;
 						}
-						.boxed()
-					},
+						Ok::<_, tg::Error>(())
+					}
+					.boxed(),
 					tg::process::Stdio::Pty(id) => {
 						// Get the tty.
 						let Some(tty) = tty else {
