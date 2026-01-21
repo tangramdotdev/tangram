@@ -1,6 +1,6 @@
 use {
 	super::{
-		Index, Kind, ObjectCoreField, ObjectField, ObjectMetadataField, ObjectStoredField,
+		Index, Key, Kind, ObjectCoreField, ObjectField, ObjectMetadataField, ObjectStoredField,
 		ProcessCoreField, ProcessField, ProcessMetadataField, ProcessStoredField,
 	},
 	crate::{Object, ObjectStored, Process, ProcessStored},
@@ -69,12 +69,11 @@ impl Index {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to scan object fields"))?;
 
-		let exists_key = (
-			Kind::Object.to_i32().unwrap(),
-			id.to_bytes().as_ref(),
-			ObjectField::Core(ObjectCoreField::Exists),
-		)
-			.pack_to_vec();
+		let exists_key = Key::Object {
+			id: id.clone(),
+			field: ObjectField::Core(ObjectCoreField::Exists),
+		}
+		.pack_to_vec();
 		let mut exists_key_end = exists_key.clone();
 		exists_key_end.push(0x00);
 		txn.add_conflict_range(
@@ -90,9 +89,11 @@ impl Index {
 		let mut stored = ObjectStored::default();
 
 		for entry in entries {
-			let (_, _, field): (i32, Vec<u8>, ObjectField) =
-				foundationdb_tuple::unpack(entry.key())
-					.map_err(|source| tg::error!(!source, "failed to unpack object field key"))?;
+			let Key::Object { field, .. } = foundationdb_tuple::unpack(entry.key())
+				.map_err(|source| tg::error!(!source, "failed to unpack object field key"))?
+			else {
+				return Err(tg::error!("unexpected key type"));
+			};
 			let value = entry.value();
 
 			match field {
@@ -149,13 +150,11 @@ impl Index {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to scan process fields"))?;
 
-		// Add conflict on Exists only, so deletion causes retry but TouchedAt updates don't.
-		let exists_key = (
-			Kind::Process.to_i32().unwrap(),
-			id.to_bytes().as_ref(),
-			ProcessField::Core(ProcessCoreField::Exists),
-		)
-			.pack_to_vec();
+		let exists_key = Key::Process {
+			id: id.clone(),
+			field: ProcessField::Core(ProcessCoreField::Exists),
+		}
+		.pack_to_vec();
 		let mut exists_key_end = exists_key.clone();
 		exists_key_end.push(0x00);
 		txn.add_conflict_range(
@@ -171,9 +170,11 @@ impl Index {
 		let mut stored = ProcessStored::default();
 
 		for entry in entries {
-			let (_, _, field): (i32, Vec<u8>, ProcessField) =
-				foundationdb_tuple::unpack(entry.key())
-					.map_err(|source| tg::error!(!source, "failed to unpack process field key"))?;
+			let Key::Process { field, .. } = foundationdb_tuple::unpack(entry.key())
+				.map_err(|source| tg::error!(!source, "failed to unpack process field key"))?
+			else {
+				return Err(tg::error!("unexpected key type"));
+			};
 			let value = entry.value();
 
 			match field {
