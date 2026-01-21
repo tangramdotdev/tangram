@@ -14,13 +14,13 @@ version = { workspace = true }
 workspace = true
 
 [features]
-foundationdb = []
+foundationdb = ["tangram_index/foundationdb"]
 js = ["dep:tangram_js"]
 lmdb = ["tangram_store/lmdb"]
 nats = ["dep:async-nats", "tangram_messenger/nats"]
-postgres = ["dep:tokio-postgres", "tangram_database/postgres", "tangram_index/postgres"]
+postgres = ["dep:tokio-postgres", "tangram_database/postgres"]
 quickjs = ["tangram_js/quickjs"]
-sqlite = ["dep:rusqlite", "tangram_database/sqlite", "tangram_index/sqlite"]
+sqlite = ["dep:rusqlite", "tangram_database/sqlite"]
 scylla = ["tangram_store/scylla"]
 typescript = ["tangram_compiler/typescript"]
 v8 = ["tangram_js/v8"]

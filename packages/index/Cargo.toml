@@ -14,27 +14,24 @@ version = { workspace = true }
 workspace = true
 
 [features]
-postgres = ["dep:tangram_futures", "dep:tokio-postgres", "tangram_database/postgres"]
-sqlite = ["dep:rusqlite", "tangram_database/sqlite"]
+foundationdb = ["dep:foundationdb", "dep:foundationdb-tuple"]
 
 [dependencies]
 bytes = { workspace = true }
 derive_more = { workspace = true }
 fnv = { workspace = true }
+foundationdb = { workspace = true, optional = true }
+foundationdb-tuple = { workspace = true, optional = true }
 futures = { workspace = true }
 indoc = { workspace = true }
 itertools = { workspace = true }
 num = { workspace = true }
 num-derive = { workspace = true }
 num-traits = { workspace = true }
-rusqlite = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true }
 tangram_client = { workspace = true }
-tangram_database = { workspace = true }
-tangram_futures = { workspace = true, optional = true }
 tangram_serialize = { workspace = true }
 tangram_util = { workspace = true }
 time = { workspace = true }
-tokio-postgres = { workspace = true, optional = true }

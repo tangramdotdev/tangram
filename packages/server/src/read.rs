@@ -869,7 +869,9 @@ async fn poll_read_inner(
 	'a: loop {
 		let state = current_blob.state();
 		let id = state.try_get_id();
-		let object = state.object().map(|o| o.unwrap_blob_ref().clone());
+		let object = state
+			.object()
+			.map(|object| object.unwrap_blob_ref().clone());
 		let object = if let Some(object) = object {
 			object
 		} else {
@@ -923,7 +925,9 @@ fn read_inner_sync(
 	'a: loop {
 		let state = current_blob.state();
 		let id = state.try_get_id();
-		let object = state.object().map(|o| o.unwrap_blob_ref().clone());
+		let object = state
+			.object()
+			.map(|object| object.unwrap_blob_ref().clone());
 		let object = if let Some(object) = object {
 			object
 		} else {

@@ -2,7 +2,7 @@ use {
 	crate::{
 		Server,
 		checkin::{
-			Graph, IndexCacheEntryMessages, IndexObjectMessages, StoreArgs,
+			Graph, IndexCacheEntryArgs, IndexObjectArgs, StoreArgs,
 			graph::{Contents, Node, Petgraph, Variant},
 			path::Paths,
 		},
@@ -15,7 +15,7 @@ use {
 		path::Path,
 	},
 	tangram_client::prelude::*,
-	tangram_messenger::prelude::*,
+	tangram_index::prelude::*,
 	tangram_store::prelude::*,
 };
 
@@ -28,8 +28,8 @@ impl Server {
 		paths: &Paths,
 		next: usize,
 		store_args: &mut StoreArgs,
-		object_messages: &mut IndexObjectMessages,
-		cache_entry_messages: &mut IndexCacheEntryMessages,
+		index_object_args: &mut IndexObjectArgs,
+		index_cache_entry_args: &mut IndexCacheEntryArgs,
 		root: &Path,
 		touched_at: i64,
 	) -> tg::Result<()> {
@@ -56,7 +56,7 @@ impl Server {
 					graph,
 					paths,
 					store_args,
-					object_messages,
+					index_object_args,
 					scc[0],
 					touched_at,
 				)?;
@@ -65,7 +65,7 @@ impl Server {
 					graph,
 					paths,
 					store_args,
-					object_messages,
+					index_object_args,
 					scc,
 					touched_at,
 				)?;
@@ -77,8 +77,8 @@ impl Server {
 			arg,
 			graph,
 			store_args,
-			object_messages,
-			cache_entry_messages,
+			index_object_args,
+			index_cache_entry_args,
 			root,
 			&sccs,
 			touched_at,
@@ -91,7 +91,7 @@ impl Server {
 			Self::checkin_create_reference_artifact(
 				graph,
 				store_args,
-				object_messages,
+				index_object_args,
 				pointer.graph.as_ref().unwrap(),
 				pointer.index,
 				index,
@@ -107,7 +107,7 @@ impl Server {
 		graph: &mut Graph,
 		paths: &Paths,
 		store_args: &mut StoreArgs,
-		object_messages: &mut IndexObjectMessages,
+		index_object_args: &mut IndexObjectArgs,
 		index: usize,
 		touched_at: i64,
 	) -> tg::Result<()> {
@@ -156,7 +156,7 @@ impl Server {
 					config,
 					entries,
 					store_args,
-					object_messages,
+					index_object_args,
 					touched_at,
 				)?;
 				tg::directory::Data::Node(node).into()
@@ -248,13 +248,13 @@ impl Server {
 			&data,
 			&[index],
 			store_args,
-			object_messages,
+			index_object_args,
 			touched_at,
 		)?;
 
 		// Update the node.
 		let node = graph.nodes.get_mut(&index).unwrap();
-		node.stored = crate::index::ObjectStored { subtree: stored };
+		node.stored = tangram_index::ObjectStored { subtree: stored };
 		node.metadata = Some(metadata);
 		node.edge.replace(tg::graph::data::Edge::Object(id.clone()));
 		node.id.replace(id.clone());
@@ -267,7 +267,7 @@ impl Server {
 		graph: &mut Graph,
 		paths: &Paths,
 		store_args: &mut StoreArgs,
-		object_messages: &mut IndexObjectMessages,
+		index_object_args: &mut IndexObjectArgs,
 		scc: &[usize],
 		touched_at: i64,
 	) -> tg::Result<()> {
@@ -309,7 +309,7 @@ impl Server {
 			&data,
 			&unique_indices,
 			store_args,
-			object_messages,
+			index_object_args,
 			touched_at,
 		)?;
 
@@ -528,7 +528,7 @@ impl Server {
 	fn checkin_create_reference_artifact(
 		graph: &mut Graph,
 		store_args: &mut StoreArgs,
-		object_messages: &mut IndexObjectMessages,
+		index_object_args: &mut IndexObjectArgs,
 		graph_id: &tg::graph::Id,
 		local: usize,
 		global: usize,
@@ -567,13 +567,13 @@ impl Server {
 			&data,
 			&[global],
 			store_args,
-			object_messages,
+			index_object_args,
 			touched_at,
 		)?;
 
 		// Update the node.
 		let node = graph.nodes.get_mut(&global).unwrap();
-		node.stored = crate::index::ObjectStored { subtree: stored };
+		node.stored = tangram_index::ObjectStored { subtree: stored };
 		node.metadata = Some(metadata);
 
 		Ok(())
@@ -584,7 +584,7 @@ impl Server {
 		data: &tg::object::Data,
 		scc: &[usize],
 		store_args: &mut StoreArgs,
-		object_messages: &mut IndexObjectMessages,
+		index_object_args: &mut IndexObjectArgs,
 		touched_at: i64,
 	) -> tg::Result<(tg::object::Id, bool, tg::object::Metadata)> {
 		let kind = data.kind();
@@ -702,18 +702,18 @@ impl Server {
 		};
 
 		// Create the index message.
-		let index_message = crate::index::message::PutObject {
+		let index_message = tangram_index::PutObjectArg {
 			cache_entry: None,
 			children: children_ids,
 			id: id.clone(),
 			metadata: metadata.clone(),
-			stored: crate::index::ObjectStored { subtree: stored },
+			stored: tangram_index::ObjectStored { subtree: stored },
 			touched_at,
 		};
 
 		// Insert into maps.
 		store_args.insert(id.clone(), store_arg);
-		object_messages.insert(id.clone(), index_message);
+		index_object_args.insert(id.clone(), index_message);
 
 		Ok((id, stored, metadata))
 	}
@@ -723,8 +723,8 @@ impl Server {
 		arg: &tg::checkin::Arg,
 		graph: &Graph,
 		store_args: &mut StoreArgs,
-		object_messages: &mut IndexObjectMessages,
-		cache_entry_messages: &mut IndexCacheEntryMessages,
+		index_object_args: &mut IndexObjectArgs,
+		index_cache_entry_args: &mut IndexCacheEntryArgs,
 		root: &Path,
 		sccs: &[Vec<usize>],
 		touched_at: i64,
@@ -773,7 +773,7 @@ impl Server {
 
 				// Create a cache entry message for this artifact.
 				if !arg.options.destructive {
-					cache_entry_messages.push(crate::index::message::PutCacheEntry {
+					index_cache_entry_args.push(tangram_index::PutCacheEntryArg {
 						id: artifact.clone(),
 						touched_at,
 					});
@@ -792,7 +792,7 @@ impl Server {
 						length: output.length,
 					};
 					store_args.get_mut(&id).unwrap().cache_pointer = Some(cache_pointer);
-					object_messages.get_mut(&id).unwrap().cache_entry = Some(artifact.clone());
+					index_object_args.get_mut(&id).unwrap().cache_entry = Some(artifact.clone());
 
 					// Add children to the stack.
 					stack.extend(output.children.iter());
@@ -835,7 +835,7 @@ impl Server {
 		// Index the object.
 		let mut children = std::collections::BTreeSet::new();
 		data.children(&mut children);
-		let index_message = crate::index::message::PutObject {
+		let put_object_arg = tangram_index::PutObjectArg {
 			cache_entry: None,
 			children,
 			id: id.clone(),
@@ -843,14 +843,13 @@ impl Server {
 			stored: node.stored.clone(),
 			touched_at,
 		};
-		let message = crate::index::Message::PutObject(index_message);
-		let message = crate::index::message::Messages(vec![message]);
-		self.messenger
-			.stream_publish("index".to_owned(), message)
+		self.index
+			.put(tangram_index::PutArg {
+				objects: vec![put_object_arg],
+				..Default::default()
+			})
 			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the index message"))?
-			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the index message"))?;
+			.map_err(|source| tg::error!(!source, "failed to index the object"))?;
 
 		let id = id.try_into().unwrap();
 
@@ -1070,7 +1069,7 @@ impl Server {
 		config: &Checkin,
 		entries: BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>,
 		store_args: &mut StoreArgs,
-		object_messages: &mut IndexObjectMessages,
+		index_object_args: &mut IndexObjectArgs,
 		touched_at: i64,
 	) -> tg::Result<tg::graph::data::Directory> {
 		// If the entries fit in a single leaf, then return a leaf.
@@ -1099,7 +1098,7 @@ impl Server {
 			let id = Self::checkin_create_directory_node(
 				&leaf_data,
 				store_args,
-				object_messages,
+				index_object_args,
 				touched_at,
 			)?;
 
@@ -1115,7 +1114,7 @@ impl Server {
 			config,
 			children,
 			store_args,
-			object_messages,
+			index_object_args,
 			touched_at,
 		)
 	}
@@ -1125,7 +1124,7 @@ impl Server {
 		config: &Checkin,
 		children: Vec<tg::graph::data::DirectoryChild>,
 		store_args: &mut StoreArgs,
-		object_messages: &mut IndexObjectMessages,
+		index_object_args: &mut IndexObjectArgs,
 		touched_at: i64,
 	) -> tg::Result<tg::graph::data::Directory> {
 		// If the children fit in a single branch, return a branch.
@@ -1153,7 +1152,7 @@ impl Server {
 			let id = Self::checkin_create_directory_node(
 				&branch_data,
 				store_args,
-				object_messages,
+				index_object_args,
 				touched_at,
 			)?;
 
@@ -1169,7 +1168,7 @@ impl Server {
 			config,
 			branch_children,
 			store_args,
-			object_messages,
+			index_object_args,
 			touched_at,
 		)
 	}
@@ -1178,7 +1177,7 @@ impl Server {
 	fn checkin_create_directory_node(
 		directory: &tg::graph::data::Directory,
 		store_args: &mut StoreArgs,
-		object_messages: &mut IndexObjectMessages,
+		index_object_args: &mut IndexObjectArgs,
 		touched_at: i64,
 	) -> tg::Result<tg::directory::Id> {
 		// Create the directory data.
@@ -1212,7 +1211,7 @@ impl Server {
 
 		// Aggregate metadata from children.
 		for child_id in &children_ids {
-			let child_metadata = object_messages.get(child_id).map(|msg| &msg.metadata);
+			let child_metadata = index_object_args.get(child_id).map(|msg| &msg.metadata);
 
 			metadata.subtree.count = metadata
 				.subtree
@@ -1250,18 +1249,18 @@ impl Server {
 		};
 
 		// Create the index message.
-		let index_message = crate::index::message::PutObject {
+		let index_message = tangram_index::PutObjectArg {
 			cache_entry: None,
 			children: children_ids,
 			id: id.clone(),
 			metadata,
-			stored: crate::index::ObjectStored { subtree: true },
+			stored: tangram_index::ObjectStored { subtree: true },
 			touched_at,
 		};
 
 		// Insert into maps.
 		store_args.insert(id.clone(), store_arg);
-		object_messages.insert(id.clone(), index_message);
+		index_object_args.insert(id.clone(), index_message);
 
 		Ok(id.try_into().unwrap())
 	}

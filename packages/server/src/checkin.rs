@@ -43,10 +43,9 @@ pub struct TaskOutput {
 	pub path: PathBuf,
 }
 
-type IndexObjectMessages =
-	IndexMap<tg::object::Id, crate::index::message::PutObject, tg::id::BuildHasher>;
+type IndexObjectArgs = IndexMap<tg::object::Id, tangram_index::PutObjectArg, tg::id::BuildHasher>;
 
-type IndexCacheEntryMessages = Vec<crate::index::message::PutCacheEntry>;
+type IndexCacheEntryArgs = Vec<tangram_index::PutCacheEntryArg>;
 
 type StoreArgs = IndexMap<tg::object::Id, crate::store::PutObjectArg, tg::id::BuildHasher>;
 
@@ -368,8 +367,8 @@ impl Server {
 
 		// Create the output collections.
 		let mut store_args = IndexMap::default();
-		let mut object_messages = IndexMap::default();
-		let mut cache_entry_messages = Vec::new();
+		let mut index_object_args = IndexMap::default();
+		let mut index_cache_entry_args = Vec::new();
 
 		// Create blobs.
 		let start = Instant::now();
@@ -378,7 +377,7 @@ impl Server {
 			&mut graph,
 			next,
 			&mut store_args,
-			&mut object_messages,
+			&mut index_object_args,
 			touched_at,
 			progress,
 		)
@@ -395,8 +394,8 @@ impl Server {
 			&paths,
 			next,
 			&mut store_args,
-			&mut object_messages,
-			&mut cache_entry_messages,
+			&mut index_object_args,
+			&mut index_cache_entry_args,
 			root,
 			touched_at,
 		)?;
@@ -486,8 +485,8 @@ impl Server {
 							.checkin_index(
 								&arg,
 								&graph,
-								object_messages,
-								cache_entry_messages,
+								index_object_args,
+								index_cache_entry_args,
 								&root,
 								touched_at,
 							)

@@ -192,34 +192,18 @@ pub struct Http {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum Index {
-	Postgres(PostgresIndex),
-	Sqlite(SqliteIndex),
+	Fdb(FdbIndex),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
-pub struct PostgresIndex {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub connections: Option<usize>,
-	pub url: Uri,
+pub struct FdbIndex {
+	pub cluster: PathBuf,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
-pub struct SqliteIndex {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub connections: Option<usize>,
-	pub path: PathBuf,
-}
-
-#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Indexer {
-	pub insert_batch_size: usize,
-	pub message_batch_size: usize,
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub message_batch_timeout: Duration,
 	pub queue_batch_size: usize,
 }
 
@@ -581,36 +565,23 @@ impl Default for Finisher {
 	}
 }
 
+impl Default for FdbIndex {
+	fn default() -> Self {
+		Self {
+			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
+		}
+	}
+}
+
 impl Default for Index {
 	fn default() -> Self {
-		Self::Sqlite(SqliteIndex::default())
-	}
-}
-
-impl Default for PostgresIndex {
-	fn default() -> Self {
-		Self {
-			connections: None,
-			url: "postgres://localhost:5432".parse().unwrap(),
-		}
-	}
-}
-
-impl Default for SqliteIndex {
-	fn default() -> Self {
-		Self {
-			connections: None,
-			path: PathBuf::from("index"),
-		}
+		Self::Fdb(FdbIndex::default())
 	}
 }
 
 impl Default for Indexer {
 	fn default() -> Self {
 		Self {
-			insert_batch_size: 1024,
-			message_batch_size: 1024,
-			message_batch_timeout: Duration::from_millis(100),
 			queue_batch_size: 1024,
 		}
 	}

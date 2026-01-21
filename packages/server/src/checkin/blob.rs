@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Server,
-		checkin::{Graph, IndexObjectMessages, StoreArgs, graph::Contents},
+		checkin::{Graph, IndexObjectArgs, StoreArgs, graph::Contents},
 		write::Destination,
 	},
 	futures::{StreamExt as _, TryStreamExt as _, stream},
@@ -17,7 +17,7 @@ impl Server {
 		graph: &mut Graph,
 		next: usize,
 		store_args: &mut StoreArgs,
-		object_messages: &mut IndexObjectMessages,
+		index_object_args: &mut IndexObjectArgs,
 		touched_at: i64,
 		progress: &crate::progress::Handle<super::TaskOutput>,
 	) -> tg::Result<()> {
@@ -111,12 +111,12 @@ impl Server {
 				};
 
 				// Create the index message.
-				let index_message = crate::index::message::PutObject {
+				let index_message = tangram_index::PutObjectArg {
 					cache_entry: None,
 					children,
 					id: id.clone(),
 					metadata,
-					stored: crate::index::ObjectStored { subtree: true },
+					stored: tangram_index::ObjectStored { subtree: true },
 					touched_at,
 				};
 
@@ -131,7 +131,7 @@ impl Server {
 			if let Some(store_arg) = store_arg {
 				store_args.insert(id.clone(), store_arg);
 			}
-			object_messages.insert(id, index_message);
+			index_object_args.insert(id, index_message);
 		}
 
 		// Set the file contents.

@@ -2,7 +2,7 @@ use {
 	crate::{Context, Server, database::Database},
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _},
-	tangram_messenger::prelude::*,
+	tangram_index::prelude::*,
 };
 
 #[cfg(feature = "postgres")]
@@ -51,20 +51,17 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to delete the tag"))?,
 		};
 
-		// Send delete tag index messages.
-		for tag in &output.deleted {
-			let message = crate::index::Message::DeleteTag(crate::index::message::DeleteTag {
-				tag: tag.to_string(),
-			});
-			self.messenger
-				.stream_publish(
-					"index".to_owned(),
-					crate::index::message::Messages(vec![message]),
-				)
+		// Index the deleted tags.
+		let tags = output
+			.deleted
+			.iter()
+			.map(ToString::to_string)
+			.collect::<Vec<_>>();
+		if !tags.is_empty() {
+			self.index
+				.delete_tags(&tags)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to publish the message"))?
-				.await
-				.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+				.map_err(|source| tg::error!(!source, "failed to index the deleted tags"))?;
 		}
 
 		Ok(output)

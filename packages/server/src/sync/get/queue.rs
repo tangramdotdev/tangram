@@ -79,7 +79,7 @@ impl Server {
 			vec![None; ids.len()]
 		} else {
 			self.index
-				.try_touch_object_and_get_stored_and_metadata_batch(&ids, touched_at)
+				.touch_objects(&ids, touched_at)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to touch the objects"))?
 		};
@@ -124,7 +124,9 @@ impl Server {
 						.map_err(|source| tg::error!(!source, "failed to send the message"))?;
 				},
 
-				Some((stored, metadata)) => {
+				Some(object) => {
+					let stored = object.stored;
+					let metadata = object.metadata;
 					// Update the graph with stored and metadata.
 					state.graph.lock().unwrap().update_object_local(
 						&item.id,
@@ -203,7 +205,7 @@ impl Server {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let outputs = self
 			.index
-			.try_touch_process_and_get_stored_and_metadata_batch(&ids, touched_at)
+			.touch_processes(&ids, touched_at)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to touch the processes"))?;
 
@@ -248,7 +250,9 @@ impl Server {
 				},
 
 				// If the process is present, then enqueue children and objects as necessary, and send a stored message if necessary.
-				Some((stored, metadata)) => {
+				Some(process) => {
+					let stored = &process.stored;
+					let metadata = &process.metadata;
 					// Get the process.
 					let data = self
 						.try_get_process_local(&item.id, false)
@@ -330,7 +334,7 @@ impl Server {
 		state: &State,
 		id: &tg::process::Id,
 		data: &tg::process::Data,
-		stored: Option<&crate::index::ProcessStored>,
+		stored: Option<&tangram_index::ProcessStored>,
 	) {
 		// Enqueue the children if necessary.
 		if state.arg.recursive

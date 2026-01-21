@@ -1,11 +1,10 @@
 use {
 	crate::sync::graph::{Graph, Node},
-	crate::{Server, index::message::ProcessObjectKind, sync::get::State},
+	crate::{Server, sync::get::State},
 	futures::{StreamExt as _, TryStreamExt as _},
 	std::sync::Arc,
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
-	tangram_messenger::prelude::*,
 	tangram_store::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
@@ -77,7 +76,7 @@ impl Server {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let outputs = self
 			.index
-			.try_touch_object_and_get_stored_and_metadata_batch(&ids, touched_at)
+			.touch_objects(&ids, touched_at)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to touch and get object metadata"))?;
 
@@ -86,14 +85,14 @@ impl Server {
 			state.graph.lock().unwrap().update_object_local(
 				&item.id,
 				None,
-				output.as_ref().map(|(stored, _)| stored.clone()),
-				output.as_ref().map(|(_, metadata)| metadata.clone()),
+				output.as_ref().map(|object| object.stored.clone()),
+				output.as_ref().map(|object| object.metadata.clone()),
 				None,
 				None,
 			);
 
 			// If the object is stored, then send a stored message.
-			if output.as_ref().is_some_and(|(stored, _)| stored.subtree) {
+			if output.as_ref().is_some_and(|object| object.stored.subtree) {
 				let message = tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Object(
 					tg::sync::GetStoredObjectMessage {
 						id: item.id.clone(),
@@ -113,7 +112,7 @@ impl Server {
 				}
 
 				// If the object's subtree is not stored, then enqueue the children.
-				let stored = output.as_ref().is_some_and(|(stored, _)| stored.subtree);
+				let stored = output.as_ref().is_some_and(|object| object.stored.subtree);
 				if !stored {
 					// Get the object.
 					let bytes = self
@@ -164,7 +163,7 @@ impl Server {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let outputs = self
 			.index
-			.try_touch_process_and_get_stored_and_metadata_batch(&ids, touched_at)
+			.touch_processes(&ids, touched_at)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to touch and get process metadata"))?;
 
@@ -173,14 +172,14 @@ impl Server {
 			state.graph.lock().unwrap().update_process_local(
 				&item.id,
 				None,
-				output.as_ref().map(|(stored, _)| stored.clone()),
-				output.as_ref().map(|(_, metadata)| metadata.clone()),
+				output.as_ref().map(|p| p.stored.clone()),
+				output.as_ref().map(|p| p.metadata.clone()),
 				None,
 				None,
 			);
 
 			// If the process is partially stored, then send a stored message.
-			if let Some(stored) = output.as_ref().map(|(stored, _)| stored) {
+			if let Some(stored) = output.as_ref().map(|p| &p.stored) {
 				let message = tg::sync::GetMessage::Stored(tg::sync::GetStoredMessage::Process(
 					tg::sync::GetStoredProcessMessage {
 						id: item.id.clone(),
@@ -204,7 +203,7 @@ impl Server {
 
 			if item.missing {
 				// If the process is not stored, then error.
-				let Some((stored, _)) = output else {
+				let Some(process) = output else {
 					return Err(tg::error!(id = %item.id, "failed to find the process"));
 				};
 
@@ -229,7 +228,12 @@ impl Server {
 				);
 
 				// Enqueue the children.
-				Self::sync_get_enqueue_process_children(state, &item.id, &data, Some(&stored));
+				Self::sync_get_enqueue_process_children(
+					state,
+					&item.id,
+					&data,
+					Some(&process.stored),
+				);
 			}
 		}
 
@@ -248,29 +252,30 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to flush the store"))?;
 
-		// Create the messages.
-		let message_max_bytes = self.config.sync.get.index.message_max_bytes;
-		let messages = Self::sync_get_index_create_messages(
-			&mut state.graph.lock().unwrap(),
-			message_max_bytes,
-		)
-		.map_err(|source| tg::error!(!source, "failed to create the index messages"))?;
+		// Create the index args.
+		let (put_object_args, put_process_args) =
+			Self::sync_get_index_create_args(&mut state.graph.lock().unwrap())
+				.map_err(|source| tg::error!(!source, "failed to create the index args"))?;
 
-		// Publish the messages.
-		self.messenger
-			.stream_batch_publish("index".to_owned(), messages)
+		// Index the objects and processes.
+		self.index
+			.put(tangram_index::PutArg {
+				objects: put_object_args,
+				processes: put_process_args,
+				..Default::default()
+			})
 			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the messages"))?
-			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the messages"))?;
+			.map_err(|source| tg::error!(!source, "failed to index the sync"))?;
 
 		Ok(())
 	}
 
-	fn sync_get_index_create_messages(
+	fn sync_get_index_create_args(
 		graph: &mut Graph,
-		message_max_bytes: usize,
-	) -> tg::Result<Vec<crate::index::message::Messages>> {
+	) -> tg::Result<(
+		Vec<tangram_index::PutObjectArg>,
+		Vec<tangram_index::PutProcessArg>,
+	)> {
 		// Get a reverse topological ordering using Tarjan's algorithm.
 		let sccs = petgraph::algo::tarjan_scc(&*graph);
 		for scc in &sccs {
@@ -608,7 +613,7 @@ impl Server {
 							.ok()
 							.ok_or_else(|| tg::error!("expected an object"))?;
 						match object_kind {
-							ProcessObjectKind::Command => {
+							tangram_index::ProcessObjectKind::Command => {
 								metadata.node.command.count = object_node
 									.metadata
 									.as_ref()
@@ -657,7 +662,7 @@ impl Server {
 									.map(|(a, b)| a + b);
 							},
 
-							ProcessObjectKind::Error => {
+							tangram_index::ProcessObjectKind::Error => {
 								metadata.node.error.count = metadata
 									.node
 									.error
@@ -727,7 +732,7 @@ impl Server {
 									.map(|(a, b)| a + b);
 							},
 
-							ProcessObjectKind::Log => {
+							tangram_index::ProcessObjectKind::Log => {
 								metadata.node.log.count = object_node
 									.metadata
 									.as_ref()
@@ -776,7 +781,7 @@ impl Server {
 									.map(|(a, b)| a + b);
 							},
 
-							ProcessObjectKind::Output => {
+							tangram_index::ProcessObjectKind::Output => {
 								metadata.node.output.count = metadata
 									.node
 									.output
@@ -863,8 +868,9 @@ impl Server {
 
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
-		// Create the messages.
-		let mut messages = Vec::new();
+		// Create the args.
+		let mut put_object_args = Vec::new();
+		let mut put_process_args = Vec::new();
 		let mut stack = graph
 			.nodes
 			.iter()
@@ -894,16 +900,15 @@ impl Server {
 							.collect();
 						let metadata = node.metadata.clone().unwrap();
 						let stored = node.local_stored.clone().unwrap();
-						let message =
-							crate::index::Message::PutObject(crate::index::message::PutObject {
-								cache_entry: None,
-								children,
-								id,
-								metadata,
-								stored,
-								touched_at,
-							});
-						messages.push(message);
+						let arg = tangram_index::PutObjectArg {
+							cache_entry: None,
+							children,
+							id,
+							metadata,
+							stored,
+							touched_at,
+						};
+						put_object_args.push(arg);
 					}
 					if let Some(children) = node.children.as_ref() {
 						stack.extend(children.iter().copied());
@@ -946,16 +951,15 @@ impl Server {
 								(id, kind)
 							})
 							.collect();
-						let message =
-							crate::index::Message::PutProcess(crate::index::message::PutProcess {
-								children,
-								id,
-								metadata,
-								objects,
-								stored,
-								touched_at,
-							});
-						messages.push(message);
+						let arg = tangram_index::PutProcessArg {
+							children,
+							id,
+							metadata,
+							objects,
+							stored,
+							touched_at,
+						};
+						put_process_args.push(arg);
 					}
 					if let Some(children) = node.children.as_ref() {
 						stack.extend(children.iter().copied());
@@ -967,23 +971,6 @@ impl Server {
 			}
 		}
 
-		// Batch the messages.
-		let mut batches = Vec::new();
-		let mut messages = messages.into_iter().peekable();
-		while let Some(message) = messages.next() {
-			let mut batch = vec![message];
-			let mut batch_bytes = batch[0].serialize()?.len();
-			while let Some(message) = messages.peek() {
-				batch_bytes += message.serialize()?.len();
-				if batch_bytes > message_max_bytes {
-					break;
-				}
-				let message = messages.next().unwrap();
-				batch.push(message);
-			}
-			batches.push(crate::index::message::Messages(batch));
-		}
-
-		Ok(batches)
+		Ok((put_object_args, put_process_args))
 	}
 }

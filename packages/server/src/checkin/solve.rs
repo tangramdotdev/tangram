@@ -891,16 +891,15 @@ impl Server {
 			},
 			tg::artifact::Data::File(tg::file::Data::Node(file)) => {
 				let contents = if let Some(id) = file.contents {
-					let (stored, metadata) = self
+					let object = self
 						.index
-						.try_get_object_stored_and_metadata(&id.clone().into())
+						.try_get_object(&id.clone().into())
 						.await
 						.ok()
-						.flatten()
-						.unwrap_or((
-							tangram_index::ObjectStored::default(),
-							tg::object::Metadata::default(),
-						));
+						.flatten();
+					let (stored, metadata) = object
+						.map(|object| (object.stored, object.metadata))
+						.unwrap_or_default();
 					Some(Contents::Id {
 						id,
 						stored,
@@ -953,7 +952,7 @@ impl Server {
 				.and_then(|metadata| metadata.subtree.solvable)
 				.unwrap_or(true),
 			solved: false,
-			stored: crate::index::ObjectStored::default(),
+			stored: tangram_index::ObjectStored::default(),
 			variant,
 		};
 
@@ -1042,16 +1041,15 @@ impl Server {
 
 			tg::graph::data::Node::File(file) => {
 				let contents = if let Some(id) = file.contents.clone() {
-					let (stored, metadata) = self
+					let object = self
 						.index
-						.try_get_object_stored_and_metadata(&id.clone().into())
+						.try_get_object(&id.clone().into())
 						.await
 						.ok()
-						.flatten()
-						.unwrap_or((
-							tangram_index::ObjectStored::default(),
-							tg::object::Metadata::default(),
-						));
+						.flatten();
+					let (stored, metadata) = object
+						.map(|object| (object.stored, object.metadata))
+						.unwrap_or_default();
 					Some(Contents::Id {
 						id,
 						stored,
@@ -1132,7 +1130,7 @@ impl Server {
 			referrers: SmallVec::new(),
 			solvable: true,
 			solved: false,
-			stored: crate::index::ObjectStored::default(),
+			stored: tangram_index::ObjectStored::default(),
 			variant,
 		};
 

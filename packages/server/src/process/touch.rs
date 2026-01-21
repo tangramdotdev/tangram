@@ -32,8 +32,9 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		self.index
-			.touch_process(id)
+			.touch_process(id, touched_at)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to touch the process"))?;
 

@@ -13,7 +13,7 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _},
-	tangram_messenger::prelude::*,
+	tangram_index::prelude::*,
 	tangram_store::prelude::*,
 	tokio::io::{AsyncRead, AsyncWriteExt as _},
 };
@@ -471,21 +471,37 @@ impl Server {
 		cache_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		touched_at: i64,
 	) -> tg::Result<()> {
-		let messages = Self::write_index_messages(blob, cache_pointer, touched_at);
-		let message = crate::index::message::Messages(messages);
-		let _published = self
-			.messenger
-			.stream_publish("index".to_owned(), message)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the messages"))?;
+		let (put_cache_entry_args, put_object_args) =
+			Self::write_index_args(blob, cache_pointer, touched_at);
+		self.index_tasks
+			.spawn(|_| {
+				let server = self.clone();
+				async move {
+					if let Err(error) = server
+						.index
+						.put(tangram_index::PutArg {
+							cache_entries: put_cache_entry_args,
+							objects: put_object_args,
+							..Default::default()
+						})
+						.await
+					{
+						tracing::error!(?error, "failed to index the write");
+					}
+				}
+			})
+			.detach();
 		Ok(())
 	}
 
-	pub(crate) fn write_index_messages(
+	pub(crate) fn write_index_args(
 		blob: &Output,
 		cache_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		touched_at: i64,
-	) -> Vec<crate::index::Message> {
+	) -> (
+		Vec<tangram_index::PutCacheEntryArg>,
+		Vec<tangram_index::PutObjectArg>,
+	) {
 		// Collect the blobs in topological order.
 		let mut blobs = Vec::new();
 		let mut stack = vec![blob];
@@ -494,10 +510,8 @@ impl Server {
 			stack.extend(&blob.children);
 		}
 
-		// Create the messages.
-		let mut messages = Vec::with_capacity(blobs.len() + 1);
-
-		// Create put object messages in reverse topological order.
+		// Create put object args in reverse topological order.
+		let mut put_object_args = Vec::with_capacity(blobs.len());
 		for blob in blobs.into_iter().rev() {
 			let cache_entry = cache_pointer.as_ref().map(|(artifact, _)| artifact.clone());
 			let mut children = BTreeSet::new();
@@ -505,28 +519,28 @@ impl Server {
 				data.children(&mut children);
 			}
 			let id = blob.id.clone().into();
-			let message = crate::index::Message::PutObject(crate::index::message::PutObject {
+			let arg = tangram_index::PutObjectArg {
 				cache_entry,
 				children,
 				id,
 				metadata: blob.metadata.clone(),
-				stored: crate::index::ObjectStored { subtree: true },
+				stored: tangram_index::ObjectStored { subtree: true },
 				touched_at,
-			});
-			messages.push(message);
+			};
+			put_object_args.push(arg);
 		}
 
-		// Create a cache entry message if necessary.
-		if let Some((artifact, _)) = cache_pointer {
-			let message =
-				crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
-					id: artifact,
-					touched_at,
-				});
-			messages.push(message);
-		}
+		// Create a cache entry arg if necessary.
+		let put_cache_entry_args = if let Some((artifact, _)) = cache_pointer {
+			vec![tangram_index::PutCacheEntryArg {
+				id: artifact,
+				touched_at,
+			}]
+		} else {
+			vec![]
+		};
 
-		messages
+		(put_cache_entry_args, put_object_args)
 	}
 
 	pub(crate) async fn handle_write_request(

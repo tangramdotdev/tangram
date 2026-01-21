@@ -217,11 +217,12 @@ impl Server {
 		// Check if the artifact's subtree is stored.
 		let stored = self
 			.index
-			.try_get_object_stored(&artifact.clone().into())
+			.try_get_object(&artifact.clone().into())
 			.await
 			.map_err(
 				|source| tg::error!(!source, %artifact, "failed to check if the artifact is stored"),
 			)?
+			.map(|object| object.stored)
 			.unwrap_or_default();
 		if stored.subtree {
 			return Ok(());
@@ -244,11 +245,12 @@ impl Server {
 		// Check if the artifact's subtree is stored.
 		let stored = self
 			.index
-			.try_get_object_stored(&artifact.clone().into())
+			.try_get_object(&artifact.clone().into())
 			.await
 			.map_err(
 				|source| tg::error!(!source, %artifact, "failed to check if the artifact is stored"),
 			)?
+			.map(|object| object.stored)
 			.unwrap_or_default();
 		if stored.subtree {
 			return Ok(());

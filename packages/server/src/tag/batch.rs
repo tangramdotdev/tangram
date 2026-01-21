@@ -2,7 +2,7 @@ use {
 	crate::{Context, Database, Server},
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
-	tangram_messenger::Messenger,
+	tangram_index::prelude::*,
 };
 
 #[cfg(feature = "postgres")]
@@ -58,24 +58,22 @@ impl Server {
 			},
 		}
 
-		// Publish the put tag index messages.
-		let messages: Vec<crate::index::Message> = arg
+		// Index the tags.
+		let put_tag_args: Vec<_> = arg
 			.tags
 			.into_iter()
-			.map(|item| {
-				crate::index::Message::PutTag(crate::index::message::PutTagMessage {
-					tag: item.tag.to_string(),
-					item: item.item,
-				})
+			.map(|item| tangram_index::PutTagArg {
+				tag: item.tag.to_string(),
+				item: item.item,
 			})
 			.collect();
-		let message = crate::index::message::Messages(messages);
-		self.messenger
-			.stream_publish("index".into(), message)
+		self.index
+			.put(tangram_index::PutArg {
+				tags: put_tag_args,
+				..Default::default()
+			})
 			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the message"))?
-			.await
-			.map_err(|source| tg::error!(!source, "failed to ack the message"))?;
+			.map_err(|source| tg::error!(!source, "failed to index the tags"))?;
 		Ok(())
 	}
 

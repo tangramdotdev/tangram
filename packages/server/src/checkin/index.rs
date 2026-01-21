@@ -1,11 +1,11 @@
 use {
 	crate::{
 		Server,
-		checkin::{Graph, IndexCacheEntryMessages, IndexObjectMessages},
+		checkin::{Graph, IndexCacheEntryArgs, IndexObjectArgs},
 	},
 	std::path::Path,
 	tangram_client::prelude::*,
-	tangram_messenger::prelude::*,
+	tangram_index::prelude::*,
 };
 
 impl Server {
@@ -13,14 +13,13 @@ impl Server {
 		&self,
 		arg: &tg::checkin::Arg,
 		graph: &Graph,
-		object_messages: IndexObjectMessages,
-		cache_entry_messages: IndexCacheEntryMessages,
+		index_object_args: IndexObjectArgs,
+		index_cache_entry_args: IndexCacheEntryArgs,
 		root: &Path,
 		touched_at: i64,
 	) -> tg::Result<()> {
-		let mut messages: Vec<crate::index::Message> = Vec::new();
-
-		// Create put cache entry messages.
+		// Create put cache entry args.
+		let mut put_index_cache_entry_args = Vec::new();
 		if arg.options.cache_pointers {
 			if arg.options.destructive {
 				let index = graph.paths.get(root).unwrap();
@@ -34,38 +33,30 @@ impl Server {
 					.clone()
 					.try_into()
 					.unwrap();
-				let message =
-					crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
-						id,
-						touched_at,
-					});
-				messages.push(message);
+				put_index_cache_entry_args.push(tangram_index::PutCacheEntryArg { id, touched_at });
 			} else {
-				// Add cache entry messages.
-				for message in cache_entry_messages {
-					let message = crate::index::Message::PutCacheEntry(message);
-					messages.push(message);
+				// Add cache entry args.
+				for arg in index_cache_entry_args {
+					put_index_cache_entry_args.push(tangram_index::PutCacheEntryArg {
+						id: arg.id,
+						touched_at: arg.touched_at,
+					});
 				}
 			}
 		}
 
-		// Add put object messages.
-		for (_, message) in object_messages {
-			let message = crate::index::Message::PutObject(message);
-			messages.push(message);
-		}
+		// Create put object args in reverse topological order.
+		let put_index_object_args: Vec<_> = index_object_args.into_values().rev().collect();
 
-		// Reverse the messages to put them in topological order.
-		messages.reverse();
-
-		// Publish the messages.
-		let message = crate::index::message::Messages(messages);
-		self.messenger
-			.stream_publish("index".to_owned(), message)
+		// Index.
+		self.index
+			.put(tangram_index::PutArg {
+				cache_entries: put_index_cache_entry_args,
+				objects: put_index_object_args,
+				..Default::default()
+			})
 			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the message"))?
-			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+			.map_err(|source| tg::error!(!source, "failed to index"))?;
 
 		Ok(())
 	}
