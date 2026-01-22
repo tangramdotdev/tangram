@@ -724,9 +724,6 @@ export def --env spawn [
 				cluster: $cluster,
 				prefix: $id,
 			},
-			indexer: {
-				message_batch_timeout: 1,
-			},
 			messenger: {
 				kind: 'nats',
 				id: $id,
@@ -841,10 +838,10 @@ export def --env spawn [
 }
 
 def clean_databases [id: string] {
-	# Drop the postgres databases.
+	# Drop the postgres database.
 	try { dropdb -U postgres -h localhost $'database_($id)' }
 
-	# Clear the FDB key range for this test.
+	# Clear the fdb key range.
 	let cluster = mktemp -t
 	"docker:docker@localhost:4500" | save -f $cluster
 	try { fdbcli -C $cluster --exec $'writemode on; clearrange "($id)" "($id)\xff"' }

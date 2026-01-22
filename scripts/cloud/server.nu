@@ -18,9 +18,6 @@ let config = {
 		kind: 'fdb',
 		cluster: $cluster,
 	},
-	indexer: {
-		message_batch_timeout: 1,
-	},
 	messenger: {
 		kind: 'nats',
 		url: 'nats://localhost:4222',

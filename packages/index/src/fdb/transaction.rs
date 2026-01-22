@@ -14,6 +14,6 @@ impl Index {
 	}
 
 	pub async fn get_queue_size(&self, _transaction_id: u64) -> tg::Result<u64> {
-		todo!()
+		Ok(0)
 	}
 }
