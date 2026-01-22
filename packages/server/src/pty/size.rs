@@ -53,7 +53,7 @@ impl Server {
 			return self
 				.try_put_pty_size_local(id, arg)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the pty size"));
+				.map_err(|source| tg::error!(!source, "failed to put the pty size"));
 		}
 
 		// Try remotes.
@@ -63,9 +63,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
 		self.try_put_pty_size_remote(id, arg, &remotes)
 			.await
-			.map_err(
-				|source| tg::error!(!source, %id, "failed to get the pty size from the remote"),
-			)
+			.map_err(|source| tg::error!(!source, %id, "failed to put the pty size on the remote"))
 	}
 
 	async fn try_get_pty_size_local(&self, id: &tg::pty::Id) -> tg::Result<Option<tg::pty::Size>> {
@@ -103,13 +101,11 @@ impl Server {
 		id: &tg::pty::Id,
 		arg: tg::pty::size::put::Arg,
 	) -> tg::Result<()> {
-		// First attempt to update the size of the TTY.
+		// Attempt to set the size of the PTY.
 		let pty = self
 			.ptys
 			.get_mut(id)
 			.ok_or_else(|| tg::error!("expected a pty"))?;
-
-		// Update the underlying PTY.
 		let fd = if arg.master
 			&& let Some(master) = pty.master.as_ref()
 		{
@@ -160,6 +156,7 @@ impl Server {
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
 		Ok(())
 	}
 
@@ -221,7 +218,7 @@ impl Server {
 				client
 					.put_pty_size(id, arg)
 					.await
-					.map_err(|source| tg::error!(!source, %remote, "failed to get the pty size"))
+					.map_err(|source| tg::error!(!source, %remote, "failed to put the pty size"))
 			}
 			.boxed()
 		});
@@ -278,6 +275,49 @@ impl Server {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}
 		let response = response.body(body).unwrap();
+		Ok(response)
+	}
+
+	pub(crate) async fn handle_put_pty_size_request(
+		&self,
+		request: http::Request<Body>,
+		context: &Context,
+		id: &str,
+	) -> tg::Result<http::Response<Body>> {
+		// Get the accept header.
+		let accept = request
+			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
+
+		// Parse the ID.
+		let id = id
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the pty id"))?;
+
+		// Get the arg.
+		let arg = request
+			.json()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to parse the body"))?;
+
+		// Put the pty size.
+		self.try_put_pty_size_with_context(context, &id, arg)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to put the pty size"))?;
+
+		// Create the response.
+		match accept
+			.as_ref()
+			.map(|accept| (accept.type_(), accept.subtype()))
+		{
+			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => {},
+			Some((type_, subtype)) => {
+				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
+			},
+		}
+
+		let response = http::Response::builder().body(Body::empty()).unwrap();
 		Ok(response)
 	}
 }

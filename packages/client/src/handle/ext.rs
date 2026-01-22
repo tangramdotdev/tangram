@@ -567,7 +567,7 @@ pub trait Ext: tg::Handle {
 						handle
 							.try_read_pipe_stream(&id, arg)
 							.await?
-							.unwrap()
+							.ok_or_else(|| tg::error!(%id, "the pipe was not found"))?
 							.boxed()
 					};
 					Ok::<_, tg::Error>(Some((stream, state)))
@@ -616,7 +616,11 @@ pub trait Ext: tg::Handle {
 						stream
 					} else {
 						let arg = state.lock().unwrap().arg.clone();
-						handle.try_read_pty_stream(&id, arg).await?.unwrap().boxed()
+						handle
+							.try_read_pty_stream(&id, arg)
+							.await?
+							.ok_or_else(|| tg::error!(%id, "the pty was not found"))?
+							.boxed()
 					};
 					Ok::<_, tg::Error>(Some((stream, state)))
 				}

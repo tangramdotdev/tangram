@@ -24,8 +24,6 @@ impl tg::Client {
 	pub async fn write_pipe(&self, id: &tg::pipe::Id, arg: Arg) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/pipes/{id}/write");
-
-		// Create the request.
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

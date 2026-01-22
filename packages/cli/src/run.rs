@@ -357,7 +357,7 @@ impl Cli {
 		// Stop and await the stdio task.
 		stdio_task.stop();
 
-		// Wait the task.
+		// Await the stdio task.
 		stdio_task.wait().await.unwrap()?;
 
 		// Delete stdio.

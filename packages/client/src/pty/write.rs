@@ -25,8 +25,6 @@ impl tg::Client {
 	pub async fn write_pty(&self, id: &tg::pty::Id, arg: Arg) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = format!("/ptys/{id}/write");
-
-		// Create the request.
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
