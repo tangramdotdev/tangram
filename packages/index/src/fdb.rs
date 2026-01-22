@@ -1,8 +1,10 @@
 use {
 	crate::{CleanOutput, ProcessObjectKind},
-	foundationdb as fdb, foundationdb_tuple as fdbt,
+	bytes::Bytes,
+	foundationdb as fdb,
+	foundationdb_tuple::{self as fdbt, TuplePack as _},
 	num_traits::{FromPrimitive as _, ToPrimitive as _},
-	std::path::Path,
+	std::{path::Path, sync::Arc},
 	tangram_client::prelude::*,
 };
 
@@ -14,8 +16,10 @@ mod queue;
 mod touch;
 mod transaction;
 
+#[derive(Clone)]
 pub struct Index {
-	database: fdb::Database,
+	database: Arc<fdb::Database>,
+	prefix: Option<Bytes>,
 }
 
 #[derive(Debug, Clone)]
@@ -255,11 +259,43 @@ enum TagCoreField {
 }
 
 impl Index {
-	pub fn new(cluster: &Path) -> tg::Result<Self> {
+	pub fn new(cluster: &Path, prefix: Option<String>) -> tg::Result<Self> {
 		let database = fdb::Database::new(Some(cluster.to_str().unwrap()))
 			.map_err(|source| tg::error!(!source, "failed to open the foundationdb cluster"))?;
-		let index = Self { database };
+		let database = Arc::new(database);
+		let prefix = prefix.map(|s| Bytes::from(s.into_bytes()));
+		let index = Self { database, prefix };
 		Ok(index)
+	}
+
+	fn pack(&self, key: &Key) -> Vec<u8> {
+		match &self.prefix {
+			Some(prefix) => {
+				let mut v = prefix.to_vec();
+				key.pack_into_vec(&mut v);
+				v
+			},
+			None => key.pack_to_vec(),
+		}
+	}
+
+	fn pack_tuple<T: fdbt::TuplePack>(&self, tuple: &T) -> Vec<u8> {
+		match &self.prefix {
+			Some(prefix) => {
+				let mut v = prefix.to_vec();
+				tuple.pack_into_vec(&mut v);
+				v
+			},
+			None => tuple.pack_to_vec(),
+		}
+	}
+
+	fn unpack<'a, T: fdbt::TupleUnpack<'a>>(&self, bytes: &'a [u8]) -> tg::Result<T> {
+		let bytes = match &self.prefix {
+			Some(prefix) => &bytes[prefix.len()..],
+			None => bytes,
+		};
+		fdbt::unpack(bytes).map_err(|source| tg::error!(!source, "failed to unpack key"))
 	}
 
 	pub async fn sync(&self) -> tg::Result<()> {

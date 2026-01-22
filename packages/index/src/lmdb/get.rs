@@ -6,10 +6,7 @@ use {
 };
 
 impl Index {
-	pub async fn try_get_objects(
-		&self,
-		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Option<Object>>> {
+	pub async fn try_get_objects(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Object>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
@@ -30,7 +27,9 @@ impl Index {
 					let value = value
 						.map(tangram_serialize::from_slice::<Object>)
 						.transpose()
-						.map_err(|source| tg::error!(!source, %id, "failed to deserialize the object"))?;
+						.map_err(
+							|source| tg::error!(!source, %id, "failed to deserialize the object"),
+						)?;
 					outputs.push(value);
 				}
 				Ok(outputs)
@@ -64,7 +63,9 @@ impl Index {
 					let value = value
 						.map(tangram_serialize::from_slice::<Process>)
 						.transpose()
-						.map_err(|source| tg::error!(!source, %id, "failed to deserialize the process"))?;
+						.map_err(
+							|source| tg::error!(!source, %id, "failed to deserialize the process"),
+						)?;
 					outputs.push(value);
 				}
 				Ok(outputs)

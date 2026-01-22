@@ -200,6 +200,8 @@ pub enum Index {
 #[serde(deny_unknown_fields, default)]
 pub struct FdbIndex {
 	pub cluster: PathBuf,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub prefix: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -577,6 +579,7 @@ impl Default for FdbIndex {
 	fn default() -> Self {
 		Self {
 			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
+			prefix: None,
 		}
 	}
 }

@@ -6,27 +6,28 @@ use {
 	},
 	crate::{ProcessObjectKind, PutArg, PutCacheEntryArg, PutObjectArg, PutProcessArg, PutTagArg},
 	foundationdb as fdb,
-	foundationdb_tuple::TuplePack as _,
 	tangram_client::prelude::*,
 };
 
 impl Index {
 	pub async fn put(&self, arg: PutArg) -> tg::Result<()> {
+		let this = self.clone();
 		self.database
 			.run(|txn, _| {
+				let this = this.clone();
 				let arg = arg.clone();
 				async move {
 					for cache_entry in &arg.cache_entries {
-						Self::put_cache_entry(&txn, cache_entry);
+						this.put_cache_entry(&txn, cache_entry);
 					}
 					for object in &arg.objects {
-						Self::put_object(&txn, object);
+						this.put_object(&txn, object);
 					}
 					for process in &arg.processes {
-						Self::put_process(&txn, process);
+						this.put_process(&txn, process);
 					}
 					for tag in &arg.tags {
-						Self::put_tag(&txn, tag);
+						this.put_tag(&txn, tag);
 					}
 					Ok::<_, fdb::FdbBindingError>(())
 				}
@@ -35,25 +36,23 @@ impl Index {
 			.map_err(|source| tg::error!(!source, "failed to put"))
 	}
 
-	fn put_cache_entry(txn: &fdb::Transaction, arg: &PutCacheEntryArg) {
+	fn put_cache_entry(&self, txn: &fdb::Transaction, arg: &PutCacheEntryArg) {
 		let id = &arg.id;
 
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
-		let exists_key = Key::CacheEntry {
+		let exists_key = self.pack(&Key::CacheEntry {
 			id: id.clone(),
 			field: CacheEntryField::Core(CacheEntryCoreField::Exists),
-		}
-		.pack_to_vec();
+		});
 		txn.set(&exists_key, &[]);
 
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
-		let touched_at_key = Key::CacheEntry {
+		let touched_at_key = self.pack(&Key::CacheEntry {
 			id: id.clone(),
 			field: CacheEntryField::Core(CacheEntryCoreField::TouchedAt),
-		}
-		.pack_to_vec();
+		});
 		txn.atomic_op(
 			&touched_at_key,
 			&arg.touched_at.to_le_bytes(),
@@ -61,25 +60,23 @@ impl Index {
 		);
 	}
 
-	fn put_object(txn: &fdb::Transaction, arg: &PutObjectArg) {
+	fn put_object(&self, txn: &fdb::Transaction, arg: &PutObjectArg) {
 		let id = &arg.id;
 
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
-		let exists_key = Key::Object {
+		let exists_key = self.pack(&Key::Object {
 			id: id.clone(),
 			field: ObjectField::Core(ObjectCoreField::Exists),
-		}
-		.pack_to_vec();
+		});
 		txn.set(&exists_key, &[]);
 
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
-		let touched_at_key = Key::Object {
+		let touched_at_key = self.pack(&Key::Object {
 			id: id.clone(),
 			field: ObjectField::Core(ObjectCoreField::TouchedAt),
-		}
-		.pack_to_vec();
+		});
 		txn.atomic_op(
 			&touched_at_key,
 			&arg.touched_at.to_le_bytes(),
@@ -89,178 +86,163 @@ impl Index {
 		if let Some(cache_entry) = &arg.cache_entry {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Object {
+			let key = self.pack(&Key::Object {
 				id: id.clone(),
 				field: ObjectField::Core(ObjectCoreField::CacheEntry),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, cache_entry.to_bytes().as_ref());
 		}
 
 		if arg.metadata.node.size != 0 {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Object {
+			let key = self.pack(&Key::Object {
 				id: id.clone(),
 				field: ObjectField::Metadata(ObjectMetadataField::NodeSize),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &arg.metadata.node.size.to_le_bytes());
 		}
 		if arg.metadata.node.solvable {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Object {
+			let key = self.pack(&Key::Object {
 				id: id.clone(),
 				field: ObjectField::Metadata(ObjectMetadataField::NodeSolvable),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 		}
 		if arg.metadata.node.solved {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Object {
+			let key = self.pack(&Key::Object {
 				id: id.clone(),
 				field: ObjectField::Metadata(ObjectMetadataField::NodeSolved),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 		}
 
 		if let Some(count) = arg.metadata.subtree.count {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Object {
+			let key = self.pack(&Key::Object {
 				id: id.clone(),
 				field: ObjectField::Metadata(ObjectMetadataField::SubtreeCount),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &count.to_le_bytes());
 		}
 		if let Some(depth) = arg.metadata.subtree.depth {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Object {
+			let key = self.pack(&Key::Object {
 				id: id.clone(),
 				field: ObjectField::Metadata(ObjectMetadataField::SubtreeDepth),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &depth.to_le_bytes());
 		}
 		if let Some(size) = arg.metadata.subtree.size {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Object {
+			let key = self.pack(&Key::Object {
 				id: id.clone(),
 				field: ObjectField::Metadata(ObjectMetadataField::SubtreeSize),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &size.to_le_bytes());
 		}
 		if let Some(true) = arg.metadata.subtree.solvable {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Object {
+			let key = self.pack(&Key::Object {
 				id: id.clone(),
 				field: ObjectField::Metadata(ObjectMetadataField::SubtreeSolvable),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 		}
 		if let Some(true) = arg.metadata.subtree.solved {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Object {
+			let key = self.pack(&Key::Object {
 				id: id.clone(),
 				field: ObjectField::Metadata(ObjectMetadataField::SubtreeSolved),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 		}
 
 		if arg.stored.subtree {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Object {
+			let key = self.pack(&Key::Object {
 				id: id.clone(),
 				field: ObjectField::Stored(ObjectStoredField::Subtree),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 		}
 
 		for child in &arg.children {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::ObjectChild {
+			let key = self.pack(&Key::ObjectChild {
 				object: id.clone(),
 				child: child.clone(),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::ChildObject {
+			let key = self.pack(&Key::ChildObject {
 				child: child.clone(),
 				object: id.clone(),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 		}
 
 		if let Some(cache_entry) = &arg.cache_entry {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::ObjectCacheEntry {
+			let key = self.pack(&Key::ObjectCacheEntry {
 				cache_entry: cache_entry.clone(),
 				object: id.clone(),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 		}
 	}
 
-	fn put_process(txn: &fdb::Transaction, arg: &PutProcessArg) {
+	fn put_process(&self, txn: &fdb::Transaction, arg: &PutProcessArg) {
 		let id = &arg.id;
 
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
-		let exists_key = Key::Process {
+		let exists_key = self.pack(&Key::Process {
 			id: id.clone(),
 			field: ProcessField::Core(ProcessCoreField::Exists),
-		}
-		.pack_to_vec();
+		});
 		txn.set(&exists_key, &[]);
 
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
-		let touched_at_key = Key::Process {
+		let touched_at_key = self.pack(&Key::Process {
 			id: id.clone(),
 			field: ProcessField::Core(ProcessCoreField::TouchedAt),
-		}
-		.pack_to_vec();
+		});
 		txn.atomic_op(
 			&touched_at_key,
 			&arg.touched_at.to_le_bytes(),
 			fdb::options::MutationType::Max,
 		);
 
-		Self::put_process_object_metadata(txn, id, &arg.metadata.node.command, |field| {
+		self.put_process_object_metadata(txn, id, &arg.metadata.node.command, |field| {
 			ProcessMetadataField::from_object_metadata_field(
 				field,
 				ProcessObjectKind::Command,
 				false,
 			)
 		});
-		Self::put_process_object_metadata(txn, id, &arg.metadata.node.error, |field| {
+		self.put_process_object_metadata(txn, id, &arg.metadata.node.error, |field| {
 			ProcessMetadataField::from_object_metadata_field(field, ProcessObjectKind::Error, false)
 		});
-		Self::put_process_object_metadata(txn, id, &arg.metadata.node.log, |field| {
+		self.put_process_object_metadata(txn, id, &arg.metadata.node.log, |field| {
 			ProcessMetadataField::from_object_metadata_field(field, ProcessObjectKind::Log, false)
 		});
-		Self::put_process_object_metadata(txn, id, &arg.metadata.node.output, |field| {
+		self.put_process_object_metadata(txn, id, &arg.metadata.node.output, |field| {
 			ProcessMetadataField::from_object_metadata_field(
 				field,
 				ProcessObjectKind::Output,
@@ -271,165 +253,152 @@ impl Index {
 		if let Some(count) = arg.metadata.subtree.count {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Process {
+			let key = self.pack(&Key::Process {
 				id: id.clone(),
 				field: ProcessField::Metadata(ProcessMetadataField::SubtreeCount),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &count.to_le_bytes());
 		}
-		Self::put_process_object_metadata(txn, id, &arg.metadata.subtree.command, |field| {
+		self.put_process_object_metadata(txn, id, &arg.metadata.subtree.command, |field| {
 			ProcessMetadataField::from_object_metadata_field(
 				field,
 				ProcessObjectKind::Command,
 				true,
 			)
 		});
-		Self::put_process_object_metadata(txn, id, &arg.metadata.subtree.error, |field| {
+		self.put_process_object_metadata(txn, id, &arg.metadata.subtree.error, |field| {
 			ProcessMetadataField::from_object_metadata_field(field, ProcessObjectKind::Error, true)
 		});
-		Self::put_process_object_metadata(txn, id, &arg.metadata.subtree.log, |field| {
+		self.put_process_object_metadata(txn, id, &arg.metadata.subtree.log, |field| {
 			ProcessMetadataField::from_object_metadata_field(field, ProcessObjectKind::Log, true)
 		});
-		Self::put_process_object_metadata(txn, id, &arg.metadata.subtree.output, |field| {
+		self.put_process_object_metadata(txn, id, &arg.metadata.subtree.output, |field| {
 			ProcessMetadataField::from_object_metadata_field(field, ProcessObjectKind::Output, true)
 		});
 
 		if arg.stored.node_command {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Process {
+			let key = self.pack(&Key::Process {
 				id: id.clone(),
 				field: ProcessField::Stored(ProcessStoredField::NodeCommand),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 		}
 		if arg.stored.node_error {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Process {
+			let key = self.pack(&Key::Process {
 				id: id.clone(),
 				field: ProcessField::Stored(ProcessStoredField::NodeError),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 		}
 		if arg.stored.node_log {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Process {
+			let key = self.pack(&Key::Process {
 				id: id.clone(),
 				field: ProcessField::Stored(ProcessStoredField::NodeLog),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 		}
 		if arg.stored.node_output {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Process {
+			let key = self.pack(&Key::Process {
 				id: id.clone(),
 				field: ProcessField::Stored(ProcessStoredField::NodeOutput),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 		}
 		if arg.stored.subtree {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Process {
+			let key = self.pack(&Key::Process {
 				id: id.clone(),
 				field: ProcessField::Stored(ProcessStoredField::Subtree),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 		}
 		if arg.stored.subtree_command {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Process {
+			let key = self.pack(&Key::Process {
 				id: id.clone(),
 				field: ProcessField::Stored(ProcessStoredField::SubtreeCommand),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 		}
 		if arg.stored.subtree_error {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Process {
+			let key = self.pack(&Key::Process {
 				id: id.clone(),
 				field: ProcessField::Stored(ProcessStoredField::SubtreeError),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 		}
 		if arg.stored.subtree_log {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Process {
+			let key = self.pack(&Key::Process {
 				id: id.clone(),
 				field: ProcessField::Stored(ProcessStoredField::SubtreeLog),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 		}
 		if arg.stored.subtree_output {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Process {
+			let key = self.pack(&Key::Process {
 				id: id.clone(),
 				field: ProcessField::Stored(ProcessStoredField::SubtreeOutput),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 		}
 
 		for child in &arg.children {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::ProcessChild {
+			let key = self.pack(&Key::ProcessChild {
 				process: id.clone(),
 				child: child.clone(),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::ChildProcess {
+			let key = self.pack(&Key::ChildProcess {
 				child: child.clone(),
 				parent: id.clone(),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 		}
 
 		for (object, kind) in &arg.objects {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::ProcessObject {
+			let key = self.pack(&Key::ProcessObject {
 				process: id.clone(),
 				object: object.clone(),
 				kind: *kind,
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::ObjectProcess {
+			let key = self.pack(&Key::ObjectProcess {
 				object: object.clone(),
 				process: id.clone(),
 				kind: *kind,
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 		}
 	}
 
 	fn put_process_object_metadata(
+		&self,
 		txn: &fdb::Transaction,
 		id: &tg::process::Id,
 		metadata: &tg::object::metadata::Subtree,
@@ -438,56 +407,51 @@ impl Index {
 		if let Some(count) = metadata.count {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Process {
+			let key = self.pack(&Key::Process {
 				id: id.clone(),
 				field: ProcessField::Metadata(map_field(ObjectSubtreeMetadataField::Count)),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &count.to_le_bytes());
 		}
 		if let Some(depth) = metadata.depth {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Process {
+			let key = self.pack(&Key::Process {
 				id: id.clone(),
 				field: ProcessField::Metadata(map_field(ObjectSubtreeMetadataField::Depth)),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &depth.to_le_bytes());
 		}
 		if let Some(size) = metadata.size {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Process {
+			let key = self.pack(&Key::Process {
 				id: id.clone(),
 				field: ProcessField::Metadata(map_field(ObjectSubtreeMetadataField::Size)),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &size.to_le_bytes());
 		}
 		if let Some(true) = metadata.solvable {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Process {
+			let key = self.pack(&Key::Process {
 				id: id.clone(),
 				field: ProcessField::Metadata(map_field(ObjectSubtreeMetadataField::Solvable)),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 		}
 		if let Some(true) = metadata.solved {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
-			let key = Key::Process {
+			let key = self.pack(&Key::Process {
 				id: id.clone(),
 				field: ProcessField::Metadata(map_field(ObjectSubtreeMetadataField::Solved)),
-			}
-			.pack_to_vec();
+			});
 			txn.set(&key, &[]);
 		}
 	}
 
-	fn put_tag(txn: &fdb::Transaction, arg: &PutTagArg) {
+	fn put_tag(&self, txn: &fdb::Transaction, arg: &PutTagArg) {
 		let item_bytes: Vec<u8> = match &arg.item {
 			tg::Either::Left(object_id) => object_id.to_bytes().to_vec(),
 			tg::Either::Right(process_id) => process_id.to_bytes().to_vec(),
@@ -495,20 +459,18 @@ impl Index {
 
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
-		let key = Key::Tag {
+		let key = self.pack(&Key::Tag {
 			tag: arg.tag.clone(),
 			field: TagField::Core(TagCoreField::Item),
-		}
-		.pack_to_vec();
+		});
 		txn.set(&key, &item_bytes);
 
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
-		let key = Key::ItemTag {
+		let key = self.pack(&Key::ItemTag {
 			item: item_bytes,
 			tag: arg.tag.clone(),
-		}
-		.pack_to_vec();
+		});
 		txn.set(&key, &[]);
 	}
 }

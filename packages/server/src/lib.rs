@@ -348,7 +348,7 @@ impl Server {
 				}
 				#[cfg(feature = "foundationdb")]
 				{
-					Index::new_fdb(&options.cluster)
+					Index::new_fdb(&options.cluster, options.prefix.clone())
 						.map_err(|source| tg::error!(!source, "failed to create the index"))?
 				}
 			},

@@ -5,7 +5,7 @@ use {
 	},
 	crate::{Object, ObjectStored, Process, ProcessStored},
 	foundationdb as fdb,
-	foundationdb_tuple::{Subspace, TuplePack as _},
+	foundationdb_tuple::Subspace,
 	futures::TryStreamExt as _,
 	num_traits::ToPrimitive as _,
 	tangram_client::prelude::*,
@@ -24,7 +24,7 @@ impl Index {
 
 		let outputs = futures::future::try_join_all(
 			ids.iter()
-				.map(|id| Self::try_get_object_with_transaction(&txn, id)),
+				.map(|id| self.try_get_object_with_transaction(&txn, id)),
 		)
 		.await?;
 
@@ -46,7 +46,7 @@ impl Index {
 
 		let outputs = futures::future::try_join_all(
 			ids.iter()
-				.map(|id| Self::try_get_process_with_transaction(&txn, id)),
+				.map(|id| self.try_get_process_with_transaction(&txn, id)),
 		)
 		.await?;
 
@@ -54,10 +54,11 @@ impl Index {
 	}
 
 	pub async fn try_get_object_with_transaction(
+		&self,
 		txn: &fdb::Transaction,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<Object>> {
-		let prefix = (Kind::Object.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
+		let prefix = self.pack_tuple(&(Kind::Object.to_i32().unwrap(), id.to_bytes().as_ref()));
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
@@ -69,11 +70,10 @@ impl Index {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to scan object fields"))?;
 
-		let exists_key = Key::Object {
+		let exists_key = self.pack(&Key::Object {
 			id: id.clone(),
 			field: ObjectField::Core(ObjectCoreField::Exists),
-		}
-		.pack_to_vec();
+		});
 		let mut exists_key_end = exists_key.clone();
 		exists_key_end.push(0x00);
 		txn.add_conflict_range(
@@ -89,9 +89,7 @@ impl Index {
 		let mut stored = ObjectStored::default();
 
 		for entry in entries {
-			let Key::Object { field, .. } = foundationdb_tuple::unpack(entry.key())
-				.map_err(|source| tg::error!(!source, "failed to unpack object field key"))?
-			else {
+			let Key::Object { field, .. } = self.unpack(entry.key())? else {
 				return Err(tg::error!("unexpected key type"));
 			};
 			let value = entry.value();
@@ -137,10 +135,11 @@ impl Index {
 	}
 
 	pub async fn try_get_process_with_transaction(
+		&self,
 		txn: &fdb::Transaction,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<Process>> {
-		let prefix = (Kind::Process.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
+		let prefix = self.pack_tuple(&(Kind::Process.to_i32().unwrap(), id.to_bytes().as_ref()));
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
@@ -152,11 +151,10 @@ impl Index {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to scan process fields"))?;
 
-		let exists_key = Key::Process {
+		let exists_key = self.pack(&Key::Process {
 			id: id.clone(),
 			field: ProcessField::Core(ProcessCoreField::Exists),
-		}
-		.pack_to_vec();
+		});
 		let mut exists_key_end = exists_key.clone();
 		exists_key_end.push(0x00);
 		txn.add_conflict_range(
@@ -172,9 +170,7 @@ impl Index {
 		let mut stored = ProcessStored::default();
 
 		for entry in entries {
-			let Key::Process { field, .. } = foundationdb_tuple::unpack(entry.key())
-				.map_err(|source| tg::error!(!source, "failed to unpack process field key"))?
-			else {
+			let Key::Process { field, .. } = self.unpack(entry.key())? else {
 				return Err(tg::error!("unexpected key type"));
 			};
 			let value = entry.value();

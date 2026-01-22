@@ -25,8 +25,8 @@ pub enum Index {
 
 impl Index {
 	#[cfg(feature = "foundationdb")]
-	pub fn new_fdb(cluster: &std::path::Path) -> tg::Result<Self> {
-		Ok(Self::Fdb(index::fdb::Index::new(cluster)?))
+	pub fn new_fdb(cluster: &std::path::Path, prefix: Option<String>) -> tg::Result<Self> {
+		Ok(Self::Fdb(index::fdb::Index::new(cluster, prefix)?))
 	}
 
 	#[cfg(feature = "lmdb")]
