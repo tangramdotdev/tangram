@@ -277,7 +277,7 @@ pub trait Pipe: Send + Sync + 'static {
 		arg: tg::pipe::delete::Arg,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
-	fn try_read_pipe<'a>(
+	fn try_read_pipe_stream<'a>(
 		&'a self,
 		id: &'a tg::pipe::Id,
 		arg: tg::pipe::read::Arg,
@@ -287,7 +287,6 @@ pub trait Pipe: Send + Sync + 'static {
 		&'a self,
 		id: &'a tg::pipe::Id,
 		arg: tg::pipe::write::Arg,
-		stream: BoxStream<'static, tg::Result<tg::pipe::Event>>,
 	) -> BoxFuture<'a, tg::Result<()>>;
 }
 
@@ -312,10 +311,16 @@ pub trait Pty: Send + Sync + 'static {
 	fn get_pty_size<'a>(
 		&'a self,
 		id: &'a tg::pty::Id,
-		arg: tg::pty::read::Arg,
+		arg: tg::pty::size::get::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::pty::Size>>>;
 
-	fn try_read_pty<'a>(
+	fn put_pty_size<'a>(
+		&'a self,
+		id: &'a tg::pty::Id,
+		arg: tg::pty::size::put::Arg,
+	) -> BoxFuture<'a, tg::Result<()>>;
+
+	fn try_read_pty_stream<'a>(
 		&'a self,
 		id: &'a tg::pty::Id,
 		arg: tg::pty::read::Arg,
@@ -325,7 +330,6 @@ pub trait Pty: Send + Sync + 'static {
 		&'a self,
 		id: &'a tg::pty::Id,
 		arg: tg::pty::write::Arg,
-		stream: BoxStream<'static, tg::Result<tg::pty::Event>>,
 	) -> BoxFuture<'a, tg::Result<()>>;
 }
 
@@ -781,12 +785,12 @@ where
 		self.delete_pipe(id, arg).boxed()
 	}
 
-	fn try_read_pipe<'a>(
+	fn try_read_pipe_stream<'a>(
 		&'a self,
 		id: &'a tg::pipe::Id,
 		arg: tg::pipe::read::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::pipe::Event>>>>> {
-		self.try_read_pipe(id, arg)
+		self.try_read_pipe_stream(id, arg)
 			.map_ok(|option| option.map(futures::StreamExt::boxed))
 			.boxed()
 	}
@@ -795,9 +799,8 @@ where
 		&'a self,
 		id: &'a tg::pipe::Id,
 		arg: tg::pipe::write::Arg,
-		stream: BoxStream<'static, tg::Result<tg::pipe::Event>>,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.write_pipe(id, arg, stream).boxed()
+		self.write_pipe(id, arg).boxed()
 	}
 }
 
@@ -831,17 +834,25 @@ where
 	fn get_pty_size<'a>(
 		&'a self,
 		id: &'a tg::pty::Id,
-		arg: tg::pty::read::Arg,
+		arg: tg::pty::size::get::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::pty::Size>>> {
 		self.get_pty_size(id, arg).boxed()
 	}
 
-	fn try_read_pty<'a>(
+	fn put_pty_size<'a>(
+		&'a self,
+		id: &'a tg::pty::Id,
+		arg: tg::pty::size::put::Arg,
+	) -> BoxFuture<'a, tg::Result<()>> {
+		self.put_pty_size(id, arg).boxed()
+	}
+
+	fn try_read_pty_stream<'a>(
 		&'a self,
 		id: &'a tg::pty::Id,
 		arg: tg::pty::read::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::pty::Event>>>>> {
-		tg::handle::Pty::try_read_pty(self, id, arg)
+		tg::handle::Pty::try_read_pty_stream(self, id, arg)
 			.map_ok(|opt| opt.map(futures::StreamExt::boxed))
 			.boxed()
 	}
@@ -850,9 +861,8 @@ where
 		&'a self,
 		id: &'a tg::pty::Id,
 		arg: tg::pty::write::Arg,
-		stream: BoxStream<'static, tg::Result<tg::pty::Event>>,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.write_pty(id, arg, stream).boxed()
+		self.write_pty(id, arg).boxed()
 	}
 }
 

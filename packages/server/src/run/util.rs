@@ -1,7 +1,6 @@
 use {
 	crate::Server,
 	bytes::Bytes,
-	futures::{future, stream},
 	std::{collections::BTreeMap, path::Path},
 	tangram_client::prelude::*,
 };
@@ -84,13 +83,13 @@ async fn log_inner(
 	match stdio {
 		tg::process::Stdio::Pipe(id) => {
 			let bytes = Bytes::from(message);
-			let stream = stream::once(future::ok(tg::pipe::Event::Chunk(bytes)));
 			let arg = tg::pipe::write::Arg {
+				bytes,
 				local: None,
 				remotes: remote.cloned().map(|r| vec![r]),
 			};
 			server
-				.write_pipe(id, arg, Box::pin(stream))
+				.write_pipe(id, arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write to the pipe"))?;
 		},
@@ -100,14 +99,14 @@ async fn log_inner(
 			} else {
 				Bytes::from(message)
 			};
-			let stream = stream::once(future::ok(tg::pty::Event::Chunk(bytes)));
 			let arg = tg::pty::write::Arg {
+				bytes,
 				local: None,
 				master: false,
 				remotes: remote.cloned().map(|r| vec![r]),
 			};
 			server
-				.write_pty(id, arg, Box::pin(stream))
+				.write_pty(id, arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write to the pty"))?;
 		},

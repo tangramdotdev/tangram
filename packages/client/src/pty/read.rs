@@ -20,7 +20,7 @@ pub struct Arg {
 }
 
 impl tg::Client {
-	pub async fn try_read_pty(
+	pub async fn try_read_pty_stream(
 		&self,
 		id: &tg::pty::Id,
 		arg: Arg,
@@ -90,15 +90,6 @@ impl TryFrom<tg::pty::Event> for tangram_http::sse::Event {
 					..Default::default()
 				}
 			},
-			tg::pty::Event::Size(size) => {
-				let data = serde_json::to_string(&size)
-					.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
-				tangram_http::sse::Event {
-					event: Some("size".to_owned()),
-					data,
-					..Default::default()
-				}
-			},
 			tg::pty::Event::End => tangram_http::sse::Event {
 				event: Some("end".to_owned()),
 				..Default::default()
@@ -118,11 +109,6 @@ impl TryFrom<tangram_http::sse::Event> for tg::pty::Event {
 					.decode(value.data.as_bytes())
 					.map_err(|error| tg::error!(!error, "failed to decode the bytes"))?;
 				Ok(Self::Chunk(bytes.into()))
-			},
-			Some("size") => {
-				let size = serde_json::from_str(&value.data)
-					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
-				Ok(Self::Size(size))
 			},
 			Some("end") => Ok(Self::End),
 			_ => Err(tg::error!("invalid event")),

@@ -1,5 +1,6 @@
 use {
 	crate::Server,
+	bytes::Bytes,
 	crossterm::style::Stylize as _,
 	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future},
 	indexmap::IndexMap,
@@ -15,7 +16,7 @@ struct State {
 	pty: tg::pty::Id,
 	indicators: IndexMap<String, tg::progress::Indicator>,
 	lines: Option<u16>,
-	sender: async_channel::Sender<tg::Result<tg::pty::Event>>,
+	sender: async_channel::Sender<tg::Result<Bytes>>,
 }
 
 impl Server {
@@ -107,13 +108,16 @@ impl Server {
 			}
 			Ok::<_, tg::Error>(())
 		});
-		let stream = receiver.attach(task);
-		let arg = tg::pty::write::Arg {
-			local: None,
-			master: false,
-			remotes: remote.map(|r| vec![r]),
-		};
-		self.write_pty(pty, arg, Box::pin(stream)).await?;
+		let mut stream = pin!(receiver.attach(task));
+		while let Some(event) = stream.try_next().await? {
+			let arg = tg::pty::write::Arg {
+				bytes: event,
+				local: None,
+				master: false,
+				remotes: remote.clone().map(|r| vec![r]),
+			};
+			self.write_pty(pty, arg).await?;
+		}
 		Ok(())
 	}
 }
@@ -137,15 +141,13 @@ impl State {
 							format!("{} ", "error".red().bold())
 						},
 					};
-					let event = tg::pty::Event::Chunk(output.into());
-					self.sender.send(Ok(event)).await.ok();
+					self.sender.send(Ok(output.into())).await.ok();
 				}
 			},
 
 			tg::progress::Event::Diagnostic(diagnostic) => {
 				let output = diagnostic.to_string();
-				let event = tg::pty::Event::Chunk(output.into());
-				self.sender.send(Ok(event)).await.ok();
+				self.sender.send(Ok(output.into())).await.ok();
 			},
 
 			tg::progress::Event::Indicators(indicators) => {
@@ -169,8 +171,7 @@ impl State {
 					crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
 				)
 				.unwrap();
-				let event = tg::pty::Event::Chunk(message.into());
-				self.sender.send(Ok(event)).await.ok();
+				self.sender.send(Ok(message.into())).await.ok();
 			},
 			_ => (),
 		}
@@ -180,7 +181,7 @@ impl State {
 		// Get the size of the tty.
 		let size = self
 			.server
-			.get_pty_size(&self.pty, tg::pty::read::Arg::default())
+			.get_pty_size(&self.pty, tg::pty::size::get::Arg::default())
 			.await?
 			.map_or((128, 128), |size| (size.rows, size.cols));
 
@@ -215,8 +216,7 @@ impl State {
 		}
 
 		// Send the event.
-		let event = tg::pty::Event::Chunk(buffer.into());
-		self.sender.send(Ok(event)).await.ok();
+		self.sender.send(Ok(buffer.into())).await.ok();
 
 		// Update the number of lines.
 		self.lines.replace(self.indicators.len().to_u16().unwrap());

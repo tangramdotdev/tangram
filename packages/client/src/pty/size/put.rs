@@ -1,19 +1,19 @@
 use {
 	crate::prelude::*,
-	bytes::Bytes,
 	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
-	tangram_util::serde::{BytesBase64, CommaSeparatedString},
+	tangram_util::serde::CommaSeparatedString,
 };
 
 #[serde_as]
-#[derive(Default, Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	#[serde_as(as = "BytesBase64")]
-	pub bytes: Bytes,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub local: Option<bool>,
+
+	pub master: bool,
+
+	pub size: tg::pty::Size,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<CommaSeparatedString>")]
@@ -21,12 +21,13 @@ pub struct Arg {
 }
 
 impl tg::Client {
-	pub async fn write_pipe(&self, id: &tg::pipe::Id, arg: Arg) -> tg::Result<()> {
-		let method = http::Method::POST;
-		let uri = format!("/pipes/{id}/write");
+	pub async fn put_pty_size(&self, id: &tg::pty::Id, arg: Arg) -> tg::Result<()> {
+		let method = http::Method::PUT;
+		let uri = format!("/ptys/{id}/size");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
+			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
 			.header(
 				http::header::CONTENT_TYPE,
 				mime::APPLICATION_JSON.to_string(),

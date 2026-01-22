@@ -654,7 +654,7 @@ where
 		}
 	}
 
-	fn try_read_pipe(
+	fn try_read_pipe_stream(
 		&self,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::read::Arg,
@@ -665,11 +665,11 @@ where
 	> {
 		match self {
 			tg::Either::Left(s) => s
-				.try_read_pipe(id, arg)
+				.try_read_pipe_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
 				.left_future(),
 			tg::Either::Right(s) => s
-				.try_read_pipe(id, arg)
+				.try_read_pipe_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
 		}
@@ -679,11 +679,10 @@ where
 		&self,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::write::Arg,
-		stream: BoxStream<'static, tg::Result<tg::pipe::Event>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			tg::Either::Left(s) => s.write_pipe(id, arg, stream).left_future(),
-			tg::Either::Right(s) => s.write_pipe(id, arg, stream).right_future(),
+			tg::Either::Left(s) => s.write_pipe(id, arg).left_future(),
+			tg::Either::Right(s) => s.write_pipe(id, arg).right_future(),
 		}
 	}
 }
@@ -728,7 +727,7 @@ where
 	fn get_pty_size(
 		&self,
 		id: &tg::pty::Id,
-		arg: tg::pty::read::Arg,
+		arg: tg::pty::size::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::pty::Size>>> {
 		match self {
 			tg::Either::Left(s) => s.get_pty_size(id, arg).left_future(),
@@ -736,7 +735,18 @@ where
 		}
 	}
 
-	fn try_read_pty(
+	fn put_pty_size(
+		&self,
+		id: &tg::pty::Id,
+		arg: tg::pty::size::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			tg::Either::Left(s) => s.put_pty_size(id, arg).left_future(),
+			tg::Either::Right(s) => s.put_pty_size(id, arg).right_future(),
+		}
+	}
+
+	fn try_read_pty_stream(
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::read::Arg,
@@ -747,11 +757,11 @@ where
 	> {
 		match self {
 			tg::Either::Left(s) => s
-				.try_read_pty(id, arg)
+				.try_read_pty_stream(id, arg)
 				.map(|result| result.map(|opt| opt.map(futures::StreamExt::left_stream)))
 				.left_future(),
 			tg::Either::Right(s) => s
-				.try_read_pty(id, arg)
+				.try_read_pty_stream(id, arg)
 				.map(|result| result.map(|opt| opt.map(futures::StreamExt::right_stream)))
 				.right_future(),
 		}
@@ -761,11 +771,10 @@ where
 		&self,
 		id: &tg::pty::Id,
 		arg: tg::pty::write::Arg,
-		stream: BoxStream<'static, tg::Result<tg::pty::Event>>,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			tg::Either::Left(s) => s.write_pty(id, arg, stream).left_future(),
-			tg::Either::Right(s) => s.write_pty(id, arg, stream).right_future(),
+			tg::Either::Left(s) => s.write_pty(id, arg).left_future(),
+			tg::Either::Right(s) => s.write_pty(id, arg).right_future(),
 		}
 	}
 }

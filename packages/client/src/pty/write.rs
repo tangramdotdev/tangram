@@ -1,14 +1,16 @@
 use {
 	crate::prelude::*,
-	futures::{StreamExt as _, stream::BoxStream},
+	bytes::Bytes,
 	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::CommaSeparatedString,
 };
 
 #[serde_as]
-#[derive(Default, Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	pub bytes: Bytes,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub local: Option<bool>,
 
@@ -20,35 +22,19 @@ pub struct Arg {
 }
 
 impl tg::Client {
-	pub async fn write_pty(
-		&self,
-		id: &tg::pty::Id,
-		arg: Arg,
-		stream: BoxStream<'static, tg::Result<tg::pty::Event>>,
-	) -> tg::Result<()> {
+	pub async fn write_pty(&self, id: &tg::pty::Id, arg: Arg) -> tg::Result<()> {
 		let method = http::Method::POST;
-		let query = serde_urlencoded::to_string(arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
-		let uri = format!("/ptys/{id}/write?{query}");
-
-		// Create the body.
-		let stream = stream.map(|e| match e {
-			Ok(e) => e.try_into(),
-			Err(e) => e.try_into(),
-		});
-
-		// Create the request.
+		let uri = format!("/ptys/{id}/write");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.header(
 				http::header::CONTENT_TYPE,
-				mime::TEXT_EVENT_STREAM.to_string(),
+				mime::APPLICATION_JSON.to_string(),
 			)
-			.sse(stream)
+			.json(arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
 			.unwrap();
-
-		// Send the request.
 		let response = self
 			.send(request)
 			.await
@@ -59,7 +45,6 @@ impl tg::Client {
 			})?;
 			return Err(error);
 		}
-
 		Ok(())
 	}
 }

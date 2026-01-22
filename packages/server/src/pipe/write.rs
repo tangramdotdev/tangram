@@ -1,10 +1,6 @@
 use {
 	crate::{Context, Server},
-	futures::{Stream, StreamExt as _, future, stream::TryStreamExt as _},
-	http_body_util::{BodyExt as _, BodyStream},
-	std::pin::pin,
-	tangram_client::prelude::*,
-	tangram_futures::{stream::Ext as _, task::Stop},
+	tangram_client as tg,
 	tangram_http::{Body, request::Ext as _},
 	tokio::io::AsyncWriteExt as _,
 };
@@ -15,7 +11,6 @@ impl Server {
 		_context: &Context,
 		id: &tg::pipe::Id,
 		arg: tg::pipe::write::Arg,
-		stream: impl Stream<Item = tg::Result<tg::pipe::Event>> + Send + 'static,
 	) -> tg::Result<()> {
 		// If the remote arg is set, then forward the request.
 		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
@@ -24,40 +19,26 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
 			let arg = tg::pipe::write::Arg {
+				bytes: arg.bytes,
 				local: None,
 				remotes: None,
 			};
 			return client
-				.write_pipe(id, arg, stream.boxed())
+				.write_pipe(id, arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write to the pipe on remote"));
 		}
 
-		let mut stream = pin!(stream);
-		while let Some(event) = stream
-			.try_next()
+		let mut pipe = self
+			.pipes
+			.get_mut(id)
+			.ok_or_else(|| tg::error!("failed to find the pipe"))?;
+		pipe.sender
+			.as_mut()
+			.ok_or_else(|| tg::error!("the pipe is closed"))?
+			.write_all(&arg.bytes)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read from the stream"))?
-		{
-			let mut pipe = self
-				.pipes
-				.get_mut(id)
-				.ok_or_else(|| tg::error!("failed to find the pipe"))?;
-			match event {
-				tg::pipe::Event::Chunk(chunk) => {
-					pipe.sender
-						.as_mut()
-						.ok_or_else(|| tg::error!("the pipe is closed"))?
-						.write_all(&chunk)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to write to the pipe"))?;
-				},
-				tg::pipe::Event::End => {
-					return Err(tg::error!("cannot write an end event"));
-				},
-			}
-		}
-
+			.map_err(|source| tg::error!(!source, "failed to write the pipe"))?;
 		Ok(())
 	}
 
@@ -73,61 +54,19 @@ impl Server {
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
-		// Parse the ID.
+		// Parse the process id.
 		let id = id
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the pipe id"))?;
+			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
 
-		// Get the query.
+		// Get the arg.
 		let arg = request
-			.query_params()
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
-			.unwrap_or_default();
+			.json()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
-		// Stop the stream when the server stops.
-		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let stop = async move { stop.wait().await };
-
-		// Create the stream.
-		let body = request
-			.into_body()
-			.map_err(|source| tg::error!(!source, "failed to read the body"));
-		let stream = BodyStream::new(body)
-			.and_then(|frame| async {
-				match frame.into_data() {
-					Ok(bytes) => Ok(tg::pipe::Event::Chunk(bytes)),
-					Err(frame) => {
-						let trailers = frame.into_trailers().unwrap();
-						let event = trailers
-							.get("x-tg-event")
-							.ok_or_else(|| tg::error!("missing event"))?
-							.to_str()
-							.map_err(|source| tg::error!(!source, "invalid event"))?;
-						match event {
-							"end" => Ok(tg::pipe::Event::End),
-							"error" => {
-								let data = trailers
-									.get("x-tg-data")
-									.ok_or_else(|| tg::error!("missing data"))?
-									.to_str()
-									.map_err(|source| tg::error!(!source, "invalid data"))?;
-								let error = serde_json::from_str(data).map_err(|source| {
-									tg::error!(!source, "failed to deserialize the header value")
-								})?;
-								Err(error)
-							},
-							_ => Err(tg::error!("invalid event")),
-						}
-					},
-				}
-			})
-			.take_while_inclusive(|event| future::ready(!matches!(event, Ok(tg::pipe::Event::End))))
-			.take_until(stop)
-			.boxed();
-
-		self.write_pipe_with_context(context, &id, arg, stream)
-			.await?;
+		// Post the process log.
+		self.write_pipe_with_context(context, &id, arg).await?;
 
 		// Create the response.
 		match accept
@@ -141,7 +80,6 @@ impl Server {
 		}
 
 		let response = http::Response::builder().body(Body::empty()).unwrap();
-
 		Ok(response)
 	}
 }

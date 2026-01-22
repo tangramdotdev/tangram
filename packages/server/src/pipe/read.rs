@@ -1,6 +1,6 @@
 use {
 	crate::{Context, Server},
-	futures::{FutureExt as _, Stream, StreamExt as _, future},
+	futures::{FutureExt as _, Stream, StreamExt as _, future, stream},
 	std::os::fd::AsFd as _,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
@@ -56,11 +56,12 @@ impl Server {
 		let receiver = tokio::net::unix::pipe::Receiver::from_owned_fd_unchecked(fd)
 			.map_err(|source| tg::error!(!source, "failed to clone the receiver"))?;
 
-		let stream = ReaderStream::new(receiver).map(|result| match result {
-			Ok(bytes) if bytes.is_empty() => Ok(tg::pipe::Event::End),
-			Ok(bytes) => Ok(tg::pipe::Event::Chunk(bytes)),
-			Err(source) => Err(tg::error!(!source, "failed to read pipe")),
-		});
+		let stream = ReaderStream::new(receiver)
+			.map(|result| match result {
+				Ok(bytes) => Ok(tg::pipe::Event::Chunk(bytes)),
+				Err(source) => Err(tg::error!(!source, "failed to read pipe")),
+			})
+			.chain(stream::once(future::ok(tg::pipe::Event::End)));
 
 		Ok(Some(stream))
 	}
@@ -86,7 +87,7 @@ impl Server {
 					|source| tg::error!(!source, %remote, "failed to get the remote client"),
 				)?;
 				client
-					.try_read_pipe(id, arg)
+					.try_read_pipe_stream(id, arg)
 					.await
 					.map_err(|source| tg::error!(!source, %remote, "failed to read the pipe"))?
 					.ok_or_else(|| tg::error!("not found"))

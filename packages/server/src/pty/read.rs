@@ -71,8 +71,7 @@ impl Server {
 					let error = std::io::Error::last_os_error();
 					#[cfg(target_os = "linux")]
 					{
-						if error.raw_os_error() == Some(libc::EIO)
-						{
+						if error.raw_os_error() == Some(libc::EIO) {
 							return Ok(None);
 						}
 					}
@@ -120,7 +119,7 @@ impl Server {
 					|source| tg::error!(!source, %remote, "failed to get the remote client"),
 				)?;
 				client
-					.try_read_pty(id, arg)
+					.try_read_pty_stream(id, arg)
 					.await
 					.map_err(|source| tg::error!(!source, %remote, "failed to read the pty"))?
 					.ok_or_else(|| tg::error!("not found"))

@@ -15,6 +15,5 @@ pub mod write;
 #[serde(rename_all = "snake_case", tag = "kind", content = "value")]
 pub enum Event {
 	Chunk(#[serde_as(as = "BytesBase64")] Bytes),
-	Size(Size),
 	End,
 }

@@ -45,9 +45,7 @@ async fn test() {
 	];
 	let mut left = Vec::new();
 	for (path, _) in &right {
-		let matches = matcher
-			.matches(None, &root.join(path), None)
-			.unwrap();
+		let matches = matcher.matches(None, &root.join(path), None).unwrap();
 		left.push((*path, matches));
 	}
 	assert_eq!(left, right);
