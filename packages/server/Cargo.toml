@@ -16,7 +16,7 @@ workspace = true
 [features]
 foundationdb = ["tangram_index/foundationdb"]
 js = ["dep:tangram_js"]
-lmdb = ["tangram_store/lmdb"]
+lmdb = ["tangram_index/lmdb", "tangram_store/lmdb"]
 nats = ["dep:async-nats", "tangram_messenger/nats"]
 postgres = ["dep:tokio-postgres", "tangram_database/postgres"]
 quickjs = ["tangram_js/quickjs"]

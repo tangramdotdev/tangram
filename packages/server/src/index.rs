@@ -19,12 +19,19 @@ use {
 pub enum Index {
 	#[cfg(feature = "foundationdb")]
 	Fdb(index::fdb::Index),
+	#[cfg(feature = "lmdb")]
+	Lmdb(index::lmdb::Index),
 }
 
 impl Index {
 	#[cfg(feature = "foundationdb")]
 	pub fn new_fdb(cluster: &std::path::Path) -> tg::Result<Self> {
 		Ok(Self::Fdb(index::fdb::Index::new(cluster)?))
+	}
+
+	#[cfg(feature = "lmdb")]
+	pub fn new_lmdb(config: &index::lmdb::Config) -> tg::Result<Self> {
+		Ok(Self::Lmdb(index::lmdb::Index::new(config)?))
 	}
 }
 
@@ -36,6 +43,8 @@ impl index::Index for Index {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.try_get_objects(ids).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_objects(ids).await,
 		}
 	}
 
@@ -46,6 +55,8 @@ impl index::Index for Index {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.try_get_processes(ids).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_processes(ids).await,
 		}
 	}
 
@@ -57,6 +68,8 @@ impl index::Index for Index {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.touch_objects(ids, touched_at).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.touch_objects(ids, touched_at).await,
 		}
 	}
 
@@ -68,6 +81,8 @@ impl index::Index for Index {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.touch_processes(ids, touched_at).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.touch_processes(ids, touched_at).await,
 		}
 	}
 
@@ -75,6 +90,8 @@ impl index::Index for Index {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.put(arg).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.put(arg).await,
 		}
 	}
 
@@ -82,6 +99,8 @@ impl index::Index for Index {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.delete_tags(tags).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.delete_tags(tags).await,
 		}
 	}
 
@@ -89,6 +108,8 @@ impl index::Index for Index {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.queue(batch_size).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.queue(batch_size).await,
 		}
 	}
 
@@ -96,6 +117,8 @@ impl index::Index for Index {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.get_transaction_id().await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.get_transaction_id().await,
 		}
 	}
 
@@ -103,6 +126,8 @@ impl index::Index for Index {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.get_queue_size(transaction_id).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.get_queue_size(transaction_id).await,
 		}
 	}
 
@@ -110,6 +135,8 @@ impl index::Index for Index {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.clean(max_touched_at, n).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.clean(max_touched_at, n).await,
 		}
 	}
 
@@ -117,6 +144,8 @@ impl index::Index for Index {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.sync().await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.sync().await,
 		}
 	}
 }

@@ -6368,6 +6368,7 @@ dependencies = [
  "foundationdb",
  "foundationdb-tuple",
  "futures",
+ "heed",
  "indoc",
  "itertools 0.14.0",
  "num",
@@ -6380,6 +6381,7 @@ dependencies = [
  "tangram_serialize",
  "tangram_util",
  "time",
+ "tokio",
 ]
 
 [[package]]

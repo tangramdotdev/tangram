@@ -128,7 +128,9 @@ impl Index {
 			touched_at.ok_or_else(|| tg::error!("object exists but touched_at is not set"))?;
 
 		Ok(Some(Object {
+			cache_entry: None,
 			metadata,
+			reference_count: 0,
 			stored,
 			touched_at,
 		}))
@@ -208,6 +210,7 @@ impl Index {
 
 		Ok(Some(Process {
 			metadata,
+			reference_count: 0,
 			stored,
 			touched_at,
 		}))

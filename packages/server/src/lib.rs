@@ -352,6 +352,25 @@ impl Server {
 						.map_err(|source| tg::error!(!source, "failed to create the index"))?
 				}
 			},
+			self::config::Index::Lmdb(options) => {
+				#[cfg(not(feature = "lmdb"))]
+				{
+					let _ = options;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with lmdb support"
+					));
+				}
+				#[cfg(feature = "lmdb")]
+				{
+					let path = directory.join(&options.path);
+					let config = tangram_index::lmdb::Config {
+						map_size: options.map_size,
+						path,
+					};
+					Index::new_lmdb(&config)
+						.map_err(|source| tg::error!(!source, "failed to create the index"))?
+				}
+			},
 		};
 
 		// Create the index tasks.

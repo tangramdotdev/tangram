@@ -193,12 +193,20 @@ pub struct Http {
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum Index {
 	Fdb(FdbIndex),
+	Lmdb(LmdbIndex),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct FdbIndex {
 	pub cluster: PathBuf,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct LmdbIndex {
+	pub map_size: usize,
+	pub path: PathBuf,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -573,9 +581,18 @@ impl Default for FdbIndex {
 	}
 }
 
+impl Default for LmdbIndex {
+	fn default() -> Self {
+		Self {
+			map_size: 1_099_511_627_776,
+			path: PathBuf::from("index"),
+		}
+	}
+}
+
 impl Default for Index {
 	fn default() -> Self {
-		Self::Fdb(FdbIndex::default())
+		Self::Lmdb(LmdbIndex::default())
 	}
 }
 

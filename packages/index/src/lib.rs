@@ -7,6 +7,8 @@ use {
 
 #[cfg(feature = "foundationdb")]
 pub mod fdb;
+#[cfg(feature = "lmdb")]
+pub mod lmdb;
 
 pub mod prelude {
 	pub use super::Index as _;
@@ -17,12 +19,18 @@ pub mod prelude {
 )]
 pub struct Object {
 	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_default")]
-	pub metadata: tg::object::Metadata,
+	pub cache_entry: Option<tg::artifact::Id>,
 
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
-	pub stored: ObjectStored,
+	pub metadata: tg::object::Metadata,
 
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_default")]
+	pub reference_count: u64,
+
+	#[tangram_serialize(id = 3, default, skip_serializing_if = "is_default")]
+	pub stored: ObjectStored,
+
+	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_default")]
 	pub touched_at: i64,
 }
 
@@ -52,9 +60,12 @@ pub struct Process {
 	pub metadata: tg::process::Metadata,
 
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
-	pub stored: ProcessStored,
+	pub reference_count: u64,
 
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_default")]
+	pub stored: ProcessStored,
+
+	#[tangram_serialize(id = 3, default, skip_serializing_if = "is_default")]
 	pub touched_at: i64,
 }
 
@@ -115,6 +126,27 @@ pub struct ProcessStored {
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(id = 6, default, skip_serializing_if = "is_false")]
 	pub subtree_output: bool,
+}
+
+/// Cache entry data stored in the LMDB index.
+#[derive(
+	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
+)]
+pub struct CacheEntry {
+	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_default")]
+	pub reference_count: u64,
+
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
+	pub touched_at: i64,
+}
+
+/// Tag data stored in the LMDB index.
+#[derive(
+	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
+)]
+pub struct Tag {
+	#[tangram_serialize(id = 0)]
+	pub item: tg::Either<tg::object::Id, tg::process::Id>,
 }
 
 /// The kind of object associated with a process.

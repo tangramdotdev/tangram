@@ -15,6 +15,7 @@ workspace = true
 
 [features]
 foundationdb = ["dep:foundationdb", "dep:foundationdb-tuple"]
+lmdb = ["dep:heed", "dep:foundationdb-tuple"]
 
 [dependencies]
 bytes = { workspace = true }
@@ -23,6 +24,7 @@ fnv = { workspace = true }
 foundationdb = { workspace = true, optional = true }
 foundationdb-tuple = { workspace = true, optional = true }
 futures = { workspace = true }
+heed = { workspace = true, optional = true }
 indoc = { workspace = true }
 itertools = { workspace = true }
 num = { workspace = true }
@@ -35,3 +37,4 @@ tangram_client = { workspace = true }
 tangram_serialize = { workspace = true }
 tangram_util = { workspace = true }
 time = { workspace = true }
+tokio = { workspace = true }
