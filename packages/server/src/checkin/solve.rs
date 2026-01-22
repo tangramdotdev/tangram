@@ -517,7 +517,10 @@ impl Server {
 		}
 
 		// If there are no candidates left and tags have not been listed yet, then list them.
-		if checkpoint.candidates.as_ref().unwrap().is_empty() && !checkpoint.listed {
+		if !state.arg.options.deterministic
+			&& checkpoint.candidates.as_ref().unwrap().is_empty()
+			&& !checkpoint.listed
+		{
 			let candidates = self
 				.checkin_solve_get_tag_candidates(state, pattern)
 				.await
