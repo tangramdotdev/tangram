@@ -27,4 +27,3 @@ snapshot $object '
 	  }),
 	})
 ';
-
