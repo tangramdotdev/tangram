@@ -15,36 +15,36 @@ tg tag a/1.1.0 $a_path
 
 let id = tg tag get a/1.0.0 | from json | get 'item'
 let lock = {
-    nodes: [
-        {
-            kind: "directory",
-            entries: {
-                "tangram.ts": {
-                    index: 1,
-                    kind: "file",
-                }
-            }
-        },
-        {
-            kind: "file",
-            dependencies: {
-                "a/^1": {
-                    item: null,
-                    options: {
-                        id: $id,
-                        tag: "a/1.0.0"
-                    }
-                }
-            }
-            module: "ts"
-        },
-    ]
+	nodes: [
+		{
+			kind: "directory",
+			entries: {
+				"tangram.ts": {
+					index: 1,
+					kind: "file",
+				}
+			}
+		},
+		{
+			kind: "file",
+			dependencies: {
+				"a/^1": {
+					item: null,
+					options: {
+						id: $id,
+						tag: "a/1.0.0"
+					}
+				}
+			}
+			module: "ts"
+		},
+	]
 } | to json
 let path = artifact {
 	tangram.ts: '
 		import a from "a/^1";
 	'
-    tangram.lock: $lock
+	tangram.lock: $lock
 
 }
 

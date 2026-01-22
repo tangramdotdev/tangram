@@ -46,7 +46,7 @@ let lock = {
 let path = artifact {
 	tangram.ts: '
 		import a from "a/^1";
-        import b from "b/^1";
+		import b from "b/^1";
 	'
 	tangram.lock: $lock
 }
@@ -58,3 +58,4 @@ failure $output
 # Ensure we cannot this artifact with --locked and --unsolved-dependencies
 let output = tg checkin $path --locked --unsolved-dependencies | complete
 failure $output
+

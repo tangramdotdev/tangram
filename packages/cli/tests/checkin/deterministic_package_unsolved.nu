@@ -5,7 +5,6 @@ let path = artifact {
 	tangram.ts: '
 		import a from "a/^1";
 	'
-
 }
 
 # Verify that we cannot check this in with --deterministic set.
