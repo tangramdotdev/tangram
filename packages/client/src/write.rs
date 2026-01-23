@@ -28,7 +28,7 @@ impl tg::Client {
 			.body(body)
 			.unwrap();
 		let response = self
-			.send(request)
+			.try_send(request)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {

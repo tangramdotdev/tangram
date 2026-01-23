@@ -18,17 +18,16 @@ pub struct Arg {
 
 impl tg::Client {
 	pub async fn close_pipe(&self, id: &tg::pipe::Id, arg: Arg) -> tg::Result<()> {
-		let method = http::Method::POST;
-		let query = serde_urlencoded::to_string(&arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
-		let uri = format!("/pipes/{id}/close?{query}");
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.empty()
-			.unwrap();
+		let uri = format!("/pipes/{id}/close");
 		let response = self
-			.send(request)
+			.send(|| {
+				http::request::Builder::default()
+					.method(http::Method::POST)
+					.uri(uri.clone())
+					.json(arg.clone())
+					.unwrap()
+					.unwrap()
+			})
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {

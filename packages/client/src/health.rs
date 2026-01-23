@@ -50,16 +50,15 @@ pub struct FileDescriptorSemaphore {
 
 impl tg::Client {
 	pub async fn health(&self) -> tg::Result<Health> {
-		let method = http::Method::GET;
-		let uri = "/health";
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
-			.empty()
-			.unwrap();
 		let response = self
-			.send(request)
+			.send(|| {
+				http::request::Builder::default()
+					.method(http::Method::GET)
+					.uri("/health")
+					.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
+					.empty()
+					.unwrap()
+			})
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {

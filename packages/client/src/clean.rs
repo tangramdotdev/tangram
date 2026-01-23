@@ -18,16 +18,15 @@ impl tg::Client {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + 'static,
 	> {
-		let method = http::Method::POST;
-		let uri = "/clean";
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
-			.empty()
-			.unwrap();
 		let response = self
-			.send(request)
+			.send(|| {
+				http::request::Builder::default()
+					.method(http::Method::POST)
+					.uri("/clean")
+					.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
+					.empty()
+					.unwrap()
+			})
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {

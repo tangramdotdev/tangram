@@ -76,20 +76,19 @@ impl Arg {
 
 impl tg::Client {
 	pub async fn post_object_batch(&self, arg: tg::object::batch::Arg) -> tg::Result<()> {
-		let method = http::Method::POST;
-		let uri = "/objects/batch";
 		let body = arg.serialize()?;
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.header(
-				http::header::CONTENT_TYPE,
-				mime::APPLICATION_OCTET_STREAM.to_string(),
-			)
-			.bytes(body)
-			.unwrap();
 		let response = self
-			.send(request)
+			.send(|| {
+				http::request::Builder::default()
+					.method(http::Method::POST)
+					.uri("/objects/batch")
+					.header(
+						http::header::CONTENT_TYPE,
+						mime::APPLICATION_OCTET_STREAM.to_string(),
+					)
+					.bytes(body.clone())
+					.unwrap()
+			})
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {

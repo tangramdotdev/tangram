@@ -33,7 +33,6 @@ impl tg::Client {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + 'static,
 	> {
-		let method = http::Method::GET;
 		let uri = reference.to_uri();
 		let path = uri.path();
 		let path = format!("/_/{path}");
@@ -57,14 +56,15 @@ impl tg::Client {
 			uri = uri.query_raw(&query);
 		}
 		let uri = uri.build().unwrap();
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri.to_string())
-			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
-			.empty()
-			.unwrap();
 		let response = self
-			.send(request)
+			.send(|| {
+				http::request::Builder::default()
+					.method(http::Method::GET)
+					.uri(uri.to_string())
+					.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
+					.empty()
+					.unwrap()
+			})
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {

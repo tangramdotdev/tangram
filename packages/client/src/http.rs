@@ -1,7 +1,7 @@
 use {
 	crate::prelude::*,
-	futures::TryFutureExt as _,
 	std::{
+		error::Error,
 		path::{Path, PathBuf},
 		str::FromStr,
 		sync::Arc,
@@ -18,7 +18,24 @@ use {
 pub(crate) type Sender =
 	Arc<tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<Body>>>>;
 
-pub(crate) type Service = BoxCloneSyncService<http::Request<Body>, http::Response<Body>, tg::Error>;
+pub(crate) type Service =
+	BoxCloneSyncService<http::Request<Body>, http::Response<Body>, ServiceError>;
+
+#[derive(Clone, Debug)]
+pub(crate) enum ServiceError {
+	Error(tg::Error),
+	Disconnected,
+}
+
+impl std::fmt::Display for ServiceError {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			ServiceError::Error(error) => write!(f, "{error}"),
+			ServiceError::Disconnected => write!(f, "service disconnected"),
+		}
+	}
+}
+impl std::error::Error for ServiceError {}
 
 impl tg::Client {
 	pub(crate) fn service(url: &Uri, version: &str) -> (Sender, Service) {
@@ -32,27 +49,55 @@ impl tg::Client {
 				let url = url.clone();
 				let sender = sender.clone();
 				async move {
+					// Attempt to get the sender.
 					let mut guard = sender.lock().await;
 					let mut sender = match guard.as_ref() {
-						Some(sender) if sender.is_ready() => sender.clone(),
-						_ => {
-							let sender = Self::connect_h2(&url).await?;
+						// If the sender is disconnected, remove it from the guard and reaplce
+						Some(sender) if !sender.is_ready() => {
+							guard.take();
+							return Err(ServiceError::Disconnected);
+						},
+
+						// Otherwise use the sender.
+						Some(sender) => sender.clone(),
+
+						// If there is no sender, attempt to connect to it.
+						None => {
+							let sender = Self::connect_h2(&url).await.map_err(|source| {
+								ServiceError::Error(
+									tg::error!(!source, url = %url, "failed to connect"),
+								)
+							})?;
 							guard.replace(sender.clone());
 							sender
 						},
 					};
 					drop(guard);
-					sender
-						.send_request(request)
-						.map_ok(|response| response.map(Body::new))
-						.map_err(|source| tg::error!(!source, "failed to send the request"))
-						.await
+
+					// Try to send the request. Hyper may return the request message if the connection is closing while the request is in flight. In this case we return a ServiceError::Disconnected so callers may retry.
+					match sender.try_send_request(request).await {
+						Ok(response) => Ok(response.map(Body::new)),
+						Err(error)
+							if error.message().is_some()
+								|| error
+									.error()
+									.source()
+									.and_then(|error| error.downcast_ref::<h2::Error>())
+									.is_some_and(|error| error.is_go_away()) =>
+						{
+							Err(ServiceError::Disconnected)
+						},
+						Err(error) => Err(ServiceError::Error(tg::error!(
+							source = error.into_error(),
+							"failed to send the request"
+						))),
+					}
 				}
 			}
 		});
 		let service = tower::ServiceBuilder::new()
 			.layer(tangram_http::layer::tracing::TracingLayer::new())
-			.map_err(tg::Error::from)
+			.map_err(|error| ServiceError::Error(tg::Error::from(error)))
 			.layer(tower::timeout::TimeoutLayer::new(Duration::from_secs(60)))
 			.insert_request_header_if_not_present(
 				http::HeaderName::from_str("x-tg-compatibility-date").unwrap(),
@@ -445,21 +490,53 @@ impl tg::Client {
 		Ok(stream)
 	}
 
-	pub(crate) async fn send(
+	pub(crate) async fn try_send(
 		&self,
 		mut request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>> {
+	) -> tg::Result<http::Response<Body>, ServiceError> {
 		if let Some(token) = &self.token {
 			request.headers_mut().insert(
 				http::header::AUTHORIZATION,
 				http::HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
 			);
 		}
-		let future = self.service.clone().call(request);
-		let response = future
-			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
-		let response = response.map(Into::into);
-		Ok(response)
+		self.service.clone().call(request).await
+	}
+
+	pub(crate) async fn send(
+		&self,
+		request: impl Fn() -> http::Request<Body>,
+	) -> tg::Result<http::Response<Body>> {
+		let mut last_error = None;
+		for backoff in [10, 20, 30, 50, 100, 200, 300, 500] {
+			match self.try_send(request()).await {
+				Ok(response) => return Ok(response),
+				Err(ServiceError::Error(error)) => return Err(error),
+				Err(ServiceError::Disconnected) => {
+					// Backoff for a moment.
+					tokio::time::sleep(std::time::Duration::from_millis(backoff)).await;
+
+					// Check if another outstanding request has already reconnected.
+					let mut guard = self.sender.lock().await;
+					if guard.is_some() {
+						continue;
+					}
+
+					// Attempt to reconnect.
+					match Self::connect_h2(&self.url).await {
+						Ok(sender) => {
+							guard.replace(sender);
+						},
+						Err(error) => {
+							last_error.replace(error);
+						},
+					}
+				},
+			}
+		}
+		Err(tg::error!(
+			source = last_error.unwrap(),
+			"failed to send the request"
+		))
 	}
 }

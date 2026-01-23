@@ -35,21 +35,21 @@ impl tg::Client {
 		id: &tg::object::Id,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg)
 			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
 		let uri = format!("/objects/{id}?{query}");
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.header(
-				http::header::ACCEPT,
-				mime::APPLICATION_OCTET_STREAM.to_string(),
-			)
-			.empty()
-			.unwrap();
 		let response = self
-			.send(request)
+			.send(|| {
+				http::request::Builder::default()
+					.method(http::Method::GET)
+					.uri(uri.clone())
+					.header(
+						http::header::ACCEPT,
+						mime::APPLICATION_OCTET_STREAM.to_string(),
+					)
+					.empty()
+					.unwrap()
+			})
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if response.status() == http::StatusCode::NOT_FOUND {

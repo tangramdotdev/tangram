@@ -23,21 +23,20 @@ pub struct Output {
 
 impl tg::Client {
 	pub async fn create_pipe(&self, arg: Arg) -> tg::Result<tg::pipe::create::Output> {
-		let method = http::Method::POST;
-		let uri = "/pipes";
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
-			.header(
-				http::header::CONTENT_TYPE,
-				mime::APPLICATION_JSON.to_string(),
-			)
-			.json(arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
-			.unwrap();
 		let response = self
-			.send(request)
+			.send(|| {
+				http::request::Builder::default()
+					.method(http::Method::POST)
+					.uri("/pipes")
+					.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
+					.header(
+						http::header::CONTENT_TYPE,
+						mime::APPLICATION_JSON.to_string(),
+					)
+					.json(arg.clone())
+					.unwrap()
+					.unwrap()
+			})
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {

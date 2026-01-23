@@ -33,18 +33,18 @@ impl tg::Client {
 		pattern: &tg::tag::Pattern,
 		arg: tg::tag::get::Arg,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
-		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg)
 			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
 		let uri = format!("/tags/{pattern}?{query}");
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
-			.empty()
-			.unwrap();
 		let response = self
-			.send(request)
+			.send(|| {
+				http::request::Builder::default()
+					.method(http::Method::GET)
+					.uri(uri.clone())
+					.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
+					.empty()
+					.unwrap()
+			})
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if response.status() == http::StatusCode::NOT_FOUND {
