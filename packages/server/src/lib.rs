@@ -1063,11 +1063,6 @@ impl Server {
 	}
 
 	#[must_use]
-	pub fn logs_path(&self) -> PathBuf {
-		self.path.join("logs")
-	}
-
-	#[must_use]
 	pub fn tags_path(&self) -> PathBuf {
 		self.path.join("tags")
 	}

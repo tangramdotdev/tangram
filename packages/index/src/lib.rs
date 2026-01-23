@@ -102,6 +102,17 @@ pub trait Index {
 #[derive(
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
+pub struct CacheEntry {
+	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_default")]
+	pub reference_count: u64,
+
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
+	pub touched_at: i64,
+}
+
+#[derive(
+	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
+)]
 pub struct Object {
 	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_default")]
 	pub cache_entry: Option<tg::artifact::Id>,
@@ -110,12 +121,12 @@ pub struct Object {
 	pub metadata: tg::object::Metadata,
 
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_default")]
-	pub reference_count: Option<u64>,
+	pub reference_count: u64,
 
 	#[tangram_serialize(id = 3, default, skip_serializing_if = "is_default")]
 	pub stored: ObjectStored,
 
-	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 4)]
 	pub touched_at: i64,
 }
 
@@ -145,12 +156,12 @@ pub struct Process {
 	pub metadata: tg::process::Metadata,
 
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
-	pub reference_count: Option<u64>,
+	pub reference_count: u64,
 
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_default")]
 	pub stored: ProcessStored,
 
-	#[tangram_serialize(id = 3, default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 3)]
 	pub touched_at: i64,
 }
 
@@ -213,19 +224,6 @@ pub struct ProcessStored {
 	pub subtree_output: bool,
 }
 
-/// Cache entry data stored in the LMDB index.
-#[derive(
-	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
-)]
-pub struct CacheEntry {
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_default")]
-	pub reference_count: Option<u64>,
-
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
-	pub touched_at: i64,
-}
-
-/// Tag data stored in the LMDB index.
 #[derive(
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
@@ -313,9 +311,45 @@ pub struct CleanOutput {
 	pub processes: Vec<tg::process::Id>,
 }
 
+impl CacheEntry {
+	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
+		tangram_serialize::to_vec(self)
+			.map_err(|source| tg::error!(!source, "failed to serialize the cache entry"))
+	}
+
+	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
+		tangram_serialize::from_slice(bytes)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the cache entry"))
+	}
+}
+
+impl Object {
+	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
+		tangram_serialize::to_vec(self)
+			.map_err(|source| tg::error!(!source, "failed to serialize the object"))
+	}
+
+	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
+		tangram_serialize::from_slice(bytes)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the object"))
+	}
+}
+
 impl ObjectStored {
 	pub fn merge(&mut self, other: &Self) {
 		self.subtree = self.subtree || other.subtree;
+	}
+}
+
+impl Process {
+	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
+		tangram_serialize::to_vec(self)
+			.map_err(|source| tg::error!(!source, "failed to serialize the process"))
+	}
+
+	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
+		tangram_serialize::from_slice(bytes)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the process"))
 	}
 }
 
@@ -330,6 +364,18 @@ impl ProcessStored {
 		self.subtree_error = self.subtree_error || other.subtree_error;
 		self.subtree_log = self.subtree_log || other.subtree_log;
 		self.subtree_output = self.subtree_output || other.subtree_output;
+	}
+}
+
+impl Tag {
+	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
+		tangram_serialize::to_vec(self)
+			.map_err(|source| tg::error!(!source, "failed to serialize the tag"))
+	}
+
+	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
+		tangram_serialize::from_slice(bytes)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the tag"))
 	}
 }
 

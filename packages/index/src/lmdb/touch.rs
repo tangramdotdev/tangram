@@ -67,14 +67,11 @@ impl Index {
 	) -> tg::Result<Vec<Option<Object>>> {
 		let mut outputs = Vec::with_capacity(ids.len());
 		for id in ids {
-			let key = Key::Object(id).pack_to_vec();
+			let key = Key::Object(id.clone()).pack_to_vec();
 			let existing = db
 				.get(transaction, &key)
 				.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
-			let existing = existing
-				.map(tangram_serialize::from_slice::<Object>)
-				.transpose()
-				.map_err(|source| tg::error!(!source, %id, "failed to deserialize the object"))?;
+			let existing = existing.map(Object::deserialize).transpose()?;
 
 			let Some(mut object) = existing else {
 				outputs.push(None);
@@ -84,9 +81,7 @@ impl Index {
 			// Update touched_at using max.
 			object.touched_at = object.touched_at.max(touched_at);
 
-			let value_bytes = tangram_serialize::to_vec(&object)
-				.map_err(|source| tg::error!(!source, "failed to serialize the object"))?;
-			db.put(transaction, &key, &value_bytes)
+			db.put(transaction, &key, &object.serialize()?)
 				.map_err(|source| tg::error!(!source, %id, "failed to put the object"))?;
 
 			outputs.push(Some(object));
@@ -102,14 +97,11 @@ impl Index {
 	) -> tg::Result<Vec<Option<Process>>> {
 		let mut outputs = Vec::with_capacity(ids.len());
 		for id in ids {
-			let key = Key::Process(id).pack_to_vec();
+			let key = Key::Process(id.clone()).pack_to_vec();
 			let existing = db
 				.get(transaction, &key)
 				.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?;
-			let existing = existing
-				.map(tangram_serialize::from_slice::<Process>)
-				.transpose()
-				.map_err(|source| tg::error!(!source, %id, "failed to deserialize the process"))?;
+			let existing = existing.map(Process::deserialize).transpose()?;
 
 			let Some(mut process) = existing else {
 				outputs.push(None);
@@ -119,9 +111,7 @@ impl Index {
 			// Update touched_at using max.
 			process.touched_at = process.touched_at.max(touched_at);
 
-			let value_bytes = tangram_serialize::to_vec(&process)
-				.map_err(|source| tg::error!(!source, "failed to serialize the process"))?;
-			db.put(transaction, &key, &value_bytes)
+			db.put(transaction, &key, &process.serialize()?)
 				.map_err(|source| tg::error!(!source, %id, "failed to put the process"))?;
 
 			outputs.push(Some(process));

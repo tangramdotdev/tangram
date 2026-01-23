@@ -446,8 +446,6 @@ impl Server {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
-			id: tg::process::Id,
-			#[tangram_database(as = "db::value::FromStr")]
 			actual_checksum: tg::Checksum,
 			#[tangram_database(as = "Option<db::value::Json<tg::value::Data>>")]
 			output: Option<tg::value::Data>,
@@ -469,7 +467,7 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				{params}
-				select id, actual_checksum, output
+				select actual_checksum, output
 				from processes, params
 				where
 					processes.command = params.command and
@@ -483,7 +481,6 @@ impl Server {
 		);
 		let params = db::params![arg.command.item.to_string(), expected_checksum.to_string()];
 		let Some(Row {
-			id: existing_id,
 			actual_checksum,
 			output,
 		}) = transaction
@@ -511,11 +508,6 @@ impl Server {
 
 		// Create an ID.
 		let id = tg::process::Id::new();
-
-		// Copy the log file.
-		let src = self.logs_path().join(existing_id.to_string());
-		let dst = self.logs_path().join(id.to_string());
-		tokio::fs::copy(src, dst).await.ok();
 
 		// Insert the process children.
 		let statement = formatdoc!(
@@ -676,12 +668,6 @@ impl Server {
 
 		// Create a token.
 		let token = Self::create_process_token();
-
-		// Create the log file.
-		let path = self.logs_path().join(id.to_string());
-		tokio::fs::File::create(path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the log file"))?;
 
 		// Attempt to acquire a permit immediately.
 		let permit = 'a: {

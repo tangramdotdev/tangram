@@ -1,7 +1,7 @@
 use {
 	crate::{CleanOutput, ProcessObjectKind, PutArg},
 	foundationdb_tuple as fdbt, heed as lmdb,
-	num_traits::ToPrimitive as _,
+	num_traits::{FromPrimitive as _, ToPrimitive as _},
 	std::path::PathBuf,
 	tangram_client::prelude::*,
 };
@@ -67,53 +67,72 @@ enum Kind {
 	ObjectChild = 4,
 	ChildObject = 5,
 	ObjectCacheEntry = 6,
-	ProcessChild = 7,
-	ChildProcess = 8,
-	ProcessObject = 9,
-	ObjectProcess = 10,
-	ItemTag = 11,
+	CacheEntryObject = 7,
+	ProcessChild = 8,
+	ChildProcess = 9,
+	ProcessObject = 10,
+	ObjectProcess = 11,
+	ItemTag = 12,
+	Clean = 13,
 }
 
 #[derive(Debug)]
-enum Key<'a> {
-	CacheEntry(&'a tg::artifact::Id),
-	Object(&'a tg::object::Id),
-	Process(&'a tg::process::Id),
-	Tag(&'a str),
+enum Key {
+	CacheEntry(tg::artifact::Id),
+	Object(tg::object::Id),
+	Process(tg::process::Id),
+	Tag(String),
 	ObjectChild {
-		object: &'a tg::object::Id,
-		child: &'a tg::object::Id,
+		object: tg::object::Id,
+		child: tg::object::Id,
 	},
 	ChildObject {
-		child: &'a tg::object::Id,
-		object: &'a tg::object::Id,
+		child: tg::object::Id,
+		object: tg::object::Id,
 	},
 	ObjectCacheEntry {
-		cache_entry: &'a tg::artifact::Id,
-		object: &'a tg::object::Id,
+		object: tg::object::Id,
+		cache_entry: tg::artifact::Id,
+	},
+	CacheEntryObject {
+		cache_entry: tg::artifact::Id,
+		object: tg::object::Id,
 	},
 	ProcessChild {
-		process: &'a tg::process::Id,
-		child: &'a tg::process::Id,
+		process: tg::process::Id,
+		child: tg::process::Id,
 	},
 	ChildProcess {
-		child: &'a tg::process::Id,
-		parent: &'a tg::process::Id,
+		child: tg::process::Id,
+		parent: tg::process::Id,
 	},
 	ProcessObject {
-		process: &'a tg::process::Id,
-		object: &'a tg::object::Id,
+		process: tg::process::Id,
+		object: tg::object::Id,
 		kind: ProcessObjectKind,
 	},
 	ObjectProcess {
-		object: &'a tg::object::Id,
-		process: &'a tg::process::Id,
+		object: tg::object::Id,
+		process: tg::process::Id,
 		kind: ProcessObjectKind,
 	},
 	ItemTag {
-		item: &'a [u8],
-		tag: &'a str,
+		item: Vec<u8>,
+		tag: String,
 	},
+	Clean {
+		touched_at: i64,
+		kind: ItemKind,
+		id: tg::Id,
+	},
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
+#[repr(u8)]
+enum ItemKind {
+	CacheEntry = 0,
+	Object = 1,
+	Process = 2,
 }
 
 impl Index {
@@ -289,7 +308,7 @@ impl crate::Index for Index {
 	}
 }
 
-impl fdbt::TuplePack for Key<'_> {
+impl fdbt::TuplePack for Key {
 	fn pack<W: std::io::Write>(
 		&self,
 		w: &mut W,
@@ -305,7 +324,7 @@ impl fdbt::TuplePack for Key<'_> {
 			Key::Process(id) => {
 				(Kind::Process.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
 			},
-			Key::Tag(tag) => (Kind::Tag.to_i32().unwrap(), *tag).pack(w, tuple_depth),
+			Key::Tag(tag) => (Kind::Tag.to_i32().unwrap(), tag.as_str()).pack(w, tuple_depth),
 			Key::ObjectChild { object, child } => (
 				Kind::ObjectChild.to_i32().unwrap(),
 				object.to_bytes().as_ref(),
@@ -319,10 +338,19 @@ impl fdbt::TuplePack for Key<'_> {
 			)
 				.pack(w, tuple_depth),
 			Key::ObjectCacheEntry {
+				object,
+				cache_entry,
+			} => (
+				Kind::ObjectCacheEntry.to_i32().unwrap(),
+				object.to_bytes().as_ref(),
+				cache_entry.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+			Key::CacheEntryObject {
 				cache_entry,
 				object,
 			} => (
-				Kind::ObjectCacheEntry.to_i32().unwrap(),
+				Kind::CacheEntryObject.to_i32().unwrap(),
 				cache_entry.to_bytes().as_ref(),
 				object.to_bytes().as_ref(),
 			)
@@ -361,8 +389,192 @@ impl fdbt::TuplePack for Key<'_> {
 				kind.to_i32().unwrap(),
 			)
 				.pack(w, tuple_depth),
-			Key::ItemTag { item, tag } => {
-				(Kind::ItemTag.to_i32().unwrap(), *item, *tag).pack(w, tuple_depth)
+			Key::ItemTag { item, tag } => (
+				Kind::ItemTag.to_i32().unwrap(),
+				item.as_slice(),
+				tag.as_str(),
+			)
+				.pack(w, tuple_depth),
+			Key::Clean {
+				touched_at,
+				kind,
+				id,
+			} => {
+				Kind::Clean.to_i32().unwrap().pack(w, tuple_depth)?;
+				touched_at.pack(w, tuple_depth)?;
+				kind.to_i32().unwrap().pack(w, tuple_depth)?;
+				id.to_bytes().as_ref().pack(w, tuple_depth)
+			},
+		}
+	}
+}
+
+impl fdbt::TupleUnpack<'_> for Key {
+	fn unpack(input: &[u8], tuple_depth: fdbt::TupleDepth) -> fdbt::PackResult<(&[u8], Self)> {
+		let (input, kind_value) = i32::unpack(input, tuple_depth)?;
+		let kind =
+			Kind::from_i32(kind_value).ok_or(fdbt::PackError::Message("invalid kind".into()))?;
+
+		match kind {
+			Kind::CacheEntry => {
+				let (input, id_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::artifact::Id::from_slice(&id_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
+				Ok((input, Key::CacheEntry(id)))
+			},
+			Kind::Object => {
+				let (input, id_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::object::Id::from_slice(&id_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
+				Ok((input, Key::Object(id)))
+			},
+			Kind::Process => {
+				let (input, id_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::process::Id::from_slice(&id_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				Ok((input, Key::Process(id)))
+			},
+			Kind::Tag => {
+				let (input, tag): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				Ok((input, Key::Tag(tag)))
+			},
+			Kind::ObjectChild => {
+				let (input, object_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, child_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let object = tg::object::Id::from_slice(&object_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
+				let child = tg::object::Id::from_slice(&child_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
+				Ok((input, Key::ObjectChild { object, child }))
+			},
+			Kind::ChildObject => {
+				let (input, child_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, object_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let child = tg::object::Id::from_slice(&child_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
+				let object = tg::object::Id::from_slice(&object_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
+				Ok((input, Key::ChildObject { child, object }))
+			},
+			Kind::ObjectCacheEntry => {
+				let (input, object_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, cache_entry_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let object = tg::object::Id::from_slice(&object_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
+				let cache_entry = tg::artifact::Id::from_slice(&cache_entry_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
+				let key = Key::ObjectCacheEntry {
+					object,
+					cache_entry,
+				};
+				Ok((input, key))
+			},
+			Kind::CacheEntryObject => {
+				let (input, cache_entry_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, object_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let cache_entry = tg::artifact::Id::from_slice(&cache_entry_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
+				let object = tg::object::Id::from_slice(&object_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
+				let key = Key::CacheEntryObject {
+					cache_entry,
+					object,
+				};
+				Ok((input, key))
+			},
+			Kind::ProcessChild => {
+				let (input, process_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, child_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let process = tg::process::Id::from_slice(&process_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				let child = tg::process::Id::from_slice(&child_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				Ok((input, Key::ProcessChild { process, child }))
+			},
+			Kind::ChildProcess => {
+				let (input, child_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, parent_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let child = tg::process::Id::from_slice(&child_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				let parent = tg::process::Id::from_slice(&parent_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				Ok((input, Key::ChildProcess { child, parent }))
+			},
+			Kind::ProcessObject => {
+				let (input, process_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, object_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, kind_value) = i32::unpack(input, tuple_depth)?;
+				let process = tg::process::Id::from_slice(&process_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				let object = tg::object::Id::from_slice(&object_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
+				let kind = ProcessObjectKind::from_i32(kind_value).ok_or(
+					fdbt::PackError::Message("invalid process object kind".into()),
+				)?;
+				let key = Key::ProcessObject {
+					process,
+					object,
+					kind,
+				};
+				Ok((input, key))
+			},
+			Kind::ObjectProcess => {
+				let (input, object_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, process_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, kind_value) = i32::unpack(input, tuple_depth)?;
+				let object = tg::object::Id::from_slice(&object_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
+				let process = tg::process::Id::from_slice(&process_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+				let kind = ProcessObjectKind::from_i32(kind_value).ok_or(
+					fdbt::PackError::Message("invalid process object kind".into()),
+				)?;
+				let key = Key::ObjectProcess {
+					object,
+					process,
+					kind,
+				};
+				Ok((input, key))
+			},
+			Kind::ItemTag => {
+				let (input, item): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, tag): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				Ok((input, Key::ItemTag { item, tag }))
+			},
+			Kind::Clean => {
+				let (input, touched_at): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, kind_value): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let kind = ItemKind::from_i32(kind_value)
+					.ok_or(fdbt::PackError::Message("invalid item kind".into()))?;
+				let (input, id_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::Id::from_slice(&id_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
+				let key = Key::Clean {
+					touched_at,
+					kind,
+					id,
+				};
+				Ok((input, key))
 			},
 		}
 	}

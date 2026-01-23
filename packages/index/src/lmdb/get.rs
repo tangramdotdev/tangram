@@ -20,16 +20,11 @@ impl Index {
 					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 				let mut outputs = Vec::with_capacity(ids.len());
 				for id in &ids {
-					let key = Key::Object(id).pack_to_vec();
+					let key = Key::Object(id.clone()).pack_to_vec();
 					let value = db
 						.get(&transaction, &key)
 						.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
-					let value = value
-						.map(tangram_serialize::from_slice::<Object>)
-						.transpose()
-						.map_err(
-							|source| tg::error!(!source, %id, "failed to deserialize the object"),
-						)?;
+					let value = value.map(Object::deserialize).transpose()?;
 					outputs.push(value);
 				}
 				Ok(outputs)
@@ -56,16 +51,11 @@ impl Index {
 					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 				let mut outputs = Vec::with_capacity(ids.len());
 				for id in &ids {
-					let key = Key::Process(id).pack_to_vec();
+					let key = Key::Process(id.clone()).pack_to_vec();
 					let value = db
 						.get(&transaction, &key)
 						.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?;
-					let value = value
-						.map(tangram_serialize::from_slice::<Process>)
-						.transpose()
-						.map_err(
-							|source| tg::error!(!source, %id, "failed to deserialize the process"),
-						)?;
+					let value = value.map(Process::deserialize).transpose()?;
 					outputs.push(value);
 				}
 				Ok(outputs)

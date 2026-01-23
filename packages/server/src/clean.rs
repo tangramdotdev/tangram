@@ -12,7 +12,6 @@ use {
 	},
 	tangram_http::{Body, request::Ext as _},
 	tangram_index::prelude::*,
-	tangram_messenger::prelude::*,
 	tangram_store::prelude::*,
 };
 
@@ -254,32 +253,6 @@ impl Server {
 
 		// Drop the connection.
 		drop(connection);
-
-		// Delete process logs.
-		for id in &output.processes {
-			let path = self.logs_path().join(id.to_string());
-			tokio::fs::remove_file(path).await.ok();
-		}
-
-		// Delete pipes.
-		for id in self.pipes.iter().map(|entry| entry.key().clone()) {
-			self.messenger
-				.delete_stream(id.to_string())
-				.await
-				.map_err(|source| tg::error!(!source, "failed to delete the stream"))?;
-		}
-		self.pipes.clear();
-
-		// Delete ptys.
-		for id in self.ptys.iter().map(|entry| entry.key().clone()) {
-			for name in ["master_writer", "master_reader"] {
-				self.messenger
-					.delete_stream(format!("{id}_{name}"))
-					.await
-					.map_err(|source| tg::error!(!source, "failed to delete the stream"))?;
-			}
-		}
-		self.ptys.clear();
 
 		Ok(output)
 	}

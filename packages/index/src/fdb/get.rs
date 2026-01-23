@@ -85,7 +85,7 @@ impl Index {
 
 		let mut exists = false;
 		let mut touched_at: Option<i64> = None;
-		let mut reference_count: Option<u64> = None;
+		let mut reference_count: u64 = 0;
 		let mut cache_entry: Option<tg::artifact::Id> = None;
 		let mut metadata = tg::object::Metadata::default();
 		let mut stored = ObjectStored::default();
@@ -111,7 +111,7 @@ impl Index {
 						let value = value
 							.try_into()
 							.map_err(|_| tg::error!("invalid reference_count"))?;
-						reference_count = Some(u64::from_le_bytes(value));
+						reference_count = u64::from_le_bytes(value);
 					},
 					ObjectCoreField::CacheEntry => {
 						cache_entry = Some(
@@ -179,7 +179,7 @@ impl Index {
 
 		let mut exists = false;
 		let mut touched_at: Option<i64> = None;
-		let mut reference_count: Option<u64> = None;
+		let mut reference_count: u64 = 0;
 		let mut metadata = tg::process::Metadata::default();
 		let mut stored = ProcessStored::default();
 
@@ -204,7 +204,7 @@ impl Index {
 						let value = value
 							.try_into()
 							.map_err(|_| tg::error!("invalid reference_count"))?;
-						reference_count = Some(u64::from_le_bytes(value));
+						reference_count = u64::from_le_bytes(value);
 					},
 				},
 				ProcessField::Metadata(field) => {

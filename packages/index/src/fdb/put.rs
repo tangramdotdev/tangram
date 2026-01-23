@@ -1,6 +1,6 @@
 use {
 	super::{
-		CacheEntryCoreField, CacheEntryField, Index, Key, ObjectCoreField, ObjectField,
+		CacheEntryCoreField, CacheEntryField, Index, ItemKind, Key, ObjectCoreField, ObjectField,
 		ObjectMetadataField, ObjectStoredField, ProcessCoreField, ProcessField,
 		ProcessMetadataField, ProcessStoredField, TagCoreField, TagField,
 	},
@@ -58,6 +58,15 @@ impl Index {
 			&arg.touched_at.to_le_bytes(),
 			fdb::options::MutationType::Max,
 		);
+
+		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+			.unwrap();
+		let clean_key = self.pack(&Key::Clean {
+			touched_at: arg.touched_at,
+			kind: ItemKind::CacheEntry,
+			id: tg::Id::from(arg.id.clone()),
+		});
+		txn.set(&clean_key, &[]);
 	}
 
 	fn put_object(&self, txn: &fdb::Transaction, arg: &PutObjectArg) {
@@ -199,11 +208,28 @@ impl Index {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
 			let key = self.pack(&Key::ObjectCacheEntry {
+				object: id.clone(),
+				cache_entry: cache_entry.clone(),
+			});
+			txn.set(&key, &[]);
+
+			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+				.unwrap();
+			let key = self.pack(&Key::CacheEntryObject {
 				cache_entry: cache_entry.clone(),
 				object: id.clone(),
 			});
 			txn.set(&key, &[]);
 		}
+
+		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+			.unwrap();
+		let clean_key = self.pack(&Key::Clean {
+			touched_at: arg.touched_at,
+			kind: ItemKind::Object,
+			id: tg::Id::from(id.clone()),
+		});
+		txn.set(&clean_key, &[]);
 	}
 
 	fn put_process(&self, txn: &fdb::Transaction, arg: &PutProcessArg) {
@@ -415,6 +441,15 @@ impl Index {
 			});
 			txn.set(&key, &[]);
 		}
+
+		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+			.unwrap();
+		let clean_key = self.pack(&Key::Clean {
+			touched_at: arg.touched_at,
+			kind: ItemKind::Process,
+			id: tg::Id::from(id.clone()),
+		});
+		txn.set(&clean_key, &[]);
 	}
 
 	fn put_process_object_metadata(
