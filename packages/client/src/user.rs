@@ -27,17 +27,17 @@ pub struct User {
 
 impl tg::Client {
 	pub async fn get_user(&self, token: &str) -> tg::Result<Option<tg::User>> {
-		let method = http::Method::GET;
-		let uri = "/user";
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
-			.header(http::header::AUTHORIZATION, format!("Bearer {token}"))
-			.empty()
-			.unwrap();
+		let token = token.to_owned();
 		let response = self
-			.send(request)
+			.send(|| {
+				http::request::Builder::default()
+					.method(http::Method::GET)
+					.uri("/user")
+					.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
+					.header(http::header::AUTHORIZATION, format!("Bearer {token}"))
+					.empty()
+					.unwrap()
+			})
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {

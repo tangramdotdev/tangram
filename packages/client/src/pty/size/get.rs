@@ -24,24 +24,24 @@ impl tg::Client {
 		id: &tg::pty::Id,
 		arg: Arg,
 	) -> tg::Result<Option<tg::pty::Size>> {
-		let method = http::Method::GET;
 		let uri = format!("/ptys/{id}/size");
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
-			.header(
-				http::header::CONTENT_TYPE,
-				mime::APPLICATION_JSON.to_string(),
-			)
-			.json(arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
-			.unwrap();
-		self.send(request)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the response"))?
-			.json()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))
+		self.send(|| {
+			http::request::Builder::default()
+				.method(http::Method::GET)
+				.uri(uri.clone())
+				.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
+				.header(
+					http::header::CONTENT_TYPE,
+					mime::APPLICATION_JSON.to_string(),
+				)
+				.json(arg.clone())
+				.unwrap()
+				.unwrap()
+		})
+		.await
+		.map_err(|source| tg::error!(!source, "failed to get the response"))?
+		.json()
+		.await
+		.map_err(|source| tg::error!(!source, "failed to deserialize the body"))
 	}
 }
