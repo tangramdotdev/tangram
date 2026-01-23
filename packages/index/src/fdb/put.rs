@@ -229,26 +229,34 @@ impl Index {
 			fdb::options::MutationType::Max,
 		);
 
-		self.put_process_object_metadata(txn, id, &arg.metadata.node.command, |field| {
-			ProcessMetadataField::from_object_metadata_field(
-				field,
-				ProcessObjectKind::Command,
-				false,
-			)
-		});
-		self.put_process_object_metadata(txn, id, &arg.metadata.node.error, |field| {
-			ProcessMetadataField::from_object_metadata_field(field, ProcessObjectKind::Error, false)
-		});
-		self.put_process_object_metadata(txn, id, &arg.metadata.node.log, |field| {
-			ProcessMetadataField::from_object_metadata_field(field, ProcessObjectKind::Log, false)
-		});
-		self.put_process_object_metadata(txn, id, &arg.metadata.node.output, |field| {
-			ProcessMetadataField::from_object_metadata_field(
-				field,
-				ProcessObjectKind::Output,
-				false,
-			)
-		});
+		self.put_process_object_metadata(
+			txn,
+			id,
+			&arg.metadata.node.command,
+			ProcessObjectKind::Command,
+			false,
+		);
+		self.put_process_object_metadata(
+			txn,
+			id,
+			&arg.metadata.node.error,
+			ProcessObjectKind::Error,
+			false,
+		);
+		self.put_process_object_metadata(
+			txn,
+			id,
+			&arg.metadata.node.log,
+			ProcessObjectKind::Log,
+			false,
+		);
+		self.put_process_object_metadata(
+			txn,
+			id,
+			&arg.metadata.node.output,
+			ProcessObjectKind::Output,
+			false,
+		);
 
 		if let Some(count) = arg.metadata.subtree.count {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
@@ -259,22 +267,34 @@ impl Index {
 			});
 			txn.set(&key, &count.to_le_bytes());
 		}
-		self.put_process_object_metadata(txn, id, &arg.metadata.subtree.command, |field| {
-			ProcessMetadataField::from_object_metadata_field(
-				field,
-				ProcessObjectKind::Command,
-				true,
-			)
-		});
-		self.put_process_object_metadata(txn, id, &arg.metadata.subtree.error, |field| {
-			ProcessMetadataField::from_object_metadata_field(field, ProcessObjectKind::Error, true)
-		});
-		self.put_process_object_metadata(txn, id, &arg.metadata.subtree.log, |field| {
-			ProcessMetadataField::from_object_metadata_field(field, ProcessObjectKind::Log, true)
-		});
-		self.put_process_object_metadata(txn, id, &arg.metadata.subtree.output, |field| {
-			ProcessMetadataField::from_object_metadata_field(field, ProcessObjectKind::Output, true)
-		});
+		self.put_process_object_metadata(
+			txn,
+			id,
+			&arg.metadata.subtree.command,
+			ProcessObjectKind::Command,
+			true,
+		);
+		self.put_process_object_metadata(
+			txn,
+			id,
+			&arg.metadata.subtree.error,
+			ProcessObjectKind::Error,
+			true,
+		);
+		self.put_process_object_metadata(
+			txn,
+			id,
+			&arg.metadata.subtree.log,
+			ProcessObjectKind::Log,
+			true,
+		);
+		self.put_process_object_metadata(
+			txn,
+			id,
+			&arg.metadata.subtree.output,
+			ProcessObjectKind::Output,
+			true,
+		);
 
 		if arg.stored.node_command {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
@@ -402,14 +422,19 @@ impl Index {
 		txn: &fdb::Transaction,
 		id: &tg::process::Id,
 		metadata: &tg::object::metadata::Subtree,
-		map_field: impl Fn(ObjectSubtreeMetadataField) -> ProcessMetadataField,
+		kind: ProcessObjectKind,
+		subtree: bool,
 	) {
 		if let Some(count) = metadata.count {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
 			let key = self.pack(&Key::Process {
 				id: id.clone(),
-				field: ProcessField::Metadata(map_field(ObjectSubtreeMetadataField::Count)),
+				field: ProcessField::Metadata(ProcessMetadataField::from_object_metadata_field(
+					ObjectSubtreeMetadataField::Count,
+					kind,
+					subtree,
+				)),
 			});
 			txn.set(&key, &count.to_le_bytes());
 		}
@@ -418,7 +443,11 @@ impl Index {
 				.unwrap();
 			let key = self.pack(&Key::Process {
 				id: id.clone(),
-				field: ProcessField::Metadata(map_field(ObjectSubtreeMetadataField::Depth)),
+				field: ProcessField::Metadata(ProcessMetadataField::from_object_metadata_field(
+					ObjectSubtreeMetadataField::Depth,
+					kind,
+					subtree,
+				)),
 			});
 			txn.set(&key, &depth.to_le_bytes());
 		}
@@ -427,7 +456,11 @@ impl Index {
 				.unwrap();
 			let key = self.pack(&Key::Process {
 				id: id.clone(),
-				field: ProcessField::Metadata(map_field(ObjectSubtreeMetadataField::Size)),
+				field: ProcessField::Metadata(ProcessMetadataField::from_object_metadata_field(
+					ObjectSubtreeMetadataField::Size,
+					kind,
+					subtree,
+				)),
 			});
 			txn.set(&key, &size.to_le_bytes());
 		}
@@ -436,7 +469,11 @@ impl Index {
 				.unwrap();
 			let key = self.pack(&Key::Process {
 				id: id.clone(),
-				field: ProcessField::Metadata(map_field(ObjectSubtreeMetadataField::Solvable)),
+				field: ProcessField::Metadata(ProcessMetadataField::from_object_metadata_field(
+					ObjectSubtreeMetadataField::Solvable,
+					kind,
+					subtree,
+				)),
 			});
 			txn.set(&key, &[]);
 		}
@@ -445,7 +482,11 @@ impl Index {
 				.unwrap();
 			let key = self.pack(&Key::Process {
 				id: id.clone(),
-				field: ProcessField::Metadata(map_field(ObjectSubtreeMetadataField::Solved)),
+				field: ProcessField::Metadata(ProcessMetadataField::from_object_metadata_field(
+					ObjectSubtreeMetadataField::Solved,
+					kind,
+					subtree,
+				)),
 			});
 			txn.set(&key, &[]);
 		}

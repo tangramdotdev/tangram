@@ -85,6 +85,8 @@ impl Index {
 
 		let mut exists = false;
 		let mut touched_at: Option<i64> = None;
+		let mut reference_count: Option<u64> = None;
+		let mut cache_entry: Option<tg::artifact::Id> = None;
 		let mut metadata = tg::object::Metadata::default();
 		let mut stored = ObjectStored::default();
 
@@ -105,7 +107,18 @@ impl Index {
 							.map_err(|_| tg::error!("invalid touched_at"))?;
 						touched_at = Some(i64::from_le_bytes(value));
 					},
-					ObjectCoreField::ReferenceCount | ObjectCoreField::CacheEntry => {},
+					ObjectCoreField::ReferenceCount => {
+						let value = value
+							.try_into()
+							.map_err(|_| tg::error!("invalid reference_count"))?;
+						reference_count = Some(u64::from_le_bytes(value));
+					},
+					ObjectCoreField::CacheEntry => {
+						cache_entry = Some(
+							tg::artifact::Id::from_slice(value)
+								.map_err(|source| tg::error!(!source, "invalid cache_entry"))?,
+						);
+					},
 				},
 				ObjectField::Metadata(field) => {
 					Self::apply_object_metadata_field(&mut metadata, field, value)?;
@@ -126,9 +139,9 @@ impl Index {
 			touched_at.ok_or_else(|| tg::error!("object exists but touched_at is not set"))?;
 
 		Ok(Some(Object {
-			cache_entry: None,
+			cache_entry,
 			metadata,
-			reference_count: 0,
+			reference_count,
 			stored,
 			touched_at,
 		}))
@@ -166,6 +179,7 @@ impl Index {
 
 		let mut exists = false;
 		let mut touched_at: Option<i64> = None;
+		let mut reference_count: Option<u64> = None;
 		let mut metadata = tg::process::Metadata::default();
 		let mut stored = ProcessStored::default();
 
@@ -186,7 +200,12 @@ impl Index {
 							.map_err(|_| tg::error!("invalid touched_at"))?;
 						touched_at = Some(i64::from_le_bytes(value));
 					},
-					ProcessCoreField::ReferenceCount => {},
+					ProcessCoreField::ReferenceCount => {
+						let value = value
+							.try_into()
+							.map_err(|_| tg::error!("invalid reference_count"))?;
+						reference_count = Some(u64::from_le_bytes(value));
+					},
 				},
 				ProcessField::Metadata(field) => {
 					Self::apply_process_metadata_field(&mut metadata, field, value)?;
@@ -206,7 +225,7 @@ impl Index {
 
 		Ok(Some(Process {
 			metadata,
-			reference_count: 0,
+			reference_count,
 			stored,
 			touched_at,
 		}))

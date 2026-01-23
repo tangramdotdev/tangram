@@ -14,6 +14,91 @@ pub mod prelude {
 	pub use super::Index as _;
 }
 
+pub trait Index {
+	fn try_get_objects(
+		&self,
+		ids: &[tg::object::Id],
+	) -> impl std::future::Future<Output = tg::Result<Vec<Option<Object>>>> + Send;
+
+	fn try_get_object(
+		&self,
+		id: &tg::object::Id,
+	) -> impl std::future::Future<Output = tg::Result<Option<Object>>> + Send {
+		self.try_get_objects(std::slice::from_ref(id))
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn try_get_processes(
+		&self,
+		ids: &[tg::process::Id],
+	) -> impl std::future::Future<Output = tg::Result<Vec<Option<Process>>>> + Send;
+
+	fn try_get_process(
+		&self,
+		id: &tg::process::Id,
+	) -> impl std::future::Future<Output = tg::Result<Option<Process>>> + Send {
+		self.try_get_processes(std::slice::from_ref(id))
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn touch_objects(
+		&self,
+		ids: &[tg::object::Id],
+		touched_at: i64,
+	) -> impl std::future::Future<Output = tg::Result<Vec<Option<Object>>>> + Send;
+
+	fn touch_object(
+		&self,
+		id: &tg::object::Id,
+		touched_at: i64,
+	) -> impl std::future::Future<Output = tg::Result<Option<Object>>> + Send {
+		self.touch_objects(std::slice::from_ref(id), touched_at)
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn touch_processes(
+		&self,
+		ids: &[tg::process::Id],
+		touched_at: i64,
+	) -> impl std::future::Future<Output = tg::Result<Vec<Option<Process>>>> + Send;
+
+	fn touch_process(
+		&self,
+		id: &tg::process::Id,
+		touched_at: i64,
+	) -> impl std::future::Future<Output = tg::Result<Option<Process>>> + Send {
+		self.touch_processes(std::slice::from_ref(id), touched_at)
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn put(&self, arg: PutArg) -> impl std::future::Future<Output = tg::Result<()>> + Send;
+
+	fn delete_tags(
+		&self,
+		tags: &[String],
+	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
+
+	fn queue(
+		&self,
+		batch_size: usize,
+	) -> impl std::future::Future<Output = tg::Result<usize>> + Send;
+
+	fn get_transaction_id(&self) -> impl std::future::Future<Output = tg::Result<u64>> + Send;
+
+	fn get_queue_size(
+		&self,
+		transaction_id: u64,
+	) -> impl std::future::Future<Output = tg::Result<u64>> + Send;
+
+	fn clean(
+		&self,
+		max_touched_at: i64,
+		batch_size: usize,
+	) -> impl std::future::Future<Output = tg::Result<CleanOutput>> + Send;
+
+	fn sync(&self) -> impl std::future::Future<Output = tg::Result<()>> + Send;
+}
+
 #[derive(
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
@@ -25,7 +110,7 @@ pub struct Object {
 	pub metadata: tg::object::Metadata,
 
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_default")]
-	pub reference_count: u64,
+	pub reference_count: Option<u64>,
 
 	#[tangram_serialize(id = 3, default, skip_serializing_if = "is_default")]
 	pub stored: ObjectStored,
@@ -60,7 +145,7 @@ pub struct Process {
 	pub metadata: tg::process::Metadata,
 
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
-	pub reference_count: u64,
+	pub reference_count: Option<u64>,
 
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_default")]
 	pub stored: ProcessStored,
@@ -134,7 +219,7 @@ pub struct ProcessStored {
 )]
 pub struct CacheEntry {
 	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_default")]
-	pub reference_count: u64,
+	pub reference_count: Option<u64>,
 
 	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
 	pub touched_at: i64,
@@ -228,89 +313,24 @@ pub struct CleanOutput {
 	pub processes: Vec<tg::process::Id>,
 }
 
-pub trait Index {
-	fn try_get_objects(
-		&self,
-		ids: &[tg::object::Id],
-	) -> impl std::future::Future<Output = tg::Result<Vec<Option<Object>>>> + Send;
-
-	fn try_get_object(
-		&self,
-		id: &tg::object::Id,
-	) -> impl std::future::Future<Output = tg::Result<Option<Object>>> + Send {
-		self.try_get_objects(std::slice::from_ref(id))
-			.map(|result| result.map(|mut output| output.pop().unwrap()))
+impl ObjectStored {
+	pub fn merge(&mut self, other: &Self) {
+		self.subtree = self.subtree || other.subtree;
 	}
+}
 
-	fn try_get_processes(
-		&self,
-		ids: &[tg::process::Id],
-	) -> impl std::future::Future<Output = tg::Result<Vec<Option<Process>>>> + Send;
-
-	fn try_get_process(
-		&self,
-		id: &tg::process::Id,
-	) -> impl std::future::Future<Output = tg::Result<Option<Process>>> + Send {
-		self.try_get_processes(std::slice::from_ref(id))
-			.map(|result| result.map(|mut output| output.pop().unwrap()))
+impl ProcessStored {
+	pub fn merge(&mut self, other: &Self) {
+		self.node_command = self.node_command || other.node_command;
+		self.node_error = self.node_error || other.node_error;
+		self.node_log = self.node_log || other.node_log;
+		self.node_output = self.node_output || other.node_output;
+		self.subtree = self.subtree || other.subtree;
+		self.subtree_command = self.subtree_command || other.subtree_command;
+		self.subtree_error = self.subtree_error || other.subtree_error;
+		self.subtree_log = self.subtree_log || other.subtree_log;
+		self.subtree_output = self.subtree_output || other.subtree_output;
 	}
-
-	fn touch_objects(
-		&self,
-		ids: &[tg::object::Id],
-		touched_at: i64,
-	) -> impl std::future::Future<Output = tg::Result<Vec<Option<Object>>>> + Send;
-
-	fn touch_object(
-		&self,
-		id: &tg::object::Id,
-		touched_at: i64,
-	) -> impl std::future::Future<Output = tg::Result<Option<Object>>> + Send {
-		self.touch_objects(std::slice::from_ref(id), touched_at)
-			.map(|result| result.map(|mut output| output.pop().unwrap()))
-	}
-
-	fn touch_processes(
-		&self,
-		ids: &[tg::process::Id],
-		touched_at: i64,
-	) -> impl std::future::Future<Output = tg::Result<Vec<Option<Process>>>> + Send;
-
-	fn touch_process(
-		&self,
-		id: &tg::process::Id,
-		touched_at: i64,
-	) -> impl std::future::Future<Output = tg::Result<Option<Process>>> + Send {
-		self.touch_processes(std::slice::from_ref(id), touched_at)
-			.map(|result| result.map(|mut output| output.pop().unwrap()))
-	}
-
-	fn put(&self, arg: PutArg) -> impl std::future::Future<Output = tg::Result<()>> + Send;
-
-	fn delete_tags(
-		&self,
-		tags: &[String],
-	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
-
-	fn queue(
-		&self,
-		batch_size: usize,
-	) -> impl std::future::Future<Output = tg::Result<usize>> + Send;
-
-	fn get_transaction_id(&self) -> impl std::future::Future<Output = tg::Result<u64>> + Send;
-
-	fn get_queue_size(
-		&self,
-		transaction_id: u64,
-	) -> impl std::future::Future<Output = tg::Result<u64>> + Send;
-
-	fn clean(
-		&self,
-		max_touched_at: i64,
-		batch_size: usize,
-	) -> impl std::future::Future<Output = tg::Result<CleanOutput>> + Send;
-
-	fn sync(&self) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 }
 
 impl std::fmt::Display for ProcessObjectKind {
