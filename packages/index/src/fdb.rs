@@ -1,8 +1,7 @@
 use {
 	crate::{CleanOutput, ProcessObjectKind},
 	bytes::Bytes,
-	foundationdb as fdb,
-	foundationdb_tuple::{self as fdbt, TuplePack as _},
+	foundationdb as fdb, foundationdb_tuple as fdbt,
 	num_traits::{FromPrimitive as _, ToPrimitive as _},
 	std::{path::Path, sync::Arc},
 	tangram_client::prelude::*,
@@ -284,7 +283,7 @@ impl Index {
 		Ok(index)
 	}
 
-	fn pack(&self, key: &Key) -> Vec<u8> {
+	fn pack<T: fdbt::TuplePack>(&self, key: &T) -> Vec<u8> {
 		match &self.prefix {
 			Some(prefix) => {
 				let mut v = prefix.to_vec();
@@ -292,17 +291,6 @@ impl Index {
 				v
 			},
 			None => key.pack_to_vec(),
-		}
-	}
-
-	fn pack_tuple<T: fdbt::TuplePack>(&self, tuple: &T) -> Vec<u8> {
-		match &self.prefix {
-			Some(prefix) => {
-				let mut v = prefix.to_vec();
-				tuple.pack_into_vec(&mut v);
-				v
-			},
-			None => tuple.pack_to_vec(),
 		}
 	}
 
@@ -370,8 +358,8 @@ impl crate::Index for Index {
 		self.get_queue_size(transaction_id).await
 	}
 
-	async fn clean(&self, max_touched_at: i64, n: usize) -> tg::Result<CleanOutput> {
-		self.clean(max_touched_at, n).await
+	async fn clean(&self, max_touched_at: i64, batch_size: usize) -> tg::Result<CleanOutput> {
+		self.clean(max_touched_at, batch_size).await
 	}
 
 	async fn sync(&self) -> tg::Result<()> {

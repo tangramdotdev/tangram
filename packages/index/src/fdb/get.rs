@@ -58,7 +58,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<Object>> {
-		let prefix = self.pack_tuple(&(Kind::Object.to_i32().unwrap(), id.to_bytes().as_ref()));
+		let prefix = self.pack(&(Kind::Object.to_i32().unwrap(), id.to_bytes().as_ref()));
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
@@ -152,7 +152,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<Process>> {
-		let prefix = self.pack_tuple(&(Kind::Process.to_i32().unwrap(), id.to_bytes().as_ref()));
+		let prefix = self.pack(&(Kind::Process.to_i32().unwrap(), id.to_bytes().as_ref()));
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))

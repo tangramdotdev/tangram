@@ -11,10 +11,9 @@ use {
 
 impl Index {
 	pub async fn put(&self, arg: PutArg) -> tg::Result<()> {
-		let this = self.clone();
 		self.database
 			.run(|txn, _| {
-				let this = this.clone();
+				let this = self.clone();
 				let arg = arg.clone();
 				async move {
 					for cache_entry in &arg.cache_entries {
@@ -47,8 +46,6 @@ impl Index {
 		});
 		txn.set(&exists_key, &[]);
 
-		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-			.unwrap();
 		let touched_at_key = self.pack(&Key::CacheEntry {
 			id: id.clone(),
 			field: CacheEntryField::Core(CacheEntryCoreField::TouchedAt),
@@ -80,8 +77,6 @@ impl Index {
 		});
 		txn.set(&exists_key, &[]);
 
-		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-			.unwrap();
 		let touched_at_key = self.pack(&Key::Object {
 			id: id.clone(),
 			field: ObjectField::Core(ObjectCoreField::TouchedAt),
@@ -243,8 +238,6 @@ impl Index {
 		});
 		txn.set(&exists_key, &[]);
 
-		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-			.unwrap();
 		let touched_at_key = self.pack(&Key::Process {
 			id: id.clone(),
 			field: ProcessField::Core(ProcessCoreField::TouchedAt),

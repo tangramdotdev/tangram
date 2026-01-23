@@ -1,11 +1,23 @@
 use {
 	super::{Db, Index, ItemKind, Key, Kind, Request, Response},
-	crate::{CacheEntry, CleanOutput, Object, Process},
+	crate::{CacheEntry, CleanOutput, Object, Process, ProcessObjectKind},
 	foundationdb_tuple::{self as fdbt, TuplePack as _},
 	heed as lmdb,
 	num_traits::ToPrimitive as _,
 	tangram_client::prelude::*,
 };
+
+struct Candidate {
+	touched_at: i64,
+	item: Item,
+}
+
+#[derive(Clone)]
+enum Item {
+	CacheEntry(tg::artifact::Id),
+	Object(tg::object::Id),
+	Process(tg::process::Id),
+}
 
 impl Index {
 	pub async fn clean(&self, max_touched_at: i64, batch_size: usize) -> tg::Result<CleanOutput> {
@@ -35,14 +47,14 @@ impl Index {
 	) -> tg::Result<CleanOutput> {
 		let mut output = CleanOutput::default();
 
+		// Collect candidates from Clean keys.
 		let prefix = (Kind::Clean.to_i32().unwrap(),).pack_to_vec();
-
-		let mut items: Vec<(i64, ItemKind, tg::Id)> = Vec::new();
+		let mut candidates: Vec<Candidate> = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
 			.map_err(|source| tg::error!(!source, "failed to iterate clean keys"))?;
 		for result in iter {
-			if items.len() >= batch_size {
+			if candidates.len() >= batch_size {
 				break;
 			}
 			let (key_bytes, _) =
@@ -60,42 +72,65 @@ impl Index {
 			if touched_at > max_touched_at {
 				continue;
 			}
-			items.push((touched_at, kind, id));
-		}
-
-		for (touched_at, kind, id) in items {
-			let reference_count = match kind {
+			let item = match kind {
 				ItemKind::CacheEntry => {
-					let artifact_id = tg::artifact::Id::try_from(id.clone())
+					let id = tg::artifact::Id::try_from(id)
 						.map_err(|source| tg::error!(!source, "invalid artifact id"))?;
-					Self::compute_cache_entry_reference_count(db, transaction, &artifact_id)?
+					Item::CacheEntry(id)
 				},
 				ItemKind::Object => {
-					let object_id = tg::object::Id::try_from(id.clone())
+					let id = tg::object::Id::try_from(id)
 						.map_err(|source| tg::error!(!source, "invalid object id"))?;
-					Self::compute_object_reference_count(db, transaction, &object_id)?
+					Item::Object(id)
 				},
 				ItemKind::Process => {
-					let process_id = tg::process::Id::try_from(id.clone())
+					let id = tg::process::Id::try_from(id)
 						.map_err(|source| tg::error!(!source, "invalid process id"))?;
-					Self::compute_process_reference_count(db, transaction, &process_id)?
+					Item::Process(id)
 				},
 			};
+			candidates.push(Candidate { touched_at, item });
+		}
 
-			if reference_count > 0 {
-				Self::set_reference_count(db, transaction, kind, &id, reference_count)?;
+		// Process each candidate.
+		for candidate in &candidates {
+			let reference_count = match &candidate.item {
+				Item::CacheEntry(id) => {
+					Self::compute_cache_entry_reference_count(db, transaction, id)?
+				},
+				Item::Object(id) => Self::compute_object_reference_count(db, transaction, id)?,
+				Item::Process(id) => Self::compute_process_reference_count(db, transaction, id)?,
+			};
+
+			let item = if reference_count > 0 {
+				Self::set_reference_count(db, transaction, &candidate.item, reference_count)?;
+				None
 			} else {
-				Self::delete_item(db, transaction, kind, &id, touched_at, &mut output)?;
-			}
+				Self::delete_item(db, transaction, &candidate.item)?;
+				Some(candidate.item.clone())
+			};
 
-			let clean_key = Key::Clean {
-				touched_at,
+			let (kind, id) = match &candidate.item {
+				Item::CacheEntry(id) => (ItemKind::CacheEntry, id.clone().into()),
+				Item::Object(id) => (ItemKind::Object, id.clone().into()),
+				Item::Process(id) => (ItemKind::Process, id.clone().into()),
+			};
+			let key = Key::Clean {
+				touched_at: candidate.touched_at,
 				kind,
-				id: id.clone(),
+				id,
 			}
 			.pack_to_vec();
-			db.delete(transaction, &clean_key)
+			db.delete(transaction, &key)
 				.map_err(|source| tg::error!(!source, "failed to delete clean key"))?;
+
+			if let Some(item) = item {
+				match item {
+					Item::CacheEntry(id) => output.cache_entries.push(id),
+					Item::Object(id) => output.objects.push(id),
+					Item::Process(id) => output.processes.push(id),
+				}
+			}
 		}
 
 		Ok(output)
@@ -163,15 +198,12 @@ impl Index {
 	fn set_reference_count(
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
-		kind: ItemKind,
-		id: &tg::Id,
+		item: &Item,
 		reference_count: u64,
 	) -> tg::Result<()> {
-		match kind {
-			ItemKind::CacheEntry => {
-				let artifact_id = tg::artifact::Id::try_from(id.clone())
-					.map_err(|source| tg::error!(!source, "invalid artifact id"))?;
-				let key = Key::CacheEntry(artifact_id.clone()).pack_to_vec();
+		match item {
+			Item::CacheEntry(id) => {
+				let key = Key::CacheEntry(id.clone()).pack_to_vec();
 				if let Some(bytes) = db
 					.get(transaction, &key)
 					.map_err(|source| tg::error!(!source, "failed to get cache entry"))?
@@ -183,10 +215,8 @@ impl Index {
 						.map_err(|source| tg::error!(!source, "failed to put cache entry"))?;
 				}
 			},
-			ItemKind::Object => {
-				let object_id = tg::object::Id::try_from(id.clone())
-					.map_err(|source| tg::error!(!source, "invalid object id"))?;
-				let key = Key::Object(object_id.clone()).pack_to_vec();
+			Item::Object(id) => {
+				let key = Key::Object(id.clone()).pack_to_vec();
 				if let Some(bytes) = db
 					.get(transaction, &key)
 					.map_err(|source| tg::error!(!source, "failed to get object"))?
@@ -198,10 +228,8 @@ impl Index {
 						.map_err(|source| tg::error!(!source, "failed to put object"))?;
 				}
 			},
-			ItemKind::Process => {
-				let process_id = tg::process::Id::try_from(id.clone())
-					.map_err(|source| tg::error!(!source, "invalid process id"))?;
-				let key = Key::Process(process_id.clone()).pack_to_vec();
+			Item::Process(id) => {
+				let key = Key::Process(id.clone()).pack_to_vec();
 				if let Some(bytes) = db
 					.get(transaction, &key)
 					.map_err(|source| tg::error!(!source, "failed to get process"))?
@@ -217,53 +245,22 @@ impl Index {
 		Ok(())
 	}
 
-	fn delete_item(
-		db: &Db,
-		transaction: &mut lmdb::RwTxn<'_>,
-		kind: ItemKind,
-		id: &tg::Id,
-		_touched_at: i64,
-		output: &mut CleanOutput,
-	) -> tg::Result<()> {
-		match kind {
-			ItemKind::CacheEntry => {
-				let artifact_id = tg::artifact::Id::try_from(id.clone())
-					.map_err(|source| tg::error!(!source, "invalid artifact id"))?;
-				Self::delete_cache_entry(db, transaction, &artifact_id, output)?;
-			},
-			ItemKind::Object => {
-				let object_id = tg::object::Id::try_from(id.clone())
-					.map_err(|source| tg::error!(!source, "invalid object id"))?;
-				Self::delete_object(db, transaction, &object_id, output)?;
-			},
-			ItemKind::Process => {
-				let process_id = tg::process::Id::try_from(id.clone())
-					.map_err(|source| tg::error!(!source, "invalid process id"))?;
-				Self::delete_process(db, transaction, &process_id, output)?;
-			},
+	fn delete_item(db: &Db, transaction: &mut lmdb::RwTxn<'_>, item: &Item) -> tg::Result<()> {
+		match item {
+			Item::CacheEntry(id) => Self::delete_cache_entry(db, transaction, id),
+			Item::Object(id) => Self::delete_object(db, transaction, id),
+			Item::Process(id) => Self::delete_process(db, transaction, id),
 		}
-		Ok(())
 	}
 
 	fn delete_cache_entry(
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::artifact::Id,
-		output: &mut CleanOutput,
 	) -> tg::Result<()> {
 		let key = Key::CacheEntry(id.clone()).pack_to_vec();
 		db.delete(transaction, &key)
 			.map_err(|source| tg::error!(!source, "failed to delete cache entry"))?;
-
-		let prefix = (
-			Kind::CacheEntryObject.to_i32().unwrap(),
-			id.to_bytes().as_ref(),
-		)
-			.pack_to_vec();
-		Self::delete_keys_with_prefix(db, transaction, &prefix)?;
-
-		output.cache_entries.push(id.clone());
-
 		Ok(())
 	}
 
@@ -271,29 +268,56 @@ impl Index {
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::object::Id,
-		output: &mut CleanOutput,
 	) -> tg::Result<()> {
+		// Get cache_entry from Object value.
 		let key = Key::Object(id.clone()).pack_to_vec();
-		let object = db
+		let cache_entry = db
 			.get(transaction, &key)
 			.map_err(|source| tg::error!(!source, "failed to get object"))?
-			.and_then(|bytes| Object::deserialize(bytes).ok());
+			.and_then(|bytes| Object::deserialize(bytes).ok())
+			.and_then(|obj| obj.cache_entry);
 
+		// Delete main Object key.
 		db.delete(transaction, &key)
 			.map_err(|source| tg::error!(!source, "failed to delete object"))?;
 
+		// Get ObjectChild keys, extract children, delete keys.
 		let prefix = (Kind::ObjectChild.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
-		let children = Self::collect_child_ids_and_delete(db, transaction, &prefix)?;
-		for child_id in children {
-			Self::decrement_object_reference_count(db, transaction, &child_id)?;
+		let iter = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|source| tg::error!(!source, "failed to iterate object child keys"))?;
+		let mut entries = Vec::new();
+		for result in iter {
+			let (key_bytes, _) =
+				result.map_err(|source| tg::error!(!source, "failed to read object child key"))?;
+			let key: Key = fdbt::unpack(key_bytes)
+				.map_err(|source| tg::error!(!source, "failed to unpack object child key"))?;
+			let Key::ObjectChild { child, .. } = key else {
+				return Err(tg::error!("expected object child key"));
+			};
+			entries.push((key_bytes.to_vec(), child));
+		}
+		for (key_bytes, _) in &entries {
+			db.delete(transaction, key_bytes)
+				.map_err(|source| tg::error!(!source, "failed to delete object child key"))?;
 		}
 
-		let prefix = (Kind::ChildObject.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
-		Self::delete_keys_with_prefix(db, transaction, &prefix)?;
+		// For each child: delete reverse ChildObject key, decrement child ref count.
+		for (_, child) in &entries {
+			let key = Key::ChildObject {
+				child: child.clone(),
+				object: id.clone(),
+			}
+			.pack_to_vec();
+			db.delete(transaction, &key)
+				.map_err(|source| tg::error!(!source, "failed to delete child object key"))?;
+		}
+		for (_, child) in entries {
+			Self::decrement_object_reference_count(db, transaction, &child)?;
+		}
 
-		if let Some(ref obj) = object
-			&& let Some(cache_entry) = &obj.cache_entry
-		{
+		// If cache_entry exists: delete ObjectCacheEntry + CacheEntryObject, decrement cache_entry ref count.
+		if let Some(cache_entry) = &cache_entry {
 			let key = Key::ObjectCacheEntry {
 				object: id.clone(),
 				cache_entry: cache_entry.clone(),
@@ -301,11 +325,7 @@ impl Index {
 			.pack_to_vec();
 			db.delete(transaction, &key)
 				.map_err(|source| tg::error!(!source, "failed to delete object cache entry"))?;
-		}
 
-		if let Some(ref obj) = object
-			&& let Some(cache_entry) = &obj.cache_entry
-		{
 			let key = Key::CacheEntryObject {
 				cache_entry: cache_entry.clone(),
 				object: id.clone(),
@@ -313,16 +333,9 @@ impl Index {
 			.pack_to_vec();
 			db.delete(transaction, &key)
 				.map_err(|source| tg::error!(!source, "failed to delete cache entry object"))?;
+
+			Self::decrement_cache_entry_reference_count(db, transaction, cache_entry)?;
 		}
-
-		let prefix = (
-			Kind::ObjectProcess.to_i32().unwrap(),
-			id.to_bytes().as_ref(),
-		)
-			.pack_to_vec();
-		Self::delete_keys_with_prefix(db, transaction, &prefix)?;
-
-		output.objects.push(id.clone());
 
 		Ok(())
 	}
@@ -331,124 +344,124 @@ impl Index {
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::process::Id,
-		output: &mut CleanOutput,
 	) -> tg::Result<()> {
+		// Delete main Process key.
 		let key = Key::Process(id.clone()).pack_to_vec();
 		db.delete(transaction, &key)
 			.map_err(|source| tg::error!(!source, "failed to delete process"))?;
 
+		// Get ProcessChild keys, extract children, delete keys.
 		let prefix = (Kind::ProcessChild.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
-		let children = Self::collect_process_child_ids_and_delete(db, transaction, &prefix)?;
-		for child_id in children {
-			Self::decrement_process_reference_count(db, transaction, &child_id)?;
+		let iter = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|source| tg::error!(!source, "failed to iterate process child keys"))?;
+		let mut entries = Vec::new();
+		for result in iter {
+			let (key_bytes, _) =
+				result.map_err(|source| tg::error!(!source, "failed to read process child key"))?;
+			let key: Key = fdbt::unpack(key_bytes)
+				.map_err(|source| tg::error!(!source, "failed to unpack process child key"))?;
+			let Key::ProcessChild { child, .. } = key else {
+				return Err(tg::error!("expected process child key"));
+			};
+			entries.push((key_bytes.to_vec(), child));
+		}
+		for (key_bytes, _) in &entries {
+			db.delete(transaction, key_bytes)
+				.map_err(|source| tg::error!(!source, "failed to delete process child key"))?;
 		}
 
-		let prefix = (Kind::ChildProcess.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
-		Self::delete_keys_with_prefix(db, transaction, &prefix)?;
+		// For each child: delete reverse ChildProcess key, decrement child process ref count.
+		for (_, child) in &entries {
+			let key = Key::ChildProcess {
+				child: child.clone(),
+				parent: id.clone(),
+			}
+			.pack_to_vec();
+			db.delete(transaction, &key)
+				.map_err(|source| tg::error!(!source, "failed to delete child process key"))?;
+		}
+		for (_, child) in entries {
+			Self::decrement_process_reference_count(db, transaction, &child)?;
+		}
 
+		// Get ProcessObject keys, extract (object, kind) pairs, delete keys.
 		let prefix = (
 			Kind::ProcessObject.to_i32().unwrap(),
 			id.to_bytes().as_ref(),
 		)
 			.pack_to_vec();
-		let objects = Self::collect_process_object_ids_and_delete(db, transaction, &prefix)?;
-		for object_id in objects {
-			Self::decrement_object_reference_count(db, transaction, &object_id)?;
+		let iter = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|source| tg::error!(!source, "failed to iterate process object keys"))?;
+		let mut object_entries: Vec<(Vec<u8>, tg::object::Id, ProcessObjectKind)> = Vec::new();
+		for result in iter {
+			let (key_bytes, _) = result
+				.map_err(|source| tg::error!(!source, "failed to read process object key"))?;
+			let key: Key = fdbt::unpack(key_bytes)
+				.map_err(|source| tg::error!(!source, "failed to unpack process object key"))?;
+			let Key::ProcessObject { object, kind, .. } = key else {
+				return Err(tg::error!("expected process object key"));
+			};
+			object_entries.push((key_bytes.to_vec(), object, kind));
+		}
+		for (key_bytes, _, _) in &object_entries {
+			db.delete(transaction, key_bytes)
+				.map_err(|source| tg::error!(!source, "failed to delete process object key"))?;
 		}
 
-		output.processes.push(id.clone());
+		// For each object: delete reverse ObjectProcess key, decrement object ref count.
+		for (_, object, kind) in &object_entries {
+			let key = Key::ObjectProcess {
+				object: object.clone(),
+				process: id.clone(),
+				kind: *kind,
+			}
+			.pack_to_vec();
+			db.delete(transaction, &key)
+				.map_err(|source| tg::error!(!source, "failed to delete object process key"))?;
+		}
+		for (_, object, _) in object_entries {
+			Self::decrement_object_reference_count(db, transaction, &object)?;
+		}
 
 		Ok(())
 	}
 
-	fn collect_child_ids_and_delete(
+	fn decrement_cache_entry_reference_count(
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
-		prefix: &[u8],
-	) -> tg::Result<Vec<tg::object::Id>> {
-		let entries: Vec<(Vec<u8>, tg::object::Id)> = {
-			let iter = db
-				.prefix_iter(transaction, prefix)
-				.map_err(|source| tg::error!(!source, "failed to iterate object child keys"))?;
-			iter.filter_map(|result| {
-				result.ok().and_then(|(key, _)| {
-					let (_, _, child_bytes): (i32, Vec<u8>, Vec<u8>) =
-						foundationdb_tuple::unpack(key).ok()?;
-					let child_id = tg::object::Id::from_slice(&child_bytes).ok()?;
-					Some((key.to_vec(), child_id))
-				})
-			})
-			.collect()
-		};
+		id: &tg::artifact::Id,
+	) -> tg::Result<()> {
+		let key = Key::CacheEntry(id.clone()).pack_to_vec();
+		if let Some(bytes) = db
+			.get(transaction, &key)
+			.map_err(|source| tg::error!(!source, "failed to get cache entry"))?
+		{
+			let mut entry = CacheEntry::deserialize(bytes)?;
+			let reference_count = entry.reference_count;
+			if reference_count > 1 {
+				entry.reference_count = reference_count - 1;
+				let bytes = entry.serialize()?;
+				db.put(transaction, &key, &bytes)
+					.map_err(|source| tg::error!(!source, "failed to put cache entry"))?;
+			} else {
+				entry.reference_count = 0;
+				let bytes = entry.serialize()?;
+				db.put(transaction, &key, &bytes)
+					.map_err(|source| tg::error!(!source, "failed to put cache entry"))?;
 
-		let mut child_ids = Vec::new();
-		for (key, child_id) in entries {
-			db.delete(transaction, &key)
-				.map_err(|source| tg::error!(!source, "failed to delete object child key"))?;
-			child_ids.push(child_id);
+				let clean_key = Key::Clean {
+					touched_at: entry.touched_at,
+					kind: ItemKind::CacheEntry,
+					id: tg::Id::from(id.clone()),
+				}
+				.pack_to_vec();
+				db.put(transaction, &clean_key, &[])
+					.map_err(|source| tg::error!(!source, "failed to put clean key"))?;
+			}
 		}
-
-		Ok(child_ids)
-	}
-
-	fn collect_process_child_ids_and_delete(
-		db: &Db,
-		transaction: &mut lmdb::RwTxn<'_>,
-		prefix: &[u8],
-	) -> tg::Result<Vec<tg::process::Id>> {
-		let entries: Vec<(Vec<u8>, tg::process::Id)> = {
-			let iter = db
-				.prefix_iter(transaction, prefix)
-				.map_err(|source| tg::error!(!source, "failed to iterate process child keys"))?;
-			iter.filter_map(|result| {
-				result.ok().and_then(|(key, _)| {
-					let (_, _, child_bytes): (i32, Vec<u8>, Vec<u8>) =
-						foundationdb_tuple::unpack(key).ok()?;
-					let child_id = tg::process::Id::from_slice(&child_bytes).ok()?;
-					Some((key.to_vec(), child_id))
-				})
-			})
-			.collect()
-		};
-
-		let mut child_ids = Vec::new();
-		for (key, child_id) in entries {
-			db.delete(transaction, &key)
-				.map_err(|source| tg::error!(!source, "failed to delete process child key"))?;
-			child_ids.push(child_id);
-		}
-
-		Ok(child_ids)
-	}
-
-	fn collect_process_object_ids_and_delete(
-		db: &Db,
-		transaction: &mut lmdb::RwTxn<'_>,
-		prefix: &[u8],
-	) -> tg::Result<Vec<tg::object::Id>> {
-		let entries: Vec<(Vec<u8>, tg::object::Id)> = {
-			let iter = db
-				.prefix_iter(transaction, prefix)
-				.map_err(|source| tg::error!(!source, "failed to iterate process object keys"))?;
-			iter.filter_map(|result| {
-				result.ok().and_then(|(key, _)| {
-					let (_, _, object_bytes, _): (i32, Vec<u8>, Vec<u8>, i32) =
-						foundationdb_tuple::unpack(key).ok()?;
-					let object_id = tg::object::Id::from_slice(&object_bytes).ok()?;
-					Some((key.to_vec(), object_id))
-				})
-			})
-			.collect()
-		};
-
-		let mut object_ids = Vec::new();
-		for (key, object_id) in entries {
-			db.delete(transaction, &key)
-				.map_err(|source| tg::error!(!source, "failed to delete process object key"))?;
-			object_ids.push(object_id);
-		}
-
-		Ok(object_ids)
+		Ok(())
 	}
 
 	fn decrement_object_reference_count(
@@ -468,19 +481,20 @@ impl Index {
 				let bytes = object.serialize()?;
 				db.put(transaction, &key, &bytes)
 					.map_err(|source| tg::error!(!source, "failed to put object"))?;
-			} else if reference_count == 1 {
+			} else {
 				object.reference_count = 0;
-				let key = Key::Clean {
+				let bytes = object.serialize()?;
+				db.put(transaction, &key, &bytes)
+					.map_err(|source| tg::error!(!source, "failed to put object"))?;
+
+				let clean_key = Key::Clean {
 					touched_at: object.touched_at,
 					kind: ItemKind::Object,
 					id: tg::Id::from(id.clone()),
 				}
 				.pack_to_vec();
-				db.put(transaction, &key, &[])
+				db.put(transaction, &clean_key, &[])
 					.map_err(|source| tg::error!(!source, "failed to put clean key"))?;
-				let bytes = object.serialize()?;
-				db.put(transaction, &key, &bytes)
-					.map_err(|source| tg::error!(!source, "failed to put object"))?;
 			}
 		}
 		Ok(())
@@ -503,8 +517,12 @@ impl Index {
 				let bytes = process.serialize()?;
 				db.put(transaction, &key, &bytes)
 					.map_err(|source| tg::error!(!source, "failed to put process"))?;
-			} else if reference_count == 1 {
+			} else {
 				process.reference_count = 0;
+				let bytes = process.serialize()?;
+				db.put(transaction, &key, &bytes)
+					.map_err(|source| tg::error!(!source, "failed to put process"))?;
+
 				let clean_key = Key::Clean {
 					touched_at: process.touched_at,
 					kind: ItemKind::Process,
@@ -513,29 +531,7 @@ impl Index {
 				.pack_to_vec();
 				db.put(transaction, &clean_key, &[])
 					.map_err(|source| tg::error!(!source, "failed to put clean key"))?;
-				let bytes = process.serialize()?;
-				db.put(transaction, &key, &bytes)
-					.map_err(|source| tg::error!(!source, "failed to put process"))?;
 			}
-		}
-		Ok(())
-	}
-
-	fn delete_keys_with_prefix(
-		db: &Db,
-		transaction: &mut lmdb::RwTxn<'_>,
-		prefix: &[u8],
-	) -> tg::Result<()> {
-		let keys: Vec<Vec<u8>> = {
-			let iter = db
-				.prefix_iter(transaction, prefix)
-				.map_err(|source| tg::error!(!source, "failed to iterate keys"))?;
-			iter.filter_map(|result| result.ok().map(|(k, _)| k.to_vec()))
-				.collect()
-		};
-		for key in keys {
-			db.delete(transaction, &key)
-				.map_err(|source| tg::error!(!source, "failed to delete key"))?;
 		}
 		Ok(())
 	}

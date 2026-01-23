@@ -15,10 +15,9 @@ impl Index {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
-		let this = self.clone();
 		self.database
 			.run(|txn, _| {
-				let this = this.clone();
+				let this = self.clone();
 				let ids = ids.to_vec();
 				async move {
 					let txn = &txn;
@@ -60,10 +59,9 @@ impl Index {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
-		let this = self.clone();
 		self.database
 			.run(|txn, _| {
-				let this = this.clone();
+				let this = self.clone();
 				let ids = ids.to_vec();
 				async move {
 					let txn = &txn;
