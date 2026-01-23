@@ -13,7 +13,7 @@ pub struct Arg {
 impl tg::Client {
 	pub async fn touch_watch(&self, arg: tg::watch::touch::Arg) -> tg::Result<()> {
 		let method = http::Method::POST;
-		let uri = format!("/watches/touch");
+		let uri = "/watches/touch";
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
