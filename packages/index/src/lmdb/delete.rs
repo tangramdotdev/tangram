@@ -29,31 +29,31 @@ impl Index {
 		tags: &[String],
 	) -> tg::Result<()> {
 		for tag in tags {
-			// First, get the tag value to find the item.
 			let key = Key::Tag(tag.clone()).pack_to_vec();
 			let value = db
 				.get(transaction, &key)
 				.map_err(|source| tg::error!(!source, "failed to get the tag"))?;
-
-			if let Some(bytes) = value {
-				// Parse the tag to get the item.
-				if let Ok(tag_data) = Tag::deserialize(bytes) {
-					// Delete the item tag relationship.
-					let item_bytes: Vec<u8> = match &tag_data.item {
-						tg::Either::Left(object_id) => object_id.to_bytes().to_vec(),
-						tg::Either::Right(process_id) => process_id.to_bytes().to_vec(),
-					};
-					let item_tag_key = Key::ItemTag {
-						item: item_bytes,
-						tag: tag.clone(),
-					}
-					.pack_to_vec();
-					db.delete(transaction, &item_tag_key)
-						.map_err(|source| tg::error!(!source, "failed to delete the item tag"))?;
-				}
+			let bytes = value.ok_or_else(|| tg::error!("tag not found"))?;
+			let tag_data = Tag::deserialize(bytes)?;
+			let item = match &tag_data.item {
+				tg::Either::Left(id) => id.to_bytes().to_vec(),
+				tg::Either::Right(id) => id.to_bytes().to_vec(),
+			};
+			let item_tag_key = Key::ItemTag {
+				item,
+				tag: tag.clone(),
 			}
-
-			// Delete the tag itself.
+			.pack_to_vec();
+			db.delete(transaction, &item_tag_key)
+				.map_err(|source| tg::error!(!source, "failed to delete the item tag"))?;
+			match &tag_data.item {
+				tg::Either::Left(id) => {
+					Self::decrement_object_reference_count(db, transaction, id)?;
+				},
+				tg::Either::Right(id) => {
+					Self::decrement_process_reference_count(db, transaction, id)?;
+				},
+			}
 			db.delete(transaction, &key)
 				.map_err(|source| tg::error!(!source, "failed to delete the tag"))?;
 		}

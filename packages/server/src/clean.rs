@@ -124,8 +124,7 @@ impl Server {
 			progress.increment("cache_entries", cache_entries);
 			progress.increment("objects", objects);
 			progress.increment("processes", processes);
-			let n = cache_entries + objects + processes;
-			if n == 0 {
+			if inner_output.done {
 				break;
 			}
 		}
@@ -141,9 +140,7 @@ impl Server {
 			let result = self.cleaner_task_inner(now, ttl, n).await;
 			match result {
 				Ok(output) => {
-					let n =
-						output.cache_entries.len() + output.objects.len() + output.processes.len();
-					if n == 0 {
+					if output.done {
 						tokio::time::sleep(Duration::from_secs(1)).await;
 					}
 				},

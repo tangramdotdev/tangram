@@ -27,7 +27,11 @@ impl Index {
 		self.database
 			.run(|txn, _| {
 				let this = self.clone();
-				async move { this.clean_inner(&txn, max_touched_at, batch_size).await }
+				async move {
+					this.clean_inner(&txn, max_touched_at, batch_size)
+						.await
+						.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))
+				}
 			})
 			.await
 			.map_err(|source| tg::error!(!source, "failed to run clean transaction"))
@@ -38,7 +42,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		max_touched_at: i64,
 		batch_size: usize,
-	) -> Result<CleanOutput, fdb::FdbBindingError> {
+	) -> tg::Result<CleanOutput> {
 		txn.set_option(fdb::options::TransactionOption::PriorityBatch)
 			.unwrap();
 
@@ -52,43 +56,44 @@ impl Index {
 			limit: Some(batch_size),
 			..Default::default()
 		};
-		let entries = txn.get_range(&range, 0, false).await?;
+		let entries = txn
+			.get_range(&range, 0, false)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get range"))?;
 		let candidates = entries
 			.iter()
 			.map(|entry| {
 				let key = self
 					.unpack(entry.key())
-					.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))?;
+					.map_err(|source| tg::error!(!source, "failed to unpack key"))?;
 				let Key::Clean {
 					touched_at,
 					kind,
 					id,
 				} = key
 				else {
-					return Err(fdb::FdbBindingError::CustomError(
-						"expected clean key".into(),
-					));
+					return Err(tg::error!("expected clean key"));
 				};
 				let item = match kind {
 					ItemKind::CacheEntry => {
 						let id = tg::artifact::Id::try_from(id)
-							.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))?;
+							.map_err(|source| tg::error!(!source, "invalid artifact id"))?;
 						Item::CacheEntry(id)
 					},
 					ItemKind::Object => {
 						let id = tg::object::Id::try_from(id)
-							.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))?;
+							.map_err(|source| tg::error!(!source, "invalid object id"))?;
 						Item::Object(id)
 					},
 					ItemKind::Process => {
 						let id = tg::process::Id::try_from(id)
-							.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))?;
+							.map_err(|source| tg::error!(!source, "invalid process id"))?;
 						Item::Process(id)
 					},
 				};
 				Ok(Candidate { touched_at, item })
 			})
-			.collect::<Result<Vec<_>, fdb::FdbBindingError>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 
 		let results = candidates
 			.iter()
@@ -122,7 +127,7 @@ impl Index {
 				let key = self.pack(&key);
 				txn.clear(&key);
 
-				Ok::<_, fdb::FdbBindingError>(item)
+				Ok::<_, tg::Error>(item)
 			})
 			.collect::<Vec<_>>();
 		let items = futures::future::try_join_all(results).await?;
@@ -135,6 +140,8 @@ impl Index {
 			}
 		}
 
+		output.done = candidates.is_empty();
+
 		Ok(output)
 	}
 
@@ -142,7 +149,7 @@ impl Index {
 		&self,
 		txn: &fdb::Transaction,
 		id: &tg::artifact::Id,
-	) -> Result<u64, fdb::FdbBindingError> {
+	) -> tg::Result<u64> {
 		let id = id.to_bytes();
 		let prefix = (Kind::CacheEntryObject.to_i32().unwrap(), id.as_ref());
 		let prefix = self.pack(&prefix);
@@ -150,7 +157,8 @@ impl Index {
 		let range = fdb::RangeOption::from(&subspace);
 		let count = txn
 			.get_range(&range, 0, false)
-			.await?
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get range"))?
 			.len()
 			.to_u64()
 			.unwrap();
@@ -161,7 +169,7 @@ impl Index {
 		&self,
 		txn: &fdb::Transaction,
 		id: &tg::object::Id,
-	) -> Result<u64, fdb::FdbBindingError> {
+	) -> tg::Result<u64> {
 		let child_object_future = async {
 			let id = id.to_bytes();
 			let prefix = (Kind::ChildObject.to_i32().unwrap(), id.as_ref());
@@ -170,11 +178,12 @@ impl Index {
 			let range = fdb::RangeOption::from(&subspace);
 			let count = txn
 				.get_range(&range, 0, false)
-				.await?
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get range"))?
 				.len()
 				.to_u64()
 				.unwrap();
-			Ok::<_, fdb::FdbBindingError>(count)
+			Ok::<_, tg::Error>(count)
 		};
 		let object_process_future = async {
 			let id = id.to_bytes();
@@ -184,11 +193,12 @@ impl Index {
 			let range = fdb::RangeOption::from(&subspace);
 			let count = txn
 				.get_range(&range, 0, false)
-				.await?
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get range"))?
 				.len()
 				.to_u64()
 				.unwrap();
-			Ok::<_, fdb::FdbBindingError>(count)
+			Ok::<_, tg::Error>(count)
 		};
 		let (child_object_count, object_process_count) =
 			futures::future::try_join(child_object_future, object_process_future).await?;
@@ -200,7 +210,7 @@ impl Index {
 		&self,
 		txn: &fdb::Transaction,
 		id: &tg::process::Id,
-	) -> Result<u64, fdb::FdbBindingError> {
+	) -> tg::Result<u64> {
 		let id = id.to_bytes();
 		let prefix = (Kind::ChildProcess.to_i32().unwrap(), id.as_ref());
 		let prefix = self.pack(&prefix);
@@ -208,7 +218,8 @@ impl Index {
 		let range = fdb::RangeOption::from(&subspace);
 		let count = txn
 			.get_range(&range, 0, false)
-			.await?
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get range"))?
 			.len()
 			.to_u64()
 			.unwrap();
@@ -234,11 +245,7 @@ impl Index {
 		txn.set(&key, &reference_count.to_le_bytes());
 	}
 
-	async fn delete_item(
-		&self,
-		txn: &fdb::Transaction,
-		item: &Item,
-	) -> Result<(), fdb::FdbBindingError> {
+	async fn delete_item(&self, txn: &fdb::Transaction, item: &Item) -> tg::Result<()> {
 		match item {
 			Item::CacheEntry(id) => self.delete_cache_entry(txn, id).await,
 			Item::Object(id) => self.delete_object(txn, id).await,
@@ -250,7 +257,7 @@ impl Index {
 		&self,
 		txn: &fdb::Transaction,
 		id: &tg::artifact::Id,
-	) -> Result<(), fdb::FdbBindingError> {
+	) -> tg::Result<()> {
 		let id_bytes = id.to_bytes();
 
 		let prefix = (Kind::CacheEntry.to_i32().unwrap(), id_bytes.as_ref());
@@ -262,11 +269,7 @@ impl Index {
 		Ok(())
 	}
 
-	async fn delete_object(
-		&self,
-		txn: &fdb::Transaction,
-		id: &tg::object::Id,
-	) -> Result<(), fdb::FdbBindingError> {
+	async fn delete_object(&self, txn: &fdb::Transaction, id: &tg::object::Id) -> tg::Result<()> {
 		let key = Key::Object {
 			id: id.clone(),
 			field: ObjectField::Core(ObjectCoreField::CacheEntry),
@@ -274,10 +277,11 @@ impl Index {
 		let cache_entry_key = self.pack(&key);
 		let cache_entry = txn
 			.get(&cache_entry_key, false)
-			.await?
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get cache entry"))?
 			.map(|bytes| {
 				tg::artifact::Id::from_slice(&bytes)
-					.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))
+					.map_err(|source| tg::error!(!source, "invalid artifact id"))
 			})
 			.transpose()?;
 
@@ -293,21 +297,22 @@ impl Index {
 		let prefix = self.pack(&prefix);
 		let subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption::from(&subspace);
-		let entries = txn.get_range(&range, 0, false).await?;
+		let entries = txn
+			.get_range(&range, 0, false)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get range"))?;
 		let children = entries
 			.iter()
 			.map(|entry| {
 				let key = self
 					.unpack(entry.key())
-					.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))?;
+					.map_err(|source| tg::error!(!source, "failed to unpack key"))?;
 				let Key::ObjectChild { child, .. } = key else {
-					return Err(fdb::FdbBindingError::CustomError(
-						"expected object child key".into(),
-					));
+					return Err(tg::error!("expected object child key"));
 				};
 				Ok(child)
 			})
-			.collect::<Result<Vec<_>, fdb::FdbBindingError>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 		let (begin, end) = subspace.range();
 		txn.clear_range(&begin, &end);
 		for child in &children {
@@ -344,11 +349,7 @@ impl Index {
 		Ok(())
 	}
 
-	async fn delete_process(
-		&self,
-		txn: &fdb::Transaction,
-		id: &tg::process::Id,
-	) -> Result<(), fdb::FdbBindingError> {
+	async fn delete_process(&self, txn: &fdb::Transaction, id: &tg::process::Id) -> tg::Result<()> {
 		let id_bytes = id.to_bytes();
 
 		let prefix = (Kind::Process.to_i32().unwrap(), id_bytes.as_ref());
@@ -361,21 +362,22 @@ impl Index {
 		let prefix = self.pack(&prefix);
 		let subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption::from(&subspace);
-		let entries = txn.get_range(&range, 0, false).await?;
+		let entries = txn
+			.get_range(&range, 0, false)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get range"))?;
 		let children = entries
 			.iter()
 			.map(|entry| {
 				let key = self
 					.unpack(entry.key())
-					.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))?;
+					.map_err(|source| tg::error!(!source, "failed to unpack key"))?;
 				let Key::ProcessChild { child, .. } = key else {
-					return Err(fdb::FdbBindingError::CustomError(
-						"expected process child key".into(),
-					));
+					return Err(tg::error!("expected process child key"));
 				};
 				Ok(child)
 			})
-			.collect::<Result<Vec<_>, fdb::FdbBindingError>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 		let (begin, end) = subspace.range();
 		txn.clear_range(&begin, &end);
 		for child in &children {
@@ -394,21 +396,22 @@ impl Index {
 		let prefix = self.pack(&prefix);
 		let subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption::from(&subspace);
-		let entries = txn.get_range(&range, 0, false).await?;
+		let entries = txn
+			.get_range(&range, 0, false)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get range"))?;
 		let object_processes = entries
 			.iter()
 			.map(|entry| {
 				let key = self
 					.unpack(entry.key())
-					.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))?;
+					.map_err(|source| tg::error!(!source, "failed to unpack key"))?;
 				let Key::ProcessObject { object, kind, .. } = key else {
-					return Err(fdb::FdbBindingError::CustomError(
-						"expected process object key".into(),
-					));
+					return Err(tg::error!("expected process object key"));
 				};
 				Ok((object, kind))
 			})
-			.collect::<Result<Vec<_>, fdb::FdbBindingError>>()?;
+			.collect::<tg::Result<Vec<_>>>()?;
 		let (begin, end) = subspace.range();
 		txn.clear_range(&begin, &end);
 		for (object, kind) in &object_processes {
@@ -431,7 +434,7 @@ impl Index {
 		&self,
 		txn: &fdb::Transaction,
 		id: &tg::artifact::Id,
-	) -> Result<(), fdb::FdbBindingError> {
+	) -> tg::Result<()> {
 		let key = Key::CacheEntry {
 			id: id.clone(),
 			field: CacheEntryField::Core(CacheEntryCoreField::ReferenceCount),
@@ -439,14 +442,15 @@ impl Index {
 		let reference_count_key = self.pack(&key);
 		let reference_count = txn
 			.get(&reference_count_key, false)
-			.await?
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get reference count"))?
 			.map(|bytes| {
 				let bytes = bytes
 					.as_ref()
 					.try_into()
-					.map_err(|_| fdb::FdbBindingError::CustomError("invalid value".into()))?;
+					.map_err(|_| tg::error!("invalid value"))?;
 				let value = u64::from_le_bytes(bytes);
-				Ok::<_, fdb::FdbBindingError>(value)
+				Ok::<_, tg::Error>(value)
 			})
 			.transpose()?
 			.unwrap_or(0);
@@ -459,18 +463,20 @@ impl Index {
 				field: CacheEntryField::Core(CacheEntryCoreField::TouchedAt),
 			};
 			let touched_at_key = self.pack(&key);
-			let touched_at =
-				txn.get(&touched_at_key, false)
-					.await?
-					.map(|bytes| {
-						let bytes = bytes.as_ref().try_into().map_err(|_| {
-							fdb::FdbBindingError::CustomError("invalid value".into())
-						})?;
-						let value = i64::from_le_bytes(bytes);
-						Ok::<_, fdb::FdbBindingError>(value)
-					})
-					.transpose()?
-					.unwrap_or(0);
+			let touched_at = txn
+				.get(&touched_at_key, false)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get touched at"))?
+				.map(|bytes| {
+					let bytes = bytes
+						.as_ref()
+						.try_into()
+						.map_err(|_| tg::error!("invalid value"))?;
+					let value = i64::from_le_bytes(bytes);
+					Ok::<_, tg::Error>(value)
+				})
+				.transpose()?
+				.unwrap_or(0);
 
 			let key = Key::Clean {
 				touched_at,
@@ -483,11 +489,11 @@ impl Index {
 		Ok(())
 	}
 
-	async fn decrement_object_reference_count(
+	pub(super) async fn decrement_object_reference_count(
 		&self,
 		txn: &fdb::Transaction,
 		id: &tg::object::Id,
-	) -> Result<(), fdb::FdbBindingError> {
+	) -> tg::Result<()> {
 		let key = Key::Object {
 			id: id.clone(),
 			field: ObjectField::Core(ObjectCoreField::ReferenceCount),
@@ -495,14 +501,15 @@ impl Index {
 		let reference_count_key = self.pack(&key);
 		let reference_count = txn
 			.get(&reference_count_key, false)
-			.await?
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get reference count"))?
 			.map(|bytes| {
 				let bytes = bytes
 					.as_ref()
 					.try_into()
-					.map_err(|_| fdb::FdbBindingError::CustomError("invalid value".into()))?;
+					.map_err(|_| tg::error!("invalid value"))?;
 				let value = u64::from_le_bytes(bytes);
-				Ok::<_, fdb::FdbBindingError>(value)
+				Ok::<_, tg::Error>(value)
 			})
 			.transpose()?
 			.unwrap_or(0);
@@ -515,18 +522,20 @@ impl Index {
 				field: ObjectField::Core(ObjectCoreField::TouchedAt),
 			};
 			let touched_at_key = self.pack(&key);
-			let touched_at =
-				txn.get(&touched_at_key, false)
-					.await?
-					.map(|bytes| {
-						let bytes = bytes.as_ref().try_into().map_err(|_| {
-							fdb::FdbBindingError::CustomError("invalid value".into())
-						})?;
-						let value = i64::from_le_bytes(bytes);
-						Ok::<_, fdb::FdbBindingError>(value)
-					})
-					.transpose()?
-					.unwrap_or(0);
+			let touched_at = txn
+				.get(&touched_at_key, false)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get touched at"))?
+				.map(|bytes| {
+					let bytes = bytes
+						.as_ref()
+						.try_into()
+						.map_err(|_| tg::error!("invalid value"))?;
+					let value = i64::from_le_bytes(bytes);
+					Ok::<_, tg::Error>(value)
+				})
+				.transpose()?
+				.unwrap_or(0);
 
 			let key = Key::Clean {
 				touched_at,
@@ -539,11 +548,11 @@ impl Index {
 		Ok(())
 	}
 
-	async fn decrement_process_reference_count(
+	pub(super) async fn decrement_process_reference_count(
 		&self,
 		txn: &fdb::Transaction,
 		id: &tg::process::Id,
-	) -> Result<(), fdb::FdbBindingError> {
+	) -> tg::Result<()> {
 		let key = Key::Process {
 			id: id.clone(),
 			field: ProcessField::Core(ProcessCoreField::ReferenceCount),
@@ -551,14 +560,15 @@ impl Index {
 		let reference_count_key = self.pack(&key);
 		let reference_count = txn
 			.get(&reference_count_key, false)
-			.await?
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get reference count"))?
 			.map(|bytes| {
 				let bytes = bytes
 					.as_ref()
 					.try_into()
-					.map_err(|_| fdb::FdbBindingError::CustomError("invalid value".into()))?;
+					.map_err(|_| tg::error!("invalid value"))?;
 				let value = u64::from_le_bytes(bytes);
-				Ok::<_, fdb::FdbBindingError>(value)
+				Ok::<_, tg::Error>(value)
 			})
 			.transpose()?
 			.unwrap_or(0);
@@ -571,18 +581,20 @@ impl Index {
 				field: ProcessField::Core(ProcessCoreField::TouchedAt),
 			};
 			let touched_at_key = self.pack(&key);
-			let touched_at =
-				txn.get(&touched_at_key, false)
-					.await?
-					.map(|bytes| {
-						let bytes = bytes.as_ref().try_into().map_err(|_| {
-							fdb::FdbBindingError::CustomError("invalid value".into())
-						})?;
-						let value = i64::from_le_bytes(bytes);
-						Ok::<_, fdb::FdbBindingError>(value)
-					})
-					.transpose()?
-					.unwrap_or(0);
+			let touched_at = txn
+				.get(&touched_at_key, false)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get touched at"))?
+				.map(|bytes| {
+					let bytes = bytes
+						.as_ref()
+						.try_into()
+						.map_err(|_| tg::error!("invalid value"))?;
+					let value = i64::from_le_bytes(bytes);
+					Ok::<_, tg::Error>(value)
+				})
+				.transpose()?
+				.unwrap_or(0);
 
 			let key = Key::Clean {
 				touched_at,
