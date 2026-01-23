@@ -43,6 +43,7 @@ type TagTasks = tangram_futures::task::Map<
 
 #[derive(Clone)]
 struct Prefetch {
+	arg: tg::checkin::Arg,
 	object_tasks: ObjectTasks,
 	objects: Objects,
 	semaphore: Arc<tokio::sync::Semaphore>,
@@ -182,6 +183,7 @@ impl Server {
 			arg,
 			checkpoints: Vec::new(),
 			prefetch: Prefetch {
+				arg: arg.clone(),
 				object_tasks: tangram_futures::task::Map::default(),
 				objects: Arc::new(DashMap::default()),
 				semaphore: Arc::new(tokio::sync::Semaphore::new(PREFETCH_CONCURRENCY)),
@@ -517,10 +519,7 @@ impl Server {
 		}
 
 		// If there are no candidates left and tags have not been listed yet, then list them.
-		if !state.arg.options.deterministic
-			&& checkpoint.candidates.as_ref().unwrap().is_empty()
-			&& !checkpoint.listed
-		{
+		if checkpoint.candidates.as_ref().unwrap().is_empty() && !checkpoint.listed {
 			let candidates = self
 				.checkin_solve_get_tag_candidates(state, pattern)
 				.await
@@ -1532,7 +1531,8 @@ impl Server {
 				}
 				for dependency in file.dependencies.values() {
 					if let Some(dependency) = dependency
-						&& let Some(edge) = &dependency.0.item
+						&& let Some(edge) = &dependency.item()
+						&& dependency.options().tag.is_none()
 					{
 						self.checkin_solve_prefetch_from_object_edge(prefetch, edge);
 					}
@@ -1642,6 +1642,10 @@ impl Server {
 			let pattern = pattern.clone();
 			let prefetch = prefetch.clone();
 			move |_| async move {
+				if prefetch.arg.options.deterministic {
+					return Ok(tg::tag::list::Output { data: Vec::new() });
+				}
+
 				// Acquire a permit to limit concurrent requests.
 				let permit = prefetch.semaphore.acquire().await;
 
