@@ -1529,10 +1529,10 @@ impl Server {
 						self.checkin_solve_get_or_spawn_tag_task(prefetch, pattern);
 					}
 				}
-				for dependency in file.dependencies.values() {
+				for (reference, dependency) in &file.dependencies {
 					if let Some(dependency) = dependency
 						&& let Some(edge) = &dependency.item()
-						&& dependency.options().tag.is_none()
+						&& !reference.is_solvable()
 					{
 						self.checkin_solve_prefetch_from_object_edge(prefetch, edge);
 					}
