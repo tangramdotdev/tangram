@@ -29,6 +29,9 @@ let a = artifact {
 }
 tg tag a/1.0.0 $a
 
+# Wait for changes to be handled.
+tg watch touch $path
+
 let id2 = tg checkin --watch --no-cache-pointers $path
 tg index
 

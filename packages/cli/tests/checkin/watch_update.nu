@@ -67,6 +67,9 @@ let path = artifact {
 let output = tg checkin $path --watch --locked | complete
 success $output
 
+# Wait for changes to be handled.
+tg watch touch $path
+
 let id = tg checkin $path --watch --update 'a'
 tg index
 

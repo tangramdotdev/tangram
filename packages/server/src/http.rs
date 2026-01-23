@@ -365,6 +365,9 @@ impl Server {
 			(http::Method::DELETE, ["watches"]) => server
 				.handle_delete_watch_request(request, &context)
 				.boxed(),
+			(http::Method::POST, ["watches", "touch"]) => {
+				server.handle_touch_watch_request(request, &context).boxed()
+			},
 
 			// Tags.
 			(http::Method::GET, ["tags"]) => {

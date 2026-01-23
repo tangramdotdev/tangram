@@ -72,6 +72,10 @@ snapshot $object '
 
 # Update the file and check in with --no-solve.
 '// watermark' | save ($path | path join 'tangram.ts') --append
+
+# Wait for changes to be handled.
+tg watch touch $path
+
 let id = tg checkin $path --watch --no-solve
 
 let object = tg get --blobs --depth=inf --pretty $id
