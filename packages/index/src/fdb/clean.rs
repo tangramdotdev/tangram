@@ -54,10 +54,11 @@ impl Index {
 			begin: fdb::KeySelector::first_greater_or_equal(&begin),
 			end: fdb::KeySelector::first_greater_or_equal(&end),
 			limit: Some(batch_size),
+			mode: fdb::options::StreamingMode::WantAll,
 			..Default::default()
 		};
 		let entries = txn
-			.get_range(&range, 0, false)
+			.get_range(&range, 1, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get range"))?;
 		let candidates = entries
@@ -154,9 +155,12 @@ impl Index {
 		let prefix = (Kind::CacheEntryObject.to_i32().unwrap(), id.as_ref());
 		let prefix = self.pack(&prefix);
 		let subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption::from(&subspace);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&subspace)
+		};
 		let count = txn
-			.get_range(&range, 0, false)
+			.get_range(&range, 1, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get range"))?
 			.len()
@@ -175,9 +179,12 @@ impl Index {
 			let prefix = (Kind::ChildObject.to_i32().unwrap(), id.as_ref());
 			let prefix = self.pack(&prefix);
 			let subspace = Subspace::from_bytes(prefix);
-			let range = fdb::RangeOption::from(&subspace);
+			let range = fdb::RangeOption {
+				mode: fdb::options::StreamingMode::WantAll,
+				..fdb::RangeOption::from(&subspace)
+			};
 			let count = txn
-				.get_range(&range, 0, false)
+				.get_range(&range, 1, false)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get range"))?
 				.len()
@@ -190,9 +197,12 @@ impl Index {
 			let prefix = (Kind::ObjectProcess.to_i32().unwrap(), id.as_ref());
 			let prefix = self.pack(&prefix);
 			let subspace = Subspace::from_bytes(prefix);
-			let range = fdb::RangeOption::from(&subspace);
+			let range = fdb::RangeOption {
+				mode: fdb::options::StreamingMode::WantAll,
+				..fdb::RangeOption::from(&subspace)
+			};
 			let count = txn
-				.get_range(&range, 0, false)
+				.get_range(&range, 1, false)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get range"))?
 				.len()
@@ -205,9 +215,12 @@ impl Index {
 			let prefix = (Kind::ItemTag.to_i32().unwrap(), id.as_ref());
 			let prefix = self.pack(&prefix);
 			let subspace = Subspace::from_bytes(prefix);
-			let range = fdb::RangeOption::from(&subspace);
+			let range = fdb::RangeOption {
+				mode: fdb::options::StreamingMode::WantAll,
+				..fdb::RangeOption::from(&subspace)
+			};
 			let count = txn
-				.get_range(&range, 0, false)
+				.get_range(&range, 1, false)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get range"))?
 				.len()
@@ -232,9 +245,12 @@ impl Index {
 			let prefix = (Kind::ChildProcess.to_i32().unwrap(), id.as_ref());
 			let prefix = self.pack(&prefix);
 			let subspace = Subspace::from_bytes(prefix);
-			let range = fdb::RangeOption::from(&subspace);
+			let range = fdb::RangeOption {
+				mode: fdb::options::StreamingMode::WantAll,
+				..fdb::RangeOption::from(&subspace)
+			};
 			let count = txn
-				.get_range(&range, 0, false)
+				.get_range(&range, 1, false)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get range"))?
 				.len()
@@ -247,9 +263,12 @@ impl Index {
 			let prefix = (Kind::ItemTag.to_i32().unwrap(), id.as_ref());
 			let prefix = self.pack(&prefix);
 			let subspace = Subspace::from_bytes(prefix);
-			let range = fdb::RangeOption::from(&subspace);
+			let range = fdb::RangeOption {
+				mode: fdb::options::StreamingMode::WantAll,
+				..fdb::RangeOption::from(&subspace)
+			};
 			let count = txn
-				.get_range(&range, 0, false)
+				.get_range(&range, 1, false)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get range"))?
 				.len()
@@ -333,9 +352,12 @@ impl Index {
 		let prefix = (Kind::ObjectChild.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = self.pack(&prefix);
 		let subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption::from(&subspace);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&subspace)
+		};
 		let entries = txn
-			.get_range(&range, 0, false)
+			.get_range(&range, 1, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get range"))?;
 		let children = entries
@@ -398,9 +420,12 @@ impl Index {
 		let prefix = (Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = self.pack(&prefix);
 		let subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption::from(&subspace);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&subspace)
+		};
 		let entries = txn
-			.get_range(&range, 0, false)
+			.get_range(&range, 1, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get range"))?;
 		let children = entries
@@ -432,9 +457,12 @@ impl Index {
 		let prefix = (Kind::ProcessObject.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = self.pack(&prefix);
 		let subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption::from(&subspace);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&subspace)
+		};
 		let entries = txn
-			.get_range(&range, 0, false)
+			.get_range(&range, 1, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get range"))?;
 		let object_processes = entries

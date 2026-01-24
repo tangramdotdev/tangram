@@ -232,7 +232,6 @@ pub struct Tag {
 	pub item: tg::Either<tg::object::Id, tg::process::Id>,
 }
 
-/// The kind of object associated with a process.
 #[derive(
 	Clone,
 	Copy,
@@ -258,7 +257,6 @@ pub enum ProcessObjectKind {
 	Output = 3,
 }
 
-/// Arguments for the put method.
 #[derive(Clone, Debug, Default)]
 pub struct PutArg {
 	pub cache_entries: Vec<PutCacheEntryArg>,
@@ -267,14 +265,12 @@ pub struct PutArg {
 	pub tags: Vec<PutTagArg>,
 }
 
-/// Arguments for putting a cache entry.
 #[derive(Clone, Debug)]
 pub struct PutCacheEntryArg {
 	pub id: tg::artifact::Id,
 	pub touched_at: i64,
 }
 
-/// Arguments for putting an object.
 #[derive(Clone, Debug)]
 pub struct PutObjectArg {
 	pub cache_entry: Option<tg::artifact::Id>,
@@ -285,7 +281,6 @@ pub struct PutObjectArg {
 	pub touched_at: i64,
 }
 
-/// Arguments for putting a process.
 #[derive(Clone, Debug)]
 pub struct PutProcessArg {
 	pub children: Vec<tg::process::Id>,
@@ -296,7 +291,6 @@ pub struct PutProcessArg {
 	pub touched_at: i64,
 }
 
-/// Arguments for putting a tag.
 #[derive(Clone, Debug)]
 pub struct PutTagArg {
 	pub tag: String,
