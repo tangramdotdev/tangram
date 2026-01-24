@@ -2,9 +2,9 @@ use {
 	super::{
 		CacheEntryCoreField, CacheEntryField, Index, ItemKind, Key, ObjectCoreField, ObjectField,
 		ObjectMetadataField, ObjectStoredField, ProcessCoreField, ProcessField,
-		ProcessMetadataField, ProcessStoredField, TagCoreField, TagField,
+		ProcessMetadataField, ProcessStoredField,
 	},
-	crate::{ProcessObjectKind, PutArg, PutCacheEntryArg, PutObjectArg, PutProcessArg, PutTagArg},
+	crate::{ProcessObjectKind, PutArg, PutCacheEntryArg, PutObjectArg, PutProcessArg},
 	foundationdb as fdb,
 	tangram_client::prelude::*,
 };
@@ -25,9 +25,6 @@ impl Index {
 					for process in &arg.processes {
 						this.put_process(&txn, process);
 					}
-					for tag in &arg.tags {
-						this.put_tag(&txn, tag);
-					}
 					Ok::<_, fdb::FdbBindingError>(())
 				}
 			})
@@ -40,30 +37,30 @@ impl Index {
 
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
-		let exists_key = self.pack(&Key::CacheEntry {
+		let key = self.pack(&Key::CacheEntry {
 			id: id.clone(),
 			field: CacheEntryField::Core(CacheEntryCoreField::Exists),
 		});
-		txn.set(&exists_key, &[]);
+		txn.set(&key, &[]);
 
-		let touched_at_key = self.pack(&Key::CacheEntry {
+		let key = self.pack(&Key::CacheEntry {
 			id: id.clone(),
 			field: CacheEntryField::Core(CacheEntryCoreField::TouchedAt),
 		});
 		txn.atomic_op(
-			&touched_at_key,
+			&key,
 			&arg.touched_at.to_le_bytes(),
 			fdb::options::MutationType::Max,
 		);
 
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
-		let clean_key = self.pack(&Key::Clean {
+		let key = self.pack(&Key::Clean {
 			touched_at: arg.touched_at,
 			kind: ItemKind::CacheEntry,
 			id: tg::Id::from(arg.id.clone()),
 		});
-		txn.set(&clean_key, &[]);
+		txn.set(&key, &[]);
 	}
 
 	fn put_object(&self, txn: &fdb::Transaction, arg: &PutObjectArg) {
@@ -71,18 +68,18 @@ impl Index {
 
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
-		let exists_key = self.pack(&Key::Object {
+		let key = self.pack(&Key::Object {
 			id: id.clone(),
 			field: ObjectField::Core(ObjectCoreField::Exists),
 		});
-		txn.set(&exists_key, &[]);
+		txn.set(&key, &[]);
 
-		let touched_at_key = self.pack(&Key::Object {
+		let key = self.pack(&Key::Object {
 			id: id.clone(),
 			field: ObjectField::Core(ObjectCoreField::TouchedAt),
 		});
 		txn.atomic_op(
-			&touched_at_key,
+			&key,
 			&arg.touched_at.to_le_bytes(),
 			fdb::options::MutationType::Max,
 		);
@@ -219,12 +216,12 @@ impl Index {
 
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
-		let clean_key = self.pack(&Key::Clean {
+		let key = self.pack(&Key::Clean {
 			touched_at: arg.touched_at,
 			kind: ItemKind::Object,
 			id: tg::Id::from(id.clone()),
 		});
-		txn.set(&clean_key, &[]);
+		txn.set(&key, &[]);
 	}
 
 	fn put_process(&self, txn: &fdb::Transaction, arg: &PutProcessArg) {
@@ -232,18 +229,18 @@ impl Index {
 
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
-		let exists_key = self.pack(&Key::Process {
+		let key = self.pack(&Key::Process {
 			id: id.clone(),
 			field: ProcessField::Core(ProcessCoreField::Exists),
 		});
-		txn.set(&exists_key, &[]);
+		txn.set(&key, &[]);
 
-		let touched_at_key = self.pack(&Key::Process {
+		let key = self.pack(&Key::Process {
 			id: id.clone(),
 			field: ProcessField::Core(ProcessCoreField::TouchedAt),
 		});
 		txn.atomic_op(
-			&touched_at_key,
+			&key,
 			&arg.touched_at.to_le_bytes(),
 			fdb::options::MutationType::Max,
 		);
@@ -437,12 +434,12 @@ impl Index {
 
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
-		let clean_key = self.pack(&Key::Clean {
+		let key = self.pack(&Key::Clean {
 			touched_at: arg.touched_at,
 			kind: ItemKind::Process,
 			id: tg::Id::from(id.clone()),
 		});
-		txn.set(&clean_key, &[]);
+		txn.set(&key, &[]);
 	}
 
 	fn put_process_object_metadata(
@@ -518,29 +515,6 @@ impl Index {
 			});
 			txn.set(&key, &[]);
 		}
-	}
-
-	fn put_tag(&self, txn: &fdb::Transaction, arg: &PutTagArg) {
-		let item_bytes: Vec<u8> = match &arg.item {
-			tg::Either::Left(object_id) => object_id.to_bytes().to_vec(),
-			tg::Either::Right(process_id) => process_id.to_bytes().to_vec(),
-		};
-
-		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-			.unwrap();
-		let key = self.pack(&Key::Tag {
-			tag: arg.tag.clone(),
-			field: TagField::Core(TagCoreField::Item),
-		});
-		txn.set(&key, &item_bytes);
-
-		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-			.unwrap();
-		let key = self.pack(&Key::ItemTag {
-			item: item_bytes,
-			tag: arg.tag.clone(),
-		});
-		txn.set(&key, &[]);
 	}
 }
 

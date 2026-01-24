@@ -73,6 +73,11 @@ pub trait Index {
 
 	fn put(&self, arg: PutArg) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
+	fn put_tags(
+		&self,
+		args: &[PutTagArg],
+	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
+
 	fn delete_tags(
 		&self,
 		tags: &[String],
@@ -262,7 +267,6 @@ pub struct PutArg {
 	pub cache_entries: Vec<PutCacheEntryArg>,
 	pub objects: Vec<PutObjectArg>,
 	pub processes: Vec<PutProcessArg>,
-	pub tags: Vec<PutTagArg>,
 }
 
 #[derive(Clone, Debug)]

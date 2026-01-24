@@ -8,10 +8,10 @@ use {
 };
 
 mod clean;
-mod delete;
 mod get;
 mod put;
 mod queue;
+mod tag;
 mod touch;
 mod transaction;
 
@@ -340,6 +340,10 @@ impl crate::Index for Index {
 
 	async fn put(&self, arg: crate::PutArg) -> tg::Result<()> {
 		self.put(arg).await
+	}
+
+	async fn put_tags(&self, args: &[crate::PutTagArg]) -> tg::Result<()> {
+		self.put_tags(args).await
 	}
 
 	async fn delete_tags(&self, tags: &[String]) -> tg::Result<()> {

@@ -95,6 +95,15 @@ impl index::Index for Index {
 		}
 	}
 
+	async fn put_tags(&self, args: &[index::PutTagArg]) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.put_tags(args).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.put_tags(args).await,
+		}
+	}
+
 	async fn delete_tags(&self, tags: &[String]) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "foundationdb")]

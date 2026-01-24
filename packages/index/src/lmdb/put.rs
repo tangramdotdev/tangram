@@ -2,7 +2,7 @@ use {
 	super::{Db, Index, ItemKind, Key, Request},
 	crate::{
 		CacheEntry, Object, ObjectStored, Process, PutArg, PutCacheEntryArg, PutObjectArg,
-		PutProcessArg, PutTagArg, Tag,
+		PutProcessArg,
 	},
 	foundationdb_tuple::TuplePack as _,
 	heed as lmdb,
@@ -23,23 +23,19 @@ impl Index {
 		Ok(())
 	}
 
-	#[expect(clippy::needless_pass_by_value)]
 	pub(super) fn task_put(
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: PutArg,
 	) -> tg::Result<()> {
-		for cache_entry in &arg.cache_entries {
-			Self::put_cache_entry(db, transaction, cache_entry)?;
+		for cache_entry in arg.cache_entries {
+			Self::put_cache_entry(db, transaction, &cache_entry)?;
 		}
-		for object in &arg.objects {
-			Self::put_object(db, transaction, object)?;
+		for object in arg.objects {
+			Self::put_object(db, transaction, &object)?;
 		}
-		for process in &arg.processes {
-			Self::put_process(db, transaction, process)?;
-		}
-		for tag in &arg.tags {
-			Self::put_tag(db, transaction, tag)?;
+		for process in arg.processes {
+			Self::put_process(db, transaction, &process)?;
 		}
 		Ok(())
 	}
@@ -68,13 +64,13 @@ impl Index {
 		db.put(transaction, &key, &value)
 			.map_err(|source| tg::error!(!source, "failed to put the cache entry"))?;
 
-		let clean_key = Key::Clean {
+		let key = Key::Clean {
 			touched_at,
 			kind: ItemKind::CacheEntry,
 			id: tg::Id::from(arg.id.clone()),
 		}
 		.pack_to_vec();
-		db.put(transaction, &clean_key, &[])
+		db.put(transaction, &key, &[])
 			.map_err(|source| tg::error!(!source, "failed to put the clean key"))?;
 
 		Ok(())
@@ -158,13 +154,13 @@ impl Index {
 				.map_err(|source| tg::error!(!source, "failed to put the cache entry object"))?;
 		}
 
-		let clean_key = Key::Clean {
+		let key = Key::Clean {
 			touched_at,
 			kind: ItemKind::Object,
 			id: tg::Id::from(id.clone()),
 		}
 		.pack_to_vec();
-		db.put(transaction, &clean_key, &[])
+		db.put(transaction, &key, &[])
 			.map_err(|source| tg::error!(!source, "failed to put the clean key"))?;
 
 		Ok(())
@@ -245,38 +241,14 @@ impl Index {
 				.map_err(|source| tg::error!(!source, "failed to put the object process"))?;
 		}
 
-		let clean_key = Key::Clean {
+		let key = Key::Clean {
 			touched_at,
 			kind: ItemKind::Process,
 			id: tg::Id::from(id.clone()),
 		}
 		.pack_to_vec();
-		db.put(transaction, &clean_key, &[])
-			.map_err(|source| tg::error!(!source, "failed to put the clean key"))?;
-
-		Ok(())
-	}
-
-	fn put_tag(db: &Db, transaction: &mut lmdb::RwTxn<'_>, arg: &PutTagArg) -> tg::Result<()> {
-		let key = Key::Tag(arg.tag.clone()).pack_to_vec();
-		let value = Tag {
-			item: arg.item.clone(),
-		}
-		.serialize()?;
-		db.put(transaction, &key, &value)
-			.map_err(|source| tg::error!(!source, "failed to put the tag"))?;
-
-		let item_bytes: Vec<u8> = match &arg.item {
-			tg::Either::Left(object_id) => object_id.to_bytes().to_vec(),
-			tg::Either::Right(process_id) => process_id.to_bytes().to_vec(),
-		};
-		let key = Key::ItemTag {
-			item: item_bytes,
-			tag: arg.tag.clone(),
-		}
-		.pack_to_vec();
 		db.put(transaction, &key, &[])
-			.map_err(|source| tg::error!(!source, "failed to put the item tag"))?;
+			.map_err(|source| tg::error!(!source, "failed to put the clean key"))?;
 
 		Ok(())
 	}

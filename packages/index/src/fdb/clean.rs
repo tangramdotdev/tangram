@@ -98,9 +98,7 @@ impl Index {
 
 		for candidate in &candidates {
 			let reference_count = match &candidate.item {
-				Item::CacheEntry(id) => {
-					self.compute_cache_entry_reference_count(txn, id).await?
-				},
+				Item::CacheEntry(id) => self.compute_cache_entry_reference_count(txn, id).await?,
 				Item::Object(id) => self.compute_object_reference_count(txn, id).await?,
 				Item::Process(id) => self.compute_process_reference_count(txn, id).await?,
 			};
@@ -319,9 +317,9 @@ impl Index {
 			id: id.clone(),
 			field: ObjectField::Core(ObjectCoreField::CacheEntry),
 		};
-		let cache_entry_key = self.pack(&key);
+		let key = self.pack(&key);
 		let cache_entry = txn
-			.get(&cache_entry_key, false)
+			.get(&key, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get cache entry"))?
 			.map(|bytes| {
@@ -493,9 +491,9 @@ impl Index {
 			id: id.clone(),
 			field: CacheEntryField::Core(CacheEntryCoreField::ReferenceCount),
 		};
-		let reference_count_key = self.pack(&key);
+		let key = self.pack(&key);
 		let reference_count = txn
-			.get(&reference_count_key, false)
+			.get(&key, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get reference count"))?
 			.map(|bytes| {
@@ -509,16 +507,16 @@ impl Index {
 			.transpose()?
 			.unwrap_or(0);
 		if reference_count > 1 {
-			txn.set(&reference_count_key, &(reference_count - 1).to_le_bytes());
+			txn.set(&key, &(reference_count - 1).to_le_bytes());
 		} else {
-			txn.clear(&reference_count_key);
+			txn.clear(&key);
 			let key = Key::CacheEntry {
 				id: id.clone(),
 				field: CacheEntryField::Core(CacheEntryCoreField::TouchedAt),
 			};
-			let touched_at_key = self.pack(&key);
+			let key = self.pack(&key);
 			let touched_at = txn
-				.get(&touched_at_key, false)
+				.get(&key, false)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get touched at"))?
 				.map(|bytes| {
@@ -552,9 +550,9 @@ impl Index {
 			id: id.clone(),
 			field: ObjectField::Core(ObjectCoreField::ReferenceCount),
 		};
-		let reference_count_key = self.pack(&key);
+		let key = self.pack(&key);
 		let reference_count = txn
-			.get(&reference_count_key, false)
+			.get(&key, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get reference count"))?
 			.map(|bytes| {
@@ -568,16 +566,16 @@ impl Index {
 			.transpose()?
 			.unwrap_or(0);
 		if reference_count > 1 {
-			txn.set(&reference_count_key, &(reference_count - 1).to_le_bytes());
+			txn.set(&key, &(reference_count - 1).to_le_bytes());
 		} else {
-			txn.clear(&reference_count_key);
+			txn.clear(&key);
 			let key = Key::Object {
 				id: id.clone(),
 				field: ObjectField::Core(ObjectCoreField::TouchedAt),
 			};
-			let touched_at_key = self.pack(&key);
+			let key = self.pack(&key);
 			let touched_at = txn
-				.get(&touched_at_key, false)
+				.get(&key, false)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get touched at"))?
 				.map(|bytes| {
@@ -611,9 +609,9 @@ impl Index {
 			id: id.clone(),
 			field: ProcessField::Core(ProcessCoreField::ReferenceCount),
 		};
-		let reference_count_key = self.pack(&key);
+		let key = self.pack(&key);
 		let reference_count = txn
-			.get(&reference_count_key, false)
+			.get(&key, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get reference count"))?
 			.map(|bytes| {
@@ -627,16 +625,16 @@ impl Index {
 			.transpose()?
 			.unwrap_or(0);
 		if reference_count > 1 {
-			txn.set(&reference_count_key, &(reference_count - 1).to_le_bytes());
+			txn.set(&key, &(reference_count - 1).to_le_bytes());
 		} else {
-			txn.clear(&reference_count_key);
+			txn.clear(&key);
 			let key = Key::Process {
 				id: id.clone(),
 				field: ProcessField::Core(ProcessCoreField::TouchedAt),
 			};
-			let touched_at_key = self.pack(&key);
+			let key = self.pack(&key);
 			let touched_at = txn
-				.get(&touched_at_key, false)
+				.get(&key, false)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get touched at"))?
 				.map(|bytes| {

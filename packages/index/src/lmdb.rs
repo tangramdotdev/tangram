@@ -7,10 +7,10 @@ use {
 };
 
 mod clean;
-mod delete;
 mod get;
 mod put;
 mod queue;
+mod tag;
 mod touch;
 
 #[derive(Clone, Debug)]
@@ -39,6 +39,7 @@ enum Request {
 	},
 	DeleteTags(Vec<String>),
 	Put(PutArg),
+	PutTags(Vec<crate::PutTagArg>),
 	TouchObjects {
 		ids: Vec<tg::object::Id>,
 		touched_at: i64,
@@ -217,6 +218,9 @@ impl Index {
 					Request::Put(arg) => {
 						Self::task_put(db, &mut transaction, arg).map(|()| Response::Unit)
 					},
+					Request::PutTags(tags) => {
+						Self::task_put_tags(db, &mut transaction, &tags).map(|()| Response::Unit)
+					},
 					Request::TouchObjects { ids, touched_at } => {
 						Self::task_touch_objects(db, &mut transaction, &ids, touched_at)
 							.map(Response::Objects)
@@ -281,6 +285,10 @@ impl crate::Index for Index {
 
 	async fn put(&self, arg: crate::PutArg) -> tg::Result<()> {
 		self.put(arg).await
+	}
+
+	async fn put_tags(&self, args: &[crate::PutTagArg]) -> tg::Result<()> {
+		self.put_tags(args).await
 	}
 
 	async fn delete_tags(&self, tags: &[String]) -> tg::Result<()> {

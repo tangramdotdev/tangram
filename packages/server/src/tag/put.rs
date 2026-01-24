@@ -62,15 +62,11 @@ impl Server {
 		}
 
 		// Index the tag.
-		let put_tag_arg = tangram_index::PutTagArg {
-			tag: tag.to_string(),
-			item: arg.item,
-		};
 		self.index
-			.put(tangram_index::PutArg {
-				tags: vec![put_tag_arg],
-				..Default::default()
-			})
+			.put_tags(&[tangram_index::PutTagArg {
+				tag: tag.to_string(),
+				item: arg.item,
+			}])
 			.await
 			.map_err(|source| tg::error!(!source, "failed to index the tag"))?;
 

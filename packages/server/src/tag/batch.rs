@@ -68,10 +68,7 @@ impl Server {
 			})
 			.collect();
 		self.index
-			.put(tangram_index::PutArg {
-				tags: put_tag_args,
-				..Default::default()
-			})
+			.put_tags(&put_tag_args)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to index the tags"))?;
 		Ok(())

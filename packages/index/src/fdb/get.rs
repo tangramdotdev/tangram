@@ -104,19 +104,19 @@ impl Index {
 					ObjectCoreField::TouchedAt => {
 						let value = value
 							.try_into()
-							.map_err(|_| tg::error!("invalid touched_at"))?;
+							.map_err(|_| tg::error!("invalid touched at"))?;
 						touched_at = Some(i64::from_le_bytes(value));
 					},
 					ObjectCoreField::ReferenceCount => {
 						let value = value
 							.try_into()
-							.map_err(|_| tg::error!("invalid reference_count"))?;
+							.map_err(|_| tg::error!("invalid reference count"))?;
 						reference_count = u64::from_le_bytes(value);
 					},
 					ObjectCoreField::CacheEntry => {
 						cache_entry = Some(
 							tg::artifact::Id::from_slice(value)
-								.map_err(|source| tg::error!(!source, "invalid cache_entry"))?,
+								.map_err(|source| tg::error!(!source, "invalid cache entry"))?,
 						);
 					},
 				},
