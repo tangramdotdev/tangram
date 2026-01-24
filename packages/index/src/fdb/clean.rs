@@ -96,49 +96,38 @@ impl Index {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		let results = candidates
-			.iter()
-			.map(|candidate| async {
-				let reference_count = match &candidate.item {
-					Item::CacheEntry(id) => {
-						self.compute_cache_entry_reference_count(txn, id).await?
-					},
-					Item::Object(id) => self.compute_object_reference_count(txn, id).await?,
-					Item::Process(id) => self.compute_process_reference_count(txn, id).await?,
-				};
+		for candidate in &candidates {
+			let reference_count = match &candidate.item {
+				Item::CacheEntry(id) => {
+					self.compute_cache_entry_reference_count(txn, id).await?
+				},
+				Item::Object(id) => self.compute_object_reference_count(txn, id).await?,
+				Item::Process(id) => self.compute_process_reference_count(txn, id).await?,
+			};
 
-				let item = if reference_count > 0 {
-					self.set_reference_count(txn, &candidate.item, reference_count);
-					None
-				} else {
-					self.delete_item(txn, &candidate.item).await?;
-					Some(candidate.item.clone())
-				};
-
-				let (kind, id) = match &candidate.item {
-					Item::CacheEntry(id) => (ItemKind::CacheEntry, id.clone().into()),
-					Item::Object(id) => (ItemKind::Object, id.clone().into()),
-					Item::Process(id) => (ItemKind::Process, id.clone().into()),
-				};
-				let key = Key::Clean {
-					touched_at: candidate.touched_at,
-					kind,
-					id,
-				};
-				let key = self.pack(&key);
-				txn.clear(&key);
-
-				Ok::<_, tg::Error>(item)
-			})
-			.collect::<Vec<_>>();
-		let items = futures::future::try_join_all(results).await?;
-
-		for item in items.into_iter().flatten() {
-			match item {
-				Item::CacheEntry(id) => output.cache_entries.push(id),
-				Item::Object(id) => output.objects.push(id),
-				Item::Process(id) => output.processes.push(id),
+			if reference_count > 0 {
+				self.set_reference_count(txn, &candidate.item, reference_count);
+			} else {
+				self.delete_item(txn, &candidate.item).await?;
+				match &candidate.item {
+					Item::CacheEntry(id) => output.cache_entries.push(id.clone()),
+					Item::Object(id) => output.objects.push(id.clone()),
+					Item::Process(id) => output.processes.push(id.clone()),
+				}
 			}
+
+			let (kind, id) = match &candidate.item {
+				Item::CacheEntry(id) => (ItemKind::CacheEntry, id.clone().into()),
+				Item::Object(id) => (ItemKind::Object, id.clone().into()),
+				Item::Process(id) => (ItemKind::Process, id.clone().into()),
+			};
+			let key = Key::Clean {
+				touched_at: candidate.touched_at,
+				kind,
+				id,
+			};
+			let key = self.pack(&key);
+			txn.clear(&key);
 		}
 
 		output.done = candidates.is_empty();
