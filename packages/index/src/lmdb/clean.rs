@@ -131,6 +131,8 @@ impl Index {
 			}
 		}
 
+		output.done = candidates.is_empty();
+
 		Ok(output)
 	}
 
@@ -165,7 +167,12 @@ impl Index {
 		let object_process_count =
 			Self::count_keys_with_prefix(db, transaction, &object_process_prefix)?;
 
-		Ok(child_object_count + object_process_count)
+		// Count tags referencing this object.
+		let item_tag_prefix =
+			(Kind::ItemTag.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
+		let item_tag_count = Self::count_keys_with_prefix(db, transaction, &item_tag_prefix)?;
+
+		Ok(child_object_count + object_process_count + item_tag_count)
 	}
 
 	fn compute_process_reference_count(
@@ -173,8 +180,17 @@ impl Index {
 		transaction: &lmdb::RwTxn<'_>,
 		id: &tg::process::Id,
 	) -> tg::Result<u64> {
-		let prefix = (Kind::ChildProcess.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
-		Self::count_keys_with_prefix(db, transaction, &prefix)
+		let child_process_prefix =
+			(Kind::ChildProcess.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
+		let child_process_count =
+			Self::count_keys_with_prefix(db, transaction, &child_process_prefix)?;
+
+		// Count tags referencing this process.
+		let item_tag_prefix =
+			(Kind::ItemTag.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
+		let item_tag_count = Self::count_keys_with_prefix(db, transaction, &item_tag_prefix)?;
+
+		Ok(child_process_count + item_tag_count)
 	}
 
 	fn count_keys_with_prefix(

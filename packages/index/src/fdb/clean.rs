@@ -200,9 +200,25 @@ impl Index {
 				.unwrap();
 			Ok::<_, tg::Error>(count)
 		};
-		let (child_object_count, object_process_count) =
-			futures::future::try_join(child_object_future, object_process_future).await?;
-		let count = child_object_count + object_process_count;
+		let item_tag_future = async {
+			let id = id.to_bytes();
+			let prefix = (Kind::ItemTag.to_i32().unwrap(), id.as_ref());
+			let prefix = self.pack(&prefix);
+			let subspace = Subspace::from_bytes(prefix);
+			let range = fdb::RangeOption::from(&subspace);
+			let count = txn
+				.get_range(&range, 0, false)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get range"))?
+				.len()
+				.to_u64()
+				.unwrap();
+			Ok::<_, tg::Error>(count)
+		};
+		let (child_object_count, object_process_count, item_tag_count) =
+			futures::future::try_join3(child_object_future, object_process_future, item_tag_future)
+				.await?;
+		let count = child_object_count + object_process_count + item_tag_count;
 		Ok(count)
 	}
 
@@ -211,18 +227,39 @@ impl Index {
 		txn: &fdb::Transaction,
 		id: &tg::process::Id,
 	) -> tg::Result<u64> {
-		let id = id.to_bytes();
-		let prefix = (Kind::ChildProcess.to_i32().unwrap(), id.as_ref());
-		let prefix = self.pack(&prefix);
-		let subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption::from(&subspace);
-		let count = txn
-			.get_range(&range, 0, false)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get range"))?
-			.len()
-			.to_u64()
-			.unwrap();
+		let child_process_future = async {
+			let id = id.to_bytes();
+			let prefix = (Kind::ChildProcess.to_i32().unwrap(), id.as_ref());
+			let prefix = self.pack(&prefix);
+			let subspace = Subspace::from_bytes(prefix);
+			let range = fdb::RangeOption::from(&subspace);
+			let count = txn
+				.get_range(&range, 0, false)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get range"))?
+				.len()
+				.to_u64()
+				.unwrap();
+			Ok::<_, tg::Error>(count)
+		};
+		let item_tag_future = async {
+			let id = id.to_bytes();
+			let prefix = (Kind::ItemTag.to_i32().unwrap(), id.as_ref());
+			let prefix = self.pack(&prefix);
+			let subspace = Subspace::from_bytes(prefix);
+			let range = fdb::RangeOption::from(&subspace);
+			let count = txn
+				.get_range(&range, 0, false)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get range"))?
+				.len()
+				.to_u64()
+				.unwrap();
+			Ok::<_, tg::Error>(count)
+		};
+		let (child_process_count, item_tag_count) =
+			futures::future::try_join(child_process_future, item_tag_future).await?;
+		let count = child_process_count + item_tag_count;
 		Ok(count)
 	}
 
