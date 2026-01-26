@@ -10,7 +10,8 @@ use {
 	},
 	num::ToPrimitive as _,
 	std::{
-		collections::{BTreeMap, BTreeSet},
+		collections::{BTreeMap, BTreeSet, HashSet, hash_map::DefaultHasher},
+		hash::{Hash, Hasher},
 		path::Path,
 	},
 	tangram_client::prelude::*,
@@ -270,10 +271,24 @@ impl Server {
 		scc: &[usize],
 		touched_at: i64,
 	) -> tg::Result<()> {
-		// Create the nodes.
-		let mut nodes = Vec::with_capacity(scc.len());
-		for index in scc {
-			Self::checkin_create_graph_node(graph, paths, scc, &mut nodes, *index)?;
+		// Compute canonical labels using the Weisfeiler-Leman algorithm.
+		let canonical_labels = Self::checkin_graph_canonical_labels(graph, paths, scc)?;
+
+		// Sort the SCC indices by canonical labels.
+		let mut sorted_scc: Vec<usize> = scc.to_vec();
+		sorted_scc.sort_by(|a, b| canonical_labels[a].cmp(&canonical_labels[b]));
+
+		// Create a mapping from global node index to position in the sorted SCC.
+		let scc_positions: BTreeMap<usize, usize> = sorted_scc
+			.iter()
+			.enumerate()
+			.map(|(position, &global)| (global, position))
+			.collect();
+
+		// Create the nodes using the sorted order.
+		let mut nodes = Vec::with_capacity(sorted_scc.len());
+		for index in &sorted_scc {
+			Self::checkin_create_graph_node(graph, paths, &scc_positions, &mut nodes, *index)?;
 		}
 
 		// Create the graph object.
@@ -281,7 +296,7 @@ impl Server {
 		let (id, _, _) = Self::checkin_create_artifact(
 			graph,
 			&data,
-			scc,
+			&sorted_scc,
 			store_args,
 			object_messages,
 			touched_at,
@@ -289,7 +304,7 @@ impl Server {
 
 		// Set edges and ids for the nodes in the graph.
 		let graph_id = tg::graph::Id::try_from(id).unwrap();
-		for (local, global) in scc.iter().copied().enumerate() {
+		for (local, global) in sorted_scc.iter().copied().enumerate() {
 			let node = graph.nodes.get_mut(&global).unwrap();
 			let artifact_kind = node.variant.kind();
 			let data = match &node.variant {
@@ -338,7 +353,7 @@ impl Server {
 	fn checkin_create_graph_node(
 		graph: &Graph,
 		paths: &Paths,
-		scc: &[usize],
+		scc_positions: &BTreeMap<usize, usize>,
 		nodes: &mut Vec<tg::graph::data::Node>,
 		index: usize,
 	) -> tg::Result<()> {
@@ -353,12 +368,10 @@ impl Server {
 						let edge = match edge {
 							tg::graph::data::Edge::Pointer(pointer) => {
 								if pointer.graph.is_none() {
-									if let Some(index) =
-										scc.iter().position(|i| i == &pointer.index)
-									{
+									if let Some(&scc_index) = scc_positions.get(&pointer.index) {
 										tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
 											graph: None,
-											index,
+											index: scc_index,
 											kind: pointer.kind,
 										})
 									} else {
@@ -415,9 +428,7 @@ impl Server {
 							Some(tg::graph::data::Edge::Pointer(pointer))
 								if pointer.graph.is_none() =>
 							{
-								if let Some(scc_index) =
-									scc.iter().position(|i| i == &pointer.index)
-								{
+								if let Some(&scc_index) = scc_positions.get(&pointer.index) {
 									let kind =
 										graph.nodes.get(&pointer.index).unwrap().variant.kind();
 									Some(tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
@@ -458,10 +469,10 @@ impl Server {
 					let edge = match edge {
 						tg::graph::data::Edge::Pointer(pointer) => {
 							if pointer.graph.is_none() {
-								if let Some(index) = scc.iter().position(|i| i == &pointer.index) {
+								if let Some(&scc_index) = scc_positions.get(&pointer.index) {
 									tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
 										graph: None,
-										index,
+										index: scc_index,
 										kind: pointer.kind,
 									})
 								} else {
@@ -831,6 +842,184 @@ impl Server {
 		let id = id.try_into().unwrap();
 
 		Ok(id)
+	}
+
+	/// Compute initial labels for graph nodes by serializing node data with intra-SCC references set to None.
+	fn checkin_graph_node_initial_label(
+		graph: &Graph,
+		paths: &Paths,
+		scc_set: &HashSet<usize>,
+		index: usize,
+	) -> tg::Result<Vec<u8>> {
+		// Create the node data with intra-SCC references set to None.
+		let node = graph.nodes.get(&index).unwrap();
+		let data = match &node.variant {
+			Variant::File(file) => {
+				let contents = match &file.contents {
+					Some(Contents::Write(output)) => Some(output.id.clone()),
+					Some(Contents::Id { id, .. }) => Some(id.clone()),
+					None => None,
+				};
+				let dependencies = file
+					.dependencies
+					.iter()
+					.map(|(reference, option)| {
+						let dep = option.as_ref().map(|dependency| {
+							let edge = paths
+								.get(&(index, reference.clone()))
+								.cloned()
+								.or_else(|| dependency.item().clone());
+							let edge = match edge {
+								Some(tg::graph::data::Edge::Pointer(p))
+									if p.graph.is_none() && scc_set.contains(&p.index) =>
+								{
+									None
+								},
+								other => other,
+							};
+							tg::graph::data::Dependency(tg::Referent {
+								item: edge,
+								options: dependency.options.clone(),
+							})
+						});
+						(reference.clone(), dep)
+					})
+					.collect();
+				tg::graph::data::Node::File(tg::graph::data::File {
+					contents,
+					dependencies,
+					executable: file.executable,
+					module: file.module,
+				})
+			},
+			Variant::Directory(directory) => {
+				let entries = directory
+					.entries
+					.iter()
+					.map(|(name, edge)| {
+						let edge = match edge {
+							tg::graph::data::Edge::Pointer(p)
+								if p.graph.is_none() && scc_set.contains(&p.index) =>
+							{
+								tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
+									graph: None,
+									index: 0,
+									kind: p.kind,
+								})
+							},
+							other => other.clone(),
+						};
+						(name.clone(), edge)
+					})
+					.collect();
+				tg::graph::data::Node::Directory(tg::graph::data::Directory::Leaf(
+					tg::graph::data::DirectoryLeaf { entries },
+				))
+			},
+			Variant::Symlink(symlink) => {
+				let artifact = symlink.artifact.as_ref().map(|edge| match edge {
+					tg::graph::data::Edge::Pointer(p)
+						if p.graph.is_none() && scc_set.contains(&p.index) =>
+					{
+						tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
+							graph: None,
+							index: 0,
+							kind: p.kind,
+						})
+					},
+					other => other.clone(),
+				});
+				tg::graph::data::Node::Symlink(tg::graph::data::Symlink {
+					artifact,
+					path: symlink.path.clone(),
+				})
+			},
+		};
+
+		// Serialize the node data.
+		let bytes = serde_json::to_vec(&data)
+			.map_err(|source| tg::error!(!source, "failed to serialize the node"))?;
+
+		Ok(bytes)
+	}
+
+	/// Compute canonical labels using the Weisfeiler-Leman algorithm. This produces a deterministic ordering of nodes in a strongly connected component.
+	fn checkin_graph_canonical_labels(
+		graph: &Graph,
+		paths: &Paths,
+		scc: &[usize],
+	) -> tg::Result<BTreeMap<usize, u64>> {
+		// Build the SCC set for quick lookup.
+		let scc_set: HashSet<usize> = scc.iter().copied().collect();
+
+		// Compute initial labels from serialized node data.
+		let mut labels: BTreeMap<usize, u64> = BTreeMap::new();
+		for &index in scc {
+			let data = Self::checkin_graph_node_initial_label(graph, paths, &scc_set, index)?;
+			let mut hasher = DefaultHasher::new();
+			data.hash(&mut hasher);
+			labels.insert(index, hasher.finish());
+		}
+
+		// Collect edges within the SCC (both outgoing and incoming for undirected-style refinement).
+		let mut outgoing: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+		let mut incoming: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+		for &index in scc {
+			outgoing.insert(index, Vec::new());
+			incoming.insert(index, Vec::new());
+		}
+		for &index in scc {
+			let node = graph.nodes.get(&index).unwrap();
+			for child in node.children() {
+				if scc_set.contains(&child) {
+					outgoing.get_mut(&index).unwrap().push(child);
+					incoming.get_mut(&child).unwrap().push(index);
+				}
+			}
+		}
+
+		// Sort edges for determinism.
+		for edges in outgoing.values_mut() {
+			edges.sort_unstable();
+		}
+		for edges in incoming.values_mut() {
+			edges.sort_unstable();
+		}
+
+		// Iteratively refine labels until stable.
+		let max_iterations = scc.len() + 1;
+		for _ in 0..max_iterations {
+			let mut new_labels: BTreeMap<usize, u64> = BTreeMap::new();
+
+			for &index in scc {
+				let mut hasher = DefaultHasher::new();
+
+				// Hash the current label.
+				labels[&index].hash(&mut hasher);
+
+				// Hash sorted outgoing neighbor labels.
+				let mut out_labels: Vec<u64> =
+					outgoing[&index].iter().map(|&n| labels[&n]).collect();
+				out_labels.sort_unstable();
+				out_labels.hash(&mut hasher);
+
+				// Hash sorted incoming neighbor labels.
+				let mut in_labels: Vec<u64> =
+					incoming[&index].iter().map(|&n| labels[&n]).collect();
+				in_labels.sort_unstable();
+				in_labels.hash(&mut hasher);
+
+				new_labels.insert(index, hasher.finish());
+			}
+
+			// Check for stability.
+			if new_labels == labels {
+				break;
+			}
+			labels = new_labels;
+		}
+
+		Ok(labels)
 	}
 
 	fn checkin_create_directory(

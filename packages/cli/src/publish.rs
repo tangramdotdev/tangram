@@ -119,9 +119,10 @@ impl Cli {
 			.collect::<Vec<_>>();
 
 		// Execute the plan.
-		for mut item in plan {
-			// Check in the artifact if requested. This is only possible if the root is referred to by path and the item has a path.
-			if let Some(checkin) = item.checkin {
+		let mut pre_checkin_count = 0usize;
+		let mut plan_iter = plan.into_iter().peekable();
+		while let Some(mut item) = plan_iter.next() {
+			if let Some(checkin) = item.checkin.take() {
 				let args = tg::checkin::Arg {
 					path: checkin.path.clone(),
 					options: checkin.options,
@@ -130,24 +131,80 @@ impl Cli {
 				let artifact = tg::checkin(&handle, args).await.map_err(|source| tg::error!(!source, path = %checkin.path.display(), "failed to checkin local package during publishing"))?;
 				item.referent.item = artifact.id().into();
 			}
+
 			if item.push {
-				items.push(tg::Either::Left(item.referent.item.clone()));
-				tags.push((item.tag.clone(), item.referent.item.clone()));
+				if pre_checkin_count > 0 {
+					let mut batch = vec![item];
+					for _ in 1..pre_checkin_count {
+						let mut next_item = plan_iter
+							.next()
+							.ok_or_else(|| tg::error!("expected more items in batch"))?;
+						if let Some(checkin) = next_item.checkin.take() {
+							let args = tg::checkin::Arg {
+								path: checkin.path.clone(),
+								options: checkin.options,
+								updates: Vec::new(),
+							};
+							let artifact = tg::checkin(&handle, args).await.map_err(|source| tg::error!(!source, path = %checkin.path.display(), "failed to checkin local package during publishing"))?;
+							next_item.referent.item = artifact.id().into();
+						}
+						batch.push(next_item);
+					}
+
+					for batch_item in batch {
+						items.push(tg::Either::Left(batch_item.referent.item.clone()));
+						tags.push((batch_item.tag.clone(), batch_item.referent.item.clone()));
+						handle
+							.put_tag(
+								&batch_item.tag,
+								tg::tag::put::Arg {
+									force: true,
+									item: tg::Either::Left(batch_item.referent.item().clone()),
+									local: None,
+									remotes: None,
+								},
+							)
+							.await
+							.map_err(
+								|source| tg::error!(!source, tag = %batch_item.tag, "failed to put local tag"),
+							)?;
+					}
+					pre_checkin_count = 0;
+				} else {
+					items.push(tg::Either::Left(item.referent.item.clone()));
+					tags.push((item.tag.clone(), item.referent.item.clone()));
+					handle
+						.put_tag(
+							&item.tag,
+							tg::tag::put::Arg {
+								force: true,
+								item: tg::Either::Left(item.referent.item().clone()),
+								local: None,
+								remotes: None,
+							},
+						)
+						.await
+						.map_err(
+							|source| tg::error!(!source, tag = %item.tag, "failed to put local tag"),
+						)?;
+				}
+			} else {
+				handle
+					.put_tag(
+						&item.tag,
+						tg::tag::put::Arg {
+							force: true,
+							item: tg::Either::Left(item.referent.item().clone()),
+							local: None,
+							remotes: None,
+						},
+					)
+					.await
+					.map_err(
+						|source| tg::error!(!source, tag = %item.tag, "failed to put local tag"),
+					)?;
+				pre_checkin_count += 1;
 			}
-			handle
-				.put_tag(
-					&item.tag,
-					tg::tag::put::Arg {
-						force: true,
-						item: tg::Either::Left(item.referent.item().clone()),
-						local: None,
-						remotes: None,
-					},
-				)
-				.await
-				.map_err(
-					|source| tg::error!(!source, tag = %item.tag, "failed to put local tag"),
-				)?;
 		}
 
 		// Get the remote.
@@ -414,23 +471,13 @@ impl State {
 				});
 			}
 
-			// If this is an SCC then we _must_ have a cycle among local dependencies, so we have to check it every item without dependencies first, then solve again.
+			// If this is an SCC then we _must_ have a cycle among local dependencies, so we have to
+			// check in every item without dependencies first, then solve again. The pre-checkins
+			// establish a consistent base that the main checkins resolve against. We always do
+			// pre-checkins for SCCs to ensure deterministic results regardless of whether tags
+			// already exist.
 			if items.len() > 1 {
 				for item in &items {
-					// If the tag already exists skip checking it back in.
-					if handle
-						.try_get_tag(
-							&tg::tag::Pattern::new(item.tag.to_string()),
-							tg::tag::get::Arg::default(),
-						)
-						.await
-						.map(|t| t.is_some())
-						.unwrap_or(false)
-					{
-						continue;
-					}
-
-					// Otherwise, we need to check this local package in twice.
 					let path = item
 						.referent
 						.path()
