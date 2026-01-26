@@ -18,6 +18,7 @@ foundationdb = ["dep:foundationdb", "dep:foundationdb-tuple"]
 lmdb = ["dep:heed", "dep:foundationdb-tuple"]
 
 [dependencies]
+bitflags = "2"
 bytes = { workspace = true }
 derive_more = { workspace = true }
 fnv = { workspace = true }

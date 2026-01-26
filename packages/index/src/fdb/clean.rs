@@ -77,19 +77,24 @@ impl Index {
 				};
 				let item = match kind {
 					ItemKind::CacheEntry => {
-						let id = tg::artifact::Id::try_from(id)
+						let tg::Either::Left(object_id) = id else {
+							return Err(tg::error!("expected object id for cache entry"));
+						};
+						let artifact_id = tg::artifact::Id::try_from(object_id)
 							.map_err(|source| tg::error!(!source, "invalid artifact id"))?;
-						Item::CacheEntry(id)
+						Item::CacheEntry(artifact_id)
 					},
 					ItemKind::Object => {
-						let id = tg::object::Id::try_from(id)
-							.map_err(|source| tg::error!(!source, "invalid object id"))?;
-						Item::Object(id)
+						let tg::Either::Left(object_id) = id else {
+							return Err(tg::error!("expected object id"));
+						};
+						Item::Object(object_id)
 					},
 					ItemKind::Process => {
-						let id = tg::process::Id::try_from(id)
-							.map_err(|source| tg::error!(!source, "invalid process id"))?;
-						Item::Process(id)
+						let tg::Either::Right(process_id) = id else {
+							return Err(tg::error!("expected process id"));
+						};
+						Item::Process(process_id)
 					},
 				};
 				Ok(Candidate { touched_at, item })
@@ -115,9 +120,9 @@ impl Index {
 			}
 
 			let (kind, id) = match &candidate.item {
-				Item::CacheEntry(id) => (ItemKind::CacheEntry, id.clone().into()),
-				Item::Object(id) => (ItemKind::Object, id.clone().into()),
-				Item::Process(id) => (ItemKind::Process, id.clone().into()),
+				Item::CacheEntry(id) => (ItemKind::CacheEntry, tg::Either::Left(id.clone().into())),
+				Item::Object(id) => (ItemKind::Object, tg::Either::Left(id.clone())),
+				Item::Process(id) => (ItemKind::Process, tg::Either::Right(id.clone())),
 			};
 			let key = Key::Clean {
 				touched_at: candidate.touched_at,
@@ -533,7 +538,7 @@ impl Index {
 			let key = Key::Clean {
 				touched_at,
 				kind: ItemKind::CacheEntry,
-				id: tg::Id::from(id.clone()),
+				id: tg::Either::Left(id.clone().into()),
 			};
 			let key = self.pack(&key);
 			txn.set(&key, &[]);
@@ -592,7 +597,7 @@ impl Index {
 			let key = Key::Clean {
 				touched_at,
 				kind: ItemKind::Object,
-				id: tg::Id::from(id.clone()),
+				id: tg::Either::Left(id.clone()),
 			};
 			let key = self.pack(&key);
 			txn.set(&key, &[]);
@@ -651,7 +656,7 @@ impl Index {
 			let key = Key::Clean {
 				touched_at,
 				kind: ItemKind::Process,
-				id: tg::Id::from(id.clone()),
+				id: tg::Either::Right(id.clone()),
 			};
 			let key = self.pack(&key);
 			txn.set(&key, &[]);

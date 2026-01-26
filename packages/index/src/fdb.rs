@@ -77,10 +77,17 @@ enum Key {
 		item: Vec<u8>,
 		tag: String,
 	},
+	Update {
+		id: tg::Either<tg::object::Id, tg::process::Id>,
+	},
+	UpdateVersion {
+		version: fdbt::Versionstamp,
+		id: tg::Either<tg::object::Id, tg::process::Id>,
+	},
 	Clean {
 		touched_at: i64,
 		kind: ItemKind,
-		id: tg::Id,
+		id: tg::Either<tg::object::Id, tg::process::Id>,
 	},
 }
 
@@ -108,7 +115,9 @@ enum Kind {
 	ProcessObject = 10,
 	ObjectProcess = 11,
 	ItemTag = 12,
-	Clean = 13,
+	Update = 13,
+	UpdateVersion = 14,
+	Clean = 15,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
@@ -138,7 +147,7 @@ enum ObjectFamily {
 	Stored = 2,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, derive_more::From)]
 enum ObjectField {
 	Core(ObjectCoreField),
 	Metadata(ObjectMetadataField),
@@ -181,7 +190,7 @@ enum ProcessFamily {
 	Stored = 2,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, derive_more::From)]
 enum ProcessField {
 	Core(ProcessCoreField),
 	Metadata(ProcessMetadataField),
@@ -273,6 +282,167 @@ enum TagCoreField {
 	Item = 0,
 }
 
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+enum Update {
+	#[tangram_serialize(id = 0)]
+	Put,
+
+	#[tangram_serialize(id = 1)]
+	PropagateObject(ObjectPropagateUpdate),
+
+	#[tangram_serialize(id = 2)]
+	PropagateProcess(ProcessPropagateUpdate),
+}
+
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+struct ObjectPropagateUpdate {
+	#[tangram_serialize(id = 0)]
+	fields: u64,
+}
+
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+struct ProcessPropagateUpdate {
+	#[tangram_serialize(id = 0)]
+	fields: u64,
+}
+
+bitflags::bitflags! {
+	#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+	pub struct ObjectPropagateUpdateFields: u64 {
+		// Stored fields (bits 0-15).
+		const STORED_SUBTREE = 1 << 0;
+
+		// Subtree metadata fields only (bits 16+).
+		const METADATA_SUBTREE_COUNT = 1 << 16;
+		const METADATA_SUBTREE_DEPTH = 1 << 17;
+		const METADATA_SUBTREE_SIZE = 1 << 18;
+		const METADATA_SUBTREE_SOLVABLE = 1 << 19;
+		const METADATA_SUBTREE_SOLVED = 1 << 20;
+
+		const ALL_STORED = Self::STORED_SUBTREE.bits();
+		const ALL_METADATA = Self::METADATA_SUBTREE_COUNT.bits()
+			| Self::METADATA_SUBTREE_DEPTH.bits()
+			| Self::METADATA_SUBTREE_SIZE.bits()
+			| Self::METADATA_SUBTREE_SOLVABLE.bits()
+			| Self::METADATA_SUBTREE_SOLVED.bits();
+		const ALL = Self::ALL_STORED.bits() | Self::ALL_METADATA.bits();
+	}
+}
+
+bitflags::bitflags! {
+	#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+	pub struct ProcessPropagateUpdateFields: u64 {
+		// Stored fields (bits 0-15).
+		const STORED_NODE_COMMAND = 1 << 0;
+		const STORED_NODE_ERROR = 1 << 1;
+		const STORED_NODE_LOG = 1 << 2;
+		const STORED_NODE_OUTPUT = 1 << 3;
+		const STORED_SUBTREE = 1 << 4;
+		const STORED_SUBTREE_COMMAND = 1 << 5;
+		const STORED_SUBTREE_ERROR = 1 << 6;
+		const STORED_SUBTREE_LOG = 1 << 7;
+		const STORED_SUBTREE_OUTPUT = 1 << 8;
+
+		// Node metadata fields (bits 16-35).
+		const METADATA_NODE_COMMAND_COUNT = 1 << 16;
+		const METADATA_NODE_COMMAND_DEPTH = 1 << 17;
+		const METADATA_NODE_COMMAND_SIZE = 1 << 18;
+		const METADATA_NODE_COMMAND_SOLVABLE = 1 << 19;
+		const METADATA_NODE_COMMAND_SOLVED = 1 << 20;
+		const METADATA_NODE_ERROR_COUNT = 1 << 21;
+		const METADATA_NODE_ERROR_DEPTH = 1 << 22;
+		const METADATA_NODE_ERROR_SIZE = 1 << 23;
+		const METADATA_NODE_ERROR_SOLVABLE = 1 << 24;
+		const METADATA_NODE_ERROR_SOLVED = 1 << 25;
+		const METADATA_NODE_LOG_COUNT = 1 << 26;
+		const METADATA_NODE_LOG_DEPTH = 1 << 27;
+		const METADATA_NODE_LOG_SIZE = 1 << 28;
+		const METADATA_NODE_LOG_SOLVABLE = 1 << 29;
+		const METADATA_NODE_LOG_SOLVED = 1 << 30;
+		const METADATA_NODE_OUTPUT_COUNT = 1 << 31;
+		const METADATA_NODE_OUTPUT_DEPTH = 1 << 32;
+		const METADATA_NODE_OUTPUT_SIZE = 1 << 33;
+		const METADATA_NODE_OUTPUT_SOLVABLE = 1 << 34;
+		const METADATA_NODE_OUTPUT_SOLVED = 1 << 35;
+
+		// Subtree metadata fields (bits 36-56).
+		const METADATA_SUBTREE_COUNT = 1 << 36;
+		const METADATA_SUBTREE_COMMAND_COUNT = 1 << 37;
+		const METADATA_SUBTREE_COMMAND_DEPTH = 1 << 38;
+		const METADATA_SUBTREE_COMMAND_SIZE = 1 << 39;
+		const METADATA_SUBTREE_COMMAND_SOLVABLE = 1 << 40;
+		const METADATA_SUBTREE_COMMAND_SOLVED = 1 << 41;
+		const METADATA_SUBTREE_ERROR_COUNT = 1 << 42;
+		const METADATA_SUBTREE_ERROR_DEPTH = 1 << 43;
+		const METADATA_SUBTREE_ERROR_SIZE = 1 << 44;
+		const METADATA_SUBTREE_ERROR_SOLVABLE = 1 << 45;
+		const METADATA_SUBTREE_ERROR_SOLVED = 1 << 46;
+		const METADATA_SUBTREE_LOG_COUNT = 1 << 47;
+		const METADATA_SUBTREE_LOG_DEPTH = 1 << 48;
+		const METADATA_SUBTREE_LOG_SIZE = 1 << 49;
+		const METADATA_SUBTREE_LOG_SOLVABLE = 1 << 50;
+		const METADATA_SUBTREE_LOG_SOLVED = 1 << 51;
+		const METADATA_SUBTREE_OUTPUT_COUNT = 1 << 52;
+		const METADATA_SUBTREE_OUTPUT_DEPTH = 1 << 53;
+		const METADATA_SUBTREE_OUTPUT_SIZE = 1 << 54;
+		const METADATA_SUBTREE_OUTPUT_SOLVABLE = 1 << 55;
+		const METADATA_SUBTREE_OUTPUT_SOLVED = 1 << 56;
+
+		const ALL_STORED = Self::STORED_NODE_COMMAND.bits()
+			| Self::STORED_NODE_ERROR.bits()
+			| Self::STORED_NODE_LOG.bits()
+			| Self::STORED_NODE_OUTPUT.bits()
+			| Self::STORED_SUBTREE.bits()
+			| Self::STORED_SUBTREE_COMMAND.bits()
+			| Self::STORED_SUBTREE_ERROR.bits()
+			| Self::STORED_SUBTREE_LOG.bits()
+			| Self::STORED_SUBTREE_OUTPUT.bits();
+		const ALL_NODE_METADATA = Self::METADATA_NODE_COMMAND_COUNT.bits()
+			| Self::METADATA_NODE_COMMAND_DEPTH.bits()
+			| Self::METADATA_NODE_COMMAND_SIZE.bits()
+			| Self::METADATA_NODE_COMMAND_SOLVABLE.bits()
+			| Self::METADATA_NODE_COMMAND_SOLVED.bits()
+			| Self::METADATA_NODE_ERROR_COUNT.bits()
+			| Self::METADATA_NODE_ERROR_DEPTH.bits()
+			| Self::METADATA_NODE_ERROR_SIZE.bits()
+			| Self::METADATA_NODE_ERROR_SOLVABLE.bits()
+			| Self::METADATA_NODE_ERROR_SOLVED.bits()
+			| Self::METADATA_NODE_LOG_COUNT.bits()
+			| Self::METADATA_NODE_LOG_DEPTH.bits()
+			| Self::METADATA_NODE_LOG_SIZE.bits()
+			| Self::METADATA_NODE_LOG_SOLVABLE.bits()
+			| Self::METADATA_NODE_LOG_SOLVED.bits()
+			| Self::METADATA_NODE_OUTPUT_COUNT.bits()
+			| Self::METADATA_NODE_OUTPUT_DEPTH.bits()
+			| Self::METADATA_NODE_OUTPUT_SIZE.bits()
+			| Self::METADATA_NODE_OUTPUT_SOLVABLE.bits()
+			| Self::METADATA_NODE_OUTPUT_SOLVED.bits();
+		const ALL_SUBTREE_METADATA = Self::METADATA_SUBTREE_COUNT.bits()
+			| Self::METADATA_SUBTREE_COMMAND_COUNT.bits()
+			| Self::METADATA_SUBTREE_COMMAND_DEPTH.bits()
+			| Self::METADATA_SUBTREE_COMMAND_SIZE.bits()
+			| Self::METADATA_SUBTREE_COMMAND_SOLVABLE.bits()
+			| Self::METADATA_SUBTREE_COMMAND_SOLVED.bits()
+			| Self::METADATA_SUBTREE_ERROR_COUNT.bits()
+			| Self::METADATA_SUBTREE_ERROR_DEPTH.bits()
+			| Self::METADATA_SUBTREE_ERROR_SIZE.bits()
+			| Self::METADATA_SUBTREE_ERROR_SOLVABLE.bits()
+			| Self::METADATA_SUBTREE_ERROR_SOLVED.bits()
+			| Self::METADATA_SUBTREE_LOG_COUNT.bits()
+			| Self::METADATA_SUBTREE_LOG_DEPTH.bits()
+			| Self::METADATA_SUBTREE_LOG_SIZE.bits()
+			| Self::METADATA_SUBTREE_LOG_SOLVABLE.bits()
+			| Self::METADATA_SUBTREE_LOG_SOLVED.bits()
+			| Self::METADATA_SUBTREE_OUTPUT_COUNT.bits()
+			| Self::METADATA_SUBTREE_OUTPUT_DEPTH.bits()
+			| Self::METADATA_SUBTREE_OUTPUT_SIZE.bits()
+			| Self::METADATA_SUBTREE_OUTPUT_SOLVABLE.bits()
+			| Self::METADATA_SUBTREE_OUTPUT_SOLVED.bits();
+		const ALL_METADATA = Self::ALL_NODE_METADATA.bits() | Self::ALL_SUBTREE_METADATA.bits();
+		const ALL = Self::ALL_STORED.bits() | Self::ALL_METADATA.bits();
+	}
+}
+
 impl Index {
 	pub fn new(cluster: &Path, prefix: Option<String>) -> tg::Result<Self> {
 		let database = fdb::Database::new(Some(cluster.to_str().unwrap()))
@@ -294,6 +464,15 @@ impl Index {
 		}
 	}
 
+	fn pack_with_versionstamp<T: fdbt::TuplePack>(
+		&self,
+		key: &T,
+	) -> (Vec<u8>, fdbt::VersionstampOffset) {
+		let mut v = self.prefix.as_ref().map_or_else(Vec::new, |p| p.to_vec());
+		let offset = key.pack_into_vec(&mut v);
+		(v, offset)
+	}
+
 	fn unpack<'a, T: fdbt::TupleUnpack<'a>>(&self, bytes: &'a [u8]) -> tg::Result<T> {
 		let bytes = match &self.prefix {
 			Some(prefix) => &bytes[prefix.len()..],
@@ -304,6 +483,18 @@ impl Index {
 
 	pub async fn sync(&self) -> tg::Result<()> {
 		Ok(())
+	}
+}
+
+impl Update {
+	fn serialize(&self) -> tg::Result<Vec<u8>> {
+		tangram_serialize::to_vec(self)
+			.map_err(|source| tg::error!(!source, "failed to serialize the update"))
+	}
+
+	fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
+		tangram_serialize::from_slice(bytes)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the update"))
 	}
 }
 
@@ -350,15 +541,15 @@ impl crate::Index for Index {
 		self.delete_tags(tags).await
 	}
 
-	async fn queue(&self, batch_size: usize) -> tg::Result<usize> {
-		self.queue(batch_size).await
+	async fn update_batch(&self, batch_size: usize) -> tg::Result<usize> {
+		self.update_batch(batch_size).await
 	}
 
-	async fn get_transaction_id(&self) -> tg::Result<u64> {
+	async fn get_transaction_id(&self) -> tg::Result<u128> {
 		self.get_transaction_id().await
 	}
 
-	async fn get_queue_size(&self, transaction_id: u64) -> tg::Result<u64> {
+	async fn get_queue_size(&self, transaction_id: u128) -> tg::Result<u64> {
 		self.get_queue_size(transaction_id).await
 	}
 
@@ -484,6 +675,25 @@ impl fdbt::TuplePack for Key {
 			)
 				.pack(w, tuple_depth),
 
+			Key::Update { id } => {
+				Kind::Update.to_i32().unwrap().pack(w, tuple_depth)?;
+				let id = match &id {
+					tg::Either::Left(id) => id.to_bytes(),
+					tg::Either::Right(id) => id.to_bytes(),
+				};
+				id.as_ref().pack(w, tuple_depth)
+			},
+
+			Key::UpdateVersion { version, id } => {
+				Kind::UpdateVersion.to_i32().unwrap().pack(w, tuple_depth)?;
+				version.pack(w, tuple_depth)?;
+				let id = match &id {
+					tg::Either::Left(id) => id.to_bytes(),
+					tg::Either::Right(id) => id.to_bytes(),
+				};
+				id.as_ref().pack(w, tuple_depth)
+			},
+
 			Key::Clean {
 				touched_at,
 				kind,
@@ -492,7 +702,11 @@ impl fdbt::TuplePack for Key {
 				Kind::Clean.to_i32().unwrap().pack(w, tuple_depth)?;
 				touched_at.pack(w, tuple_depth)?;
 				kind.to_i32().unwrap().pack(w, tuple_depth)?;
-				id.to_bytes().as_ref().pack(w, tuple_depth)
+				let id = match &id {
+					tg::Either::Left(id) => id.to_bytes(),
+					tg::Either::Right(id) => id.to_bytes(),
+				};
+				id.as_ref().pack(w, tuple_depth)
 			},
 		}
 	}
@@ -667,6 +881,35 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, Key::ItemTag { item, tag }))
 			},
 
+			Kind::Update => {
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
+				let id = if let Ok(id) = tg::process::Id::try_from(id.clone()) {
+					tg::Either::Right(id)
+				} else if let Ok(id) = tg::object::Id::try_from(id) {
+					tg::Either::Left(id)
+				} else {
+					return Err(fdbt::PackError::Message("invalid id".into()));
+				};
+				Ok((input, Key::Update { id }))
+			},
+
+			Kind::UpdateVersion => {
+				let (input, version) = fdbt::Versionstamp::unpack(input, tuple_depth)?;
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
+				let id = if let Ok(id) = tg::process::Id::try_from(id.clone()) {
+					tg::Either::Right(id)
+				} else if let Ok(id) = tg::object::Id::try_from(id) {
+					tg::Either::Left(id)
+				} else {
+					return Err(fdbt::PackError::Message("invalid id".into()));
+				};
+				Ok((input, Key::UpdateVersion { version, id }))
+			},
+
 			Kind::Clean => {
 				let (input, touched_at): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, kind): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
@@ -674,8 +917,15 @@ impl fdbt::TupleUnpack<'_> for Key {
 					.ok_or(fdbt::PackError::Message("invalid item kind".into()))?;
 				let (input, id_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let id = tg::Id::from_slice(&id_bytes)
+				let tg_id = tg::Id::from_slice(&id_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
+				let id = if let Ok(id) = tg::process::Id::try_from(tg_id.clone()) {
+					tg::Either::Right(id)
+				} else if let Ok(id) = tg::object::Id::try_from(tg_id) {
+					tg::Either::Left(id)
+				} else {
+					return Err(fdbt::PackError::Message("invalid id".into()));
+				};
 				let key = Key::Clean {
 					touched_at,
 					kind,

@@ -2,10 +2,10 @@ use {
 	super::{
 		CacheEntryCoreField, CacheEntryField, Index, ItemKind, Key, ObjectCoreField, ObjectField,
 		ObjectMetadataField, ObjectStoredField, ProcessCoreField, ProcessField,
-		ProcessMetadataField, ProcessStoredField,
+		ProcessMetadataField, ProcessStoredField, Update,
 	},
 	crate::{ProcessObjectKind, PutArg, PutCacheEntryArg, PutObjectArg, PutProcessArg},
-	foundationdb as fdb,
+	foundationdb as fdb, foundationdb_tuple as fdbt,
 	tangram_client::prelude::*,
 };
 
@@ -58,7 +58,7 @@ impl Index {
 		let key = self.pack(&Key::Clean {
 			touched_at: arg.touched_at,
 			kind: ItemKind::CacheEntry,
-			id: tg::Id::from(arg.id.clone()),
+			id: tg::Either::Left(arg.id.clone().into()),
 		});
 		txn.set(&key, &[]);
 	}
@@ -219,9 +219,11 @@ impl Index {
 		let key = self.pack(&Key::Clean {
 			touched_at: arg.touched_at,
 			kind: ItemKind::Object,
-			id: tg::Id::from(id.clone()),
+			id: tg::Either::Left(id.clone()),
 		});
 		txn.set(&key, &[]);
+
+		self.enqueue_put_update(txn, &tg::Either::Left(id.clone()));
 	}
 
 	fn put_process(&self, txn: &fdb::Transaction, arg: &PutProcessArg) {
@@ -437,9 +439,39 @@ impl Index {
 		let key = self.pack(&Key::Clean {
 			touched_at: arg.touched_at,
 			kind: ItemKind::Process,
-			id: tg::Id::from(id.clone()),
+			id: tg::Either::Right(id.clone()),
 		});
 		txn.set(&key, &[]);
+
+		self.enqueue_put_update(txn, &tg::Either::Right(id.clone()));
+	}
+
+	fn enqueue_put_update(
+		&self,
+		txn: &fdb::Transaction,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+	) {
+		let key = self.pack(&Key::Update { id: id.clone() });
+		let value = Update::Put.serialize().unwrap();
+		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+			.unwrap();
+		txn.set(&key, &value);
+
+		let (mut key, offset) = self.pack_with_versionstamp(&Key::UpdateVersion {
+			version: fdbt::Versionstamp::incomplete(0),
+			id: id.clone(),
+		});
+		let fdbt::VersionstampOffset::OneIncomplete { offset } = offset else {
+			panic!("expected one incomplete versionstamp");
+		};
+		key.extend_from_slice(&offset.to_le_bytes());
+		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+			.unwrap();
+		txn.atomic_op(
+			&key,
+			&value,
+			fdb::options::MutationType::SetVersionstampedKey,
+		);
 	}
 
 	fn put_process_object_metadata(

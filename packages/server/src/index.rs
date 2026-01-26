@@ -113,16 +113,16 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn queue(&self, batch_size: usize) -> tg::Result<usize> {
+	async fn update_batch(&self, batch_size: usize) -> tg::Result<usize> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.queue(batch_size).await,
+			Self::Fdb(index) => index.update_batch(batch_size).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.queue(batch_size).await,
+			Self::Lmdb(index) => index.update_batch(batch_size).await,
 		}
 	}
 
-	async fn get_transaction_id(&self) -> tg::Result<u64> {
+	async fn get_transaction_id(&self) -> tg::Result<u128> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.get_transaction_id().await,
@@ -131,7 +131,7 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn get_queue_size(&self, transaction_id: u64) -> tg::Result<u64> {
+	async fn get_queue_size(&self, transaction_id: u128) -> tg::Result<u64> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.get_queue_size(transaction_id).await,
@@ -253,7 +253,7 @@ impl Server {
 
 	pub(crate) async fn indexer_task(&self, config: &crate::config::Indexer) -> tg::Result<()> {
 		loop {
-			let result = self.index.queue(config.queue_batch_size).await;
+			let result = self.index.update_batch(config.queue_batch_size).await;
 			match result {
 				Ok(0) => {
 					// No items processed, wait a bit.
@@ -267,7 +267,7 @@ impl Server {
 						.ok();
 				},
 				Err(error) => {
-					tracing::error!(?error, "failed to handle the index queue");
+					tracing::error!(?error, "failed to handle the index update");
 					tokio::time::sleep(Duration::from_secs(1)).await;
 				},
 			}

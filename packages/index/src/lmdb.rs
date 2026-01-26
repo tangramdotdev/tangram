@@ -295,15 +295,15 @@ impl crate::Index for Index {
 		self.delete_tags(tags).await
 	}
 
-	async fn queue(&self, batch_size: usize) -> tg::Result<usize> {
-		self.queue(batch_size).await
+	async fn update_batch(&self, batch_size: usize) -> tg::Result<usize> {
+		self.update_batch(batch_size).await
 	}
 
-	async fn get_transaction_id(&self) -> tg::Result<u64> {
+	async fn get_transaction_id(&self) -> tg::Result<u128> {
 		self.get_transaction_id().await
 	}
 
-	async fn get_queue_size(&self, transaction_id: u64) -> tg::Result<u64> {
+	async fn get_queue_size(&self, transaction_id: u128) -> tg::Result<u64> {
 		self.get_queue_size(transaction_id).await
 	}
 

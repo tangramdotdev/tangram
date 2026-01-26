@@ -83,16 +83,16 @@ pub trait Index {
 		tags: &[String],
 	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
-	fn queue(
+	fn update_batch(
 		&self,
 		batch_size: usize,
 	) -> impl std::future::Future<Output = tg::Result<usize>> + Send;
 
-	fn get_transaction_id(&self) -> impl std::future::Future<Output = tg::Result<u64>> + Send;
+	fn get_transaction_id(&self) -> impl std::future::Future<Output = tg::Result<u128>> + Send;
 
 	fn get_queue_size(
 		&self,
-		transaction_id: u64,
+		transaction_id: u128,
 	) -> impl std::future::Future<Output = tg::Result<u64>> + Send;
 
 	fn clean(
