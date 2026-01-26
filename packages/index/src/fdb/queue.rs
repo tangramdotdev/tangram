@@ -861,6 +861,12 @@ impl Index {
 				let current = self.update_get_process_field_u64(txn, id, *subtree).await?;
 				if current.is_none() {
 					let node_value = self.update_get_process_field_u64(txn, id, *node).await?;
+					let is_command = matches!(
+						subtree,
+						ProcessMetadataField::SubtreeCommandCount
+							| ProcessMetadataField::SubtreeCommandDepth
+							| ProcessMetadataField::SubtreeCommandSize
+					);
 					let is_depth = matches!(
 						subtree,
 						ProcessMetadataField::SubtreeCommandDepth
@@ -868,6 +874,10 @@ impl Index {
 							| ProcessMetadataField::SubtreeLogDepth
 							| ProcessMetadataField::SubtreeOutputDepth
 					);
+
+					if is_command && node_value.is_none() {
+						return Err(tg::error!("process command metadata is not set"));
+					}
 
 					let mut all = node_value.is_some() || children.is_empty();
 					let mut result = node_value.unwrap_or(0);
