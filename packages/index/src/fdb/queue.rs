@@ -63,10 +63,11 @@ impl Index {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get update key"))?;
 
-			// If the update key does not exist, delete it and continue.
+			// If the update key does not exist, delete the stale entry and continue.
 			let Some(update) = update else {
 				let key = self.pack(&Key::UpdateVersion { version, id });
 				txn.clear(&key);
+				count += 1;
 				continue;
 			};
 
@@ -193,17 +194,10 @@ impl Index {
 		id: &tg::object::Id,
 		fields: ObjectPropagateUpdateFields,
 	) -> tg::Result<ObjectPropagateUpdateFields> {
-		// Get all children.
 		let children = self.update_get_object_children(txn, id).await?;
-
-		// If there are no children, we cannot compute subtree fields.
-		if children.is_empty() {
-			return Ok(ObjectPropagateUpdateFields::empty());
-		}
-
 		let mut updated = ObjectPropagateUpdateFields::empty();
 
-		// Compute stored.subtree = all(children.stored.subtree).
+		// Compute stored.subtree = all(children.stored.subtree). Vacuously true for leaf nodes.
 		if fields.contains(ObjectPropagateUpdateFields::STORED_SUBTREE) {
 			let current = self
 				.update_get_object_field_bool(txn, id, ObjectStoredField::Subtree)
@@ -226,7 +220,7 @@ impl Index {
 			}
 		}
 
-		// Compute subtree_count = 1 + sum(children.subtree_count).
+		// Compute subtree_count = 1 + sum(children.subtree_count). For leaf nodes, this is 1.
 		if fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_COUNT) {
 			let current = self
 				.update_get_object_field_u64(txn, id, ObjectMetadataField::SubtreeCount)
@@ -257,7 +251,7 @@ impl Index {
 			}
 		}
 
-		// Compute subtree_depth = 1 + max(children.subtree_depth).
+		// Compute subtree_depth = 1 + max(children.subtree_depth). For leaf nodes, this is 1.
 		if fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_DEPTH) {
 			let current = self
 				.update_get_object_field_u64(txn, id, ObjectMetadataField::SubtreeDepth)
@@ -288,7 +282,7 @@ impl Index {
 			}
 		}
 
-		// Compute subtree_size = node_size + sum(children.subtree_size).
+		// Compute subtree_size = node_size + sum(children.subtree_size). For leaf nodes, this equals node_size.
 		if fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_SIZE) {
 			let current = self
 				.update_get_object_field_u64(txn, id, ObjectMetadataField::SubtreeSize)
@@ -297,7 +291,7 @@ impl Index {
 				let node = self
 					.update_get_object_field_u64(txn, id, ObjectMetadataField::NodeSize)
 					.await?
-					.unwrap_or(0);
+					.ok_or_else(|| tg::error!("node size is not set"))?;
 				let mut sum: u64 = node;
 				let mut all = true;
 				for child in &children {
@@ -323,7 +317,7 @@ impl Index {
 			}
 		}
 
-		// Compute subtree_solvable = node_solvable OR any(children.subtree_solvable).
+		// Compute subtree_solvable = node_solvable OR any(children.subtree_solvable). For leaf nodes, this equals node_solvable.
 		if fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVABLE) {
 			let current = self
 				.update_get_object_field_bool(txn, id, ObjectMetadataField::SubtreeSolvable)
@@ -362,7 +356,7 @@ impl Index {
 			}
 		}
 
-		// Compute subtree_solved = node_solved AND all(children.subtree_solved).
+		// Compute subtree_solved = node_solved AND all(children.subtree_solved). For leaf nodes, this equals node_solved.
 		if fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVED) {
 			let current = self
 				.update_get_object_field_bool(txn, id, ObjectMetadataField::SubtreeSolved)
@@ -670,11 +664,12 @@ impl Index {
 
 		let children = self.update_get_process_children(txn, id).await?;
 
+		// Compute stored.subtree = all(children.stored.subtree). Vacuously true for leaf processes.
 		if fields.contains(ProcessPropagateUpdateFields::STORED_SUBTREE) {
 			let current = self
 				.update_get_process_field_bool(txn, id, ProcessStoredField::Subtree)
 				.await?;
-			if !current && !children.is_empty() {
+			if !current {
 				let mut all = true;
 				for child in &children {
 					if !self
@@ -759,11 +754,12 @@ impl Index {
 
 		let children = self.update_get_process_children(txn, id).await?;
 
+		// Compute subtree_count = 1 + sum(children.subtree_count). For leaf processes, this is 1.
 		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_COUNT) {
 			let current = self
 				.update_get_process_field_u64(txn, id, ProcessMetadataField::SubtreeCount)
 				.await?;
-			if current.is_none() && !children.is_empty() {
+			if current.is_none() {
 				let mut sum: u64 = 1;
 				let mut all = true;
 				for child in &children {
