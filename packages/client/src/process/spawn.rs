@@ -1,6 +1,6 @@
 use {
 	crate::prelude::*,
-	futures::{Stream, TryStreamExt as _, future},
+	futures::{FutureExt, Stream, TryStreamExt as _, future},
 	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::{CommaSeparatedString, is_false},
@@ -80,6 +80,7 @@ impl tg::Client {
 					.unwrap()
 					.unwrap()
 			})
+			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {

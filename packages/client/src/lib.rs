@@ -120,7 +120,7 @@ impl Client {
 	#[must_use]
 	pub fn new(url: Uri, version: Option<String>, token: Option<String>) -> Self {
 		let version = version.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
-		let (sender, service) = Self::service(&url, &version);
+		let (sender, service) = Self::service(&version);
 		Self(Arc::new(State {
 			url,
 			sender,

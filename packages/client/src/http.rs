@@ -7,6 +7,7 @@ use {
 		sync::Arc,
 		time::Duration,
 	},
+	tangram_futures::retry,
 	tangram_http::Body,
 	tangram_uri::Uri,
 	time::format_description::well_known::Rfc3339,
@@ -38,22 +39,20 @@ impl std::fmt::Display for ServiceError {
 impl std::error::Error for ServiceError {}
 
 impl tg::Client {
-	pub(crate) fn service(url: &Uri, version: &str) -> (Sender, Service) {
+	pub(crate) fn service(version: &str) -> (Sender, Service) {
 		let sender = Arc::new(tokio::sync::Mutex::new(
 			None::<hyper::client::conn::http2::SendRequest<Body>>,
 		));
 		let service = tower::service_fn({
-			let url = url.clone();
 			let sender = sender.clone();
-			move |request| {
-				let url = url.clone();
+			move |request: http::Request<Body>| {
 				let sender = sender.clone();
 				async move {
-					// Attempt to get the sender.
+					// Attempt to get the sender. Return a Disonnected error if the sender is not available.
 					let mut guard = sender.lock().await;
-					let mut sender = match guard.as_ref() {
+					let mut sender_ = match guard.as_ref() {
 						// If the sender is disconnected, remove it from the guard and reaplce
-						Some(sender) if !sender.is_ready() => {
+						Some(sender) if sender.is_closed() => {
 							guard.take();
 							return Err(ServiceError::Disconnected);
 						},
@@ -61,43 +60,49 @@ impl tg::Client {
 						// Otherwise use the sender.
 						Some(sender) => sender.clone(),
 
-						// If there is no sender, attempt to connect to it.
-						None => {
-							let sender = Self::connect_h2(&url).await.map_err(|source| {
-								ServiceError::Error(
-									tg::error!(!source, url = %url, "failed to connect"),
-								)
-							})?;
-							guard.replace(sender.clone());
-							sender
-						},
+						// Report if we're not connected.
+						None => return Err(ServiceError::Disconnected),
 					};
 					drop(guard);
 
 					// Try to send the request. Hyper may return the request message if the connection is closing while the request is in flight. In this case we return a ServiceError::Disconnected so callers may retry.
-					match sender.try_send_request(request).await {
+					let method = request.method().clone();
+					let uri = request.uri().clone();
+					match sender_.try_send_request(request).await {
 						Ok(response) => Ok(response.map(Body::new)),
 						Err(error)
 							if error.message().is_some()
 								|| error
 									.error()
 									.source()
-									.and_then(|error| error.downcast_ref::<h2::Error>())
-									.is_some_and(|error| error.is_go_away()) =>
+									.and_then(|error| error.downcast_ref::<std::io::Error>())
+									.is_some_and(|error| {
+										matches!(error.kind(), std::io::ErrorKind::ConnectionReset)
+									}) =>
 						{
+							sender.lock().await.take();
 							Err(ServiceError::Disconnected)
 						},
-						Err(error) => Err(ServiceError::Error(tg::error!(
-							source = error.into_error(),
-							"failed to send the request"
-						))),
+						Err(error) => {
+							let error = error.into_error();
+							Err(ServiceError::Error(tg::error!(
+								source = error,
+								"failed to send the request {method} {uri}"
+							)))
+						},
 					}
 				}
 			}
 		});
 		let service = tower::ServiceBuilder::new()
 			.layer(tangram_http::layer::tracing::TracingLayer::new())
-			.map_err(|error| ServiceError::Error(tg::Error::from(error)))
+			.map_err(|error: Box<dyn Error + Send + Sync + 'static>| {
+				if let Some(error) = error.downcast_ref::<ServiceError>() {
+					error.clone()
+				} else {
+					ServiceError::Error(tg::Error::from(error))
+				}
+			})
 			.layer(tower::timeout::TimeoutLayer::new(Duration::from_secs(60)))
 			.insert_request_header_if_not_present(
 				http::HeaderName::from_str("x-tg-compatibility-date").unwrap(),
@@ -490,16 +495,57 @@ impl tg::Client {
 		Ok(stream)
 	}
 
+	pub(crate) async fn ensure_connected(&self) -> tg::Result<()> {
+		let mut guard = self.sender.lock().await;
+		if guard
+			.as_ref()
+			.is_some_and(hyper::client::conn::http2::SendRequest::is_ready)
+		{
+			return Ok(());
+		}
+		guard.take();
+		let options = retry::Options {
+			max_delay: std::time::Duration::from_secs(10),
+			backoff: std::time::Duration::from_millis(100),
+			jitter: std::time::Duration::from_millis(50),
+			max_retries: 16,
+		};
+		let sender = retry::retry(&options, {
+			let url = self.url.clone();
+			move || {
+				let url = url.clone();
+				async move {
+					match Self::connect_h2(&url).await {
+						Ok(sender) => Ok(std::ops::ControlFlow::Break(sender)),
+						Err(error) => Ok(std::ops::ControlFlow::Continue(error)),
+					}
+				}
+			}
+		})
+		.await
+		.map_err(|source| tg::error!(!source, "failed to reconnect"))?;
+		guard.replace(sender);
+		Ok(())
+	}
+
 	pub(crate) async fn try_send(
 		&self,
 		mut request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>, ServiceError> {
+	) -> Result<http::Response<Body>, ServiceError> {
+		// Reconnect if necessary.
+		self.ensure_connected()
+			.await
+			.map_err(|source| ServiceError::Error(tg::error!(!source, "failed to reconnect")))?;
+
+		// Add the authorization header to the request.
 		if let Some(token) = &self.token {
 			request.headers_mut().insert(
 				http::header::AUTHORIZATION,
 				http::HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
 			);
 		}
+
+		// Attempt to send the request.
 		self.service.clone().call(request).await
 	}
 
@@ -507,36 +553,13 @@ impl tg::Client {
 		&self,
 		request: impl Fn() -> http::Request<Body>,
 	) -> tg::Result<http::Response<Body>> {
-		let mut last_error = None;
-		for backoff in [10, 20, 30, 50, 100, 200, 300, 500] {
-			match self.try_send(request()).await {
+		loop {
+			let request = request();
+			match self.try_send(request).await {
 				Ok(response) => return Ok(response),
 				Err(ServiceError::Error(error)) => return Err(error),
-				Err(ServiceError::Disconnected) => {
-					// Backoff for a moment.
-					tokio::time::sleep(std::time::Duration::from_millis(backoff)).await;
-
-					// Check if another outstanding request has already reconnected.
-					let mut guard = self.sender.lock().await;
-					if guard.is_some() {
-						continue;
-					}
-
-					// Attempt to reconnect.
-					match Self::connect_h2(&self.url).await {
-						Ok(sender) => {
-							guard.replace(sender);
-						},
-						Err(error) => {
-							last_error.replace(error);
-						},
-					}
-				},
+				Err(ServiceError::Disconnected) => {},
 			}
 		}
-		Err(tg::error!(
-			source = last_error.unwrap(),
-			"failed to send the request"
-		))
 	}
 }

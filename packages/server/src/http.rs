@@ -17,7 +17,6 @@ impl Server {
 		url: &Uri,
 	) -> tg::Result<tokio_util::either::Either<tokio::net::UnixListener, tokio::net::TcpListener>>
 	{
-		eprintln!("url: {url}");
 		let listener = match url.scheme() {
 			Some("http+unix") => {
 				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
@@ -154,12 +153,8 @@ impl Server {
 					)
 					.await
 					{
-						future::Either::Left((result, _)) => {
-							eprintln!("got result from connection");
-							result
-						},
+						future::Either::Left((result, _)) => result,
 						future::Either::Right((_, mut connection)) => {
-							eprintln!("graceful shutdown");
 							connection.as_mut().graceful_shutdown();
 							connection.await
 						},
