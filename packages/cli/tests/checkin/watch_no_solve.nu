@@ -74,7 +74,7 @@ snapshot $object '
 '// watermark' | save ($path | path join 'tangram.ts') --append
 
 # Wait for changes to be handled.
-tg watch touch $path
+tg watch touch $path ($path | path join 'tangram.ts')
 
 let id = tg checkin $path --watch --no-solve
 

@@ -56,7 +56,7 @@ success $output
 'import b from "b/^1"' | save ($path | path join 'tangram.ts')  --append
 
 # Wait for changes to be handled.
-tg watch touch $path
+tg watch touch $path ($path | path join 'tangram.ts')
 
 # Checkin again but make sure that it fails.
 let output = tg checkin $path --watch --locked | complete

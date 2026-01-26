@@ -9,12 +9,13 @@ use {
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	/// The path of the watch to touch.
-	path: PathBuf,
-
-	/// Items to mark dirty.
-	#[arg(short = 'p')]
+	/// The paths to touch.
+	#[arg(index = 2)]
 	items: Vec<PathBuf>,
+
+	/// The path of the watch.
+	#[arg(index = 1)]
+	path: PathBuf,
 }
 
 impl Cli {
@@ -35,7 +36,7 @@ impl Cli {
 		handle
 			.touch_watch(arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to list the watches"))?;
+			.map_err(|source| tg::error!(!source, "failed to touch the watch"))?;
 		Ok(())
 	}
 }

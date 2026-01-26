@@ -23,7 +23,7 @@ impl Server {
 		drop(watch);
 
 		// Create a notification channel.
-		let (tx, rx) = tokio::sync::oneshot::channel();
+		let (notification_sender, notification_receiver) = tokio::sync::oneshot::channel();
 
 		// Send a message to touch the watch.
 		sender
@@ -33,13 +33,15 @@ impl Server {
 					paths: arg.items.clone(),
 					attrs: notify::event::EventAttributes::new(),
 				},
-				sender: Some(tx),
+				sender: Some(notification_sender),
 			})
 			.await
 			.map_err(|_| tg::error!("failed to update the watch"))?;
 
-		rx.await
+		notification_receiver
+			.await
 			.map_err(|_| tg::error!("failed to touch the watch"))?;
+
 		Ok(())
 	}
 
@@ -60,7 +62,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
-		// Delete the watch.
+		// Touch the watch.
 		self.touch_watch_with_context(context, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to delete the watch"))?;
@@ -77,6 +79,7 @@ impl Server {
 		}
 
 		let response = http::Response::builder().body(Body::empty()).unwrap();
+
 		Ok(response)
 	}
 }

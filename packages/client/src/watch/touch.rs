@@ -6,8 +6,8 @@ use {
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub path: PathBuf,
 	pub items: Vec<PathBuf>,
+	pub path: PathBuf,
 }
 
 impl tg::Client {

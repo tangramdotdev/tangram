@@ -68,6 +68,7 @@ impl Server {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}
 		let response = response.body(body).unwrap();
+
 		Ok(response)
 	}
 }
