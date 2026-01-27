@@ -17,27 +17,11 @@ snapshot $output.stdout '
 	    "nodes": [
 	      {
 	        "kind": "file",
-	        "contents": blb_010pwqd32ehjhaj9eswh61x95cgqby7x5w0fybj56a34cmbehs3mhg,
-	        "dependencies": {
-	          "./tangram.ts": {
-	            "item": {
-	              "index": 1,
-	              "kind": "file",
-	            },
-	            "options": {
-	              "path": "tangram.ts",
-	            },
-	          },
-	        },
-	        "module": "ts",
-	      },
-	      {
-	        "kind": "file",
 	        "contents": blb_01b7ka1dzz1k7n5fh52av0vxtkycf3z2kntyvnvv549x2xdy36mm9g,
 	        "dependencies": {
 	          "./file.tg.ts": {
 	            "item": {
-	              "index": 0,
+	              "index": 1,
 	              "kind": "file",
 	            },
 	            "options": {
@@ -47,9 +31,25 @@ snapshot $output.stdout '
 	        },
 	        "module": "ts",
 	      },
+	      {
+	        "kind": "file",
+	        "contents": blb_010pwqd32ehjhaj9eswh61x95cgqby7x5w0fybj56a34cmbehs3mhg,
+	        "dependencies": {
+	          "./tangram.ts": {
+	            "item": {
+	              "index": 0,
+	              "kind": "file",
+	            },
+	            "options": {
+	              "path": "tangram.ts",
+	            },
+	          },
+	        },
+	        "module": "ts",
+	      },
 	    ],
 	  }),
-	  "index": 0,
+	  "index": 1,
 	  "kind": "file",
 	})
 

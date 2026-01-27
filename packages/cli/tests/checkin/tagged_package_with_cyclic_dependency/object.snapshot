@@ -9,27 +9,11 @@ tg.directory({
               "nodes": [
                 {
                   "kind": "file",
-                  "contents": tg.blob("import * as a from \"./tangram.ts\";"),
-                  "dependencies": {
-                    "./tangram.ts": {
-                      "item": {
-                        "index": 1,
-                        "kind": "file",
-                      },
-                      "options": {
-                        "path": "tangram.ts",
-                      },
-                    },
-                  },
-                  "module": "ts",
-                },
-                {
-                  "kind": "file",
                   "contents": tg.blob("import foo from \"./foo.tg.ts\";"),
                   "dependencies": {
                     "./foo.tg.ts": {
                       "item": {
-                        "index": 0,
+                        "index": 1,
                         "kind": "file",
                       },
                       "options": {
@@ -39,41 +23,17 @@ tg.directory({
                   },
                   "module": "ts",
                 },
-              ],
-            }),
-            "index": 0,
-            "kind": "file",
-          },
-          "tangram.ts": {
-            "graph": tg.graph({
-              "nodes": [
                 {
                   "kind": "file",
                   "contents": tg.blob("import * as a from \"./tangram.ts\";"),
                   "dependencies": {
                     "./tangram.ts": {
                       "item": {
-                        "index": 1,
-                        "kind": "file",
-                      },
-                      "options": {
-                        "path": "tangram.ts",
-                      },
-                    },
-                  },
-                  "module": "ts",
-                },
-                {
-                  "kind": "file",
-                  "contents": tg.blob("import foo from \"./foo.tg.ts\";"),
-                  "dependencies": {
-                    "./foo.tg.ts": {
-                      "item": {
                         "index": 0,
                         "kind": "file",
                       },
                       "options": {
-                        "path": "foo.tg.ts",
+                        "path": "tangram.ts",
                       },
                     },
                   },
@@ -84,9 +44,49 @@ tg.directory({
             "index": 1,
             "kind": "file",
           },
+          "tangram.ts": {
+            "graph": tg.graph({
+              "nodes": [
+                {
+                  "kind": "file",
+                  "contents": tg.blob("import foo from \"./foo.tg.ts\";"),
+                  "dependencies": {
+                    "./foo.tg.ts": {
+                      "item": {
+                        "index": 1,
+                        "kind": "file",
+                      },
+                      "options": {
+                        "path": "foo.tg.ts",
+                      },
+                    },
+                  },
+                  "module": "ts",
+                },
+                {
+                  "kind": "file",
+                  "contents": tg.blob("import * as a from \"./tangram.ts\";"),
+                  "dependencies": {
+                    "./tangram.ts": {
+                      "item": {
+                        "index": 0,
+                        "kind": "file",
+                      },
+                      "options": {
+                        "path": "tangram.ts",
+                      },
+                    },
+                  },
+                  "module": "ts",
+                },
+              ],
+            }),
+            "index": 0,
+            "kind": "file",
+          },
         }),
         "options": {
-          "id": "dir_01dtdtrz5tqh3s7c19sfdbhh3mmhgmnte751wz7g7spfqq1y9re340",
+          "id": "dir_01zbr8sgp4jttp8z078yxbnqtabk07avfamzafr9ka2g22ezxdnp10",
           "tag": "a",
         },
       },
