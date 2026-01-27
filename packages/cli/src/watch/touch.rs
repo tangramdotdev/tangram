@@ -5,7 +5,6 @@ use {
 	tangram_client::prelude::*,
 };
 
-/// Touch paths
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -13,7 +12,7 @@ pub struct Args {
 	#[arg(index = 2)]
 	items: Vec<PathBuf>,
 
-	/// The path of the watch.
+	/// The watch path.
 	#[arg(index = 1)]
 	path: PathBuf,
 }
