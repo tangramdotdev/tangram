@@ -10,7 +10,7 @@ use {
 	},
 	num::ToPrimitive as _,
 	std::{
-		collections::{BTreeMap, BTreeSet, HashSet, hash_map::DefaultHasher},
+		collections::{BTreeMap, BTreeSet, hash_map::DefaultHasher},
 		hash::{Hash, Hasher},
 		path::Path,
 	},
@@ -869,7 +869,7 @@ impl Server {
 	fn checkin_graph_node_initial_label(
 		graph: &Graph,
 		paths: &Paths,
-		scc_set: &HashSet<usize>,
+		scc: &[usize],
 		index: usize,
 	) -> tg::Result<Vec<u8>> {
 		// Create the node data with normalized references.
@@ -891,13 +891,15 @@ impl Server {
 								.cloned()
 								.or_else(|| dependency.item().clone());
 							let edge = match edge {
-								Some(tg::graph::data::Edge::Pointer(p))
-									if p.graph.is_none() && scc_set.contains(&p.index) =>
+								Some(tg::graph::data::Edge::Pointer(pointer))
+									if pointer.graph.is_none() && scc.contains(&pointer.index) =>
 								{
 									None
 								},
-								Some(tg::graph::data::Edge::Pointer(p)) if p.graph.is_none() => {
-									let node = graph.nodes.get(&p.index).unwrap();
+								Some(tg::graph::data::Edge::Pointer(pointer))
+									if pointer.graph.is_none() =>
+								{
+									let node = graph.nodes.get(&pointer.index).unwrap();
 									let id = node.id.as_ref().unwrap();
 									Some(tg::graph::data::Edge::Object(id.clone()))
 								},
@@ -924,17 +926,17 @@ impl Server {
 					.iter()
 					.map(|(name, edge)| {
 						let edge = match edge {
-							tg::graph::data::Edge::Pointer(p)
-								if p.graph.is_none() && scc_set.contains(&p.index) =>
+							tg::graph::data::Edge::Pointer(pointer)
+								if pointer.graph.is_none() && scc.contains(&pointer.index) =>
 							{
 								tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
 									graph: None,
 									index: 0,
-									kind: p.kind,
+									kind: pointer.kind,
 								})
 							},
-							tg::graph::data::Edge::Pointer(p) if p.graph.is_none() => {
-								let node = graph.nodes.get(&p.index).unwrap();
+							tg::graph::data::Edge::Pointer(pointer) if pointer.graph.is_none() => {
+								let node = graph.nodes.get(&pointer.index).unwrap();
 								let id = node.id.as_ref().unwrap().clone().try_into().unwrap();
 								tg::graph::data::Edge::Object(id)
 							},
@@ -950,17 +952,17 @@ impl Server {
 			Variant::Symlink(symlink) => {
 				let artifact = symlink.artifact.as_ref().map(|edge| {
 					let edge: tg::graph::data::Edge<tg::artifact::Id> = match edge {
-						tg::graph::data::Edge::Pointer(p)
-							if p.graph.is_none() && scc_set.contains(&p.index) =>
+						tg::graph::data::Edge::Pointer(pointer)
+							if pointer.graph.is_none() && scc.contains(&pointer.index) =>
 						{
 							tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
 								graph: None,
 								index: 0,
-								kind: p.kind,
+								kind: pointer.kind,
 							})
 						},
-						tg::graph::data::Edge::Pointer(p) if p.graph.is_none() => {
-							let node = graph.nodes.get(&p.index).unwrap();
+						tg::graph::data::Edge::Pointer(pointer) if pointer.graph.is_none() => {
+							let node = graph.nodes.get(&pointer.index).unwrap();
 							let id = node.id.as_ref().unwrap().clone().try_into().unwrap();
 							tg::graph::data::Edge::Object(id)
 						},
@@ -988,13 +990,10 @@ impl Server {
 		paths: &Paths,
 		scc: &[usize],
 	) -> tg::Result<BTreeMap<usize, u64>> {
-		// Build the SCC set for quick lookup.
-		let scc_set: HashSet<usize> = scc.iter().copied().collect();
-
 		// Compute initial labels from serialized node data.
 		let mut labels: BTreeMap<usize, u64> = BTreeMap::new();
 		for &index in scc {
-			let data = Self::checkin_graph_node_initial_label(graph, paths, &scc_set, index)?;
+			let data = Self::checkin_graph_node_initial_label(graph, paths, scc, index)?;
 			let mut hasher = DefaultHasher::new();
 			data.hash(&mut hasher);
 			labels.insert(index, hasher.finish());
@@ -1010,7 +1009,7 @@ impl Server {
 		for &index in scc {
 			let node = graph.nodes.get(&index).unwrap();
 			for child in node.children() {
-				if scc_set.contains(&child) {
+				if scc.contains(&child) {
 					outgoing.get_mut(&index).unwrap().push(child);
 					incoming.get_mut(&child).unwrap().push(index);
 				}
