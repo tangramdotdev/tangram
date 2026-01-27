@@ -329,13 +329,8 @@ impl tg::Client {
 			)
 			.body(body)
 			.unwrap();
-		let result = self.try_send(request).await;
-		let response = match result {
-			Ok(response) => response,
-			Err(crate::http::ServiceError::Error(error)) => return Err(error),
-			Err(crate::http::ServiceError::Disconnected) => {
-				return Ok(stream::empty().left_stream());
-			},
+		let Some(response) = self.try_send(request).await? else {
+			return Ok(stream::empty().left_stream());
 		};
 		if !response.status().is_success() {
 			let error = response.json().await.map_err(|source| {

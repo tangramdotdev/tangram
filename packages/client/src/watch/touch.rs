@@ -1,8 +1,4 @@
-use {
-	crate::prelude::*,
-	std::path::PathBuf,
-	tangram_http::{request::builder::Ext as _, response::Ext as _},
-};
+use {crate::prelude::*, std::path::PathBuf, tangram_http::response::Ext as _};
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
@@ -14,15 +10,17 @@ impl tg::Client {
 	pub async fn touch_watch(&self, arg: tg::watch::touch::Arg) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = "/watches/touch";
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
-			.json(arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
-			.unwrap();
+		let body = serde_json::to_vec(&arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
 		let response = self
-			.send(request)
+			.send(|| {
+				http::request::Builder::default()
+					.method(method.clone())
+					.uri(uri)
+					.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
+					.body(tangram_http::Body::with_bytes(body.clone()))
+					.unwrap()
+			})
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {

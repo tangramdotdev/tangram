@@ -1,7 +1,6 @@
 use {
 	crate::prelude::*,
 	std::{
-		error::Error,
 		path::{Path, PathBuf},
 		str::FromStr,
 		sync::Arc,
@@ -19,24 +18,13 @@ use {
 pub(crate) type Sender =
 	Arc<tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<Body>>>>;
 
-pub(crate) type Service =
-	BoxCloneSyncService<http::Request<Body>, http::Response<Body>, ServiceError>;
+pub(crate) type Service = BoxCloneSyncService<http::Request<Body>, http::Response<Body>, Error>;
 
 #[derive(Clone, Debug)]
-pub(crate) enum ServiceError {
+pub(crate) enum Error {
 	Error(tg::Error),
 	Disconnected,
 }
-
-impl std::fmt::Display for ServiceError {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			ServiceError::Error(error) => write!(f, "{error}"),
-			ServiceError::Disconnected => write!(f, "service disconnected"),
-		}
-	}
-}
-impl std::error::Error for ServiceError {}
 
 impl tg::Client {
 	pub(crate) fn service(version: &str) -> (Sender, Service) {
@@ -48,44 +36,42 @@ impl tg::Client {
 			move |request: http::Request<Body>| {
 				let sender = sender.clone();
 				async move {
-					// Attempt to get the sender. Return a Disonnected error if the sender is not available.
+					// Attempt to get the sender. Return a Disconnected error if the sender is not available.
 					let mut guard = sender.lock().await;
 					let mut sender_ = match guard.as_ref() {
-						// If the sender is disconnected, remove it from the guard and reaplce
+						// If the sender is disconnected, remove it from the guard and replace.
 						Some(sender) if sender.is_closed() => {
 							guard.take();
-							return Err(ServiceError::Disconnected);
+							return Err(Error::Disconnected);
 						},
 
 						// Otherwise use the sender.
 						Some(sender) => sender.clone(),
 
 						// Report if we're not connected.
-						None => return Err(ServiceError::Disconnected),
+						None => return Err(Error::Disconnected),
 					};
 					drop(guard);
 
-					// Try to send the request. Hyper may return the request message if the connection is closing while the request is in flight. In this case we return a ServiceError::Disconnected so callers may retry.
+					// Try to send the request. Hyper may return the request message if the connection is closing while the request is in flight. In this case we return a Error::Disconnected so callers may retry.
 					let method = request.method().clone();
 					let uri = request.uri().clone();
 					match sender_.try_send_request(request).await {
 						Ok(response) => Ok(response.map(Body::new)),
 						Err(error)
 							if error.message().is_some()
-								|| error
-									.error()
-									.source()
+								|| std::error::Error::source(error.error())
 									.and_then(|error| error.downcast_ref::<std::io::Error>())
 									.is_some_and(|error| {
 										matches!(error.kind(), std::io::ErrorKind::ConnectionReset)
 									}) =>
 						{
 							sender.lock().await.take();
-							Err(ServiceError::Disconnected)
+							Err(Error::Disconnected)
 						},
 						Err(error) => {
 							let error = error.into_error();
-							Err(ServiceError::Error(tg::error!(
+							Err(Error::Error(tg::error!(
 								source = error,
 								"failed to send the request {method} {uri}"
 							)))
@@ -96,13 +82,15 @@ impl tg::Client {
 		});
 		let service = tower::ServiceBuilder::new()
 			.layer(tangram_http::layer::tracing::TracingLayer::new())
-			.map_err(|error: Box<dyn Error + Send + Sync + 'static>| {
-				if let Some(error) = error.downcast_ref::<ServiceError>() {
-					error.clone()
-				} else {
-					ServiceError::Error(tg::Error::from(error))
-				}
-			})
+			.map_err(
+				|error: Box<dyn std::error::Error + Send + Sync + 'static>| {
+					if let Some(error) = error.downcast_ref::<Error>() {
+						error.clone()
+					} else {
+						Error::Error(tg::Error::from(error))
+					}
+				},
+			)
 			.layer(tower::timeout::TimeoutLayer::new(Duration::from_secs(60)))
 			.insert_request_header_if_not_present(
 				http::HeaderName::from_str("x-tg-compatibility-date").unwrap(),
@@ -531,11 +519,11 @@ impl tg::Client {
 	pub(crate) async fn try_send(
 		&self,
 		mut request: http::Request<Body>,
-	) -> Result<http::Response<Body>, ServiceError> {
+	) -> tg::Result<Option<http::Response<Body>>> {
 		// Reconnect if necessary.
 		self.ensure_connected()
 			.await
-			.map_err(|source| ServiceError::Error(tg::error!(!source, "failed to reconnect")))?;
+			.map_err(|source| tg::error!(!source, "failed to reconnect"))?;
 
 		// Add the authorization header to the request.
 		if let Some(token) = &self.token {
@@ -546,7 +534,11 @@ impl tg::Client {
 		}
 
 		// Attempt to send the request.
-		self.service.clone().call(request).await
+		match self.service.clone().call(request).await {
+			Ok(response) => Ok(Some(response)),
+			Err(Error::Disconnected) => Ok(None),
+			Err(Error::Error(error)) => Err(error),
+		}
 	}
 
 	pub(crate) async fn send(
@@ -555,11 +547,20 @@ impl tg::Client {
 	) -> tg::Result<http::Response<Body>> {
 		loop {
 			let request = request();
-			match self.try_send(request).await {
-				Ok(response) => return Ok(response),
-				Err(ServiceError::Error(error)) => return Err(error),
-				Err(ServiceError::Disconnected) => {},
+			if let Some(response) = self.try_send(request).await? {
+				return Ok(response);
 			}
 		}
 	}
 }
+
+impl std::fmt::Display for Error {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Error::Error(error) => write!(f, "{error}"),
+			Error::Disconnected => write!(f, "service disconnected"),
+		}
+	}
+}
+
+impl std::error::Error for Error {}
