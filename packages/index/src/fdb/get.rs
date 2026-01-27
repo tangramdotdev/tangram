@@ -9,6 +9,7 @@ use {
 	futures::TryStreamExt as _,
 	num_traits::ToPrimitive as _,
 	tangram_client::prelude::*,
+	tangram_util::varint,
 };
 
 impl Index {
@@ -102,16 +103,14 @@ impl Index {
 						exists = true;
 					},
 					ObjectCoreField::TouchedAt => {
-						let value = value
-							.try_into()
-							.map_err(|_| tg::error!("invalid touched at"))?;
-						touched_at = Some(i64::from_le_bytes(value));
+						touched_at = Some(
+							varint::decode_ivarint(value)
+								.ok_or_else(|| tg::error!("invalid touched at"))?,
+						);
 					},
 					ObjectCoreField::ReferenceCount => {
-						let value = value
-							.try_into()
-							.map_err(|_| tg::error!("invalid reference count"))?;
-						reference_count = u64::from_le_bytes(value);
+						reference_count = varint::decode_uvarint(value)
+							.ok_or_else(|| tg::error!("invalid reference count"))?;
 					},
 					ObjectCoreField::CacheEntry => {
 						cache_entry = Some(
@@ -195,16 +194,14 @@ impl Index {
 						exists = true;
 					},
 					ProcessCoreField::TouchedAt => {
-						let value = value
-							.try_into()
-							.map_err(|_| tg::error!("invalid touched_at"))?;
-						touched_at = Some(i64::from_le_bytes(value));
+						touched_at = Some(
+							varint::decode_ivarint(value)
+								.ok_or_else(|| tg::error!("invalid touched_at"))?,
+						);
 					},
 					ProcessCoreField::ReferenceCount => {
-						let value = value
-							.try_into()
-							.map_err(|_| tg::error!("invalid reference_count"))?;
-						reference_count = u64::from_le_bytes(value);
+						reference_count = varint::decode_uvarint(value)
+							.ok_or_else(|| tg::error!("invalid reference_count"))?;
 					},
 				},
 				ProcessField::Metadata(field) => {
@@ -238,44 +235,38 @@ impl Index {
 	) -> tg::Result<()> {
 		match field {
 			ObjectMetadataField::NodeSize => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid node size"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.node.size = value;
+				metadata.node.size =
+					varint::decode_uvarint(value).ok_or_else(|| tg::error!("invalid node size"))?;
 			},
 			ObjectMetadataField::NodeSolvable => {
-				metadata.node.solvable = true;
+				metadata.node.solvable = value.is_empty() || value[0] != 0;
 			},
 			ObjectMetadataField::NodeSolved => {
-				metadata.node.solved = true;
+				metadata.node.solved = value.is_empty() || value[0] != 0;
 			},
 			ObjectMetadataField::SubtreeCount => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid subtree count"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.subtree.count = Some(value);
+				metadata.subtree.count = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid subtree count"))?,
+				);
 			},
 			ObjectMetadataField::SubtreeDepth => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid subtree depth"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.subtree.depth = Some(value);
+				metadata.subtree.depth = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid subtree depth"))?,
+				);
 			},
 			ObjectMetadataField::SubtreeSize => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid subtree size"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.subtree.size = Some(value);
+				metadata.subtree.size = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid subtree size"))?,
+				);
 			},
 			ObjectMetadataField::SubtreeSolvable => {
-				metadata.subtree.solvable = Some(true);
+				metadata.subtree.solvable = Some(value.is_empty() || value[0] != 0);
 			},
 			ObjectMetadataField::SubtreeSolved => {
-				metadata.subtree.solved = Some(true);
+				metadata.subtree.solved = Some(value.is_empty() || value[0] != 0);
 			},
 		}
 		Ok(())
@@ -320,235 +311,210 @@ impl Index {
 	) -> tg::Result<()> {
 		match field {
 			ProcessMetadataField::NodeCommandCount => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.node.command.count = Some(value);
+				metadata.node.command.count = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::NodeCommandDepth => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.node.command.depth = Some(value);
+				metadata.node.command.depth = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::NodeCommandSize => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.node.command.size = Some(value);
+				metadata.node.command.size = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::NodeCommandSolvable => {
-				metadata.node.command.solvable = Some(true);
+				metadata.node.command.solvable = Some(value.is_empty() || value[0] != 0);
 			},
 			ProcessMetadataField::NodeCommandSolved => {
-				metadata.node.command.solved = Some(true);
+				metadata.node.command.solved = Some(value.is_empty() || value[0] != 0);
 			},
 
 			ProcessMetadataField::NodeErrorCount => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.node.error.count = Some(value);
+				metadata.node.error.count = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::NodeErrorDepth => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.node.error.depth = Some(value);
+				metadata.node.error.depth = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::NodeErrorSize => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.node.error.size = Some(value);
+				metadata.node.error.size = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::NodeErrorSolvable => {
-				metadata.node.error.solvable = Some(true);
+				metadata.node.error.solvable = Some(value.is_empty() || value[0] != 0);
 			},
 			ProcessMetadataField::NodeErrorSolved => {
-				metadata.node.error.solved = Some(true);
+				metadata.node.error.solved = Some(value.is_empty() || value[0] != 0);
 			},
 
 			ProcessMetadataField::NodeLogCount => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.node.log.count = Some(value);
+				metadata.node.log.count = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::NodeLogDepth => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.node.log.depth = Some(value);
+				metadata.node.log.depth = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::NodeLogSize => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.node.log.size = Some(value);
+				metadata.node.log.size = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::NodeLogSolvable => {
-				metadata.node.log.solvable = Some(true);
+				metadata.node.log.solvable = Some(value.is_empty() || value[0] != 0);
 			},
 			ProcessMetadataField::NodeLogSolved => {
-				metadata.node.log.solved = Some(true);
+				metadata.node.log.solved = Some(value.is_empty() || value[0] != 0);
 			},
 
 			ProcessMetadataField::NodeOutputCount => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.node.output.count = Some(value);
+				metadata.node.output.count = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::NodeOutputDepth => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.node.output.depth = Some(value);
+				metadata.node.output.depth = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::NodeOutputSize => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.node.output.size = Some(value);
+				metadata.node.output.size = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::NodeOutputSolvable => {
-				metadata.node.output.solvable = Some(true);
+				metadata.node.output.solvable = Some(value.is_empty() || value[0] != 0);
 			},
 			ProcessMetadataField::NodeOutputSolved => {
-				metadata.node.output.solved = Some(true);
+				metadata.node.output.solved = Some(value.is_empty() || value[0] != 0);
 			},
 
 			ProcessMetadataField::SubtreeCommandCount => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.subtree.command.count = Some(value);
+				metadata.subtree.command.count = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::SubtreeCommandDepth => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.subtree.command.depth = Some(value);
+				metadata.subtree.command.depth = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::SubtreeCommandSize => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.subtree.command.size = Some(value);
+				metadata.subtree.command.size = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::SubtreeCommandSolvable => {
-				metadata.subtree.command.solvable = Some(true);
+				metadata.subtree.command.solvable = Some(value.is_empty() || value[0] != 0);
 			},
 			ProcessMetadataField::SubtreeCommandSolved => {
-				metadata.subtree.command.solved = Some(true);
+				metadata.subtree.command.solved = Some(value.is_empty() || value[0] != 0);
 			},
 
 			ProcessMetadataField::SubtreeCount => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.subtree.count = Some(value);
+				metadata.subtree.count = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 
 			ProcessMetadataField::SubtreeErrorCount => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.subtree.error.count = Some(value);
+				metadata.subtree.error.count = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::SubtreeErrorDepth => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.subtree.error.depth = Some(value);
+				metadata.subtree.error.depth = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::SubtreeErrorSize => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.subtree.error.size = Some(value);
+				metadata.subtree.error.size = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::SubtreeErrorSolvable => {
-				metadata.subtree.error.solvable = Some(true);
+				metadata.subtree.error.solvable = Some(value.is_empty() || value[0] != 0);
 			},
 			ProcessMetadataField::SubtreeErrorSolved => {
-				metadata.subtree.error.solved = Some(true);
+				metadata.subtree.error.solved = Some(value.is_empty() || value[0] != 0);
 			},
 
 			ProcessMetadataField::SubtreeLogCount => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.subtree.log.count = Some(value);
+				metadata.subtree.log.count = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::SubtreeLogDepth => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.subtree.log.depth = Some(value);
+				metadata.subtree.log.depth = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::SubtreeLogSize => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.subtree.log.size = Some(value);
+				metadata.subtree.log.size = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::SubtreeLogSolvable => {
-				metadata.subtree.log.solvable = Some(true);
+				metadata.subtree.log.solvable = Some(value.is_empty() || value[0] != 0);
 			},
 			ProcessMetadataField::SubtreeLogSolved => {
-				metadata.subtree.log.solved = Some(true);
+				metadata.subtree.log.solved = Some(value.is_empty() || value[0] != 0);
 			},
 
 			ProcessMetadataField::SubtreeOutputCount => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.subtree.output.count = Some(value);
+				metadata.subtree.output.count = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::SubtreeOutputDepth => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.subtree.output.depth = Some(value);
+				metadata.subtree.output.depth = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::SubtreeOutputSize => {
-				let value = value
-					.try_into()
-					.map_err(|_| tg::error!("invalid field value"))?;
-				let value = u64::from_le_bytes(value);
-				metadata.subtree.output.size = Some(value);
+				metadata.subtree.output.size = Some(
+					varint::decode_uvarint(value)
+						.ok_or_else(|| tg::error!("invalid field value"))?,
+				);
 			},
 			ProcessMetadataField::SubtreeOutputSolvable => {
-				metadata.subtree.output.solvable = Some(true);
+				metadata.subtree.output.solvable = Some(value.is_empty() || value[0] != 0);
 			},
 			ProcessMetadataField::SubtreeOutputSolved => {
-				metadata.subtree.output.solved = Some(true);
+				metadata.subtree.output.solved = Some(value.is_empty() || value[0] != 0);
 			},
 		}
 

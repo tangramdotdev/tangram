@@ -8,6 +8,7 @@ use {
 	foundationdb_tuple::Subspace,
 	num_traits::ToPrimitive as _,
 	tangram_client::prelude::*,
+	tangram_util::varint,
 };
 
 struct Candidate {
@@ -290,7 +291,7 @@ impl Index {
 			},
 		};
 		let key = self.pack(&key);
-		txn.set(&key, &reference_count.to_le_bytes());
+		txn.set(&key, &varint::encode_uvarint(reference_count));
 	}
 
 	async fn delete_item(&self, txn: &fdb::Transaction, item: &Item) -> tg::Result<()> {
@@ -501,18 +502,11 @@ impl Index {
 			.get(&key, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get reference count"))?
-			.map(|bytes| {
-				let bytes = bytes
-					.as_ref()
-					.try_into()
-					.map_err(|_| tg::error!("invalid value"))?;
-				let value = u64::from_le_bytes(bytes);
-				Ok::<_, tg::Error>(value)
-			})
+			.map(|bytes| varint::decode_uvarint(&bytes).ok_or_else(|| tg::error!("invalid value")))
 			.transpose()?
 			.unwrap_or(0);
 		if reference_count > 1 {
-			txn.set(&key, &(reference_count - 1).to_le_bytes());
+			txn.set(&key, &varint::encode_uvarint(reference_count - 1));
 		} else {
 			txn.clear(&key);
 			let key = Key::CacheEntry {
@@ -560,18 +554,11 @@ impl Index {
 			.get(&key, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get reference count"))?
-			.map(|bytes| {
-				let bytes = bytes
-					.as_ref()
-					.try_into()
-					.map_err(|_| tg::error!("invalid value"))?;
-				let value = u64::from_le_bytes(bytes);
-				Ok::<_, tg::Error>(value)
-			})
+			.map(|bytes| varint::decode_uvarint(&bytes).ok_or_else(|| tg::error!("invalid value")))
 			.transpose()?
 			.unwrap_or(0);
 		if reference_count > 1 {
-			txn.set(&key, &(reference_count - 1).to_le_bytes());
+			txn.set(&key, &varint::encode_uvarint(reference_count - 1));
 		} else {
 			txn.clear(&key);
 			let key = Key::Object {
@@ -619,18 +606,11 @@ impl Index {
 			.get(&key, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get reference count"))?
-			.map(|bytes| {
-				let bytes = bytes
-					.as_ref()
-					.try_into()
-					.map_err(|_| tg::error!("invalid value"))?;
-				let value = u64::from_le_bytes(bytes);
-				Ok::<_, tg::Error>(value)
-			})
+			.map(|bytes| varint::decode_uvarint(&bytes).ok_or_else(|| tg::error!("invalid value")))
 			.transpose()?
 			.unwrap_or(0);
 		if reference_count > 1 {
-			txn.set(&key, &(reference_count - 1).to_le_bytes());
+			txn.set(&key, &varint::encode_uvarint(reference_count - 1));
 		} else {
 			txn.clear(&key);
 			let key = Key::Process {

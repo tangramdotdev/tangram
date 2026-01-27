@@ -75,6 +75,8 @@ enum Kind {
 	ObjectProcess = 11,
 	ItemTag = 12,
 	Clean = 13,
+	Update = 14,
+	UpdateVersion = 15,
 }
 
 #[derive(Debug)]
@@ -126,6 +128,13 @@ enum Key {
 		kind: ItemKind,
 		id: tg::Id,
 	},
+	Update {
+		id: tg::Either<tg::object::Id, tg::process::Id>,
+	},
+	UpdateVersion {
+		version: u64,
+		id: tg::Either<tg::object::Id, tg::process::Id>,
+	},
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
@@ -134,6 +143,15 @@ enum ItemKind {
 	CacheEntry = 0,
 	Object = 1,
 	Process = 2,
+}
+
+/// The type of update in the queue. Put updates always enqueue parent updates after processing,
+/// while Propagate updates only enqueue parents if fields changed.
+#[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
+#[repr(u8)]
+enum Update {
+	Put = 0,
+	Propagate = 1,
 }
 
 impl Index {
@@ -413,6 +431,33 @@ impl fdbt::TuplePack for Key {
 				kind.to_i32().unwrap().pack(w, tuple_depth)?;
 				id.to_bytes().as_ref().pack(w, tuple_depth)
 			},
+			Key::Update { id } => {
+				Kind::Update.to_i32().unwrap().pack(w, tuple_depth)?;
+				match id {
+					tg::Either::Left(object_id) => {
+						0i32.pack(w, tuple_depth)?;
+						object_id.to_bytes().as_ref().pack(w, tuple_depth)
+					},
+					tg::Either::Right(process_id) => {
+						1i32.pack(w, tuple_depth)?;
+						process_id.to_bytes().as_ref().pack(w, tuple_depth)
+					},
+				}
+			},
+			Key::UpdateVersion { version, id } => {
+				Kind::UpdateVersion.to_i32().unwrap().pack(w, tuple_depth)?;
+				version.pack(w, tuple_depth)?;
+				match id {
+					tg::Either::Left(object_id) => {
+						0i32.pack(w, tuple_depth)?;
+						object_id.to_bytes().as_ref().pack(w, tuple_depth)
+					},
+					tg::Either::Right(process_id) => {
+						1i32.pack(w, tuple_depth)?;
+						process_id.to_bytes().as_ref().pack(w, tuple_depth)
+					},
+				}
+			},
 		}
 	}
 }
@@ -583,6 +628,49 @@ impl fdbt::TupleUnpack<'_> for Key {
 					id,
 				};
 				Ok((input, key))
+			},
+			Kind::Update => {
+				let (input, variant): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, id_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = match variant {
+					0 => {
+						let object_id = tg::object::Id::from_slice(&id_bytes)
+							.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
+						tg::Either::Left(object_id)
+					},
+					1 => {
+						let process_id = tg::process::Id::from_slice(&id_bytes)
+							.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+						tg::Either::Right(process_id)
+					},
+					_ => return Err(fdbt::PackError::Message("invalid update variant".into())),
+				};
+				Ok((input, Key::Update { id }))
+			},
+			Kind::UpdateVersion => {
+				let (input, version): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, variant): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, id_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = match variant {
+					0 => {
+						let object_id = tg::object::Id::from_slice(&id_bytes)
+							.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
+						tg::Either::Left(object_id)
+					},
+					1 => {
+						let process_id = tg::process::Id::from_slice(&id_bytes)
+							.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+						tg::Either::Right(process_id)
+					},
+					_ => {
+						return Err(fdbt::PackError::Message(
+							"invalid update version variant".into(),
+						));
+					},
+				};
+				Ok((input, Key::UpdateVersion { version, id }))
 			},
 		}
 	}

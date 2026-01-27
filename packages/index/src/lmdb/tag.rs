@@ -115,7 +115,11 @@ impl Index {
 			let value = db
 				.get(transaction, &key)
 				.map_err(|source| tg::error!(!source, "failed to get the tag"))?;
-			let bytes = value.ok_or_else(|| tg::error!("tag not found"))?;
+			// Skip tags that do not exist in the index. This can happen for "branch tags" which
+			// exist in the database as parent nodes but have no associated item.
+			let Some(bytes) = value else {
+				continue;
+			};
 			let data = Tag::deserialize(bytes)?;
 			let item = match &data.item {
 				tg::Either::Left(id) => id.to_bytes().to_vec(),

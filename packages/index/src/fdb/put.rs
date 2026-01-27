@@ -8,6 +8,7 @@ use {
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	num_traits::ToPrimitive as _,
 	tangram_client::prelude::*,
+	tangram_util::varint,
 };
 
 impl Index {
@@ -102,7 +103,7 @@ impl Index {
 				id: id.clone(),
 				field: ObjectField::Metadata(ObjectMetadataField::NodeSize),
 			});
-			txn.set(&key, &arg.metadata.node.size.to_le_bytes());
+			txn.set(&key, &varint::encode_uvarint(arg.metadata.node.size));
 		}
 		if arg.metadata.node.solvable {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
@@ -130,7 +131,7 @@ impl Index {
 				id: id.clone(),
 				field: ObjectField::Metadata(ObjectMetadataField::SubtreeCount),
 			});
-			txn.set(&key, &count.to_le_bytes());
+			txn.set(&key, &varint::encode_uvarint(count));
 		}
 		if let Some(depth) = arg.metadata.subtree.depth {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
@@ -139,7 +140,7 @@ impl Index {
 				id: id.clone(),
 				field: ObjectField::Metadata(ObjectMetadataField::SubtreeDepth),
 			});
-			txn.set(&key, &depth.to_le_bytes());
+			txn.set(&key, &varint::encode_uvarint(depth));
 		}
 		if let Some(size) = arg.metadata.subtree.size {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
@@ -148,7 +149,7 @@ impl Index {
 				id: id.clone(),
 				field: ObjectField::Metadata(ObjectMetadataField::SubtreeSize),
 			});
-			txn.set(&key, &size.to_le_bytes());
+			txn.set(&key, &varint::encode_uvarint(size));
 		}
 		if let Some(true) = arg.metadata.subtree.solvable {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
@@ -284,7 +285,7 @@ impl Index {
 				id: id.clone(),
 				field: ProcessField::Metadata(ProcessMetadataField::SubtreeCount),
 			});
-			txn.set(&key, &count.to_le_bytes());
+			txn.set(&key, &varint::encode_uvarint(count));
 		}
 		self.put_process_object_metadata(
 			txn,
@@ -495,7 +496,7 @@ impl Index {
 					subtree,
 				)),
 			});
-			txn.set(&key, &count.to_le_bytes());
+			txn.set(&key, &varint::encode_uvarint(count));
 		}
 		if let Some(depth) = metadata.depth {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
@@ -508,7 +509,7 @@ impl Index {
 					subtree,
 				)),
 			});
-			txn.set(&key, &depth.to_le_bytes());
+			txn.set(&key, &varint::encode_uvarint(depth));
 		}
 		if let Some(size) = metadata.size {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
@@ -521,7 +522,7 @@ impl Index {
 					subtree,
 				)),
 			});
-			txn.set(&key, &size.to_le_bytes());
+			txn.set(&key, &varint::encode_uvarint(size));
 		}
 		if let Some(true) = metadata.solvable {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)

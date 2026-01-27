@@ -163,6 +163,14 @@ impl Index {
 		db.put(transaction, &key, &[])
 			.map_err(|source| tg::error!(!source, "failed to put the clean key"))?;
 
+		// Enqueue update for propagation.
+		Self::enqueue_update(
+			db,
+			transaction,
+			tg::Either::Left(id.clone()),
+			super::Update::Put,
+		)?;
+
 		Ok(())
 	}
 
@@ -249,6 +257,14 @@ impl Index {
 		.pack_to_vec();
 		db.put(transaction, &key, &[])
 			.map_err(|source| tg::error!(!source, "failed to put the clean key"))?;
+
+		// Enqueue update for propagation.
+		Self::enqueue_update(
+			db,
+			transaction,
+			tg::Either::Right(id.clone()),
+			super::Update::Put,
+		)?;
 
 		Ok(())
 	}

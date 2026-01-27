@@ -9,6 +9,7 @@ use {
 	foundationdb_tuple::{self as fdbt, Subspace},
 	num_traits::ToPrimitive as _,
 	tangram_client::prelude::*,
+	tangram_util::varint,
 };
 
 impl Index {
@@ -209,19 +210,19 @@ impl Index {
 			let current = self
 				.update_get_object_field_bool(txn, id, ObjectStoredField::Subtree)
 				.await?;
-			if !current {
+			if current != Some(true) {
 				let mut all = true;
 				for child in &children {
-					if !self
+					if self
 						.update_get_object_field_bool(txn, child, ObjectStoredField::Subtree)
-						.await?
+						.await? != Some(true)
 					{
 						all = false;
 						break;
 					}
 				}
 				if all {
-					self.update_set_object_field_bool(txn, id, ObjectStoredField::Subtree);
+					self.update_set_object_field_bool(txn, id, ObjectStoredField::Subtree, true);
 					updated |= ObjectPropagateUpdateFields::STORED_SUBTREE;
 				}
 			}
@@ -329,36 +330,40 @@ impl Index {
 			let current = self
 				.update_get_object_field_bool(txn, id, ObjectMetadataField::SubtreeSolvable)
 				.await?;
-			if !current {
+			if current.is_none() {
 				let node = self
 					.update_get_object_field_bool(txn, id, ObjectMetadataField::NodeSolvable)
 					.await?;
-				if node {
+				// Check children for any solvable and track if all are computed.
+				let mut any_solvable = false;
+				let mut all_computed = true;
+				for child in &children {
+					match self
+						.update_get_object_field_bool(
+							txn,
+							child,
+							ObjectMetadataField::SubtreeSolvable,
+						)
+						.await?
+					{
+						Some(true) => {
+							any_solvable = true;
+						},
+						Some(false) => {},
+						None => {
+							all_computed = false;
+						},
+					}
+				}
+				if all_computed {
+					let node_solvable = node == Some(true);
 					self.update_set_object_field_bool(
 						txn,
 						id,
 						ObjectMetadataField::SubtreeSolvable,
+						node_solvable || any_solvable,
 					);
 					updated |= ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVABLE;
-				} else {
-					for child in &children {
-						if self
-							.update_get_object_field_bool(
-								txn,
-								child,
-								ObjectMetadataField::SubtreeSolvable,
-							)
-							.await?
-						{
-							self.update_set_object_field_bool(
-								txn,
-								id,
-								ObjectMetadataField::SubtreeSolvable,
-							);
-							updated |= ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVABLE;
-							break;
-						}
-					}
 				}
 			}
 		}
@@ -368,33 +373,41 @@ impl Index {
 			let current = self
 				.update_get_object_field_bool(txn, id, ObjectMetadataField::SubtreeSolved)
 				.await?;
-			if !current {
+			if current.is_none() {
 				let node = self
 					.update_get_object_field_bool(txn, id, ObjectMetadataField::NodeSolved)
 					.await?;
-				if node {
-					let mut all = true;
-					for child in &children {
-						if !self
-							.update_get_object_field_bool(
-								txn,
-								child,
-								ObjectMetadataField::SubtreeSolved,
-							)
-							.await?
-						{
-							all = false;
-							break;
-						}
-					}
-					if all {
-						self.update_set_object_field_bool(
+				// Check if all children are solved and track if all are computed.
+				let mut all_solved = true;
+				let mut all_computed = true;
+				for child in &children {
+					match self
+						.update_get_object_field_bool(
 							txn,
-							id,
+							child,
 							ObjectMetadataField::SubtreeSolved,
-						);
-						updated |= ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVED;
+						)
+						.await?
+					{
+						Some(true) => {},
+						Some(false) => {
+							all_solved = false;
+						},
+						None => {
+							all_computed = false;
+							all_solved = false;
+						},
 					}
+				}
+				if all_computed {
+					let node_solved = node == Some(true);
+					self.update_set_object_field_bool(
+						txn,
+						id,
+						ObjectMetadataField::SubtreeSolved,
+						node_solved && all_solved,
+					);
+					updated |= ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVED;
 				}
 			}
 		}
@@ -409,6 +422,7 @@ impl Index {
 		fields: ProcessPropagateUpdateFields,
 	) -> tg::Result<ProcessPropagateUpdateFields> {
 		let mut updated = ProcessPropagateUpdateFields::empty();
+		let mut fields = fields;
 
 		updated |= self
 			.update_recompute_process_node_stored_fields(txn, id, fields)
@@ -417,6 +431,20 @@ impl Index {
 		updated |= self
 			.update_recompute_process_node_metadata_fields(txn, id, fields)
 			.await?;
+
+		// When node.*.solved is updated, also trigger subtree.*.solved recomputation.
+		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SOLVED) {
+			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SOLVED;
+		}
+		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SOLVED) {
+			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SOLVED;
+		}
+		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVED) {
+			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SOLVED;
+		}
+		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SOLVED) {
+			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SOLVED;
+		}
 
 		updated |= self
 			.update_recompute_process_subtree_stored_fields(txn, id, fields)
@@ -468,12 +496,12 @@ impl Index {
 
 			if fields.contains(flag) {
 				let current = self.update_get_process_field_bool(txn, id, field).await?;
-				if !current {
+				if current != Some(true) {
 					let stored = self
 						.update_get_object_field_bool(txn, object, ObjectStoredField::Subtree)
 						.await?;
-					if stored {
-						self.update_set_process_field_bool(txn, id, field);
+					if stored == Some(true) {
+						self.update_set_process_field_bool(txn, id, field, true);
 						updated |= flag;
 					}
 				}
@@ -502,8 +530,8 @@ impl Index {
 		for (has_kind, field, flag) in missing_kinds {
 			if !has_kind && fields.contains(flag) {
 				let current = self.update_get_process_field_bool(txn, id, field).await?;
-				if !current {
-					self.update_set_process_field_bool(txn, id, field);
+				if current != Some(true) {
+					self.update_set_process_field_bool(txn, id, field, true);
 					updated |= flag;
 				}
 			}
@@ -656,12 +684,12 @@ impl Index {
 				let current = self
 					.update_get_process_field_bool(txn, id, solvable.1)
 					.await?;
-				if !current {
+				if current.is_none() {
 					let value = self
 						.update_get_object_field_bool(txn, object, solvable.2)
 						.await?;
-					if value {
-						self.update_set_process_field_bool(txn, id, solvable.1);
+					if let Some(v) = value {
+						self.update_set_process_field_bool(txn, id, solvable.1, v);
 						updated |= solvable.0;
 					}
 				}
@@ -698,12 +726,12 @@ impl Index {
 				let current = self
 					.update_get_process_field_bool(txn, id, solved.1)
 					.await?;
-				if !current {
+				if current.is_none() {
 					let value = self
 						.update_get_object_field_bool(txn, object, solved.2)
 						.await?;
-					if value {
-						self.update_set_process_field_bool(txn, id, solved.1);
+					if let Some(v) = value {
+						self.update_set_process_field_bool(txn, id, solved.1, v);
 						updated |= solved.0;
 					}
 				}
@@ -784,6 +812,64 @@ impl Index {
 			}
 		}
 
+		// For missing object kinds, set solvable=false (no solvable references) and
+		// solved=true (vacuously true - all 0 objects are solved).
+		let missing_solvable: &[(bool, ProcessPropagateUpdateFields, ProcessMetadataField)] = &[
+			(
+				has_error,
+				ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SOLVABLE,
+				ProcessMetadataField::NodeErrorSolvable,
+			),
+			(
+				has_log,
+				ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVABLE,
+				ProcessMetadataField::NodeLogSolvable,
+			),
+			(
+				has_output,
+				ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SOLVABLE,
+				ProcessMetadataField::NodeOutputSolvable,
+			),
+		];
+
+		for (has_kind, flag, field) in missing_solvable {
+			if !has_kind && fields.contains(*flag) {
+				let current = self.update_get_process_field_bool(txn, id, *field).await?;
+				if current.is_none() {
+					self.update_set_process_field_bool(txn, id, *field, false);
+					updated |= *flag;
+				}
+			}
+		}
+
+		let missing_solved: &[(bool, ProcessPropagateUpdateFields, ProcessMetadataField)] = &[
+			(
+				has_error,
+				ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SOLVED,
+				ProcessMetadataField::NodeErrorSolved,
+			),
+			(
+				has_log,
+				ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVED,
+				ProcessMetadataField::NodeLogSolved,
+			),
+			(
+				has_output,
+				ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SOLVED,
+				ProcessMetadataField::NodeOutputSolved,
+			),
+		];
+
+		for (has_kind, flag, field) in missing_solved {
+			if !has_kind && fields.contains(*flag) {
+				let current = self.update_get_process_field_bool(txn, id, *field).await?;
+				if current.is_none() {
+					self.update_set_process_field_bool(txn, id, *field, true);
+					updated |= *flag;
+				}
+			}
+		}
+
 		Ok(updated)
 	}
 
@@ -802,19 +888,19 @@ impl Index {
 			let current = self
 				.update_get_process_field_bool(txn, id, ProcessStoredField::Subtree)
 				.await?;
-			if !current {
+			if current != Some(true) {
 				let mut all = true;
 				for child in &children {
-					if !self
+					if self
 						.update_get_process_field_bool(txn, child, ProcessStoredField::Subtree)
-						.await?
+						.await? != Some(true)
 					{
 						all = false;
 						break;
 					}
 				}
 				if all {
-					self.update_set_process_field_bool(txn, id, ProcessStoredField::Subtree);
+					self.update_set_process_field_bool(txn, id, ProcessStoredField::Subtree, true);
 					updated |= ProcessPropagateUpdateFields::STORED_SUBTREE;
 				}
 			}
@@ -852,21 +938,21 @@ impl Index {
 				let current = self
 					.update_get_process_field_bool(txn, id, *subtree)
 					.await?;
-				if !current {
+				if current != Some(true) {
 					let stored = self.update_get_process_field_bool(txn, id, *node).await?;
-					if stored {
+					if stored == Some(true) {
 						let mut all = true;
 						for child in &children {
-							if !self
+							if self
 								.update_get_process_field_bool(txn, child, *subtree)
-								.await?
+								.await? != Some(true)
 							{
 								all = false;
 								break;
 							}
 						}
 						if all {
-							self.update_set_process_field_bool(txn, id, *subtree);
+							self.update_set_process_field_bool(txn, id, *subtree, true);
 							updated |= *flag;
 						}
 					}
@@ -1012,7 +1098,8 @@ impl Index {
 						return Err(tg::error!("process command metadata is not set"));
 					}
 
-					let mut all = node_value.is_some() || children.is_empty();
+					// We need node_value to be computed before we can compute subtree.
+					let mut all = node_value.is_some();
 					let mut result = node_value.unwrap_or(0);
 
 					for child in &children {
@@ -1071,22 +1158,34 @@ impl Index {
 				let current = self
 					.update_get_process_field_bool(txn, id, *subtree)
 					.await?;
-				if !current {
-					let solvable = self.update_get_process_field_bool(txn, id, *node).await?;
-					if solvable {
-						self.update_set_process_field_bool(txn, id, *subtree);
-						updated |= *flag;
-					} else {
-						for child in &children {
-							if self
-								.update_get_process_field_bool(txn, child, *subtree)
-								.await?
-							{
-								self.update_set_process_field_bool(txn, id, *subtree);
-								updated |= *flag;
-								break;
-							}
+				if current.is_none() {
+					let node_value = self.update_get_process_field_bool(txn, id, *node).await?;
+					// Check children for any solvable and track if all are computed.
+					let mut any_solvable = false;
+					let mut all_computed = node_value.is_some();
+					for child in &children {
+						match self
+							.update_get_process_field_bool(txn, child, *subtree)
+							.await?
+						{
+							Some(true) => {
+								any_solvable = true;
+							},
+							Some(false) => {},
+							None => {
+								all_computed = false;
+							},
 						}
+					}
+					if all_computed {
+						let node_solvable = node_value == Some(true);
+						self.update_set_process_field_bool(
+							txn,
+							id,
+							*subtree,
+							node_solvable || any_solvable,
+						);
+						updated |= *flag;
 					}
 				}
 			}
@@ -1124,21 +1223,30 @@ impl Index {
 				let current = self
 					.update_get_process_field_bool(txn, id, *subtree)
 					.await?;
-				if !current {
-					let solved = self.update_get_process_field_bool(txn, id, *node).await?;
-					if solved {
-						let mut all = true;
+				if current.is_none() {
+					let node_value = self.update_get_process_field_bool(txn, id, *node).await?;
+					if let Some(node_solved) = node_value {
+						// Check if all children have their subtree.solved computed.
+						let mut all_solved = true;
+						let mut all_computed = true;
 						for child in &children {
-							if !self
+							match self
 								.update_get_process_field_bool(txn, child, *subtree)
 								.await?
 							{
-								all = false;
-								break;
+								Some(true) => {},
+								Some(false) => {
+									all_solved = false;
+								},
+								None => {
+									all_computed = false;
+								},
 							}
 						}
-						if all {
-							self.update_set_process_field_bool(txn, id, *subtree);
+						if all_computed {
+							// Compute: node.solved AND all(children.subtree.solved).
+							let value = node_solved && all_solved;
+							self.update_set_process_field_bool(txn, id, *subtree, value);
 							updated |= *flag;
 						}
 					}
@@ -1549,7 +1657,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		id: &tg::object::Id,
 		field: F,
-	) -> tg::Result<bool> {
+	) -> tg::Result<Option<bool>> {
 		let key = self.pack(&Key::Object {
 			id: id.clone(),
 			field: field.into(),
@@ -1558,7 +1666,11 @@ impl Index {
 			.get(&key, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get object field"))?;
-		Ok(value.is_some())
+		match value {
+			Some(bytes) if bytes.is_empty() || bytes[0] != 0 => Ok(Some(true)),
+			Some(_) => Ok(Some(false)),
+			None => Ok(None),
+		}
 	}
 
 	async fn update_get_object_field_u64<F: Into<ObjectField>>(
@@ -1576,10 +1688,11 @@ impl Index {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get object field"))?;
 		match value {
-			Some(bytes) if bytes.len() == 8 => {
-				Ok(Some(u64::from_le_bytes(bytes[..].try_into().unwrap())))
+			Some(bytes) => {
+				let value =
+					varint::decode_uvarint(&bytes).ok_or_else(|| tg::error!("invalid varint"))?;
+				Ok(Some(value))
 			},
-			Some(_) => Err(tg::error!("invalid u64 value")),
 			None => Ok(None),
 		}
 	}
@@ -1589,12 +1702,13 @@ impl Index {
 		txn: &fdb::Transaction,
 		id: &tg::object::Id,
 		field: F,
+		value: bool,
 	) {
 		let key = self.pack(&Key::Object {
 			id: id.clone(),
 			field: field.into(),
 		});
-		txn.set(&key, &[]);
+		txn.set(&key, &[u8::from(value)]);
 	}
 
 	fn update_set_object_field_u64<F: Into<ObjectField>>(
@@ -1608,7 +1722,7 @@ impl Index {
 			id: id.clone(),
 			field: field.into(),
 		});
-		txn.set(&key, &value.to_le_bytes());
+		txn.set(&key, &varint::encode_uvarint(value));
 	}
 
 	async fn update_get_process_field_bool<F: Into<ProcessField>>(
@@ -1616,7 +1730,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		id: &tg::process::Id,
 		field: F,
-	) -> tg::Result<bool> {
+	) -> tg::Result<Option<bool>> {
 		let key = self.pack(&Key::Process {
 			id: id.clone(),
 			field: field.into(),
@@ -1625,7 +1739,11 @@ impl Index {
 			.get(&key, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get process field"))?;
-		Ok(value.is_some())
+		match value {
+			Some(bytes) if bytes.is_empty() || bytes[0] != 0 => Ok(Some(true)),
+			Some(_) => Ok(Some(false)),
+			None => Ok(None),
+		}
 	}
 
 	async fn update_get_process_field_u64<F: Into<ProcessField>>(
@@ -1643,10 +1761,11 @@ impl Index {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get process field"))?;
 		match value {
-			Some(bytes) if bytes.len() == 8 => {
-				Ok(Some(u64::from_le_bytes(bytes[..].try_into().unwrap())))
+			Some(bytes) => {
+				let value =
+					varint::decode_uvarint(&bytes).ok_or_else(|| tg::error!("invalid varint"))?;
+				Ok(Some(value))
 			},
-			Some(_) => Err(tg::error!("invalid u64 value")),
 			None => Ok(None),
 		}
 	}
@@ -1656,12 +1775,13 @@ impl Index {
 		txn: &fdb::Transaction,
 		id: &tg::process::Id,
 		field: F,
+		value: bool,
 	) {
 		let key = self.pack(&Key::Process {
 			id: id.clone(),
 			field: field.into(),
 		});
-		txn.set(&key, &[]);
+		txn.set(&key, &[u8::from(value)]);
 	}
 
 	fn update_set_process_field_u64<F: Into<ProcessField>>(
@@ -1675,6 +1795,6 @@ impl Index {
 			id: id.clone(),
 			field: field.into(),
 		});
-		txn.set(&key, &value.to_le_bytes());
+		txn.set(&key, &varint::encode_uvarint(value));
 	}
 }

@@ -130,8 +130,12 @@ impl Index {
 		let item = txn
 			.get(&key, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get tag"))?
-			.ok_or_else(|| tg::error!("tag not found"))?;
+			.map_err(|source| tg::error!(!source, "failed to get tag"))?;
+		// Skip tags that do not exist in the index. This can happen for "branch tags" which
+		// exist in the database as parent nodes but have no associated item.
+		let Some(item) = item else {
+			return Ok(());
+		};
 		let key = self.pack(&Key::ItemTag {
 			item: item.to_vec(),
 			tag: tag.to_owned(),
