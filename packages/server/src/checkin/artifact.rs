@@ -10,7 +10,7 @@ use {
 	},
 	num::ToPrimitive as _,
 	std::{
-		collections::{BTreeMap, BTreeSet, hash_map::DefaultHasher},
+		collections::{BTreeMap, BTreeSet},
 		hash::{Hash, Hasher},
 		path::Path,
 	},
@@ -271,28 +271,34 @@ impl Server {
 		scc: &[usize],
 		touched_at: i64,
 	) -> tg::Result<()> {
-		// Compute canonical labels using the Weisfeiler-Leman algorithm.
+		// Run WL to compute canonical labels for all nodes in the SCC.
 		let canonical_labels = Self::checkin_graph_canonical_labels(graph, paths, scc)?;
 
-		// Sort the SCC indices by canonical labels, using paths as a tiebreaker for locally
-		// checked-in nodes with identical content (e.g., symmetric imports).
-		let mut sorted_scc: Vec<usize> = scc.to_vec();
-		sorted_scc.sort_by(|a, b| {
-			canonical_labels[a]
-				.cmp(&canonical_labels[b])
-				.then_with(|| graph.nodes[a].path.cmp(&graph.nodes[b].path))
-		});
+		// Group nodes by their WL label.
+		let mut label_groups: BTreeMap<u64, Vec<usize>> = BTreeMap::new();
+		for &index in scc {
+			label_groups
+				.entry(canonical_labels[&index])
+				.or_default()
+				.push(index);
+		}
 
-		// Create a mapping from global node index to position in the sorted SCC.
-		let scc_positions: BTreeMap<usize, usize> = sorted_scc
-			.iter()
-			.enumerate()
-			.map(|(position, &global)| (global, position))
-			.collect();
+		// Build mappings from groups.
+		let mut scc_positions: BTreeMap<usize, usize> = BTreeMap::new();
+		let mut unique_indices: Vec<usize> = Vec::new();
+		let mut all_indices_by_position: Vec<Vec<usize>> = Vec::new();
 
-		// Create the nodes using the sorted order.
-		let mut nodes = Vec::with_capacity(sorted_scc.len());
-		for index in &sorted_scc {
+		for (position, (_label, group)) in label_groups.into_iter().enumerate() {
+			unique_indices.push(group[0]);
+			all_indices_by_position.push(group.clone());
+			for &index in &group {
+				scc_positions.insert(index, position);
+			}
+		}
+
+		// Create the nodes using only the unique representatives.
+		let mut nodes = Vec::with_capacity(unique_indices.len());
+		for index in &unique_indices {
 			Self::checkin_create_graph_node(graph, paths, &scc_positions, &mut nodes, *index)?;
 		}
 
@@ -301,55 +307,57 @@ impl Server {
 		let (id, _, _) = Self::checkin_create_artifact(
 			graph,
 			&data,
-			&sorted_scc,
+			&unique_indices,
 			store_args,
 			object_messages,
 			touched_at,
 		)?;
 
-		// Set edges and ids for the nodes in the graph.
+		// Set edges and ids for all original nodes in the graph.
 		let graph_id = tg::graph::Id::try_from(id).unwrap();
-		for (local, global) in sorted_scc.iter().copied().enumerate() {
-			let node = graph.nodes.get_mut(&global).unwrap();
-			let artifact_kind = node.variant.kind();
-			let data = match &node.variant {
-				Variant::Directory(_) => {
-					let pointer = tg::graph::data::Pointer {
+		for (local, global_indices) in all_indices_by_position.iter().enumerate() {
+			for &global in global_indices {
+				let node = graph.nodes.get_mut(&global).unwrap();
+				let artifact_kind = node.variant.kind();
+				let data = match &node.variant {
+					Variant::Directory(_) => {
+						let pointer = tg::graph::data::Pointer {
+							graph: Some(graph_id.clone()),
+							index: local,
+							kind: artifact_kind,
+						};
+						tg::object::Data::Directory(tg::directory::Data::Pointer(pointer))
+					},
+					Variant::File(_) => {
+						let pointer = tg::graph::data::Pointer {
+							graph: Some(graph_id.clone()),
+							index: local,
+							kind: artifact_kind,
+						};
+						tg::object::Data::File(tg::file::Data::Pointer(pointer))
+					},
+					Variant::Symlink(_) => {
+						let pointer = tg::graph::data::Pointer {
+							graph: Some(graph_id.clone()),
+							index: local,
+							kind: artifact_kind,
+						};
+						tg::object::Data::Symlink(tg::symlink::Data::Pointer(pointer))
+					},
+				};
+				let kind = data.kind();
+				let bytes = data
+					.serialize()
+					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+				let id = tg::object::Id::new(kind, &bytes);
+				node.edge
+					.replace(tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
 						graph: Some(graph_id.clone()),
 						index: local,
 						kind: artifact_kind,
-					};
-					tg::object::Data::Directory(tg::directory::Data::Pointer(pointer))
-				},
-				Variant::File(_) => {
-					let pointer = tg::graph::data::Pointer {
-						graph: Some(graph_id.clone()),
-						index: local,
-						kind: artifact_kind,
-					};
-					tg::object::Data::File(tg::file::Data::Pointer(pointer))
-				},
-				Variant::Symlink(_) => {
-					let pointer = tg::graph::data::Pointer {
-						graph: Some(graph_id.clone()),
-						index: local,
-						kind: artifact_kind,
-					};
-					tg::object::Data::Symlink(tg::symlink::Data::Pointer(pointer))
-				},
-			};
-			let kind = data.kind();
-			let bytes = data
-				.serialize()
-				.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
-			let id = tg::object::Id::new(kind, &bytes);
-			node.edge
-				.replace(tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
-					graph: Some(graph_id.clone()),
-					index: local,
-					kind: artifact_kind,
-				}));
-			node.id.replace(id);
+					}));
+				node.id.replace(id);
+			}
 		}
 
 		Ok(())
@@ -849,8 +857,6 @@ impl Server {
 		Ok(id)
 	}
 
-	/// Compute initial labels for graph nodes by serializing node data with intra-SCC references
-	/// normalized and external references resolved to object IDs.
 	fn checkin_graph_node_initial_label(
 		graph: &Graph,
 		paths: &Paths,
@@ -963,80 +969,95 @@ impl Server {
 		};
 
 		// Serialize the node data.
-		let bytes = serde_json::to_vec(&data)
+		let bytes = tangram_serialize::to_vec(&data)
 			.map_err(|source| tg::error!(!source, "failed to serialize the node"))?;
 
 		Ok(bytes)
 	}
 
-	/// Compute canonical labels using the Weisfeiler-Leman algorithm. This produces a deterministic ordering of nodes in a strongly connected component.
+	/// Compute canonical labels for all nodes in the SCC using the Weisfeiler-Lehman algorithm.
 	fn checkin_graph_canonical_labels(
 		graph: &Graph,
 		paths: &Paths,
 		scc: &[usize],
 	) -> tg::Result<BTreeMap<usize, u64>> {
-		// Compute initial labels from serialized node data.
+		// Helper to hash bytes.
+		fn hash_bytes(bytes: &[u8]) -> u64 {
+			let mut hasher = fnv::FnvHasher::default();
+			bytes.hash(&mut hasher);
+			hasher.finish()
+		}
+
+		// Compute initial labels from node content.
 		let mut labels: BTreeMap<usize, u64> = BTreeMap::new();
 		for &index in scc {
-			let data = Self::checkin_graph_node_initial_label(graph, paths, scc, index)?;
-			let mut hasher = DefaultHasher::new();
-			data.hash(&mut hasher);
-			labels.insert(index, hasher.finish());
+			let bytes = Self::checkin_graph_node_initial_label(graph, paths, scc, index)?;
+			labels.insert(index, hash_bytes(&bytes));
 		}
 
-		// Collect edges within the SCC (both outgoing and incoming for undirected-style refinement).
-		let mut outgoing: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
-		let mut incoming: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
-		for &index in scc {
-			outgoing.insert(index, Vec::new());
-			incoming.insert(index, Vec::new());
-		}
+		// Create the neighbors.
+		let scc_set: BTreeSet<usize> = scc.iter().copied().collect();
+		let mut neighbors: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
 		for &index in scc {
 			let node = graph.nodes.get(&index).unwrap();
-			for child in node.children() {
-				if scc.contains(&child) {
-					outgoing.get_mut(&index).unwrap().push(child);
-					incoming.get_mut(&child).unwrap().push(index);
-				}
+			let mut node_neighbors = Vec::new();
+			match &node.variant {
+				Variant::File(file) => {
+					for (reference, option) in &file.dependencies {
+						let edge = paths
+							.get(&(index, reference.clone()))
+							.cloned()
+							.or_else(|| option.as_ref().and_then(|d| d.item().clone()));
+						if let Some(tg::graph::data::Edge::Pointer(pointer)) = edge
+							&& pointer.graph.is_none()
+							&& scc_set.contains(&pointer.index)
+						{
+							node_neighbors.push(pointer.index);
+						}
+					}
+				},
+				Variant::Directory(directory) => {
+					for edge in directory.entries.values() {
+						if let tg::graph::data::Edge::Pointer(pointer) = edge
+							&& pointer.graph.is_none()
+							&& scc_set.contains(&pointer.index)
+						{
+							node_neighbors.push(pointer.index);
+						}
+					}
+				},
+				Variant::Symlink(symlink) => {
+					if let Some(tg::graph::data::Edge::Pointer(pointer)) = &symlink.artifact
+						&& pointer.graph.is_none()
+						&& scc_set.contains(&pointer.index)
+					{
+						node_neighbors.push(pointer.index);
+					}
+				},
 			}
+			neighbors.insert(index, node_neighbors);
 		}
 
-		// Sort edges for determinism.
-		for edges in outgoing.values_mut() {
-			edges.sort_unstable();
-		}
-		for edges in incoming.values_mut() {
-			edges.sort_unstable();
-		}
-
-		// Iteratively refine labels until stable.
-		let max_iterations = scc.len() + 1;
-		for _ in 0..max_iterations {
+		// Run WL iterations until convergence.
+		loop {
 			let mut new_labels: BTreeMap<usize, u64> = BTreeMap::new();
-
 			for &index in scc {
-				let mut hasher = DefaultHasher::new();
+				// Collect and sort neighbor labels.
+				let mut neighbor_labels: Vec<u64> =
+					neighbors[&index].iter().map(|&n| labels[&n]).collect();
+				neighbor_labels.sort_unstable();
 
-				// Hash the current label.
+				// Hash the node's label with its sorted neighbor labels.
+				let mut hasher = fnv::FnvHasher::default();
 				labels[&index].hash(&mut hasher);
-
-				// Hash sorted outgoing neighbor labels.
-				let mut out_labels: Vec<u64> =
-					outgoing[&index].iter().map(|&n| labels[&n]).collect();
-				out_labels.sort_unstable();
-				out_labels.hash(&mut hasher);
-
-				// Hash sorted incoming neighbor labels.
-				let mut in_labels: Vec<u64> =
-					incoming[&index].iter().map(|&n| labels[&n]).collect();
-				in_labels.sort_unstable();
-				in_labels.hash(&mut hasher);
-
+				neighbor_labels.hash(&mut hasher);
 				new_labels.insert(index, hasher.finish());
 			}
 
-			// Check for stability.
-			if new_labels == labels {
+			// Check for convergence: same number of distinct labels.
+			let old_distinct: BTreeSet<u64> = labels.values().copied().collect();
+			let new_distinct: BTreeSet<u64> = new_labels.values().copied().collect();
+			if old_distinct.len() == new_distinct.len() {
 				break;
 			}
 			labels = new_labels;
