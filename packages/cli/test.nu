@@ -675,9 +675,9 @@ export def --env spawn [
 	--busybox
 	--cloud
 	--config (-c): record
+	--directory (-d): string
 	--name (-n): string
-	--directory: string
-	--url: string
+	--url (-u): string
 ] {
 	mut default_config = {
 		advanced: {

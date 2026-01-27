@@ -160,7 +160,9 @@ impl Server {
 						},
 					};
 					result
-						.inspect_err(|error| tracing::error!(?error, "connection failed"))
+						.inspect_err(|error| {
+							tracing::error!(?error, "connection failed");
+						})
 						.ok();
 				}
 			});
