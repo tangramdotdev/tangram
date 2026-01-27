@@ -274,9 +274,14 @@ impl Server {
 		// Compute canonical labels using the Weisfeiler-Leman algorithm.
 		let canonical_labels = Self::checkin_graph_canonical_labels(graph, paths, scc)?;
 
-		// Sort the SCC indices by canonical labels.
+		// Sort the SCC indices by canonical labels, using paths as a tiebreaker for locally
+		// checked-in nodes with identical content (e.g., symmetric imports).
 		let mut sorted_scc: Vec<usize> = scc.to_vec();
-		sorted_scc.sort_by(|a, b| canonical_labels[a].cmp(&canonical_labels[b]));
+		sorted_scc.sort_by(|a, b| {
+			canonical_labels[a]
+				.cmp(&canonical_labels[b])
+				.then_with(|| graph.nodes[a].path.cmp(&graph.nodes[b].path))
+		});
 
 		// Create a mapping from global node index to position in the sorted SCC.
 		let scc_positions: BTreeMap<usize, usize> = sorted_scc
@@ -844,14 +849,15 @@ impl Server {
 		Ok(id)
 	}
 
-	/// Compute initial labels for graph nodes by serializing node data with intra-SCC references set to None.
+	/// Compute initial labels for graph nodes by serializing node data with intra-SCC references
+	/// normalized and external references resolved to object IDs.
 	fn checkin_graph_node_initial_label(
 		graph: &Graph,
 		paths: &Paths,
 		scc_set: &HashSet<usize>,
 		index: usize,
 	) -> tg::Result<Vec<u8>> {
-		// Create the node data with intra-SCC references set to None.
+		// Create the node data with normalized references.
 		let node = graph.nodes.get(&index).unwrap();
 		let data = match &node.variant {
 			Variant::File(file) => {
@@ -873,7 +879,16 @@ impl Server {
 								Some(tg::graph::data::Edge::Pointer(p))
 									if p.graph.is_none() && scc_set.contains(&p.index) =>
 								{
+									// Intra-SCC pointer: set to None for initial label.
 									None
+								},
+								Some(tg::graph::data::Edge::Pointer(p)) if p.graph.is_none() => {
+									// External pointer: resolve to object ID.
+									let external_node = graph.nodes.get(&p.index).unwrap();
+									external_node
+										.id
+										.as_ref()
+										.map(|id| tg::graph::data::Edge::Object(id.clone()))
 								},
 								other => other,
 							};
@@ -901,11 +916,20 @@ impl Server {
 							tg::graph::data::Edge::Pointer(p)
 								if p.graph.is_none() && scc_set.contains(&p.index) =>
 							{
+								// Intra-SCC pointer: normalize index to 0.
 								tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
 									graph: None,
 									index: 0,
 									kind: p.kind,
 								})
+							},
+							tg::graph::data::Edge::Pointer(p) if p.graph.is_none() => {
+								// External pointer: resolve to artifact ID.
+								let external_node = graph.nodes.get(&p.index).unwrap();
+								external_node.artifact.as_ref().map_or_else(
+									|| edge.clone(),
+									|id| tg::graph::data::Edge::Object(id.clone()),
+								)
 							},
 							other => other.clone(),
 						};
@@ -921,11 +945,20 @@ impl Server {
 					tg::graph::data::Edge::Pointer(p)
 						if p.graph.is_none() && scc_set.contains(&p.index) =>
 					{
+						// Intra-SCC pointer: normalize index to 0.
 						tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
 							graph: None,
 							index: 0,
 							kind: p.kind,
 						})
+					},
+					tg::graph::data::Edge::Pointer(p) if p.graph.is_none() => {
+						// External pointer: resolve to artifact ID.
+						let external_node = graph.nodes.get(&p.index).unwrap();
+						external_node.artifact.as_ref().map_or_else(
+							|| edge.clone(),
+							|id| tg::graph::data::Edge::Object(id.clone()),
+						)
 					},
 					other => other.clone(),
 				});
