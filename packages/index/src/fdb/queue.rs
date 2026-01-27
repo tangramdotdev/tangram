@@ -1162,8 +1162,8 @@ impl Index {
 				.await?;
 		}
 
-		let refs = self.update_get_object_process_refs(txn, id).await?;
-		for (process, kind) in refs {
+		let parents = self.update_get_object_process_parents(txn, id).await?;
+		for (process, kind) in parents {
 			let fields = Self::update_object_fields_to_process_fields(fields, kind);
 			if !fields.is_empty() {
 				self.update_enqueue_process_propagate(txn, &process, fields, version)
@@ -1428,7 +1428,7 @@ impl Index {
 		Ok(parents)
 	}
 
-	async fn update_get_object_process_refs(
+	async fn update_get_object_process_parents(
 		&self,
 		txn: &fdb::Transaction,
 		id: &tg::object::Id,
@@ -1444,17 +1444,17 @@ impl Index {
 		let entries = txn
 			.get_range(&range, 1, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get object process refs"))?;
+			.map_err(|source| tg::error!(!source, "failed to get object process parents"))?;
 
-		let mut refs = Vec::new();
+		let mut parents = Vec::new();
 		for entry in &entries {
 			let key: Key = self.unpack(entry.key())?;
 			if let Key::ObjectProcess { process, kind, .. } = key {
-				refs.push((process, kind));
+				parents.push((process, kind));
 			}
 		}
 
-		Ok(refs)
+		Ok(parents)
 	}
 
 	async fn update_get_process_children(
