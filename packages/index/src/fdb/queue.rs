@@ -432,7 +432,19 @@ impl Index {
 
 		let objects = self.update_get_process_objects(txn, id).await?;
 
+		// Track which object kinds exist for this process.
+		let mut has_error = false;
+		let mut has_log = false;
+		let mut has_output = false;
+
 		for (object, kind) in &objects {
+			match kind {
+				ProcessObjectKind::Command => {},
+				ProcessObjectKind::Error => has_error = true,
+				ProcessObjectKind::Log => has_log = true,
+				ProcessObjectKind::Output => has_output = true,
+			}
+
 			let field = match kind {
 				ProcessObjectKind::Command => ProcessStoredField::NodeCommand,
 				ProcessObjectKind::Error => ProcessStoredField::NodeError,
@@ -461,6 +473,35 @@ impl Index {
 			}
 		}
 
+		// For missing object kinds, set stored to true.
+		let missing_kinds = [
+			(
+				has_error,
+				ProcessStoredField::NodeError,
+				ProcessPropagateUpdateFields::STORED_NODE_ERROR,
+			),
+			(
+				has_log,
+				ProcessStoredField::NodeLog,
+				ProcessPropagateUpdateFields::STORED_NODE_LOG,
+			),
+			(
+				has_output,
+				ProcessStoredField::NodeOutput,
+				ProcessPropagateUpdateFields::STORED_NODE_OUTPUT,
+			),
+		];
+
+		for (has_kind, field, flag) in missing_kinds {
+			if !has_kind && fields.contains(flag) {
+				let current = self.update_get_process_field_bool(txn, id, field).await?;
+				if !current {
+					self.update_set_process_field_bool(txn, id, field);
+					updated |= flag;
+				}
+			}
+		}
+
 		Ok(updated)
 	}
 
@@ -474,7 +515,18 @@ impl Index {
 
 		let objects = self.update_get_process_objects(txn, id).await?;
 
+		// Track which object kinds exist for this process.
+		let mut has_error = false;
+		let mut has_log = false;
+		let mut has_output = false;
+
 		for (object, kind) in &objects {
+			match kind {
+				ProcessObjectKind::Command => {},
+				ProcessObjectKind::Error => has_error = true,
+				ProcessObjectKind::Log => has_log = true,
+				ProcessObjectKind::Output => has_output = true,
+			}
 			let mappings: &[(
 				ProcessPropagateUpdateFields,
 				ProcessMetadataField,
@@ -646,6 +698,80 @@ impl Index {
 					if value {
 						self.update_set_process_field_bool(txn, id, solved.1);
 						updated |= solved.0;
+					}
+				}
+			}
+		}
+
+		// For missing object kinds, set count=0, depth=0, size=0.
+		let missing_kinds: &[(
+			bool,
+			&[(ProcessPropagateUpdateFields, ProcessMetadataField)],
+		)] = &[
+			(
+				has_error,
+				&[
+					(
+						ProcessPropagateUpdateFields::METADATA_NODE_ERROR_COUNT,
+						ProcessMetadataField::NodeErrorCount,
+					),
+					(
+						ProcessPropagateUpdateFields::METADATA_NODE_ERROR_DEPTH,
+						ProcessMetadataField::NodeErrorDepth,
+					),
+					(
+						ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SIZE,
+						ProcessMetadataField::NodeErrorSize,
+					),
+				],
+			),
+			(
+				has_log,
+				&[
+					(
+						ProcessPropagateUpdateFields::METADATA_NODE_LOG_COUNT,
+						ProcessMetadataField::NodeLogCount,
+					),
+					(
+						ProcessPropagateUpdateFields::METADATA_NODE_LOG_DEPTH,
+						ProcessMetadataField::NodeLogDepth,
+					),
+					(
+						ProcessPropagateUpdateFields::METADATA_NODE_LOG_SIZE,
+						ProcessMetadataField::NodeLogSize,
+					),
+				],
+			),
+			(
+				has_output,
+				&[
+					(
+						ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_COUNT,
+						ProcessMetadataField::NodeOutputCount,
+					),
+					(
+						ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_DEPTH,
+						ProcessMetadataField::NodeOutputDepth,
+					),
+					(
+						ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SIZE,
+						ProcessMetadataField::NodeOutputSize,
+					),
+				],
+			),
+		];
+
+		for (has_kind, mappings) in missing_kinds {
+			if !has_kind {
+				for (flag, process_field) in *mappings {
+					if fields.contains(*flag) {
+						let current = self
+							.update_get_process_field_u64(txn, id, *process_field)
+							.await?;
+						if current.is_none() {
+							self.update_set_process_field_u64(txn, id, *process_field, 0);
+							updated |= *flag;
+						}
 					}
 				}
 			}
