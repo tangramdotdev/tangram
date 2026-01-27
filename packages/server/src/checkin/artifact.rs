@@ -884,11 +884,9 @@ impl Server {
 								},
 								Some(tg::graph::data::Edge::Pointer(p)) if p.graph.is_none() => {
 									// External pointer: resolve to object ID.
-									let external_node = graph.nodes.get(&p.index).unwrap();
-									external_node
-										.id
-										.as_ref()
-										.map(|id| tg::graph::data::Edge::Object(id.clone()))
+									let node = graph.nodes.get(&p.index).unwrap();
+									let id = node.id.as_ref().unwrap();
+									Some(tg::graph::data::Edge::Object(id.clone()))
 								},
 								other => other,
 							};
@@ -925,11 +923,9 @@ impl Server {
 							},
 							tg::graph::data::Edge::Pointer(p) if p.graph.is_none() => {
 								// External pointer: resolve to artifact ID.
-								let external_node = graph.nodes.get(&p.index).unwrap();
-								external_node.artifact.as_ref().map_or_else(
-									|| edge.clone(),
-									|id| tg::graph::data::Edge::Object(id.clone()),
-								)
+								let node = graph.nodes.get(&p.index).unwrap();
+								let id = node.id.as_ref().unwrap().clone().try_into().unwrap();
+								tg::graph::data::Edge::Object(id)
 							},
 							other => other.clone(),
 						};
@@ -941,26 +937,27 @@ impl Server {
 				))
 			},
 			Variant::Symlink(symlink) => {
-				let artifact = symlink.artifact.as_ref().map(|edge| match edge {
-					tg::graph::data::Edge::Pointer(p)
-						if p.graph.is_none() && scc_set.contains(&p.index) =>
-					{
-						// Intra-SCC pointer: normalize index to 0.
-						tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
-							graph: None,
-							index: 0,
-							kind: p.kind,
-						})
-					},
-					tg::graph::data::Edge::Pointer(p) if p.graph.is_none() => {
-						// External pointer: resolve to artifact ID.
-						let external_node = graph.nodes.get(&p.index).unwrap();
-						external_node.artifact.as_ref().map_or_else(
-							|| edge.clone(),
-							|id| tg::graph::data::Edge::Object(id.clone()),
-						)
-					},
-					other => other.clone(),
+				let artifact = symlink.artifact.as_ref().map(|edge| {
+					let edge: tg::graph::data::Edge<tg::artifact::Id> = match edge {
+						tg::graph::data::Edge::Pointer(p)
+							if p.graph.is_none() && scc_set.contains(&p.index) =>
+						{
+							// Intra-SCC pointer: normalize index to 0.
+							tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
+								graph: None,
+								index: 0,
+								kind: p.kind,
+							})
+						},
+						tg::graph::data::Edge::Pointer(p) if p.graph.is_none() => {
+							// External pointer: resolve to artifact ID.
+							let node = graph.nodes.get(&p.index).unwrap();
+							let id = node.id.as_ref().unwrap().clone().try_into().unwrap();
+							tg::graph::data::Edge::Object(id)
+						},
+						other => other.clone(),
+					};
+					edge
 				});
 				tg::graph::data::Node::Symlink(tg::graph::data::Symlink {
 					artifact,
