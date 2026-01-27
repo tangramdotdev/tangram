@@ -11,6 +11,7 @@ use {
 
 pub mod delete;
 pub mod list;
+pub mod touch;
 
 pub struct Watch {
 	options: tg::checkin::Options,
@@ -24,6 +25,7 @@ struct State {
 	lock: Option<Arc<tg::graph::Data>>,
 	#[cfg(target_os = "macos")]
 	paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
+	sender: tokio::sync::mpsc::Sender<Message>,
 	solutions: crate::checkin::Solutions,
 	version: u64,
 	watcher: notify::RecommendedWatcher,
@@ -34,6 +36,11 @@ pub struct Snapshot {
 	pub lock: Option<Arc<tg::graph::Data>>,
 	pub solutions: crate::checkin::Solutions,
 	pub version: u64,
+}
+
+struct Message {
+	event: notify::Event,
+	sender: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 impl Watch {
@@ -47,11 +54,17 @@ impl Watch {
 	) -> tg::Result<Self> {
 		// Create the watcher.
 		let config = notify::Config::default();
-		let (sender, mut receiver) = tokio::sync::mpsc::channel::<notify::Event>(1024);
+		let (sender, mut receiver) = tokio::sync::mpsc::channel::<Message>(1024);
 		let handler = {
+			let sender = sender.clone();
 			move |result| match result {
 				Ok(event) => {
-					sender.blocking_send(event).ok();
+					sender
+						.blocking_send(Message {
+							event,
+							sender: None,
+						})
+						.ok();
 				},
 				Err(error) => {
 					tracing::error!(?error);
@@ -67,6 +80,7 @@ impl Watch {
 			lock,
 			#[cfg(target_os = "macos")]
 			paths: HashSet::default(),
+			sender,
 			solutions,
 			version: 0,
 			watcher,
@@ -82,9 +96,9 @@ impl Watch {
 			let state = state.clone();
 			let root = root.to_owned();
 			move |_| async move {
-				while let Some(event) = receiver.recv().await {
+				while let Some(message) = receiver.recv().await {
 					// Get the paths.
-					let paths = Self::changes(&event);
+					let paths = Self::changes(&message.event);
 
 					// Lock the state.
 					let mut state = state.lock().unwrap();
@@ -154,6 +168,11 @@ impl Watch {
 					// Increment the version if any nodes were removed.
 					if removed {
 						state.version += 1;
+					}
+
+					// Notify any tasks waiting that the message has been received.
+					if let Some(sender) = message.sender {
+						sender.send(()).ok();
 					}
 				}
 			}

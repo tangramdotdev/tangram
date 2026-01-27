@@ -43,6 +43,7 @@ type TagTasks = tangram_futures::task::Map<
 
 #[derive(Clone)]
 struct Prefetch {
+	arg: tg::checkin::Arg,
 	object_tasks: ObjectTasks,
 	objects: Objects,
 	semaphore: Arc<tokio::sync::Semaphore>,
@@ -182,6 +183,7 @@ impl Server {
 			arg,
 			checkpoints: Vec::new(),
 			prefetch: Prefetch {
+				arg: arg.clone(),
 				object_tasks: tangram_futures::task::Map::default(),
 				objects: Arc::new(DashMap::default()),
 				semaphore: Arc::new(tokio::sync::Semaphore::new(PREFETCH_CONCURRENCY)),
@@ -1527,9 +1529,10 @@ impl Server {
 						self.checkin_solve_get_or_spawn_tag_task(prefetch, pattern);
 					}
 				}
-				for dependency in file.dependencies.values() {
+				for (reference, dependency) in &file.dependencies {
 					if let Some(dependency) = dependency
-						&& let Some(edge) = &dependency.0.item
+						&& let Some(edge) = &dependency.item()
+						&& !reference.is_solvable()
 					{
 						self.checkin_solve_prefetch_from_object_edge(prefetch, edge);
 					}
@@ -1639,6 +1642,10 @@ impl Server {
 			let pattern = pattern.clone();
 			let prefetch = prefetch.clone();
 			move |_| async move {
+				if prefetch.arg.options.deterministic {
+					return Ok(tg::tag::list::Output { data: Vec::new() });
+				}
+
 				// Acquire a permit to limit concurrent requests.
 				let permit = prefetch.semaphore.acquire().await;
 

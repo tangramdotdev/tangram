@@ -2,6 +2,7 @@ use {crate::Cli, tangram_client::prelude::*};
 
 pub mod delete;
 pub mod list;
+pub mod touch;
 
 /// Manage watches.
 #[derive(Clone, Debug, clap::Args)]
@@ -15,6 +16,7 @@ pub struct Args {
 pub enum Command {
 	Delete(self::delete::Args),
 	List(self::list::Args),
+	Touch(self::touch::Args),
 }
 
 impl Cli {
@@ -22,6 +24,9 @@ impl Cli {
 		match args.command {
 			Command::Delete(args) => {
 				self.command_watch_delete(args).await?;
+			},
+			Command::Touch(args) => {
+				self.command_watch_touch(args).await?;
 			},
 			Command::List(args) => {
 				self.command_watch_list(args).await?;

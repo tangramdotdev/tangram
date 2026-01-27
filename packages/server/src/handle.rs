@@ -459,6 +459,10 @@ impl tg::handle::Watch for Owned {
 	async fn delete_watch(&self, arg: tg::watch::delete::Arg) -> tg::Result<()> {
 		self.0.delete_watch(arg).await
 	}
+
+	async fn touch_watch(&self, arg: tg::watch::touch::Arg) -> tg::Result<()> {
+		self.0.touch_watch(arg).await
+	}
 }
 
 impl tg::Handle for Server {
@@ -962,6 +966,11 @@ impl tg::handle::Watch for Server {
 		self.delete_watch_with_context(&Context::default(), arg)
 			.await
 	}
+
+	async fn touch_watch(&self, arg: tg::watch::touch::Arg) -> tg::Result<()> {
+		self.touch_watch_with_context(&Context::default(), arg)
+			.await
+	}
 }
 
 #[derive(Clone)]
@@ -1437,5 +1446,9 @@ impl tg::handle::Watch for ServerWithContext {
 
 	async fn delete_watch(&self, arg: tg::watch::delete::Arg) -> tg::Result<()> {
 		self.0.delete_watch_with_context(&self.1, arg).await
+	}
+
+	async fn touch_watch(&self, arg: tg::watch::touch::Arg) -> tg::Result<()> {
+		self.0.touch_watch_with_context(&self.1, arg).await
 	}
 }

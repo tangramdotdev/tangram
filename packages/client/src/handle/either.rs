@@ -912,4 +912,11 @@ where
 			tg::Either::Right(s) => s.delete_watch(arg).right_future(),
 		}
 	}
+
+	fn touch_watch(&self, arg: tg::watch::touch::Arg) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			tg::Either::Left(s) => s.touch_watch(arg).left_future(),
+			tg::Either::Right(s) => s.touch_watch(arg).right_future(),
+		}
+	}
 }
