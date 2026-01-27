@@ -686,12 +686,13 @@ impl fdbt::TuplePack for Key {
 
 			Key::UpdateVersion { version, id } => {
 				Kind::UpdateVersion.to_i32().unwrap().pack(w, tuple_depth)?;
-				version.pack(w, tuple_depth)?;
+				let offset = version.pack(w, tuple_depth)?;
 				let id = match &id {
 					tg::Either::Left(id) => id.to_bytes(),
 					tg::Either::Right(id) => id.to_bytes(),
 				};
-				id.as_ref().pack(w, tuple_depth)
+				id.as_ref().pack(w, tuple_depth)?;
+				Ok(offset)
 			},
 
 			Key::Clean {

@@ -445,6 +445,10 @@ impl Server {
 		let mut args = Vec::new();
 		let mut stack = vec![blob];
 		while let Some(blob) = stack.pop() {
+			if blob.bytes.is_none() && cache_pointer.is_none() {
+				stack.extend(&blob.children);
+				continue;
+			}
 			let cache_pointer =
 				cache_pointer
 					.as_ref()
