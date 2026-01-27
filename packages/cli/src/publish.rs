@@ -3,7 +3,7 @@ use {
 	futures::FutureExt as _,
 	petgraph::algo::tarjan_scc,
 	radix_trie::TrieCommon as _,
-	std::{collections::HashMap, path::PathBuf},
+	std::{collections::HashMap, path::Path, path::PathBuf},
 	tangram_client::prelude::*,
 };
 
@@ -50,18 +50,17 @@ struct State {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-struct Item {
-	referent: tg::Referent<tg::object::Id>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	checkin: Option<Checkin>,
-	tag: tg::Tag,
-	push: bool,
+#[serde(untagged)]
+enum Step {
+	Item(Item),
+	Cycle(Vec<Item>),
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-struct Checkin {
-	path: PathBuf,
-	options: tg::checkin::Options,
+struct Item {
+	referent: tg::Referent<tg::object::Id>,
+	path: Option<PathBuf>,
+	tag: tg::Tag,
 }
 
 impl Cli {
@@ -73,8 +72,6 @@ impl Cli {
 		if reference.export().is_some() {
 			return Err(tg::error!("cannot publish a reference with an export"));
 		}
-
-		// Obtain the artifact (can be a file or directory).
 		let referent = self
 			.get_reference_with_arg(&reference, tg::get::Arg::default(), false)
 			.await?
@@ -83,19 +80,19 @@ impl Cli {
 		// Create the state.
 		let mut state = State::default();
 
-		// Scan objects.
+		// Visit the objects.
 		state
 			.visit_objects(&handle, &referent)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to analyze objects"))?;
 
-		// Build the local dependency graph.
+		// Create the graph.
 		state
 			.create_graph(&handle)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create package graph"))?;
 
-		// Create the publishing plan.
+		// Create the plan.
 		let plan = state
 			.create_plan(&handle, args.tag.map(tg::Tag::new))
 			.boxed()
@@ -104,7 +101,7 @@ impl Cli {
 
 		// Print the plan if this is a dry run.
 		if args.dry_run {
-			self.print_serde(plan, crate::print::Options::default())
+			self.print_serde(&plan, crate::print::Options::default())
 				.await?;
 			return Ok(());
 		}
@@ -119,91 +116,64 @@ impl Cli {
 			.collect::<Vec<_>>();
 
 		// Execute the plan.
-		let mut pre_checkin_count = 0usize;
-		let mut plan_iter = plan.into_iter().peekable();
-		while let Some(mut item) = plan_iter.next() {
-			if let Some(checkin) = item.checkin.take() {
-				let args = tg::checkin::Arg {
-					path: checkin.path.clone(),
-					options: checkin.options,
-					updates: Vec::new(),
-				};
-				let artifact = tg::checkin(&handle, args).await.map_err(|source| tg::error!(!source, path = %checkin.path.display(), "failed to checkin local package during publishing"))?;
-				item.referent.item = artifact.id().into();
-			}
-
-			if item.push {
-				if pre_checkin_count > 0 {
-					let mut batch = vec![item];
-					for _ in 1..pre_checkin_count {
-						let mut next_item = plan_iter
-							.next()
-							.ok_or_else(|| tg::error!("expected more items in batch"))?;
-						if let Some(checkin) = next_item.checkin.take() {
-							let args = tg::checkin::Arg {
-								path: checkin.path.clone(),
-								options: checkin.options,
-								updates: Vec::new(),
-							};
-							let artifact = tg::checkin(&handle, args).await.map_err(|source| tg::error!(!source, path = %checkin.path.display(), "failed to checkin local package during publishing"))?;
-							next_item.referent.item = artifact.id().into();
-						}
-						batch.push(next_item);
-					}
-
-					for batch_item in batch {
-						items.push(tg::Either::Left(batch_item.referent.item.clone()));
-						tags.push((batch_item.tag.clone(), batch_item.referent.item.clone()));
-						handle
-							.put_tag(
-								&batch_item.tag,
-								tg::tag::put::Arg {
-									force: true,
-									item: tg::Either::Left(batch_item.referent.item().clone()),
-									local: None,
-									remotes: None,
-								},
-							)
-							.await
-							.map_err(
-								|source| tg::error!(!source, tag = %batch_item.tag, "failed to put local tag"),
-							)?;
-					}
-					pre_checkin_count = 0;
-				} else {
-					items.push(tg::Either::Left(item.referent.item.clone()));
-					tags.push((item.tag.clone(), item.referent.item.clone()));
-					handle
-						.put_tag(
-							&item.tag,
-							tg::tag::put::Arg {
-								force: true,
-								item: tg::Either::Left(item.referent.item().clone()),
-								local: None,
-								remotes: None,
-							},
-						)
-						.await
-						.map_err(
-							|source| tg::error!(!source, tag = %item.tag, "failed to put local tag"),
-						)?;
-				}
-			} else {
-				handle
-					.put_tag(
-						&item.tag,
-						tg::tag::put::Arg {
-							force: true,
-							item: tg::Either::Left(item.referent.item().clone()),
-							local: None,
-							remotes: None,
-						},
-					)
-					.await
-					.map_err(
+		for step in plan {
+			match step {
+				Step::Item(item) => {
+					let id = if let Some(path) = &item.path {
+						publish_checkin(&handle, path, true).await?
+					} else {
+						item.referent.item.clone()
+					};
+					items.push(tg::Either::Left(id.clone()));
+					tags.push((item.tag.clone(), id.clone()));
+					let arg = tg::tag::put::Arg {
+						force: true,
+						item: tg::Either::Left(id),
+						local: None,
+						remotes: None,
+					};
+					handle.put_tag(&item.tag, arg).await.map_err(
 						|source| tg::error!(!source, tag = %item.tag, "failed to put local tag"),
 					)?;
-				pre_checkin_count += 1;
+				},
+
+				Step::Cycle(cycle_items) => {
+					for item in &cycle_items {
+						let path = item
+							.path
+							.as_ref()
+							.ok_or_else(|| tg::error!("cycle items must have paths"))?;
+						let id = publish_checkin(&handle, path, false).await?;
+						let arg = tg::tag::put::Arg {
+							force: true,
+							item: tg::Either::Left(id),
+							local: None,
+							remotes: None,
+						};
+						handle.put_tag(&item.tag, arg).await.map_err(
+							|source| tg::error!(!source, tag = %item.tag, "failed to put local tag"),
+						)?;
+					}
+
+					for item in cycle_items {
+						let path = item
+							.path
+							.as_ref()
+							.ok_or_else(|| tg::error!("cycle items must have paths"))?;
+						let id = publish_checkin(&handle, path, true).await?;
+						items.push(tg::Either::Left(id.clone()));
+						tags.push((item.tag.clone(), id.clone()));
+						let arg = tg::tag::put::Arg {
+							force: true,
+							item: tg::Either::Left(id),
+							local: None,
+							remotes: None,
+						};
+						handle.put_tag(&item.tag, arg).await.map_err(
+							|source| tg::error!(!source, tag = %item.tag, "failed to put local tag"),
+						)?;
+					}
+				},
 			}
 		}
 
@@ -283,7 +253,7 @@ async fn try_get_package_tag(
 			let kind = tg::module::Kind::Ts;
 			(kind, object.clone())
 		},
-		// For directories, look for a root module.
+		// For directory, look for a root module.
 		tg::Object::Directory(directory) => {
 			// Get the root file name.
 			let Some(name) =
@@ -334,13 +304,12 @@ async fn try_get_package_tag(
 }
 
 impl State {
-	/// First pass: visit all objects.
 	async fn visit_objects(
 		&mut self,
 		handle: &impl tg::Handle,
 		root: &tg::Referent<tg::Object>,
 	) -> tg::Result<()> {
-		// Edge case: make sure the root is added if it is on the local file system.
+		// Make sure the root is added if it is on the local file system.
 		if root.path().is_some() {
 			self.local_packages.push(root.clone());
 			self.add_package(root);
@@ -350,7 +319,6 @@ impl State {
 		tg::object::visit(handle, self, root, false).await
 	}
 
-	/// Second pass, build the graph.
 	async fn create_graph(&mut self, handle: &impl tg::Handle) -> tg::Result<()> {
 		for package in self.all_packages.clone() {
 			let Self {
@@ -392,12 +360,11 @@ impl State {
 		Ok(())
 	}
 
-	// Third pass, construct the plan of tags and checkins.
 	async fn create_plan(
 		&mut self,
 		handle: &impl tg::Handle,
 		mut tag: Option<tg::Tag>,
-	) -> tg::Result<Vec<Item>> {
+	) -> tg::Result<Vec<Step>> {
 		let sccs = tarjan_scc(&self.graph);
 		let mut plan = Vec::new();
 		for scc in sccs {
@@ -407,10 +374,6 @@ impl State {
 				let node = &self.graph.nodes[index];
 				node.package.item.unload();
 
-				// A candidate may be published if:
-				// - It is the root package.
-				// - It is referred to by another package
-				// - It is a bare file that isn't contained by any directories.
 				let publishable = index == 0
 					|| self.local_packages.iter().any(|referent| {
 						referent.clone().map(|r| r.id()) == node.package.clone().map(|r| r.id())
@@ -434,8 +397,8 @@ impl State {
 					continue;
 				};
 
-				// If this node has no local dependencies then we don't have to check it in again.
-				let checkin = if node.outgoing.is_empty() {
+				// If this node has local dependencies then we need to check it in again.
+				let path = if node.outgoing.is_empty() {
 					None
 				} else {
 					let path = node
@@ -452,61 +415,46 @@ impl State {
 									"failed to canonicalize the path"
 								)
 							})?;
-					let options = tg::checkin::Options {
-						local_dependencies: false,
-						lock: None,
-						solve: true,
-						..tg::checkin::Options::default()
-					};
-					let checkin = Checkin { path, options };
-					Some(checkin)
+					Some(path)
 				};
 
-				// If this is in a strongly connected component add a checkin step without dependencies.
 				items.push(Item {
 					referent: node.package.clone().map(|object| object.id()),
-					checkin,
+					path,
 					tag,
-					push: true,
 				});
 			}
 
-			// If this is an SCC then we _must_ have a cycle among local dependencies, so we have to
-			// check in every item without dependencies first, then solve again. The pre-checkins
-			// establish a consistent base that the main checkins resolve against. We always do
-			// pre-checkins for SCCs to ensure deterministic results regardless of whether tags
-			// already exist.
+			// If there is more than one item in the SCC, then it is a cycle.
 			if items.len() > 1 {
-				for item in &items {
-					let path = item
-						.referent
-						.path()
-						.ok_or_else(|| tg::error!("missing path"))?;
-					let path =
-						tangram_util::fs::canonicalize_parent(&path)
-							.await
-							.map_err(|source| {
+				// Cycles must have paths for all items.
+				for item in &mut items {
+					if item.path.is_none() {
+						let path = item
+							.referent
+							.path()
+							.ok_or_else(|| tg::error!("missing path"))?;
+						let path = tangram_util::fs::canonicalize_parent(&path).await.map_err(
+							|source| {
 								tg::error!(
 									!source,
 									path = %path.display(),
 									"failed to canonicalize the path"
 								)
-							})?;
-					let options = tg::checkin::Options {
-						local_dependencies: false,
-						lock: None,
-						solve: false,
-						..tg::checkin::Options::default()
-					};
-					let checkin = Checkin { path, options };
-					plan.push(Item {
-						checkin: Some(checkin),
-						push: false,
-						..item.clone()
-					});
+							},
+						)?;
+						item.path = Some(path);
+					}
+				}
+
+				// Sort by tag to ensure deterministic ordering regardless of entry point.
+				items.sort_by(|a, b| a.tag.cmp(&b.tag));
+				plan.push(Step::Cycle(items));
+			} else {
+				for item in items {
+					plan.push(Step::Item(item));
 				}
 			}
-			plan.extend(items);
 		}
 		Ok(plan)
 	}
@@ -544,7 +492,6 @@ where
 		_handle: &H,
 		blob: tangram_client::Referent<&tangram_client::Blob>,
 	) -> tangram_client::Result<bool> {
-		// Track local tags.
 		if let Some(tag) = blob.tag() {
 			self.tags.push((tag.clone(), blob.item().id().into()));
 		}
@@ -565,7 +512,6 @@ where
 			return Err(tg::error!(id = ?directory.id(), "invalid path (1)"));
 		}
 
-		// Track local tags.
 		if let Some(tag) = directory.tag() {
 			self.tags.push((tag.clone(), directory.item().id().into()));
 		}
@@ -595,7 +541,6 @@ where
 		{
 			return Err(tg::error!(id = ?file.id(), "invalid path (2)"));
 		}
-		// Track local tags.
 		if let Some(tag) = file.tag() {
 			self.tags.push((tag.clone(), file.item().id().into()));
 		}
@@ -642,7 +587,6 @@ where
 		{
 			return Err(tg::error!("invalid path"));
 		}
-		// Track local tags.
 		if let Some(tag) = symlink.tag() {
 			self.tags.push((tag.clone(), symlink.item().id().into()));
 		}
@@ -654,7 +598,6 @@ where
 		_handle: &H,
 		command: tangram_client::Referent<&tangram_client::Command>,
 	) -> tangram_client::Result<bool> {
-		// Track local tags.
 		if let Some(tag) = command.tag() {
 			self.tags.push((tag.clone(), command.item().id().into()));
 		}
@@ -666,7 +609,6 @@ where
 		_handle: &H,
 		graph: tangram_client::Referent<&tangram_client::Graph>,
 	) -> tangram_client::Result<bool> {
-		// Track local tags.
 		if let Some(tag) = graph.tag() {
 			self.tags.push((tag.clone(), graph.item().id().into()));
 		}
@@ -707,4 +649,26 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a Graph {
 	fn neighbors(self, a: Self::NodeId) -> Self::Neighbors {
 		self.nodes[a].outgoing.iter().copied()
 	}
+}
+
+async fn publish_checkin(
+	handle: &impl tg::Handle,
+	path: &Path,
+	solve: bool,
+) -> tg::Result<tg::object::Id> {
+	let options = tg::checkin::Options {
+		local_dependencies: false,
+		lock: None,
+		solve,
+		..tg::checkin::Options::default()
+	};
+	let args = tg::checkin::Arg {
+		path: path.to_owned(),
+		options,
+		updates: Vec::new(),
+	};
+	let artifact = tg::checkin(handle, args)
+		.await
+		.map_err(|source| tg::error!(!source, path = %path.display(), "failed to checkin"))?;
+	Ok(artifact.id().into())
 }
