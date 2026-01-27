@@ -36,28 +36,25 @@ impl tg::Client {
 			move |request: http::Request<Body>| {
 				let sender = sender.clone();
 				async move {
-					// Attempt to get the sender. Return a Disconnected error if the sender is not available.
+					// Attempt to get the sender.
 					let mut guard = sender.lock().await;
 					let mut sender_ = match guard.as_ref() {
-						// If the sender is disconnected, remove it from the guard and replace.
 						Some(sender) if sender.is_closed() => {
 							guard.take();
 							return Err(Error::Disconnected);
 						},
-
-						// Otherwise use the sender.
 						Some(sender) => sender.clone(),
-
-						// Report if we're not connected.
-						None => return Err(Error::Disconnected),
+						None => {
+							return Err(Error::Disconnected);
+						},
 					};
 					drop(guard);
 
-					// Try to send the request. Hyper may return the request message if the connection is closing while the request is in flight. In this case we return a Error::Disconnected so callers may retry.
+					// Try to send the request.
 					let method = request.method().clone();
 					let uri = request.uri().clone();
-					match sender_.try_send_request(request).await {
-						Ok(response) => Ok(response.map(Body::new)),
+					let response = match sender_.try_send_request(request).await {
+						Ok(response) => response.map(Body::new),
 						Err(error)
 							if error.message().is_some()
 								|| std::error::Error::source(error.error())
@@ -67,16 +64,20 @@ impl tg::Client {
 									}) =>
 						{
 							sender.lock().await.take();
-							Err(Error::Disconnected)
+							return Err(Error::Disconnected);
 						},
 						Err(error) => {
 							let error = error.into_error();
-							Err(Error::Error(tg::error!(
+							return Err(Error::Error(tg::error!(
 								source = error,
-								"failed to send the request {method} {uri}"
-							)))
+								%method,
+								%uri,
+								"failed to send the request"
+							)));
 						},
-					}
+					};
+
+					Ok(response)
 				}
 			}
 		});
