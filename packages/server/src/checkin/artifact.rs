@@ -274,38 +274,25 @@ impl Server {
 		// Compute canonical labels using the Weisfeiler-Leman algorithm.
 		let canonical_labels = Self::checkin_graph_canonical_labels(graph, paths, scc)?;
 
-		// Group nodes by their canonical labels. Nodes with identical labels are structurally
-		// identical and will be deduplicated into a single node in the graph.
-		let mut label_groups: BTreeMap<u64, Vec<usize>> = BTreeMap::new();
-		for &idx in scc {
-			let label = canonical_labels[&idx];
-			label_groups.entry(label).or_default().push(idx);
-		}
+		// Sort the SCC indices by canonical labels, using paths as a tiebreaker for locally
+		// checked-in nodes with identical content (e.g., symmetric imports).
+		let mut sorted_scc: Vec<usize> = scc.to_vec();
+		sorted_scc.sort_by(|a, b| {
+			canonical_labels[a]
+				.cmp(&canonical_labels[b])
+				.then_with(|| graph.nodes[a].path.cmp(&graph.nodes[b].path))
+		});
 
-		// Create mappings for deduplication:
-		// - scc_positions: maps every global index to its deduplicated position
-		// - unique_indices: one index per deduplicated position (used to create nodes)
-		// - all_indices_by_position: all global indices for each position (used to set edges/ids)
-		let mut scc_positions: BTreeMap<usize, usize> = BTreeMap::new();
-		let mut unique_indices: Vec<usize> = Vec::new();
-		let mut all_indices_by_position: Vec<Vec<usize>> = Vec::new();
+		// Create a mapping from global node index to position in the sorted SCC.
+		let scc_positions: BTreeMap<usize, usize> = sorted_scc
+			.iter()
+			.enumerate()
+			.map(|(position, &global)| (global, position))
+			.collect();
 
-		for (position, (_, group)) in label_groups.iter().enumerate() {
-			// Pick the index with the smallest path for determinism.
-			let unique_index = *group
-				.iter()
-				.min_by_key(|idx| &graph.nodes[idx].path)
-				.unwrap();
-			unique_indices.push(unique_index);
-			all_indices_by_position.push(group.clone());
-			for &idx in group {
-				scc_positions.insert(idx, position);
-			}
-		}
-
-		// Create the nodes using the unique_indices.
-		let mut nodes = Vec::with_capacity(unique_indices.len());
-		for index in &unique_indices {
+		// Create the nodes using the sorted order.
+		let mut nodes = Vec::with_capacity(sorted_scc.len());
+		for index in &sorted_scc {
 			Self::checkin_create_graph_node(graph, paths, &scc_positions, &mut nodes, *index)?;
 		}
 
@@ -314,57 +301,55 @@ impl Server {
 		let (id, _, _) = Self::checkin_create_artifact(
 			graph,
 			&data,
-			&unique_indices,
+			&sorted_scc,
 			store_args,
 			object_messages,
 			touched_at,
 		)?;
 
-		// Set edges and ids for all nodes in the graph (including deduplicated ones).
+		// Set edges and ids for the nodes in the graph.
 		let graph_id = tg::graph::Id::try_from(id).unwrap();
-		for (local, global_indices) in all_indices_by_position.iter().enumerate() {
-			for &global in global_indices {
-				let node = graph.nodes.get_mut(&global).unwrap();
-				let artifact_kind = node.variant.kind();
-				let data = match &node.variant {
-					Variant::Directory(_) => {
-						let pointer = tg::graph::data::Pointer {
-							graph: Some(graph_id.clone()),
-							index: local,
-							kind: artifact_kind,
-						};
-						tg::object::Data::Directory(tg::directory::Data::Pointer(pointer))
-					},
-					Variant::File(_) => {
-						let pointer = tg::graph::data::Pointer {
-							graph: Some(graph_id.clone()),
-							index: local,
-							kind: artifact_kind,
-						};
-						tg::object::Data::File(tg::file::Data::Pointer(pointer))
-					},
-					Variant::Symlink(_) => {
-						let pointer = tg::graph::data::Pointer {
-							graph: Some(graph_id.clone()),
-							index: local,
-							kind: artifact_kind,
-						};
-						tg::object::Data::Symlink(tg::symlink::Data::Pointer(pointer))
-					},
-				};
-				let kind = data.kind();
-				let bytes = data
-					.serialize()
-					.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
-				let id = tg::object::Id::new(kind, &bytes);
-				node.edge
-					.replace(tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
+		for (local, global) in sorted_scc.iter().copied().enumerate() {
+			let node = graph.nodes.get_mut(&global).unwrap();
+			let artifact_kind = node.variant.kind();
+			let data = match &node.variant {
+				Variant::Directory(_) => {
+					let pointer = tg::graph::data::Pointer {
 						graph: Some(graph_id.clone()),
 						index: local,
 						kind: artifact_kind,
-					}));
-				node.id.replace(id);
-			}
+					};
+					tg::object::Data::Directory(tg::directory::Data::Pointer(pointer))
+				},
+				Variant::File(_) => {
+					let pointer = tg::graph::data::Pointer {
+						graph: Some(graph_id.clone()),
+						index: local,
+						kind: artifact_kind,
+					};
+					tg::object::Data::File(tg::file::Data::Pointer(pointer))
+				},
+				Variant::Symlink(_) => {
+					let pointer = tg::graph::data::Pointer {
+						graph: Some(graph_id.clone()),
+						index: local,
+						kind: artifact_kind,
+					};
+					tg::object::Data::Symlink(tg::symlink::Data::Pointer(pointer))
+				},
+			};
+			let kind = data.kind();
+			let bytes = data
+				.serialize()
+				.map_err(|source| tg::error!(!source, "failed to serialize the data"))?;
+			let id = tg::object::Id::new(kind, &bytes);
+			node.edge
+				.replace(tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
+					graph: Some(graph_id.clone()),
+					index: local,
+					kind: artifact_kind,
+				}));
+			node.id.replace(id);
 		}
 
 		Ok(())
