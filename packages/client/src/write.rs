@@ -28,9 +28,10 @@ impl tg::Client {
 			.body(body)
 			.unwrap();
 		let response = self
-			.send(request)
+			.try_send(request)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?
+			.ok_or_else(|| tg::error!("the server disconnected"))?;
 		if !response.status().is_success() {
 			let error = response.json().await.map_err(|source| {
 				tg::error!(!source, "failed to deserialize the error response")

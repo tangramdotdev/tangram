@@ -46,7 +46,7 @@ impl Server {
 		let task = Task::spawn({
 			let server = self.clone();
 			let progress = progress.clone();
-			async move |_| match server.try_spawn_process_task(arg, &progress).await {
+			async move |_| match server.try_spawn_process_task(arg, &progress).boxed().await {
 				Ok(output) => progress.output(output),
 				Err(error) => {
 					progress.error(error);
