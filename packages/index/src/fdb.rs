@@ -1,6 +1,5 @@
 use {
 	crate::{CleanOutput, ProcessObjectKind},
-	bytes::Bytes,
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	num_traits::{FromPrimitive as _, ToPrimitive as _},
 	std::{path::Path, sync::Arc},
@@ -18,7 +17,7 @@ mod transaction;
 #[derive(Clone)]
 pub struct Index {
 	database: Arc<fdb::Database>,
-	prefix: Option<Bytes>,
+	subspace: fdbt::Subspace,
 }
 
 #[derive(Debug, Clone)]
@@ -448,37 +447,26 @@ impl Index {
 		let database = fdb::Database::new(Some(cluster.to_str().unwrap()))
 			.map_err(|source| tg::error!(!source, "failed to open the foundationdb cluster"))?;
 		let database = Arc::new(database);
-		let prefix = prefix.map(|s| Bytes::from(s.into_bytes()));
-		let index = Self { database, prefix };
+		let subspace = match prefix {
+			Some(s) => fdbt::Subspace::from_bytes(s.into_bytes()),
+			None => fdbt::Subspace::all(),
+		};
+		let index = Self { database, subspace };
 		Ok(index)
 	}
 
 	fn pack<T: fdbt::TuplePack>(&self, key: &T) -> Vec<u8> {
-		match &self.prefix {
-			Some(prefix) => {
-				let mut v = prefix.to_vec();
-				key.pack_into_vec(&mut v);
-				v
-			},
-			None => key.pack_to_vec(),
-		}
+		self.subspace.pack(key)
 	}
 
-	fn pack_with_versionstamp<T: fdbt::TuplePack>(
-		&self,
-		key: &T,
-	) -> (Vec<u8>, fdbt::VersionstampOffset) {
-		let mut v = self.prefix.as_ref().map_or_else(Vec::new, |p| p.to_vec());
-		let offset = key.pack_into_vec(&mut v);
-		(v, offset)
+	fn pack_with_versionstamp<T: fdbt::TuplePack>(&self, key: &T) -> Vec<u8> {
+		self.subspace.pack_with_versionstamp(key)
 	}
 
 	fn unpack<'a, T: fdbt::TupleUnpack<'a>>(&self, bytes: &'a [u8]) -> tg::Result<T> {
-		let bytes = match &self.prefix {
-			Some(prefix) => &bytes[prefix.len()..],
-			None => bytes,
-		};
-		fdbt::unpack(bytes).map_err(|source| tg::error!(!source, "failed to unpack key"))
+		self.subspace
+			.unpack(bytes)
+			.map_err(|source| tg::error!(!source, "failed to unpack key"))
 	}
 
 	pub async fn sync(&self) -> tg::Result<()> {
@@ -685,13 +673,13 @@ impl fdbt::TuplePack for Key {
 			},
 
 			Key::UpdateVersion { version, id } => {
-				Kind::UpdateVersion.to_i32().unwrap().pack(w, tuple_depth)?;
-				let offset = version.pack(w, tuple_depth)?;
+				let mut offset = Kind::UpdateVersion.to_i32().unwrap().pack(w, tuple_depth)?;
+				offset += version.pack(w, tuple_depth)?;
 				let id = match &id {
 					tg::Either::Left(id) => id.to_bytes(),
 					tg::Either::Right(id) => id.to_bytes(),
 				};
-				id.as_ref().pack(w, tuple_depth)?;
+				offset += id.as_ref().pack(w, tuple_depth)?;
 				Ok(offset)
 			},
 

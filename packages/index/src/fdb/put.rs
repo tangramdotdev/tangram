@@ -1,11 +1,12 @@
 use {
 	super::{
-		CacheEntryCoreField, CacheEntryField, Index, ItemKind, Key, ObjectCoreField, ObjectField,
-		ObjectMetadataField, ObjectStoredField, ProcessCoreField, ProcessField,
+		CacheEntryCoreField, CacheEntryField, Index, ItemKind, Key, Kind, ObjectCoreField,
+		ObjectField, ObjectMetadataField, ObjectStoredField, ProcessCoreField, ProcessField,
 		ProcessMetadataField, ProcessStoredField, Update,
 	},
 	crate::{ProcessObjectKind, PutArg, PutCacheEntryArg, PutObjectArg, PutProcessArg},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
+	num_traits::ToPrimitive as _,
 	tangram_client::prelude::*,
 };
 
@@ -457,14 +458,15 @@ impl Index {
 			.unwrap();
 		txn.set(&key, &value);
 
-		let (mut key, offset) = self.pack_with_versionstamp(&Key::UpdateVersion {
-			version: fdbt::Versionstamp::incomplete(0),
-			id: id.clone(),
-		});
-		let fdbt::VersionstampOffset::OneIncomplete { offset } = offset else {
-			panic!("expected one incomplete versionstamp");
+		let id_bytes = match &id {
+			tg::Either::Left(id) => id.to_bytes(),
+			tg::Either::Right(id) => id.to_bytes(),
 		};
-		key.extend_from_slice(&offset.to_le_bytes());
+		let key = self.pack_with_versionstamp(&(
+			Kind::UpdateVersion.to_i32().unwrap(),
+			fdbt::Versionstamp::incomplete(0),
+			id_bytes.as_ref(),
+		));
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
 		txn.atomic_op(

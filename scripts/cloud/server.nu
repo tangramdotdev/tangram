@@ -14,6 +14,7 @@ let config = {
 	http: {
 		url: 'http://localhost:8476'
 	},
+	indexer: true,
 	index: {
 		kind: 'fdb',
 		cluster: $cluster,

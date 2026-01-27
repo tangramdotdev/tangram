@@ -65,7 +65,10 @@ impl Index {
 
 			// If the update key does not exist, delete the stale entry and continue.
 			let Some(update) = update else {
-				let key = self.pack(&Key::UpdateVersion { version, id });
+				let key = self.pack(&Key::UpdateVersion {
+					version: version.clone(),
+					id,
+				});
 				txn.clear(&key);
 				count += 1;
 				continue;
@@ -98,8 +101,12 @@ impl Index {
 			}
 
 			// Delete both the update and update version keys.
+			let key = self.pack(&Key::Update { id: id.clone() });
 			txn.clear(&key);
-			let key = self.pack(&Key::UpdateVersion { version, id });
+			let key = self.pack(&Key::UpdateVersion {
+				version: version.clone(),
+				id,
+			});
 			txn.clear(&key);
 
 			count += 1;
