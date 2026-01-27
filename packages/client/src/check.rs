@@ -25,20 +25,22 @@ pub struct Output {
 
 impl tg::Client {
 	pub async fn check(&self, arg: Arg) -> tg::Result<tg::check::Output> {
+		let method = http::Method::POST;
+		let uri = "/check";
+		let arg = serde_json::to_string(&arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
+			.header(
+				http::header::CONTENT_TYPE,
+				mime::APPLICATION_JSON.to_string(),
+			)
+			.bytes(arg)
+			.unwrap();
 		let response = self
-			.send(|| {
-				http::request::Builder::default()
-					.method(http::Method::POST)
-					.uri("/check")
-					.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
-					.header(
-						http::header::CONTENT_TYPE,
-						mime::APPLICATION_JSON.to_string(),
-					)
-					.json(arg.clone())
-					.unwrap()
-					.unwrap()
-			})
+			.send(request)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {

@@ -28,20 +28,21 @@ pub struct Item {
 
 impl tg::Client {
 	pub async fn post_tag_batch(&self, arg: Arg) -> tg::Result<()> {
+		let method = http::Method::POST;
+		let uri = "/tags/batch";
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
+			.header(
+				http::header::CONTENT_TYPE,
+				mime::APPLICATION_JSON.to_string(),
+			)
+			.json(&arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
+			.unwrap();
 		let response = self
-			.send(|| {
-				http::request::Builder::default()
-					.method(http::Method::POST)
-					.uri("/tags/batch")
-					.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
-					.header(
-						http::header::CONTENT_TYPE,
-						mime::APPLICATION_JSON.to_string(),
-					)
-					.json(arg.clone())
-					.unwrap()
-					.unwrap()
-			})
+			.send(request)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {

@@ -39,18 +39,18 @@ impl tg::Client {
 		id: &tg::process::Id,
 		arg: tg::process::get::Arg,
 	) -> tg::Result<Option<tg::process::get::Output>> {
+		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg)
 			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
 		let uri = format!("/processes/{id}?{query}");
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
+			.empty()
+			.unwrap();
 		let response = self
-			.send(|| {
-				http::request::Builder::default()
-					.method(http::Method::GET)
-					.uri(uri.clone())
-					.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
-					.empty()
-					.unwrap()
-			})
+			.send(request)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if response.status() == http::StatusCode::NOT_FOUND {

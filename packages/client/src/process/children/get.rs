@@ -91,19 +91,18 @@ impl tg::Client {
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static>,
 	> {
+		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg)
 			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
+		let uri = format!("/processes/{id}/children?{query}");
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
+			.empty()
+			.unwrap();
 		let response = self
-			.send(|| {
-				let method = http::Method::GET;
-				let uri = format!("/processes/{id}/children?{query}");
-				http::request::Builder::default()
-					.method(method)
-					.uri(uri)
-					.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
-					.empty()
-					.unwrap()
-			})
+			.send(request)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if response.status() == http::StatusCode::NOT_FOUND {

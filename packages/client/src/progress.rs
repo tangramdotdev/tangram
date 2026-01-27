@@ -213,7 +213,7 @@ where
 					.map_err(|source| tg::error!(!source, "failed to deserialize the data"))?;
 				Ok(Self::Output(data))
 			},
-			_ => Err(tg::error!(event = ?value.event, "invalid event")),
+			_ => Err(tg::error!("invalid event")),
 		}
 	}
 }

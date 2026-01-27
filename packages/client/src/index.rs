@@ -8,15 +8,16 @@ impl tg::Client {
 	pub async fn index(
 		&self,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+		let method = http::Method::POST;
+		let uri = "/index";
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
+			.empty()
+			.unwrap();
 		let response = self
-			.send(|| {
-				http::request::Builder::default()
-					.method(http::Method::POST)
-					.uri("/index")
-					.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
-					.empty()
-					.unwrap()
-			})
+			.send(request)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {

@@ -31,20 +31,21 @@ impl tg::Client {
 		&self,
 		arg: tg::tag::delete::Arg,
 	) -> tg::Result<tg::tag::delete::Output> {
+		let method = http::Method::DELETE;
+		let uri = "/tags".to_owned();
+		let request = http::request::Builder::default()
+			.method(method)
+			.uri(uri)
+			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
+			.header(
+				http::header::CONTENT_TYPE,
+				mime::APPLICATION_JSON.to_string(),
+			)
+			.json(arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
+			.unwrap();
 		let response = self
-			.send(|| {
-				http::request::Builder::default()
-					.method(http::Method::DELETE)
-					.uri("/tags")
-					.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
-					.header(
-						http::header::CONTENT_TYPE,
-						mime::APPLICATION_JSON.to_string(),
-					)
-					.json(arg.clone())
-					.unwrap()
-					.unwrap()
-			})
+			.send(request)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {

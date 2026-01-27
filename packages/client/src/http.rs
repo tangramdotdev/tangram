@@ -22,8 +22,8 @@ pub(crate) type Service = BoxCloneSyncService<http::Request<Body>, http::Respons
 
 #[derive(Clone, Debug)]
 pub(crate) enum Error {
-	Error(tg::Error),
 	Disconnected,
+	Other(tg::Error),
 }
 
 impl tg::Client {
@@ -68,7 +68,7 @@ impl tg::Client {
 						},
 						Err(error) => {
 							let error = error.into_error();
-							return Err(Error::Error(tg::error!(
+							return Err(Error::Other(tg::error!(
 								source = error,
 								%method,
 								%uri,
@@ -88,7 +88,7 @@ impl tg::Client {
 					if let Some(error) = error.downcast_ref::<Error>() {
 						error.clone()
 					} else {
-						Error::Error(tg::Error::from(error))
+						Error::Other(tg::Error::from(error))
 					}
 				},
 			)
@@ -538,16 +538,24 @@ impl tg::Client {
 		match self.service.clone().call(request).await {
 			Ok(response) => Ok(Some(response)),
 			Err(Error::Disconnected) => Ok(None),
-			Err(Error::Error(error)) => Err(error),
+			Err(Error::Other(error)) => Err(error),
 		}
 	}
 
 	pub(crate) async fn send(
 		&self,
-		request: impl Fn() -> http::Request<Body>,
+		request: http::Request<Body>,
 	) -> tg::Result<http::Response<Body>> {
+		let (parts, body) = request.into_parts();
+		let mut body = Some(body);
 		loop {
-			let request = request();
+			let body = body
+				.as_ref()
+				.unwrap()
+				.try_clone()
+				.or_else(|| body.take())
+				.ok_or_else(|| tg::error!("the request body is not cloneable"))?;
+			let request = http::Request::from_parts(parts.clone(), body);
 			if let Some(response) = self.try_send(request).await? {
 				return Ok(response);
 			}
@@ -558,8 +566,8 @@ impl tg::Client {
 impl std::fmt::Display for Error {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Error::Error(error) => write!(f, "{error}"),
-			Error::Disconnected => write!(f, "service disconnected"),
+			Error::Disconnected => write!(f, "disconnected"),
+			Error::Other(error) => write!(f, "{error}"),
 		}
 	}
 }
