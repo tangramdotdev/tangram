@@ -116,13 +116,13 @@ enum Key {
 	},
 	ProcessObject {
 		process: tg::process::Id,
-		object: tg::object::Id,
 		kind: ProcessObjectKind,
+		object: tg::object::Id,
 	},
 	ObjectProcess {
 		object: tg::object::Id,
-		process: tg::process::Id,
 		kind: ProcessObjectKind,
+		process: tg::process::Id,
 	},
 	ItemTag {
 		item: Vec<u8>,
@@ -478,25 +478,25 @@ impl fdbt::TuplePack for Key {
 
 			Key::ProcessObject {
 				process,
-				object,
 				kind,
+				object,
 			} => (
 				Kind::ProcessObject.to_i32().unwrap(),
 				process.to_bytes().as_ref(),
-				object.to_bytes().as_ref(),
 				kind.to_i32().unwrap(),
+				object.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
 			Key::ObjectProcess {
 				object,
-				process,
 				kind,
+				process,
 			} => (
 				Kind::ObjectProcess.to_i32().unwrap(),
 				object.to_bytes().as_ref(),
-				process.to_bytes().as_ref(),
 				kind.to_i32().unwrap(),
+				process.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
@@ -659,20 +659,20 @@ impl fdbt::TupleUnpack<'_> for Key {
 			Kind::ProcessObject => {
 				let (input, process_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, kind_value) = i32::unpack(input, tuple_depth)?;
 				let (input, object_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, kind_value) = i32::unpack(input, tuple_depth)?;
 				let process = tg::process::Id::from_slice(&process_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-				let object = tg::object::Id::from_slice(&object_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
 				let kind = ProcessObjectKind::from_i32(kind_value).ok_or(
 					fdbt::PackError::Message("invalid process object kind".into()),
 				)?;
+				let object = tg::object::Id::from_slice(&object_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
 				let key = Key::ProcessObject {
 					process,
-					object,
 					kind,
+					object,
 				};
 				Ok((input, key))
 			},
@@ -680,20 +680,20 @@ impl fdbt::TupleUnpack<'_> for Key {
 			Kind::ObjectProcess => {
 				let (input, object_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, kind_value) = i32::unpack(input, tuple_depth)?;
 				let (input, process_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, kind_value) = i32::unpack(input, tuple_depth)?;
 				let object = tg::object::Id::from_slice(&object_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
-				let process = tg::process::Id::from_slice(&process_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
 				let kind = ProcessObjectKind::from_i32(kind_value).ok_or(
 					fdbt::PackError::Message("invalid process object kind".into()),
 				)?;
+				let process = tg::process::Id::from_slice(&process_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
 				let key = Key::ObjectProcess {
 					object,
-					process,
 					kind,
+					process,
 				};
 				Ok((input, key))
 			},

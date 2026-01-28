@@ -652,25 +652,25 @@ impl fdbt::TuplePack for Key {
 
 			Key::ProcessObject {
 				process,
-				object,
 				kind,
+				object,
 			} => (
 				Kind::ProcessObject.to_i32().unwrap(),
 				process.to_bytes().as_ref(),
-				object.to_bytes().as_ref(),
 				kind.to_i32().unwrap(),
+				object.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
 			Key::ObjectProcess {
 				object,
-				process,
 				kind,
+				process,
 			} => (
 				Kind::ObjectProcess.to_i32().unwrap(),
 				object.to_bytes().as_ref(),
-				process.to_bytes().as_ref(),
 				kind.to_i32().unwrap(),
+				process.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
@@ -845,9 +845,9 @@ impl fdbt::TupleUnpack<'_> for Key {
 			Kind::ProcessObject => {
 				let (input, process_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, kind) = ProcessObjectKind::unpack(input, tuple_depth)?;
 				let (input, object_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, kind) = ProcessObjectKind::unpack(input, tuple_depth)?;
 				let process = tg::process::Id::from_slice(&process_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
 				let object = tg::object::Id::from_slice(&object_bytes)
@@ -856,8 +856,8 @@ impl fdbt::TupleUnpack<'_> for Key {
 					input,
 					Key::ProcessObject {
 						process,
-						object,
 						kind,
+						object,
 					},
 				))
 			},
@@ -865,9 +865,9 @@ impl fdbt::TupleUnpack<'_> for Key {
 			Kind::ObjectProcess => {
 				let (input, object_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, kind) = ProcessObjectKind::unpack(input, tuple_depth)?;
 				let (input, process_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, kind) = ProcessObjectKind::unpack(input, tuple_depth)?;
 				let object = tg::object::Id::from_slice(&object_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
 				let process = tg::process::Id::from_slice(&process_bytes)
@@ -876,8 +876,8 @@ impl fdbt::TupleUnpack<'_> for Key {
 					input,
 					Key::ObjectProcess {
 						object,
-						process,
 						kind,
+						process,
 					},
 				))
 			},

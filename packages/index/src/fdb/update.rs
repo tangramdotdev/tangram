@@ -1688,7 +1688,7 @@ impl Index {
 		let mut parents = Vec::new();
 		for entry in &entries {
 			let key = self.unpack(entry.key())?;
-			if let Key::ObjectProcess { process, kind, .. } = key {
+			if let Key::ObjectProcess { kind, process, .. } = key {
 				parents.push((process, kind));
 			}
 		}
@@ -1775,7 +1775,7 @@ impl Index {
 		let mut objects = Vec::new();
 		for entry in &entries {
 			let key = self.unpack(entry.key())?;
-			if let Key::ProcessObject { object, kind, .. } = key {
+			if let Key::ProcessObject { kind, object, .. } = key {
 				objects.push((object, kind));
 			}
 		}

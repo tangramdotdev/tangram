@@ -418,8 +418,8 @@ impl Index {
 				.unwrap();
 			let key = self.pack(&Key::ProcessObject {
 				process: id.clone(),
-				object: object.clone(),
 				kind: *kind,
+				object: object.clone(),
 			});
 			txn.set(&key, &[]);
 
@@ -427,8 +427,8 @@ impl Index {
 				.unwrap();
 			let key = self.pack(&Key::ObjectProcess {
 				object: object.clone(),
-				process: id.clone(),
 				kind: *kind,
+				process: id.clone(),
 			});
 			txn.set(&key, &[]);
 		}

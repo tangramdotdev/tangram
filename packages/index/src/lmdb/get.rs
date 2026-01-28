@@ -154,7 +154,7 @@ impl Index {
 				.map_err(|source| tg::error!(!source, "failed to read object process entry"))?;
 			let key =
 				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
-			let Key::ObjectProcess { process, kind, .. } = key else {
+			let Key::ObjectProcess { kind, process, .. } = key else {
 				return Err(tg::error!("unexpected key type"));
 			};
 			parents.push((process, kind));
@@ -227,7 +227,7 @@ impl Index {
 				.map_err(|source| tg::error!(!source, "failed to read process object entry"))?;
 			let key =
 				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
-			let Key::ProcessObject { object, kind, .. } = key else {
+			let Key::ProcessObject { kind, object, .. } = key else {
 				return Err(tg::error!("unexpected key type"));
 			};
 			objects.push((object, kind));

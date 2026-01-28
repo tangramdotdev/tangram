@@ -231,8 +231,8 @@ impl Index {
 		for (object, kind) in &arg.objects {
 			let key = Key::ProcessObject {
 				process: id.clone(),
-				object: object.clone(),
 				kind: *kind,
+				object: object.clone(),
 			}
 			.pack_to_vec();
 			db.put(transaction, &key, &[])
@@ -240,8 +240,8 @@ impl Index {
 
 			let key = Key::ObjectProcess {
 				object: object.clone(),
-				process: id.clone(),
 				kind: *kind,
+				process: id.clone(),
 			}
 			.pack_to_vec();
 			db.put(transaction, &key, &[])

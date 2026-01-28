@@ -404,7 +404,7 @@ impl Index {
 				.map_err(|source| tg::error!(!source, "failed to read process object key"))?;
 			let key = fdbt::unpack(key)
 				.map_err(|source| tg::error!(!source, "failed to unpack process object key"))?;
-			let Key::ProcessObject { object, kind, .. } = &key else {
+			let Key::ProcessObject { kind, object, .. } = &key else {
 				return Err(tg::error!("expected process object key"));
 			};
 			object_entries.push((key.pack_to_vec(), object.clone(), *kind));
@@ -417,8 +417,8 @@ impl Index {
 		for (_, object, kind) in &object_entries {
 			let key = Key::ObjectProcess {
 				object: object.clone(),
-				process: id.clone(),
 				kind: *kind,
+				process: id.clone(),
 			}
 			.pack_to_vec();
 			db.delete(transaction, &key)

@@ -464,7 +464,7 @@ impl Index {
 				let key = self
 					.unpack(entry.key())
 					.map_err(|source| tg::error!(!source, "failed to unpack key"))?;
-				let Key::ProcessObject { object, kind, .. } = key else {
+				let Key::ProcessObject { kind, object, .. } = key else {
 					return Err(tg::error!("expected process object key"));
 				};
 				Ok((object, kind))
@@ -475,8 +475,8 @@ impl Index {
 		for (object, kind) in &object_processes {
 			let key = Key::ObjectProcess {
 				object: object.clone(),
-				process: id.clone(),
 				kind: *kind,
+				process: id.clone(),
 			};
 			let key = self.pack(&key);
 			txn.clear(&key);
