@@ -71,7 +71,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		batch_size: usize,
 	) -> tg::Result<usize> {
-		// Read a batch.
+		// Read a batch of UpdateVersion entries.
 		let prefix = self.pack(&(Kind::UpdateVersion.to_i32().unwrap(),));
 		let subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
@@ -90,86 +90,56 @@ impl Index {
 				let Key::UpdateVersion { version, id } = key else {
 					return Err(tg::error!("unexpected key type"));
 				};
-				let value = entry.value().to_vec();
-				Ok((version, id, value))
+				Ok((version, id))
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
 		let mut count = 0;
-		for (version, id, version_value) in entries {
-			// Check if the update exists.
-			let key = self.pack(&Key::Update { id: id.clone() });
-			let update_key_value = txn
-				.get(&key, false)
+		for (version, id) in entries {
+			// Check if the update exists and get its type.
+			let update_key = self.pack(&Key::Update { id: id.clone() });
+			let update_value = txn
+				.get(&update_key, false)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get update key"))?;
 
-			// Determine which update to process.
-			let update = if let Some(update) = update_key_value {
-				// Use the Update key value (may have been merged with additional fields).
-				Update::deserialize(&update)?
-			} else if !version_value.is_empty() {
-				// The Update key was deleted (Put was processed), but this UpdateVersion has
-				// a Propagate that should still be processed.
-				let version_update = Update::deserialize(&version_value)?;
-				match version_update {
-					Update::Put => {
-						// Stale Put entry, delete and continue.
-						let key = self.pack(&Key::UpdateVersion {
-							version: version.clone(),
-							id,
-						});
-						txn.clear(&key);
-						count += 1;
-						continue;
-					},
-					Update::Propagate(_) => {
-						// Valid Propagate, process it.
-						version_update
-					},
-				}
-			} else {
-				// Stale entry with no value, delete and continue.
-				let key = self.pack(&Key::UpdateVersion {
+			// If the update key does not exist, delete the stale entry and continue.
+			let Some(update_value) = update_value else {
+				let version_key = self.pack(&Key::UpdateVersion {
 					version: version.clone(),
 					id,
 				});
-				txn.clear(&key);
+				txn.clear(&version_key);
 				count += 1;
 				continue;
 			};
 
-			// Process the update based on type.
-			match (&id, &update) {
-				(tg::Either::Left(id), Update::Put) => {
-					self.update_object_put(txn, id, &version).await?;
-				},
-				(tg::Either::Right(id), Update::Put) => {
-					self.update_process_put(txn, id, &version).await?;
-				},
-				(tg::Either::Left(id), Update::Propagate(PropagateUpdate::Object(propagate))) => {
-					let fields = ObjectPropagateUpdateFields::from_bits_truncate(propagate.fields);
-					self.update_object_propagate(txn, id, fields, &version)
-						.await?;
-				},
-				(tg::Either::Right(id), Update::Propagate(PropagateUpdate::Process(propagate))) => {
-					let fields = ProcessPropagateUpdateFields::from_bits_truncate(propagate.fields);
-					self.update_process_propagate(txn, id, fields, &version)
-						.await?;
-				},
-				_ => {
-					return Err(tg::error!("mismatched update type and id"));
-				},
+			// Parse the update type. Default to Put for backwards compatibility.
+			let is_put = match Update::deserialize(&update_value) {
+				Ok(Update::Propagate(_)) => false,
+				Ok(Update::Put) | Err(_) => true,
+			};
+
+			// Process the update by recomputing all fields.
+			let changed = match &id {
+				tg::Either::Left(object_id) => self.recompute_object(txn, object_id).await?,
+				tg::Either::Right(process_id) => self.recompute_process(txn, process_id).await?,
+			};
+
+			// For Put updates, always enqueue parent updates (the item is new to the index).
+			// For Propagate updates, only enqueue parents if fields actually changed.
+			let should_enqueue_parents = is_put || changed;
+			if should_enqueue_parents {
+				self.enqueue_parents(txn, &id, &version).await?;
 			}
 
-			// Delete both the update and update version keys.
-			let key = self.pack(&Key::Update { id: id.clone() });
-			txn.clear(&key);
-			let key = self.pack(&Key::UpdateVersion {
+			// Delete both the Update and UpdateVersion keys.
+			txn.clear(&update_key);
+			let version_key = self.pack(&Key::UpdateVersion {
 				version: version.clone(),
 				id,
 			});
-			txn.clear(&key);
+			txn.clear(&version_key);
 
 			count += 1;
 		}
@@ -177,103 +147,76 @@ impl Index {
 		Ok(count)
 	}
 
-	async fn update_object_put(
+	async fn recompute_object(
 		&self,
 		txn: &fdb::Transaction,
 		id: &tg::object::Id,
-		version: &fdbt::Versionstamp,
-	) -> tg::Result<()> {
-		// Recompute all fields from children.
+	) -> tg::Result<bool> {
 		let updated = self
 			.update_recompute_object_fields(txn, id, ObjectPropagateUpdateFields::ALL)
 			.await?;
-
-		// For Put updates, always enqueue parent updates (the object is new to the index).
-		// This matches LMDB behavior and ensures the propagation chain is started even if
-		// this object's children are not yet ready. The parents will be re-processed later
-		// when this object's fields are computed via Propagate.
-		self.update_enqueue_object_parent_updates(
-			txn,
-			id,
-			if updated.is_empty() {
-				ObjectPropagateUpdateFields::ALL
-			} else {
-				updated
-			},
-			version,
-		)
-		.await?;
-
-		Ok(())
+		Ok(!updated.is_empty())
 	}
 
-	async fn update_object_propagate(
-		&self,
-		txn: &fdb::Transaction,
-		id: &tg::object::Id,
-		fields: ObjectPropagateUpdateFields,
-		version: &fdbt::Versionstamp,
-	) -> tg::Result<()> {
-		// Recompute only the fields fields from children.
-		let updated = self.update_recompute_object_fields(txn, id, fields).await?;
-
-		// Enqueue parent updates for any fields that became set.
-		if !updated.is_empty() {
-			self.update_enqueue_object_parent_updates(txn, id, updated, version)
-				.await?;
-		}
-
-		Ok(())
-	}
-
-	async fn update_process_put(
+	async fn recompute_process(
 		&self,
 		txn: &fdb::Transaction,
 		id: &tg::process::Id,
-		version: &fdbt::Versionstamp,
-	) -> tg::Result<()> {
-		// Recompute all fields from children.
+	) -> tg::Result<bool> {
 		let updated = self
 			.update_recompute_process_fields(txn, id, ProcessPropagateUpdateFields::ALL)
 			.await?;
-
-		// For Put updates, always enqueue parent updates (the process is new to the index).
-		// This matches LMDB behavior and ensures the propagation chain is started even if
-		// this process's children are not yet ready. The parents will be re-processed later
-		// when this process's fields are computed via Propagate.
-		self.update_enqueue_process_parent_updates(
-			txn,
-			id,
-			if updated.is_empty() {
-				ProcessPropagateUpdateFields::ALL
-			} else {
-				updated
-			},
-			version,
-		)
-		.await?;
-
-		Ok(())
+		Ok(!updated.is_empty())
 	}
 
-	async fn update_process_propagate(
+	async fn enqueue_parents(
 		&self,
 		txn: &fdb::Transaction,
-		id: &tg::process::Id,
-		fields: ProcessPropagateUpdateFields,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		version: &fdbt::Versionstamp,
 	) -> tg::Result<()> {
-		// Recompute only the fields fields from children.
-		let updated = self
-			.update_recompute_process_fields(txn, id, fields)
-			.await?;
+		match id {
+			tg::Either::Left(object_id) => {
+				// Enqueue object parents.
+				let parents = self.update_get_object_parents(txn, object_id).await?;
+				for parent in parents {
+					self.update_enqueue_object_propagate(
+						txn,
+						&parent,
+						ObjectPropagateUpdateFields::ALL,
+						version,
+					)
+					.await?;
+				}
 
-		// Enqueue parent updates for any fields that became set.
-		if !updated.is_empty() {
-			self.update_enqueue_process_parent_updates(txn, id, updated, version)
-				.await?;
+				// Enqueue process parents (processes that reference this object).
+				let process_parents = self
+					.update_get_object_process_parents(txn, object_id)
+					.await?;
+				for (process, _kind) in process_parents {
+					self.update_enqueue_process_propagate(
+						txn,
+						&process,
+						ProcessPropagateUpdateFields::ALL,
+						version,
+					)
+					.await?;
+				}
+			},
+			tg::Either::Right(process_id) => {
+				// Enqueue process parents.
+				let parents = self.update_get_process_parents(txn, process_id).await?;
+				for parent in parents {
+					self.update_enqueue_process_propagate(
+						txn,
+						&parent,
+						ProcessPropagateUpdateFields::ALL,
+						version,
+					)
+					.await?;
+				}
+			},
 		}
-
 		Ok(())
 	}
 
@@ -379,29 +322,35 @@ impl Index {
 			if current.is_none() {
 				let node = self
 					.update_get_object_field_u64(txn, id, ObjectMetadataField::NodeSize)
-					.await?
-					.ok_or_else(|| tg::error!("node size is not set"))?;
-				let mut sum: u64 = node;
-				let mut all = true;
-				for child in &children {
-					if let Some(size) = self
-						.update_get_object_field_u64(txn, child, ObjectMetadataField::SubtreeSize)
-						.await?
-					{
-						sum = sum.saturating_add(size);
-					} else {
-						all = false;
-						break;
+					.await?;
+				// Only compute subtree if node is ready.
+				if let Some(node) = node {
+					let mut sum: u64 = node;
+					let mut all = true;
+					for child in &children {
+						if let Some(size) = self
+							.update_get_object_field_u64(
+								txn,
+								child,
+								ObjectMetadataField::SubtreeSize,
+							)
+							.await?
+						{
+							sum = sum.saturating_add(size);
+						} else {
+							all = false;
+							break;
+						}
 					}
-				}
-				if all {
-					self.update_set_object_field_u64(
-						txn,
-						id,
-						ObjectMetadataField::SubtreeSize,
-						sum,
-					);
-					updated |= ObjectPropagateUpdateFields::METADATA_SUBTREE_SIZE;
+					if all {
+						self.update_set_object_field_u64(
+							txn,
+							id,
+							ObjectMetadataField::SubtreeSize,
+							sum,
+						);
+						updated |= ObjectPropagateUpdateFields::METADATA_SUBTREE_SIZE;
+					}
 				}
 			}
 		}
@@ -414,37 +363,39 @@ impl Index {
 			if current.is_none() {
 				let node_solvable = self
 					.update_get_object_field_bool(txn, id, ObjectMetadataField::NodeSolvable)
-					.await?
-					.ok_or_else(|| tg::error!("node solvable is not set"))?;
-				// Check children for any solvable and track if all are computed.
-				let mut any_solvable = false;
-				let mut all_computed = true;
-				for child in &children {
-					match self
-						.update_get_object_field_bool(
-							txn,
-							child,
-							ObjectMetadataField::SubtreeSolvable,
-						)
-						.await?
-					{
-						Some(true) => {
-							any_solvable = true;
-						},
-						Some(false) => {},
-						None => {
-							all_computed = false;
-						},
+					.await?;
+				// Only compute subtree if node is ready.
+				if let Some(node_solvable) = node_solvable {
+					// Check children for any solvable and track if all are computed.
+					let mut any_solvable = false;
+					let mut all_computed = true;
+					for child in &children {
+						match self
+							.update_get_object_field_bool(
+								txn,
+								child,
+								ObjectMetadataField::SubtreeSolvable,
+							)
+							.await?
+						{
+							Some(true) => {
+								any_solvable = true;
+							},
+							Some(false) => {},
+							None => {
+								all_computed = false;
+							},
+						}
 					}
-				}
-				if all_computed {
-					self.update_set_object_field_bool(
-						txn,
-						id,
-						ObjectMetadataField::SubtreeSolvable,
-						node_solvable || any_solvable,
-					);
-					updated |= ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVABLE;
+					if all_computed {
+						self.update_set_object_field_bool(
+							txn,
+							id,
+							ObjectMetadataField::SubtreeSolvable,
+							node_solvable || any_solvable,
+						);
+						updated |= ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVABLE;
+					}
 				}
 			}
 		}
@@ -457,38 +408,40 @@ impl Index {
 			if current.is_none() {
 				let node_solved = self
 					.update_get_object_field_bool(txn, id, ObjectMetadataField::NodeSolved)
-					.await?
-					.ok_or_else(|| tg::error!("node solved is not set"))?;
-				// Check if all children are solved and track if all are computed.
-				let mut all_solved = true;
-				let mut all_computed = true;
-				for child in &children {
-					match self
-						.update_get_object_field_bool(
-							txn,
-							child,
-							ObjectMetadataField::SubtreeSolved,
-						)
-						.await?
-					{
-						Some(true) => {},
-						Some(false) => {
-							all_solved = false;
-						},
-						None => {
-							all_computed = false;
-							all_solved = false;
-						},
+					.await?;
+				// Only compute subtree if node is ready.
+				if let Some(node_solved) = node_solved {
+					// Check if all children are solved and track if all are computed.
+					let mut all_solved = true;
+					let mut all_computed = true;
+					for child in &children {
+						match self
+							.update_get_object_field_bool(
+								txn,
+								child,
+								ObjectMetadataField::SubtreeSolved,
+							)
+							.await?
+						{
+							Some(true) => {},
+							Some(false) => {
+								all_solved = false;
+							},
+							None => {
+								all_computed = false;
+								all_solved = false;
+							},
+						}
 					}
-				}
-				if all_computed {
-					self.update_set_object_field_bool(
-						txn,
-						id,
-						ObjectMetadataField::SubtreeSolved,
-						node_solved && all_solved,
-					);
-					updated |= ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVED;
+					if all_computed {
+						self.update_set_object_field_bool(
+							txn,
+							id,
+							ObjectMetadataField::SubtreeSolved,
+							node_solved && all_solved,
+						);
+						updated |= ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVED;
+					}
 				}
 			}
 		}
@@ -1376,104 +1329,37 @@ impl Index {
 		Ok(updated)
 	}
 
-	async fn update_enqueue_object_parent_updates(
-		&self,
-		txn: &fdb::Transaction,
-		id: &tg::object::Id,
-		fields: ObjectPropagateUpdateFields,
-		version: &fdbt::Versionstamp,
-	) -> tg::Result<()> {
-		let parents = self.update_get_object_parents(txn, id).await?;
-		for parent in parents {
-			self.update_enqueue_object_propagate(txn, &parent, fields, version)
-				.await?;
-		}
-
-		let parents = self.update_get_object_process_parents(txn, id).await?;
-		for (process, kind) in parents {
-			let fields = Self::update_object_fields_to_process_fields(fields, kind);
-			if !fields.is_empty() {
-				self.update_enqueue_process_propagate(txn, &process, fields, version)
-					.await?;
-			}
-		}
-
-		Ok(())
-	}
-
-	async fn update_enqueue_process_parent_updates(
-		&self,
-		txn: &fdb::Transaction,
-		id: &tg::process::Id,
-		fields: ProcessPropagateUpdateFields,
-		version: &fdbt::Versionstamp,
-	) -> tg::Result<()> {
-		let parents = self.update_get_process_parents(txn, id).await?;
-		for parent in parents {
-			self.update_enqueue_process_propagate(txn, &parent, fields, version)
-				.await?;
-		}
-		Ok(())
-	}
-
 	async fn update_enqueue_object_propagate(
 		&self,
 		txn: &fdb::Transaction,
 		id: &tg::object::Id,
-		fields: ObjectPropagateUpdateFields,
+		_fields: ObjectPropagateUpdateFields,
 		version: &fdbt::Versionstamp,
 	) -> tg::Result<()> {
 		let either = tg::Either::Left(id.clone());
 		let key = self.pack(&Key::Update { id: either.clone() });
 
+		// Check if an update already exists for this item. If so, return early.
 		let existing = txn
 			.get(&key, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get existing update"))?;
-
-		if let Some(bytes) = existing {
-			let update = Update::deserialize(&bytes)?;
-			match update {
-				Update::Put => {
-					// Put will process all fields, but we still need to create an UpdateVersion
-					// entry so this propagate is processed after the Put completes. The Put might
-					// not be able to compute all fields if dependencies are not ready yet.
-					let update =
-						Update::Propagate(PropagateUpdate::Object(ObjectPropagateUpdate {
-							fields: fields.bits(),
-						}));
-					let value = update.serialize()?;
-					let key = self.pack(&Key::UpdateVersion {
-						version: version.clone(),
-						id: either,
-					});
-					txn.set(&key, &value);
-				},
-				Update::Propagate(PropagateUpdate::Object(mut propagate)) => {
-					let existing =
-						ObjectPropagateUpdateFields::from_bits_truncate(propagate.fields);
-					propagate.fields = (existing | fields).bits();
-					let value =
-						Update::Propagate(PropagateUpdate::Object(propagate)).serialize()?;
-					txn.set(&key, &value);
-				},
-				Update::Propagate(PropagateUpdate::Process(_)) => {
-					return Err(tg::error!("unexpected propagate process for object id"));
-				},
-			}
-		} else {
-			let update = Update::Propagate(PropagateUpdate::Object(ObjectPropagateUpdate {
-				fields: fields.bits(),
-			}));
-			let value = update.serialize()?;
-			txn.set(&key, &value);
-
-			let key = self.pack(&Key::UpdateVersion {
-				version: version.clone(),
-				id: either,
-			});
-			txn.set(&key, &value);
+		if existing.is_some() {
+			return Ok(());
 		}
+
+		// Create Update and UpdateVersion keys.
+		let update = Update::Propagate(PropagateUpdate::Object(ObjectPropagateUpdate {
+			fields: ObjectPropagateUpdateFields::ALL.bits(),
+		}));
+		let value = update.serialize()?;
+		txn.set(&key, &value);
+
+		let key = self.pack(&Key::UpdateVersion {
+			version: version.clone(),
+			id: either,
+		});
+		txn.set(&key, &value);
 
 		Ok(())
 	}
@@ -1482,149 +1368,35 @@ impl Index {
 		&self,
 		txn: &fdb::Transaction,
 		id: &tg::process::Id,
-		fields: ProcessPropagateUpdateFields,
+		_fields: ProcessPropagateUpdateFields,
 		version: &fdbt::Versionstamp,
 	) -> tg::Result<()> {
 		let either = tg::Either::Right(id.clone());
 		let key = self.pack(&Key::Update { id: either.clone() });
 
+		// Check if an update already exists for this item. If so, return early.
 		let existing = txn
 			.get(&key, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get existing update"))?;
-
-		if let Some(bytes) = existing {
-			let update = Update::deserialize(&bytes)?;
-			match update {
-				Update::Put => {
-					// Put will process all fields, but we still need to create an UpdateVersion
-					// entry so this propagate is processed after the Put completes. The Put might
-					// not be able to compute all fields if dependencies are not ready yet.
-					let update =
-						Update::Propagate(PropagateUpdate::Process(ProcessPropagateUpdate {
-							fields: fields.bits(),
-						}));
-					let value = update.serialize()?;
-					let key = self.pack(&Key::UpdateVersion {
-						version: version.clone(),
-						id: either,
-					});
-					txn.set(&key, &value);
-				},
-				Update::Propagate(PropagateUpdate::Object(_)) => {
-					return Err(tg::error!("unexpected propagate object for process id"));
-				},
-				Update::Propagate(PropagateUpdate::Process(mut propagate)) => {
-					let existing =
-						ProcessPropagateUpdateFields::from_bits_truncate(propagate.fields);
-					propagate.fields = (existing | fields).bits();
-					let value =
-						Update::Propagate(PropagateUpdate::Process(propagate)).serialize()?;
-					txn.set(&key, &value);
-				},
-			}
-		} else {
-			let update = Update::Propagate(PropagateUpdate::Process(ProcessPropagateUpdate {
-				fields: fields.bits(),
-			}));
-			let value = update.serialize()?;
-			txn.set(&key, &value);
-
-			let key = self.pack(&Key::UpdateVersion {
-				version: version.clone(),
-				id: either,
-			});
-			txn.set(&key, &value);
+		if existing.is_some() {
+			return Ok(());
 		}
+
+		// Create Update and UpdateVersion keys.
+		let update = Update::Propagate(PropagateUpdate::Process(ProcessPropagateUpdate {
+			fields: ProcessPropagateUpdateFields::ALL.bits(),
+		}));
+		let value = update.serialize()?;
+		txn.set(&key, &value);
+
+		let key = self.pack(&Key::UpdateVersion {
+			version: version.clone(),
+			id: either,
+		});
+		txn.set(&key, &value);
 
 		Ok(())
-	}
-
-	fn update_object_fields_to_process_fields(
-		fields: ObjectPropagateUpdateFields,
-		kind: ProcessObjectKind,
-	) -> ProcessPropagateUpdateFields {
-		let mut result = ProcessPropagateUpdateFields::empty();
-
-		if fields.contains(ObjectPropagateUpdateFields::STORED_SUBTREE) {
-			result |= match kind {
-				ProcessObjectKind::Command => ProcessPropagateUpdateFields::STORED_NODE_COMMAND,
-				ProcessObjectKind::Error => ProcessPropagateUpdateFields::STORED_NODE_ERROR,
-				ProcessObjectKind::Log => ProcessPropagateUpdateFields::STORED_NODE_LOG,
-				ProcessObjectKind::Output => ProcessPropagateUpdateFields::STORED_NODE_OUTPUT,
-			};
-		}
-
-		if fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_COUNT) {
-			result |= match kind {
-				ProcessObjectKind::Command => {
-					ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_COUNT
-				},
-				ProcessObjectKind::Error => ProcessPropagateUpdateFields::METADATA_NODE_ERROR_COUNT,
-				ProcessObjectKind::Log => ProcessPropagateUpdateFields::METADATA_NODE_LOG_COUNT,
-				ProcessObjectKind::Output => {
-					ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_COUNT
-				},
-			};
-		}
-
-		if fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_DEPTH) {
-			result |= match kind {
-				ProcessObjectKind::Command => {
-					ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_DEPTH
-				},
-				ProcessObjectKind::Error => ProcessPropagateUpdateFields::METADATA_NODE_ERROR_DEPTH,
-				ProcessObjectKind::Log => ProcessPropagateUpdateFields::METADATA_NODE_LOG_DEPTH,
-				ProcessObjectKind::Output => {
-					ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_DEPTH
-				},
-			};
-		}
-
-		if fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_SIZE) {
-			result |= match kind {
-				ProcessObjectKind::Command => {
-					ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SIZE
-				},
-				ProcessObjectKind::Error => ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SIZE,
-				ProcessObjectKind::Log => ProcessPropagateUpdateFields::METADATA_NODE_LOG_SIZE,
-				ProcessObjectKind::Output => {
-					ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SIZE
-				},
-			};
-		}
-
-		if fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVABLE) {
-			result |= match kind {
-				ProcessObjectKind::Command => {
-					ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SOLVABLE
-				},
-				ProcessObjectKind::Error => {
-					ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SOLVABLE
-				},
-				ProcessObjectKind::Log => ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVABLE,
-				ProcessObjectKind::Output => {
-					ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SOLVABLE
-				},
-			};
-		}
-
-		if fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVED) {
-			result |= match kind {
-				ProcessObjectKind::Command => {
-					ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SOLVED
-				},
-				ProcessObjectKind::Error => {
-					ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SOLVED
-				},
-				ProcessObjectKind::Log => ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVED,
-				ProcessObjectKind::Output => {
-					ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SOLVED
-				},
-			};
-		}
-
-		result
 	}
 
 	async fn update_get_object_children(
