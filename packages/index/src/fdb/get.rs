@@ -539,13 +539,16 @@ impl Index {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get object children"))?;
 
-		let mut children = Vec::new();
-		for entry in &entries {
-			let key = self.unpack(entry.key())?;
-			if let Key::ObjectChild { child, .. } = key {
-				children.push(child);
-			}
-		}
+		let children = entries
+			.iter()
+			.map(|entry| {
+				let key = self.unpack(entry.key())?;
+				let Key::ObjectChild { child, .. } = key else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(child)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
 
 		Ok(children)
 	}
@@ -568,13 +571,16 @@ impl Index {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get object parents"))?;
 
-		let mut parents = Vec::new();
-		for entry in &entries {
-			let key = self.unpack(entry.key())?;
-			if let Key::ChildObject { object, .. } = key {
-				parents.push(object);
-			}
-		}
+		let parents = entries
+			.iter()
+			.map(|entry| {
+				let key = self.unpack(entry.key())?;
+				let Key::ChildObject { object, .. } = key else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(object)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
 
 		Ok(parents)
 	}
@@ -597,13 +603,16 @@ impl Index {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get object process parents"))?;
 
-		let mut processes = Vec::new();
-		for entry in &entries {
-			let key = self.unpack(entry.key())?;
-			if let Key::ObjectProcess { kind, process, .. } = key {
-				processes.push((process, kind));
-			}
-		}
+		let processes = entries
+			.iter()
+			.map(|entry| {
+				let key = self.unpack(entry.key())?;
+				let Key::ObjectProcess { kind, process, .. } = key else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok((process, kind))
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
 
 		Ok(processes)
 	}
@@ -626,13 +635,16 @@ impl Index {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get process children"))?;
 
-		let mut children = Vec::new();
-		for entry in &entries {
-			let key = self.unpack(entry.key())?;
-			if let Key::ProcessChild { child, .. } = key {
-				children.push(child);
-			}
-		}
+		let children = entries
+			.iter()
+			.map(|entry| {
+				let key = self.unpack(entry.key())?;
+				let Key::ProcessChild { child, .. } = key else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(child)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
 
 		Ok(children)
 	}
@@ -655,13 +667,16 @@ impl Index {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get process parents"))?;
 
-		let mut parents = Vec::new();
-		for entry in &entries {
-			let key = self.unpack(entry.key())?;
-			if let Key::ChildProcess { parent, .. } = key {
-				parents.push(parent);
-			}
-		}
+		let parents = entries
+			.iter()
+			.map(|entry| {
+				let key = self.unpack(entry.key())?;
+				let Key::ChildProcess { parent, .. } = key else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(parent)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
 
 		Ok(parents)
 	}
@@ -684,13 +699,16 @@ impl Index {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get process objects"))?;
 
-		let mut objects = Vec::new();
-		for entry in &entries {
-			let key = self.unpack(entry.key())?;
-			if let Key::ProcessObject { kind, object, .. } = key {
-				objects.push((object, kind));
-			}
-		}
+		let objects = entries
+			.iter()
+			.map(|entry| {
+				let key = self.unpack(entry.key())?;
+				let Key::ProcessObject { kind, object, .. } = key else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok((object, kind))
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
 
 		Ok(objects)
 	}
