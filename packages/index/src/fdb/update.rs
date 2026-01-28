@@ -71,7 +71,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		batch_size: usize,
 	) -> tg::Result<usize> {
-		// Read a batch of UpdateVersion entries.
+		// Read a batch of UpdateVersion entries (including values for Propagate fields).
 		let prefix = self.pack(&(Kind::UpdateVersion.to_i32().unwrap(),));
 		let subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
@@ -90,37 +90,43 @@ impl Index {
 				let Key::UpdateVersion { version, id } = key else {
 					return Err(tg::error!("unexpected key type"));
 				};
-				Ok((version, id))
+				Ok((version, id, entry.value().to_vec()))
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
 		let mut count = 0;
-		for (version, id) in entries {
-			// Check if the update exists and get its type.
+		for (version, id, version_value) in entries {
 			let update_key = self.pack(&Key::Update { id: id.clone() });
 			let update_value = txn
 				.get(&update_key, false)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get update key"))?;
 
-			// If the update key does not exist, delete the stale entry and continue.
-			let Some(update_value) = update_value else {
-				let version_key = self.pack(&Key::UpdateVersion {
-					version: version.clone(),
-					id,
-				});
+			let version_key = self.pack(&Key::UpdateVersion {
+				version: version.clone(),
+				id: id.clone(),
+			});
+
+			// Determine update type and fields. If Update key exists (Put from put.rs), use it.
+			// Otherwise, use fields from UpdateVersion value (Propagate from enqueue).
+			let update = if let Some(bytes) = &update_value {
+				Update::deserialize(bytes).ok()
+			} else {
+				Update::deserialize(&version_value).ok()
+			};
+
+			let Some(update) = update else {
+				// Invalid entry, delete and continue.
 				txn.clear(&version_key);
 				count += 1;
 				continue;
 			};
 
-			// Parse the update type and extract fields. Default to Put for backwards compatibility.
-			let update = Update::deserialize(&update_value).ok();
-			let is_put = !matches!(update, Some(Update::Propagate(_)));
+			let is_put = matches!(update, Update::Put);
 
 			// Process the update by recomputing the requested fields.
 			let updated_fields = match (&id, &update) {
-				(tg::Either::Left(object_id), Some(Update::Propagate(PropagateUpdate::Object(p)))) => {
+				(tg::Either::Left(object_id), Update::Propagate(PropagateUpdate::Object(p))) => {
 					let fields = ObjectPropagateUpdateFields::from_bits_truncate(p.fields);
 					let updated = self
 						.update_recompute_object_fields(txn, object_id, fields)
@@ -129,11 +135,15 @@ impl Index {
 				},
 				(tg::Either::Left(object_id), _) => {
 					let updated = self
-						.update_recompute_object_fields(txn, object_id, ObjectPropagateUpdateFields::ALL)
+						.update_recompute_object_fields(
+							txn,
+							object_id,
+							ObjectPropagateUpdateFields::ALL,
+						)
 						.await?;
 					tg::Either::Left(updated)
 				},
-				(tg::Either::Right(process_id), Some(Update::Propagate(PropagateUpdate::Process(p)))) => {
+				(tg::Either::Right(process_id), Update::Propagate(PropagateUpdate::Process(p))) => {
 					let fields = ProcessPropagateUpdateFields::from_bits_truncate(p.fields);
 					let updated = self
 						.update_recompute_process_fields(txn, process_id, fields)
@@ -142,7 +152,11 @@ impl Index {
 				},
 				(tg::Either::Right(process_id), _) => {
 					let updated = self
-						.update_recompute_process_fields(txn, process_id, ProcessPropagateUpdateFields::ALL)
+						.update_recompute_process_fields(
+							txn,
+							process_id,
+							ProcessPropagateUpdateFields::ALL,
+						)
 						.await?;
 					tg::Either::Right(updated)
 				},
@@ -168,12 +182,10 @@ impl Index {
 				}
 			}
 
-			// Delete both the Update and UpdateVersion keys.
-			txn.clear(&update_key);
-			let version_key = self.pack(&Key::UpdateVersion {
-				version: version.clone(),
-				id,
-			});
+			// Delete Update key if it exists, and always delete UpdateVersion key.
+			if update_value.is_some() {
+				txn.clear(&update_key);
+			}
 			txn.clear(&version_key);
 
 			count += 1;
@@ -223,7 +235,8 @@ impl Index {
 				};
 
 				// Only propagate subtree fields to process parents.
-				let parent_fields = process_fields & ProcessPropagateUpdateFields::ALL_SUBTREE_METADATA
+				let parent_fields = process_fields
+					& ProcessPropagateUpdateFields::ALL_SUBTREE_METADATA
 					| (process_fields & ProcessPropagateUpdateFields::ALL_STORED);
 
 				// Enqueue process parents.
@@ -1496,47 +1509,48 @@ impl Index {
 		version: &fdbt::Versionstamp,
 	) -> tg::Result<()> {
 		let either = tg::Either::Left(id.clone());
-		let key = self.pack(&Key::Update { id: either.clone() });
+		let update_key = self.pack(&Key::Update { id: either.clone() });
 
-		// Check if an update already exists for this item.
+		// Check existing Update key to determine action.
 		let existing = txn
-			.get(&key, false)
+			.get(&update_key, true)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get existing update"))?;
 
 		if let Some(bytes) = existing {
-			let update = Update::deserialize(&bytes)?;
-			match update {
-				Update::Propagate(PropagateUpdate::Object(mut propagate)) => {
-					// Merge fields into the existing Propagate update. Do not create a new UpdateVersion entry.
-					let existing_fields =
-						ObjectPropagateUpdateFields::from_bits_truncate(propagate.fields);
-					propagate.fields = (existing_fields | fields).bits();
-					let value =
-						Update::Propagate(PropagateUpdate::Object(propagate)).serialize()?;
-					txn.set(&key, &value);
+			match Update::deserialize(&bytes) {
+				Ok(Update::Put) => {
+					// Put will process all fields. Do not create any new entries.
 					return Ok(());
 				},
-				Update::Put | Update::Propagate(PropagateUpdate::Process(_)) => {
-					// A Put processes all fields, so no additional action is needed.
-					// A mismatched type indicates a process id, so skip.
+				Ok(Update::Propagate(PropagateUpdate::Object(p))) => {
+					// Merge fields into existing Propagate. Do not create new UpdateVersion.
+					let existing_fields = ObjectPropagateUpdateFields::from_bits_truncate(p.fields);
+					let merged = existing_fields | fields;
+					let update =
+						Update::Propagate(PropagateUpdate::Object(ObjectPropagateUpdate {
+							fields: merged.bits(),
+						}));
+					let value = update.serialize()?;
+					txn.set(&update_key, &value);
 					return Ok(());
 				},
+				_ => return Ok(()),
 			}
 		}
 
-		// No existing Update, so create both Update and UpdateVersion keys.
+		// No existing Update. Create both Update and UpdateVersion.
 		let update = Update::Propagate(PropagateUpdate::Object(ObjectPropagateUpdate {
 			fields: fields.bits(),
 		}));
 		let value = update.serialize()?;
-		txn.set(&key, &value);
+		txn.set(&update_key, &value);
 
-		let key = self.pack(&Key::UpdateVersion {
+		let version_key = self.pack(&Key::UpdateVersion {
 			version: version.clone(),
 			id: either,
 		});
-		txn.set(&key, &value);
+		txn.set(&version_key, &value);
 
 		Ok(())
 	}
@@ -1549,47 +1563,49 @@ impl Index {
 		version: &fdbt::Versionstamp,
 	) -> tg::Result<()> {
 		let either = tg::Either::Right(id.clone());
-		let key = self.pack(&Key::Update { id: either.clone() });
+		let update_key = self.pack(&Key::Update { id: either.clone() });
 
-		// Check if an update already exists for this item.
+		// Check existing Update key to determine action.
 		let existing = txn
-			.get(&key, false)
+			.get(&update_key, true)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get existing update"))?;
 
 		if let Some(bytes) = existing {
-			let update = Update::deserialize(&bytes)?;
-			match update {
-				Update::Propagate(PropagateUpdate::Process(mut propagate)) => {
-					// Merge fields into the existing Propagate update. Do not create a new UpdateVersion entry.
+			match Update::deserialize(&bytes) {
+				Ok(Update::Put) => {
+					// Put will process all fields. Do not create any new entries.
+					return Ok(());
+				},
+				Ok(Update::Propagate(PropagateUpdate::Process(p))) => {
+					// Merge fields into existing Propagate. Do not create new UpdateVersion.
 					let existing_fields =
-						ProcessPropagateUpdateFields::from_bits_truncate(propagate.fields);
-					propagate.fields = (existing_fields | fields).bits();
-					let value =
-						Update::Propagate(PropagateUpdate::Process(propagate)).serialize()?;
-					txn.set(&key, &value);
+						ProcessPropagateUpdateFields::from_bits_truncate(p.fields);
+					let merged = existing_fields | fields;
+					let update =
+						Update::Propagate(PropagateUpdate::Process(ProcessPropagateUpdate {
+							fields: merged.bits(),
+						}));
+					let value = update.serialize()?;
+					txn.set(&update_key, &value);
 					return Ok(());
 				},
-				Update::Put | Update::Propagate(PropagateUpdate::Object(_)) => {
-					// A Put processes all fields, so no additional action is needed.
-					// A mismatched type indicates an object id, so skip.
-					return Ok(());
-				},
+				_ => return Ok(()),
 			}
 		}
 
-		// No existing Update, so create both Update and UpdateVersion keys.
+		// No existing Update. Create both Update and UpdateVersion.
 		let update = Update::Propagate(PropagateUpdate::Process(ProcessPropagateUpdate {
 			fields: fields.bits(),
 		}));
 		let value = update.serialize()?;
-		txn.set(&key, &value);
+		txn.set(&update_key, &value);
 
-		let key = self.pack(&Key::UpdateVersion {
+		let version_key = self.pack(&Key::UpdateVersion {
 			version: version.clone(),
 			id: either,
 		});
-		txn.set(&key, &value);
+		txn.set(&version_key, &value);
 
 		Ok(())
 	}
