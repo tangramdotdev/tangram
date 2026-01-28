@@ -26,10 +26,10 @@ impl Index {
 		let response = receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
-		match response {
-			Response::Objects(objects) => Ok(objects),
-			_ => Err(tg::error!("unexpected response")),
-		}
+		let Response::Objects(objects) = response else {
+			return Err(tg::error!("unexpected response"));
+		};
+		Ok(objects)
 	}
 
 	pub async fn touch_processes(
@@ -51,10 +51,10 @@ impl Index {
 		let response = receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
-		match response {
-			Response::Processes(processes) => Ok(processes),
-			_ => Err(tg::error!("unexpected response")),
-		}
+		let Response::Processes(processes) = response else {
+			return Err(tg::error!("unexpected response"));
+		};
+		Ok(processes)
 	}
 
 	pub(super) fn task_touch_objects(
@@ -70,18 +70,14 @@ impl Index {
 				.get(transaction, &key)
 				.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
 			let existing = existing.map(Object::deserialize).transpose()?;
-
 			let Some(mut object) = existing else {
 				outputs.push(None);
 				continue;
 			};
-
-			// Update touched_at using max.
 			object.touched_at = object.touched_at.max(touched_at);
-
-			db.put(transaction, &key, &object.serialize()?)
+			let value = object.serialize()?;
+			db.put(transaction, &key, &value)
 				.map_err(|source| tg::error!(!source, %id, "failed to put the object"))?;
-
 			outputs.push(Some(object));
 		}
 		Ok(outputs)
@@ -100,16 +96,13 @@ impl Index {
 				.get(transaction, &key)
 				.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?;
 			let existing = existing.map(Process::deserialize).transpose()?;
-
 			let Some(mut process) = existing else {
 				outputs.push(None);
 				continue;
 			};
-
-			// Update touched_at using max.
 			process.touched_at = process.touched_at.max(touched_at);
-
-			db.put(transaction, &key, &process.serialize()?)
+			let value = process.serialize()?;
+			db.put(transaction, &key, &value)
 				.map_err(|source| tg::error!(!source, %id, "failed to put the process"))?;
 
 			outputs.push(Some(process));

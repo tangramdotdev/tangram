@@ -17,10 +17,10 @@ impl Index {
 		let response = receiver
 			.await
 			.map_err(|_| tg::error!("the task panicked"))??;
-		match response {
-			Response::UpdateCount(count) => Ok(count),
-			_ => Err(tg::error!("unexpected response")),
-		}
+		let Response::UpdateCount(count) = response else {
+			return Err(tg::error!("unexpected response"));
+		};
+		Ok(count)
 	}
 
 	pub async fn updates_finished(&self, transaction_id: u64) -> tg::Result<bool> {
@@ -1019,11 +1019,19 @@ impl Index {
 		version: Option<u64>,
 	) -> tg::Result<()> {
 		let key = Key::Update { id: id.clone() }.pack_to_vec();
-		if db
+		if let Some(existing) = db
 			.get(transaction, &key)
 			.map_err(|source| tg::error!(!source, "failed to get update key"))?
-			.is_some()
 		{
+			let existing_update = existing
+				.first()
+				.and_then(|value| Update::from_u8(*value))
+				.unwrap_or(Update::Put);
+			if existing_update == Update::Propagate && update == Update::Put {
+				let value = [update.to_u8().unwrap()];
+				db.put(transaction, &key, &value)
+					.map_err(|source| tg::error!(!source, "failed to put update key"))?;
+			}
 			return Ok(());
 		}
 

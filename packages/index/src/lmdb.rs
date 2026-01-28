@@ -1,5 +1,5 @@
 use {
-	crate::{CleanOutput, ProcessObjectKind, PutArg},
+	crate::{CleanOutput, Object, Process, ProcessObjectKind, PutArg, PutTagArg},
 	crossbeam_channel as crossbeam, foundationdb_tuple as fdbt, heed as lmdb,
 	num_traits::{FromPrimitive as _, ToPrimitive as _},
 	std::path::PathBuf,
@@ -40,7 +40,7 @@ enum Request {
 	},
 	DeleteTags(Vec<String>),
 	Put(PutArg),
-	PutTags(Vec<crate::PutTagArg>),
+	PutTags(Vec<PutTagArg>),
 	TouchObjects {
 		ids: Vec<tg::object::Id>,
 		touched_at: i64,
@@ -57,8 +57,8 @@ enum Request {
 #[derive(Clone)]
 enum Response {
 	Unit,
-	Objects(Vec<Option<crate::Object>>),
-	Processes(Vec<Option<crate::Process>>),
+	Objects(Vec<Option<Object>>),
+	Processes(Vec<Option<Process>>),
 	CleanOutput(CleanOutput),
 	UpdateCount(usize),
 }
@@ -344,17 +344,11 @@ impl Index {
 }
 
 impl crate::Index for Index {
-	async fn try_get_objects(
-		&self,
-		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Option<crate::Object>>> {
+	async fn try_get_objects(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Object>>> {
 		self.try_get_objects(ids).await
 	}
 
-	async fn try_get_processes(
-		&self,
-		ids: &[tg::process::Id],
-	) -> tg::Result<Vec<Option<crate::Process>>> {
+	async fn try_get_processes(&self, ids: &[tg::process::Id]) -> tg::Result<Vec<Option<Process>>> {
 		self.try_get_processes(ids).await
 	}
 
@@ -362,7 +356,7 @@ impl crate::Index for Index {
 		&self,
 		ids: &[tg::object::Id],
 		touched_at: i64,
-	) -> tg::Result<Vec<Option<crate::Object>>> {
+	) -> tg::Result<Vec<Option<Object>>> {
 		self.touch_objects(ids, touched_at).await
 	}
 
@@ -370,15 +364,15 @@ impl crate::Index for Index {
 		&self,
 		ids: &[tg::process::Id],
 		touched_at: i64,
-	) -> tg::Result<Vec<Option<crate::Process>>> {
+	) -> tg::Result<Vec<Option<Process>>> {
 		self.touch_processes(ids, touched_at).await
 	}
 
-	async fn put(&self, arg: crate::PutArg) -> tg::Result<()> {
+	async fn put(&self, arg: PutArg) -> tg::Result<()> {
 		self.put(arg).await
 	}
 
-	async fn put_tags(&self, args: &[crate::PutTagArg]) -> tg::Result<()> {
+	async fn put_tags(&self, args: &[PutTagArg]) -> tg::Result<()> {
 		self.put_tags(args).await
 	}
 
