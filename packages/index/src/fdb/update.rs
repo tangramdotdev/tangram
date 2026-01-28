@@ -7,7 +7,7 @@ use {
 	},
 	crate::ProcessObjectKind,
 	foundationdb as fdb,
-	foundationdb_tuple::{self as fdbt, Subspace, TuplePack as _},
+	foundationdb_tuple::{self as fdbt, Subspace},
 	num_traits::ToPrimitive as _,
 	tangram_client::prelude::*,
 	tangram_util::varint,
@@ -20,19 +20,12 @@ impl Index {
 			.create_trx()
 			.map_err(|source| tg::error!(!source, "failed to create the transaction"))?;
 
-		// Convert the transaction_id to a versionstamp with max batch order (0xFFFF) to include
-		// all entries with transaction version <= the given version, regardless of batch order.
-		let mut stamp_bytes = [0u8; 10];
-		stamp_bytes[0..8].copy_from_slice(&transaction_id.to_be_bytes());
-		stamp_bytes[8..10].copy_from_slice(&0xFFFFu16.to_be_bytes());
-		let end_versionstamp = fdbt::Versionstamp::complete(stamp_bytes, 0);
-
-		// Scan from the beginning of UpdateVersion to the given transaction_id.
+		let mut bytes = [0u8; 10];
+		bytes[..8].copy_from_slice(&transaction_id.to_be_bytes());
+		bytes[8..].copy_from_slice(&0xFFFFu16.to_be_bytes());
+		let versionstamp = fdbt::Versionstamp::complete(bytes, 0);
 		let prefix = self.pack(&(Kind::UpdateVersion.to_i32().unwrap(),));
-
-		// Pack the end key with the versionstamp.
-		let mut end = prefix.clone();
-		end.extend_from_slice(&(end_versionstamp,).pack_to_vec());
+		let end = self.pack(&(Kind::UpdateVersion.to_i32().unwrap(), versionstamp));
 
 		let subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
@@ -86,7 +79,7 @@ impl Index {
 		let entries = entries
 			.iter()
 			.map(|entry| {
-				let key: Key = self.unpack(entry.key())?;
+				let key = self.unpack(entry.key())?;
 				let Key::UpdateVersion { version, id } = key else {
 					return Err(tg::error!("unexpected key type"));
 				};
@@ -1630,7 +1623,7 @@ impl Index {
 
 		let mut children = Vec::new();
 		for entry in &entries {
-			let key: Key = self.unpack(entry.key())?;
+			let key = self.unpack(entry.key())?;
 			if let Key::ObjectChild { child, .. } = key {
 				children.push(child);
 			}
@@ -1659,7 +1652,7 @@ impl Index {
 
 		let mut parents = Vec::new();
 		for entry in &entries {
-			let key: Key = self.unpack(entry.key())?;
+			let key = self.unpack(entry.key())?;
 			if let Key::ChildObject { object, .. } = key {
 				parents.push(object);
 			}
@@ -1688,7 +1681,7 @@ impl Index {
 
 		let mut parents = Vec::new();
 		for entry in &entries {
-			let key: Key = self.unpack(entry.key())?;
+			let key = self.unpack(entry.key())?;
 			if let Key::ObjectProcess { process, kind, .. } = key {
 				parents.push((process, kind));
 			}
@@ -1717,7 +1710,7 @@ impl Index {
 
 		let mut children = Vec::new();
 		for entry in &entries {
-			let key: Key = self.unpack(entry.key())?;
+			let key = self.unpack(entry.key())?;
 			if let Key::ProcessChild { child, .. } = key {
 				children.push(child);
 			}
@@ -1746,7 +1739,7 @@ impl Index {
 
 		let mut parents = Vec::new();
 		for entry in &entries {
-			let key: Key = self.unpack(entry.key())?;
+			let key = self.unpack(entry.key())?;
 			if let Key::ChildProcess { parent, .. } = key {
 				parents.push(parent);
 			}
@@ -1775,7 +1768,7 @@ impl Index {
 
 		let mut objects = Vec::new();
 		for entry in &entries {
-			let key: Key = self.unpack(entry.key())?;
+			let key = self.unpack(entry.key())?;
 			if let Key::ProcessObject { object, kind, .. } = key {
 				objects.push((object, kind));
 			}

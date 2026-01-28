@@ -50,7 +50,7 @@ impl Index {
 			.map(|entry| {
 				let (key, _) = entry
 					.map_err(|source| tg::error!(!source, "failed to read update version entry"))?;
-				let key: Key = fdbt::unpack(key)
+				let key = fdbt::unpack(key)
 					.map_err(|source| tg::error!(!source, "failed to unpack key"))?;
 				let Key::UpdateVersion { version, id } = key else {
 					return Err(tg::error!("unexpected key type"));
@@ -127,7 +127,7 @@ impl Index {
 		{
 			let (key, _) = entry
 				.map_err(|source| tg::error!(!source, "failed to read update version entry"))?;
-			let key: Key =
+			let key =
 				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
 			let Key::UpdateVersion { version, .. } = key else {
 				break;
@@ -1095,7 +1095,7 @@ impl Index {
 		for entry in iter {
 			let (key, _) =
 				entry.map_err(|source| tg::error!(!source, "failed to read object child entry"))?;
-			let key: Key =
+			let key =
 				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
 			if let Key::ObjectChild { child, .. } = key {
 				children.push(child);
@@ -1119,7 +1119,7 @@ impl Index {
 		for entry in iter {
 			let (key, _) =
 				entry.map_err(|source| tg::error!(!source, "failed to read child object entry"))?;
-			let key: Key =
+			let key =
 				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
 			if let Key::ChildObject { object, .. } = key {
 				parents.push(object);
@@ -1147,7 +1147,7 @@ impl Index {
 		for entry in iter {
 			let (key, _) = entry
 				.map_err(|source| tg::error!(!source, "failed to read object process entry"))?;
-			let key: Key =
+			let key =
 				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
 			if let Key::ObjectProcess { process, kind, .. } = key {
 				parents.push((process, kind));
@@ -1171,7 +1171,7 @@ impl Index {
 		for entry in iter {
 			let (key, _) = entry
 				.map_err(|source| tg::error!(!source, "failed to read process child entry"))?;
-			let key: Key =
+			let key =
 				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
 			if let Key::ProcessChild { child, .. } = key {
 				children.push(child);
@@ -1195,7 +1195,7 @@ impl Index {
 		for entry in iter {
 			let (key, _) = entry
 				.map_err(|source| tg::error!(!source, "failed to read child process entry"))?;
-			let key: Key =
+			let key =
 				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
 			if let Key::ChildProcess { parent, .. } = key {
 				parents.push(parent);
@@ -1223,7 +1223,7 @@ impl Index {
 		for entry in iter {
 			let (key, _) = entry
 				.map_err(|source| tg::error!(!source, "failed to read process object entry"))?;
-			let key: Key =
+			let key =
 				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
 			if let Key::ProcessObject { object, kind, .. } = key {
 				objects.push((object, kind));
