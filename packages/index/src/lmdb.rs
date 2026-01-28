@@ -1,6 +1,6 @@
 use {
 	crate::{CleanOutput, ProcessObjectKind, PutArg},
-	foundationdb_tuple as fdbt, heed as lmdb,
+	crossbeam_channel as crossbeam, foundationdb_tuple as fdbt, heed as lmdb,
 	num_traits::{FromPrimitive as _, ToPrimitive as _},
 	std::path::PathBuf,
 	tangram_client::prelude::*,
@@ -9,9 +9,9 @@ use {
 mod clean;
 mod get;
 mod put;
-mod queue;
 mod tag;
 mod touch;
+mod update;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -22,13 +22,14 @@ pub struct Config {
 pub struct Index {
 	db: Db,
 	env: lmdb::Env,
-	sender: RequestSender,
+	sender_high: RequestSender,
+	sender_low: RequestSender,
 }
 
 type Db = lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>;
 
-type RequestSender = tokio::sync::mpsc::Sender<(Request, ResponseSender)>;
-type RequestReceiver = tokio::sync::mpsc::Receiver<(Request, ResponseSender)>;
+type RequestSender = crossbeam::Sender<(Request, ResponseSender)>;
+type RequestReceiver = crossbeam::Receiver<(Request, ResponseSender)>;
 type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
 
 #[derive(Clone)]
@@ -48,6 +49,9 @@ enum Request {
 		ids: Vec<tg::process::Id>,
 		touched_at: i64,
 	},
+	Update {
+		batch_size: usize,
+	},
 }
 
 #[derive(Clone)]
@@ -56,6 +60,7 @@ enum Response {
 	Objects(Vec<Option<crate::Object>>),
 	Processes(Vec<Option<crate::Process>>),
 	CleanOutput(CleanOutput),
+	UpdateCount(usize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
@@ -186,23 +191,64 @@ impl Index {
 			.commit()
 			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
-		// Create the task thread.
-		let (sender, receiver) = tokio::sync::mpsc::channel(256);
+		let (sender_high, receiver_high) = crossbeam::bounded(256);
+		let (sender_low, receiver_low) = crossbeam::bounded(256);
+
 		std::thread::spawn({
 			let env = env.clone();
-			move || Self::task(&env, &db, receiver)
+			move || Self::task(&env, &db, &receiver_high, &receiver_low)
 		});
 
-		Ok(Self { db, env, sender })
+		Ok(Self {
+			db,
+			env,
+			sender_high,
+			sender_low,
+		})
 	}
 
-	fn task(env: &lmdb::Env, db: &Db, mut receiver: RequestReceiver) {
-		while let Some((request, sender)) = receiver.blocking_recv() {
-			let mut requests = vec![request];
-			let mut senders = vec![sender];
-			while let Ok((request, sender)) = receiver.try_recv() {
+	fn task(
+		env: &lmdb::Env,
+		db: &Db,
+		receiver_high: &RequestReceiver,
+		receiver_low: &RequestReceiver,
+	) {
+		loop {
+			// Get requests and senders.
+			let mut requests: Vec<Request> = Vec::new();
+			let mut senders: Vec<ResponseSender> = Vec::new();
+			while let Ok((request, sender)) = receiver_high.try_recv() {
 				requests.push(request);
 				senders.push(sender);
+			}
+			if requests.is_empty() {
+				while let Ok((request, sender)) = receiver_low.try_recv() {
+					requests.push(request);
+					senders.push(sender);
+				}
+			}
+			if requests.is_empty() {
+				crossbeam::select! {
+					recv(receiver_high) -> result => {
+						if let Ok((request, sender)) = result {
+							requests.push(request);
+							senders.push(sender);
+						}
+					},
+					recv(receiver_low) -> result => {
+						if let Ok((request, sender)) = result {
+							requests.push(request);
+							senders.push(sender);
+						}
+					},
+				}
+				while let Ok((request, sender)) = receiver_high.try_recv() {
+					requests.push(request);
+					senders.push(sender);
+				}
+			}
+			if requests.is_empty() {
+				break;
 			}
 
 			// Begin a write transaction.
@@ -245,6 +291,10 @@ impl Index {
 						Self::task_touch_processes(db, &mut transaction, &ids, touched_at)
 							.map(Response::Processes)
 					},
+					Request::Update { batch_size } => {
+						Self::task_update_batch(db, &mut transaction, batch_size)
+							.map(Response::UpdateCount)
+					},
 				};
 				responses.push(result);
 			}
@@ -265,6 +315,31 @@ impl Index {
 				sender.send(result).ok();
 			}
 		}
+	}
+
+	pub async fn get_transaction_id(&self) -> tg::Result<u64> {
+		let env = self.env.clone();
+		tokio::task::spawn_blocking(move || {
+			let transaction = env
+				.read_txn()
+				.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+			Ok(transaction.id() as u64)
+		})
+		.await
+		.map_err(|source| tg::error!(!source, "failed to join the task"))?
+	}
+
+	pub async fn sync(&self) -> tg::Result<()> {
+		tokio::task::spawn_blocking({
+			let env = self.env.clone();
+			move || {
+				env.force_sync()
+					.map_err(|source| tg::error!(!source, "failed to sync"))
+			}
+		})
+		.await
+		.map_err(|source| tg::error!(!source, "failed to join the task"))??;
+		Ok(())
 	}
 }
 
@@ -311,16 +386,16 @@ impl crate::Index for Index {
 		self.delete_tags(tags).await
 	}
 
+	async fn get_update_count(&self, transaction_id: u64) -> tg::Result<u64> {
+		self.get_update_count(transaction_id).await
+	}
+
 	async fn update_batch(&self, batch_size: usize) -> tg::Result<usize> {
 		self.update_batch(batch_size).await
 	}
 
-	async fn get_transaction_id(&self) -> tg::Result<u128> {
+	async fn get_transaction_id(&self) -> tg::Result<u64> {
 		self.get_transaction_id().await
-	}
-
-	async fn get_queue_size(&self, transaction_id: u128) -> tg::Result<u64> {
-		self.get_queue_size(transaction_id).await
 	}
 
 	async fn clean(&self, max_touched_at: i64, batch_size: usize) -> tg::Result<CleanOutput> {

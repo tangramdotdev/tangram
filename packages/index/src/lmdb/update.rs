@@ -1,5 +1,5 @@
 use {
-	super::{Db, Index, Key, Kind, Update},
+	super::{Db, Index, Key, Kind, Request, Response, Update},
 	crate::{Object, Process, ProcessObjectKind},
 	foundationdb_tuple::{self as fdbt, TuplePack as _},
 	heed as lmdb,
@@ -9,66 +9,39 @@ use {
 
 impl Index {
 	pub async fn update_batch(&self, batch_size: usize) -> tg::Result<usize> {
-		let env = self.env.clone();
-		let db = self.db;
-		tokio::task::spawn_blocking(move || {
-			let mut transaction = env
-				.write_txn()
-				.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-			let count = Self::task_update_batch(&db, &mut transaction, batch_size)?;
-			transaction
-				.commit()
-				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
-			Ok(count)
-		})
-		.await
-		.map_err(|source| tg::error!(!source, "failed to join the task"))?
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request::Update { batch_size };
+		self.sender_low
+			.send((request, sender))
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+		let response = receiver
+			.await
+			.map_err(|_| tg::error!("the task panicked"))??;
+		match response {
+			Response::UpdateCount(count) => Ok(count),
+			_ => Err(tg::error!("unexpected response")),
+		}
 	}
 
-	pub async fn get_transaction_id(&self) -> tg::Result<u128> {
-		let env = self.env.clone();
-		tokio::task::spawn_blocking(move || {
-			let transaction = env
-				.read_txn()
-				.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-			Ok(transaction.id() as u128)
-		})
-		.await
-		.map_err(|source| tg::error!(!source, "failed to join the task"))?
-	}
-
-	pub async fn get_queue_size(&self, transaction_id: u128) -> tg::Result<u64> {
+	pub async fn get_update_count(&self, transaction_id: u64) -> tg::Result<u64> {
 		let env = self.env.clone();
 		let db = self.db;
 		tokio::task::spawn_blocking(move || {
 			let transaction = env
 				.read_txn()
 				.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-			Self::task_get_queue_size(&db, &transaction, transaction_id)
+			Self::task_get_update_count(&db, &transaction, transaction_id)
 		})
 		.await
 		.map_err(|source| tg::error!(!source, "failed to join the task"))?
 	}
 
-	pub async fn sync(&self) -> tg::Result<()> {
-		tokio::task::spawn_blocking({
-			let env = self.env.clone();
-			move || {
-				env.force_sync()
-					.map_err(|source| tg::error!(!source, "failed to sync"))
-			}
-		})
-		.await
-		.map_err(|source| tg::error!(!source, "failed to join the task"))??;
-		Ok(())
-	}
-
-	fn task_update_batch(
+	pub(super) fn task_update_batch(
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
 		batch_size: usize,
 	) -> tg::Result<usize> {
-		// Read a batch of UpdateVersion entries.
+		// Read a batch.
 		let prefix = (Kind::UpdateVersion.to_i32().unwrap(),).pack_to_vec();
 		let entries = db
 			.prefix_iter(transaction, &prefix)
@@ -88,13 +61,11 @@ impl Index {
 
 		let mut count = 0;
 		for (version, id) in entries {
-			// Check if the update exists and get its type.
 			let update_key = Key::Update { id: id.clone() }.pack_to_vec();
 			let update_value = db
 				.get(transaction, &update_key)
 				.map_err(|source| tg::error!(!source, "failed to get update key"))?;
 
-			// If the update key does not exist, delete the stale entry and continue.
 			let Some(update_value) = update_value else {
 				let version_key = Key::UpdateVersion {
 					version,
@@ -107,13 +78,11 @@ impl Index {
 				continue;
 			};
 
-			// Parse the update. Default to Put for backwards compatibility.
 			let update = update_value
 				.first()
 				.and_then(|&b| Update::from_u8(b))
 				.unwrap_or(Update::Put);
 
-			// Process the update.
 			let changed = match &id {
 				tg::Either::Left(object_id) => Self::recompute_object(db, transaction, object_id)?,
 				tg::Either::Right(process_id) => {
@@ -121,8 +90,6 @@ impl Index {
 				},
 			};
 
-			// For Put updates, always enqueue parent updates (the object is new to the index).
-			// For Propagate updates, only enqueue parents if fields actually changed.
 			let should_enqueue_parents = match update {
 				Update::Put => true,
 				Update::Propagate => changed,
@@ -131,7 +98,6 @@ impl Index {
 				Self::enqueue_parents(db, transaction, &id, version)?;
 			}
 
-			// Delete both the Update and UpdateVersion keys.
 			db.delete(transaction, &update_key)
 				.map_err(|source| tg::error!(!source, "failed to delete update key"))?;
 			let version_key = Key::UpdateVersion {
@@ -148,14 +114,14 @@ impl Index {
 		Ok(count)
 	}
 
-	fn task_get_queue_size(
+	fn task_get_update_count(
 		db: &Db,
 		transaction: &lmdb::RoTxn<'_>,
-		transaction_id: u128,
+		transaction_id: u64,
 	) -> tg::Result<u64> {
 		// Count pending updates with version <= transaction_id. Parent updates enqueued during
 		// processing use the same version as the child that triggered them.
-		let version_limit = transaction_id as u64;
+		let version_limit = transaction_id;
 		let prefix = (Kind::UpdateVersion.to_i32().unwrap(),).pack_to_vec();
 		let mut count = 0u64;
 		for entry in db
@@ -181,7 +147,6 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::object::Id,
 	) -> tg::Result<bool> {
-		// Get the current object.
 		let key = Key::Object(id.clone()).pack_to_vec();
 		let bytes = db
 			.get(transaction, &key)
@@ -189,13 +154,10 @@ impl Index {
 			.ok_or_else(|| tg::error!(%id, "object not found"))?;
 		let mut object = Object::deserialize(bytes)?;
 
-		// Get children.
 		let children = Self::get_object_children(db, transaction, id)?;
 
-		// Track if any field changed.
 		let mut changed = false;
 
-		// Compute stored.subtree = all(children.stored.subtree). Vacuously true for leaf nodes.
 		if !object.stored.subtree {
 			let all_children_stored = children.iter().all(|child| {
 				Self::get_object(db, transaction, child)
@@ -209,7 +171,6 @@ impl Index {
 			}
 		}
 
-		// Compute metadata.subtree.count = 1 + sum(children.subtree.count). For leaf nodes, this is 1.
 		if object.metadata.subtree.count.is_none() {
 			let mut sum: u64 = 1;
 			let mut all = true;
@@ -232,7 +193,6 @@ impl Index {
 			}
 		}
 
-		// Compute metadata.subtree.depth = 1 + max(children.subtree.depth). For leaf nodes, this is 1.
 		if object.metadata.subtree.depth.is_none() {
 			let mut max: u64 = 0;
 			let mut all = true;
@@ -255,7 +215,6 @@ impl Index {
 			}
 		}
 
-		// Compute metadata.subtree.size = node.size + sum(children.subtree.size). For leaf nodes, this equals node.size.
 		if object.metadata.subtree.size.is_none() {
 			let node_size = object.metadata.node.size;
 			let mut sum: u64 = node_size;
@@ -279,10 +238,8 @@ impl Index {
 			}
 		}
 
-		// Compute metadata.subtree.solvable = node.solvable OR any(children.subtree.solvable). For leaf nodes, this equals node.solvable.
 		if object.metadata.subtree.solvable.is_none() {
 			let node_solvable = object.metadata.node.solvable;
-			// Check if any child is solvable, and track if all children have been computed.
 			let mut any_solvable = false;
 			let mut all_computed = true;
 			for child in &children {
@@ -306,10 +263,8 @@ impl Index {
 			}
 		}
 
-		// Compute metadata.subtree.solved = node.solved AND all(children.subtree.solved). For leaf nodes, this equals node.solved.
 		if object.metadata.subtree.solved.is_none() {
 			let node_solved = object.metadata.node.solved;
-			// Check if all children are solved, and track if all children have been computed.
 			let mut all_solved = true;
 			let mut all_computed = true;
 			for child in &children {
@@ -335,7 +290,6 @@ impl Index {
 			}
 		}
 
-		// Write the object back if changed.
 		if changed {
 			let value = object.serialize()?;
 			db.put(transaction, &key, &value)
@@ -350,7 +304,6 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::process::Id,
 	) -> tg::Result<bool> {
-		// Get the current process.
 		let key = Key::Process(id.clone()).pack_to_vec();
 		let bytes = db
 			.get(transaction, &key)
@@ -358,21 +311,16 @@ impl Index {
 			.ok_or_else(|| tg::error!(%id, "process not found"))?;
 		let mut process = Process::deserialize(bytes)?;
 
-		// Get process objects (command, error, log, output).
 		let objects = Self::get_process_objects(db, transaction, id)?;
 
-		// Get process children.
 		let children = Self::get_process_children(db, transaction, id)?;
 
-		// Track if any field changed.
 		let mut changed = false;
 
-		// Track which object kinds exist.
 		let mut has_error = false;
 		let mut has_log = false;
 		let mut has_output = false;
 
-		// Process each object kind to compute node stored and metadata fields.
 		for (object_id, kind) in &objects {
 			match kind {
 				ProcessObjectKind::Command => {},
@@ -381,10 +329,8 @@ impl Index {
 				ProcessObjectKind::Output => has_output = true,
 			}
 
-			// Get the object's subtree metadata.
 			let object = Self::get_object(db, transaction, object_id)?;
 
-			// Compute node stored fields from object's stored.subtree.
 			if let Some(ref obj) = object
 				&& obj.stored.subtree
 			{
@@ -400,7 +346,6 @@ impl Index {
 				}
 			}
 
-			// Compute node metadata fields from object's subtree metadata.
 			if let Some(ref obj) = object {
 				let (node_count, node_depth, node_size, node_solvable, node_solved) = match kind {
 					ProcessObjectKind::Command => (
@@ -456,8 +401,6 @@ impl Index {
 			}
 		}
 
-		// For missing object kinds, set stored to true, count/depth/size to 0, solvable to false
-		// (no solvable references), and solved to true (vacuously true - all 0 objects are solved).
 		if !has_error {
 			if !process.stored.node_error {
 				process.stored.node_error = true;
@@ -484,6 +427,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if !has_log {
 			if !process.stored.node_log {
 				process.stored.node_log = true;
@@ -510,6 +454,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if !has_output {
 			if !process.stored.node_output {
 				process.stored.node_output = true;
@@ -537,7 +482,6 @@ impl Index {
 			}
 		}
 
-		// Compute stored.subtree = all(children.stored.subtree). Vacuously true for leaf processes.
 		if !process.stored.subtree {
 			let mut all = true;
 			for child in &children {
@@ -557,7 +501,6 @@ impl Index {
 			}
 		}
 
-		// Compute subtree stored fields for each object kind.
 		if !process.stored.subtree_command && process.stored.node_command {
 			let mut all = true;
 			for child in &children {
@@ -576,6 +519,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if !process.stored.subtree_error && process.stored.node_error {
 			let mut all = true;
 			for child in &children {
@@ -594,6 +538,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if !process.stored.subtree_log && process.stored.node_log {
 			let mut all = true;
 			for child in &children {
@@ -612,6 +557,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if !process.stored.subtree_output && process.stored.node_output {
 			let mut all = true;
 			for child in &children {
@@ -631,7 +577,6 @@ impl Index {
 			}
 		}
 
-		// Compute subtree.count = 1 + sum(children.subtree.count). For leaf processes, this is 1.
 		if process.metadata.subtree.count.is_none() {
 			let mut sum: u64 = 1;
 			let mut all = true;
@@ -654,9 +599,6 @@ impl Index {
 			}
 		}
 
-		// Compute subtree metadata fields for command. Unlike error/log/output, command must always
-		// exist. If node command metadata is not yet computed, do not attempt to compute subtree
-		// values as this would incorrectly set them to 0 for leaf processes.
 		let node_command_ready = process.metadata.node.command.count.is_some()
 			&& process.metadata.node.command.depth.is_some()
 			&& process.metadata.node.command.size.is_some();
@@ -696,7 +638,6 @@ impl Index {
 			}
 		}
 
-		// Compute subtree metadata fields for error.
 		if process.metadata.subtree.error.count.is_none()
 			&& let Some(result) = Self::compute_subtree_sum(
 				db,
@@ -708,6 +649,7 @@ impl Index {
 			process.metadata.subtree.error.count = Some(result);
 			changed = true;
 		}
+
 		if process.metadata.subtree.error.depth.is_none()
 			&& let Some(result) = Self::compute_subtree_max(
 				db,
@@ -719,6 +661,7 @@ impl Index {
 			process.metadata.subtree.error.depth = Some(result);
 			changed = true;
 		}
+
 		if process.metadata.subtree.error.size.is_none()
 			&& let Some(result) = Self::compute_subtree_sum(
 				db,
@@ -731,7 +674,6 @@ impl Index {
 			changed = true;
 		}
 
-		// Compute subtree metadata fields for log.
 		if process.metadata.subtree.log.count.is_none()
 			&& let Some(result) = Self::compute_subtree_sum(
 				db,
@@ -754,6 +696,7 @@ impl Index {
 			process.metadata.subtree.log.depth = Some(result);
 			changed = true;
 		}
+
 		if process.metadata.subtree.log.size.is_none()
 			&& let Some(result) = Self::compute_subtree_sum(
 				db,
@@ -766,7 +709,6 @@ impl Index {
 			changed = true;
 		}
 
-		// Compute subtree metadata fields for output.
 		if process.metadata.subtree.output.count.is_none()
 			&& let Some(result) = Self::compute_subtree_sum(
 				db,
@@ -778,6 +720,7 @@ impl Index {
 			process.metadata.subtree.output.count = Some(result);
 			changed = true;
 		}
+
 		if process.metadata.subtree.output.depth.is_none()
 			&& let Some(result) = Self::compute_subtree_max(
 				db,
@@ -789,6 +732,7 @@ impl Index {
 			process.metadata.subtree.output.depth = Some(result);
 			changed = true;
 		}
+
 		if process.metadata.subtree.output.size.is_none()
 			&& let Some(result) = Self::compute_subtree_sum(
 				db,
@@ -801,7 +745,6 @@ impl Index {
 			changed = true;
 		}
 
-		// Compute subtree solvable fields using helper.
 		if process.metadata.subtree.command.solvable.is_none()
 			&& let Some(value) = Self::compute_subtree_solvable(
 				db,
@@ -813,6 +756,7 @@ impl Index {
 			process.metadata.subtree.command.solvable = Some(value);
 			changed = true;
 		}
+
 		if process.metadata.subtree.error.solvable.is_none()
 			&& let Some(value) = Self::compute_subtree_solvable(
 				db,
@@ -824,6 +768,7 @@ impl Index {
 			process.metadata.subtree.error.solvable = Some(value);
 			changed = true;
 		}
+
 		if process.metadata.subtree.log.solvable.is_none()
 			&& let Some(value) = Self::compute_subtree_solvable(
 				db,
@@ -835,6 +780,7 @@ impl Index {
 			process.metadata.subtree.log.solvable = Some(value);
 			changed = true;
 		}
+
 		if process.metadata.subtree.output.solvable.is_none()
 			&& let Some(value) = Self::compute_subtree_solvable(
 				db,
@@ -847,7 +793,6 @@ impl Index {
 			changed = true;
 		}
 
-		// Compute subtree solved fields using helper.
 		if process.metadata.subtree.command.solved.is_none()
 			&& let Some(value) = Self::compute_subtree_solved(
 				db,
@@ -859,6 +804,7 @@ impl Index {
 			process.metadata.subtree.command.solved = Some(value);
 			changed = true;
 		}
+
 		if process.metadata.subtree.error.solved.is_none()
 			&& let Some(value) = Self::compute_subtree_solved(
 				db,
@@ -870,6 +816,7 @@ impl Index {
 			process.metadata.subtree.error.solved = Some(value);
 			changed = true;
 		}
+
 		if process.metadata.subtree.log.solved.is_none()
 			&& let Some(value) = Self::compute_subtree_solved(
 				db,
@@ -881,6 +828,7 @@ impl Index {
 			process.metadata.subtree.log.solved = Some(value);
 			changed = true;
 		}
+
 		if process.metadata.subtree.output.solved.is_none()
 			&& let Some(value) = Self::compute_subtree_solved(
 				db,
@@ -893,7 +841,6 @@ impl Index {
 			changed = true;
 		}
 
-		// Write the process back if changed.
 		if changed {
 			let value = process.serialize()?;
 			db.put(transaction, &key, &value)
@@ -910,10 +857,8 @@ impl Index {
 		node_value: Option<u64>,
 		child_accessor: fn(&Process) -> Option<u64>,
 	) -> tg::Result<Option<u64>> {
-		// We need node_value to be computed before we can compute subtree.
 		let mut all = node_value.is_some();
 		let mut result = node_value.unwrap_or(0);
-
 		for child in children {
 			if let Some(child_process) = Self::get_process(db, transaction, child)? {
 				if let Some(value) = child_accessor(&child_process) {
@@ -927,7 +872,6 @@ impl Index {
 				break;
 			}
 		}
-
 		if all { Ok(Some(result)) } else { Ok(None) }
 	}
 
@@ -938,10 +882,8 @@ impl Index {
 		node_value: Option<u64>,
 		child_accessor: fn(&Process) -> Option<u64>,
 	) -> tg::Result<Option<u64>> {
-		// We need node_value to be computed before we can compute subtree.
 		let mut all = node_value.is_some();
 		let mut result = node_value.unwrap_or(0);
-
 		for child in children {
 			if let Some(child_process) = Self::get_process(db, transaction, child)? {
 				if let Some(value) = child_accessor(&child_process) {
@@ -955,12 +897,9 @@ impl Index {
 				break;
 			}
 		}
-
 		if all { Ok(Some(result)) } else { Ok(None) }
 	}
 
-	/// Compute subtree solvable: node.solvable OR any(children.subtree.solvable).
-	/// Returns Some(true) if solvable, Some(false) if not solvable, None if not all children have been computed yet.
 	fn compute_subtree_solvable(
 		db: &Db,
 		transaction: &lmdb::RwTxn<'_>,
@@ -968,12 +907,9 @@ impl Index {
 		node_value: Option<bool>,
 		child_accessor: fn(&Process) -> Option<bool>,
 	) -> tg::Result<Option<bool>> {
-		// If node is solvable, subtree is solvable.
 		if node_value == Some(true) {
 			return Ok(Some(true));
 		}
-
-		// Check children.
 		let mut any_solvable = false;
 		let mut all_computed = node_value.is_some();
 		for child in children {
@@ -992,19 +928,15 @@ impl Index {
 				all_computed = false;
 			}
 		}
-
 		if any_solvable {
 			Ok(Some(true))
 		} else if all_computed {
-			// Node is not solvable and no child is solvable.
 			Ok(Some(false))
 		} else {
 			Ok(None)
 		}
 	}
 
-	/// Compute subtree solved: node.solved AND all(children.subtree.solved).
-	/// Returns Some(true) if solved, Some(false) if not solved, None if not all children have been computed yet.
 	fn compute_subtree_solved(
 		db: &Db,
 		transaction: &lmdb::RwTxn<'_>,
@@ -1012,17 +944,12 @@ impl Index {
 		node_value: Option<bool>,
 		child_accessor: fn(&Process) -> Option<bool>,
 	) -> tg::Result<Option<bool>> {
-		// If node value is not yet computed, we cannot compute subtree.
 		let Some(node_solved) = node_value else {
 			return Ok(None);
 		};
-
-		// If node is not solved, subtree cannot be solved.
 		if !node_solved {
 			return Ok(Some(false));
 		}
-
-		// Node is solved, check children.
 		let mut all_solved = true;
 		let mut any_unsolved = false;
 		let mut all_computed = true;
@@ -1045,7 +972,6 @@ impl Index {
 				all_solved = false;
 			}
 		}
-
 		if all_solved {
 			Ok(Some(true))
 		} else if any_unsolved || all_computed {
@@ -1063,7 +989,6 @@ impl Index {
 	) -> tg::Result<()> {
 		match id {
 			tg::Either::Left(object_id) => {
-				// Enqueue object parents with Propagate type.
 				let parents = Self::get_object_parents(db, transaction, object_id)?;
 				for parent in parents {
 					Self::enqueue_update(
@@ -1075,7 +1000,6 @@ impl Index {
 					)?;
 				}
 
-				// Enqueue process parents with Propagate type.
 				let process_parents = Self::get_object_process_parents(db, transaction, object_id)?;
 				for (process, _kind) in process_parents {
 					Self::enqueue_update(
@@ -1088,7 +1012,6 @@ impl Index {
 				}
 			},
 			tg::Either::Right(process_id) => {
-				// Enqueue process parents with Propagate type.
 				let parents = Self::get_process_parents(db, transaction, process_id)?;
 				for parent in parents {
 					Self::enqueue_update(
@@ -1111,23 +1034,19 @@ impl Index {
 		update: Update,
 		version: Option<u64>,
 	) -> tg::Result<()> {
-		// Check if update already exists (dedup).
 		let update_key = Key::Update { id: id.clone() }.pack_to_vec();
 		if db
 			.get(transaction, &update_key)
 			.map_err(|source| tg::error!(!source, "failed to get update key"))?
 			.is_some()
 		{
-			return Ok(()); // Already queued.
+			return Ok(());
 		}
 
-		// Set the Update key with the update type as the value.
 		let update_value = [update.to_u8().unwrap()];
 		db.put(transaction, &update_key, &update_value)
 			.map_err(|source| tg::error!(!source, "failed to put update key"))?;
 
-		// Set the UpdateVersion key (for ordered processing). Use the provided version if given,
-		// otherwise use the current transaction ID.
 		let version = version.unwrap_or_else(|| transaction.id() as u64);
 		let version_key = Key::UpdateVersion { version, id }.pack_to_vec();
 		db.put(transaction, &version_key, &[])

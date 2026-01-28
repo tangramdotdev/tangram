@@ -6364,6 +6364,7 @@ version = "0.0.0"
 dependencies = [
  "bitflags 2.10.0",
  "bytes",
+ "crossbeam-channel",
  "derive_more",
  "fnv",
  "foundationdb",

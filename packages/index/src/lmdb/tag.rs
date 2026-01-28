@@ -13,9 +13,8 @@ impl Index {
 		}
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::PutTags(args.to_vec());
-		self.sender
+		self.sender_high
 			.send((request, sender))
-			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		receiver
 			.await
@@ -95,9 +94,8 @@ impl Index {
 		}
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::DeleteTags(tags.to_vec());
-		self.sender
+		self.sender_high
 			.send((request, sender))
-			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		receiver
 			.await

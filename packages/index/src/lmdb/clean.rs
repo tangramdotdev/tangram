@@ -26,9 +26,8 @@ impl Index {
 			max_touched_at,
 			batch_size,
 		};
-		self.sender
+		self.sender_low
 			.send((request, sender))
-			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		let response = receiver
 			.await

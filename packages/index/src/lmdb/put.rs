@@ -13,9 +13,8 @@ impl Index {
 	pub async fn put(&self, arg: PutArg) -> tg::Result<()> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Put(arg);
-		self.sender
+		self.sender_high
 			.send((request, sender))
-			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		receiver
 			.await
@@ -163,7 +162,6 @@ impl Index {
 		db.put(transaction, &key, &[])
 			.map_err(|source| tg::error!(!source, "failed to put the clean key"))?;
 
-		// Enqueue update for propagation.
 		Self::enqueue_update(
 			db,
 			transaction,
@@ -259,7 +257,6 @@ impl Index {
 		db.put(transaction, &key, &[])
 			.map_err(|source| tg::error!(!source, "failed to put the clean key"))?;
 
-		// Enqueue update for propagation.
 		Self::enqueue_update(
 			db,
 			transaction,

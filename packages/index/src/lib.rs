@@ -18,12 +18,12 @@ pub trait Index {
 	fn try_get_objects(
 		&self,
 		ids: &[tg::object::Id],
-	) -> impl std::future::Future<Output = tg::Result<Vec<Option<Object>>>> + Send;
+	) -> impl Future<Output = tg::Result<Vec<Option<Object>>>> + Send;
 
 	fn try_get_object(
 		&self,
 		id: &tg::object::Id,
-	) -> impl std::future::Future<Output = tg::Result<Option<Object>>> + Send {
+	) -> impl Future<Output = tg::Result<Option<Object>>> + Send {
 		self.try_get_objects(std::slice::from_ref(id))
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
@@ -31,12 +31,12 @@ pub trait Index {
 	fn try_get_processes(
 		&self,
 		ids: &[tg::process::Id],
-	) -> impl std::future::Future<Output = tg::Result<Vec<Option<Process>>>> + Send;
+	) -> impl Future<Output = tg::Result<Vec<Option<Process>>>> + Send;
 
 	fn try_get_process(
 		&self,
 		id: &tg::process::Id,
-	) -> impl std::future::Future<Output = tg::Result<Option<Process>>> + Send {
+	) -> impl Future<Output = tg::Result<Option<Process>>> + Send {
 		self.try_get_processes(std::slice::from_ref(id))
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
@@ -45,13 +45,13 @@ pub trait Index {
 		&self,
 		ids: &[tg::object::Id],
 		touched_at: i64,
-	) -> impl std::future::Future<Output = tg::Result<Vec<Option<Object>>>> + Send;
+	) -> impl Future<Output = tg::Result<Vec<Option<Object>>>> + Send;
 
 	fn touch_object(
 		&self,
 		id: &tg::object::Id,
 		touched_at: i64,
-	) -> impl std::future::Future<Output = tg::Result<Option<Object>>> + Send {
+	) -> impl Future<Output = tg::Result<Option<Object>>> + Send {
 		self.touch_objects(std::slice::from_ref(id), touched_at)
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
@@ -60,48 +60,37 @@ pub trait Index {
 		&self,
 		ids: &[tg::process::Id],
 		touched_at: i64,
-	) -> impl std::future::Future<Output = tg::Result<Vec<Option<Process>>>> + Send;
+	) -> impl Future<Output = tg::Result<Vec<Option<Process>>>> + Send;
 
 	fn touch_process(
 		&self,
 		id: &tg::process::Id,
 		touched_at: i64,
-	) -> impl std::future::Future<Output = tg::Result<Option<Process>>> + Send {
+	) -> impl Future<Output = tg::Result<Option<Process>>> + Send {
 		self.touch_processes(std::slice::from_ref(id), touched_at)
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 
-	fn put(&self, arg: PutArg) -> impl std::future::Future<Output = tg::Result<()>> + Send;
+	fn put(&self, arg: PutArg) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn put_tags(
-		&self,
-		args: &[PutTagArg],
-	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
+	fn put_tags(&self, args: &[PutTagArg]) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn delete_tags(
-		&self,
-		tags: &[String],
-	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
+	fn delete_tags(&self, tags: &[String]) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn update_batch(
-		&self,
-		batch_size: usize,
-	) -> impl std::future::Future<Output = tg::Result<usize>> + Send;
+	fn get_update_count(&self, transaction_id: u64)
+	-> impl Future<Output = tg::Result<u64>> + Send;
 
-	fn get_transaction_id(&self) -> impl std::future::Future<Output = tg::Result<u128>> + Send;
-
-	fn get_queue_size(
-		&self,
-		transaction_id: u128,
-	) -> impl std::future::Future<Output = tg::Result<u64>> + Send;
+	fn update_batch(&self, batch_size: usize) -> impl Future<Output = tg::Result<usize>> + Send;
 
 	fn clean(
 		&self,
 		max_touched_at: i64,
 		batch_size: usize,
-	) -> impl std::future::Future<Output = tg::Result<CleanOutput>> + Send;
+	) -> impl Future<Output = tg::Result<CleanOutput>> + Send;
 
-	fn sync(&self) -> impl std::future::Future<Output = tg::Result<()>> + Send;
+	fn get_transaction_id(&self) -> impl Future<Output = tg::Result<u64>> + Send;
+
+	fn sync(&self) -> impl Future<Output = tg::Result<()>> + Send;
 }
 
 #[derive(

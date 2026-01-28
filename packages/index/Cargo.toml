@@ -19,6 +19,7 @@ lmdb = ["dep:heed", "dep:foundationdb-tuple"]
 
 [dependencies]
 bitflags = "2"
+crossbeam-channel = { workspace = true }
 bytes = { workspace = true }
 derive_more = { workspace = true }
 fnv = { workspace = true }

@@ -7,13 +7,50 @@ use {
 	},
 	crate::ProcessObjectKind,
 	foundationdb as fdb,
-	foundationdb_tuple::{self as fdbt, Subspace},
+	foundationdb_tuple::{self as fdbt, Subspace, TuplePack as _},
 	num_traits::ToPrimitive as _,
 	tangram_client::prelude::*,
 	tangram_util::varint,
 };
 
 impl Index {
+	pub async fn get_update_count(&self, transaction_id: u64) -> tg::Result<u64> {
+		let txn = self
+			.database
+			.create_trx()
+			.map_err(|source| tg::error!(!source, "failed to create the transaction"))?;
+
+		// Convert the transaction_id to a versionstamp with max batch order (0xFFFF) to include
+		// all entries with transaction version <= the given version, regardless of batch order.
+		let mut stamp_bytes = [0u8; 10];
+		stamp_bytes[0..8].copy_from_slice(&transaction_id.to_be_bytes());
+		stamp_bytes[8..10].copy_from_slice(&0xFFFFu16.to_be_bytes());
+		let end_versionstamp = fdbt::Versionstamp::complete(stamp_bytes, 0);
+
+		// Scan from the beginning of UpdateVersion to the given transaction_id.
+		let prefix = self.pack(&(Kind::UpdateVersion.to_i32().unwrap(),));
+
+		// Pack the end key with the versionstamp.
+		let mut end = prefix.clone();
+		end.extend_from_slice(&(end_versionstamp,).pack_to_vec());
+
+		let subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption {
+			begin: fdb::KeySelector::first_greater_or_equal(subspace.range().0),
+			end: fdb::KeySelector::first_greater_or_equal(end),
+			mode: fdb::options::StreamingMode::WantAll,
+			..Default::default()
+		};
+
+		// Count the entries.
+		let entries = txn
+			.get_range(&range, 1, false)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the update count range"))?;
+
+		Ok(entries.len() as u64)
+	}
+
 	pub async fn update_batch(&self, batch_size: usize) -> tg::Result<usize> {
 		self.database
 			.run(|txn, _| {

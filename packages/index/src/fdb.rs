@@ -9,10 +9,9 @@ use {
 mod clean;
 mod get;
 mod put;
-mod queue;
 mod tag;
 mod touch;
-mod transaction;
+mod update;
 
 #[derive(Clone)]
 pub struct Index {
@@ -475,6 +474,19 @@ impl Index {
 			.map_err(|source| tg::error!(!source, "failed to unpack key"))
 	}
 
+	pub async fn get_transaction_id(&self) -> tg::Result<u64> {
+		let txn = self
+			.database
+			.create_trx()
+			.map_err(|source| tg::error!(!source, "failed to create the transaction"))?;
+		let version = txn
+			.get_read_version()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the read version"))?
+			.cast_unsigned();
+		Ok(version)
+	}
+
 	pub async fn sync(&self) -> tg::Result<()> {
 		Ok(())
 	}
@@ -535,20 +547,20 @@ impl crate::Index for Index {
 		self.delete_tags(tags).await
 	}
 
+	async fn get_update_count(&self, transaction_id: u64) -> tg::Result<u64> {
+		self.get_update_count(transaction_id).await
+	}
+
 	async fn update_batch(&self, batch_size: usize) -> tg::Result<usize> {
 		self.update_batch(batch_size).await
 	}
 
-	async fn get_transaction_id(&self) -> tg::Result<u128> {
-		self.get_transaction_id().await
-	}
-
-	async fn get_queue_size(&self, transaction_id: u128) -> tg::Result<u64> {
-		self.get_queue_size(transaction_id).await
-	}
-
 	async fn clean(&self, max_touched_at: i64, batch_size: usize) -> tg::Result<CleanOutput> {
 		self.clean(max_touched_at, batch_size).await
+	}
+
+	async fn get_transaction_id(&self) -> tg::Result<u64> {
+		self.get_transaction_id().await
 	}
 
 	async fn sync(&self) -> tg::Result<()> {

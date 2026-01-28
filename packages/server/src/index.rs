@@ -113,30 +113,21 @@ impl index::Index for Index {
 		}
 	}
 
+	async fn get_update_count(&self, transaction_id: u64) -> tg::Result<u64> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.get_update_count(transaction_id).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.get_update_count(transaction_id).await,
+		}
+	}
+
 	async fn update_batch(&self, batch_size: usize) -> tg::Result<usize> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.update_batch(batch_size).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => index.update_batch(batch_size).await,
-		}
-	}
-
-	async fn get_transaction_id(&self) -> tg::Result<u128> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.get_transaction_id().await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.get_transaction_id().await,
-		}
-	}
-
-	async fn get_queue_size(&self, transaction_id: u128) -> tg::Result<u64> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.get_queue_size(transaction_id).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.get_queue_size(transaction_id).await,
 		}
 	}
 
@@ -150,6 +141,15 @@ impl index::Index for Index {
 			Self::Fdb(index) => index.clean(max_touched_at, batch_size).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => index.clean(max_touched_at, batch_size).await,
+		}
+	}
+
+	async fn get_transaction_id(&self) -> tg::Result<u64> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.get_transaction_id().await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.get_transaction_id().await,
 		}
 	}
 
@@ -224,9 +224,9 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get the transaction id"))?;
 		let count = self
 			.index
-			.get_queue_size(transaction_id)
+			.get_update_count(transaction_id)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the queue size"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the update count"))?;
 		progress.start(
 			"queue".to_owned(),
 			"queue".to_owned(),
@@ -237,9 +237,9 @@ impl Server {
 		loop {
 			let count = self
 				.index
-				.get_queue_size(transaction_id)
+				.get_update_count(transaction_id)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the queue size"))?;
+				.map_err(|source| tg::error!(!source, "failed to get the update count"))?;
 			progress.set("queue", count);
 			if count == 0 {
 				break;

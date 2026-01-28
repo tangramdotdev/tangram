@@ -20,9 +20,8 @@ impl Index {
 			ids: ids.to_vec(),
 			touched_at,
 		};
-		self.sender
+		self.sender_high
 			.send((request, sender))
-			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		let response = receiver
 			.await
@@ -46,9 +45,8 @@ impl Index {
 			ids: ids.to_vec(),
 			touched_at,
 		};
-		self.sender
+		self.sender_high
 			.send((request, sender))
-			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		let response = receiver
 			.await
