@@ -3,7 +3,7 @@ use {
 		Index, Key, KeyKind, ObjectCoreField, ObjectField, ObjectMetadataField, ObjectStoredField,
 		ProcessCoreField, ProcessField, ProcessMetadataField, ProcessStoredField,
 	},
-	crate::{Object, ObjectStored, Process, ProcessStored},
+	crate::{Object, ObjectStored, Process, ProcessObjectKind, ProcessStored},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
 	futures::TryStreamExt as _,
@@ -519,5 +519,179 @@ impl Index {
 		}
 
 		Ok(())
+	}
+
+	pub(super) async fn get_object_children_with_transaction(
+		&self,
+		txn: &fdb::Transaction,
+		id: &tg::object::Id,
+	) -> tg::Result<Vec<tg::object::Id>> {
+		let bytes = id.to_bytes();
+		let prefix = self.pack(&(KeyKind::ObjectChild.to_i32().unwrap(), bytes.as_ref()));
+		let subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&subspace)
+		};
+
+		let entries = txn
+			.get_range(&range, 1, false)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get object children"))?;
+
+		let mut children = Vec::new();
+		for entry in &entries {
+			let key = self.unpack(entry.key())?;
+			if let Key::ObjectChild { child, .. } = key {
+				children.push(child);
+			}
+		}
+
+		Ok(children)
+	}
+
+	pub(super) async fn get_object_parents_with_transaction(
+		&self,
+		txn: &fdb::Transaction,
+		id: &tg::object::Id,
+	) -> tg::Result<Vec<tg::object::Id>> {
+		let bytes = id.to_bytes();
+		let prefix = self.pack(&(KeyKind::ChildObject.to_i32().unwrap(), bytes.as_ref()));
+		let subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&subspace)
+		};
+
+		let entries = txn
+			.get_range(&range, 1, false)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get object parents"))?;
+
+		let mut parents = Vec::new();
+		for entry in &entries {
+			let key = self.unpack(entry.key())?;
+			if let Key::ChildObject { object, .. } = key {
+				parents.push(object);
+			}
+		}
+
+		Ok(parents)
+	}
+
+	pub(super) async fn get_object_processes_with_transaction(
+		&self,
+		txn: &fdb::Transaction,
+		id: &tg::object::Id,
+	) -> tg::Result<Vec<(tg::process::Id, ProcessObjectKind)>> {
+		let bytes = id.to_bytes();
+		let prefix = self.pack(&(KeyKind::ObjectProcess.to_i32().unwrap(), bytes.as_ref()));
+		let subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&subspace)
+		};
+
+		let entries = txn
+			.get_range(&range, 1, false)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get object process parents"))?;
+
+		let mut processes = Vec::new();
+		for entry in &entries {
+			let key = self.unpack(entry.key())?;
+			if let Key::ObjectProcess { kind, process, .. } = key {
+				processes.push((process, kind));
+			}
+		}
+
+		Ok(processes)
+	}
+
+	pub(super) async fn get_process_children_with_transaction(
+		&self,
+		txn: &fdb::Transaction,
+		id: &tg::process::Id,
+	) -> tg::Result<Vec<tg::process::Id>> {
+		let bytes = id.to_bytes();
+		let prefix = self.pack(&(KeyKind::ProcessChild.to_i32().unwrap(), bytes.as_ref()));
+		let subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&subspace)
+		};
+
+		let entries = txn
+			.get_range(&range, 1, false)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get process children"))?;
+
+		let mut children = Vec::new();
+		for entry in &entries {
+			let key = self.unpack(entry.key())?;
+			if let Key::ProcessChild { child, .. } = key {
+				children.push(child);
+			}
+		}
+
+		Ok(children)
+	}
+
+	pub(super) async fn get_process_parents_with_transaction(
+		&self,
+		txn: &fdb::Transaction,
+		id: &tg::process::Id,
+	) -> tg::Result<Vec<tg::process::Id>> {
+		let bytes = id.to_bytes();
+		let prefix = self.pack(&(KeyKind::ChildProcess.to_i32().unwrap(), bytes.as_ref()));
+		let subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&subspace)
+		};
+
+		let entries = txn
+			.get_range(&range, 1, false)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get process parents"))?;
+
+		let mut parents = Vec::new();
+		for entry in &entries {
+			let key = self.unpack(entry.key())?;
+			if let Key::ChildProcess { parent, .. } = key {
+				parents.push(parent);
+			}
+		}
+
+		Ok(parents)
+	}
+
+	pub(super) async fn get_process_objects_with_transaction(
+		&self,
+		txn: &fdb::Transaction,
+		id: &tg::process::Id,
+	) -> tg::Result<Vec<(tg::object::Id, ProcessObjectKind)>> {
+		let bytes = id.to_bytes();
+		let prefix = self.pack(&(KeyKind::ProcessObject.to_i32().unwrap(), bytes.as_ref()));
+		let subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&subspace)
+		};
+
+		let entries = txn
+			.get_range(&range, 1, false)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get process objects"))?;
+
+		let mut objects = Vec::new();
+		for entry in &entries {
+			let key = self.unpack(entry.key())?;
+			if let Key::ProcessObject { kind, object, .. } = key {
+				objects.push((object, kind));
+			}
+		}
+
+		Ok(objects)
 	}
 }

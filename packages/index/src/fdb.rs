@@ -163,12 +163,6 @@ enum ObjectCoreField {
 
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
 #[repr(u8)]
-enum ObjectStoredField {
-	Subtree = 0,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
-#[repr(u8)]
 enum ObjectMetadataField {
 	NodeSize = 0,
 	NodeSolvable = 1,
@@ -178,6 +172,12 @@ enum ObjectMetadataField {
 	SubtreeSize = 5,
 	SubtreeSolvable = 6,
 	SubtreeSolved = 7,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
+#[repr(u8)]
+enum ObjectStoredField {
+	Subtree = 0,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
@@ -201,20 +201,6 @@ enum ProcessCoreField {
 	Exists = 0,
 	TouchedAt = 1,
 	ReferenceCount = 2,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
-#[repr(u8)]
-enum ProcessStoredField {
-	NodeCommand = 0,
-	NodeError = 1,
-	NodeLog = 2,
-	NodeOutput = 3,
-	Subtree = 4,
-	SubtreeCommand = 5,
-	SubtreeError = 6,
-	SubtreeLog = 7,
-	SubtreeOutput = 8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
@@ -261,6 +247,20 @@ enum ProcessMetadataField {
 	SubtreeOutputSize = 38,
 	SubtreeOutputSolvable = 39,
 	SubtreeOutputSolved = 40,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
+#[repr(u8)]
+enum ProcessStoredField {
+	NodeCommand = 0,
+	NodeError = 1,
+	NodeLog = 2,
+	NodeOutput = 3,
+	Subtree = 4,
+	SubtreeCommand = 5,
+	SubtreeError = 6,
+	SubtreeLog = 7,
+	SubtreeOutput = 8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]

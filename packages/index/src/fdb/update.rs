@@ -24,25 +24,23 @@ impl Index {
 		bytes[..8].copy_from_slice(&transaction_id.to_be_bytes());
 		bytes[8..].copy_from_slice(&0xFFFFu16.to_be_bytes());
 		let versionstamp = fdbt::Versionstamp::complete(bytes, 0);
-		let prefix = self.pack(&(KeyKind::UpdateVersion.to_i32().unwrap(),));
+		let begin = self.pack(&(KeyKind::UpdateVersion.to_i32().unwrap(),));
 		let end = self.pack(&(KeyKind::UpdateVersion.to_i32().unwrap(), versionstamp));
-
-		let subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
-			begin: fdb::KeySelector::first_greater_or_equal(subspace.range().0),
+			begin: fdb::KeySelector::first_greater_or_equal(begin),
 			end: fdb::KeySelector::first_greater_or_equal(end),
 			limit: Some(1),
 			mode: fdb::options::StreamingMode::WantAll,
 			..Default::default()
 		};
 
-		// Check if there are any entries.
 		let entries = txn
 			.get_range(&range, 1, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check if updates are finished"))?;
+		let finished = entries.is_empty();
 
-		Ok(entries.is_empty())
+		Ok(finished)
 	}
 
 	pub async fn update_batch(&self, batch_size: usize) -> tg::Result<usize> {
@@ -64,7 +62,6 @@ impl Index {
 		txn: &fdb::Transaction,
 		batch_size: usize,
 	) -> tg::Result<usize> {
-		// Read a batch of UpdateVersion entries.
 		let prefix = self.pack(&(KeyKind::UpdateVersion.to_i32().unwrap(),));
 		let subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
@@ -89,160 +86,89 @@ impl Index {
 
 		let mut count = 0;
 		for (version, id) in entries {
-			let update_key = self.pack(&Key::Update { id: id.clone() });
-			let update_value = txn
-				.get(&update_key, false)
+			let key = self.pack(&Key::Update { id: id.clone() });
+			let value = txn
+				.get(&key, false)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get update key"))?;
 
-			let version_key = self.pack(&Key::UpdateVersion {
-				version: version.clone(),
-				id: id.clone(),
-			});
-
-			// Get the update type and fields from the Update key.
-			let Some(update_bytes) = update_value else {
-				// Update key missing. This can happen when multiple puts for the same item create
-				// multiple UpdateVersion entries (puts use NextWriteNoWriteConflictRange to avoid
-				// conflicts). The first processed entry consumes the Update key, leaving the rest
-				// orphaned. Just delete and continue.
-				txn.clear(&version_key);
+			let Some(update) = value else {
+				let key = self.pack(&Key::UpdateVersion {
+					version: version.clone(),
+					id: id.clone(),
+				});
+				txn.clear(&key);
 				count += 1;
 				continue;
 			};
 
-			let Some(update) = Update::deserialize(&update_bytes).ok() else {
-				// Invalid entry, delete and continue.
-				txn.clear(&version_key);
-				txn.clear(&update_key);
-				count += 1;
-				continue;
-			};
+			let update = Update::deserialize(&update)?;
 
-			let is_put = matches!(update, Update::Put);
-
-			// Process the update by recomputing the requested fields.
-			let updated_fields = match (&id, &update) {
-				(tg::Either::Left(object_id), Update::Propagate(PropagateUpdate::Object(p))) => {
-					let fields = ObjectPropagateUpdateFields::from_bits_truncate(p.fields);
-					let updated = self
-						.update_recompute_object_fields(txn, object_id, fields)
-						.await?;
-					tg::Either::Left(updated)
+			let fields = match (&id, &update) {
+				(tg::Either::Left(id), Update::Propagate(PropagateUpdate::Object(update))) => {
+					let fields = ObjectPropagateUpdateFields::from_bits_truncate(update.fields);
+					let fields = self.update_object(txn, id, fields).await?;
+					tg::Either::Left(fields)
 				},
-				(tg::Either::Left(object_id), _) => {
-					let updated = self
-						.update_recompute_object_fields(
-							txn,
-							object_id,
-							ObjectPropagateUpdateFields::ALL,
-						)
-						.await?;
-					tg::Either::Left(updated)
+				(tg::Either::Left(id), _) => {
+					let fields = ObjectPropagateUpdateFields::ALL;
+					let fields = self.update_object(txn, id, fields).await?;
+					tg::Either::Left(fields)
 				},
-				(tg::Either::Right(process_id), Update::Propagate(PropagateUpdate::Process(p))) => {
-					let fields = ProcessPropagateUpdateFields::from_bits_truncate(p.fields);
-					let updated = self
-						.update_recompute_process_fields(txn, process_id, fields)
-						.await?;
-					tg::Either::Right(updated)
+				(tg::Either::Right(id), Update::Propagate(PropagateUpdate::Process(update))) => {
+					let fields = ProcessPropagateUpdateFields::from_bits_truncate(update.fields);
+					let fields = self.update_process(txn, id, fields).await?;
+					tg::Either::Right(fields)
 				},
-				(tg::Either::Right(process_id), _) => {
-					let updated = self
-						.update_recompute_process_fields(
-							txn,
-							process_id,
-							ProcessPropagateUpdateFields::ALL,
-						)
-						.await?;
-					tg::Either::Right(updated)
+				(tg::Either::Right(id), _) => {
+					let fields = ProcessPropagateUpdateFields::ALL;
+					let fields = self.update_process(txn, id, fields).await?;
+					tg::Either::Right(fields)
 				},
 			};
 
-			// For Put updates, always enqueue parent updates with ALL fields (the item is new to the index).
-			// For Propagate updates, only enqueue parents if fields actually changed.
-			if is_put {
-				let all_fields = match &id {
-					tg::Either::Left(_) => tg::Either::Left(ObjectPropagateUpdateFields::ALL),
-					tg::Either::Right(_) => tg::Either::Right(ProcessPropagateUpdateFields::ALL),
-				};
-				self.enqueue_parents(txn, &id, &all_fields, &version)
-					.await?;
+			if match update {
+				Update::Put => true,
+				Update::Propagate(_) => false,
+			} {
+				match &id {
+					tg::Either::Left(id) => {
+						let fields = ObjectPropagateUpdateFields::ALL;
+						self.enqueue_object_parents(txn, id, fields, &version)
+							.await?;
+					},
+					tg::Either::Right(id) => {
+						let fields = ProcessPropagateUpdateFields::ALL;
+						self.enqueue_process_parents(txn, id, fields, &version)
+							.await?;
+					},
+				}
 			} else {
-				let changed = match &updated_fields {
-					tg::Either::Left(fields) => !fields.is_empty(),
-					tg::Either::Right(fields) => !fields.is_empty(),
-				};
-				if changed {
-					self.enqueue_parents(txn, &id, &updated_fields, &version)
-						.await?;
+				match (&id, &fields) {
+					(tg::Either::Left(id), tg::Either::Left(fields)) if !fields.is_empty() => {
+						self.enqueue_object_parents(txn, id, *fields, &version)
+							.await?;
+					},
+					(tg::Either::Right(id), tg::Either::Right(fields)) if !fields.is_empty() => {
+						self.enqueue_process_parents(txn, id, *fields, &version)
+							.await?;
+					},
+					_ => {},
 				}
 			}
 
-			// Delete both Update and UpdateVersion keys.
-			txn.clear(&update_key);
-			txn.clear(&version_key);
+			let key = self.pack(&Key::Update { id: id.clone() });
+			txn.clear(&key);
+			let key = self.pack(&Key::UpdateVersion {
+				version: version.clone(),
+				id: id.clone(),
+			});
+			txn.clear(&key);
 
 			count += 1;
 		}
 
 		Ok(count)
-	}
-
-	async fn enqueue_parents(
-		&self,
-		txn: &fdb::Transaction,
-		id: &tg::Either<tg::object::Id, tg::process::Id>,
-		updated_fields: &tg::Either<ObjectPropagateUpdateFields, ProcessPropagateUpdateFields>,
-		version: &fdbt::Versionstamp,
-	) -> tg::Result<()> {
-		match id {
-			tg::Either::Left(object_id) => {
-				// Determine which object fields changed that affect parents.
-				let object_fields = match updated_fields {
-					tg::Either::Left(fields) => *fields,
-					tg::Either::Right(_) => ObjectPropagateUpdateFields::ALL,
-				};
-
-				// Enqueue object parents with the same fields that changed.
-				let parents = self.update_get_object_parents(txn, object_id).await?;
-				for parent in parents {
-					self.update_enqueue_object_propagate(txn, &parent, object_fields, version)
-						.await?;
-				}
-
-				// Enqueue process parents (processes that reference this object).
-				// Map object fields to corresponding process fields based on the kind of reference.
-				let process_parents = self
-					.update_get_object_process_parents(txn, object_id)
-					.await?;
-				for (process, kind) in process_parents {
-					let process_fields = Self::object_to_process_fields(object_fields, kind);
-					self.update_enqueue_process_propagate(txn, &process, process_fields, version)
-						.await?;
-				}
-			},
-			tg::Either::Right(process_id) => {
-				// Determine which process fields changed that affect parents.
-				let process_fields = match updated_fields {
-					tg::Either::Right(fields) => *fields,
-					tg::Either::Left(_) => ProcessPropagateUpdateFields::ALL,
-				};
-
-				// Only propagate subtree fields to process parents.
-				let parent_fields = process_fields
-					& ProcessPropagateUpdateFields::ALL_SUBTREE_METADATA
-					| (process_fields & ProcessPropagateUpdateFields::ALL_STORED);
-
-				// Enqueue process parents.
-				let parents = self.update_get_process_parents(txn, process_id).await?;
-				for parent in parents {
-					self.update_enqueue_process_propagate(txn, &parent, parent_fields, version)
-						.await?;
-				}
-			},
-		}
-		Ok(())
 	}
 
 	/// Map object propagate update fields to process propagate update fields based on the kind of relationship.
@@ -387,13 +313,13 @@ impl Index {
 		process_fields
 	}
 
-	async fn update_recompute_object_fields(
+	async fn update_object(
 		&self,
 		txn: &fdb::Transaction,
 		id: &tg::object::Id,
 		fields: ObjectPropagateUpdateFields,
 	) -> tg::Result<ObjectPropagateUpdateFields> {
-		let children = self.update_get_object_children(txn, id).await?;
+		let children = self.get_object_children_with_transaction(txn, id).await?;
 		let mut updated = ObjectPropagateUpdateFields::empty();
 
 		// Compute stored.subtree = all(children.stored.subtree). Vacuously true for leaf nodes.
@@ -616,7 +542,7 @@ impl Index {
 		Ok(updated)
 	}
 
-	async fn update_recompute_process_fields(
+	async fn update_process(
 		&self,
 		txn: &fdb::Transaction,
 		id: &tg::process::Id,
@@ -714,7 +640,7 @@ impl Index {
 	) -> tg::Result<ProcessPropagateUpdateFields> {
 		let mut updated = ProcessPropagateUpdateFields::empty();
 
-		let objects = self.update_get_process_objects(txn, id).await?;
+		let objects = self.get_process_objects_with_transaction(txn, id).await?;
 
 		// Track which object kinds exist for this process.
 		let mut has_error = false;
@@ -797,7 +723,7 @@ impl Index {
 	) -> tg::Result<ProcessPropagateUpdateFields> {
 		let mut updated = ProcessPropagateUpdateFields::empty();
 
-		let objects = self.update_get_process_objects(txn, id).await?;
+		let objects = self.get_process_objects_with_transaction(txn, id).await?;
 
 		// Track which object kinds exist for this process.
 		let mut has_error = false;
@@ -1130,7 +1056,7 @@ impl Index {
 	) -> tg::Result<ProcessPropagateUpdateFields> {
 		let mut updated = ProcessPropagateUpdateFields::empty();
 
-		let children = self.update_get_process_children(txn, id).await?;
+		let children = self.get_process_children_with_transaction(txn, id).await?;
 
 		// Compute stored.subtree = all(children.stored.subtree). Vacuously true for leaf processes.
 		if fields.contains(ProcessPropagateUpdateFields::STORED_SUBTREE) {
@@ -1220,7 +1146,7 @@ impl Index {
 	) -> tg::Result<ProcessPropagateUpdateFields> {
 		let mut updated = ProcessPropagateUpdateFields::empty();
 
-		let children = self.update_get_process_children(txn, id).await?;
+		let children = self.get_process_children_with_transaction(txn, id).await?;
 
 		// Compute subtree_count = 1 + sum(children.subtree_count). For leaf processes, this is 1.
 		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_COUNT) {
@@ -1496,293 +1422,6 @@ impl Index {
 		Ok(updated)
 	}
 
-	async fn update_enqueue_object_propagate(
-		&self,
-		txn: &fdb::Transaction,
-		id: &tg::object::Id,
-		fields: ObjectPropagateUpdateFields,
-		version: &fdbt::Versionstamp,
-	) -> tg::Result<()> {
-		let either = tg::Either::Left(id.clone());
-		let update_key = self.pack(&Key::Update { id: either.clone() });
-
-		// Check existing Update key to determine action. Use non-snapshot read to avoid race
-		// conditions where two transactions both see no existing Update and overwrite each other.
-		let existing = txn
-			.get(&update_key, false)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get existing update"))?;
-
-		if let Some(bytes) = existing {
-			match Update::deserialize(&bytes) {
-				Ok(Update::Put) => {
-					// Put will process all fields. Do not create any new entries.
-					return Ok(());
-				},
-				Ok(Update::Propagate(PropagateUpdate::Object(p))) => {
-					// Merge fields into existing Propagate. Do not create new UpdateVersion.
-					let existing_fields = ObjectPropagateUpdateFields::from_bits_truncate(p.fields);
-					let merged = existing_fields | fields;
-					let update =
-						Update::Propagate(PropagateUpdate::Object(ObjectPropagateUpdate {
-							fields: merged.bits(),
-						}));
-					let value = update.serialize()?;
-					txn.set(&update_key, &value);
-					return Ok(());
-				},
-				_ => return Ok(()),
-			}
-		}
-
-		// No existing Update. Create both Update and UpdateVersion.
-		let update = Update::Propagate(PropagateUpdate::Object(ObjectPropagateUpdate {
-			fields: fields.bits(),
-		}));
-		let value = update.serialize()?;
-		txn.set(&update_key, &value);
-
-		// UpdateVersion is just for queue ordering. Update key has the authoritative value.
-		let version_key = self.pack(&Key::UpdateVersion {
-			version: version.clone(),
-			id: either,
-		});
-		txn.set(&version_key, &[]);
-
-		Ok(())
-	}
-
-	async fn update_enqueue_process_propagate(
-		&self,
-		txn: &fdb::Transaction,
-		id: &tg::process::Id,
-		fields: ProcessPropagateUpdateFields,
-		version: &fdbt::Versionstamp,
-	) -> tg::Result<()> {
-		let either = tg::Either::Right(id.clone());
-		let update_key = self.pack(&Key::Update { id: either.clone() });
-
-		// Check existing Update key to determine action. Use non-snapshot read to avoid race
-		// conditions where two transactions both see no existing Update and overwrite each other.
-		let existing = txn
-			.get(&update_key, false)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get existing update"))?;
-
-		if let Some(bytes) = existing {
-			match Update::deserialize(&bytes) {
-				Ok(Update::Put) => {
-					// Put will process all fields. Do not create any new entries.
-					return Ok(());
-				},
-				Ok(Update::Propagate(PropagateUpdate::Process(p))) => {
-					// Merge fields into existing Propagate. Do not create new UpdateVersion.
-					let existing_fields =
-						ProcessPropagateUpdateFields::from_bits_truncate(p.fields);
-					let merged = existing_fields | fields;
-					let update =
-						Update::Propagate(PropagateUpdate::Process(ProcessPropagateUpdate {
-							fields: merged.bits(),
-						}));
-					let value = update.serialize()?;
-					txn.set(&update_key, &value);
-					return Ok(());
-				},
-				_ => return Ok(()),
-			}
-		}
-
-		// No existing Update. Create both Update and UpdateVersion.
-		let update = Update::Propagate(PropagateUpdate::Process(ProcessPropagateUpdate {
-			fields: fields.bits(),
-		}));
-		let value = update.serialize()?;
-		txn.set(&update_key, &value);
-
-		// UpdateVersion is just for queue ordering. Update key has the authoritative value.
-		let version_key = self.pack(&Key::UpdateVersion {
-			version: version.clone(),
-			id: either,
-		});
-		txn.set(&version_key, &[]);
-
-		Ok(())
-	}
-
-	async fn update_get_object_children(
-		&self,
-		txn: &fdb::Transaction,
-		id: &tg::object::Id,
-	) -> tg::Result<Vec<tg::object::Id>> {
-		let bytes = id.to_bytes();
-		let prefix = self.pack(&(KeyKind::ObjectChild.to_i32().unwrap(), bytes.as_ref()));
-		let subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&subspace)
-		};
-
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get object children"))?;
-
-		let mut children = Vec::new();
-		for entry in &entries {
-			let key = self.unpack(entry.key())?;
-			if let Key::ObjectChild { child, .. } = key {
-				children.push(child);
-			}
-		}
-
-		Ok(children)
-	}
-
-	async fn update_get_object_parents(
-		&self,
-		txn: &fdb::Transaction,
-		id: &tg::object::Id,
-	) -> tg::Result<Vec<tg::object::Id>> {
-		let bytes = id.to_bytes();
-		let prefix = self.pack(&(KeyKind::ChildObject.to_i32().unwrap(), bytes.as_ref()));
-		let subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&subspace)
-		};
-
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get object parents"))?;
-
-		let mut parents = Vec::new();
-		for entry in &entries {
-			let key = self.unpack(entry.key())?;
-			if let Key::ChildObject { object, .. } = key {
-				parents.push(object);
-			}
-		}
-
-		Ok(parents)
-	}
-
-	async fn update_get_object_process_parents(
-		&self,
-		txn: &fdb::Transaction,
-		id: &tg::object::Id,
-	) -> tg::Result<Vec<(tg::process::Id, ProcessObjectKind)>> {
-		let bytes = id.to_bytes();
-		let prefix = self.pack(&(KeyKind::ObjectProcess.to_i32().unwrap(), bytes.as_ref()));
-		let subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&subspace)
-		};
-
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get object process parents"))?;
-
-		let mut parents = Vec::new();
-		for entry in &entries {
-			let key = self.unpack(entry.key())?;
-			if let Key::ObjectProcess { kind, process, .. } = key {
-				parents.push((process, kind));
-			}
-		}
-
-		Ok(parents)
-	}
-
-	async fn update_get_process_children(
-		&self,
-		txn: &fdb::Transaction,
-		id: &tg::process::Id,
-	) -> tg::Result<Vec<tg::process::Id>> {
-		let bytes = id.to_bytes();
-		let prefix = self.pack(&(KeyKind::ProcessChild.to_i32().unwrap(), bytes.as_ref()));
-		let subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&subspace)
-		};
-
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get process children"))?;
-
-		let mut children = Vec::new();
-		for entry in &entries {
-			let key = self.unpack(entry.key())?;
-			if let Key::ProcessChild { child, .. } = key {
-				children.push(child);
-			}
-		}
-
-		Ok(children)
-	}
-
-	async fn update_get_process_parents(
-		&self,
-		txn: &fdb::Transaction,
-		id: &tg::process::Id,
-	) -> tg::Result<Vec<tg::process::Id>> {
-		let bytes = id.to_bytes();
-		let prefix = self.pack(&(KeyKind::ChildProcess.to_i32().unwrap(), bytes.as_ref()));
-		let subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&subspace)
-		};
-
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get process parents"))?;
-
-		let mut parents = Vec::new();
-		for entry in &entries {
-			let key = self.unpack(entry.key())?;
-			if let Key::ChildProcess { parent, .. } = key {
-				parents.push(parent);
-			}
-		}
-
-		Ok(parents)
-	}
-
-	async fn update_get_process_objects(
-		&self,
-		txn: &fdb::Transaction,
-		id: &tg::process::Id,
-	) -> tg::Result<Vec<(tg::object::Id, ProcessObjectKind)>> {
-		let bytes = id.to_bytes();
-		let prefix = self.pack(&(KeyKind::ProcessObject.to_i32().unwrap(), bytes.as_ref()));
-		let subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&subspace)
-		};
-
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get process objects"))?;
-
-		let mut objects = Vec::new();
-		for entry in &entries {
-			let key = self.unpack(entry.key())?;
-			if let Key::ProcessObject { kind, object, .. } = key {
-				objects.push((object, kind));
-			}
-		}
-
-		Ok(objects)
-	}
-
 	async fn update_get_object_field_bool<F: Into<ObjectField>>(
 		&self,
 		txn: &fdb::Transaction,
@@ -1927,5 +1566,149 @@ impl Index {
 			field: field.into(),
 		});
 		txn.set(&key, &varint::encode_uvarint(value));
+	}
+
+	async fn enqueue_object_parents(
+		&self,
+		txn: &fdb::Transaction,
+		id: &tg::object::Id,
+		fields: ObjectPropagateUpdateFields,
+		version: &fdbt::Versionstamp,
+	) -> tg::Result<()> {
+		let parents = self.get_object_parents_with_transaction(txn, id).await?;
+		for parent in parents {
+			self.enqueue_object_propagate(txn, &parent, fields, version)
+				.await?;
+		}
+
+		let processes = self.get_object_processes_with_transaction(txn, id).await?;
+		for (process, kind) in processes {
+			let fields = Self::object_to_process_fields(fields, kind);
+			self.enqueue_process_propagate(txn, &process, fields, version)
+				.await?;
+		}
+
+		Ok(())
+	}
+
+	async fn enqueue_object_propagate(
+		&self,
+		txn: &fdb::Transaction,
+		id: &tg::object::Id,
+		fields: ObjectPropagateUpdateFields,
+		version: &fdbt::Versionstamp,
+	) -> tg::Result<()> {
+		let key = self.pack(&Key::Update {
+			id: tg::Either::Left(id.clone()),
+		});
+		let existing = txn
+			.get(&key, false)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get existing update"))?
+			.map(|value| Update::deserialize(&value))
+			.transpose()?;
+		if let Some(existing) = existing {
+			match existing {
+				Update::Put => {
+					return Ok(());
+				},
+				Update::Propagate(PropagateUpdate::Object(update)) => {
+					let fields =
+						fields | ObjectPropagateUpdateFields::from_bits_truncate(update.fields);
+					let update =
+						Update::Propagate(PropagateUpdate::Object(ObjectPropagateUpdate {
+							fields: fields.bits(),
+						}));
+					let value = update.serialize()?;
+					txn.set(&key, &value);
+					return Ok(());
+				},
+				Update::Propagate(PropagateUpdate::Process(_)) => {},
+			}
+		}
+
+		let key = self.pack(&Key::Update {
+			id: tg::Either::Left(id.clone()),
+		});
+		let update = Update::Propagate(PropagateUpdate::Object(ObjectPropagateUpdate {
+			fields: fields.bits(),
+		}));
+		let value = update.serialize()?;
+		txn.set(&key, &value);
+		let key = self.pack(&Key::UpdateVersion {
+			version: version.clone(),
+			id: tg::Either::Left(id.clone()),
+		});
+		txn.set(&key, &[]);
+
+		Ok(())
+	}
+
+	async fn enqueue_process_parents(
+		&self,
+		txn: &fdb::Transaction,
+		id: &tg::process::Id,
+		fields: ProcessPropagateUpdateFields,
+		version: &fdbt::Versionstamp,
+	) -> tg::Result<()> {
+		let parents = self.get_process_parents_with_transaction(txn, id).await?;
+		for parent in parents {
+			self.enqueue_process_propagate(txn, &parent, fields, version)
+				.await?;
+		}
+		Ok(())
+	}
+
+	async fn enqueue_process_propagate(
+		&self,
+		txn: &fdb::Transaction,
+		id: &tg::process::Id,
+		fields: ProcessPropagateUpdateFields,
+		version: &fdbt::Versionstamp,
+	) -> tg::Result<()> {
+		let key = self.pack(&Key::Update {
+			id: tg::Either::Right(id.clone()),
+		});
+		let existing = txn
+			.get(&key, false)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get existing update"))?
+			.map(|value| Update::deserialize(&value))
+			.transpose()?;
+		if let Some(existing) = existing {
+			match existing {
+				Update::Put => {
+					return Ok(());
+				},
+				Update::Propagate(PropagateUpdate::Object(_)) => {},
+				Update::Propagate(PropagateUpdate::Process(update)) => {
+					let fields =
+						fields | ProcessPropagateUpdateFields::from_bits_truncate(update.fields);
+					let update =
+						Update::Propagate(PropagateUpdate::Process(ProcessPropagateUpdate {
+							fields: fields.bits(),
+						}));
+					let value = update.serialize()?;
+					txn.set(&key, &value);
+					return Ok(());
+				},
+			}
+		}
+
+		let key = self.pack(&Key::Update {
+			id: tg::Either::Right(id.clone()),
+		});
+		let update = Update::Propagate(PropagateUpdate::Process(ProcessPropagateUpdate {
+			fields: fields.bits(),
+		}));
+		let value = update.serialize()?;
+		txn.set(&key, &value);
+		let key = self.pack(&Key::UpdateVersion {
+			version: version.clone(),
+			id: tg::Either::Right(id.clone()),
+		});
+		txn.set(&key, &[]);
+
+		Ok(())
 	}
 }

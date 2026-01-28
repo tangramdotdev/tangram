@@ -11,6 +11,14 @@ use {
 	tangram_util::varint,
 };
 
+enum ObjectSubtreeMetadataField {
+	Count,
+	Depth,
+	Size,
+	Solvable,
+	Solved,
+}
+
 impl Index {
 	pub async fn put(&self, arg: PutArg) -> tg::Result<()> {
 		self.database
@@ -445,33 +453,6 @@ impl Index {
 		self.enqueue_put_update(txn, &tg::Either::Right(id.clone()));
 	}
 
-	fn enqueue_put_update(
-		&self,
-		txn: &fdb::Transaction,
-		id: &tg::Either<tg::object::Id, tg::process::Id>,
-	) {
-		// Write the Update key with Put value.
-		let key = self.pack(&Key::Update { id: id.clone() });
-		let value = Update::Put.serialize().unwrap();
-		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-			.unwrap();
-		txn.set(&key, &value);
-
-		// Write UpdateVersion for queue ordering. Update key has the authoritative value.
-		let id_bytes = match &id {
-			tg::Either::Left(id) => id.to_bytes(),
-			tg::Either::Right(id) => id.to_bytes(),
-		};
-		let key = self.pack_with_versionstamp(&(
-			KeyKind::UpdateVersion.to_i32().unwrap(),
-			fdbt::Versionstamp::incomplete(0),
-			id_bytes.as_ref(),
-		));
-		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-			.unwrap();
-		txn.atomic_op(&key, &[], fdb::options::MutationType::SetVersionstampedKey);
-	}
-
 	fn put_process_object_metadata(
 		&self,
 		txn: &fdb::Transaction,
@@ -546,14 +527,31 @@ impl Index {
 			txn.set(&key, &[u8::from(solved)]);
 		}
 	}
-}
 
-enum ObjectSubtreeMetadataField {
-	Count,
-	Depth,
-	Size,
-	Solvable,
-	Solved,
+	fn enqueue_put_update(
+		&self,
+		txn: &fdb::Transaction,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+	) {
+		let key = self.pack(&Key::Update { id: id.clone() });
+		let value = Update::Put.serialize().unwrap();
+		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+			.unwrap();
+		txn.set(&key, &value);
+
+		let id_bytes = match &id {
+			tg::Either::Left(id) => id.to_bytes(),
+			tg::Either::Right(id) => id.to_bytes(),
+		};
+		let key = self.pack_with_versionstamp(&(
+			KeyKind::UpdateVersion.to_i32().unwrap(),
+			fdbt::Versionstamp::incomplete(0),
+			id_bytes.as_ref(),
+		));
+		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+			.unwrap();
+		txn.atomic_op(&key, &[], fdb::options::MutationType::SetVersionstampedKey);
+	}
 }
 
 impl ProcessMetadataField {

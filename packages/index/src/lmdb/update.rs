@@ -8,21 +8,6 @@ use {
 };
 
 impl Index {
-	pub async fn update_batch(&self, batch_size: usize) -> tg::Result<usize> {
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::Update { batch_size };
-		self.sender_low
-			.send((request, sender))
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
-		let response = receiver
-			.await
-			.map_err(|_| tg::error!("the task panicked"))??;
-		let Response::UpdateCount(count) = response else {
-			return Err(tg::error!("unexpected response"));
-		};
-		Ok(count)
-	}
-
 	pub async fn updates_finished(&self, transaction_id: u64) -> tg::Result<bool> {
 		let env = self.env.clone();
 		let db = self.db;
@@ -52,6 +37,21 @@ impl Index {
 		.map_err(|source| tg::error!(!source, "failed to join the task"))?
 	}
 
+	pub async fn update_batch(&self, batch_size: usize) -> tg::Result<usize> {
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request::Update { batch_size };
+		self.sender_low
+			.send((request, sender))
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+		let response = receiver
+			.await
+			.map_err(|_| tg::error!("the task panicked"))??;
+		let Response::UpdateCount(count) = response else {
+			return Err(tg::error!("unexpected response"));
+		};
+		Ok(count)
+	}
+
 	pub(super) fn task_update_batch(
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
@@ -79,35 +79,23 @@ impl Index {
 			let key = Key::Update { id: id.clone() }.pack_to_vec();
 			let value = db
 				.get(transaction, &key)
-				.map_err(|source| tg::error!(!source, "failed to get update key"))?;
-
-			let Some(value) = value else {
-				let key = Key::UpdateVersion {
-					version,
-					id: id.clone(),
-				}
-				.pack_to_vec();
-				db.delete(transaction, &key)
-					.map_err(|source| tg::error!(!source, "failed to delete update version key"))?;
-				count += 1;
-				continue;
-			};
+				.map_err(|source| tg::error!(!source, "failed to get update key"))?
+				.ok_or_else(|| tg::error!("expected an update key for the update version key"))?;
 
 			let update = value
 				.first()
 				.and_then(|value| Update::from_u8(*value))
-				.unwrap_or(Update::Put);
+				.ok_or_else(|| tg::error!("invalid update value"))?;
 
 			let changed = match &id {
 				tg::Either::Left(id) => Self::update_object(db, transaction, id)?,
 				tg::Either::Right(id) => Self::update_process(db, transaction, id)?,
 			};
 
-			let enqueue_parents = match update {
+			if match update {
 				Update::Put => true,
 				Update::Propagate => changed,
-			};
-			if enqueue_parents {
+			} {
 				Self::enqueue_parents(db, transaction, &id, version)?;
 			}
 
@@ -1023,11 +1011,11 @@ impl Index {
 			.get(transaction, &key)
 			.map_err(|source| tg::error!(!source, "failed to get update key"))?
 		{
-			let existing_update = existing
+			let existing = existing
 				.first()
 				.and_then(|value| Update::from_u8(*value))
 				.unwrap_or(Update::Put);
-			if existing_update == Update::Propagate && update == Update::Put {
+			if existing == Update::Propagate && update == Update::Put {
 				let value = [update.to_u8().unwrap()];
 				db.put(transaction, &key, &value)
 					.map_err(|source| tg::error!(!source, "failed to put update key"))?;
