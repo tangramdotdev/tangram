@@ -469,11 +469,7 @@ impl Index {
 		));
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
-		txn.atomic_op(
-			&key,
-			&[],
-			fdb::options::MutationType::SetVersionstampedKey,
-		);
+		txn.atomic_op(&key, &[], fdb::options::MutationType::SetVersionstampedKey);
 	}
 
 	fn put_process_object_metadata(
