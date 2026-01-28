@@ -475,15 +475,63 @@ impl Index {
 			.update_recompute_process_node_metadata_fields(txn, id, fields)
 			.await?;
 
-		// When node.*.solved is updated, also trigger subtree.*.solved recomputation.
+		// When node.* fields are updated, also trigger subtree.* recomputation.
+		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_COUNT) {
+			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_COUNT;
+		}
+		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_DEPTH) {
+			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_DEPTH;
+		}
+		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SIZE) {
+			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SIZE;
+		}
+		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SOLVABLE) {
+			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SOLVABLE;
+		}
 		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SOLVED) {
 			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SOLVED;
+		}
+		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_ERROR_COUNT) {
+			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_COUNT;
+		}
+		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_ERROR_DEPTH) {
+			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_DEPTH;
+		}
+		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SIZE) {
+			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SIZE;
+		}
+		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SOLVABLE) {
+			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SOLVABLE;
 		}
 		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SOLVED) {
 			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SOLVED;
 		}
+		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_LOG_COUNT) {
+			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_COUNT;
+		}
+		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_LOG_DEPTH) {
+			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_DEPTH;
+		}
+		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_LOG_SIZE) {
+			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SIZE;
+		}
+		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVABLE) {
+			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SOLVABLE;
+		}
 		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVED) {
 			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SOLVED;
+		}
+		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_COUNT) {
+			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_COUNT;
+		}
+		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_DEPTH) {
+			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_DEPTH;
+		}
+		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SIZE) {
+			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SIZE;
+		}
+		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SOLVABLE) {
+			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SOLVABLE;
 		}
 		if updated.contains(ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SOLVED) {
 			fields |= ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SOLVED;
