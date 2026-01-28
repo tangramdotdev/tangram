@@ -77,8 +77,10 @@ pub trait Index {
 
 	fn delete_tags(&self, tags: &[String]) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn get_update_count(&self, transaction_id: u64)
-	-> impl Future<Output = tg::Result<u64>> + Send;
+	fn updates_finished(
+		&self,
+		transaction_id: u64,
+	) -> impl Future<Output = tg::Result<bool>> + Send;
 
 	fn update_batch(&self, batch_size: usize) -> impl Future<Output = tg::Result<usize>> + Send;
 

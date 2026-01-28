@@ -14,7 +14,7 @@ use {
 };
 
 impl Index {
-	pub async fn get_update_count(&self, transaction_id: u64) -> tg::Result<u64> {
+	pub async fn updates_finished(&self, transaction_id: u64) -> tg::Result<bool> {
 		let txn = self
 			.database
 			.create_trx()
@@ -38,17 +38,18 @@ impl Index {
 		let range = fdb::RangeOption {
 			begin: fdb::KeySelector::first_greater_or_equal(subspace.range().0),
 			end: fdb::KeySelector::first_greater_or_equal(end),
+			limit: Some(1),
 			mode: fdb::options::StreamingMode::WantAll,
 			..Default::default()
 		};
 
-		// Count the entries.
+		// Check if there are any entries.
 		let entries = txn
 			.get_range(&range, 1, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the update count range"))?;
+			.map_err(|source| tg::error!(!source, "failed to check if updates are finished"))?;
 
-		Ok(entries.len() as u64)
+		Ok(entries.is_empty())
 	}
 
 	pub async fn update_batch(&self, batch_size: usize) -> tg::Result<usize> {

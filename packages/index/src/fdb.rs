@@ -547,8 +547,8 @@ impl crate::Index for Index {
 		self.delete_tags(tags).await
 	}
 
-	async fn get_update_count(&self, transaction_id: u64) -> tg::Result<u64> {
-		self.get_update_count(transaction_id).await
+	async fn updates_finished(&self, transaction_id: u64) -> tg::Result<bool> {
+		self.updates_finished(transaction_id).await
 	}
 
 	async fn update_batch(&self, batch_size: usize) -> tg::Result<usize> {
@@ -924,11 +924,11 @@ impl fdbt::TupleUnpack<'_> for Key {
 					.ok_or(fdbt::PackError::Message("invalid item kind".into()))?;
 				let (input, id_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let tg_id = tg::Id::from_slice(&id_bytes)
+				let id = tg::Id::from_slice(&id_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
-				let id = if let Ok(id) = tg::process::Id::try_from(tg_id.clone()) {
+				let id = if let Ok(id) = tg::process::Id::try_from(id.clone()) {
 					tg::Either::Right(id)
-				} else if let Ok(id) = tg::object::Id::try_from(tg_id) {
+				} else if let Ok(id) = tg::object::Id::try_from(id) {
 					tg::Either::Left(id)
 				} else {
 					return Err(fdbt::PackError::Message("invalid id".into()));

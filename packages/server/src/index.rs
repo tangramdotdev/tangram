@@ -113,12 +113,12 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn get_update_count(&self, transaction_id: u64) -> tg::Result<u64> {
+	async fn updates_finished(&self, transaction_id: u64) -> tg::Result<bool> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.get_update_count(transaction_id).await,
+			Self::Fdb(index) => index.updates_finished(transaction_id).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.get_update_count(transaction_id).await,
+			Self::Lmdb(index) => index.updates_finished(transaction_id).await,
 		}
 	}
 
@@ -222,26 +222,14 @@ impl Server {
 			.get_transaction_id()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the transaction id"))?;
-		let count = self
-			.index
-			.get_update_count(transaction_id)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the update count"))?;
-		progress.start(
-			"queue".to_owned(),
-			"queue".to_owned(),
-			tg::progress::IndicatorFormat::Normal,
-			Some(count),
-			None,
-		);
+		progress.spinner("queue", "waiting for index updates");
 		loop {
-			let count = self
+			let finished = self
 				.index
-				.get_update_count(transaction_id)
+				.updates_finished(transaction_id)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the update count"))?;
-			progress.set("queue", count);
-			if count == 0 {
+				.map_err(|source| tg::error!(!source, "failed to check if updates are finished"))?;
+			if finished {
 				break;
 			}
 			indexer_progress_stream.next().await;

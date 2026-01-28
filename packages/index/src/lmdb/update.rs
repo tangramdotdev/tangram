@@ -23,14 +23,14 @@ impl Index {
 		}
 	}
 
-	pub async fn get_update_count(&self, transaction_id: u64) -> tg::Result<u64> {
+	pub async fn updates_finished(&self, transaction_id: u64) -> tg::Result<bool> {
 		let env = self.env.clone();
 		let db = self.db;
 		tokio::task::spawn_blocking(move || {
 			let transaction = env
 				.read_txn()
 				.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-			Self::task_get_update_count(&db, &transaction, transaction_id)
+			Self::task_updates_finished(&db, &transaction, transaction_id)
 		})
 		.await
 		.map_err(|source| tg::error!(!source, "failed to join the task"))?
@@ -114,16 +114,13 @@ impl Index {
 		Ok(count)
 	}
 
-	fn task_get_update_count(
+	fn task_updates_finished(
 		db: &Db,
 		transaction: &lmdb::RoTxn<'_>,
 		transaction_id: u64,
-	) -> tg::Result<u64> {
-		// Count pending updates with version <= transaction_id. Parent updates enqueued during
-		// processing use the same version as the child that triggered them.
+	) -> tg::Result<bool> {
 		let version_limit = transaction_id;
 		let prefix = (Kind::UpdateVersion.to_i32().unwrap(),).pack_to_vec();
-		let mut count = 0u64;
 		for entry in db
 			.prefix_iter(transaction, &prefix)
 			.map_err(|source| tg::error!(!source, "failed to get update version range"))?
@@ -136,10 +133,10 @@ impl Index {
 				break;
 			};
 			if version <= version_limit {
-				count += 1;
+				return Ok(false);
 			}
 		}
-		Ok(count)
+		Ok(true)
 	}
 
 	fn recompute_object(
