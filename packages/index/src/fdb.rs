@@ -63,13 +63,13 @@ enum Key {
 	},
 	ProcessObject {
 		process: tg::process::Id,
-		object: tg::object::Id,
 		kind: ProcessObjectKind,
+		object: tg::object::Id,
 	},
 	ObjectProcess {
 		object: tg::object::Id,
-		process: tg::process::Id,
 		kind: ProcessObjectKind,
+		process: tg::process::Id,
 	},
 	ItemTag {
 		item: Vec<u8>,
