@@ -30,7 +30,23 @@ impl Index {
 			let transaction = env
 				.read_txn()
 				.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-			Self::task_updates_finished(&db, &transaction, transaction_id)
+			let prefix = (Kind::UpdateVersion.to_i32().unwrap(),).pack_to_vec();
+			for entry in db
+				.prefix_iter(&transaction, &prefix)
+				.map_err(|source| tg::error!(!source, "failed to get update version range"))?
+			{
+				let (key, _) = entry
+					.map_err(|source| tg::error!(!source, "failed to read update version entry"))?;
+				let key = fdbt::unpack(key)
+					.map_err(|source| tg::error!(!source, "failed to unpack key"))?;
+				let Key::UpdateVersion { version, .. } = key else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				if version <= transaction_id {
+					return Ok(false);
+				}
+			}
+			Ok(true)
 		})
 		.await
 		.map_err(|source| tg::error!(!source, "failed to join the task"))?
@@ -61,33 +77,31 @@ impl Index {
 
 		let mut count = 0;
 		for (version, id) in entries {
-			let update_key = Key::Update { id: id.clone() }.pack_to_vec();
-			let update_value = db
-				.get(transaction, &update_key)
+			let key = Key::Update { id: id.clone() }.pack_to_vec();
+			let value = db
+				.get(transaction, &key)
 				.map_err(|source| tg::error!(!source, "failed to get update key"))?;
 
-			let Some(update_value) = update_value else {
-				let version_key = Key::UpdateVersion {
+			let Some(value) = value else {
+				let key = Key::UpdateVersion {
 					version,
 					id: id.clone(),
 				}
 				.pack_to_vec();
-				db.delete(transaction, &version_key)
+				db.delete(transaction, &key)
 					.map_err(|source| tg::error!(!source, "failed to delete update version key"))?;
 				count += 1;
 				continue;
 			};
 
-			let update = update_value
+			let update = value
 				.first()
 				.and_then(|&b| Update::from_u8(b))
 				.unwrap_or(Update::Put);
 
 			let changed = match &id {
-				tg::Either::Left(object_id) => Self::recompute_object(db, transaction, object_id)?,
-				tg::Either::Right(process_id) => {
-					Self::recompute_process(db, transaction, process_id)?
-				},
+				tg::Either::Left(object_id) => Self::update_object(db, transaction, object_id)?,
+				tg::Either::Right(process_id) => Self::update_process(db, transaction, process_id)?,
 			};
 
 			let should_enqueue_parents = match update {
@@ -98,14 +112,14 @@ impl Index {
 				Self::enqueue_parents(db, transaction, &id, version)?;
 			}
 
-			db.delete(transaction, &update_key)
+			db.delete(transaction, &key)
 				.map_err(|source| tg::error!(!source, "failed to delete update key"))?;
-			let version_key = Key::UpdateVersion {
+			let key = Key::UpdateVersion {
 				version,
 				id: id.clone(),
 			}
 			.pack_to_vec();
-			db.delete(transaction, &version_key)
+			db.delete(transaction, &key)
 				.map_err(|source| tg::error!(!source, "failed to delete update version key"))?;
 
 			count += 1;
@@ -114,32 +128,7 @@ impl Index {
 		Ok(count)
 	}
 
-	fn task_updates_finished(
-		db: &Db,
-		transaction: &lmdb::RoTxn<'_>,
-		transaction_id: u64,
-	) -> tg::Result<bool> {
-		let version_limit = transaction_id;
-		let prefix = (Kind::UpdateVersion.to_i32().unwrap(),).pack_to_vec();
-		for entry in db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|source| tg::error!(!source, "failed to get update version range"))?
-		{
-			let (key, _) = entry
-				.map_err(|source| tg::error!(!source, "failed to read update version entry"))?;
-			let key =
-				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
-			let Key::UpdateVersion { version, .. } = key else {
-				break;
-			};
-			if version <= version_limit {
-				return Ok(false);
-			}
-		}
-		Ok(true)
-	}
-
-	fn recompute_object(
+	fn update_object(
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::object::Id,
@@ -151,13 +140,13 @@ impl Index {
 			.ok_or_else(|| tg::error!(%id, "object not found"))?;
 		let mut object = Object::deserialize(bytes)?;
 
-		let children = Self::get_object_children(db, transaction, id)?;
+		let children = Self::get_object_children_with_transaction(db, transaction, id)?;
 
 		let mut changed = false;
 
 		if !object.stored.subtree {
 			let all_children_stored = children.iter().all(|child| {
-				Self::get_object(db, transaction, child)
+				Self::try_get_object_with_transaction(db, transaction, child)
 					.ok()
 					.flatten()
 					.is_some_and(|o| o.stored.subtree)
@@ -172,7 +161,9 @@ impl Index {
 			let mut sum: u64 = 1;
 			let mut all = true;
 			for child in &children {
-				if let Some(child_obj) = Self::get_object(db, transaction, child)? {
+				if let Some(child_obj) =
+					Self::try_get_object_with_transaction(db, transaction, child)?
+				{
 					if let Some(count) = child_obj.metadata.subtree.count {
 						sum = sum.saturating_add(count);
 					} else {
@@ -194,7 +185,9 @@ impl Index {
 			let mut max: u64 = 0;
 			let mut all = true;
 			for child in &children {
-				if let Some(child_obj) = Self::get_object(db, transaction, child)? {
+				if let Some(child_obj) =
+					Self::try_get_object_with_transaction(db, transaction, child)?
+				{
 					if let Some(depth) = child_obj.metadata.subtree.depth {
 						max = max.max(depth);
 					} else {
@@ -217,7 +210,9 @@ impl Index {
 			let mut sum: u64 = node_size;
 			let mut all = true;
 			for child in &children {
-				if let Some(child_obj) = Self::get_object(db, transaction, child)? {
+				if let Some(child_obj) =
+					Self::try_get_object_with_transaction(db, transaction, child)?
+				{
 					if let Some(size) = child_obj.metadata.subtree.size {
 						sum = sum.saturating_add(size);
 					} else {
@@ -240,7 +235,9 @@ impl Index {
 			let mut any_solvable = false;
 			let mut all_computed = true;
 			for child in &children {
-				if let Some(child_obj) = Self::get_object(db, transaction, child)? {
+				if let Some(child_obj) =
+					Self::try_get_object_with_transaction(db, transaction, child)?
+				{
 					match child_obj.metadata.subtree.solvable {
 						Some(true) => {
 							any_solvable = true;
@@ -265,7 +262,9 @@ impl Index {
 			let mut all_solved = true;
 			let mut all_computed = true;
 			for child in &children {
-				if let Some(child_obj) = Self::get_object(db, transaction, child)? {
+				if let Some(child_obj) =
+					Self::try_get_object_with_transaction(db, transaction, child)?
+				{
 					match child_obj.metadata.subtree.solved {
 						Some(true) => {},
 						Some(false) => {
@@ -296,7 +295,7 @@ impl Index {
 		Ok(changed)
 	}
 
-	fn recompute_process(
+	fn update_process(
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::process::Id,
@@ -308,9 +307,9 @@ impl Index {
 			.ok_or_else(|| tg::error!(%id, "process not found"))?;
 		let mut process = Process::deserialize(bytes)?;
 
-		let objects = Self::get_process_objects(db, transaction, id)?;
+		let objects = Self::get_process_objects_with_transaction(db, transaction, id)?;
 
-		let children = Self::get_process_children(db, transaction, id)?;
+		let children = Self::get_process_children_with_transaction(db, transaction, id)?;
 
 		let mut changed = false;
 
@@ -326,7 +325,7 @@ impl Index {
 				ProcessObjectKind::Output => has_output = true,
 			}
 
-			let object = Self::get_object(db, transaction, object_id)?;
+			let object = Self::try_get_object_with_transaction(db, transaction, object_id)?;
 
 			if let Some(ref obj) = object
 				&& obj.stored.subtree
@@ -482,7 +481,9 @@ impl Index {
 		if !process.stored.subtree {
 			let mut all = true;
 			for child in &children {
-				if let Some(child_process) = Self::get_process(db, transaction, child)? {
+				if let Some(child_process) =
+					Self::try_get_process_with_transaction(db, transaction, child)?
+				{
 					if !child_process.stored.subtree {
 						all = false;
 						break;
@@ -501,7 +502,9 @@ impl Index {
 		if !process.stored.subtree_command && process.stored.node_command {
 			let mut all = true;
 			for child in &children {
-				if let Some(child_process) = Self::get_process(db, transaction, child)? {
+				if let Some(child_process) =
+					Self::try_get_process_with_transaction(db, transaction, child)?
+				{
 					if !child_process.stored.subtree_command {
 						all = false;
 						break;
@@ -520,7 +523,9 @@ impl Index {
 		if !process.stored.subtree_error && process.stored.node_error {
 			let mut all = true;
 			for child in &children {
-				if let Some(child_process) = Self::get_process(db, transaction, child)? {
+				if let Some(child_process) =
+					Self::try_get_process_with_transaction(db, transaction, child)?
+				{
 					if !child_process.stored.subtree_error {
 						all = false;
 						break;
@@ -539,7 +544,9 @@ impl Index {
 		if !process.stored.subtree_log && process.stored.node_log {
 			let mut all = true;
 			for child in &children {
-				if let Some(child_process) = Self::get_process(db, transaction, child)? {
+				if let Some(child_process) =
+					Self::try_get_process_with_transaction(db, transaction, child)?
+				{
 					if !child_process.stored.subtree_log {
 						all = false;
 						break;
@@ -558,7 +565,9 @@ impl Index {
 		if !process.stored.subtree_output && process.stored.node_output {
 			let mut all = true;
 			for child in &children {
-				if let Some(child_process) = Self::get_process(db, transaction, child)? {
+				if let Some(child_process) =
+					Self::try_get_process_with_transaction(db, transaction, child)?
+				{
 					if !child_process.stored.subtree_output {
 						all = false;
 						break;
@@ -578,7 +587,9 @@ impl Index {
 			let mut sum: u64 = 1;
 			let mut all = true;
 			for child in &children {
-				if let Some(child_process) = Self::get_process(db, transaction, child)? {
+				if let Some(child_process) =
+					Self::try_get_process_with_transaction(db, transaction, child)?
+				{
 					if let Some(count) = child_process.metadata.subtree.count {
 						sum = sum.saturating_add(count);
 					} else {
@@ -611,6 +622,7 @@ impl Index {
 				process.metadata.subtree.command.count = Some(result);
 				changed = true;
 			}
+
 			if process.metadata.subtree.command.depth.is_none()
 				&& let Some(result) = Self::compute_subtree_max(
 					db,
@@ -622,6 +634,7 @@ impl Index {
 				process.metadata.subtree.command.depth = Some(result);
 				changed = true;
 			}
+
 			if process.metadata.subtree.command.size.is_none()
 				&& let Some(result) = Self::compute_subtree_sum(
 					db,
@@ -857,7 +870,9 @@ impl Index {
 		let mut all = node_value.is_some();
 		let mut result = node_value.unwrap_or(0);
 		for child in children {
-			if let Some(child_process) = Self::get_process(db, transaction, child)? {
+			if let Some(child_process) =
+				Self::try_get_process_with_transaction(db, transaction, child)?
+			{
 				if let Some(value) = child_accessor(&child_process) {
 					result = result.saturating_add(value);
 				} else {
@@ -882,7 +897,9 @@ impl Index {
 		let mut all = node_value.is_some();
 		let mut result = node_value.unwrap_or(0);
 		for child in children {
-			if let Some(child_process) = Self::get_process(db, transaction, child)? {
+			if let Some(child_process) =
+				Self::try_get_process_with_transaction(db, transaction, child)?
+			{
 				if let Some(value) = child_accessor(&child_process) {
 					result = result.max(value);
 				} else {
@@ -910,7 +927,9 @@ impl Index {
 		let mut any_solvable = false;
 		let mut all_computed = node_value.is_some();
 		for child in children {
-			if let Some(child_process) = Self::get_process(db, transaction, child)? {
+			if let Some(child_process) =
+				Self::try_get_process_with_transaction(db, transaction, child)?
+			{
 				match child_accessor(&child_process) {
 					Some(true) => {
 						any_solvable = true;
@@ -951,7 +970,9 @@ impl Index {
 		let mut any_unsolved = false;
 		let mut all_computed = true;
 		for child in children {
-			if let Some(child_process) = Self::get_process(db, transaction, child)? {
+			if let Some(child_process) =
+				Self::try_get_process_with_transaction(db, transaction, child)?
+			{
 				match child_accessor(&child_process) {
 					Some(true) => {},
 					Some(false) => {
@@ -985,8 +1006,8 @@ impl Index {
 		version: u64,
 	) -> tg::Result<()> {
 		match id {
-			tg::Either::Left(object_id) => {
-				let parents = Self::get_object_parents(db, transaction, object_id)?;
+			tg::Either::Left(id) => {
+				let parents = Self::get_object_parents_with_transaction(db, transaction, id)?;
 				for parent in parents {
 					Self::enqueue_update(
 						db,
@@ -996,8 +1017,8 @@ impl Index {
 						Some(version),
 					)?;
 				}
-
-				let process_parents = Self::get_object_process_parents(db, transaction, object_id)?;
+				let process_parents =
+					Self::get_object_processes_with_transaction(db, transaction, id)?;
 				for (process, _kind) in process_parents {
 					Self::enqueue_update(
 						db,
@@ -1008,8 +1029,8 @@ impl Index {
 					)?;
 				}
 			},
-			tg::Either::Right(process_id) => {
-				let parents = Self::get_process_parents(db, transaction, process_id)?;
+			tg::Either::Right(id) => {
+				let parents = Self::get_process_parents_with_transaction(db, transaction, id)?;
 				for parent in parents {
 					Self::enqueue_update(
 						db,
@@ -1031,206 +1052,24 @@ impl Index {
 		update: Update,
 		version: Option<u64>,
 	) -> tg::Result<()> {
-		let update_key = Key::Update { id: id.clone() }.pack_to_vec();
+		let key = Key::Update { id: id.clone() }.pack_to_vec();
 		if db
-			.get(transaction, &update_key)
+			.get(transaction, &key)
 			.map_err(|source| tg::error!(!source, "failed to get update key"))?
 			.is_some()
 		{
 			return Ok(());
 		}
 
-		let update_value = [update.to_u8().unwrap()];
-		db.put(transaction, &update_key, &update_value)
+		let value = [update.to_u8().unwrap()];
+		db.put(transaction, &key, &value)
 			.map_err(|source| tg::error!(!source, "failed to put update key"))?;
 
 		let version = version.unwrap_or_else(|| transaction.id() as u64);
-		let version_key = Key::UpdateVersion { version, id }.pack_to_vec();
-		db.put(transaction, &version_key, &[])
+		let key = Key::UpdateVersion { version, id }.pack_to_vec();
+		db.put(transaction, &key, &[])
 			.map_err(|source| tg::error!(!source, "failed to put update version key"))?;
 
 		Ok(())
-	}
-
-	fn get_object(
-		db: &Db,
-		transaction: &lmdb::RwTxn<'_>,
-		id: &tg::object::Id,
-	) -> tg::Result<Option<Object>> {
-		let key = Key::Object(id.clone()).pack_to_vec();
-		let bytes = db
-			.get(transaction, &key)
-			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
-		match bytes {
-			Some(bytes) => Ok(Some(Object::deserialize(bytes)?)),
-			None => Ok(None),
-		}
-	}
-
-	fn get_process(
-		db: &Db,
-		transaction: &lmdb::RwTxn<'_>,
-		id: &tg::process::Id,
-	) -> tg::Result<Option<Process>> {
-		let key = Key::Process(id.clone()).pack_to_vec();
-		let bytes = db
-			.get(transaction, &key)
-			.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?;
-		match bytes {
-			Some(bytes) => Ok(Some(Process::deserialize(bytes)?)),
-			None => Ok(None),
-		}
-	}
-
-	fn get_object_children(
-		db: &Db,
-		transaction: &lmdb::RwTxn<'_>,
-		id: &tg::object::Id,
-	) -> tg::Result<Vec<tg::object::Id>> {
-		let prefix = (Kind::ObjectChild.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
-		let mut children = Vec::new();
-		let iter = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|source| tg::error!(!source, "failed to get object children"))?;
-		for entry in iter {
-			let (key, _) =
-				entry.map_err(|source| tg::error!(!source, "failed to read object child entry"))?;
-			let key =
-				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
-			if let Key::ObjectChild { child, .. } = key {
-				children.push(child);
-			} else {
-				break;
-			}
-		}
-		Ok(children)
-	}
-
-	fn get_object_parents(
-		db: &Db,
-		transaction: &lmdb::RwTxn<'_>,
-		id: &tg::object::Id,
-	) -> tg::Result<Vec<tg::object::Id>> {
-		let prefix = (Kind::ChildObject.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
-		let mut parents = Vec::new();
-		let iter = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|source| tg::error!(!source, "failed to get object parents"))?;
-		for entry in iter {
-			let (key, _) =
-				entry.map_err(|source| tg::error!(!source, "failed to read child object entry"))?;
-			let key =
-				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
-			if let Key::ChildObject { object, .. } = key {
-				parents.push(object);
-			} else {
-				break;
-			}
-		}
-		Ok(parents)
-	}
-
-	fn get_object_process_parents(
-		db: &Db,
-		transaction: &lmdb::RwTxn<'_>,
-		id: &tg::object::Id,
-	) -> tg::Result<Vec<(tg::process::Id, ProcessObjectKind)>> {
-		let prefix = (
-			Kind::ObjectProcess.to_i32().unwrap(),
-			id.to_bytes().as_ref(),
-		)
-			.pack_to_vec();
-		let mut parents = Vec::new();
-		let iter = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|source| tg::error!(!source, "failed to get object process parents"))?;
-		for entry in iter {
-			let (key, _) = entry
-				.map_err(|source| tg::error!(!source, "failed to read object process entry"))?;
-			let key =
-				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
-			if let Key::ObjectProcess { process, kind, .. } = key {
-				parents.push((process, kind));
-			} else {
-				break;
-			}
-		}
-		Ok(parents)
-	}
-
-	fn get_process_children(
-		db: &Db,
-		transaction: &lmdb::RwTxn<'_>,
-		id: &tg::process::Id,
-	) -> tg::Result<Vec<tg::process::Id>> {
-		let prefix = (Kind::ProcessChild.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
-		let mut children = Vec::new();
-		let iter = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|source| tg::error!(!source, "failed to get process children"))?;
-		for entry in iter {
-			let (key, _) = entry
-				.map_err(|source| tg::error!(!source, "failed to read process child entry"))?;
-			let key =
-				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
-			if let Key::ProcessChild { child, .. } = key {
-				children.push(child);
-			} else {
-				break;
-			}
-		}
-		Ok(children)
-	}
-
-	fn get_process_parents(
-		db: &Db,
-		transaction: &lmdb::RwTxn<'_>,
-		id: &tg::process::Id,
-	) -> tg::Result<Vec<tg::process::Id>> {
-		let prefix = (Kind::ChildProcess.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
-		let mut parents = Vec::new();
-		let iter = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|source| tg::error!(!source, "failed to get process parents"))?;
-		for entry in iter {
-			let (key, _) = entry
-				.map_err(|source| tg::error!(!source, "failed to read child process entry"))?;
-			let key =
-				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
-			if let Key::ChildProcess { parent, .. } = key {
-				parents.push(parent);
-			} else {
-				break;
-			}
-		}
-		Ok(parents)
-	}
-
-	fn get_process_objects(
-		db: &Db,
-		transaction: &lmdb::RwTxn<'_>,
-		id: &tg::process::Id,
-	) -> tg::Result<Vec<(tg::object::Id, ProcessObjectKind)>> {
-		let prefix = (
-			Kind::ProcessObject.to_i32().unwrap(),
-			id.to_bytes().as_ref(),
-		)
-			.pack_to_vec();
-		let mut objects = Vec::new();
-		let iter = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|source| tg::error!(!source, "failed to get process objects"))?;
-		for entry in iter {
-			let (key, _) = entry
-				.map_err(|source| tg::error!(!source, "failed to read process object entry"))?;
-			let key =
-				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
-			if let Key::ProcessObject { object, kind, .. } = key {
-				objects.push((object, kind));
-			} else {
-				break;
-			}
-		}
-		Ok(objects)
 	}
 }
