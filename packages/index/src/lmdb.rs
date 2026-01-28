@@ -63,27 +63,6 @@ enum Response {
 	UpdateCount(usize),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
-#[repr(u8)]
-enum Kind {
-	CacheEntry = 0,
-	Object = 1,
-	Process = 2,
-	Tag = 3,
-	ObjectChild = 4,
-	ChildObject = 5,
-	ObjectCacheEntry = 6,
-	CacheEntryObject = 7,
-	ProcessChild = 8,
-	ChildProcess = 9,
-	ProcessObject = 10,
-	ObjectProcess = 11,
-	ItemTag = 12,
-	Clean = 13,
-	Update = 14,
-	UpdateVersion = 15,
-}
-
 #[derive(Debug)]
 enum Key {
 	CacheEntry(tg::artifact::Id),
@@ -140,6 +119,27 @@ enum Key {
 		version: u64,
 		id: tg::Either<tg::object::Id, tg::process::Id>,
 	},
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
+#[repr(u8)]
+enum KeyKind {
+	CacheEntry = 0,
+	Object = 1,
+	Process = 2,
+	Tag = 3,
+	ObjectChild = 4,
+	ChildObject = 5,
+	ObjectCacheEntry = 6,
+	CacheEntryObject = 7,
+	ProcessChild = 8,
+	ChildProcess = 9,
+	ProcessObject = 10,
+	ObjectProcess = 11,
+	ItemTag = 12,
+	Clean = 13,
+	Update = 14,
+	UpdateVersion = 15,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
@@ -408,29 +408,31 @@ impl fdbt::TuplePack for Key {
 		tuple_depth: fdbt::TupleDepth,
 	) -> std::io::Result<fdbt::VersionstampOffset> {
 		match self {
-			Key::CacheEntry(id) => {
-				(Kind::CacheEntry.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
-			},
+			Key::CacheEntry(id) => (
+				KeyKind::CacheEntry.to_i32().unwrap(),
+				id.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
 
 			Key::Object(id) => {
-				(Kind::Object.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
+				(KeyKind::Object.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
 			},
 
 			Key::Process(id) => {
-				(Kind::Process.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
+				(KeyKind::Process.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
 			},
 
-			Key::Tag(tag) => (Kind::Tag.to_i32().unwrap(), tag.as_str()).pack(w, tuple_depth),
+			Key::Tag(tag) => (KeyKind::Tag.to_i32().unwrap(), tag.as_str()).pack(w, tuple_depth),
 
 			Key::ObjectChild { object, child } => (
-				Kind::ObjectChild.to_i32().unwrap(),
+				KeyKind::ObjectChild.to_i32().unwrap(),
 				object.to_bytes().as_ref(),
 				child.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
 			Key::ChildObject { child, object } => (
-				Kind::ChildObject.to_i32().unwrap(),
+				KeyKind::ChildObject.to_i32().unwrap(),
 				child.to_bytes().as_ref(),
 				object.to_bytes().as_ref(),
 			)
@@ -440,7 +442,7 @@ impl fdbt::TuplePack for Key {
 				object,
 				cache_entry,
 			} => (
-				Kind::ObjectCacheEntry.to_i32().unwrap(),
+				KeyKind::ObjectCacheEntry.to_i32().unwrap(),
 				object.to_bytes().as_ref(),
 				cache_entry.to_bytes().as_ref(),
 			)
@@ -450,21 +452,21 @@ impl fdbt::TuplePack for Key {
 				cache_entry,
 				object,
 			} => (
-				Kind::CacheEntryObject.to_i32().unwrap(),
+				KeyKind::CacheEntryObject.to_i32().unwrap(),
 				cache_entry.to_bytes().as_ref(),
 				object.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
 			Key::ProcessChild { process, child } => (
-				Kind::ProcessChild.to_i32().unwrap(),
+				KeyKind::ProcessChild.to_i32().unwrap(),
 				process.to_bytes().as_ref(),
 				child.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
 
 			Key::ChildProcess { child, parent } => (
-				Kind::ChildProcess.to_i32().unwrap(),
+				KeyKind::ChildProcess.to_i32().unwrap(),
 				child.to_bytes().as_ref(),
 				parent.to_bytes().as_ref(),
 			)
@@ -475,7 +477,7 @@ impl fdbt::TuplePack for Key {
 				kind,
 				object,
 			} => (
-				Kind::ProcessObject.to_i32().unwrap(),
+				KeyKind::ProcessObject.to_i32().unwrap(),
 				process.to_bytes().as_ref(),
 				kind.to_i32().unwrap(),
 				object.to_bytes().as_ref(),
@@ -487,7 +489,7 @@ impl fdbt::TuplePack for Key {
 				kind,
 				process,
 			} => (
-				Kind::ObjectProcess.to_i32().unwrap(),
+				KeyKind::ObjectProcess.to_i32().unwrap(),
 				object.to_bytes().as_ref(),
 				kind.to_i32().unwrap(),
 				process.to_bytes().as_ref(),
@@ -495,7 +497,7 @@ impl fdbt::TuplePack for Key {
 				.pack(w, tuple_depth),
 
 			Key::ItemTag { item, tag } => (
-				Kind::ItemTag.to_i32().unwrap(),
+				KeyKind::ItemTag.to_i32().unwrap(),
 				item.as_slice(),
 				tag.as_str(),
 			)
@@ -506,7 +508,7 @@ impl fdbt::TuplePack for Key {
 				kind,
 				id,
 			} => {
-				Kind::Clean.to_i32().unwrap().pack(w, tuple_depth)?;
+				KeyKind::Clean.to_i32().unwrap().pack(w, tuple_depth)?;
 				touched_at.pack(w, tuple_depth)?;
 				kind.to_i32().unwrap().pack(w, tuple_depth)?;
 				let id = match &id {
@@ -517,7 +519,7 @@ impl fdbt::TuplePack for Key {
 			},
 
 			Key::Update { id } => {
-				Kind::Update.to_i32().unwrap().pack(w, tuple_depth)?;
+				KeyKind::Update.to_i32().unwrap().pack(w, tuple_depth)?;
 				let id = match &id {
 					tg::Either::Left(id) => id.to_bytes(),
 					tg::Either::Right(id) => id.to_bytes(),
@@ -526,7 +528,10 @@ impl fdbt::TuplePack for Key {
 			},
 
 			Key::UpdateVersion { version, id } => {
-				Kind::UpdateVersion.to_i32().unwrap().pack(w, tuple_depth)?;
+				KeyKind::UpdateVersion
+					.to_i32()
+					.unwrap()
+					.pack(w, tuple_depth)?;
 				version.pack(w, tuple_depth)?;
 				let id = match &id {
 					tg::Either::Left(id) => id.to_bytes(),
@@ -542,10 +547,10 @@ impl fdbt::TupleUnpack<'_> for Key {
 	fn unpack(input: &[u8], tuple_depth: fdbt::TupleDepth) -> fdbt::PackResult<(&[u8], Self)> {
 		let (input, kind_value) = i32::unpack(input, tuple_depth)?;
 		let kind =
-			Kind::from_i32(kind_value).ok_or(fdbt::PackError::Message("invalid kind".into()))?;
+			KeyKind::from_i32(kind_value).ok_or(fdbt::PackError::Message("invalid kind".into()))?;
 
 		match kind {
-			Kind::CacheEntry => {
+			KeyKind::CacheEntry => {
 				let (input, id_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let id = tg::artifact::Id::from_slice(&id_bytes)
@@ -553,7 +558,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, Key::CacheEntry(id)))
 			},
 
-			Kind::Object => {
+			KeyKind::Object => {
 				let (input, id_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let id = tg::object::Id::from_slice(&id_bytes)
@@ -561,7 +566,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, Key::Object(id)))
 			},
 
-			Kind::Process => {
+			KeyKind::Process => {
 				let (input, id_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let id = tg::process::Id::from_slice(&id_bytes)
@@ -569,12 +574,12 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, Key::Process(id)))
 			},
 
-			Kind::Tag => {
+			KeyKind::Tag => {
 				let (input, tag): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				Ok((input, Key::Tag(tag)))
 			},
 
-			Kind::ObjectChild => {
+			KeyKind::ObjectChild => {
 				let (input, object_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, child_bytes): (_, Vec<u8>) =
@@ -586,7 +591,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, Key::ObjectChild { object, child }))
 			},
 
-			Kind::ChildObject => {
+			KeyKind::ChildObject => {
 				let (input, child_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, object_bytes): (_, Vec<u8>) =
@@ -598,7 +603,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, Key::ChildObject { child, object }))
 			},
 
-			Kind::ObjectCacheEntry => {
+			KeyKind::ObjectCacheEntry => {
 				let (input, object_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, cache_entry_bytes): (_, Vec<u8>) =
@@ -614,7 +619,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, key))
 			},
 
-			Kind::CacheEntryObject => {
+			KeyKind::CacheEntryObject => {
 				let (input, cache_entry_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, object_bytes): (_, Vec<u8>) =
@@ -630,7 +635,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, key))
 			},
 
-			Kind::ProcessChild => {
+			KeyKind::ProcessChild => {
 				let (input, process_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, child_bytes): (_, Vec<u8>) =
@@ -642,7 +647,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, Key::ProcessChild { process, child }))
 			},
 
-			Kind::ChildProcess => {
+			KeyKind::ChildProcess => {
 				let (input, child_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, parent_bytes): (_, Vec<u8>) =
@@ -654,7 +659,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, Key::ChildProcess { child, parent }))
 			},
 
-			Kind::ProcessObject => {
+			KeyKind::ProcessObject => {
 				let (input, process_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, kind_value) = i32::unpack(input, tuple_depth)?;
@@ -675,7 +680,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, key))
 			},
 
-			Kind::ObjectProcess => {
+			KeyKind::ObjectProcess => {
 				let (input, object_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, kind_value) = i32::unpack(input, tuple_depth)?;
@@ -696,13 +701,13 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, key))
 			},
 
-			Kind::ItemTag => {
+			KeyKind::ItemTag => {
 				let (input, item): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, tag): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				Ok((input, Key::ItemTag { item, tag }))
 			},
 
-			Kind::Clean => {
+			KeyKind::Clean => {
 				let (input, touched_at): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, kind_value): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let kind = ItemKind::from_i32(kind_value)
@@ -731,7 +736,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, key))
 			},
 
-			Kind::Update => {
+			KeyKind::Update => {
 				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let id = tg::Id::from_slice(&id)
 					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
@@ -745,7 +750,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, Key::Update { id }))
 			},
 
-			Kind::UpdateVersion => {
+			KeyKind::UpdateVersion => {
 				let (input, version): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let id = tg::Id::from_slice(&id)

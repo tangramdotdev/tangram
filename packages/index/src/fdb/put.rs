@@ -1,6 +1,6 @@
 use {
 	super::{
-		CacheEntryCoreField, CacheEntryField, Index, ItemKind, Key, Kind, ObjectCoreField,
+		CacheEntryCoreField, CacheEntryField, Index, ItemKind, Key, KeyKind, ObjectCoreField,
 		ObjectField, ObjectMetadataField, ObjectStoredField, ProcessCoreField, ProcessField,
 		ProcessMetadataField, ProcessStoredField, Update,
 	},
@@ -463,7 +463,7 @@ impl Index {
 			tg::Either::Right(id) => id.to_bytes(),
 		};
 		let key = self.pack_with_versionstamp(&(
-			Kind::UpdateVersion.to_i32().unwrap(),
+			KeyKind::UpdateVersion.to_i32().unwrap(),
 			fdbt::Versionstamp::incomplete(0),
 			id_bytes.as_ref(),
 		));

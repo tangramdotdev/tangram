@@ -1,5 +1,5 @@
 use {
-	super::{Db, Index, Key, Kind},
+	super::{Db, Index, Key, KeyKind},
 	crate::{Object, Process, ProcessObjectKind},
 	foundationdb_tuple::{self as fdbt, TuplePack as _},
 	heed as lmdb,
@@ -94,7 +94,7 @@ impl Index {
 		transaction: &lmdb::RwTxn<'_>,
 		id: &tg::object::Id,
 	) -> tg::Result<Vec<tg::object::Id>> {
-		let prefix = (Kind::ObjectChild.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
+		let prefix = (KeyKind::ObjectChild.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
 		let mut children = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
@@ -117,7 +117,7 @@ impl Index {
 		transaction: &lmdb::RwTxn<'_>,
 		id: &tg::object::Id,
 	) -> tg::Result<Vec<tg::object::Id>> {
-		let prefix = (Kind::ChildObject.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
+		let prefix = (KeyKind::ChildObject.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
 		let mut parents = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
@@ -141,7 +141,7 @@ impl Index {
 		id: &tg::object::Id,
 	) -> tg::Result<Vec<(tg::process::Id, ProcessObjectKind)>> {
 		let prefix = (
-			Kind::ObjectProcess.to_i32().unwrap(),
+			KeyKind::ObjectProcess.to_i32().unwrap(),
 			id.to_bytes().as_ref(),
 		)
 			.pack_to_vec();
@@ -167,7 +167,7 @@ impl Index {
 		transaction: &lmdb::RwTxn<'_>,
 		id: &tg::process::Id,
 	) -> tg::Result<Vec<tg::process::Id>> {
-		let prefix = (Kind::ProcessChild.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
+		let prefix = (KeyKind::ProcessChild.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
 		let mut children = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
@@ -190,7 +190,7 @@ impl Index {
 		transaction: &lmdb::RwTxn<'_>,
 		id: &tg::process::Id,
 	) -> tg::Result<Vec<tg::process::Id>> {
-		let prefix = (Kind::ChildProcess.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
+		let prefix = (KeyKind::ChildProcess.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
 		let mut parents = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
@@ -214,7 +214,7 @@ impl Index {
 		id: &tg::process::Id,
 	) -> tg::Result<Vec<(tg::object::Id, ProcessObjectKind)>> {
 		let prefix = (
-			Kind::ProcessObject.to_i32().unwrap(),
+			KeyKind::ProcessObject.to_i32().unwrap(),
 			id.to_bytes().as_ref(),
 		)
 			.pack_to_vec();

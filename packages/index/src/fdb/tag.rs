@@ -1,5 +1,5 @@
 use {
-	super::{Index, Key, Kind, TagCoreField, TagField},
+	super::{Index, Key, KeyKind, TagCoreField, TagField},
 	crate::PutTagArg,
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
@@ -150,7 +150,7 @@ impl Index {
 			return Err(tg::error!("failed to parse tag item"));
 		}
 
-		let prefix = (Kind::Tag.to_i32().unwrap(), tag);
+		let prefix = (KeyKind::Tag.to_i32().unwrap(), tag);
 		let prefix = self.pack(&prefix);
 		let subspace = Subspace::from_bytes(prefix);
 		let (begin, end) = subspace.range();

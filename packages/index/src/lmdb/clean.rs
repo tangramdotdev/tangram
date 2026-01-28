@@ -1,5 +1,5 @@
 use {
-	super::{Db, Index, ItemKind, Key, Kind, Request, Response},
+	super::{Db, Index, ItemKind, Key, KeyKind, Request, Response},
 	crate::{CacheEntry, CleanOutput, Object, Process, ProcessObjectKind},
 	foundationdb_tuple::{self as fdbt, TuplePack as _},
 	heed as lmdb,
@@ -46,7 +46,7 @@ impl Index {
 	) -> tg::Result<CleanOutput> {
 		let mut output = CleanOutput::default();
 
-		let prefix = (Kind::Clean.to_i32().unwrap(),).pack_to_vec();
+		let prefix = (KeyKind::Clean.to_i32().unwrap(),).pack_to_vec();
 		let mut candidates: Vec<Candidate> = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
@@ -146,7 +146,7 @@ impl Index {
 		id: &tg::artifact::Id,
 	) -> tg::Result<u64> {
 		let prefix = (
-			Kind::CacheEntryObject.to_i32().unwrap(),
+			KeyKind::CacheEntryObject.to_i32().unwrap(),
 			id.to_bytes().as_ref(),
 		)
 			.pack_to_vec();
@@ -158,13 +158,16 @@ impl Index {
 		transaction: &lmdb::RwTxn<'_>,
 		id: &tg::object::Id,
 	) -> tg::Result<u64> {
-		let child_object_prefix =
-			(Kind::ChildObject.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
+		let child_object_prefix = (
+			KeyKind::ChildObject.to_i32().unwrap(),
+			id.to_bytes().as_ref(),
+		)
+			.pack_to_vec();
 		let child_object_count =
 			Self::count_keys_with_prefix(db, transaction, &child_object_prefix)?;
 
 		let object_process_prefix = (
-			Kind::ObjectProcess.to_i32().unwrap(),
+			KeyKind::ObjectProcess.to_i32().unwrap(),
 			id.to_bytes().as_ref(),
 		)
 			.pack_to_vec();
@@ -173,7 +176,7 @@ impl Index {
 
 		// Count tags referencing this object.
 		let item_tag_prefix =
-			(Kind::ItemTag.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
+			(KeyKind::ItemTag.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
 		let item_tag_count = Self::count_keys_with_prefix(db, transaction, &item_tag_prefix)?;
 
 		Ok(child_object_count + object_process_count + item_tag_count)
@@ -184,14 +187,17 @@ impl Index {
 		transaction: &lmdb::RwTxn<'_>,
 		id: &tg::process::Id,
 	) -> tg::Result<u64> {
-		let child_process_prefix =
-			(Kind::ChildProcess.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
+		let child_process_prefix = (
+			KeyKind::ChildProcess.to_i32().unwrap(),
+			id.to_bytes().as_ref(),
+		)
+			.pack_to_vec();
 		let child_process_count =
 			Self::count_keys_with_prefix(db, transaction, &child_process_prefix)?;
 
 		// Count tags referencing this process.
 		let item_tag_prefix =
-			(Kind::ItemTag.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
+			(KeyKind::ItemTag.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
 		let item_tag_count = Self::count_keys_with_prefix(db, transaction, &item_tag_prefix)?;
 
 		Ok(child_process_count + item_tag_count)
@@ -297,7 +303,11 @@ impl Index {
 		db.delete(transaction, &key)
 			.map_err(|source| tg::error!(!source, "failed to delete object"))?;
 
-		let prefix = (Kind::ObjectChild.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
+		let prefix = (
+			KeyKind::ObjectChild.to_i32().unwrap(),
+			id.to_bytes().as_ref(),
+		)
+			.pack_to_vec();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
 			.map_err(|source| tg::error!(!source, "failed to iterate object child keys"))?;
@@ -362,7 +372,11 @@ impl Index {
 		db.delete(transaction, &key)
 			.map_err(|source| tg::error!(!source, "failed to delete process"))?;
 
-		let prefix = (Kind::ProcessChild.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
+		let prefix = (
+			KeyKind::ProcessChild.to_i32().unwrap(),
+			id.to_bytes().as_ref(),
+		)
+			.pack_to_vec();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
 			.map_err(|source| tg::error!(!source, "failed to iterate process child keys"))?;
@@ -396,7 +410,7 @@ impl Index {
 		}
 
 		let prefix = (
-			Kind::ProcessObject.to_i32().unwrap(),
+			KeyKind::ProcessObject.to_i32().unwrap(),
 			id.to_bytes().as_ref(),
 		)
 			.pack_to_vec();

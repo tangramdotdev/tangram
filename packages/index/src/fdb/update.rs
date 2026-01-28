@@ -1,6 +1,6 @@
 use {
 	super::{
-		Index, Key, Kind, ObjectField, ObjectMetadataField, ObjectPropagateUpdate,
+		Index, Key, KeyKind, ObjectField, ObjectMetadataField, ObjectPropagateUpdate,
 		ObjectPropagateUpdateFields, ObjectStoredField, ProcessField, ProcessMetadataField,
 		ProcessPropagateUpdate, ProcessPropagateUpdateFields, ProcessStoredField, PropagateUpdate,
 		Update,
@@ -24,8 +24,8 @@ impl Index {
 		bytes[..8].copy_from_slice(&transaction_id.to_be_bytes());
 		bytes[8..].copy_from_slice(&0xFFFFu16.to_be_bytes());
 		let versionstamp = fdbt::Versionstamp::complete(bytes, 0);
-		let prefix = self.pack(&(Kind::UpdateVersion.to_i32().unwrap(),));
-		let end = self.pack(&(Kind::UpdateVersion.to_i32().unwrap(), versionstamp));
+		let prefix = self.pack(&(KeyKind::UpdateVersion.to_i32().unwrap(),));
+		let end = self.pack(&(KeyKind::UpdateVersion.to_i32().unwrap(), versionstamp));
 
 		let subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
@@ -65,7 +65,7 @@ impl Index {
 		batch_size: usize,
 	) -> tg::Result<usize> {
 		// Read a batch of UpdateVersion entries.
-		let prefix = self.pack(&(Kind::UpdateVersion.to_i32().unwrap(),));
+		let prefix = self.pack(&(KeyKind::UpdateVersion.to_i32().unwrap(),));
 		let subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
 			limit: Some(batch_size),
@@ -1615,7 +1615,7 @@ impl Index {
 		id: &tg::object::Id,
 	) -> tg::Result<Vec<tg::object::Id>> {
 		let bytes = id.to_bytes();
-		let prefix = self.pack(&(Kind::ObjectChild.to_i32().unwrap(), bytes.as_ref()));
+		let prefix = self.pack(&(KeyKind::ObjectChild.to_i32().unwrap(), bytes.as_ref()));
 		let subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
@@ -1644,7 +1644,7 @@ impl Index {
 		id: &tg::object::Id,
 	) -> tg::Result<Vec<tg::object::Id>> {
 		let bytes = id.to_bytes();
-		let prefix = self.pack(&(Kind::ChildObject.to_i32().unwrap(), bytes.as_ref()));
+		let prefix = self.pack(&(KeyKind::ChildObject.to_i32().unwrap(), bytes.as_ref()));
 		let subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
@@ -1673,7 +1673,7 @@ impl Index {
 		id: &tg::object::Id,
 	) -> tg::Result<Vec<(tg::process::Id, ProcessObjectKind)>> {
 		let bytes = id.to_bytes();
-		let prefix = self.pack(&(Kind::ObjectProcess.to_i32().unwrap(), bytes.as_ref()));
+		let prefix = self.pack(&(KeyKind::ObjectProcess.to_i32().unwrap(), bytes.as_ref()));
 		let subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
@@ -1702,7 +1702,7 @@ impl Index {
 		id: &tg::process::Id,
 	) -> tg::Result<Vec<tg::process::Id>> {
 		let bytes = id.to_bytes();
-		let prefix = self.pack(&(Kind::ProcessChild.to_i32().unwrap(), bytes.as_ref()));
+		let prefix = self.pack(&(KeyKind::ProcessChild.to_i32().unwrap(), bytes.as_ref()));
 		let subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
@@ -1731,7 +1731,7 @@ impl Index {
 		id: &tg::process::Id,
 	) -> tg::Result<Vec<tg::process::Id>> {
 		let bytes = id.to_bytes();
-		let prefix = self.pack(&(Kind::ChildProcess.to_i32().unwrap(), bytes.as_ref()));
+		let prefix = self.pack(&(KeyKind::ChildProcess.to_i32().unwrap(), bytes.as_ref()));
 		let subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
@@ -1760,7 +1760,7 @@ impl Index {
 		id: &tg::process::Id,
 	) -> tg::Result<Vec<(tg::object::Id, ProcessObjectKind)>> {
 		let bytes = id.to_bytes();
-		let prefix = self.pack(&(Kind::ProcessObject.to_i32().unwrap(), bytes.as_ref()));
+		let prefix = self.pack(&(KeyKind::ProcessObject.to_i32().unwrap(), bytes.as_ref()));
 		let subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,

@@ -1,6 +1,6 @@
 use {
 	super::{
-		CacheEntryCoreField, CacheEntryField, Index, ItemKind, Key, Kind, ObjectCoreField,
+		CacheEntryCoreField, CacheEntryField, Index, ItemKind, Key, KeyKind, ObjectCoreField,
 		ObjectField, ProcessCoreField, ProcessField,
 	},
 	crate::CleanOutput,
@@ -49,8 +49,8 @@ impl Index {
 
 		let mut output = CleanOutput::default();
 
-		let begin = self.pack(&(Kind::Clean.to_i32().unwrap(), 0));
-		let end = self.pack(&(Kind::Clean.to_i32().unwrap(), max_touched_at + 1));
+		let begin = self.pack(&(KeyKind::Clean.to_i32().unwrap(), 0));
+		let end = self.pack(&(KeyKind::Clean.to_i32().unwrap(), max_touched_at + 1));
 		let range = fdb::RangeOption {
 			begin: fdb::KeySelector::first_greater_or_equal(&begin),
 			end: fdb::KeySelector::first_greater_or_equal(&end),
@@ -145,7 +145,7 @@ impl Index {
 		id: &tg::artifact::Id,
 	) -> tg::Result<u64> {
 		let id = id.to_bytes();
-		let prefix = (Kind::CacheEntryObject.to_i32().unwrap(), id.as_ref());
+		let prefix = (KeyKind::CacheEntryObject.to_i32().unwrap(), id.as_ref());
 		let prefix = self.pack(&prefix);
 		let subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
@@ -169,7 +169,7 @@ impl Index {
 	) -> tg::Result<u64> {
 		let child_object_future = async {
 			let id = id.to_bytes();
-			let prefix = (Kind::ChildObject.to_i32().unwrap(), id.as_ref());
+			let prefix = (KeyKind::ChildObject.to_i32().unwrap(), id.as_ref());
 			let prefix = self.pack(&prefix);
 			let subspace = Subspace::from_bytes(prefix);
 			let range = fdb::RangeOption {
@@ -187,7 +187,7 @@ impl Index {
 		};
 		let object_process_future = async {
 			let id = id.to_bytes();
-			let prefix = (Kind::ObjectProcess.to_i32().unwrap(), id.as_ref());
+			let prefix = (KeyKind::ObjectProcess.to_i32().unwrap(), id.as_ref());
 			let prefix = self.pack(&prefix);
 			let subspace = Subspace::from_bytes(prefix);
 			let range = fdb::RangeOption {
@@ -205,7 +205,7 @@ impl Index {
 		};
 		let item_tag_future = async {
 			let id = id.to_bytes();
-			let prefix = (Kind::ItemTag.to_i32().unwrap(), id.as_ref());
+			let prefix = (KeyKind::ItemTag.to_i32().unwrap(), id.as_ref());
 			let prefix = self.pack(&prefix);
 			let subspace = Subspace::from_bytes(prefix);
 			let range = fdb::RangeOption {
@@ -235,7 +235,7 @@ impl Index {
 	) -> tg::Result<u64> {
 		let child_process_future = async {
 			let id = id.to_bytes();
-			let prefix = (Kind::ChildProcess.to_i32().unwrap(), id.as_ref());
+			let prefix = (KeyKind::ChildProcess.to_i32().unwrap(), id.as_ref());
 			let prefix = self.pack(&prefix);
 			let subspace = Subspace::from_bytes(prefix);
 			let range = fdb::RangeOption {
@@ -253,7 +253,7 @@ impl Index {
 		};
 		let item_tag_future = async {
 			let id = id.to_bytes();
-			let prefix = (Kind::ItemTag.to_i32().unwrap(), id.as_ref());
+			let prefix = (KeyKind::ItemTag.to_i32().unwrap(), id.as_ref());
 			let prefix = self.pack(&prefix);
 			let subspace = Subspace::from_bytes(prefix);
 			let range = fdb::RangeOption {
@@ -309,7 +309,7 @@ impl Index {
 	) -> tg::Result<()> {
 		let id_bytes = id.to_bytes();
 
-		let prefix = (Kind::CacheEntry.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = (KeyKind::CacheEntry.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = self.pack(&prefix);
 		let subspace = Subspace::from_bytes(prefix);
 		let (begin, end) = subspace.range();
@@ -336,13 +336,13 @@ impl Index {
 
 		let id_bytes = id.to_bytes();
 
-		let prefix = (Kind::Object.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = (KeyKind::Object.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = self.pack(&prefix);
 		let subspace = Subspace::from_bytes(prefix);
 		let (begin, end) = subspace.range();
 		txn.clear_range(&begin, &end);
 
-		let prefix = (Kind::ObjectChild.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = (KeyKind::ObjectChild.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = self.pack(&prefix);
 		let subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
@@ -404,13 +404,13 @@ impl Index {
 	async fn delete_process(&self, txn: &fdb::Transaction, id: &tg::process::Id) -> tg::Result<()> {
 		let id_bytes = id.to_bytes();
 
-		let prefix = (Kind::Process.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = (KeyKind::Process.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = self.pack(&prefix);
 		let subspace = Subspace::from_bytes(prefix);
 		let (begin, end) = subspace.range();
 		txn.clear_range(&begin, &end);
 
-		let prefix = (Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = (KeyKind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = self.pack(&prefix);
 		let subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
@@ -447,7 +447,7 @@ impl Index {
 			self.decrement_process_reference_count(txn, &child).await?;
 		}
 
-		let prefix = (Kind::ProcessObject.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = (KeyKind::ProcessObject.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = self.pack(&prefix);
 		let subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {

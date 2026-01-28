@@ -1,5 +1,5 @@
 use {
-	super::{Db, Index, Key, Kind, Request, Response, Update},
+	super::{Db, Index, Key, KeyKind, Request, Response, Update},
 	crate::{Object, Process, ProcessObjectKind},
 	foundationdb_tuple::{self as fdbt, TuplePack as _},
 	heed as lmdb,
@@ -30,7 +30,7 @@ impl Index {
 			let transaction = env
 				.read_txn()
 				.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-			let prefix = (Kind::UpdateVersion.to_i32().unwrap(),).pack_to_vec();
+			let prefix = (KeyKind::UpdateVersion.to_i32().unwrap(),).pack_to_vec();
 			for entry in db
 				.prefix_iter(&transaction, &prefix)
 				.map_err(|source| tg::error!(!source, "failed to get update version range"))?
@@ -57,7 +57,7 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		batch_size: usize,
 	) -> tg::Result<usize> {
-		let prefix = (Kind::UpdateVersion.to_i32().unwrap(),).pack_to_vec();
+		let prefix = (KeyKind::UpdateVersion.to_i32().unwrap(),).pack_to_vec();
 		let entries = db
 			.prefix_iter(transaction, &prefix)
 			.map_err(|source| tg::error!(!source, "failed to get update version range"))?
