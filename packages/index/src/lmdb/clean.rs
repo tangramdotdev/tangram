@@ -72,18 +72,23 @@ impl Index {
 			}
 			let item = match kind {
 				ItemKind::CacheEntry => {
+					let tg::Either::Left(id) = id else {
+						return Err(tg::error!("expected object id for cache entry"));
+					};
 					let id = tg::artifact::Id::try_from(id)
 						.map_err(|source| tg::error!(!source, "invalid artifact id"))?;
 					Item::CacheEntry(id)
 				},
 				ItemKind::Object => {
-					let id = tg::object::Id::try_from(id)
-						.map_err(|source| tg::error!(!source, "invalid object id"))?;
+					let tg::Either::Left(id) = id else {
+						return Err(tg::error!("expected object id for object"));
+					};
 					Item::Object(id)
 				},
 				ItemKind::Process => {
-					let id = tg::process::Id::try_from(id)
-						.map_err(|source| tg::error!(!source, "invalid process id"))?;
+					let tg::Either::Right(id) = id else {
+						return Err(tg::error!("expected process id for process"));
+					};
 					Item::Process(id)
 				},
 			};
@@ -108,9 +113,9 @@ impl Index {
 			};
 
 			let (kind, id) = match &candidate.item {
-				Item::CacheEntry(id) => (ItemKind::CacheEntry, id.clone().into()),
-				Item::Object(id) => (ItemKind::Object, id.clone().into()),
-				Item::Process(id) => (ItemKind::Process, id.clone().into()),
+				Item::CacheEntry(id) => (ItemKind::CacheEntry, tg::Either::Left(id.clone().into())),
+				Item::Object(id) => (ItemKind::Object, tg::Either::Left(id.clone())),
+				Item::Process(id) => (ItemKind::Process, tg::Either::Right(id.clone())),
 			};
 			let key = Key::Clean {
 				touched_at: candidate.touched_at,
@@ -457,7 +462,7 @@ impl Index {
 				let key = Key::Clean {
 					touched_at: entry.touched_at,
 					kind: ItemKind::CacheEntry,
-					id: tg::Id::from(id.clone()),
+					id: tg::Either::Left(id.clone().into()),
 				}
 				.pack_to_vec();
 				db.put(transaction, &key, &[])
@@ -493,7 +498,7 @@ impl Index {
 				let key = Key::Clean {
 					touched_at: object.touched_at,
 					kind: ItemKind::Object,
-					id: tg::Id::from(id.clone()),
+					id: tg::Either::Left(id.clone()),
 				}
 				.pack_to_vec();
 				db.put(transaction, &key, &[])
@@ -529,7 +534,7 @@ impl Index {
 				let key = Key::Clean {
 					touched_at: process.touched_at,
 					kind: ItemKind::Process,
-					id: tg::Id::from(id.clone()),
+					id: tg::Either::Right(id.clone()),
 				}
 				.pack_to_vec();
 				db.put(transaction, &key, &[])

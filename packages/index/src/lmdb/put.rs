@@ -66,7 +66,7 @@ impl Index {
 		let key = Key::Clean {
 			touched_at,
 			kind: ItemKind::CacheEntry,
-			id: tg::Id::from(arg.id.clone()),
+			id: tg::Either::Left(arg.id.clone().into()),
 		}
 		.pack_to_vec();
 		db.put(transaction, &key, &[])
@@ -156,7 +156,7 @@ impl Index {
 		let key = Key::Clean {
 			touched_at,
 			kind: ItemKind::Object,
-			id: tg::Id::from(id.clone()),
+			id: tg::Either::Left(id.clone()),
 		}
 		.pack_to_vec();
 		db.put(transaction, &key, &[])
@@ -251,7 +251,7 @@ impl Index {
 		let key = Key::Clean {
 			touched_at,
 			kind: ItemKind::Process,
-			id: tg::Id::from(id.clone()),
+			id: tg::Either::Right(id.clone()),
 		}
 		.pack_to_vec();
 		db.put(transaction, &key, &[])

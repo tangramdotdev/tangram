@@ -131,7 +131,7 @@ enum Key {
 	Clean {
 		touched_at: i64,
 		kind: ItemKind,
-		id: tg::Id,
+		id: tg::Either<tg::object::Id, tg::process::Id>,
 	},
 	Update {
 		id: tg::Either<tg::object::Id, tg::process::Id>,
@@ -515,7 +515,11 @@ impl fdbt::TuplePack for Key {
 				Kind::Clean.to_i32().unwrap().pack(w, tuple_depth)?;
 				touched_at.pack(w, tuple_depth)?;
 				kind.to_i32().unwrap().pack(w, tuple_depth)?;
-				id.to_bytes().as_ref().pack(w, tuple_depth)
+				let id = match &id {
+					tg::Either::Left(id) => id.to_bytes(),
+					tg::Either::Right(id) => id.to_bytes(),
+				};
+				id.as_ref().pack(w, tuple_depth)
 			},
 
 			Key::Update { id } => {
@@ -713,6 +717,18 @@ impl fdbt::TupleUnpack<'_> for Key {
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let id = tg::Id::from_slice(&id_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
+				let id = match kind {
+					ItemKind::CacheEntry | ItemKind::Object => {
+						let id = tg::object::Id::try_from(id)
+							.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
+						tg::Either::Left(id)
+					},
+					ItemKind::Process => {
+						let id = tg::process::Id::try_from(id)
+							.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
+						tg::Either::Right(id)
+					},
+				};
 				let key = Key::Clean {
 					touched_at,
 					kind,
