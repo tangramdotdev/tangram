@@ -450,12 +450,14 @@ impl Index {
 		txn: &fdb::Transaction,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 	) {
+		// Write the Update key with Put value.
 		let key = self.pack(&Key::Update { id: id.clone() });
 		let value = Update::Put.serialize().unwrap();
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
 		txn.set(&key, &value);
 
+		// Write UpdateVersion for queue ordering. Update key has the authoritative value.
 		let id_bytes = match &id {
 			tg::Either::Left(id) => id.to_bytes(),
 			tg::Either::Right(id) => id.to_bytes(),
@@ -469,7 +471,7 @@ impl Index {
 			.unwrap();
 		txn.atomic_op(
 			&key,
-			&value,
+			&[],
 			fdb::options::MutationType::SetVersionstampedKey,
 		);
 	}

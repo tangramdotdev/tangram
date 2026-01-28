@@ -64,7 +64,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		batch_size: usize,
 	) -> tg::Result<usize> {
-		// Read a batch of UpdateVersion entries (including values for Propagate fields).
+		// Read a batch of UpdateVersion entries.
 		let prefix = self.pack(&(Kind::UpdateVersion.to_i32().unwrap(),));
 		let subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
@@ -83,12 +83,12 @@ impl Index {
 				let Key::UpdateVersion { version, id } = key else {
 					return Err(tg::error!("unexpected key type"));
 				};
-				Ok((version, id, entry.value().to_vec()))
+				Ok((version, id))
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
 		let mut count = 0;
-		for (version, id, version_value) in entries {
+		for (version, id) in entries {
 			let update_key = self.pack(&Key::Update { id: id.clone() });
 			let update_value = txn
 				.get(&update_key, false)
@@ -100,17 +100,21 @@ impl Index {
 				id: id.clone(),
 			});
 
-			// Determine update type and fields. If Update key exists (Put from put.rs), use it.
-			// Otherwise, use fields from UpdateVersion value (Propagate from enqueue).
-			let update = if let Some(bytes) = &update_value {
-				Update::deserialize(bytes).ok()
-			} else {
-				Update::deserialize(&version_value).ok()
+			// Get the update type and fields from the Update key.
+			let Some(update_bytes) = update_value else {
+				// Update key missing. This can happen when multiple puts for the same item create
+				// multiple UpdateVersion entries (puts use NextWriteNoWriteConflictRange to avoid
+				// conflicts). The first processed entry consumes the Update key, leaving the rest
+				// orphaned. Just delete and continue.
+				txn.clear(&version_key);
+				count += 1;
+				continue;
 			};
 
-			let Some(update) = update else {
+			let Some(update) = Update::deserialize(&update_bytes).ok() else {
 				// Invalid entry, delete and continue.
 				txn.clear(&version_key);
+				txn.clear(&update_key);
 				count += 1;
 				continue;
 			};
@@ -175,10 +179,8 @@ impl Index {
 				}
 			}
 
-			// Delete Update key if it exists, and always delete UpdateVersion key.
-			if update_value.is_some() {
-				txn.clear(&update_key);
-			}
+			// Delete both Update and UpdateVersion keys.
+			txn.clear(&update_key);
 			txn.clear(&version_key);
 
 			count += 1;
@@ -1504,9 +1506,10 @@ impl Index {
 		let either = tg::Either::Left(id.clone());
 		let update_key = self.pack(&Key::Update { id: either.clone() });
 
-		// Check existing Update key to determine action.
+		// Check existing Update key to determine action. Use non-snapshot read to avoid race
+		// conditions where two transactions both see no existing Update and overwrite each other.
 		let existing = txn
-			.get(&update_key, true)
+			.get(&update_key, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get existing update"))?;
 
@@ -1539,11 +1542,12 @@ impl Index {
 		let value = update.serialize()?;
 		txn.set(&update_key, &value);
 
+		// UpdateVersion is just for queue ordering. Update key has the authoritative value.
 		let version_key = self.pack(&Key::UpdateVersion {
 			version: version.clone(),
 			id: either,
 		});
-		txn.set(&version_key, &value);
+		txn.set(&version_key, &[]);
 
 		Ok(())
 	}
@@ -1558,9 +1562,10 @@ impl Index {
 		let either = tg::Either::Right(id.clone());
 		let update_key = self.pack(&Key::Update { id: either.clone() });
 
-		// Check existing Update key to determine action.
+		// Check existing Update key to determine action. Use non-snapshot read to avoid race
+		// conditions where two transactions both see no existing Update and overwrite each other.
 		let existing = txn
-			.get(&update_key, true)
+			.get(&update_key, false)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get existing update"))?;
 
@@ -1594,11 +1599,12 @@ impl Index {
 		let value = update.serialize()?;
 		txn.set(&update_key, &value);
 
+		// UpdateVersion is just for queue ordering. Update key has the authoritative value.
 		let version_key = self.pack(&Key::UpdateVersion {
 			version: version.clone(),
 			id: either,
 		});
-		txn.set(&version_key, &value);
+		txn.set(&version_key, &[]);
 
 		Ok(())
 	}
