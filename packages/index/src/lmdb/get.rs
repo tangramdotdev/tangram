@@ -94,7 +94,11 @@ impl Index {
 		transaction: &lmdb::RwTxn<'_>,
 		id: &tg::object::Id,
 	) -> tg::Result<Vec<tg::object::Id>> {
-		let prefix = (KeyKind::ObjectChild.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
+		let prefix = (
+			KeyKind::ObjectChild.to_i32().unwrap(),
+			id.to_bytes().as_ref(),
+		)
+			.pack_to_vec();
 		let mut children = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
@@ -117,7 +121,11 @@ impl Index {
 		transaction: &lmdb::RwTxn<'_>,
 		id: &tg::object::Id,
 	) -> tg::Result<Vec<tg::object::Id>> {
-		let prefix = (KeyKind::ChildObject.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
+		let prefix = (
+			KeyKind::ChildObject.to_i32().unwrap(),
+			id.to_bytes().as_ref(),
+		)
+			.pack_to_vec();
 		let mut parents = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
@@ -167,7 +175,11 @@ impl Index {
 		transaction: &lmdb::RwTxn<'_>,
 		id: &tg::process::Id,
 	) -> tg::Result<Vec<tg::process::Id>> {
-		let prefix = (KeyKind::ProcessChild.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
+		let prefix = (
+			KeyKind::ProcessChild.to_i32().unwrap(),
+			id.to_bytes().as_ref(),
+		)
+			.pack_to_vec();
 		let mut children = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
@@ -190,7 +202,11 @@ impl Index {
 		transaction: &lmdb::RwTxn<'_>,
 		id: &tg::process::Id,
 	) -> tg::Result<Vec<tg::process::Id>> {
-		let prefix = (KeyKind::ChildProcess.to_i32().unwrap(), id.to_bytes().as_ref()).pack_to_vec();
+		let prefix = (
+			KeyKind::ChildProcess.to_i32().unwrap(),
+			id.to_bytes().as_ref(),
+		)
+			.pack_to_vec();
 		let mut parents = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
