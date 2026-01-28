@@ -145,8 +145,6 @@ enum ItemKind {
 	Process = 2,
 }
 
-/// The type of update in the queue. Put updates always enqueue parent updates after processing,
-/// while Propagate updates only enqueue parents if fields changed.
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
 #[repr(u8)]
 enum Update {

@@ -128,7 +128,7 @@ impl Index {
 				Update::Propagate => changed,
 			};
 			if should_enqueue_parents {
-				Self::enqueue_parents(db, transaction, &id)?;
+				Self::enqueue_parents(db, transaction, &id, version)?;
 			}
 
 			// Delete both the Update and UpdateVersion keys.
@@ -151,10 +151,11 @@ impl Index {
 	fn task_get_queue_size(
 		db: &Db,
 		transaction: &lmdb::RoTxn<'_>,
-		_transaction_id: u128,
+		transaction_id: u128,
 	) -> tg::Result<u64> {
-		// Count all pending updates. We ignore the transaction_id parameter because parent updates
-		// enqueued during processing get a new transaction ID and need to be waited for as well.
+		// Count pending updates with version <= transaction_id. Parent updates enqueued during
+		// processing use the same version as the child that triggered them.
+		let version_limit = transaction_id as u64;
 		let prefix = (Kind::UpdateVersion.to_i32().unwrap(),).pack_to_vec();
 		let mut count = 0u64;
 		for entry in db
@@ -165,10 +166,12 @@ impl Index {
 				.map_err(|source| tg::error!(!source, "failed to read update version entry"))?;
 			let key: Key =
 				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
-			let Key::UpdateVersion { .. } = key else {
+			let Key::UpdateVersion { version, .. } = key else {
 				break;
 			};
-			count += 1;
+			if version <= version_limit {
+				count += 1;
+			}
 		}
 		Ok(count)
 	}
@@ -1056,6 +1059,7 @@ impl Index {
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		version: u64,
 	) -> tg::Result<()> {
 		match id {
 			tg::Either::Left(object_id) => {
@@ -1067,6 +1071,7 @@ impl Index {
 						transaction,
 						tg::Either::Left(parent),
 						Update::Propagate,
+						Some(version),
 					)?;
 				}
 
@@ -1078,6 +1083,7 @@ impl Index {
 						transaction,
 						tg::Either::Right(process),
 						Update::Propagate,
+						Some(version),
 					)?;
 				}
 			},
@@ -1090,6 +1096,7 @@ impl Index {
 						transaction,
 						tg::Either::Right(parent),
 						Update::Propagate,
+						Some(version),
 					)?;
 				}
 			},
@@ -1102,6 +1109,7 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: tg::Either<tg::object::Id, tg::process::Id>,
 		update: Update,
+		version: Option<u64>,
 	) -> tg::Result<()> {
 		// Check if update already exists (dedup).
 		let update_key = Key::Update { id: id.clone() }.pack_to_vec();
@@ -1118,8 +1126,9 @@ impl Index {
 		db.put(transaction, &update_key, &update_value)
 			.map_err(|source| tg::error!(!source, "failed to put update key"))?;
 
-		// Set the UpdateVersion key (for ordered processing).
-		let version = transaction.id() as u64;
+		// Set the UpdateVersion key (for ordered processing). Use the provided version if given,
+		// otherwise use the current transaction ID.
+		let version = version.unwrap_or_else(|| transaction.id() as u64);
 		let version_key = Key::UpdateVersion { version, id }.pack_to_vec();
 		db.put(transaction, &version_key, &[])
 			.map_err(|source| tg::error!(!source, "failed to put update version key"))?;

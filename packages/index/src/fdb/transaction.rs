@@ -29,12 +29,13 @@ impl Index {
 			.map_err(|source| tg::error!(!source, "failed to create the transaction"))?;
 
 		// Convert transaction_id to a versionstamp. The transaction_id is a u128 representing
-		// the full 80-bit versionstamp (8 bytes transaction version + 2 bytes batch order) in
-		// the lower 80 bits. We extract the 10-byte versionstamp from it.
-		let id_bytes = transaction_id.to_be_bytes();
+		// the transaction version shifted left by 16 bits. We extract the 8-byte transaction
+		// version and create a versionstamp with max batch order (0xFFFF) to include all
+		// entries with transaction version <= the given version, regardless of batch order.
+		let version = (transaction_id >> 16) as u64;
 		let mut stamp_bytes = [0u8; 10];
-		// Take the lower 10 bytes (bytes 6-15 of the u128 big-endian representation).
-		stamp_bytes.copy_from_slice(&id_bytes[6..16]);
+		stamp_bytes[0..8].copy_from_slice(&version.to_be_bytes());
+		stamp_bytes[8..10].copy_from_slice(&0xFFFFu16.to_be_bytes());
 		let end_versionstamp = fdbt::Versionstamp::complete(stamp_bytes, 0);
 
 		// Scan from the beginning of UpdateVersion to the given transaction_id.

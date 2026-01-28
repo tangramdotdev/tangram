@@ -96,33 +96,30 @@ impl Index {
 			txn.set(&key, cache_entry.to_bytes().as_ref());
 		}
 
-		if arg.metadata.node.size != 0 {
-			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-				.unwrap();
-			let key = self.pack(&Key::Object {
-				id: id.clone(),
-				field: ObjectField::Metadata(ObjectMetadataField::NodeSize),
-			});
-			txn.set(&key, &varint::encode_uvarint(arg.metadata.node.size));
-		}
-		if arg.metadata.node.solvable {
-			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-				.unwrap();
-			let key = self.pack(&Key::Object {
-				id: id.clone(),
-				field: ObjectField::Metadata(ObjectMetadataField::NodeSolvable),
-			});
-			txn.set(&key, &[]);
-		}
-		if arg.metadata.node.solved {
-			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-				.unwrap();
-			let key = self.pack(&Key::Object {
-				id: id.clone(),
-				field: ObjectField::Metadata(ObjectMetadataField::NodeSolved),
-			});
-			txn.set(&key, &[]);
-		}
+		// Always write node.size, node.solvable, and node.solved.
+		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+			.unwrap();
+		let key = self.pack(&Key::Object {
+			id: id.clone(),
+			field: ObjectField::Metadata(ObjectMetadataField::NodeSize),
+		});
+		txn.set(&key, &varint::encode_uvarint(arg.metadata.node.size));
+
+		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+			.unwrap();
+		let key = self.pack(&Key::Object {
+			id: id.clone(),
+			field: ObjectField::Metadata(ObjectMetadataField::NodeSolvable),
+		});
+		txn.set(&key, &[u8::from(arg.metadata.node.solvable)]);
+
+		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+			.unwrap();
+		let key = self.pack(&Key::Object {
+			id: id.clone(),
+			field: ObjectField::Metadata(ObjectMetadataField::NodeSolved),
+		});
+		txn.set(&key, &[u8::from(arg.metadata.node.solved)]);
 
 		if let Some(count) = arg.metadata.subtree.count {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
@@ -151,23 +148,23 @@ impl Index {
 			});
 			txn.set(&key, &varint::encode_uvarint(size));
 		}
-		if let Some(true) = arg.metadata.subtree.solvable {
+		if let Some(solvable) = arg.metadata.subtree.solvable {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
 			let key = self.pack(&Key::Object {
 				id: id.clone(),
 				field: ObjectField::Metadata(ObjectMetadataField::SubtreeSolvable),
 			});
-			txn.set(&key, &[]);
+			txn.set(&key, &[u8::from(solvable)]);
 		}
-		if let Some(true) = arg.metadata.subtree.solved {
+		if let Some(solved) = arg.metadata.subtree.solved {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
 			let key = self.pack(&Key::Object {
 				id: id.clone(),
 				field: ObjectField::Metadata(ObjectMetadataField::SubtreeSolved),
 			});
-			txn.set(&key, &[]);
+			txn.set(&key, &[u8::from(solved)]);
 		}
 
 		if arg.stored.subtree {
@@ -524,7 +521,7 @@ impl Index {
 			});
 			txn.set(&key, &varint::encode_uvarint(size));
 		}
-		if let Some(true) = metadata.solvable {
+		if let Some(solvable) = metadata.solvable {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
 			let key = self.pack(&Key::Process {
@@ -535,9 +532,9 @@ impl Index {
 					subtree,
 				)),
 			});
-			txn.set(&key, &[]);
+			txn.set(&key, &[u8::from(solvable)]);
 		}
-		if let Some(true) = metadata.solved {
+		if let Some(solved) = metadata.solved {
 			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 				.unwrap();
 			let key = self.pack(&Key::Process {
@@ -548,7 +545,7 @@ impl Index {
 					subtree,
 				)),
 			});
-			txn.set(&key, &[]);
+			txn.set(&key, &[u8::from(solved)]);
 		}
 	}
 }

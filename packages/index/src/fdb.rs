@@ -287,10 +287,16 @@ enum Update {
 	Put,
 
 	#[tangram_serialize(id = 1)]
-	PropagateObject(ObjectPropagateUpdate),
+	Propagate(PropagateUpdate),
+}
 
-	#[tangram_serialize(id = 2)]
-	PropagateProcess(ProcessPropagateUpdate),
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+enum PropagateUpdate {
+	#[tangram_serialize(id = 0)]
+	Object(ObjectPropagateUpdate),
+
+	#[tangram_serialize(id = 1)]
+	Process(ProcessPropagateUpdate),
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]

@@ -40,6 +40,11 @@ def main [
 			try { cqlsh -e $"drop keyspace \"($keyspace)\";" e> /dev/null }
 		}
 
+		print -e "clearing fdb data"
+		let cluster = mktemp -t
+		"docker:docker@localhost:4500" | save -f $cluster
+		try { fdbcli -C $cluster --exec 'writemode on; clearrange "" "\xff"' }
+
 		for entry in (ls ($nu.temp-dir? | default $nu.temp-path?) | where name =~ 'tangram_test_' and type == dir) {
 			print -e $"Removing temp directory: ($entry.name)"
 			chmod -R +w $entry.name

@@ -169,6 +169,7 @@ impl Index {
 			transaction,
 			tg::Either::Left(id.clone()),
 			super::Update::Put,
+			None,
 		)?;
 
 		Ok(())
@@ -264,6 +265,7 @@ impl Index {
 			transaction,
 			tg::Either::Right(id.clone()),
 			super::Update::Put,
+			None,
 		)?;
 
 		Ok(())
