@@ -171,148 +171,6 @@ impl Index {
 		Ok(count)
 	}
 
-	/// Map object propagate update fields to process propagate update fields based on the kind of relationship.
-	fn object_to_process_fields(
-		object_fields: ObjectPropagateUpdateFields,
-		kind: ProcessObjectKind,
-	) -> ProcessPropagateUpdateFields {
-		let mut process_fields = ProcessPropagateUpdateFields::empty();
-
-		// Map object stored.subtree to process stored.node_* and subtree_*.
-		if object_fields.contains(ObjectPropagateUpdateFields::STORED_SUBTREE) {
-			process_fields |= match kind {
-				ProcessObjectKind::Command => {
-					ProcessPropagateUpdateFields::STORED_NODE_COMMAND
-						| ProcessPropagateUpdateFields::STORED_SUBTREE_COMMAND
-				},
-				ProcessObjectKind::Error => {
-					ProcessPropagateUpdateFields::STORED_NODE_ERROR
-						| ProcessPropagateUpdateFields::STORED_SUBTREE_ERROR
-				},
-				ProcessObjectKind::Log => {
-					ProcessPropagateUpdateFields::STORED_NODE_LOG
-						| ProcessPropagateUpdateFields::STORED_SUBTREE_LOG
-				},
-				ProcessObjectKind::Output => {
-					ProcessPropagateUpdateFields::STORED_NODE_OUTPUT
-						| ProcessPropagateUpdateFields::STORED_SUBTREE_OUTPUT
-				},
-			};
-		}
-
-		// Map object metadata.subtree_count to process metadata.node_*_count and subtree_*_count.
-		if object_fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_COUNT) {
-			process_fields |= match kind {
-				ProcessObjectKind::Command => {
-					ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_COUNT
-						| ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_COUNT
-				},
-				ProcessObjectKind::Error => {
-					ProcessPropagateUpdateFields::METADATA_NODE_ERROR_COUNT
-						| ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_COUNT
-				},
-				ProcessObjectKind::Log => {
-					ProcessPropagateUpdateFields::METADATA_NODE_LOG_COUNT
-						| ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_COUNT
-				},
-				ProcessObjectKind::Output => {
-					ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_COUNT
-						| ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_COUNT
-				},
-			};
-		}
-
-		// Map object metadata.subtree_depth to process metadata.node_*_depth and subtree_*_depth.
-		if object_fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_DEPTH) {
-			process_fields |= match kind {
-				ProcessObjectKind::Command => {
-					ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_DEPTH
-						| ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_DEPTH
-				},
-				ProcessObjectKind::Error => {
-					ProcessPropagateUpdateFields::METADATA_NODE_ERROR_DEPTH
-						| ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_DEPTH
-				},
-				ProcessObjectKind::Log => {
-					ProcessPropagateUpdateFields::METADATA_NODE_LOG_DEPTH
-						| ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_DEPTH
-				},
-				ProcessObjectKind::Output => {
-					ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_DEPTH
-						| ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_DEPTH
-				},
-			};
-		}
-
-		// Map object metadata.subtree_size to process metadata.node_*_size and subtree_*_size.
-		if object_fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_SIZE) {
-			process_fields |= match kind {
-				ProcessObjectKind::Command => {
-					ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SIZE
-						| ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SIZE
-				},
-				ProcessObjectKind::Error => {
-					ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SIZE
-						| ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SIZE
-				},
-				ProcessObjectKind::Log => {
-					ProcessPropagateUpdateFields::METADATA_NODE_LOG_SIZE
-						| ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SIZE
-				},
-				ProcessObjectKind::Output => {
-					ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SIZE
-						| ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SIZE
-				},
-			};
-		}
-
-		// Map object metadata.subtree_solvable to process metadata.node_*_solvable and subtree_*_solvable.
-		if object_fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVABLE) {
-			process_fields |= match kind {
-				ProcessObjectKind::Command => {
-					ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SOLVABLE
-						| ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SOLVABLE
-				},
-				ProcessObjectKind::Error => {
-					ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SOLVABLE
-						| ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SOLVABLE
-				},
-				ProcessObjectKind::Log => {
-					ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVABLE
-						| ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SOLVABLE
-				},
-				ProcessObjectKind::Output => {
-					ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SOLVABLE
-						| ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SOLVABLE
-				},
-			};
-		}
-
-		// Map object metadata.subtree_solved to process metadata.node_*_solved and subtree_*_solved.
-		if object_fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVED) {
-			process_fields |= match kind {
-				ProcessObjectKind::Command => {
-					ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SOLVED
-						| ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SOLVED
-				},
-				ProcessObjectKind::Error => {
-					ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SOLVED
-						| ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SOLVED
-				},
-				ProcessObjectKind::Log => {
-					ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVED
-						| ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SOLVED
-				},
-				ProcessObjectKind::Output => {
-					ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SOLVED
-						| ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SOLVED
-				},
-			};
-		}
-
-		process_fields
-	}
-
 	async fn update_object(
 		&self,
 		txn: &fdb::Transaction,
@@ -1710,5 +1568,140 @@ impl Index {
 		txn.set(&key, &[]);
 
 		Ok(())
+	}
+
+	fn object_to_process_fields(
+		object_fields: ObjectPropagateUpdateFields,
+		kind: ProcessObjectKind,
+	) -> ProcessPropagateUpdateFields {
+		let mut process_fields = ProcessPropagateUpdateFields::empty();
+
+		if object_fields.contains(ObjectPropagateUpdateFields::STORED_SUBTREE) {
+			process_fields |= match kind {
+				ProcessObjectKind::Command => {
+					ProcessPropagateUpdateFields::STORED_NODE_COMMAND
+						| ProcessPropagateUpdateFields::STORED_SUBTREE_COMMAND
+				},
+				ProcessObjectKind::Error => {
+					ProcessPropagateUpdateFields::STORED_NODE_ERROR
+						| ProcessPropagateUpdateFields::STORED_SUBTREE_ERROR
+				},
+				ProcessObjectKind::Log => {
+					ProcessPropagateUpdateFields::STORED_NODE_LOG
+						| ProcessPropagateUpdateFields::STORED_SUBTREE_LOG
+				},
+				ProcessObjectKind::Output => {
+					ProcessPropagateUpdateFields::STORED_NODE_OUTPUT
+						| ProcessPropagateUpdateFields::STORED_SUBTREE_OUTPUT
+				},
+			};
+		}
+
+		if object_fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_COUNT) {
+			process_fields |= match kind {
+				ProcessObjectKind::Command => {
+					ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_COUNT
+						| ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_COUNT
+				},
+				ProcessObjectKind::Error => {
+					ProcessPropagateUpdateFields::METADATA_NODE_ERROR_COUNT
+						| ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_COUNT
+				},
+				ProcessObjectKind::Log => {
+					ProcessPropagateUpdateFields::METADATA_NODE_LOG_COUNT
+						| ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_COUNT
+				},
+				ProcessObjectKind::Output => {
+					ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_COUNT
+						| ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_COUNT
+				},
+			};
+		}
+
+		if object_fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_DEPTH) {
+			process_fields |= match kind {
+				ProcessObjectKind::Command => {
+					ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_DEPTH
+						| ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_DEPTH
+				},
+				ProcessObjectKind::Error => {
+					ProcessPropagateUpdateFields::METADATA_NODE_ERROR_DEPTH
+						| ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_DEPTH
+				},
+				ProcessObjectKind::Log => {
+					ProcessPropagateUpdateFields::METADATA_NODE_LOG_DEPTH
+						| ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_DEPTH
+				},
+				ProcessObjectKind::Output => {
+					ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_DEPTH
+						| ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_DEPTH
+				},
+			};
+		}
+
+		if object_fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_SIZE) {
+			process_fields |= match kind {
+				ProcessObjectKind::Command => {
+					ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SIZE
+						| ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SIZE
+				},
+				ProcessObjectKind::Error => {
+					ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SIZE
+						| ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SIZE
+				},
+				ProcessObjectKind::Log => {
+					ProcessPropagateUpdateFields::METADATA_NODE_LOG_SIZE
+						| ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SIZE
+				},
+				ProcessObjectKind::Output => {
+					ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SIZE
+						| ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SIZE
+				},
+			};
+		}
+
+		if object_fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVABLE) {
+			process_fields |= match kind {
+				ProcessObjectKind::Command => {
+					ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SOLVABLE
+						| ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SOLVABLE
+				},
+				ProcessObjectKind::Error => {
+					ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SOLVABLE
+						| ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SOLVABLE
+				},
+				ProcessObjectKind::Log => {
+					ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVABLE
+						| ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SOLVABLE
+				},
+				ProcessObjectKind::Output => {
+					ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SOLVABLE
+						| ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SOLVABLE
+				},
+			};
+		}
+
+		if object_fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVED) {
+			process_fields |= match kind {
+				ProcessObjectKind::Command => {
+					ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SOLVED
+						| ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SOLVED
+				},
+				ProcessObjectKind::Error => {
+					ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SOLVED
+						| ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SOLVED
+				},
+				ProcessObjectKind::Log => {
+					ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVED
+						| ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SOLVED
+				},
+				ProcessObjectKind::Output => {
+					ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SOLVED
+						| ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SOLVED
+				},
+			};
+		}
+
+		process_fields
 	}
 }
