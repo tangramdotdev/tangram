@@ -329,10 +329,9 @@ impl tg::Client {
 			)
 			.body(body)
 			.unwrap();
-		let response = self
-			.send(request)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+		let Some(response) = self.try_send(request).await? else {
+			return Ok(stream::empty().left_stream());
+		};
 		if !response.status().is_success() {
 			let error = response.json().await.map_err(|source| {
 				tg::error!(!source, "failed to deserialize the error response")
@@ -415,7 +414,9 @@ impl tg::Client {
 			}
 		});
 
-		let stream = stream::select(data_messages, trailer_messages).attach(task);
+		let stream = stream::select(data_messages, trailer_messages)
+			.attach(task)
+			.right_stream();
 
 		Ok(stream)
 	}

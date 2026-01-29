@@ -1,12 +1,12 @@
 use {
 	crate::prelude::*,
-	futures::TryFutureExt as _,
 	std::{
 		path::{Path, PathBuf},
 		str::FromStr,
 		sync::Arc,
 		time::Duration,
 	},
+	tangram_futures::retry,
 	tangram_http::Body,
 	tangram_uri::Uri,
 	time::format_description::well_known::Rfc3339,
@@ -18,41 +18,80 @@ use {
 pub(crate) type Sender =
 	Arc<tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<Body>>>>;
 
-pub(crate) type Service = BoxCloneSyncService<http::Request<Body>, http::Response<Body>, tg::Error>;
+pub(crate) type Service = BoxCloneSyncService<http::Request<Body>, http::Response<Body>, Error>;
+
+#[derive(Clone, Debug)]
+pub(crate) enum Error {
+	Disconnected,
+	Other(tg::Error),
+}
 
 impl tg::Client {
-	pub(crate) fn service(url: &Uri, version: &str) -> (Sender, Service) {
+	pub(crate) fn service(version: &str) -> (Sender, Service) {
 		let sender = Arc::new(tokio::sync::Mutex::new(
 			None::<hyper::client::conn::http2::SendRequest<Body>>,
 		));
 		let service = tower::service_fn({
-			let url = url.clone();
 			let sender = sender.clone();
-			move |request| {
-				let url = url.clone();
+			move |request: http::Request<Body>| {
 				let sender = sender.clone();
 				async move {
+					// Attempt to get the sender.
 					let mut guard = sender.lock().await;
-					let mut sender = match guard.as_ref() {
-						Some(sender) if sender.is_ready() => sender.clone(),
-						_ => {
-							let sender = Self::connect_h2(&url).await?;
-							guard.replace(sender.clone());
-							sender
+					let mut sender_ = match guard.as_ref() {
+						Some(sender) if sender.is_closed() => {
+							guard.take();
+							return Err(Error::Disconnected);
+						},
+						Some(sender) => sender.clone(),
+						None => {
+							return Err(Error::Disconnected);
 						},
 					};
 					drop(guard);
-					sender
-						.send_request(request)
-						.map_ok(|response| response.map(Body::new))
-						.map_err(|source| tg::error!(!source, "failed to send the request"))
-						.await
+
+					// Try to send the request.
+					let method = request.method().clone();
+					let uri = request.uri().clone();
+					let response = match sender_.try_send_request(request).await {
+						Ok(response) => response.map(Body::new),
+						Err(error)
+							if error.message().is_some()
+								|| std::error::Error::source(error.error())
+									.and_then(|error| error.downcast_ref::<std::io::Error>())
+									.is_some_and(|error| {
+										matches!(error.kind(), std::io::ErrorKind::ConnectionReset)
+									}) =>
+						{
+							sender.lock().await.take();
+							return Err(Error::Disconnected);
+						},
+						Err(error) => {
+							let error = error.into_error();
+							return Err(Error::Other(tg::error!(
+								source = error,
+								%method,
+								%uri,
+								"failed to send the request"
+							)));
+						},
+					};
+
+					Ok(response)
 				}
 			}
 		});
 		let service = tower::ServiceBuilder::new()
 			.layer(tangram_http::layer::tracing::TracingLayer::new())
-			.map_err(tg::Error::from)
+			.map_err(
+				|error: Box<dyn std::error::Error + Send + Sync + 'static>| {
+					if let Some(error) = error.downcast_ref::<Error>() {
+						error.clone()
+					} else {
+						Error::Other(tg::Error::from(error))
+					}
+				},
+			)
 			.layer(tower::timeout::TimeoutLayer::new(Duration::from_secs(60)))
 			.insert_request_header_if_not_present(
 				http::HeaderName::from_str("x-tg-compatibility-date").unwrap(),
@@ -445,21 +484,92 @@ impl tg::Client {
 		Ok(stream)
 	}
 
-	pub(crate) async fn send(
+	pub(crate) async fn ensure_connected(&self) -> tg::Result<()> {
+		let mut guard = self.sender.lock().await;
+		if guard
+			.as_ref()
+			.is_some_and(hyper::client::conn::http2::SendRequest::is_ready)
+		{
+			return Ok(());
+		}
+		guard.take();
+		let options = retry::Options {
+			max_delay: std::time::Duration::from_secs(10),
+			backoff: std::time::Duration::from_millis(100),
+			jitter: std::time::Duration::from_millis(50),
+			max_retries: 16,
+		};
+		let sender = retry::retry(&options, {
+			let url = self.url.clone();
+			move || {
+				let url = url.clone();
+				async move {
+					match Self::connect_h2(&url).await {
+						Ok(sender) => Ok(std::ops::ControlFlow::Break(sender)),
+						Err(error) => Ok(std::ops::ControlFlow::Continue(error)),
+					}
+				}
+			}
+		})
+		.await
+		.map_err(|source| tg::error!(!source, "failed to reconnect"))?;
+		guard.replace(sender);
+		Ok(())
+	}
+
+	pub(crate) async fn try_send(
 		&self,
 		mut request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>> {
+	) -> tg::Result<Option<http::Response<Body>>> {
+		// Reconnect if necessary.
+		self.ensure_connected()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to reconnect"))?;
+
+		// Add the authorization header to the request.
 		if let Some(token) = &self.token {
 			request.headers_mut().insert(
 				http::header::AUTHORIZATION,
 				http::HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
 			);
 		}
-		let future = self.service.clone().call(request);
-		let response = future
-			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
-		let response = response.map(Into::into);
-		Ok(response)
+
+		// Attempt to send the request.
+		match self.service.clone().call(request).await {
+			Ok(response) => Ok(Some(response)),
+			Err(Error::Disconnected) => Ok(None),
+			Err(Error::Other(error)) => Err(error),
+		}
+	}
+
+	pub(crate) async fn send(
+		&self,
+		request: http::Request<Body>,
+	) -> tg::Result<http::Response<Body>> {
+		let (parts, body) = request.into_parts();
+		let mut body = Some(body);
+		loop {
+			let body = body
+				.as_ref()
+				.unwrap()
+				.try_clone()
+				.or_else(|| body.take())
+				.ok_or_else(|| tg::error!("the request body is not cloneable"))?;
+			let request = http::Request::from_parts(parts.clone(), body);
+			if let Some(response) = self.try_send(request).await? {
+				return Ok(response);
+			}
+		}
 	}
 }
+
+impl std::fmt::Display for Error {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Error::Disconnected => write!(f, "disconnected"),
+			Error::Other(error) => write!(f, "{error}"),
+		}
+	}
+}
+
+impl std::error::Error for Error {}
