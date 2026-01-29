@@ -205,6 +205,10 @@ impl Store {
 	}
 
 	pub fn put_process_log(&self, arg: PutProcessLogArg) {
+		if arg.bytes.is_empty() {
+			return;
+		}
+
 		let mut logs = self.process_logs.entry(arg.process).or_default();
 
 		// Get the current position.

@@ -799,6 +799,10 @@ impl crate::Store for Store {
 	}
 
 	async fn put_process_log(&self, arg: PutProcessLogArg) -> tg::Result<()> {
+		if arg.bytes.is_empty() {
+			return Ok(());
+		}
+
 		let process = arg.process.to_bytes().to_vec();
 		let stream = match arg.stream {
 			tg::process::log::Stream::Stdout => 1i32,

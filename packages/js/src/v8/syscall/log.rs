@@ -45,6 +45,9 @@ impl std::io::Write for Writer {
 
 	fn flush(&mut self) -> std::io::Result<()> {
 		let bytes = std::mem::take(&mut self.buf);
+		if bytes.is_empty() {
+			return Ok(());
+		}
 		let stream = self.stream;
 		let (sender, receiver) = std::sync::mpsc::channel();
 		self.state.main_runtime_handle.spawn({
@@ -54,6 +57,7 @@ impl std::io::Write for Writer {
 				sender.send(result).unwrap();
 			}
 		});
-		receiver.recv().unwrap().map_err(std::io::Error::other)
+		receiver.recv().unwrap().map_err(std::io::Error::other)?;
+		Ok(())
 	}
 }

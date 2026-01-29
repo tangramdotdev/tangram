@@ -47,7 +47,9 @@ impl Server {
 			let server = self.clone();
 			let progress = progress.clone();
 			async move |_| match server.try_spawn_process_task(arg, &progress).await {
-				Ok(output) => progress.output(output),
+				Ok(output) => {
+					progress.output(output);
+				},
 				Err(error) => {
 					progress.error(error);
 					progress.output(None);

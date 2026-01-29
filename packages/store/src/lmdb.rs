@@ -941,6 +941,9 @@ impl crate::Store for Store {
 	}
 
 	async fn put_process_log(&self, arg: PutProcessLogArg) -> tg::Result<()> {
+		if arg.bytes.is_empty() {
+			return Ok(());
+		}
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::ProcessLog(ProcessLogRequest::Put(PutProcessLog {
 			bytes: arg.bytes,

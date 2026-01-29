@@ -45,6 +45,9 @@ pub async fn log(
 	stream: tg::process::log::Stream,
 	message: Vec<u8>,
 ) -> tg::Result<()> {
+	if message.is_empty() {
+		return Ok(());
+	}
 	let state = process
 		.load(server)
 		.await
