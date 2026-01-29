@@ -192,35 +192,29 @@ pub struct Http {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum Index {
-	Postgres(PostgresIndex),
-	Sqlite(SqliteIndex),
+	Fdb(FdbIndex),
+	Lmdb(LmdbIndex),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
-pub struct PostgresIndex {
+pub struct FdbIndex {
+	pub cluster: PathBuf,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub connections: Option<usize>,
-	pub url: Uri,
+	pub prefix: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
-pub struct SqliteIndex {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub connections: Option<usize>,
+pub struct LmdbIndex {
+	pub map_size: usize,
 	pub path: PathBuf,
 }
 
-#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Indexer {
-	pub insert_batch_size: usize,
-	pub message_batch_size: usize,
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub message_batch_timeout: Duration,
-	pub queue_batch_size: usize,
+	pub batch_size: usize,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -581,38 +575,33 @@ impl Default for Finisher {
 	}
 }
 
-impl Default for Index {
-	fn default() -> Self {
-		Self::Sqlite(SqliteIndex::default())
-	}
-}
-
-impl Default for PostgresIndex {
+impl Default for FdbIndex {
 	fn default() -> Self {
 		Self {
-			connections: None,
-			url: "postgres://localhost:5432".parse().unwrap(),
+			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
+			prefix: None,
 		}
 	}
 }
 
-impl Default for SqliteIndex {
+impl Default for LmdbIndex {
 	fn default() -> Self {
 		Self {
-			connections: None,
+			map_size: 1_099_511_627_776,
 			path: PathBuf::from("index"),
 		}
 	}
 }
 
+impl Default for Index {
+	fn default() -> Self {
+		Self::Lmdb(LmdbIndex::default())
+	}
+}
+
 impl Default for Indexer {
 	fn default() -> Self {
-		Self {
-			insert_batch_size: 1024,
-			message_batch_size: 1024,
-			message_batch_timeout: Duration::from_millis(100),
-			queue_batch_size: 1024,
-		}
+		Self { batch_size: 1024 }
 	}
 }
 

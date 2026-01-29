@@ -338,47 +338,37 @@ impl Server {
 
 		// Create the index.
 		let index = match &config.index {
-			self::config::Index::Postgres(options) => {
-				#[cfg(not(feature = "postgres"))]
+			self::config::Index::Fdb(options) => {
+				#[cfg(not(feature = "foundationdb"))]
 				{
 					let _ = options;
 					return Err(tg::error!(
-						"this version of tangram was not compiled with postgres support"
+						"this version of tangram was not compiled with foundationdb support"
 					));
 				}
-				#[cfg(feature = "postgres")]
+				#[cfg(feature = "foundationdb")]
 				{
-					let options = db::postgres::DatabaseOptions {
-						url: options.url.clone(),
-						connections: options.connections.unwrap_or(parallelism),
-					};
-					let database = db::postgres::Database::new(options)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to create the index"))?;
-					Index::new_postgres(database)
+					Index::new_fdb(&options.cluster, options.prefix.clone())
+						.map_err(|source| tg::error!(!source, "failed to create the index"))?
 				}
 			},
-			self::config::Index::Sqlite(options) => {
-				#[cfg(not(feature = "sqlite"))]
+			self::config::Index::Lmdb(options) => {
+				#[cfg(not(feature = "lmdb"))]
 				{
 					let _ = options;
 					return Err(tg::error!(
-						"this version of tangram was not compiled with sqlite support"
+						"this version of tangram was not compiled with lmdb support"
 					));
 				}
-				#[cfg(feature = "sqlite")]
+				#[cfg(feature = "lmdb")]
 				{
-					let initialize = Arc::new(tangram_index::sqlite::initialize);
-					let path = path.join("index");
-					let options = db::sqlite::DatabaseOptions {
-						connections: options.connections.unwrap_or(parallelism),
-						initialize,
+					let path = directory.join(&options.path);
+					let config = tangram_index::lmdb::Config {
+						map_size: options.map_size,
 						path,
 					};
-					let database = db::sqlite::Database::new(options)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to create the index"))?;
-					Index::new_sqlite(database)
+					Index::new_lmdb(&config)
+						.map_err(|source| tg::error!(!source, "failed to create the index"))?
 				}
 			},
 		};
@@ -430,27 +420,6 @@ impl Server {
 				}
 			},
 		};
-
-		// Create the index stream and consumer if the messenger is memory.
-		if messenger.is_memory() {
-			let stream_config = tangram_messenger::StreamConfig {
-				discard: tangram_messenger::DiscardPolicy::New,
-				max_bytes: None,
-				max_messages: None,
-				retention: tangram_messenger::RetentionPolicy::WorkQueue,
-			};
-			let stream = messenger
-				.create_stream("index".to_owned(), stream_config)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the index stream"))?;
-			let consumer_config = tangram_messenger::ConsumerConfig {
-				deliver: tangram_messenger::DeliverPolicy::All,
-			};
-			stream
-				.create_consumer("index".to_owned(), consumer_config)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the index stream"))?;
-		}
 
 		// Create the finish stream and consumer if the messenger is memory.
 		if messenger.is_memory() {
@@ -623,15 +592,6 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to insert the remote"))?;
 			}
-		}
-
-		// Migrate the index if necessary.
-		#[cfg(feature = "sqlite")]
-		if let Ok(index) = server.index.try_unwrap_sqlite_ref() {
-			index
-				.migrate()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to migrate the index"))?;
 		}
 
 		// Spawn the indexer task.
@@ -1100,11 +1060,6 @@ impl Server {
 			.get_or_insert_with(|| Arc::new(Temp::new(self)))
 			.clone();
 		library.path().to_owned()
-	}
-
-	#[must_use]
-	pub fn logs_path(&self) -> PathBuf {
-		self.path.join("logs")
 	}
 
 	#[must_use]

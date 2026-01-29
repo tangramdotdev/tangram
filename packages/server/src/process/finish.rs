@@ -2,8 +2,7 @@ use {
 	crate::{Context, Server},
 	bytes::Bytes,
 	futures::{
-		FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
-		stream::FuturesUnordered,
+		FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream::FuturesUnordered,
 	},
 	indoc::formatdoc,
 	num::ToPrimitive as _,
@@ -11,6 +10,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, request::Ext as _},
+	tangram_index::prelude::*,
 	tangram_messenger::{self as messenger, prelude::*},
 };
 
@@ -252,10 +252,10 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
-		// Publish the put process index message.
+		// Index the process.
 		let command = (
 			data.command.clone().into(),
-			crate::index::message::ProcessObjectKind::Command,
+			tangram_index::ProcessObjectKind::Command,
 		);
 		let errors = data
 			.error
@@ -268,20 +268,20 @@ impl Server {
 					children
 						.into_iter()
 						.map(|object| {
-							let kind = crate::index::message::ProcessObjectKind::Error;
+							let kind = tangram_index::ProcessObjectKind::Error;
 							(object, kind)
 						})
 						.collect::<Vec<_>>()
 				},
 				tg::Either::Right(id) => {
 					let id = id.clone().into();
-					let kind = crate::index::message::ProcessObjectKind::Error;
+					let kind = tangram_index::ProcessObjectKind::Error;
 					vec![(id, kind)]
 				},
 			});
 		let log = data.log.as_ref().map(|id| {
 			let id = id.clone().into();
-			let kind = crate::index::message::ProcessObjectKind::Log;
+			let kind = tangram_index::ProcessObjectKind::Log;
 			(id, kind)
 		});
 		let mut outputs = BTreeSet::new();
@@ -289,7 +289,7 @@ impl Server {
 			output.children(&mut outputs);
 		}
 		let outputs = outputs.into_iter().map(|object| {
-			let kind = crate::index::message::ProcessObjectKind::Output;
+			let kind = tangram_index::ProcessObjectKind::Output;
 			(object, kind)
 		});
 		let objects = std::iter::once(command)
@@ -298,33 +298,27 @@ impl Server {
 			.chain(outputs)
 			.collect();
 		let children = children.into_iter().map(|row| row.child).collect();
-		let message = crate::index::Message::PutProcess(crate::index::message::PutProcess {
+		let put_process_arg = tangram_index::PutProcessArg {
 			children,
-			stored: crate::index::ProcessStored::default(),
+			stored: tangram_index::ProcessStored::default(),
 			id: id.clone(),
 			metadata: tg::process::Metadata::default(),
 			objects,
 			touched_at: now,
-		});
+		};
 		self.index_tasks
 			.spawn(|_| {
 				let server = self.clone();
 				async move {
-					let result = server
-						.messenger
-						.stream_publish(
-							"index".to_owned(),
-							crate::index::message::Messages(vec![message]),
-						)
-						.map_err(|source| tg::error!(!source, "failed to publish the message"))
-						.and_then(|future| {
-							future.map_err(|source| {
-								tg::error!(!source, "failed to publish the message")
-							})
+					if let Err(error) = server
+						.index
+						.put(tangram_index::PutArg {
+							processes: vec![put_process_arg],
+							..Default::default()
 						})
-						.await;
-					if let Err(error) = result {
-						tracing::error!(?error, "failed to publish the put process index message");
+						.await
+					{
+						tracing::error!(?error, "failed to put process to index");
 					}
 				}
 			})

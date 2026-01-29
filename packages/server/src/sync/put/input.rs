@@ -50,7 +50,7 @@ impl Server {
 						&message.id,
 						None,
 						None,
-						Some(&crate::index::ObjectStored { subtree: true }),
+						Some(&tangram_index::ObjectStored { subtree: true }),
 					);
 					if state.graph.lock().unwrap().end_remote(&state.arg) {
 						state.queue.close();
@@ -64,7 +64,7 @@ impl Server {
 					}
 					tracing::trace!(id = %message.id, "received stored process");
 					let id = message.id;
-					let stored = crate::index::ProcessStored {
+					let stored = tangram_index::ProcessStored {
 						subtree: message.subtree_stored,
 						subtree_command: message.subtree_command_stored,
 						subtree_error: message.subtree_error_stored,

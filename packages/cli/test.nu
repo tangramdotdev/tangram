@@ -19,14 +19,14 @@ def main [
 ] {
 	# Clean up leftover test resources if requested.
 	if $clean {
-		let preserved_dbs = ['postgres', 'template0', 'template1', 'database', 'index']
+		let preserved_dbs = ['postgres', 'template0', 'template1', 'database']
 		let dbs = psql -U postgres -h localhost -t -c "SELECT datname FROM pg_database" | lines | str trim | where { $in not-in $preserved_dbs and $in != '' }
 		for db in $dbs {
 			print -e $"dropping postgres database ($db)"
 			try { dropdb -U postgres -h localhost $db }
 		}
 
-		let preserved_streams = ['index', 'finish']
+		let preserved_streams = ['finish']
 		let streams = nats stream ls -n | lines | where { $in not-in $preserved_streams }
 		for stream in $streams {
 			print -e $"deleting nats stream ($stream)"
@@ -39,6 +39,11 @@ def main [
 			print -e $"dropping scylla keyspace ($keyspace)"
 			try { cqlsh -e $"drop keyspace \"($keyspace)\";" e> /dev/null }
 		}
+
+		print -e "clearing fdb data"
+		let cluster = mktemp -t
+		"docker:docker@localhost:4500" | save -f $cluster
+		try { fdbcli -C $cluster --exec 'writemode on; clearrange "" "\xff"' }
 
 		for entry in (ls ($nu.temp-dir? | default $nu.temp-path?) | where name =~ 'tangram_test_' and type == dir) {
 			print -e $"Removing temp directory: ($entry.name)"
@@ -701,13 +706,10 @@ export def --env spawn [
 
 		createdb -U postgres -h localhost $'database_($id)'
 		psql -U postgres -h localhost -d $'database_($id)' -f ($repository_path | path join packages/server/src/database/postgres.sql)
-		createdb -U postgres -h localhost $'index_($id)'
-		for path in (glob ($repository_path | path join packages/index/src/postgres/*.sql) | sort) {
-			psql -U postgres -h localhost -d $'index_($id)' -f $path
-		}
 
-		nats stream create $'index_($id)' --discard new --retention work --subjects $'($id).index' --defaults
-		nats consumer create $'index_($id)' index --deliver all --max-pending 1000000 --pull --defaults
+		let cluster = mktemp -t
+		"docker:docker@localhost:4500" | save -f $cluster
+
 		nats stream create $'finish_($id)' --discard new --retention work --subjects $'($id).finish' --defaults
 		nats consumer create $'finish_($id)' finish --deliver all --max-pending 1000000 --pull --defaults
 		nats stream create $'queue_($id)' --discard new --retention work --subjects $'($id).queue' --defaults
@@ -723,12 +725,9 @@ export def --env spawn [
 				url: $'postgres://postgres@localhost:5432/database_($id)',
 			},
 			index: {
-				kind: 'postgres',
-				connections: 1,
-				url: $'postgres://postgres@localhost:5432/index_($id)',
-			},
-			indexer: {
-				message_batch_timeout: 1,
+				kind: 'fdb',
+				cluster: $cluster,
+				prefix: $id,
 			},
 			messenger: {
 				kind: 'nats',
@@ -844,13 +843,15 @@ export def --env spawn [
 }
 
 def clean_databases [id: string] {
-	# Drop the postgres databases.
+	# Drop the postgres database.
 	try { dropdb -U postgres -h localhost $'database_($id)' }
-	try { dropdb -U postgres -h localhost $'index_($id)' }
+
+	# Clear the fdb key range.
+	let cluster = mktemp -t
+	"docker:docker@localhost:4500" | save -f $cluster
+	try { fdbcli -C $cluster --exec $'writemode on; clearrange "($id)" "($id)\xff"' }
 
 	# Remove the NATS stream and consumer.
-	try { nats consumer rm -f $'index_($id)' index }
-	try { nats stream rm -f $'index_($id)' }
 	try { nats consumer rm -f $'finish_($id)' finish }
 	try { nats stream rm -f $'finish_($id)' }
 

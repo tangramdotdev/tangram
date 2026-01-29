@@ -7,3 +7,4 @@ pub mod iter;
 pub mod path;
 pub mod read;
 pub mod serde;
+pub mod varint;

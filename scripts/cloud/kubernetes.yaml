@@ -75,7 +75,7 @@ spec:
     spec:
       containers:
         - name: scylla
-          image: scylladb/scylla:2025.3
+          image: scylladb/scylla:2025.4
           args:
             - --overprovisioned
             - "1"
@@ -126,7 +126,7 @@ spec:
     spec:
       containers:
         - name: nats
-          image: nats:2.12
+          image: nats:2.12.3
           args:
             - --jetstream
           ports:

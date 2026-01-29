@@ -1,3 +1,5 @@
+let cluster = mktemp -t
+"docker:docker@localhost:4500" | save -f $cluster
 let config = {
 	advanced: {
 		disable_version_check: true,
@@ -12,16 +14,14 @@ let config = {
 	http: {
 		url: 'http://localhost:8476'
 	},
+	indexer: true,
 	index: {
-		kind: 'postgres',
-		url: 'postgres://postgres@localhost:5432/index',
-	},
-	indexer: {
-		message_batch_timeout: 1,
+		kind: 'fdb',
+		cluster: $cluster,
 	},
 	messenger: {
 		kind: 'nats',
-		url: 'nats://localhost',
+		url: 'nats://localhost:4222',
 	},
 	remotes: [],
 	runner: false,

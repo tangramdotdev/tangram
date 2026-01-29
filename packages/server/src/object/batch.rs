@@ -1,11 +1,10 @@
 use {
 	crate::{Context, Server},
-	futures::TryFutureExt as _,
 	num::ToPrimitive as _,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _},
-	tangram_messenger::prelude::*,
+	tangram_index::prelude::*,
 	tangram_store::prelude::*,
 };
 
@@ -37,8 +36,8 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
 
-		// Create the index messages.
-		let mut messages = Vec::with_capacity(arg.objects.len());
+		// Create the index args.
+		let mut put_object_args = Vec::with_capacity(arg.objects.len());
 		for object in &arg.objects {
 			// Deserialize the object.
 			let data = tg::object::Data::deserialize(object.id.kind(), object.bytes.clone())
@@ -57,40 +56,33 @@ impl Server {
 				..Default::default()
 			};
 
-			// Create the message.
-			let message = crate::index::Message::PutObject(crate::index::message::PutObject {
+			// Create the arg.
+			let arg = tangram_index::PutObjectArg {
 				cache_entry: None,
 				children,
 				id: object.id.clone(),
 				metadata,
-				stored: crate::index::ObjectStored::default(),
+				stored: tangram_index::ObjectStored::default(),
 				touched_at: now,
-			});
+			};
 
-			messages.push(message);
+			put_object_args.push(arg);
 		}
 
-		// Spawn a task to publish the index messages.
+		// Spawn a task to index the objects.
 		self.index_tasks
 			.spawn(|_| {
 				let server = self.clone();
 				async move {
-					let payload = crate::index::message::Messages(messages);
-					let result = server
-						.messenger
-						.stream_publish("index".to_owned(), payload)
-						.map_err(|source| tg::error!(!source, "failed to publish the messages"))
-						.and_then(|future| {
-							future.map_err(|source| {
-								tg::error!(!source, "failed to publish the messages")
-							})
+					if let Err(error) = server
+						.index
+						.put(tangram_index::PutArg {
+							objects: put_object_args,
+							..Default::default()
 						})
-						.await;
-					if let Err(error) = result {
-						tracing::error!(
-							?error,
-							"failed to publish the post object batch index messages"
-						);
+						.await
+					{
+						tracing::error!(?error, "failed to put object batch to index");
 					}
 				}
 			})

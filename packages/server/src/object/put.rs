@@ -1,11 +1,10 @@
 use {
 	crate::{Context, Server},
-	futures::TryFutureExt as _,
 	num::ToPrimitive as _,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
-	tangram_messenger::prelude::*,
+	tangram_index::prelude::*,
 	tangram_store::prelude::*,
 };
 
@@ -85,33 +84,27 @@ impl Server {
 				..Default::default()
 			}
 		};
-		let message = crate::index::Message::PutObject(crate::index::message::PutObject {
+		let arg = tangram_index::PutObjectArg {
 			cache_entry: None,
 			children,
 			id: id.clone(),
 			metadata,
-			stored: crate::index::ObjectStored::default(),
+			stored: tangram_index::ObjectStored::default(),
 			touched_at: now,
-		});
+		};
 		self.index_tasks
 			.spawn(|_| {
 				let server = self.clone();
 				async move {
-					let result = server
-						.messenger
-						.stream_publish(
-							"index".to_owned(),
-							crate::index::message::Messages(vec![message]),
-						)
-						.map_err(|source| tg::error!(!source, "failed to publish the message"))
-						.and_then(|future| {
-							future.map_err(|source| {
-								tg::error!(!source, "failed to publish the message")
-							})
+					if let Err(error) = server
+						.index
+						.put(tangram_index::PutArg {
+							objects: vec![arg],
+							..Default::default()
 						})
-						.await;
-					if let Err(error) = result {
-						tracing::error!(?error, "failed to publish the put object index message");
+						.await
+					{
+						tracing::error!(?error, "failed to put object to index");
 					}
 				}
 			})

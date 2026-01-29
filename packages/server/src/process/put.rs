@@ -1,10 +1,9 @@
 use {
 	crate::{Context, Server, database::Database},
-	futures::TryFutureExt as _,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _},
-	tangram_messenger::prelude::*,
+	tangram_index::prelude::*,
 };
 
 #[cfg(feature = "postgres")]
@@ -58,7 +57,7 @@ impl Server {
 			},
 		}
 
-		// Spawn a task to publish the put process index message.
+		// Spawn a task to index the process.
 		let children = arg
 			.data
 			.children
@@ -69,7 +68,7 @@ impl Server {
 			.collect();
 		let command = std::iter::once((
 			arg.data.command.clone().into(),
-			crate::index::message::ProcessObjectKind::Command,
+			tangram_index::ProcessObjectKind::Command,
 		));
 		let error = arg
 			.data
@@ -83,20 +82,20 @@ impl Server {
 					children
 						.into_iter()
 						.map(|object| {
-							let kind = crate::index::message::ProcessObjectKind::Error;
+							let kind = tangram_index::ProcessObjectKind::Error;
 							(object, kind)
 						})
 						.collect::<Vec<_>>()
 				},
 				tg::Either::Right(id) => {
 					let id = id.clone().into();
-					let kind = crate::index::message::ProcessObjectKind::Error;
+					let kind = tangram_index::ProcessObjectKind::Error;
 					vec![(id, kind)]
 				},
 			});
 		let log = arg.data.log.as_ref().map(|id| {
 			let id = id.clone().into();
-			let kind = crate::index::message::ProcessObjectKind::Log;
+			let kind = tangram_index::ProcessObjectKind::Log;
 			(id, kind)
 		});
 		let mut output = BTreeSet::new();
@@ -105,40 +104,34 @@ impl Server {
 		}
 		let output = output
 			.into_iter()
-			.map(|output| (output, crate::index::message::ProcessObjectKind::Output));
+			.map(|output| (output, tangram_index::ProcessObjectKind::Output));
 		let objects = std::iter::empty()
 			.chain(command)
 			.chain(error)
 			.chain(log)
 			.chain(output)
 			.collect();
-		let message = crate::index::Message::PutProcess(crate::index::message::PutProcess {
+		let put_process_arg = tangram_index::PutProcessArg {
 			children,
-			stored: crate::index::ProcessStored::default(),
+			stored: tangram_index::ProcessStored::default(),
 			id: id.clone(),
 			metadata: tg::process::Metadata::default(),
 			objects,
 			touched_at: now,
-		});
+		};
 		self.index_tasks
 			.spawn(|_| {
 				let server = self.clone();
 				async move {
-					let result = server
-						.messenger
-						.stream_publish(
-							"index".to_owned(),
-							crate::index::message::Messages(vec![message]),
-						)
-						.map_err(|source| tg::error!(!source, "failed to publish the message"))
-						.and_then(|future| {
-							future.map_err(|source| {
-								tg::error!(!source, "failed to publish the message")
-							})
+					if let Err(error) = server
+						.index
+						.put(tangram_index::PutArg {
+							processes: vec![put_process_arg],
+							..Default::default()
 						})
-						.await;
-					if let Err(error) = result {
-						tracing::error!(?error, "failed to publish the put process index message");
+						.await
+					{
+						tracing::error!(?error, "failed to put process to index");
 					}
 				}
 			})

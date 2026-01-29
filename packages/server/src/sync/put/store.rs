@@ -105,7 +105,7 @@ impl Server {
 				&item.id,
 				None,
 				item.kind,
-				Some(&crate::index::ObjectStored { subtree: true }),
+				Some(&tangram_index::ObjectStored { subtree: true }),
 			);
 
 			// Enqueue the children.
@@ -186,7 +186,7 @@ impl Server {
 				.send(Ok(message))
 				.await
 				.map_err(|source| tg::error!(!source, "failed to send the put message"))?;
-			let stored = crate::index::ProcessStored::default();
+			let stored = tangram_index::ProcessStored::default();
 			state
 				.graph
 				.lock()

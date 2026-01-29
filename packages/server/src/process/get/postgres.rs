@@ -17,19 +17,20 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
-		// Get the process.
+		// Get the process. All fields from the processes table must be Option because the LEFT JOIN
+		// returns NULL for all columns when a process doesn't exist.
 		#[derive(db::postgres::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
 			id: Option<tg::process::Id>,
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
 			actual_checksum: Option<tg::Checksum>,
-			cacheable: bool,
-			#[tangram_database(as = "Vec<db::postgres::value::FromStr>")]
-			children: Vec<tg::Referent<tg::process::Id>>,
-			#[tangram_database(as = "db::postgres::value::FromStr")]
-			command: tg::command::Id,
-			created_at: i64,
+			cacheable: Option<bool>,
+			#[tangram_database(as = "Option<Vec<db::postgres::value::FromStr>>")]
+			children: Option<Vec<tg::Referent<tg::process::Id>>>,
+			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
+			command: Option<tg::command::Id>,
+			created_at: Option<i64>,
 			dequeued_at: Option<i64>,
 			enqueued_at: Option<i64>,
 			error: Option<String>,
@@ -38,18 +39,18 @@ impl Server {
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
 			expected_checksum: Option<tg::Checksum>,
 			finished_at: Option<i64>,
-			host: String,
+			host: Option<String>,
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
 			log: Option<tg::blob::Id>,
 			#[tangram_database(as = "Option<db::value::Json<Vec<tg::process::data::Mount>>>")]
 			mounts: Option<Vec<tg::process::data::Mount>>,
-			network: bool,
+			network: Option<bool>,
 			#[tangram_database(as = "Option<db::value::Json<tg::value::Data>>")]
 			output: Option<tg::value::Data>,
-			retry: bool,
+			retry: Option<bool>,
 			started_at: Option<i64>,
-			#[tangram_database(as = "db::postgres::value::FromStr")]
-			status: tg::process::Status,
+			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
+			status: Option<tg::process::Status>,
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
 			stderr: Option<tg::process::Stdio>,
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
@@ -102,7 +103,35 @@ impl Server {
 			})
 			.map(|row| {
 				let row = row?;
-				let id = row.id.ok_or_else(|| tg::error!("expected id"))?;
+				// If id is None, the process doesn't exist in the database.
+				let Some(id) = row.id else {
+					return Ok(None);
+				};
+				// Unwrap required fields. These should always be present if the process exists.
+				let cacheable = row
+					.cacheable
+					.ok_or_else(|| tg::error!(%id, "missing cacheable field"))?;
+				let children = row
+					.children
+					.ok_or_else(|| tg::error!(%id, "missing children field"))?;
+				let command = row
+					.command
+					.ok_or_else(|| tg::error!(%id, "missing command field"))?;
+				let created_at = row
+					.created_at
+					.ok_or_else(|| tg::error!(%id, "missing created_at field"))?;
+				let host = row
+					.host
+					.ok_or_else(|| tg::error!(%id, "missing host field"))?;
+				let network = row
+					.network
+					.ok_or_else(|| tg::error!(%id, "missing network field"))?;
+				let retry = row
+					.retry
+					.ok_or_else(|| tg::error!(%id, "missing retry field"))?;
+				let status = row
+					.status
+					.ok_or_else(|| tg::error!(%id, "missing status field"))?;
 				let error = row
 					.error
 					.map(|s| {
@@ -121,24 +150,24 @@ impl Server {
 					.transpose()?;
 				let data = tg::process::Data {
 					actual_checksum: row.actual_checksum,
-					cacheable: row.cacheable,
-					children: Some(row.children),
-					command: row.command,
-					created_at: row.created_at,
+					cacheable,
+					children: Some(children),
+					command,
+					created_at,
 					dequeued_at: row.dequeued_at,
 					enqueued_at: row.enqueued_at,
 					error,
 					exit: row.exit,
 					expected_checksum: row.expected_checksum,
 					finished_at: row.finished_at,
-					host: row.host,
+					host,
 					log: row.log,
 					output: row.output,
-					retry: row.retry,
+					retry,
 					mounts: row.mounts.unwrap_or_default(),
-					network: row.network,
+					network,
 					started_at: row.started_at,
-					status: row.status,
+					status,
 					stderr: row.stderr,
 					stdin: row.stdin,
 					stdout: row.stdout,

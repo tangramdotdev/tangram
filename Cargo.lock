@@ -6362,26 +6362,28 @@ dependencies = [
 name = "tangram_index"
 version = "0.0.0"
 dependencies = [
+ "bitflags 2.10.0",
  "bytes",
+ "crossbeam-channel",
  "derive_more",
  "fnv",
+ "foundationdb",
+ "foundationdb-tuple",
  "futures",
+ "heed",
  "indoc",
  "itertools 0.14.0",
  "num",
  "num-derive",
  "num-traits",
- "rusqlite",
  "serde",
  "serde_json",
  "serde_with",
  "tangram_client",
- "tangram_database",
- "tangram_futures",
  "tangram_serialize",
  "tangram_util",
  "time",
- "tokio-postgres",
+ "tokio",
 ]
 
 [[package]]

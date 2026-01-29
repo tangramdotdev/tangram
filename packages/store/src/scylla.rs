@@ -565,29 +565,7 @@ impl crate::Store for Store {
 	}
 
 	async fn delete_object_batch(&self, args: Vec<DeleteObjectArg>) -> tg::Result<()> {
-		if args.is_empty() {
-			return Ok(());
-		}
-		let mut batch =
-			scylla::statement::batch::Batch::new(scylla::statement::batch::BatchType::Unlogged);
-		batch.set_consistency(self.delete_object_statement.get_consistency().unwrap());
-		for _ in &args {
-			batch.append_statement(scylla::statement::batch::BatchStatement::PreparedStatement(
-				self.delete_object_statement.clone(),
-			));
-		}
-		let params = args
-			.iter()
-			.map(|arg| {
-				let id_bytes = arg.id.to_bytes().to_vec();
-				let max_touched_at = arg.now - arg.ttl.to_i64().unwrap();
-				(id_bytes, max_touched_at)
-			})
-			.collect::<Vec<_>>();
-		self.session
-			.batch(&batch, params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the batch"))?;
+		futures::future::try_join_all(args.into_iter().map(|arg| self.delete_object(arg))).await?;
 		Ok(())
 	}
 

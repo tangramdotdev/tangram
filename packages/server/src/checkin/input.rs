@@ -273,7 +273,7 @@ impl Server {
 			referrers: SmallVec::new(),
 			solvable: false,
 			solved: true,
-			stored: crate::index::ObjectStored::default(),
+			stored: tangram_index::ObjectStored::default(),
 			variant,
 		};
 		state.graph.nodes.insert(index, Box::new(node));

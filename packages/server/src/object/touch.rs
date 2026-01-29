@@ -28,8 +28,9 @@ impl Server {
 			return Ok(());
 		}
 
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		self.index
-			.touch_object(id)
+			.touch_object(id, touched_at)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to touch the object"))?;
 

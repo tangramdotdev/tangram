@@ -1,9 +1,6 @@
 use {
 	crate::{Context, Server, temp::Temp},
-	futures::{
-		FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
-		stream,
-	},
+	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
 	itertools::Itertools as _,
 	num::ToPrimitive as _,
 	std::{
@@ -17,7 +14,6 @@ use {
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{Body, request::Ext as _},
 	tangram_index::prelude::*,
-	tangram_messenger::prelude::*,
 	tangram_util::read::InspectReader,
 };
 
@@ -129,20 +125,16 @@ impl Server {
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<()> {
 		// Check if the artifacts' subtrees are stored.
-		let stored = future::try_join_all(artifacts.iter().map(|artifact| {
-			let server = self.clone();
-			let artifact = artifact.clone();
-			async move {
-				server
-					.index
-					.try_get_object_stored(&artifact.into())
-					.await
-					.map(Option::unwrap_or_default)
-			}
-		}))
-		.await?
-		.iter()
-		.all(|stored| stored.subtree);
+		let ids = artifacts
+			.iter()
+			.map(|id| id.clone().into())
+			.collect::<Vec<_>>();
+		let stored = self
+			.index
+			.try_get_objects(&ids)
+			.await?
+			.iter()
+			.all(|object| object.as_ref().is_some_and(|object| object.stored.subtree));
 		if stored {
 			return Ok(());
 		}
@@ -162,21 +154,17 @@ impl Server {
 		}
 
 		// Check if the artifacts' subtrees are stored.
-		let stored = future::try_join_all(artifacts.iter().map(|artifact| {
-			let server = self.clone();
-			let artifact = artifact.clone();
-			async move {
-				server
-					.index
-					.try_get_object_stored(&artifact.into())
-					.await
-					.map(Option::unwrap_or_default)
-			}
-		}))
-		.await
-		.map_err(|source| tg::error!(!source, "failed to check if the artifacts are stored"))?
-		.iter()
-		.all(|stored| stored.subtree);
+		let ids = artifacts
+			.iter()
+			.map(|id| id.clone().into())
+			.collect::<Vec<_>>();
+		let stored = self
+			.index
+			.try_get_objects(&ids)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to check if the artifacts are stored"))?
+			.iter()
+			.all(|object| object.as_ref().is_some_and(|object| object.stored.subtree));
 		if stored {
 			return Ok(());
 		}
@@ -891,31 +879,25 @@ impl Server {
 			)?;
 		}
 
-		// Publish the put cache entry index message.
+		// Index the cache entry.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let message = crate::index::Message::PutCacheEntry(crate::index::message::PutCacheEntry {
+		let put_cache_entry_arg = tangram_index::PutCacheEntryArg {
 			id: item.id,
 			touched_at,
-		});
+		};
 		self.index_tasks
 			.spawn(|_| {
 				let server = self.clone();
 				async move {
-					let result = server
-						.messenger
-						.stream_publish(
-							"index".to_owned(),
-							crate::index::message::Messages(vec![message]),
-						)
-						.map_err(|source| tg::error!(!source, "failed to publish the message"))
-						.and_then(|future| {
-							future.map_err(|source| {
-								tg::error!(!source, "failed to publish the message")
-							})
+					if let Err(error) = server
+						.index
+						.put(tangram_index::PutArg {
+							cache_entries: vec![put_cache_entry_arg],
+							..Default::default()
 						})
-						.await;
-					if let Err(error) = result {
-						tracing::error!(?error, "failed to publish the put object index message");
+						.await
+					{
+						tracing::error!(?error, "failed to put cache entry to index");
 					}
 				}
 			})

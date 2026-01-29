@@ -2,7 +2,7 @@ use {
 	crate::{Context, Server, database::Database},
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _},
-	tangram_messenger::prelude::*,
+	tangram_index::prelude::*,
 };
 
 #[cfg(feature = "postgres")]
@@ -61,20 +61,14 @@ impl Server {
 			},
 		}
 
-		// Publish the put tag index message.
-		let message = crate::index::Message::PutTag(crate::index::message::PutTagMessage {
-			tag: tag.to_string(),
-			item: arg.item,
-		});
-		self.messenger
-			.stream_publish(
-				"index".to_owned(),
-				crate::index::message::Messages(vec![message]),
-			)
+		// Index the tag.
+		self.index
+			.put_tags(&[tangram_index::PutTagArg {
+				tag: tag.to_string(),
+				item: arg.item,
+			}])
 			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the message"))?
-			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the message"))?;
+			.map_err(|source| tg::error!(!source, "failed to index the tag"))?;
 
 		Ok(())
 	}

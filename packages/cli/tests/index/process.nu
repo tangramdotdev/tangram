@@ -21,44 +21,60 @@ snapshot -n local_metadata $metadata '
 	  "node": {
 	    "command": {
 	      "count": 3,
-	      "depth": 3
+	      "depth": 3,
+	      "solvable": false,
+	      "solved": true
 	    },
 	    "error": {
 	      "count": 0,
 	      "depth": 0,
-	      "size": 0
+	      "size": 0,
+	      "solvable": false,
+	      "solved": true
 	    },
 	    "log": {
 	      "count": 0,
 	      "depth": 0,
-	      "size": 0
+	      "size": 0,
+	      "solvable": false,
+	      "solved": true
 	    },
 	    "output": {
 	      "count": 0,
 	      "depth": 0,
-	      "size": 0
+	      "size": 0,
+	      "solvable": false,
+	      "solved": true
 	    }
 	  },
 	  "subtree": {
 	    "command": {
 	      "count": 3,
-	      "depth": 3
+	      "depth": 3,
+	      "solvable": false,
+	      "solved": true
 	    },
 	    "count": 1,
 	    "error": {
 	      "count": 0,
 	      "depth": 0,
-	      "size": 0
+	      "size": 0,
+	      "solvable": false,
+	      "solved": true
 	    },
 	    "log": {
 	      "count": 0,
 	      "depth": 0,
-	      "size": 0
+	      "size": 0,
+	      "solvable": false,
+	      "solved": true
 	    },
 	    "output": {
 	      "count": 0,
 	      "depth": 0,
-	      "size": 0
+	      "size": 0,
+	      "solvable": false,
+	      "solved": true
 	    }
 	  }
 	}
@@ -74,16 +90,22 @@ snapshot -n remote_metadata $remote_metadata '
 	      "count": 0,
 	      "depth": 0,
 	      "size": 0,
+	      "solvable": false,
+	      "solved": true,
 	    },
 	    "log": {
 	      "count": 0,
 	      "depth": 0,
 	      "size": 0,
+	      "solvable": false,
+	      "solved": true,
 	    },
 	    "output": {
 	      "count": 0,
 	      "depth": 0,
 	      "size": 0,
+	      "solvable": false,
+	      "solved": true,
 	    },
 	  },
 	  "subtree": {
@@ -92,16 +114,22 @@ snapshot -n remote_metadata $remote_metadata '
 	      "count": 0,
 	      "depth": 0,
 	      "size": 0,
+	      "solvable": false,
+	      "solved": true,
 	    },
 	    "log": {
 	      "count": 0,
 	      "depth": 0,
 	      "size": 0,
+	      "solvable": false,
+	      "solved": true,
 	    },
 	    "output": {
 	      "count": 0,
 	      "depth": 0,
 	      "size": 0,
+	      "solvable": false,
+	      "solved": true,
 	    },
 	  },
 	}
