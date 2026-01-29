@@ -14,4 +14,11 @@ let path = artifact {
 	'#
 }
 
+test $path "--eager"
+test $path "--lazy"
+test $path "--commands" "--eager"
 test $path "--commands" "--lazy"
+test $path "--eager" "--recursive"
+test $path "--lazy" "--recursive"
+test $path "--eager" "--recursive" "--commands"
+test $path "--lazy" "--recursive" "--commands"

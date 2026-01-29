@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-let server = spawn
+let server = spawn --config { write: { cache_pointers: false } }
 
 # Create the artifact.
 let artifact = artifact {

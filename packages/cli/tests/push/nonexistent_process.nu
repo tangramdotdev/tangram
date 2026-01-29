@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-export def test_push [...args] {
+def test_push [...args] {
 	# Create a remote server.
 	let remote = spawn --cloud -n remote
 
@@ -16,7 +16,7 @@ export def test_push [...args] {
 	failure $output "pushing a nonexistent process should fail"
 }
 
-export def test_pull [...args] {
+def test_pull [...args] {
 	# Create a remote server.
 	let remote = spawn --cloud -n remote
 
@@ -32,3 +32,8 @@ export def test_pull [...args] {
 	print -e $output
 	failure $output
 }
+
+test_push "--eager"
+test_push "--lazy"
+test_pull "--eager"
+test_pull "--lazy"

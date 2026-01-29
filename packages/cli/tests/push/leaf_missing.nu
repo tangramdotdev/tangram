@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-export def test [...args] {
+def test [...args] {
 	# Create a remote server.
 	let remote = spawn --cloud -n remote
 
@@ -76,3 +76,6 @@ export def test [...args] {
 	let remote_metadata = tg -u $remote.url object metadata $id --pretty
 	assert equal $source_metadata $remote_metadata
 }
+
+test "--eager"
+test "--lazy"

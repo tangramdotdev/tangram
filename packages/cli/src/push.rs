@@ -10,7 +10,7 @@ pub struct Args {
 	#[command(flatten)]
 	pub eager: Eager,
 
-	#[arg(alias = "errors", long)]
+	#[arg(alias = "error", long)]
 	pub errors: bool,
 
 	#[arg(long, short)]

@@ -13,6 +13,7 @@ let id = tg build -d $path | str trim
 tg wait $id
 
 tg index
+
 let metadata = tg process metadata $id | from json
 let metadata = $metadata | update node.command { reject size } | update subtree.command { reject size }
 let metadata = $metadata | to json -i 2
@@ -33,9 +34,9 @@ snapshot -n local_metadata $metadata '
 	      "solved": true
 	    },
 	    "log": {
-	      "count": 0,
-	      "depth": 0,
-	      "size": 0,
+	      "count": 1,
+	      "depth": 1,
+	      "size": 14,
 	      "solvable": false,
 	      "solved": true
 	    },
@@ -63,9 +64,9 @@ snapshot -n local_metadata $metadata '
 	      "solved": true
 	    },
 	    "log": {
-	      "count": 0,
-	      "depth": 0,
-	      "size": 0,
+	      "count": 1,
+	      "depth": 1,
+	      "size": 14,
 	      "solvable": false,
 	      "solved": true
 	    },
@@ -81,19 +82,14 @@ snapshot -n local_metadata $metadata '
 '
 
 tg push $id
+
 tg -u $remote.url index
+
 let remote_metadata = tg -u $remote.url metadata --pretty $id
 snapshot -n remote_metadata $remote_metadata '
 	{
 	  "node": {
 	    "error": {
-	      "count": 0,
-	      "depth": 0,
-	      "size": 0,
-	      "solvable": false,
-	      "solved": true,
-	    },
-	    "log": {
 	      "count": 0,
 	      "depth": 0,
 	      "size": 0,
@@ -111,13 +107,6 @@ snapshot -n remote_metadata $remote_metadata '
 	  "subtree": {
 	    "count": 1,
 	    "error": {
-	      "count": 0,
-	      "depth": 0,
-	      "size": 0,
-	      "solvable": false,
-	      "solved": true,
-	    },
-	    "log": {
 	      "count": 0,
 	      "depth": 0,
 	      "size": 0,

@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-let server = spawn
+let server = spawn --config { write: { cache_pointers: false } }
 
 let path = artifact {
 	tangram.ts: r#'

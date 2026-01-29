@@ -2,7 +2,7 @@ use ../../test.nu *
 
 let tmp = mktemp -d
 
-let server = spawn
+let server = spawn --config { write: { cache_pointers: false } }
 
 let artifact = artifact {
 	tangram.ts: '

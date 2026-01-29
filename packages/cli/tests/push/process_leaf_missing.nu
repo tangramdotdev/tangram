@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-export def test [...args] {
+def test [...args] {
 	# Create a remote server.
 	let remote = spawn --cloud -n remote
 
@@ -23,6 +23,7 @@ export def test [...args] {
 
 	# Wait for the process to finish.
 	tg -u $source.url wait $process_id
+	tg -u $source.url index
 
 	# Get the process data.
 	let process_data = tg -u $source.url get $process_id | from json
@@ -60,15 +61,19 @@ export def test [...args] {
 		tg -u $source.url get --bytes $child_id | tg -u $local.url put --bytes -k $kind
 	}
 
-	# Put the output (file) to the local server.
+	# Put the output to the local server.
 	tg -u $source.url get --bytes $output_id | tg -u $local.url put --bytes -k fil
 
-	# Put the blob to the remote server (leaf missing locally).
+	# Put the output's blob to the remote server.
 	tg -u $source.url get --bytes $blb_id | tg -u $remote.url put --bytes -k blob
 
 	# Confirm the blob is not on the local server.
 	let output = tg -u $local.url get $blb_id --blobs | complete
 	failure $output
+
+	# Put the log to the remote server.
+	let log_id = tg -u $source.url get $process_id | from json | get log
+	tg -u $source.url get --bytes $log_id | tg -u $remote.url put --bytes -k blob
 
 	# Index.
 	tg -u $local.url index
@@ -78,7 +83,7 @@ export def test [...args] {
 	tg -u $local.url remote put default $remote.url
 
 	# Push the process.
-	tg -u $local.url push $process_id --commands ...$args
+	tg -u $local.url push $process_id --command --log ...$args
 
 	# Confirm the process is on the remote and the same.
 	let source_process = tg -u $source.url get $process_id --pretty
@@ -94,3 +99,6 @@ export def test [...args] {
 	let remote_metadata = tg -u $remote.url process metadata $process_id --pretty
 	assert equal $source_metadata $remote_metadata
 }
+
+test "--eager"
+test "--lazy"

@@ -162,9 +162,10 @@ impl tg::Handle for Handle {
 
 	fn write(
 		&self,
+		arg: tg::write::Arg,
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::write::Output>> {
-		self.0.write(Box::pin(reader))
+		self.0.write(arg, Box::pin(reader))
 	}
 }
 

@@ -455,6 +455,7 @@ pub struct Watchdog {
 #[serde(deny_unknown_fields, default)]
 pub struct Write {
 	pub avg_leaf_size: u32,
+	pub cache_pointers: bool,
 	pub max_branch_children: usize,
 	pub max_leaf_size: u32,
 	pub min_leaf_size: u32,
@@ -757,6 +758,7 @@ impl Default for Write {
 	fn default() -> Self {
 		Self {
 			avg_leaf_size: 65_536,
+			cache_pointers: true,
 			max_branch_children: 1_024,
 			max_leaf_size: 131_072,
 			min_leaf_size: 4_096,

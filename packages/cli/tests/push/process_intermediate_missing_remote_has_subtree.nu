@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-export def test [...args] {
+def test [...args] {
 	# Create a remote server.
 	let remote = spawn --cloud -n remote
 
@@ -41,11 +41,13 @@ export def test [...args] {
 
 	# Wait for the process to finish.
 	tg -u $source.url wait $process_a_id
+	tg -u $source.url index
 
 	# Get process A's data.
 	let process_a_data = tg -u $source.url get $process_a_id | from json
 	let command_a_id = $process_a_data.command
 	let output_a_id = $process_a_data.output.value
+	let log_a_id = $process_a_data.log
 	let children_a = $process_a_data.children
 
 	# Get process B (first child of A).
@@ -53,6 +55,7 @@ export def test [...args] {
 	let process_b_data = tg -u $source.url get $process_b_id | from json
 	let command_b_id = $process_b_data.command
 	let output_b_id = $process_b_data.output.value
+	let log_b_id = $process_b_data.log
 	let children_b = $process_b_data.children
 
 	# Get process C (first child of B).
@@ -60,6 +63,7 @@ export def test [...args] {
 	let process_c_data = tg -u $source.url get $process_c_id | from json
 	let command_c_id = $process_c_data.command
 	let output_c_id = $process_c_data.output.value
+	let log_c_id = $process_c_data.log
 	let children_c = $process_c_data.children
 
 	# Get process D (first child of C).
@@ -67,6 +71,7 @@ export def test [...args] {
 	let process_d_data = tg -u $source.url get $process_d_id | from json
 	let command_d_id = $process_d_data.command
 	let output_d_id = $process_d_data.output.value
+	let log_d_id = $process_d_data.log
 
 	# Helper function to get all command descendants recursively.
 	def get_command_descendants [server_url: string, cmd_id: string] {
@@ -104,6 +109,9 @@ export def test [...args] {
 	# Put output A to the local server (which is the same as output B, C, D since they pass through).
 	tg -u $source.url get --bytes $output_a_id | tg -u $local.url put --bytes -k fil
 	tg -u $source.url get --bytes $blob_d_id | tg -u $local.url put --bytes -k blob
+
+	# Put log A to the local server.
+	tg -u $source.url get --bytes $log_a_id | tg -u $local.url put --bytes -k blob
 
 	# Local does NOT have process B (the intermediate process is missing locally).
 
@@ -145,6 +153,11 @@ export def test [...args] {
 	tg -u $source.url get --bytes $output_d_id | tg -u $remote.url put --bytes -k fil
 	tg -u $source.url get --bytes $blob_d_id | tg -u $remote.url put --bytes -k blob
 
+	# Put logs B, C, D to the remote server.
+	tg -u $source.url get --bytes $log_b_id | tg -u $remote.url put --bytes -k blob
+	tg -u $source.url get --bytes $log_c_id | tg -u $remote.url put --bytes -k blob
+	tg -u $source.url get --bytes $log_d_id | tg -u $remote.url put --bytes -k blob
+
 	# Confirm process B is not on the local server.
 	let output = tg -u $local.url get $process_b_id | complete
 	failure $output
@@ -160,8 +173,8 @@ export def test [...args] {
 	# Add the remote to the local server.
 	tg -u $local.url remote put default $remote.url
 
-	# Push the process with recursive and commands flags.
-	tg -u $local.url push $process_a_id --recursive --commands ...$args
+	# Push the process with recursive and command flags.
+	tg -u $local.url push $process_a_id --recursive --command --log ...$args
 
 	# Index.
 	tg -u $source.url index
@@ -197,3 +210,6 @@ export def test [...args] {
 	tg -u $remote.url get $output_a_id --pretty
 	tg -u $remote.url get $output_d_id --pretty
 }
+
+test "--eager"
+test "--lazy"

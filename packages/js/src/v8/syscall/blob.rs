@@ -44,7 +44,8 @@ pub async fn write(
 	let blob = state
 		.main_runtime_handle
 		.spawn(async move {
-			let tg::write::Output { blob } = handle.write(reader).await?;
+			let arg = tg::write::Arg::default();
+			let tg::write::Output { blob } = handle.write(arg, reader).await?;
 			Ok::<_, tg::Error>(blob)
 		})
 		.await

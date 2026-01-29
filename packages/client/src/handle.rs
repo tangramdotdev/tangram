@@ -139,6 +139,7 @@ pub trait Handle:
 
 	fn write(
 		&self,
+		arg: tg::write::Arg,
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::write::Output>> + Send;
 }
@@ -617,9 +618,10 @@ impl tg::Handle for tg::Client {
 
 	fn write(
 		&self,
+		arg: tg::write::Arg,
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::write::Output>> {
-		self.write(reader)
+		self.write(arg, reader)
 	}
 }
 

@@ -1,8 +1,17 @@
 use {
 	crate::prelude::*,
+	serde_with::{DisplayFromStr, PickFirst, serde_as},
 	tangram_http::{Body, response::Ext as _},
 	tokio::io::AsyncRead,
 };
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	#[serde_as(as = "Option<PickFirst<(_, DisplayFromStr)>>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cache_pointers: Option<bool>,
+}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
@@ -12,10 +21,13 @@ pub struct Output {
 impl tg::Client {
 	pub async fn write(
 		&self,
+		arg: Arg,
 		reader: impl AsyncRead + Send + 'static,
 	) -> tg::Result<tg::write::Output> {
 		let method = http::Method::POST;
-		let uri = "/write";
+		let query = serde_urlencoded::to_string(&arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
+		let uri = format!("/write?{query}");
 		let body = Body::with_reader(reader);
 		let request = http::request::Builder::default()
 			.method(method)

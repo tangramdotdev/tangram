@@ -14,9 +14,6 @@ use {
 	tangram_messenger::{self as messenger, prelude::*},
 };
 
-#[derive(Clone, Debug)]
-pub struct Messages(pub Vec<Message>);
-
 #[derive(
 	Clone,
 	Debug,
@@ -252,78 +249,6 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
-		// Index the process.
-		let command = (
-			data.command.clone().into(),
-			tangram_index::ProcessObjectKind::Command,
-		);
-		let errors = data
-			.error
-			.as_ref()
-			.into_iter()
-			.flat_map(|error| match error {
-				tg::Either::Left(data) => {
-					let mut children = BTreeSet::new();
-					data.children(&mut children);
-					children
-						.into_iter()
-						.map(|object| {
-							let kind = tangram_index::ProcessObjectKind::Error;
-							(object, kind)
-						})
-						.collect::<Vec<_>>()
-				},
-				tg::Either::Right(id) => {
-					let id = id.clone().into();
-					let kind = tangram_index::ProcessObjectKind::Error;
-					vec![(id, kind)]
-				},
-			});
-		let log = data.log.as_ref().map(|id| {
-			let id = id.clone().into();
-			let kind = tangram_index::ProcessObjectKind::Log;
-			(id, kind)
-		});
-		let mut outputs = BTreeSet::new();
-		if let Some(output) = &output {
-			output.children(&mut outputs);
-		}
-		let outputs = outputs.into_iter().map(|object| {
-			let kind = tangram_index::ProcessObjectKind::Output;
-			(object, kind)
-		});
-		let objects = std::iter::once(command)
-			.chain(errors)
-			.chain(log)
-			.chain(outputs)
-			.collect();
-		let children = children.into_iter().map(|row| row.child).collect();
-		let put_process_arg = tangram_index::PutProcessArg {
-			children,
-			stored: tangram_index::ProcessStored::default(),
-			id: id.clone(),
-			metadata: tg::process::Metadata::default(),
-			objects,
-			touched_at: now,
-		};
-		self.index_tasks
-			.spawn(|_| {
-				let server = self.clone();
-				async move {
-					if let Err(error) = server
-						.index
-						.put(tangram_index::PutArg {
-							processes: vec![put_process_arg],
-							..Default::default()
-						})
-						.await
-					{
-						tracing::error!(?error, "failed to put process to index");
-					}
-				}
-			})
-			.detach();
-
 		// Publish the finish message.
 		tokio::spawn({
 			let server = self.clone();
@@ -357,13 +282,13 @@ impl Server {
 	}
 
 	pub(crate) async fn finisher_task(&self, config: &crate::config::Finisher) -> tg::Result<()> {
-		// Get the messages stream.
+		// Get the message stream.
 		let stream = self.finisher_create_message_stream(config).await?;
 		let mut stream = pin!(stream);
 
 		loop {
 			// Handle the result.
-			let messages = match stream.try_next().await {
+			let message = match stream.try_next().await {
 				Ok(Some(messages)) => messages,
 				Ok(None) => {
 					panic!("the stream ended")
@@ -375,8 +300,8 @@ impl Server {
 				},
 			};
 
-			// Handle the messages.
-			let result = self.finisher_handle_messages(config, messages).await;
+			// Handle the message.
+			let result = self.finisher_handle_message(config, message).await;
 			if let Err(error) = result {
 				tracing::error!(?error, "failed to handle the messages");
 				tokio::time::sleep(Duration::from_secs(1)).await;
@@ -393,7 +318,7 @@ impl Server {
 	async fn finisher_create_message_stream(
 		&self,
 		config: &crate::config::Finisher,
-	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Vec<Message>, messenger::Acker)>>>> {
+	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, messenger::Acker)>>>> {
 		let stream = self
 			.messenger
 			.get_stream("finish".to_owned())
@@ -409,14 +334,14 @@ impl Server {
 			timeout: Some(config.message_batch_timeout),
 		};
 		let stream = consumer
-			.batch_subscribe::<Messages>(batch_config)
+			.batch_subscribe::<Message>(batch_config)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to the stream"))?
 			.boxed()
 			.map_err(|source| tg::error!(!source, "failed to get a message from the stream"))
 			.map_ok(|message| {
-				let (messages, acker) = message.split();
-				(messages.0, acker)
+				let (message, acker) = message.split();
+				(message, acker)
 			})
 			.inspect_err(|error| {
 				tracing::error!(?error);
@@ -431,25 +356,116 @@ impl Server {
 		Ok(stream)
 	}
 
-	async fn finisher_handle_messages(
+	async fn finisher_handle_message(
 		&self,
 		_config: &crate::config::Finisher,
-		messages: Vec<(Vec<Message>, messenger::Acker)>,
+		messages: Vec<(Message, messenger::Acker)>,
 	) -> tg::Result<()> {
-		for (messages, acker) in messages {
-			for message in messages {
-				let process = message.id;
-				self.compact_process_log(&process)
-					.boxed()
-					.await
-					.inspect_err(|error| tracing::error!(?error, %process, "failed to compact log"))
-					.ok();
-			}
+		// Handle the messages.
+		for (message, acker) in messages {
+			let process = message.id;
+
+			// Compact the log.
+			self.compact_process_log(&process)
+				.boxed()
+				.await
+				.inspect_err(|error| tracing::error!(?error, %process, "failed to compact log"))
+				.ok();
+
+			// Spawn the index task.
+			self.finisher_spawn_index_task(&process).await?;
+
+			// Acknowledge the message.
 			acker
 				.ack()
 				.await
 				.map_err(|source| tg::error!(!source, "failed to acknowledge the message"))?;
 		}
+		Ok(())
+	}
+
+	async fn finisher_spawn_index_task(&self, id: &tg::process::Id) -> tg::Result<()> {
+		let tg::process::get::Output { data, .. } = self
+			.try_get_process_local(id, false)
+			.await?
+			.ok_or_else(|| tg::error!("failed to find the process"))?;
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let command = (
+			data.command.clone().into(),
+			tangram_index::ProcessObjectKind::Command,
+		);
+		let errors = data
+			.error
+			.as_ref()
+			.into_iter()
+			.flat_map(|error| match error {
+				tg::Either::Left(data) => {
+					let mut children = BTreeSet::new();
+					data.children(&mut children);
+					children
+						.into_iter()
+						.map(|object| {
+							let kind = tangram_index::ProcessObjectKind::Error;
+							(object, kind)
+						})
+						.collect::<Vec<_>>()
+				},
+				tg::Either::Right(id) => {
+					let id = id.clone().into();
+					let kind = tangram_index::ProcessObjectKind::Error;
+					vec![(id, kind)]
+				},
+			});
+		let log = data.log.as_ref().map(|id| {
+			let id = id.clone().into();
+			let kind = tangram_index::ProcessObjectKind::Log;
+			(id, kind)
+		});
+		let mut outputs = BTreeSet::new();
+		if let Some(output) = &data.output {
+			output.children(&mut outputs);
+		}
+		let outputs = outputs.into_iter().map(|object| {
+			let kind = tangram_index::ProcessObjectKind::Output;
+			(object, kind)
+		});
+		let objects = std::iter::once(command)
+			.chain(errors)
+			.chain(log)
+			.chain(outputs)
+			.collect();
+		let children = data
+			.children
+			.as_ref()
+			.ok_or_else(|| tg::error!("expected the children to be set"))?
+			.iter()
+			.map(|referent| referent.item.clone())
+			.collect();
+		let put_process_arg = tangram_index::PutProcessArg {
+			children,
+			stored: tangram_index::ProcessStored::default(),
+			id: id.clone(),
+			metadata: tg::process::Metadata::default(),
+			objects,
+			touched_at: now,
+		};
+		self.index_tasks
+			.spawn(|_| {
+				let server = self.clone();
+				async move {
+					if let Err(error) = server
+						.index
+						.put(tangram_index::PutArg {
+							processes: vec![put_process_arg],
+							..Default::default()
+						})
+						.await
+					{
+						tracing::error!(?error, "failed to put process to index");
+					}
+				}
+			})
+			.detach();
 		Ok(())
 	}
 
@@ -530,30 +546,5 @@ impl messenger::Payload for Message {
 
 	fn deserialize(bytes: Bytes) -> Result<Self, messenger::Error> {
 		Message::deserialize(bytes).map_err(messenger::Error::other)
-	}
-}
-
-impl messenger::Payload for Messages {
-	fn serialize(&self) -> Result<Bytes, messenger::Error> {
-		let mut bytes = Vec::new();
-		for message in &self.0 {
-			let serialized = Message::serialize(message).map_err(messenger::Error::other)?;
-			bytes.extend_from_slice(&serialized);
-		}
-		Ok(bytes.into())
-	}
-
-	fn deserialize(bytes: Bytes) -> Result<Self, messenger::Error> {
-		let len = bytes.len();
-		let mut position = 0usize;
-		let mut messages = Vec::new();
-		while position < len {
-			let message =
-				Message::deserialize(&bytes[position..]).map_err(messenger::Error::other)?;
-			let serialized = Message::serialize(&message).map_err(messenger::Error::other)?;
-			position += serialized.len();
-			messages.push(message);
-		}
-		Ok(Messages(messages))
 	}
 }

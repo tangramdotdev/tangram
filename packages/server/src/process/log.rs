@@ -153,7 +153,8 @@ impl Server {
 		blob_bytes.extend_from_slice(&entries_bytes);
 
 		// Write the blob.
-		let blob = self.write(Cursor::new(blob_bytes)).await?.blob;
+		let arg = tg::write::Arg::default();
+		let blob = self.write(arg, Cursor::new(blob_bytes)).await?.blob;
 
 		// Update the process.
 		let connection = self

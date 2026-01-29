@@ -201,7 +201,54 @@ impl Server {
 	}
 
 	async fn index_task(&self, progress: &crate::progress::Handle<()>) -> tg::Result<()> {
-		// Wait for outstanding tasks to finish.
+		// Get the finish stream.
+		let finish_stream = self
+			.messenger
+			.get_stream("finish".to_owned())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the finish stream"))?;
+
+		// Subscribe to finisher progress.
+		let finisher_progress_stream = self
+			.messenger
+			.subscribe::<()>("finisher_progress".to_owned(), None)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to subscribe to finisher progress"))?;
+		let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(1)));
+		let mut finisher_progress_stream =
+			stream::select(finisher_progress_stream.map(|_| ()), interval.map(|_| ()));
+
+		// Wait for the finish stream's first sequence to reach the current last sequence.
+		let info = finish_stream
+			.info()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the finish stream info"))?;
+		let mut first_sequence = info.first_sequence;
+		let last_sequence = info.last_sequence;
+		let total = info.last_sequence.saturating_sub(info.first_sequence);
+		if last_sequence > 0 {
+			progress.start(
+				"finish".to_owned(),
+				"finish".to_owned(),
+				tg::progress::IndicatorFormat::Normal,
+				Some(0),
+				Some(total),
+			);
+			loop {
+				let info = finish_stream.info().await.map_err(|source| {
+					tg::error!(!source, "failed to get the finish stream info")
+				})?;
+				progress.increment("finish", info.first_sequence - first_sequence);
+				first_sequence = info.first_sequence;
+				if first_sequence > last_sequence {
+					break;
+				}
+				finisher_progress_stream.next().await;
+			}
+			progress.finish("finish");
+		}
+
+		// Wait for outstanding index tasks to finish.
 		progress.spinner("tasks", "waiting for tasks");
 		self.index_tasks.wait().await;
 		progress.finish("tasks");
@@ -216,13 +263,13 @@ impl Server {
 		let mut indexer_progress_stream =
 			stream::select(indexer_progress_stream.map(|_| ()), interval.map(|_| ()));
 
-		// Wait until the index's queue no longer has items whose transaction id is less than or equal to the current transaction id.
+		// Wait until the index no longer has updates whose transaction id is less than or equal to the current transaction id.
 		let transaction_id = self
 			.index
 			.get_transaction_id()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the transaction id"))?;
-		progress.spinner("queue", "waiting for index updates");
+		progress.spinner("updates", "waiting for index updates");
 		loop {
 			let finished = self
 				.index
@@ -234,7 +281,7 @@ impl Server {
 			}
 			indexer_progress_stream.next().await;
 		}
-		progress.finish("queue");
+		progress.finish("updates");
 
 		Ok::<_, tg::Error>(())
 	}

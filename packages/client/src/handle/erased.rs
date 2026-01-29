@@ -91,6 +91,7 @@ pub trait Handle:
 
 	fn write<'a>(
 		&'a self,
+		arg: tg::write::Arg,
 		reader: BoxAsyncRead<'static>,
 	) -> BoxFuture<'a, tg::Result<tg::write::Output>>;
 }
@@ -517,9 +518,10 @@ where
 
 	fn write<'a>(
 		&'a self,
+		arg: tg::write::Arg,
 		reader: BoxAsyncRead<'static>,
 	) -> BoxFuture<'a, tg::Result<tg::write::Output>> {
-		self.write(reader).boxed()
+		self.write(arg, reader).boxed()
 	}
 }
 

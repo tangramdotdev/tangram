@@ -147,7 +147,8 @@ impl Blob {
 	where
 		H: tg::Handle,
 	{
-		let output = handle.write(reader).boxed().await?;
+		let arg = tg::write::Arg::default();
+		let output = handle.write(arg, reader).boxed().await?;
 		let blob = Self::with_id(output.blob);
 		Ok(blob)
 	}

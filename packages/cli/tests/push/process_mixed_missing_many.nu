@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-export def test [...args] {
+def test [...args] {
 	# Create a remote server.
 	let remote = spawn --cloud -n remote
 
@@ -33,6 +33,7 @@ export def test [...args] {
 
 	# Wait for the process to finish.
 	tg -u $source.url wait $process_id
+	tg -u $source.url index
 
 	# Get the process data.
 	let process_data = tg -u $source.url get $process_id | from json
@@ -65,13 +66,17 @@ export def test [...args] {
 		tg -u $source.url get --bytes $child_id | tg -u $local.url put --bytes -k $kind
 	}
 
-	# Put the main output (directory) to the local server.
+	# Put the log to the local server.
+	let log_id = tg -u $source.url get $process_id | from json | get log
+	tg -u $source.url get --bytes $log_id | tg -u $local.url put --bytes -k blob
+
+	# Put the main output to the local server.
 	tg -u $source.url get --bytes $main_output_id | tg -u $local.url put --bytes -k dir
 
 	# Get all file children from the output directory.
 	let output_files = tg -u $source.url children $main_output_id | from json
 
-	# Put output files to local server.
+	# Put output files to the local server.
 	for fil_id in $output_files {
 		tg -u $source.url get --bytes $fil_id | tg -u $local.url put --bytes -k fil
 	}
@@ -101,6 +106,10 @@ export def test [...args] {
 		let child_data = tg -u $source.url get $child_id | from json
 		let child_command_id = $child_data.command
 		let child_output_id = $child_data.output.value
+		let child_log_id = $child_data.log
+
+		# Put the child's log to the local server.
+		tg -u $source.url get --bytes $child_log_id | tg -u $local.url put --bytes -k blob
 
 		# Put some child processes to local, some to remote (process root missing).
 		if ($i mod 4) == 0 {
@@ -180,7 +189,7 @@ export def test [...args] {
 	tg -u $local.url remote put default $remote.url
 
 	# Push the process with recursive and commands flags.
-	tg -u $local.url push $process_id ...$args --recursive --commands
+	tg -u $local.url push $process_id ...$args --recursive --command --log
 
 	# Index on both servers.
 	tg -u $source.url index
@@ -191,3 +200,6 @@ export def test [...args] {
 	let remote_metadata = tg -u $remote.url process metadata $process_id --pretty
 	assert equal $source_metadata $remote_metadata
 }
+
+test "--eager"
+test "--lazy"

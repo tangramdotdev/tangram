@@ -114,9 +114,10 @@ impl tg::Handle for Owned {
 
 	async fn write(
 		&self,
+		arg: tg::write::Arg,
 		reader: impl AsyncRead + Send + 'static,
 	) -> tg::Result<tg::write::Output> {
-		self.0.write(reader).await
+		self.0.write(arg, reader).await
 	}
 }
 
@@ -578,9 +579,11 @@ impl tg::Handle for Server {
 
 	async fn write(
 		&self,
+		arg: tg::write::Arg,
 		reader: impl AsyncRead + Send + 'static,
 	) -> tg::Result<tg::write::Output> {
-		self.write_with_context(&Context::default(), reader).await
+		self.write_with_context(&Context::default(), arg, reader)
+			.await
 	}
 }
 
@@ -1086,9 +1089,10 @@ impl tg::Handle for ServerWithContext {
 
 	async fn write(
 		&self,
+		arg: tg::write::Arg,
 		reader: impl AsyncRead + Send + 'static,
 	) -> tg::Result<tg::write::Output> {
-		self.0.write_with_context(&self.1, reader).await
+		self.0.write_with_context(&self.1, arg, reader).await
 	}
 }
 

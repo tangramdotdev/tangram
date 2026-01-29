@@ -15,6 +15,7 @@ export def test [path: string, ...args] {
 
 	# Wait for the process to finish.
 	tg wait $process_id
+	tg index
 
 	let output = tg get $process_id | from json
 	let command = $output.command

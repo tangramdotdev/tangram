@@ -253,11 +253,12 @@ where
 
 	fn write(
 		&self,
+		arg: tg::write::Arg,
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<tg::write::Output>> {
 		match self {
-			tg::Either::Left(s) => s.write(reader).left_future(),
-			tg::Either::Right(s) => s.write(reader).right_future(),
+			tg::Either::Left(s) => s.write(arg, reader).left_future(),
+			tg::Either::Right(s) => s.write(arg, reader).right_future(),
 		}
 	}
 }

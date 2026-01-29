@@ -11,3 +11,4 @@ let path = artifact {
 }
 
 test $path "--errors"
+test $path "--errors" "--eager"

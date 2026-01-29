@@ -10,7 +10,7 @@ def collect_commands [process_id: string] {
 	$commands
 }
 
-export def test [path: string, ...args] {
+def test [path: string, ...args] {
 	# Create a remote server.
 	let remote = spawn --cloud -n remote
 
@@ -25,6 +25,7 @@ export def test [path: string, ...args] {
 
 	# Wait for the process to finish.
 	tg wait $process_id
+	tg index
 
 	let output = tg get $process_id | from json
 	let command = $output.command
@@ -73,3 +74,19 @@ export def test [path: string, ...args] {
 		tg -u $remote.url get $command --pretty
 	}
 }
+
+# Create some test content.
+let path = artifact {
+	tangram.ts: r#'
+		export default async () => {
+			let a = await tg.build(x)
+			return 5
+		}
+		export let x = async () => {
+			return tg.file("hello")
+		}
+	'#
+}
+
+test $path "--eager"
+test $path "--lazy"

@@ -230,6 +230,10 @@ impl CachePointers {
 			.or(self.no_cache_pointers.map(|v| !v))
 			.unwrap_or(true)
 	}
+
+	pub fn get_option(&self) -> Option<bool> {
+		self.cache_pointers.or(self.no_cache_pointers.map(|v| !v))
+	}
 }
 
 impl Cli {

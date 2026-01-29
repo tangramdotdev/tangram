@@ -38,6 +38,7 @@ impl Server {
 	pub(crate) async fn write_with_context(
 		&self,
 		_context: &Context,
+		arg: tg::write::Arg,
 		reader: impl AsyncRead,
 	) -> tg::Result<tg::write::Output> {
 		// Get the touch time.
@@ -58,7 +59,12 @@ impl Server {
 		let blob = Arc::new(blob);
 
 		// Rename the temp file to the cache directory if necessary.
-		let cache_pointer = if let Destination::Temp(temp) = destination {
+		let cache_pointers = arg
+			.cache_pointers
+			.unwrap_or(self.config.write.cache_pointers);
+		let cache_pointer = if let Destination::Temp(temp) = destination
+			&& cache_pointers
+		{
 			let data = tg::file::Data::Node(tg::file::data::Node {
 				contents: Some(blob.id.clone()),
 				dependencies: BTreeMap::new(),
@@ -558,9 +564,16 @@ impl Server {
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
+		// Get the arg.
+		let arg = request
+			.query_params::<tg::write::Arg>()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
+
 		// Write.
 		let output = self
-			.write_with_context(context, request.reader())
+			.write_with_context(context, arg, request.reader())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write"))?;
 
