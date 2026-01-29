@@ -14,7 +14,7 @@ def main [
 	--no-capture # Do not capture the output of each test. This sets --jobs to 1.
 	--print-passing-test-output # Print the output of passing tests.
 	--review (-r) # Review snapshots.
-	--timeout: duration = 30sec # The timeout for each test.
+	--timeout: duration = 10sec # The timeout for each test.
 	...filters: string # Filter tests.
 ] {
 	# Clean up leftover test resources if requested.
@@ -714,7 +714,7 @@ export def --env spawn [
 		nats consumer create $'queue_($id)' queue --deliver all --max-pending 1000000 --pull --defaults
 
 		cqlsh -e $"create keyspace \"store_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
-		cqlsh -k $'store_($id)' -f packages/store/src/scylla.cql
+		cqlsh -k $'store_($id)' -f ($repository_path | path join packages/store/src/scylla.cql)
 
 		let config = {
 			database: {
