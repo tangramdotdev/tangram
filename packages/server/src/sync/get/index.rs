@@ -245,7 +245,7 @@ impl Server {
 		Ok(())
 	}
 
-	pub(super) async fn sync_get_index_publish(&self, state: Arc<State>) -> tg::Result<()> {
+	pub(super) async fn sync_get_index_put(&self, state: Arc<State>) -> tg::Result<()> {
 		// Flush the store.
 		self.store
 			.flush()

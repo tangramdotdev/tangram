@@ -241,21 +241,19 @@ impl Server {
 
 	pub(crate) async fn indexer_task(&self, config: &crate::config::Indexer) -> tg::Result<()> {
 		loop {
-			let result = self.index.update_batch(config.queue_batch_size).await;
+			let result = self.index.update_batch(config.batch_size).await;
 			match result {
 				Ok(0) => {
-					// No items processed, wait a bit.
 					tokio::time::sleep(Duration::from_millis(100)).await;
 				},
-				Ok(_n) => {
-					// Items processed, publish progress.
+				Ok(_) => {
 					self.messenger
 						.publish("indexer_progress".to_owned(), ())
 						.await
 						.ok();
 				},
 				Err(error) => {
-					tracing::error!(?error, "failed to handle the index update");
+					tracing::error!(?error, "failed to index");
 					tokio::time::sleep(Duration::from_secs(1)).await;
 				},
 			}

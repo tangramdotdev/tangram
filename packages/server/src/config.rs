@@ -214,7 +214,7 @@ pub struct LmdbIndex {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Indexer {
-	pub queue_batch_size: usize,
+	pub batch_size: usize,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -601,9 +601,7 @@ impl Default for Index {
 
 impl Default for Indexer {
 	fn default() -> Self {
-		Self {
-			queue_batch_size: 1024,
-		}
+		Self { batch_size: 1024 }
 	}
 }
 
