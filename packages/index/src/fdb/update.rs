@@ -8,7 +8,7 @@ use {
 	crate::ProcessObjectKind,
 	foundationdb as fdb,
 	foundationdb_tuple::{self as fdbt, Subspace},
-	futures::future,
+	futures::{future, try_join},
 	num_traits::ToPrimitive as _,
 	tangram_client::prelude::*,
 	tangram_util::varint,
@@ -249,204 +249,184 @@ impl Index {
 	) -> tg::Result<ObjectPropagateUpdateFields> {
 		let children = Self::get_object_children_with_transaction(txn, subspace, id).await?;
 
-		let mut updated = ObjectPropagateUpdateFields::empty();
-
-		if fields.contains(ObjectPropagateUpdateFields::STORED_SUBTREE) {
-			let current =
-				Self::update_get_object_field_bool(txn, subspace, id, ObjectStoredField::Subtree)
+		let stored_subtree_future = async {
+			let mut updated = ObjectPropagateUpdateFields::empty();
+			if fields.contains(ObjectPropagateUpdateFields::STORED_SUBTREE) {
+				let field = ObjectStoredField::Subtree;
+				let current = Self::update_get_object_field_bool(txn, subspace, id, field).await?;
+				if current != Some(true) {
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_object_field_bool(txn, subspace, child, field)
+					}))
 					.await?;
-			if current != Some(true) {
-				let child_values = future::try_join_all(children.iter().map(|child| {
-					Self::update_get_object_field_bool(
-						txn,
-						subspace,
-						child,
-						ObjectStoredField::Subtree,
-					)
-				}))
-				.await?;
-				let value = child_values
-					.iter()
-					.all(|child| child.as_ref().is_some_and(|value| *value));
-				if value {
-					Self::update_set_object_field_bool(
-						txn,
-						subspace,
-						id,
-						ObjectStoredField::Subtree,
-						true,
-					);
-					updated |= ObjectPropagateUpdateFields::STORED_SUBTREE;
+					let value = child_values
+						.iter()
+						.all(|child| child.as_ref().is_some_and(|value| *value));
+					if value {
+						Self::update_set_object_field_bool(txn, subspace, id, field, true);
+						updated |= ObjectPropagateUpdateFields::STORED_SUBTREE;
+					}
 				}
 			}
-		}
+			Ok::<_, tg::Error>(updated)
+		};
 
-		if fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_COUNT) {
-			let current = Self::update_get_object_field_u64(
-				txn,
-				subspace,
-				id,
-				ObjectMetadataField::SubtreeCount,
-			)
-			.await?;
-			if current.is_none() {
-				let child_values = future::try_join_all(children.iter().map(|child| {
-					Self::update_get_object_field_u64(
-						txn,
-						subspace,
-						child,
-						ObjectMetadataField::SubtreeCount,
-					)
-				}))
-				.await?;
-				let value = child_values.iter().copied().sum::<Option<u64>>();
-				if let Some(value) = value {
-					let value = 1 + value;
-					let field = ObjectMetadataField::SubtreeCount;
-					Self::update_set_object_field_u64(txn, subspace, id, field, value);
-					updated |= ObjectPropagateUpdateFields::METADATA_SUBTREE_COUNT;
+		let metadata_subtree_count_future = async {
+			let mut updated = ObjectPropagateUpdateFields::empty();
+			if fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_COUNT) {
+				let field = ObjectMetadataField::SubtreeCount;
+				let current = Self::update_get_object_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_object_field_u64(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values.iter().copied().sum::<Option<u64>>();
+					if let Some(value) = value {
+						let value = 1 + value;
+						let field = ObjectMetadataField::SubtreeCount;
+						Self::update_set_object_field_u64(txn, subspace, id, field, value);
+						updated |= ObjectPropagateUpdateFields::METADATA_SUBTREE_COUNT;
+					}
 				}
 			}
-		}
+			Ok::<_, tg::Error>(updated)
+		};
 
-		if fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_DEPTH) {
-			let current = Self::update_get_object_field_u64(
-				txn,
-				subspace,
-				id,
-				ObjectMetadataField::SubtreeDepth,
-			)
-			.await?;
-			if current.is_none() {
-				let child_values = future::try_join_all(children.iter().map(|child| {
-					Self::update_get_object_field_u64(
-						txn,
-						subspace,
-						child,
-						ObjectMetadataField::SubtreeDepth,
-					)
-				}))
-				.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.try_fold(0u64, |output, value| value.map(|value| output.max(value)));
-				if let Some(value) = value {
-					let value = 1 + value;
-					let field = ObjectMetadataField::SubtreeDepth;
-					Self::update_set_object_field_u64(txn, subspace, id, field, value);
-					updated |= ObjectPropagateUpdateFields::METADATA_SUBTREE_DEPTH;
+		let metadata_subtree_depth_future = async {
+			let mut updated = ObjectPropagateUpdateFields::empty();
+			if fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_DEPTH) {
+				let field = ObjectMetadataField::SubtreeDepth;
+				let current = Self::update_get_object_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_object_field_u64(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.try_fold(0u64, |output, value| value.map(|value| output.max(value)));
+					if let Some(value) = value {
+						let value = 1 + value;
+						let field = ObjectMetadataField::SubtreeDepth;
+						Self::update_set_object_field_u64(txn, subspace, id, field, value);
+						updated |= ObjectPropagateUpdateFields::METADATA_SUBTREE_DEPTH;
+					}
 				}
 			}
-		}
+			Ok::<_, tg::Error>(updated)
+		};
 
-		if fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_SIZE) {
-			let current = Self::update_get_object_field_u64(
-				txn,
-				subspace,
-				id,
-				ObjectMetadataField::SubtreeSize,
-			)
-			.await?;
-			if current.is_none() {
-				let child_values = future::try_join_all(children.iter().map(|child| {
-					Self::update_get_object_field_u64(
-						txn,
-						subspace,
-						child,
-						ObjectMetadataField::SubtreeSize,
-					)
-				}))
-				.await?;
-				let value = child_values.iter().copied().sum::<Option<u64>>();
-				if let Some(value) = value {
-					let node_size = Self::update_get_object_field_u64(
-						txn,
-						subspace,
-						id,
-						ObjectMetadataField::NodeSize,
-					)
-					.await?
-					.unwrap_or(0);
-					let value = node_size + value;
-					let field = ObjectMetadataField::SubtreeSize;
-					Self::update_set_object_field_u64(txn, subspace, id, field, value);
-					updated |= ObjectPropagateUpdateFields::METADATA_SUBTREE_SIZE;
+		let metadata_subtree_size_future = async {
+			let mut updated = ObjectPropagateUpdateFields::empty();
+			if fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_SIZE) {
+				let field = ObjectMetadataField::SubtreeSize;
+				let current = Self::update_get_object_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_object_field_u64(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values.iter().copied().sum::<Option<u64>>();
+					if let Some(value) = value {
+						let field = ObjectMetadataField::NodeSize;
+						let node_size = Self::update_get_object_field_u64(txn, subspace, id, field)
+							.await?
+							.unwrap_or(0);
+						let value = node_size + value;
+						let field = ObjectMetadataField::SubtreeSize;
+						Self::update_set_object_field_u64(txn, subspace, id, field, value);
+						updated |= ObjectPropagateUpdateFields::METADATA_SUBTREE_SIZE;
+					}
 				}
 			}
-		}
+			Ok::<_, tg::Error>(updated)
+		};
 
-		if fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVABLE) {
-			let current = Self::update_get_object_field_bool(
-				txn,
-				subspace,
-				id,
-				ObjectMetadataField::SubtreeSolvable,
-			)
-			.await?;
-			if current.is_none() {
-				let node_solvable = Self::update_get_object_field_bool(
-					txn,
-					subspace,
-					id,
-					ObjectMetadataField::NodeSolvable,
-				)
-				.await?;
+		let metadata_subtree_solvable_future = async {
+			let mut updated = ObjectPropagateUpdateFields::empty();
+			if fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVABLE) {
 				let field = ObjectMetadataField::SubtreeSolvable;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_object_field_bool(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.try_fold(node_solvable.unwrap_or(false), |output, value| {
-						value.map(|value| output || value)
-					});
-				if let Some(value) = value {
+				let current = Self::update_get_object_field_bool(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ObjectMetadataField::NodeSolvable;
+					let node_solvable =
+						Self::update_get_object_field_bool(txn, subspace, id, field).await?;
 					let field = ObjectMetadataField::SubtreeSolvable;
-					Self::update_set_object_field_bool(txn, subspace, id, field, value);
-					updated |= ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVABLE;
-				}
-			}
-		}
-
-		if fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVED) {
-			let current = Self::update_get_object_field_bool(
-				txn,
-				subspace,
-				id,
-				ObjectMetadataField::SubtreeSolved,
-			)
-			.await?;
-			if current.is_none() {
-				let node_solved = Self::update_get_object_field_bool(
-					txn,
-					subspace,
-					id,
-					ObjectMetadataField::NodeSolved,
-				)
-				.await?;
-				let field = ObjectMetadataField::SubtreeSolved;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
+					let child_values = future::try_join_all(children.iter().map(|child| {
 						Self::update_get_object_field_bool(txn, subspace, child, field)
 					}))
 					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.try_fold(node_solved.unwrap_or(true), |output, value| {
-						value.map(|value| output && value)
-					});
-				if let Some(value) = value {
-					let field = ObjectMetadataField::SubtreeSolved;
-					Self::update_set_object_field_bool(txn, subspace, id, field, value);
-					updated |= ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVED;
+					let value = child_values
+						.iter()
+						.copied()
+						.try_fold(node_solvable.unwrap_or(false), |output, value| {
+							value.map(|value| output || value)
+						});
+					if let Some(value) = value {
+						let field = ObjectMetadataField::SubtreeSolvable;
+						Self::update_set_object_field_bool(txn, subspace, id, field, value);
+						updated |= ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVABLE;
+					}
 				}
 			}
-		}
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let metadata_subtree_solved_future = async {
+			let mut updated = ObjectPropagateUpdateFields::empty();
+			if fields.contains(ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVED) {
+				let field = ObjectMetadataField::SubtreeSolved;
+				let current = Self::update_get_object_field_bool(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ObjectMetadataField::NodeSolved;
+					let node_solved =
+						Self::update_get_object_field_bool(txn, subspace, id, field).await?;
+					let field = ObjectMetadataField::SubtreeSolved;
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_object_field_bool(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.try_fold(node_solved.unwrap_or(true), |output, value| {
+							value.map(|value| output && value)
+						});
+					if let Some(value) = value {
+						let field = ObjectMetadataField::SubtreeSolved;
+						Self::update_set_object_field_bool(txn, subspace, id, field, value);
+						updated |= ObjectPropagateUpdateFields::METADATA_SUBTREE_SOLVED;
+					}
+				}
+			}
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let (
+			stored_subtree,
+			metadata_subtree_count,
+			metadata_subtree_depth,
+			metadata_subtree_size,
+			metadata_subtree_solvable,
+			metadata_subtree_solved,
+		) = try_join!(
+			stored_subtree_future,
+			metadata_subtree_count_future,
+			metadata_subtree_depth_future,
+			metadata_subtree_size_future,
+			metadata_subtree_solvable_future,
+			metadata_subtree_solved_future,
+		)?;
+
+		let updated = ObjectPropagateUpdateFields::empty()
+			| stored_subtree
+			| metadata_subtree_count
+			| metadata_subtree_depth
+			| metadata_subtree_size
+			| metadata_subtree_solvable
+			| metadata_subtree_solved;
 
 		Ok(updated)
 	}
@@ -482,1374 +462,1271 @@ impl Index {
 			}
 		}
 
-		let mut updated = ProcessPropagateUpdateFields::empty();
+		let command_count_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
 
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_COUNT) {
-			let current = Self::update_get_process_field_u64(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::NodeCommandCount,
-			)
-			.await?;
-			if current.is_none()
-				&& let Some(object) = &command_object
-			{
-				let value = Self::update_get_object_field_u64(
-					txn,
-					subspace,
-					object,
-					ObjectMetadataField::SubtreeCount,
-				)
-				.await?;
-				if let Some(value) = value {
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_COUNT) {
+				let field = ProcessMetadataField::NodeCommandCount;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none()
+					&& let Some(object) = &command_object
+				{
+					let field = ObjectMetadataField::SubtreeCount;
+					let value =
+						Self::update_get_object_field_u64(txn, subspace, object, field).await?;
+					if let Some(value) = value {
+						let field = ProcessMetadataField::NodeCommandCount;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_COUNT;
+					}
+				}
+			}
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_COUNT) {
+				let field = ProcessMetadataField::SubtreeCommandCount;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
 					let field = ProcessMetadataField::NodeCommandCount;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_COUNT;
+					let node_value =
+						Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+					let field = ProcessMetadataField::SubtreeCommandCount;
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_process_field_u64(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.fold(node_value, |output, value| {
+							output.and_then(|output| value.map(|value| output + value))
+						});
+					if let Some(value) = value {
+						let field = ProcessMetadataField::SubtreeCommandCount;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_COUNT;
+					}
 				}
 			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_DEPTH) {
-			let current = Self::update_get_process_field_u64(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::NodeCommandDepth,
-			)
-			.await?;
-			if current.is_none()
-				&& let Some(object) = &command_object
-			{
-				let value = Self::update_get_object_field_u64(
-					txn,
-					subspace,
-					object,
-					ObjectMetadataField::SubtreeDepth,
-				)
-				.await?;
-				if let Some(value) = value {
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let command_depth_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_DEPTH) {
+				let field = ProcessMetadataField::NodeCommandDepth;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none()
+					&& let Some(object) = &command_object
+				{
+					let field = ObjectMetadataField::SubtreeDepth;
+					let value =
+						Self::update_get_object_field_u64(txn, subspace, object, field).await?;
+					if let Some(value) = value {
+						let field = ProcessMetadataField::NodeCommandDepth;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_DEPTH;
+					}
+				}
+			}
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_DEPTH) {
+				let field = ProcessMetadataField::SubtreeCommandDepth;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
 					let field = ProcessMetadataField::NodeCommandDepth;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_DEPTH;
+					let node_value =
+						Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+					let field = ProcessMetadataField::SubtreeCommandDepth;
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_process_field_u64(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.fold(node_value, |output, value| {
+							output.and_then(|output| value.map(|value| output.max(value)))
+						});
+					if let Some(value) = value {
+						let field = ProcessMetadataField::SubtreeCommandDepth;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_DEPTH;
+					}
 				}
 			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SIZE) {
-			let current = Self::update_get_process_field_u64(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::NodeCommandSize,
-			)
-			.await?;
-			if current.is_none()
-				&& let Some(object) = &command_object
-			{
-				let value = Self::update_get_object_field_u64(
-					txn,
-					subspace,
-					object,
-					ObjectMetadataField::SubtreeSize,
-				)
-				.await?;
-				if let Some(value) = value {
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let command_size_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SIZE) {
+				let field = ProcessMetadataField::NodeCommandSize;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none()
+					&& let Some(object) = &command_object
+				{
+					let field = ObjectMetadataField::SubtreeSize;
+					let value =
+						Self::update_get_object_field_u64(txn, subspace, object, field).await?;
+					if let Some(value) = value {
+						let field = ProcessMetadataField::NodeCommandSize;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SIZE;
+					}
+				}
+			}
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SIZE) {
+				let field = ProcessMetadataField::SubtreeCommandSize;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
 					let field = ProcessMetadataField::NodeCommandSize;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SIZE;
+					let node_value =
+						Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+					let field = ProcessMetadataField::SubtreeCommandSize;
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_process_field_u64(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.fold(node_value, |output, value| {
+							output.and_then(|output| value.map(|value| output + value))
+						});
+					if let Some(value) = value {
+						let field = ProcessMetadataField::SubtreeCommandSize;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SIZE;
+					}
 				}
 			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SOLVABLE) {
-			let current = Self::update_get_process_field_bool(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::NodeCommandSolvable,
-			)
-			.await?;
-			if current.is_none()
-				&& let Some(object) = &command_object
-			{
-				let value = Self::update_get_object_field_bool(
-					txn,
-					subspace,
-					object,
-					ObjectMetadataField::SubtreeSolvable,
-				)
-				.await?;
-				if let Some(value) = value {
-					let field = ProcessMetadataField::NodeCommandSolvable;
-					Self::update_set_process_field_bool(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SOLVABLE;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SOLVED) {
-			let current = Self::update_get_process_field_bool(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::NodeCommandSolved,
-			)
-			.await?;
-			if current.is_none()
-				&& let Some(object) = &command_object
-			{
-				let value = Self::update_get_object_field_bool(
-					txn,
-					subspace,
-					object,
-					ObjectMetadataField::SubtreeSolved,
-				)
-				.await?;
-				if let Some(value) = value {
-					let field = ProcessMetadataField::NodeCommandSolved;
-					Self::update_set_process_field_bool(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SOLVED;
-				}
-			}
-		}
 
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_ERROR_COUNT) {
-			let current = Self::update_get_process_field_u64(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::NodeErrorCount,
-			)
-			.await?;
-			if current.is_none() {
-				let child_values = future::try_join_all(error_objects.iter().map(|object| {
-					Self::update_get_object_field_u64(
-						txn,
-						subspace,
-						object,
-						ObjectMetadataField::SubtreeCount,
-					)
-				}))
-				.await?;
-				let value = child_values.iter().copied().sum::<Option<u64>>();
-				if let Some(value) = value {
-					let field = ProcessMetadataField::NodeErrorCount;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_NODE_ERROR_COUNT;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_ERROR_DEPTH) {
-			let current = Self::update_get_process_field_u64(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::NodeErrorDepth,
-			)
-			.await?;
-			if current.is_none() {
-				let child_values = future::try_join_all(error_objects.iter().map(|object| {
-					Self::update_get_object_field_u64(
-						txn,
-						subspace,
-						object,
-						ObjectMetadataField::SubtreeDepth,
-					)
-				}))
-				.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.try_fold(0u64, |output, value| value.map(|value| output.max(value)));
-				if let Some(value) = value {
-					let field = ProcessMetadataField::NodeErrorDepth;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_NODE_ERROR_DEPTH;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SIZE) {
-			let current = Self::update_get_process_field_u64(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::NodeErrorSize,
-			)
-			.await?;
-			if current.is_none() {
-				let child_values = future::try_join_all(error_objects.iter().map(|object| {
-					Self::update_get_object_field_u64(
-						txn,
-						subspace,
-						object,
-						ObjectMetadataField::SubtreeSize,
-					)
-				}))
-				.await?;
-				let value = child_values.iter().copied().sum::<Option<u64>>();
-				if let Some(value) = value {
-					let field = ProcessMetadataField::NodeErrorSize;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SIZE;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SOLVABLE) {
-			let current = Self::update_get_process_field_bool(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::NodeErrorSolvable,
-			)
-			.await?;
-			if current.is_none() {
-				let field = ObjectMetadataField::SubtreeSolvable;
-				let child_values = future::try_join_all(error_objects.iter().map(|object| {
-					Self::update_get_object_field_bool(txn, subspace, object, field)
-				}))
-				.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.try_fold(false, |output, value| value.map(|value| output || value));
-				if let Some(value) = value {
-					let field = ProcessMetadataField::NodeErrorSolvable;
-					Self::update_set_process_field_bool(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SOLVABLE;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SOLVED) {
-			let current = Self::update_get_process_field_bool(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::NodeErrorSolved,
-			)
-			.await?;
-			if current.is_none() {
-				let field = ObjectMetadataField::SubtreeSolved;
-				let child_values = future::try_join_all(error_objects.iter().map(|object| {
-					Self::update_get_object_field_bool(txn, subspace, object, field)
-				}))
-				.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.try_fold(true, |output, value| value.map(|value| output && value));
-				if let Some(value) = value {
-					let field = ProcessMetadataField::NodeErrorSolved;
-					Self::update_set_process_field_bool(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SOLVED;
-				}
-			}
-		}
+			Ok::<_, tg::Error>(updated)
+		};
 
-		if let Some(Some(object)) = &log_object {
-			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_LOG_COUNT) {
-				let current = Self::update_get_process_field_u64(
-					txn,
-					subspace,
-					id,
-					ProcessMetadataField::NodeLogCount,
-				)
-				.await?;
-				if current.is_none() {
-					let value = Self::update_get_object_field_u64(
-						txn,
-						subspace,
-						object,
-						ObjectMetadataField::SubtreeCount,
-					)
-					.await?;
-					if let Some(value) = value {
-						let field = ProcessMetadataField::NodeLogCount;
-						Self::update_set_process_field_u64(txn, subspace, id, field, value);
-						updated |= ProcessPropagateUpdateFields::METADATA_NODE_LOG_COUNT;
-					}
-				}
-			}
-			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_LOG_DEPTH) {
-				let current = Self::update_get_process_field_u64(
-					txn,
-					subspace,
-					id,
-					ProcessMetadataField::NodeLogDepth,
-				)
-				.await?;
-				if current.is_none() {
-					let value = Self::update_get_object_field_u64(
-						txn,
-						subspace,
-						object,
-						ObjectMetadataField::SubtreeDepth,
-					)
-					.await?;
-					if let Some(value) = value {
-						let field = ProcessMetadataField::NodeLogDepth;
-						Self::update_set_process_field_u64(txn, subspace, id, field, value);
-						updated |= ProcessPropagateUpdateFields::METADATA_NODE_LOG_DEPTH;
-					}
-				}
-			}
-			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_LOG_SIZE) {
-				let current = Self::update_get_process_field_u64(
-					txn,
-					subspace,
-					id,
-					ProcessMetadataField::NodeLogSize,
-				)
-				.await?;
-				if current.is_none() {
-					let value = Self::update_get_object_field_u64(
-						txn,
-						subspace,
-						object,
-						ObjectMetadataField::SubtreeSize,
-					)
-					.await?;
-					if let Some(value) = value {
-						let field = ProcessMetadataField::NodeLogSize;
-						Self::update_set_process_field_u64(txn, subspace, id, field, value);
-						updated |= ProcessPropagateUpdateFields::METADATA_NODE_LOG_SIZE;
-					}
-				}
-			}
-			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVABLE) {
-				let current = Self::update_get_process_field_bool(
-					txn,
-					subspace,
-					id,
-					ProcessMetadataField::NodeLogSolvable,
-				)
-				.await?;
-				if current.is_none() {
+		let command_solvable_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SOLVABLE) {
+				let field = ProcessMetadataField::NodeCommandSolvable;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current.is_none()
+					&& let Some(object) = &command_object
+				{
 					let field = ObjectMetadataField::SubtreeSolvable;
 					let value =
 						Self::update_get_object_field_bool(txn, subspace, object, field).await?;
 					if let Some(value) = value {
-						let field = ProcessMetadataField::NodeLogSolvable;
+						let field = ProcessMetadataField::NodeCommandSolvable;
 						Self::update_set_process_field_bool(txn, subspace, id, field, value);
-						updated |= ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVABLE;
+						updated |= ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SOLVABLE;
 					}
 				}
 			}
-			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVED) {
-				let current = Self::update_get_process_field_bool(
-					txn,
-					subspace,
-					id,
-					ProcessMetadataField::NodeLogSolved,
-				)
-				.await?;
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SOLVABLE) {
+				let field = ProcessMetadataField::SubtreeCommandSolvable;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
 				if current.is_none() {
+					let field = ProcessMetadataField::NodeCommandSolvable;
+					let node_value =
+						Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+					let field = ProcessMetadataField::SubtreeCommandSolvable;
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_process_field_bool(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.fold(node_value, |output, value| {
+							output.and_then(|output| value.map(|value| output || value))
+						});
+					if let Some(value) = value {
+						let field = ProcessMetadataField::SubtreeCommandSolvable;
+						Self::update_set_process_field_bool(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SOLVABLE;
+					}
+				}
+			}
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let command_solved_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SOLVED) {
+				let field = ProcessMetadataField::NodeCommandSolved;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current.is_none()
+					&& let Some(object) = &command_object
+				{
 					let field = ObjectMetadataField::SubtreeSolved;
 					let value =
 						Self::update_get_object_field_bool(txn, subspace, object, field).await?;
 					if let Some(value) = value {
-						let field = ProcessMetadataField::NodeLogSolved;
+						let field = ProcessMetadataField::NodeCommandSolved;
 						Self::update_set_process_field_bool(txn, subspace, id, field, value);
-						updated |= ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVED;
+						updated |= ProcessPropagateUpdateFields::METADATA_NODE_COMMAND_SOLVED;
 					}
 				}
 			}
-		} else if log_object.is_none() {
-			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_LOG_COUNT) {
-				let current = Self::update_get_process_field_u64(
-					txn,
-					subspace,
-					id,
-					ProcessMetadataField::NodeLogCount,
-				)
-				.await?;
-				if current.is_none() {
-					let field = ProcessMetadataField::NodeLogCount;
-					Self::update_set_process_field_u64(txn, subspace, id, field, 0);
-					updated |= ProcessPropagateUpdateFields::METADATA_NODE_LOG_COUNT;
-				}
-			}
-			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_LOG_DEPTH) {
-				let current = Self::update_get_process_field_u64(
-					txn,
-					subspace,
-					id,
-					ProcessMetadataField::NodeLogDepth,
-				)
-				.await?;
-				if current.is_none() {
-					let field = ProcessMetadataField::NodeLogDepth;
-					Self::update_set_process_field_u64(txn, subspace, id, field, 0);
-					updated |= ProcessPropagateUpdateFields::METADATA_NODE_LOG_DEPTH;
-				}
-			}
-			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_LOG_SIZE) {
-				let current = Self::update_get_process_field_u64(
-					txn,
-					subspace,
-					id,
-					ProcessMetadataField::NodeLogSize,
-				)
-				.await?;
-				if current.is_none() {
-					let field = ProcessMetadataField::NodeLogSize;
-					Self::update_set_process_field_u64(txn, subspace, id, field, 0);
-					updated |= ProcessPropagateUpdateFields::METADATA_NODE_LOG_SIZE;
-				}
-			}
-			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVABLE) {
-				let current = Self::update_get_process_field_bool(
-					txn,
-					subspace,
-					id,
-					ProcessMetadataField::NodeLogSolvable,
-				)
-				.await?;
-				if current.is_none() {
-					let field = ProcessMetadataField::NodeLogSolvable;
-					Self::update_set_process_field_bool(txn, subspace, id, field, false);
-					updated |= ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVABLE;
-				}
-			}
-			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVED) {
-				let current = Self::update_get_process_field_bool(
-					txn,
-					subspace,
-					id,
-					ProcessMetadataField::NodeLogSolved,
-				)
-				.await?;
-				if current.is_none() {
-					let field = ProcessMetadataField::NodeLogSolved;
-					Self::update_set_process_field_bool(txn, subspace, id, field, true);
-					updated |= ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVED;
-				}
-			}
-		}
 
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_COUNT) {
-			let current = Self::update_get_process_field_u64(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::NodeOutputCount,
-			)
-			.await?;
-			if current.is_none() {
-				let child_values = future::try_join_all(output_objects.iter().map(|object| {
-					Self::update_get_object_field_u64(
-						txn,
-						subspace,
-						object,
-						ObjectMetadataField::SubtreeCount,
-					)
-				}))
-				.await?;
-				let value = child_values.iter().copied().sum::<Option<u64>>();
-				if let Some(value) = value {
-					let field = ProcessMetadataField::NodeOutputCount;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_COUNT;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_DEPTH) {
-			let current = Self::update_get_process_field_u64(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::NodeOutputDepth,
-			)
-			.await?;
-			if current.is_none() {
-				let child_values = future::try_join_all(output_objects.iter().map(|object| {
-					Self::update_get_object_field_u64(
-						txn,
-						subspace,
-						object,
-						ObjectMetadataField::SubtreeDepth,
-					)
-				}))
-				.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.try_fold(0u64, |output, value| value.map(|value| output.max(value)));
-				if let Some(value) = value {
-					let field = ProcessMetadataField::NodeOutputDepth;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_DEPTH;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SIZE) {
-			let current = Self::update_get_process_field_u64(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::NodeOutputSize,
-			)
-			.await?;
-			if current.is_none() {
-				let child_values = future::try_join_all(output_objects.iter().map(|object| {
-					Self::update_get_object_field_u64(
-						txn,
-						subspace,
-						object,
-						ObjectMetadataField::SubtreeSize,
-					)
-				}))
-				.await?;
-				let value = child_values.iter().copied().sum::<Option<u64>>();
-				if let Some(value) = value {
-					let field = ProcessMetadataField::NodeOutputSize;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SIZE;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SOLVABLE) {
-			let current = Self::update_get_process_field_bool(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::NodeOutputSolvable,
-			)
-			.await?;
-			if current.is_none() {
-				let field = ObjectMetadataField::SubtreeSolvable;
-				let child_values = future::try_join_all(output_objects.iter().map(|object| {
-					Self::update_get_object_field_bool(txn, subspace, object, field)
-				}))
-				.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.try_fold(false, |output, value| value.map(|value| output || value));
-				if let Some(value) = value {
-					let field = ProcessMetadataField::NodeOutputSolvable;
-					Self::update_set_process_field_bool(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SOLVABLE;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SOLVED) {
-			let current = Self::update_get_process_field_bool(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::NodeOutputSolved,
-			)
-			.await?;
-			if current.is_none() {
-				let field = ObjectMetadataField::SubtreeSolved;
-				let child_values = future::try_join_all(output_objects.iter().map(|object| {
-					Self::update_get_object_field_bool(txn, subspace, object, field)
-				}))
-				.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.try_fold(true, |output, value| value.map(|value| output && value));
-				if let Some(value) = value {
-					let field = ProcessMetadataField::NodeOutputSolved;
-					Self::update_set_process_field_bool(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SOLVED;
-				}
-			}
-		}
-
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_COUNT) {
-			let current = Self::update_get_process_field_u64(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::SubtreeCount,
-			)
-			.await?;
-			if current.is_none() {
-				let field = ProcessMetadataField::SubtreeCount;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_u64(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values.iter().copied().sum::<Option<u64>>();
-				if let Some(value) = value {
-					let value = 1 + value;
-					let field = ProcessMetadataField::SubtreeCount;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_COUNT;
-				}
-			}
-		}
-
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_COUNT) {
-			let current = Self::update_get_process_field_u64(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::SubtreeCommandCount,
-			)
-			.await?;
-			if current.is_none() {
-				let node_value = Self::update_get_process_field_u64(
-					txn,
-					subspace,
-					id,
-					ProcessMetadataField::NodeCommandCount,
-				)
-				.await?;
-				let field = ProcessMetadataField::SubtreeCommandCount;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_u64(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.fold(node_value, |output, value| {
-						output.and_then(|output| value.map(|value| output + value))
-					});
-				if let Some(value) = value {
-					let field = ProcessMetadataField::SubtreeCommandCount;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_COUNT;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_DEPTH) {
-			let current = Self::update_get_process_field_u64(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::SubtreeCommandDepth,
-			)
-			.await?;
-			if current.is_none() {
-				let node_value = Self::update_get_process_field_u64(
-					txn,
-					subspace,
-					id,
-					ProcessMetadataField::NodeCommandDepth,
-				)
-				.await?;
-				let field = ProcessMetadataField::SubtreeCommandDepth;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_u64(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.fold(node_value, |output, value| {
-						output.and_then(|output| value.map(|value| output.max(value)))
-					});
-				if let Some(value) = value {
-					let field = ProcessMetadataField::SubtreeCommandDepth;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_DEPTH;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SIZE) {
-			let current = Self::update_get_process_field_u64(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::SubtreeCommandSize,
-			)
-			.await?;
-			if current.is_none() {
-				let node_value = Self::update_get_process_field_u64(
-					txn,
-					subspace,
-					id,
-					ProcessMetadataField::NodeCommandSize,
-				)
-				.await?;
-				let field = ProcessMetadataField::SubtreeCommandSize;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_u64(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.fold(node_value, |output, value| {
-						output.and_then(|output| value.map(|value| output + value))
-					});
-				if let Some(value) = value {
-					let field = ProcessMetadataField::SubtreeCommandSize;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SIZE;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SOLVABLE) {
-			let field = ProcessMetadataField::SubtreeCommandSolvable;
-			let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-			if current.is_none() {
-				let field = ProcessMetadataField::NodeCommandSolvable;
-				let node_value =
-					Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-				let field = ProcessMetadataField::SubtreeCommandSolvable;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_bool(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.fold(node_value, |output, value| {
-						output.and_then(|output| value.map(|value| output || value))
-					});
-				if let Some(value) = value {
-					let field = ProcessMetadataField::SubtreeCommandSolvable;
-					Self::update_set_process_field_bool(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SOLVABLE;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SOLVED) {
-			let current = Self::update_get_process_field_bool(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::SubtreeCommandSolved,
-			)
-			.await?;
-			if current.is_none() {
-				let node_value = Self::update_get_process_field_bool(
-					txn,
-					subspace,
-					id,
-					ProcessMetadataField::NodeCommandSolved,
-				)
-				.await?;
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SOLVED) {
 				let field = ProcessMetadataField::SubtreeCommandSolved;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_bool(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.fold(node_value, |output, value| {
-						output.and_then(|output| value.map(|value| output && value))
-					});
-				if let Some(value) = value {
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ProcessMetadataField::NodeCommandSolved;
+					let node_value =
+						Self::update_get_process_field_bool(txn, subspace, id, field).await?;
 					let field = ProcessMetadataField::SubtreeCommandSolved;
-					Self::update_set_process_field_bool(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SOLVED;
-				}
-			}
-		}
-
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_COUNT) {
-			let current = Self::update_get_process_field_u64(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::SubtreeErrorCount,
-			)
-			.await?;
-			if current.is_none() {
-				let node_value = Self::update_get_process_field_u64(
-					txn,
-					subspace,
-					id,
-					ProcessMetadataField::NodeErrorCount,
-				)
-				.await?;
-				let field = ProcessMetadataField::SubtreeErrorCount;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_u64(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.fold(node_value, |output, value| {
-						output.and_then(|output| value.map(|value| output + value))
-					});
-				if let Some(value) = value {
-					let field = ProcessMetadataField::SubtreeErrorCount;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_COUNT;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_DEPTH) {
-			let current = Self::update_get_process_field_u64(
-				txn,
-				subspace,
-				id,
-				ProcessMetadataField::SubtreeErrorDepth,
-			)
-			.await?;
-			if current.is_none() {
-				let node_value = Self::update_get_process_field_u64(
-					txn,
-					subspace,
-					id,
-					ProcessMetadataField::NodeErrorDepth,
-				)
-				.await?;
-				let field = ProcessMetadataField::SubtreeErrorDepth;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_u64(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.fold(node_value, |output, value| {
-						output.and_then(|output| value.map(|value| output.max(value)))
-					});
-				if let Some(value) = value {
-					let field = ProcessMetadataField::SubtreeErrorDepth;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_DEPTH;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SIZE) {
-			let field = ProcessMetadataField::SubtreeErrorSize;
-			let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
-			if current.is_none() {
-				let field = ProcessMetadataField::NodeErrorSize;
-				let node_value =
-					Self::update_get_process_field_u64(txn, subspace, id, field).await?;
-				let field = ProcessMetadataField::SubtreeErrorSize;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_u64(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.fold(node_value, |output, value| {
-						output.and_then(|output| value.map(|value| output + value))
-					});
-				if let Some(value) = value {
-					let field = ProcessMetadataField::SubtreeErrorSize;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SIZE;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SOLVABLE) {
-			let field = ProcessMetadataField::SubtreeErrorSolvable;
-			let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-			if current.is_none() {
-				let field = ProcessMetadataField::NodeErrorSolvable;
-				let node_value =
-					Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-				let field = ProcessMetadataField::SubtreeErrorSolvable;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
+					let child_values = future::try_join_all(children.iter().map(|child| {
 						Self::update_get_process_field_bool(txn, subspace, child, field)
 					}))
 					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.fold(node_value, |output, value| {
-						output.and_then(|output| value.map(|value| output || value))
-					});
-				if let Some(value) = value {
-					let field = ProcessMetadataField::SubtreeErrorSolvable;
-					Self::update_set_process_field_bool(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SOLVABLE;
+					let value = child_values
+						.iter()
+						.copied()
+						.fold(node_value, |output, value| {
+							output.and_then(|output| value.map(|value| output && value))
+						});
+					if let Some(value) = value {
+						let field = ProcessMetadataField::SubtreeCommandSolved;
+						Self::update_set_process_field_bool(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_COMMAND_SOLVED;
+					}
 				}
 			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SOLVED) {
-			let field = ProcessMetadataField::SubtreeErrorSolved;
-			let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-			if current.is_none() {
-				let field = ProcessMetadataField::NodeErrorSolved;
-				let node_value =
-					Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-				let field = ProcessMetadataField::SubtreeErrorSolved;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_bool(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.fold(node_value, |output, value| {
-						output.and_then(|output| value.map(|value| output && value))
-					});
-				if let Some(value) = value {
-					let field = ProcessMetadataField::SubtreeErrorSolved;
-					Self::update_set_process_field_bool(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SOLVED;
-				}
-			}
-		}
 
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_COUNT) {
-			let field = ProcessMetadataField::SubtreeLogCount;
-			let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
-			if current.is_none() {
-				let field = ProcessMetadataField::NodeLogCount;
-				let node_value =
-					Self::update_get_process_field_u64(txn, subspace, id, field).await?;
-				let field = ProcessMetadataField::SubtreeLogCount;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_u64(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.fold(node_value, |output, value| {
-						output.and_then(|output| value.map(|value| output + value))
-					});
-				if let Some(value) = value {
-					let field = ProcessMetadataField::SubtreeLogCount;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_COUNT;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_DEPTH) {
-			let field = ProcessMetadataField::SubtreeLogDepth;
-			let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
-			if current.is_none() {
-				let field = ProcessMetadataField::NodeLogDepth;
-				let node_value =
-					Self::update_get_process_field_u64(txn, subspace, id, field).await?;
-				let field = ProcessMetadataField::SubtreeLogDepth;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_u64(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.fold(node_value, |output, value| {
-						output.and_then(|output| value.map(|value| output.max(value)))
-					});
-				if let Some(value) = value {
-					let field = ProcessMetadataField::SubtreeLogDepth;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_DEPTH;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SIZE) {
-			let field = ProcessMetadataField::SubtreeLogSize;
-			let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
-			if current.is_none() {
-				let field = ProcessMetadataField::NodeLogSize;
-				let node_value =
-					Self::update_get_process_field_u64(txn, subspace, id, field).await?;
-				let field = ProcessMetadataField::SubtreeLogSize;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_u64(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.fold(node_value, |output, value| {
-						output.and_then(|output| value.map(|value| output + value))
-					});
-				if let Some(value) = value {
-					let field = ProcessMetadataField::SubtreeLogSize;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SIZE;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SOLVABLE) {
-			let field = ProcessMetadataField::SubtreeLogSolvable;
-			let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-			if current.is_none() {
-				let field = ProcessMetadataField::NodeLogSolvable;
-				let node_value =
-					Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-				let field = ProcessMetadataField::SubtreeLogSolvable;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_bool(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.fold(node_value, |output, value| {
-						output.and_then(|output| value.map(|value| output || value))
-					});
-				if let Some(value) = value {
-					let field = ProcessMetadataField::SubtreeLogSolvable;
-					Self::update_set_process_field_bool(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SOLVABLE;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SOLVED) {
-			let field = ProcessMetadataField::SubtreeLogSolved;
-			let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-			if current.is_none() {
-				let field = ProcessMetadataField::NodeLogSolved;
-				let node_value =
-					Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-				let field = ProcessMetadataField::SubtreeLogSolved;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_bool(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.fold(node_value, |output, value| {
-						output.and_then(|output| value.map(|value| output && value))
-					});
-				if let Some(value) = value {
-					let field = ProcessMetadataField::SubtreeLogSolved;
-					Self::update_set_process_field_bool(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SOLVED;
-				}
-			}
-		}
+			Ok::<_, tg::Error>(updated)
+		};
 
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_COUNT) {
-			let field = ProcessMetadataField::SubtreeOutputCount;
-			let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
-			if current.is_none() {
-				let field = ProcessMetadataField::NodeOutputCount;
-				let node_value =
-					Self::update_get_process_field_u64(txn, subspace, id, field).await?;
-				let field = ProcessMetadataField::SubtreeOutputCount;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_u64(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.fold(node_value, |output, value| {
-						output.and_then(|output| value.map(|value| output + value))
-					});
-				if let Some(value) = value {
-					let field = ProcessMetadataField::SubtreeOutputCount;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_COUNT;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_DEPTH) {
-			let field = ProcessMetadataField::SubtreeOutputDepth;
-			let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
-			if current.is_none() {
-				let field = ProcessMetadataField::NodeOutputDepth;
-				let node_value =
-					Self::update_get_process_field_u64(txn, subspace, id, field).await?;
-				let field = ProcessMetadataField::SubtreeOutputDepth;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_u64(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.fold(node_value, |output, value| {
-						output.and_then(|output| value.map(|value| output.max(value)))
-					});
-				if let Some(value) = value {
-					let field = ProcessMetadataField::SubtreeOutputDepth;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_DEPTH;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SIZE) {
-			let field = ProcessMetadataField::SubtreeOutputSize;
-			let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
-			if current.is_none() {
-				let field = ProcessMetadataField::NodeOutputSize;
-				let node_value =
-					Self::update_get_process_field_u64(txn, subspace, id, field).await?;
-				let field = ProcessMetadataField::SubtreeOutputSize;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_u64(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.fold(node_value, |output, value| {
-						output.and_then(|output| value.map(|value| output + value))
-					});
-				if let Some(value) = value {
-					let field = ProcessMetadataField::SubtreeOutputSize;
-					Self::update_set_process_field_u64(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SIZE;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SOLVABLE) {
-			let field = ProcessMetadataField::SubtreeOutputSolvable;
-			let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-			if current.is_none() {
-				let field = ProcessMetadataField::NodeOutputSolvable;
-				let node_value =
-					Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-				let field = ProcessMetadataField::SubtreeOutputSolvable;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_bool(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.fold(node_value, |output, value| {
-						output.and_then(|output| value.map(|value| output || value))
-					});
-				if let Some(value) = value {
-					let field = ProcessMetadataField::SubtreeOutputSolvable;
-					Self::update_set_process_field_bool(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SOLVABLE;
-				}
-			}
-		}
-		if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SOLVED) {
-			let field = ProcessMetadataField::SubtreeOutputSolved;
-			let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-			if current.is_none() {
-				let field = ProcessMetadataField::NodeOutputSolved;
-				let node_value =
-					Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-				let field = ProcessMetadataField::SubtreeOutputSolved;
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_bool(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values
-					.iter()
-					.copied()
-					.fold(node_value, |output, value| {
-						output.and_then(|output| value.map(|value| output && value))
-					});
-				if let Some(value) = value {
-					let field = ProcessMetadataField::SubtreeOutputSolved;
-					Self::update_set_process_field_bool(txn, subspace, id, field, value);
-					updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SOLVED;
-				}
-			}
-		}
+		let command_stored_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
 
-		if fields.contains(ProcessPropagateUpdateFields::STORED_NODE_COMMAND) {
-			let field = ProcessStoredField::NodeCommand;
-			let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-			if current != Some(true)
-				&& let Some(object) = &command_object
-			{
-				let field = ObjectStoredField::Subtree;
-				let value =
-					Self::update_get_object_field_bool(txn, subspace, object, field).await?;
-				if value == Some(true) {
-					let field = ProcessStoredField::NodeCommand;
-					Self::update_set_process_field_bool(txn, subspace, id, field, true);
-					updated |= ProcessPropagateUpdateFields::STORED_NODE_COMMAND;
-				}
-			}
-		}
-
-		if fields.contains(ProcessPropagateUpdateFields::STORED_NODE_ERROR) {
-			let field = ProcessStoredField::NodeError;
-			let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-			if current != Some(true) {
-				let field = ObjectStoredField::Subtree;
-				let child_values = future::try_join_all(error_objects.iter().map(|object| {
-					Self::update_get_object_field_bool(txn, subspace, object, field)
-				}))
-				.await?;
-				let value = child_values
-					.iter()
-					.all(|child| child.as_ref().is_some_and(|value| *value));
-				if value {
-					let field = ProcessStoredField::NodeError;
-					Self::update_set_process_field_bool(txn, subspace, id, field, true);
-					updated |= ProcessPropagateUpdateFields::STORED_NODE_ERROR;
-				}
-			}
-		}
-
-		if fields.contains(ProcessPropagateUpdateFields::STORED_NODE_LOG) {
-			let field = ProcessStoredField::NodeLog;
-			let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-			if current != Some(true) {
-				if let Some(Some(object)) = &log_object {
+			if fields.contains(ProcessPropagateUpdateFields::STORED_NODE_COMMAND) {
+				let field = ProcessStoredField::NodeCommand;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current != Some(true)
+					&& let Some(object) = &command_object
+				{
 					let field = ObjectStoredField::Subtree;
 					let value =
 						Self::update_get_object_field_bool(txn, subspace, object, field).await?;
 					if value == Some(true) {
+						let field = ProcessStoredField::NodeCommand;
+						Self::update_set_process_field_bool(txn, subspace, id, field, true);
+						updated |= ProcessPropagateUpdateFields::STORED_NODE_COMMAND;
+					}
+				}
+			}
+
+			if fields.contains(ProcessPropagateUpdateFields::STORED_SUBTREE_COMMAND) {
+				let field = ProcessStoredField::SubtreeCommand;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current != Some(true) {
+					let field = ProcessStoredField::NodeCommand;
+					let node_command =
+						Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+					if node_command == Some(true) {
+						let field = ProcessStoredField::SubtreeCommand;
+						let child_values = future::try_join_all(children.iter().map(|child| {
+							Self::update_get_process_field_bool(txn, subspace, child, field)
+						}))
+						.await?;
+						let value = child_values
+							.iter()
+							.all(|child| child.as_ref().is_some_and(|value| *value));
+						if value {
+							let field = ProcessStoredField::SubtreeCommand;
+							Self::update_set_process_field_bool(txn, subspace, id, field, true);
+							updated |= ProcessPropagateUpdateFields::STORED_SUBTREE_COMMAND;
+						}
+					}
+				}
+			}
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let error_count_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_ERROR_COUNT) {
+				let field = ProcessMetadataField::NodeErrorCount;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ObjectMetadataField::SubtreeCount;
+					let child_values = future::try_join_all(error_objects.iter().map(|object| {
+						Self::update_get_object_field_u64(txn, subspace, object, field)
+					}))
+					.await?;
+					let value = child_values.iter().copied().sum::<Option<u64>>();
+					if let Some(value) = value {
+						let field = ProcessMetadataField::NodeErrorCount;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_NODE_ERROR_COUNT;
+					}
+				}
+			}
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_COUNT) {
+				let field = ProcessMetadataField::SubtreeErrorCount;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ProcessMetadataField::NodeErrorCount;
+					let node_value =
+						Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+					let field = ProcessMetadataField::SubtreeErrorCount;
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_process_field_u64(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.fold(node_value, |output, value| {
+							output.and_then(|output| value.map(|value| output + value))
+						});
+					if let Some(value) = value {
+						let field = ProcessMetadataField::SubtreeErrorCount;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_COUNT;
+					}
+				}
+			}
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let error_depth_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_ERROR_DEPTH) {
+				let field = ProcessMetadataField::NodeErrorDepth;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ObjectMetadataField::SubtreeDepth;
+					let child_values = future::try_join_all(error_objects.iter().map(|object| {
+						Self::update_get_object_field_u64(txn, subspace, object, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.try_fold(0u64, |output, value| value.map(|value| output.max(value)));
+					if let Some(value) = value {
+						let field = ProcessMetadataField::NodeErrorDepth;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_NODE_ERROR_DEPTH;
+					}
+				}
+			}
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_DEPTH) {
+				let field = ProcessMetadataField::SubtreeErrorDepth;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ProcessMetadataField::NodeErrorDepth;
+					let node_value =
+						Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+					let field = ProcessMetadataField::SubtreeErrorDepth;
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_process_field_u64(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.fold(node_value, |output, value| {
+							output.and_then(|output| value.map(|value| output.max(value)))
+						});
+					if let Some(value) = value {
+						let field = ProcessMetadataField::SubtreeErrorDepth;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_DEPTH;
+					}
+				}
+			}
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let error_size_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SIZE) {
+				let field = ProcessMetadataField::NodeErrorSize;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ObjectMetadataField::SubtreeSize;
+					let child_values = future::try_join_all(error_objects.iter().map(|object| {
+						Self::update_get_object_field_u64(txn, subspace, object, field)
+					}))
+					.await?;
+					let value = child_values.iter().copied().sum::<Option<u64>>();
+					if let Some(value) = value {
+						let field = ProcessMetadataField::NodeErrorSize;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SIZE;
+					}
+				}
+			}
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SIZE) {
+				let field = ProcessMetadataField::SubtreeErrorSize;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ProcessMetadataField::NodeErrorSize;
+					let node_value =
+						Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+					let field = ProcessMetadataField::SubtreeErrorSize;
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_process_field_u64(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.fold(node_value, |output, value| {
+							output.and_then(|output| value.map(|value| output + value))
+						});
+					if let Some(value) = value {
+						let field = ProcessMetadataField::SubtreeErrorSize;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SIZE;
+					}
+				}
+			}
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let error_solvable_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SOLVABLE) {
+				let field = ProcessMetadataField::NodeErrorSolvable;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ObjectMetadataField::SubtreeSolvable;
+					let child_values = future::try_join_all(error_objects.iter().map(|object| {
+						Self::update_get_object_field_bool(txn, subspace, object, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.try_fold(false, |output, value| value.map(|value| output || value));
+					if let Some(value) = value {
+						let field = ProcessMetadataField::NodeErrorSolvable;
+						Self::update_set_process_field_bool(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SOLVABLE;
+					}
+				}
+			}
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SOLVABLE) {
+				let field = ProcessMetadataField::SubtreeErrorSolvable;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ProcessMetadataField::NodeErrorSolvable;
+					let node_value =
+						Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+					let field = ProcessMetadataField::SubtreeErrorSolvable;
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_process_field_bool(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.fold(node_value, |output, value| {
+							output.and_then(|output| value.map(|value| output || value))
+						});
+					if let Some(value) = value {
+						let field = ProcessMetadataField::SubtreeErrorSolvable;
+						Self::update_set_process_field_bool(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SOLVABLE;
+					}
+				}
+			}
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let error_solved_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SOLVED) {
+				let field = ProcessMetadataField::NodeErrorSolved;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ObjectMetadataField::SubtreeSolved;
+					let child_values = future::try_join_all(error_objects.iter().map(|object| {
+						Self::update_get_object_field_bool(txn, subspace, object, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.try_fold(true, |output, value| value.map(|value| output && value));
+					if let Some(value) = value {
+						let field = ProcessMetadataField::NodeErrorSolved;
+						Self::update_set_process_field_bool(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_NODE_ERROR_SOLVED;
+					}
+				}
+			}
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SOLVED) {
+				let field = ProcessMetadataField::SubtreeErrorSolved;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ProcessMetadataField::NodeErrorSolved;
+					let node_value =
+						Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+					let field = ProcessMetadataField::SubtreeErrorSolved;
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_process_field_bool(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.fold(node_value, |output, value| {
+							output.and_then(|output| value.map(|value| output && value))
+						});
+					if let Some(value) = value {
+						let field = ProcessMetadataField::SubtreeErrorSolved;
+						Self::update_set_process_field_bool(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_ERROR_SOLVED;
+					}
+				}
+			}
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let error_stored_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::STORED_NODE_ERROR) {
+				let field = ProcessStoredField::NodeError;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current != Some(true) {
+					let field = ObjectStoredField::Subtree;
+					let child_values = future::try_join_all(error_objects.iter().map(|object| {
+						Self::update_get_object_field_bool(txn, subspace, object, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.all(|child| child.as_ref().is_some_and(|value| *value));
+					if value {
+						let field = ProcessStoredField::NodeError;
+						Self::update_set_process_field_bool(txn, subspace, id, field, true);
+						updated |= ProcessPropagateUpdateFields::STORED_NODE_ERROR;
+					}
+				}
+			}
+
+			if fields.contains(ProcessPropagateUpdateFields::STORED_SUBTREE_ERROR) {
+				let field = ProcessStoredField::SubtreeError;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current != Some(true) {
+					let field = ProcessStoredField::NodeError;
+					let node_error =
+						Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+					if node_error == Some(true) {
+						let field = ProcessStoredField::SubtreeError;
+						let child_values = future::try_join_all(children.iter().map(|child| {
+							Self::update_get_process_field_bool(txn, subspace, child, field)
+						}))
+						.await?;
+						let value = child_values
+							.iter()
+							.all(|child| child.as_ref().is_some_and(|value| *value));
+						if value {
+							let field = ProcessStoredField::SubtreeError;
+							Self::update_set_process_field_bool(txn, subspace, id, field, true);
+							updated |= ProcessPropagateUpdateFields::STORED_SUBTREE_ERROR;
+						}
+					}
+				}
+			}
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let log_count_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_LOG_COUNT) {
+				let field = ProcessMetadataField::NodeLogCount;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					if let Some(Some(object)) = &log_object {
+						let field = ObjectMetadataField::SubtreeCount;
+						let value =
+							Self::update_get_object_field_u64(txn, subspace, object, field).await?;
+						if let Some(value) = value {
+							let field = ProcessMetadataField::NodeLogCount;
+							Self::update_set_process_field_u64(txn, subspace, id, field, value);
+							updated |= ProcessPropagateUpdateFields::METADATA_NODE_LOG_COUNT;
+						}
+					} else if log_object.is_none() {
+						let field = ProcessMetadataField::NodeLogCount;
+						Self::update_set_process_field_u64(txn, subspace, id, field, 0);
+						updated |= ProcessPropagateUpdateFields::METADATA_NODE_LOG_COUNT;
+					}
+				}
+			}
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_COUNT) {
+				let field = ProcessMetadataField::SubtreeLogCount;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ProcessMetadataField::NodeLogCount;
+					let node_value =
+						Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+					let field = ProcessMetadataField::SubtreeLogCount;
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_process_field_u64(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.fold(node_value, |output, value| {
+							output.and_then(|output| value.map(|value| output + value))
+						});
+					if let Some(value) = value {
+						let field = ProcessMetadataField::SubtreeLogCount;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_COUNT;
+					}
+				}
+			}
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let log_depth_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_LOG_DEPTH) {
+				let field = ProcessMetadataField::NodeLogDepth;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					if let Some(Some(object)) = &log_object {
+						let field = ObjectMetadataField::SubtreeDepth;
+						let value =
+							Self::update_get_object_field_u64(txn, subspace, object, field).await?;
+						if let Some(value) = value {
+							let field = ProcessMetadataField::NodeLogDepth;
+							Self::update_set_process_field_u64(txn, subspace, id, field, value);
+							updated |= ProcessPropagateUpdateFields::METADATA_NODE_LOG_DEPTH;
+						}
+					} else if log_object.is_none() {
+						let field = ProcessMetadataField::NodeLogDepth;
+						Self::update_set_process_field_u64(txn, subspace, id, field, 0);
+						updated |= ProcessPropagateUpdateFields::METADATA_NODE_LOG_DEPTH;
+					}
+				}
+			}
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_DEPTH) {
+				let field = ProcessMetadataField::SubtreeLogDepth;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ProcessMetadataField::NodeLogDepth;
+					let node_value =
+						Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+					let field = ProcessMetadataField::SubtreeLogDepth;
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_process_field_u64(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.fold(node_value, |output, value| {
+							output.and_then(|output| value.map(|value| output.max(value)))
+						});
+					if let Some(value) = value {
+						let field = ProcessMetadataField::SubtreeLogDepth;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_DEPTH;
+					}
+				}
+			}
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let log_size_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_LOG_SIZE) {
+				let field = ProcessMetadataField::NodeLogSize;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					if let Some(Some(object)) = &log_object {
+						let field = ObjectMetadataField::SubtreeSize;
+						let value =
+							Self::update_get_object_field_u64(txn, subspace, object, field).await?;
+						if let Some(value) = value {
+							let field = ProcessMetadataField::NodeLogSize;
+							Self::update_set_process_field_u64(txn, subspace, id, field, value);
+							updated |= ProcessPropagateUpdateFields::METADATA_NODE_LOG_SIZE;
+						}
+					} else if log_object.is_none() {
+						let field = ProcessMetadataField::NodeLogSize;
+						Self::update_set_process_field_u64(txn, subspace, id, field, 0);
+						updated |= ProcessPropagateUpdateFields::METADATA_NODE_LOG_SIZE;
+					}
+				}
+			}
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SIZE) {
+				let field = ProcessMetadataField::SubtreeLogSize;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ProcessMetadataField::NodeLogSize;
+					let node_value =
+						Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+					let field = ProcessMetadataField::SubtreeLogSize;
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_process_field_u64(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.fold(node_value, |output, value| {
+							output.and_then(|output| value.map(|value| output + value))
+						});
+					if let Some(value) = value {
+						let field = ProcessMetadataField::SubtreeLogSize;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SIZE;
+					}
+				}
+			}
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let log_solvable_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVABLE) {
+				let field = ProcessMetadataField::NodeLogSolvable;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current.is_none() {
+					if let Some(Some(object)) = &log_object {
+						let field = ObjectMetadataField::SubtreeSolvable;
+						let value =
+							Self::update_get_object_field_bool(txn, subspace, object, field)
+								.await?;
+						if let Some(value) = value {
+							let field = ProcessMetadataField::NodeLogSolvable;
+							Self::update_set_process_field_bool(txn, subspace, id, field, value);
+							updated |= ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVABLE;
+						}
+					} else if log_object.is_none() {
+						let field = ProcessMetadataField::NodeLogSolvable;
+						Self::update_set_process_field_bool(txn, subspace, id, field, false);
+						updated |= ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVABLE;
+					}
+				}
+			}
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SOLVABLE) {
+				let field = ProcessMetadataField::SubtreeLogSolvable;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ProcessMetadataField::NodeLogSolvable;
+					let node_value =
+						Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+					let field = ProcessMetadataField::SubtreeLogSolvable;
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_process_field_bool(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.fold(node_value, |output, value| {
+							output.and_then(|output| value.map(|value| output || value))
+						});
+					if let Some(value) = value {
+						let field = ProcessMetadataField::SubtreeLogSolvable;
+						Self::update_set_process_field_bool(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SOLVABLE;
+					}
+				}
+			}
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let log_solved_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVED) {
+				let field = ProcessMetadataField::NodeLogSolved;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current.is_none() {
+					if let Some(Some(object)) = &log_object {
+						let field = ObjectMetadataField::SubtreeSolved;
+						let value =
+							Self::update_get_object_field_bool(txn, subspace, object, field)
+								.await?;
+						if let Some(value) = value {
+							let field = ProcessMetadataField::NodeLogSolved;
+							Self::update_set_process_field_bool(txn, subspace, id, field, value);
+							updated |= ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVED;
+						}
+					} else if log_object.is_none() {
+						let field = ProcessMetadataField::NodeLogSolved;
+						Self::update_set_process_field_bool(txn, subspace, id, field, true);
+						updated |= ProcessPropagateUpdateFields::METADATA_NODE_LOG_SOLVED;
+					}
+				}
+			}
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SOLVED) {
+				let field = ProcessMetadataField::SubtreeLogSolved;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ProcessMetadataField::NodeLogSolved;
+					let node_value =
+						Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+					let field = ProcessMetadataField::SubtreeLogSolved;
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_process_field_bool(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.fold(node_value, |output, value| {
+							output.and_then(|output| value.map(|value| output && value))
+						});
+					if let Some(value) = value {
+						let field = ProcessMetadataField::SubtreeLogSolved;
+						Self::update_set_process_field_bool(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_LOG_SOLVED;
+					}
+				}
+			}
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let log_stored_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::STORED_NODE_LOG) {
+				let field = ProcessStoredField::NodeLog;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current != Some(true) {
+					if let Some(Some(object)) = &log_object {
+						let field = ObjectStoredField::Subtree;
+						let value =
+							Self::update_get_object_field_bool(txn, subspace, object, field)
+								.await?;
+						if value == Some(true) {
+							let field = ProcessStoredField::NodeLog;
+							Self::update_set_process_field_bool(txn, subspace, id, field, true);
+							updated |= ProcessPropagateUpdateFields::STORED_NODE_LOG;
+						}
+					} else if log_object.is_none() {
 						let field = ProcessStoredField::NodeLog;
 						Self::update_set_process_field_bool(txn, subspace, id, field, true);
 						updated |= ProcessPropagateUpdateFields::STORED_NODE_LOG;
 					}
-				} else if log_object.is_none() {
-					Self::update_set_process_field_bool(
-						txn,
-						subspace,
-						id,
-						ProcessStoredField::NodeLog,
-						true,
-					);
-					updated |= ProcessPropagateUpdateFields::STORED_NODE_LOG;
 				}
 			}
-		}
 
-		if fields.contains(ProcessPropagateUpdateFields::STORED_NODE_OUTPUT) {
-			let field = ProcessStoredField::NodeOutput;
-			let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-			if current != Some(true) {
-				let field = ObjectStoredField::Subtree;
-				let child_values = future::try_join_all(output_objects.iter().map(|object| {
-					Self::update_get_object_field_bool(txn, subspace, object, field)
-				}))
-				.await?;
-				let value = child_values
-					.iter()
-					.all(|child| child.as_ref().is_some_and(|value| *value));
-				if value {
-					let field = ProcessStoredField::NodeOutput;
-					Self::update_set_process_field_bool(txn, subspace, id, field, true);
-					updated |= ProcessPropagateUpdateFields::STORED_NODE_OUTPUT;
-				}
-			}
-		}
-
-		if fields.contains(ProcessPropagateUpdateFields::STORED_SUBTREE) {
-			let field = ProcessStoredField::Subtree;
-			let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-			if current != Some(true) {
-				let child_values =
-					future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_bool(txn, subspace, child, field)
-					}))
-					.await?;
-				let value = child_values
-					.iter()
-					.all(|child| child.as_ref().is_some_and(|value| *value));
-				if value {
-					Self::update_set_process_field_bool(
-						txn,
-						subspace,
-						id,
-						ProcessStoredField::Subtree,
-						true,
-					);
-					updated |= ProcessPropagateUpdateFields::STORED_SUBTREE;
-				}
-			}
-		}
-
-		if fields.contains(ProcessPropagateUpdateFields::STORED_SUBTREE_COMMAND) {
-			let field = ProcessStoredField::SubtreeCommand;
-			let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-			if current != Some(true) {
-				let field = ProcessStoredField::NodeCommand;
-				let node_command =
-					Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-				if node_command == Some(true) {
-					let field = ProcessStoredField::SubtreeCommand;
-					let child_values = future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_bool(txn, subspace, child, field)
-					}))
-					.await?;
-					let value = child_values
-						.iter()
-						.all(|child| child.as_ref().is_some_and(|value| *value));
-					if value {
-						let field = ProcessStoredField::SubtreeCommand;
-						Self::update_set_process_field_bool(txn, subspace, id, field, true);
-						updated |= ProcessPropagateUpdateFields::STORED_SUBTREE_COMMAND;
-					}
-				}
-			}
-		}
-
-		if fields.contains(ProcessPropagateUpdateFields::STORED_SUBTREE_ERROR) {
-			let field = ProcessStoredField::SubtreeError;
-			let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-			if current != Some(true) {
-				let field = ProcessStoredField::NodeError;
-				let node_error =
-					Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-				if node_error == Some(true) {
-					let field = ProcessStoredField::SubtreeError;
-					let child_values = future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_bool(txn, subspace, child, field)
-					}))
-					.await?;
-					let value = child_values
-						.iter()
-						.all(|child| child.as_ref().is_some_and(|value| *value));
-					if value {
-						let field = ProcessStoredField::SubtreeError;
-						Self::update_set_process_field_bool(txn, subspace, id, field, true);
-						updated |= ProcessPropagateUpdateFields::STORED_SUBTREE_ERROR;
-					}
-				}
-			}
-		}
-
-		if fields.contains(ProcessPropagateUpdateFields::STORED_SUBTREE_LOG) {
-			let field = ProcessStoredField::SubtreeLog;
-			let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-			if current != Some(true) {
-				let field = ProcessStoredField::NodeLog;
-				let node_log =
-					Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-				if node_log == Some(true) {
-					let field = ProcessStoredField::SubtreeLog;
-					let child_values = future::try_join_all(children.iter().map(|child| {
-						Self::update_get_process_field_bool(txn, subspace, child, field)
-					}))
-					.await?;
-					let value = child_values
-						.iter()
-						.all(|child| child.as_ref().is_some_and(|value| *value));
-					if value {
+			if fields.contains(ProcessPropagateUpdateFields::STORED_SUBTREE_LOG) {
+				let field = ProcessStoredField::SubtreeLog;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current != Some(true) {
+					let field = ProcessStoredField::NodeLog;
+					let node_log =
+						Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+					if node_log == Some(true) {
 						let field = ProcessStoredField::SubtreeLog;
-						Self::update_set_process_field_bool(txn, subspace, id, field, true);
-						updated |= ProcessPropagateUpdateFields::STORED_SUBTREE_LOG;
+						let child_values = future::try_join_all(children.iter().map(|child| {
+							Self::update_get_process_field_bool(txn, subspace, child, field)
+						}))
+						.await?;
+						let value = child_values
+							.iter()
+							.all(|child| child.as_ref().is_some_and(|value| *value));
+						if value {
+							let field = ProcessStoredField::SubtreeLog;
+							Self::update_set_process_field_bool(txn, subspace, id, field, true);
+							updated |= ProcessPropagateUpdateFields::STORED_SUBTREE_LOG;
+						}
 					}
 				}
 			}
-		}
 
-		if fields.contains(ProcessPropagateUpdateFields::STORED_SUBTREE_OUTPUT) {
-			let field = ProcessStoredField::SubtreeOutput;
-			let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-			if current != Some(true) {
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let output_count_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_COUNT) {
+				let field = ProcessMetadataField::NodeOutputCount;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ObjectMetadataField::SubtreeCount;
+					let child_values = future::try_join_all(output_objects.iter().map(|object| {
+						Self::update_get_object_field_u64(txn, subspace, object, field)
+					}))
+					.await?;
+					let value = child_values.iter().copied().sum::<Option<u64>>();
+					if let Some(value) = value {
+						let field = ProcessMetadataField::NodeOutputCount;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_COUNT;
+					}
+				}
+			}
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_COUNT) {
+				let field = ProcessMetadataField::SubtreeOutputCount;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ProcessMetadataField::NodeOutputCount;
+					let node_value =
+						Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+					let field = ProcessMetadataField::SubtreeOutputCount;
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_process_field_u64(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.fold(node_value, |output, value| {
+							output.and_then(|output| value.map(|value| output + value))
+						});
+					if let Some(value) = value {
+						let field = ProcessMetadataField::SubtreeOutputCount;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_COUNT;
+					}
+				}
+			}
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let output_depth_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_DEPTH) {
+				let field = ProcessMetadataField::NodeOutputDepth;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ObjectMetadataField::SubtreeDepth;
+					let child_values = future::try_join_all(output_objects.iter().map(|object| {
+						Self::update_get_object_field_u64(txn, subspace, object, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.try_fold(0u64, |output, value| value.map(|value| output.max(value)));
+					if let Some(value) = value {
+						let field = ProcessMetadataField::NodeOutputDepth;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_DEPTH;
+					}
+				}
+			}
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_DEPTH) {
+				let field = ProcessMetadataField::SubtreeOutputDepth;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ProcessMetadataField::NodeOutputDepth;
+					let node_value =
+						Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+					let field = ProcessMetadataField::SubtreeOutputDepth;
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_process_field_u64(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.fold(node_value, |output, value| {
+							output.and_then(|output| value.map(|value| output.max(value)))
+						});
+					if let Some(value) = value {
+						let field = ProcessMetadataField::SubtreeOutputDepth;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_DEPTH;
+					}
+				}
+			}
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let output_size_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SIZE) {
+				let field = ProcessMetadataField::NodeOutputSize;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ObjectMetadataField::SubtreeSize;
+					let child_values = future::try_join_all(output_objects.iter().map(|object| {
+						Self::update_get_object_field_u64(txn, subspace, object, field)
+					}))
+					.await?;
+					let value = child_values.iter().copied().sum::<Option<u64>>();
+					if let Some(value) = value {
+						let field = ProcessMetadataField::NodeOutputSize;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SIZE;
+					}
+				}
+			}
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SIZE) {
+				let field = ProcessMetadataField::SubtreeOutputSize;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ProcessMetadataField::NodeOutputSize;
+					let node_value =
+						Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+					let field = ProcessMetadataField::SubtreeOutputSize;
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_process_field_u64(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.fold(node_value, |output, value| {
+							output.and_then(|output| value.map(|value| output + value))
+						});
+					if let Some(value) = value {
+						let field = ProcessMetadataField::SubtreeOutputSize;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SIZE;
+					}
+				}
+			}
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let output_solvable_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SOLVABLE) {
+				let field = ProcessMetadataField::NodeOutputSolvable;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ObjectMetadataField::SubtreeSolvable;
+					let child_values = future::try_join_all(output_objects.iter().map(|object| {
+						Self::update_get_object_field_bool(txn, subspace, object, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.try_fold(false, |output, value| value.map(|value| output || value));
+					if let Some(value) = value {
+						let field = ProcessMetadataField::NodeOutputSolvable;
+						Self::update_set_process_field_bool(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SOLVABLE;
+					}
+				}
+			}
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SOLVABLE) {
+				let field = ProcessMetadataField::SubtreeOutputSolvable;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ProcessMetadataField::NodeOutputSolvable;
+					let node_value =
+						Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+					let field = ProcessMetadataField::SubtreeOutputSolvable;
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_process_field_bool(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.fold(node_value, |output, value| {
+							output.and_then(|output| value.map(|value| output || value))
+						});
+					if let Some(value) = value {
+						let field = ProcessMetadataField::SubtreeOutputSolvable;
+						Self::update_set_process_field_bool(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SOLVABLE;
+					}
+				}
+			}
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let output_solved_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SOLVED) {
+				let field = ProcessMetadataField::NodeOutputSolved;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ObjectMetadataField::SubtreeSolved;
+					let child_values = future::try_join_all(output_objects.iter().map(|object| {
+						Self::update_get_object_field_bool(txn, subspace, object, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.try_fold(true, |output, value| value.map(|value| output && value));
+					if let Some(value) = value {
+						let field = ProcessMetadataField::NodeOutputSolved;
+						Self::update_set_process_field_bool(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_NODE_OUTPUT_SOLVED;
+					}
+				}
+			}
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SOLVED) {
+				let field = ProcessMetadataField::SubtreeOutputSolved;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ProcessMetadataField::NodeOutputSolved;
+					let node_value =
+						Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+					let field = ProcessMetadataField::SubtreeOutputSolved;
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_process_field_bool(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.copied()
+						.fold(node_value, |output, value| {
+							output.and_then(|output| value.map(|value| output && value))
+						});
+					if let Some(value) = value {
+						let field = ProcessMetadataField::SubtreeOutputSolved;
+						Self::update_set_process_field_bool(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_OUTPUT_SOLVED;
+					}
+				}
+			}
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let output_stored_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::STORED_NODE_OUTPUT) {
 				let field = ProcessStoredField::NodeOutput;
-				let node_output =
-					Self::update_get_process_field_bool(txn, subspace, id, field).await?;
-				if node_output == Some(true) {
-					let field = ProcessStoredField::SubtreeOutput;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current != Some(true) {
+					let field = ObjectStoredField::Subtree;
+					let child_values = future::try_join_all(output_objects.iter().map(|object| {
+						Self::update_get_object_field_bool(txn, subspace, object, field)
+					}))
+					.await?;
+					let value = child_values
+						.iter()
+						.all(|child| child.as_ref().is_some_and(|value| *value));
+					if value {
+						let field = ProcessStoredField::NodeOutput;
+						Self::update_set_process_field_bool(txn, subspace, id, field, true);
+						updated |= ProcessPropagateUpdateFields::STORED_NODE_OUTPUT;
+					}
+				}
+			}
+
+			if fields.contains(ProcessPropagateUpdateFields::STORED_SUBTREE_OUTPUT) {
+				let field = ProcessStoredField::SubtreeOutput;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current != Some(true) {
+					let field = ProcessStoredField::NodeOutput;
+					let node_output =
+						Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+					if node_output == Some(true) {
+						let field = ProcessStoredField::SubtreeOutput;
+						let child_values = future::try_join_all(children.iter().map(|child| {
+							Self::update_get_process_field_bool(txn, subspace, child, field)
+						}))
+						.await?;
+						let value = child_values
+							.iter()
+							.all(|child| child.as_ref().is_some_and(|value| *value));
+						if value {
+							let field = ProcessStoredField::SubtreeOutput;
+							Self::update_set_process_field_bool(txn, subspace, id, field, true);
+							updated |= ProcessPropagateUpdateFields::STORED_SUBTREE_OUTPUT;
+						}
+					}
+				}
+			}
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let subtree_count_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::METADATA_SUBTREE_COUNT) {
+				let field = ProcessMetadataField::SubtreeCount;
+				let current = Self::update_get_process_field_u64(txn, subspace, id, field).await?;
+				if current.is_none() {
+					let field = ProcessMetadataField::SubtreeCount;
+					let child_values = future::try_join_all(children.iter().map(|child| {
+						Self::update_get_process_field_u64(txn, subspace, child, field)
+					}))
+					.await?;
+					let value = child_values.iter().copied().sum::<Option<u64>>();
+					if let Some(value) = value {
+						let value = 1 + value;
+						let field = ProcessMetadataField::SubtreeCount;
+						Self::update_set_process_field_u64(txn, subspace, id, field, value);
+						updated |= ProcessPropagateUpdateFields::METADATA_SUBTREE_COUNT;
+					}
+				}
+			}
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let subtree_stored_future = async {
+			let mut updated = ProcessPropagateUpdateFields::empty();
+
+			if fields.contains(ProcessPropagateUpdateFields::STORED_SUBTREE) {
+				let field = ProcessStoredField::Subtree;
+				let current = Self::update_get_process_field_bool(txn, subspace, id, field).await?;
+				if current != Some(true) {
 					let child_values = future::try_join_all(children.iter().map(|child| {
 						Self::update_get_process_field_bool(txn, subspace, child, field)
 					}))
@@ -1858,13 +1735,95 @@ impl Index {
 						.iter()
 						.all(|child| child.as_ref().is_some_and(|value| *value));
 					if value {
-						let field = ProcessStoredField::SubtreeOutput;
 						Self::update_set_process_field_bool(txn, subspace, id, field, true);
-						updated |= ProcessPropagateUpdateFields::STORED_SUBTREE_OUTPUT;
+						updated |= ProcessPropagateUpdateFields::STORED_SUBTREE;
 					}
 				}
 			}
-		}
+
+			Ok::<_, tg::Error>(updated)
+		};
+
+		let (
+			command_count,
+			command_depth,
+			command_size,
+			command_solvable,
+			command_solved,
+			command_stored,
+			error_count,
+			error_depth,
+			error_size,
+			error_solvable,
+			error_solved,
+			error_stored,
+			log_count,
+			log_depth,
+			log_size,
+			log_solvable,
+			log_solved,
+			log_stored,
+			output_count,
+			output_depth,
+			output_size,
+			output_solvable,
+			output_solved,
+			output_stored,
+			subtree_count,
+			subtree_stored,
+		) = try_join!(
+			command_count_future,
+			command_depth_future,
+			command_size_future,
+			command_solvable_future,
+			command_solved_future,
+			command_stored_future,
+			error_count_future,
+			error_depth_future,
+			error_size_future,
+			error_solvable_future,
+			error_solved_future,
+			error_stored_future,
+			log_count_future,
+			log_depth_future,
+			log_size_future,
+			log_solvable_future,
+			log_solved_future,
+			log_stored_future,
+			output_count_future,
+			output_depth_future,
+			output_size_future,
+			output_solvable_future,
+			output_solved_future,
+			output_stored_future,
+			subtree_count_future,
+			subtree_stored_future,
+		)?;
+
+		let updated =
+			ProcessPropagateUpdateFields::empty()
+				| command_count
+				| command_depth
+				| command_size
+				| command_solvable
+				| command_solved
+				| command_stored
+				| error_count
+				| error_depth
+				| error_size | error_solvable
+				| error_solved
+				| error_stored
+				| log_count | log_depth
+				| log_size | log_solvable
+				| log_solved | log_stored
+				| output_count
+				| output_depth
+				| output_size
+				| output_solvable
+				| output_solved
+				| output_stored
+				| subtree_count
+				| subtree_stored;
 
 		Ok(updated)
 	}
