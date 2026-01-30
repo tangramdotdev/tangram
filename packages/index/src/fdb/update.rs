@@ -25,36 +25,49 @@ impl Index {
 		bytes[..8].copy_from_slice(&transaction_id.to_be_bytes());
 		bytes[8..].copy_from_slice(&0xFFFFu16.to_be_bytes());
 		let versionstamp = fdbt::Versionstamp::complete(bytes, 0);
-		let begin = Self::pack(&self.subspace, &(KeyKind::UpdateVersion.to_i32().unwrap(),));
-		let end = Self::pack(
-			&self.subspace,
-			&(KeyKind::UpdateVersion.to_i32().unwrap(), versionstamp),
-		);
-		let range = fdb::RangeOption {
-			begin: fdb::KeySelector::first_greater_or_equal(begin),
-			end: fdb::KeySelector::first_greater_or_equal(end),
-			limit: Some(1),
-			mode: fdb::options::StreamingMode::WantAll,
-			..Default::default()
-		};
 
-		let entries = txn
-			.get_range(&range, 1, false)
+		let key_kind = KeyKind::UpdateVersion.to_i32().unwrap();
+		let futures = (0..self.partition_total).map(|partition| {
+			let begin = Self::pack(&self.subspace, &(key_kind, partition));
+			let end = Self::pack(&self.subspace, &(key_kind, partition, versionstamp.clone()));
+			let range = fdb::RangeOption {
+				begin: fdb::KeySelector::first_greater_or_equal(begin),
+				end: fdb::KeySelector::first_greater_or_equal(end),
+				limit: Some(1),
+				mode: fdb::options::StreamingMode::WantAll,
+				..Default::default()
+			};
+			txn.get_range(&range, 1, false)
+		});
+		let results = future::try_join_all(futures)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check if updates are finished"))?;
-		let finished = entries.is_empty();
+		let finished = results.iter().all(|entries| entries.is_empty());
 
 		Ok(finished)
 	}
 
-	pub async fn update_batch(&self, batch_size: usize) -> tg::Result<usize> {
+	pub async fn update_batch(
+		&self,
+		batch_size: usize,
+		partition_start: u64,
+		partition_count: u64,
+	) -> tg::Result<usize> {
+		let partition_total = self.partition_total;
 		self.database
 			.run(|txn, _| {
 				let subspace = self.subspace.clone();
 				async move {
-					Self::update_batch_inner(&txn, &subspace, batch_size)
-						.await
-						.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))
+					Self::update_batch_inner(
+						&txn,
+						&subspace,
+						batch_size,
+						partition_start,
+						partition_count,
+						partition_total,
+					)
+					.await
+					.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))
 				}
 			})
 			.await
@@ -65,31 +78,48 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		batch_size: usize,
+		partition_start: u64,
+		partition_count: u64,
+		partition_total: u64,
 	) -> tg::Result<usize> {
-		let prefix = Self::pack(subspace, &(KeyKind::UpdateVersion.to_i32().unwrap(),));
-		let update_version_subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption {
-			limit: Some(batch_size),
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&update_version_subspace)
-		};
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get update version range"))?;
-		let entries = entries
-			.iter()
-			.map(|entry| {
+		let mut entries = Vec::new();
+
+		let key_kind = KeyKind::UpdateVersion.to_i32().unwrap();
+		let partition_end = partition_start.saturating_add(partition_count);
+		for partition in partition_start..partition_end {
+			let remaining = batch_size.saturating_sub(entries.len());
+			if remaining == 0 {
+				break;
+			}
+			let begin = Self::pack(subspace, &(key_kind, partition));
+			let end = Self::pack(subspace, &(key_kind, partition + 1));
+			let range = fdb::RangeOption {
+				begin: fdb::KeySelector::first_greater_or_equal(begin),
+				end: fdb::KeySelector::first_greater_or_equal(end),
+				limit: Some(remaining),
+				mode: fdb::options::StreamingMode::WantAll,
+				..Default::default()
+			};
+			let partition_entries = txn
+				.get_range(&range, 1, false)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get update version range"))?;
+			for entry in partition_entries {
 				let key = Self::unpack(subspace, entry.key())?;
-				let Key::UpdateVersion { version, id } = key else {
+				let Key::UpdateVersion {
+					partition,
+					version,
+					id,
+				} = key
+				else {
 					return Err(tg::error!("unexpected key type"));
 				};
-				Ok((version, id))
-			})
-			.collect::<tg::Result<Vec<_>>>()?;
+				entries.push((partition, version, id));
+			}
+		}
 
 		let mut count = 0;
-		for (version, id) in entries {
+		for (partition, version, id) in entries {
 			let key = Self::pack(subspace, &Key::Update { id: id.clone() });
 			let value = txn
 				.get(&key, false)
@@ -100,6 +130,7 @@ impl Index {
 				let key = Self::pack(
 					subspace,
 					&Key::UpdateVersion {
+						partition,
 						version: version.clone(),
 						id: id.clone(),
 					},
@@ -141,20 +172,52 @@ impl Index {
 				match &id {
 					tg::Either::Left(id) => {
 						let fields = ObjectPropagateUpdateFields::ALL;
-						Self::enqueue_object_parents(txn, subspace, id, fields, &version).await?;
+						Self::enqueue_object_parents(
+							txn,
+							subspace,
+							id,
+							fields,
+							&version,
+							partition_total,
+						)
+						.await?;
 					},
 					tg::Either::Right(id) => {
 						let fields = ProcessPropagateUpdateFields::ALL;
-						Self::enqueue_process_parents(txn, subspace, id, fields, &version).await?;
+						Self::enqueue_process_parents(
+							txn,
+							subspace,
+							id,
+							fields,
+							&version,
+							partition_total,
+						)
+						.await?;
 					},
 				}
 			} else {
 				match (&id, &fields) {
 					(tg::Either::Left(id), tg::Either::Left(fields)) if !fields.is_empty() => {
-						Self::enqueue_object_parents(txn, subspace, id, *fields, &version).await?;
+						Self::enqueue_object_parents(
+							txn,
+							subspace,
+							id,
+							*fields,
+							&version,
+							partition_total,
+						)
+						.await?;
 					},
 					(tg::Either::Right(id), tg::Either::Right(fields)) if !fields.is_empty() => {
-						Self::enqueue_process_parents(txn, subspace, id, *fields, &version).await?;
+						Self::enqueue_process_parents(
+							txn,
+							subspace,
+							id,
+							*fields,
+							&version,
+							partition_total,
+						)
+						.await?;
 					},
 					_ => {},
 				}
@@ -165,6 +228,7 @@ impl Index {
 			let key = Self::pack(
 				subspace,
 				&Key::UpdateVersion {
+					partition,
 					version: version.clone(),
 					id: id.clone(),
 				},
@@ -1981,16 +2045,33 @@ impl Index {
 		id: &tg::object::Id,
 		fields: ObjectPropagateUpdateFields,
 		version: &fdbt::Versionstamp,
+		partition_total: u64,
 	) -> tg::Result<()> {
 		let parents = Self::get_object_parents_with_transaction(txn, subspace, id).await?;
 		for parent in parents {
-			Self::enqueue_object_propagate(txn, subspace, &parent, fields, version).await?;
+			Self::enqueue_object_propagate(
+				txn,
+				subspace,
+				&parent,
+				fields,
+				version,
+				partition_total,
+			)
+			.await?;
 		}
 
 		let processes = Self::get_object_processes_with_transaction(txn, subspace, id).await?;
 		for (process, kind) in processes {
 			let fields = Self::object_to_process_fields(fields, kind);
-			Self::enqueue_process_propagate(txn, subspace, &process, fields, version).await?;
+			Self::enqueue_process_propagate(
+				txn,
+				subspace,
+				&process,
+				fields,
+				version,
+				partition_total,
+			)
+			.await?;
 		}
 
 		Ok(())
@@ -2002,6 +2083,7 @@ impl Index {
 		id: &tg::object::Id,
 		fields: ObjectPropagateUpdateFields,
 		version: &fdbt::Versionstamp,
+		partition_total: u64,
 	) -> tg::Result<()> {
 		let key = Self::pack(
 			subspace,
@@ -2046,9 +2128,12 @@ impl Index {
 		}));
 		let value = update.serialize()?;
 		txn.set(&key, &value);
+		let id_bytes = id.to_bytes();
+		let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
 		let key = Self::pack(
 			subspace,
 			&Key::UpdateVersion {
+				partition,
 				version: version.clone(),
 				id: tg::Either::Left(id.clone()),
 			},
@@ -2064,10 +2149,19 @@ impl Index {
 		id: &tg::process::Id,
 		fields: ProcessPropagateUpdateFields,
 		version: &fdbt::Versionstamp,
+		partition_total: u64,
 	) -> tg::Result<()> {
 		let parents = Self::get_process_parents_with_transaction(txn, subspace, id).await?;
 		for parent in parents {
-			Self::enqueue_process_propagate(txn, subspace, &parent, fields, version).await?;
+			Self::enqueue_process_propagate(
+				txn,
+				subspace,
+				&parent,
+				fields,
+				version,
+				partition_total,
+			)
+			.await?;
 		}
 		Ok(())
 	}
@@ -2078,6 +2172,7 @@ impl Index {
 		id: &tg::process::Id,
 		fields: ProcessPropagateUpdateFields,
 		version: &fdbt::Versionstamp,
+		partition_total: u64,
 	) -> tg::Result<()> {
 		let key = Self::pack(
 			subspace,
@@ -2122,9 +2217,12 @@ impl Index {
 		}));
 		let value = update.serialize()?;
 		txn.set(&key, &value);
+		let id_bytes = id.to_bytes();
+		let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
 		let key = Self::pack(
 			subspace,
 			&Key::UpdateVersion {
+				partition,
 				version: version.clone(),
 				id: tg::Either::Right(id.clone()),
 			},

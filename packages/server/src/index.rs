@@ -1,6 +1,7 @@
 use {
 	crate::{Context, Server},
 	futures::{FutureExt as _, Stream, StreamExt as _, future, stream},
+	num::ToPrimitive as _,
 	std::{panic::AssertUnwindSafe, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::{
@@ -122,12 +123,25 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn update_batch(&self, batch_size: usize) -> tg::Result<usize> {
+	async fn update_batch(
+		&self,
+		batch_size: usize,
+		partition_start: u64,
+		partition_count: u64,
+	) -> tg::Result<usize> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.update_batch(batch_size).await,
+			Self::Fdb(index) => {
+				index
+					.update_batch(batch_size, partition_start, partition_count)
+					.await
+			},
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.update_batch(batch_size).await,
+			Self::Lmdb(index) => {
+				index
+					.update_batch(batch_size, partition_start, partition_count)
+					.await
+			},
 		}
 	}
 
@@ -135,12 +149,22 @@ impl index::Index for Index {
 		&self,
 		max_touched_at: i64,
 		batch_size: usize,
+		partition_start: u64,
+		partition_count: u64,
 	) -> tg::Result<index::CleanOutput> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.clean(max_touched_at, batch_size).await,
+			Self::Fdb(index) => {
+				index
+					.clean(max_touched_at, batch_size, partition_start, partition_count)
+					.await
+			},
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.clean(max_touched_at, batch_size).await,
+			Self::Lmdb(index) => {
+				index
+					.clean(max_touched_at, batch_size, partition_start, partition_count)
+					.await
+			},
 		}
 	}
 
@@ -159,6 +183,15 @@ impl index::Index for Index {
 			Self::Fdb(index) => index.sync().await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => index.sync().await,
+		}
+	}
+
+	fn partition_total(&self) -> u64 {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.partition_total(),
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.partition_total(),
 		}
 	}
 }
@@ -287,12 +320,23 @@ impl Server {
 	}
 
 	pub(crate) async fn indexer_task(&self, config: &crate::config::Indexer) -> tg::Result<()> {
+		let partition_start = config.partition_start;
+		let partition_count = config.partition_count;
+		let concurrency = config.concurrency.to_u64().unwrap();
 		loop {
-			let futures =
-				(0..config.concurrency).map(|_| self.index.update_batch(config.batch_size));
+			let futures = (0..config.concurrency).map(|task_index| {
+				let task_index = task_index.to_u64().unwrap();
+				let partitions_per_task = partition_count / concurrency;
+				let extra = partition_count % concurrency;
+				let task_start =
+					partition_start + task_index * partitions_per_task + task_index.min(extra);
+				let task_count = partitions_per_task + u64::from(task_index < extra);
+				self.index
+					.update_batch(config.batch_size, task_start, task_count)
+			});
 			let result = future::try_join_all(futures)
 				.await
-				.map(|counts| counts.into_iter().sum());
+				.map(|counts| counts.into_iter().sum::<usize>());
 			match result {
 				Ok(0) => {
 					tokio::time::sleep(Duration::from_millis(100)).await;

@@ -103,8 +103,13 @@ impl Server {
 			None,
 		);
 
+		// For manual cleaning, process all partitions.
+		let partition_total = self.index.partition_total();
 		loop {
-			let inner_output = match self.cleaner_task_inner(now, ttl, batch_size).await {
+			let inner_output = match self
+				.cleaner_task_inner(now, ttl, batch_size, 0, partition_total)
+				.await
+			{
 				Ok(inner_output) => inner_output,
 				Err(error) => {
 					progress.error(error);
@@ -133,11 +138,23 @@ impl Server {
 	}
 
 	pub(crate) async fn cleaner_task(&self, config: &crate::config::Cleaner) -> tg::Result<()> {
+		let partition_start = config.partition_start;
+		let partition_count = config.partition_count;
+		let concurrency = config.concurrency.to_u64().unwrap();
 		loop {
 			let now = time::OffsetDateTime::now_utc().unix_timestamp();
 			let ttl = config.ttl;
 			let n = config.batch_size;
-			let futures = (0..config.concurrency).map(|_| self.cleaner_task_inner(now, ttl, n));
+
+			let futures = (0..config.concurrency).map(|task_index| {
+				let task_index = task_index.to_u64().unwrap();
+				let partitions_per_task = partition_count / concurrency;
+				let extra = partition_count % concurrency;
+				let task_start =
+					partition_start + task_index * partitions_per_task + task_index.min(extra);
+				let task_count = partitions_per_task + u64::from(task_index < extra);
+				self.cleaner_task_inner(now, ttl, n, task_start, task_count)
+			});
 			let result = future::try_join_all(futures).await;
 			match result {
 				Ok(outputs) => {
@@ -158,11 +175,16 @@ impl Server {
 		now: i64,
 		ttl: Duration,
 		n: usize,
+		partition_start: u64,
+		partition_count: u64,
 	) -> tg::Result<tangram_index::CleanOutput> {
 		let max_touched_at = now - ttl.as_secs().to_i64().unwrap();
 
 		// Clean.
-		let output = self.index.clean(max_touched_at, n).await?;
+		let output = self
+			.index
+			.clean(max_touched_at, n, partition_start, partition_count)
+			.await?;
 
 		// Delete cache entries.
 		tokio::task::spawn_blocking({

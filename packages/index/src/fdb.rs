@@ -16,12 +16,14 @@ mod update;
 
 pub struct Index {
 	database: Arc<fdb::Database>,
+	partition_total: u64,
 	subspace: fdbt::Subspace,
 	put_sender: mpsc::UnboundedSender<self::put::Request>,
 }
 
 pub struct Options {
 	pub cluster: std::path::PathBuf,
+	pub partition_total: u64,
 	pub prefix: Option<String>,
 	pub put_concurrency: usize,
 	pub put_max_keys_per_transaction: usize,
@@ -87,10 +89,12 @@ enum Key {
 		id: tg::Either<tg::object::Id, tg::process::Id>,
 	},
 	UpdateVersion {
+		partition: u64,
 		version: fdbt::Versionstamp,
 		id: tg::Either<tg::object::Id, tg::process::Id>,
 	},
 	Clean {
+		partition: u64,
 		touched_at: i64,
 		kind: ItemKind,
 		id: tg::Either<tg::object::Id, tg::process::Id>,
@@ -466,6 +470,8 @@ impl Index {
 			None => fdbt::Subspace::all(),
 		};
 
+		let partition_total = options.partition_total;
+
 		let (put_sender, put_receiver) = mpsc::unbounded_channel();
 		let put_concurrency = options.put_concurrency;
 		let put_max_keys_per_transaction = options.put_max_keys_per_transaction;
@@ -479,6 +485,7 @@ impl Index {
 					put_receiver,
 					put_concurrency,
 					put_max_keys_per_transaction,
+					partition_total,
 				)
 				.await;
 			}
@@ -486,11 +493,20 @@ impl Index {
 
 		let index = Self {
 			database,
+			partition_total,
 			subspace,
 			put_sender,
 		};
 
 		Ok(index)
+	}
+
+	fn partition_for_id(id_bytes: &[u8], partition_total: u64) -> u64 {
+		let len = id_bytes.len();
+		let start = len.saturating_sub(8);
+		let mut bytes = [0u8; 8];
+		bytes[8 - (len - start)..].copy_from_slice(&id_bytes[start..]);
+		u64::from_be_bytes(bytes) % partition_total
 	}
 
 	fn pack<T: fdbt::TuplePack>(subspace: &fdbt::Subspace, key: &T) -> Vec<u8> {
@@ -587,12 +603,29 @@ impl crate::Index for Index {
 		self.updates_finished(transaction_id).await
 	}
 
-	async fn update_batch(&self, batch_size: usize) -> tg::Result<usize> {
-		self.update_batch(batch_size).await
+	async fn update_batch(
+		&self,
+		batch_size: usize,
+		partition_start: u64,
+		partition_count: u64,
+	) -> tg::Result<usize> {
+		self.update_batch(batch_size, partition_start, partition_count)
+			.await
 	}
 
-	async fn clean(&self, max_touched_at: i64, batch_size: usize) -> tg::Result<CleanOutput> {
-		self.clean(max_touched_at, batch_size).await
+	async fn clean(
+		&self,
+		max_touched_at: i64,
+		batch_size: usize,
+		partition_start: u64,
+		partition_count: u64,
+	) -> tg::Result<CleanOutput> {
+		self.clean(max_touched_at, batch_size, partition_start, partition_count)
+			.await
+	}
+
+	fn partition_total(&self) -> u64 {
+		self.partition_total
 	}
 
 	async fn get_transaction_id(&self) -> tg::Result<u64> {
@@ -726,11 +759,16 @@ impl fdbt::TuplePack for Key {
 				id.as_ref().pack(w, tuple_depth)
 			},
 
-			Key::UpdateVersion { version, id } => {
+			Key::UpdateVersion {
+				partition,
+				version,
+				id,
+			} => {
 				let mut offset = KeyKind::UpdateVersion
 					.to_i32()
 					.unwrap()
 					.pack(w, tuple_depth)?;
+				offset += partition.pack(w, tuple_depth)?;
 				offset += version.pack(w, tuple_depth)?;
 				let id = match &id {
 					tg::Either::Left(id) => id.to_bytes(),
@@ -741,11 +779,13 @@ impl fdbt::TuplePack for Key {
 			},
 
 			Key::Clean {
+				partition,
 				touched_at,
 				kind,
 				id,
 			} => {
 				KeyKind::Clean.to_i32().unwrap().pack(w, tuple_depth)?;
+				partition.pack(w, tuple_depth)?;
 				touched_at.pack(w, tuple_depth)?;
 				kind.to_i32().unwrap().pack(w, tuple_depth)?;
 				let id = match &id {
@@ -831,13 +871,11 @@ impl fdbt::TupleUnpack<'_> for Key {
 					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
 				let cache_entry = tg::artifact::Id::from_slice(&cache_entry_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
-				Ok((
-					input,
-					Key::ObjectCacheEntry {
-						object,
-						cache_entry,
-					},
-				))
+				let key = Key::ObjectCacheEntry {
+					object,
+					cache_entry,
+				};
+				Ok((input, key))
 			},
 
 			KeyKind::CacheEntryObject => {
@@ -849,13 +887,11 @@ impl fdbt::TupleUnpack<'_> for Key {
 					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
 				let object = tg::object::Id::from_slice(&object_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
-				Ok((
-					input,
-					Key::CacheEntryObject {
-						cache_entry,
-						object,
-					},
-				))
+				let key = Key::CacheEntryObject {
+					cache_entry,
+					object,
+				};
+				Ok((input, key))
 			},
 
 			KeyKind::ProcessChild => {
@@ -892,14 +928,12 @@ impl fdbt::TupleUnpack<'_> for Key {
 					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
 				let object = tg::object::Id::from_slice(&object_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
-				Ok((
-					input,
-					Key::ProcessObject {
-						process,
-						kind,
-						object,
-					},
-				))
+				let key = Key::ProcessObject {
+					process,
+					kind,
+					object,
+				};
+				Ok((input, key))
 			},
 
 			KeyKind::ObjectProcess => {
@@ -912,14 +946,12 @@ impl fdbt::TupleUnpack<'_> for Key {
 					.map_err(|_| fdbt::PackError::Message("invalid object id".into()))?;
 				let process = tg::process::Id::from_slice(&process_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-				Ok((
-					input,
-					Key::ObjectProcess {
-						object,
-						kind,
-						process,
-					},
-				))
+				let key = Key::ObjectProcess {
+					object,
+					kind,
+					process,
+				};
+				Ok((input, key))
 			},
 
 			KeyKind::ItemTag => {
@@ -943,6 +975,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 			},
 
 			KeyKind::UpdateVersion => {
+				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, version) = fdbt::Versionstamp::unpack(input, tuple_depth)?;
 				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let id = tg::Id::from_slice(&id)
@@ -954,10 +987,16 @@ impl fdbt::TupleUnpack<'_> for Key {
 				} else {
 					return Err(fdbt::PackError::Message("invalid id".into()));
 				};
-				Ok((input, Key::UpdateVersion { version, id }))
+				let key = Key::UpdateVersion {
+					partition,
+					version,
+					id,
+				};
+				Ok((input, key))
 			},
 
 			KeyKind::Clean => {
+				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, touched_at): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, kind): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let kind = ItemKind::from_i32(kind)
@@ -974,6 +1013,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 					return Err(fdbt::PackError::Message("invalid id".into()));
 				};
 				let key = Key::Clean {
+					partition,
 					touched_at,
 					kind,
 					id,

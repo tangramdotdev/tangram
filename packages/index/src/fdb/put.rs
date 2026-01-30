@@ -64,6 +64,7 @@ impl Index {
 		mut receiver: tokio::sync::mpsc::UnboundedReceiver<Request>,
 		concurrency: usize,
 		max_keys_per_transaction: usize,
+		partition_total: u64,
 	) {
 		futures::stream::unfold(&mut receiver, |receiver| async move {
 			let request = receiver.recv().await?;
@@ -79,7 +80,9 @@ impl Index {
 			let database = database.clone();
 			let subspace = subspace.clone();
 			async move {
-				let result = Self::put_task_put_batch(&database, &subspace, &batch.arg).await;
+				let result =
+					Self::put_task_put_batch(&database, &subspace, &batch.arg, partition_total)
+						.await;
 				for tracker in batch.trackers {
 					let mut state = tracker.lock().unwrap();
 					if let Err(error) = &result {
@@ -241,6 +244,7 @@ impl Index {
 		database: &fdb::Database,
 		subspace: &fdbt::Subspace,
 		arg: &PutArg,
+		partition_total: u64,
 	) -> tg::Result<()> {
 		database
 			.run(|txn, _| {
@@ -248,13 +252,13 @@ impl Index {
 				let arg = arg.clone();
 				async move {
 					for cache_entry in &arg.cache_entries {
-						Self::put_cache_entry(&txn, &subspace, cache_entry);
+						Self::put_cache_entry(&txn, &subspace, cache_entry, partition_total);
 					}
 					for object in &arg.objects {
-						Self::put_object(&txn, &subspace, object);
+						Self::put_object(&txn, &subspace, object, partition_total);
 					}
 					for process in &arg.processes {
-						Self::put_process(&txn, &subspace, process);
+						Self::put_process(&txn, &subspace, process, partition_total);
 					}
 					Ok::<_, fdb::FdbBindingError>(())
 				}
@@ -263,7 +267,12 @@ impl Index {
 			.map_err(|source| tg::error!(!source, "failed to put"))
 	}
 
-	fn put_cache_entry(txn: &fdb::Transaction, subspace: &fdbt::Subspace, arg: &PutCacheEntryArg) {
+	fn put_cache_entry(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		arg: &PutCacheEntryArg,
+		partition_total: u64,
+	) {
 		let id = &arg.id;
 
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
@@ -286,9 +295,12 @@ impl Index {
 			fdb::options::MutationType::Max,
 		);
 
+		let id_bytes = id.to_bytes();
+		let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
 		let key = Key::Clean {
+			partition,
 			touched_at: arg.touched_at,
 			kind: ItemKind::CacheEntry,
 			id: tg::Either::Left(arg.id.clone().into()),
@@ -297,7 +309,12 @@ impl Index {
 		txn.set(&key, &[]);
 	}
 
-	fn put_object(txn: &fdb::Transaction, subspace: &fdbt::Subspace, arg: &PutObjectArg) {
+	fn put_object(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		arg: &PutObjectArg,
+		partition_total: u64,
+	) {
 		let id = &arg.id;
 
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
@@ -461,9 +478,12 @@ impl Index {
 			txn.set(&key, &[]);
 		}
 
+		let id_bytes = id.to_bytes();
+		let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
 		let key = Key::Clean {
+			partition,
 			touched_at: arg.touched_at,
 			kind: ItemKind::Object,
 			id: tg::Either::Left(id.clone()),
@@ -471,10 +491,20 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		txn.set(&key, &[]);
 
-		Self::enqueue_put_update(txn, subspace, &tg::Either::Left(id.clone()));
+		Self::enqueue_put_update(
+			txn,
+			subspace,
+			&tg::Either::Left(id.clone()),
+			partition_total,
+		);
 	}
 
-	fn put_process(txn: &fdb::Transaction, subspace: &fdbt::Subspace, arg: &PutProcessArg) {
+	fn put_process(
+		txn: &fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		arg: &PutProcessArg,
+		partition_total: u64,
+	) {
 		let id = &arg.id;
 
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
@@ -706,9 +736,12 @@ impl Index {
 			txn.set(&key, &[]);
 		}
 
+		let id_bytes = id.to_bytes();
+		let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
 		let key = Key::Clean {
+			partition,
 			touched_at: arg.touched_at,
 			kind: ItemKind::Process,
 			id: tg::Either::Right(id.clone()),
@@ -716,7 +749,12 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		txn.set(&key, &[]);
 
-		Self::enqueue_put_update(txn, subspace, &tg::Either::Right(id.clone()));
+		Self::enqueue_put_update(
+			txn,
+			subspace,
+			&tg::Either::Right(id.clone()),
+			partition_total,
+		);
 	}
 
 	fn put_process_object_metadata(
@@ -803,6 +841,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		partition_total: u64,
 	) {
 		let key = Self::pack(subspace, &Key::Update { id: id.clone() });
 		let value = Update::Put.serialize().unwrap();
@@ -814,10 +853,12 @@ impl Index {
 			tg::Either::Left(id) => id.to_bytes(),
 			tg::Either::Right(id) => id.to_bytes(),
 		};
+		let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
 		let key = Self::pack_with_versionstamp(
 			subspace,
 			&(
 				KeyKind::UpdateVersion.to_i32().unwrap(),
+				partition,
 				fdbt::Versionstamp::incomplete(0),
 				id_bytes.as_ref(),
 			),

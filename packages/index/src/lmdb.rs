@@ -384,20 +384,42 @@ impl crate::Index for Index {
 		self.updates_finished(transaction_id).await
 	}
 
-	async fn update_batch(&self, batch_size: usize) -> tg::Result<usize> {
-		self.update_batch(batch_size).await
+	async fn update_batch(
+		&self,
+		batch_size: usize,
+		partition_start: u64,
+		partition_count: u64,
+	) -> tg::Result<usize> {
+		Index::update_batch(self, batch_size, partition_start, partition_count).await
 	}
 
 	async fn get_transaction_id(&self) -> tg::Result<u64> {
 		self.get_transaction_id().await
 	}
 
-	async fn clean(&self, max_touched_at: i64, batch_size: usize) -> tg::Result<CleanOutput> {
-		self.clean(max_touched_at, batch_size).await
+	async fn clean(
+		&self,
+		max_touched_at: i64,
+		batch_size: usize,
+		partition_start: u64,
+		partition_count: u64,
+	) -> tg::Result<CleanOutput> {
+		Index::clean(
+			self,
+			max_touched_at,
+			batch_size,
+			partition_start,
+			partition_count,
+		)
+		.await
 	}
 
 	async fn sync(&self) -> tg::Result<()> {
 		self.sync().await
+	}
+
+	fn partition_total(&self) -> u64 {
+		1
 	}
 }
 

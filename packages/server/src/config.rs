@@ -147,6 +147,8 @@ pub struct CheckinDirectory {
 pub struct Cleaner {
 	pub batch_size: usize,
 	pub concurrency: usize,
+	pub partition_count: u64,
+	pub partition_start: u64,
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub ttl: Duration,
 }
@@ -201,6 +203,7 @@ pub enum Index {
 #[serde(deny_unknown_fields, default)]
 pub struct FdbIndex {
 	pub cluster: PathBuf,
+	pub partition_total: u64,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub prefix: Option<String>,
 	pub put_concurrency: usize,
@@ -219,6 +222,8 @@ pub struct LmdbIndex {
 pub struct Indexer {
 	pub batch_size: usize,
 	pub concurrency: usize,
+	pub partition_count: u64,
+	pub partition_start: u64,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -543,6 +548,8 @@ impl Default for Cleaner {
 		Self {
 			batch_size: 1024,
 			concurrency: 1,
+			partition_count: 256,
+			partition_start: 0,
 			ttl: Duration::from_secs(86400),
 		}
 	}
@@ -585,8 +592,9 @@ impl Default for FdbIndex {
 	fn default() -> Self {
 		Self {
 			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
+			partition_total: 256,
 			prefix: None,
-			put_concurrency: 64,
+			put_concurrency: 256,
 			put_max_keys_per_transaction: 8_000,
 		}
 	}
@@ -612,6 +620,8 @@ impl Default for Indexer {
 		Self {
 			batch_size: 1024,
 			concurrency: 1,
+			partition_count: 256,
+			partition_start: 0,
 		}
 	}
 }

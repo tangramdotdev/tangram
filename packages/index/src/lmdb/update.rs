@@ -37,7 +37,12 @@ impl Index {
 		.map_err(|source| tg::error!(!source, "failed to join the task"))?
 	}
 
-	pub async fn update_batch(&self, batch_size: usize) -> tg::Result<usize> {
+	pub async fn update_batch(
+		&self,
+		batch_size: usize,
+		_partition_start: u64,
+		_partition_count: u64,
+	) -> tg::Result<usize> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Update { batch_size };
 		self.sender_low

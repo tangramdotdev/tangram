@@ -82,17 +82,26 @@ pub trait Index {
 		transaction_id: u64,
 	) -> impl Future<Output = tg::Result<bool>> + Send;
 
-	fn update_batch(&self, batch_size: usize) -> impl Future<Output = tg::Result<usize>> + Send;
+	fn update_batch(
+		&self,
+		batch_size: usize,
+		partition_start: u64,
+		partition_count: u64,
+	) -> impl Future<Output = tg::Result<usize>> + Send;
 
 	fn clean(
 		&self,
 		max_touched_at: i64,
 		batch_size: usize,
+		partition_start: u64,
+		partition_count: u64,
 	) -> impl Future<Output = tg::Result<CleanOutput>> + Send;
 
 	fn get_transaction_id(&self) -> impl Future<Output = tg::Result<u64>> + Send;
 
 	fn sync(&self) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn partition_total(&self) -> u64;
 }
 
 #[derive(

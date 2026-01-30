@@ -12,12 +12,13 @@ impl Index {
 		if args.is_empty() {
 			return Ok(());
 		}
+		let partition_total = self.partition_total;
 		self.database
 			.run(|txn, _| {
 				let subspace = self.subspace.clone();
 				let tags = args.to_vec();
 				async move {
-					Self::put_tags_inner(&txn, &subspace, &tags)
+					Self::put_tags_inner(&txn, &subspace, &tags, partition_total)
 						.await
 						.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))
 				}
@@ -30,9 +31,10 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		args: &[PutTagArg],
+		partition_total: u64,
 	) -> tg::Result<()> {
 		for arg in args {
-			Self::put_tag(txn, subspace, arg).await?;
+			Self::put_tag(txn, subspace, arg, partition_total).await?;
 		}
 		Ok(())
 	}
@@ -41,6 +43,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		arg: &PutTagArg,
+		partition_total: u64,
 	) -> tg::Result<()> {
 		let key = Key::Tag {
 			tag: arg.tag.clone(),
@@ -77,10 +80,12 @@ impl Index {
 
 			match &item {
 				tg::Either::Left(id) => {
-					Self::decrement_object_reference_count(txn, subspace, id).await?;
+					Self::decrement_object_reference_count(txn, subspace, id, partition_total)
+						.await?;
 				},
 				tg::Either::Right(id) => {
-					Self::decrement_process_reference_count(txn, subspace, id).await?;
+					Self::decrement_process_reference_count(txn, subspace, id, partition_total)
+						.await?;
 				},
 			}
 		}
@@ -112,12 +117,13 @@ impl Index {
 		if tags.is_empty() {
 			return Ok(());
 		}
+		let partition_total = self.partition_total;
 		self.database
 			.run(|txn, _| {
 				let subspace = self.subspace.clone();
 				let tags = tags.to_vec();
 				async move {
-					Self::delete_tags_inner(&txn, &subspace, &tags)
+					Self::delete_tags_inner(&txn, &subspace, &tags, partition_total)
 						.await
 						.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))
 				}
@@ -130,14 +136,20 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		tags: &[String],
+		partition_total: u64,
 	) -> tg::Result<()> {
 		for tag in tags {
-			Self::delete_tag(txn, subspace, tag).await?;
+			Self::delete_tag(txn, subspace, tag, partition_total).await?;
 		}
 		Ok(())
 	}
 
-	async fn delete_tag(txn: &fdb::Transaction, subspace: &Subspace, tag: &str) -> tg::Result<()> {
+	async fn delete_tag(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		tag: &str,
+		partition_total: u64,
+	) -> tg::Result<()> {
 		let key = Self::pack(
 			subspace,
 			&Key::Tag {
@@ -164,9 +176,9 @@ impl Index {
 		txn.clear(&key);
 
 		if let Ok(id) = tg::object::Id::from_slice(&item) {
-			Self::decrement_object_reference_count(txn, subspace, &id).await?;
+			Self::decrement_object_reference_count(txn, subspace, &id, partition_total).await?;
 		} else if let Ok(id) = tg::process::Id::from_slice(&item) {
-			Self::decrement_process_reference_count(txn, subspace, &id).await?;
+			Self::decrement_process_reference_count(txn, subspace, &id, partition_total).await?;
 		} else {
 			return Err(tg::error!("failed to parse tag item"));
 		}

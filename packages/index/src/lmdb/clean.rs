@@ -20,7 +20,13 @@ enum Item {
 }
 
 impl Index {
-	pub async fn clean(&self, max_touched_at: i64, batch_size: usize) -> tg::Result<CleanOutput> {
+	pub async fn clean(
+		&self,
+		max_touched_at: i64,
+		batch_size: usize,
+		_partition_start: u64,
+		_partition_count: u64,
+	) -> tg::Result<CleanOutput> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Clean {
 			max_touched_at,

@@ -12,6 +12,7 @@ use {
 };
 
 struct Candidate {
+	partition: u64,
 	touched_at: i64,
 	item: Item,
 }
@@ -24,53 +25,76 @@ enum Item {
 }
 
 impl Index {
-	pub async fn clean(&self, max_touched_at: i64, batch_size: usize) -> tg::Result<CleanOutput> {
+	pub async fn clean(
+		&self,
+		max_touched_at: i64,
+		batch_size: usize,
+		partition_start: u64,
+		partition_count: u64,
+	) -> tg::Result<CleanOutput> {
+		let partition_total = self.partition_total;
 		self.database
 			.run(|txn, _| {
 				let subspace = self.subspace.clone();
 				async move {
-					Self::clean_inner(&txn, &subspace, max_touched_at, batch_size)
-						.await
-						.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))
+					Self::clean_inner(
+						&txn,
+						&subspace,
+						max_touched_at,
+						batch_size,
+						partition_start,
+						partition_count,
+						partition_total,
+					)
+					.await
+					.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))
 				}
 			})
 			.await
 			.map_err(|source| tg::error!(!source, "failed to run clean transaction"))
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	async fn clean_inner(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		max_touched_at: i64,
 		batch_size: usize,
+		partition_start: u64,
+		partition_count: u64,
+		partition_total: u64,
 	) -> tg::Result<CleanOutput> {
 		txn.set_option(fdb::options::TransactionOption::PriorityBatch)
 			.unwrap();
 
 		let mut output = CleanOutput::default();
+		let mut candidates = Vec::new();
 
-		let begin = Self::pack(subspace, &(KeyKind::Clean.to_i32().unwrap(), 0));
-		let end = Self::pack(
-			subspace,
-			&(KeyKind::Clean.to_i32().unwrap(), max_touched_at + 1),
-		);
-		let range = fdb::RangeOption {
-			begin: fdb::KeySelector::first_greater_or_equal(&begin),
-			end: fdb::KeySelector::first_greater_or_equal(&end),
-			limit: Some(batch_size),
-			mode: fdb::options::StreamingMode::WantAll,
-			..Default::default()
-		};
-		let entries = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get range"))?;
-		let candidates = entries
-			.iter()
-			.map(|entry| {
+		let key_kind = KeyKind::Clean.to_i32().unwrap();
+		let partition_end = partition_start.saturating_add(partition_count);
+		for partition in partition_start..partition_end {
+			let begin = Self::pack(subspace, &(key_kind, partition, 0i64));
+			let end = Self::pack(subspace, &(key_kind, partition, max_touched_at + 1));
+			let remaining = batch_size.saturating_sub(candidates.len());
+			if remaining == 0 {
+				break;
+			}
+			let range = fdb::RangeOption {
+				begin: fdb::KeySelector::first_greater_or_equal(&begin),
+				end: fdb::KeySelector::first_greater_or_equal(&end),
+				limit: Some(remaining),
+				mode: fdb::options::StreamingMode::WantAll,
+				..Default::default()
+			};
+			let entries = txn
+				.get_range(&range, 1, false)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get range"))?;
+			for entry in &entries {
 				let key = Self::unpack(subspace, entry.key())
 					.map_err(|source| tg::error!(!source, "failed to unpack key"))?;
 				let Key::Clean {
+					partition,
 					touched_at,
 					kind,
 					id,
@@ -100,9 +124,13 @@ impl Index {
 						Item::Process(process_id)
 					},
 				};
-				Ok(Candidate { touched_at, item })
-			})
-			.collect::<tg::Result<Vec<_>>>()?;
+				candidates.push(Candidate {
+					partition,
+					touched_at,
+					item,
+				});
+			}
+		}
 
 		for candidate in &candidates {
 			let reference_count = match &candidate.item {
@@ -118,7 +146,7 @@ impl Index {
 			if reference_count > 0 {
 				Self::set_reference_count(txn, subspace, &candidate.item, reference_count);
 			} else {
-				Self::delete_item(txn, subspace, &candidate.item).await?;
+				Self::delete_item(txn, subspace, &candidate.item, partition_total).await?;
 				match &candidate.item {
 					Item::CacheEntry(id) => output.cache_entries.push(id.clone()),
 					Item::Object(id) => output.objects.push(id.clone()),
@@ -132,6 +160,7 @@ impl Index {
 				Item::Process(id) => (ItemKind::Process, tg::Either::Right(id.clone())),
 			};
 			let key = Key::Clean {
+				partition: candidate.partition,
 				touched_at: candidate.touched_at,
 				kind,
 				id,
@@ -309,11 +338,12 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		item: &Item,
+		partition_total: u64,
 	) -> tg::Result<()> {
 		match item {
 			Item::CacheEntry(id) => Self::delete_cache_entry(txn, subspace, id).await,
-			Item::Object(id) => Self::delete_object(txn, subspace, id).await,
-			Item::Process(id) => Self::delete_process(txn, subspace, id).await,
+			Item::Object(id) => Self::delete_object(txn, subspace, id, partition_total).await,
+			Item::Process(id) => Self::delete_process(txn, subspace, id, partition_total).await,
 		}
 	}
 
@@ -337,6 +367,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
+		partition_total: u64,
 	) -> tg::Result<()> {
 		let key = Key::Object {
 			id: id.clone(),
@@ -394,7 +425,7 @@ impl Index {
 			txn.clear(&key);
 		}
 		for child in children {
-			Self::decrement_object_reference_count(txn, subspace, &child).await?;
+			Self::decrement_object_reference_count(txn, subspace, &child, partition_total).await?;
 		}
 
 		if let Some(cache_entry) = &cache_entry {
@@ -412,7 +443,13 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 
-			Self::decrement_cache_entry_reference_count(txn, subspace, cache_entry).await?;
+			Self::decrement_cache_entry_reference_count(
+				txn,
+				subspace,
+				cache_entry,
+				partition_total,
+			)
+			.await?;
 		}
 
 		Ok(())
@@ -422,6 +459,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
+		partition_total: u64,
 	) -> tg::Result<()> {
 		let id_bytes = id.to_bytes();
 
@@ -464,7 +502,7 @@ impl Index {
 			txn.clear(&key);
 		}
 		for child in children {
-			Self::decrement_process_reference_count(txn, subspace, &child).await?;
+			Self::decrement_process_reference_count(txn, subspace, &child, partition_total).await?;
 		}
 
 		let prefix = (KeyKind::ProcessObject.to_i32().unwrap(), id_bytes.as_ref());
@@ -501,7 +539,7 @@ impl Index {
 			txn.clear(&key);
 		}
 		for (object, _) in object_processes {
-			Self::decrement_object_reference_count(txn, subspace, &object).await?;
+			Self::decrement_object_reference_count(txn, subspace, &object, partition_total).await?;
 		}
 
 		Ok(())
@@ -511,6 +549,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::artifact::Id,
+		partition_total: u64,
 	) -> tg::Result<()> {
 		let key = Key::CacheEntry {
 			id: id.clone(),
@@ -548,7 +587,10 @@ impl Index {
 				.transpose()?
 				.unwrap_or(0);
 
+			let id_bytes = id.to_bytes();
+			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
 			let key = Key::Clean {
+				partition,
 				touched_at,
 				kind: ItemKind::CacheEntry,
 				id: tg::Either::Left(id.clone().into()),
@@ -563,6 +605,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::object::Id,
+		partition_total: u64,
 	) -> tg::Result<()> {
 		let key = Key::Object {
 			id: id.clone(),
@@ -600,7 +643,10 @@ impl Index {
 				.transpose()?
 				.unwrap_or(0);
 
+			let id_bytes = id.to_bytes();
+			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
 			let key = Key::Clean {
+				partition,
 				touched_at,
 				kind: ItemKind::Object,
 				id: tg::Either::Left(id.clone()),
@@ -615,6 +661,7 @@ impl Index {
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::process::Id,
+		partition_total: u64,
 	) -> tg::Result<()> {
 		let key = Key::Process {
 			id: id.clone(),
@@ -652,7 +699,10 @@ impl Index {
 				.transpose()?
 				.unwrap_or(0);
 
+			let id_bytes = id.to_bytes();
+			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
 			let key = Key::Clean {
+				partition,
 				touched_at,
 				kind: ItemKind::Process,
 				id: tg::Either::Right(id.clone()),

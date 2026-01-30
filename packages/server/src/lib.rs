@@ -350,6 +350,7 @@ impl Server {
 				{
 					let options = tangram_index::fdb::Options {
 						cluster: options.cluster.clone(),
+						partition_total: options.partition_total,
 						prefix: options.prefix.clone(),
 						put_concurrency: options.put_concurrency,
 						put_max_keys_per_transaction: options.put_max_keys_per_transaction,
