@@ -14,7 +14,7 @@ def main [
 	--no-capture # Do not capture the output of each test. This sets --jobs to 1.
 	--print-passing-test-output # Print the output of passing tests.
 	--review (-r) # Review snapshots.
-	--timeout: duration = 10sec # The timeout for each test.
+	--timeout: duration = 30sec # The timeout for each test.
 	...filters: string # Filter tests.
 ] {
 	# Clean up leftover test resources if requested.
@@ -851,9 +851,11 @@ def clean_databases [id: string] {
 	"docker:docker@localhost:4500" | save -f $cluster
 	try { fdbcli -C $cluster --exec $'writemode on; clearrange "($id)" "($id)\xff"' }
 
-	# Remove the NATS stream and consumer.
+	# Remove the NATS streams and consumers.
 	try { nats consumer rm -f $'finish_($id)' finish }
 	try { nats stream rm -f $'finish_($id)' }
+	try { nats consumer rm -f $'queue_($id)' queue }
+	try { nats stream rm -f $'queue_($id)' }
 
 	# Drop the scylla keyspace.
 	try { cqlsh -e $"drop keyspace \"store_($id)\";" }

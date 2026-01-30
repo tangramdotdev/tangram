@@ -25,7 +25,7 @@ impl Index {
 
 		let outputs = futures::future::try_join_all(
 			ids.iter()
-				.map(|id| self.try_get_object_with_transaction(&txn, id)),
+				.map(|id| Self::try_get_object_with_transaction(&txn, &self.subspace, id)),
 		)
 		.await?;
 
@@ -47,19 +47,21 @@ impl Index {
 
 		let outputs = futures::future::try_join_all(
 			ids.iter()
-				.map(|id| self.try_get_process_with_transaction(&txn, id)),
+				.map(|id| Self::try_get_process_with_transaction(&txn, &self.subspace, id)),
 		)
 		.await?;
 
 		Ok(outputs)
 	}
 
-	pub async fn try_get_object_with_transaction(
-		&self,
+	pub(super) async fn try_get_object_with_transaction(
 		txn: &fdb::Transaction,
+		subspace: &Subspace,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<Object>> {
-		let prefix = self.pack(&(KeyKind::Object.to_i32().unwrap(), id.to_bytes().as_ref()));
+		let bytes = id.to_bytes();
+		let key = (KeyKind::Object.to_i32().unwrap(), bytes.as_ref());
+		let prefix = Self::pack(subspace, &key);
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
@@ -71,10 +73,11 @@ impl Index {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to scan object fields"))?;
 
-		let exists_key = self.pack(&Key::Object {
+		let key = Key::Object {
 			id: id.clone(),
 			field: ObjectField::Core(ObjectCoreField::Exists),
-		});
+		};
+		let exists_key = Self::pack(subspace, &key);
 		let mut exists_key_end = exists_key.clone();
 		exists_key_end.push(0x00);
 		txn.add_conflict_range(
@@ -92,7 +95,7 @@ impl Index {
 		let mut stored = ObjectStored::default();
 
 		for entry in entries {
-			let Key::Object { field, .. } = self.unpack(entry.key())? else {
+			let Key::Object { field, .. } = Self::unpack(subspace, entry.key())? else {
 				return Err(tg::error!("unexpected key type"));
 			};
 			let value = entry.value();
@@ -146,12 +149,14 @@ impl Index {
 		}))
 	}
 
-	pub async fn try_get_process_with_transaction(
-		&self,
+	pub(super) async fn try_get_process_with_transaction(
 		txn: &fdb::Transaction,
+		subspace: &Subspace,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<Process>> {
-		let prefix = self.pack(&(KeyKind::Process.to_i32().unwrap(), id.to_bytes().as_ref()));
+		let bytes = id.to_bytes();
+		let key = (KeyKind::Process.to_i32().unwrap(), bytes.as_ref());
+		let prefix = Self::pack(subspace, &key);
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
@@ -163,10 +168,11 @@ impl Index {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to scan process fields"))?;
 
-		let exists_key = self.pack(&Key::Process {
+		let key = Key::Process {
 			id: id.clone(),
 			field: ProcessField::Core(ProcessCoreField::Exists),
-		});
+		};
+		let exists_key = Self::pack(subspace, &key);
 		let mut exists_key_end = exists_key.clone();
 		exists_key_end.push(0x00);
 		txn.add_conflict_range(
@@ -183,7 +189,7 @@ impl Index {
 		let mut stored = ProcessStored::default();
 
 		for entry in entries {
-			let Key::Process { field, .. } = self.unpack(entry.key())? else {
+			let Key::Process { field, .. } = Self::unpack(subspace, entry.key())? else {
 				return Err(tg::error!("unexpected key type"));
 			};
 			let value = entry.value();
@@ -522,16 +528,17 @@ impl Index {
 	}
 
 	pub(super) async fn get_object_children_with_transaction(
-		&self,
 		txn: &fdb::Transaction,
+		subspace: &Subspace,
 		id: &tg::object::Id,
 	) -> tg::Result<Vec<tg::object::Id>> {
 		let bytes = id.to_bytes();
-		let prefix = self.pack(&(KeyKind::ObjectChild.to_i32().unwrap(), bytes.as_ref()));
-		let subspace = Subspace::from_bytes(prefix);
+		let key = (KeyKind::ObjectChild.to_i32().unwrap(), bytes.as_ref());
+		let prefix = Self::pack(subspace, &key);
+		let range_subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&subspace)
+			..fdb::RangeOption::from(&range_subspace)
 		};
 
 		let entries = txn
@@ -542,7 +549,7 @@ impl Index {
 		let children = entries
 			.iter()
 			.map(|entry| {
-				let key = self.unpack(entry.key())?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let Key::ObjectChild { child, .. } = key else {
 					return Err(tg::error!("unexpected key type"));
 				};
@@ -554,16 +561,17 @@ impl Index {
 	}
 
 	pub(super) async fn get_object_parents_with_transaction(
-		&self,
 		txn: &fdb::Transaction,
+		subspace: &Subspace,
 		id: &tg::object::Id,
 	) -> tg::Result<Vec<tg::object::Id>> {
 		let bytes = id.to_bytes();
-		let prefix = self.pack(&(KeyKind::ChildObject.to_i32().unwrap(), bytes.as_ref()));
-		let subspace = Subspace::from_bytes(prefix);
+		let key = (KeyKind::ChildObject.to_i32().unwrap(), bytes.as_ref());
+		let prefix = Self::pack(subspace, &key);
+		let range_subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&subspace)
+			..fdb::RangeOption::from(&range_subspace)
 		};
 
 		let entries = txn
@@ -574,7 +582,7 @@ impl Index {
 		let parents = entries
 			.iter()
 			.map(|entry| {
-				let key = self.unpack(entry.key())?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let Key::ChildObject { object, .. } = key else {
 					return Err(tg::error!("unexpected key type"));
 				};
@@ -586,16 +594,17 @@ impl Index {
 	}
 
 	pub(super) async fn get_object_processes_with_transaction(
-		&self,
 		txn: &fdb::Transaction,
+		subspace: &Subspace,
 		id: &tg::object::Id,
 	) -> tg::Result<Vec<(tg::process::Id, ProcessObjectKind)>> {
 		let bytes = id.to_bytes();
-		let prefix = self.pack(&(KeyKind::ObjectProcess.to_i32().unwrap(), bytes.as_ref()));
-		let subspace = Subspace::from_bytes(prefix);
+		let key = (KeyKind::ObjectProcess.to_i32().unwrap(), bytes.as_ref());
+		let prefix = Self::pack(subspace, &key);
+		let range_subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&subspace)
+			..fdb::RangeOption::from(&range_subspace)
 		};
 
 		let entries = txn
@@ -606,7 +615,7 @@ impl Index {
 		let processes = entries
 			.iter()
 			.map(|entry| {
-				let key = self.unpack(entry.key())?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let Key::ObjectProcess { kind, process, .. } = key else {
 					return Err(tg::error!("unexpected key type"));
 				};
@@ -618,16 +627,17 @@ impl Index {
 	}
 
 	pub(super) async fn get_process_children_with_transaction(
-		&self,
 		txn: &fdb::Transaction,
+		subspace: &Subspace,
 		id: &tg::process::Id,
 	) -> tg::Result<Vec<tg::process::Id>> {
 		let bytes = id.to_bytes();
-		let prefix = self.pack(&(KeyKind::ProcessChild.to_i32().unwrap(), bytes.as_ref()));
-		let subspace = Subspace::from_bytes(prefix);
+		let key = (KeyKind::ProcessChild.to_i32().unwrap(), bytes.as_ref());
+		let prefix = Self::pack(subspace, &key);
+		let range_subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&subspace)
+			..fdb::RangeOption::from(&range_subspace)
 		};
 
 		let entries = txn
@@ -638,7 +648,7 @@ impl Index {
 		let children = entries
 			.iter()
 			.map(|entry| {
-				let key = self.unpack(entry.key())?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let Key::ProcessChild { child, .. } = key else {
 					return Err(tg::error!("unexpected key type"));
 				};
@@ -650,16 +660,17 @@ impl Index {
 	}
 
 	pub(super) async fn get_process_parents_with_transaction(
-		&self,
 		txn: &fdb::Transaction,
+		subspace: &Subspace,
 		id: &tg::process::Id,
 	) -> tg::Result<Vec<tg::process::Id>> {
 		let bytes = id.to_bytes();
-		let prefix = self.pack(&(KeyKind::ChildProcess.to_i32().unwrap(), bytes.as_ref()));
-		let subspace = Subspace::from_bytes(prefix);
+		let key = (KeyKind::ChildProcess.to_i32().unwrap(), bytes.as_ref());
+		let prefix = Self::pack(subspace, &key);
+		let range_subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&subspace)
+			..fdb::RangeOption::from(&range_subspace)
 		};
 
 		let entries = txn
@@ -670,7 +681,7 @@ impl Index {
 		let parents = entries
 			.iter()
 			.map(|entry| {
-				let key = self.unpack(entry.key())?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let Key::ChildProcess { parent, .. } = key else {
 					return Err(tg::error!("unexpected key type"));
 				};
@@ -682,16 +693,17 @@ impl Index {
 	}
 
 	pub(super) async fn get_process_objects_with_transaction(
-		&self,
 		txn: &fdb::Transaction,
+		subspace: &Subspace,
 		id: &tg::process::Id,
 	) -> tg::Result<Vec<(tg::object::Id, ProcessObjectKind)>> {
 		let bytes = id.to_bytes();
-		let prefix = self.pack(&(KeyKind::ProcessObject.to_i32().unwrap(), bytes.as_ref()));
-		let subspace = Subspace::from_bytes(prefix);
+		let key = (KeyKind::ProcessObject.to_i32().unwrap(), bytes.as_ref());
+		let prefix = Self::pack(subspace, &key);
+		let range_subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&subspace)
+			..fdb::RangeOption::from(&range_subspace)
 		};
 
 		let entries = txn
@@ -702,7 +714,7 @@ impl Index {
 		let objects = entries
 			.iter()
 			.map(|entry| {
-				let key = self.unpack(entry.key())?;
+				let key = Self::unpack(subspace, entry.key())?;
 				let Key::ProcessObject { kind, object, .. } = key else {
 					return Err(tg::error!("unexpected key type"));
 				};

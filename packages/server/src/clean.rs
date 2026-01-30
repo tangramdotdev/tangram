@@ -1,6 +1,6 @@
 use {
 	crate::{Context, Server},
-	futures::{FutureExt as _, Stream, StreamExt as _},
+	futures::{FutureExt as _, Stream, StreamExt as _, future},
 	indoc::formatdoc,
 	num::ToPrimitive as _,
 	std::{panic::AssertUnwindSafe, time::Duration},
@@ -137,10 +137,11 @@ impl Server {
 			let now = time::OffsetDateTime::now_utc().unix_timestamp();
 			let ttl = config.ttl;
 			let n = config.batch_size;
-			let result = self.cleaner_task_inner(now, ttl, n).await;
+			let futures = (0..config.concurrency).map(|_| self.cleaner_task_inner(now, ttl, n));
+			let result = future::try_join_all(futures).await;
 			match result {
-				Ok(output) => {
-					if output.done {
+				Ok(outputs) => {
+					if outputs.iter().all(|output| output.done) {
 						tokio::time::sleep(Duration::from_secs(1)).await;
 					}
 				},

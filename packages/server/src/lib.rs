@@ -348,7 +348,13 @@ impl Server {
 				}
 				#[cfg(feature = "foundationdb")]
 				{
-					Index::new_fdb(&options.cluster, options.prefix.clone())
+					let options = tangram_index::fdb::Options {
+						cluster: options.cluster.clone(),
+						prefix: options.prefix.clone(),
+						put_concurrency: options.put_concurrency,
+						put_max_keys_per_transaction: options.put_max_keys_per_transaction,
+					};
+					Index::new_fdb(&options)
 						.map_err(|source| tg::error!(!source, "failed to create the index"))?
 				}
 			},

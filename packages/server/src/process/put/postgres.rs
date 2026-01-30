@@ -91,11 +91,7 @@ impl Server {
 			expected_checksums.push(data.expected_checksum.as_ref().map(ToString::to_string));
 			finished_ats.push(data.finished_at);
 			hosts.push(data.host.clone());
-			logs.push(
-				data.log
-					.as_ref()
-					.map(|log| serde_json::to_string(&log).unwrap()),
-			);
+			logs.push(data.log.as_ref().map(ToString::to_string));
 			mounts.push(
 				(!data.mounts.is_empty()).then(|| serde_json::to_string(&data.mounts).unwrap()),
 			);

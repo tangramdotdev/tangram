@@ -1,6 +1,6 @@
 use {
 	crate::{Context, Server},
-	futures::{FutureExt as _, Stream, StreamExt as _, stream},
+	futures::{FutureExt as _, Stream, StreamExt as _, future, stream},
 	std::{panic::AssertUnwindSafe, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::{
@@ -25,8 +25,8 @@ pub enum Index {
 
 impl Index {
 	#[cfg(feature = "foundationdb")]
-	pub fn new_fdb(cluster: &std::path::Path, prefix: Option<String>) -> tg::Result<Self> {
-		Ok(Self::Fdb(index::fdb::Index::new(cluster, prefix)?))
+	pub fn new_fdb(options: &index::fdb::Options) -> tg::Result<Self> {
+		Ok(Self::Fdb(index::fdb::Index::new(options)?))
 	}
 
 	#[cfg(feature = "lmdb")]
@@ -288,7 +288,11 @@ impl Server {
 
 	pub(crate) async fn indexer_task(&self, config: &crate::config::Indexer) -> tg::Result<()> {
 		loop {
-			let result = self.index.update_batch(config.batch_size).await;
+			let futures =
+				(0..config.concurrency).map(|_| self.index.update_batch(config.batch_size));
+			let result = future::try_join_all(futures)
+				.await
+				.map(|counts| counts.into_iter().sum());
 			match result {
 				Ok(0) => {
 					tokio::time::sleep(Duration::from_millis(100)).await;

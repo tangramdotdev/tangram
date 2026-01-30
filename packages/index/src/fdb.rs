@@ -2,8 +2,9 @@ use {
 	crate::{CleanOutput, ProcessObjectKind},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	num_traits::{FromPrimitive as _, ToPrimitive as _},
-	std::{path::Path, sync::Arc},
+	std::sync::Arc,
 	tangram_client::prelude::*,
+	tokio::sync::mpsc,
 };
 
 mod clean;
@@ -13,10 +14,17 @@ mod tag;
 mod touch;
 mod update;
 
-#[derive(Clone)]
 pub struct Index {
 	database: Arc<fdb::Database>,
 	subspace: fdbt::Subspace,
+	put_sender: mpsc::UnboundedSender<self::put::Request>,
+}
+
+pub struct Options {
+	pub cluster: std::path::PathBuf,
+	pub prefix: Option<String>,
+	pub put_concurrency: usize,
+	pub put_max_keys_per_transaction: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -448,28 +456,56 @@ bitflags::bitflags! {
 }
 
 impl Index {
-	pub fn new(cluster: &Path, prefix: Option<String>) -> tg::Result<Self> {
-		let database = fdb::Database::new(Some(cluster.to_str().unwrap()))
+	pub fn new(options: &Options) -> tg::Result<Self> {
+		let database = fdb::Database::new(Some(options.cluster.to_str().unwrap()))
 			.map_err(|source| tg::error!(!source, "failed to open the foundationdb cluster"))?;
 		let database = Arc::new(database);
-		let subspace = match prefix {
-			Some(s) => fdbt::Subspace::from_bytes(s.into_bytes()),
+
+		let subspace = match &options.prefix {
+			Some(s) => fdbt::Subspace::from_bytes(s.clone().into_bytes()),
 			None => fdbt::Subspace::all(),
 		};
-		let index = Self { database, subspace };
+
+		let (put_sender, put_receiver) = mpsc::unbounded_channel();
+		let put_concurrency = options.put_concurrency;
+		let put_max_keys_per_transaction = options.put_max_keys_per_transaction;
+		tokio::spawn({
+			let database = database.clone();
+			let subspace = subspace.clone();
+			async move {
+				Self::put_task(
+					database,
+					subspace,
+					put_receiver,
+					put_concurrency,
+					put_max_keys_per_transaction,
+				)
+				.await;
+			}
+		});
+
+		let index = Self {
+			database,
+			subspace,
+			put_sender,
+		};
+
 		Ok(index)
 	}
 
-	fn pack<T: fdbt::TuplePack>(&self, key: &T) -> Vec<u8> {
-		self.subspace.pack(key)
+	fn pack<T: fdbt::TuplePack>(subspace: &fdbt::Subspace, key: &T) -> Vec<u8> {
+		subspace.pack(key)
 	}
 
-	fn pack_with_versionstamp<T: fdbt::TuplePack>(&self, key: &T) -> Vec<u8> {
-		self.subspace.pack_with_versionstamp(key)
+	fn pack_with_versionstamp<T: fdbt::TuplePack>(subspace: &fdbt::Subspace, key: &T) -> Vec<u8> {
+		subspace.pack_with_versionstamp(key)
 	}
 
-	fn unpack<'a, T: fdbt::TupleUnpack<'a>>(&self, bytes: &'a [u8]) -> tg::Result<T> {
-		self.subspace
+	fn unpack<'a, T: fdbt::TupleUnpack<'a>>(
+		subspace: &fdbt::Subspace,
+		bytes: &'a [u8],
+	) -> tg::Result<T> {
+		subspace
 			.unpack(bytes)
 			.map_err(|source| tg::error!(!source, "failed to unpack key"))
 	}

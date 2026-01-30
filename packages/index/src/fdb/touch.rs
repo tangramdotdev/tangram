@@ -17,23 +17,25 @@ impl Index {
 		}
 		self.database
 			.run(|txn, _| {
-				let this = self.clone();
+				let subspace = self.subspace.clone();
 				let ids = ids.to_vec();
 				async move {
 					let txn = &txn;
 					let results: tg::Result<Vec<Option<Object>>> =
 						future::try_join_all(ids.iter().map(|id| {
-							let this = this.clone();
+							let subspace = subspace.clone();
 							async move {
 								let Some(mut object) =
-									this.try_get_object_with_transaction(txn, id).await?
+									Self::try_get_object_with_transaction(txn, &subspace, id)
+										.await?
 								else {
 									return Ok(None);
 								};
-								let key = this.pack(&Key::Object {
+								let key = Key::Object {
 									id: id.clone(),
 									field: ObjectField::Core(ObjectCoreField::TouchedAt),
-								});
+								};
+								let key = Self::pack(&subspace, &key);
 								txn.atomic_op(
 									&key,
 									&touched_at.to_le_bytes(),
@@ -61,23 +63,25 @@ impl Index {
 		}
 		self.database
 			.run(|txn, _| {
-				let this = self.clone();
+				let subspace = self.subspace.clone();
 				let ids = ids.to_vec();
 				async move {
 					let txn = &txn;
 					let results: tg::Result<Vec<Option<Process>>> =
 						future::try_join_all(ids.iter().map(|id| {
-							let this = this.clone();
+							let subspace = subspace.clone();
 							async move {
 								let Some(mut process) =
-									this.try_get_process_with_transaction(txn, id).await?
+									Self::try_get_process_with_transaction(txn, &subspace, id)
+										.await?
 								else {
 									return Ok(None);
 								};
-								let key = this.pack(&Key::Process {
+								let key = Key::Process {
 									id: id.clone(),
 									field: ProcessField::Core(ProcessCoreField::TouchedAt),
-								});
+								};
+								let key = Self::pack(&subspace, &key);
 								txn.atomic_op(
 									&key,
 									&touched_at.to_le_bytes(),

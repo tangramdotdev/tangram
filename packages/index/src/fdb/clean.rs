@@ -27,9 +27,9 @@ impl Index {
 	pub async fn clean(&self, max_touched_at: i64, batch_size: usize) -> tg::Result<CleanOutput> {
 		self.database
 			.run(|txn, _| {
-				let this = self.clone();
+				let subspace = self.subspace.clone();
 				async move {
-					this.clean_inner(&txn, max_touched_at, batch_size)
+					Self::clean_inner(&txn, &subspace, max_touched_at, batch_size)
 						.await
 						.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))
 				}
@@ -39,8 +39,8 @@ impl Index {
 	}
 
 	async fn clean_inner(
-		&self,
 		txn: &fdb::Transaction,
+		subspace: &Subspace,
 		max_touched_at: i64,
 		batch_size: usize,
 	) -> tg::Result<CleanOutput> {
@@ -49,8 +49,11 @@ impl Index {
 
 		let mut output = CleanOutput::default();
 
-		let begin = self.pack(&(KeyKind::Clean.to_i32().unwrap(), 0));
-		let end = self.pack(&(KeyKind::Clean.to_i32().unwrap(), max_touched_at + 1));
+		let begin = Self::pack(subspace, &(KeyKind::Clean.to_i32().unwrap(), 0));
+		let end = Self::pack(
+			subspace,
+			&(KeyKind::Clean.to_i32().unwrap(), max_touched_at + 1),
+		);
 		let range = fdb::RangeOption {
 			begin: fdb::KeySelector::first_greater_or_equal(&begin),
 			end: fdb::KeySelector::first_greater_or_equal(&end),
@@ -65,8 +68,7 @@ impl Index {
 		let candidates = entries
 			.iter()
 			.map(|entry| {
-				let key = self
-					.unpack(entry.key())
+				let key = Self::unpack(subspace, entry.key())
 					.map_err(|source| tg::error!(!source, "failed to unpack key"))?;
 				let Key::Clean {
 					touched_at,
@@ -104,15 +106,19 @@ impl Index {
 
 		for candidate in &candidates {
 			let reference_count = match &candidate.item {
-				Item::CacheEntry(id) => self.compute_cache_entry_reference_count(txn, id).await?,
-				Item::Object(id) => self.compute_object_reference_count(txn, id).await?,
-				Item::Process(id) => self.compute_process_reference_count(txn, id).await?,
+				Item::CacheEntry(id) => {
+					Self::compute_cache_entry_reference_count(txn, subspace, id).await?
+				},
+				Item::Object(id) => Self::compute_object_reference_count(txn, subspace, id).await?,
+				Item::Process(id) => {
+					Self::compute_process_reference_count(txn, subspace, id).await?
+				},
 			};
 
 			if reference_count > 0 {
-				self.set_reference_count(txn, &candidate.item, reference_count);
+				Self::set_reference_count(txn, subspace, &candidate.item, reference_count);
 			} else {
-				self.delete_item(txn, &candidate.item).await?;
+				Self::delete_item(txn, subspace, &candidate.item).await?;
 				match &candidate.item {
 					Item::CacheEntry(id) => output.cache_entries.push(id.clone()),
 					Item::Object(id) => output.objects.push(id.clone()),
@@ -130,7 +136,7 @@ impl Index {
 				kind,
 				id,
 			};
-			let key = self.pack(&key);
+			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 		}
 
@@ -140,17 +146,17 @@ impl Index {
 	}
 
 	async fn compute_cache_entry_reference_count(
-		&self,
 		txn: &fdb::Transaction,
+		subspace: &Subspace,
 		id: &tg::artifact::Id,
 	) -> tg::Result<u64> {
 		let id = id.to_bytes();
 		let prefix = (KeyKind::CacheEntryObject.to_i32().unwrap(), id.as_ref());
-		let prefix = self.pack(&prefix);
-		let subspace = Subspace::from_bytes(prefix);
+		let prefix = Self::pack(subspace, &prefix);
+		let range_subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&subspace)
+			..fdb::RangeOption::from(&range_subspace)
 		};
 		let count = txn
 			.get_range(&range, 1, false)
@@ -163,18 +169,18 @@ impl Index {
 	}
 
 	async fn compute_object_reference_count(
-		&self,
 		txn: &fdb::Transaction,
+		subspace: &Subspace,
 		id: &tg::object::Id,
 	) -> tg::Result<u64> {
 		let child_object_future = async {
 			let id = id.to_bytes();
 			let prefix = (KeyKind::ChildObject.to_i32().unwrap(), id.as_ref());
-			let prefix = self.pack(&prefix);
-			let subspace = Subspace::from_bytes(prefix);
+			let prefix = Self::pack(subspace, &prefix);
+			let range_subspace = Subspace::from_bytes(prefix);
 			let range = fdb::RangeOption {
 				mode: fdb::options::StreamingMode::WantAll,
-				..fdb::RangeOption::from(&subspace)
+				..fdb::RangeOption::from(&range_subspace)
 			};
 			let count = txn
 				.get_range(&range, 1, false)
@@ -188,11 +194,11 @@ impl Index {
 		let object_process_future = async {
 			let id = id.to_bytes();
 			let prefix = (KeyKind::ObjectProcess.to_i32().unwrap(), id.as_ref());
-			let prefix = self.pack(&prefix);
-			let subspace = Subspace::from_bytes(prefix);
+			let prefix = Self::pack(subspace, &prefix);
+			let range_subspace = Subspace::from_bytes(prefix);
 			let range = fdb::RangeOption {
 				mode: fdb::options::StreamingMode::WantAll,
-				..fdb::RangeOption::from(&subspace)
+				..fdb::RangeOption::from(&range_subspace)
 			};
 			let count = txn
 				.get_range(&range, 1, false)
@@ -206,11 +212,11 @@ impl Index {
 		let item_tag_future = async {
 			let id = id.to_bytes();
 			let prefix = (KeyKind::ItemTag.to_i32().unwrap(), id.as_ref());
-			let prefix = self.pack(&prefix);
-			let subspace = Subspace::from_bytes(prefix);
+			let prefix = Self::pack(subspace, &prefix);
+			let range_subspace = Subspace::from_bytes(prefix);
 			let range = fdb::RangeOption {
 				mode: fdb::options::StreamingMode::WantAll,
-				..fdb::RangeOption::from(&subspace)
+				..fdb::RangeOption::from(&range_subspace)
 			};
 			let count = txn
 				.get_range(&range, 1, false)
@@ -229,18 +235,18 @@ impl Index {
 	}
 
 	async fn compute_process_reference_count(
-		&self,
 		txn: &fdb::Transaction,
+		subspace: &Subspace,
 		id: &tg::process::Id,
 	) -> tg::Result<u64> {
 		let child_process_future = async {
 			let id = id.to_bytes();
 			let prefix = (KeyKind::ChildProcess.to_i32().unwrap(), id.as_ref());
-			let prefix = self.pack(&prefix);
-			let subspace = Subspace::from_bytes(prefix);
+			let prefix = Self::pack(subspace, &prefix);
+			let range_subspace = Subspace::from_bytes(prefix);
 			let range = fdb::RangeOption {
 				mode: fdb::options::StreamingMode::WantAll,
-				..fdb::RangeOption::from(&subspace)
+				..fdb::RangeOption::from(&range_subspace)
 			};
 			let count = txn
 				.get_range(&range, 1, false)
@@ -254,11 +260,11 @@ impl Index {
 		let item_tag_future = async {
 			let id = id.to_bytes();
 			let prefix = (KeyKind::ItemTag.to_i32().unwrap(), id.as_ref());
-			let prefix = self.pack(&prefix);
-			let subspace = Subspace::from_bytes(prefix);
+			let prefix = Self::pack(subspace, &prefix);
+			let range_subspace = Subspace::from_bytes(prefix);
 			let range = fdb::RangeOption {
 				mode: fdb::options::StreamingMode::WantAll,
-				..fdb::RangeOption::from(&subspace)
+				..fdb::RangeOption::from(&range_subspace)
 			};
 			let count = txn
 				.get_range(&range, 1, false)
@@ -275,7 +281,12 @@ impl Index {
 		Ok(count)
 	}
 
-	fn set_reference_count(&self, txn: &fdb::Transaction, item: &Item, reference_count: u64) {
+	fn set_reference_count(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		item: &Item,
+		reference_count: u64,
+	) {
 		let key = match item {
 			Item::CacheEntry(id) => Key::CacheEntry {
 				id: id.clone(),
@@ -290,40 +301,48 @@ impl Index {
 				field: ProcessField::Core(ProcessCoreField::ReferenceCount),
 			},
 		};
-		let key = self.pack(&key);
+		let key = Self::pack(subspace, &key);
 		txn.set(&key, &varint::encode_uvarint(reference_count));
 	}
 
-	async fn delete_item(&self, txn: &fdb::Transaction, item: &Item) -> tg::Result<()> {
+	async fn delete_item(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		item: &Item,
+	) -> tg::Result<()> {
 		match item {
-			Item::CacheEntry(id) => self.delete_cache_entry(txn, id).await,
-			Item::Object(id) => self.delete_object(txn, id).await,
-			Item::Process(id) => self.delete_process(txn, id).await,
+			Item::CacheEntry(id) => Self::delete_cache_entry(txn, subspace, id).await,
+			Item::Object(id) => Self::delete_object(txn, subspace, id).await,
+			Item::Process(id) => Self::delete_process(txn, subspace, id).await,
 		}
 	}
 
 	async fn delete_cache_entry(
-		&self,
 		txn: &fdb::Transaction,
+		subspace: &Subspace,
 		id: &tg::artifact::Id,
 	) -> tg::Result<()> {
 		let id_bytes = id.to_bytes();
 
 		let prefix = (KeyKind::CacheEntry.to_i32().unwrap(), id_bytes.as_ref());
-		let prefix = self.pack(&prefix);
-		let subspace = Subspace::from_bytes(prefix);
-		let (begin, end) = subspace.range();
+		let prefix = Self::pack(subspace, &prefix);
+		let range_subspace = Subspace::from_bytes(prefix);
+		let (begin, end) = range_subspace.range();
 		txn.clear_range(&begin, &end);
 
 		Ok(())
 	}
 
-	async fn delete_object(&self, txn: &fdb::Transaction, id: &tg::object::Id) -> tg::Result<()> {
+	async fn delete_object(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::object::Id,
+	) -> tg::Result<()> {
 		let key = Key::Object {
 			id: id.clone(),
 			field: ObjectField::Core(ObjectCoreField::CacheEntry),
 		};
-		let key = self.pack(&key);
+		let key = Self::pack(subspace, &key);
 		let cache_entry = txn
 			.get(&key, false)
 			.await
@@ -337,17 +356,17 @@ impl Index {
 		let id_bytes = id.to_bytes();
 
 		let prefix = (KeyKind::Object.to_i32().unwrap(), id_bytes.as_ref());
-		let prefix = self.pack(&prefix);
-		let subspace = Subspace::from_bytes(prefix);
-		let (begin, end) = subspace.range();
+		let prefix = Self::pack(subspace, &prefix);
+		let range_subspace = Subspace::from_bytes(prefix);
+		let (begin, end) = range_subspace.range();
 		txn.clear_range(&begin, &end);
 
 		let prefix = (KeyKind::ObjectChild.to_i32().unwrap(), id_bytes.as_ref());
-		let prefix = self.pack(&prefix);
-		let subspace = Subspace::from_bytes(prefix);
+		let prefix = Self::pack(subspace, &prefix);
+		let range_subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&subspace)
+			..fdb::RangeOption::from(&range_subspace)
 		};
 		let entries = txn
 			.get_range(&range, 1, false)
@@ -356,8 +375,7 @@ impl Index {
 		let children = entries
 			.iter()
 			.map(|entry| {
-				let key = self
-					.unpack(entry.key())
+				let key = Self::unpack(subspace, entry.key())
 					.map_err(|source| tg::error!(!source, "failed to unpack key"))?;
 				let Key::ObjectChild { child, .. } = key else {
 					return Err(tg::error!("expected object child key"));
@@ -365,18 +383,18 @@ impl Index {
 				Ok(child)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
-		let (begin, end) = subspace.range();
+		let (begin, end) = range_subspace.range();
 		txn.clear_range(&begin, &end);
 		for child in &children {
 			let key = Key::ChildObject {
 				child: child.clone(),
 				object: id.clone(),
 			};
-			let key = self.pack(&key);
+			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 		}
 		for child in children {
-			self.decrement_object_reference_count(txn, &child).await?;
+			Self::decrement_object_reference_count(txn, subspace, &child).await?;
 		}
 
 		if let Some(cache_entry) = &cache_entry {
@@ -384,38 +402,41 @@ impl Index {
 				object: id.clone(),
 				cache_entry: cache_entry.clone(),
 			};
-			let key = self.pack(&key);
+			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 
 			let key = Key::CacheEntryObject {
 				cache_entry: cache_entry.clone(),
 				object: id.clone(),
 			};
-			let key = self.pack(&key);
+			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 
-			self.decrement_cache_entry_reference_count(txn, cache_entry)
-				.await?;
+			Self::decrement_cache_entry_reference_count(txn, subspace, cache_entry).await?;
 		}
 
 		Ok(())
 	}
 
-	async fn delete_process(&self, txn: &fdb::Transaction, id: &tg::process::Id) -> tg::Result<()> {
+	async fn delete_process(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::process::Id,
+	) -> tg::Result<()> {
 		let id_bytes = id.to_bytes();
 
 		let prefix = (KeyKind::Process.to_i32().unwrap(), id_bytes.as_ref());
-		let prefix = self.pack(&prefix);
-		let subspace = Subspace::from_bytes(prefix);
-		let (begin, end) = subspace.range();
+		let prefix = Self::pack(subspace, &prefix);
+		let range_subspace = Subspace::from_bytes(prefix);
+		let (begin, end) = range_subspace.range();
 		txn.clear_range(&begin, &end);
 
 		let prefix = (KeyKind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
-		let prefix = self.pack(&prefix);
-		let subspace = Subspace::from_bytes(prefix);
+		let prefix = Self::pack(subspace, &prefix);
+		let range_subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&subspace)
+			..fdb::RangeOption::from(&range_subspace)
 		};
 		let entries = txn
 			.get_range(&range, 1, false)
@@ -424,8 +445,7 @@ impl Index {
 		let children = entries
 			.iter()
 			.map(|entry| {
-				let key = self
-					.unpack(entry.key())
+				let key = Self::unpack(subspace, entry.key())
 					.map_err(|source| tg::error!(!source, "failed to unpack key"))?;
 				let Key::ProcessChild { child, .. } = key else {
 					return Err(tg::error!("expected process child key"));
@@ -433,26 +453,26 @@ impl Index {
 				Ok(child)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
-		let (begin, end) = subspace.range();
+		let (begin, end) = range_subspace.range();
 		txn.clear_range(&begin, &end);
 		for child in &children {
 			let key = Key::ChildProcess {
 				child: child.clone(),
 				parent: id.clone(),
 			};
-			let key = self.pack(&key);
+			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 		}
 		for child in children {
-			self.decrement_process_reference_count(txn, &child).await?;
+			Self::decrement_process_reference_count(txn, subspace, &child).await?;
 		}
 
 		let prefix = (KeyKind::ProcessObject.to_i32().unwrap(), id_bytes.as_ref());
-		let prefix = self.pack(&prefix);
-		let subspace = Subspace::from_bytes(prefix);
+		let prefix = Self::pack(subspace, &prefix);
+		let range_subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&subspace)
+			..fdb::RangeOption::from(&range_subspace)
 		};
 		let entries = txn
 			.get_range(&range, 1, false)
@@ -461,8 +481,7 @@ impl Index {
 		let object_processes = entries
 			.iter()
 			.map(|entry| {
-				let key = self
-					.unpack(entry.key())
+				let key = Self::unpack(subspace, entry.key())
 					.map_err(|source| tg::error!(!source, "failed to unpack key"))?;
 				let Key::ProcessObject { kind, object, .. } = key else {
 					return Err(tg::error!("expected process object key"));
@@ -470,7 +489,7 @@ impl Index {
 				Ok((object, kind))
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
-		let (begin, end) = subspace.range();
+		let (begin, end) = range_subspace.range();
 		txn.clear_range(&begin, &end);
 		for (object, kind) in &object_processes {
 			let key = Key::ObjectProcess {
@@ -478,26 +497,26 @@ impl Index {
 				kind: *kind,
 				process: id.clone(),
 			};
-			let key = self.pack(&key);
+			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 		}
 		for (object, _) in object_processes {
-			self.decrement_object_reference_count(txn, &object).await?;
+			Self::decrement_object_reference_count(txn, subspace, &object).await?;
 		}
 
 		Ok(())
 	}
 
 	async fn decrement_cache_entry_reference_count(
-		&self,
 		txn: &fdb::Transaction,
+		subspace: &Subspace,
 		id: &tg::artifact::Id,
 	) -> tg::Result<()> {
 		let key = Key::CacheEntry {
 			id: id.clone(),
 			field: CacheEntryField::Core(CacheEntryCoreField::ReferenceCount),
 		};
-		let key = self.pack(&key);
+		let key = Self::pack(subspace, &key);
 		let reference_count = txn
 			.get(&key, false)
 			.await
@@ -513,7 +532,7 @@ impl Index {
 				id: id.clone(),
 				field: CacheEntryField::Core(CacheEntryCoreField::TouchedAt),
 			};
-			let key = self.pack(&key);
+			let key = Self::pack(subspace, &key);
 			let touched_at = txn
 				.get(&key, false)
 				.await
@@ -534,22 +553,22 @@ impl Index {
 				kind: ItemKind::CacheEntry,
 				id: tg::Either::Left(id.clone().into()),
 			};
-			let key = self.pack(&key);
+			let key = Self::pack(subspace, &key);
 			txn.set(&key, &[]);
 		}
 		Ok(())
 	}
 
 	pub(super) async fn decrement_object_reference_count(
-		&self,
 		txn: &fdb::Transaction,
+		subspace: &Subspace,
 		id: &tg::object::Id,
 	) -> tg::Result<()> {
 		let key = Key::Object {
 			id: id.clone(),
 			field: ObjectField::Core(ObjectCoreField::ReferenceCount),
 		};
-		let key = self.pack(&key);
+		let key = Self::pack(subspace, &key);
 		let reference_count = txn
 			.get(&key, false)
 			.await
@@ -565,7 +584,7 @@ impl Index {
 				id: id.clone(),
 				field: ObjectField::Core(ObjectCoreField::TouchedAt),
 			};
-			let key = self.pack(&key);
+			let key = Self::pack(subspace, &key);
 			let touched_at = txn
 				.get(&key, false)
 				.await
@@ -586,22 +605,22 @@ impl Index {
 				kind: ItemKind::Object,
 				id: tg::Either::Left(id.clone()),
 			};
-			let key = self.pack(&key);
+			let key = Self::pack(subspace, &key);
 			txn.set(&key, &[]);
 		}
 		Ok(())
 	}
 
 	pub(super) async fn decrement_process_reference_count(
-		&self,
 		txn: &fdb::Transaction,
+		subspace: &Subspace,
 		id: &tg::process::Id,
 	) -> tg::Result<()> {
 		let key = Key::Process {
 			id: id.clone(),
 			field: ProcessField::Core(ProcessCoreField::ReferenceCount),
 		};
-		let key = self.pack(&key);
+		let key = Self::pack(subspace, &key);
 		let reference_count = txn
 			.get(&key, false)
 			.await
@@ -617,7 +636,7 @@ impl Index {
 				id: id.clone(),
 				field: ProcessField::Core(ProcessCoreField::TouchedAt),
 			};
-			let key = self.pack(&key);
+			let key = Self::pack(subspace, &key);
 			let touched_at = txn
 				.get(&key, false)
 				.await
@@ -638,7 +657,7 @@ impl Index {
 				kind: ItemKind::Process,
 				id: tg::Either::Right(id.clone()),
 			};
-			let key = self.pack(&key);
+			let key = Self::pack(subspace, &key);
 			txn.set(&key, &[]);
 		}
 		Ok(())
