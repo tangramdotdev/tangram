@@ -246,7 +246,7 @@ impl Index {
 		arg: &PutArg,
 		partition_total: u64,
 	) -> tg::Result<()> {
-		database
+		let result = database
 			.run(|txn, _| {
 				let subspace = subspace.clone();
 				let arg = arg.clone();
@@ -263,8 +263,49 @@ impl Index {
 					Ok::<_, fdb::FdbBindingError>(())
 				}
 			})
-			.await
-			.map_err(|source| tg::error!(!source, "failed to put"))
+			.await;
+
+		match result {
+			Ok(()) => (),
+			Err(fdb::FdbBindingError::NonRetryableFdbError(error)) if error.code() == 2101 => {
+				let count = arg.cache_entries.len() + arg.objects.len() + arg.processes.len();
+				if count <= 1 {
+					return Err(tg::error!(
+						source = fdb::FdbBindingError::NonRetryableFdbError(error),
+						"single item exceeds transaction size limit"
+					));
+				}
+				let left = PutArg {
+					cache_entries: arg.cache_entries[..arg.cache_entries.len() / 2].to_vec(),
+					objects: arg.objects[..arg.objects.len() / 2].to_vec(),
+					processes: arg.processes[..arg.processes.len() / 2].to_vec(),
+				};
+				let right = PutArg {
+					cache_entries: arg.cache_entries[arg.cache_entries.len() / 2..].to_vec(),
+					objects: arg.objects[arg.objects.len() / 2..].to_vec(),
+					processes: arg.processes[arg.processes.len() / 2..].to_vec(),
+				};
+				Box::pin(Self::put_task_put_batch(
+					database,
+					subspace,
+					&left,
+					partition_total,
+				))
+				.await?;
+				Box::pin(Self::put_task_put_batch(
+					database,
+					subspace,
+					&right,
+					partition_total,
+				))
+				.await?;
+			},
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to put"));
+			},
+		}
+
+		Ok(())
 	}
 
 	fn put_cache_entry(

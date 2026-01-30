@@ -54,7 +54,8 @@ impl Index {
 		partition_count: u64,
 	) -> tg::Result<usize> {
 		let partition_total = self.partition_total;
-		self.database
+		let result = self
+			.database
 			.run(|txn, _| {
 				let subspace = self.subspace.clone();
 				async move {
@@ -70,8 +71,26 @@ impl Index {
 					.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))
 				}
 			})
-			.await
-			.map_err(|source| tg::error!(!source, "failed to process update batch"))
+			.await;
+
+		let count = match result {
+			Ok(count) => count,
+			Err(fdb::FdbBindingError::NonRetryableFdbError(error))
+				if error.code() == 2101 && batch_size > 1 =>
+			{
+				let half = batch_size / 2;
+				let first =
+					Box::pin(self.update_batch(half, partition_start, partition_count)).await?;
+				let second =
+					Box::pin(self.update_batch(half, partition_start, partition_count)).await?;
+				first + second
+			},
+			Err(error) => {
+				return Err(tg::error!(!error, "failed to process update batch"));
+			},
+		};
+
+		Ok(count)
 	}
 
 	async fn update_batch_inner(
