@@ -285,6 +285,7 @@ impl BlobInner {
 				continue;
 			}
 			entry.bytes = entry.bytes[offset..offset + take].to_vec().into();
+			entry.position += offset.to_u64().unwrap();
 			entry.stream_position += offset.to_u64().unwrap();
 			length -= take.to_u64().unwrap();
 			output.push(entry);
