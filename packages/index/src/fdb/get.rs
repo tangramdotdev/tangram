@@ -73,20 +73,6 @@ impl Index {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to scan object fields"))?;
 
-		let key = Key::Object {
-			id: id.clone(),
-			field: ObjectField::Core(ObjectCoreField::Exists),
-		};
-		let exists_key = Self::pack(subspace, &key);
-		let mut exists_key_end = exists_key.clone();
-		exists_key_end.push(0x00);
-		txn.add_conflict_range(
-			&exists_key,
-			&exists_key_end,
-			fdb::options::ConflictRangeType::Read,
-		)
-		.map_err(|source| tg::error!(!source, "failed to add read conflict range"))?;
-
 		let mut exists = false;
 		let mut touched_at: Option<i64> = None;
 		let mut reference_count: u64 = 0;
@@ -167,20 +153,6 @@ impl Index {
 			.try_collect::<Vec<_>>()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to scan process fields"))?;
-
-		let key = Key::Process {
-			id: id.clone(),
-			field: ProcessField::Core(ProcessCoreField::Exists),
-		};
-		let exists_key = Self::pack(subspace, &key);
-		let mut exists_key_end = exists_key.clone();
-		exists_key_end.push(0x00);
-		txn.add_conflict_range(
-			&exists_key,
-			&exists_key_end,
-			fdb::options::ConflictRangeType::Read,
-		)
-		.map_err(|source| tg::error!(!source, "failed to add read conflict range"))?;
 
 		let mut exists = false;
 		let mut touched_at: Option<i64> = None;
