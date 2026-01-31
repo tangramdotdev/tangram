@@ -2,7 +2,7 @@ use {
 	crate::sync::graph::{Graph, Node},
 	crate::{Server, sync::get::State},
 	futures::{StreamExt as _, TryStreamExt as _},
-	std::sync::Arc,
+	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
 	tangram_store::prelude::*,
@@ -245,7 +245,7 @@ impl Server {
 		Ok(())
 	}
 
-	pub(super) async fn sync_get_index_put(&self, state: Arc<State>) -> tg::Result<()> {
+	pub(super) async fn sync_get_index_put(&self, graph: Arc<Mutex<Graph>>) -> tg::Result<()> {
 		// Flush the store.
 		self.store
 			.flush()
@@ -254,7 +254,7 @@ impl Server {
 
 		// Create the index args.
 		let (put_object_args, put_process_args) =
-			Self::sync_get_index_create_args(&mut state.graph.lock().unwrap())
+			Self::sync_get_index_create_args(&mut graph.lock().unwrap())
 				.map_err(|source| tg::error!(!source, "failed to create the index args"))?;
 
 		// Index the objects and processes.

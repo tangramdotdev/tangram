@@ -146,14 +146,14 @@ impl Server {
 
 		// Spawn the index task after the get finishes, even if it is interrupted.
 		let _index_guard = scopeguard::guard((), {
-			let state = state.clone();
+			let graph = state.graph.clone();
 			|()| {
 				self.index_tasks
 					.spawn({
 						let server = self.clone();
 						|_| {
 							async move {
-								let result = server.sync_get_index_put(state).await;
+								let result = server.sync_get_index_put(graph).await;
 								if let Err(error) = result {
 									tracing::error!(?error);
 								}
