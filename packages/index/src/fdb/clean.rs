@@ -1,14 +1,10 @@
 use {
-	super::{
-		CacheEntryCoreField, CacheEntryField, Index, ItemKind, Key, KeyKind, ObjectCoreField,
-		ObjectField, ProcessCoreField, ProcessField,
-	},
-	crate::CleanOutput,
+	super::{Index, ItemKind, Key, KeyKind},
+	crate::{CacheEntry, CleanOutput, Object, Process},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
 	num_traits::ToPrimitive as _,
 	tangram_client::prelude::*,
-	tangram_util::varint,
 };
 
 struct Candidate {
@@ -179,7 +175,7 @@ impl Index {
 			};
 
 			if reference_count > 0 {
-				Self::set_reference_count(txn, subspace, &candidate.item, reference_count);
+				Self::set_reference_count(txn, subspace, &candidate.item, reference_count).await?;
 			} else {
 				Self::delete_item(txn, subspace, &candidate.item, partition_total).await?;
 				match &candidate.item {
@@ -345,28 +341,57 @@ impl Index {
 		Ok(count)
 	}
 
-	fn set_reference_count(
+	async fn set_reference_count(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		item: &Item,
 		reference_count: u64,
-	) {
-		let key = match item {
-			Item::CacheEntry(id) => Key::CacheEntry {
-				id: id.clone(),
-				field: CacheEntryField::Core(CacheEntryCoreField::ReferenceCount),
+	) -> tg::Result<()> {
+		match item {
+			Item::CacheEntry(id) => {
+				let key = Key::CacheEntry(id.clone());
+				let key = Self::pack(subspace, &key);
+				if let Some(bytes) = txn
+					.get(&key, false)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get cache entry"))?
+				{
+					let mut entry = CacheEntry::deserialize(&bytes)?;
+					entry.reference_count = reference_count;
+					let bytes = entry.serialize()?;
+					txn.set(&key, &bytes);
+				}
 			},
-			Item::Object(id) => Key::Object {
-				id: id.clone(),
-				field: ObjectField::Core(ObjectCoreField::ReferenceCount),
+			Item::Object(id) => {
+				let key = Key::Object(id.clone());
+				let key = Self::pack(subspace, &key);
+				if let Some(bytes) = txn
+					.get(&key, false)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get object"))?
+				{
+					let mut object = Object::deserialize(&bytes)?;
+					object.reference_count = reference_count;
+					let bytes = object.serialize()?;
+					txn.set(&key, &bytes);
+				}
 			},
-			Item::Process(id) => Key::Process {
-				id: id.clone(),
-				field: ProcessField::Core(ProcessCoreField::ReferenceCount),
+			Item::Process(id) => {
+				let key = Key::Process(id.clone());
+				let key = Self::pack(subspace, &key);
+				if let Some(bytes) = txn
+					.get(&key, false)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get process"))?
+				{
+					let mut process = Process::deserialize(&bytes)?;
+					process.reference_count = reference_count;
+					let bytes = process.serialize()?;
+					txn.set(&key, &bytes);
+				}
 			},
-		};
-		let key = Self::pack(subspace, &key);
-		txn.set(&key, &varint::encode_uvarint(reference_count));
+		}
+		Ok(())
 	}
 
 	async fn delete_item(
@@ -376,26 +401,19 @@ impl Index {
 		partition_total: u64,
 	) -> tg::Result<()> {
 		match item {
-			Item::CacheEntry(id) => Self::delete_cache_entry(txn, subspace, id).await,
+			Item::CacheEntry(id) => {
+				Self::delete_cache_entry(txn, subspace, id);
+				Ok(())
+			},
 			Item::Object(id) => Self::delete_object(txn, subspace, id, partition_total).await,
 			Item::Process(id) => Self::delete_process(txn, subspace, id, partition_total).await,
 		}
 	}
 
-	async fn delete_cache_entry(
-		txn: &fdb::Transaction,
-		subspace: &Subspace,
-		id: &tg::artifact::Id,
-	) -> tg::Result<()> {
-		let id_bytes = id.to_bytes();
-
-		let prefix = (KeyKind::CacheEntry.to_i32().unwrap(), id_bytes.as_ref());
-		let prefix = Self::pack(subspace, &prefix);
-		let range_subspace = Subspace::from_bytes(prefix);
-		let (begin, end) = range_subspace.range();
-		txn.clear_range(&begin, &end);
-
-		Ok(())
+	fn delete_cache_entry(txn: &fdb::Transaction, subspace: &Subspace, id: &tg::artifact::Id) {
+		let key = Key::CacheEntry(id.clone());
+		let key = Self::pack(subspace, &key);
+		txn.clear(&key);
 	}
 
 	async fn delete_object(
@@ -404,28 +422,18 @@ impl Index {
 		id: &tg::object::Id,
 		partition_total: u64,
 	) -> tg::Result<()> {
-		let key = Key::Object {
-			id: id.clone(),
-			field: ObjectField::Core(ObjectCoreField::CacheEntry),
-		};
+		let key = Key::Object(id.clone());
 		let key = Self::pack(subspace, &key);
 		let cache_entry = txn
 			.get(&key, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get cache entry"))?
-			.map(|bytes| {
-				tg::artifact::Id::from_slice(&bytes)
-					.map_err(|source| tg::error!(!source, "invalid artifact id"))
-			})
-			.transpose()?;
+			.map_err(|source| tg::error!(!source, "failed to get object"))?
+			.and_then(|bytes| Object::deserialize(&bytes).ok())
+			.and_then(|obj| obj.cache_entry);
+
+		txn.clear(&key);
 
 		let id_bytes = id.to_bytes();
-
-		let prefix = (KeyKind::Object.to_i32().unwrap(), id_bytes.as_ref());
-		let prefix = Self::pack(subspace, &prefix);
-		let range_subspace = Subspace::from_bytes(prefix);
-		let (begin, end) = range_subspace.range();
-		txn.clear_range(&begin, &end);
 
 		let prefix = (KeyKind::ObjectChild.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = Self::pack(subspace, &prefix);
@@ -496,13 +504,11 @@ impl Index {
 		id: &tg::process::Id,
 		partition_total: u64,
 	) -> tg::Result<()> {
-		let id_bytes = id.to_bytes();
+		let key = Key::Process(id.clone());
+		let key = Self::pack(subspace, &key);
+		txn.clear(&key);
 
-		let prefix = (KeyKind::Process.to_i32().unwrap(), id_bytes.as_ref());
-		let prefix = Self::pack(subspace, &prefix);
-		let range_subspace = Subspace::from_bytes(prefix);
-		let (begin, end) = range_subspace.range();
-		txn.clear_range(&begin, &end);
+		let id_bytes = id.to_bytes();
 
 		let prefix = (KeyKind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = Self::pack(subspace, &prefix);
@@ -586,52 +592,36 @@ impl Index {
 		id: &tg::artifact::Id,
 		partition_total: u64,
 	) -> tg::Result<()> {
-		let key = Key::CacheEntry {
-			id: id.clone(),
-			field: CacheEntryField::Core(CacheEntryCoreField::ReferenceCount),
-		};
+		let key = Key::CacheEntry(id.clone());
 		let key = Self::pack(subspace, &key);
-		let reference_count = txn
+		let Some(bytes) = txn
 			.get(&key, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get reference count"))?
-			.map(|bytes| varint::decode_uvarint(&bytes).ok_or_else(|| tg::error!("invalid value")))
-			.transpose()?
-			.unwrap_or(0);
+			.map_err(|source| tg::error!(!source, "failed to get cache entry"))?
+		else {
+			return Ok(());
+		};
+		let mut entry = CacheEntry::deserialize(&bytes)?;
+		let reference_count = entry.reference_count;
 		if reference_count > 1 {
-			txn.set(&key, &varint::encode_uvarint(reference_count - 1));
+			entry.reference_count = reference_count - 1;
+			let bytes = entry.serialize()?;
+			txn.set(&key, &bytes);
 		} else {
-			txn.clear(&key);
-			let key = Key::CacheEntry {
-				id: id.clone(),
-				field: CacheEntryField::Core(CacheEntryCoreField::TouchedAt),
-			};
-			let key = Self::pack(subspace, &key);
-			let touched_at = txn
-				.get(&key, false)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get touched at"))?
-				.map(|bytes| {
-					let bytes = bytes
-						.as_ref()
-						.try_into()
-						.map_err(|_| tg::error!("invalid value"))?;
-					let value = i64::from_le_bytes(bytes);
-					Ok::<_, tg::Error>(value)
-				})
-				.transpose()?
-				.unwrap_or(0);
+			entry.reference_count = 0;
+			let bytes = entry.serialize()?;
+			txn.set(&key, &bytes);
 
 			let id_bytes = id.to_bytes();
 			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
-			let key = Key::Clean {
+			let clean_key = Key::Clean {
 				partition,
-				touched_at,
+				touched_at: entry.touched_at,
 				kind: ItemKind::CacheEntry,
 				id: tg::Either::Left(id.clone().into()),
 			};
-			let key = Self::pack(subspace, &key);
-			txn.set(&key, &[]);
+			let clean_key = Self::pack(subspace, &clean_key);
+			txn.set(&clean_key, &[]);
 		}
 		Ok(())
 	}
@@ -642,52 +632,36 @@ impl Index {
 		id: &tg::object::Id,
 		partition_total: u64,
 	) -> tg::Result<()> {
-		let key = Key::Object {
-			id: id.clone(),
-			field: ObjectField::Core(ObjectCoreField::ReferenceCount),
-		};
+		let key = Key::Object(id.clone());
 		let key = Self::pack(subspace, &key);
-		let reference_count = txn
+		let Some(bytes) = txn
 			.get(&key, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get reference count"))?
-			.map(|bytes| varint::decode_uvarint(&bytes).ok_or_else(|| tg::error!("invalid value")))
-			.transpose()?
-			.unwrap_or(0);
+			.map_err(|source| tg::error!(!source, "failed to get object"))?
+		else {
+			return Ok(());
+		};
+		let mut object = Object::deserialize(&bytes)?;
+		let reference_count = object.reference_count;
 		if reference_count > 1 {
-			txn.set(&key, &varint::encode_uvarint(reference_count - 1));
+			object.reference_count = reference_count - 1;
+			let bytes = object.serialize()?;
+			txn.set(&key, &bytes);
 		} else {
-			txn.clear(&key);
-			let key = Key::Object {
-				id: id.clone(),
-				field: ObjectField::Core(ObjectCoreField::TouchedAt),
-			};
-			let key = Self::pack(subspace, &key);
-			let touched_at = txn
-				.get(&key, false)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get touched at"))?
-				.map(|bytes| {
-					let bytes = bytes
-						.as_ref()
-						.try_into()
-						.map_err(|_| tg::error!("invalid value"))?;
-					let value = i64::from_le_bytes(bytes);
-					Ok::<_, tg::Error>(value)
-				})
-				.transpose()?
-				.unwrap_or(0);
+			object.reference_count = 0;
+			let bytes = object.serialize()?;
+			txn.set(&key, &bytes);
 
 			let id_bytes = id.to_bytes();
 			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
-			let key = Key::Clean {
+			let clean_key = Key::Clean {
 				partition,
-				touched_at,
+				touched_at: object.touched_at,
 				kind: ItemKind::Object,
 				id: tg::Either::Left(id.clone()),
 			};
-			let key = Self::pack(subspace, &key);
-			txn.set(&key, &[]);
+			let clean_key = Self::pack(subspace, &clean_key);
+			txn.set(&clean_key, &[]);
 		}
 		Ok(())
 	}
@@ -698,52 +672,36 @@ impl Index {
 		id: &tg::process::Id,
 		partition_total: u64,
 	) -> tg::Result<()> {
-		let key = Key::Process {
-			id: id.clone(),
-			field: ProcessField::Core(ProcessCoreField::ReferenceCount),
-		};
+		let key = Key::Process(id.clone());
 		let key = Self::pack(subspace, &key);
-		let reference_count = txn
+		let Some(bytes) = txn
 			.get(&key, false)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get reference count"))?
-			.map(|bytes| varint::decode_uvarint(&bytes).ok_or_else(|| tg::error!("invalid value")))
-			.transpose()?
-			.unwrap_or(0);
+			.map_err(|source| tg::error!(!source, "failed to get process"))?
+		else {
+			return Ok(());
+		};
+		let mut process = Process::deserialize(&bytes)?;
+		let reference_count = process.reference_count;
 		if reference_count > 1 {
-			txn.set(&key, &varint::encode_uvarint(reference_count - 1));
+			process.reference_count = reference_count - 1;
+			let bytes = process.serialize()?;
+			txn.set(&key, &bytes);
 		} else {
-			txn.clear(&key);
-			let key = Key::Process {
-				id: id.clone(),
-				field: ProcessField::Core(ProcessCoreField::TouchedAt),
-			};
-			let key = Self::pack(subspace, &key);
-			let touched_at = txn
-				.get(&key, false)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get touched at"))?
-				.map(|bytes| {
-					let bytes = bytes
-						.as_ref()
-						.try_into()
-						.map_err(|_| tg::error!("invalid value"))?;
-					let value = i64::from_le_bytes(bytes);
-					Ok::<_, tg::Error>(value)
-				})
-				.transpose()?
-				.unwrap_or(0);
+			process.reference_count = 0;
+			let bytes = process.serialize()?;
+			txn.set(&key, &bytes);
 
 			let id_bytes = id.to_bytes();
 			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
-			let key = Key::Clean {
+			let clean_key = Key::Clean {
 				partition,
-				touched_at,
+				touched_at: process.touched_at,
 				kind: ItemKind::Process,
 				id: tg::Either::Right(id.clone()),
 			};
-			let key = Self::pack(subspace, &key);
-			txn.set(&key, &[]);
+			let clean_key = Self::pack(subspace, &clean_key);
+			txn.set(&clean_key, &[]);
 		}
 		Ok(())
 	}

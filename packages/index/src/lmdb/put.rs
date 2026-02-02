@@ -54,9 +54,9 @@ impl Index {
 			.map_err(|source| tg::error!(!source, "failed to get the cache entry"))?
 			.and_then(|bytes| CacheEntry::deserialize(bytes).ok());
 
-		let touched_at = existing
-			.as_ref()
-			.map_or(arg.touched_at, |e| e.touched_at.max(arg.touched_at));
+		let touched_at = existing.as_ref().map_or(arg.touched_at, |existing| {
+			existing.touched_at.max(arg.touched_at)
+		});
 
 		let value = CacheEntry {
 			reference_count: 0,
@@ -86,22 +86,30 @@ impl Index {
 		let id = &arg.id;
 		let key = Key::Object(id.clone()).pack_to_vec();
 
-		let existing = db
-			.get(transaction, &key)
-			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
-			.and_then(|bytes| Object::deserialize(bytes).ok());
+		let merge = !arg.complete();
+		let existing = if merge {
+			db.get(transaction, &key)
+				.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
+				.and_then(|bytes| Object::deserialize(bytes).ok())
+		} else {
+			None
+		};
 
-		let touched_at = existing
-			.as_ref()
-			.map_or(arg.touched_at, |e| e.touched_at.max(arg.touched_at));
+		let touched_at = existing.as_ref().map_or(arg.touched_at, |existing| {
+			existing.touched_at.max(arg.touched_at)
+		});
 
-		let cache_entry = arg
-			.cache_entry
-			.clone()
-			.or_else(|| existing.as_ref().and_then(|e| e.cache_entry.clone()));
+		let cache_entry = arg.cache_entry.clone().or_else(|| {
+			existing
+				.as_ref()
+				.and_then(|existing| existing.cache_entry.clone())
+		});
 
 		let stored = ObjectStored {
-			subtree: arg.stored.subtree || existing.as_ref().is_some_and(|e| e.stored.subtree),
+			subtree: arg.stored.subtree
+				|| existing
+					.as_ref()
+					.is_some_and(|existing| existing.stored.subtree),
 		};
 
 		let mut metadata = arg.metadata.clone();
@@ -184,14 +192,18 @@ impl Index {
 		let id = &arg.id;
 		let key = Key::Process(id.clone()).pack_to_vec();
 
-		let existing = db
-			.get(transaction, &key)
-			.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
-			.and_then(|bytes| Process::deserialize(bytes).ok());
+		let merge = !arg.complete();
+		let existing = if merge {
+			db.get(transaction, &key)
+				.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
+				.and_then(|bytes| Process::deserialize(bytes).ok())
+		} else {
+			None
+		};
 
-		let touched_at = existing
-			.as_ref()
-			.map_or(arg.touched_at, |e| e.touched_at.max(arg.touched_at));
+		let touched_at = existing.as_ref().map_or(arg.touched_at, |existing| {
+			existing.touched_at.max(arg.touched_at)
+		});
 
 		let mut stored = arg.stored.clone();
 		if let Some(ref existing) = existing {

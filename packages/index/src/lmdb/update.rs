@@ -333,6 +333,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.node.error.depth.is_none() {
 			let value = error_objects
 				.iter()
@@ -347,6 +348,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.node.error.size.is_none() {
 			let value = error_objects
 				.iter()
@@ -361,6 +363,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.node.error.solvable.is_none() {
 			let value = error_objects
 				.iter()
@@ -375,6 +378,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.node.error.solved.is_none() {
 			let value = error_objects
 				.iter()
@@ -458,6 +462,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.node.output.depth.is_none() {
 			let value = output_objects
 				.iter()
@@ -472,6 +477,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.node.output.size.is_none() {
 			let value = output_objects
 				.iter()
@@ -486,6 +492,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.node.output.solvable.is_none() {
 			let value = output_objects
 				.iter()
@@ -500,6 +507,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.node.output.solved.is_none() {
 			let value = output_objects
 				.iter()
@@ -547,6 +555,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.subtree.command.depth.is_none() {
 			let value = children
 				.iter()
@@ -563,6 +572,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.subtree.command.size.is_none() {
 			let value = children
 				.iter()
@@ -579,6 +589,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.subtree.command.solvable.is_none() {
 			let value = children
 				.iter()
@@ -595,6 +606,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.subtree.command.solved.is_none() {
 			let value = children
 				.iter()
@@ -628,6 +640,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.subtree.error.depth.is_none() {
 			let value = children
 				.iter()
@@ -644,6 +657,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.subtree.error.size.is_none() {
 			let value = children
 				.iter()
@@ -660,6 +674,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.subtree.error.solvable.is_none() {
 			let value = children
 				.iter()
@@ -676,6 +691,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.subtree.error.solved.is_none() {
 			let value = children
 				.iter()
@@ -709,6 +725,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.subtree.log.depth.is_none() {
 			let value = children
 				.iter()
@@ -725,6 +742,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.subtree.log.size.is_none() {
 			let value = children
 				.iter()
@@ -741,6 +759,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.subtree.log.solvable.is_none() {
 			let value = children
 				.iter()
@@ -757,6 +776,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.subtree.log.solved.is_none() {
 			let value = children
 				.iter()
@@ -790,6 +810,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.subtree.output.depth.is_none() {
 			let value = children
 				.iter()
@@ -806,6 +827,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.subtree.output.size.is_none() {
 			let value = children
 				.iter()
@@ -822,6 +844,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.subtree.output.solvable.is_none() {
 			let value = children
 				.iter()
@@ -838,6 +861,7 @@ impl Index {
 				changed = true;
 			}
 		}
+
 		if process.metadata.subtree.output.solved.is_none() {
 			let value = children
 				.iter()

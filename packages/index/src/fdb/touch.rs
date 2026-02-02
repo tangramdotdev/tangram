@@ -1,7 +1,8 @@
 use {
-	super::{Index, Key, ObjectCoreField, ObjectField, ProcessCoreField, ProcessField},
+	super::{Index, Key},
 	crate::{Object, Process},
 	foundationdb as fdb,
+	foundationdb_tuple::Subspace,
 	futures::future,
 	tangram_client::prelude::*,
 };
@@ -24,45 +25,8 @@ impl Index {
 					future::try_join_all(ids.iter().map(|id| {
 						let subspace = subspace.clone();
 						async move {
-							// Attempt to get the object.
-							let Some(mut object) =
-								Self::try_get_object_with_transaction(txn, &subspace, id).await?
-							else {
-								return Ok(None);
-							};
-
-							// Add a conflict range on the exists key.
-							let key = Key::Object {
-								id: id.clone(),
-								field: ObjectField::Core(ObjectCoreField::Exists),
-							};
-							let exists_key = Self::pack(&subspace, &key);
-							let mut exists_key_end = exists_key.clone();
-							exists_key_end.push(0x00);
-							txn.add_conflict_range(
-								&exists_key,
-								&exists_key_end,
-								fdb::options::ConflictRangeType::Read,
-							)
-							.map_err(|source| {
-								tg::error!(!source, "failed to add read conflict range")
-							})?;
-
-							// Update the touched at.
-							let key = Key::Object {
-								id: id.clone(),
-								field: ObjectField::Core(ObjectCoreField::TouchedAt),
-							};
-							let key = Self::pack(&subspace, &key);
-							txn.atomic_op(
-								&key,
-								&touched_at.to_le_bytes(),
-								fdb::options::MutationType::Max,
-							);
-
-							object.touched_at = touched_at;
-
-							Ok::<_, tg::Error>(Some(object))
+							Self::touch_object_with_transaction(txn, &subspace, id, touched_at)
+								.await
 						}
 					}))
 					.await
@@ -90,45 +54,8 @@ impl Index {
 					future::try_join_all(ids.iter().map(|id| {
 						let subspace = subspace.clone();
 						async move {
-							// Attempt to get the process.
-							let Some(mut process) =
-								Self::try_get_process_with_transaction(txn, &subspace, id).await?
-							else {
-								return Ok(None);
-							};
-
-							// Add a conflict range on the exists key.
-							let key = Key::Process {
-								id: id.clone(),
-								field: ProcessField::Core(ProcessCoreField::Exists),
-							};
-							let exists_key = Self::pack(&subspace, &key);
-							let mut exists_key_end = exists_key.clone();
-							exists_key_end.push(0x00);
-							txn.add_conflict_range(
-								&exists_key,
-								&exists_key_end,
-								fdb::options::ConflictRangeType::Read,
-							)
-							.map_err(|source| {
-								tg::error!(!source, "failed to add read conflict range")
-							})?;
-
-							// Update the touched at.
-							let key = Key::Process {
-								id: id.clone(),
-								field: ProcessField::Core(ProcessCoreField::TouchedAt),
-							};
-							let key = Self::pack(&subspace, &key);
-							txn.atomic_op(
-								&key,
-								&touched_at.to_le_bytes(),
-								fdb::options::MutationType::Max,
-							);
-
-							process.touched_at = touched_at;
-
-							Ok::<_, tg::Error>(Some(process))
+							Self::touch_process_with_transaction(txn, &subspace, id, touched_at)
+								.await
 						}
 					}))
 					.await
@@ -137,5 +64,73 @@ impl Index {
 			})
 			.await
 			.map_err(|source| tg::error!(!source, "failed to touch processes"))
+	}
+
+	async fn touch_object_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::object::Id,
+		touched_at: i64,
+	) -> tg::Result<Option<Object>> {
+		let key = Key::Object(id.clone());
+		let key = Self::pack(subspace, &key);
+		let existing = txn
+			.get(&key, false)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
+		let existing = existing
+			.as_ref()
+			.map(|bytes| Object::deserialize(bytes))
+			.transpose()?;
+		let Some(mut object) = existing else {
+			return Ok(None);
+		};
+
+		let mut key_end = key.clone();
+		key_end.push(0x00);
+		txn.add_conflict_range(&key, &key_end, fdb::options::ConflictRangeType::Read)
+			.map_err(|source| tg::error!(!source, "failed to add read conflict range"))?;
+
+		object.touched_at = object.touched_at.max(touched_at);
+		let value = object
+			.serialize()
+			.map_err(|source| tg::error!(!source, "failed to serialize the object"))?;
+		txn.set(&key, &value);
+
+		Ok(Some(object))
+	}
+
+	async fn touch_process_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::process::Id,
+		touched_at: i64,
+	) -> tg::Result<Option<Process>> {
+		let key = Key::Process(id.clone());
+		let key = Self::pack(subspace, &key);
+		let existing = txn
+			.get(&key, false)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?;
+		let existing = existing
+			.as_ref()
+			.map(|bytes| Process::deserialize(bytes))
+			.transpose()?;
+		let Some(mut process) = existing else {
+			return Ok(None);
+		};
+
+		let mut key_end = key.clone();
+		key_end.push(0x00);
+		txn.add_conflict_range(&key, &key_end, fdb::options::ConflictRangeType::Read)
+			.map_err(|source| tg::error!(!source, "failed to add read conflict range"))?;
+
+		process.touched_at = process.touched_at.max(touched_at);
+		let value = process
+			.serialize()
+			.map_err(|source| tg::error!(!source, "failed to serialize the process"))?;
+		txn.set(&key, &value);
+
+		Ok(Some(process))
 	}
 }

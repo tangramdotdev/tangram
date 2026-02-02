@@ -207,7 +207,7 @@ pub struct FdbIndex {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub prefix: Option<String>,
 	pub put_concurrency: usize,
-	pub put_max_keys_per_transaction: usize,
+	pub put_max_items_per_transaction: usize,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -595,7 +595,7 @@ impl Default for FdbIndex {
 			partition_total: 256,
 			prefix: None,
 			put_concurrency: 256,
-			put_max_keys_per_transaction: 8_000,
+			put_max_items_per_transaction: 8_000,
 		}
 	}
 }

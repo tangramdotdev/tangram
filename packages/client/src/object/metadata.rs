@@ -105,6 +105,15 @@ impl Metadata {
 }
 
 impl Subtree {
+	#[must_use]
+	pub fn complete(&self) -> bool {
+		self.count.is_some()
+			&& self.depth.is_some()
+			&& self.size.is_some()
+			&& self.solvable.is_some()
+			&& self.solved.is_some()
+	}
+
 	pub fn merge(&mut self, other: &Self) {
 		if self.count.is_none() {
 			self.count = other.count;

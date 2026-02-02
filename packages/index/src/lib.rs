@@ -285,6 +285,13 @@ pub struct PutObjectArg {
 	pub touched_at: i64,
 }
 
+impl PutObjectArg {
+	#[must_use]
+	pub fn complete(&self) -> bool {
+		self.metadata.subtree.complete()
+	}
+}
+
 #[derive(Clone, Debug)]
 pub struct PutProcessArg {
 	pub children: Vec<tg::process::Id>,
@@ -293,6 +300,21 @@ pub struct PutProcessArg {
 	pub objects: Vec<(tg::object::Id, ProcessObjectKind)>,
 	pub stored: ProcessStored,
 	pub touched_at: i64,
+}
+
+impl PutProcessArg {
+	#[must_use]
+	pub fn complete(&self) -> bool {
+		self.metadata.subtree.count.is_some()
+			&& self.metadata.subtree.command.complete()
+			&& self.metadata.subtree.error.complete()
+			&& self.metadata.subtree.log.complete()
+			&& self.metadata.subtree.output.complete()
+			&& self.metadata.node.command.complete()
+			&& self.metadata.node.error.complete()
+			&& self.metadata.node.log.complete()
+			&& self.metadata.node.output.complete()
+	}
 }
 
 #[derive(Clone, Debug)]
