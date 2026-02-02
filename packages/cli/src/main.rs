@@ -39,7 +39,6 @@ mod lsp;
 mod metadata;
 mod new;
 mod object;
-#[cfg(feature = "opentelemetry")]
 mod opentelemetry;
 mod outdated;
 mod print;
@@ -152,7 +151,6 @@ enum Mode {
 }
 
 enum Tracing {
-	#[cfg(feature = "opentelemetry")]
 	OpenTelemetry(opentelemetry::OpenTelemetry),
 	None,
 }
@@ -1154,7 +1152,6 @@ impl Cli {
 			None
 		};
 
-		#[cfg(feature = "opentelemetry")]
 		let (opentelemetry, opentelemetry_layer) = {
 			let opentelemetry = config
 				.and_then(|c| c.opentelemetry.as_ref())
@@ -1164,9 +1161,6 @@ impl Cli {
 				.map(|data| tracing_opentelemetry::layer().with_tracer(data.tracer.clone()));
 			(opentelemetry, layer)
 		};
-
-		#[cfg(not(feature = "opentelemetry"))]
-		let opentelemetry_layer: Option<tracing_subscriber::layer::Identity> = None;
 
 		tracing_subscriber::registry()
 			.with(console_layer)
@@ -1180,7 +1174,6 @@ impl Cli {
 			tracing::error!(payload, location, %backtrace, "panic");
 		}));
 
-		#[cfg(feature = "opentelemetry")]
 		if let Some(opentelemetry) = opentelemetry {
 			return Tracing::OpenTelemetry(opentelemetry);
 		}
@@ -1215,7 +1208,6 @@ impl Cli {
 impl Tracing {
 	fn shutdown(&self) {
 		match self {
-			#[cfg(feature = "opentelemetry")]
 			Self::OpenTelemetry(opentelemetry) => opentelemetry.shutdown(),
 			Self::None => {},
 		}

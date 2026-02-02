@@ -53,19 +53,14 @@ impl Server {
 		let task_tracker = tokio_util::task::TaskTracker::new();
 
 		// Create the active connections counter.
-		#[cfg(feature = "opentelemetry")]
 		let active_connections = opentelemetry::global::meter("tangram_http")
 			.i64_up_down_counter("http.connections.active")
 			.with_description("Number of active HTTP connections")
 			.build();
 
 		// Create the service builder.
-		let builder = tower::ServiceBuilder::new();
-
-		#[cfg(feature = "opentelemetry")]
-		let builder = builder.layer(tangram_http::layer::metrics::MetricsLayer::new());
-
-		let builder = builder
+		let builder = tower::ServiceBuilder::new()
+			.layer(tangram_http::layer::metrics::MetricsLayer::new())
 			.layer(tangram_http::layer::tracing::TracingLayer::new())
 			.layer(tower_http::timeout::TimeoutLayer::with_status_code(
 				http::StatusCode::REQUEST_TIMEOUT,
@@ -136,7 +131,6 @@ impl Server {
 			};
 
 			// Spawn a task to serve the connection.
-			#[cfg(feature = "opentelemetry")]
 			let guard = {
 				active_connections.add(1, &[]);
 				let active_connections = active_connections.clone();
@@ -180,7 +174,6 @@ impl Server {
 						},
 					};
 					result.ok();
-					#[cfg(feature = "opentelemetry")]
 					drop(guard);
 				}
 			});

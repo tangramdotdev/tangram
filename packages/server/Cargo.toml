@@ -18,7 +18,6 @@ foundationdb = ["tangram_index/foundationdb"]
 js = ["dep:tangram_js"]
 lmdb = ["tangram_index/lmdb", "tangram_store/lmdb"]
 nats = ["dep:async-nats", "tangram_messenger/nats"]
-opentelemetry = ["dep:opentelemetry", "tangram_http/opentelemetry"]
 postgres = ["dep:tokio-postgres", "tangram_database/postgres"]
 quickjs = ["tangram_js/quickjs"]
 sqlite = ["dep:rusqlite", "tangram_database/sqlite"]
@@ -54,7 +53,7 @@ mime = { workspace = true }
 moka = { workspace = true }
 notify = { workspace = true }
 num = { workspace = true }
-opentelemetry = { workspace = true, optional = true }
+opentelemetry = { workspace = true }
 num-derive = { workspace = true }
 num-traits = { workspace = true }
 oauth2 = { workspace = true }
