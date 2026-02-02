@@ -4,7 +4,6 @@ use {
 	num_traits::{FromPrimitive as _, ToPrimitive as _},
 	std::sync::Arc,
 	tangram_client::prelude::*,
-	tokio::sync::mpsc,
 };
 
 mod clean;
@@ -18,7 +17,7 @@ pub struct Index {
 	database: Arc<fdb::Database>,
 	partition_total: u64,
 	subspace: fdbt::Subspace,
-	put_sender: mpsc::UnboundedSender<self::put::Request>,
+	put_sender: tokio::sync::mpsc::UnboundedSender<self::put::Request>,
 }
 
 pub struct Options {
@@ -472,7 +471,7 @@ impl Index {
 
 		let partition_total = options.partition_total;
 
-		let (put_sender, put_receiver) = mpsc::unbounded_channel();
+		let (put_sender, put_receiver) = tokio::sync::mpsc::unbounded_channel();
 		let put_concurrency = options.put_concurrency;
 		let put_max_keys_per_transaction = options.put_max_keys_per_transaction;
 		tokio::spawn({
