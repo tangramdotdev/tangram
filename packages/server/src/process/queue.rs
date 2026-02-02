@@ -84,16 +84,16 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-			// Only return the process if we successfully changed the status of the process.
-			if result == 0 {
-				continue;
-			}
-
-			// Ack the message.
+			// Ack the message unconditionally to avoid redelivery.
 			acker
 				.ack()
 				.await
 				.map_err(|source| tg::error!(!source, "failed to ack the message"))?;
+
+			// Only return the process if we successfully changed the status of the process.
+			if result == 0 {
+				continue;
+			}
 
 			// Publish a message that the status changed.
 			let subject = format!("processes.{}.status", payload.id);

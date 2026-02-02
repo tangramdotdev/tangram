@@ -346,6 +346,7 @@ impl Consumer {
 		let stream = self
 			.consumer
 			.stream()
+			.max_messages_per_batch(1)
 			.messages()
 			.await
 			.map_err(Error::other)?
