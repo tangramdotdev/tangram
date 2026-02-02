@@ -11,6 +11,9 @@ use {
 
 impl Index {
 	pub async fn put(&self, arg: PutArg) -> tg::Result<()> {
+		if arg.cache_entries.is_empty() && arg.objects.is_empty() && arg.processes.is_empty() {
+			return Ok(());
+		}
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Put(arg);
 		self.sender_high
