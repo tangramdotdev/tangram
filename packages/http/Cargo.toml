@@ -13,7 +13,11 @@ version = { workspace = true }
 [lints]
 workspace = true
 
+[features]
+opentelemetry = ["dep:opentelemetry"]
+
 [dependencies]
+opentelemetry = { workspace = true, optional = true }
 bytes = { workspace = true }
 derive_more = { workspace = true }
 flate2 = { workspace = true }

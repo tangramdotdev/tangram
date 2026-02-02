@@ -52,8 +52,20 @@ impl Server {
 		// Create the task tracker.
 		let task_tracker = tokio_util::task::TaskTracker::new();
 
-		// Create the service.
-		let service = tower::ServiceBuilder::new()
+		// Create the active connections counter.
+		#[cfg(feature = "opentelemetry")]
+		let active_connections = opentelemetry::global::meter("tangram_http")
+			.i64_up_down_counter("http.connections.active")
+			.with_description("Number of active HTTP connections")
+			.build();
+
+		// Create the service builder.
+		let builder = tower::ServiceBuilder::new();
+
+		#[cfg(feature = "opentelemetry")]
+		let builder = builder.layer(tangram_http::layer::metrics::MetricsLayer::new());
+
+		let builder = builder
 			.layer(tangram_http::layer::tracing::TracingLayer::new())
 			.layer(tower_http::timeout::TimeoutLayer::with_status_code(
 				http::StatusCode::REQUEST_TIMEOUT,
@@ -83,18 +95,19 @@ impl Server {
 						}
 					},
 				),
-			)
-			.service_fn({
-				let handle = self.clone();
-				move |request| {
-					let handle = handle.clone();
-					let context = context.clone();
-					async move {
-						let response = Self::handle_request(&handle, request, context).await;
-						Ok::<_, Infallible>(response)
-					}
+			);
+
+		let service = builder.service_fn({
+			let handle = self.clone();
+			move |request| {
+				let handle = handle.clone();
+				let context = context.clone();
+				async move {
+					let response = Self::handle_request(&handle, request, context).await;
+					Ok::<_, Infallible>(response)
 				}
-			});
+			}
+		});
 
 		loop {
 			// Accept a new connection.
@@ -123,6 +136,14 @@ impl Server {
 			};
 
 			// Spawn a task to serve the connection.
+			#[cfg(feature = "opentelemetry")]
+			let guard = {
+				active_connections.add(1, &[]);
+				let active_connections = active_connections.clone();
+				scopeguard::guard((), move |()| {
+					active_connections.add(-1, &[]);
+				})
+			};
 			task_tracker.spawn({
 				let service = service.clone();
 				let stop = stop.clone();
@@ -159,6 +180,8 @@ impl Server {
 						},
 					};
 					result.ok();
+					#[cfg(feature = "opentelemetry")]
+					drop(guard);
 				}
 			});
 		}
@@ -168,6 +191,7 @@ impl Server {
 		task_tracker.wait().await;
 	}
 
+	#[tracing::instrument(name = "request", skip_all, fields(id, method, path))]
 	async fn handle_request(
 		server: &Server,
 		mut request: http::Request<Body>,
@@ -176,12 +200,17 @@ impl Server {
 		let id = tg::Id::new_uuidv7(tg::id::Kind::Request);
 		request.extensions_mut().insert(id.clone());
 
+		let span = tracing::Span::current();
+		span.record("id", id.to_string());
+		span.record("method", request.method().as_str());
+		span.record("path", request.uri().path());
+
+		let method = request.method().clone();
+		let path = request.uri().path().to_owned();
 		// Update the context.
 		context.token = request.token(None).map(ToOwned::to_owned);
 		context.untrusted = true;
 
-		let method = request.method().clone();
-		let path = request.uri().path().to_owned();
 		let path_components = path.split('/').skip(1).collect::<Vec<_>>();
 		let response = match (method, path_components.as_slice()) {
 			(http::Method::POST, ["cache"]) => {

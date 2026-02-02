@@ -28,6 +28,10 @@ pub struct Config {
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default = "default_tracing")]
 	pub tracing: Option<Tracing>,
+
+	/// Configure OpenTelemetry.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub opentelemetry: Option<OpenTelemetry>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -76,6 +80,46 @@ impl Default for Tracing {
 			format: Some(TracingFormat::Pretty),
 		}
 	}
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpenTelemetry {
+	/// The output mode for OpenTelemetry data.
+	#[serde(default)]
+	pub output: OpenTelemetryOutput,
+
+	/// The OTLP endpoint URL. Only used when output is Otlp.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub endpoint: Option<String>,
+
+	/// The service name for OpenTelemetry.
+	#[serde(default = "default_service_name")]
+	pub service_name: String,
+}
+
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Default,
+	derive_more::Display,
+	derive_more::FromStr,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+)]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
+pub enum OpenTelemetryOutput {
+	/// Export to stdout for local development.
+	#[default]
+	Console,
+	/// Export to an OTLP collector for production.
+	Otlp,
+}
+
+fn default_service_name() -> String {
+	"tangram".to_owned()
 }
 
 #[expect(clippy::unnecessary_wraps)]

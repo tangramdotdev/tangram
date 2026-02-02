@@ -39,6 +39,8 @@ mod lsp;
 mod metadata;
 mod new;
 mod object;
+#[cfg(feature = "opentelemetry")]
+mod opentelemetry;
 mod outdated;
 mod print;
 mod process;
@@ -147,6 +149,12 @@ enum Mode {
 	Auto,
 	Client,
 	Server,
+}
+
+enum Tracing {
+	#[cfg(feature = "opentelemetry")]
+	OpenTelemetry(opentelemetry::OpenTelemetry),
+	None,
 }
 
 #[derive(Clone, Debug, clap::Subcommand)]
@@ -393,7 +401,7 @@ fn main() -> std::process::ExitCode {
 	Cli::initialize_miette();
 
 	// Initialize tracing.
-	Cli::initialize_tracing(config.as_ref(), args.tracing.as_ref());
+	let tracing = Cli::initialize_tracing(config.as_ref(), args.tracing.as_ref());
 
 	// Initialize V8.
 	#[cfg(feature = "v8")]
@@ -461,6 +469,9 @@ fn main() -> std::process::ExitCode {
 			None => (),
 		}
 	});
+
+	// Shutdown tracing.
+	tracing.shutdown();
 
 	// Drop the runtime.
 	drop(runtime);
@@ -1111,7 +1122,7 @@ impl Cli {
 	}
 
 	/// Initialize tracing.
-	fn initialize_tracing(config: Option<&Config>, tracing_filter: Option<&String>) {
+	fn initialize_tracing(config: Option<&Config>, tracing_filter: Option<&String>) -> Tracing {
 		let console_layer = if config.is_some_and(|config| config.tokio_console) {
 			Some(console_subscriber::spawn())
 		} else {
@@ -1142,9 +1153,25 @@ impl Cli {
 		} else {
 			None
 		};
+
+		#[cfg(feature = "opentelemetry")]
+		let (opentelemetry, opentelemetry_layer) = {
+			let opentelemetry = config
+				.and_then(|c| c.opentelemetry.as_ref())
+				.map(opentelemetry::initialize);
+			let layer = opentelemetry
+				.as_ref()
+				.map(|data| tracing_opentelemetry::layer().with_tracer(data.tracer.clone()));
+			(opentelemetry, layer)
+		};
+
+		#[cfg(not(feature = "opentelemetry"))]
+		let opentelemetry_layer: Option<tracing_subscriber::layer::Identity> = None;
+
 		tracing_subscriber::registry()
 			.with(console_layer)
 			.with(output_layer)
+			.with(opentelemetry_layer)
 			.init();
 		std::panic::set_hook(Box::new(|info| {
 			let payload = info.payload_as_str();
@@ -1152,6 +1179,13 @@ impl Cli {
 			let backtrace = std::backtrace::Backtrace::force_capture();
 			tracing::error!(payload, location, %backtrace, "panic");
 		}));
+
+		#[cfg(feature = "opentelemetry")]
+		if let Some(opentelemetry) = opentelemetry {
+			return Tracing::OpenTelemetry(opentelemetry);
+		}
+
+		Tracing::None
 	}
 
 	fn set_file_descriptor_limit() -> tg::Result<()> {
@@ -1175,5 +1209,15 @@ impl Cli {
 			));
 		}
 		Ok(())
+	}
+}
+
+impl Tracing {
+	fn shutdown(&self) {
+		match self {
+			#[cfg(feature = "opentelemetry")]
+			Self::OpenTelemetry(opentelemetry) => opentelemetry.shutdown(),
+			Self::None => {},
+		}
 	}
 }
