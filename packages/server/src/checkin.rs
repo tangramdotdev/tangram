@@ -7,7 +7,6 @@ use {
 		panic::AssertUnwindSafe,
 		path::{Path, PathBuf},
 		sync::Arc,
-		time::Instant,
 	},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
@@ -310,7 +309,6 @@ impl Server {
 		};
 
 		// Collect input.
-		let start = Instant::now();
 		let mut graph = tokio::task::spawn_blocking({
 			let server = self.clone();
 			let arg = arg.clone();
@@ -335,11 +333,9 @@ impl Server {
 		})
 		.await
 		.map_err(|source| tg::error!(!source, "the checkin input task panicked"))??;
-		tracing::trace!(elapsed = ?start.elapsed(), "collect input");
 
 		// Solve.
 		if arg.options.solve {
-			let start = Instant::now();
 			self.checkin_solve(
 				&arg,
 				&mut graph,
@@ -351,16 +347,13 @@ impl Server {
 			)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to solve dependencies"))?;
-			tracing::trace!(elapsed = ?start.elapsed(), "solve");
 		}
 
 		// Get reference path edges.
-		let start = Instant::now();
 		let paths = self
 			.checkin_path_get_edges(&graph, next)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get reference path edges"))?;
-		tracing::trace!(elapsed = ?start.elapsed(), "get path edges");
 
 		// Set the touch time.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -371,7 +364,6 @@ impl Server {
 		let mut index_cache_entry_args = Vec::new();
 
 		// Create blobs.
-		let start = Instant::now();
 		self.checkin_create_blobs(
 			&arg,
 			&mut graph,
@@ -383,10 +375,8 @@ impl Server {
 		)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to create blobs"))?;
-		tracing::trace!(elapsed = ?start.elapsed(), "create blobs");
 
 		// Create artifacts.
-		let start = Instant::now();
 		Self::checkin_create_artifacts(
 			&self.config.checkin,
 			&arg,
@@ -399,7 +389,6 @@ impl Server {
 			root,
 			touched_at,
 		)?;
-		tracing::trace!(elapsed = ?start.elapsed(), "create objects");
 
 		// Cache.
 		if arg.options.cache_pointers {
@@ -407,26 +396,20 @@ impl Server {
 				task.await
 					.map_err(|source| tg::error!(!source, "failed to run the fixup task"))?;
 			}
-			let start = Instant::now();
 			self.checkin_cache(&arg, &graph, next, root, progress)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to cache"))?;
-			tracing::trace!(elapsed = ?start.elapsed(), "cache");
 		}
 
 		// Store.
-		let start = Instant::now();
 		self.checkin_store(store_args.into_values().collect(), progress)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write the objects to the store"))?;
-		tracing::trace!(elapsed = ?start.elapsed(), "write objects to store");
 
 		// Write the lock.
-		let start = Instant::now();
 		self.checkin_write_lock(&arg, &graph, next, lock.as_deref(), root, progress)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the lock"))?;
-		tracing::trace!(elapsed = ?start.elapsed(), "create lock");
 
 		// If the watch option is enabled, then create or update the watcher, verify the version, and then spawn a task to clean nodes with no referrers.
 		if arg.options.watch {

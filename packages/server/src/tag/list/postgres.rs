@@ -4,6 +4,7 @@ use {
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
+	tracing::Instrument as _,
 };
 
 #[derive(Clone, Debug)]
@@ -31,6 +32,7 @@ struct RowWithoutComponent {
 }
 
 impl Server {
+	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) async fn list_tags_postgres(
 		&self,
 		database: &tangram_database::postgres::Database,
@@ -38,12 +40,14 @@ impl Server {
 	) -> tg::Result<tg::tag::list::Output> {
 		let mut connection = database
 			.connection()
+			.instrument(tracing::trace_span!("connection"))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection
 			.transaction()
+			.instrument(tracing::trace_span!("begin_transaction"))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
@@ -68,17 +72,21 @@ impl Server {
 					where parent = $1;
 				"
 			);
-			let rows = transaction
-				.inner()
-				.query(statement, &[&m.id.to_i64().unwrap()])
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-				.iter()
-				.map(|row| {
-					<RowWithComponent as db::postgres::row::Deserialize>::deserialize(row)
-						.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
-				})
-				.collect::<tg::Result<Vec<_>>>()?;
+			let rows = async {
+				transaction
+					.inner()
+					.query(statement, &[&m.id.to_i64().unwrap()])
+					.await
+			}
+			.instrument(tracing::trace_span!("query_branch_children"))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.iter()
+			.map(|row| {
+				<RowWithComponent as db::postgres::row::Deserialize>::deserialize(row)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
 			output = rows
 				.into_iter()
 				.map(|row| {
@@ -120,6 +128,7 @@ impl Server {
 		Ok(output)
 	}
 
+	#[tracing::instrument(level = "trace", skip_all, fields(pattern = %pattern, recursive))]
 	pub async fn match_tags_postgres(
 		transaction: &tangram_database::postgres::Transaction<'_>,
 		pattern: &tg::tag::Pattern,
@@ -134,9 +143,8 @@ impl Server {
 					where parent = 0;
 				"
 			);
-			let rows = transaction
-				.inner()
-				.query(statement, &[])
+			let rows = async { transaction.inner().query(statement, &[]).await }
+				.instrument(tracing::trace_span!("query_root_tags"))
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 				.iter()
@@ -172,22 +180,24 @@ impl Server {
 							where parent = $1;
 						"
 					);
-					let rows = transaction
-						.inner()
-						.query(
-							statement,
-							&[&m.as_ref().map_or(0, |m| m.id.to_i64().unwrap())],
-						)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-						.iter()
-						.map(|row| {
-							<RowWithComponent as db::postgres::row::Deserialize>::deserialize(row)
-								.map_err(|source| {
-									tg::error!(!source, "failed to deserialize the row")
-								})
-						})
-						.collect::<tg::Result<Vec<_>>>()?;
+					let rows = async {
+						transaction
+							.inner()
+							.query(
+								statement,
+								&[&m.as_ref().map_or(0, |m| m.id.to_i64().unwrap())],
+							)
+							.await
+					}
+					.instrument(tracing::trace_span!("query_wildcard_children"))
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+					.iter()
+					.map(|row| {
+						<RowWithComponent as db::postgres::row::Deserialize>::deserialize(row)
+							.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
 					new.extend(rows.into_iter().map(|row| {
 						let mut tag = m.as_ref().map_or_else(tg::Tag::empty, |m| m.tag.clone());
 						tag.push(&row.component);
@@ -205,22 +215,24 @@ impl Server {
 							where parent = $1;
 						"
 					);
-					let rows = transaction
-						.inner()
-						.query(
-							statement,
-							&[&m.as_ref().map_or(0, |m| m.id.to_i64().unwrap())],
-						)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-						.iter()
-						.map(|row| {
-							<RowWithComponent as db::postgres::row::Deserialize>::deserialize(row)
-								.map_err(|source| {
-									tg::error!(!source, "failed to deserialize the row")
-								})
-						})
-						.collect::<tg::Result<Vec<_>>>()?;
+					let rows = async {
+						transaction
+							.inner()
+							.query(
+								statement,
+								&[&m.as_ref().map_or(0, |m| m.id.to_i64().unwrap())],
+							)
+							.await
+					}
+					.instrument(tracing::trace_span!("query_version_children"))
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+					.iter()
+					.map(|row| {
+						<RowWithComponent as db::postgres::row::Deserialize>::deserialize(row)
+							.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
 					new.extend(
 						rows.into_iter()
 							.filter(|row| tg::tag::pattern::matches(&row.component, pattern))
@@ -243,25 +255,27 @@ impl Server {
 							where parent = $1 and component = $2;
 						"
 					);
-					let rows = transaction
-						.inner()
-						.query(
-							statement,
-							&[
-								&m.as_ref().map_or(0, |m| m.id.to_i64().unwrap()),
-								&pattern.to_string(),
-							],
-						)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-						.iter()
-						.map(|row| {
-							<RowWithoutComponent as db::postgres::row::Deserialize>::deserialize(
-								row,
+					let rows = async {
+						transaction
+							.inner()
+							.query(
+								statement,
+								&[
+									&m.as_ref().map_or(0, |m| m.id.to_i64().unwrap()),
+									&pattern.to_string(),
+								],
 							)
+							.await
+					}
+					.instrument(tracing::trace_span!("query_exact_match"))
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+					.iter()
+					.map(|row| {
+						<RowWithoutComponent as db::postgres::row::Deserialize>::deserialize(row)
 							.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
-						})
-						.collect::<tg::Result<Vec<_>>>()?;
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
 					new.extend(rows.into_iter().map(|row| {
 						let mut tag = m.as_ref().map_or_else(tg::Tag::empty, |m| m.tag.clone());
 						tag.push(pattern);
@@ -292,19 +306,21 @@ impl Server {
 							where parent = $1;
 						"
 					);
-					let rows = transaction
-						.inner()
-						.query(statement, &[&m.id.to_i64().unwrap()])
-						.await
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-						.iter()
-						.map(|row| {
-							<RowWithComponent as db::postgres::row::Deserialize>::deserialize(row)
-								.map_err(|source| {
-									tg::error!(!source, "failed to deserialize the row")
-								})
-						})
-						.collect::<tg::Result<Vec<_>>>()?;
+					let rows = async {
+						transaction
+							.inner()
+							.query(statement, &[&m.id.to_i64().unwrap()])
+							.await
+					}
+					.instrument(tracing::trace_span!("query_recursive_children"))
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+					.iter()
+					.map(|row| {
+						<RowWithComponent as db::postgres::row::Deserialize>::deserialize(row)
+							.map_err(|source| tg::error!(!source, "failed to deserialize the row"))
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
 					for row in rows {
 						let mut tag = m.tag.clone();
 						tag.push(&row.component);

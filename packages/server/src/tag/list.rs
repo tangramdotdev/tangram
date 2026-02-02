@@ -3,6 +3,7 @@ use {
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_http::{Body, request::Ext as _},
+	tracing::Instrument as _,
 };
 
 #[cfg(feature = "postgres")]
@@ -11,6 +12,7 @@ mod postgres;
 mod sqlite;
 
 impl Server {
+	#[tracing::instrument(level = "trace", name = "list_tags", skip_all, fields(pattern = %arg.pattern))]
 	pub(crate) async fn list_tags_with_context(
 		&self,
 		context: &Context,
@@ -26,6 +28,7 @@ impl Server {
 		if Self::local(arg.local, arg.remotes.as_ref()) {
 			let local_output = self
 				.list_tags_local(arg.clone())
+				.instrument(tracing::trace_span!("local"))
 				.await
 				.map_err(|source| tg::error!(!source, "failed to list local tags"))?;
 			output.data.extend(local_output.data);
@@ -34,6 +37,7 @@ impl Server {
 		// List the remote tags if requested.
 		let remotes = self
 			.remotes(arg.local, arg.remotes.clone())
+			.instrument(tracing::trace_span!("get_remotes"))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
 		let remote_outputs = remotes
@@ -44,6 +48,7 @@ impl Server {
 					remotes: None,
 					..arg.clone()
 				};
+				let span = tracing::trace_span!("remote", %remote);
 				async move {
 					let client = self.get_remote_client(remote.clone()).await.map_err(
 						|source| tg::error!(!source, %remote, "failed to get the remote client"),
@@ -56,6 +61,7 @@ impl Server {
 					}
 					Ok::<_, tg::Error>(output)
 				}
+				.instrument(span)
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()

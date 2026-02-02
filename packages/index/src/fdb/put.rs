@@ -1,5 +1,5 @@
 use {
-	super::{Index, ItemKind, Key, KeyKind, Update},
+	super::{Index, ItemKind, Key, KeyKind, Metrics, Update},
 	crate::{
 		CacheEntry, Object, ObjectStored, Process, PutArg, PutCacheEntryArg, PutObjectArg,
 		PutProcessArg,
@@ -9,7 +9,10 @@ use {
 	num_traits::ToPrimitive as _,
 	std::{
 		collections::HashSet,
-		sync::{Arc, Mutex},
+		sync::{
+			Arc, Mutex,
+			atomic::{AtomicU64, Ordering},
+		},
 	},
 	tangram_client::prelude::*,
 };
@@ -58,6 +61,7 @@ impl Index {
 		concurrency: usize,
 		max_items_per_transaction: usize,
 		partition_total: u64,
+		metrics: Metrics,
 	) {
 		futures::stream::unfold(&mut receiver, |receiver| async move {
 			let request = receiver.recv().await?;
@@ -72,10 +76,16 @@ impl Index {
 		.for_each_concurrent(concurrency, |batch| {
 			let database = database.clone();
 			let subspace = subspace.clone();
+			let metrics = metrics.clone();
 			async move {
-				let result =
-					Self::put_task_put_batch(&database, &subspace, &batch.arg, partition_total)
-						.await;
+				let result = Self::put_task_put_batch(
+					&database,
+					&subspace,
+					&batch.arg,
+					partition_total,
+					&metrics,
+				)
+				.await;
 				for tracker in batch.trackers {
 					let mut state = tracker.lock().unwrap();
 					if let Err(error) = &result {
@@ -164,9 +174,14 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &PutArg,
 		partition_total: u64,
+		metrics: &Metrics,
 	) -> tg::Result<()> {
+		let start = std::time::Instant::now();
+		let retry_count = AtomicU64::new(0);
+
 		let result = database
-			.run(|txn, _| {
+			.run(|txn, _maybe_committed| {
+				retry_count.fetch_add(1, Ordering::Relaxed);
 				let subspace = subspace.clone();
 				let arg = arg.clone();
 				async move {
@@ -185,9 +200,21 @@ impl Index {
 			})
 			.await;
 
+		let duration = start.elapsed().as_secs_f64();
+		metrics.put_commit_duration.record(duration, &[]);
+		metrics.put_transactions.add(1, &[]);
+
+		let attempts = retry_count.load(Ordering::Relaxed);
+		if attempts > 1 {
+			metrics
+				.put_transaction_conflict_retry
+				.add(attempts - 1, &[]);
+		}
+
 		match result {
 			Ok(()) => (),
 			Err(fdb::FdbBindingError::NonRetryableFdbError(error)) if error.code() == 2101 => {
+				metrics.put_transaction_too_large.add(1, &[]);
 				let count = arg.cache_entries.len() + arg.objects.len() + arg.processes.len();
 				if count <= 1 {
 					return Err(tg::error!(
@@ -210,6 +237,7 @@ impl Index {
 					subspace,
 					&left,
 					partition_total,
+					metrics,
 				))
 				.await?;
 				Box::pin(Self::put_task_put_batch(
@@ -217,6 +245,7 @@ impl Index {
 					subspace,
 					&right,
 					partition_total,
+					metrics,
 				))
 				.await?;
 			},

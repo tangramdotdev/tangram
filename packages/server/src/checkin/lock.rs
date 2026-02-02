@@ -60,6 +60,7 @@ impl Server {
 		}
 	}
 
+	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) async fn checkin_write_lock(
 		&self,
 		arg: &tg::checkin::Arg,

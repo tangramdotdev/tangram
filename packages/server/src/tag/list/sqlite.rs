@@ -15,6 +15,7 @@ pub struct Match {
 }
 
 impl Server {
+	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) async fn list_tags_sqlite(
 		&self,
 		database: &db::sqlite::Database,
@@ -46,6 +47,7 @@ impl Server {
 		Ok(output)
 	}
 
+	#[tracing::instrument(level = "trace", skip_all)]
 	fn list_tags_sqlite_sync(
 		transaction: &sqlite::Transaction,
 		cache: &db::sqlite::Cache,
@@ -65,6 +67,7 @@ impl Server {
 			&& let Some(m) = output.first()
 			&& m.item.is_none()
 		{
+			let _span = tracing::trace_span!("query_branch_children").entered();
 			// This is a branch tag, get its children.
 			#[derive(db::sqlite::row::Deserialize)]
 			struct Row {
@@ -134,6 +137,7 @@ impl Server {
 		Ok(output)
 	}
 
+	#[tracing::instrument(level = "trace", skip_all, fields(pattern = %pattern, recursive))]
 	pub fn match_tags_sqlite_sync(
 		transaction: &sqlite::Transaction,
 		cache: &db::sqlite::Cache,
@@ -159,6 +163,7 @@ impl Server {
 
 		// If the pattern is empty, return all root-level tags.
 		if pattern.is_empty() {
+			let _span = tracing::trace_span!("query_root_tags").entered();
 			let statement = indoc!(
 				"
 					select id, component, item
@@ -196,6 +201,7 @@ impl Server {
 			let mut new = Vec::new();
 			for m in matches {
 				if pattern == "*" {
+					let _span = tracing::trace_span!("query_wildcard_children").entered();
 					let statement = indoc!(
 						"
 							select id, component, item
@@ -228,6 +234,7 @@ impl Server {
 						new.push(Some(m));
 					}
 				} else if pattern.contains(['=', '>', '<', '^']) {
+					let _span = tracing::trace_span!("query_version_children").entered();
 					let statement = indoc!(
 						"
 							select id, component, item
@@ -262,6 +269,7 @@ impl Server {
 						}
 					}
 				} else {
+					let _span = tracing::trace_span!("query_exact_match").entered();
 					let statement = indoc!(
 						"
 							select id, item
@@ -310,6 +318,7 @@ impl Server {
 
 			while let Some(m) = to_explore.pop() {
 				if m.item.is_none() {
+					let _span = tracing::trace_span!("query_recursive_children").entered();
 					// This is a branch tag, get its children.
 					let statement = indoc!(
 						"

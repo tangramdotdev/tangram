@@ -127,6 +127,7 @@ pub struct Referrer {
 
 impl Server {
 	#[expect(clippy::too_many_arguments)]
+	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) async fn checkin_solve(
 		&self,
 		arg: &tg::checkin::Arg,

@@ -8,6 +8,7 @@ use {
 pub type Paths = BTreeMap<(usize, tg::Reference), tg::graph::data::Edge<tg::object::Id>>;
 
 impl Server {
+	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) async fn checkin_path_get_edges(
 		&self,
 		graph: &Graph,

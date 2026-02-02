@@ -6557,6 +6557,7 @@ dependencies = [
  "num",
  "num-derive",
  "num-traits",
+ "opentelemetry",
  "serde",
  "serde_json",
  "serde_with",

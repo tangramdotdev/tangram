@@ -2,6 +2,7 @@ use {
 	crate::{CleanOutput, ProcessObjectKind},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	num_traits::{FromPrimitive as _, ToPrimitive as _},
+	opentelemetry as otel,
 	std::sync::Arc,
 	tangram_client::prelude::*,
 };
@@ -15,6 +16,7 @@ mod update;
 
 pub struct Index {
 	database: Arc<fdb::Database>,
+	metrics: Metrics,
 	partition_total: u64,
 	subspace: fdbt::Subspace,
 	put_sender: tokio::sync::mpsc::UnboundedSender<self::put::Request>,
@@ -124,6 +126,18 @@ enum Update {
 	Propagate = 1,
 }
 
+#[derive(Clone)]
+struct Metrics {
+	put_commit_duration: otel::metrics::Histogram<f64>,
+	put_transaction_conflict_retry: otel::metrics::Counter<u64>,
+	put_transaction_too_large: otel::metrics::Counter<u64>,
+	put_transactions: otel::metrics::Counter<u64>,
+	update_commit_duration: otel::metrics::Histogram<f64>,
+	update_transaction_conflict_retry: otel::metrics::Counter<u64>,
+	update_transaction_too_large: otel::metrics::Counter<u64>,
+	update_transactions: otel::metrics::Counter<u64>,
+}
+
 impl Index {
 	pub fn new(options: &Options) -> tg::Result<Self> {
 		let database = fdb::Database::new(Some(options.cluster.to_str().unwrap()))
@@ -137,12 +151,15 @@ impl Index {
 
 		let partition_total = options.partition_total;
 
+		let metrics = Metrics::new();
+
 		let (put_sender, put_receiver) = tokio::sync::mpsc::unbounded_channel();
 		let put_concurrency = options.put_concurrency;
 		let put_max_items_per_transaction = options.put_max_items_per_transaction;
 		tokio::spawn({
 			let database = database.clone();
 			let subspace = subspace.clone();
+			let metrics = metrics.clone();
 			async move {
 				Self::put_task(
 					database,
@@ -151,6 +168,7 @@ impl Index {
 					put_concurrency,
 					put_max_items_per_transaction,
 					partition_total,
+					metrics,
 				)
 				.await;
 			}
@@ -158,6 +176,7 @@ impl Index {
 
 		let index = Self {
 			database,
+			metrics,
 			partition_total,
 			subspace,
 			put_sender,
@@ -700,5 +719,64 @@ impl fdbt::TupleUnpack<'_> for ProcessObjectKind {
 			"invalid process object kind".into(),
 		))?;
 		Ok((input, kind))
+	}
+}
+
+impl Metrics {
+	fn new() -> Self {
+		let meter = otel::global::meter("tangram_index_fdb");
+
+		let put_commit_duration = meter
+			.f64_histogram("index.fdb.put.commit_duration")
+			.with_description("FDB put transaction commit duration in seconds.")
+			.with_unit("s")
+			.build();
+
+		let put_transaction_conflict_retry = meter
+			.u64_counter("index.fdb.put.transaction_conflict_retry")
+			.with_description("Number of FDB put transaction conflict retries.")
+			.build();
+
+		let put_transaction_too_large = meter
+			.u64_counter("index.fdb.put.transaction_too_large")
+			.with_description("Number of FDB put transaction too large errors.")
+			.build();
+
+		let put_transactions = meter
+			.u64_counter("index.fdb.put.transactions")
+			.with_description("Total number of FDB put transactions.")
+			.build();
+
+		let update_commit_duration = meter
+			.f64_histogram("index.fdb.update.commit_duration")
+			.with_description("FDB update transaction commit duration in seconds.")
+			.with_unit("s")
+			.build();
+
+		let update_transaction_conflict_retry = meter
+			.u64_counter("index.fdb.update.transaction_conflict_retry")
+			.with_description("Number of FDB update transaction conflict retries.")
+			.build();
+
+		let update_transaction_too_large = meter
+			.u64_counter("index.fdb.update.transaction_too_large")
+			.with_description("Number of FDB update transaction too large errors.")
+			.build();
+
+		let update_transactions = meter
+			.u64_counter("index.fdb.update.transactions")
+			.with_description("Total number of FDB update transactions.")
+			.build();
+
+		Self {
+			put_commit_duration,
+			put_transaction_conflict_retry,
+			put_transaction_too_large,
+			put_transactions,
+			update_commit_duration,
+			update_transaction_conflict_retry,
+			update_transaction_too_large,
+			update_transactions,
+		}
 	}
 }

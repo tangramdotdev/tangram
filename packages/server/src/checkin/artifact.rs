@@ -21,6 +21,7 @@ use {
 
 impl Server {
 	#[expect(clippy::too_many_arguments)]
+	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) fn checkin_create_artifacts(
 		config: &Checkin,
 		arg: &tg::checkin::Arg,

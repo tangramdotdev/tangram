@@ -1,6 +1,7 @@
 use {crate::Server, tangram_client::prelude::*, tangram_store::prelude::*};
 
 impl Server {
+	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) async fn checkin_store(
 		&self,
 		args: Vec<crate::store::PutObjectArg>,

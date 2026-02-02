@@ -5,6 +5,7 @@ use {
 	foundationdb_tuple::{self as fdbt, Subspace},
 	futures::future,
 	num_traits::{FromPrimitive as _, ToPrimitive as _},
+	std::sync::atomic::{AtomicU64, Ordering},
 	tangram_client::prelude::*,
 };
 
@@ -47,10 +48,14 @@ impl Index {
 		partition_start: u64,
 		partition_count: u64,
 	) -> tg::Result<usize> {
+		let start = std::time::Instant::now();
+		let retry_count = AtomicU64::new(0);
 		let partition_total = self.partition_total;
+
 		let result = self
 			.database
-			.run(|txn, _| {
+			.run(|txn, _maybe_committed| {
+				retry_count.fetch_add(1, Ordering::Relaxed);
 				let subspace = self.subspace.clone();
 				async move {
 					Self::update_batch_inner(
@@ -67,11 +72,23 @@ impl Index {
 			})
 			.await;
 
+		let duration = start.elapsed().as_secs_f64();
+		self.metrics.update_commit_duration.record(duration, &[]);
+		self.metrics.update_transactions.add(1, &[]);
+
+		let attempts = retry_count.load(Ordering::Relaxed);
+		if attempts > 1 {
+			self.metrics
+				.update_transaction_conflict_retry
+				.add(attempts - 1, &[]);
+		}
+
 		let count = match result {
 			Ok(count) => count,
 			Err(fdb::FdbBindingError::NonRetryableFdbError(error))
 				if error.code() == 2101 && batch_size > 1 =>
 			{
+				self.metrics.update_transaction_too_large.add(1, &[]);
 				let half = batch_size / 2;
 				let first =
 					Box::pin(self.update_batch(half, partition_start, partition_count)).await?;

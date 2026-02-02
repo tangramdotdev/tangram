@@ -14,7 +14,7 @@ version = { workspace = true }
 workspace = true
 
 [features]
-foundationdb = ["dep:foundationdb", "dep:foundationdb-tuple"]
+foundationdb = ["dep:foundationdb", "dep:foundationdb-tuple", "dep:opentelemetry"]
 lmdb = ["dep:heed", "dep:foundationdb-tuple"]
 
 [dependencies]
@@ -27,6 +27,7 @@ foundationdb = { workspace = true, optional = true }
 foundationdb-tuple = { workspace = true, optional = true }
 futures = { workspace = true }
 heed = { workspace = true, optional = true }
+opentelemetry = { workspace = true, optional = true }
 indoc = { workspace = true }
 itertools = { workspace = true }
 num = { workspace = true }

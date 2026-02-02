@@ -11,6 +11,7 @@ use {
 
 impl Server {
 	#[expect(clippy::too_many_arguments)]
+	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) async fn checkin_create_blobs(
 		&self,
 		arg: &tg::checkin::Arg,

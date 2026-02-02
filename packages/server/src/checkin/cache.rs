@@ -10,6 +10,7 @@ use {
 };
 
 impl Server {
+	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) async fn checkin_cache(
 		&self,
 		arg: &tg::checkin::Arg,

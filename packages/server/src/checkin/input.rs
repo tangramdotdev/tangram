@@ -40,6 +40,7 @@ enum ParentVariant {
 
 impl Server {
 	#[expect(clippy::too_many_arguments)]
+	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) fn checkin_input(
 		&self,
 		arg: &tg::checkin::Arg,
