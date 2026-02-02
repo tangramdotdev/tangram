@@ -436,12 +436,13 @@ impl AsyncRead for File {
 		if this.current >= this.length {
 			return Poll::Ready(Ok(()));
 		}
+		let old = buf.filled().len();
 		let poll = Pin::new(this.reader.as_mut().unwrap_left()).poll_read(cx, buf);
 		if let Poll::Ready(Ok(())) = poll {
-			let n = buf.filled().len();
-			let n = n.min((this.length - this.current).to_usize().unwrap());
-			buf.set_filled(n);
-			this.current += n.to_u64().unwrap();
+			let new = buf.filled().len();
+			let diff = (new - old).min((this.length - this.current).to_usize().unwrap());
+			buf.set_filled(old + diff);
+			this.current += diff.to_u64().unwrap();
 			return Poll::Ready(Ok(()));
 		}
 		poll

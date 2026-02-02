@@ -324,19 +324,10 @@ impl BlobInner {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to seek"))?;
 		let mut bytes = vec![0u8; entry.blob_length.to_usize().unwrap()];
-		let mut offset = 0;
-		loop {
-			let amount = self.reader.read(&mut bytes[offset..])
-				.await
-				.map_err(|source| tg::error!(!source, "failed to read the entry"))?;
-			offset += amount;
-			if amount == 0 {
-				break;
-			}
-		}
-		if offset != bytes.len() {
-			return Err(tg::error!("unexpected eof"));
-		}
+		self.reader
+			.read_exact(&mut bytes)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to read the log entry"))?;
 		let entry: tangram_store::ProcessLogEntry<'_> = tangram_serialize::from_slice(&bytes)
 			.map_err(|source| tg::error!(!source, "log blob is corrupted"))?;
 		Ok(entry.into_static())
