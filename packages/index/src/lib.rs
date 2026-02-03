@@ -317,6 +317,12 @@ impl PutProcessArg {
 	}
 }
 
+pub enum ItemArg {
+	CacheEntry(PutCacheEntryArg),
+	Object(PutObjectArg),
+	Process(PutProcessArg),
+}
+
 #[derive(Clone, Debug)]
 pub struct PutTagArg {
 	pub tag: String,

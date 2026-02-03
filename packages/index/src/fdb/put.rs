@@ -1,7 +1,7 @@
 use {
 	super::{Index, ItemKind, Key, KeyKind, Metrics, Update},
 	crate::{
-		CacheEntry, Object, ObjectStored, Process, PutArg, PutCacheEntryArg, PutObjectArg,
+		CacheEntry, ItemArg, Object, ObjectStored, Process, PutArg, PutCacheEntryArg, PutObjectArg,
 		PutProcessArg,
 	},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
@@ -31,12 +31,6 @@ struct RequestState {
 struct Batch {
 	arg: PutArg,
 	trackers: Vec<Arc<Mutex<RequestState>>>,
-}
-
-enum Item {
-	CacheEntry(PutCacheEntryArg),
-	Object(PutObjectArg),
-	Process(PutProcessArg),
 }
 
 impl Index {
@@ -114,13 +108,13 @@ impl Index {
 			}));
 
 			for item in request.arg.cache_entries {
-				items.push((Item::CacheEntry(item), tracker.clone()));
+				items.push((ItemArg::CacheEntry(item), tracker.clone()));
 			}
 			for item in request.arg.objects {
-				items.push((Item::Object(item), tracker.clone()));
+				items.push((ItemArg::Object(item), tracker.clone()));
 			}
 			for item in request.arg.processes {
-				items.push((Item::Process(item), tracker.clone()));
+				items.push((ItemArg::Process(item), tracker.clone()));
 			}
 		}
 
@@ -144,9 +138,9 @@ impl Index {
 			}
 
 			match item {
-				Item::CacheEntry(c) => current_arg.cache_entries.push(c),
-				Item::Object(o) => current_arg.objects.push(o),
-				Item::Process(p) => current_arg.processes.push(p),
+				ItemArg::CacheEntry(c) => current_arg.cache_entries.push(c),
+				ItemArg::Object(o) => current_arg.objects.push(o),
+				ItemArg::Process(p) => current_arg.processes.push(p),
 			}
 			current_item_count += 1;
 
@@ -188,8 +182,7 @@ impl Index {
 					txn.set_option(fdb::options::TransactionOption::PriorityBatch)
 						.unwrap();
 					for cache_entry in &arg.cache_entries {
-						Self::put_cache_entry(&txn, &subspace, cache_entry, partition_total)
-							.await?;
+						Self::put_cache_entry(&txn, &subspace, cache_entry, partition_total)?;
 					}
 					for object in &arg.objects {
 						Self::put_object(&txn, &subspace, object, partition_total).await?;
@@ -259,44 +252,37 @@ impl Index {
 		Ok(())
 	}
 
-	async fn put_cache_entry(
+	fn put_cache_entry(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &PutCacheEntryArg,
 		partition_total: u64,
 	) -> Result<(), fdb::FdbBindingError> {
 		let id = &arg.id;
+
 		let key = Key::CacheEntry(id.clone());
 		let key = Self::pack(subspace, &key);
-
-		let existing = txn
-			.get(&key, false)
-			.await?
-			.and_then(|bytes| CacheEntry::deserialize(&bytes).ok());
-
-		let touched_at = existing.as_ref().map_or(arg.touched_at, |existing| {
-			existing.touched_at.max(arg.touched_at)
-		});
-
 		let value = CacheEntry {
 			reference_count: 0,
-			touched_at,
+			touched_at: arg.touched_at,
 		}
 		.serialize()
 		.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
+		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+			.unwrap();
 		txn.set(&key, &value);
 
 		let id_bytes = id.to_bytes();
 		let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
-		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
-			.unwrap();
 		let key = Key::Clean {
 			partition,
-			touched_at,
+			touched_at: arg.touched_at,
 			kind: ItemKind::CacheEntry,
 			id: tg::Either::Left(arg.id.clone().into()),
 		};
 		let key = Self::pack(subspace, &key);
+		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+			.unwrap();
 		txn.set(&key, &[]);
 
 		Ok(())
@@ -312,13 +298,12 @@ impl Index {
 		let key = Key::Object(id.clone());
 		let key = Self::pack(subspace, &key);
 
-		let merge = !arg.complete();
-		let existing = if merge {
+		let existing = if arg.complete() {
+			None
+		} else {
 			txn.get(&key, false)
 				.await?
 				.and_then(|bytes| Object::deserialize(&bytes).ok())
-		} else {
-			None
 		};
 
 		let touched_at = existing.as_ref().map_or(arg.touched_at, |existing| {
@@ -352,6 +337,11 @@ impl Index {
 		}
 		.serialize()
 		.map_err(|error| fdb::FdbBindingError::CustomError(error.into()))?;
+
+		if existing.is_none() {
+			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+				.unwrap();
+		}
 		txn.set(&key, &value);
 
 		for child in &arg.children {
@@ -427,13 +417,12 @@ impl Index {
 		let key = Key::Process(id.clone());
 		let key = Self::pack(subspace, &key);
 
-		let merge = !arg.complete();
-		let existing = if merge {
+		let existing = if arg.complete() {
+			None
+		} else {
 			txn.get(&key, false)
 				.await?
 				.and_then(|bytes| Process::deserialize(&bytes).ok())
-		} else {
-			None
 		};
 
 		let touched_at = existing.as_ref().map_or(arg.touched_at, |existing| {
