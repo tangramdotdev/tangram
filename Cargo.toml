@@ -184,15 +184,15 @@ tokio-util = { version = "0.7", features = ["full"] }
 toml = { version = "0.9" }
 tower = { version = "0.5", features = ["timeout", "util"] }
 tower-http = { version = "0.6", features = ["add-extension", "compression-zstd", "decompression-zstd", "map-request-body", "map-response-body", "set-header", "timeout", "util"] }
-tracing = "0.1"
-tracing-opentelemetry = "0.29"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-tracing-tree = "0.4"
-opentelemetry = "0.28"
-opentelemetry_sdk = { version = "0.28", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.28", features = ["grpc-tonic", "metrics"] }
-opentelemetry-stdout = "0.28"
-opentelemetry-semantic-conventions = "0.28"
+tracing = "0.1.44"
+tracing-opentelemetry = "0.32"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
+tracing-tree = "0.4.1"
+opentelemetry = "0.31"
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "metrics"] }
+opentelemetry-stdout = "0.31"
+opentelemetry-semantic-conventions = "0.31"
 unicode-segmentation = "1"
 unicode-width = "0.2"
 uuid = { version = "1", features = ["v7"] }
