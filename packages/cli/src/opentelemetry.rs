@@ -2,13 +2,14 @@ use {
 	crate::config::{OpenTelemetry as OpenTelemetryConfig, OpenTelemetryOutput},
 	opentelemetry as otel, opentelemetry_otlp as otel_otlp, opentelemetry_sdk as otel_sdk,
 	opentelemetry_stdout as otel_stdout,
-	otel_otlp::WithExportConfig as _,
+	otel_otlp::{WithExportConfig as _, WithTonicConfig as _},
 };
 
 pub struct OpenTelemetry {
 	pub tracer: otel_sdk::trace::Tracer,
 	pub tracer_provider: otel_sdk::trace::SdkTracerProvider,
 	pub meter_provider: otel_sdk::metrics::SdkMeterProvider,
+	pub logger_provider: otel_sdk::logs::SdkLoggerProvider,
 }
 
 impl OpenTelemetry {
@@ -19,6 +20,9 @@ impl OpenTelemetry {
 		if let Err(error) = self.meter_provider.shutdown() {
 			tracing::error!(?error, "failed to shutdown meter provider");
 		}
+		if let Err(error) = self.logger_provider.shutdown() {
+			tracing::error!(?error, "failed to shutdown logger provider");
+		}
 	}
 }
 
@@ -27,7 +31,7 @@ pub fn initialize(config: &OpenTelemetryConfig) -> OpenTelemetry {
 		.with_service_name(config.service_name.clone())
 		.build();
 
-	let (tracer_provider, meter_provider) = match config.output {
+	let (tracer_provider, meter_provider, logger_provider) = match config.output {
 		OpenTelemetryOutput::Console => {
 			let tracer_provider = otel_sdk::trace::SdkTracerProvider::builder()
 				.with_resource(resource.clone())
@@ -35,7 +39,7 @@ pub fn initialize(config: &OpenTelemetryConfig) -> OpenTelemetry {
 				.build();
 
 			let meter_provider = otel_sdk::metrics::SdkMeterProvider::builder()
-				.with_resource(resource)
+				.with_resource(resource.clone())
 				.with_reader(
 					otel_sdk::metrics::PeriodicReader::builder(
 						otel_stdout::MetricExporter::default(),
@@ -44,7 +48,12 @@ pub fn initialize(config: &OpenTelemetryConfig) -> OpenTelemetry {
 				)
 				.build();
 
-			(tracer_provider, meter_provider)
+			let logger_provider = otel_sdk::logs::SdkLoggerProvider::builder()
+				.with_resource(resource)
+				.with_simple_exporter(otel_stdout::LogExporter::default())
+				.build();
+
+			(tracer_provider, meter_provider, logger_provider)
 		},
 		OpenTelemetryOutput::Otlp => {
 			let endpoint = config
@@ -55,6 +64,7 @@ pub fn initialize(config: &OpenTelemetryConfig) -> OpenTelemetry {
 			let trace_exporter = otel_otlp::SpanExporter::builder()
 				.with_tonic()
 				.with_endpoint(&endpoint)
+				.with_compression(otel_otlp::Compression::Zstd)
 				.build()
 				.expect("failed to create OTLP trace exporter");
 
@@ -66,15 +76,28 @@ pub fn initialize(config: &OpenTelemetryConfig) -> OpenTelemetry {
 			let metric_exporter = otel_otlp::MetricExporter::builder()
 				.with_tonic()
 				.with_endpoint(&endpoint)
+				.with_compression(otel_otlp::Compression::Zstd)
 				.build()
 				.expect("failed to create OTLP metric exporter");
 
 			let meter_provider = otel_sdk::metrics::SdkMeterProvider::builder()
-				.with_resource(resource)
+				.with_resource(resource.clone())
 				.with_reader(otel_sdk::metrics::PeriodicReader::builder(metric_exporter).build())
 				.build();
 
-			(tracer_provider, meter_provider)
+			let log_exporter = otel_otlp::LogExporter::builder()
+				.with_tonic()
+				.with_endpoint(&endpoint)
+				.with_compression(otel_otlp::Compression::Zstd)
+				.build()
+				.expect("failed to create OTLP log exporter");
+
+			let logger_provider = otel_sdk::logs::SdkLoggerProvider::builder()
+				.with_resource(resource)
+				.with_batch_exporter(log_exporter)
+				.build();
+
+			(tracer_provider, meter_provider, logger_provider)
 		},
 	};
 
@@ -86,5 +109,6 @@ pub fn initialize(config: &OpenTelemetryConfig) -> OpenTelemetry {
 		tracer,
 		tracer_provider,
 		meter_provider,
+		logger_provider,
 	}
 }

@@ -1154,20 +1154,26 @@ impl Cli {
 			None
 		};
 
-		let (opentelemetry, opentelemetry_layer) = {
+		let (opentelemetry, opentelemetry_tracing_layer, opentelemetry_logs_layer) = {
 			let opentelemetry = config
 				.and_then(|c| c.opentelemetry.as_ref())
 				.map(opentelemetry::initialize);
-			let layer = opentelemetry
+			let tracing_layer = opentelemetry
 				.as_ref()
 				.map(|data| tracing_opentelemetry::layer().with_tracer(data.tracer.clone()));
-			(opentelemetry, layer)
+			let logs_layer = opentelemetry.as_ref().map(|data| {
+				opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(
+					&data.logger_provider,
+				)
+			});
+			(opentelemetry, tracing_layer, logs_layer)
 		};
 
 		tracing_subscriber::registry()
 			.with(console_layer)
 			.with(output_layer)
-			.with(opentelemetry_layer)
+			.with(opentelemetry_tracing_layer)
+			.with(opentelemetry_logs_layer)
 			.init();
 		std::panic::set_hook(Box::new(|info| {
 			let payload = info.payload_as_str();

@@ -48,6 +48,7 @@ foundationdb = { workspace = true, optional = true }
 futures = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }
+opentelemetry-appender-tracing = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 opentelemetry-stdout = { workspace = true }
 indexmap = { workspace = true }
