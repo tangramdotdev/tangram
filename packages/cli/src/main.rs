@@ -398,9 +398,6 @@ fn main() -> std::process::ExitCode {
 	// Initialize miette.
 	Cli::initialize_miette();
 
-	// Initialize tracing.
-	let tracing = Cli::initialize_tracing(config.as_ref(), args.tracing.as_ref());
-
 	// Initialize V8.
 	#[cfg(feature = "v8")]
 	if matches!(mode, Mode::Server) {
@@ -426,6 +423,11 @@ fn main() -> std::process::ExitCode {
 			.build()
 			.unwrap()
 	};
+
+	// Initialize tracing.
+	let runtime_guard = runtime.enter();
+	let tracing = Cli::initialize_tracing(config.as_ref(), args.tracing.as_ref());
+	drop(runtime_guard);
 
 	// Create the CLI.
 	let mut cli = Cli {
