@@ -16,6 +16,7 @@ pub struct Arg {
 	pub name: Option<String>,
 	pub network: Option<bool>,
 	pub parent: Option<tg::process::Id>,
+	pub progress: bool,
 	pub remote: Option<String>,
 	pub retry: bool,
 	pub stderr: Option<Option<tg::process::Stdio>>,
@@ -138,6 +139,7 @@ where
 			"a checksum is required to build with network enabled"
 		));
 	}
+	let progress = arg.progress;
 	let arg = tg::process::spawn::Arg {
 		cached: arg.cached,
 		checksum,
@@ -154,7 +156,7 @@ where
 	};
 	let stream = tg::Process::spawn(handle, arg).await?;
 	let writer = std::io::stderr();
-	let is_tty = writer.is_terminal();
+	let is_tty = progress && writer.is_terminal();
 	let process = tg::progress::write_progress_stream(handle, stream, writer, is_tty)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;

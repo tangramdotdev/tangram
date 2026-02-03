@@ -286,6 +286,7 @@ async fn try_get_package_tag(
 	let arg = tg::build::Arg {
 		host: Some("js".to_owned()),
 		executable: Some(executable),
+		progress: false,
 		..Default::default()
 	};
 	let Ok(output) = tg::build::build(handle, arg).await else {
