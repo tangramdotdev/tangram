@@ -11,7 +11,7 @@ use {
 };
 
 impl Server {
-	#[tracing::instrument(level = "debug", name = "input", ret, skip_all)]
+	#[tracing::instrument(level = "trace", name = "input", ret, skip_all)]
 	pub(super) async fn sync_put_input_task(
 		&self,
 		state: &State,

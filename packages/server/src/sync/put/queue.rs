@@ -13,7 +13,7 @@ use {
 
 impl Server {
 	#[expect(clippy::too_many_arguments)]
-	#[tracing::instrument(err, level = "debug", name = "queue", ret, skip_all)]
+	#[tracing::instrument(err, level = "trace", name = "queue", ret, skip_all)]
 	pub(super) async fn sync_put_queue(
 		&self,
 		state: Arc<State>,

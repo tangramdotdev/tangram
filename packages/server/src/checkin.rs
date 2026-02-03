@@ -49,7 +49,7 @@ type IndexCacheEntryArgs = Vec<tangram_index::PutCacheEntryArg>;
 type StoreArgs = IndexMap<tg::object::Id, crate::store::PutObjectArg, tg::id::BuildHasher>;
 
 impl Server {
-	#[tracing::instrument(fields(path = ?arg.path), level = "debug", name = "checkin", skip_all)]
+	#[tracing::instrument(fields(path = ?arg.path), level = "trace", name = "checkin", skip_all)]
 	pub(crate) async fn checkin_with_context(
 		&self,
 		context: &Context,

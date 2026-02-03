@@ -18,7 +18,7 @@ pub struct ProcessItem {
 }
 
 impl Server {
-	#[tracing::instrument(err, level = "debug", name = "store", ret, skip_all)]
+	#[tracing::instrument(err, level = "trace", name = "store", ret, skip_all)]
 	pub(super) async fn sync_put_store(
 		&self,
 		state: Arc<State>,

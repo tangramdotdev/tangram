@@ -184,7 +184,7 @@ impl Server {
 		task_tracker.wait().await;
 	}
 
-	#[tracing::instrument(name = "request", skip_all, fields(id, method, path))]
+	#[tracing::instrument(level = "trace", name = "request", skip_all, fields(id, method, path))]
 	async fn handle_request(
 		server: &Server,
 		mut request: http::Request<Body>,

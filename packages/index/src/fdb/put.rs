@@ -185,6 +185,8 @@ impl Index {
 				let subspace = subspace.clone();
 				let arg = arg.clone();
 				async move {
+					txn.set_option(fdb::options::TransactionOption::PriorityBatch)
+						.unwrap();
 					for cache_entry in &arg.cache_entries {
 						Self::put_cache_entry(&txn, &subspace, cache_entry, partition_total)
 							.await?;

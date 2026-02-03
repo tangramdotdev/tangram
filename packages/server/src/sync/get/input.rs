@@ -5,7 +5,7 @@ use {
 };
 
 impl Server {
-	#[tracing::instrument(level = "debug", name = "input", skip_all)]
+	#[tracing::instrument(level = "trace", name = "input", skip_all)]
 	pub(super) async fn sync_get_input(
 		&self,
 		state: &State,
