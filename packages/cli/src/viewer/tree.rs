@@ -2217,7 +2217,7 @@ where
 			.take(rect.height.to_usize().unwrap());
 
 		// Render the nodes.
-		self.num_rendered_columns = 0;
+		let mut num_rendered_columns = 0;
 		let mut lines = Vec::new();
 		for node in nodes {
 			let line = tui::text::Line::default();
@@ -2227,7 +2227,6 @@ where
 				Style::default()
 			};
 			let mut line = line.style(style);
-
 			let mut prefix = String::new();
 			for ancestor in Self::ancestors(&node)
 				.iter()
@@ -2283,20 +2282,21 @@ where
 			line.push_span(node.borrow().title.clone());
 
 			// Update the number of columns that we've written to the line.
-			let num_rendered_columns = line
+			let width = line
 				.spans
 				.iter()
 				.map(|span| {
 					span.content
 						.graphemes(false)
 						.map(UnicodeWidthStr::width)
-						.sum()
+						.sum::<usize>()
 				})
-				.max()
-				.unwrap_or_default();
-			self.num_rendered_columns = self.num_rendered_columns.max(num_rendered_columns);
+				.sum();
+			num_rendered_columns = num_rendered_columns.max(width);
+
 			lines.push(line);
 		}
+		self.num_rendered_columns = num_rendered_columns;
 		let max = self
 			.num_rendered_columns
 			.saturating_sub(rect.width.to_usize().unwrap());

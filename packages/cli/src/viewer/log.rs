@@ -69,6 +69,7 @@ impl Drop for Tailing {
 enum Event {
 	Page(scroll::Error),
 	Scroll(isize),
+	Resize(Rect),
 	Update,
 }
 
@@ -109,6 +110,10 @@ where
 							state.update_view().await;
 							Ok(())
 						},
+						Event::Resize(area) => {
+							state.resize(area).await;
+							Ok(())
+						},
 						Event::Page(scroll::Error::Append) => state.append().await,
 						Event::Page(scroll::Error::Prepend) => state.prepend().await,
 					};
@@ -140,6 +145,9 @@ where
 
 	pub fn render(&self, area: Rect, buf: &mut tui::buffer::Buffer) {
 		let mut view = self.state.view.lock().unwrap();
+		if view.area != Some(area) {
+			self.state.sender.send(Event::Resize(area)).ok();
+		}
 		view.area.replace(area);
 		let lines = view
 			.lines
@@ -392,38 +400,50 @@ where
 		}
 	}
 
+	async fn resize(&self, area: Rect) {
+		let mut stream = self.stream.lock().await;
+		let Ok(scrolling) = stream.try_unwrap_scrolling_mut() else {
+			return;
+		};
+		match Scroll::new(area, &scrolling.chunks) {
+			Ok(scroll) => {
+				scrolling.scroll.replace(scroll);
+				self.sender.send(Event::Update).ok();
+			},
+			Err(error) => {
+				self.sender.send(Event::Page(error)).ok();
+				self.sender.send(Event::Resize(area)).ok();
+			},
+		}
+	}
+
 	async fn tail(self: &Arc<Self>) {
 		let mut stream = self.stream.lock().await;
-		let position = match &*stream {
-			StreamState::Scrolling(scrolling) => scrolling.chunks.last().map_or(0, |chunk| {
-				chunk.position + chunk.bytes.len().to_u64().unwrap()
-			}),
-			StreamState::Tailing(tailing) => tailing.chunks.last().map_or(0, |chunk| {
-				chunk.position + chunk.bytes.len().to_u64().unwrap()
-			}),
+		let chunks = match &mut *stream {
+			StreamState::Scrolling(scrolling)
+				if scrolling.stream.is_some() && scrolling.forwards =>
+			{
+				scrolling.stream.take().unwrap()
+			},
+			StreamState::Scrolling(scrolling) => {
+				let position = scrolling.chunks.last().map_or(0, |chunk| {
+					chunk.position + chunk.bytes.len().to_u64().unwrap()
+				});
+				let arg = tg::process::log::get::Arg {
+					position: Some(std::io::SeekFrom::Start(position)),
+					..tg::process::log::get::Arg::default()
+				};
+				let Ok(stream) = self.process.log(&self.handle, arg).await else {
+					tracing::error!("failed to get the log");
+					return;
+				};
+				stream.boxed()
+			},
+			StreamState::Tailing(_) => return,
 		};
 		let state = Arc::downgrade(self);
 		let task = tokio::spawn(async move {
-			let Some(state_) = state.upgrade() else {
-				return;
-			};
-			let arg = tg::process::log::get::Arg {
-				position: Some(std::io::SeekFrom::Start(position)),
-				..tg::process::log::get::Arg::default()
-			};
-			let Some(stream) = state_
-				.process
-				.log(&state_.handle, arg)
-				.await
-				.inspect_err(|error| {
-					tracing::error!(?error, "failed to tail the log");
-				})
-				.ok()
-			else {
-				return;
-			};
-			drop(state_);
-			let mut stream = pin!(stream);
+			let mut stream = pin!(chunks);
 			while let Ok(Some(chunk)) = stream.try_next().await {
 				let Some(state) = state.upgrade() else {
 					return;
