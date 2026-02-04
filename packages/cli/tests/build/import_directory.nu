@@ -8,7 +8,7 @@ let path = artifact {
 		export default async () =>
 			directory.get("hello.txt")
 				.then(tg.File.expect)
-				.then((f) => f.text())
+				.then((f) => f.text)
 		;
 	'
 	directory: {

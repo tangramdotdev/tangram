@@ -140,53 +140,67 @@ export class Error {
 		return this.id;
 	}
 
-	async children(): Promise<Array<tg.Object>> {
+	get children(): Promise<Array<tg.Object>> {
 		return this.#state.children();
 	}
 
-	async code(): Promise<string | undefined> {
-		let object = await this.object();
-		return object.code;
+	get code(): Promise<string | undefined> {
+		return (async () => {
+			let object = await this.object();
+			return object.code;
+		})();
 	}
 
-	async diagnostics(): Promise<Array<tg.Diagnostic> | undefined> {
-		let object = await this.object();
-		return object.diagnostics;
+	get diagnostics(): Promise<Array<tg.Diagnostic> | undefined> {
+		return (async () => {
+			let object = await this.object();
+			return object.diagnostics;
+		})();
 	}
 
-	async location(): Promise<tg.Error.Location | undefined> {
-		let object = await this.object();
-		return object.location;
+	get location(): Promise<tg.Error.Location | undefined> {
+		return (async () => {
+			let object = await this.object();
+			return object.location;
+		})();
 	}
 
-	async message(): Promise<string | undefined> {
-		let object = await this.object();
-		return object.message;
+	get message(): Promise<string | undefined> {
+		return (async () => {
+			let object = await this.object();
+			return object.message;
+		})();
 	}
 
-	async source(): Promise<tg.Referent<tg.Error> | undefined> {
-		let object = await this.object();
-		if (object.source === undefined) {
-			return undefined;
-		}
-		if (object.source.item instanceof tg.Error) {
-			return object.source as tg.Referent<tg.Error>;
-		} else {
-			return {
-				...object.source,
-				item: tg.Error.withObject(object.source.item),
-			};
-		}
+	get source(): Promise<tg.Referent<tg.Error> | undefined> {
+		return (async () => {
+			let object = await this.object();
+			if (object.source === undefined) {
+				return undefined;
+			}
+			if (object.source.item instanceof tg.Error) {
+				return object.source as tg.Referent<tg.Error>;
+			} else {
+				return {
+					...object.source,
+					item: tg.Error.withObject(object.source.item),
+				};
+			}
+		})();
 	}
 
-	async stack(): Promise<Array<tg.Error.Location> | undefined> {
-		let object = await this.object();
-		return object.stack;
+	get stack(): Promise<Array<tg.Error.Location> | undefined> {
+		return (async () => {
+			let object = await this.object();
+			return object.stack;
+		})();
 	}
 
-	async values(): Promise<{ [key: string]: string }> {
-		let object = await this.object();
-		return object.values;
+	get values(): Promise<{ [key: string]: string }> {
+		return (async () => {
+			let object = await this.object();
+			return object.values;
+		})();
 	}
 }
 

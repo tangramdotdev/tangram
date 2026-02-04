@@ -6,7 +6,7 @@ let path = artifact {
 	tangram.ts: '
 		export default () => {
 			let a = "string!";
-			return tg.blob`\n\tHello, World!\n\t${a}\n`.then((f) => f.text());
+			return tg.blob`\n\tHello, World!\n\t${a}\n`.then((f) => f.text);
 		}
 	'
 }

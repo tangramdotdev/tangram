@@ -17,7 +17,7 @@ let path = artifact {
 		export default async () => {
 			let file = await directory.get("d.txt");
 			tg.File.assert(file);
-			return file.text();
+			return file.text;
 		};
 	'
 	data: {

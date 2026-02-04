@@ -14,7 +14,7 @@ let path = artifact {
 			"path": "subdirectory/file.txt", 
 			"type": "file" 
 		};
-		export default () => file.text();
+		export default () => file.text;
 	'
 };
 

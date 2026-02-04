@@ -8,7 +8,7 @@ let path = artifact {
 			let blob = await tg.blob("contents");
 			let compressed = await tg.compress(blob, "gz");
 			let decompressed = await tg.decompress(compressed, "gz");
-			return blob.text();
+			return blob.text;
 		};
 	'
 }

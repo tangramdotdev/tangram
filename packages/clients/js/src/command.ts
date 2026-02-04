@@ -205,36 +205,52 @@ export class Command<
 		return this.#state.children();
 	}
 
-	async args(): Promise<Array<tg.Value>> {
-		return (await this.object()).args;
+	get args(): Promise<Array<tg.Value>> {
+		return (async () => {
+			return (await this.object()).args;
+		})();
 	}
 
-	async cwd(): Promise<string | undefined> {
-		return (await this.object()).cwd;
+	get cwd(): Promise<string | undefined> {
+		return (async () => {
+			return (await this.object()).cwd;
+		})();
 	}
 
-	async env(): Promise<{ [key: string]: tg.Value }> {
-		return (await this.object()).env;
+	get env(): Promise<{ [key: string]: tg.Value }> {
+		return (async () => {
+			return (await this.object()).env;
+		})();
 	}
 
-	async executable(): Promise<tg.Command.Executable> {
-		return (await this.object()).executable;
+	get executable(): Promise<tg.Command.Executable> {
+		return (async () => {
+			return (await this.object()).executable;
+		})();
 	}
 
-	async host(): Promise<string> {
-		return (await this.object()).host;
+	get host(): Promise<string> {
+		return (async () => {
+			return (await this.object()).host;
+		})();
 	}
 
-	async stdin(): Promise<tg.Blob | undefined> {
-		return (await this.object()).stdin;
+	get stdin(): Promise<tg.Blob | undefined> {
+		return (async () => {
+			return (await this.object()).stdin;
+		})();
 	}
 
-	async user(): Promise<string | undefined> {
-		return (await this.object()).user;
+	get user(): Promise<string | undefined> {
+		return (async () => {
+			return (await this.object()).user;
+		})();
 	}
 
-	async mounts(): Promise<Array<tg.Command.Mount> | undefined> {
-		return (await this.object()).mounts;
+	get mounts(): Promise<Array<tg.Command.Mount> | undefined> {
+		return (async () => {
+			return (await this.object()).mounts;
+		})();
 	}
 
 	build(...args: tg.UnresolvedArgs<A>): tg.BuildBuilder<[], R> {
