@@ -1789,18 +1789,22 @@ where
 				_ => (),
 			}
 		}
-		if let ct::event::Event::Mouse(event) = event {
+		if let ct::event::Event::Mouse(event) = event
+			&& self
+				.rect
+				.is_some_and(|rect| rect.contains(Position::new(event.column, event.row)))
+		{
 			match &event.kind {
 				MouseEventKind::ScrollDown => {
 					if event.modifiers.contains(KeyModifiers::SHIFT) {
-						self.scroll_left();
+						self.scroll_right();
 					} else {
 						self.scroll_down();
 					}
 				},
 				MouseEventKind::ScrollUp => {
 					if event.modifiers.contains(KeyModifiers::SHIFT) {
-						self.scroll_right();
+						self.scroll_left();
 					} else {
 						self.scroll_up();
 					}
