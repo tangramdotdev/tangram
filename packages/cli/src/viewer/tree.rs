@@ -2215,7 +2215,9 @@ where
 			.take(rect.height.to_usize().unwrap());
 
 		// Render the nodes.
-		for (node, rect) in nodes.zip(rect.rows()) {
+		self.num_rendered_columns = 0;
+		let mut lines = Vec::new();
+		for node in nodes {
 			let line = tui::text::Line::default();
 			let style = if Rc::ptr_eq(&node, &self.selected) {
 				Style::default().bg(Color::White).fg(Color::Black)
@@ -2279,7 +2281,7 @@ where
 			line.push_span(node.borrow().title.clone());
 
 			// Update the number of columns that we've written to the line.
-			self.num_rendered_columns = line
+			let num_rendered_columns = line
 				.spans
 				.iter()
 				.map(|span| {
@@ -2290,15 +2292,16 @@ where
 				})
 				.max()
 				.unwrap_or_default();
-			let max = self
-				.num_rendered_columns
-				.saturating_sub(rect.width.to_usize().unwrap());
-			self.scroll.1 = self.scroll.1.min(max);
-
-			tui::widgets::Paragraph::new(line)
-				.scroll((0, self.scroll.1.to_u16().unwrap()))
-				.render(rect, buffer);
+			self.num_rendered_columns = self.num_rendered_columns.max(num_rendered_columns);
+			lines.push(line);
 		}
+		let max = self
+			.num_rendered_columns
+			.saturating_sub(rect.width.to_usize().unwrap());
+		self.scroll.1 = self.scroll.1.min(max);
+		tui::widgets::Paragraph::new(lines)
+			.scroll((0, self.scroll.1.to_u16().unwrap()))
+			.render(rect, buffer);
 
 		self.rect.replace(rect);
 	}
