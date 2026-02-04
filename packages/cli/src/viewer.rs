@@ -1,7 +1,7 @@
 use {
 	self::{data::Data, help::Help, log::Log, tree::Tree},
 	anstream::println,
-	crossterm as ct,
+	crossterm::{self as ct, event::KeyModifiers},
 	futures::{FutureExt as _, TryFutureExt as _, TryStreamExt as _, future},
 	num::ToPrimitive as _,
 	ratatui::{self as tui, prelude::*},
@@ -9,7 +9,6 @@ use {
 		io::{IsTerminal as _, Write as _},
 		os::fd::AsRawFd,
 		pin::pin,
-		sync::Arc,
 		time::Duration,
 	},
 	tangram_client::prelude::*,
@@ -21,6 +20,7 @@ use {
 mod data;
 mod help;
 mod log;
+
 mod tree;
 mod util;
 
@@ -28,7 +28,7 @@ pub struct Viewer<H> {
 	data: Data,
 	focus: Focus,
 	help: Help,
-	log: Option<Arc<Log<H>>>,
+	log: Option<Log<H>>,
 	split: Split,
 	stopped: bool,
 	tree: Tree<H>,
@@ -126,7 +126,11 @@ where
 				},
 				ct::event::MouseEventKind::ScrollUp => {
 					if self.data.hit_test(event.column, event.row) {
-						self.data.up();
+						if event.modifiers.contains(KeyModifiers::SHIFT) {
+							self.data.left();
+						} else {
+							self.data.up();
+						}
 					} else if let Some(log) = &self.log
 						&& log.hit_test(event.column, event.row)
 					{
@@ -135,7 +139,11 @@ where
 				},
 				ct::event::MouseEventKind::ScrollDown => {
 					if self.data.hit_test(event.column, event.row) {
-						self.data.down();
+						if event.modifiers.contains(KeyModifiers::SHIFT) {
+							self.data.right();
+						} else {
+							self.data.down();
+						}
 					} else if let Some(log) = &self.log
 						&& log.hit_test(event.column, event.row)
 					{

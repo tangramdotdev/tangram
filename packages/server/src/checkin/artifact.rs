@@ -89,7 +89,7 @@ impl Server {
 		let index = graph.paths.get(&arg.path).copied().unwrap();
 		let node = graph.nodes.get(&index).unwrap();
 		if let tg::graph::data::Edge::Pointer(pointer) = node.edge.as_ref().unwrap().clone() {
-			Self::checkin_create_reference_artifact(
+			Self::checkin_create_pointer_artifact(
 				graph,
 				store_args,
 				index_object_args,
@@ -526,7 +526,7 @@ impl Server {
 		Ok(())
 	}
 
-	fn checkin_create_reference_artifact(
+	fn checkin_create_pointer_artifact(
 		graph: &mut Graph,
 		store_args: &mut StoreArgs,
 		index_object_args: &mut IndexObjectArgs,

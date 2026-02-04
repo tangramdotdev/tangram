@@ -1,8 +1,10 @@
+
 use {
 	crate::prelude::*,
 	futures::{Stream, TryStreamExt as _},
 	std::{
 		ops::Deref,
+		pin::pin,
 		sync::{Arc, Mutex, RwLock},
 	},
 	tangram_util::arc::Ext as _,
@@ -195,6 +197,17 @@ impl Process {
 		let wait = self.wait(handle, tg::process::wait::Arg::default()).await?;
 		let output = wait.into_output()?;
 		Ok(output)
+	}
+
+	pub async fn current_status<H>(&self, handle: &H) -> tg::Result<tg::process::Status>
+	where
+		H: tg::Handle,
+	{
+		let stream = self.status(handle).await?;
+		pin!(stream)
+			.try_next()
+			.await?
+			.ok_or_else(|| tg::error!("expected a status"))
 	}
 }
 

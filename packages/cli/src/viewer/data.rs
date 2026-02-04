@@ -1,7 +1,8 @@
 use {
 	num::ToPrimitive as _,
 	ratatui::{self as tui, prelude::*},
-	unicode_segmentation::UnicodeSegmentation,
+	unicode_segmentation::UnicodeSegmentation as _,
+	unicode_width::UnicodeWidthStr as _,
 };
 
 pub struct Data {
@@ -19,23 +20,25 @@ pub type UpdateSender = std::sync::mpsc::Sender<Box<dyn Send + FnOnce(&mut Data)
 pub type UpdateReceiver = std::sync::mpsc::Receiver<Box<dyn Send + FnOnce(&mut Data)>>;
 
 impl Data {
-	fn calculate_size(width: Option<usize>, contents: &str) -> (usize, usize) {
+	fn calculate_size(_width: Option<usize>, contents: &str) -> (usize, usize) {
 		let mut num_lines = 0;
 		let mut num_columns = 0;
 		for line in contents.lines() {
 			num_lines += 1;
-			let columns = line.graphemes(false).count();
-			if width.is_some_and(|width| width > columns) {
-				num_lines += 1;
-			} else {
-				num_columns = num_columns.max(columns);
+			let mut c = 0;
+			for grapheme in line.graphemes(false) {
+				c += grapheme.width();
 			}
+			num_columns = num_columns.max(c);
 		}
 		(num_lines, num_columns)
 	}
 
 	pub fn down(&mut self) {
-		self.scroll.0 = (self.scroll.0 + 1).min(self.num_lines);
+		let max = self
+			.num_lines
+			.saturating_sub(self.rect.map_or(0, |r| r.height.to_usize().unwrap()));
+		self.scroll.0 = (self.scroll.0 + 1).min(max);
 	}
 
 	pub fn hit_test(&self, x: u16, y: u16) -> bool {
@@ -71,14 +74,17 @@ impl Data {
 	}
 
 	pub fn right(&mut self) {
-		self.scroll.1 = (self.scroll.1 + 1).min(self.num_columns);
+		let max = self
+			.num_columns
+			.saturating_sub(self.rect.map_or(0, |r| r.width.to_usize().unwrap()));
+		self.scroll.1 = (self.scroll.1 + 1).min(max);
 	}
 
 	#[expect(clippy::needless_pass_by_value)]
 	pub fn set_contents(&mut self, contents: String) {
 		self.contents = contents.replace('\t', "    ");
 		let width = self.rect.map(|rect| rect.width.to_usize().unwrap());
-		let (num_columns, num_lines) = Self::calculate_size(width, &self.contents);
+		let (num_lines, num_columns) = Self::calculate_size(width, &self.contents);
 		self.num_lines = num_lines;
 		self.num_columns = num_columns;
 		self.scroll = (0, 0);

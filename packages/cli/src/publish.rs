@@ -539,7 +539,7 @@ where
 			.as_ref()
 			.is_some_and(|p| p == &PathBuf::from(""))
 		{
-			return Err(tg::error!(id = ?directory.id(), "invalid path (1)"));
+			return Err(tg::error!(id = ?directory.id(), "invalid path"));
 		}
 
 		if let Some(tag) = directory.tag() {
@@ -569,7 +569,7 @@ where
 			.as_ref()
 			.is_some_and(|p| p == &PathBuf::from(""))
 		{
-			return Err(tg::error!(id = ?file.id(), "invalid path (2)"));
+			return Err(tg::error!(id = ?file.id(), "invalid path"));
 		}
 		if let Some(tag) = file.tag() {
 			self.tags.push((tag.clone(), file.item().id().into()));
