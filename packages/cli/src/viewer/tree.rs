@@ -183,9 +183,9 @@ where
 					.nodes()
 					.iter()
 					.position(|n| Rc::ptr_eq(n, &parent))
-					.unwrap();
+					.unwrap_or_default();
 				self.scroll.0 = self.scroll.0.min(index);
-				self.select(parent);
+				self.set_selected(parent);
 			}
 		}
 	}
@@ -1979,7 +1979,7 @@ where
 
 	pub fn ensure_root_selected(&mut self) {
 		let root = self.roots.first().unwrap().clone();
-		self.select(root);
+		self.set_selected(root);
 	}
 
 	fn nodes(&mut self) -> Vec<Rc<RefCell<Node>>> {
@@ -2300,6 +2300,13 @@ where
 	}
 
 	fn select(&mut self, node: Rc<RefCell<Node>>) {
+		if Rc::ptr_eq(&self.selected, &node) {
+			return;
+		}
+		self.set_selected(node);
+	}
+
+	fn set_selected(&mut self, node: Rc<RefCell<Node>>) {
 		self.selected = node.clone();
 		let Some(referent) = node.borrow().referent.clone() else {
 			return;

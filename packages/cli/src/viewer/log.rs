@@ -344,9 +344,19 @@ where
 		let mut stream = self.stream.lock().await;
 		match &mut *stream {
 			StreamState::Scrolling(scrolling) => {
-				let Some(scroll) = scrolling.scroll.as_mut() else {
-					return;
-				};
+				if scrolling.scroll.is_none() {
+					match Scroll::new(area, &scrolling.chunks) {
+						Ok(scroll) => {
+							scrolling.scroll.replace(scroll);
+						},
+						Err(error) => {
+							self.sender.send(Event::Page(error)).ok();
+							self.sender.send(Event::Update).ok();
+							return;
+						}
+					}
+				}
+				let scroll = scrolling.scroll.as_mut().unwrap();
 				let lines = match scroll.read_lines(&scrolling.chunks) {
 					Ok(lines) => lines,
 					Err(error) => {
@@ -388,18 +398,20 @@ where
 		};
 		let state = Arc::downgrade(self);
 		let task = tokio::spawn(async move {
+			let Some(state_) = state.upgrade() else {
+				return;
+			};
 			let arg = tg::process::log::get::Arg {
 				position: Some(std::io::SeekFrom::Start(position)),
 				..tg::process::log::get::Arg::default()
-			};
-			let Some(state_) = state.upgrade() else {
-				return;
 			};
 			let Some(stream) = state_
 				.process
 				.log(&state_.handle, arg)
 				.await
-				.inspect_err(|error| tracing::error!(?error, "failed to tail the log"))
+				.inspect_err(|error| {
+					tracing::error!(?error, "failed to tail the log");
+				})
 				.ok()
 			else {
 				return;
