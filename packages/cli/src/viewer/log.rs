@@ -345,6 +345,9 @@ where
 		match &mut *stream {
 			StreamState::Scrolling(scrolling) => {
 				if scrolling.scroll.is_none() {
+					if scrolling.chunks.is_empty() {
+						return;
+					}
 					match Scroll::new(area, &scrolling.chunks) {
 						Ok(scroll) => {
 							scrolling.scroll.replace(scroll);
@@ -353,7 +356,7 @@ where
 							self.sender.send(Event::Page(error)).ok();
 							self.sender.send(Event::Update).ok();
 							return;
-						}
+						},
 					}
 				}
 				let scroll = scrolling.scroll.as_mut().unwrap();
@@ -371,6 +374,9 @@ where
 				self.view.lock().unwrap().lines.replace(lines);
 			},
 			StreamState::Tailing(tailing) => {
+				if tailing.chunks.is_empty() {
+					return;
+				}
 				let Ok(mut scroll) = Scroll::new(area, &tailing.chunks) else {
 					return;
 				};

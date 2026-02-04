@@ -2348,7 +2348,7 @@ where
 								.and_then(async |output: tg::process::get::Output| {
 									#[derive(serde::Serialize)]
 									struct ProcessData {
-										process: tg::process::get::Output,
+										data: tg::process::get::Output,
 										metadata: Option<tg::process::Metadata>,
 									}
 									let metadata = handle
@@ -2358,7 +2358,7 @@ where
 										)
 										.await?;
 									let data = ProcessData {
-										process: output,
+										data: output,
 										metadata,
 									};
 									let output = serde_json::to_string_pretty(&data).unwrap();
@@ -2382,7 +2382,7 @@ where
 													tg::Value::String(error.to_string())
 												});
 										let value = [
-											("object".into(), tg::Value::Object(object)),
+											("data".into(), tg::Value::Object(object)),
 											("metadata".into(), metadata),
 										]
 										.into_iter()
@@ -2392,7 +2392,7 @@ where
 									value => value,
 								};
 								let options = tg::value::print::Options {
-									depth: Some(1),
+									depth: Some(2),
 									style: tg::value::print::Style::Pretty { indentation: "  " },
 									blobs: false,
 									indent: 0,
@@ -2408,7 +2408,7 @@ where
 											tg::Value::String(error.to_string())
 										});
 								let value = [
-									("package".into(), tg::Value::Object(package.0)),
+									("data".into(), tg::Value::Object(package.0)),
 									("metadata".into(), metadata),
 								]
 								.into_iter()
@@ -2638,7 +2638,10 @@ async fn get_process_metadata_as_value(
 	.collect();
 	let node = tg::Value::Map(node);
 	let subtree = [
-		("command".into(), subtree_to_value(&metadata.subtree.command)),
+		(
+			"command".into(),
+			subtree_to_value(&metadata.subtree.command),
+		),
 		(
 			"count".into(),
 			metadata
