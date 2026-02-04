@@ -1,6 +1,6 @@
 use {
 	crate::Cli,
-	futures::FutureExt as _,
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _},
 	petgraph::algo::tarjan_scc,
 	radix_trie::TrieCommon as _,
 	std::{collections::HashMap, path::Path, path::PathBuf},
@@ -240,67 +240,78 @@ impl Cli {
 	}
 }
 
-/// Given an object, get the tag from its internal metadata.
+/// Given an object, get the tag from its internal metadata by statically parsing the module.
 async fn try_get_package_tag(
 	handle: &impl tg::Handle,
 	object: &tg::Object,
+	package_path: Option<&Path>,
 ) -> tg::Result<Option<tg::Tag>> {
-	// Currently only files and directories may have package metadata.
-	let (kind, object) = match object {
-		// Use the file directly
-		tg::Object::File(_) => {
-			// Assume ts.
-			let kind = tg::module::Kind::Ts;
-			(kind, object.clone())
+	// Get the file text and module file name from the object.
+	let (text, module_name) = match object {
+		tg::Object::File(file) => {
+			let text = file.text(handle).await?;
+			(text, None)
 		},
-		// For directory, look for a root module.
 		tg::Object::Directory(directory) => {
-			// Get the root file name.
 			let Some(name) =
 				tg::module::try_get_root_module_file_name(handle, tg::Either::Left(directory))
 					.await?
 			else {
 				return Ok(None);
 			};
-
-			// Detect the kind.
-			let kind = tg::module::module_kind_for_path(name)?;
-
-			// Extract the file.
-			let file = directory.get(handle, name).await?;
-			(kind, file.into())
+			let file = directory
+				.get(handle, name)
+				.await?
+				.try_unwrap_file()
+				.map_err(|_| tg::error!("expected a file"))?;
+			let text = file.text(handle).await?;
+			(text, Some(name.to_owned()))
 		},
-		// Nothing else has metadata.
 		_ => return Ok(None),
 	};
 
-	// Create a module for the item.
-	let item = tg::graph::Edge::Object(object);
-	let item = tg::module::Item::Edge(item);
-	let referent = tg::Referent::with_item(item);
-	let module = tg::Module { kind, referent };
-	let executable = tg::command::Executable::Module(tg::command::ModuleExecutable {
-		module,
-		export: Some("metadata".to_owned()),
-	});
-	let arg = tg::build::Arg {
-		host: Some("js".to_owned()),
-		executable: Some(executable),
-		progress: false,
-		..Default::default()
+	// Compute the full path to the module file for error messages.
+	let module_path = match (&package_path, &module_name) {
+		(Some(path), Some(name)) => Some(path.join(name)),
+		(Some(path), None) => Some(path.to_path_buf()),
+		(None, _) => None,
 	};
-	let Ok(output) = tg::build::build(handle, arg).await else {
-		return Ok(None);
+
+	// Extract metadata statically.
+	let map = match tangram_compiler::metadata::metadata(&text) {
+		Ok(Some(map)) => map,
+		Ok(None) => return Ok(None),
+		Err(source) => {
+			return if let Some(path) = module_path {
+				Err(tg::error!(!source, path = %path.display(), "failed to extract metadata"))
+			} else {
+				let id = object.id();
+				Err(tg::error!(!source, %id, "failed to extract metadata"))
+			};
+		},
 	};
-	let map = output
-		.try_unwrap_map()
-		.map_err(|_| tg::error!("expected metadata to be a map"))?;
+
+	// Get the tag from the metadata.
 	let tag = map
 		.get("tag")
-		.ok_or_else(|| tg::error!("metadata missing 'tag' field"))?
-		.try_unwrap_string_ref()
-		.map_err(|_| tg::error!("expected 'tag' to be a string"))?
-		.clone();
+		.ok_or_else(|| {
+			if let Some(path) = &module_path {
+				tg::error!(path = %path.display(), "metadata is missing the 'tag' field")
+			} else {
+				let id = object.id();
+				tg::error!(%id, "metadata is missing the 'tag' field")
+			}
+		})?
+		.as_str()
+		.ok_or_else(|| {
+			if let Some(path) = &module_path {
+				tg::error!(path = %path.display(), "expected 'tag' to be a string")
+			} else {
+				let id = object.id();
+				tg::error!(%id, "expected 'tag' to be a string")
+			}
+		})?;
+
 	Ok(Some(tg::Tag::new(tag)))
 }
 
@@ -366,6 +377,28 @@ impl State {
 		handle: &impl tg::Handle,
 		mut tag: Option<tg::Tag>,
 	) -> tg::Result<Vec<Step>> {
+		// Fetch all package tags in parallel with limited concurrency.
+		let packages: Vec<_> = self
+			.graph
+			.nodes
+			.iter()
+			.map(|node| {
+				(
+					node.package.item().id(),
+					node.package.item().clone(),
+					node.package.path().map(ToOwned::to_owned),
+				)
+			})
+			.collect();
+		let tags: HashMap<tg::object::Id, Option<tg::Tag>> = futures::stream::iter(packages)
+			.map(|(id, object, path)| async move {
+				let tag = try_get_package_tag(handle, &object, path.as_deref()).await?;
+				Ok::<_, tg::Error>((id, tag))
+			})
+			.buffer_unordered(16)
+			.try_collect()
+			.await?;
+
 		let sccs = tarjan_scc(&self.graph);
 		let mut plan = Vec::new();
 		for scc in sccs {
@@ -389,11 +422,7 @@ impl State {
 
 				// Check if this package has a tag.
 				let override_ = (index == 0).then_some(()).and(tag.take());
-				let original = try_get_package_tag(handle, node.package.item())
-					.await
-					.map_err(
-						|source| tg::error!(!source, package = %node.package, "failed to read the package metadata"),
-					)?;
+				let original = tags.get(&node.package.item().id()).cloned().flatten();
 				let Some(tag) = override_.or(original) else {
 					continue;
 				};

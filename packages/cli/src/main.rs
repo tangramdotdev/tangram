@@ -1,4 +1,5 @@
 use {
+	self::telemetry::Telemetry,
 	clap::{CommandFactory as _, FromArgMatches as _},
 	futures::FutureExt as _,
 	num::ToPrimitive as _,
@@ -39,7 +40,6 @@ mod lsp;
 mod metadata;
 mod new;
 mod object;
-mod opentelemetry;
 mod outdated;
 mod print;
 mod process;
@@ -56,6 +56,7 @@ mod server;
 mod session;
 mod tag;
 mod tangram;
+mod telemetry;
 mod tree;
 mod update;
 mod util;
@@ -148,11 +149,6 @@ enum Mode {
 	Auto,
 	Client,
 	Server,
-}
-
-enum Tracing {
-	OpenTelemetry(opentelemetry::OpenTelemetry),
-	None,
 }
 
 #[derive(Clone, Debug, clap::Subcommand)]
@@ -424,9 +420,10 @@ fn main() -> std::process::ExitCode {
 			.unwrap()
 	};
 
-	// Initialize tracing.
+	// Initialize telemetry and tracing.
 	let runtime_guard = runtime.enter();
-	let tracing = Cli::initialize_tracing(config.as_ref(), args.tracing.as_ref());
+	let telemetry = Cli::initialize_telemetry(config.as_ref());
+	Cli::initialize_tracing(config.as_ref(), args.tracing.as_ref(), telemetry.as_ref());
 	drop(runtime_guard);
 
 	// Create the CLI.
@@ -470,8 +467,10 @@ fn main() -> std::process::ExitCode {
 		}
 	});
 
-	// Shutdown tracing.
-	tracing.shutdown();
+	// Shutdown telemetry.
+	if let Some(telemetry) = telemetry {
+		telemetry.shutdown();
+	}
 
 	// Drop the runtime.
 	drop(runtime);
@@ -1121,19 +1120,30 @@ impl Cli {
 		v8::V8::initialize();
 	}
 
+	/// Initialize telemetry.
+	fn initialize_telemetry(config: Option<&Config>) -> Option<Telemetry> {
+		config
+			.and_then(|config| config.telemetry.as_ref())
+			.map(Telemetry::new)
+	}
+
 	/// Initialize tracing.
-	fn initialize_tracing(config: Option<&Config>, tracing_filter: Option<&String>) -> Tracing {
+	fn initialize_tracing(
+		config: Option<&Config>,
+		tracing_filter: Option<&String>,
+		telemetry: Option<&Telemetry>,
+	) {
 		let console_layer = if config.is_some_and(|config| config.tokio_console) {
 			Some(console_subscriber::spawn())
 		} else {
 			None
 		};
 		let config_tracing = config.and_then(|config| config.tracing.as_ref());
+		let filter_string = tracing_filter
+			.or(config_tracing.map(|t| &t.filter))
+			.cloned()
+			.unwrap_or_default();
 		let output_layer = if tracing_filter.is_some() || config_tracing.is_some() {
-			let filter_string = tracing_filter
-				.or(config_tracing.map(|t| &t.filter))
-				.cloned()
-				.unwrap_or_default();
 			let filter = tracing_subscriber::filter::EnvFilter::try_new(&filter_string).unwrap();
 			let format = config_tracing
 				.and_then(|t| t.format)
@@ -1154,26 +1164,23 @@ impl Cli {
 			None
 		};
 
-		let (opentelemetry, opentelemetry_tracing_layer, opentelemetry_logs_layer) = {
-			let opentelemetry = config
-				.and_then(|c| c.opentelemetry.as_ref())
-				.map(opentelemetry::initialize);
-			let tracing_layer = opentelemetry
-				.as_ref()
-				.map(|data| tracing_opentelemetry::layer().with_tracer(data.tracer.clone()));
-			let logs_layer = opentelemetry.as_ref().map(|data| {
-				opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(
-					&data.logger_provider,
-				)
-			});
-			(opentelemetry, tracing_layer, logs_layer)
-		};
+		let telemetry_tracing_layer = telemetry.map(|telemetry| {
+			let filter = tracing_subscriber::filter::EnvFilter::try_new(&filter_string).unwrap();
+			tracing_opentelemetry::layer()
+				.with_tracer(telemetry.tracer.clone())
+				.with_filter(filter)
+		});
+		let telemetry_logs_layer = telemetry.map(|telemetry| {
+			opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(
+				&telemetry.logger_provider,
+			)
+		});
 
 		tracing_subscriber::registry()
 			.with(console_layer)
 			.with(output_layer)
-			.with(opentelemetry_tracing_layer)
-			.with(opentelemetry_logs_layer)
+			.with(telemetry_tracing_layer)
+			.with(telemetry_logs_layer)
 			.init();
 		std::panic::set_hook(Box::new(|info| {
 			let payload = info.payload_as_str();
@@ -1181,12 +1188,6 @@ impl Cli {
 			let backtrace = std::backtrace::Backtrace::force_capture();
 			tracing::error!(payload, location, %backtrace, "panic");
 		}));
-
-		if let Some(opentelemetry) = opentelemetry {
-			return Tracing::OpenTelemetry(opentelemetry);
-		}
-
-		Tracing::None
 	}
 
 	fn set_file_descriptor_limit() -> tg::Result<()> {
@@ -1210,14 +1211,5 @@ impl Cli {
 			));
 		}
 		Ok(())
-	}
-}
-
-impl Tracing {
-	fn shutdown(&self) {
-		match self {
-			Self::OpenTelemetry(opentelemetry) => opentelemetry.shutdown(),
-			Self::None => {},
-		}
 	}
 }

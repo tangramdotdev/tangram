@@ -30,6 +30,10 @@ let config = {
 		addr: 'localhost:9042',
 		keyspace: 'store',
 	},
+	telemetry: {
+		endpoint: 'http://localhost:4317',
+		service_name: 'server',
+	},
 	vfs: false,
 	watchdog: {
 		batch_size: 100,

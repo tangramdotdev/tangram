@@ -145,7 +145,11 @@ impl Server {
 					let idle = tangram_http::idle::Idle::new(Duration::from_secs(30));
 					let executor = hyper_util::rt::TokioExecutor::new();
 					let mut builder = hyper_util::server::conn::auto::Builder::new(executor);
-					builder.http2().max_concurrent_streams(None);
+					builder
+						.http2()
+						.max_concurrent_streams(None)
+						.max_pending_accept_reset_streams(None)
+						.max_local_error_reset_streams(None);
 					let service = service
 						.map_request(|request: http::Request<hyper::body::Incoming>| {
 							request.map(Body::new)

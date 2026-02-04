@@ -220,6 +220,7 @@ impl tg::Client {
 		let io = hyper_util::rt::TokioIo::new(stream);
 		let (mut sender, connection) = hyper::client::conn::http2::Builder::new(executor)
 			.max_concurrent_streams(None)
+			.max_concurrent_reset_streams(usize::MAX)
 			.handshake(io)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to perform the HTTP handshake"))?;
@@ -294,7 +295,10 @@ impl tg::Client {
 		// Perform the HTTP handshake.
 		let executor = hyper_util::rt::TokioExecutor::new();
 		let io = hyper_util::rt::TokioIo::new(stream);
-		let (mut sender, connection) = hyper::client::conn::http2::handshake(executor, io)
+		let (mut sender, connection) = hyper::client::conn::http2::Builder::new(executor)
+			.max_concurrent_streams(None)
+			.max_concurrent_reset_streams(usize::MAX)
+			.handshake(io)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to perform the HTTP handshake"))?;
 
@@ -382,7 +386,10 @@ impl tg::Client {
 		// Perform the HTTP handshake.
 		let executor = hyper_util::rt::TokioExecutor::new();
 		let io = hyper_util::rt::TokioIo::new(stream);
-		let (mut sender, connection) = hyper::client::conn::http2::handshake(executor, io)
+		let (mut sender, connection) = hyper::client::conn::http2::Builder::new(executor)
+			.max_concurrent_streams(None)
+			.max_concurrent_reset_streams(usize::MAX)
+			.handshake(io)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to perform the HTTP handshake"))?;
 
