@@ -85,8 +85,8 @@ export class Symlink {
 				throw new Error("invalid template");
 			}
 		} else if (resolved instanceof tg.Symlink) {
-			let artifact = await resolved.artifact();
-			let path = await resolved.path();
+			let artifact = await resolved.artifact;
+			let path = await resolved.path;
 			return { artifact, path };
 		} else {
 			return resolved;
@@ -133,54 +133,58 @@ export class Symlink {
 		return this.#state.children();
 	}
 
-	async artifact(): Promise<tg.Artifact | undefined> {
-		let object = await this.object();
-		if ("index" in object) {
-			let graph = object.graph;
-			tg.assert(graph !== undefined);
-			let node = (await graph.nodes())[object.index];
-			tg.assert(node !== undefined);
-			tg.assert(node.kind === "symlink");
-			if (typeof node.artifact === "number") {
-				return await graph.get(node.artifact);
-			} else if (
-				typeof node.artifact === "object" &&
-				"index" in node.artifact
-			) {
-				return await (node.artifact.graph ?? graph).get(node.artifact.index);
+	get artifact(): Promise<tg.Artifact | undefined> {
+		return (async () => {
+			let object = await this.object();
+			if ("index" in object) {
+				let graph = object.graph;
+				tg.assert(graph !== undefined);
+				let node = (await graph.nodes)[object.index];
+				tg.assert(node !== undefined);
+				tg.assert(node.kind === "symlink");
+				if (typeof node.artifact === "number") {
+					return await graph.get(node.artifact);
+				} else if (
+					typeof node.artifact === "object" &&
+					"index" in node.artifact
+				) {
+					return await (node.artifact.graph ?? graph).get(node.artifact.index);
+				}
+				return node.artifact;
+			} else {
+				tg.assert(typeof object.artifact !== "number");
+				if (typeof object.artifact === "object" && "index" in object.artifact) {
+					tg.assert(object.artifact.graph !== undefined);
+					return await object.artifact.graph.get(object.artifact.index);
+				}
+				return object.artifact;
 			}
-			return node.artifact;
-		} else {
-			tg.assert(typeof object.artifact !== "number");
-			if (typeof object.artifact === "object" && "index" in object.artifact) {
-				tg.assert(object.artifact.graph !== undefined);
-				return await object.artifact.graph.get(object.artifact.index);
-			}
-			return object.artifact;
-		}
+		})();
 	}
 
-	async path(): Promise<string | undefined> {
-		let object = await this.object();
-		if ("index" in object) {
-			let graph = object.graph;
-			tg.assert(graph !== undefined);
-			let nodes = await graph.nodes();
-			let node = nodes[object.index];
-			tg.assert(node !== undefined);
-			tg.assert(node.kind === "symlink");
-			return node.path;
-		} else {
-			return object.path;
-		}
+	get path(): Promise<string | undefined> {
+		return (async () => {
+			let object = await this.object();
+			if ("index" in object) {
+				let graph = object.graph;
+				tg.assert(graph !== undefined);
+				let nodes = await graph.nodes;
+				let node = nodes[object.index];
+				tg.assert(node !== undefined);
+				tg.assert(node.kind === "symlink");
+				return node.path;
+			} else {
+				return object.path;
+			}
+		})();
 	}
 
 	async resolve(): Promise<tg.Artifact | undefined> {
-		let artifact = await this.artifact();
+		let artifact = await this.artifact;
 		if (artifact instanceof tg.Symlink) {
 			artifact = await artifact.resolve();
 		}
-		let path = await this.path();
+		let path = await this.path;
 		if (artifact === undefined && path !== undefined) {
 			throw new Error("cannot resolve a symlink with no artifact");
 		} else if (artifact !== undefined && path === undefined) {

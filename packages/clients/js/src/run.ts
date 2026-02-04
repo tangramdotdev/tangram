@@ -42,7 +42,7 @@ export function run(...args: any): any {
 async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 	let cwd =
 		tg.Process.current !== undefined
-			? (await tg.Process.current.cwd()) !== undefined
+			? (await tg.Process.current.cwd) !== undefined
 				? tg.process.cwd
 				: undefined
 			: tg.process.cwd;
@@ -61,7 +61,7 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		...args,
 	);
 
-	let currentCommand = await tg.Process.current?.command();
+	let currentCommand = await tg.Process.current?.command;
 	let sourceOptions: tg.Referent.Options = {};
 	if ("name" in arg) {
 		sourceOptions.name = arg.name;
@@ -94,7 +94,7 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 			}
 		}
 	} else {
-		commandMounts = await currentCommand?.mounts();
+		commandMounts = await currentCommand?.mounts;
 		processMounts = tg.Process.current?.state?.mounts ?? [];
 	}
 	let processStdin = tg.Process.current?.state?.stdin;
@@ -105,7 +105,7 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 			commandStdin = arg.stdin;
 		}
 	} else {
-		commandStdin = await currentCommand?.stdin();
+		commandStdin = await currentCommand?.stdin;
 	}
 	let stdout = tg.Process.current?.state?.stdout;
 	if ("stdout" in arg) {

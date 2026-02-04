@@ -56,17 +56,27 @@ export class Process {
 		return this.#id;
 	}
 
-	async command(): Promise<tg.Command> {
-		await this.load();
-		return this.#state!.command;
+	get command(): Promise<tg.Command> {
+		return (async () => {
+			await this.load();
+			return this.#state!.command;
+		})();
 	}
 
-	async args(): Promise<Array<tg.Value>> {
-		return await (await this.command()).args();
+	get args(): Promise<Array<tg.Value>> {
+		return (async () => {
+			return await (
+				await this.command
+			).args;
+		})();
 	}
 
-	async cwd(): Promise<string | undefined> {
-		return await (await this.command()).cwd();
+	get cwd(): Promise<string | undefined> {
+		return (async () => {
+			return await (
+				await this.command
+			).cwd;
+		})();
 	}
 
 	async env(): Promise<{ [key: string]: tg.Value }>;
@@ -74,7 +84,7 @@ export class Process {
 	async env(
 		name?: string,
 	): Promise<{ [name: string]: tg.Value } | tg.Value | undefined> {
-		let env = await (await this.command()).env();
+		let env = await (await this.command).env;
 		if (name === undefined) {
 			return { ...env };
 		} else {
@@ -82,23 +92,35 @@ export class Process {
 		}
 	}
 
-	async executable(): Promise<tg.Command.Executable> {
-		return await (await this.command()).executable();
+	get executable(): Promise<tg.Command.Executable> {
+		return (async () => {
+			return await (
+				await this.command
+			).executable;
+		})();
 	}
 
-	async mounts(): Promise<Array<tg.Command.Mount | tg.Process.Mount>> {
-		let commandMounts = await (await this.command()).mounts();
-		await this.load();
-		return [...this.#state!.mounts, ...(commandMounts ?? [])];
+	get mounts(): Promise<Array<tg.Command.Mount | tg.Process.Mount>> {
+		return (async () => {
+			let commandMounts = await (await this.command).mounts;
+			await this.load();
+			return [...this.#state!.mounts, ...(commandMounts ?? [])];
+		})();
 	}
 
-	async network(): Promise<boolean> {
-		await this.load();
-		return this.#state!.network;
+	get network(): Promise<boolean> {
+		return (async () => {
+			await this.load();
+			return this.#state!.network;
+		})();
 	}
 
-	async user(): Promise<string | undefined> {
-		return await (await this.command()).user();
+	get user(): Promise<string | undefined> {
+		return (async () => {
+			return await (
+				await this.command
+			).user;
+		})();
 	}
 }
 

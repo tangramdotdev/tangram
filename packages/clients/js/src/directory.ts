@@ -75,7 +75,7 @@ export class Directory {
 				// If the arg is undefined, then continue.
 			} else if (arg instanceof tg.Directory) {
 				// If the arg is a directory, then apply each entry.
-				for (let [name, entry] of Object.entries(await arg.entries())) {
+				for (let [name, entry] of Object.entries(await arg.entries)) {
 					// Get an existing entry.
 					let existingEntry = entries[name];
 
@@ -229,7 +229,7 @@ export class Directory {
 			if (!(artifact instanceof tg.Directory)) {
 				return undefined;
 			}
-			let entries = await artifact.entries();
+			let entries: { [key: string]: tg.Artifact } = await artifact.entries;
 			let entry: tg.Artifact | undefined = entries[component];
 			if (entry === undefined) {
 				return undefined;
@@ -237,8 +237,8 @@ export class Directory {
 			parents.push(artifact);
 			artifact = entry;
 			if (entry instanceof tg.Symlink) {
-				let artifact_ = await entry.artifact();
-				let path_ = await entry.path();
+				let artifact_ = await entry.artifact;
+				let path_ = await entry.path;
 				if (artifact_ === undefined && path_ !== undefined) {
 					let parent = parents.pop();
 					if (!parent) {
@@ -258,12 +258,14 @@ export class Directory {
 		return artifact;
 	}
 
-	async entries(): Promise<{ [key: string]: tg.Artifact }> {
-		let entries: { [key: string]: tg.Artifact } = {};
-		for await (let [name, artifact] of this) {
-			entries[name] = artifact;
-		}
-		return entries;
+	get entries(): Promise<{ [key: string]: tg.Artifact }> {
+		return (async () => {
+			let entries: { [key: string]: tg.Artifact } = {};
+			for await (let [name, artifact] of this) {
+				entries[name] = artifact;
+			}
+			return entries;
+		})();
 	}
 
 	async *walk(): AsyncIterableIterator<[string, tg.Artifact]> {
@@ -282,7 +284,7 @@ export class Directory {
 		if (tg.Graph.Pointer.is(object)) {
 			let graph = object.graph;
 			tg.assert(graph !== undefined);
-			let nodes = await graph.nodes();
+			let nodes = await graph.nodes;
 			let node = nodes[object.index];
 			tg.assert(
 				node !== undefined && node.kind === "directory",

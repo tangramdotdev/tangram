@@ -115,7 +115,7 @@ export class Graph {
 		for (let arg of resolved) {
 			let argNodes =
 				arg instanceof tg.Graph
-					? await arg.nodes()
+					? await arg.nodes
 					: Array.isArray(arg.nodes)
 						? arg.nodes
 						: [];
@@ -265,12 +265,14 @@ export class Graph {
 		return this.#state.children();
 	}
 
-	async nodes(): Promise<Array<tg.Graph.Node>> {
-		return (await this.object()).nodes;
+	get nodes(): Promise<Array<tg.Graph.Node>> {
+		return (async () => {
+			return (await this.object()).nodes;
+		})();
 	}
 
 	async get(index: number): Promise<tg.Artifact> {
-		let nodes = await this.nodes();
+		let nodes = await this.nodes;
 		let node = nodes[index];
 		tg.assert(node !== undefined, "invalid graph index");
 		switch (node.kind) {

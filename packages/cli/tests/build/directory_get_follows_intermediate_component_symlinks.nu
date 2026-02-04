@@ -8,7 +8,7 @@ let path = artifact {
 		export default async () => {
 			let file = await directory.get("link/hello.txt");
 			tg.File.assert(file);
-			return file.text();
+			return file.text;
 		};
 	'
 	directory: (directory {

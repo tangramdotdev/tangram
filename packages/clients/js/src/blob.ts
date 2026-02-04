@@ -104,7 +104,7 @@ export class Blob {
 				} else if (arg instanceof Uint8Array) {
 					return arg;
 				} else {
-					return await arg.bytes();
+					return await arg.bytes;
 				}
 			}),
 		);
@@ -144,7 +144,7 @@ export class Blob {
 					let length = bytes.length;
 					return { children: [{ blob, length }] };
 				} else if (arg instanceof tg.Blob) {
-					let length = await arg.length();
+					let length = await arg.length;
 					let child = { blob: arg, length };
 					return {
 						children: [child],
@@ -199,15 +199,17 @@ export class Blob {
 		return this.#state.children();
 	}
 
-	async length(): Promise<number> {
-		let object = await this.object();
-		if ("children" in object) {
-			return object.children
-				.map(({ length }) => length)
-				.reduce((a, b) => a + b, 0);
-		} else {
-			return object.bytes.byteLength;
-		}
+	get length(): Promise<number> {
+		return (async () => {
+			let object = await this.object();
+			if ("children" in object) {
+				return object.children
+					.map(({ length }) => length)
+					.reduce((a, b) => a + b, 0);
+			} else {
+				return object.bytes.byteLength;
+			}
+		})();
 	}
 
 	async read(options?: tg.Blob.ReadOptions): Promise<Uint8Array> {
@@ -216,12 +218,14 @@ export class Blob {
 		return await tg.handle.read(arg);
 	}
 
-	async bytes(): Promise<Uint8Array> {
-		return await this.read();
+	get bytes(): Promise<Uint8Array> {
+		return this.read();
 	}
 
-	async text(): Promise<string> {
-		return tg.encoding.utf8.decode(await this.bytes());
+	get text(): Promise<string> {
+		return (async () => {
+			return tg.encoding.utf8.decode(await this.bytes);
+		})();
 	}
 }
 

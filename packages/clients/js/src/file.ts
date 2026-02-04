@@ -134,8 +134,8 @@ export class File {
 					return { contents: arg };
 				} else if (arg instanceof tg.File) {
 					return {
-						contents: await arg.contents(),
-						dependencies: await arg.dependencies(),
+						contents: await arg.contents,
+						dependencies: await arg.dependencies,
 					};
 				} else {
 					return arg as Arg;
@@ -188,146 +188,168 @@ export class File {
 		return this.#state.children();
 	}
 
-	async contents(): Promise<tg.Blob> {
-		let object = await this.object();
-		if ("index" in object) {
-			let graph = object.graph;
-			tg.assert(graph !== undefined);
-			let nodes = await graph.nodes();
-			let node = nodes[object.index];
-			tg.assert(node !== undefined);
-			tg.assert(node.kind === "file");
-			return node.contents;
-		} else {
-			tg.assert(object.contents);
-			return object.contents;
-		}
+	get contents(): Promise<tg.Blob> {
+		return (async () => {
+			let object = await this.object();
+			if ("index" in object) {
+				let graph = object.graph;
+				tg.assert(graph !== undefined);
+				let nodes = await graph.nodes;
+				let node = nodes[object.index];
+				tg.assert(node !== undefined);
+				tg.assert(node.kind === "file");
+				return node.contents;
+			} else {
+				tg.assert(object.contents);
+				return object.contents;
+			}
+		})();
 	}
 
-	async dependencies(): Promise<{
+	get dependencies(): Promise<{
 		[reference: tg.Reference]: tg.Referent<tg.Object> | undefined;
 	}> {
-		let object = await this.object();
-		if ("index" in object) {
-			let graph = object.graph;
-			tg.assert(graph !== undefined);
-			let nodes = await graph.nodes();
-			let node = nodes[object.index];
-			tg.assert(node !== undefined);
-			tg.assert(node.kind === "file");
-			let dependencies = node.dependencies;
-			return Object.fromEntries(
-				await Promise.all(
-					Object.entries(dependencies).map(async ([reference, dependency]) => {
-						if (!dependency) {
-							return [reference, undefined];
-						}
-						let object: tg.Object | undefined;
-						if (dependency.item === undefined) {
-							object = undefined;
-						} else if (typeof dependency.item === "number") {
-							object = await graph.get(dependency.item);
-						} else if ("index" in dependency.item) {
-							object = await (dependency.item.graph ?? graph).get(
-								dependency.item.index,
-							);
-						} else {
-							object = dependency.item;
-						}
-						let value: tg.Referent<tg.Object | undefined> = {
-							item: object,
-							options: dependency.options,
-						};
-						return [reference, value];
-					}),
-				),
-			);
-		} else {
-			let dependencies = object.dependencies;
-			return Object.fromEntries(
-				await Promise.all(
-					Object.entries(dependencies).map(async ([reference, dependency]) => {
-						if (!dependency) {
-							return [reference, undefined];
-						}
-						let object: tg.Object | undefined;
-						tg.assert(typeof dependency.item === "object");
-						if ("index" in dependency.item) {
-							tg.assert(dependency.item.graph !== undefined);
-							object = await dependency.item.graph.get(dependency.item.index);
-						} else {
-							object = dependency.item;
-						}
-						let value = {
-							item: object,
-							options: dependency.options,
-						};
-						return [reference, value];
-					}),
-				),
-			);
-		}
-	}
-
-	async dependencyObjects(): Promise<Array<tg.Object>> {
-		let dependencies = await this.dependencies();
-		if (dependencies === undefined) {
-			return [];
-		} else {
-			let items = [];
-			for (let dependency of Object.values(dependencies)) {
-				if (dependency) {
-					items.push(dependency.item);
-				}
+		return (async () => {
+			let object = await this.object();
+			if ("index" in object) {
+				let graph = object.graph;
+				tg.assert(graph !== undefined);
+				let nodes = await graph.nodes;
+				let node = nodes[object.index];
+				tg.assert(node !== undefined);
+				tg.assert(node.kind === "file");
+				let dependencies = node.dependencies;
+				return Object.fromEntries(
+					await Promise.all(
+						Object.entries(dependencies).map(
+							async ([reference, dependency]) => {
+								if (!dependency) {
+									return [reference, undefined];
+								}
+								let object: tg.Object | undefined;
+								if (dependency.item === undefined) {
+									object = undefined;
+								} else if (typeof dependency.item === "number") {
+									object = await graph.get(dependency.item);
+								} else if ("index" in dependency.item) {
+									object = await (dependency.item.graph ?? graph).get(
+										dependency.item.index,
+									);
+								} else {
+									object = dependency.item;
+								}
+								let value: tg.Referent<tg.Object | undefined> = {
+									item: object,
+									options: dependency.options,
+								};
+								return [reference, value];
+							},
+						),
+					),
+				);
+			} else {
+				let dependencies = object.dependencies;
+				return Object.fromEntries(
+					await Promise.all(
+						Object.entries(dependencies).map(
+							async ([reference, dependency]) => {
+								if (!dependency) {
+									return [reference, undefined];
+								}
+								let object: tg.Object | undefined;
+								tg.assert(typeof dependency.item === "object");
+								if ("index" in dependency.item) {
+									tg.assert(dependency.item.graph !== undefined);
+									object = await dependency.item.graph.get(
+										dependency.item.index,
+									);
+								} else {
+									object = dependency.item;
+								}
+								let value = {
+									item: object,
+									options: dependency.options,
+								};
+								return [reference, value];
+							},
+						),
+					),
+				);
 			}
-			return items;
-		}
+		})();
 	}
 
-	async executable(): Promise<boolean> {
-		let object = await this.object();
-		if ("index" in object) {
-			let graph = object.graph;
-			tg.assert(graph !== undefined);
-			let nodes = await graph.nodes();
-			let node = nodes[object.index];
-			tg.assert(node !== undefined);
-			tg.assert(node.kind === "file");
-			return node.executable;
-		} else {
-			return object.executable;
-		}
+	get dependencyObjects(): Promise<Array<tg.Object>> {
+		return (async () => {
+			let dependencies = await this.dependencies;
+			if (dependencies === undefined) {
+				return [];
+			} else {
+				let items = [];
+				for (let dependency of Object.values(dependencies)) {
+					if (dependency) {
+						items.push(dependency.item);
+					}
+				}
+				return items;
+			}
+		})();
 	}
 
-	async module(): Promise<string | undefined> {
-		let object = await this.object();
-		if ("index" in object) {
-			let graph = object.graph;
-			tg.assert(graph !== undefined);
-			let nodes = await graph.nodes();
-			let node = nodes[object.index];
-			tg.assert(node !== undefined);
-			tg.assert(node.kind === "file");
-			return node.module;
-		} else {
-			return object.module;
-		}
+	get executable(): Promise<boolean> {
+		return (async () => {
+			let object = await this.object();
+			if ("index" in object) {
+				let graph = object.graph;
+				tg.assert(graph !== undefined);
+				let nodes = await graph.nodes;
+				let node = nodes[object.index];
+				tg.assert(node !== undefined);
+				tg.assert(node.kind === "file");
+				return node.executable;
+			} else {
+				return object.executable;
+			}
+		})();
 	}
 
-	async length(): Promise<number> {
-		return (await this.contents()).length();
+	get module(): Promise<string | undefined> {
+		return (async () => {
+			let object = await this.object();
+			if ("index" in object) {
+				let graph = object.graph;
+				tg.assert(graph !== undefined);
+				let nodes = await graph.nodes;
+				let node = nodes[object.index];
+				tg.assert(node !== undefined);
+				tg.assert(node.kind === "file");
+				return node.module;
+			} else {
+				return object.module;
+			}
+		})();
+	}
+
+	get length(): Promise<number> {
+		return (async () => {
+			return (await this.contents).length;
+		})();
 	}
 
 	async read(options?: tg.Blob.ReadOptions): Promise<Uint8Array> {
-		return (await this.contents()).read(options);
+		return (await this.contents).read(options);
 	}
 
-	async bytes(): Promise<Uint8Array> {
-		return (await this.contents()).bytes();
+	get bytes(): Promise<Uint8Array> {
+		return (async () => {
+			return (await this.contents).bytes;
+		})();
 	}
 
-	async text(): Promise<string> {
-		return (await this.contents()).text();
+	get text(): Promise<string> {
+		return (async () => {
+			return (await this.contents).text;
+		})();
 	}
 }
 

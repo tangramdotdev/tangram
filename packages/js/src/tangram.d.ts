@@ -3,7 +3,6 @@
 // oxlint-disable no-unused-private-class-members
 
 declare interface ImportAttributes {
-	// @ts-expect-error
 	path?: string;
 }
 
@@ -179,16 +178,16 @@ declare namespace tg {
 		store(): Promise<tg.Blob.Id>;
 
 		/** Get this blob's length. */
-		length(): Promise<number>;
+		get length(): Promise<number>;
 
 		/** Read from this blob. */
 		read(options?: tg.Blob.ReadOptions): Promise<Uint8Array>;
 
 		/** Read this entire blob to a `Uint8Array`. */
-		bytes(): Promise<Uint8Array>;
+		get bytes(): Promise<Uint8Array>;
 
 		/** Read this entire blob to a string. */
-		text(): Promise<string>;
+		get text(): Promise<string>;
 	}
 
 	export namespace Blob {
@@ -250,7 +249,7 @@ declare namespace tg {
 		store(): Promise<tg.Directory.Id>;
 
 		/** Get this directory's entries. */
-		entries(): Promise<{ [key: string]: tg.Artifact }>;
+		get entries(): Promise<{ [key: string]: tg.Artifact }>;
 
 		/** Get the child at the specified path. This method throws an error if the path does not exist. */
 		get(arg: string): Promise<tg.Artifact>;
@@ -332,33 +331,33 @@ declare namespace tg {
 		store(): Promise<tg.File.Id>;
 
 		/** Get this file's contents. */
-		contents(): Promise<tg.Blob>;
+		get contents(): Promise<tg.Blob>;
 
 		/** Get the length of this file's contents. */
-		length(): Promise<number>;
+		get length(): Promise<number>;
 
 		/** Read from this file. */
 		read(options?: tg.Blob.ReadOptions): Promise<Uint8Array>;
 
 		/** Get this file's contents as a `Uint8Array`. */
-		bytes(): Promise<Uint8Array>;
+		get bytes(): Promise<Uint8Array>;
 
 		/** Get this file's contents as a string. This method throws an error if the contents are not valid UTF-8. */
-		text(): Promise<string>;
+		get text(): Promise<string>;
 
 		/** Get this file's dependencies. */
-		dependencies(): Promise<{
+		get dependencies(): Promise<{
 			[reference: tg.Reference]: tg.Referent<tg.Object> | undefined;
 		}>;
 
 		/** Get this file's dependencies as an array. */
-		dependencyObjects(): Promise<Array<tg.Object>>;
+		get dependencyObjects(): Promise<Array<tg.Object>>;
 
 		/** Get this file's executable bit. */
-		executable(): Promise<boolean>;
+		get executable(): Promise<boolean>;
 
 		/** Get this file's module kind. */
-		module(): Promise<string | undefined>;
+		get module(): Promise<string | undefined>;
 	}
 
 	export namespace File {
@@ -410,10 +409,10 @@ declare namespace tg {
 		store(): Promise<tg.Symlink.Id>;
 
 		/** Get this symlink's artifact. */
-		artifact(): Promise<tg.Artifact | undefined>;
+		get artifact(): Promise<tg.Artifact | undefined>;
 
 		/** Get this symlink's path. */
-		path(): Promise<string | undefined>;
+		get path(): Promise<string | undefined>;
 
 		/** Resolve this symlink to the artifact it refers to, or return undefined if none is found. */
 		resolve(): Promise<tg.Artifact | undefined>;
@@ -460,7 +459,7 @@ declare namespace tg {
 		store(): Promise<tg.Graph.Id>;
 
 		/** Get this graph's nodes. */
-		nodes(): Promise<Array<tg.Graph.Node>>;
+		get nodes(): Promise<Array<tg.Graph.Node>>;
 	}
 
 	export namespace Graph {
@@ -634,28 +633,28 @@ declare namespace tg {
 		store(): Promise<tg.Command.Id>;
 
 		/** Get this command's arguments. */
-		args(): Promise<Array<tg.Value>>;
+		get args(): Promise<Array<tg.Value>>;
 
 		/** Get this command's cwd. */
-		cwd(): Promise<string | undefined>;
+		get cwd(): Promise<string | undefined>;
 
 		/** Get this command's environment. */
-		env(): Promise<{ [key: string]: tg.Value }>;
+		get env(): Promise<{ [key: string]: tg.Value }>;
 
 		/** Get this command's executable. */
-		executable(): Promise<tg.Command.Executable>;
+		get executable(): Promise<tg.Command.Executable>;
 
 		/** Get this command's host. */
-		host(): Promise<string>;
+		get host(): Promise<string>;
 
 		/** Get this command's object. */
 		object(): Promise<tg.Command.Object>;
 
 		/** Get this command's mounts. */
-		mounts(): Promise<Array<tg.Command.Mount> | undefined>;
+		get mounts(): Promise<Array<tg.Command.Mount> | undefined>;
 
 		/** Get this command's user. */
-		user(): Promise<string | undefined>;
+		get user(): Promise<string | undefined>;
 
 		/** Build this command and return the process's output. */
 		build(...args: tg.UnresolvedArgs<A>): tg.BuildBuilder<[], R>;
@@ -1182,28 +1181,28 @@ declare namespace tg {
 		store(): Promise<tg.Error.Id>;
 
 		/** Get this error's children. */
-		children(): Promise<Array<tg.Object>>;
+		get children(): Promise<Array<tg.Object>>;
 
 		/** Get this error's code. */
-		code(): Promise<string | undefined>;
+		get code(): Promise<string | undefined>;
 
 		/** Get this error's diagnostics. */
-		diagnostics(): Promise<Array<tg.Diagnostic> | undefined>;
+		get diagnostics(): Promise<Array<tg.Diagnostic> | undefined>;
 
 		/** Get this error's location. */
-		location(): Promise<tg.Error.Location | undefined>;
+		get location(): Promise<tg.Error.Location | undefined>;
 
 		/** Get this error's message. */
-		message(): Promise<string | undefined>;
+		get message(): Promise<string | undefined>;
 
 		/** Get this error's source. */
-		source(): Promise<tg.Referent<tg.Error> | undefined>;
+		get source(): Promise<tg.Referent<tg.Error> | undefined>;
 
 		/** Get this error's stack. */
-		stack(): Promise<Array<tg.Error.Location> | undefined>;
+		get stack(): Promise<Array<tg.Error.Location> | undefined>;
 
 		/** Get this error's values. */
-		values(): Promise<{ [key: string]: string }>;
+		get values(): Promise<{ [key: string]: string }>;
 	}
 
 	export namespace Error {
@@ -1334,32 +1333,32 @@ declare namespace tg {
 		get id(): tg.Process.Id;
 
 		/** Get this process's checksum. */
-		checksum(): Promise<tg.Checksum | undefined>;
+		get checksum(): Promise<tg.Checksum | undefined>;
 
 		/** Get this process's command. */
-		command(): Promise<tg.Command>;
+		get command(): Promise<tg.Command>;
 
 		/** Get this process's command's args. */
-		args(): Promise<Array<tg.Value>>;
+		get args(): Promise<Array<tg.Value>>;
 
 		/** Get this process's command's cwd. */
-		cwd(): Promise<string | undefined>;
+		get cwd(): Promise<string | undefined>;
 
 		/** Get this process's command's environment. */
 		env(): Promise<{ [name: string]: tg.Value }>;
 		env(name: string): Promise<tg.Value | undefined>;
 
 		/** Get this process's command's executable. */
-		executable(): Promise<tg.Command.Executable>;
+		get executable(): Promise<tg.Command.Executable>;
 
 		/** Get the mounts for this process and its command. */
-		mounts(): Promise<Array<tg.Command.Mount | tg.Process.Mount>>;
+		get mounts(): Promise<Array<tg.Command.Mount | tg.Process.Mount>>;
 
 		/** Get whether this process has the network enabled. */
-		network(): Promise<boolean>;
+		get network(): Promise<boolean>;
 
 		/** Get this process's command's user. */
-		user(): Promise<string | undefined>;
+		get user(): Promise<string | undefined>;
 	}
 
 	export namespace Process {
