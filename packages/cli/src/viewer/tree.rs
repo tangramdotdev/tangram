@@ -32,7 +32,7 @@ pub struct Tree<H> {
 	data: data::UpdateSender,
 	num_rendered_columns: usize,
 	rect: Option<Rect>,
-	roots: Vec<Rc<RefCell<Node>>>,
+	roots: Vec<(Rc<RefCell<Node>>, (usize, usize))>,
 	selected: Rc<RefCell<Node>>,
 	selected_task: Option<Task<()>>,
 	scroll: (usize, usize),
@@ -286,7 +286,7 @@ where
 			.duration_since(std::time::UNIX_EPOCH)
 			.unwrap()
 			.as_millis();
-		Self::display_node(self.roots.last().unwrap(), now).unwrap()
+		Self::display_node(&self.roots.last().unwrap().0, now).unwrap()
 	}
 
 	pub fn is_finished(&self) -> bool {
@@ -295,7 +295,8 @@ where
 
 	pub fn has_process(&self) -> bool {
 		self.roots.iter().any(|root| {
-			root.borrow()
+			root.0
+				.borrow()
 				.referent
 				.as_ref()
 				.is_some_and(|referent| matches!(referent.item(), Item::Process(_)))
@@ -1965,8 +1966,7 @@ where
 			update_sender,
 			update_task,
 		}));
-		let roots = vec![root.clone()];
-
+		let roots = vec![(root.clone(), (0, 0))];
 		Self {
 			handle: handle.clone(),
 			counter,
@@ -1982,13 +1982,13 @@ where
 	}
 
 	pub fn ensure_root_selected(&mut self) {
-		let root = self.roots.first().unwrap().clone();
+		let root = self.roots.first().unwrap().0.clone();
 		self.set_selected(root);
 	}
 
 	fn nodes(&mut self) -> Vec<Rc<RefCell<Node>>> {
 		let mut nodes = Vec::new();
-		let mut stack = vec![self.roots.last().unwrap().clone()];
+		let mut stack = vec![self.roots.last().unwrap().0.clone()];
 		while let Some(node) = stack.pop() {
 			nodes.push(node.clone());
 			stack.extend(node.borrow().children.iter().rev().cloned());
@@ -2005,7 +2005,8 @@ where
 
 	fn pop(&mut self) {
 		if self.roots.len() > 1 {
-			self.roots.pop();
+			let (_, scroll) = self.roots.pop().unwrap();
+			self.scroll = scroll;
 		}
 	}
 
@@ -2193,8 +2194,9 @@ where
 	}
 
 	fn push(&mut self) {
-		if !Rc::ptr_eq(self.roots.last().unwrap(), &self.selected) {
-			self.roots.push(self.selected.clone());
+		if !Rc::ptr_eq(self.roots.last().map(|(r, _)| r).unwrap(), &self.selected) {
+			self.roots.push((self.selected.clone(), self.scroll));
+			self.scroll = (0, 0);
 		}
 	}
 
@@ -2231,14 +2233,14 @@ where
 				.iter()
 				.skip(1)
 				.rev()
-				.skip_while(|ancestor| !Rc::ptr_eq(ancestor, self.roots.last().unwrap()))
+				.skip_while(|ancestor| !Rc::ptr_eq(ancestor, &self.roots.last().unwrap().0))
 				.skip(1)
 			{
 				let is_last_child = Self::is_last_child(ancestor);
 				let string = if is_last_child { "  " } else { "│ " };
 				prefix.push_str(string);
 			}
-			if !Rc::ptr_eq(&node, self.roots.last().unwrap()) {
+			if !Rc::ptr_eq(&node, &self.roots.last().unwrap().0) {
 				let is_last_child = Self::is_last_child(&node);
 				let string = if is_last_child { "└─" } else { "├─" };
 				prefix.push_str(string);
@@ -2485,7 +2487,7 @@ where
 
 	pub fn update(&mut self) {
 		// Note we can't use .nodes() here because update() may create new ones.
-		let mut stack = vec![self.roots.last().unwrap().clone()];
+		let mut stack = vec![self.roots.last().unwrap().0.clone()];
 		while let Some(node) = stack.pop() {
 			loop {
 				let Ok(update) = node.borrow_mut().update_receiver.try_recv() else {
