@@ -110,7 +110,13 @@ impl Cli {
 			let wait = if status.is_finished() {
 				let output = process
 					.item()
-					.wait(&handle, tg::process::wait::Arg::default())
+					.wait(
+						&handle,
+						tg::process::wait::Arg {
+							token: process.item().token().cloned(),
+							..tg::process::wait::Arg::default()
+						},
+					)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get the output"))?;
 				Some(output)
@@ -187,7 +193,13 @@ impl Cli {
 				// Await the process.
 				let result = process
 					.item()
-					.wait(&handle, tg::process::wait::Arg::default())
+					.wait(
+						&handle,
+						tg::process::wait::Arg {
+							token: process.item().token().cloned(),
+							..tg::process::wait::Arg::default()
+						},
+					)
 					.await;
 
 				// Abort the cancel task.
@@ -348,7 +360,13 @@ impl Cli {
 		// Await the process.
 		let result = process
 			.item()
-			.wait(&handle, tg::process::wait::Arg::default())
+			.wait(
+				&handle,
+				tg::process::wait::Arg {
+					token: process.item().token().cloned(),
+					..tg::process::wait::Arg::default()
+				},
+			)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to await the process"));
 
