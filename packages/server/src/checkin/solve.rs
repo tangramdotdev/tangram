@@ -179,18 +179,21 @@ impl Server {
 		solutions: &mut Solutions,
 		root: &Path,
 	) -> tg::Result<()> {
+		// Create the prefetcher.
+		let prefetch = Prefetch {
+			arg: arg.clone(),
+			object_tasks: tangram_futures::task::Map::default(),
+			objects: Arc::new(DashMap::default()),
+			semaphore: Arc::new(tokio::sync::Semaphore::new(PREFETCH_CONCURRENCY)),
+			tag_tasks: tangram_futures::task::Map::default(),
+			tags: Arc::new(DashMap::default()),
+		};
+
 		// Create the state
 		let mut state = State {
 			arg,
 			checkpoints: Vec::new(),
-			prefetch: Prefetch {
-				arg: arg.clone(),
-				object_tasks: tangram_futures::task::Map::default(),
-				objects: Arc::new(DashMap::default()),
-				semaphore: Arc::new(tokio::sync::Semaphore::new(PREFETCH_CONCURRENCY)),
-				tag_tasks: tangram_futures::task::Map::default(),
-				tags: Arc::new(DashMap::default()),
-			},
+			prefetch,
 			root: root.to_owned(),
 		};
 
@@ -220,6 +223,10 @@ impl Server {
 			self.checkin_solve_item(&mut state, &mut checkpoint, item)
 				.await?;
 		}
+
+		// Abort all prefetch tasks.
+		state.prefetch.object_tasks.abort_all();
+		state.prefetch.tag_tasks.abort_all();
 
 		// Mark all new nodes as solved.
 		for index in next..checkpoint.graph.next {
@@ -1446,6 +1453,11 @@ impl Server {
 			let id = id.clone();
 			let prefetch = prefetch.clone();
 			move |_| async move {
+				// Return an existing result if one is available.
+				if let Some(output) = prefetch.objects.get(&id).map(|value| value.clone()) {
+					return Ok(output);
+				}
+
 				// Acquire a permit to limit concurrent requests.
 				let permit = prefetch.semaphore.acquire().await;
 
@@ -1641,25 +1653,30 @@ impl Server {
 			let pattern = pattern.clone();
 			let prefetch = prefetch.clone();
 			move |_| async move {
-				if prefetch.arg.options.deterministic {
-					return Ok(tg::tag::list::Output { data: Vec::new() });
+				// Return an existing result if one is available.
+				if let Some(output) = prefetch.tags.get(&pattern).map(|value| value.clone()) {
+					return Ok(output);
 				}
 
 				// Acquire a permit to limit concurrent requests.
 				let permit = prefetch.semaphore.acquire().await;
 
 				// List tags.
-				let output = server
-					.list_tags(tg::tag::list::Arg {
-						length: None,
-						local: None,
-						pattern: pattern.clone(),
-						recursive: false,
-						remotes: None,
-						reverse: true,
-					})
-					.await
-					.map_err(|source| tg::error!(!source, %pattern, "failed to list tags"))?;
+				let output = if prefetch.arg.options.deterministic {
+					tg::tag::list::Output { data: Vec::new() }
+				} else {
+					server
+						.list_tags(tg::tag::list::Arg {
+							length: None,
+							local: None,
+							pattern: pattern.clone(),
+							recursive: false,
+							remotes: None,
+							reverse: true,
+						})
+						.await
+						.map_err(|source| tg::error!(!source, %pattern, "failed to list tags"))?
+				};
 
 				// Drop the permit.
 				drop(permit);
