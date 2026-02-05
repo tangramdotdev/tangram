@@ -461,14 +461,16 @@ where
 		let update = move |node: Rc<RefCell<Node>>| {
 			let item = tg::Referent::with_item(Item::Value(value));
 			let child = Self::create_node(&handle, &node, Some("children".to_owned()), Some(item));
-			let metadata = Self::create_node(
-				&handle,
-				&node,
-				Some("metadata".to_owned()),
-				Some(tg::Referent::with_item(Item::Value(metadata))),
-			);
 			node.borrow_mut().children.push(child);
-			node.borrow_mut().children.push(metadata);
+			if node.borrow().options.expand_metadata {
+				let metadata = Self::create_node(
+					&handle,
+					&node,
+					Some("metadata".to_owned()),
+					Some(tg::Referent::with_item(Item::Value(metadata))),
+				);
+				node.borrow_mut().children.push(metadata);
+			}
 			node.borrow_mut().guard.replace(guard);
 		};
 		update_sender.send(Box::new(update)).unwrap();
@@ -564,13 +566,15 @@ where
 				let child = Self::create_node(&handle, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
-			let metadata = Self::create_node(
-				&handle,
-				&node,
-				Some("metadata".to_owned()),
-				Some(tg::Referent::with_item(Item::Value(metadata))),
-			);
-			node.borrow_mut().children.push(metadata);
+			if node.borrow().options.expand_metadata {
+				let metadata = Self::create_node(
+					&handle,
+					&node,
+					Some("metadata".to_owned()),
+					Some(tg::Referent::with_item(Item::Value(metadata))),
+				);
+				node.borrow_mut().children.push(metadata);
+			}
 			node.borrow_mut().guard.replace(guard);
 		};
 		update_sender.send(Box::new(update)).unwrap();
@@ -761,13 +765,15 @@ where
 				let child = Self::create_node(&handle, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
-			let metadata = Self::create_node(
-				&handle,
-				&node,
-				Some("metadata".to_owned()),
-				Some(tg::Referent::with_item(Item::Value(metadata))),
-			);
-			node.borrow_mut().children.push(metadata);
+			if node.borrow().options.expand_metadata {
+				let metadata = Self::create_node(
+					&handle,
+					&node,
+					Some("metadata".to_owned()),
+					Some(tg::Referent::with_item(Item::Value(metadata))),
+				);
+				node.borrow_mut().children.push(metadata);
+			}
 			node.borrow_mut().guard.replace(guard);
 		};
 		update_sender.send(Box::new(update)).unwrap();
@@ -863,13 +869,15 @@ where
 				let child = Self::create_node(&handle, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
-			let metadata = Self::create_node(
-				&handle,
-				&node,
-				Some("metadata".to_owned()),
-				Some(tg::Referent::with_item(Item::Value(metadata))),
-			);
-			node.borrow_mut().children.push(metadata);
+			if node.borrow().options.expand_metadata {
+				let metadata = Self::create_node(
+					&handle,
+					&node,
+					Some("metadata".to_owned()),
+					Some(tg::Referent::with_item(Item::Value(metadata))),
+				);
+				node.borrow_mut().children.push(metadata);
+			}
 			node.borrow_mut().guard.replace(guard);
 		};
 		update_sender.send(Box::new(update)).unwrap();
@@ -974,13 +982,15 @@ where
 				let child = Self::create_node(&handle, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
-			let metadata = Self::create_node(
-				&handle,
-				&node,
-				Some("metadata".to_owned()),
-				Some(tg::Referent::with_item(Item::Value(metadata))),
-			);
-			node.borrow_mut().children.push(metadata);
+			if node.borrow().options.expand_metadata {
+				let metadata = Self::create_node(
+					&handle,
+					&node,
+					Some("metadata".to_owned()),
+					Some(tg::Referent::with_item(Item::Value(metadata))),
+				);
+				node.borrow_mut().children.push(metadata);
+			}
 		};
 		update_sender.send(Box::new(update)).unwrap();
 		Ok(())
@@ -1159,13 +1169,15 @@ where
 			let item = tg::Referent::with_item(Item::Value(value));
 			let child = Self::create_node(&handle, &node, Some("nodes".to_owned()), Some(item));
 			node.borrow_mut().children.push(child);
-			let metadata_node = Self::create_node(
-				&handle,
-				&node,
-				Some("metadata".to_owned()),
-				Some(tg::Referent::with_item(Item::Value(metadata))),
-			);
-			node.borrow_mut().children.push(metadata_node);
+			if node.borrow().options.expand_metadata {
+				let metadata = Self::create_node(
+					&handle,
+					&node,
+					Some("metadata".to_owned()),
+					Some(tg::Referent::with_item(Item::Value(metadata))),
+				);
+				node.borrow_mut().children.push(metadata);
+			}
 		};
 		update_sender.send(Box::new(update)).unwrap();
 		Ok(())
@@ -1458,14 +1470,16 @@ where
 							Some("command".to_owned()),
 							Some(tg::Referent::with_item(Item::Value(value))),
 						);
-						let metadata = Self::create_node(
-							&handle,
-							&node,
-							Some("metadata".to_owned()),
-							Some(tg::Referent::with_item(Item::Value(metadata))),
-						);
 						node.borrow_mut().children.push(command);
-						node.borrow_mut().children.push(metadata);
+						if node.borrow().options.expand_metadata {
+							let metadata = Self::create_node(
+								&handle,
+								&node,
+								Some("metadata".to_owned()),
+								Some(tg::Referent::with_item(Item::Value(metadata))),
+							);
+							node.borrow_mut().children.push(metadata);
+						}
 					}
 				})
 			})
@@ -1621,13 +1635,15 @@ where
 				let child = Self::create_node(&handle, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
-			let metadata_node = Self::create_node(
-				&handle,
-				&node,
-				Some("metadata".to_owned()),
-				Some(tg::Referent::with_item(Item::Value(metadata))),
-			);
-			node.borrow_mut().children.push(metadata_node);
+			if node.borrow().options.expand_metadata {
+				let metadata = Self::create_node(
+					&handle,
+					&node,
+					Some("metadata".to_owned()),
+					Some(tg::Referent::with_item(Item::Value(metadata))),
+				);
+				node.borrow_mut().children.push(metadata);
+			}
 		};
 		update_sender.send(Box::new(update)).unwrap();
 

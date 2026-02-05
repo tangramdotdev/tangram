@@ -24,6 +24,10 @@ pub struct Args {
 	#[arg(long)]
 	pub expand_processes: bool,
 
+	/// Expand processs.
+	#[arg(long)]
+	pub expand_metadata: bool,
+
 	/// Expand tags.
 	#[arg(long)]
 	pub expand_tags: bool,
@@ -105,6 +109,7 @@ impl Cli {
 						expand_objects: args.expand_objects,
 						expand_packages: args.expand_packages,
 						expand_processes: args.expand_processes,
+						expand_metadata: args.expand_metadata,
 						expand_tags: args.expand_tags,
 						expand_values: matches!(mode, Mode::Inline),
 						show_process_commands: true,

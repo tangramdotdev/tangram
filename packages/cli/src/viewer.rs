@@ -56,6 +56,7 @@ pub struct Options {
 	pub collapse_process_children: bool,
 	pub depth: Option<u32>,
 	pub expand_objects: bool,
+	pub expand_metadata: bool,
 	pub expand_packages: bool,
 	pub expand_processes: bool,
 	pub expand_tags: bool,
@@ -332,11 +333,12 @@ where
 	}
 
 	pub async fn run_inline(&mut self, stop: Stop, print: bool) -> tg::Result<()> {
-		let mut tty: Option<std::io::Stderr> = if std::io::stderr().is_terminal() {
-			Some(std::io::stderr())
-		} else {
-			None
-		};
+		let mut tty: Option<std::io::Stderr> =
+			if std::io::stderr().is_terminal() && std::io::stdout().is_terminal() {
+				Some(std::io::stderr())
+			} else {
+				None
+			};
 
 		// Hide the cursor if necessary.
 		if self.tree.has_process()

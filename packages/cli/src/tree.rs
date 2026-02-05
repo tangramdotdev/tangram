@@ -26,6 +26,7 @@ impl Cli {
 			expand_packages: true,
 			expand_processes: true,
 			expand_tags: true,
+			expand_metadata: false,
 			kind: args.kind,
 			mode: crate::view::Mode::Inline,
 			reference: args.reference,

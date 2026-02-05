@@ -140,6 +140,7 @@ impl Cli {
 									expand_objects: false,
 									expand_packages: false,
 									expand_processes: true,
+									expand_metadata: false,
 									expand_tags: false,
 									expand_values: false,
 									show_process_commands: false,
