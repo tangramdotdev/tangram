@@ -23,6 +23,12 @@ impl Server {
 		if arg.options.cache_pointers {
 			if arg.options.destructive {
 				let index = graph.paths.get(root).unwrap();
+				let dependencies = Self::checkin_compute_cache_entry_dependencies(graph, *index);
+				if !dependencies.is_empty() {
+					return Err(tg::error!(
+						"destructive checkin with cache pointers is not supported for artifacts with dependencies"
+					));
+				}
 				let id = graph
 					.nodes
 					.get(index)
@@ -33,13 +39,18 @@ impl Server {
 					.clone()
 					.try_into()
 					.unwrap();
-				put_index_cache_entry_args.push(tangram_index::PutCacheEntryArg { id, touched_at });
+				put_index_cache_entry_args.push(tangram_index::PutCacheEntryArg {
+					id,
+					touched_at,
+					dependencies,
+				});
 			} else {
 				// Add cache entry args.
 				for arg in index_cache_entry_args {
 					put_index_cache_entry_args.push(tangram_index::PutCacheEntryArg {
 						id: arg.id,
 						touched_at: arg.touched_at,
+						dependencies: arg.dependencies,
 					});
 				}
 			}

@@ -395,6 +395,11 @@ impl Server {
 		.await
 		.map_err(|source| tg::error!(!source, "failed to join the task"))??;
 
+		let dependency_ids: Vec<tg::artifact::Id> = dependencies
+			.iter()
+			.map(|dependency| dependency.id.clone())
+			.collect();
+
 		// Await the dependency cache tasks.
 		future::try_join_all(
 			dependencies
@@ -407,7 +412,7 @@ impl Server {
 		// Rename the temp to the cache directory.
 		tokio::task::spawn_blocking({
 			let server = self.clone();
-			move || server.cache_rename(item, &temp)
+			move || server.cache_rename(item, &temp, &dependency_ids)
 		})
 		.await
 		.map_err(|source| tg::error!(!source, "failed to join the task"))??;
@@ -495,10 +500,9 @@ impl Server {
 		.await
 		.map_err(|source| tg::error!(!source, "failed to join the task"))??;
 
-		// Await dependencies.
 		let dependencies: Vec<Item> = outputs
 			.iter()
-			.flat_map(|(_, _, deps)| deps.clone())
+			.flat_map(|(_, _, dependencies)| dependencies.clone())
 			.collect();
 		future::try_join_all(
 			dependencies
@@ -512,8 +516,12 @@ impl Server {
 		tokio::task::spawn_blocking({
 			let server = self.clone();
 			move || {
-				for (item, temp, _) in outputs {
-					server.cache_rename(item, &temp)?;
+				for (item, temp, dependencies) in outputs {
+					let dependency_ids: Vec<tg::artifact::Id> = dependencies
+						.iter()
+						.map(|dependency| dependency.id.clone())
+						.collect();
+					server.cache_rename(item, &temp, &dependency_ids)?;
 				}
 				Ok::<_, tg::Error>(())
 			}
@@ -837,7 +845,12 @@ impl Server {
 		Ok(dependencies)
 	}
 
-	fn cache_rename(&self, item: Item, temp: &Temp) -> tg::Result<()> {
+	fn cache_rename(
+		&self,
+		item: Item,
+		temp: &Temp,
+		dependencies: &[tg::artifact::Id],
+	) -> tg::Result<()> {
 		// Create the path.
 		let path = self.cache_path().join(item.id.to_string());
 
@@ -884,6 +897,7 @@ impl Server {
 		let put_cache_entry_arg = tangram_index::PutCacheEntryArg {
 			id: item.id,
 			touched_at,
+			dependencies: dependencies.to_vec(),
 		};
 		self.index_tasks
 			.spawn(|_| {

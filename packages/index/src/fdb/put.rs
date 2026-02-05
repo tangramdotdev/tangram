@@ -272,6 +272,26 @@ impl Index {
 			.unwrap();
 		txn.set(&key, &value);
 
+		for dependency in &arg.dependencies {
+			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+				.unwrap();
+			let key = Key::CacheEntryDependency {
+				cache_entry: id.clone(),
+				dependency: dependency.clone(),
+			};
+			let key = Self::pack(subspace, &key);
+			txn.set(&key, &[]);
+
+			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+				.unwrap();
+			let key = Key::DependencyCacheEntry {
+				dependency: dependency.clone(),
+				cache_entry: id.clone(),
+			};
+			let key = Self::pack(subspace, &key);
+			txn.set(&key, &[]);
+		}
+
 		let id_bytes = id.to_bytes();
 		let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
 		let key = Key::Clean {

@@ -151,12 +151,23 @@ impl Index {
 		transaction: &lmdb::RwTxn<'_>,
 		id: &tg::artifact::Id,
 	) -> tg::Result<u64> {
-		let prefix = (
+		let cache_entry_object_prefix = (
 			KeyKind::CacheEntryObject.to_i32().unwrap(),
 			id.to_bytes().as_ref(),
 		)
 			.pack_to_vec();
-		Self::count_keys_with_prefix(db, transaction, &prefix)
+		let cache_entry_object_count =
+			Self::count_keys_with_prefix(db, transaction, &cache_entry_object_prefix)?;
+
+		let dependency_cache_entry_prefix = (
+			KeyKind::DependencyCacheEntry.to_i32().unwrap(),
+			id.to_bytes().as_ref(),
+		)
+			.pack_to_vec();
+		let dependency_cache_entry_count =
+			Self::count_keys_with_prefix(db, transaction, &dependency_cache_entry_prefix)?;
+
+		Ok(cache_entry_object_count + dependency_cache_entry_count)
 	}
 
 	fn compute_object_reference_count(
@@ -291,6 +302,48 @@ impl Index {
 		let key = Key::CacheEntry(id.clone()).pack_to_vec();
 		db.delete(transaction, &key)
 			.map_err(|source| tg::error!(!source, "failed to delete cache entry"))?;
+
+		let prefix = (
+			KeyKind::CacheEntryDependency.to_i32().unwrap(),
+			id.to_bytes().as_ref(),
+		)
+			.pack_to_vec();
+		let iter = db.prefix_iter(transaction, &prefix).map_err(|source| {
+			tg::error!(!source, "failed to iterate cache entry dependency keys")
+		})?;
+		let mut entries = Vec::new();
+		for result in iter {
+			let (key, _) = result.map_err(|source| {
+				tg::error!(!source, "failed to read cache entry dependency key")
+			})?;
+			let key = fdbt::unpack(key).map_err(|source| {
+				tg::error!(!source, "failed to unpack cache entry dependency key")
+			})?;
+			let Key::CacheEntryDependency { dependency, .. } = &key else {
+				return Err(tg::error!("expected cache entry dependency key"));
+			};
+			entries.push((key.pack_to_vec(), dependency.clone()));
+		}
+
+		for (key, _) in &entries {
+			db.delete(transaction, key).map_err(|source| {
+				tg::error!(!source, "failed to delete cache entry dependency key")
+			})?;
+		}
+
+		for (_, dependency) in entries {
+			let key = Key::DependencyCacheEntry {
+				dependency: dependency.clone(),
+				cache_entry: id.clone(),
+			}
+			.pack_to_vec();
+			db.delete(transaction, &key).map_err(|source| {
+				tg::error!(!source, "failed to delete dependency cache entry key")
+			})?;
+
+			Self::decrement_cache_entry_reference_count(db, transaction, &dependency)?;
+		}
+
 		Ok(())
 	}
 

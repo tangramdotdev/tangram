@@ -545,6 +545,7 @@ impl Server {
 			vec![tangram_index::PutCacheEntryArg {
 				id: artifact,
 				touched_at,
+				dependencies: Vec::new(),
 			}]
 		} else {
 			vec![]

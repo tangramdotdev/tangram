@@ -69,6 +69,14 @@ enum Key {
 	Object(tg::object::Id),
 	Process(tg::process::Id),
 	Tag(String),
+	CacheEntryDependency {
+		cache_entry: tg::artifact::Id,
+		dependency: tg::artifact::Id,
+	},
+	DependencyCacheEntry {
+		dependency: tg::artifact::Id,
+		cache_entry: tg::artifact::Id,
+	},
 	ObjectChild {
 		object: tg::object::Id,
 		child: tg::object::Id,
@@ -128,18 +136,20 @@ enum KeyKind {
 	Object = 1,
 	Process = 2,
 	Tag = 3,
-	ObjectChild = 4,
-	ChildObject = 5,
-	ObjectCacheEntry = 6,
-	CacheEntryObject = 7,
-	ProcessChild = 8,
-	ChildProcess = 9,
-	ProcessObject = 10,
-	ObjectProcess = 11,
-	ItemTag = 12,
-	Clean = 13,
-	Update = 14,
-	UpdateVersion = 15,
+	CacheEntryDependency = 4,
+	DependencyCacheEntry = 5,
+	ObjectChild = 6,
+	ChildObject = 7,
+	ObjectCacheEntry = 8,
+	CacheEntryObject = 9,
+	ProcessChild = 10,
+	ChildProcess = 11,
+	ProcessObject = 12,
+	ObjectProcess = 13,
+	ItemTag = 14,
+	Clean = 15,
+	Update = 16,
+	UpdateVersion = 17,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
@@ -446,6 +456,26 @@ impl fdbt::TuplePack for Key {
 
 			Key::Tag(tag) => (KeyKind::Tag.to_i32().unwrap(), tag.as_str()).pack(w, tuple_depth),
 
+			Key::CacheEntryDependency {
+				cache_entry,
+				dependency,
+			} => (
+				KeyKind::CacheEntryDependency.to_i32().unwrap(),
+				cache_entry.to_bytes().as_ref(),
+				dependency.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::DependencyCacheEntry {
+				dependency,
+				cache_entry,
+			} => (
+				KeyKind::DependencyCacheEntry.to_i32().unwrap(),
+				dependency.to_bytes().as_ref(),
+				cache_entry.to_bytes().as_ref(),
+			)
+				.pack(w, tuple_depth),
+
 			Key::ObjectChild { object, child } => (
 				KeyKind::ObjectChild.to_i32().unwrap(),
 				object.to_bytes().as_ref(),
@@ -599,6 +629,38 @@ impl fdbt::TupleUnpack<'_> for Key {
 			KeyKind::Tag => {
 				let (input, tag): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				Ok((input, Key::Tag(tag)))
+			},
+
+			KeyKind::CacheEntryDependency => {
+				let (input, cache_entry_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, dependency_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let cache_entry = tg::artifact::Id::from_slice(&cache_entry_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
+				let dependency = tg::artifact::Id::from_slice(&dependency_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
+				let key = Key::CacheEntryDependency {
+					cache_entry,
+					dependency,
+				};
+				Ok((input, key))
+			},
+
+			KeyKind::DependencyCacheEntry => {
+				let (input, dependency_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, cache_entry_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let dependency = tg::artifact::Id::from_slice(&dependency_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
+				let cache_entry = tg::artifact::Id::from_slice(&cache_entry_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid artifact id".into()))?;
+				let key = Key::DependencyCacheEntry {
+					dependency,
+					cache_entry,
+				};
+				Ok((input, key))
 			},
 
 			KeyKind::ObjectChild => {

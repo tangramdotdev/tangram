@@ -273,6 +273,7 @@ pub struct PutArg {
 pub struct PutCacheEntryArg {
 	pub id: tg::artifact::Id,
 	pub touched_at: i64,
+	pub dependencies: Vec<tg::artifact::Id>,
 }
 
 #[derive(Clone, Debug)]

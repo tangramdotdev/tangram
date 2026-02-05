@@ -10,7 +10,7 @@ use {
 	},
 	num::ToPrimitive as _,
 	std::{
-		collections::{BTreeMap, BTreeSet},
+		collections::{BTreeMap, BTreeSet, HashSet},
 		hash::{Hash, Hasher},
 		path::Path,
 	},
@@ -774,9 +774,12 @@ impl Server {
 
 				// Create a cache entry message for this artifact.
 				if !arg.options.destructive {
+					let dependencies =
+						Self::checkin_compute_cache_entry_dependencies(graph, *index);
 					index_cache_entry_args.push(tangram_index::PutCacheEntryArg {
 						id: artifact.clone(),
 						touched_at,
+						dependencies,
 					});
 				}
 
@@ -1264,5 +1267,94 @@ impl Server {
 		index_object_args.insert(id.clone(), index_message);
 
 		Ok(id.try_into().unwrap())
+	}
+
+	pub(super) fn checkin_compute_cache_entry_dependencies(
+		graph: &Graph,
+		root_index: usize,
+	) -> Vec<tg::artifact::Id> {
+		let mut dependencies = Vec::new();
+		let mut visited = HashSet::<usize, fnv::FnvBuildHasher>::default();
+		let mut stack = vec![root_index];
+
+		while let Some(index) = stack.pop() {
+			if !visited.insert(index) {
+				continue;
+			}
+
+			let Some(node) = graph.nodes.get(&index) else {
+				continue;
+			};
+
+			match &node.variant {
+				Variant::Directory(directory) => {
+					for edge in directory.entries.values() {
+						match edge {
+							tg::graph::data::Edge::Object(id) => {
+								if let Some(index) = graph.artifacts.get(id) {
+									stack.push(*index);
+								}
+							},
+							tg::graph::data::Edge::Pointer(pointer) if pointer.graph.is_none() => {
+								stack.push(pointer.index);
+							},
+							tg::graph::data::Edge::Pointer(_) => {},
+						}
+					}
+				},
+				Variant::File(file) => {
+					for dependency in file.dependencies.values().flatten() {
+						if let Some(edge) = &dependency.item {
+							match edge {
+								tg::graph::data::Edge::Object(id) => {
+									if let Ok(artifact_id) = id.clone().try_into() {
+										dependencies.push(artifact_id);
+									}
+								},
+								tg::graph::data::Edge::Pointer(pointer)
+									if pointer.graph.is_none() =>
+								{
+									if let Some(dependency_node) = graph.nodes.get(&pointer.index)
+										&& let Some(id) = &dependency_node.artifact
+									{
+										dependencies.push(id.clone());
+									}
+								},
+								tg::graph::data::Edge::Pointer(_) => {},
+							}
+						}
+					}
+				},
+				Variant::Symlink(symlink) => {
+					if let Some(edge) = &symlink.artifact {
+						match edge {
+							tg::graph::data::Edge::Object(id) => {
+								dependencies.push(id.clone());
+							},
+							tg::graph::data::Edge::Pointer(pointer) if pointer.graph.is_none() => {
+								if let Some(dependency_node) = graph.nodes.get(&pointer.index)
+									&& let Some(id) = &dependency_node.artifact
+								{
+									dependencies.push(id.clone());
+								}
+							},
+							tg::graph::data::Edge::Pointer(_) => {},
+						}
+					}
+				},
+			}
+		}
+
+		let root_artifact = graph
+			.nodes
+			.get(&root_index)
+			.and_then(|node| node.artifact.clone());
+		dependencies.sort();
+		dependencies.dedup();
+		if let Some(root_artifact) = root_artifact {
+			dependencies.retain(|id| id != &root_artifact);
+		}
+
+		dependencies
 	}
 }
