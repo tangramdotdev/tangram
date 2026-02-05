@@ -74,7 +74,7 @@ declare global {
 	function syscall(
 		syscall: "process_wait",
 		id: tg.Process.Id,
-		remote: string | undefined,
+		arg: tg.Handle.WaitArg,
 	): Promise<tg.Process.Wait.Data>;
 
 	function syscall(

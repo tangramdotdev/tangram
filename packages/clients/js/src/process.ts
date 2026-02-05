@@ -16,6 +16,7 @@ export class Process {
 
 	#id: tg.Process.Id;
 	#remote: string | undefined;
+	#token: string | undefined;
 	#state: tg.Process.State | undefined;
 
 	constructor(arg: tg.Process.ConstructorArg) {
@@ -29,7 +30,16 @@ export class Process {
 	}
 
 	async wait(): Promise<tg.Process.Wait> {
-		let data = await tg.handle.waitProcess(this.#id, this.#remote);
+		let remotes = undefined;
+		if (this.#remote) {
+			remotes = [this.#remote];
+		}
+		let arg = {
+			local: undefined,
+			remotes,
+			token: this.#token,
+		};
+		let data = await tg.handle.waitProcess(this.#id, arg);
 		let output = tg.Process.Wait.fromData(data);
 		return output;
 	}
@@ -131,6 +141,7 @@ export namespace Process {
 		id: tg.Process.Id;
 		remote?: string | undefined;
 		state?: State | undefined;
+		token?: string | undefined;
 	};
 
 	export type BuildArg =

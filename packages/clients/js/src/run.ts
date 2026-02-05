@@ -152,6 +152,7 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		id: spawnOutput.process,
 		remote: spawnOutput.remote,
 		state: undefined,
+		token: spawnOutput.token,
 	});
 
 	let wait = await process.wait();

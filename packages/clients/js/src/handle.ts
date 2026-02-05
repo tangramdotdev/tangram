@@ -42,6 +42,13 @@ export namespace Handle {
 	export type SpawnOutput = {
 		process: tg.Process.Id;
 		remote: string | undefined;
+		token: string | undefined;
+	};
+
+	export type WaitArg = {
+		local: string | undefined;
+		token: string | undefined;
+		remotes: Array<string> | undefined;
 	};
 
 	export type PostObjectBatchArg = {
@@ -66,7 +73,7 @@ export namespace Handle {
 
 		waitProcess(
 			id: tg.Process.Id,
-			remote: string | undefined,
+			arg: tg.Handle.WaitArg,
 		): Promise<tg.Process.Wait.Data>;
 	};
 
