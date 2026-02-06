@@ -47,8 +47,8 @@ export namespace Handle {
 
 	export type WaitArg = {
 		local: string | undefined;
-		token: string | undefined;
 		remotes: Array<string> | undefined;
+		token: string | undefined;
 	};
 
 	export type PostObjectBatchArg = {

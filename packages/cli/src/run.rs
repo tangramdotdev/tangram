@@ -108,15 +108,13 @@ impl Cli {
 
 			// If the process is finished, then get the process's output.
 			let wait = if status.is_finished() {
+				let arg = tg::process::wait::Arg {
+					token: process.item().token().cloned(),
+					..tg::process::wait::Arg::default()
+				};
 				let output = process
 					.item()
-					.wait(
-						&handle,
-						tg::process::wait::Arg {
-							token: process.item().token().cloned(),
-							..tg::process::wait::Arg::default()
-						},
-					)
+					.wait(&handle, arg)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get the output"))?;
 				Some(output)
@@ -191,16 +189,11 @@ impl Cli {
 				});
 
 				// Await the process.
-				let result = process
-					.item()
-					.wait(
-						&handle,
-						tg::process::wait::Arg {
-							token: process.item().token().cloned(),
-							..tg::process::wait::Arg::default()
-						},
-					)
-					.await;
+				let arg = tg::process::wait::Arg {
+					token: process.item().token().cloned(),
+					..tg::process::wait::Arg::default()
+				};
+				let result = process.item().wait(&handle, arg).await;
 
 				// Abort the cancel task.
 				cancel_task.abort();
@@ -358,15 +351,13 @@ impl Cli {
 		});
 
 		// Await the process.
+		let arg = tg::process::wait::Arg {
+			token: process.item().token().cloned(),
+			..tg::process::wait::Arg::default()
+		};
 		let result = process
 			.item()
-			.wait(
-				&handle,
-				tg::process::wait::Arg {
-					token: process.item().token().cloned(),
-					..tg::process::wait::Arg::default()
-				},
-			)
+			.wait(&handle, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to await the process"));
 
