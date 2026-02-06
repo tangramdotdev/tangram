@@ -73,18 +73,18 @@ pub async fn spawn(
 pub async fn wait(
 	ctx: qjs::Ctx<'_>,
 	id: Serde<tg::process::Id>,
+	arg: Serde<tg::process::wait::Arg>,
 ) -> Result<Serde<tg::process::wait::Output>> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	let Serde(id) = id;
+	let Serde(arg) = arg;
 	let result = async {
 		let output = state
 			.main_runtime_handle
 			.spawn({
 				let handle = state.handle.clone();
 				async move {
-					let output = handle
-						.wait_process(&id, tg::process::wait::Arg::default())
-						.await?;
+					let output = handle.wait_process(&id, arg).await?;
 					Ok::<_, tg::Error>(output)
 				}
 			})

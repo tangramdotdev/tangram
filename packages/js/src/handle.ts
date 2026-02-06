@@ -30,9 +30,9 @@ export let handle: tg.Handle = {
 
 	waitProcess(
 		id: tg.Process.Id,
-		remote: string | undefined,
+		arg: tg.Handle.WaitArg,
 	): Promise<tg.Process.Wait.Data> {
-		return syscall("process_wait", id, remote);
+		return syscall("process_wait", id, arg);
 	},
 
 	checksum(

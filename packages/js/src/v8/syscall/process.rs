@@ -58,16 +58,14 @@ pub async fn spawn(
 
 pub async fn wait(
 	state: Rc<State>,
-	args: (Serde<tg::process::Id>,),
+	args: (Serde<tg::process::Id>, Serde<tg::process::wait::Arg>),
 ) -> tg::Result<Serde<tg::process::wait::Output>> {
-	let (Serde(id),) = args;
+	let (Serde(id), Serde(arg)) = args;
 	let handle = state.handle.clone();
 	let output = state
 		.main_runtime_handle
 		.spawn(async move {
-			let output = handle
-				.wait_process(&id, tg::process::wait::Arg::default())
-				.await?;
+			let output = handle.wait_process(&id, arg).await?;
 			Ok::<_, tg::Error>(output)
 		})
 		.await
