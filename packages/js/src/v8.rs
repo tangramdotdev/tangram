@@ -294,9 +294,6 @@ where
 					if let Err(error) = result {
 						return Poll::Ready(Err(error));
 					}
-
-					// Continue.
-					continue;
 				},
 
 				// If there are no more promises to resolve or reject, then do not continue.
@@ -306,7 +303,7 @@ where
 			// Enter the isolate.
 			unsafe { isolate.enter() };
 
-			// Get the result.
+			// Check if the main value has settled.
 			let result = {
 				// Create a scope for the context.
 				v8::scope!(scope, isolate.as_mut());
@@ -316,31 +313,31 @@ where
 				// Make the value local.
 				let value = v8::Local::new(scope, value.clone());
 
-				// Get the result.
+				// Get the result if the value has settled.
 				match v8::Local::<v8::Promise>::try_from(value) {
-					Err(_) => {
-						<Serde<tg::value::Data>>::deserialize(scope, value).map(|value| value.0)
-					},
-					Ok(promise) => {
-						match promise.state() {
-							// If the promise is fulfilled, then return the result.
-							v8::PromiseState::Fulfilled => {
-								let value = promise.result(scope);
+					Err(_) => Some(
+						<Serde<tg::value::Data>>::deserialize(scope, value).map(|value| value.0),
+					),
+					Ok(promise) => match promise.state() {
+						// If the promise is fulfilled, then return the result.
+						v8::PromiseState::Fulfilled => {
+							let value = promise.result(scope);
+							Some(
 								<Serde<tg::value::Data>>::deserialize(scope, value)
-									.map(|value| value.0)
-							},
+									.map(|value| value.0),
+							)
+						},
 
-							// If the promise is rejected, then return the error.
-							v8::PromiseState::Rejected => {
-								let exception = promise.result(scope);
-								let error = self::error::from_exception(&state, scope, exception)
-									.unwrap_or_else(|| tg::error!("failed to get the exception"));
-								Err(error)
-							},
+						// If the promise is rejected, then return the error.
+						v8::PromiseState::Rejected => {
+							let exception = promise.result(scope);
+							let error = self::error::from_exception(&state, scope, exception)
+								.unwrap_or_else(|| tg::error!("failed to get the exception"));
+							Some(Err(error))
+						},
 
-							// The promise is expected to be fulfilled or rejected at this point.
-							v8::PromiseState::Pending => Err(tg::error!("unreachable")),
-						}
+						// If the promise is still pending, then continue the loop.
+						v8::PromiseState::Pending => None,
 					},
 				}
 			};
@@ -348,7 +345,9 @@ where
 			// Exit the isolate.
 			unsafe { isolate.exit() };
 
-			return Poll::Ready(result);
+			if let Some(result) = result {
+				return Poll::Ready(result);
+			}
 		}
 	});
 	let mut rejection = state.rejection.subscribe();
