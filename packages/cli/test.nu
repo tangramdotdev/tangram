@@ -19,6 +19,12 @@ def main [
 ] {
 	# Clean up leftover test resources if requested.
 	if $clean {
+		for entry in (ls ($nu.temp-dir? | default $nu.temp-path?) | where name =~ 'tangram_test_' and type == dir) {
+			print -e $"Removing temp directory: ($entry.name)"
+			chmod -R +w $entry.name
+			rm -rf $entry.name
+		}
+
 		let preserved_dbs = ['postgres', 'template0', 'template1', 'database']
 		let dbs = psql -U postgres -h localhost -t -c "SELECT datname FROM pg_database" | lines | str trim | where { $in not-in $preserved_dbs and $in != '' }
 		for db in $dbs {
@@ -44,12 +50,6 @@ def main [
 		let cluster = mktemp -t
 		"docker:docker@localhost:4500" | save -f $cluster
 		try { fdbcli -C $cluster --exec 'writemode on; clearrange "" "\xff"' }
-
-		for entry in (ls ($nu.temp-dir? | default $nu.temp-path?) | where name =~ 'tangram_test_' and type == dir) {
-			print -e $"Removing temp directory: ($entry.name)"
-			chmod -R +w $entry.name
-			rm -rf $entry.name
-		}
 
 		return
 	}
