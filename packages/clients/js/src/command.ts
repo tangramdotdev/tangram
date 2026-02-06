@@ -20,9 +20,19 @@ export function command(
 export function command(...args: tg.Args<tg.Command.Arg>): tg.CommandBuilder;
 export function command(...args: any): any {
 	if (typeof args[0] === "function") {
+		let executable = tg.Command.Executable.fromData(tg.handle.magic(args[0]));
+		if (
+			"module" in executable &&
+			!(
+				executable.module.referent.options.tag ||
+				executable.module.referent.options.id
+			)
+		) {
+			executable.module.referent.options.path = undefined;
+		}
 		return new tg.CommandBuilder({
 			host: "js",
-			executable: tg.Command.Executable.fromData(tg.handle.magic(args[0])),
+			executable,
 			args: args.slice(1),
 		});
 	} else if (Array.isArray(args[0]) && "raw" in args[0]) {
