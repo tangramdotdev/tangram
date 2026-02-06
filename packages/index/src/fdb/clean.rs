@@ -210,21 +210,54 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::artifact::Id,
 	) -> tg::Result<u64> {
-		let id = id.to_bytes();
-		let prefix = (KeyKind::CacheEntryObject.to_i32().unwrap(), id.as_ref());
-		let prefix = Self::pack(subspace, &prefix);
-		let range_subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&range_subspace)
+		let id_bytes = id.to_bytes();
+
+		let cache_entry_object_future = async {
+			let prefix = (
+				KeyKind::CacheEntryObject.to_i32().unwrap(),
+				id_bytes.as_ref(),
+			);
+			let prefix = Self::pack(subspace, &prefix);
+			let range_subspace = Subspace::from_bytes(prefix);
+			let range = fdb::RangeOption {
+				mode: fdb::options::StreamingMode::WantAll,
+				..fdb::RangeOption::from(&range_subspace)
+			};
+			let count = txn
+				.get_range(&range, 1, false)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get range"))?
+				.len()
+				.to_u64()
+				.unwrap();
+			Ok::<_, tg::Error>(count)
 		};
-		let count = txn
-			.get_range(&range, 1, false)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get range"))?
-			.len()
-			.to_u64()
-			.unwrap();
+
+		let dependency_cache_entry_future = async {
+			let prefix = (
+				KeyKind::DependencyCacheEntry.to_i32().unwrap(),
+				id_bytes.as_ref(),
+			);
+			let prefix = Self::pack(subspace, &prefix);
+			let range_subspace = Subspace::from_bytes(prefix);
+			let range = fdb::RangeOption {
+				mode: fdb::options::StreamingMode::WantAll,
+				..fdb::RangeOption::from(&range_subspace)
+			};
+			let count = txn
+				.get_range(&range, 1, false)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get range"))?
+				.len()
+				.to_u64()
+				.unwrap();
+			Ok::<_, tg::Error>(count)
+		};
+
+		let (cache_entry_object_count, dependency_cache_entry_count) =
+			futures::future::try_join(cache_entry_object_future, dependency_cache_entry_future)
+				.await?;
+		let count = cache_entry_object_count + dependency_cache_entry_count;
 		Ok(count)
 	}
 
@@ -402,18 +435,71 @@ impl Index {
 	) -> tg::Result<()> {
 		match item {
 			Item::CacheEntry(id) => {
-				Self::delete_cache_entry(txn, subspace, id);
-				Ok(())
+				Self::delete_cache_entry(txn, subspace, id, partition_total).await
 			},
 			Item::Object(id) => Self::delete_object(txn, subspace, id, partition_total).await,
 			Item::Process(id) => Self::delete_process(txn, subspace, id, partition_total).await,
 		}
 	}
 
-	fn delete_cache_entry(txn: &fdb::Transaction, subspace: &Subspace, id: &tg::artifact::Id) {
+	async fn delete_cache_entry(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::artifact::Id,
+		partition_total: u64,
+	) -> tg::Result<()> {
 		let key = Key::CacheEntry(id.clone());
 		let key = Self::pack(subspace, &key);
 		txn.clear(&key);
+
+		let id_bytes = id.to_bytes();
+		let prefix = (
+			KeyKind::CacheEntryDependency.to_i32().unwrap(),
+			id_bytes.as_ref(),
+		);
+		let prefix = Self::pack(subspace, &prefix);
+		let range_subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&range_subspace)
+		};
+		let entries = txn
+			.get_range(&range, 1, false)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get range"))?;
+		let dependencies = entries
+			.iter()
+			.map(|entry| {
+				let key = Self::unpack(subspace, entry.key())
+					.map_err(|source| tg::error!(!source, "failed to unpack key"))?;
+				let Key::CacheEntryDependency { dependency, .. } = key else {
+					return Err(tg::error!("expected cache entry dependency key"));
+				};
+				Ok(dependency)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		let (begin, end) = range_subspace.range();
+		txn.clear_range(&begin, &end);
+
+		for dependency in dependencies {
+			let key = Key::DependencyCacheEntry {
+				dependency: dependency.clone(),
+				cache_entry: id.clone(),
+			};
+			let key = Self::pack(subspace, &key);
+			txn.clear(&key);
+
+			Self::decrement_cache_entry_reference_count(
+				txn,
+				subspace,
+				&dependency,
+				partition_total,
+			)
+			.await?;
+		}
+
+		Ok(())
 	}
 
 	async fn delete_object(

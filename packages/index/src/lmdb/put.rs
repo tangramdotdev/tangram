@@ -66,6 +66,26 @@ impl Index {
 		db.put(transaction, &key, &value)
 			.map_err(|source| tg::error!(!source, "failed to put the cache entry"))?;
 
+		for dependency in &arg.dependencies {
+			let key = Key::CacheEntryDependency {
+				cache_entry: arg.id.clone(),
+				dependency: dependency.clone(),
+			}
+			.pack_to_vec();
+			db.put(transaction, &key, &[]).map_err(|source| {
+				tg::error!(!source, "failed to put the cache entry dependency")
+			})?;
+
+			let key = Key::DependencyCacheEntry {
+				dependency: dependency.clone(),
+				cache_entry: arg.id.clone(),
+			}
+			.pack_to_vec();
+			db.put(transaction, &key, &[]).map_err(|source| {
+				tg::error!(!source, "failed to put the dependency cache entry")
+			})?;
+		}
+
 		let key = Key::Clean {
 			touched_at,
 			kind: ItemKind::CacheEntry,

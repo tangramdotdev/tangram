@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::{Context, Server, temp::Temp},
 	futures::{FutureExt as _, Stream, StreamExt as _, future},
 	indoc::formatdoc,
 	num::ToPrimitive as _,
@@ -191,15 +191,19 @@ impl Server {
 			let server = self.clone();
 			let cache_entries = output.cache_entries.clone();
 			move || {
+				let temp = Temp::new(&server);
+				let cache_path = server.cache_path();
 				for artifact in &cache_entries {
-					let cache_path = server.cache_path();
 					let path = cache_path.join(artifact.to_string());
-					tangram_util::fs::remove_sync(&path).map_err(
-						|source| tg::error!(!source, path = %path.display(), "failed to remove the file"),
-					)?;
+					let temp_path = temp.path().join(artifact.to_string());
+					std::fs::rename(&path, &temp_path).ok();
+					tangram_util::fs::remove_sync(&temp_path).ok();
+
 					for extension in [".tg.js", ".tg.ts"] {
 						let path = cache_path.join(format!("{artifact}{extension}"));
-						tangram_util::fs::remove_sync(&path).ok();
+						let temp_path = temp.path().join(format!("{artifact}{extension}"));
+						std::fs::rename(&path, &temp_path).ok();
+						tangram_util::fs::remove_sync(&temp_path).ok();
 					}
 				}
 				Ok::<_, tg::Error>(())
