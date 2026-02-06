@@ -53,17 +53,30 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 	if ("name" in arg) {
 		sourceOptions.name = arg.name;
 	}
-	if (
-		"executable" in arg &&
-		typeof arg.executable === "object" &&
-		!tg.Artifact.is(arg.executable) &&
-		"module" in arg.executable
-	) {
-		sourceOptions = {
-			...arg.executable.module.referent.options,
-			...sourceOptions,
-		};
-		arg.executable.module.referent.options = {};
+	let executable: tg.Command.Arg.Executable | undefined;
+	if ("executable" in arg) {
+		if (
+			typeof arg.executable === "object" &&
+			!tg.Artifact.is(arg.executable) &&
+			"module" in arg.executable
+		) {
+			sourceOptions = {
+				...arg.executable.module.referent.options,
+				...sourceOptions,
+			};
+			executable = {
+				...arg.executable,
+				module: {
+					...arg.executable.module,
+					referent: {
+						...arg.executable.module.referent,
+						options: {},
+					},
+				},
+			};
+		} else {
+			executable = arg.executable;
+		}
 	}
 
 	let commandMounts: Array<tg.Command.Mount> | undefined;
@@ -78,7 +91,7 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 		"args" in arg ? { args: arg.args } : undefined,
 		"cwd" in arg ? { cwd: arg.cwd } : undefined,
 		"env" in arg ? { env: arg.env } : undefined,
-		"executable" in arg ? { executable: arg.executable } : undefined,
+		executable !== undefined ? { executable: executable } : undefined,
 		"host" in arg ? { host: arg.host } : undefined,
 		"user" in arg ? { user: arg.user } : undefined,
 		commandMounts !== undefined ? { mounts: commandMounts } : undefined,
