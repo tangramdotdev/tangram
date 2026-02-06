@@ -1,6 +1,11 @@
 import bun from "bun" with { local: "../packages/packages/bun.tg.ts" };
+import foundationdb from "foundationdb" with {
+	local: "../packages/packages/foundationdb.tg.ts",
+};
+import { libclang } from "llvm" with { local: "../packages/packages/llvm" };
 import { cargo } from "rust" with { local: "../packages/packages/rust" };
 import xz from "xz" with { local: "../packages/packages/xz.tg.ts" };
+import zlib from "zlib-ng" with { local: "../packages/packages/zlib-ng.tg.ts" };
 import * as std from "std" with { local: "../packages/packages/std" };
 import { $ } from "std" with { local: "../packages/packages/std" };
 
@@ -8,25 +13,33 @@ import source from "." with { type: "directory" };
 
 export type Arg = {
 	build?: string;
+	captureStderr?: boolean;
+	foundationdb?: boolean;
 	host?: string;
 	nats?: boolean;
 	postgres?: boolean;
+	proxy?: boolean;
 	sdk?: std.sdk.Arg;
 	scylla?: boolean;
+	source?: tg.Directory;
 };
 
 export const build = async (arg?: Arg) => {
 	const {
 		build: build_,
+		captureStderr = false,
+		foundationdb: useFoundationdb = false,
 		host: host_,
 		nats = false,
 		postgres = false,
+		proxy = false,
 		sdk,
 		scylla = false,
+		source: source_ = source,
 	} = arg ?? {};
 	const host = host_ ?? std.triple.host();
 	const build = build_ ?? host;
-	const cargoLock = await source.get("Cargo.lock").then(tg.File.expect);
+	const cargoLock = await source_.get("Cargo.lock").then(tg.File.expect);
 
 	// Collect environment.
 	const envs: std.Args<std.env.Arg> = [
@@ -62,18 +75,38 @@ export const build = async (arg?: Arg) => {
 	if (scylla) {
 		features.push("scylla");
 	}
+	if (!useFoundationdb) {
+		features.push("lmdb");
+	}
+	if (useFoundationdb) {
+		features.push("foundationdb");
+		const fdbArtifact = foundationdb({ build, host });
+		envs.push(fdbArtifact, {
+			LIBCLANG_PATH: tg`${libclang({ build, host, sdk })}/lib`,
+			FDB_LIB_PATH: tg`${fdbArtifact}/lib`,
+		});
+		if (std.triple.os(host) === "linux") {
+			pre = tg`
+				${pre}
+				export LD_LIBRARY_PATH=$LIBRARY_PATH
+				export CPATH=$CPATH:$(gcc -print-sysroot)/include
+			`;
+		}
+	}
 
 	// Build tangram.
 	const env = std.env.arg(...envs);
 	let output = cargo.build({
 		...(await std.triple.rotate({ build, host })),
 		buildInTree: true,
+		captureStderr,
 		disableDefaultFeatures: true,
 		env,
 		features,
 		pre,
+		proxy,
 		sdk,
-		source,
+		source: source_,
 		useCargoVendor: true,
 	});
 
@@ -83,6 +116,14 @@ export const build = async (arg?: Arg) => {
 		.then((d) => d.get("lib"))
 		.then(tg.Directory.expect);
 	libraryPaths.push(xzLibDir);
+
+	// If building with foundationdb, additionally add zlib.
+	if (useFoundationdb) {
+		const zlibLibDir = zlib({ build, host })
+			.then((d) => d.get("lib"))
+			.then(tg.Directory.expect);
+		libraryPaths.push(zlibLibDir);
+	}
 
 	// Wrap and return.
 	const unwrapped = output
@@ -114,6 +155,7 @@ export const cloud = async (arg?: CloudArg) => {
 	}
 	return await build({
 		build: build_,
+		foundationdb: true,
 		host: host_,
 		nats: true,
 		postgres: true,
@@ -220,8 +262,7 @@ export const librustyv8 = async (
 };
 
 const getRustyV8Version = async (lockfile: tg.File) => {
-	const v8 = await lockfile
-		.text()
+	const v8 = await lockfile.text
 		.then((t) => tg.encoding.toml.decode(t))
 		.then((toml) =>
 			(toml as CargoLock).package.find((pkg) => pkg.name === "v8"),
@@ -237,17 +278,171 @@ type CargoLock = {
 };
 
 export const test = async () => {
-	const output = await $`tg --help > $OUTPUT`
+	const output = await $`tg --help > ${tg.output}`
 		.env(build())
 		.then(tg.File.expect)
-		.then((f) => f.text());
+		.then((f) => f.text);
 	tg.assert(output.includes("Usage:"));
 };
 
 export const testCloud = async () => {
-	const output = await $`tg --help > $OUTPUT`
+	const output = await $`tg --help > ${tg.output}`
 		.env(cloud())
 		.then(tg.File.expect)
-		.then((f) => f.text());
+		.then((f) => f.text);
 	tg.assert(output.includes("Usage:"));
+};
+
+export const testProxy = async () => {
+	const output = await $`tg --help > ${tg.output}`
+		.env(build({ proxy: true }))
+		.then(tg.File.expect)
+		.then((f) => f.text);
+	tg.assert(output.includes("Usage:"));
+};
+
+/** Stats parsed from tgrustc tracing output in cargo-stderr.log. */
+type RustcStats = {
+	crate_name: string;
+	cached: boolean;
+	elapsed_ms: number;
+	process_id: string;
+	command_id: string;
+};
+
+/** Parse tgrustc stats from cargo-stderr.log in a build result.
+ *
+ * Looks for `proxy_complete` tracing events in the format:
+ * `proxy_complete crate_name=<name> elapsed_ms=<ms> cached=<true|false> process_id=<id> command_id=<id>`
+ */
+const parseStats = async (
+	result: tg.Directory,
+): Promise<Array<RustcStats> | undefined> => {
+	const stderrLog = await result
+		.tryGet("cargo-stderr.log")
+		.then((a) => (a instanceof tg.File ? a : undefined));
+	if (!stderrLog) return undefined;
+
+	const text = await stderrLog.text;
+	const stats: Array<RustcStats> = [];
+
+	// Parse proxy_complete lines from tracing output.
+	for (const line of text.split("\n")) {
+		if (!line.includes("proxy_complete")) continue;
+
+		const crateMatch = /crate_name=(\S+)/.exec(line);
+		const cachedMatch = /cached=(true|false)/.exec(line);
+		const elapsedMatch = /elapsed_ms=(\d+)/.exec(line);
+		const processMatch = /process_id=(\S+)/.exec(line);
+		const commandMatch = /command_id=(\S+)/.exec(line);
+
+		if (crateMatch?.[1] && cachedMatch?.[1]) {
+			stats.push({
+				crate_name: crateMatch[1],
+				cached: cachedMatch[1] === "true",
+				elapsed_ms: elapsedMatch?.[1] ? parseInt(elapsedMatch[1], 10) : 0,
+				process_id: processMatch?.[1] ?? "",
+				command_id: commandMatch?.[1] ?? "",
+			});
+		}
+	}
+
+	return stats.length > 0 ? stats : undefined;
+};
+
+/** Test that the proxy correctly caches unchanged crates when only tangram_cli is modified.
+ *
+ * This test:
+ * 1. Builds tangram with proxy enabled (populates the cache).
+ * 2. Modifies only tangram_cli by adding a comment to main.rs.
+ * 3. Rebuilds with proxy enabled.
+ * 4. Asserts that all crates except tangram_cli are cache hits.
+ */
+export const testProxyCacheHit = async () => {
+	// First build: populate the cache.
+	console.log("=== First build (populating cache) ===");
+	const firstResult = await tg.build(build, {
+		proxy: true,
+		captureStderr: true,
+	});
+	const firstStats = await parseStats(firstResult);
+	if (firstStats) {
+		const hits = firstStats.filter((s) => s.cached).length;
+		const misses = firstStats.filter((s) => !s.cached).length;
+		console.log(`First build: ${hits} cache hits, ${misses} cache misses`);
+	}
+
+	// Modify only tangram_cli by adding a comment to main.rs.
+	const mainRs = await source
+		.get("packages/cli/src/main.rs")
+		.then(tg.File.expect)
+		.then((f: tg.File) => f.text);
+	const modifiedSource = await tg.directory(source, {
+		"packages/cli/src/main.rs": tg.file(
+			`${mainRs}\n// Modified for cache test\n`,
+		),
+	});
+
+	// Second build: should cache hit for all crates except tangram_cli.
+	console.log("=== Second build (testing cache hits) ===");
+	const secondResult = await tg.build(build, {
+		proxy: true,
+		captureStderr: true,
+		source: modifiedSource,
+	});
+	const secondStats = await parseStats(secondResult);
+
+	if (!secondStats) {
+		throw new Error("Second build should have stats.");
+	}
+
+	const hits = secondStats.filter((s) => s.cached).length;
+	const misses = secondStats.filter((s) => !s.cached).length;
+	console.log(`Second build: ${hits} cache hits, ${misses} cache misses`);
+
+	// Log details for debugging.
+	const missedCrates = secondStats
+		.filter((s) => !s.cached)
+		.map((s) => s.crate_name);
+	console.log("Cache misses:", missedCrates);
+
+	// Compare command IDs between first and second builds for a few crates.
+	// If command IDs differ, that explains why caching isn't working.
+	if (firstStats) {
+		console.log("=== Command ID comparison for sample crates ===");
+		const sampleCrates = ["libc", "serde", "proc_macro2", "unicode_ident"];
+		for (const crateName of sampleCrates) {
+			const first = firstStats.find((s) => s.crate_name === crateName);
+			const second = secondStats.find((s) => s.crate_name === crateName);
+			if (first && second) {
+				const match = first.command_id === second.command_id;
+				console.log(
+					`  ${crateName}: ${match ? "SAME" : "DIFFERENT"} (first=${first.command_id.substring(0, 12)}..., second=${second.command_id.substring(0, 12)}...)`,
+				);
+			}
+		}
+	}
+
+	// Assert that tangram_cli is a cache miss.
+	const tangramCliStats = secondStats.find((s) => s.crate_name === "tangram");
+	tg.assert(
+		tangramCliStats !== undefined,
+		"tangram_cli should be in the stats",
+	);
+	tg.assert(
+		tangramCliStats.cached === false,
+		`tangram_cli should be a cache miss (modified), but was ${tangramCliStats.cached ? "hit" : "miss"}`,
+	);
+
+	// Assert that all other crates are cache hits.
+	const unexpectedMisses = secondStats.filter(
+		(s) => !s.cached && s.crate_name !== "tangram",
+	);
+	tg.assert(
+		unexpectedMisses.length === 0,
+		`Expected all crates except tangram_cli to be cache hits, but these were misses: ${unexpectedMisses.map((s) => s.crate_name).join(", ")}`,
+	);
+
+	console.log("=== Test passed: proxy correctly cached unchanged crates ===");
+	return { first: firstStats, second: secondStats };
 };
