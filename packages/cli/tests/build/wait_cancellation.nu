@@ -6,7 +6,7 @@ let path = artifact {
 	tangram.ts: '
 		export default async () => {
 			while (true) {
-				await tg.sleep(100);
+				await tg.sleep(1);
 			}
 		};
 	'
@@ -32,16 +32,17 @@ let path = artifact {
 		export default async () => {
 			await Promise.race([
 				tg.sleep(0),
-				tg.build(child), 
+				f(), 
 			]);
 		};
 
-		export let child = async () => {
+		let f = async () => {
 			await tg.sleep(100);
+			console.log("after sleep");
 		}
 	'
 }
 let id = tg build -d $path
 tg wait $id
-let children = tg children $id | from json
-assert equal $children []
+let log = tg log $id
+assert equal $log ''
