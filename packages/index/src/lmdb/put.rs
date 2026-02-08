@@ -4,8 +4,7 @@ use {
 		CacheEntry, Object, ObjectStored, Process, PutArg, PutCacheEntryArg, PutObjectArg,
 		PutProcessArg,
 	},
-	foundationdb_tuple::TuplePack as _,
-	heed as lmdb,
+	foundationdb_tuple as fdbt, heed as lmdb,
 	tangram_client::prelude::*,
 };
 
@@ -27,27 +26,30 @@ impl Index {
 
 	pub(super) fn task_put(
 		db: &Db,
+		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: PutArg,
 	) -> tg::Result<()> {
 		for cache_entry in arg.cache_entries {
-			Self::put_cache_entry(db, transaction, &cache_entry)?;
+			Self::put_cache_entry(db, subspace, transaction, &cache_entry)?;
 		}
 		for object in arg.objects {
-			Self::put_object(db, transaction, &object)?;
+			Self::put_object(db, subspace, transaction, &object)?;
 		}
 		for process in arg.processes {
-			Self::put_process(db, transaction, &process)?;
+			Self::put_process(db, subspace, transaction, &process)?;
 		}
 		Ok(())
 	}
 
 	fn put_cache_entry(
 		db: &Db,
+		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &PutCacheEntryArg,
 	) -> tg::Result<()> {
-		let key = Key::CacheEntry(arg.id.clone()).pack_to_vec();
+		let key = Key::CacheEntry(arg.id.clone());
+		let key = Self::pack(subspace, &key);
 
 		let existing = db
 			.get(transaction, &key)
@@ -70,8 +72,8 @@ impl Index {
 			let key = Key::CacheEntryDependency {
 				cache_entry: arg.id.clone(),
 				dependency: dependency.clone(),
-			}
-			.pack_to_vec();
+			};
+			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[]).map_err(|source| {
 				tg::error!(!source, "failed to put the cache entry dependency")
 			})?;
@@ -79,8 +81,8 @@ impl Index {
 			let key = Key::DependencyCacheEntry {
 				dependency: dependency.clone(),
 				cache_entry: arg.id.clone(),
-			}
-			.pack_to_vec();
+			};
+			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[]).map_err(|source| {
 				tg::error!(!source, "failed to put the dependency cache entry")
 			})?;
@@ -90,8 +92,8 @@ impl Index {
 			touched_at,
 			kind: ItemKind::CacheEntry,
 			id: tg::Either::Left(arg.id.clone().into()),
-		}
-		.pack_to_vec();
+		};
+		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])
 			.map_err(|source| tg::error!(!source, "failed to put the clean key"))?;
 
@@ -100,11 +102,13 @@ impl Index {
 
 	fn put_object(
 		db: &Db,
+		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &PutObjectArg,
 	) -> tg::Result<()> {
 		let id = &arg.id;
-		let key = Key::Object(id.clone()).pack_to_vec();
+		let key = Key::Object(id.clone());
+		let key = Self::pack(subspace, &key);
 
 		let merge = !arg.complete();
 		let existing = if merge {
@@ -152,16 +156,16 @@ impl Index {
 			let key = Key::ObjectChild {
 				object: id.clone(),
 				child: child.clone(),
-			}
-			.pack_to_vec();
+			};
+			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
 				.map_err(|source| tg::error!(!source, "failed to put the object child"))?;
 
 			let key = Key::ChildObject {
 				child: child.clone(),
 				object: id.clone(),
-			}
-			.pack_to_vec();
+			};
+			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
 				.map_err(|source| tg::error!(!source, "failed to put the child object"))?;
 		}
@@ -170,16 +174,16 @@ impl Index {
 			let key = Key::ObjectCacheEntry {
 				object: id.clone(),
 				cache_entry: cache_entry.clone(),
-			}
-			.pack_to_vec();
+			};
+			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
 				.map_err(|source| tg::error!(!source, "failed to put the object cache entry"))?;
 
 			let key = Key::CacheEntryObject {
 				cache_entry: cache_entry.clone(),
 				object: id.clone(),
-			}
-			.pack_to_vec();
+			};
+			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
 				.map_err(|source| tg::error!(!source, "failed to put the cache entry object"))?;
 		}
@@ -188,13 +192,14 @@ impl Index {
 			touched_at,
 			kind: ItemKind::Object,
 			id: tg::Either::Left(id.clone()),
-		}
-		.pack_to_vec();
+		};
+		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])
 			.map_err(|source| tg::error!(!source, "failed to put the clean key"))?;
 
 		Self::enqueue_update(
 			db,
+			subspace,
 			transaction,
 			tg::Either::Left(id.clone()),
 			super::Update::Put,
@@ -206,11 +211,13 @@ impl Index {
 
 	fn put_process(
 		db: &Db,
+		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &PutProcessArg,
 	) -> tg::Result<()> {
 		let id = &arg.id;
-		let key = Key::Process(id.clone()).pack_to_vec();
+		let key = Key::Process(id.clone());
+		let key = Self::pack(subspace, &key);
 
 		let merge = !arg.complete();
 		let existing = if merge {
@@ -249,16 +256,16 @@ impl Index {
 			let key = Key::ProcessChild {
 				process: id.clone(),
 				child: child.clone(),
-			}
-			.pack_to_vec();
+			};
+			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
 				.map_err(|source| tg::error!(!source, "failed to put the process child"))?;
 
 			let key = Key::ChildProcess {
 				child: child.clone(),
 				parent: id.clone(),
-			}
-			.pack_to_vec();
+			};
+			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
 				.map_err(|source| tg::error!(!source, "failed to put the child process"))?;
 		}
@@ -268,8 +275,8 @@ impl Index {
 				process: id.clone(),
 				kind: *kind,
 				object: object.clone(),
-			}
-			.pack_to_vec();
+			};
+			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
 				.map_err(|source| tg::error!(!source, "failed to put the process object"))?;
 
@@ -277,8 +284,8 @@ impl Index {
 				object: object.clone(),
 				kind: *kind,
 				process: id.clone(),
-			}
-			.pack_to_vec();
+			};
+			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
 				.map_err(|source| tg::error!(!source, "failed to put the object process"))?;
 		}
@@ -287,13 +294,14 @@ impl Index {
 			touched_at,
 			kind: ItemKind::Process,
 			id: tg::Either::Right(id.clone()),
-		}
-		.pack_to_vec();
+		};
+		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])
 			.map_err(|source| tg::error!(!source, "failed to put the clean key"))?;
 
 		Self::enqueue_update(
 			db,
+			subspace,
 			transaction,
 			tg::Either::Right(id.clone()),
 			super::Update::Put,

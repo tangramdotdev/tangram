@@ -1,8 +1,7 @@
 use {
 	super::{Db, Index, Key, Request},
 	crate::{PutTagArg, Tag},
-	foundationdb_tuple::TuplePack as _,
-	heed as lmdb,
+	foundationdb_tuple as fdbt, heed as lmdb,
 	tangram_client::prelude::*,
 };
 
@@ -24,17 +23,24 @@ impl Index {
 
 	pub(super) fn task_put_tags(
 		db: &Db,
+		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		args: &[PutTagArg],
 	) -> tg::Result<()> {
 		for arg in args {
-			Self::put_tag(db, transaction, arg)?;
+			Self::put_tag(db, subspace, transaction, arg)?;
 		}
 		Ok(())
 	}
 
-	fn put_tag(db: &Db, transaction: &mut lmdb::RwTxn<'_>, arg: &PutTagArg) -> tg::Result<()> {
-		let key = Key::Tag(arg.tag.clone()).pack_to_vec();
+	fn put_tag(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		arg: &PutTagArg,
+	) -> tg::Result<()> {
+		let key = Key::Tag(arg.tag.clone());
+		let key = Self::pack(subspace, &key);
 		let tag = db
 			.get(transaction, &key)
 			.map_err(|source| tg::error!(!source, "failed to get the tag"))?
@@ -50,22 +56,23 @@ impl Index {
 			let key = Key::ItemTag {
 				item,
 				tag: arg.tag.clone(),
-			}
-			.pack_to_vec();
+			};
+			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|source| tg::error!(!source, "failed to delete the old item tag"))?;
 
 			match &tag.item {
 				tg::Either::Left(id) => {
-					Self::decrement_object_reference_count(db, transaction, id)?;
+					Self::decrement_object_reference_count(db, subspace, transaction, id)?;
 				},
 				tg::Either::Right(id) => {
-					Self::decrement_process_reference_count(db, transaction, id)?;
+					Self::decrement_process_reference_count(db, subspace, transaction, id)?;
 				},
 			}
 		}
 
-		let key = Key::Tag(arg.tag.clone()).pack_to_vec();
+		let key = Key::Tag(arg.tag.clone());
+		let key = Self::pack(subspace, &key);
 		let value = Tag {
 			item: arg.item.clone(),
 		}
@@ -80,8 +87,8 @@ impl Index {
 		let key = Key::ItemTag {
 			item,
 			tag: arg.tag.clone(),
-		}
-		.pack_to_vec();
+		};
+		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])
 			.map_err(|source| tg::error!(!source, "failed to put the item tag"))?;
 
@@ -105,16 +112,16 @@ impl Index {
 
 	pub(super) fn task_delete_tags(
 		db: &Db,
+		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		tags: &[String],
 	) -> tg::Result<()> {
 		for tag in tags {
-			let key = Key::Tag(tag.clone()).pack_to_vec();
+			let key = Key::Tag(tag.clone());
+			let key = Self::pack(subspace, &key);
 			let value = db
 				.get(transaction, &key)
 				.map_err(|source| tg::error!(!source, "failed to get the tag"))?;
-			// Skip tags that do not exist in the index. This can happen for "branch tags" which
-			// exist in the database as parent nodes but have no associated item.
 			let Some(bytes) = value else {
 				continue;
 			};
@@ -126,19 +133,20 @@ impl Index {
 			let key = Key::ItemTag {
 				item,
 				tag: tag.clone(),
-			}
-			.pack_to_vec();
+			};
+			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|source| tg::error!(!source, "failed to delete the item tag"))?;
 			match &data.item {
 				tg::Either::Left(id) => {
-					Self::decrement_object_reference_count(db, transaction, id)?;
+					Self::decrement_object_reference_count(db, subspace, transaction, id)?;
 				},
 				tg::Either::Right(id) => {
-					Self::decrement_process_reference_count(db, transaction, id)?;
+					Self::decrement_process_reference_count(db, subspace, transaction, id)?;
 				},
 			}
-			let key = Key::Tag(tag.clone()).pack_to_vec();
+			let key = Key::Tag(tag.clone());
+			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|source| tg::error!(!source, "failed to delete the tag"))?;
 		}

@@ -1,8 +1,7 @@
 use {
 	super::{Db, Index, Key, KeyKind, Request, Response, Update},
 	crate::{Object, Process, ProcessObjectKind},
-	foundationdb_tuple::{self as fdbt, TuplePack as _},
-	heed as lmdb,
+	foundationdb_tuple as fdbt, heed as lmdb,
 	num_traits::{FromPrimitive as _, ToPrimitive as _},
 	tangram_client::prelude::*,
 };
@@ -11,19 +10,20 @@ impl Index {
 	pub async fn updates_finished(&self, transaction_id: u64) -> tg::Result<bool> {
 		let env = self.env.clone();
 		let db = self.db;
+		let subspace = self.subspace.clone();
 		tokio::task::spawn_blocking(move || {
 			let transaction = env
 				.read_txn()
 				.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-			let prefix = (KeyKind::UpdateVersion.to_i32().unwrap(),).pack_to_vec();
+			let prefix = &(KeyKind::UpdateVersion.to_i32().unwrap(),);
+			let prefix = Self::pack(&subspace, prefix);
 			for entry in db
 				.prefix_iter(&transaction, &prefix)
 				.map_err(|source| tg::error!(!source, "failed to get update version range"))?
 			{
 				let (key, _) = entry
 					.map_err(|source| tg::error!(!source, "failed to read update version entry"))?;
-				let key = fdbt::unpack(key)
-					.map_err(|source| tg::error!(!source, "failed to unpack key"))?;
+				let key = Self::unpack(&subspace, key)?;
 				let Key::UpdateVersion { version, .. } = key else {
 					return Err(tg::error!("unexpected key type"));
 				};
@@ -59,10 +59,12 @@ impl Index {
 
 	pub(super) fn task_update_batch(
 		db: &Db,
+		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		batch_size: usize,
 	) -> tg::Result<usize> {
-		let prefix = (KeyKind::UpdateVersion.to_i32().unwrap(),).pack_to_vec();
+		let prefix = &(KeyKind::UpdateVersion.to_i32().unwrap(),);
+		let prefix = Self::pack(subspace, prefix);
 		let entries = db
 			.prefix_iter(transaction, &prefix)
 			.map_err(|source| tg::error!(!source, "failed to get update version range"))?
@@ -70,8 +72,7 @@ impl Index {
 			.map(|entry| {
 				let (key, _) = entry
 					.map_err(|source| tg::error!(!source, "failed to read update version entry"))?;
-				let key = fdbt::unpack(key)
-					.map_err(|source| tg::error!(!source, "failed to unpack key"))?;
+				let key = Self::unpack(subspace, key)?;
 				let Key::UpdateVersion { version, id } = key else {
 					return Err(tg::error!("unexpected key type"));
 				};
@@ -81,7 +82,8 @@ impl Index {
 
 		let mut count = 0;
 		for (version, id) in entries {
-			let key = Key::Update { id: id.clone() }.pack_to_vec();
+			let key = Key::Update { id: id.clone() };
+			let key = Self::pack(subspace, &key);
 			let value = db
 				.get(transaction, &key)
 				.map_err(|source| tg::error!(!source, "failed to get update key"))?
@@ -93,25 +95,26 @@ impl Index {
 				.ok_or_else(|| tg::error!("invalid update value"))?;
 
 			let changed = match &id {
-				tg::Either::Left(id) => Self::update_object(db, transaction, id)?,
-				tg::Either::Right(id) => Self::update_process(db, transaction, id)?,
+				tg::Either::Left(id) => Self::update_object(db, subspace, transaction, id)?,
+				tg::Either::Right(id) => Self::update_process(db, subspace, transaction, id)?,
 			};
 
 			if match update {
 				Update::Put => true,
 				Update::Propagate => changed,
 			} {
-				Self::enqueue_parents(db, transaction, &id, version)?;
+				Self::enqueue_parents(db, subspace, transaction, &id, version)?;
 			}
 
-			let key = Key::Update { id: id.clone() }.pack_to_vec();
+			let key = Key::Update { id: id.clone() };
+			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|source| tg::error!(!source, "failed to delete update key"))?;
 			let key = Key::UpdateVersion {
 				version,
 				id: id.clone(),
-			}
-			.pack_to_vec();
+			};
+			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|source| tg::error!(!source, "failed to delete update version key"))?;
 
@@ -123,21 +126,23 @@ impl Index {
 
 	fn update_object(
 		db: &Db,
+		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::object::Id,
 	) -> tg::Result<bool> {
-		let key = Key::Object(id.clone()).pack_to_vec();
+		let key = Key::Object(id.clone());
+		let key = Self::pack(subspace, &key);
 		let bytes = db
 			.get(transaction, &key)
 			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
 			.ok_or_else(|| tg::error!(%id, "object not found"))?;
 		let mut object = Object::deserialize(bytes)?;
 
-		let children = Self::get_object_children_with_transaction(db, transaction, id)?;
+		let children = Self::get_object_children_with_transaction(db, subspace, transaction, id)?;
 
 		let child_objects: Vec<Option<Object>> = children
 			.iter()
-			.map(|child| Self::try_get_object_with_transaction(db, transaction, child))
+			.map(|child| Self::try_get_object_with_transaction(db, subspace, transaction, child))
 			.collect::<tg::Result<_>>()?;
 
 		let mut changed = false;
@@ -245,29 +250,31 @@ impl Index {
 
 	fn update_process(
 		db: &Db,
+		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::process::Id,
 	) -> tg::Result<bool> {
-		let key = Key::Process(id.clone()).pack_to_vec();
+		let key = Key::Process(id.clone());
+		let key = Self::pack(subspace, &key);
 		let bytes = db
 			.get(transaction, &key)
 			.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
 			.ok_or_else(|| tg::error!(%id, "process not found"))?;
 		let mut process = Process::deserialize(bytes)?;
 
-		let children = Self::get_process_children_with_transaction(db, transaction, id)?;
+		let children = Self::get_process_children_with_transaction(db, subspace, transaction, id)?;
 		let children = children
 			.iter()
-			.map(|child| Self::try_get_process_with_transaction(db, transaction, child))
+			.map(|child| Self::try_get_process_with_transaction(db, subspace, transaction, child))
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		let objects = Self::get_process_objects_with_transaction(db, transaction, id)?;
+		let objects = Self::get_process_objects_with_transaction(db, subspace, transaction, id)?;
 		let mut command_object: Option<Object> = None;
 		let mut error_objects: Vec<Option<Object>> = Vec::new();
 		let mut log_object: Option<Option<Object>> = None;
 		let mut output_objects: Vec<Option<Object>> = Vec::new();
 		for (id, kind) in &objects {
-			let object = Self::try_get_object_with_transaction(db, transaction, id)?;
+			let object = Self::try_get_object_with_transaction(db, subspace, transaction, id)?;
 			match kind {
 				ProcessObjectKind::Command => {
 					command_object = object;
@@ -984,16 +991,19 @@ impl Index {
 
 	fn enqueue_parents(
 		db: &Db,
+		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		version: u64,
 	) -> tg::Result<()> {
 		match id {
 			tg::Either::Left(id) => {
-				let parents = Self::get_object_parents_with_transaction(db, transaction, id)?;
+				let parents =
+					Self::get_object_parents_with_transaction(db, subspace, transaction, id)?;
 				for parent in parents {
 					Self::enqueue_update(
 						db,
+						subspace,
 						transaction,
 						tg::Either::Left(parent),
 						Update::Propagate,
@@ -1001,10 +1011,11 @@ impl Index {
 					)?;
 				}
 				let process_parents =
-					Self::get_object_processes_with_transaction(db, transaction, id)?;
+					Self::get_object_processes_with_transaction(db, subspace, transaction, id)?;
 				for (process, _kind) in process_parents {
 					Self::enqueue_update(
 						db,
+						subspace,
 						transaction,
 						tg::Either::Right(process),
 						Update::Propagate,
@@ -1013,10 +1024,12 @@ impl Index {
 				}
 			},
 			tg::Either::Right(id) => {
-				let parents = Self::get_process_parents_with_transaction(db, transaction, id)?;
+				let parents =
+					Self::get_process_parents_with_transaction(db, subspace, transaction, id)?;
 				for parent in parents {
 					Self::enqueue_update(
 						db,
+						subspace,
 						transaction,
 						tg::Either::Right(parent),
 						Update::Propagate,
@@ -1030,12 +1043,14 @@ impl Index {
 
 	pub(super) fn enqueue_update(
 		db: &Db,
+		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: tg::Either<tg::object::Id, tg::process::Id>,
 		update: Update,
 		version: Option<u64>,
 	) -> tg::Result<()> {
-		let key = Key::Update { id: id.clone() }.pack_to_vec();
+		let key = Key::Update { id: id.clone() };
+		let key = Self::pack(subspace, &key);
 		if let Some(existing) = db
 			.get(transaction, &key)
 			.map_err(|source| tg::error!(!source, "failed to get update key"))?
@@ -1057,7 +1072,8 @@ impl Index {
 			.map_err(|source| tg::error!(!source, "failed to put update key"))?;
 
 		let version = version.unwrap_or_else(|| transaction.id() as u64);
-		let key = Key::UpdateVersion { version, id }.pack_to_vec();
+		let key = Key::UpdateVersion { version, id };
+		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])
 			.map_err(|source| tg::error!(!source, "failed to put update version key"))?;
 

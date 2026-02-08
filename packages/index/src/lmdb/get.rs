@@ -1,8 +1,7 @@
 use {
 	super::{Db, Index, Key, KeyKind},
 	crate::{Object, Process, ProcessObjectKind},
-	foundationdb_tuple::{self as fdbt, TuplePack as _},
-	heed as lmdb,
+	foundationdb_tuple as fdbt, heed as lmdb,
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
 };
@@ -15,6 +14,7 @@ impl Index {
 		tokio::task::spawn_blocking({
 			let db = self.db;
 			let env = self.env.clone();
+			let subspace = self.subspace.clone();
 			let ids = ids.to_owned();
 			move || {
 				let transaction = env
@@ -22,7 +22,8 @@ impl Index {
 					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 				let mut outputs = Vec::with_capacity(ids.len());
 				for id in &ids {
-					let option = Self::try_get_object_with_transaction(&db, &transaction, id)?;
+					let option =
+						Self::try_get_object_with_transaction(&db, &subspace, &transaction, id)?;
 					outputs.push(option);
 				}
 				Ok(outputs)
@@ -42,6 +43,7 @@ impl Index {
 		tokio::task::spawn_blocking({
 			let db = self.db;
 			let env = self.env.clone();
+			let subspace = self.subspace.clone();
 			let ids = ids.to_owned();
 			move || {
 				let transaction = env
@@ -49,7 +51,8 @@ impl Index {
 					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 				let mut outputs = Vec::with_capacity(ids.len());
 				for id in &ids {
-					let option = Self::try_get_process_with_transaction(&db, &transaction, id)?;
+					let option =
+						Self::try_get_process_with_transaction(&db, &subspace, &transaction, id)?;
 					outputs.push(option);
 				}
 				Ok(outputs)
@@ -61,10 +64,12 @@ impl Index {
 
 	pub(super) fn try_get_object_with_transaction(
 		db: &Db,
+		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		id: &tg::object::Id,
 	) -> tg::Result<Option<Object>> {
-		let key = Key::Object(id.clone()).pack_to_vec();
+		let key = Key::Object(id.clone());
+		let key = Self::pack(subspace, &key);
 		let bytes = db
 			.get(transaction, &key)
 			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?;
@@ -76,10 +81,12 @@ impl Index {
 
 	pub(super) fn try_get_process_with_transaction(
 		db: &Db,
+		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<Process>> {
-		let key = Key::Process(id.clone()).pack_to_vec();
+		let key = Key::Process(id.clone());
+		let key = Self::pack(subspace, &key);
 		let bytes = db
 			.get(transaction, &key)
 			.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?;
@@ -91,14 +98,13 @@ impl Index {
 
 	pub(super) fn get_object_children_with_transaction(
 		db: &Db,
+		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RwTxn<'_>,
 		id: &tg::object::Id,
 	) -> tg::Result<Vec<tg::object::Id>> {
-		let prefix = (
-			KeyKind::ObjectChild.to_i32().unwrap(),
-			id.to_bytes().as_ref(),
-		)
-			.pack_to_vec();
+		let id_bytes = id.to_bytes();
+		let prefix = &(KeyKind::ObjectChild.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = Self::pack(subspace, prefix);
 		let mut children = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
@@ -106,8 +112,7 @@ impl Index {
 		for entry in iter {
 			let (key, _) =
 				entry.map_err(|source| tg::error!(!source, "failed to read object child entry"))?;
-			let key =
-				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
+			let key = Self::unpack(subspace, key)?;
 			let Key::ObjectChild { child, .. } = key else {
 				return Err(tg::error!("unexpected key type"));
 			};
@@ -118,14 +123,13 @@ impl Index {
 
 	pub(super) fn get_object_parents_with_transaction(
 		db: &Db,
+		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RwTxn<'_>,
 		id: &tg::object::Id,
 	) -> tg::Result<Vec<tg::object::Id>> {
-		let prefix = (
-			KeyKind::ChildObject.to_i32().unwrap(),
-			id.to_bytes().as_ref(),
-		)
-			.pack_to_vec();
+		let id_bytes = id.to_bytes();
+		let prefix = &(KeyKind::ChildObject.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = Self::pack(subspace, prefix);
 		let mut parents = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
@@ -133,8 +137,7 @@ impl Index {
 		for entry in iter {
 			let (key, _) =
 				entry.map_err(|source| tg::error!(!source, "failed to read child object entry"))?;
-			let key =
-				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
+			let key = Self::unpack(subspace, key)?;
 			let Key::ChildObject { object, .. } = key else {
 				return Err(tg::error!("unexpected key type"));
 			};
@@ -145,14 +148,13 @@ impl Index {
 
 	pub(super) fn get_object_processes_with_transaction(
 		db: &Db,
+		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RwTxn<'_>,
 		id: &tg::object::Id,
 	) -> tg::Result<Vec<(tg::process::Id, ProcessObjectKind)>> {
-		let prefix = (
-			KeyKind::ObjectProcess.to_i32().unwrap(),
-			id.to_bytes().as_ref(),
-		)
-			.pack_to_vec();
+		let id_bytes = id.to_bytes();
+		let prefix = &(KeyKind::ObjectProcess.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = Self::pack(subspace, prefix);
 		let mut parents = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
@@ -160,8 +162,7 @@ impl Index {
 		for entry in iter {
 			let (key, _) = entry
 				.map_err(|source| tg::error!(!source, "failed to read object process entry"))?;
-			let key =
-				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
+			let key = Self::unpack(subspace, key)?;
 			let Key::ObjectProcess { kind, process, .. } = key else {
 				return Err(tg::error!("unexpected key type"));
 			};
@@ -172,14 +173,13 @@ impl Index {
 
 	pub(super) fn get_process_children_with_transaction(
 		db: &Db,
+		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RwTxn<'_>,
 		id: &tg::process::Id,
 	) -> tg::Result<Vec<tg::process::Id>> {
-		let prefix = (
-			KeyKind::ProcessChild.to_i32().unwrap(),
-			id.to_bytes().as_ref(),
-		)
-			.pack_to_vec();
+		let id_bytes = id.to_bytes();
+		let prefix = &(KeyKind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = Self::pack(subspace, prefix);
 		let mut children = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
@@ -187,8 +187,7 @@ impl Index {
 		for entry in iter {
 			let (key, _) = entry
 				.map_err(|source| tg::error!(!source, "failed to read process child entry"))?;
-			let key =
-				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
+			let key = Self::unpack(subspace, key)?;
 			let Key::ProcessChild { child, .. } = key else {
 				return Err(tg::error!("unexpected key type"));
 			};
@@ -199,14 +198,13 @@ impl Index {
 
 	pub(super) fn get_process_parents_with_transaction(
 		db: &Db,
+		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RwTxn<'_>,
 		id: &tg::process::Id,
 	) -> tg::Result<Vec<tg::process::Id>> {
-		let prefix = (
-			KeyKind::ChildProcess.to_i32().unwrap(),
-			id.to_bytes().as_ref(),
-		)
-			.pack_to_vec();
+		let id_bytes = id.to_bytes();
+		let prefix = &(KeyKind::ChildProcess.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = Self::pack(subspace, prefix);
 		let mut parents = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
@@ -214,8 +212,7 @@ impl Index {
 		for entry in iter {
 			let (key, _) = entry
 				.map_err(|source| tg::error!(!source, "failed to read child process entry"))?;
-			let key =
-				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
+			let key = Self::unpack(subspace, key)?;
 			let Key::ChildProcess { parent, .. } = key else {
 				return Err(tg::error!("unexpected key type"));
 			};
@@ -226,14 +223,13 @@ impl Index {
 
 	pub(super) fn get_process_objects_with_transaction(
 		db: &Db,
+		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RwTxn<'_>,
 		id: &tg::process::Id,
 	) -> tg::Result<Vec<(tg::object::Id, ProcessObjectKind)>> {
-		let prefix = (
-			KeyKind::ProcessObject.to_i32().unwrap(),
-			id.to_bytes().as_ref(),
-		)
-			.pack_to_vec();
+		let id_bytes = id.to_bytes();
+		let prefix = &(KeyKind::ProcessObject.to_i32().unwrap(), id_bytes.as_ref());
+		let prefix = Self::pack(subspace, prefix);
 		let mut objects = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
@@ -241,8 +237,7 @@ impl Index {
 		for entry in iter {
 			let (key, _) = entry
 				.map_err(|source| tg::error!(!source, "failed to read process object entry"))?;
-			let key =
-				fdbt::unpack(key).map_err(|source| tg::error!(!source, "failed to unpack key"))?;
+			let key = Self::unpack(subspace, key)?;
 			let Key::ProcessObject { kind, object, .. } = key else {
 				return Err(tg::error!("unexpected key type"));
 			};

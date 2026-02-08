@@ -25,6 +25,7 @@ pub struct Index {
 	env: lmdb::Env,
 	sender_high: RequestSender,
 	sender_low: RequestSender,
+	subspace: fdbt::Subspace,
 }
 
 type Db = lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>;
@@ -216,13 +217,17 @@ impl Index {
 		let (sender_high, receiver_high) = crossbeam::bounded(256);
 		let (sender_low, receiver_low) = crossbeam::bounded(256);
 
+		let subspace = fdbt::Subspace::all();
+
 		std::thread::spawn({
 			let env = env.clone();
+			let subspace = subspace.clone();
 			let max_items_per_transaction = config.max_items_per_transaction;
 			move || {
 				Self::task(
 					&env,
 					&db,
+					&subspace,
 					&receiver_high,
 					&receiver_low,
 					max_items_per_transaction,
@@ -235,12 +240,27 @@ impl Index {
 			env,
 			sender_high,
 			sender_low,
+			subspace,
 		})
+	}
+
+	fn pack<T: fdbt::TuplePack>(subspace: &fdbt::Subspace, key: &T) -> Vec<u8> {
+		subspace.pack(key)
+	}
+
+	fn unpack<'a, T: fdbt::TupleUnpack<'a>>(
+		subspace: &fdbt::Subspace,
+		bytes: &'a [u8],
+	) -> tg::Result<T> {
+		subspace
+			.unpack(bytes)
+			.map_err(|source| tg::error!(!source, "failed to unpack key"))
 	}
 
 	fn task(
 		env: &lmdb::Env,
 		db: &Db,
+		subspace: &fdbt::Subspace,
 		receiver_high: &RequestReceiver,
 		receiver_low: &RequestReceiver,
 		max_items_per_transaction: usize,
@@ -356,27 +376,31 @@ impl Index {
 					Request::Clean {
 						max_touched_at,
 						batch_size,
-					} => Self::task_clean(db, &mut transaction, max_touched_at, batch_size)
-						.map(Response::CleanOutput),
+					} => {
+						Self::task_clean(db, subspace, &mut transaction, max_touched_at, batch_size)
+							.map(Response::CleanOutput)
+					},
 					Request::DeleteTags(tags) => {
-						Self::task_delete_tags(db, &mut transaction, &tags).map(|()| Response::Unit)
+						Self::task_delete_tags(db, subspace, &mut transaction, &tags)
+							.map(|()| Response::Unit)
 					},
 					Request::Put(arg) => {
-						Self::task_put(db, &mut transaction, arg).map(|()| Response::Unit)
+						Self::task_put(db, subspace, &mut transaction, arg).map(|()| Response::Unit)
 					},
 					Request::PutTags(tags) => {
-						Self::task_put_tags(db, &mut transaction, &tags).map(|()| Response::Unit)
+						Self::task_put_tags(db, subspace, &mut transaction, &tags)
+							.map(|()| Response::Unit)
 					},
 					Request::TouchObjects { ids, touched_at } => {
-						Self::task_touch_objects(db, &mut transaction, &ids, touched_at)
+						Self::task_touch_objects(db, subspace, &mut transaction, &ids, touched_at)
 							.map(Response::Objects)
 					},
 					Request::TouchProcesses { ids, touched_at } => {
-						Self::task_touch_processes(db, &mut transaction, &ids, touched_at)
+						Self::task_touch_processes(db, subspace, &mut transaction, &ids, touched_at)
 							.map(Response::Processes)
 					},
 					Request::Update { batch_size } => {
-						Self::task_update_batch(db, &mut transaction, batch_size)
+						Self::task_update_batch(db, subspace, &mut transaction, batch_size)
 							.map(Response::UpdateCount)
 					},
 				};
