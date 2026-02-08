@@ -429,20 +429,20 @@ impl Server {
 			},
 		};
 
-		// Create the finish stream and consumer if the messenger is memory.
+		// Create the finalize stream and consumer if the messenger is memory.
 		if messenger.is_memory() {
 			let stream_config = tangram_messenger::StreamConfig::default();
 			let stream = messenger
-				.create_stream("finish".to_owned(), stream_config)
+				.create_stream("finalize".to_owned(), stream_config)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to create the finish stream"))?;
+				.map_err(|source| tg::error!(!source, "failed to create the finalize stream"))?;
 			let consumer_config = tangram_messenger::ConsumerConfig {
 				deliver: tangram_messenger::DeliverPolicy::All,
 			};
 			stream
-				.create_consumer("finish".to_owned(), consumer_config)
+				.create_consumer("finalize".to_owned(), consumer_config)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to create the finish consumer"))?;
+				.map_err(|source| tg::error!(!source, "failed to create the finalize consumer"))?;
 		}
 
 		// Create the process stream if the messenger is memory.
@@ -743,16 +743,16 @@ impl Server {
 			}
 		}));
 
-		// Spawn the finisher task.
-		let finisher_task = server.config.finisher.clone().map(|config| {
+		// Spawn the finalizer task.
+		let finalizer_task = server.config.finalizer.clone().map(|config| {
 			tokio::spawn({
 				let server = server.clone();
 				async move {
 					server
-						.finisher_task(&config)
+						.finalizer_task(&config)
 						.await
 						.inspect_err(|error| {
-							tracing::error!(?error, "the finisher task failed");
+							tracing::error!(?error, "the finalizer task failed");
 						})
 						.ok();
 				}
@@ -854,16 +854,16 @@ impl Server {
 					task.abort();
 				}
 
-				// Abort the finish task.
-				if let Some(task) = finisher_task {
+				// Abort the finalizer task.
+				if let Some(task) = finalizer_task {
 					task.abort();
 					let result = task.await;
 					if let Err(error) = result
 						&& !error.is_cancelled()
 					{
-						tracing::error!(?error, "the finsher task panicked");
+						tracing::error!(?error, "the finalizer task panicked");
 					}
-					tracing::trace!("finsher task");
+					tracing::trace!("finalizer task");
 				}
 
 				// Abort the watchdog task.

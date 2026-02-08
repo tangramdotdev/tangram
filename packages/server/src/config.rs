@@ -33,8 +33,8 @@ pub struct Config {
 	pub directory: Option<PathBuf>,
 
 	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(default = "default_finisher")]
-	pub finisher: Option<Finisher>,
+	#[serde(default = "default_finalizer")]
+	pub finalizer: Option<Finalizer>,
 
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default = "default_http")]
@@ -179,7 +179,7 @@ pub struct SqliteDatabase {
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
-pub struct Finisher {
+pub struct Finalizer {
 	pub message_batch_size: usize,
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub message_batch_timeout: Duration,
@@ -494,7 +494,7 @@ impl Default for Config {
 			http: Some(Http::default()),
 			index: Index::default(),
 			indexer: Some(Indexer::default()),
-			finisher: Some(Finisher::default()),
+			finalizer: Some(Finalizer::default()),
 			messenger: Messenger::default(),
 			remotes: None,
 			runner: Some(Runner::default()),
@@ -580,7 +580,7 @@ impl Default for Database {
 	}
 }
 
-impl Default for Finisher {
+impl Default for Finalizer {
 	fn default() -> Self {
 		Self {
 			message_batch_size: 1024,
@@ -789,8 +789,8 @@ impl Default for Write {
 }
 
 #[expect(clippy::unnecessary_wraps)]
-fn default_finisher() -> Option<Finisher> {
-	Some(Finisher::default())
+fn default_finalizer() -> Option<Finalizer> {
+	Some(Finalizer::default())
 }
 
 #[expect(clippy::unnecessary_wraps)]

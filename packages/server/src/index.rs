@@ -234,51 +234,51 @@ impl Server {
 	}
 
 	async fn index_task(&self, progress: &crate::progress::Handle<()>) -> tg::Result<()> {
-		// Get the finish stream.
-		let finish_stream = self
+		// Get the finalize stream.
+		let finalize_stream = self
 			.messenger
-			.get_stream("finish".to_owned())
+			.get_stream("finalize".to_owned())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the finish stream"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the finalize stream"))?;
 
-		// Subscribe to finisher progress.
-		let finisher_progress_stream = self
+		// Subscribe to finalizer progress.
+		let finalizer_progress_stream = self
 			.messenger
-			.subscribe::<()>("finisher_progress".to_owned(), None)
+			.subscribe::<()>("finalizer_progress".to_owned(), None)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe to finisher progress"))?;
+			.map_err(|source| tg::error!(!source, "failed to subscribe to finalizer progress"))?;
 		let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(1)));
-		let mut finisher_progress_stream =
-			stream::select(finisher_progress_stream.map(|_| ()), interval.map(|_| ()));
+		let mut finalizer_progress_stream =
+			stream::select(finalizer_progress_stream.map(|_| ()), interval.map(|_| ()));
 
-		// Wait for the finish stream's first sequence to reach the current last sequence.
-		let info = finish_stream
+		// Wait for the finalize stream's first sequence to reach the current last sequence.
+		let info = finalize_stream
 			.info()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the finish stream info"))?;
+			.map_err(|source| tg::error!(!source, "failed to get the finalize stream info"))?;
 		let mut first_sequence = info.first_sequence;
 		let last_sequence = info.last_sequence;
 		let total = info.last_sequence.saturating_sub(info.first_sequence);
 		if last_sequence > 0 {
 			progress.start(
-				"finish".to_owned(),
-				"finish".to_owned(),
+				"finalize".to_owned(),
+				"finalize".to_owned(),
 				tg::progress::IndicatorFormat::Normal,
 				Some(0),
 				Some(total),
 			);
 			loop {
-				let info = finish_stream.info().await.map_err(|source| {
-					tg::error!(!source, "failed to get the finish stream info")
+				let info = finalize_stream.info().await.map_err(|source| {
+					tg::error!(!source, "failed to get the finalize stream info")
 				})?;
-				progress.increment("finish", info.first_sequence - first_sequence);
+				progress.increment("finalize", info.first_sequence - first_sequence);
 				first_sequence = info.first_sequence;
 				if first_sequence > last_sequence {
 					break;
 				}
-				finisher_progress_stream.next().await;
+				finalizer_progress_stream.next().await;
 			}
-			progress.finish("finish");
+			progress.finish("finalize");
 		}
 
 		// Wait for outstanding index tasks to finish.

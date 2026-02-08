@@ -7,6 +7,7 @@ use {
 
 pub(crate) mod cancel;
 pub(crate) mod children;
+pub(crate) mod finalize;
 pub(crate) mod finish;
 pub(crate) mod get;
 pub(crate) mod heartbeat;
