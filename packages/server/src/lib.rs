@@ -372,6 +372,7 @@ impl Server {
 					let path = directory.join(&options.path);
 					let config = tangram_index::lmdb::Config {
 						map_size: options.map_size,
+						max_items_per_transaction: options.max_items_per_transaction,
 						path,
 					};
 					Index::new_lmdb(&config)

@@ -214,6 +214,7 @@ pub struct FdbIndex {
 #[serde(deny_unknown_fields, default)]
 pub struct LmdbIndex {
 	pub map_size: usize,
+	pub max_items_per_transaction: usize,
 	pub path: PathBuf,
 }
 
@@ -604,6 +605,7 @@ impl Default for LmdbIndex {
 	fn default() -> Self {
 		Self {
 			map_size: 1_099_511_627_776,
+			max_items_per_transaction: 8_000,
 			path: PathBuf::from("index"),
 		}
 	}

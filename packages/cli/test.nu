@@ -687,6 +687,10 @@ export def --env spawn [
 			disable_version_check: true
 			internal_error_locations: false
 		},
+		index: {
+			kind: 'lmdb',
+			map_size: 10_485_760,
+		},
 		remotes: [],
 		store: {
 			kind: 'lmdb',
@@ -697,7 +701,6 @@ export def --env spawn [
 	}
 
 	mut id: any = null
-	# Only use cloud if both --cloud flag AND TANGRAM_TEST_CLOUD env are set
 	let use_cloud = $cloud and (($env.TANGRAM_TEST_CLOUD? | default "") | str length) > 0
 	if $use_cloud {
 		$id = random chars
