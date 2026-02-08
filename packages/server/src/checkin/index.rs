@@ -23,12 +23,7 @@ impl Server {
 		if arg.options.cache_pointers {
 			if arg.options.destructive {
 				let index = graph.paths.get(root).unwrap();
-				let dependencies = Self::checkin_compute_cache_entry_dependencies(graph, *index);
-				if !dependencies.is_empty() {
-					return Err(tg::error!(
-						"destructive checkin with cache pointers is not supported for artifacts with dependencies"
-					));
-				}
+				let dependencies = Self::checkin_get_cache_entry_dependencies(graph, *index);
 				let id = graph
 					.nodes
 					.get(index)

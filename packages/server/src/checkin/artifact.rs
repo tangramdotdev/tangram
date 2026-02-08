@@ -774,8 +774,7 @@ impl Server {
 
 				// Create a cache entry message for this artifact.
 				if !arg.options.destructive {
-					let dependencies =
-						Self::checkin_compute_cache_entry_dependencies(graph, *index);
+					let dependencies = Self::checkin_get_cache_entry_dependencies(graph, *index);
 					index_cache_entry_args.push(tangram_index::PutCacheEntryArg {
 						id: artifact.clone(),
 						touched_at,
@@ -1269,7 +1268,7 @@ impl Server {
 		Ok(id.try_into().unwrap())
 	}
 
-	pub(super) fn checkin_compute_cache_entry_dependencies(
+	pub(super) fn checkin_get_cache_entry_dependencies(
 		graph: &Graph,
 		root_index: usize,
 	) -> Vec<tg::artifact::Id> {
