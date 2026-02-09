@@ -841,12 +841,12 @@ where
 
 	fn try_get_tag(
 		&self,
-		pattern: &tg::tag::Pattern,
+		tag: &tg::Tag,
 		arg: tg::tag::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> {
 		match self {
-			tg::Either::Left(s) => s.try_get_tag(pattern, arg.clone()).left_future(),
-			tg::Either::Right(s) => s.try_get_tag(pattern, arg).right_future(),
+			tg::Either::Left(s) => s.try_get_tag(tag, arg.clone()).left_future(),
+			tg::Either::Right(s) => s.try_get_tag(tag, arg).right_future(),
 		}
 	}
 

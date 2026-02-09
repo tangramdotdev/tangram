@@ -30,13 +30,13 @@ pub struct Output {
 impl tg::Client {
 	pub async fn try_get_tag(
 		&self,
-		pattern: &tg::tag::Pattern,
+		tag: &tg::Tag,
 		arg: tg::tag::get::Arg,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
 		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg)
 			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
-		let uri = format!("/tags/{pattern}?{query}");
+		let uri = format!("/tags/{tag}?{query}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

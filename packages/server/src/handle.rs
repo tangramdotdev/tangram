@@ -427,10 +427,10 @@ impl tg::handle::Tag for Owned {
 
 	async fn try_get_tag(
 		&self,
-		pattern: &tg::tag::Pattern,
+		tag: &tg::Tag,
 		arg: tg::tag::get::Arg,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
-		self.0.try_get_tag(pattern, arg).await
+		self.0.try_get_tag(tag, arg).await
 	}
 
 	async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
@@ -931,10 +931,10 @@ impl tg::handle::Tag for Server {
 
 	async fn try_get_tag(
 		&self,
-		pattern: &tg::tag::Pattern,
+		tag: &tg::Tag,
 		arg: tg::tag::get::Arg,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
-		self.try_get_tag_with_context(&Context::default(), pattern, arg)
+		self.try_get_tag_with_context(&Context::default(), tag, arg)
 			.await
 	}
 
@@ -1418,10 +1418,10 @@ impl tg::handle::Tag for ServerWithContext {
 
 	async fn try_get_tag(
 		&self,
-		pattern: &tg::tag::Pattern,
+		tag: &tg::Tag,
 		arg: tg::tag::get::Arg,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
-		self.0.try_get_tag_with_context(&self.1, pattern, arg).await
+		self.0.try_get_tag_with_context(&self.1, tag, arg).await
 	}
 
 	async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {

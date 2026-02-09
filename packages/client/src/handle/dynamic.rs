@@ -577,10 +577,10 @@ impl tg::handle::Tag for Handle {
 
 	fn try_get_tag(
 		&self,
-		pattern: &tg::tag::Pattern,
+		tag: &tg::Tag,
 		arg: tg::tag::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_tag(pattern, arg)) }
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_tag(tag, arg)) }
 	}
 
 	fn put_tag(

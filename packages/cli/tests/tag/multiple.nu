@@ -58,14 +58,14 @@ snapshot -n "list_test_star_recursive" $output
 let output = tg tag list --recursive "test"
 snapshot -n "list_test_recursive" $output
 
-# Get test.
-let output = tg tag get "test"
-snapshot -n "get_test" $output
+# Get test/1.2.0 (exact tag).
+let output = tg tag get "test/1.2.0"
+snapshot -n "get_test_exact" $output
 
-# Get test/^1
-let output = tg tag get "test/^1"
-snapshot -n "get_test_caret1" $output
+# List test/^1 (latest matching ^1).
+let output = tg tag list --reverse "test/^1"
+snapshot -n "list_test_caret1" $output
 
-# Get test/^10
-let output = tg tag get "test/^10"
-snapshot -n "get_test_caret10" $output
+# List test/^10 (latest matching ^10).
+let output = tg tag list --reverse "test/^10"
+snapshot -n "list_test_caret10" $output

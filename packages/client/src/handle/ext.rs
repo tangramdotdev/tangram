@@ -524,7 +524,7 @@ pub trait Ext: tg::Handle {
 
 	fn get_tag(
 		&self,
-		tag: &tg::tag::Pattern,
+		tag: &tg::Tag,
 		arg: tg::tag::get::Arg,
 	) -> impl Future<Output = tg::Result<tg::tag::get::Output>> + Send {
 		self.try_get_tag(tag, arg).map(|result| {

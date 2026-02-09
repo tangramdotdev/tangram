@@ -436,7 +436,7 @@ pub trait Tag: Clone + Unpin + Send + Sync + 'static {
 
 	fn try_get_tag(
 		&self,
-		pattern: &tg::tag::Pattern,
+		tag: &tg::Tag,
 		arg: tg::tag::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> + Send;
 
@@ -1001,10 +1001,10 @@ impl tg::handle::Tag for tg::Client {
 
 	fn try_get_tag(
 		&self,
-		pattern: &tg::tag::Pattern,
+		tag: &tg::Tag,
 		arg: tg::tag::get::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> {
-		self.try_get_tag(pattern, arg)
+		self.try_get_tag(tag, arg)
 	}
 
 	fn put_tag(

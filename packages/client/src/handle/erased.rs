@@ -362,7 +362,7 @@ pub trait Tag: Send + Sync + 'static {
 
 	fn try_get_tag<'a>(
 		&'a self,
-		pattern: &'a tg::tag::Pattern,
+		tag: &'a tg::Tag,
 		arg: tg::tag::get::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::tag::get::Output>>>;
 
@@ -913,10 +913,10 @@ where
 
 	fn try_get_tag<'a>(
 		&'a self,
-		pattern: &'a tg::tag::Pattern,
+		tag: &'a tg::Tag,
 		arg: tg::tag::get::Arg,
 	) -> BoxFuture<'a, tg::Result<Option<tg::tag::get::Output>>> {
-		self.try_get_tag(pattern, arg).boxed()
+		self.try_get_tag(tag, arg).boxed()
 	}
 
 	fn put_tag<'a>(

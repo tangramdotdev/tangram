@@ -31,7 +31,8 @@ impl Server {
 				Self::try_get_with_process(process, reference.options())?
 			},
 			tg::reference::Item::Tag(tag) => {
-				self.try_get_with_tag(tag, reference.options(), arg).await?
+				self.try_get_with_tag(context, tag, reference.options(), arg)
+					.await?
 			},
 		};
 		Ok(stream)
@@ -116,19 +117,24 @@ impl Server {
 
 	async fn try_get_with_tag(
 		&self,
+		context: &Context,
 		pattern: &tg::tag::Pattern,
 		options: &tg::reference::Options,
 		arg: tg::get::Arg,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
-		let tag_arg = tg::tag::get::Arg {
+		let list_arg = tg::tag::list::Arg {
+			length: Some(1),
 			local: arg.local,
+			pattern: pattern.clone(),
+			recursive: false,
 			remotes: arg.remotes.clone(),
+			reverse: true,
 		};
-		let Some(tg::tag::get::Output { item, tag, .. }) = self
-			.try_get_tag(pattern, tag_arg)
-			.await
-			.map_err(|source| tg::error!(!source, %pattern, "failed to get the tag"))?
-		else {
+		let tg::tag::list::Output { data } =
+			self.list_tags_with_context(context, list_arg)
+				.await
+				.map_err(|source| tg::error!(!source, %pattern, "failed to list tags"))?;
+		let Some(tg::tag::get::Output { item, tag, .. }) = data.into_iter().next() else {
 			let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 			return Ok(stream.boxed());
 		};
