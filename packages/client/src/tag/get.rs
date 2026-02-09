@@ -18,13 +18,16 @@ pub struct Arg {
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Hash, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub tag: tg::Tag,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub children: Option<Vec<String>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub item: Option<tg::Either<tg::object::Id, tg::process::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
+
+	pub tag: tg::Tag,
 }
 
 impl tg::Client {

@@ -67,15 +67,47 @@ impl Server {
 			last_row = Some(row);
 		}
 
-		// Return the output if the final node has an item.
-		let output = last_row.and_then(|row| {
-			row.item.map(|item| tg::tag::get::Output {
-				tag: tag.clone(),
+		// Return the output.
+		let Some(row) = last_row else {
+			return Ok(None);
+		};
+
+		let output = if let Some(item) = row.item {
+			// This is a leaf tag with an item.
+			tg::tag::get::Output {
+				children: None,
 				item: Some(item),
 				remote: None,
-			})
-		});
+				tag: tag.clone(),
+			}
+		} else {
+			// This is a branch tag. Query the children.
+			let statement = indoc!(
+				"
+					select component
+					from tags
+					where parent = $1;
+				"
+			);
+			let rows = async { transaction.inner().query(statement, &[&parent]).await }
+				.instrument(tracing::trace_span!("query_branch_children"))
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			let children = rows
+				.iter()
+				.map(|row| {
+					let component: String = row.get(0);
+					component
+				})
+				.collect();
+			tg::tag::get::Output {
+				children: Some(children),
+				item: None,
+				remote: None,
+				tag: tag.clone(),
+			}
+		};
 
-		Ok(output)
+		Ok(Some(output))
 	}
 }

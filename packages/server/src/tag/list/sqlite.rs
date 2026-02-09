@@ -127,9 +127,10 @@ impl Server {
 		let data = output
 			.into_iter()
 			.map(|m| tg::tag::get::Output {
-				tag: m.tag,
+				children: None,
 				item: m.item,
 				remote: None,
+				tag: m.tag,
 			})
 			.collect();
 		let output = tg::tag::list::Output { data };
