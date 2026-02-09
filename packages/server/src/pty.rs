@@ -64,7 +64,7 @@ impl Pty {
 		let temp = Temp::new(server);
 
 		// Spawn the session process.
-		let executable: std::path::PathBuf = tangram_util::env::current_exe()
+		let executable = tangram_util::env::current_exe()
 			.map_err(|source| tg::error!(!source, "failed to get the current executable path"))?;
 		let pty = name
 			.to_str()
