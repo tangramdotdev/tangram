@@ -5,7 +5,7 @@ use {
 		stream::{self, BoxStream, FuturesUnordered},
 	},
 	indoc::{formatdoc, indoc},
-	std::{fmt::Write, pin::pin},
+	std::pin::pin,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::{stream::Ext as _, task::Task},
@@ -973,72 +973,6 @@ impl Server {
 	) -> tg::Result<()> {
 		let p = transaction.p();
 
-		// Determine if adding this child process creates a cycle.
-		let statement = formatdoc!(
-			"
-				with recursive ancestors as (
-					select {p}1 as id
-					union all
-					select process_children.process as id
-					from ancestors
-					join process_children on ancestors.id = process_children.child
-				)
-				select exists(
-					select 1 from ancestors where id = {p}2
-				);
-			"
-		);
-		let params = db::params![parent.to_string(), child.to_string()];
-		let cycle = transaction
-			.query_one_value_into::<bool>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the cycle check"))?;
-
-		// If adding this child creates a cycle, return an error.
-		if cycle {
-			// Try to reconstruct the cycle path by walking from the child through its
-			// descendants until we find a path back to the parent.
-			let statement = formatdoc!(
-				"
-					with recursive reachable (current_process, path) as (
-						select {p}2, {p}2
-
-						union
-
-						select pc.child, r.path || ' ' || pc.child
-						from reachable r
-						join process_children pc on r.current_process = pc.process
-						where r.path not like '%' || pc.child || '%'
-					)
-					select
-						{p}1 || ' ' || path as cycle
-					from reachable
-					where current_process = {p}1
-					limit 1;
-				"
-			);
-			let params = db::params![parent.to_string(), child.to_string()];
-			let cycle = transaction
-				.query_one_value_into::<String>(statement.into(), params)
-				.await
-				.inspect_err(|error| tracing::error!(?error, "failed to get the cycle"))
-				.ok();
-			let mut message = String::from("adding this child process creates a cycle");
-			if let Some(cycle) = cycle {
-				let processes = cycle.split(' ').collect::<Vec<_>>();
-				for i in 0..processes.len() - 1 {
-					let parent = processes[i];
-					let child = processes[i + 1];
-					if i == 0 {
-						write!(&mut message, "\n{parent} tried to add child {child}").unwrap();
-					} else {
-						write!(&mut message, "\n{parent} has child {child}").unwrap();
-					}
-				}
-			}
-			return Err(tg::error!("{message}"));
-		}
-
 		// Add the child to the database.
 		let statement = formatdoc!(
 			"
@@ -1090,6 +1024,7 @@ impl Server {
 		child_ids: Vec<String>,
 	) -> tg::Result<()> {
 		let mut current_ids = child_ids;
+		let mut visited = std::collections::HashSet::new();
 
 		while !current_ids.is_empty() {
 			let mut updated_ids = Vec::new();
@@ -1119,6 +1054,10 @@ impl Server {
 
 				// Update each parent's depth if needed.
 				for parent in parents {
+					// Skip parents that have already been visited to avoid infinite loops from cycles.
+					if visited.contains(&parent.process) {
+						continue;
+					}
 					if let Some(max_child_depth) = parent.max_child_depth {
 						let statement = indoc!(
 							"
@@ -1144,6 +1083,9 @@ impl Server {
 				}
 			}
 
+			// Mark the current batch as visited.
+			visited.extend(current_ids);
+
 			// Exit if no parents were updated.
 			if updated_ids.is_empty() {
 				break;
@@ -1166,6 +1108,19 @@ impl Server {
 					.publish(format!("processes.{id}.children"), ())
 					.await
 					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
+					.ok();
+			}
+		});
+		tokio::spawn({
+			let server = self.clone();
+			async move {
+				server
+					.messenger
+					.publish("watchdog".into(), ())
+					.await
+					.inspect_err(|error| {
+						tracing::error!(?error, "failed to publish the watchdog message");
+					})
 					.ok();
 			}
 		});

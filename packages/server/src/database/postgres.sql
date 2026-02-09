@@ -46,16 +46,18 @@ as $$
 declare
 	current_ids text[];
 	updated_ids text[];
+	visited_ids text[] := '{}';
 begin
 	current_ids := changed_process_ids;
 
 	while array_length(current_ids, 1) is not null and array_length(current_ids, 1) > 0 loop
-		-- Update parents based on their children's depths
+		-- Update parents based on their children's depths, excluding already visited parents to handle cycles.
 		with child_depths as (
 			select process_children.process, max(processes.depth) as max_child_depth
 			from process_children
 			join processes on processes.id = process_children.child
 			where process_children.child = any(current_ids)
+			and not process_children.process = any(visited_ids)
 			group by process_children.process
 		),
 		updated as (
@@ -69,10 +71,13 @@ begin
 		select coalesce(array_agg(id), '{}') into updated_ids
 		from updated;
 
-		-- Exit if no parents were updated
+		-- Mark the current batch as visited.
+		visited_ids := visited_ids || current_ids;
+
+		-- Exit if no parents were updated.
 		exit when cardinality(updated_ids) = 0;
 
-		-- Continue with the updated parents
+		-- Continue with the updated parents.
 		current_ids := updated_ids;
 	end loop;
 end;
@@ -90,8 +95,9 @@ create index process_tokens_token_index on process_tokens (token);
 create table process_children (
 	process text not null,
 	child text not null,
-	position int8 not null,
+	cycle int8,
 	options text,
+	position int8 not null,
 	token text
 );
 
@@ -100,6 +106,8 @@ create unique index process_children_process_child_index on process_children (pr
 create index process_children_index on process_children (process, position);
 
 create index process_children_child_process_index on process_children (child, process);
+
+create index process_children_cycle_index on process_children (cycle) where cycle is null;
 
 create table remotes (
 	name text primary key,

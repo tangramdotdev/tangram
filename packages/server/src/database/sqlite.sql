@@ -50,6 +50,7 @@ create index process_tokens_token_index on process_tokens (token);
 create table process_children (
 	process text not null,
 	child text not null,
+	cycle integer,
 	options text,
 	position integer not null,
 	token text
@@ -60,6 +61,8 @@ create unique index process_children_process_child_index on process_children (pr
 create unique index process_children_process_position_index on process_children (process, position);
 
 create index process_children_child_index on process_children (child);
+
+create index process_children_cycle_index on process_children (cycle) where cycle is null;
 
 create table remotes (
 	name text primary key,
