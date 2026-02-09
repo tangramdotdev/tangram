@@ -101,17 +101,6 @@ create index process_children_index on process_children (process, position);
 
 create index process_children_child_process_index on process_children (child, process);
 
-create table pipes (
-	id text primary key,
-	created_at int8 not null
-);
-
-create table ptys (
-	id text primary key,
-	created_at int8 not null,
-	size text
-);
-
 create table remotes (
 	name text primary key,
 	url text not null
