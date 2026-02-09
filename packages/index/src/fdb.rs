@@ -253,6 +253,14 @@ impl crate::Index for Index {
 		self.try_get_processes(ids).await
 	}
 
+	async fn touch_cache_entries(
+		&self,
+		ids: &[tg::artifact::Id],
+		touched_at: i64,
+	) -> tg::Result<Vec<Option<crate::CacheEntry>>> {
+		self.touch_cache_entries(ids, touched_at).await
+	}
+
 	async fn touch_objects(
 		&self,
 		ids: &[tg::object::Id],

@@ -41,6 +41,21 @@ pub trait Index {
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 
+	fn touch_cache_entries(
+		&self,
+		ids: &[tg::artifact::Id],
+		touched_at: i64,
+	) -> impl Future<Output = tg::Result<Vec<Option<CacheEntry>>>> + Send;
+
+	fn touch_cache_entry(
+		&self,
+		id: &tg::artifact::Id,
+		touched_at: i64,
+	) -> impl Future<Output = tg::Result<Option<CacheEntry>>> + Send {
+		self.touch_cache_entries(std::slice::from_ref(id), touched_at)
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
 	fn touch_objects(
 		&self,
 		ids: &[tg::object::Id],

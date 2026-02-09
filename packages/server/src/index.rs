@@ -61,6 +61,19 @@ impl index::Index for Index {
 		}
 	}
 
+	async fn touch_cache_entries(
+		&self,
+		ids: &[tg::artifact::Id],
+		touched_at: i64,
+	) -> tg::Result<Vec<Option<index::CacheEntry>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.touch_cache_entries(ids, touched_at).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.touch_cache_entries(ids, touched_at).await,
+		}
+	}
+
 	async fn touch_objects(
 		&self,
 		ids: &[tg::object::Id],

@@ -43,6 +43,10 @@ enum Request {
 	DeleteTags(Vec<String>),
 	Put(PutArg),
 	PutTags(Vec<PutTagArg>),
+	TouchCacheEntries {
+		ids: Vec<tg::artifact::Id>,
+		touched_at: i64,
+	},
 	TouchObjects {
 		ids: Vec<tg::object::Id>,
 		touched_at: i64,
@@ -59,6 +63,7 @@ enum Request {
 #[derive(Clone)]
 enum Response {
 	Unit,
+	CacheEntries(Vec<Option<crate::CacheEntry>>),
 	Objects(Vec<Option<Object>>),
 	Processes(Vec<Option<Process>>),
 	CleanOutput(CleanOutput),
@@ -391,6 +396,16 @@ impl Index {
 						Self::task_put_tags(db, subspace, &mut transaction, &tags)
 							.map(|()| Response::Unit)
 					},
+					Request::TouchCacheEntries { ids, touched_at } => {
+						Self::task_touch_cache_entries(
+							db,
+							subspace,
+							&mut transaction,
+							&ids,
+							touched_at,
+						)
+						.map(Response::CacheEntries)
+					},
 					Request::TouchObjects { ids, touched_at } => {
 						Self::task_touch_objects(db, subspace, &mut transaction, &ids, touched_at)
 							.map(Response::Objects)
@@ -541,6 +556,7 @@ impl Index {
 	fn create_initial_response(request: &Request) -> Response {
 		match request {
 			Request::Put(_) | Request::PutTags(_) | Request::DeleteTags(_) => Response::Unit,
+			Request::TouchCacheEntries { .. } => Response::CacheEntries(Vec::new()),
 			Request::TouchObjects { .. } => Response::Objects(Vec::new()),
 			Request::TouchProcesses { .. } => Response::Processes(Vec::new()),
 			Request::Clean { .. } => Response::CleanOutput(CleanOutput::default()),
@@ -551,6 +567,7 @@ impl Index {
 	fn request_item_count(request: &Request) -> usize {
 		match request {
 			Request::Put(arg) => arg.cache_entries.len() + arg.objects.len() + arg.processes.len(),
+			Request::TouchCacheEntries { ids, .. } => ids.len(),
 			Request::TouchObjects { ids, .. } => ids.len(),
 			Request::TouchProcesses { ids, .. } => ids.len(),
 			Request::PutTags(tags) => tags.len(),
@@ -563,6 +580,7 @@ impl Index {
 		matches!(
 			request,
 			Request::Put(_)
+				| Request::TouchCacheEntries { .. }
 				| Request::TouchObjects { .. }
 				| Request::TouchProcesses { .. }
 				| Request::PutTags(_)
@@ -601,6 +619,17 @@ impl Index {
 					}
 				}
 				(Request::Put(left_arg), Request::Put(right_arg))
+			},
+			Request::TouchCacheEntries { ids, touched_at } => {
+				let mut ids = ids;
+				let right = ids.split_off(count);
+				(
+					Request::TouchCacheEntries { ids, touched_at },
+					Request::TouchCacheEntries {
+						ids: right,
+						touched_at,
+					},
+				)
 			},
 			Request::TouchObjects { ids, touched_at } => {
 				let mut ids = ids;
@@ -643,6 +672,9 @@ impl Index {
 			return;
 		};
 		match (target, source) {
+			(Response::CacheEntries(existing), Response::CacheEntries(new)) => {
+				existing.extend(new);
+			},
 			(Response::Objects(existing), Response::Objects(new)) => {
 				existing.extend(new);
 			},
@@ -696,6 +728,14 @@ impl crate::Index for Index {
 
 	async fn try_get_processes(&self, ids: &[tg::process::Id]) -> tg::Result<Vec<Option<Process>>> {
 		self.try_get_processes(ids).await
+	}
+
+	async fn touch_cache_entries(
+		&self,
+		ids: &[tg::artifact::Id],
+		touched_at: i64,
+	) -> tg::Result<Vec<Option<crate::CacheEntry>>> {
+		self.touch_cache_entries(ids, touched_at).await
 	}
 
 	async fn touch_objects(

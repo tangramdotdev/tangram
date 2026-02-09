@@ -1,11 +1,36 @@
 use {
 	super::{Db, Index, Key, Request, Response},
-	crate::{Object, Process},
+	crate::{CacheEntry, Object, Process},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	tangram_client::prelude::*,
 };
 
 impl Index {
+	pub async fn touch_cache_entries(
+		&self,
+		ids: &[tg::artifact::Id],
+		touched_at: i64,
+	) -> tg::Result<Vec<Option<CacheEntry>>> {
+		if ids.is_empty() {
+			return Ok(vec![]);
+		}
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request::TouchCacheEntries {
+			ids: ids.to_vec(),
+			touched_at,
+		};
+		self.sender_high
+			.send((request, sender))
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+		let response = receiver
+			.await
+			.map_err(|_| tg::error!("the task panicked"))??;
+		let Response::CacheEntries(cache_entries) = response else {
+			return Err(tg::error!("unexpected response"));
+		};
+		Ok(cache_entries)
+	}
+
 	pub async fn touch_objects(
 		&self,
 		ids: &[tg::object::Id],
@@ -54,6 +79,34 @@ impl Index {
 			return Err(tg::error!("unexpected response"));
 		};
 		Ok(processes)
+	}
+
+	pub(super) fn task_touch_cache_entries(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		ids: &[tg::artifact::Id],
+		touched_at: i64,
+	) -> tg::Result<Vec<Option<CacheEntry>>> {
+		let mut outputs = Vec::with_capacity(ids.len());
+		for id in ids {
+			let key = Key::CacheEntry(id.clone());
+			let key = Self::pack(subspace, &key);
+			let existing = db
+				.get(transaction, &key)
+				.map_err(|source| tg::error!(!source, %id, "failed to get the cache entry"))?;
+			let existing = existing.map(CacheEntry::deserialize).transpose()?;
+			let Some(mut cache_entry) = existing else {
+				outputs.push(None);
+				continue;
+			};
+			cache_entry.touched_at = cache_entry.touched_at.max(touched_at);
+			let value = cache_entry.serialize()?;
+			db.put(transaction, &key, &value)
+				.map_err(|source| tg::error!(!source, %id, "failed to put the cache entry"))?;
+			outputs.push(Some(cache_entry));
+		}
+		Ok(outputs)
 	}
 
 	pub(super) fn task_touch_objects(
