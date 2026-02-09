@@ -448,7 +448,7 @@ pub trait Tag: Clone + Unpin + Send + Sync + 'static {
 
 	fn post_tag_batch(
 		&self,
-		arg: tg::tag::post::Arg,
+		arg: tg::tag::batch::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn delete_tag(
@@ -1017,7 +1017,7 @@ impl tg::handle::Tag for tg::Client {
 
 	fn post_tag_batch(
 		&self,
-		arg: tg::tag::post::Arg,
+		arg: tg::tag::batch::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		self.post_tag_batch(arg)
 	}

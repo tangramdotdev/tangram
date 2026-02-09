@@ -861,7 +861,7 @@ where
 		}
 	}
 
-	fn post_tag_batch(&self, arg: tg::tag::post::Arg) -> impl Future<Output = tg::Result<()>> {
+	fn post_tag_batch(&self, arg: tg::tag::batch::Arg) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			tg::Either::Left(s) => s.post_tag_batch(arg).left_future(),
 			tg::Either::Right(s) => s.post_tag_batch(arg).right_future(),

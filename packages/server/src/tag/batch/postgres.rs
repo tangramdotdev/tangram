@@ -7,7 +7,7 @@ use {
 impl Server {
 	pub(crate) async fn post_tag_batch_postgres(
 		database: &db::postgres::Database,
-		arg: &tg::tag::post::Arg,
+		arg: &tg::tag::batch::Arg,
 	) -> tg::Result<()> {
 		// Get a database connection.
 		let mut connection = database
@@ -21,7 +21,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
-		for tg::tag::post::Item { tag, item, force } in &arg.tags {
+		for tg::tag::batch::Item { tag, item, force } in &arg.tags {
 			let arg = tg::tag::put::Arg {
 				force: *force,
 				item: item.clone(),

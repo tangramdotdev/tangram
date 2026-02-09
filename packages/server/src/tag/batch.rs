@@ -14,7 +14,7 @@ impl Server {
 	pub(crate) async fn post_tag_batch_with_context(
 		&self,
 		context: &Context,
-		arg: tg::tag::post::Arg,
+		arg: tg::tag::batch::Arg,
 	) -> tg::Result<()> {
 		// Forward to remote if requested.
 		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
@@ -22,7 +22,7 @@ impl Server {
 				.get_remote_client(remote)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
-			let arg = tg::tag::post::Arg {
+			let arg = tg::tag::batch::Arg {
 				local: None,
 				remotes: None,
 				tags: arg.tags,

@@ -591,7 +591,7 @@ impl tg::handle::Tag for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.put_tag(tag, arg)) }
 	}
 
-	fn post_tag_batch(&self, arg: tg::tag::post::Arg) -> impl Future<Output = tg::Result<()>> {
+	fn post_tag_batch(&self, arg: tg::tag::batch::Arg) -> impl Future<Output = tg::Result<()>> {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.post_tag_batch(arg)) }
 	}
 

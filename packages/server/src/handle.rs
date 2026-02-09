@@ -437,7 +437,7 @@ impl tg::handle::Tag for Owned {
 		self.0.put_tag(tag, arg).await
 	}
 
-	async fn post_tag_batch(&self, arg: tg::tag::post::Arg) -> tg::Result<()> {
+	async fn post_tag_batch(&self, arg: tg::tag::batch::Arg) -> tg::Result<()> {
 		self.0.post_tag_batch(arg).await
 	}
 
@@ -943,7 +943,7 @@ impl tg::handle::Tag for Server {
 			.await
 	}
 
-	async fn post_tag_batch(&self, arg: tg::tag::post::Arg) -> tg::Result<()> {
+	async fn post_tag_batch(&self, arg: tg::tag::batch::Arg) -> tg::Result<()> {
 		self.post_tag_batch_with_context(&Context::default(), arg)
 			.await
 	}
@@ -1428,7 +1428,7 @@ impl tg::handle::Tag for ServerWithContext {
 		self.0.put_tag_with_context(&self.1, tag, arg).await
 	}
 
-	async fn post_tag_batch(&self, arg: tg::tag::post::Arg) -> tg::Result<()> {
+	async fn post_tag_batch(&self, arg: tg::tag::batch::Arg) -> tg::Result<()> {
 		self.0.post_tag_batch_with_context(&self.1, arg).await
 	}
 

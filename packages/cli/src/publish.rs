@@ -217,14 +217,14 @@ impl Cli {
 		// Put tags on the remote.
 		let tags = tags
 			.into_iter()
-			.map(|(tag, item)| tg::tag::post::Item {
+			.map(|(tag, item)| tg::tag::batch::Item {
 				tag,
 				item: tg::Either::Left(item),
 				force: false,
 			})
 			.collect::<Vec<_>>();
 		handle
-			.post_tag_batch(tg::tag::post::Arg {
+			.post_tag_batch(tg::tag::batch::Arg {
 				local: None,
 				remotes: Some(vec![remote.clone()]),
 				tags: tags.clone(),
