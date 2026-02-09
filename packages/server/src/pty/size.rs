@@ -1,10 +1,8 @@
 use {
 	crate::{Context, Server},
 	futures::{FutureExt as _, future},
-	indoc::formatdoc,
 	std::os::fd::AsRawFd,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
 	tangram_http::{Body, request::Ext as _},
 };
 
@@ -67,33 +65,32 @@ impl Server {
 	}
 
 	async fn try_get_pty_size_local(&self, id: &tg::pty::Id) -> tg::Result<Option<tg::pty::Size>> {
-		let connection = self
-			.database
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			#[tangram_database(as = "db::value::Json<tg::pty::Size>")]
-			size: tg::pty::Size,
-		}
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select size
-				from ptys
-				where id = {p}1;
-			"
-		);
-		let params = db::params![id.to_string()];
-		let Some(row) = connection
-			.query_optional_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to perform the query"))?
-		else {
+		let Some(pty) = self.ptys.get(id) else {
 			return Ok(None);
 		};
-		Ok(Some(row.size))
+		let Some(fd) = pty.master.as_ref() else {
+			return Ok(None);
+		};
+		let fd = fd.as_raw_fd();
+		let size = tokio::task::spawn_blocking(move || unsafe {
+			let mut winsize = std::mem::zeroed::<libc::winsize>();
+			let ret = libc::ioctl(fd, libc::TIOCGWINSZ, std::ptr::addr_of_mut!(winsize));
+			if ret != 0 {
+				let error = std::io::Error::last_os_error();
+				if !matches!(error.raw_os_error(), Some(libc::EBADF)) {
+					return Err(error);
+				}
+			}
+			let size = tg::pty::Size {
+				rows: winsize.ws_row,
+				cols: winsize.ws_col,
+			};
+			Ok(size)
+		})
+		.await
+		.map_err(|source| tg::error!(!source, "the task panicked"))?
+		.map_err(|source| tg::error!(!source, "failed to set the pty size"))?;
+		Ok(Some(size))
 	}
 
 	async fn try_put_pty_size_local(
@@ -135,27 +132,6 @@ impl Server {
 		.await
 		.map_err(|source| tg::error!(!source, "the task panicked"))?
 		.map_err(|source| tg::error!(!source, "failed to set the pty size"))?;
-		drop(pty);
-
-		// Update the database.
-		let connection = self
-			.database
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				update ptys
-				set size = {p}2
-				where id = {p}1;
-			"
-		);
-		let params = db::params![id.to_string(), serde_json::to_string(&size).unwrap()];
-		connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		Ok(())
 	}
