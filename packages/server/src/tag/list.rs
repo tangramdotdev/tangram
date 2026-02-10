@@ -34,7 +34,7 @@ impl Server {
 			output.data.extend(local_output.data);
 		}
 
-		// List the remote tags if requested.
+		// List the remote tags using try_get_tag instead of client.list_tags.
 		let remotes = self
 			.remotes(arg.local, arg.remotes.clone())
 			.instrument(tracing::trace_span!("get_remotes"))
@@ -43,23 +43,12 @@ impl Server {
 		let remote_outputs = remotes
 			.into_iter()
 			.map(|remote| {
-				let arg = tg::tag::list::Arg {
-					local: None,
-					remotes: None,
-					..arg.clone()
-				};
+				let arg = arg.clone();
 				let span = tracing::trace_span!("remote", %remote);
 				async move {
-					let client = self.get_remote_client(remote.clone()).await.map_err(
-						|source| tg::error!(!source, %remote, "failed to get the remote client"),
-					)?;
-					let mut output = client.list_tags(arg).await.map_err(
+					self.list_tags_remote(context, &remote, &arg).await.map_err(
 						|source| tg::error!(!source, %remote, "failed to list remote tags"),
-					)?;
-					for output in &mut output.data {
-						output.remote = Some(remote.clone());
-					}
-					Ok::<_, tg::Error>(output)
+					)
 				}
 				.instrument(span)
 			})
@@ -85,6 +74,201 @@ impl Server {
 		}
 
 		Ok(output)
+	}
+
+	/// List tags on a remote by walking the pattern tree using `try_get_tag`.
+	async fn list_tags_remote(
+		&self,
+		context: &Context,
+		remote: &str,
+		arg: &tg::tag::list::Arg,
+	) -> tg::Result<tg::tag::list::Output> {
+		// Split the pattern into an exact prefix and a filter suffix.
+		let components: Vec<&str> = if arg.pattern.is_empty() {
+			Vec::new()
+		} else {
+			arg.pattern.components().collect()
+		};
+		let split_index = components
+			.iter()
+			.position(|c| c.contains(['*', '=', '>', '<', '^']))
+			.unwrap_or(components.len());
+		let prefix_components = &components[..split_index];
+		let suffix_components = &components[split_index..];
+
+		// Build the prefix tag and fetch it with a single try_get_tag call.
+		let mut prefix_tag = tg::Tag::empty();
+		for component in prefix_components {
+			prefix_tag.push(component);
+		}
+		let get_arg = tg::tag::get::Arg {
+			local: Some(false),
+			remotes: Some(vec![remote.to_owned()]),
+			ttl: None,
+		};
+		let prefix_output = self
+			.try_get_tag_with_context(context, &prefix_tag, get_arg)
+			.await
+			.map_err(|source| {
+				tg::error!(!source, "failed to get the prefix tag from the remote")
+			})?;
+
+		// If the prefix is a leaf with no suffix, return it directly.
+		if suffix_components.is_empty() {
+			if let Some(output) = prefix_output {
+				if output.item.is_some() {
+					// This is a leaf tag. Return it as a single result.
+					return Ok(tg::tag::list::Output {
+						data: vec![tg::tag::get::Output {
+							children: None,
+							item: output.item,
+							remote: Some(remote.to_owned()),
+							tag: prefix_tag,
+						}],
+					});
+				}
+				// This is a branch tag with no suffix. Expand its children.
+				if let Some(children) = &output.children {
+					let mut data = Vec::new();
+					for child in children {
+						let mut child_tag = prefix_tag.clone();
+						child_tag.push(&child.component);
+						if child.item.is_some() {
+							data.push(tg::tag::get::Output {
+								children: None,
+								item: child.item.clone(),
+								remote: Some(remote.to_owned()),
+								tag: child_tag,
+							});
+						} else {
+							data.push(tg::tag::get::Output {
+								children: None,
+								item: None,
+								remote: Some(remote.to_owned()),
+								tag: child_tag,
+							});
+						}
+					}
+					if arg.recursive {
+						self.expand_remote_branches(context, remote, &mut data)
+							.await?;
+					}
+					return Ok(tg::tag::list::Output { data });
+				}
+			}
+			return Ok(tg::tag::list::Output { data: Vec::new() });
+		}
+
+		// The prefix output must exist and have children to continue.
+		let Some(prefix_output) = prefix_output else {
+			return Ok(tg::tag::list::Output { data: Vec::new() });
+		};
+		let Some(children) = prefix_output.children else {
+			return Ok(tg::tag::list::Output { data: Vec::new() });
+		};
+
+		// Walk the suffix components, filtering children at each level.
+		let mut current: Vec<(tg::Tag, Option<tg::Either<tg::object::Id, tg::process::Id>>)> =
+			children
+				.into_iter()
+				.filter(|child| tg::tag::pattern::matches(&child.component, suffix_components[0]))
+				.map(|child| {
+					let mut tag = prefix_tag.clone();
+					tag.push(&child.component);
+					(tag, child.item)
+				})
+				.collect();
+
+		// Process remaining suffix components.
+		for &suffix in &suffix_components[1..] {
+			let mut next = Vec::new();
+			for (tag, _item) in &current {
+				let get_arg = tg::tag::get::Arg {
+					local: Some(false),
+					remotes: Some(vec![remote.to_owned()]),
+					ttl: None,
+				};
+				let output = self
+					.try_get_tag_with_context(context, tag, get_arg)
+					.await
+					.map_err(|source| {
+						tg::error!(!source, "failed to get the tag from the remote")
+					})?;
+				if let Some(output) = output
+					&& let Some(children) = output.children
+				{
+					for child in children {
+						if tg::tag::pattern::matches(&child.component, suffix) {
+							let mut child_tag = tag.clone();
+							child_tag.push(&child.component);
+							next.push((child_tag, child.item));
+						}
+					}
+				}
+			}
+			current = next;
+		}
+
+		// Build the output.
+		let mut data: Vec<tg::tag::get::Output> = current
+			.into_iter()
+			.map(|(tag, item)| tg::tag::get::Output {
+				children: None,
+				item,
+				remote: Some(remote.to_owned()),
+				tag,
+			})
+			.collect();
+
+		// Recursively expand branches if requested.
+		if arg.recursive {
+			self.expand_remote_branches(context, remote, &mut data)
+				.await?;
+		}
+
+		Ok(tg::tag::list::Output { data })
+	}
+
+	/// Recursively expand branch tags by fetching their children from the remote.
+	async fn expand_remote_branches(
+		&self,
+		context: &Context,
+		remote: &str,
+		data: &mut Vec<tg::tag::get::Output>,
+	) -> tg::Result<()> {
+		let mut i = 0;
+		while i < data.len() {
+			if data[i].item.is_none() {
+				let tag = data[i].tag.clone();
+				let get_arg = tg::tag::get::Arg {
+					local: Some(false),
+					remotes: Some(vec![remote.to_owned()]),
+					ttl: None,
+				};
+				let output = self
+					.try_get_tag_with_context(context, &tag, get_arg)
+					.await
+					.map_err(|source| {
+						tg::error!(!source, "failed to get the tag from the remote")
+					})?;
+				if let Some(output) = output
+					&& let Some(children) = output.children
+				{
+					for child in children {
+						let mut child_tag = tag.clone();
+						child_tag.push(&child.component);
+						data.push(tg::tag::get::Output {
+							children: None,
+							item: child.item,
+							remote: Some(remote.to_owned()),
+							tag: child_tag,
+						});
+					}
+				}
+			}
+			i += 1;
+		}
+		Ok(())
 	}
 
 	async fn list_tags_local(&self, arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {

@@ -23,6 +23,7 @@ impl Cli {
 		let arg = tg::tag::get::Arg {
 			local: args.local.local,
 			remotes: args.remotes.remotes,
+			ttl: None,
 		};
 		let output = handle
 			.get_tag(&args.tag, arg)

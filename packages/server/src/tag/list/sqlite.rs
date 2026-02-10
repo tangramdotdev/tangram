@@ -79,9 +79,10 @@ impl Server {
 			}
 			let statement = indoc!(
 				"
-					select id, component, item
-					from tags
-					where parent = ?1;
+					select tags.id, tags.component, tags.item
+					from tag_children
+					join tags on tag_children.child = tags.id
+					where tag_children.tag = ?1 and tags.remote is null;
 				"
 			);
 			let mut statement = cache
@@ -162,14 +163,15 @@ impl Server {
 			item: Option<tg::Either<tg::object::Id, tg::process::Id>>,
 		}
 
-		// If the pattern is empty, return all root-level tags.
+		// If the pattern is empty, return all root-level local tags.
 		if pattern.is_empty() {
 			let _span = tracing::trace_span!("query_root_tags").entered();
 			let statement = indoc!(
 				"
-					select id, component, item
-					from tags
-					where parent = 0;
+					select tags.id, tags.component, tags.item
+					from tag_children
+					join tags on tag_children.child = tags.id
+					where tag_children.tag = 0 and tags.remote is null;
 				"
 			);
 			let mut statement = cache
@@ -205,9 +207,10 @@ impl Server {
 					let _span = tracing::trace_span!("query_wildcard_children").entered();
 					let statement = indoc!(
 						"
-							select id, component, item
-							from tags
-							where parent = ?1;
+							select tags.id, tags.component, tags.item
+							from tag_children
+							join tags on tag_children.child = tags.id
+							where tag_children.tag = ?1 and tags.remote is null;
 						"
 					);
 					let mut statement = cache
@@ -238,9 +241,10 @@ impl Server {
 					let _span = tracing::trace_span!("query_version_children").entered();
 					let statement = indoc!(
 						"
-							select id, component, item
-							from tags
-							where parent = ?1;
+							select tags.id, tags.component, tags.item
+							from tag_children
+							join tags on tag_children.child = tags.id
+							where tag_children.tag = ?1 and tags.remote is null;
 						"
 					);
 					let mut statement = cache
@@ -273,9 +277,10 @@ impl Server {
 					let _span = tracing::trace_span!("query_exact_match").entered();
 					let statement = indoc!(
 						"
-							select id, item
-							from tags
-							where parent = ?1 and component = ?2;
+							select tags.id, tags.item
+							from tag_children
+							join tags on tag_children.child = tags.id
+							where tag_children.tag = ?1 and tags.component = ?2 and tags.remote is null;
 						"
 					);
 					let mut statement = cache
@@ -323,9 +328,10 @@ impl Server {
 					// This is a branch tag, get its children.
 					let statement = indoc!(
 						"
-							select id, component, item
-							from tags
-							where parent = ?1;
+							select tags.id, tags.component, tags.item
+							from tag_children
+							join tags on tag_children.child = tags.id
+							where tag_children.tag = ?1 and tags.remote is null;
 						"
 					);
 					let mut statement = cache

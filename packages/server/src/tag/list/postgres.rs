@@ -67,9 +67,10 @@ impl Server {
 			// This is a branch tag, get its children.
 			let statement = indoc!(
 				"
-					select id, component, item
-					from tags
-					where parent = $1;
+					select tags.id, tags.component, tags.item
+					from tag_children
+					join tags on tag_children.child = tags.id
+					where tag_children.tag = $1 and tags.remote is null;
 				"
 			);
 			let rows = async {
@@ -135,13 +136,14 @@ impl Server {
 		pattern: &tg::tag::Pattern,
 		recursive: bool,
 	) -> tg::Result<Vec<Match>> {
-		// If the pattern is empty, return all root-level tags.
+		// If the pattern is empty, return all root-level local tags.
 		if pattern.is_empty() {
 			let statement = indoc!(
 				"
-					select id, component, item
-					from tags
-					where parent = 0;
+					select tags.id, tags.component, tags.item
+					from tag_children
+					join tags on tag_children.child = tags.id
+					where tag_children.tag = 0 and tags.remote is null;
 				"
 			);
 			let rows = async { transaction.inner().query(statement, &[]).await }
@@ -176,9 +178,10 @@ impl Server {
 				if pattern == "*" {
 					let statement = indoc!(
 						"
-							select id, component, item
-							from tags
-							where parent = $1;
+							select tags.id, tags.component, tags.item
+							from tag_children
+							join tags on tag_children.child = tags.id
+							where tag_children.tag = $1 and tags.remote is null;
 						"
 					);
 					let rows = async {
@@ -211,9 +214,10 @@ impl Server {
 				} else if pattern.contains(['=', '>', '<', '^']) {
 					let statement = indoc!(
 						"
-							select id, component, item
-							from tags
-							where parent = $1;
+							select tags.id, tags.component, tags.item
+							from tag_children
+							join tags on tag_children.child = tags.id
+							where tag_children.tag = $1 and tags.remote is null;
 						"
 					);
 					let rows = async {
@@ -251,9 +255,10 @@ impl Server {
 				} else {
 					let statement = indoc!(
 						"
-							select id, item
-							from tags
-							where parent = $1 and component = $2;
+							select tags.id, tags.item
+							from tag_children
+							join tags on tag_children.child = tags.id
+							where tag_children.tag = $1 and tags.component = $2 and tags.remote is null;
 						"
 					);
 					let rows = async {
@@ -302,9 +307,10 @@ impl Server {
 					// This is a branch tag, get its children.
 					let statement = indoc!(
 						"
-							select id, component, item
-							from tags
-							where parent = $1;
+							select tags.id, tags.component, tags.item
+							from tag_children
+							join tags on tag_children.child = tags.id
+							where tag_children.tag = $1 and tags.remote is null;
 						"
 					);
 					let rows = async {

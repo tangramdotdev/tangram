@@ -63,6 +63,10 @@ pub struct Config {
 	#[serde(default)]
 	pub sync: Sync,
 
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	#[serde(default = "default_tag_cache_ttl")]
+	pub tag_cache_ttl: Duration,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub version: Option<String>,
 
@@ -511,6 +515,7 @@ impl Default for Config {
 			runner: Some(Runner::default()),
 			store: Store::default(),
 			sync: Sync::default(),
+			tag_cache_ttl: default_tag_cache_ttl(),
 			version: None,
 			vfs: None,
 			watch: Some(Watch::default()),
@@ -826,6 +831,10 @@ fn default_indexer() -> Option<Indexer> {
 #[expect(clippy::unnecessary_wraps)]
 fn default_runner() -> Option<Runner> {
 	Some(Runner::default())
+}
+
+fn default_tag_cache_ttl() -> Duration {
+	Duration::from_secs(600)
 }
 
 #[expect(clippy::unnecessary_wraps)]

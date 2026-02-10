@@ -14,12 +14,23 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<CommaSeparatedString>")]
 	pub remotes: Option<Vec<String>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ttl: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Hash, serde::Deserialize, serde::Serialize)]
+pub struct Child {
+	pub component: String,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub item: Option<tg::Either<tg::object::Id, tg::process::Id>>,
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Hash, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub children: Option<Vec<String>>,
+	pub children: Option<Vec<Child>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub item: Option<tg::Either<tg::object::Id, tg::process::Id>>,
