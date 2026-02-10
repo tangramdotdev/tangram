@@ -1,8 +1,8 @@
 createdb -U postgres -h localhost database
 psql -U postgres -h localhost -d database -f packages/server/src/database/postgres.sql
 
-nats stream create finish --discard new --retention work --subjects finish --defaults
-nats consumer create finish finish --deliver all --max-pending 1000000 --pull --defaults
+nats stream create finalize --discard new --retention work --subjects finalize --defaults
+nats consumer create finalize finalize --deliver all --max-pending 1000000 --pull --defaults
 
 nats stream create queue --discard new --retention work --subjects  queue --defaults
 nats consumer create queue queue --deliver all --max-pending 1000000 --pull --defaults

@@ -713,8 +713,8 @@ export def --env spawn [
 		let cluster = mktemp -t
 		"docker:docker@localhost:4500" | save -f $cluster
 
-		nats stream create $'finish_($id)' --discard new --retention work --subjects $'($id).finish' --defaults
-		nats consumer create $'finish_($id)' finish --deliver all --max-pending 1000000 --pull --defaults
+		nats stream create $'finalize_($id)' --discard new --retention work --subjects $'($id).finish' --defaults
+		nats consumer create $'finalize_($id)' finish --deliver all --max-pending 1000000 --pull --defaults
 		nats stream create $'queue_($id)' --discard new --retention work --subjects $'($id).queue' --defaults
 		nats consumer create $'queue_($id)' queue --deliver all --max-pending 1000000 --pull --defaults
 
@@ -855,8 +855,8 @@ def clean_databases [id: string] {
 	try { fdbcli -C $cluster --exec $'writemode on; clearrange "($id)" "($id)\xff"' }
 
 	# Remove the NATS streams and consumers.
-	try { nats consumer rm -f $'finish_($id)' finish }
-	try { nats stream rm -f $'finish_($id)' }
+	try { nats consumer rm -f $'finalize_($id)' finish }
+	try { nats stream rm -f $'finalize_($id)' }
 	try { nats consumer rm -f $'queue_($id)' queue }
 	try { nats stream rm -f $'queue_($id)' }
 
