@@ -17,6 +17,8 @@ impl Server {
 		if arg.objects.is_empty() {
 			return Ok(());
 		}
+		// Guard against concurrent cleans.
+		let _guard = self.clean_guard().await;
 
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
@@ -74,6 +76,7 @@ impl Server {
 			.spawn(|_| {
 				let server = self.clone();
 				async move {
+					let _guard = server.clean_guard().await;
 					if let Err(error) = server
 						.index
 						.put(tangram_index::PutArg {

@@ -46,6 +46,9 @@ impl Server {
 			let server = self.clone();
 			let progress = progress.clone();
 			|_| async move {
+				// Guard against concurrent cleans.
+				let _guard = server.clean_guard().await;
+
 				// Ensure the artifact is stored.
 				let result = server
 					.cache_ensure_stored(&artifacts, &progress)
@@ -903,6 +906,7 @@ impl Server {
 			.spawn(|_| {
 				let server = self.clone();
 				async move {
+					let _guard = server.clean_guard().await;
 					if let Err(error) = server
 						.index
 						.put(tangram_index::PutArg {

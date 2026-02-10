@@ -89,7 +89,8 @@ pub struct State {
 	library: Mutex<Option<Arc<Temp>>>,
 	#[cfg_attr(not(feature = "js"), expect(dead_code))]
 	local_pool_handle: OnceLock<tokio_util::task::LocalPoolHandle>,
-	lock: Mutex<Option<tokio::fs::File>>,
+	file_lock: Mutex<Option<tokio::fs::File>>,
+	clean_lock: tokio::sync::RwLock<()>,
 	messenger: Messenger,
 	path: PathBuf,
 	pipes: DashMap<tg::pipe::Id, pipe::Pipe, tg::id::BuildHasher>,
@@ -193,7 +194,10 @@ impl Server {
 		lock.write_all(pid.to_string().as_bytes())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write the pid to the lock file"))?;
-		let lock = Mutex::new(Some(lock));
+		let file_lock = Mutex::new(Some(lock));
+
+		// Read-write lock.
+		let rw_lock = tokio::sync::RwLock::new(());
 
 		// Verify the version file.
 		let version_path = path.join("version");
@@ -537,7 +541,8 @@ impl Server {
 			index_tasks,
 			library,
 			local_pool_handle,
-			lock,
+			file_lock,
+			clean_lock: rw_lock,
 			messenger,
 			path,
 			pipes,
@@ -958,7 +963,7 @@ impl Server {
 				tracing::trace!("temps");
 
 				// Unlock.
-				let lock = server.lock.lock().unwrap().take();
+				let lock = server.file_lock.lock().unwrap().take();
 				if let Some(lock) = lock {
 					lock.set_len(0).await.ok();
 					tracing::trace!("released lock file");
@@ -1119,6 +1124,13 @@ impl Server {
 		}
 		let output = self.list_remotes(tg::remote::list::Arg::default()).await?;
 		Ok(output.data.into_iter().map(|r| r.name).collect())
+	}
+
+	pub async fn clean_guard(&self) -> Option<tokio::sync::RwLockReadGuard<'_, ()>> {
+		if !self.config().advanced.single_process {
+			return None;
+		}
+		Some(self.clean_lock.read().await)
 	}
 }
 

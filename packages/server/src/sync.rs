@@ -60,6 +60,9 @@ impl Server {
 			return Ok(stream.boxed());
 		}
 
+		// Guard against concurrent cleans.
+		let _guard = self.clean_guard().await;
+
 		// Create the task.
 		let (sender, receiver) = tokio::sync::mpsc::channel(4096);
 		let task = Task::spawn({

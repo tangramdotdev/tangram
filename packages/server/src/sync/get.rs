@@ -153,6 +153,8 @@ impl Server {
 						let server = self.clone();
 						|_| {
 							async move {
+								// Guard against concurrent cleans.
+								let _guard = server.clean_guard().await;
 								let result = server.sync_get_index_put(graph).await;
 								if let Err(error) = result {
 									tracing::error!(error = %error.trace());
