@@ -347,12 +347,14 @@ impl Server {
 				let id: i64 = row.get(0);
 				parent = id;
 			} else {
-				// Insert a new tag node.
-				let item_str = if i + 1 == component_count {
+				// Insert a new tag node. Only set cached_at for the leaf node.
+				let is_leaf = i + 1 == component_count;
+				let item_str = if is_leaf {
 					output.item.as_ref().map(ToString::to_string)
 				} else {
 					None
 				};
+				let cached_at: Option<i64> = if is_leaf { Some(now) } else { None };
 				let statement = indoc!(
 					"
 						insert into tags (cached_at, component, item, remote)
@@ -364,7 +366,7 @@ impl Server {
 					.inner()
 					.query(
 						statement,
-						&[&now, &component.to_string(), &item_str, &remote_str],
+						&[&cached_at, &component.to_string(), &item_str, &remote_str],
 					)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -418,21 +420,38 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 				if let Some(row) = rows.first() {
+					// Update the existing child. Only update cached_at for leaf children.
 					let child_id: i64 = row.get(0);
 					let item_str = child.item.as_ref().map(ToString::to_string);
-					let statement = indoc!(
-						"
-							update tags set cached_at = $1, item = $2
-							where id = $3;
-						"
-					);
-					transaction
-						.inner()
-						.execute(statement, &[&now, &item_str, &child_id])
-						.await
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					if child.item.is_some() {
+						let statement = indoc!(
+							"
+								update tags set cached_at = $1, item = $2
+								where id = $3;
+							"
+						);
+						transaction
+							.inner()
+							.execute(statement, &[&now, &item_str, &child_id])
+							.await
+							.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					} else {
+						let statement = indoc!(
+							"
+								update tags set item = $1
+								where id = $2;
+							"
+						);
+						transaction
+							.inner()
+							.execute(statement, &[&item_str, &child_id])
+							.await
+							.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					}
 				} else {
+					// Insert a new child node. Only set cached_at for leaf children.
 					let item_str = child.item.as_ref().map(ToString::to_string);
+					let cached_at: Option<i64> = if child.item.is_some() { Some(now) } else { None };
 					let statement = indoc!(
 						"
 							insert into tags (cached_at, component, item, remote)
@@ -442,7 +461,7 @@ impl Server {
 					);
 					let rows = transaction
 						.inner()
-						.query(statement, &[&now, &child.component, &item_str, &remote_str])
+						.query(statement, &[&cached_at, &child.component, &item_str, &remote_str])
 						.await
 						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 					let new_id: i64 = rows.first().unwrap().get(0);

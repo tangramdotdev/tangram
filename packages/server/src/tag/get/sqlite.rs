@@ -356,12 +356,14 @@ impl Server {
 				// Need to drop the rows/statement before executing the insert.
 				drop(rows);
 
-				// Insert a new tag node.
-				let item_str = if i + 1 == component_count {
+				// Insert a new tag node. Only set cached_at for the leaf node.
+				let is_leaf = i + 1 == component_count;
+				let item_str = if is_leaf {
 					output.item.as_ref().map(ToString::to_string)
 				} else {
 					None
 				};
+				let cached_at: Option<i64> = if is_leaf { Some(now) } else { None };
 				let statement = indoc!(
 					"
 						insert into tags (cached_at, component, item, remote)
@@ -371,7 +373,7 @@ impl Server {
 				let mut statement = cache
 					.get(connection, statement.into())
 					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-				let params = sqlite::params![now, component.to_string(), item_str, remote];
+				let params = sqlite::params![cached_at, component.to_string(), item_str, remote];
 				statement
 					.execute(params)
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -436,30 +438,47 @@ impl Server {
 					.next()
 					.map_err(|source| tg::error!(!source, "failed to get the next row"))?
 				{
-					// Update the cached_at timestamp and item.
+					// Update the existing child. Only update cached_at for leaf children.
 					let child_id: i64 = row
 						.get(0)
 						.map_err(|source| tg::error!(!source, "failed to get the id"))?;
 					drop(rows);
 					let item_str = child.item.as_ref().map(ToString::to_string);
-					let statement = indoc!(
-						"
-							update tags set cached_at = ?1, item = ?2
-							where id = ?3;
-						"
-					);
-					let mut statement = cache
-						.get(connection, statement.into())
-						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-					let params = sqlite::params![now, item_str, child_id];
-					statement
-						.execute(params)
-						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					if child.item.is_some() {
+						let statement = indoc!(
+							"
+								update tags set cached_at = ?1, item = ?2
+								where id = ?3;
+							"
+						);
+						let mut statement = cache
+							.get(connection, statement.into())
+							.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+						let params = sqlite::params![now, item_str, child_id];
+						statement
+							.execute(params)
+							.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					} else {
+						let statement = indoc!(
+							"
+								update tags set item = ?1
+								where id = ?2;
+							"
+						);
+						let mut statement = cache
+							.get(connection, statement.into())
+							.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+						let params = sqlite::params![item_str, child_id];
+						statement
+							.execute(params)
+							.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					}
 				} else {
 					drop(rows);
 
-					// Insert a new child node.
+					// Insert a new child node. Only set cached_at for leaf children.
 					let item_str = child.item.as_ref().map(ToString::to_string);
+					let cached_at: Option<i64> = if child.item.is_some() { Some(now) } else { None };
 					let statement = indoc!(
 						"
 							insert into tags (cached_at, component, item, remote)
@@ -469,7 +488,7 @@ impl Server {
 					let mut statement = cache
 						.get(connection, statement.into())
 						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-					let params = sqlite::params![now, &child.component, item_str, remote];
+					let params = sqlite::params![cached_at, &child.component, item_str, remote];
 					statement
 						.execute(params)
 						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
