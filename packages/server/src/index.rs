@@ -361,7 +361,7 @@ impl Server {
 						.ok();
 				},
 				Err(error) => {
-					tracing::error!(?error, "failed to index");
+					tracing::error!(error = %error.trace(), "failed to index");
 					tokio::time::sleep(Duration::from_secs(1)).await;
 				},
 			}

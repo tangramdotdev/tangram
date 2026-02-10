@@ -587,7 +587,7 @@ where
 				Ok::<_, tg::Error>(())
 			}
 			.inspect_err(|error| {
-				tracing::error!(?error);
+				tracing::error!(error = %error.trace());
 			})
 		}
 	});

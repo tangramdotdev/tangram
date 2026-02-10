@@ -143,7 +143,7 @@ impl Server {
 						|source| tg::error!(!source, %artifact, "failed to ensure the artifact is stored"),
 					);
 				if let Err(error) = result {
-					tracing::warn!(?error);
+					tracing::warn!(error = %error.trace());
 					progress.log(
 						Some(tg::progress::Level::Warning),
 						"failed to ensure the artifact is stored".into(),

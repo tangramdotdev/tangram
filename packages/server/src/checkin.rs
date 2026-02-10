@@ -477,7 +477,7 @@ impl Server {
 					}
 					.map(|result| {
 						if let Err(error) = result {
-							tracing::error!(?error, "the index task failed");
+							tracing::error!(error = %error.trace(), "the index task failed");
 						}
 					})
 				}

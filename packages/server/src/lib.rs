@@ -565,7 +565,7 @@ impl Server {
 		if server.config().advanced.single_process {
 			let result = server.finish_unfinished_processes().await;
 			if let Err(error) = result {
-				tracing::error!(?error, "failed to finish unfinished processes");
+				tracing::error!(error = %error.trace(), "failed to finish unfinished processes");
 			}
 		}
 
@@ -611,7 +611,7 @@ impl Server {
 						.indexer_task(&config)
 						.await
 						.inspect_err(|error| {
-							tracing::error!(?error);
+							tracing::error!(error = %error.trace());
 						})
 						.ok();
 				}
@@ -627,7 +627,7 @@ impl Server {
 						.cleaner_task(&config)
 						.await
 						.inspect_err(|error| {
-							tracing::error!(?error);
+							tracing::error!(error = %error.trace());
 						})
 						.ok();
 				}
@@ -738,7 +738,7 @@ impl Server {
 				server
 					.diagnostics_task()
 					.await
-					.inspect_err(|error| tracing::error!(?error))
+					.inspect_err(|error| tracing::error!(error = %error.trace()))
 					.ok();
 			}
 		}));
@@ -752,7 +752,7 @@ impl Server {
 						.finalizer_task(&config)
 						.await
 						.inspect_err(|error| {
-							tracing::error!(?error, "the finalizer task failed");
+							tracing::error!(error = %error.trace(), "the finalizer task failed");
 						})
 						.ok();
 				}
@@ -768,7 +768,9 @@ impl Server {
 					server
 						.watchdog_task(&config)
 						.await
-						.inspect_err(|error| tracing::error!(?error, "the watchdog task failed"))
+						.inspect_err(
+							|error| tracing::error!(error = %error.trace(), "the watchdog task failed"),
+						)
 						.ok();
 				}
 			})
@@ -1004,7 +1006,7 @@ impl Server {
 						remotes: None,
 					};
 					if let Err(error) = server.finish_process(&output.id, arg).await {
-						tracing::error!(process = %output.id, ?error, "failed to finish the process");
+						tracing::error!(process = %output.id, error = %error.trace(), "failed to finish the process");
 					}
 				}
 			})

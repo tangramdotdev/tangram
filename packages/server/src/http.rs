@@ -429,7 +429,7 @@ impl Server {
 
 		// Handle an error.
 		let mut response = response.unwrap_or_else(|error| {
-			tracing::error!(?error);
+			tracing::error!(error = %error.trace());
 			let bytes = error
 				.state()
 				.object()

@@ -82,7 +82,7 @@ impl Server {
 						})
 						.await
 					{
-						tracing::error!(?error, "failed to put object batch to index");
+						tracing::error!(error = %error.trace(), "failed to put object batch to index");
 					}
 				}
 			})

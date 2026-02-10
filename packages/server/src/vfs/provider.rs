@@ -315,7 +315,7 @@ impl vfs::Provider for Provider {
 			return Ok(Vec::new());
 		};
 		let dependencies = file.dependencies(&self.server).await.map_err(|error| {
-			tracing::error!(?error, "failed to get file dependencies");
+			tracing::error!(error = %error.trace(), "failed to get file dependencies");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
 		if dependencies.is_empty() {
@@ -331,7 +331,7 @@ impl vfs::Provider for Provider {
 		};
 		if name == tg::file::DEPENDENCIES_XATTR_NAME {
 			let dependencies = file.dependencies(&self.server).await.map_err(|error| {
-				tracing::error!(?error, "failed to get file dependencies");
+				tracing::error!(error = %error.trace(), "failed to get file dependencies");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
 			if dependencies.is_empty() {
@@ -344,7 +344,7 @@ impl vfs::Provider for Provider {
 
 		if name == tg::file::MODULE_XATTR_NAME {
 			let module = file.module(&self.server).await.map_err(|error| {
-				tracing::error!(?error, "failed to get file's module");
+				tracing::error!(error = %error.trace(), "failed to get file's module");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
 			let Some(module) = module else {

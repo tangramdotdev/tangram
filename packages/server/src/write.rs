@@ -496,7 +496,7 @@ impl Server {
 						})
 						.await
 					{
-						tracing::error!(?error, "failed to index the write");
+						tracing::error!(error = %error.trace(), "failed to index the write");
 					}
 				}
 			})

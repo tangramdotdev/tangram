@@ -1,5 +1,5 @@
 use {
-	super::{Data, Id, Object},
+	super::{Data, Id, Object, Trace},
 	crate::prelude::*,
 	std::{collections::BTreeMap, sync::Arc},
 };
@@ -151,6 +151,11 @@ impl Error {
 		} else {
 			tg::Either::Left(self.state().object().unwrap().unwrap_error_ref().to_data())
 		}
+	}
+
+	#[must_use]
+	pub fn trace(&self) -> Trace<'_> {
+		super::trace::Trace(self)
 	}
 }
 

@@ -79,7 +79,7 @@ impl Server {
 					.await?;
 				Ok::<_, tg::Error>(())
 			}
-			.inspect_err(|error| tracing::error!(?error)),
+			.inspect_err(|error| tracing::error!(error = %error.trace())),
 		);
 
 		// Create the response.

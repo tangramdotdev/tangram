@@ -36,7 +36,7 @@ impl Server {
 					panic!("the stream ended")
 				},
 				Err(error) => {
-					tracing::error!(?error, "failed to get a batch of messages");
+					tracing::error!(error = %error.trace(), "failed to get a batch of messages");
 					tokio::time::sleep(Duration::from_secs(1)).await;
 					continue;
 				},
@@ -45,7 +45,7 @@ impl Server {
 			// Handle the message.
 			let result = self.finalizer_handle_message(config, message).await;
 			if let Err(error) = result {
-				tracing::error!(?error, "failed to handle the messages");
+				tracing::error!(error = %error.trace(), "failed to handle the messages");
 				tokio::time::sleep(Duration::from_secs(1)).await;
 			} else {
 				// Publish finalizer progress.
@@ -86,7 +86,7 @@ impl Server {
 				(message, acker)
 			})
 			.inspect_err(|error| {
-				tracing::error!(?error);
+				tracing::error!(error = %error.trace());
 			})
 			.filter_map(|result| future::ready(result.ok()));
 		let stream = tokio_stream::StreamExt::chunks_timeout(
@@ -111,7 +111,9 @@ impl Server {
 			self.compact_process_log(&process)
 				.boxed()
 				.await
-				.inspect_err(|error| tracing::error!(?error, %process, "failed to compact log"))
+				.inspect_err(
+					|error| tracing::error!(error = %error.trace(), %process, "failed to compact log"),
+				)
 				.ok();
 
 			// Spawn the index task.
@@ -203,7 +205,7 @@ impl Server {
 						})
 						.await
 					{
-						tracing::error!(?error, "failed to put process to index");
+						tracing::error!(error = %error.trace(), "failed to put process to index");
 					}
 				}
 			})

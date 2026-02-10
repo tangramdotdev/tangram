@@ -58,7 +58,7 @@ impl Server {
 						)
 					});
 				if let Err(error) = result {
-					tracing::warn!(?error);
+					tracing::warn!(error = %error.trace());
 					progress.log(
 						Some(tg::progress::Level::Warning),
 						"failed to ensure the artifacts are stored".into(),
@@ -911,7 +911,7 @@ impl Server {
 						})
 						.await
 					{
-						tracing::error!(?error, "failed to put cache entry to index");
+						tracing::error!(error = %error.trace(), "failed to put cache entry to index");
 					}
 				}
 			})

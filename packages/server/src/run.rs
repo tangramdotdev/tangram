@@ -64,7 +64,7 @@ impl Server {
 			let process = match future::select_ok(futures).await {
 				Ok((process, _)) => process,
 				Err(error) => {
-					tracing::error!(?error, "failed to dequeue a process");
+					tracing::error!(error = %error.trace(), "failed to dequeue a process");
 					tokio::time::sleep(Duration::from_secs(1)).await;
 					continue;
 				},
@@ -77,7 +77,7 @@ impl Server {
 			};
 			let result = self.start_process(process.id(), arg.clone()).await;
 			if let Err(error) = result {
-				tracing::trace!(?error, "failed to start the process");
+				tracing::trace!(error = %error.trace(), "failed to start the process");
 				continue;
 			}
 
@@ -94,7 +94,7 @@ impl Server {
 				let process = process.clone();
 				async move { server.process_task(&process, permit).await }
 					.inspect_err(|error| {
-						tracing::error!(?error, "the process task failed");
+						tracing::error!(error = %error.trace(), "the process task failed");
 					})
 					.map(|_| ())
 			})
@@ -106,7 +106,7 @@ impl Server {
 			let process = process.clone();
 			async move { server.heartbeat_task(&process).await }
 				.inspect_err(|error| {
-					tracing::error!(?error, "the heartbeat task failed");
+					tracing::error!(error = %error.trace(), "the heartbeat task failed");
 				})
 				.map(|_| ())
 		});

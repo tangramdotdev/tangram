@@ -163,7 +163,7 @@ impl Server {
 					}
 				},
 				Err(error) => {
-					tracing::error!(?error, "failed to clean");
+					tracing::error!(error = %error.trace(), "failed to clean");
 					tokio::time::sleep(Duration::from_secs(1)).await;
 				},
 			}

@@ -131,7 +131,7 @@ impl Server {
 						})
 						.await
 					{
-						tracing::error!(?error, "failed to put process to index");
+						tracing::error!(error = %error.trace(), "failed to put process to index");
 					}
 				}
 			})

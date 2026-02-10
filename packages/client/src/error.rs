@@ -1,11 +1,12 @@
 use {crate::prelude::*, std::path::PathBuf};
 
-pub use self::{data::Error as Data, handle::Error, id::Id, object::Error as Object};
+pub use self::{data::Error as Data, handle::Error, id::Id, object::Error as Object, trace::Trace};
 
 pub mod data;
 pub mod handle;
 pub mod id;
 pub mod object;
+pub mod trace;
 
 /// An alias for `std::result::Result` that defaults to `tg::Error` as the error type.
 pub type Result<T, E = Error> = std::result::Result<T, E>;

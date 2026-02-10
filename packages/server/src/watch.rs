@@ -295,7 +295,7 @@ impl State {
 				tracing::trace!(?path, "watched");
 				let result = watcher_paths.add(path, notify::RecursiveMode::Recursive);
 				if let Err(error) = result {
-					tracing::error!(?error, ?path, "failed to watch the path");
+					tracing::error!(error = %error.trace(), ?path, "failed to watch the path");
 				}
 				self.paths.insert(path.clone());
 			}
@@ -307,7 +307,7 @@ impl State {
 				tracing::trace!(?path, "unwatched");
 				let result = watcher_paths.remove(&path);
 				if let Err(error) = result {
-					tracing::error!(?error, ?path, "failed to unwatch the path");
+					tracing::error!(error = %error.trace(), ?path, "failed to unwatch the path");
 				}
 				self.paths.remove(&path);
 			}
@@ -316,7 +316,7 @@ impl State {
 		// Commit.
 		let result = watcher_paths.commit();
 		if let Err(error) = result {
-			tracing::error!(?error, "failed to watch the paths");
+			tracing::error!(error = %error.trace(), "failed to watch the paths");
 		}
 	}
 
