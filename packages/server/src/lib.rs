@@ -484,7 +484,11 @@ impl Server {
 				deliver: tangram_messenger::DeliverPolicy::All,
 			};
 			stream
-				.create_consumer("queue".to_owned(), consumer_config)
+				.create_consumer("queue".to_owned(), consumer_config.clone())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the queue consumer"))?;
+			stream
+				.create_consumer("cycle_detector".to_owned(), consumer_config)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the queue consumer"))?;
 		}
@@ -797,13 +801,7 @@ impl Server {
 				let server = server.clone();
 				let config = config.clone();
 				async move {
-					server
-						.watchdog_task(&config)
-						.await
-						.inspect_err(
-							|error| tracing::error!(error = %error.trace(), "the watchdog task failed"),
-						)
-						.ok();
+					server.watchdog_task(&config).await;
 				}
 			})
 		});

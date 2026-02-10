@@ -83,6 +83,61 @@ begin
 end;
 $$;
 
+create or replace function get_cyclic_processes(
+	parent_ids text[],
+	child_ids text[]
+)
+returns table(process_id text, cycle_path text)
+language plpgsql
+as $$
+declare
+	i int;
+	p_id text;
+	c_id text;
+	is_cycle boolean;
+	found_path text;
+begin
+	for i in 1..coalesce(array_length(parent_ids, 1), 0) loop
+		p_id := parent_ids[i];
+		c_id := child_ids[i];
+
+		-- Check if adding c_id as a child of p_id creates a cycle by walking ancestors of p_id.
+		select exists(
+			with recursive ancestors as (
+				select p_id as ancestor_id
+				union
+				select pc.process
+				from ancestors a
+				join process_children pc on a.ancestor_id = pc.child
+			)
+			select 1 from ancestors where ancestor_id = c_id
+		) into is_cycle;
+
+		if not is_cycle then
+			continue;
+		end if;
+
+		-- Reconstruct the cycle path by walking descendants of c_id to find p_id.
+		select p_id || ' ' || r.path into found_path
+		from (
+			with recursive reachable(current_process, path) as (
+				select c_id, c_id::text
+				union
+				select pc.child, r.path || ' ' || pc.child
+				from reachable r
+				join process_children pc on r.current_process = pc.process
+				where r.path not like '%' || pc.child || '%'
+			)
+			select current_process, path from reachable where current_process = p_id limit 1
+		) r;
+
+		process_id := c_id;
+		cycle_path := found_path;
+		return next;
+	end loop;
+end;
+$$;
+
 create table process_tokens (
 	process text not null,
 	token text not null
@@ -95,7 +150,6 @@ create index process_tokens_token_index on process_tokens (token);
 create table process_children (
 	process text not null,
 	child text not null,
-	cycle int8,
 	options text,
 	position int8 not null,
 	token text
@@ -106,8 +160,6 @@ create unique index process_children_process_child_index on process_children (pr
 create index process_children_index on process_children (process, position);
 
 create index process_children_child_process_index on process_children (child, process);
-
-create index process_children_cycle_index on process_children (cycle) where cycle is null;
 
 create table remotes (
 	name text primary key,

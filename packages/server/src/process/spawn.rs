@@ -193,7 +193,8 @@ impl Server {
 				self.spawn_process_task(&process, permit, clean_guard);
 			} else {
 				let payload = crate::process::queue::Message {
-					id: output.id.clone(),
+					process: output.id.clone(),
+					parent: arg.parent.clone(),
 				};
 				self.messenger
 					.stream_publish("queue".into(), payload)
@@ -1108,19 +1109,6 @@ impl Server {
 					.publish(format!("processes.{id}.children"), ())
 					.await
 					.inspect_err(|error| tracing::error!(%error, "failed to publish"))
-					.ok();
-			}
-		});
-		tokio::spawn({
-			let server = self.clone();
-			async move {
-				server
-					.messenger
-					.publish("watchdog".into(), ())
-					.await
-					.inspect_err(|error| {
-						tracing::error!(?error, "failed to publish the watchdog message");
-					})
 					.ok();
 			}
 		});

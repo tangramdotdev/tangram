@@ -21,7 +21,10 @@ use {
 )]
 pub struct Message {
 	#[tangram_serialize(id = 0)]
-	pub id: tg::process::Id,
+	pub process: tg::process::Id,
+
+	#[tangram_serialize(id = 1)]
+	pub parent: Option<tg::process::Id>,
 }
 
 impl Server {
@@ -78,7 +81,7 @@ impl Server {
 				"
 			);
 			let now = time::OffsetDateTime::now_utc().unix_timestamp();
-			let params = db::params![payload.id.to_string(), now];
+			let params = db::params![payload.process.to_string(), now];
 			let result = connection
 				.execute(statement.into(), params)
 				.await
@@ -96,12 +99,12 @@ impl Server {
 			}
 
 			// Publish a message that the status changed.
-			let subject = format!("processes.{}.status", payload.id);
+			let subject = format!("processes.{}.status", payload.process);
 			self.messenger.publish(subject, ()).await.ok();
 
 			// Return the dequeued process.
 			let output = tg::process::queue::Output {
-				process: payload.id,
+				process: payload.process,
 			};
 
 			return Ok(Some(output));
