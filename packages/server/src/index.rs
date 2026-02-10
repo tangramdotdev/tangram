@@ -217,6 +217,9 @@ impl Server {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
+		if !self.config.advanced.single_process {
+			return Err(tg::error!("cannot index in multi process mode"));
+		}
 		let progress = crate::progress::Handle::new();
 		let task = Task::spawn({
 			let progress = progress.clone();

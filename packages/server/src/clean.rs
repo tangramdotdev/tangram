@@ -25,6 +25,13 @@ impl Server {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
+		if !self.config.advanced.single_process {
+			return Err(tg::error!("cannot clean in multi-process mode"));
+		}
+		
+		// Acquire a write guard.
+		let _guard = self.write_guard().await;
+
 		let progress = crate::progress::Handle::new();
 		let task = Task::spawn({
 			let server = self.clone();

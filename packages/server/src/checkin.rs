@@ -61,7 +61,8 @@ impl Server {
 		if let Some(process) = &context.process {
 			arg.path = process.host_path_for_guest_path(arg.path.clone());
 		}
-
+		let _guard = self.read_guard().await;
+		
 		// Validate and canonicalize the path.
 		if !arg.path.is_absolute() {
 			return Err(tg::error!(path = ?arg.path, "the path must be absolute"));
