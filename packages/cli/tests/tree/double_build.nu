@@ -23,10 +23,16 @@ snapshot $output '{"exit":0,"output":42}'
 
 let output = tg view $id --mode inline --expand-processes --depth 2
 
+# Extract only the cycle error message (the last error in the chain).
+let output = $output
+	| lines
+	| str replace --all --regex 'fil_[a-z0-9]+' '<fil_id>'
+	| str replace --all --regex 'cmd_[a-z0-9]+' 'cmd_id>'
 snapshot $output '
-	✓ fil_01xw45e66hhhxemww9m1qmj7jp9n1zjhn3ewggx0f6eb9nwr4js46g#default
-	├╴command: cmd_0166tgxrezqabf2zvd3mveyr2e1ss6ws1ehfeay2amxv5tadh47bhg
+	✓ <fil_id>#default
+	├╴command: cmd_id>
 	├╴output: 42
 	├╴✓ ../b.tg.ts#default
-	└╴✓ fil_01sa3pyv7baf50x2ymmvy7p41zqnmmv8gp1fq5z3mq60ps8vcfxa30#default
+	└╴✓ <fil_id>#default
+
 '

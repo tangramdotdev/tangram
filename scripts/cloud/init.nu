@@ -6,6 +6,7 @@ nats consumer create finalize finalize --deliver all --max-pending 1000000 --pul
 
 nats stream create queue --discard new --retention work --subjects  queue --defaults
 nats consumer create queue queue --deliver all --max-pending 1000000 --pull --defaults
+nats consumer create queue cycle_detector --deliver all --max-pending 1000000 --pull --defaults
 
 cqlsh -e r#'create keyspace store with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };'#
 cqlsh -k store -f packages/store/src/scylla.cql
