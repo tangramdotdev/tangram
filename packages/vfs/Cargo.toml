@@ -22,6 +22,7 @@ async-channel = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
 futures = { workspace = true }
+io-uring = "0.7"
 libc = { workspace = true }
 num = { workspace = true }
 tangram_either = { workspace = true }

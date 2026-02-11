@@ -2794,6 +2794,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "io-uring"
+version = "0.7.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fdd7bddefd0a8833b88a4b68f90dae22c7450d11b354198baee3874fd811b344"
+dependencies = [
+ "bitflags 2.10.0",
+ "cfg-if",
+ "libc",
+]
+
+[[package]]
 name = "ipnet"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6830,6 +6841,7 @@ dependencies = [
  "clap",
  "dashmap",
  "futures",
+ "io-uring",
  "libc",
  "num",
  "tangram_either",
