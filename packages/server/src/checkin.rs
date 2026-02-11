@@ -61,7 +61,7 @@ impl Server {
 		if let Some(process) = &context.process {
 			arg.path = process.host_path_for_guest_path(arg.path.clone());
 		}
-		let _guard = self.clean_guard()?;
+		let _guard = self.try_clean_guard()?;
 
 		// Validate and canonicalize the path.
 		if !arg.path.is_absolute() {

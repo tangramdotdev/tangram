@@ -90,7 +90,7 @@ pub struct State {
 	#[cfg_attr(not(feature = "js"), expect(dead_code))]
 	local_pool_handle: OnceLock<tokio_util::task::LocalPoolHandle>,
 	file_lock: Mutex<Option<tokio::fs::File>>,
-	clean_lock: tokio::sync::RwLock<()>,
+	clean_lock: Arc<tokio::sync::RwLock<()>>,
 	messenger: Messenger,
 	path: PathBuf,
 	pipes: DashMap<tg::pipe::Id, pipe::Pipe, tg::id::BuildHasher>,
@@ -140,6 +140,10 @@ struct ProcessPermit(
 );
 
 type ProcessTasks = tangram_futures::task::Map<tg::process::Id, (), (), tg::id::BuildHasher>;
+
+#[derive(Debug)]
+#[allow(dead_code)]
+struct CleanGuard(Option<tokio::sync::OwnedRwLockReadGuard<()>>);
 
 impl Owned {
 	pub fn stop(&self) {
@@ -197,7 +201,7 @@ impl Server {
 		let file_lock = Mutex::new(Some(lock));
 
 		// Read-write lock.
-		let rw_lock = tokio::sync::RwLock::new(());
+		let clean_lock = Arc::new(tokio::sync::RwLock::new(()));
 
 		// Verify the version file.
 		let version_path = path.join("version");
@@ -542,7 +546,7 @@ impl Server {
 			library,
 			local_pool_handle,
 			file_lock,
-			clean_lock: rw_lock,
+			clean_lock,
 			messenger,
 			path,
 			pipes,
@@ -1126,15 +1130,24 @@ impl Server {
 		Ok(output.data.into_iter().map(|r| r.name).collect())
 	}
 
-	pub fn clean_guard(&self) -> tg::Result<Option<tokio::sync::RwLockReadGuard<'_, ()>>> {
+	fn try_clean_guard(&self) -> tg::Result<CleanGuard> {
 		if !self.config().advanced.single_process {
-			return Ok(None);
+			return Ok(CleanGuard(None));
 		}
 		let guard = self
 			.clean_lock
-			.try_read()
+			.clone()
+			.try_read_owned()
 			.map_err(|_| tg::error!("a clean is in progress"))?;
-		Ok(Some(guard))
+		Ok(CleanGuard(Some(guard)))
+	}
+
+	async fn clean_guard(&self) -> CleanGuard {
+		if !self.config().advanced.single_process {
+			return CleanGuard(None);
+		}
+		let guard = self.clean_lock.clone().read_owned().await;
+		CleanGuard(Some(guard))
 	}
 }
 
