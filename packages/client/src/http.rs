@@ -21,12 +21,12 @@ pub(crate) type Sender =
 pub(crate) type Service = BoxCloneSyncService<http::Request<Body>, http::Response<Body>, tg::Error>;
 
 impl tg::Client {
-	pub(crate) fn service(url: &Uri, version: &str) -> (Sender, Service) {
+	#[expect(clippy::needless_pass_by_value)]
+	pub(crate) fn service(url: Uri, version: String, token: Option<String>) -> (Sender, Service) {
 		let sender = Arc::new(tokio::sync::Mutex::new(
 			None::<hyper::client::conn::http2::SendRequest<Body>>,
 		));
 		let service = tower::service_fn({
-			let url = url.clone();
 			let sender = sender.clone();
 			move |request| {
 				let url = url.clone();
@@ -61,8 +61,14 @@ impl tg::Client {
 			)
 			.insert_request_header_if_not_present(
 				http::HeaderName::from_str("x-tg-version").unwrap(),
-				http::HeaderValue::from_str(version).unwrap(),
+				http::HeaderValue::from_str(&version).unwrap(),
 			)
+			.option_layer(token.map(|token| {
+				tower_http::set_header::SetRequestHeaderLayer::if_not_present(
+					http::header::AUTHORIZATION,
+					http::HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
+				)
+			}))
 			.layer(
 				tangram_http::layer::compression::RequestCompressionLayer::new(|parts, _| {
 					let has_content_length =
@@ -454,14 +460,8 @@ impl tg::Client {
 
 	pub(crate) async fn send(
 		&self,
-		mut request: http::Request<Body>,
+		request: http::Request<Body>,
 	) -> tg::Result<http::Response<Body>> {
-		if let Some(token) = &self.token {
-			request.headers_mut().insert(
-				http::header::AUTHORIZATION,
-				http::HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
-			);
-		}
 		let future = self.service.clone().call(request);
 		let response = future
 			.await

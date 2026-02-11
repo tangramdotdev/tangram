@@ -112,6 +112,7 @@ pub struct State {
 	url: Uri,
 	sender: self::http::Sender,
 	service: self::http::Service,
+	#[expect(dead_code)]
 	token: Option<String>,
 	version: String,
 }
@@ -119,8 +120,8 @@ pub struct State {
 impl Client {
 	#[must_use]
 	pub fn new(url: Uri, version: Option<String>, token: Option<String>) -> Self {
-		let version = version.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
-		let (sender, service) = Self::service(&url, &version);
+		let version = version.unwrap_or(env!("CARGO_PKG_VERSION").to_owned());
+		let (sender, service) = Self::service(url.clone(), version.clone(), token.clone());
 		Self(Arc::new(State {
 			url,
 			sender,
