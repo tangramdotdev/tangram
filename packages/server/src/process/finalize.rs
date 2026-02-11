@@ -197,7 +197,6 @@ impl Server {
 			.spawn(|_| {
 				let server = self.clone();
 				async move {
-					let _guard = server.clean_guard().await;
 					if let Err(error) = server
 						.index
 						.put(tangram_index::PutArg {

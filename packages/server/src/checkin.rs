@@ -61,7 +61,7 @@ impl Server {
 		if let Some(process) = &context.process {
 			arg.path = process.host_path_for_guest_path(arg.path.clone());
 		}
-		let _guard = self.clean_guard().await;
+		let _guard = self.clean_guard()?;
 
 		// Validate and canonicalize the path.
 		if !arg.path.is_absolute() {
@@ -472,8 +472,6 @@ impl Server {
 				let root = root.to_owned();
 				move |_| {
 					async move {
-						// Guard against concurrent cleans.
-						let _guard = server.clean_guard().await;
 						server
 							.checkin_index(
 								&arg,

@@ -61,7 +61,7 @@ impl Server {
 		}
 
 		// Guard against concurrent cleans.
-		let _guard = self.clean_guard().await;
+		let _guard = self.clean_guard()?;
 
 		// Create the task.
 		let (sender, receiver) = tokio::sync::mpsc::channel(4096);

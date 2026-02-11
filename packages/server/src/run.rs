@@ -113,6 +113,9 @@ impl Server {
 	}
 
 	async fn process_task(&self, process: &tg::Process, permit: ProcessPermit) -> tg::Result<()> {
+		// Guard against concurrent cleans.
+		let _guard = self.clean_guard()?;
+
 		// Set the process's permit.
 		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
 		self.process_permits.insert(process.id().clone(), permit);

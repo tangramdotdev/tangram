@@ -1126,11 +1126,15 @@ impl Server {
 		Ok(output.data.into_iter().map(|r| r.name).collect())
 	}
 
-	pub async fn clean_guard(&self) -> Option<tokio::sync::RwLockReadGuard<'_, ()>> {
+	pub fn clean_guard(&self) -> tg::Result<Option<tokio::sync::RwLockReadGuard<'_, ()>>> {
 		if !self.config().advanced.single_process {
-			return None;
+			return Ok(None);
 		}
-		Some(self.clean_lock.read().await)
+		let guard = self
+			.clean_lock
+			.try_read()
+			.map_err(|_| tg::error!("a clean is in progress"))?;
+		Ok(Some(guard))
 	}
 }
 

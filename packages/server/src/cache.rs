@@ -47,7 +47,13 @@ impl Server {
 			let progress = progress.clone();
 			|_| async move {
 				// Guard against concurrent cleans.
-				let _guard = server.clean_guard().await;
+				let guard = server.clean_guard();
+				#[allow(clippy::unnecessary_unwrap, reason = "guard must not drop until the scope exits")]
+				if guard.is_err() {
+					progress.error(guard.unwrap_err());
+					progress.finish_all();
+					return;
+				}
 
 				// Ensure the artifact is stored.
 				let result = server
@@ -906,7 +912,6 @@ impl Server {
 			.spawn(|_| {
 				let server = self.clone();
 				async move {
-					let _guard = server.clean_guard().await;
 					if let Err(error) = server
 						.index
 						.put(tangram_index::PutArg {

@@ -111,6 +111,9 @@ impl Server {
 			return Err(tg::error!("expected an output"));
 		}
 
+		// Guard against concurrent cleans.
+		let _guard = self.clean_guard()?;
+
 		// Get the host.
 		let command_ = tg::Command::with_id(arg.command.item.clone());
 		let host = command_.host(self).await.ok();
