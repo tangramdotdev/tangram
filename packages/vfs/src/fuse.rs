@@ -41,9 +41,11 @@ const ENOENT: i32 = rustix::io::Errno::NOENT.raw_os_error();
 const ENOSYS: i32 = rustix::io::Errno::NOSYS.raw_os_error();
 const ERANGE: i32 = rustix::io::Errno::RANGE.raw_os_error();
 
-// Token constants for io_uring completions.
-const FUSE_READ_TOKEN: u64 = 0;
-const EVENTFD_TOKEN: u64 = 1;
+// The number of concurrent io_uring Read SQEs per worker thread.
+const READ_CONCURRENCY: u64 = 32;
+
+// Token constants for io_uring completions. Read tokens use 0..READ_CONCURRENCY-1.
+const EVENTFD_TOKEN: u64 = READ_CONCURRENCY;
 const WRITE_TOKEN_BASE: u64 = 0x1000_0000;
 
 // Linux poll event constant.
@@ -186,7 +188,7 @@ impl<P> Server<P>
 where
 	P: Provider + Send + Sync + 'static,
 {
-	pub async fn start(provider: P, path: &Path) -> Result<Self> {
+	pub async fn start(provider: P, path: &Path, num_workers: usize) -> Result<Self> {
 		// Create the server.
 		let server = Self(Arc::new(Inner {
 			provider,
@@ -204,22 +206,10 @@ where
 		// Perform the INIT handshake synchronously on the original fd.
 		let features = Self::init_handshake(fd.as_ref())?;
 
-		// Determine the number of worker threads.
-		let num_workers = std::thread::available_parallelism()
-			.map(std::num::NonZero::get)
-			.unwrap_or(4);
-
-		// Clone the fd for each worker thread via FUSE_DEV_IOC_CLONE. Each worker gets a
-		// blocking fd and a non-blocking fd for use with io_uring PollAdd.
+		// Clone the fd for each worker thread via FUSE_DEV_IOC_CLONE.
 		let mut worker_fds = Vec::with_capacity(num_workers);
 		for _ in 0..num_workers {
-			let cloned_fd = clone_fuse_fd(&fd)?;
-			let nonblock_fd = clone_fuse_fd(&fd)?;
-			rustix::fs::fcntl_setfl(
-				&nonblock_fd,
-				rustix::fs::fcntl_getfl(&nonblock_fd)? | rustix::fs::OFlags::NONBLOCK,
-			)?;
-			worker_fds.push((cloned_fd, nonblock_fd));
+			worker_fds.push(clone_fuse_fd(&fd)?);
 		}
 
 		// Create the stop flag.
@@ -231,7 +221,7 @@ where
 		// Spawn worker threads.
 		let mut worker_handles = Vec::with_capacity(num_workers);
 		let features = Arc::new(features);
-		for (worker_fd, nonblock_fd) in worker_fds {
+		for worker_fd in worker_fds {
 			let server = server.clone();
 			let stop_flag = stop_flag.clone();
 			let features = features.clone();
@@ -242,7 +232,6 @@ where
 					worker_thread_loop(
 						&server,
 						&worker_fd,
-						&nonblock_fd,
 						&original_fd,
 						&stop_flag,
 						&features,
@@ -338,7 +327,7 @@ where
 			flags: flags_lo,
 			max_background: 0,
 			congestion_threshold: 0,
-			max_write: 1024 * 1024,
+			max_write: 4096,
 			time_gran: 0,
 			max_pages: 0,
 			map_alignment: 0,
@@ -1381,11 +1370,9 @@ fn register_passthrough(fuse_fd: &OwnedFd, backing_fd: &OwnedFd) -> Result<i32> 
 }
 
 /// The worker thread event loop. Tries to use `io_uring`, and falls back to blocking reads.
-#[allow(clippy::too_many_arguments)]
 fn worker_thread_loop<P>(
 	server: &Server<P>,
 	fuse_fd: &OwnedFd,
-	nonblock_fd: &OwnedFd,
 	original_fd: &OwnedFd,
 	stop_flag: &AtomicBool,
 	features: &Features,
@@ -1393,13 +1380,11 @@ fn worker_thread_loop<P>(
 ) where
 	P: Provider + Send + Sync + 'static,
 {
-	let ring_result = io_uring::IoUring::builder().build(256);
-
-	match ring_result {
+	match io_uring::IoUring::builder().build(256) {
 		Ok(mut ring) => {
 			worker_thread_loop_uring(
 				server,
-				nonblock_fd,
+				fuse_fd,
 				original_fd,
 				stop_flag,
 				features,
@@ -1421,11 +1406,13 @@ fn worker_thread_loop<P>(
 	}
 }
 
-/// Worker thread loop using `io_uring` with `PollAdd` for FUSE and eventfd notification.
+/// Worker thread loop using `io_uring` Read/Write SQEs for all FUSE I/O. Multiple Read SQEs are
+/// kept in flight for batching: when the kernel queues several FUSE requests, their Read CQEs
+/// complete together, allowing batch processing before responses are submitted.
 #[allow(clippy::too_many_arguments)]
 fn worker_thread_loop_uring<P>(
 	server: &Server<P>,
-	nonblock_fd: &OwnedFd,
+	fuse_fd: &OwnedFd,
 	original_fd: &OwnedFd,
 	stop_flag: &AtomicBool,
 	features: &Features,
@@ -1442,41 +1429,43 @@ fn worker_thread_loop_uring<P>(
 
 	// Try to register file descriptors with io_uring for faster kernel fd lookups. Registered
 	// fds use Fixed indices instead of raw fd numbers, avoiding per-operation fd table lookups.
-	// Layout: Fixed(0) = nonblock_fd (poll + read + write), Fixed(1) = event_fd (poll).
+	// Layout: Fixed(0) = fuse_fd (read + write), Fixed(1) = event_fd (poll).
 	let use_fixed = ring
 		.submitter()
-		.register_files(&[nonblock_fd.as_raw_fd(), event_fd.as_raw_fd()])
+		.register_files(&[fuse_fd.as_raw_fd(), event_fd.as_raw_fd()])
 		.is_ok();
 
 	let (async_sender, async_receiver) =
 		crossbeam_channel::unbounded::<(u64, Result<Option<Response>>)>();
 
-	// Request buffer for non-blocking reads.
-	let mut read_buf = vec![0u8; 1024 * 1024 + 4096];
+	// Allocate one read buffer per concurrent Read SQE. The buffer only needs to hold FUSE
+	// request headers and metadata (never write data), so 64KB is more than sufficient.
+	let buf_size = 64 * 1024;
+	let mut read_bufs: Vec<Vec<u8>> = (0..READ_CONCURRENCY).map(|_| vec![0u8; buf_size]).collect();
+	let mut free_bufs: Vec<u64> = (0..READ_CONCURRENCY).collect();
 
 	// Pending writes: maps write token to the serialized response buffer.
 	let mut pending_writes: HashMap<u64, Vec<u8>> = HashMap::new();
 	let mut write_seq: u64 = 0;
 
-	// State tracking for in-flight PollAdd SQEs.
-	let mut fuse_poll_pending = false;
+	// State tracking for the in-flight eventfd PollAdd.
 	let mut eventfd_poll_pending = false;
 
 	// Helper macro to build an SQE with either a registered Fixed fd or a raw Fd, depending on
 	// whether file registration succeeded. This avoids the sealed `Target` type.
 	macro_rules! build_sqe {
+		(read, $fixed_idx:expr, $raw_fd:expr, $ptr:expr, $len:expr) => {
+			if use_fixed {
+				opcode::Read::new(types::Fixed($fixed_idx), $ptr, $len).build()
+			} else {
+				opcode::Read::new(types::Fd($raw_fd), $ptr, $len).build()
+			}
+		};
 		(poll_add, $fixed_idx:expr, $raw_fd:expr, $mask:expr) => {
 			if use_fixed {
 				opcode::PollAdd::new(types::Fixed($fixed_idx), $mask).build()
 			} else {
 				opcode::PollAdd::new(types::Fd($raw_fd), $mask).build()
-			}
-		};
-		(write, $fixed_idx:expr, $raw_fd:expr, $ptr:expr, $len:expr) => {
-			if use_fixed {
-				opcode::Write::new(types::Fixed($fixed_idx), $ptr, $len).build()
-			} else {
-				opcode::Write::new(types::Fd($raw_fd), $ptr, $len).build()
 			}
 		};
 	}
@@ -1486,16 +1475,22 @@ fn worker_thread_loop_uring<P>(
 			break;
 		}
 
-		// Submit PollAdd for the FUSE fd if not already pending.
-		if !fuse_poll_pending {
-			let sqe =
-				build_sqe!(poll_add, 0, nonblock_fd.as_raw_fd(), POLLIN).user_data(FUSE_READ_TOKEN);
+		// Submit Read SQEs for all free buffers.
+		while let Some(buf_idx) = free_bufs.pop() {
+			let buf = &mut read_bufs[buf_idx.to_usize().unwrap()];
+			let sqe = build_sqe!(
+				read,
+				0,
+				fuse_fd.as_raw_fd(),
+				buf.as_mut_ptr(),
+				buf.len().to_u32().unwrap()
+			)
+			.user_data(buf_idx);
 			unsafe {
 				ring.submission()
 					.push(&sqe)
-					.expect("failed to push FUSE PollAdd");
+					.expect("failed to push Read SQE");
 			}
-			fuse_poll_pending = true;
 		}
 
 		// Submit PollAdd for the eventfd if not already pending.
@@ -1518,59 +1513,32 @@ fn worker_thread_loop_uring<P>(
 			continue;
 		}
 
-		// Drain all completions.
+		// Drain all completions. Collect completed reads into a batch so that cache prefetching
+		// from earlier requests (e.g. readdir) benefits later ones (e.g. getattr).
+		let mut batch: Vec<Request> = Vec::new();
 		let cqes: Vec<io_uring::cqueue::Entry> = ring.completion().collect();
 		for cqe in cqes {
 			let token = cqe.user_data();
 			let result = cqe.result();
 
-			if token == FUSE_READ_TOKEN {
-				fuse_poll_pending = false;
-
+			if token < READ_CONCURRENCY {
+				// Read completion. Deserialize and add to batch, then return the buffer.
 				if result < 0 {
-					// PollAdd error. Re-submit on the next iteration.
+					let errno = -result;
+					if errno == rustix::io::Errno::NODEV.raw_os_error() {
+						return;
+					}
+					free_bufs.push(token);
 					continue;
 				}
-
-				// The FUSE fd is readable. Read requests in a loop from the non-blocking fd.
-				loop {
-					match rustix::io::read(nonblock_fd, &mut read_buf[..]) {
-						Ok(n) => {
-							let request = match Server::<P>::deserialize_request(&read_buf[..n]) {
-								Ok(r) => r,
-								Err(error) => {
-									tracing::error!(
-										%error,
-										"failed to deserialize request"
-									);
-									continue;
-								},
-							};
-
-							process_fuse_request(
-								server,
-								&request,
-								original_fd,
-								nonblock_fd,
-								features,
-								ring,
-								use_fixed,
-								&async_sender,
-								&event_fd,
-								runtime_handle,
-								&mut pending_writes,
-								&mut write_seq,
-							);
-						},
-						Err(rustix::io::Errno::AGAIN) => break,
-						Err(rustix::io::Errno::NOENT | rustix::io::Errno::INTR) => {},
-						Err(rustix::io::Errno::NODEV) => return,
-						Err(error) => {
-							tracing::error!(%error, "FUSE read error");
-							return;
-						},
-					}
+				let n = result.to_usize().unwrap();
+				match Server::<P>::deserialize_request(&read_bufs[token.to_usize().unwrap()][..n]) {
+					Ok(r) => batch.push(r),
+					Err(error) => {
+						tracing::error!(%error, "failed to deserialize request");
+					},
 				}
+				free_bufs.push(token);
 			} else if token == EVENTFD_TOKEN {
 				eventfd_poll_pending = false;
 
@@ -1578,11 +1546,11 @@ fn worker_thread_loop_uring<P>(
 				let mut buf = [0u8; 8];
 				rustix::io::read(&event_fd, &mut buf).ok();
 
-				// Drain all async results and submit write SQEs for each.
+				// Drain all async results and submit Write SQEs for each.
 				while let Ok((unique, result)) = async_receiver.try_recv() {
 					submit_response_write(
 						ring,
-						nonblock_fd,
+						fuse_fd,
 						use_fixed,
 						unique,
 						result,
@@ -1594,6 +1562,24 @@ fn worker_thread_loop_uring<P>(
 				// Write completion. Drop the buffer.
 				pending_writes.remove(&token);
 			}
+		}
+
+		// Process all batched requests, then submit their Write SQEs.
+		for request in &batch {
+			process_fuse_request(
+				server,
+				request,
+				original_fd,
+				fuse_fd,
+				features,
+				ring,
+				use_fixed,
+				&async_sender,
+				&event_fd,
+				runtime_handle,
+				&mut pending_writes,
+				&mut write_seq,
+			);
 		}
 	}
 }
@@ -1770,7 +1756,7 @@ fn worker_thread_loop_blocking<P>(
 	let event_fd = rustix::event::eventfd(0, rustix::event::EventfdFlags::NONBLOCK)
 		.expect("failed to create eventfd");
 
-	let mut buffer = vec![0u8; 1024 * 1024 + 4096];
+	let mut buffer = vec![0u8; 64 * 1024];
 
 	loop {
 		if stop_flag.load(Ordering::Relaxed) {

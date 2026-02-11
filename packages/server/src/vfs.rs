@@ -34,7 +34,7 @@ impl Server {
 
 		let vfs = match kind {
 			Kind::Fuse => {
-				let fuse = vfs::fuse::Server::start(provider, path)
+				let fuse = vfs::fuse::Server::start(provider, path, options.workers)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to start the FUSE server"))?;
 				Server::Fuse(fuse)

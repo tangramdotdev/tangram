@@ -451,6 +451,7 @@ pub struct Vfs {
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub cache_ttl: Duration,
 	pub database_connections: usize,
+	pub workers: usize,
 }
 
 #[serde_as]
@@ -773,6 +774,7 @@ impl Default for Vfs {
 			cache_size: 4096,
 			cache_ttl: Duration::from_secs(3600),
 			database_connections: 4,
+			workers: 4,
 		}
 	}
 }
