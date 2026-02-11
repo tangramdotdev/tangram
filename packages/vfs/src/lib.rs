@@ -139,8 +139,8 @@ impl Attrs {
 			atime: TimeSpec::default(),
 			mtime: TimeSpec::default(),
 			ctime: TimeSpec::default(),
-			uid: unsafe { libc::getuid() },
-			gid: unsafe { libc::getgid() },
+			uid: rustix::process::getuid().as_raw(),
+			gid: rustix::process::getgid().as_raw(),
 		}
 	}
 }

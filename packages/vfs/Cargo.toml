@@ -25,6 +25,7 @@ futures = { workspace = true }
 io-uring = "0.7"
 libc = { workspace = true }
 num = { workspace = true }
+rustix = { workspace = true, features = ["event", "net", "process"] }
 tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
 tokio = { workspace = true }

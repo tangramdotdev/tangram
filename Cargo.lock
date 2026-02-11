@@ -6844,6 +6844,7 @@ dependencies = [
  "io-uring",
  "libc",
  "num",
+ "rustix 1.1.3",
  "tangram_either",
  "tangram_futures",
  "tokio",
