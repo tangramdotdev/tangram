@@ -47,13 +47,13 @@ impl Server {
 			let progress = progress.clone();
 			|_| async move {
 				// Guard against concurrent cleans.
-				let guard = server.try_clean_guard();
+				let clean_guard = server.try_acquire_clean_guard();
 				#[allow(
 					clippy::unnecessary_unwrap,
-					reason = "guard must not drop until the scope exits"
+					reason = "clean_guard must not drop until the scope exits"
 				)]
-				if guard.is_err() {
-					progress.error(guard.unwrap_err());
+				if clean_guard.is_err() {
+					progress.error(clean_guard.unwrap_err());
 					progress.finish_all();
 					return;
 				}

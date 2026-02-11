@@ -80,6 +80,7 @@ pub struct State {
 	cache_graph_tasks: CacheGraphTasks,
 	cache_tasks: CacheTasks,
 	checkin_tasks: CheckinTasks,
+	clean_lock: Arc<tokio::sync::RwLock<()>>,
 	config: Config,
 	database: Database,
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
@@ -89,8 +90,7 @@ pub struct State {
 	library: Mutex<Option<Arc<Temp>>>,
 	#[cfg_attr(not(feature = "js"), expect(dead_code))]
 	local_pool_handle: OnceLock<tokio_util::task::LocalPoolHandle>,
-	file_lock: Mutex<Option<tokio::fs::File>>,
-	clean_lock: Arc<tokio::sync::RwLock<()>>,
+	lock: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	path: PathBuf,
 	pipes: DashMap<tg::pipe::Id, pipe::Pipe, tg::id::BuildHasher>,
@@ -127,6 +127,9 @@ type CheckinTasks = tangram_futures::task::Map<
 	fnv::FnvBuildHasher,
 >;
 
+#[derive(Debug)]
+struct CleanGuard(#[expect(dead_code)] Option<tokio::sync::OwnedRwLockReadGuard<()>>);
+
 struct Http {
 	url: Uri,
 }
@@ -140,10 +143,6 @@ struct ProcessPermit(
 );
 
 type ProcessTasks = tangram_futures::task::Map<tg::process::Id, (), (), tg::id::BuildHasher>;
-
-#[derive(Debug)]
-#[allow(dead_code)]
-struct CleanGuard(Option<tokio::sync::OwnedRwLockReadGuard<()>>);
 
 impl Owned {
 	pub fn stop(&self) {
@@ -198,9 +197,9 @@ impl Server {
 		lock.write_all(pid.to_string().as_bytes())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write the pid to the lock file"))?;
-		let file_lock = Mutex::new(Some(lock));
+		let lock = Mutex::new(Some(lock));
 
-		// Read-write lock.
+		// Create the clean lock.
 		let clean_lock = Arc::new(tokio::sync::RwLock::new(()));
 
 		// Verify the version file.
@@ -537,6 +536,7 @@ impl Server {
 			cache_graph_tasks,
 			cache_tasks,
 			checkin_tasks,
+			clean_lock,
 			config,
 			database,
 			diagnostics,
@@ -545,8 +545,7 @@ impl Server {
 			index_tasks,
 			library,
 			local_pool_handle,
-			file_lock,
-			clean_lock,
+			lock,
 			messenger,
 			path,
 			pipes,
@@ -967,7 +966,7 @@ impl Server {
 				tracing::trace!("temps");
 
 				// Unlock.
-				let lock = server.file_lock.lock().unwrap().take();
+				let lock = server.lock.lock().unwrap().take();
 				if let Some(lock) = lock {
 					lock.set_len(0).await.ok();
 					tracing::trace!("released lock file");
@@ -1130,7 +1129,7 @@ impl Server {
 		Ok(output.data.into_iter().map(|r| r.name).collect())
 	}
 
-	fn try_clean_guard(&self) -> tg::Result<CleanGuard> {
+	fn try_acquire_clean_guard(&self) -> tg::Result<CleanGuard> {
 		if !self.config().advanced.single_process {
 			return Ok(CleanGuard(None));
 		}
@@ -1142,7 +1141,7 @@ impl Server {
 		Ok(CleanGuard(Some(guard)))
 	}
 
-	async fn clean_guard(&self) -> CleanGuard {
+	async fn acquire_clean_guard(&self) -> CleanGuard {
 		if !self.config().advanced.single_process {
 			return CleanGuard(None);
 		}

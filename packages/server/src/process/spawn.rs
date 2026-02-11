@@ -112,7 +112,7 @@ impl Server {
 		}
 
 		// Guard against concurrent cleans.
-		let _guard = self.try_clean_guard()?;
+		let _clean_guard = self.try_acquire_clean_guard()?;
 
 		// Get the host.
 		let command_ = tg::Command::with_id(arg.command.item.clone());
@@ -188,8 +188,8 @@ impl Server {
 		if let Some(output) = &mut output {
 			if let Some(permit) = output.permit.take() {
 				let process = tg::Process::new(output.id.clone(), None, None, None, None);
-				let guard = self.try_clean_guard()?;
-				self.spawn_process_task(&process, permit, guard);
+				let clean_guard = self.try_acquire_clean_guard()?;
+				self.spawn_process_task(&process, permit, clean_guard);
 			} else {
 				let payload = crate::process::queue::Message {
 					id: output.id.clone(),
@@ -1154,7 +1154,7 @@ impl Server {
 					.await;
 
 				// Wait for any cleans to finish.
-				let guard = server.clean_guard().await;
+				let clean_guard = server.acquire_clean_guard().await;
 
 				// Attempt to start the process.
 				let arg = tg::process::start::Arg {
@@ -1168,7 +1168,7 @@ impl Server {
 				}
 
 				// Spawn the process task.
-				server.spawn_process_task(&process, permit, guard);
+				server.spawn_process_task(&process, permit, clean_guard);
 			}
 		});
 	}
