@@ -53,6 +53,12 @@ pub trait Provider {
 		Err(std::io::Error::from_raw_os_error(libc::ENOSYS))
 	}
 
+	/// Record one kernel lookup reference for a node.
+	fn remember_sync(&self, _id: u64) {}
+
+	/// Drop kernel lookup references for a node.
+	fn forget_sync(&self, _id: u64, _nlookup: u64) {}
+
 	/// Open a file.
 	fn open(&self, id: u64) -> impl Future<Output = Result<u64>> + Send;
 

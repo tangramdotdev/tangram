@@ -6836,9 +6836,9 @@ dependencies = [
 name = "tangram_vfs"
 version = "0.0.0"
 dependencies = [
- "async-channel",
  "bytes",
  "clap",
+ "crossbeam-channel",
  "dashmap",
  "futures",
  "io-uring",

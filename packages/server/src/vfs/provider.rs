@@ -29,6 +29,7 @@ struct MemoryNode {
 	parent: u64,
 	artifact: Option<tg::artifact::Id>,
 	depth: u64,
+	lookup_count: u64,
 	children: HashMap<String, u64, fnv::FnvBuildHasher>,
 }
 
@@ -239,6 +240,18 @@ impl vfs::Provider for Provider {
 		}
 
 		self.nodes.lookup_parent_sync(id)
+	}
+
+	fn remember_sync(&self, id: u64) {
+		self.nodes.remember(id);
+	}
+
+	fn forget_sync(&self, id: u64, nlookup: u64) {
+		let removed = self.nodes.forget(id, nlookup);
+		for id in removed {
+			self.node_cache.invalidate(&id);
+			self.pending_nodes.remove(&id);
+		}
 	}
 
 	async fn getattr(&self, id: u64) -> std::io::Result<vfs::Attrs> {
@@ -1037,6 +1050,7 @@ impl Nodes {
 				parent: vfs::ROOT_NODE_ID,
 				artifact: None,
 				depth: 0,
+				lookup_count: u64::MAX,
 				children: HashMap::default(),
 			},
 		);
@@ -1075,6 +1089,69 @@ impl Nodes {
 		})
 	}
 
+	fn remember(&self, id: u64) {
+		if id == vfs::ROOT_NODE_ID {
+			return;
+		}
+		let Some(mut node) = self.nodes.get_mut(&id) else {
+			return;
+		};
+		node.lookup_count = node.lookup_count.saturating_add(1);
+	}
+
+	fn forget(&self, id: u64, nlookup: u64) -> Vec<u64> {
+		if id == vfs::ROOT_NODE_ID || nlookup == 0 {
+			return Vec::new();
+		}
+
+		let Some(mut node) = self.nodes.get_mut(&id) else {
+			return Vec::new();
+		};
+		node.lookup_count = node.lookup_count.saturating_sub(nlookup);
+		let should_prune = node.lookup_count == 0 && node.children.is_empty();
+		drop(node);
+		if !should_prune {
+			return Vec::new();
+		}
+
+		let mut removed = Vec::new();
+		self.prune(id, &mut removed);
+		removed
+	}
+
+	fn prune(&self, mut id: u64, removed: &mut Vec<u64>) {
+		loop {
+			if id == vfs::ROOT_NODE_ID {
+				return;
+			}
+
+			let Some(node) = self.nodes.get(&id) else {
+				return;
+			};
+			if node.lookup_count != 0 || !node.children.is_empty() {
+				return;
+			}
+			let parent = node.parent;
+			drop(node);
+
+			self.nodes.remove(&id);
+			removed.push(id);
+
+			let Some(mut parent_node) = self.nodes.get_mut(&parent) else {
+				return;
+			};
+			parent_node.children.retain(|_, child_id| *child_id != id);
+			let prune_parent = parent != vfs::ROOT_NODE_ID
+				&& parent_node.lookup_count == 0
+				&& parent_node.children.is_empty();
+			drop(parent_node);
+			if !prune_parent {
+				return;
+			}
+			id = parent;
+		}
+	}
+
 	fn insert(&self, id: u64, parent: u64, name: &str, artifact: tg::artifact::Id, depth: u64) {
 		// Insert the new node.
 		self.nodes.insert(
@@ -1083,6 +1160,7 @@ impl Nodes {
 				parent,
 				artifact: Some(artifact),
 				depth,
+				lookup_count: 0,
 				children: HashMap::default(),
 			},
 		);

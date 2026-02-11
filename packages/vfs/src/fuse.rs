@@ -9,6 +9,7 @@ use {
 	io_uring::{IoUring, opcode, types},
 	num::ToPrimitive as _,
 	std::{
+		collections::HashMap,
 		ffi::CString,
 		io::Error,
 		mem::size_of,
@@ -30,6 +31,7 @@ pub struct Server<P>(Arc<Inner<P>>);
 
 pub struct Inner<P> {
 	provider: P,
+	passthrough_backing_ids: Mutex<HashMap<u64, u32>>,
 	task: Mutex<Option<tangram_futures::task::Shared<()>>>,
 }
 
@@ -43,7 +45,7 @@ struct Request {
 /// A request's data.
 #[derive(Clone, Debug)]
 enum RequestData {
-	BatchForget(sys::fuse_batch_forget_in),
+	BatchForget(sys::fuse_batch_forget_in, Vec<sys::fuse_forget_one>),
 	Destroy,
 	Flush(sys::fuse_flush_in),
 	Forget(sys::fuse_forget_in),
@@ -105,7 +107,13 @@ const IO_URING_ENTRIES: u32 = 256;
 const WORKER_READ_DEPTH: usize = 16;
 const WORKER_CQE_BATCH_SIZE: usize = 64;
 const EVENTFD_USER_DATA: u64 = u64::MAX;
+const SQPOLL_IDLE_MS: u32 = 2_000;
+const FIXED_FUSE_FD_INDEX: u32 = 0;
+const FIXED_EVENTFD_INDEX: u32 = 1;
+const EVENTFD_BUFFER_INDEX: u16 = 0;
 const FUSE_DEV_IOC_CLONE: libc::c_ulong = ior(sys::FUSE_DEV_IOC_MAGIC, 0, 4);
+const FUSE_DEV_IOC_BACKING_OPEN: libc::c_ulong = iow(sys::FUSE_DEV_IOC_MAGIC, 1, 16);
+const FUSE_DEV_IOC_BACKING_CLOSE: libc::c_ulong = iow(sys::FUSE_DEV_IOC_MAGIC, 2, 4);
 const URING_IOVEC_COUNT: u32 = 2;
 const URING_CMD_BYTES: usize = 80;
 
@@ -172,6 +180,7 @@ where
 		// Create the server.
 		let server = Self(Arc::new(Inner {
 			provider,
+			passthrough_backing_ids: Mutex::new(HashMap::default()),
 			task: Mutex::new(None),
 		}));
 
@@ -186,6 +195,12 @@ where
 		// Complete INIT before entering io_uring command mode.
 		Self::init_handshake(fd.as_ref())?;
 
+		// Create a primary SQPOLL ring. Worker rings attach to this shared backend.
+		let mut sqpoll_builder = IoUring::<io_uring::squeue::Entry128>::builder();
+		sqpoll_builder.setup_sqpoll(SQPOLL_IDLE_MS);
+		let sqpoll_ring = sqpoll_builder.build(IO_URING_ENTRIES)?;
+		let sqpoll_wq_fd = sqpoll_ring.as_raw_fd();
+
 		// Create worker threads.
 		let worker_count = std::thread::available_parallelism()
 			.map(std::num::NonZero::get)
@@ -198,7 +213,7 @@ where
 			let worker_fd = Self::clone_worker_fd(fd.as_ref())?;
 			let worker = std::thread::spawn(move || {
 				server
-					.worker_thread(worker_id, &worker_fd, &runtime)
+					.worker_thread(worker_id, &worker_fd, &runtime, sqpoll_wq_fd)
 					.inspect_err(
 						|error| tracing::error!(%error, %worker_id, "worker thread failed"),
 					)
@@ -217,6 +232,7 @@ where
 			for worker_handle in worker_handles {
 				worker_handle.join().ok();
 			}
+			drop(sqpoll_ring);
 		};
 
 		// Spawn the task.
@@ -288,6 +304,7 @@ where
 		worker_id: usize,
 		fd: &OwnedFd,
 		runtime: &tokio::runtime::Handle,
+		sqpoll_wq_fd: RawFd,
 	) -> Result<()> {
 		let qid = worker_id
 			.to_u16()
@@ -297,10 +314,13 @@ where
 			return Err(Error::last_os_error());
 		}
 		let eventfd = Arc::new(unsafe { OwnedFd::from_raw_fd(eventfd) });
-		let (sender, receiver) = async_channel::unbounded::<AsyncResponse>();
+		let (sender, receiver) = crossbeam_channel::unbounded::<AsyncResponse>();
 
-		let mut io_uring =
-			IoUring::<io_uring::squeue::Entry128>::builder().build(IO_URING_ENTRIES)?;
+		let mut builder = IoUring::<io_uring::squeue::Entry128>::builder();
+		builder
+			.setup_sqpoll(SQPOLL_IDLE_MS)
+			.setup_attach_wq(sqpoll_wq_fd);
+		let mut io_uring = builder.build(IO_URING_ENTRIES)?;
 		let mut slots = (0..WORKER_READ_DEPTH)
 			.map(|_| UringSlot::new())
 			.collect::<Vec<_>>();
@@ -308,11 +328,33 @@ where
 		let mut eventfd_inflight = false;
 		let mut eventfd_buffer = [0u8; size_of::<u64>()];
 
+		io_uring
+			.submitter()
+			.register_files(&[fd.as_raw_fd(), eventfd.as_raw_fd()])?;
+
+		let mut registered_buffers = Vec::with_capacity(1 + WORKER_READ_DEPTH * 2);
+		registered_buffers.push(libc::iovec {
+			iov_base: eventfd_buffer.as_mut_ptr().cast(),
+			iov_len: eventfd_buffer.len(),
+		});
+		for slot in &mut slots {
+			registered_buffers.push(libc::iovec {
+				iov_base: slot.iovecs.as_mut_ptr().cast(),
+				iov_len: size_of::<[libc::iovec; URING_IOVEC_COUNT as usize]>(),
+			});
+			registered_buffers.push(libc::iovec {
+				iov_base: slot.payload.as_mut_ptr().cast(),
+				iov_len: slot.payload.len(),
+			});
+		}
+		unsafe {
+			io_uring.submitter().register_buffers(&registered_buffers)?;
+		}
+
 		{
 			let mut submission = io_uring.submission();
 			for (slot, slot_data) in slots.iter().enumerate() {
 				let entry = Self::build_fuse_uring_cmd_entry(
-					fd.as_raw_fd(),
 					sys::fuse_uring_cmd_FUSE_IO_URING_CMD_REGISTER,
 					0,
 					qid,
@@ -329,10 +371,11 @@ where
 			{
 				let mut submission = io_uring.submission();
 				if !eventfd_inflight {
-					let entry: io_uring::squeue::Entry128 = opcode::Read::new(
-						types::Fd(eventfd.as_raw_fd()),
+					let entry: io_uring::squeue::Entry128 = opcode::ReadFixed::new(
+						types::Fixed(FIXED_EVENTFD_INDEX),
 						eventfd_buffer.as_mut_ptr(),
 						eventfd_buffer.len().to_u32().unwrap(),
+						EVENTFD_BUFFER_INDEX,
 					)
 					.offset(u64::MAX)
 					.build()
@@ -390,7 +433,7 @@ where
 					let request = Self::deserialize_uring_request(slots.get(slot).unwrap())?;
 					let unique = request.header.unique;
 					let opcode = request.header.opcode;
-					match self.handle_request_sync(request.clone()) {
+					match self.handle_request_sync(fd.as_raw_fd(), request.clone()) {
 						Ok(SyncRequestResult::Handled(response)) => {
 							commits.push((slot, unique, Ok(response)));
 						},
@@ -427,7 +470,6 @@ where
 			for (slot, unique, result) in commits {
 				Self::submit_commit_and_fetch(
 					&mut io_uring,
-					fd.as_raw_fd(),
 					qid,
 					slot,
 					slots.get_mut(slot).unwrap(),
@@ -439,7 +481,6 @@ where
 			if saw_eventfd || !receiver.is_empty() {
 				Self::drain_async_responses(
 					worker_id,
-					fd.as_raw_fd(),
 					qid,
 					&mut io_uring,
 					&mut slots,
@@ -451,7 +492,6 @@ where
 	}
 
 	fn build_fuse_uring_cmd_entry(
-		fd: RawFd,
 		cmd_op: u32,
 		commit_id: u64,
 		qid: u16,
@@ -466,7 +506,7 @@ where
 		};
 		let mut cmd = [0u8; URING_CMD_BYTES];
 		cmd[..size_of::<sys::fuse_uring_cmd_req>()].copy_from_slice(request.as_bytes());
-		let mut entry = opcode::UringCmd80::new(types::Fd(fd), cmd_op)
+		let mut entry = opcode::UringCmd80::new(types::Fixed(FIXED_FUSE_FD_INDEX), cmd_op)
 			.cmd(cmd)
 			.build()
 			.user_data(user_data);
@@ -487,7 +527,6 @@ where
 
 	fn submit_commit_and_fetch(
 		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
-		fd: RawFd,
 		qid: u16,
 		slot: usize,
 		slot_data: &mut UringSlot,
@@ -496,7 +535,6 @@ where
 	) -> Result<()> {
 		Self::prepare_uring_response(slot_data, unique, result)?;
 		let entry = Self::build_fuse_uring_cmd_entry(
-			fd,
 			sys::fuse_uring_cmd_FUSE_IO_URING_CMD_COMMIT_AND_FETCH,
 			unique,
 			qid,
@@ -643,7 +681,29 @@ where
 
 	fn parse_request_data(header: &fuse_in_header, data: &[u8]) -> Result<RequestData> {
 		let data = match header.opcode {
-			sys::fuse_opcode_FUSE_BATCH_FORGET => RequestData::BatchForget(read_data(data)?),
+			sys::fuse_opcode_FUSE_BATCH_FORGET => {
+				if data.len() < size_of::<sys::fuse_batch_forget_in>() {
+					return Err(Error::other("failed to deserialize request data"));
+				}
+				let (batch, entries) = data.split_at(size_of::<sys::fuse_batch_forget_in>());
+				let batch: sys::fuse_batch_forget_in = read_data(batch)?;
+				let count = batch
+					.count
+					.to_usize()
+					.ok_or_else(|| Error::other("failed to deserialize request data"))?;
+				let one_len = size_of::<sys::fuse_forget_one>();
+				let len = count
+					.checked_mul(one_len)
+					.ok_or_else(|| Error::other("failed to deserialize request data"))?;
+				if entries.len() < len {
+					return Err(Error::other("failed to deserialize request data"));
+				}
+				let entries = entries[..len]
+					.chunks_exact(one_len)
+					.map(read_data::<sys::fuse_forget_one>)
+					.collect::<Result<Vec<_>>>()?;
+				RequestData::BatchForget(batch, entries)
+			},
 			sys::fuse_opcode_FUSE_DESTROY => RequestData::Destroy,
 			sys::fuse_opcode_FUSE_FLUSH => RequestData::Flush(read_data(data)?),
 			sys::fuse_opcode_FUSE_FORGET => RequestData::Forget(read_data(data)?),
@@ -687,7 +747,7 @@ where
 		slot: usize,
 		request: Request,
 		runtime: &tokio::runtime::Handle,
-		sender: async_channel::Sender<AsyncResponse>,
+		sender: crossbeam_channel::Sender<AsyncResponse>,
 		eventfd: Arc<OwnedFd>,
 		worker_id: usize,
 	) {
@@ -706,7 +766,7 @@ where
 				opcode,
 				result,
 			};
-			if sender.send(response).await.is_ok() {
+			if sender.send(response).is_ok() {
 				signal_eventfd(eventfd.as_raw_fd())
 					.inspect_err(
 						|error| tracing::error!(?error, %worker_id, "failed to signal eventfd"),
@@ -718,12 +778,11 @@ where
 
 	fn drain_async_responses(
 		worker_id: usize,
-		fd: RawFd,
 		qid: u16,
 		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
 		slots: &mut [UringSlot],
 		pending_async: &mut [Option<(u64, sys::fuse_opcode)>],
-		receiver: &async_channel::Receiver<AsyncResponse>,
+		receiver: &crossbeam_channel::Receiver<AsyncResponse>,
 	) -> Result<()> {
 		while let Ok(response) = receiver.try_recv() {
 			let Some(slot_data) = slots.get_mut(response.slot) else {
@@ -753,7 +812,6 @@ where
 			}
 			Self::submit_commit_and_fetch(
 				io_uring,
-				fd,
 				qid,
 				response.slot,
 				slot_data,
@@ -764,16 +822,16 @@ where
 		Ok(())
 	}
 
-	fn handle_request_sync(&self, request: Request) -> Result<SyncRequestResult> {
+	fn handle_request_sync(&self, fd: RawFd, request: Request) -> Result<SyncRequestResult> {
 		let result = match request.data {
-			RequestData::BatchForget(data) => {
-				Ok(Self::handle_batch_forget_request_sync(request.header, data))
+			RequestData::BatchForget(data, entries) => {
+				Ok(self.handle_batch_forget_request_sync(request.header, data, &entries))
 			},
 			RequestData::Destroy => Ok(None),
 			RequestData::Flush(data) => {
 				Ok(Some(Self::handle_flush_request_sync(request.header, data)))
 			},
-			RequestData::Forget(data) => Ok(Self::handle_forget_request_sync(request.header, data)),
+			RequestData::Forget(data) => Ok(self.handle_forget_request_sync(request.header, data)),
 			RequestData::GetAttr(data) => self.handle_get_attr_request_sync(request.header, data),
 			RequestData::GetXattr(data, name) => {
 				self.handle_get_xattr_request_sync(request.header, data, &name)
@@ -783,7 +841,7 @@ where
 				self.handle_list_xattr_request_sync(request.header, data)
 			},
 			RequestData::Lookup(data) => self.handle_lookup_request_sync(request.header, &data),
-			RequestData::Open(data) => self.handle_open_request_sync(request.header, data),
+			RequestData::Open(data) => self.handle_open_request_sync(fd, request.header, data),
 			RequestData::OpenDir(data) => self.handle_open_dir_request_sync(request.header, data),
 			RequestData::Read(data) => self.handle_read_request_sync(request.header, data),
 			RequestData::ReadDir(data) => {
@@ -793,15 +851,15 @@ where
 				self.handle_read_dir_request_sync(request.header, data, true)
 			},
 			RequestData::ReadLink => self.handle_read_link_request_sync(request.header),
-			RequestData::Release(data) => Ok(Some(Self::handle_release_request_sync(
+			RequestData::Release(data) => Ok(Some(self.handle_release_request_sync(
+				fd,
 				request.header,
 				data,
-				&self.provider,
 			))),
-			RequestData::ReleaseDir(data) => Ok(Some(Self::handle_release_dir_request_sync(
+			RequestData::ReleaseDir(data) => Ok(Some(self.handle_release_dir_request_sync(
+				fd,
 				request.header,
 				data,
-				&self.provider,
 			))),
 			RequestData::Statfs => Ok(Some(Self::handle_statfs_request_sync(request.header))),
 			RequestData::Statx(data) => self.handle_statx_request_sync(request.header, data),
@@ -823,9 +881,15 @@ where
 	}
 
 	fn handle_batch_forget_request_sync(
+		&self,
 		_header: fuse_in_header,
-		_request: fuse_batch_forget_in,
+		request: fuse_batch_forget_in,
+		entries: &[sys::fuse_forget_one],
 	) -> Option<Response> {
+		let count = request.count.to_usize().unwrap_or(0);
+		for entry in entries.iter().take(count) {
+			self.provider.forget_sync(entry.nodeid, entry.nlookup);
+		}
 		None
 	}
 
@@ -834,9 +898,11 @@ where
 	}
 
 	fn handle_forget_request_sync(
-		_header: fuse_in_header,
-		_request: fuse_forget_in,
+		&self,
+		header: fuse_in_header,
+		request: fuse_forget_in,
 	) -> Option<Response> {
+		self.provider.forget_sync(header.nodeid, request.nlookup);
 		None
 	}
 
@@ -935,14 +1001,28 @@ where
 
 	fn handle_open_request_sync(
 		&self,
+		fd: RawFd,
 		header: fuse_in_header,
 		_request: fuse_open_in,
 	) -> Result<Option<Response>> {
-		let (fh, _backing_fd) = self.provider.open_sync(header.nodeid)?;
+		let (fh, backing_fd) = self.provider.open_sync(header.nodeid)?;
+		let mut open_flags = sys::FOPEN_NOFLUSH | sys::FOPEN_KEEP_CACHE;
+		let mut backing_id = -1;
+		if let Some(backing_fd) = backing_fd {
+			match self.register_passthrough_backing(fd, fh, &backing_fd) {
+				Ok(id) => {
+					open_flags |= sys::FOPEN_PASSTHROUGH;
+					backing_id = id;
+				},
+				Err(error) => {
+					tracing::trace!(?error, %fh, "failed to register passthrough backing");
+				},
+			}
+		}
 		let out = fuse_open_out {
 			fh,
-			open_flags: sys::FOPEN_NOFLUSH | sys::FOPEN_KEEP_CACHE,
-			backing_id: -1,
+			open_flags,
+			backing_id,
 		};
 		Ok(Some(Response::Open(out)))
 	}
@@ -1039,21 +1119,75 @@ where
 	}
 
 	fn handle_release_request_sync(
+		&self,
+		fd: RawFd,
 		_header: fuse_in_header,
 		request: fuse_release_in,
-		provider: &P,
 	) -> Response {
-		provider.close_sync(request.fh);
+		self.close_passthrough_backing(fd, request.fh);
+		self.provider.close_sync(request.fh);
 		Response::Release
 	}
 
 	fn handle_release_dir_request_sync(
+		&self,
+		fd: RawFd,
 		_header: fuse_in_header,
 		request: fuse_release_in,
-		provider: &P,
 	) -> Response {
-		provider.close_sync(request.fh);
+		self.close_passthrough_backing(fd, request.fh);
+		self.provider.close_sync(request.fh);
 		Response::ReleaseDir
+	}
+
+	fn register_passthrough_backing(
+		&self,
+		fd: RawFd,
+		fh: u64,
+		backing_fd: &OwnedFd,
+	) -> Result<i32> {
+		let mut map = sys::fuse_backing_map {
+			fd: backing_fd.as_raw_fd(),
+			flags: 0,
+			padding: 0,
+		};
+		let backing_id = unsafe {
+			libc::ioctl(
+				fd,
+				FUSE_DEV_IOC_BACKING_OPEN,
+				std::ptr::from_mut(&mut map).cast::<libc::c_void>(),
+			)
+		};
+		if backing_id < 0 {
+			return Err(Error::last_os_error());
+		}
+		let backing_id_u32 = backing_id
+			.to_u32()
+			.ok_or_else(|| Error::other("invalid backing id"))?;
+		self.passthrough_backing_ids
+			.lock()
+			.unwrap()
+			.insert(fh, backing_id_u32);
+		Ok(backing_id)
+	}
+
+	fn close_passthrough_backing(&self, fd: RawFd, fh: u64) {
+		let backing_id = self.passthrough_backing_ids.lock().unwrap().remove(&fh);
+		let Some(backing_id) = backing_id else {
+			return;
+		};
+		let mut backing_id = backing_id;
+		let ret = unsafe {
+			libc::ioctl(
+				fd,
+				FUSE_DEV_IOC_BACKING_CLOSE,
+				std::ptr::from_mut(&mut backing_id).cast::<libc::c_void>(),
+			)
+		};
+		if ret < 0 {
+			let error = Error::last_os_error();
+			tracing::error!(?error, %fh, %backing_id, "failed to close passthrough backing");
+		}
 	}
 
 	fn handle_statfs_request_sync(_header: sys::fuse_in_header) -> Response {
@@ -1154,8 +1288,9 @@ where
 
 	async fn handle_request(&self, request: Request) -> Result<Option<Response>> {
 		match request.data {
-			RequestData::BatchForget(data) => {
-				self.handle_batch_forget_request(request.header, data).await
+			RequestData::BatchForget(data, entries) => {
+				self.handle_batch_forget_request(request.header, data, entries)
+					.await
 			},
 			RequestData::Destroy => Ok(None),
 			RequestData::Flush(data) => self.handle_flush_request(request.header, data).await,
@@ -1254,8 +1389,13 @@ where
 	async fn handle_batch_forget_request(
 		&self,
 		_header: fuse_in_header,
-		_request: fuse_batch_forget_in,
+		request: fuse_batch_forget_in,
+		entries: Vec<sys::fuse_forget_one>,
 	) -> Result<Option<Response>> {
+		let count = request.count.to_usize().unwrap_or(0);
+		for entry in entries.into_iter().take(count) {
+			self.provider.forget_sync(entry.nodeid, entry.nlookup);
+		}
 		Ok(None)
 	}
 
@@ -1269,9 +1409,10 @@ where
 
 	async fn handle_forget_request(
 		&self,
-		_header: fuse_in_header,
-		_request: fuse_forget_in,
+		header: fuse_in_header,
+		request: fuse_forget_in,
 	) -> Result<Option<Response>> {
+		self.provider.forget_sync(header.nodeid, request.nlookup);
 		Ok(None)
 	}
 
@@ -1833,6 +1974,7 @@ where
 
 	fn fuse_entry_out_sync(&self, node: u64) -> Result<fuse_entry_out> {
 		let attr = self.provider.getattr_sync(node)?;
+		self.provider.remember_sync(node);
 		let attr_out = Self::fuse_attr_out(node, attr);
 		let entry_out = fuse_entry_out {
 			nodeid: node,
@@ -1848,6 +1990,7 @@ where
 
 	async fn fuse_entry_out(&self, node: u64) -> Result<fuse_entry_out> {
 		let attr = self.provider_getattr(node).await?;
+		self.provider.remember_sync(node);
 		let attr_out = Self::fuse_attr_out(node, attr);
 		let entry_out = fuse_entry_out {
 			nodeid: node,
@@ -1873,6 +2016,22 @@ const fn ior(typ: u32, nr: u32, size: u32) -> libc::c_ulong {
 	const IOC_READ: u32 = 2;
 
 	((IOC_READ << IOC_DIRSHIFT)
+		| (typ << IOC_TYPESHIFT)
+		| (nr << IOC_NRSHIFT)
+		| (size << IOC_SIZESHIFT)) as libc::c_ulong
+}
+
+const fn iow(typ: u32, nr: u32, size: u32) -> libc::c_ulong {
+	const IOC_NRBITS: u32 = 8;
+	const IOC_TYPEBITS: u32 = 8;
+	const IOC_SIZEBITS: u32 = 14;
+	const IOC_NRSHIFT: u32 = 0;
+	const IOC_TYPESHIFT: u32 = IOC_NRSHIFT + IOC_NRBITS;
+	const IOC_SIZESHIFT: u32 = IOC_TYPESHIFT + IOC_TYPEBITS;
+	const IOC_DIRSHIFT: u32 = IOC_SIZESHIFT + IOC_SIZEBITS;
+	const IOC_WRITE: u32 = 1;
+
+	((IOC_WRITE << IOC_DIRSHIFT)
 		| (typ << IOC_TYPESHIFT)
 		| (nr << IOC_NRSHIFT)
 		| (size << IOC_SIZESHIFT)) as libc::c_ulong
