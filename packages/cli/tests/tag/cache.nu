@@ -116,3 +116,39 @@ let q = tg -u $local.url tag get "a/q"
 # Fetch s again. It should still be in the cache.
 let s2 = tg -u $local.url tag get --remote --cached "a/q/r/s"
 assert ($s1 == $s2)
+
+# Test cleaning of expired remote tags.
+# Spawn a local server with cache_ttl: 0 so tags expire immediately.
+let clean_local = spawn -n clean_local -c {
+	remotes: [{ name: default, url: $remote.url }]
+	tag: { cache_ttl: 0 }
+}
+
+# Cache a remote tag tree by fetching from the remote.
+tg -u $clean_local.url tag get "a/b"
+tg -u $clean_local.url tag get "a/c/d"
+
+# Verify the tags are cached. Use a large ttl to bypass the expiry check.
+let before_b = tg -u $clean_local.url tag get --remote --cached --ttl 999999 "a/b" | complete
+assert ($before_b.exit_code == 0) "tag a/b should be in the cache before clean"
+let before_d = tg -u $clean_local.url tag get --remote --cached --ttl 999999 "a/c/d" | complete
+assert ($before_d.exit_code == 0) "tag a/c/d should be in the cache before clean"
+
+# Clean. With cache_ttl: 0, all cached remote tags are expired.
+tg -u $clean_local.url clean
+
+# The cached remote leaf tags should be deleted from the database.
+let after_b = tg -u $clean_local.url tag get --remote --cached --ttl 999999 "a/b" | complete
+assert ($after_b.exit_code != 0) "leaf tag a/b should be cleaned"
+let after_d = tg -u $clean_local.url tag get --remote --cached --ttl 999999 "a/c/d" | complete
+assert ($after_d.exit_code != 0) "leaf tag a/c/d should be cleaned"
+
+# Branch tags should also be cleaned since they became childless.
+let after_a = tg -u $clean_local.url tag get --remote --cached --ttl 999999 "a" | complete
+assert ($after_a.exit_code != 0) "branch tag a should be cleaned"
+let after_c = tg -u $clean_local.url tag get --remote --cached --ttl 999999 "a/c" | complete
+assert ($after_c.exit_code != 0) "branch tag a/c should be cleaned"
+
+# Tags are still available from the remote. Fetching should work after clean.
+let refetched = tg -u $clean_local.url tag get "a/b" | from json
+assert ($refetched.item == $id3) "tag should be re-fetched from remote after clean"

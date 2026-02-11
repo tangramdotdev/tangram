@@ -69,10 +69,14 @@ create table remotes (
 create table tags (
 	id integer primary key autoincrement,
 	cached_at integer,
+	child_count integer,
 	component text not null,
 	item text,
 	remote text
 );
+
+create index tags_cleanable_index on tags (cached_at)
+	where remote is not null and child_count = 0;
 
 create table tag_children (
 	tag integer not null default 0,

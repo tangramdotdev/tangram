@@ -10,6 +10,7 @@ pub struct Output {
 	pub cache_entries: u64,
 	pub objects: u64,
 	pub processes: u64,
+	pub tags: u64,
 }
 
 impl tg::Client {

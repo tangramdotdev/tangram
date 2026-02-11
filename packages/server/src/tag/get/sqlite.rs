@@ -365,8 +365,8 @@ impl Server {
 				let cached_at: Option<i64> = if is_leaf { Some(now) } else { None };
 				let statement = indoc!(
 					"
-						insert into tags (cached_at, component, item, remote)
-						values (?1, ?2, ?3, ?4);
+						insert into tags (cached_at, child_count, component, item, remote)
+						values (?1, 0, ?2, ?3, ?4);
 					"
 				);
 				let mut statement = cache
@@ -389,6 +389,21 @@ impl Server {
 					.get(connection, statement.into())
 					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 				let params = sqlite::params![parent, new_id];
+				statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+				// Increment the parent's child_count.
+				let statement = indoc!(
+					"
+						update tags set child_count = child_count + 1
+						where id = ?1;
+					"
+				);
+				let mut statement = cache
+					.get(connection, statement.into())
+					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+				let params = sqlite::params![parent];
 				statement
 					.execute(params)
 					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -486,8 +501,8 @@ impl Server {
 					};
 					let statement = indoc!(
 						"
-							insert into tags (cached_at, component, item, remote)
-							values (?1, ?2, ?3, ?4);
+							insert into tags (cached_at, child_count, component, item, remote)
+							values (?1, 0, ?2, ?3, ?4);
 						"
 					);
 					let mut statement = cache
@@ -509,6 +524,21 @@ impl Server {
 						.get(connection, statement.into())
 						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
 					let params = sqlite::params![parent, new_id];
+					statement
+						.execute(params)
+						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+					// Increment the parent's child_count.
+					let statement = indoc!(
+						"
+							update tags set child_count = child_count + 1
+							where id = ?1;
+						"
+					);
+					let mut statement = cache
+						.get(connection, statement.into())
+						.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+					let params = sqlite::params![parent];
 					statement
 						.execute(params)
 						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -566,6 +596,22 @@ impl Server {
 			statement
 				.execute(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			// Decrement the parent's child_count.
+			let statement = indoc!(
+				"
+					update tags set child_count = child_count - 1
+					where id = ?1;
+				"
+			);
+			let mut statement = cache
+				.get(connection, statement.into())
+				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+			let params = sqlite::params![parent];
+			statement
+				.execute(params)
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
 			let statement = indoc!(
 				"
 					delete from tags where id = ?1;
