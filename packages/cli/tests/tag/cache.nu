@@ -4,7 +4,7 @@ use ../../test.nu *
 let remote = spawn --cloud -n remote
 let local = spawn -n local -c {
 	remotes: [{ name: default, url: $remote.url }]
-	tag_cache_ttl: 100
+	tag: { cache_ttl: 100 }
 }
 
 # Create an artifact on the remote.

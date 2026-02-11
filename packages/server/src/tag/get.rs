@@ -37,7 +37,7 @@ impl Server {
 		}
 
 		// Resolve the TTL for cache lookups.
-		let ttl = arg.ttl.unwrap_or(self.config.tag_cache_ttl.as_secs());
+		let ttl = arg.ttl.unwrap_or(self.config.tag.cache_ttl.as_secs());
 
 		// Get the list of remotes to check.
 		let remotes = self
@@ -46,7 +46,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
 
-		// Try to get a fresh cached result for each remote.
+		// Try to get a cached output for each remote.
 		for remote in &remotes {
 			let output = self
 				.try_get_cached_tag(tag, remote, ttl)
@@ -58,7 +58,7 @@ impl Server {
 			}
 		}
 
-		// No fresh cache hit. Fetch from remotes via HTTP.
+		// Try to get the tag from the remotes.
 		let remote_outputs = remotes
 			.into_iter()
 			.map(|remote| {

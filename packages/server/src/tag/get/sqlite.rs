@@ -353,7 +353,6 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to get the id"))?;
 				parent = id;
 			} else {
-				// Need to drop the rows/statement before executing the insert.
 				drop(rows);
 
 				// Insert a new tag node. Only set cached_at for the leaf node.

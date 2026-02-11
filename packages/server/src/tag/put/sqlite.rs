@@ -95,7 +95,6 @@ impl Server {
 				}
 				parent = row.id;
 			} else {
-				// Need to drop the rows/statement before executing the insert.
 				drop(rows);
 
 				// Insert the branch node.
