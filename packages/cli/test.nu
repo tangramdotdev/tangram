@@ -680,7 +680,9 @@ export def --env spawn [
 	--busybox
 	--cloud
 	--config (-c): record
+	--directory (-d): string
 	--name (-n): string
+	--url (-u): string
 ] {
 	mut default_config = {
 		advanced: {
@@ -760,10 +762,10 @@ export def --env spawn [
 	$config | to json | save -f $config_path
 
 	# Create the directory.
-	let directory_path = mktemp -d
+	let directory_path = $directory | default (mktemp -d)
 
 	# Determine the url.
-	let url = $'http+unix://($directory_path | url encode --all)%2Fsocket'
+	let url = $url | default $'http+unix://($directory_path | url encode --all)%2Fsocket'
 	$env.TANGRAM_URL = $url
 
 	# Spawn the server.

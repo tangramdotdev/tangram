@@ -19,7 +19,7 @@ impl Server {
 	{
 		let listener = match url.scheme() {
 			Some("http+unix") => {
-				let path = url.host().ok_or_else(|| tg::error!("invalid url"))?;
+				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let path = Path::new(path);
 				let listener = UnixListener::bind(path).map_err(
 					|source| tg::error!(!source, path = %path.display(), "failed to bind"),
@@ -27,10 +27,10 @@ impl Server {
 				tokio_util::either::Either::Left(listener)
 			},
 			Some("http") => {
-				let host = url.host().ok_or_else(|| tg::error!("invalid url"))?;
+				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let port = url
 					.port_or_known_default()
-					.ok_or_else(|| tg::error!("invalid url"))?;
+					.ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let listener = TcpListener::bind(format!("{host}:{port}"))
 					.await
 					.map_err(|source| tg::error!(!source, "failed to bind"))?;
@@ -165,6 +165,7 @@ impl Server {
 					let service = hyper_util::service::TowerToHyperService::new(service);
 					let stream = hyper_util::rt::TokioIo::new(stream);
 					let connection = builder.serve_connection_with_upgrades(stream, service);
+
 					let result = match future::select(
 						pin!(connection),
 						future::select(pin!(idle.wait()), pin!(stop.wait())),
@@ -177,7 +178,11 @@ impl Server {
 							connection.await
 						},
 					};
-					result.ok();
+					result
+						.inspect_err(|error| {
+							tracing::error!(?error, "connection failed");
+						})
+						.ok();
 					drop(guard);
 				}
 			});

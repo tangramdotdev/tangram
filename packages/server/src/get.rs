@@ -218,7 +218,7 @@ impl Server {
 		let stream = self
 			.try_get_with_context(context, &reference, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the reference"))?;
+			.map_err(|source| tg::error!(!source, %reference, "failed to get the reference"))?;
 
 		let (content_type, body) = match accept
 			.as_ref()

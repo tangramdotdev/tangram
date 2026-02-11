@@ -983,11 +983,11 @@ impl Cli {
 		let stream = handle
 			.get(&reference, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the reference"))?;
+			.map_err(|source| tg::error!(!source, %reference, "failed to get the reference"))?;
 		let mut referent = self
 			.render_progress_stream(stream)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the reference"))?;
+			.map_err(|source| tg::error!(!source, %reference, "failed to get the reference"))?;
 
 		// If the reference is a local relative path, then make the referent's path relative to the current working directory.
 		if referent.id().is_none()
