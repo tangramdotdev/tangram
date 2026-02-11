@@ -20,11 +20,7 @@ use {
 	tangram_vfs as vfs,
 };
 
-enum Nodes {
-	Memory(MemoryNodes),
-}
-
-struct MemoryNodes {
+struct Nodes {
 	nodes: DashMap<u64, MemoryNode, fnv::FnvBuildHasher>,
 }
 
@@ -1034,54 +1030,6 @@ impl Provider {
 
 impl Nodes {
 	fn new() -> Self {
-		Self::Memory(MemoryNodes::new())
-	}
-
-	async fn lookup(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
-		match self {
-			Nodes::Memory(memory) => Ok(memory.lookup(parent, name)),
-		}
-	}
-
-	async fn lookup_parent(&self, id: u64) -> std::io::Result<u64> {
-		match self {
-			Nodes::Memory(memory) => memory.lookup_parent(id),
-		}
-	}
-
-	async fn get(&self, id: u64) -> std::io::Result<MemoryNode> {
-		match self {
-			Nodes::Memory(memory) => memory.get(id),
-		}
-	}
-
-	fn lookup_sync(&self, parent: u64, name: &str) -> Option<u64> {
-		match self {
-			Nodes::Memory(memory) => memory.lookup(parent, name),
-		}
-	}
-
-	fn lookup_parent_sync(&self, id: u64) -> std::io::Result<u64> {
-		match self {
-			Nodes::Memory(memory) => memory.lookup_parent(id),
-		}
-	}
-
-	fn get_sync(&self, id: u64) -> std::io::Result<MemoryNode> {
-		match self {
-			Nodes::Memory(memory) => memory.get(id),
-		}
-	}
-
-	fn insert(&self, id: u64, parent: u64, name: &str, artifact: tg::artifact::Id, depth: u64) {
-		match self {
-			Nodes::Memory(memory) => memory.insert(id, parent, name, artifact, depth),
-		}
-	}
-}
-
-impl MemoryNodes {
-	fn new() -> Self {
 		let nodes = DashMap::default();
 		nodes.insert(
 			vfs::ROOT_NODE_ID,
@@ -1095,21 +1043,33 @@ impl MemoryNodes {
 		Self { nodes }
 	}
 
-	fn lookup(&self, parent: u64, name: &str) -> Option<u64> {
+	async fn lookup(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
+		Ok(self.lookup_sync(parent, name))
+	}
+
+	async fn lookup_parent(&self, id: u64) -> std::io::Result<u64> {
+		self.lookup_parent_sync(id)
+	}
+
+	async fn get(&self, id: u64) -> std::io::Result<MemoryNode> {
+		self.get_sync(id)
+	}
+
+	fn lookup_sync(&self, parent: u64, name: &str) -> Option<u64> {
 		self.nodes
 			.get(&parent)
 			.and_then(|node| node.children.get(name).copied())
 	}
 
-	fn lookup_parent(&self, id: u64) -> std::io::Result<u64> {
+	fn lookup_parent_sync(&self, id: u64) -> std::io::Result<u64> {
 		self.nodes.get(&id).map(|node| node.parent).ok_or_else(|| {
 			tracing::error!(%id, "node not found");
 			std::io::Error::from_raw_os_error(libc::ENOENT)
 		})
 	}
 
-	fn get(&self, id: u64) -> std::io::Result<MemoryNode> {
-		self.nodes.get(&id).map(|n| n.clone()).ok_or_else(|| {
+	fn get_sync(&self, id: u64) -> std::io::Result<MemoryNode> {
+		self.nodes.get(&id).map(|node| node.clone()).ok_or_else(|| {
 			tracing::error!(%id, "node not found");
 			std::io::Error::from_raw_os_error(libc::ENOENT)
 		})

@@ -89,6 +89,7 @@ enum Response {
 
 #[derive(Debug)]
 struct AsyncResponse {
+	slot: usize,
 	unique: u64,
 	opcode: sys::fuse_opcode,
 	result: Result<Option<Response>>,
@@ -103,9 +104,21 @@ const REQUEST_BUFFER_SIZE: usize = 1024 * 1024 + 4096;
 const IO_URING_ENTRIES: u32 = 256;
 const WORKER_READ_DEPTH: usize = 16;
 const WORKER_CQE_BATCH_SIZE: usize = 64;
-const WORKER_REQUEST_BATCH_SIZE: usize = 32;
 const EVENTFD_USER_DATA: u64 = u64::MAX;
 const FUSE_DEV_IOC_CLONE: libc::c_ulong = ior(sys::FUSE_DEV_IOC_MAGIC, 0, 4);
+const URING_IOVEC_COUNT: u32 = 2;
+const URING_CMD_BYTES: usize = 80;
+
+#[repr(C)]
+struct IoUringSqePrefix {
+	opcode: u8,
+	flags: u8,
+	ioprio: u16,
+	fd: i32,
+	off: u64,
+	addr: u64,
+	len: u32,
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, zerocopy::FromBytes, zerocopy::Immutable, zerocopy::IntoBytes)]
@@ -121,6 +134,34 @@ struct FuseDirentHeader {
 struct FuseDirentPlusHeader {
 	entry_out: fuse_entry_out,
 	dirent: FuseDirentHeader,
+}
+
+struct UringSlot {
+	header: Box<sys::fuse_uring_req_header>,
+	payload: Vec<u8>,
+	iovecs: [libc::iovec; URING_IOVEC_COUNT as usize],
+}
+
+impl UringSlot {
+	fn new() -> Self {
+		let mut header = Box::new(unsafe { std::mem::zeroed::<sys::fuse_uring_req_header>() });
+		let mut payload = vec![0u8; REQUEST_BUFFER_SIZE];
+		let iovecs = [
+			libc::iovec {
+				iov_base: std::ptr::from_mut(&mut *header).cast(),
+				iov_len: size_of::<sys::fuse_uring_req_header>(),
+			},
+			libc::iovec {
+				iov_base: payload.as_mut_ptr().cast(),
+				iov_len: payload.len(),
+			},
+		];
+		Self {
+			header,
+			payload,
+			iovecs,
+		}
+	}
 }
 
 impl<P> Server<P>
@@ -141,6 +182,9 @@ where
 		let fd = Self::mount(path)
 			.await
 			.inspect_err(|error| tracing::error!(%error, "failed to mount"))?;
+
+		// Complete INIT before entering io_uring command mode.
+		Self::init_handshake(fd.as_ref())?;
 
 		// Create worker threads.
 		let worker_count = std::thread::available_parallelism()
@@ -194,6 +238,36 @@ where
 		task.wait().await.unwrap();
 	}
 
+	fn init_handshake(fd: &OwnedFd) -> Result<()> {
+		let mut buffer = vec![0u8; REQUEST_BUFFER_SIZE];
+		loop {
+			let ret =
+				unsafe { libc::read(fd.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len()) };
+			if ret < 0 {
+				let error = Error::last_os_error();
+				if error.raw_os_error() == Some(libc::EINTR) {
+					continue;
+				}
+				return Err(error);
+			}
+			if ret == 0 {
+				return Err(Error::other("failed to read init request"));
+			}
+			let size = ret.to_usize().unwrap();
+			let request = Self::deserialize_request(&buffer[..size])?;
+			let RequestData::Init(init) = request.data else {
+				return Err(Error::other("expected init request"));
+			};
+			let response = Self::init_response(init)?;
+			write_response(
+				fd.as_raw_fd(),
+				request.header.unique,
+				&Response::Init(response),
+			)?;
+			return Ok(());
+		}
+	}
+
 	fn clone_worker_fd(fd: &OwnedFd) -> Result<OwnedFd> {
 		let cloned = unsafe { libc::ioctl(fd.as_raw_fd(), FUSE_DEV_IOC_CLONE) };
 		if cloned < 0 {
@@ -215,6 +289,9 @@ where
 		fd: &OwnedFd,
 		runtime: &tokio::runtime::Handle,
 	) -> Result<()> {
+		let qid = worker_id
+			.to_u16()
+			.ok_or_else(|| Error::other("worker id out of range"))?;
 		let eventfd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC) };
 		if eventfd < 0 {
 			return Err(Error::last_os_error());
@@ -222,49 +299,45 @@ where
 		let eventfd = Arc::new(unsafe { OwnedFd::from_raw_fd(eventfd) });
 		let (sender, receiver) = async_channel::unbounded::<AsyncResponse>();
 
-		let mut io_uring = IoUring::new(IO_URING_ENTRIES)?;
-		let mut request_buffers = (0..WORKER_READ_DEPTH)
-			.map(|_| vec![0u8; REQUEST_BUFFER_SIZE])
+		let mut io_uring =
+			IoUring::<io_uring::squeue::Entry128>::builder().build(IO_URING_ENTRIES)?;
+		let mut slots = (0..WORKER_READ_DEPTH)
+			.map(|_| UringSlot::new())
 			.collect::<Vec<_>>();
-		let mut free_slots = (0..WORKER_READ_DEPTH).collect::<Vec<_>>();
-		let mut inflight_reads = 0usize;
+		let mut pending_async = vec![None::<(u64, sys::fuse_opcode)>; WORKER_READ_DEPTH];
 		let mut eventfd_inflight = false;
 		let mut eventfd_buffer = [0u8; size_of::<u64>()];
-		let mut request_batch = Vec::with_capacity(WORKER_REQUEST_BATCH_SIZE);
+
+		{
+			let mut submission = io_uring.submission();
+			for (slot, slot_data) in slots.iter().enumerate() {
+				let entry = Self::build_fuse_uring_cmd_entry(
+					fd.as_raw_fd(),
+					sys::fuse_uring_cmd_FUSE_IO_URING_CMD_REGISTER,
+					0,
+					qid,
+					slot_data.iovecs.as_ptr(),
+					slot.to_u64().unwrap(),
+				);
+				if unsafe { submission.push(&entry) }.is_err() {
+					return Err(Error::other("failed to submit uring register command"));
+				}
+			}
+		}
 
 		loop {
 			{
 				let mut submission = io_uring.submission();
-
-				while inflight_reads < WORKER_READ_DEPTH {
-					let Some(slot) = free_slots.pop() else {
-						break;
-					};
-					let buffer = request_buffers.get_mut(slot).unwrap();
-					let entry = opcode::Read::new(
-						types::Fd(fd.as_raw_fd()),
-						buffer.as_mut_ptr(),
-						buffer.len().to_u32().unwrap(),
-					)
-					.offset(u64::MAX)
-					.build()
-					.user_data(slot.to_u64().unwrap());
-					if unsafe { submission.push(&entry) }.is_err() {
-						free_slots.push(slot);
-						break;
-					}
-					inflight_reads += 1;
-				}
-
 				if !eventfd_inflight {
-					let entry = opcode::Read::new(
+					let entry: io_uring::squeue::Entry128 = opcode::Read::new(
 						types::Fd(eventfd.as_raw_fd()),
 						eventfd_buffer.as_mut_ptr(),
 						eventfd_buffer.len().to_u32().unwrap(),
 					)
 					.offset(u64::MAX)
 					.build()
-					.user_data(EVENTFD_USER_DATA);
+					.user_data(EVENTFD_USER_DATA)
+					.into();
 					if unsafe { submission.push(&entry) }.is_ok() {
 						eventfd_inflight = true;
 					}
@@ -277,15 +350,15 @@ where
 						continue;
 					},
 					Some(libc::ENODEV) => {
-						Self::drain_async_responses(worker_id, fd.as_raw_fd(), &receiver);
 						return Ok(());
 					},
 					_ => return Err(error),
 				}
 			}
 
-			request_batch.clear();
 			let mut saw_eventfd = false;
+			let mut commits = Vec::<(usize, u64, Result<Option<Response>>)>::new();
+			let mut deferred = Vec::<(usize, Request, u64, sys::fuse_opcode)>::new();
 			{
 				let mut completion = io_uring.completion();
 				for completion in completion.by_ref().take(WORKER_CQE_BATCH_SIZE) {
@@ -296,8 +369,6 @@ where
 					}
 
 					let slot = completion.user_data().to_usize().unwrap();
-					inflight_reads -= 1;
-					free_slots.push(slot);
 
 					if completion.result() < 0 {
 						let error = -completion.result();
@@ -305,70 +376,247 @@ where
 							continue;
 						}
 						if error == libc::ENODEV {
-							Self::drain_async_responses(worker_id, fd.as_raw_fd(), &receiver);
 							return Ok(());
 						}
 						return Err(Error::from_raw_os_error(error));
 					}
-					if completion.result() == 0 {
-						continue;
+
+					if pending_async.get(slot).and_then(Option::as_ref).is_some() {
+						return Err(Error::other(
+							"received a completion for an async pending slot",
+						));
 					}
 
-					let size = completion.result().to_usize().unwrap();
-					let buffer = request_buffers.get(slot).unwrap();
-					let request = Self::deserialize_request(&buffer[..size])?;
-					request_batch.push(request);
+					let request = Self::deserialize_uring_request(slots.get(slot).unwrap())?;
+					let unique = request.header.unique;
+					let opcode = request.header.opcode;
+					match self.handle_request_sync(request.clone()) {
+						Ok(SyncRequestResult::Handled(response)) => {
+							commits.push((slot, unique, Ok(response)));
+						},
+						Ok(SyncRequestResult::Defer) => {
+							deferred.push((slot, request, unique, opcode));
+						},
+						Err(error) if error.raw_os_error() == Some(libc::ENOSYS) => {
+							deferred.push((slot, request, unique, opcode));
+						},
+						Err(error) => {
+							let error_code = error.raw_os_error().unwrap_or(libc::ENOSYS);
+							if !is_expected_error(opcode, Some(error_code)) {
+								tracing::error!(?error, ?opcode, %worker_id, "unexpected error");
+							}
+							commits.push((slot, unique, Err(error)));
+						},
+					}
 				}
 			}
-
-			for request in request_batch.iter().cloned() {
-				let unique = request.header.unique;
-				let opcode = request.header.opcode;
-				match self.handle_request_sync(request.clone()) {
-					Ok(SyncRequestResult::Handled(Some(response))) => {
-						write_response(fd.as_raw_fd(), unique, &response)
-							.inspect_err(|error| {
-								tracing::error!(?error, %worker_id, "failed to write the response");
-							})
-							.ok();
-					},
-					Ok(SyncRequestResult::Handled(None)) => (),
-					Ok(SyncRequestResult::Defer) => {
-						self.spawn_async_request(
-							request,
-							runtime,
-							sender.clone(),
-							eventfd.clone(),
-							worker_id,
-						);
-					},
-					Err(error) if error.raw_os_error() == Some(libc::ENOSYS) => {
-						self.spawn_async_request(
-							request,
-							runtime,
-							sender.clone(),
-							eventfd.clone(),
-							worker_id,
-						);
-					},
-					Err(error) => {
-						let error_code = error.raw_os_error().unwrap_or(libc::ENOSYS);
-						if !is_expected_error(opcode, Some(error_code)) {
-							tracing::error!(?error, ?opcode, %worker_id, "unexpected error");
-						}
-						write_error(fd.as_raw_fd(), unique, error_code)
-							.inspect_err(|error| {
-								tracing::error!(?error, %worker_id, "failed to write the error");
-							})
-							.ok();
-					},
+			for (slot, request, unique, opcode) in deferred {
+				if pending_async.get(slot).and_then(Option::as_ref).is_some() {
+					return Err(Error::other("slot already has a pending async request"));
 				}
+				pending_async[slot] = Some((unique, opcode));
+				self.spawn_async_request(
+					slot,
+					request,
+					runtime,
+					sender.clone(),
+					eventfd.clone(),
+					worker_id,
+				);
+			}
+			for (slot, unique, result) in commits {
+				Self::submit_commit_and_fetch(
+					&mut io_uring,
+					fd.as_raw_fd(),
+					qid,
+					slot,
+					slots.get_mut(slot).unwrap(),
+					unique,
+					result,
+				)?;
 			}
 
 			if saw_eventfd || !receiver.is_empty() {
-				Self::drain_async_responses(worker_id, fd.as_raw_fd(), &receiver);
+				Self::drain_async_responses(
+					worker_id,
+					fd.as_raw_fd(),
+					qid,
+					&mut io_uring,
+					&mut slots,
+					&mut pending_async,
+					&receiver,
+				)?;
 			}
 		}
+	}
+
+	fn build_fuse_uring_cmd_entry(
+		fd: RawFd,
+		cmd_op: u32,
+		commit_id: u64,
+		qid: u16,
+		iovecs: *const libc::iovec,
+		user_data: u64,
+	) -> io_uring::squeue::Entry128 {
+		let request = sys::fuse_uring_cmd_req {
+			flags: 0,
+			commit_id,
+			qid,
+			padding: [0; 6],
+		};
+		let mut cmd = [0u8; URING_CMD_BYTES];
+		cmd[..size_of::<sys::fuse_uring_cmd_req>()].copy_from_slice(request.as_bytes());
+		let mut entry = opcode::UringCmd80::new(types::Fd(fd), cmd_op)
+			.cmd(cmd)
+			.build()
+			.user_data(user_data);
+		Self::configure_fuse_uring_entry_iovec(&mut entry, iovecs);
+		entry
+	}
+
+	fn configure_fuse_uring_entry_iovec(
+		entry: &mut io_uring::squeue::Entry128,
+		iovecs: *const libc::iovec,
+	) {
+		let sqe = std::ptr::from_mut(entry).cast::<IoUringSqePrefix>();
+		unsafe {
+			(*sqe).addr = iovecs as u64;
+			(*sqe).len = URING_IOVEC_COUNT;
+		}
+	}
+
+	fn submit_commit_and_fetch(
+		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
+		fd: RawFd,
+		qid: u16,
+		slot: usize,
+		slot_data: &mut UringSlot,
+		unique: u64,
+		result: Result<Option<Response>>,
+	) -> Result<()> {
+		Self::prepare_uring_response(slot_data, unique, result)?;
+		let entry = Self::build_fuse_uring_cmd_entry(
+			fd,
+			sys::fuse_uring_cmd_FUSE_IO_URING_CMD_COMMIT_AND_FETCH,
+			unique,
+			qid,
+			slot_data.iovecs.as_ptr(),
+			slot.to_u64().unwrap(),
+		);
+		let mut submission = io_uring.submission();
+		if unsafe { submission.push(&entry) }.is_err() {
+			return Err(Error::other(
+				"failed to submit uring commit and fetch command",
+			));
+		}
+		Ok(())
+	}
+
+	fn prepare_uring_response(
+		slot_data: &mut UringSlot,
+		unique: u64,
+		result: Result<Option<Response>>,
+	) -> Result<()> {
+		let (error, payload_len) = match result {
+			Ok(Some(response)) => {
+				let payload = Self::response_bytes(&response);
+				if payload.len() > slot_data.payload.len() {
+					return Err(Error::other("response payload too large"));
+				}
+				slot_data.payload[..payload.len()].copy_from_slice(payload);
+				(0, payload.len())
+			},
+			Ok(None) => (0, 0),
+			Err(error) => (error.raw_os_error().unwrap_or(libc::ENOSYS), 0),
+		};
+		let len = size_of::<fuse_out_header>() + payload_len;
+		let out = fuse_out_header {
+			unique,
+			len: len.to_u32().unwrap(),
+			error: -error,
+		};
+		let in_out = unsafe {
+			std::slice::from_raw_parts_mut(
+				slot_data.header.in_out.as_mut_ptr().cast::<u8>(),
+				slot_data.header.in_out.len(),
+			)
+		};
+		in_out.fill(0);
+		in_out[..size_of::<fuse_out_header>()].copy_from_slice(out.as_bytes());
+		slot_data.header.ring_ent_in_out = sys::fuse_uring_ent_in_out {
+			flags: 0,
+			commit_id: unique,
+			payload_sz: payload_len.to_u32().unwrap(),
+			padding: 0,
+			reserved: 0,
+		};
+		Ok(())
+	}
+
+	fn response_bytes(response: &Response) -> &[u8] {
+		match response {
+			Response::Flush | Response::Release | Response::ReleaseDir => &[],
+			Response::GetAttr(data) => data.as_bytes(),
+			Response::Init(data) => data.as_bytes(),
+			Response::Lookup(data) => data.as_bytes(),
+			Response::Open(data) | Response::OpenDir(data) => data.as_bytes(),
+			Response::Read(data)
+			| Response::ReadDir(data)
+			| Response::ReadDirPlus(data)
+			| Response::GetXattr(data)
+			| Response::ListXattr(data) => data.as_bytes(),
+			Response::ReadLink(data) => data.as_bytes(),
+			Response::Statfs(data) => data.as_bytes(),
+			Response::Statx(data) => data.as_bytes(),
+		}
+	}
+
+	fn deserialize_uring_request(slot: &UringSlot) -> Result<Request> {
+		let in_out = unsafe {
+			std::slice::from_raw_parts(
+				slot.header.in_out.as_ptr().cast::<u8>(),
+				slot.header.in_out.len(),
+			)
+		};
+		let (header, _) = sys::fuse_in_header::read_from_prefix(in_out)
+			.map_err(|_| Error::other("failed to deserialize the request header"))?;
+		let header_len = size_of::<sys::fuse_in_header>();
+		let request_len = header
+			.len
+			.to_usize()
+			.ok_or_else(|| Error::other("failed to deserialize request data"))?;
+		if request_len < header_len {
+			return Err(Error::other("failed to deserialize request data"));
+		}
+		let total_extlen = usize::from(header.total_extlen) * 8;
+		let Some(request_data_len) = request_len.checked_sub(header_len + total_extlen) else {
+			return Err(Error::other("failed to deserialize request data"));
+		};
+		let payload_size = slot
+			.header
+			.ring_ent_in_out
+			.payload_sz
+			.to_usize()
+			.ok_or_else(|| Error::other("failed to deserialize request data"))?;
+		if payload_size > request_data_len || payload_size > slot.payload.len() {
+			return Err(Error::other("failed to deserialize request data"));
+		}
+		let op_data_len = request_data_len - payload_size;
+		let op_in = unsafe {
+			std::slice::from_raw_parts(
+				slot.header.op_in.as_ptr().cast::<u8>(),
+				slot.header.op_in.len(),
+			)
+		};
+		if op_data_len > op_in.len() {
+			return Err(Error::other("failed to deserialize request data"));
+		}
+		let mut data = Vec::with_capacity(request_data_len);
+		data.extend_from_slice(&op_in[..op_data_len]);
+		data.extend_from_slice(&slot.payload[..payload_size]);
+		let data = Self::parse_request_data(&header, &data)?;
+		let request = Request { header, data };
+		Ok(request)
 	}
 
 	fn deserialize_request(buffer: &[u8]) -> Result<Request> {
@@ -388,6 +636,12 @@ where
 			return Err(Error::other("failed to deserialize request data"));
 		};
 		let data = &data[..data_len];
+		let data = Self::parse_request_data(&header, data)?;
+		let request = Request { header, data };
+		Ok(request)
+	}
+
+	fn parse_request_data(header: &fuse_in_header, data: &[u8]) -> Result<RequestData> {
 		let data = match header.opcode {
 			sys::fuse_opcode_FUSE_BATCH_FORGET => RequestData::BatchForget(read_data(data)?),
 			sys::fuse_opcode_FUSE_DESTROY => RequestData::Destroy,
@@ -425,12 +679,12 @@ where
 			sys::fuse_opcode_FUSE_INTERRUPT => RequestData::Interrupt(read_data(data)?),
 			_ => RequestData::Unsupported(header.opcode),
 		};
-		let request = Request { header, data };
-		Ok(request)
+		Ok(data)
 	}
 
 	fn spawn_async_request(
 		&self,
+		slot: usize,
 		request: Request,
 		runtime: &tokio::runtime::Handle,
 		sender: async_channel::Sender<AsyncResponse>,
@@ -447,6 +701,7 @@ where
 				}
 			});
 			let response = AsyncResponse {
+				slot,
 				unique,
 				opcode,
 				result,
@@ -464,31 +719,49 @@ where
 	fn drain_async_responses(
 		worker_id: usize,
 		fd: RawFd,
+		qid: u16,
+		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
+		slots: &mut [UringSlot],
+		pending_async: &mut [Option<(u64, sys::fuse_opcode)>],
 		receiver: &async_channel::Receiver<AsyncResponse>,
-	) {
+	) -> Result<()> {
 		while let Ok(response) = receiver.try_recv() {
-			match response.result {
-				Ok(Some(response_)) => {
-					write_response(fd, response.unique, &response_)
-						.inspect_err(|error| {
-							tracing::error!(?error, %worker_id, "failed to write the async response");
-						})
-						.ok();
-				},
-				Ok(None) => (),
-				Err(error) => {
-					let error = error.raw_os_error().unwrap_or(libc::ENOSYS);
-					if !is_expected_error(response.opcode, Some(error)) {
-						tracing::error!(?error, opcode = response.opcode, %worker_id, "unexpected error");
-					}
-					write_error(fd, response.unique, error)
-						.inspect_err(|error| {
-							tracing::error!(?error, %worker_id, "failed to write the async error");
-						})
-						.ok();
-				},
+			let Some(slot_data) = slots.get_mut(response.slot) else {
+				tracing::error!(slot = response.slot, "invalid async slot");
+				continue;
+			};
+			let Some((unique, opcode)) = pending_async[response.slot].take() else {
+				tracing::error!(slot = response.slot, "received unexpected async response");
+				continue;
+			};
+			if unique != response.unique || opcode != response.opcode {
+				tracing::error!(
+					slot = response.slot,
+					expected_unique = unique,
+					expected_opcode = opcode,
+					received_unique = response.unique,
+					received_opcode = response.opcode,
+					"received an async response for a different request",
+				);
+				continue;
 			}
+			if let Err(error) = &response.result {
+				let code = error.raw_os_error().unwrap_or(libc::ENOSYS);
+				if !is_expected_error(response.opcode, Some(code)) {
+					tracing::error!(?error, opcode = response.opcode, %worker_id, "unexpected error");
+				}
+			}
+			Self::submit_commit_and_fetch(
+				io_uring,
+				fd,
+				qid,
+				response.slot,
+				slot_data,
+				response.unique,
+				response.result,
+			)?;
 		}
+		Ok(())
 	}
 
 	fn handle_request_sync(&self, request: Request) -> Result<SyncRequestResult> {
@@ -929,7 +1202,8 @@ where
 	fn init_response(request: fuse_init_in) -> Result<fuse_init_out> {
 		const REQUIRED_FLAGS: u32 =
 			sys::FUSE_INIT_EXT | sys::FUSE_MAX_PAGES | sys::FUSE_MAP_ALIGNMENT;
-		const REQUIRED_FLAGS2: u32 = (sys::FUSE_PASSTHROUGH >> 32) as u32;
+		const REQUIRED_FLAGS2: u32 =
+			((sys::FUSE_PASSTHROUGH | sys::FUSE_OVER_IO_URING) >> 32) as u32;
 		const NEGOTIATED_FLAGS: u32 = sys::FUSE_ASYNC_READ
 			| sys::FUSE_DO_READDIRPLUS
 			| sys::FUSE_PARALLEL_DIROPS
@@ -939,7 +1213,8 @@ where
 			| sys::FUSE_MAX_PAGES
 			| sys::FUSE_MAP_ALIGNMENT
 			| sys::FUSE_INIT_EXT;
-		const NEGOTIATED_FLAGS2: u32 = (sys::FUSE_PASSTHROUGH >> 32) as u32;
+		const NEGOTIATED_FLAGS2: u32 =
+			((sys::FUSE_PASSTHROUGH | sys::FUSE_OVER_IO_URING) >> 32) as u32;
 		const MAX_PAGES: u16 = 256;
 		const MAP_ALIGNMENT: u16 = 12;
 
@@ -1532,7 +1807,7 @@ where
 		};
 		let mode = mode.to_u32().unwrap();
 		fuse_attr_out {
-			attr_valid: 1024,
+			attr_valid: u64::MAX,
 			attr_valid_nsec: 0,
 			attr: fuse_attr {
 				ino: node,
@@ -1562,9 +1837,9 @@ where
 		let entry_out = fuse_entry_out {
 			nodeid: node,
 			generation: 0,
-			entry_valid: 1024,
-			attr_valid: 0,
-			entry_valid_nsec: 1024,
+			entry_valid: u64::MAX,
+			attr_valid: u64::MAX,
+			entry_valid_nsec: 0,
 			attr_valid_nsec: 0,
 			attr: attr_out.attr,
 		};
@@ -1577,9 +1852,9 @@ where
 		let entry_out = fuse_entry_out {
 			nodeid: node,
 			generation: 0,
-			entry_valid: 1024,
-			attr_valid: 0,
-			entry_valid_nsec: 1024,
+			entry_valid: u64::MAX,
+			attr_valid: u64::MAX,
+			entry_valid_nsec: 0,
 			attr_valid_nsec: 0,
 			attr: attr_out.attr,
 		};
@@ -1619,25 +1894,6 @@ where
 	T::read_from_prefix(request_data)
 		.map(|(data, _)| data)
 		.map_err(|_| Error::other("failed to deserialize the request data"))
-}
-
-fn write_error(fd: RawFd, unique: u64, error: i32) -> std::io::Result<()> {
-	let len = std::mem::size_of::<fuse_out_header>();
-	let header = fuse_out_header {
-		unique,
-		len: len.to_u32().unwrap(),
-		error: -error,
-	};
-	let header = header.as_bytes();
-	let iov = [libc::iovec {
-		iov_base: header.as_ptr() as *mut _,
-		iov_len: header.len(),
-	}];
-	let ret = unsafe { libc::writev(fd.as_raw_fd(), iov.as_ptr(), 1) };
-	if ret == -1 {
-		return Err(std::io::Error::last_os_error());
-	}
-	Ok(())
 }
 
 fn write_response(fd: RawFd, unique: u64, response: &Response) -> std::io::Result<()> {
