@@ -102,6 +102,7 @@ impl Server {
 			prefix_tag.push(component);
 		}
 		let get_arg = tg::tag::get::Arg {
+			cached: None,
 			local: Some(false),
 			remotes: Some(vec![remote.to_owned()]),
 			ttl: arg.ttl,
@@ -184,6 +185,7 @@ impl Server {
 			let mut next = Vec::new();
 			for (tag, _item) in &current {
 				let get_arg = tg::tag::get::Arg {
+					cached: None,
 					local: Some(false),
 					remotes: Some(vec![remote.to_owned()]),
 					ttl: None,
@@ -241,6 +243,7 @@ impl Server {
 			if data[i].item.is_none() {
 				let tag = data[i].tag.clone();
 				let get_arg = tg::tag::get::Arg {
+					cached: None,
 					local: Some(false),
 					remotes: Some(vec![remote.to_owned()]),
 					ttl: None,

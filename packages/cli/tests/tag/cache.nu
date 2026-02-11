@@ -113,9 +113,6 @@ tg -u $remote.url tag put "a/q/t" $id
 let s1 = tg -u $local.url tag get "a/q/r/s"
 let q = tg -u $local.url tag get "a/q"
 
-# Delete the tag on the remote so that the only way to get it is from the cache.
-tg -u $remote.url tag delete --recursive "a/q"
-
 # Fetch s again. It should still be in the cache.
-let s2 = tg -u $local.url tag get "a/q/r/s"
+let s2 = tg -u $local.url tag get --remote --cached "a/q/r/s"
 assert ($s1 == $s2)

@@ -25,7 +25,7 @@ impl Server {
 		}
 
 		// Try to get the tag locally if requested.
-		if Self::local(arg.local, arg.remotes.as_ref()) {
+		if !arg.cached.unwrap_or(false) && Self::local(arg.local, arg.remotes.as_ref()) {
 			let output = self
 				.try_get_tag_local(tag)
 				.instrument(tracing::trace_span!("local"))
@@ -58,11 +58,17 @@ impl Server {
 			}
 		}
 
+		// If cached-only mode, do not fetch from the remotes.
+		if arg.cached.unwrap_or(false) {
+			return Ok(None);
+		}
+
 		// Try to get the tag from the remotes.
 		let remote_outputs = remotes
 			.into_iter()
 			.map(|remote| {
 				let tag_arg = tg::tag::get::Arg {
+					cached: None,
 					local: None,
 					remotes: None,
 					ttl: None,
