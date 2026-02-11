@@ -38,8 +38,6 @@ impl Server {
 			guard.replace(self.clean_lock.write().await);
 			progress.finish("tasks");
 		}
-
-		let _guard = self.clean_lock.write().await;
 		let task = Task::spawn({
 			let server = self.clone();
 			let progress = progress.clone();
