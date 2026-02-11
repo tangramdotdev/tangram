@@ -9,11 +9,20 @@ use {
 	bytes::Bytes,
 	io_uring::{IoUring, opcode, types},
 	num::ToPrimitive as _,
+	rustix::{
+		event::EventfdFlags,
+		fd::BorrowedFd,
+		io::{Errno, FdFlags, IoSlice, IoSliceMut},
+		net::{
+			AddressFamily, RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SocketFlags,
+			SocketType,
+		},
+	},
 	std::{
 		collections::HashMap,
 		ffi::CString,
 		io::Error,
-		mem::size_of,
+		mem::{MaybeUninit, size_of},
 		ops::Deref,
 		os::{
 			fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd},
@@ -112,11 +121,17 @@ const SQPOLL_IDLE_MS: u32 = 2_000;
 const FIXED_FUSE_FD_INDEX: u32 = 0;
 const FIXED_EVENTFD_INDEX: u32 = 1;
 const EVENTFD_BUFFER_INDEX: u16 = 0;
-const FUSE_DEV_IOC_CLONE: libc::c_ulong = ior(sys::FUSE_DEV_IOC_MAGIC, 0, 4);
-const FUSE_DEV_IOC_BACKING_OPEN: libc::c_ulong = iow(sys::FUSE_DEV_IOC_MAGIC, 1, 16);
-const FUSE_DEV_IOC_BACKING_CLOSE: libc::c_ulong = iow(sys::FUSE_DEV_IOC_MAGIC, 2, 4);
+const FUSE_DEV_IOC_CLONE: rustix::ioctl::Opcode =
+	rustix::ioctl::opcode::read::<u32>(sys::FUSE_DEV_IOC_MAGIC as u8, 0);
+const FUSE_DEV_IOC_BACKING_OPEN: rustix::ioctl::Opcode =
+	rustix::ioctl::opcode::write::<sys::fuse_backing_map>(sys::FUSE_DEV_IOC_MAGIC as u8, 1);
+const FUSE_DEV_IOC_BACKING_CLOSE: rustix::ioctl::Opcode =
+	rustix::ioctl::opcode::write::<u32>(sys::FUSE_DEV_IOC_MAGIC as u8, 2);
 const URING_IOVEC_COUNT: u32 = 2;
 const URING_CMD_BYTES: usize = 80;
+const S_IFDIR: u32 = 0o040000;
+const S_IFREG: u32 = 0o100000;
+const S_IFLNK: u32 = 0o120000;
 
 #[repr(C)]
 struct IoUringSqePrefix {
@@ -149,6 +164,68 @@ struct UringSlot {
 	header: Box<sys::fuse_uring_req_header>,
 	payload: Vec<u8>,
 	iovecs: [libc::iovec; URING_IOVEC_COUNT as usize],
+}
+
+struct IoctlNoArgInt<const OPCODE: rustix::ioctl::Opcode>;
+
+impl<const OPCODE: rustix::ioctl::Opcode> IoctlNoArgInt<OPCODE> {
+	const fn new() -> Self {
+		Self
+	}
+}
+
+unsafe impl<const OPCODE: rustix::ioctl::Opcode> ioctl::Ioctl for IoctlNoArgInt<OPCODE> {
+	type Output = i32;
+
+	const IS_MUTATING: bool = false;
+
+	fn opcode(&self) -> ioctl::Opcode {
+		OPCODE
+	}
+
+	fn as_ptr(&mut self) -> *mut core::ffi::c_void {
+		std::ptr::null_mut()
+	}
+
+	unsafe fn output_from_ptr(
+		out: ioctl::IoctlOutput,
+		_ptr: *mut core::ffi::c_void,
+	) -> rustix::io::Result<Self::Output> {
+		Ok(out)
+	}
+}
+
+struct IoctlPointerInt<'a, const OPCODE: rustix::ioctl::Opcode, T> {
+	value: &'a mut T,
+}
+
+impl<'a, const OPCODE: rustix::ioctl::Opcode, T> IoctlPointerInt<'a, OPCODE, T> {
+	const fn new(value: &'a mut T) -> Self {
+		Self { value }
+	}
+}
+
+unsafe impl<const OPCODE: rustix::ioctl::Opcode, T> ioctl::Ioctl
+	for IoctlPointerInt<'_, OPCODE, T>
+{
+	type Output = i32;
+
+	const IS_MUTATING: bool = true;
+
+	fn opcode(&self) -> ioctl::Opcode {
+		OPCODE
+	}
+
+	fn as_ptr(&mut self) -> *mut core::ffi::c_void {
+		std::ptr::from_mut(self.value).cast()
+	}
+
+	unsafe fn output_from_ptr(
+		out: ioctl::IoctlOutput,
+		_ptr: *mut core::ffi::c_void,
+	) -> rustix::io::Result<Self::Output> {
+		Ok(out)
+	}
 }
 
 impl UringSlot {
@@ -258,15 +335,11 @@ where
 	fn init_handshake(fd: &OwnedFd) -> Result<()> {
 		let mut buffer = vec![0u8; REQUEST_BUFFER_SIZE];
 		loop {
-			let ret =
-				unsafe { libc::read(fd.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len()) };
-			if ret < 0 {
-				let error = Error::last_os_error();
-				if error.raw_os_error() == Some(libc::EINTR) {
-					continue;
-				}
-				return Err(error);
-			}
+			let ret = match rustix::io::read(fd, &mut buffer) {
+				Ok(ret) => ret,
+				Err(Errno::INTR) => continue,
+				Err(error) => return Err(error.into()),
+			};
 			if ret == 0 {
 				return Err(Error::other("failed to read init request"));
 			}
@@ -286,17 +359,10 @@ where
 	}
 
 	fn clone_worker_fd(fd: &OwnedFd) -> Result<OwnedFd> {
-		let cloned = unsafe { libc::ioctl(fd.as_raw_fd(), FUSE_DEV_IOC_CLONE) };
-		if cloned < 0 {
-			return Err(Error::last_os_error());
-		}
-		let ret = unsafe { libc::fcntl(cloned, libc::F_SETFD, libc::FD_CLOEXEC) };
-		if ret == -1 {
-			let error = Error::last_os_error();
-			unsafe { libc::close(cloned) };
-			return Err(error);
-		}
+		let cloned = unsafe { ioctl::ioctl(fd, IoctlNoArgInt::<FUSE_DEV_IOC_CLONE>::new()) }
+			.map_err(Error::from)?;
 		let cloned = unsafe { OwnedFd::from_raw_fd(cloned) };
+		rustix::io::fcntl_setfd(&cloned, FdFlags::CLOEXEC).map_err(Error::from)?;
 		Ok(cloned)
 	}
 
@@ -310,11 +376,8 @@ where
 		let qid = worker_id
 			.to_u16()
 			.ok_or_else(|| Error::other("worker id out of range"))?;
-		let eventfd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC) };
-		if eventfd < 0 {
-			return Err(Error::last_os_error());
-		}
-		let eventfd = Arc::new(unsafe { OwnedFd::from_raw_fd(eventfd) });
+		let eventfd = rustix::event::eventfd(0, EventfdFlags::CLOEXEC).map_err(Error::from)?;
+		let eventfd = Arc::new(eventfd);
 		let (sender, receiver) = crossbeam_channel::unbounded::<AsyncResponse>();
 
 		let mut builder = IoUring::<io_uring::squeue::Entry128>::builder();
@@ -1081,9 +1144,9 @@ where
 			}
 
 			let type_ = match attr.typ {
-				FileType::Directory => libc::S_IFDIR.to_u32().unwrap(),
-				FileType::File { .. } => libc::S_IFREG.to_u32().unwrap(),
-				FileType::Symlink => libc::S_IFLNK.to_u32().unwrap(),
+				FileType::Directory => S_IFDIR,
+				FileType::File { .. } => S_IFREG,
+				FileType::Symlink => S_IFLNK,
 			};
 
 			let dirent = FuseDirentHeader {
@@ -1152,16 +1215,14 @@ where
 			flags: 0,
 			padding: 0,
 		};
+		let fd = unsafe { BorrowedFd::borrow_raw(fd) };
 		let backing_id = unsafe {
-			libc::ioctl(
+			ioctl::ioctl(
 				fd,
-				FUSE_DEV_IOC_BACKING_OPEN,
-				std::ptr::from_mut(&mut map).cast::<libc::c_void>(),
+				IoctlPointerInt::<FUSE_DEV_IOC_BACKING_OPEN, _>::new(&mut map),
 			)
-		};
-		if backing_id < 0 {
-			return Err(Error::last_os_error());
 		}
+		.map_err(Error::from)?;
 		let backing_id_u32 = backing_id
 			.to_u32()
 			.ok_or_else(|| Error::other("invalid backing id"))?;
@@ -1178,15 +1239,15 @@ where
 			return;
 		};
 		let mut backing_id = backing_id;
+		let fd = unsafe { BorrowedFd::borrow_raw(fd) };
 		let ret = unsafe {
-			libc::ioctl(
+			ioctl::ioctl(
 				fd,
-				FUSE_DEV_IOC_BACKING_CLOSE,
-				std::ptr::from_mut(&mut backing_id).cast::<libc::c_void>(),
+				IoctlPointerInt::<FUSE_DEV_IOC_BACKING_CLOSE, _>::new(&mut backing_id),
 			)
 		};
-		if ret < 0 {
-			let error = Error::last_os_error();
+		if let Err(error) = ret {
+			let error: Error = error.into();
 			tracing::error!(?error, %fh, %backing_id, "failed to close passthrough backing");
 		}
 	}
@@ -1580,9 +1641,9 @@ where
 			}
 
 			let type_ = match attr.typ {
-				FileType::Directory => libc::S_IFDIR.to_u32().unwrap(),
-				FileType::File { .. } => libc::S_IFREG.to_u32().unwrap(),
-				FileType::Symlink => libc::S_IFLNK.to_u32().unwrap(),
+				FileType::Directory => S_IFDIR,
+				FileType::File { .. } => S_IFREG,
+				FileType::Symlink => S_IFLNK,
 			};
 
 			let dirent = FuseDirentHeader {
@@ -1742,105 +1803,53 @@ where
 	}
 
 	async fn mount(path: &Path) -> Result<Arc<OwnedFd>> {
-		unsafe {
-			// Create the file socket pair.
-			let mut fds = [0, 0];
-			let ret = libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr());
-			if ret != 0 {
-				return Err(std::io::Error::last_os_error());
-			}
-			let fuse_commfd = CString::new(fds[0].to_string()).unwrap();
+		let (fuse_commfd, recvfd) = rustix::net::socketpair(
+			AddressFamily::UNIX,
+			SocketType::STREAM,
+			SocketFlags::CLOEXEC,
+			None,
+		)
+		.map_err(Error::from)?;
+		rustix::io::fcntl_setfd(&fuse_commfd, FdFlags::empty()).map_err(Error::from)?;
 
-			// Create the args.
-			let uid = libc::getuid();
-			let gid = libc::getgid();
-			let options = CString::new(format!(
-				"rootmode=40755,user_id={uid},group_id={gid},default_permissions"
-			))
-			.unwrap();
-			let path = CString::new(path.as_os_str().as_bytes()).unwrap();
+		let uid = rustix::process::getuid().as_raw();
+		let gid = rustix::process::getgid().as_raw();
+		let options = format!("rootmode=40755,user_id={uid},group_id={gid},default_permissions");
+		let mut child = std::process::Command::new("fusermount3")
+			.args(["-o", &options, "--"])
+			.arg(path)
+			.env("_FUSE_COMMFD", fuse_commfd.as_raw_fd().to_string())
+			.stdin(std::process::Stdio::null())
+			.stdout(std::process::Stdio::null())
+			.stderr(std::process::Stdio::null())
+			.spawn()?;
+		drop(fuse_commfd);
 
-			// Fork.
-			let pid = libc::fork();
-			if pid == -1 {
-				libc::close(fds[0]);
-				libc::close(fds[1]);
-				let source = std::io::Error::last_os_error();
-				return Err(source);
-			}
-
-			// Exec.
-			if pid == 0 {
-				let argv = [
-					c"fusermount3".as_ptr(),
-					c"-o".as_ptr(),
-					options.as_ptr(),
-					c"--".as_ptr(),
-					path.as_ptr(),
-					std::ptr::null(),
-				];
-				libc::close(fds[1]);
-				libc::fcntl(fds[0], libc::F_SETFD, 0);
-				libc::setenv(c"_FUSE_COMMFD".as_ptr(), fuse_commfd.as_ptr(), 1);
-				libc::execvp(argv[0], argv.as_ptr());
-				libc::close(fds[0]);
-				libc::exit(1);
-			}
-			libc::close(fds[0]);
-
-			// Create the control message.
-			let mut control = vec![0u8; libc::CMSG_SPACE(4) as usize];
-			let mut buffer = vec![0u8; 8];
-			let mut msg = Box::new(libc::msghdr {
-				msg_name: std::ptr::null_mut(),
-				msg_namelen: 0,
-				msg_iov: [libc::iovec {
-					iov_base: buffer.as_mut_ptr().cast(),
-					iov_len: buffer.len(),
-				}]
-				.as_mut_ptr(),
-				msg_iovlen: 1,
-				msg_control: control.as_mut_ptr().cast(),
-				#[cfg_attr(target_os = "macos", expect(clippy::cast_possible_truncation))]
-				msg_controllen: std::mem::size_of_val(&control) as _,
-				msg_flags: 0,
-			});
-			let msg: *mut libc::msghdr = std::ptr::from_mut(msg.as_mut());
-
-			// Receive the control message.
-			let ret = libc::recvmsg(fds[1], msg, 0);
-			if ret == -1 {
-				return Err(Error::last_os_error());
-			}
-			if ret == 0 {
-				return Err(Error::other("failed to read the control message"));
-			}
-
-			// Get the file descriptor.
-			let cmsg = libc::CMSG_FIRSTHDR(msg);
-			if cmsg.is_null() {
-				return Err(Error::other("missing control message"));
-			}
-			let mut fd: RawFd = 0;
-			libc::memcpy(
-				std::ptr::addr_of_mut!(fd).cast(),
-				libc::CMSG_DATA(cmsg).cast(),
-				std::mem::size_of_val(&fd),
-			);
-			let ret = libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
-			if ret == -1 {
-				return Err(std::io::Error::last_os_error());
-			}
-			let fd = Arc::new(OwnedFd::from_raw_fd(fd));
-
-			// Reap the process.
-			let ret = libc::waitpid(pid, std::ptr::null_mut(), 0);
-			if ret == -1 {
-				return Err(std::io::Error::last_os_error());
-			}
-
-			Ok(fd)
+		let mut read_buffer = [0u8; 8];
+		let mut iovecs = [IoSliceMut::new(&mut read_buffer)];
+		let mut cmsg_space = [MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(1))];
+		let mut cmsg_buffer = RecvAncillaryBuffer::new(&mut cmsg_space);
+		let recv = rustix::net::recvmsg(&recvfd, &mut iovecs, &mut cmsg_buffer, RecvFlags::empty())
+			.map_err(Error::from)?;
+		if recv.bytes == 0 {
+			return Err(Error::other("failed to read the control message"));
 		}
+
+		let mut fd = None;
+		for message in cmsg_buffer.drain() {
+			if let RecvAncillaryMessage::ScmRights(mut fds) = message {
+				fd = fds.next();
+				if fd.is_some() {
+					break;
+				}
+			}
+		}
+		let fd = fd.ok_or_else(|| Error::other("missing control message"))?;
+		rustix::io::fcntl_setfd(&fd, FdFlags::CLOEXEC).map_err(Error::from)?;
+
+		child.wait()?;
+
+		Ok(Arc::new(fd))
 	}
 
 	async fn provider_getattr(&self, node: u64) -> Result<crate::Attrs> {
@@ -1939,12 +1948,12 @@ where
 
 	fn fuse_attr_out(node: u64, attr: crate::Attrs) -> fuse_attr_out {
 		let (size, mode) = match attr.typ {
-			FileType::Directory => (0, libc::S_IFDIR | 0o555),
+			FileType::Directory => (0, S_IFDIR | 0o555),
 			FileType::File { executable, size } => (
 				size,
-				libc::S_IFREG | 0o444 | (if executable { 0o111 } else { 0o000 }),
+				S_IFREG | 0o444 | (if executable { 0o111 } else { 0o000 }),
 			),
-			FileType::Symlink => (0, libc::S_IFLNK | 0o444),
+			FileType::Symlink => (0, S_IFLNK | 0o444),
 		};
 		let mode = mode.to_u32().unwrap();
 		fuse_attr_out {
@@ -2005,43 +2014,12 @@ where
 	}
 }
 
-const fn ior(typ: u32, nr: u32, size: u32) -> libc::c_ulong {
-	const IOC_NRBITS: u32 = 8;
-	const IOC_TYPEBITS: u32 = 8;
-	const IOC_SIZEBITS: u32 = 14;
-	const IOC_NRSHIFT: u32 = 0;
-	const IOC_TYPESHIFT: u32 = IOC_NRSHIFT + IOC_NRBITS;
-	const IOC_SIZESHIFT: u32 = IOC_TYPESHIFT + IOC_TYPEBITS;
-	const IOC_DIRSHIFT: u32 = IOC_SIZESHIFT + IOC_SIZEBITS;
-	const IOC_READ: u32 = 2;
-
-	((IOC_READ << IOC_DIRSHIFT)
-		| (typ << IOC_TYPESHIFT)
-		| (nr << IOC_NRSHIFT)
-		| (size << IOC_SIZESHIFT)) as libc::c_ulong
-}
-
-const fn iow(typ: u32, nr: u32, size: u32) -> libc::c_ulong {
-	const IOC_NRBITS: u32 = 8;
-	const IOC_TYPEBITS: u32 = 8;
-	const IOC_SIZEBITS: u32 = 14;
-	const IOC_NRSHIFT: u32 = 0;
-	const IOC_TYPESHIFT: u32 = IOC_NRSHIFT + IOC_NRBITS;
-	const IOC_SIZESHIFT: u32 = IOC_TYPESHIFT + IOC_TYPEBITS;
-	const IOC_DIRSHIFT: u32 = IOC_SIZESHIFT + IOC_SIZEBITS;
-	const IOC_WRITE: u32 = 1;
-
-	((IOC_WRITE << IOC_DIRSHIFT)
-		| (typ << IOC_TYPESHIFT)
-		| (nr << IOC_NRSHIFT)
-		| (size << IOC_SIZESHIFT)) as libc::c_ulong
-}
-
 fn signal_eventfd(fd: RawFd) -> Result<()> {
 	let value = 1u64.to_ne_bytes();
-	let ret = unsafe { libc::write(fd, value.as_ptr().cast(), value.len()) };
-	if ret == -1 {
-		return Err(Error::last_os_error());
+	let fd = unsafe { BorrowedFd::borrow_raw(fd) };
+	let ret = rustix::io::write(fd, &value).map_err(Error::from)?;
+	if ret != value.len() {
+		return Err(Error::other("failed to signal eventfd"));
 	}
 	Ok(())
 }
@@ -2078,20 +2056,9 @@ fn write_response(fd: RawFd, unique: u64, response: &Response) -> std::io::Resul
 		error: 0,
 	};
 	let header = header.as_bytes();
-	let iov = [
-		libc::iovec {
-			iov_base: header.as_ptr() as *mut _,
-			iov_len: header.len(),
-		},
-		libc::iovec {
-			iov_base: data.as_ptr() as *mut _,
-			iov_len: data.len(),
-		},
-	];
-	let ret = unsafe { libc::writev(fd.as_raw_fd(), iov.as_ptr(), 2) };
-	if ret == -1 {
-		return Err(std::io::Error::last_os_error());
-	}
+	let iov = [IoSlice::new(header), IoSlice::new(data)];
+	let fd = unsafe { BorrowedFd::borrow_raw(fd) };
+	rustix::io::writev(fd, &iov).map_err(std::io::Error::from)?;
 	Ok(())
 }
 
