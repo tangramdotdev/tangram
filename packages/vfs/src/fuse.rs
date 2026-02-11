@@ -6,6 +6,7 @@ use {
 		fuse_release_in,
 	},
 	crate::{FileType, Provider, Result},
+	bytes::Bytes,
 	io_uring::{IoUring, opcode, types},
 	num::ToPrimitive as _,
 	std::{
@@ -79,7 +80,7 @@ enum Response {
 	Lookup(sys::fuse_entry_out),
 	Open(sys::fuse_open_out),
 	OpenDir(sys::fuse_open_out),
-	Read(Vec<u8>),
+	Read(Bytes),
 	ReadDir(Vec<u8>),
 	ReadDirPlus(Vec<u8>),
 	ReadLink(CString),
@@ -598,8 +599,8 @@ where
 			Response::Init(data) => data.as_bytes(),
 			Response::Lookup(data) => data.as_bytes(),
 			Response::Open(data) | Response::OpenDir(data) => data.as_bytes(),
-			Response::Read(data)
-			| Response::ReadDir(data)
+			Response::Read(data) => data.as_ref(),
+			Response::ReadDir(data)
 			| Response::ReadDirPlus(data)
 			| Response::GetXattr(data)
 			| Response::ListXattr(data) => data.as_bytes(),
@@ -1049,7 +1050,7 @@ where
 		let bytes =
 			self.provider
 				.read_sync(request.fh, request.offset, request.size.to_u64().unwrap())?;
-		Ok(Some(Response::Read(bytes.to_vec())))
+		Ok(Some(Response::Read(bytes)))
 	}
 
 	fn handle_read_dir_request_sync(
@@ -1904,14 +1905,12 @@ where
 		}
 	}
 
-	async fn provider_read(&self, handle: u64, offset: u64, size: u64) -> Result<Vec<u8>> {
+	async fn provider_read(&self, handle: u64, offset: u64, size: u64) -> Result<Bytes> {
 		match self.provider.read_sync(handle, offset, size) {
-			Ok(value) => Ok(value.to_vec()),
-			Err(error) if error.raw_os_error() == Some(libc::ENOSYS) => self
-				.provider
-				.read(handle, offset, size)
-				.await
-				.map(|value| value.to_vec()),
+			Ok(value) => Ok(value),
+			Err(error) if error.raw_os_error() == Some(libc::ENOSYS) => {
+				self.provider.read(handle, offset, size).await
+			},
 			Err(error) => Err(error),
 		}
 	}
@@ -2063,8 +2062,8 @@ fn write_response(fd: RawFd, unique: u64, response: &Response) -> std::io::Resul
 		Response::Init(data) => data.as_bytes(),
 		Response::Lookup(data) => data.as_bytes(),
 		Response::Open(data) | Response::OpenDir(data) => data.as_bytes(),
-		Response::Read(data)
-		| Response::ReadDir(data)
+		Response::Read(data) => data.as_ref(),
+		Response::ReadDir(data)
 		| Response::ReadDirPlus(data)
 		| Response::GetXattr(data)
 		| Response::ListXattr(data) => data.as_bytes(),
