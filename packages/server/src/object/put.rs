@@ -34,6 +34,9 @@ impl Server {
 			return Ok(());
 		}
 
+		// Guard against concurrent cleans.
+		let _clean_guard = self.try_acquire_clean_guard()?;
+
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		let put_arg = crate::store::PutObjectArg {

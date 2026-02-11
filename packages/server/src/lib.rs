@@ -80,6 +80,7 @@ pub struct State {
 	cache_graph_tasks: CacheGraphTasks,
 	cache_tasks: CacheTasks,
 	checkin_tasks: CheckinTasks,
+	clean_lock: Arc<tokio::sync::RwLock<()>>,
 	config: Config,
 	database: Database,
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
@@ -125,6 +126,9 @@ type CheckinTasks = tangram_futures::task::Map<
 	crate::progress::Handle<crate::checkin::TaskOutput>,
 	fnv::FnvBuildHasher,
 >;
+
+#[derive(Debug)]
+struct CleanGuard(#[expect(dead_code)] Option<tokio::sync::OwnedRwLockReadGuard<()>>);
 
 struct Http {
 	url: Uri,
@@ -194,6 +198,9 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write the pid to the lock file"))?;
 		let lock = Mutex::new(Some(lock));
+
+		// Create the clean lock.
+		let clean_lock = Arc::new(tokio::sync::RwLock::new(()));
 
 		// Verify the version file.
 		let version_path = path.join("version");
@@ -529,6 +536,7 @@ impl Server {
 			cache_graph_tasks,
 			cache_tasks,
 			checkin_tasks,
+			clean_lock,
 			config,
 			database,
 			diagnostics,
@@ -1119,6 +1127,26 @@ impl Server {
 		}
 		let output = self.list_remotes(tg::remote::list::Arg::default()).await?;
 		Ok(output.data.into_iter().map(|r| r.name).collect())
+	}
+
+	fn try_acquire_clean_guard(&self) -> tg::Result<CleanGuard> {
+		if !self.config().advanced.single_process {
+			return Ok(CleanGuard(None));
+		}
+		let guard = self
+			.clean_lock
+			.clone()
+			.try_read_owned()
+			.map_err(|_| tg::error!("a clean is in progress"))?;
+		Ok(CleanGuard(Some(guard)))
+	}
+
+	async fn acquire_clean_guard(&self) -> CleanGuard {
+		if !self.config().advanced.single_process {
+			return CleanGuard(None);
+		}
+		let guard = self.clean_lock.clone().read_owned().await;
+		CleanGuard(Some(guard))
 	}
 }
 

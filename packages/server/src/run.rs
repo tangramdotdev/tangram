@@ -70,6 +70,9 @@ impl Server {
 				},
 			};
 
+			// Wait for any cleans to finish.
+			let clean_guard = self.acquire_clean_guard().await;
+
 			// Attempt to start the process.
 			let arg = tg::process::start::Arg {
 				local: None,
@@ -82,17 +85,22 @@ impl Server {
 			}
 
 			// Spawn the process task.
-			self.spawn_process_task(&process, permit);
+			self.spawn_process_task(&process, permit, clean_guard);
 		}
 	}
 
-	pub(crate) fn spawn_process_task(&self, process: &tg::Process, permit: ProcessPermit) {
+	pub(crate) fn spawn_process_task(
+		&self,
+		process: &tg::Process,
+		permit: ProcessPermit,
+		clean_guard: crate::CleanGuard,
+	) {
 		// Spawn the process task.
 		self.process_tasks
 			.spawn(process.id().clone(), |_| {
 				let server = self.clone();
 				let process = process.clone();
-				async move { server.process_task(&process, permit).await }
+				async move { server.process_task(&process, permit, clean_guard).await }
 					.inspect_err(|error| {
 						tracing::error!(error = %error.trace(), "the process task failed");
 					})
@@ -112,12 +120,21 @@ impl Server {
 		});
 	}
 
-	async fn process_task(&self, process: &tg::Process, permit: ProcessPermit) -> tg::Result<()> {
+	async fn process_task(
+		&self,
+		process: &tg::Process,
+		permit: ProcessPermit,
+		clean_guard: crate::CleanGuard,
+	) -> tg::Result<()> {
+		// Guard against concurrent cleans.
+		let _clean_guard = self.try_acquire_clean_guard()?;
+
 		// Set the process's permit.
 		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
 		self.process_permits.insert(process.id().clone(), permit);
 		scopeguard::defer! {
 			self.process_permits.remove(process.id());
+			drop(clean_guard);
 		}
 
 		// Run.

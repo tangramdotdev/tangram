@@ -62,6 +62,9 @@ impl Server {
 			arg.path = process.host_path_for_guest_path(arg.path.clone());
 		}
 
+		// Guard against concurrent cleans.
+		let _clean_guard = self.try_acquire_clean_guard()?;
+
 		// Validate and canonicalize the path.
 		if !arg.path.is_absolute() {
 			return Err(tg::error!(path = ?arg.path, "the path must be absolute"));

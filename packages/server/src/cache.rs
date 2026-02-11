@@ -46,6 +46,18 @@ impl Server {
 			let server = self.clone();
 			let progress = progress.clone();
 			|_| async move {
+				// Guard against concurrent cleans.
+				let clean_guard = server.try_acquire_clean_guard();
+				#[allow(
+					clippy::unnecessary_unwrap,
+					reason = "clean_guard must not drop until the scope exits"
+				)]
+				if clean_guard.is_err() {
+					progress.error(clean_guard.unwrap_err());
+					progress.finish_all();
+					return;
+				}
+
 				// Ensure the artifact is stored.
 				let result = server
 					.cache_ensure_stored(&artifacts, &progress)

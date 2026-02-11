@@ -41,6 +41,9 @@ impl Server {
 		arg: tg::write::Arg,
 		reader: impl AsyncRead,
 	) -> tg::Result<tg::write::Output> {
+		// Guard against concurrent cleans.
+		let _clean_guard = self.try_acquire_clean_guard()?;
+
 		// Get the touch time.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
