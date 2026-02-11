@@ -157,6 +157,7 @@ export class Command<
 					arg instanceof tg.Template
 				) {
 					let host = tg.process.env.TANGRAM_HOST;
+					tg.assert(host !== undefined, "TANGRAM_HOST must be set");
 					return {
 						args: ["-c", arg],
 						executable: "sh",

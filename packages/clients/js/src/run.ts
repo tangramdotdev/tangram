@@ -239,6 +239,7 @@ async function arg_(
 				arg instanceof tg.Template
 			) {
 				let host = tg.process.env.TANGRAM_HOST;
+				tg.assert(host !== undefined, "TANGRAM_HOST must be set");
 				let executable = tg.process.env.SHELL ?? "sh";
 				return {
 					args: ["-c", arg],
