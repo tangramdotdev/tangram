@@ -1054,11 +1054,11 @@ where
 
 	fn handle_read_dir_request_sync(
 		&self,
-		_header: fuse_in_header,
+		header: fuse_in_header,
 		request: fuse_read_in,
 		plus: bool,
 	) -> Result<Option<Response>> {
-		let entries = self.provider.readdir_sync(request.fh)?;
+		let entries = self.provider.readdir_sync(header.nodeid)?;
 		let struct_size = if plus {
 			std::mem::size_of::<FuseDirentPlusHeader>()
 		} else {
@@ -1343,6 +1343,7 @@ where
 			| sys::FUSE_DO_READDIRPLUS
 			| sys::FUSE_PARALLEL_DIROPS
 			| sys::FUSE_CACHE_SYMLINKS
+			| sys::FUSE_NO_OPENDIR_SUPPORT
 			| sys::FUSE_SPLICE_MOVE
 			| sys::FUSE_SPLICE_READ
 			| sys::FUSE_MAX_PAGES
@@ -1551,11 +1552,11 @@ where
 
 	async fn handle_read_dir_request(
 		&self,
-		_header: fuse_in_header,
+		header: fuse_in_header,
 		request: fuse_read_in,
 		plus: bool,
 	) -> Result<Option<Response>> {
-		let entries = self.provider_readdir(request.fh).await?;
+		let entries = self.provider_readdir(header.nodeid).await?;
 
 		let struct_size = if plus {
 			std::mem::size_of::<FuseDirentPlusHeader>()
@@ -1915,11 +1916,11 @@ where
 		}
 	}
 
-	async fn provider_readdir(&self, handle: u64) -> Result<Vec<(String, u64)>> {
-		match self.provider.readdir_sync(handle) {
+	async fn provider_readdir(&self, node: u64) -> Result<Vec<(String, u64)>> {
+		match self.provider.readdir_sync(node) {
 			Ok(value) => Ok(value),
 			Err(error) if error.raw_os_error() == Some(libc::ENOSYS) => {
-				self.provider.readdir(handle).await
+				self.provider.readdir(node).await
 			},
 			Err(error) => Err(error),
 		}

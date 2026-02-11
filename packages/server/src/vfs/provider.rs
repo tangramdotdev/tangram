@@ -38,15 +38,9 @@ pub struct Provider {
 	node_count: AtomicU64,
 	file_handle_count: AtomicU64,
 	nodes: Nodes,
-	directory_handles: DashMap<u64, DirectoryHandle, fnv::FnvBuildHasher>,
 	file_handles: DashMap<u64, FileHandle, fnv::FnvBuildHasher>,
 	pending_nodes: Arc<DashMap<u64, Node, fnv::FnvBuildHasher>>,
 	server: Server,
-}
-
-pub struct DirectoryHandle {
-	node: u64,
-	directory: Option<tg::Directory>,
 }
 
 pub struct FileHandle {
@@ -601,21 +595,14 @@ impl vfs::Provider for Provider {
 	async fn opendir(&self, id: u64) -> std::io::Result<u64> {
 		// Get the node.
 		let Node { artifact, .. } = self.get(id).await?;
-		let directory = match artifact {
-			Some(tg::Artifact::Directory(directory)) => Some(directory),
-			None => None,
+		match artifact {
+			Some(tg::Artifact::Directory(_)) | None => {},
 			Some(_) => {
 				tracing::error!(%id, "called opendir on a file or symlink");
 				return Err(std::io::Error::other("expected a directory"));
 			},
-		};
-		let handle_id = self.file_handle_count.fetch_add(1, Ordering::SeqCst);
-		let handle = DirectoryHandle {
-			node: id,
-			directory,
-		};
-		self.directory_handles.insert(handle_id, handle);
-		Ok(handle_id)
+		}
+		Ok(id)
 	}
 
 	fn opendir_sync(&self, id: u64) -> std::io::Result<u64> {
@@ -623,29 +610,27 @@ impl vfs::Provider for Provider {
 
 		// Get the node.
 		let Node { artifact, .. } = self.get_sync(id)?;
-		let directory = match artifact {
-			Some(tg::Artifact::Directory(directory)) => Some(directory),
-			None => None,
+		match artifact {
+			Some(tg::Artifact::Directory(_)) | None => {},
 			Some(_) => {
 				tracing::error!(%id, "called opendir on a file or symlink");
 				return Err(std::io::Error::other("expected a directory"));
 			},
-		};
-		let handle_id = self.file_handle_count.fetch_add(1, Ordering::SeqCst);
-		let handle = DirectoryHandle {
-			node: id,
-			directory,
-		};
-		self.directory_handles.insert(handle_id, handle);
-		Ok(handle_id)
+		}
+		Ok(id)
 	}
 
 	async fn readdir(&self, id: u64) -> std::io::Result<Vec<(String, u64)>> {
-		let Some(handle) = self.directory_handles.get(&id) else {
-			tracing::error!(%id, "tried to read from an invalid file handle");
-			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
+		let Node { artifact, .. } = self.get(id).await?;
+		let directory = match artifact {
+			Some(tg::Artifact::Directory(directory)) => Some(directory),
+			None => None,
+			Some(_) => {
+				tracing::error!(%id, "called readdir on a file or symlink");
+				return Err(std::io::Error::other("expected a directory"));
+			},
 		};
-		let Some(directory) = handle.directory.as_ref() else {
+		let Some(directory) = directory.as_ref() else {
 			return Ok(Vec::new());
 		};
 		let entries = directory.entries(&self.server).await.map_err(|error| {
@@ -653,11 +638,14 @@ impl vfs::Provider for Provider {
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
 		let mut result = Vec::with_capacity(entries.len());
-		result.push((".".to_owned(), handle.node));
-		result.push(("..".to_owned(), self.lookup_parent(handle.node).await?));
+		result.push((".".to_owned(), id));
+		result.push(("..".to_owned(), self.lookup_parent(id).await?));
 		for name in entries.keys() {
-			let id = self.lookup(handle.node, name).await?.unwrap();
-			result.push((name.clone(), id));
+			let entry = self.lookup(id, name).await?.ok_or_else(|| {
+				tracing::error!(parent = id, %name, "failed to lookup directory entry");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
+			result.push((name.clone(), entry));
 		}
 		Ok(result)
 	}
@@ -665,40 +653,39 @@ impl vfs::Provider for Provider {
 	fn readdir_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64)>> {
 		self.check_sync_capability()?;
 
-		let Some(handle) = self.directory_handles.get(&id) else {
-			tracing::error!(%id, "tried to read from an invalid file handle");
-			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
+		let Node { artifact, .. } = self.get_sync(id)?;
+		let directory = match artifact {
+			Some(tg::Artifact::Directory(directory)) => Some(directory),
+			None => None,
+			Some(_) => {
+				tracing::error!(%id, "called readdir on a file or symlink");
+				return Err(std::io::Error::other("expected a directory"));
+			},
 		};
-		let Some(directory) = handle.directory.as_ref() else {
+		let Some(directory) = directory.as_ref() else {
 			return Ok(Vec::new());
 		};
 		let entries = self.directory_entries_sync(directory)?;
 		let mut result = Vec::with_capacity(entries.len() + 2);
-		result.push((".".to_owned(), handle.node));
-		result.push(("..".to_owned(), self.lookup_parent_sync(handle.node)?));
+		result.push((".".to_owned(), id));
+		result.push(("..".to_owned(), self.lookup_parent_sync(id)?));
 		for name in entries.keys() {
-			let id = self.lookup_sync(handle.node, name)?.ok_or_else(|| {
-				tracing::error!(parent = handle.node, %name, "failed to lookup directory entry");
+			let entry = self.lookup_sync(id, name)?.ok_or_else(|| {
+				tracing::error!(parent = id, %name, "failed to lookup directory entry");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
-			result.push((name.clone(), id));
+			result.push((name.clone(), entry));
 		}
 		Ok(result)
 	}
 
 	async fn close(&self, id: u64) {
-		if self.directory_handles.contains_key(&id) {
-			self.directory_handles.remove(&id);
-		}
 		if self.file_handles.contains_key(&id) {
 			self.file_handles.remove(&id);
 		}
 	}
 
 	fn close_sync(&self, id: u64) {
-		if self.directory_handles.contains_key(&id) {
-			self.directory_handles.remove(&id);
-		}
 		if self.file_handles.contains_key(&id) {
 			self.file_handles.remove(&id);
 		}
@@ -718,7 +705,6 @@ impl Provider {
 		// Create the provider.
 		let node_count = AtomicU64::new(1000);
 		let file_handle_count = AtomicU64::new(1000);
-		let directory_handles = DashMap::default();
 		let file_handles = DashMap::default();
 		let pending_nodes = Arc::new(DashMap::default());
 		let server = server.clone();
@@ -727,7 +713,6 @@ impl Provider {
 			node_count,
 			file_handle_count,
 			nodes,
-			directory_handles,
 			file_handles,
 			pending_nodes,
 			server,
