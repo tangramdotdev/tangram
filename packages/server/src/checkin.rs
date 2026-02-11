@@ -412,7 +412,12 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create the lock"))?;
 
 		// If the watch option is enabled, then create or update the watcher, verify the version, and then spawn a task to clean nodes with no referrers.
-		if arg.options.watch {
+		if self
+			.config()
+			.watch
+			.as_ref()
+			.is_some_and(|_| arg.options.watch)
+		{
 			// Create or update the watcher.
 			let entry = self.watches.entry(root.to_owned());
 			match entry {
@@ -421,7 +426,8 @@ impl Server {
 					let watch = entry.get();
 
 					// Update the watch.
-					let success = watch.update(graph.clone(), lock, solutions, version, next);
+					let success =
+						watch.update(self, root, graph.clone(), lock, solutions, version, next);
 
 					// If the update was not successful, then files were modified during checkin.
 					if !success {
@@ -430,6 +436,7 @@ impl Server {
 				},
 				dashmap::Entry::Vacant(entry) => {
 					let watch = Watch::new(
+						self,
 						root,
 						graph.clone(),
 						lock,

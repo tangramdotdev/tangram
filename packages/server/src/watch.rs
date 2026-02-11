@@ -1,4 +1,5 @@
 use {
+	crate::Server,
 	notify::Watcher as _,
 	std::{
 		collections::HashSet,
@@ -27,6 +28,7 @@ struct State {
 	paths: HashSet<PathBuf, fnv::FnvBuildHasher>,
 	sender: tokio::sync::mpsc::Sender<Message>,
 	solutions: crate::checkin::Solutions,
+	timeout_task: Option<Task<()>>,
 	version: u64,
 	watcher: notify::RecommendedWatcher,
 }
@@ -45,6 +47,7 @@ struct Message {
 
 impl Watch {
 	pub fn new(
+		server: &Server,
 		root: &Path,
 		graph: crate::checkin::Graph,
 		lock: Option<Arc<tg::graph::Data>>,
@@ -82,6 +85,7 @@ impl Watch {
 			paths: HashSet::default(),
 			sender,
 			solutions,
+			timeout_task: None,
 			version: 0,
 			watcher,
 		};
@@ -178,6 +182,10 @@ impl Watch {
 			}
 		});
 
+		// Spawn the timeout task.
+		let timeout = Self::spawn_timeout_task(server, root);
+		state.lock().unwrap().timeout_task.replace(timeout);
+
 		let watch = Self {
 			options,
 			state,
@@ -201,8 +209,11 @@ impl Watch {
 		}
 	}
 
+	#[expect(clippy::too_many_arguments)]
 	pub fn update(
 		&self,
+		server: &Server,
+		root: &Path,
 		graph: crate::checkin::Graph,
 		lock: Option<Arc<tg::graph::Data>>,
 		solutions: crate::checkin::Solutions,
@@ -221,6 +232,11 @@ impl Watch {
 		state.graph = graph;
 		state.lock = lock;
 		state.solutions = solutions;
+
+		// Reset the timeout task.
+		state
+			.timeout_task
+			.replace(Self::spawn_timeout_task(server, root));
 
 		// On Linux, add the new paths.
 		#[cfg(target_os = "linux")]
@@ -279,6 +295,26 @@ impl Watch {
 			notify::EventKind::Access(_) => (),
 		}
 		changes
+	}
+
+	fn spawn_timeout_task(server: &Server, path: &Path) -> Task<()> {
+		Task::spawn({
+			let ttl = server.config.watch.clone().unwrap_or_default().ttl;
+			let server = server.clone();
+			let path = path.to_owned();
+			async move |_stop| {
+				// Wait for the TTL to expire.
+				tokio::time::sleep(ttl).await;
+
+				// Delete the watch.
+				let arg = tg::watch::delete::Arg { path };
+				server
+					.delete_watch(arg)
+					.await
+					.inspect_err(|error| tracing::error!(?error, "failed to delete the watch"))
+					.ok();
+			}
+		})
 	}
 }
 
