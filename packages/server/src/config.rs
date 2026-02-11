@@ -71,6 +71,10 @@ pub struct Config {
 	pub vfs: Option<Vfs>,
 
 	#[serde_as(as = "BoolOptionDefault")]
+	#[serde(default = "default_watch")]
+	pub watch: Option<Watch>,
+
+	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default = "default_watchdog")]
 	pub watchdog: Option<Watchdog>,
 
@@ -452,6 +456,13 @@ pub struct Vfs {
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
+pub struct Watch {
+	pub ttl: Duration,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
 pub struct Watchdog {
 	pub batch_size: usize,
 	#[serde_as(as = "DurationSecondsWithFrac")]
@@ -502,6 +513,7 @@ impl Default for Config {
 			sync: Sync::default(),
 			version: None,
 			vfs: None,
+			watch: Some(Watch::default()),
 			watchdog: Some(Watchdog::default()),
 			write: Write::default(),
 		}
@@ -765,6 +777,14 @@ impl Default for Vfs {
 	}
 }
 
+impl Default for Watch {
+	fn default() -> Self {
+		Self {
+			ttl: Duration::from_secs(3600),
+		}
+	}
+}
+
 impl Default for Watchdog {
 	fn default() -> Self {
 		Self {
@@ -806,6 +826,11 @@ fn default_indexer() -> Option<Indexer> {
 #[expect(clippy::unnecessary_wraps)]
 fn default_runner() -> Option<Runner> {
 	Some(Runner::default())
+}
+
+#[expect(clippy::unnecessary_wraps)]
+fn default_watch() -> Option<Watch> {
+	Some(Watch::default())
 }
 
 #[expect(clippy::unnecessary_wraps)]
