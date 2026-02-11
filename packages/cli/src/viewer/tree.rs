@@ -1381,6 +1381,7 @@ where
 				recursive: false,
 				remotes: None,
 				reverse: false,
+				ttl: None,
 			})
 			.await
 			.map_err(|source| tg::error!(!source, tag = %pattern, "failed to list tags"))?;

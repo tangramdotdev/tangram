@@ -19,6 +19,7 @@ impl Server {
 				recursive: false,
 				remotes: remote.clone().map(|r| vec![r]),
 				reverse: false,
+				ttl: None,
 			})
 			.await
 			.map_err(|source| tg::error!(!source, "failed to list the tags"))?

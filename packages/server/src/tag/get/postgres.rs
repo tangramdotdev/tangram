@@ -245,7 +245,7 @@ impl Server {
 
 		// Check the TTL.
 		let cached_at = row.cached_at.unwrap_or(0);
-		if cached_at + ttl < now {
+		if cached_at + ttl <= now {
 			return Ok(None);
 		}
 
@@ -434,7 +434,9 @@ impl Server {
 							.inner()
 							.execute(statement, &[&now, &item_str, &child_id])
 							.await
-							.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+							.map_err(|source| {
+								tg::error!(!source, "failed to execute the statement")
+							})?;
 					} else {
 						let statement = indoc!(
 							"
@@ -446,12 +448,18 @@ impl Server {
 							.inner()
 							.execute(statement, &[&item_str, &child_id])
 							.await
-							.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+							.map_err(|source| {
+								tg::error!(!source, "failed to execute the statement")
+							})?;
 					}
 				} else {
 					// Insert a new child node. Only set cached_at for leaf children.
 					let item_str = child.item.as_ref().map(ToString::to_string);
-					let cached_at: Option<i64> = if child.item.is_some() { Some(now) } else { None };
+					let cached_at: Option<i64> = if child.item.is_some() {
+						Some(now)
+					} else {
+						None
+					};
 					let statement = indoc!(
 						"
 							insert into tags (cached_at, component, item, remote)
@@ -461,7 +469,10 @@ impl Server {
 					);
 					let rows = transaction
 						.inner()
-						.query(statement, &[&cached_at, &child.component, &item_str, &remote_str])
+						.query(
+							statement,
+							&[&cached_at, &child.component, &item_str, &remote_str],
+						)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 					let new_id: i64 = rows.first().unwrap().get(0);
@@ -479,6 +490,56 @@ impl Server {
 						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 				}
 			}
+		}
+
+		// Delete stale cached children that are no longer present in the remote response.
+		let valid_components: std::collections::HashSet<&str> = output
+			.children
+			.as_ref()
+			.map(|children| children.iter().map(|c| c.component.as_str()).collect())
+			.unwrap_or_default();
+		let statement = indoc!(
+			"
+				select tags.id, tags.component
+				from tag_children
+				join tags on tag_children.child = tags.id
+				where tag_children.tag = $1 and tags.remote = $2;
+			"
+		);
+		let rows = transaction
+			.inner()
+			.query(statement, &[&parent, &remote_str])
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		let mut stale_ids = Vec::new();
+		for row in &rows {
+			let id: i64 = row.get(0);
+			let component: String = row.get(1);
+			if !valid_components.contains(component.as_str()) {
+				stale_ids.push(id);
+			}
+		}
+		for stale_id in stale_ids {
+			let statement = indoc!(
+				"
+					delete from tag_children where tag = $1 and child = $2;
+				"
+			);
+			transaction
+				.inner()
+				.execute(statement, &[&parent, &stale_id])
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			let statement = indoc!(
+				"
+					delete from tags where id = $1;
+				"
+			);
+			transaction
+				.inner()
+				.execute(statement, &[&stale_id])
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
 
 		// Commit the transaction.

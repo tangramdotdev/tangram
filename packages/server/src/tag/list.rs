@@ -104,7 +104,7 @@ impl Server {
 		let get_arg = tg::tag::get::Arg {
 			local: Some(false),
 			remotes: Some(vec![remote.to_owned()]),
-			ttl: None,
+			ttl: arg.ttl,
 		};
 		let prefix_output = self
 			.try_get_tag_with_context(context, &prefix_tag, get_arg)

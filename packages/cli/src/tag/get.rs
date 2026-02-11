@@ -15,6 +15,10 @@ pub struct Args {
 
 	#[command(flatten)]
 	pub remotes: crate::util::args::Remotes,
+
+	/// Set the cache TTL in seconds. Use 0 to bypass the cache.
+	#[arg(long)]
+	pub ttl: Option<u64>,
 }
 
 impl Cli {
@@ -23,7 +27,7 @@ impl Cli {
 		let arg = tg::tag::get::Arg {
 			local: args.local.local,
 			remotes: args.remotes.remotes,
-			ttl: None,
+			ttl: args.ttl,
 		};
 		let output = handle
 			.get_tag(&args.tag, arg)

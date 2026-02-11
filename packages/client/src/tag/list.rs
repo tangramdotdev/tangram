@@ -26,6 +26,9 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub reverse: bool,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ttl: Option<u64>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

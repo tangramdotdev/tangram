@@ -252,7 +252,7 @@ impl Server {
 
 		// Check the TTL.
 		let cached_at = row.cached_at.unwrap_or(0);
-		if cached_at + ttl < now {
+		if cached_at + ttl <= now {
 			return Ok(None);
 		}
 
@@ -451,13 +451,14 @@ impl Server {
 								where id = ?3;
 							"
 						);
-						let mut statement = cache
-							.get(connection, statement.into())
-							.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+						let mut statement =
+							cache.get(connection, statement.into()).map_err(|source| {
+								tg::error!(!source, "failed to prepare the statement")
+							})?;
 						let params = sqlite::params![now, item_str, child_id];
-						statement
-							.execute(params)
-							.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+						statement.execute(params).map_err(|source| {
+							tg::error!(!source, "failed to execute the statement")
+						})?;
 					} else {
 						let statement = indoc!(
 							"
@@ -465,20 +466,25 @@ impl Server {
 								where id = ?2;
 							"
 						);
-						let mut statement = cache
-							.get(connection, statement.into())
-							.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+						let mut statement =
+							cache.get(connection, statement.into()).map_err(|source| {
+								tg::error!(!source, "failed to prepare the statement")
+							})?;
 						let params = sqlite::params![item_str, child_id];
-						statement
-							.execute(params)
-							.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+						statement.execute(params).map_err(|source| {
+							tg::error!(!source, "failed to execute the statement")
+						})?;
 					}
 				} else {
 					drop(rows);
 
 					// Insert a new child node. Only set cached_at for leaf children.
 					let item_str = child.item.as_ref().map(ToString::to_string);
-					let cached_at: Option<i64> = if child.item.is_some() { Some(now) } else { None };
+					let cached_at: Option<i64> = if child.item.is_some() {
+						Some(now)
+					} else {
+						None
+					};
 					let statement = indoc!(
 						"
 							insert into tags (cached_at, component, item, remote)
@@ -509,6 +515,70 @@ impl Server {
 						.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 				}
 			}
+		}
+
+		// Delete stale cached children that are no longer present in the remote response.
+		let valid_components: std::collections::HashSet<&str> = output
+			.children
+			.as_ref()
+			.map(|children| children.iter().map(|c| c.component.as_str()).collect())
+			.unwrap_or_default();
+		let statement = indoc!(
+			"
+				select tags.id, tags.component
+				from tag_children
+				join tags on tag_children.child = tags.id
+				where tag_children.tag = ?1 and tags.remote = ?2;
+			"
+		);
+		let mut statement = cache
+			.get(connection, statement.into())
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let params = sqlite::params![parent, remote];
+		let mut rows = statement
+			.query(params)
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		let mut stale_ids = Vec::new();
+		while let Some(row) = rows
+			.next()
+			.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+		{
+			let id: i64 = row
+				.get(0)
+				.map_err(|source| tg::error!(!source, "failed to get the id"))?;
+			let component: String = row
+				.get(1)
+				.map_err(|source| tg::error!(!source, "failed to get the component"))?;
+			if !valid_components.contains(component.as_str()) {
+				stale_ids.push(id);
+			}
+		}
+		drop(rows);
+		for stale_id in stale_ids {
+			let statement = indoc!(
+				"
+					delete from tag_children where tag = ?1 and child = ?2;
+				"
+			);
+			let mut statement = cache
+				.get(connection, statement.into())
+				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+			let params = sqlite::params![parent, stale_id];
+			statement
+				.execute(params)
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			let statement = indoc!(
+				"
+					delete from tags where id = ?1;
+				"
+			);
+			let mut statement = cache
+				.get(connection, statement.into())
+				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+			let params = sqlite::params![stale_id];
+			statement
+				.execute(params)
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		}
 
 		Ok(())

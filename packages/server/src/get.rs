@@ -129,6 +129,7 @@ impl Server {
 			recursive: false,
 			remotes: arg.remotes.clone(),
 			reverse: true,
+			ttl: None,
 		};
 		let tg::tag::list::Output { data } =
 			self.list_tags_with_context(context, list_arg)
