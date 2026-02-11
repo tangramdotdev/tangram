@@ -105,3 +105,17 @@ tg -u $remote.url tag put -f "a/b" $id3
 # Bust the cache for b specifically. Should return the new item.
 let b = tg -u $local.url tag get --ttl 0 "a/b" | from json
 assert ($b.item == $id3) "child updated individually should return new item"
+
+# A child tag that is cached should not be removed when we later get its parent.
+# Create a branch with children on the remote.
+tg -u $remote.url tag put "a/q/r/s" $id
+tg -u $remote.url tag put "a/q/t" $id
+let s1 = tg -u $local.url tag get "a/q/r/s"
+let q = tg -u $local.url tag get "a/q"
+
+# Delete the tag on the remote so that the only way to get it is from the cache.
+tg -u $remote.url tag delete --recursive "a/q"
+
+# Fetch s again. It should still be in the cache.
+let s2 = tg -u $local.url tag get "a/q/r/s"
+assert ($s1 == $s2)
