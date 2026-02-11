@@ -52,6 +52,7 @@ struct Node {
 	parent: u64,
 	artifact: Option<tg::Artifact>,
 	depth: u64,
+	attrs: Option<vfs::Attrs>,
 }
 
 impl vfs::Provider for Provider {
@@ -249,7 +250,12 @@ impl vfs::Provider for Provider {
 	}
 
 	async fn getattr(&self, id: u64) -> std::io::Result<vfs::Attrs> {
-		match self.get(id).await? {
+		if let Some(attrs) = self.lookup_cached_attrs(id) {
+			return Ok(attrs);
+		}
+
+		let node = self.get(id).await?;
+		let attrs = match node {
 			Node {
 				artifact: Some(tg::Artifact::File(file)),
 				..
@@ -262,23 +268,30 @@ impl vfs::Provider for Provider {
 					tracing::error!(%error, "failed to get file's size");
 					std::io::Error::from_raw_os_error(libc::EIO)
 				})?;
-				Ok(vfs::Attrs::new(vfs::FileType::File { executable, size }))
+				vfs::Attrs::new(vfs::FileType::File { executable, size })
 			},
 			Node {
 				artifact: Some(tg::Artifact::Directory(_)) | None,
 				..
-			} => Ok(vfs::Attrs::new(vfs::FileType::Directory)),
+			} => vfs::Attrs::new(vfs::FileType::Directory),
 			Node {
 				artifact: Some(tg::Artifact::Symlink(_)),
 				..
-			} => Ok(vfs::Attrs::new(vfs::FileType::Symlink)),
-		}
+			} => vfs::Attrs::new(vfs::FileType::Symlink),
+		};
+		self.cache_node_attrs(id, attrs);
+		Ok(attrs)
 	}
 
 	fn getattr_sync(&self, id: u64) -> std::io::Result<vfs::Attrs> {
 		self.check_sync_capability()?;
+		if let Some(attrs) = self.lookup_cached_attrs(id) {
+			return Ok(attrs);
+		}
 		let node = self.get_sync(id)?;
-		self.getattr_from_node_sync(&node)
+		let attrs = self.getattr_from_node_sync(&node)?;
+		self.cache_node_attrs(id, attrs);
+		Ok(attrs)
 	}
 
 	async fn open(&self, id: u64) -> std::io::Result<u64> {
@@ -734,9 +747,11 @@ impl Provider {
 
 		// Get the node from the nodes storage.
 		let data = self.nodes.get(id).await?;
+		let artifact = data.artifact.map(tg::Artifact::with_id);
 		let node = Node {
 			parent: data.parent,
-			artifact: data.artifact.map(tg::Artifact::with_id),
+			attrs: Self::attrs_from_artifact(artifact.as_ref()),
+			artifact,
 			depth: data.depth,
 		};
 
@@ -759,9 +774,11 @@ impl Provider {
 
 		// Get the node from the nodes storage.
 		let data = self.nodes.get_sync(id)?;
+		let artifact = data.artifact.map(tg::Artifact::with_id);
 		let node = Node {
 			parent: data.parent,
-			artifact: data.artifact.map(tg::Artifact::with_id),
+			attrs: Self::attrs_from_artifact(artifact.as_ref()),
+			artifact,
 			depth: data.depth,
 		};
 
@@ -783,6 +800,7 @@ impl Provider {
 			parent,
 			artifact: Some(artifact.clone()),
 			depth,
+			attrs: Self::attrs_from_artifact(Some(&artifact)),
 		};
 
 		// Get the artifact id.
@@ -817,6 +835,7 @@ impl Provider {
 			parent,
 			artifact: Some(artifact.clone()),
 			depth,
+			attrs: Self::attrs_from_artifact(Some(artifact)),
 		};
 
 		// Get the artifact id.
@@ -973,6 +992,9 @@ impl Provider {
 	}
 
 	fn getattr_from_node_sync(&self, node: &Node) -> std::io::Result<vfs::Attrs> {
+		if let Some(attrs) = node.attrs {
+			return Ok(attrs);
+		}
 		match &node.artifact {
 			Some(tg::Artifact::File(file)) => {
 				let file = self.file_node_sync(file)?;
@@ -989,6 +1011,33 @@ impl Provider {
 				Ok(vfs::Attrs::new(vfs::FileType::Directory))
 			},
 			Some(tg::Artifact::Symlink(_)) => Ok(vfs::Attrs::new(vfs::FileType::Symlink)),
+		}
+	}
+
+	fn attrs_from_artifact(artifact: Option<&tg::Artifact>) -> Option<vfs::Attrs> {
+		match artifact {
+			Some(tg::Artifact::File(_)) => None,
+			Some(tg::Artifact::Directory(_)) | None => {
+				Some(vfs::Attrs::new(vfs::FileType::Directory))
+			},
+			Some(tg::Artifact::Symlink(_)) => Some(vfs::Attrs::new(vfs::FileType::Symlink)),
+		}
+	}
+
+	fn lookup_cached_attrs(&self, id: u64) -> Option<vfs::Attrs> {
+		self.node_cache
+			.get(&id)
+			.and_then(|node| node.attrs)
+			.or_else(|| self.pending_nodes.get(&id).and_then(|node| node.attrs))
+	}
+
+	fn cache_node_attrs(&self, id: u64, attrs: vfs::Attrs) {
+		if let Some(mut node) = self.node_cache.get(&id) {
+			node.attrs = Some(attrs);
+			self.node_cache.insert(id, node);
+		}
+		if let Some(mut node) = self.pending_nodes.get_mut(&id) {
+			node.attrs = Some(attrs);
 		}
 	}
 
