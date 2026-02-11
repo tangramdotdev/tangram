@@ -793,6 +793,13 @@ impl Server {
 			async move {
 				tracing::trace!("started");
 
+				// Unmount the FUSE filesystem immediately before any other cleanup.
+				if cfg!(target_os = "linux") {
+					tangram_vfs::fuse::unmount(&server.artifacts_path())
+						.await
+						.ok();
+				}
+
 				// Abort the runner task.
 				if let Some(task) = runner_task {
 					task.abort();

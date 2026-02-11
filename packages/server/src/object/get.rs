@@ -128,6 +128,40 @@ impl Server {
 		Ok(Some(output))
 	}
 
+	pub(crate) fn try_get_object_batch_sync(
+		&self,
+		ids: &[tg::object::Id],
+		file: &mut Option<File>,
+	) -> tg::Result<Vec<Option<tg::object::get::Output>>> {
+		let objects = self.store.try_get_object_batch_sync(ids)?;
+		let mut outputs = Vec::with_capacity(objects.len());
+		for object in objects {
+			let Some(object) = object else {
+				outputs.push(None);
+				continue;
+			};
+			let bytes = if let Some(bytes) = object.bytes {
+				bytes.into_owned().into()
+			} else if let Some(cache_pointer) = object.cache_pointer {
+				if let Some(bytes) = self.try_read_cache_pointer_sync(&cache_pointer, file)? {
+					bytes
+				} else {
+					outputs.push(None);
+					continue;
+				}
+			} else {
+				outputs.push(None);
+				continue;
+			};
+			let output = tg::object::get::Output {
+				bytes,
+				metadata: None,
+			};
+			outputs.push(Some(output));
+		}
+		Ok(outputs)
+	}
+
 	#[expect(dead_code)]
 	pub(crate) async fn try_get_object_batch(
 		&self,

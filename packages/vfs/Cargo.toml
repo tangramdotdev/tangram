@@ -20,13 +20,14 @@ tracing-subscriber = { workspace = true }
 [dependencies]
 async-channel = { workspace = true }
 bytes = { workspace = true }
+crossbeam-channel = { workspace = true }
+io-uring = { workspace = true }
 dashmap = { workspace = true }
 futures = { workspace = true }
-libc = { workspace = true }
 num = { workspace = true }
+rustix = { workspace = true }
 tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
-zerocopy = { workspace = true }

@@ -794,8 +794,8 @@ impl Cli {
 
 		// Wait up to one second for the server to exit.
 		for duration in [10, 20, 30, 50, 100, 300, 500] {
-			// Kill the server. If the server has exited, then return.
-			let ret = unsafe { libc::kill(pid.to_i32().unwrap(), libc::SIGINT) };
+			// Check if the server has exited. Signal 0 probes without delivering a signal.
+			let ret = unsafe { libc::kill(pid.to_i32().unwrap(), 0) };
 			if ret != 0 {
 				let error = std::io::Error::last_os_error();
 				if error.raw_os_error() == Some(libc::ESRCH) {
@@ -816,8 +816,8 @@ impl Cli {
 
 		// Wait up to one second for the server to exit.
 		for duration in [10, 20, 30, 50, 100, 300, 500] {
-			// Kill the server. If the server has exited, then return.
-			let ret = unsafe { libc::kill(pid.to_i32().unwrap(), libc::SIGTERM) };
+			// Check if the server has exited.
+			let ret = unsafe { libc::kill(pid.to_i32().unwrap(), 0) };
 			if ret != 0 {
 				let error = std::io::Error::last_os_error();
 				if error.raw_os_error() == Some(libc::ESRCH) {

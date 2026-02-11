@@ -50,6 +50,29 @@ impl Cli {
 		// Stop the server if it is running.
 		self.stop_server().await.ok();
 
+		// Unmount the VFS in case it is still mounted.
+		let artifacts_path = path.join("artifacts");
+		if cfg!(target_os = "linux") {
+			tokio::process::Command::new("fusermount3")
+				.args(["-u"])
+				.arg(&artifacts_path)
+				.stdin(std::process::Stdio::null())
+				.stdout(std::process::Stdio::null())
+				.stderr(std::process::Stdio::null())
+				.status()
+				.await
+				.ok();
+		} else if cfg!(target_os = "macos") {
+			tokio::process::Command::new("umount")
+				.args(["-f"])
+				.arg(&artifacts_path)
+				.stdout(std::process::Stdio::null())
+				.stderr(std::process::Stdio::null())
+				.status()
+				.await
+				.ok();
+		}
+
 		// Create the progress handle.
 		let progress = tangram_server::progress::Handle::<()>::new();
 

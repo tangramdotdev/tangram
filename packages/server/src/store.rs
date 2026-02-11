@@ -86,7 +86,6 @@ impl Store {
 		not(any(feature = "lmdb", feature = "scylla")),
 		expect(clippy::unnecessary_wraps)
 	)]
-	#[expect(dead_code)]
 	pub fn try_get_object_batch_sync(
 		&self,
 		ids: &[tg::object::Id],

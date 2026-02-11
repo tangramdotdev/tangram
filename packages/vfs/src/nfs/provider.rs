@@ -4,7 +4,7 @@ use {
 	dashmap::DashMap,
 	num::ToPrimitive as _,
 	std::{
-		io::{Error, Result},
+		io::Result,
 		sync::atomic::{AtomicU64, Ordering},
 	},
 	tangram_either::Either,
@@ -155,7 +155,7 @@ where
 	}
 
 	async fn getattr(&self, _handle: u64) -> Result<Attrs> {
-		Err(Error::from_raw_os_error(libc::ENOSYS))
+		Err(rustix::io::Errno::NOSYS.into())
 	}
 
 	async fn open(&self, handle: u64) -> Result<u64> {
@@ -166,7 +166,7 @@ where
 				.inner
 				.getxattr(attr_file.node, &attr_file.name)
 				.await?
-				.ok_or_else(|| Error::from_raw_os_error(libc::ENOENT))?
+				.ok_or_else(|| std::io::Error::from(rustix::io::Errno::NOENT))?
 				.into();
 			let handle = AttrFileHandle { content };
 			self.handles.insert(id, Either::Right(handle));
@@ -177,7 +177,7 @@ where
 				tracing::warn!(
 					"the upper half of the node address space is reserved for extended attribute nodes"
 				);
-				return Err(Error::from_raw_os_error(libc::EIO));
+				return Err(rustix::io::Errno::IO.into());
 			}
 			Ok(id)
 		}
@@ -206,11 +206,11 @@ where
 	}
 
 	async fn listxattrs(&self, _handle: u64) -> Result<Vec<String>> {
-		Err(Error::from_raw_os_error(libc::ENOSYS))
+		Err(rustix::io::Errno::NOSYS.into())
 	}
 
 	async fn getxattr(&self, _handle: u64, _name: &str) -> Result<Option<Bytes>> {
-		Err(Error::from_raw_os_error(libc::ENOSYS))
+		Err(rustix::io::Errno::NOSYS.into())
 	}
 
 	async fn opendir(&self, handle: u64) -> Result<u64> {
@@ -227,7 +227,7 @@ where
 				tracing::warn!(
 					"the upper half of the node address space is reserved for extended attribute nodes"
 				);
-				return Err(Error::from_raw_os_error(libc::EIO));
+				return Err(rustix::io::Errno::IO.into());
 			}
 			Ok(id)
 		}

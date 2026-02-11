@@ -100,6 +100,7 @@ http = "1"
 http-body = "1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["full"] }
+io-uring = "0.7"
 hyper-util = { version = "0.1", features = ["server-auto", "service", "tokio"] }
 im = "15"
 include_dir = "0.7"
@@ -137,7 +138,7 @@ rquickjs-serde = "0.4"
 regex = "1"
 reqwest = { version = "0.13", features = ["json", "stream"] }
 rusqlite = { version = "0.38", default-features = false, features = ["bundled", "functions"] }
-rustix = { version = "1", features = ["fs"] }
+rustix = { version = "1", features = ["event", "fs", "io_uring", "net", "process", "runtime"] }
 rustls = "0.23"
 scopeguard = "1"
 scylla = { version = "1", features = ["metrics"] }

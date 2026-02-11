@@ -3,7 +3,7 @@ use {
 	dashmap::DashMap,
 	num::ToPrimitive as _,
 	std::{
-		io::{Error, Result},
+		io::Result,
 		path::PathBuf,
 		sync::atomic::{AtomicU64, Ordering},
 	},
@@ -76,7 +76,7 @@ impl tangram_vfs::Provider for Provider {
 	async fn lookup(&self, handle: u64, name: &str) -> Result<Option<u64>> {
 		tracing::debug!(?handle, ?name, "lookup");
 		if handle != ROOT_NODE_ID {
-			return Err(Error::from_raw_os_error(libc::ENOENT));
+			return Err(rustix::io::Errno::NOENT.into());
 		}
 		match name {
 			HELLO_PATH => Ok(Some(HELLO_NODE_ID)),
@@ -100,7 +100,7 @@ impl tangram_vfs::Provider for Provider {
 			}),
 			LINK_NODE_ID => Attrs::new(FileType::Symlink),
 			_ => {
-				return Err(Error::from_raw_os_error(libc::ENOENT));
+				return Err(rustix::io::Errno::NOENT.into());
 			},
 		};
 		Ok(attr)
@@ -109,7 +109,7 @@ impl tangram_vfs::Provider for Provider {
 	async fn open(&self, handle: u64) -> Result<u64> {
 		tracing::debug!(?handle, "open");
 		if handle != HELLO_NODE_ID {
-			return Err(Error::from_raw_os_error(libc::EIO));
+			return Err(rustix::io::Errno::IO.into());
 		}
 		let id = self.counter.fetch_add(1, Ordering::SeqCst);
 		let handle = FileHandle {
@@ -122,7 +122,7 @@ impl tangram_vfs::Provider for Provider {
 	async fn read(&self, handle: u64, position: u64, length: u64) -> Result<Bytes> {
 		tracing::debug!(?handle, ?position, ?length, "read");
 		let Some(handle) = self.open_files.get(&handle) else {
-			return Err(Error::from_raw_os_error(libc::EIO));
+			return Err(rustix::io::Errno::IO.into());
 		};
 		let start = position.to_usize().unwrap().min(handle.contents.len());
 		let end = start + length.to_usize().unwrap().min(handle.contents.len());
@@ -133,7 +133,7 @@ impl tangram_vfs::Provider for Provider {
 	async fn readlink(&self, handle: u64) -> Result<Bytes> {
 		tracing::debug!(?handle, "readlink");
 		if handle != LINK_NODE_ID {
-			return Err(Error::from_raw_os_error(libc::EIO));
+			return Err(rustix::io::Errno::IO.into());
 		}
 		let target = HELLO_PATH.as_bytes().to_owned().into();
 		Ok(target)
@@ -160,7 +160,7 @@ impl tangram_vfs::Provider for Provider {
 	async fn opendir(&self, handle: u64) -> Result<u64> {
 		tracing::debug!(?handle, "opendir");
 		if handle != ROOT_NODE_ID {
-			return Err(Error::from_raw_os_error(libc::EIO));
+			return Err(rustix::io::Errno::IO.into());
 		}
 		let id = self.counter.fetch_add(1, Ordering::SeqCst);
 		let handle = DirHandle { dir: handle };
@@ -171,7 +171,7 @@ impl tangram_vfs::Provider for Provider {
 	async fn readdir(&self, handle: u64) -> Result<Vec<(String, u64)>> {
 		tracing::debug!(?handle, "readdir");
 		let Some(handle) = self.open_dirs.get(&handle) else {
-			return Err(Error::from_raw_os_error(libc::EIO));
+			return Err(rustix::io::Errno::IO.into());
 		};
 		let contents = if handle.dir == ROOT_NODE_ID {
 			vec![
