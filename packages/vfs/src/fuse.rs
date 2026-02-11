@@ -1,9 +1,9 @@
 use {
 	self::sys::{
-		fuse_attr, fuse_attr_out, fuse_batch_forget_in, fuse_dirent, fuse_direntplus,
-		fuse_entry_out, fuse_flush_in, fuse_forget_in, fuse_getattr_in, fuse_getxattr_in,
-		fuse_getxattr_out, fuse_in_header, fuse_init_in, fuse_init_out, fuse_open_in,
-		fuse_open_out, fuse_out_header, fuse_read_in, fuse_release_in,
+		fuse_attr, fuse_attr_out, fuse_batch_forget_in, fuse_entry_out, fuse_flush_in,
+		fuse_forget_in, fuse_getattr_in, fuse_getxattr_in, fuse_getxattr_out, fuse_in_header,
+		fuse_init_in, fuse_init_out, fuse_open_in, fuse_open_out, fuse_out_header, fuse_read_in,
+		fuse_release_in,
 	},
 	crate::{FileType, Provider, Result},
 	futures::{FutureExt as _, future},
@@ -86,6 +86,22 @@ enum Response {
 	ReleaseDir,
 	Statfs(sys::fuse_statfs_out),
 	Statx(sys::fuse_statx_out),
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, zerocopy::FromBytes, zerocopy::Immutable, zerocopy::IntoBytes)]
+struct FuseDirentHeader {
+	ino: u64,
+	off: u64,
+	namelen: u32,
+	type_: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, zerocopy::FromBytes, zerocopy::Immutable, zerocopy::IntoBytes)]
+struct FuseDirentPlusHeader {
+	entry_out: fuse_entry_out,
+	dirent: FuseDirentHeader,
 }
 
 impl<P> Server<P>
@@ -266,14 +282,29 @@ where
 		let (header, _) = sys::fuse_in_header::read_from_prefix(buffer)
 			.map_err(|_| Error::other("failed to deserialize the request header"))?;
 		let header_len = std::mem::size_of::<sys::fuse_in_header>();
-		let data = &buffer[header_len..];
+		let request_len = header
+			.len
+			.to_usize()
+			.ok_or_else(|| Error::other("failed to deserialize request data"))?;
+		if request_len < header_len || request_len > buffer.len() {
+			return Err(Error::other("failed to deserialize request data"));
+		}
+		let total_extlen = usize::from(header.total_extlen) * 8;
+		let data = &buffer[header_len..request_len];
+		let Some(data_len) = data.len().checked_sub(total_extlen) else {
+			return Err(Error::other("failed to deserialize request data"));
+		};
+		let data = &data[..data_len];
 		let data = match header.opcode {
-			sys::fuse_opcode::FUSE_BATCH_FORGET => RequestData::BatchForget(read_data(data)?),
-			sys::fuse_opcode::FUSE_DESTROY => RequestData::Destroy,
-			sys::fuse_opcode::FUSE_FLUSH => RequestData::Flush(read_data(data)?),
-			sys::fuse_opcode::FUSE_FORGET => RequestData::Forget(read_data(data)?),
-			sys::fuse_opcode::FUSE_GETATTR => RequestData::GetAttr(read_data(data)?),
-			sys::fuse_opcode::FUSE_GETXATTR => {
+			sys::fuse_opcode_FUSE_BATCH_FORGET => RequestData::BatchForget(read_data(data)?),
+			sys::fuse_opcode_FUSE_DESTROY => RequestData::Destroy,
+			sys::fuse_opcode_FUSE_FLUSH => RequestData::Flush(read_data(data)?),
+			sys::fuse_opcode_FUSE_FORGET => RequestData::Forget(read_data(data)?),
+			sys::fuse_opcode_FUSE_GETATTR => RequestData::GetAttr(read_data(data)?),
+			sys::fuse_opcode_FUSE_GETXATTR => {
+				if data.len() < std::mem::size_of::<sys::fuse_getxattr_in>() {
+					return Err(Error::other("failed to deserialize request data"));
+				}
 				let (fuse_getxattr_in, name) =
 					data.split_at(std::mem::size_of::<sys::fuse_getxattr_in>());
 				let fuse_getxattr_in = read_data(fuse_getxattr_in)?;
@@ -281,24 +312,24 @@ where
 					.map_err(|_| Error::other("failed to deserialize request data"))?;
 				RequestData::GetXattr(fuse_getxattr_in, name)
 			},
-			sys::fuse_opcode::FUSE_INIT => RequestData::Init(read_data(data)?),
-			sys::fuse_opcode::FUSE_LISTXATTR => RequestData::ListXattr(read_data(data)?),
-			sys::fuse_opcode::FUSE_LOOKUP => {
+			sys::fuse_opcode_FUSE_INIT => RequestData::Init(read_data(data)?),
+			sys::fuse_opcode_FUSE_LISTXATTR => RequestData::ListXattr(read_data(data)?),
+			sys::fuse_opcode_FUSE_LOOKUP => {
 				let data = CString::from_vec_with_nul(data.to_owned())
 					.map_err(|_| Error::other("failed to deserialize request data"))?;
 				RequestData::Lookup(data)
 			},
-			sys::fuse_opcode::FUSE_OPEN => RequestData::Open(read_data(data)?),
-			sys::fuse_opcode::FUSE_OPENDIR => RequestData::OpenDir(read_data(data)?),
-			sys::fuse_opcode::FUSE_READ => RequestData::Read(read_data(data)?),
-			sys::fuse_opcode::FUSE_READDIR => RequestData::ReadDir(read_data(data)?),
-			sys::fuse_opcode::FUSE_READDIRPLUS => RequestData::ReadDirPlus(read_data(data)?),
-			sys::fuse_opcode::FUSE_READLINK => RequestData::ReadLink,
-			sys::fuse_opcode::FUSE_RELEASE => RequestData::Release(read_data(data)?),
-			sys::fuse_opcode::FUSE_RELEASEDIR => RequestData::ReleaseDir(read_data(data)?),
-			sys::fuse_opcode::FUSE_STATFS => RequestData::Statfs,
-			sys::fuse_opcode::FUSE_STATX => RequestData::Statx(read_data(data)?),
-			sys::fuse_opcode::FUSE_INTERRUPT => RequestData::Interrupt(read_data(data)?),
+			sys::fuse_opcode_FUSE_OPEN => RequestData::Open(read_data(data)?),
+			sys::fuse_opcode_FUSE_OPENDIR => RequestData::OpenDir(read_data(data)?),
+			sys::fuse_opcode_FUSE_READ => RequestData::Read(read_data(data)?),
+			sys::fuse_opcode_FUSE_READDIR => RequestData::ReadDir(read_data(data)?),
+			sys::fuse_opcode_FUSE_READDIRPLUS => RequestData::ReadDirPlus(read_data(data)?),
+			sys::fuse_opcode_FUSE_READLINK => RequestData::ReadLink,
+			sys::fuse_opcode_FUSE_RELEASE => RequestData::Release(read_data(data)?),
+			sys::fuse_opcode_FUSE_RELEASEDIR => RequestData::ReleaseDir(read_data(data)?),
+			sys::fuse_opcode_FUSE_STATFS => RequestData::Statfs,
+			sys::fuse_opcode_FUSE_STATX => RequestData::Statx(read_data(data)?),
+			sys::fuse_opcode_FUSE_INTERRUPT => RequestData::Interrupt(read_data(data)?),
 			_ => RequestData::Unsupported(header.opcode),
 		};
 		let request = Request { header, data };
@@ -420,19 +451,50 @@ where
 		_header: fuse_in_header,
 		request: fuse_init_in,
 	) -> Result<Option<Response>> {
+		const REQUIRED_FLAGS: u32 =
+			sys::FUSE_INIT_EXT | sys::FUSE_MAX_PAGES | sys::FUSE_MAP_ALIGNMENT;
+		const REQUIRED_FLAGS2: u32 = (sys::FUSE_PASSTHROUGH >> 32) as u32;
+		const NEGOTIATED_FLAGS: u32 = sys::FUSE_ASYNC_READ
+			| sys::FUSE_DO_READDIRPLUS
+			| sys::FUSE_PARALLEL_DIROPS
+			| sys::FUSE_CACHE_SYMLINKS
+			| sys::FUSE_SPLICE_MOVE
+			| sys::FUSE_SPLICE_READ
+			| sys::FUSE_MAX_PAGES
+			| sys::FUSE_MAP_ALIGNMENT
+			| sys::FUSE_INIT_EXT;
+		const NEGOTIATED_FLAGS2: u32 = (sys::FUSE_PASSTHROUGH >> 32) as u32;
+		const MAX_PAGES: u16 = 256;
+		const MAP_ALIGNMENT: u16 = 12;
+
+		if request.major != FUSE_KERNEL_VERSION {
+			return Err(Error::from_raw_os_error(libc::EPROTO));
+		}
+		if request.minor < FUSE_KERNEL_MINOR_VERSION {
+			return Err(Error::from_raw_os_error(libc::EPROTO));
+		}
+		if request.flags & REQUIRED_FLAGS != REQUIRED_FLAGS {
+			return Err(Error::from_raw_os_error(libc::EPROTO));
+		}
+		if request.flags2 & REQUIRED_FLAGS2 != REQUIRED_FLAGS2 {
+			return Err(Error::from_raw_os_error(libc::EPROTO));
+		}
+
 		let response = fuse_init_out {
 			major: FUSE_KERNEL_VERSION,
 			minor: FUSE_KERNEL_MINOR_VERSION,
-			max_readahead: request.max_readahead,
-			flags: sys::FUSE_DO_READDIRPLUS,
+			max_readahead: 1024 * 1024,
+			flags: NEGOTIATED_FLAGS,
 			max_background: 0,
 			congestion_threshold: 0,
 			max_write: 1024 * 1024,
 			time_gran: 0,
-			max_pages: 0,
-			map_alignment: 0,
-			flags2: 0,
-			unused: [0; 7],
+			max_pages: MAX_PAGES,
+			map_alignment: MAP_ALIGNMENT,
+			flags2: NEGOTIATED_FLAGS2,
+			max_stack_depth: 0,
+			request_timeout: 0,
+			unused: [0; 11],
 		};
 		Ok(Some(Response::Init(response)))
 	}
@@ -494,7 +556,7 @@ where
 		let out = fuse_open_out {
 			fh,
 			open_flags: sys::FOPEN_NOFLUSH | sys::FOPEN_KEEP_CACHE,
-			padding: 0,
+			backing_id: -1,
 		};
 		Ok(Some(Response::Open(out)))
 	}
@@ -508,7 +570,7 @@ where
 		let out = fuse_open_out {
 			fh,
 			open_flags: sys::FOPEN_CACHE_DIR | sys::FOPEN_KEEP_CACHE,
-			padding: 0,
+			backing_id: -1,
 		};
 		Ok(Some(Response::OpenDir(out)))
 	}
@@ -534,9 +596,9 @@ where
 		let entries = self.provider.readdir(request.fh).await?;
 
 		let struct_size = if plus {
-			std::mem::size_of::<fuse_direntplus>()
+			std::mem::size_of::<FuseDirentPlusHeader>()
 		} else {
-			std::mem::size_of::<fuse_dirent>()
+			std::mem::size_of::<FuseDirentHeader>()
 		};
 
 		let entries = entries
@@ -559,7 +621,7 @@ where
 				FileType::Symlink => libc::S_IFLNK.to_u32().unwrap(),
 			};
 
-			let entry = fuse_dirent {
+			let dirent = FuseDirentHeader {
 				ino: node,
 				off: offset.to_u64().unwrap() + 1,
 				namelen: name.len().to_u32().unwrap(),
@@ -567,13 +629,13 @@ where
 			};
 
 			if plus {
-				let entry = fuse_direntplus {
+				let entry = FuseDirentPlusHeader {
 					entry_out: self.fuse_entry_out(node).await?,
-					dirent: entry,
+					dirent,
 				};
 				response.extend_from_slice(entry.as_bytes());
 			} else {
-				response.extend_from_slice(entry.as_bytes());
+				response.extend_from_slice(dirent.as_bytes());
 			}
 			response.extend_from_slice(&name);
 			response.extend((0..padding).map(|_| 0));
@@ -967,10 +1029,10 @@ pub async fn unmount(path: &Path) -> Result<()> {
 // - getxattrs that return ENODATA (None)
 // - getxattr/listxattr that return ERANGE (blame the caller, they provided garbage data)
 // - ENOSYS: only returned when the filesystem doesn't support a request.
-fn is_expected_error(opcode: sys::fuse_opcode::Type, error: Option<i32>) -> bool {
-	(opcode == sys::fuse_opcode::FUSE_LOOKUP && error == Some(libc::ENOENT))
-		| (opcode == sys::fuse_opcode::FUSE_GETXATTR && error == Some(libc::ENODATA))
-		| (opcode == sys::fuse_opcode::FUSE_GETXATTR && error == Some(libc::ERANGE))
-		| (opcode == sys::fuse_opcode::FUSE_LISTXATTR && error == Some(libc::ERANGE))
+fn is_expected_error(opcode: sys::fuse_opcode, error: Option<i32>) -> bool {
+	(opcode == sys::fuse_opcode_FUSE_LOOKUP && error == Some(libc::ENOENT))
+		| (opcode == sys::fuse_opcode_FUSE_GETXATTR && error == Some(libc::ENODATA))
+		| (opcode == sys::fuse_opcode_FUSE_GETXATTR && error == Some(libc::ERANGE))
+		| (opcode == sys::fuse_opcode_FUSE_LISTXATTR && error == Some(libc::ERANGE))
 		| (error == Some(libc::ENOSYS))
 }
