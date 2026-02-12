@@ -536,8 +536,21 @@ impl Cli {
 		// Get the token.
 		let token = self.args.token.clone();
 
+		// Get the reconnect options.
+		let reconnect = self
+			.config
+			.as_ref()
+			.and_then(|config| config.server.client.as_ref())
+			.and_then(|client| client.reconnect.clone())
+			.map(|reconnect| tangram_futures::retry::Options {
+				backoff: reconnect.backoff,
+				jitter: reconnect.jitter,
+				max_delay: reconnect.max_delay,
+				max_retries: reconnect.max_retries,
+			});
+
 		// Create the client.
-		let client = tg::Client::new(url, Some(version()), token);
+		let client = tg::Client::new(url, Some(version()), token, reconnect);
 
 		// Attempt to connect to the server.
 		let mut connected = client.connect().await.is_ok();
@@ -630,8 +643,21 @@ impl Cli {
 		// Get the token.
 		let token = self.args.token.clone();
 
+		// Get the reconnect options.
+		let reconnect = self
+			.config
+			.as_ref()
+			.and_then(|config| config.server.client.as_ref())
+			.and_then(|client| client.reconnect.clone())
+			.map(|reconnect| tangram_futures::retry::Options {
+				backoff: reconnect.backoff,
+				jitter: reconnect.jitter,
+				max_delay: reconnect.max_delay,
+				max_retries: reconnect.max_retries,
+			});
+
 		// Create the client.
-		let client = tg::Client::new(url, Some(version()), token);
+		let client = tg::Client::new(url, Some(version()), token, reconnect);
 
 		// Try to connect. If the client is not connected, then return an error.
 		let connected = client.connect().await.is_ok();

@@ -3,6 +3,7 @@ use {
 	std::{ops::ControlFlow, time::Duration},
 };
 
+#[derive(Clone, Debug)]
 pub struct Options {
 	pub backoff: Duration,
 	pub jitter: Duration,

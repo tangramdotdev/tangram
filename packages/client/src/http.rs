@@ -2,6 +2,7 @@ use {
 	crate::prelude::*,
 	futures::TryFutureExt as _,
 	std::{
+		ops::ControlFlow,
 		path::{Path, PathBuf},
 		str::FromStr,
 		sync::Arc,
@@ -22,21 +23,34 @@ pub(crate) type Service = BoxCloneSyncService<http::Request<Body>, http::Respons
 
 impl tg::Client {
 	#[expect(clippy::needless_pass_by_value)]
-	pub(crate) fn service(url: Uri, version: String, token: Option<String>) -> (Sender, Service) {
+	pub(crate) fn service(
+		url: Uri,
+		version: String,
+		token: Option<String>,
+		reconnect: &tangram_futures::retry::Options,
+	) -> (Sender, Service) {
 		let sender = Arc::new(tokio::sync::Mutex::new(
 			None::<hyper::client::conn::http2::SendRequest<Body>>,
 		));
 		let service = tower::service_fn({
 			let sender = sender.clone();
+			let reconnect = reconnect.clone();
 			move |request| {
 				let url = url.clone();
 				let sender = sender.clone();
+				let reconnect = reconnect.clone();
 				async move {
 					let mut guard = sender.lock().await;
 					let mut sender = match guard.as_ref() {
 						Some(sender) if sender.is_ready() => sender.clone(),
 						_ => {
-							let sender = Self::connect_h2(&url).await?;
+							let sender = tangram_futures::retry(&reconnect, || async {
+								match Self::connect_h2(&url).await {
+									Ok(sender) => Ok(ControlFlow::Break(sender)),
+									Err(error) => Ok(ControlFlow::Continue(error)),
+								}
+							})
+							.await?;
 							guard.replace(sender.clone());
 							sender
 						},
@@ -98,7 +112,13 @@ impl tg::Client {
 		match guard.as_ref() {
 			Some(sender) if sender.is_ready() => (),
 			_ => {
-				let sender = Self::connect_h2(&self.url).await?;
+				let sender = tangram_futures::retry(&self.reconnect, || async {
+					match Self::connect_h2(&self.url).await {
+						Ok(sender) => Ok(ControlFlow::Break(sender)),
+						Err(error) => Ok(ControlFlow::Continue(error)),
+					}
+				})
+				.await?;
 				guard.replace(sender.clone());
 			},
 		}

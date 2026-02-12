@@ -12,6 +12,9 @@ pub struct Config {
 	#[serde(default)]
 	pub advanced: Advanced,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub client: Option<Client>,
+
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default)]
 	pub authentication: Option<Authentication>,
@@ -91,6 +94,27 @@ pub struct Advanced {
 	pub preserve_temp_directories: bool,
 	pub single_directory: bool,
 	pub single_process: bool,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Client {
+	/// Configure reconnect retry options.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub reconnect: Option<Reconnect>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Reconnect {
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub backoff: Duration,
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub jitter: Duration,
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub max_delay: Duration,
+	pub max_retries: u64,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -496,6 +520,7 @@ impl Default for Config {
 	fn default() -> Self {
 		Self {
 			advanced: Advanced::default(),
+			client: None,
 			authentication: None,
 			authorization: false,
 			checkin: Checkin::default(),

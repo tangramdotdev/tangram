@@ -60,7 +60,11 @@ pub trait Ext: tg::Handle {
 						stream
 					} else {
 						let arg = state.lock().unwrap().arg.clone();
-						handle.try_read_stream(arg).await?.unwrap().boxed()
+						handle
+							.try_read_stream(arg)
+							.await?
+							.ok_or_else(|| tg::error!("the stream was not found"))?
+							.boxed()
 					};
 					Ok::<_, tg::Error>(Some((stream, state)))
 				}
@@ -177,7 +181,7 @@ pub trait Ext: tg::Handle {
 						handle
 							.try_get_process_status_stream(&id, arg)
 							.await?
-							.unwrap()
+							.ok_or_else(|| tg::error!("the stream was not found"))?
 							.boxed()
 					};
 					Ok::<_, tg::Error>(Some((stream, state)))
@@ -264,7 +268,7 @@ pub trait Ext: tg::Handle {
 						handle
 							.try_get_process_children_stream(&id, arg)
 							.await?
-							.unwrap()
+							.ok_or_else(|| tg::error!("the stream was not found"))?
 							.boxed()
 					};
 					Ok::<_, tg::Error>(Some((stream, state)))
@@ -346,7 +350,7 @@ pub trait Ext: tg::Handle {
 						handle
 							.try_get_process_log_stream(&id, arg)
 							.await?
-							.unwrap()
+							.ok_or_else(|| tg::error!("the stream was not found"))?
 							.boxed()
 					};
 					Ok::<_, tg::Error>(Some((stream, state)))
