@@ -202,6 +202,7 @@ struct FuseDirentPlusHeader {
 struct UringSlot {
 	header: Box<sys::fuse_uring_req_header>,
 	payload: Vec<u8>,
+	decode: Vec<u8>,
 	iovecs: [libc::iovec; URING_IOVEC_COUNT as usize],
 }
 
@@ -255,6 +256,7 @@ impl UringSlot {
 		Self {
 			header,
 			payload,
+			decode: Vec::new(),
 			iovecs,
 		}
 	}
@@ -536,9 +538,7 @@ where
 						));
 					}
 
-					let payload = slots.get(slot).unwrap().payload.as_slice();
-					let request =
-						Self::deserialize_uring_request(slots.get(slot).unwrap(), payload)?;
+					let request = Self::deserialize_uring_request(slots.get_mut(slot).unwrap())?;
 					let unique = request.header.unique;
 					let opcode = request.header.opcode;
 					batch_requests.push((slot, request, unique, opcode));
@@ -737,7 +737,7 @@ where
 		}
 	}
 
-	fn deserialize_uring_request(slot: &UringSlot, payload: &[u8]) -> Result<Request> {
+	fn deserialize_uring_request(slot: &mut UringSlot) -> Result<Request> {
 		let in_out = unsafe {
 			std::slice::from_raw_parts(
 				slot.header.in_out.as_ptr().cast::<u8>(),
@@ -764,7 +764,7 @@ where
 			.payload_sz
 			.to_usize()
 			.ok_or_else(|| Error::other("failed to deserialize request data"))?;
-		if payload_size > request_data_len || payload_size > payload.len() {
+		if payload_size > request_data_len || payload_size > slot.payload.len() {
 			return Err(Error::other("failed to deserialize request data"));
 		}
 		let op_data_len = request_data_len - payload_size;
@@ -777,10 +777,11 @@ where
 		if op_data_len > op_in.len() {
 			return Err(Error::other("failed to deserialize request data"));
 		}
-		let mut data = Vec::with_capacity(request_data_len);
-		data.extend_from_slice(&op_in[..op_data_len]);
-		data.extend_from_slice(&payload[..payload_size]);
-		let data = Self::parse_request_data(&header, &data)?;
+		slot.decode.clear();
+		slot.decode.extend_from_slice(&op_in[..op_data_len]);
+		slot.decode
+			.extend_from_slice(&slot.payload.as_slice()[..payload_size]);
+		let data = Self::parse_request_data(&header, &slot.decode)?;
 		let request = Request { header, data };
 		Ok(request)
 	}
@@ -960,7 +961,7 @@ where
 		batch_results: &mut Vec<Result<SyncRequestResult>>,
 	) -> Result<()> {
 		scratch.reset(requests.len());
-		let mut provider_requests = Vec::<ProviderRequest>::new();
+		let mut provider_requests = Vec::<ProviderRequest>::with_capacity(requests.len());
 
 		for (index, (_, request, _, _)) in requests.iter().enumerate() {
 			match &request.data {
