@@ -58,11 +58,11 @@ export const build = async (...args: std.Args<Arg>) => {
 		});
 	}
 
-	// Merge the pre-built node_modules into the source and set NODE_PATH.
+	// Merge the pre-built node_modules into the source.
 	const nodeModulesArtifact = nodeModules(build);
 	const sourceWithNodeModules = tg.directory(source_, nodeModulesArtifact);
 	envs.push({
-		NODE_PATH: tg`${sourceWithNodeModules}/node_modules`,
+		NODE_PATH: tg`${nodeModulesArtifact}/node_modules`,
 	});
 
 	// Configure features.
