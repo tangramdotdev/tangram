@@ -26,6 +26,7 @@ use {
 		mem::{MaybeUninit, size_of},
 		ops::Deref,
 		os::fd::{AsRawFd as _, OwnedFd, RawFd},
+		os::unix::process::CommandExt as _,
 		path::Path,
 		sync::{
 			Arc, Mutex,
@@ -1933,7 +1934,6 @@ where
 		_header: fuse_in_header,
 		request: fuse_release_in,
 	) -> Result<Option<Response>> {
-		self.provider.close_sync(request.fh);
 		self.provider.close(request.fh).await;
 		Ok(Some(Response::Release))
 	}
@@ -1943,7 +1943,6 @@ where
 		_header: fuse_in_header,
 		request: fuse_release_in,
 	) -> Result<Option<Response>> {
-		self.provider.close_sync(request.fh);
 		self.provider.close(request.fh).await;
 		Ok(Some(Response::ReleaseDir))
 	}
@@ -2059,19 +2058,28 @@ where
 			None,
 		)
 		.map_err(Error::from)?;
-		rustix::io::fcntl_setfd(&fuse_commfd, FdFlags::empty()).map_err(Error::from)?;
 
+		let commfd_raw = fuse_commfd.as_raw_fd();
 		let uid = rustix::process::getuid().as_raw();
 		let gid = rustix::process::getgid().as_raw();
 		let options = format!("rootmode=40755,user_id={uid},group_id={gid},default_permissions");
-		let mut child = std::process::Command::new("fusermount3")
-			.args(["-o", &options, "--"])
-			.arg(path)
-			.env("_FUSE_COMMFD", fuse_commfd.as_raw_fd().to_string())
-			.stdin(std::process::Stdio::null())
-			.stdout(std::process::Stdio::null())
-			.stderr(std::process::Stdio::null())
-			.spawn()?;
+		// Safety: The pre_exec closure only calls async-signal-safe operations.
+		let mut child = unsafe {
+			std::process::Command::new("fusermount3")
+				.args(["-o", &options, "--"])
+				.arg(path)
+				.env("_FUSE_COMMFD", commfd_raw.to_string())
+				.stdin(std::process::Stdio::null())
+				.stdout(std::process::Stdio::null())
+				.stderr(std::process::Stdio::null())
+				.pre_exec(move || {
+					// Clear CLOEXEC on the comm fd so fusermount3 inherits it.
+					let fd = BorrowedFd::borrow_raw(commfd_raw);
+					rustix::io::fcntl_setfd(fd, FdFlags::empty()).map_err(Error::from)?;
+					Ok(())
+				})
+				.spawn()?
+		};
 		drop(fuse_commfd);
 
 		let mut read_buffer = [0u8; 8];
@@ -2319,14 +2327,18 @@ impl<P> Deref for Server<P> {
 }
 
 pub async fn unmount(path: &Path) -> Result<()> {
-	tokio::process::Command::new("fusermount3")
+	let output = tokio::process::Command::new("fusermount3")
 		.args(["-u", "-z"])
 		.arg(path)
 		.stdin(std::process::Stdio::null())
 		.stdout(std::process::Stdio::null())
-		.stderr(std::process::Stdio::null())
-		.status()
+		.stderr(std::process::Stdio::piped())
+		.output()
 		.await?;
+	if !output.status.success() {
+		let stderr = String::from_utf8_lossy(&output.stderr);
+		return Err(Error::other(format!("failed to unmount: {stderr}")));
+	}
 	Ok(())
 }
 
