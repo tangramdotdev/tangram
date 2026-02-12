@@ -25,7 +25,7 @@ use {
 		io::Error,
 		mem::{MaybeUninit, size_of},
 		ops::Deref,
-		os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd},
+		os::fd::{AsRawFd as _, OwnedFd, RawFd},
 		path::Path,
 		sync::{Arc, Mutex},
 	},
@@ -116,12 +116,8 @@ const WORKER_READ_DEPTH: usize = 16;
 const WORKER_CQE_BATCH_SIZE: usize = 64;
 const EVENTFD_USER_DATA: u64 = u64::MAX;
 const SQPOLL_IDLE_MS: u32 = 2_000;
-const PAYLOAD_BUFFER_GROUP: u16 = 1;
-const FUSE_URING_BUF_RING: u64 = 1 << 0;
-const FUSE_DEV_IOC_MAGIC: u8 = 229;
-const FIXED_FUSE_FD_INDEX: u32 = 0;
-const FIXED_EVENTFD_INDEX: u32 = 1;
 const EVENTFD_BUFFER_INDEX: u16 = 0;
+const FUSE_DEV_IOC_MAGIC: u8 = 229;
 const FUSE_DEV_IOC_CLONE: rustix::ioctl::Opcode =
 	rustix::ioctl::opcode::read::<u32>(FUSE_DEV_IOC_MAGIC, 0);
 const FUSE_DEV_IOC_BACKING_OPEN: rustix::ioctl::Opcode =
@@ -168,41 +164,6 @@ struct UringSlot {
 	header: Box<sys::fuse_uring_req_header>,
 	payload: Vec<u8>,
 	iovecs: [libc::iovec; URING_IOVEC_COUNT as usize],
-}
-
-struct ProvidedPayloadBuffers {
-	ring: *mut types::BufRingEntry,
-	ring_len: usize,
-	buffers: Vec<Vec<u8>>,
-}
-
-struct IoctlNoArgInt<const OPCODE: rustix::ioctl::Opcode>;
-
-impl<const OPCODE: rustix::ioctl::Opcode> IoctlNoArgInt<OPCODE> {
-	const fn new() -> Self {
-		Self
-	}
-}
-
-unsafe impl<const OPCODE: rustix::ioctl::Opcode> ioctl::Ioctl for IoctlNoArgInt<OPCODE> {
-	type Output = i32;
-
-	const IS_MUTATING: bool = false;
-
-	fn opcode(&self) -> ioctl::Opcode {
-		OPCODE
-	}
-
-	fn as_ptr(&mut self) -> *mut core::ffi::c_void {
-		std::ptr::null_mut()
-	}
-
-	unsafe fn output_from_ptr(
-		out: ioctl::IoctlOutput,
-		_ptr: *mut core::ffi::c_void,
-	) -> rustix::io::Result<Self::Output> {
-		Ok(out)
-	}
 }
 
 struct IoctlPointerInt<'a, const OPCODE: rustix::ioctl::Opcode, T> {
@@ -260,92 +221,6 @@ impl UringSlot {
 	}
 }
 
-impl ProvidedPayloadBuffers {
-	fn new(
-		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
-		buffer_group: u16,
-		count: u16,
-		size: usize,
-	) -> Result<Self> {
-		if count == 0 || !count.is_power_of_two() {
-			return Err(Error::other(
-				"provided payload buffer count must be a non-zero power of two",
-			));
-		}
-
-		let ring_len = usize::from(count)
-			.checked_mul(size_of::<types::BufRingEntry>())
-			.ok_or_else(|| Error::other("provided payload buffer ring size overflow"))?;
-		let ring = unsafe {
-			libc::mmap(
-				std::ptr::null_mut(),
-				ring_len,
-				libc::PROT_READ | libc::PROT_WRITE,
-				libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
-				-1,
-				0,
-			)
-		};
-		if ring == libc::MAP_FAILED {
-			return Err(Error::last_os_error());
-		}
-		let ring = ring.cast::<types::BufRingEntry>();
-
-		if let Err(error) = unsafe {
-			io_uring
-				.submitter()
-				.register_buf_ring_with_flags(ring as u64, count, buffer_group, 0)
-		} {
-			unsafe {
-				libc::munmap(ring.cast(), ring_len);
-			}
-			return Err(error);
-		}
-
-		let mut buffers = Vec::with_capacity(usize::from(count));
-		for _ in 0..count {
-			buffers.push(vec![0u8; size]);
-		}
-		for (bid, buffer) in buffers.iter_mut().enumerate() {
-			let entry = unsafe { &mut *ring.add(bid) };
-			entry.set_addr(buffer.as_mut_ptr() as u64);
-			entry.set_len(
-				buffer
-					.len()
-					.to_u32()
-					.ok_or_else(|| Error::other("provided payload buffer size overflow"))?,
-			);
-			entry.set_bid(
-				bid.to_u16()
-					.ok_or_else(|| Error::other("provided payload buffer id overflow"))?,
-			);
-		}
-		std::sync::atomic::fence(std::sync::atomic::Ordering::Release);
-		let tail = unsafe { types::BufRingEntry::tail(ring.cast_const()).cast_mut() };
-		unsafe {
-			std::ptr::write_volatile(tail, count);
-		}
-
-		Ok(Self {
-			ring,
-			ring_len,
-			buffers,
-		})
-	}
-
-	fn get(&self, bid: u16) -> Option<&[u8]> {
-		self.buffers.get(usize::from(bid)).map(Vec::as_slice)
-	}
-}
-
-impl Drop for ProvidedPayloadBuffers {
-	fn drop(&mut self) {
-		unsafe {
-			libc::munmap(self.ring.cast(), self.ring_len);
-		}
-	}
-}
-
 impl<P> Server<P>
 where
 	P: Provider + Send + Sync + 'static,
@@ -367,12 +242,17 @@ where
 			.inspect_err(|error| tracing::error!(%error, "failed to mount"))?;
 
 		// Complete INIT before entering io_uring command mode.
-		Self::init_handshake(fd.as_ref())?;
+		Self::init_handshake(fd.as_ref())
+			.map_err(|error| Error::other(format!("failed to complete init handshake: {error}")))?;
 
 		// Create a primary SQPOLL ring. Worker rings attach to this shared backend.
 		let mut sqpoll_builder = IoUring::<io_uring::squeue::Entry128>::builder();
-		sqpoll_builder.setup_sqpoll(SQPOLL_IDLE_MS);
-		let sqpoll_ring = sqpoll_builder.build(IO_URING_ENTRIES)?;
+		sqpoll_builder
+			.setup_sqpoll(SQPOLL_IDLE_MS)
+			.setup_no_sqarray();
+		let sqpoll_ring = sqpoll_builder
+			.build(IO_URING_ENTRIES)
+			.map_err(|error| Error::other(format!("failed to build sqpoll ring: {error}")))?;
 		let sqpoll_wq_fd = sqpoll_ring.as_raw_fd();
 
 		// Create worker threads.
@@ -384,7 +264,11 @@ where
 		for worker_id in 0..worker_count {
 			let server = server.clone();
 			let runtime = runtime.clone();
-			let worker_fd = Self::clone_worker_fd(fd.as_ref())?;
+			let worker_fd = Self::clone_worker_fd(fd.as_ref()).map_err(|error| {
+				Error::other(format!(
+					"failed to clone worker fuse fd {worker_id}: {error}"
+				))
+			})?;
 			let worker = std::thread::spawn(move || {
 				server
 					.worker_thread(worker_id, &worker_fd, &runtime, sqpoll_wq_fd)
@@ -455,10 +339,23 @@ where
 	}
 
 	fn clone_worker_fd(fd: &OwnedFd) -> Result<OwnedFd> {
-		let cloned = unsafe { ioctl::ioctl(fd, IoctlNoArgInt::<FUSE_DEV_IOC_CLONE>::new()) }
-			.map_err(Error::from)?;
-		let cloned = unsafe { OwnedFd::from_raw_fd(cloned) };
+		let cloned_file = std::fs::File::options()
+			.read(true)
+			.write(true)
+			.open("/dev/fuse")?;
+		let cloned: OwnedFd = cloned_file.into();
 		rustix::io::fcntl_setfd(&cloned, FdFlags::CLOEXEC).map_err(Error::from)?;
+		let mut source_fd = fd
+			.as_raw_fd()
+			.to_u32()
+			.ok_or_else(|| Error::other("invalid source fuse fd"))?;
+		unsafe {
+			ioctl::ioctl(
+				&cloned,
+				IoctlPointerInt::<FUSE_DEV_IOC_CLONE, _>::new(&mut source_fd),
+			)
+		}
+		.map_err(Error::from)?;
 		Ok(cloned)
 	}
 
@@ -472,51 +369,46 @@ where
 		let qid = worker_id
 			.to_u16()
 			.ok_or_else(|| Error::other("worker id out of range"))?;
-		let eventfd = rustix::event::eventfd(0, EventfdFlags::CLOEXEC).map_err(Error::from)?;
+		let eventfd = rustix::event::eventfd(0, EventfdFlags::CLOEXEC)
+			.map_err(|error| Error::other(format!("failed to create worker eventfd: {error}")))?;
 		let eventfd = Arc::new(eventfd);
 		let (sender, receiver) = crossbeam_channel::unbounded::<AsyncResponse>();
 
 		let mut builder = IoUring::<io_uring::squeue::Entry128>::builder();
-		builder
-			.setup_sqpoll(SQPOLL_IDLE_MS)
-			.setup_attach_wq(sqpoll_wq_fd);
-		let mut io_uring = builder.build(IO_URING_ENTRIES)?;
+		builder.setup_attach_wq(sqpoll_wq_fd).setup_no_sqarray();
+		let mut io_uring = builder
+			.build(IO_URING_ENTRIES)
+			.map_err(|error| Error::other(format!("failed to build worker ring: {error}")))?;
 		let mut slots = (0..WORKER_READ_DEPTH)
 			.map(|_| UringSlot::new())
 			.collect::<Vec<_>>();
 		let mut pending_async = vec![None::<(u64, sys::fuse_opcode)>; WORKER_READ_DEPTH];
 		let mut eventfd_inflight = false;
 		let mut eventfd_buffer = [0u8; size_of::<u64>()];
-
-		io_uring
-			.submitter()
-			.register_files(&[fd.as_raw_fd(), eventfd.as_raw_fd()])?;
-
 		let registered_buffers = [libc::iovec {
 			iov_base: eventfd_buffer.as_mut_ptr().cast(),
 			iov_len: eventfd_buffer.len(),
 		}];
 		unsafe {
-			io_uring.submitter().register_buffers(&registered_buffers)?;
+			io_uring
+				.submitter()
+				.register_buffers(&registered_buffers)
+				.map_err(|error| {
+					Error::other(format!("failed to register worker buffers: {error}"))
+				})?;
 		}
-		let payload_buffers = ProvidedPayloadBuffers::new(
-			&mut io_uring,
-			PAYLOAD_BUFFER_GROUP,
-			WORKER_READ_DEPTH.to_u16().unwrap(),
-			REQUEST_BUFFER_SIZE,
-		)?;
 
 		{
 			let mut submission = io_uring.submission();
 			for (slot, slot_data) in slots.iter().enumerate() {
 				let entry = Self::build_fuse_uring_cmd_entry(
+					fd.as_raw_fd(),
 					sys::fuse_uring_cmd_FUSE_IO_URING_CMD_REGISTER,
 					0,
 					qid,
 					slot_data.iovecs.as_ptr(),
 					slot.to_u64().unwrap(),
-					PAYLOAD_BUFFER_GROUP,
-					FUSE_URING_BUF_RING,
+					0,
 				);
 				if unsafe { submission.push(&entry) }.is_err() {
 					return Err(Error::other("failed to submit uring register command"));
@@ -529,7 +421,7 @@ where
 				let mut submission = io_uring.submission();
 				if !eventfd_inflight {
 					let entry: io_uring::squeue::Entry128 = opcode::ReadFixed::new(
-						types::Fixed(FIXED_EVENTFD_INDEX),
+						types::Fd(eventfd.as_raw_fd()),
 						eventfd_buffer.as_mut_ptr(),
 						eventfd_buffer.len().to_u32().unwrap(),
 						EVENTFD_BUFFER_INDEX,
@@ -552,7 +444,11 @@ where
 					Some(libc::ENODEV) => {
 						return Ok(());
 					},
-					_ => return Err(error),
+					_ => {
+						return Err(Error::other(format!(
+							"failed to submit worker ring and wait: {error}",
+						)));
+					},
 				}
 			}
 
@@ -587,15 +483,7 @@ where
 						));
 					}
 
-					let payload = if let Some(buffer_id) =
-						io_uring::cqueue::buffer_select(completion.flags())
-					{
-						payload_buffers
-							.get(buffer_id)
-							.ok_or_else(|| Error::other("received an invalid payload buffer id"))?
-					} else {
-						slots.get(slot).unwrap().payload.as_slice()
-					};
+					let payload = slots.get(slot).unwrap().payload.as_slice();
 					let request =
 						Self::deserialize_uring_request(slots.get(slot).unwrap(), payload)?;
 					let unique = request.header.unique;
@@ -637,8 +525,8 @@ where
 			for (slot, unique, result) in commits {
 				Self::submit_commit_and_fetch(
 					&mut io_uring,
+					fd.as_raw_fd(),
 					qid,
-					PAYLOAD_BUFFER_GROUP,
 					slot,
 					slots.get_mut(slot).unwrap(),
 					unique,
@@ -649,8 +537,8 @@ where
 			if saw_eventfd || !receiver.is_empty() {
 				Self::drain_async_responses(
 					worker_id,
+					fd.as_raw_fd(),
 					qid,
-					PAYLOAD_BUFFER_GROUP,
 					&mut io_uring,
 					&mut slots,
 					&mut pending_async,
@@ -661,12 +549,12 @@ where
 	}
 
 	fn build_fuse_uring_cmd_entry(
+		fd: RawFd,
 		cmd_op: u32,
 		commit_id: u64,
 		qid: u16,
 		iovecs: *const libc::iovec,
 		user_data: u64,
-		payload_buffer_group: u16,
 		command_flags: u64,
 	) -> io_uring::squeue::Entry128 {
 		let request = sys::fuse_uring_cmd_req {
@@ -677,32 +565,29 @@ where
 		};
 		let mut cmd = [0u8; URING_CMD_BYTES];
 		cmd[..size_of::<sys::fuse_uring_cmd_req>()].copy_from_slice(request.as_bytes());
-		let mut entry = opcode::UringCmd80::new(types::Fixed(FIXED_FUSE_FD_INDEX), cmd_op)
+		let mut entry = opcode::UringCmd80::new(types::Fd(fd), cmd_op)
 			.cmd(cmd)
 			.build()
-			.user_data(user_data)
-			.flags(io_uring::squeue::Flags::BUFFER_SELECT);
-		Self::configure_fuse_uring_entry_iovec(&mut entry, iovecs, payload_buffer_group);
+			.user_data(user_data);
+		Self::configure_fuse_uring_entry_iovec(&mut entry, iovecs);
 		entry
 	}
 
 	fn configure_fuse_uring_entry_iovec(
 		entry: &mut io_uring::squeue::Entry128,
 		iovecs: *const libc::iovec,
-		payload_buffer_group: u16,
 	) {
 		let sqe = std::ptr::from_mut(entry).cast::<IoUringSqePrefix>();
 		unsafe {
 			(*sqe).addr = iovecs as u64;
 			(*sqe).len = URING_IOVEC_COUNT;
-			(*sqe).buf_index_or_group = payload_buffer_group;
 		}
 	}
 
 	fn submit_commit_and_fetch(
 		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
+		fd: RawFd,
 		qid: u16,
-		payload_buffer_group: u16,
 		slot: usize,
 		slot_data: &mut UringSlot,
 		unique: u64,
@@ -710,12 +595,12 @@ where
 	) -> Result<()> {
 		Self::prepare_uring_response(slot_data, unique, result)?;
 		let entry = Self::build_fuse_uring_cmd_entry(
+			fd,
 			sys::fuse_uring_cmd_FUSE_IO_URING_CMD_COMMIT_AND_FETCH,
 			unique,
 			qid,
 			slot_data.iovecs.as_ptr(),
 			slot.to_u64().unwrap(),
-			payload_buffer_group,
 			0,
 		);
 		let mut submission = io_uring.submission();
@@ -955,8 +840,8 @@ where
 
 	fn drain_async_responses(
 		worker_id: usize,
+		fd: RawFd,
 		qid: u16,
-		payload_buffer_group: u16,
 		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
 		slots: &mut [UringSlot],
 		pending_async: &mut [Option<(u64, sys::fuse_opcode)>],
@@ -990,8 +875,8 @@ where
 			}
 			Self::submit_commit_and_fetch(
 				io_uring,
+				fd,
 				qid,
-				payload_buffer_group,
 				response.slot,
 				slot_data,
 				response.unique,

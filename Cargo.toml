@@ -107,6 +107,7 @@ indexmap = "2"
 indoc = "2"
 insta = { version = "1", features = ["filters", "json", "redactions", "yaml"] }
 itertools = "0.14"
+io-uring = { git = "https://github.com/tangramdotdev/io-uring", rev = "1648de189c5c11edc3b9de4d3f0421ef52830c73" }
 libc = "0.2"
 lsp-types = "0.97"
 miette = { version = "7.6", features = ["fancy"] }
