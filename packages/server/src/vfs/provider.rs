@@ -20,22 +20,8 @@ use {
 #[cfg(feature = "lmdb")]
 use {heed::RoTxn, tangram_store::lmdb::Store as LmdbStore};
 
-struct Nodes {
-	nodes: DashMap<u64, MemoryNode, fnv::FnvBuildHasher>,
-}
-
-#[derive(Clone)]
-struct MemoryNode {
-	name: Option<String>,
-	parent: u64,
-	artifact: Option<tg::artifact::Id>,
-	depth: u64,
-	lookup_count: u64,
-	children: HashMap<String, u64, fnv::FnvBuildHasher>,
-}
-
 pub struct Provider {
-	node_cache: moka::sync::Cache<u64, Node, fnv::FnvBuildHasher>,
+	node_cache: moka::sync::Cache<u64, CachedNode, fnv::FnvBuildHasher>,
 	node_count: AtomicU64,
 	file_handle_count: AtomicU64,
 	nodes: Nodes,
@@ -43,12 +29,27 @@ pub struct Provider {
 	server: Server,
 }
 
+struct Nodes {
+	nodes: DashMap<u64, Node, fnv::FnvBuildHasher>,
+}
+
+#[derive(Clone)]
+struct Node {
+	name: Option<String>,
+	parent: u64,
+	artifact: Option<tg::artifact::Id>,
+	depth: u64,
+	attrs: Option<vfs::Attrs>,
+	lookup_count: u64,
+	children: HashMap<String, u64, fnv::FnvBuildHasher>,
+}
+
 pub struct FileHandle {
 	blob: tg::blob::Id,
 }
 
 #[derive(Clone)]
-struct Node {
+struct CachedNode {
 	parent: u64,
 	artifact: Option<tg::Artifact>,
 	depth: u64,
@@ -219,7 +220,7 @@ impl vfs::Provider for Provider {
 		}
 
 		// Check the cache to see if the node is there to avoid going to the database if we don't need to.
-		if let Some(Node {
+		if let Some(CachedNode {
 			artifact: Some(tg::Artifact::Directory(object)),
 			..
 		}) = self.node_cache.get(&parent)
@@ -264,7 +265,7 @@ impl vfs::Provider for Provider {
 			if let Some(entry) = entry {
 				break 'a Some(entry);
 			}
-			let Node {
+			let CachedNode {
 				artifact, depth, ..
 			} = self.get(parent).await?;
 			let Some(tg::Artifact::Directory(parent)) = artifact else {
@@ -282,7 +283,8 @@ impl vfs::Provider for Provider {
 
 		// Insert the node.
 		let (artifact, depth) = entry.unwrap();
-		let id = self.put(parent, name, artifact, depth).await?;
+		let attrs = Self::attrs_from_artifact(Some(&artifact));
+		let id = self.put(parent, name, artifact, depth, attrs).await?;
 
 		Ok(Some(id))
 	}
@@ -297,7 +299,7 @@ impl vfs::Provider for Provider {
 		}
 
 		// Check the cache to see if the node is there to avoid going to storage if we do not need to.
-		if let Some(Node {
+		if let Some(CachedNode {
 			artifact: Some(tg::Artifact::Directory(directory)),
 			..
 		}) = self.node_cache.get(&parent)
@@ -339,7 +341,7 @@ impl vfs::Provider for Provider {
 			if let Some(entry) = entry {
 				break 'a Some(entry);
 			}
-			let Node {
+			let CachedNode {
 				artifact, depth, ..
 			} = self.get_sync(parent)?;
 			let Some(tg::Artifact::Directory(parent)) = artifact else {
@@ -354,7 +356,8 @@ impl vfs::Provider for Provider {
 
 		// Insert the node.
 		let (artifact, depth) = entry.unwrap();
-		let id = self.put_sync(parent, name, &artifact, depth);
+		let attrs = self.try_precompute_node_attrs_sync(&artifact);
+		let id = self.put_sync(parent, name, &artifact, depth, attrs);
 		Ok(Some(id))
 	}
 
@@ -394,7 +397,7 @@ impl vfs::Provider for Provider {
 
 		let node = self.get(id).await?;
 		let attrs = match node {
-			Node {
+			CachedNode {
 				artifact: Some(tg::Artifact::File(file)),
 				..
 			} => {
@@ -408,11 +411,11 @@ impl vfs::Provider for Provider {
 				})?;
 				vfs::Attrs::new(vfs::FileType::File { executable, size })
 			},
-			Node {
+			CachedNode {
 				artifact: Some(tg::Artifact::Directory(_)) | None,
 				..
 			} => vfs::Attrs::new(vfs::FileType::Directory),
-			Node {
+			CachedNode {
 				artifact: Some(tg::Artifact::Symlink(_)),
 				..
 			} => vfs::Attrs::new(vfs::FileType::Symlink),
@@ -433,7 +436,7 @@ impl vfs::Provider for Provider {
 
 	async fn open(&self, id: u64) -> std::io::Result<u64> {
 		// Get the node.
-		let Node { artifact, .. } = self.get(id).await?;
+		let CachedNode { artifact, .. } = self.get(id).await?;
 
 		// Ensure it is a file.
 		let Some(tg::Artifact::File(file)) = artifact else {
@@ -463,7 +466,7 @@ impl vfs::Provider for Provider {
 
 	fn open_sync(&self, id: u64) -> std::io::Result<(u64, Option<OwnedFd>)> {
 		// Get the node.
-		let Node { artifact, .. } = self.get_sync(id)?;
+		let CachedNode { artifact, .. } = self.get_sync(id)?;
 
 		// Ensure it is a file.
 		let Some(tg::Artifact::File(file)) = artifact else {
@@ -573,7 +576,7 @@ impl vfs::Provider for Provider {
 
 	async fn readlink(&self, id: u64) -> std::io::Result<Bytes> {
 		// Get the node.
-		let Node {
+		let CachedNode {
 			artifact, depth, ..
 		} = self.get(id).await.map_err(|error| {
 			tracing::error!(%error, "failed to lookup node");
@@ -616,7 +619,7 @@ impl vfs::Provider for Provider {
 
 	fn readlink_sync(&self, id: u64) -> std::io::Result<Bytes> {
 		// Get the node.
-		let Node {
+		let CachedNode {
 			artifact, depth, ..
 		} = self.get_sync(id)?;
 
@@ -736,7 +739,7 @@ impl vfs::Provider for Provider {
 
 	async fn opendir(&self, id: u64) -> std::io::Result<u64> {
 		// Get the node.
-		let Node { artifact, .. } = self.get(id).await?;
+		let CachedNode { artifact, .. } = self.get(id).await?;
 		match artifact {
 			Some(tg::Artifact::Directory(_)) | None => {},
 			Some(_) => {
@@ -749,7 +752,7 @@ impl vfs::Provider for Provider {
 
 	fn opendir_sync(&self, id: u64) -> std::io::Result<u64> {
 		// Get the node.
-		let Node { artifact, .. } = self.get_sync(id)?;
+		let CachedNode { artifact, .. } = self.get_sync(id)?;
 		match artifact {
 			Some(tg::Artifact::Directory(_)) | None => {},
 			Some(_) => {
@@ -761,7 +764,7 @@ impl vfs::Provider for Provider {
 	}
 
 	async fn readdir(&self, id: u64) -> std::io::Result<Vec<(String, u64)>> {
-		let Node { artifact, .. } = self.get(id).await?;
+		let CachedNode { artifact, .. } = self.get(id).await?;
 		let directory = match artifact {
 			Some(tg::Artifact::Directory(directory)) => Some(directory),
 			None => None,
@@ -791,7 +794,7 @@ impl vfs::Provider for Provider {
 	}
 
 	fn readdir_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64)>> {
-		let Node { artifact, .. } = self.get_sync(id)?;
+		let CachedNode { artifact, .. } = self.get_sync(id)?;
 		let directory = match artifact {
 			Some(tg::Artifact::Directory(directory)) => Some(directory),
 			None => None,
@@ -877,7 +880,7 @@ impl Provider {
 		Ok(provider)
 	}
 
-	async fn get(&self, id: u64) -> std::io::Result<Node> {
+	async fn get(&self, id: u64) -> std::io::Result<CachedNode> {
 		// Attempt to get the node from the node cache.
 		if let Some(node) = self.node_cache.get(&id) {
 			return Ok(node.clone());
@@ -886,9 +889,11 @@ impl Provider {
 		// Get the node from the nodes storage.
 		let data = self.nodes.get(id).await?;
 		let artifact = data.artifact.map(tg::Artifact::with_id);
-		let node = Node {
+		let node = CachedNode {
 			parent: data.parent,
-			attrs: Self::attrs_from_artifact(artifact.as_ref()),
+			attrs: data
+				.attrs
+				.or_else(|| Self::attrs_from_artifact(artifact.as_ref())),
 			artifact,
 			depth: data.depth,
 		};
@@ -899,7 +904,7 @@ impl Provider {
 		Ok(node)
 	}
 
-	fn get_sync(&self, id: u64) -> std::io::Result<Node> {
+	fn get_sync(&self, id: u64) -> std::io::Result<CachedNode> {
 		// Attempt to get the node from the node cache.
 		if let Some(node) = self.node_cache.get(&id) {
 			return Ok(node.clone());
@@ -908,9 +913,11 @@ impl Provider {
 		// Get the node from the nodes storage.
 		let data = self.nodes.get_sync(id)?;
 		let artifact = data.artifact.map(tg::Artifact::with_id);
-		let node = Node {
+		let node = CachedNode {
 			parent: data.parent,
-			attrs: Self::attrs_from_artifact(artifact.as_ref()),
+			attrs: data
+				.attrs
+				.or_else(|| Self::attrs_from_artifact(artifact.as_ref())),
 			artifact,
 			depth: data.depth,
 		};
@@ -927,13 +934,14 @@ impl Provider {
 		name: &str,
 		artifact: tg::Artifact,
 		depth: u64,
+		attrs: Option<vfs::Attrs>,
 	) -> std::io::Result<u64> {
 		// Create the node.
-		let node = Node {
+		let node = CachedNode {
 			parent,
 			artifact: Some(artifact.clone()),
 			depth,
-			attrs: Self::attrs_from_artifact(Some(&artifact)),
+			attrs,
 		};
 
 		// Get the artifact id.
@@ -944,18 +952,26 @@ impl Provider {
 
 		// Add the node to the cache and nodes storage.
 		self.node_cache.insert(id, node.clone());
-		self.nodes.insert(id, parent, name, artifact_id, depth);
+		self.nodes
+			.insert(id, parent, name, artifact_id, depth, node.attrs);
 
 		Ok(id)
 	}
 
-	fn put_sync(&self, parent: u64, name: &str, artifact: &tg::Artifact, depth: u64) -> u64 {
+	fn put_sync(
+		&self,
+		parent: u64,
+		name: &str,
+		artifact: &tg::Artifact,
+		depth: u64,
+		attrs: Option<vfs::Attrs>,
+	) -> u64 {
 		// Create the node.
-		let node = Node {
+		let node = CachedNode {
 			parent,
 			artifact: Some(artifact.clone()),
 			depth,
-			attrs: Self::attrs_from_artifact(Some(artifact)),
+			attrs,
 		};
 
 		// Get the artifact id.
@@ -966,7 +982,8 @@ impl Provider {
 
 		// Add the node to the cache and nodes storage.
 		self.node_cache.insert(id, node.clone());
-		self.nodes.insert(id, parent, name, artifact_id, depth);
+		self.nodes
+			.insert(id, parent, name, artifact_id, depth, node.attrs);
 
 		id
 	}
@@ -1053,7 +1070,7 @@ impl Provider {
 		}
 
 		// Check the cache to see if the node is there to avoid going to storage if we do not need to.
-		if let Some(Node {
+		if let Some(CachedNode {
 			artifact: Some(tg::Artifact::Directory(directory)),
 			..
 		}) = self.node_cache.get(&parent)
@@ -1096,7 +1113,7 @@ impl Provider {
 			if let Some(entry) = entry {
 				break 'a Some(entry);
 			}
-			let Node {
+			let CachedNode {
 				artifact, depth, ..
 			} = self.get_sync(parent)?;
 			let Some(tg::Artifact::Directory(parent)) = artifact else {
@@ -1112,7 +1129,12 @@ impl Provider {
 
 		// Insert the node.
 		let (artifact, depth) = entry.unwrap();
-		let id = self.put_sync(parent, name, &artifact, depth);
+		let attrs = Self::try_precompute_node_attrs_sync_with_lmdb_transaction(
+			&artifact,
+			store,
+			transaction,
+		);
+		let id = self.put_sync(parent, name, &artifact, depth, attrs);
 		Ok(Some(id))
 	}
 
@@ -1140,7 +1162,7 @@ impl Provider {
 		transaction: &RoTxn<'_>,
 	) -> std::io::Result<(u64, Option<OwnedFd>)> {
 		// Get the node.
-		let Node { artifact, .. } = self.get_sync(id)?;
+		let CachedNode { artifact, .. } = self.get_sync(id)?;
 
 		// Ensure it is a file.
 		let Some(tg::Artifact::File(file)) = artifact else {
@@ -1246,7 +1268,7 @@ impl Provider {
 		store: &LmdbStore,
 		transaction: &RoTxn<'_>,
 	) -> std::io::Result<Vec<(String, u64)>> {
-		let Node { artifact, .. } = self.get_sync(id)?;
+		let CachedNode { artifact, .. } = self.get_sync(id)?;
 		let directory = match artifact {
 			Some(tg::Artifact::Directory(directory)) => Some(directory),
 			None => None,
@@ -1299,7 +1321,7 @@ impl Provider {
 		transaction: &RoTxn<'_>,
 	) -> std::io::Result<Bytes> {
 		// Get the node.
-		let Node {
+		let CachedNode {
 			artifact, depth, ..
 		} = self.get_sync(id)?;
 
@@ -1596,7 +1618,7 @@ impl Provider {
 
 	#[cfg(feature = "lmdb")]
 	fn getattr_from_node_sync_with_lmdb_transaction(
-		node: &Node,
+		node: &CachedNode,
 		store: &LmdbStore,
 		transaction: &RoTxn<'_>,
 	) -> std::io::Result<vfs::Attrs> {
@@ -1780,7 +1802,7 @@ impl Provider {
 		}
 	}
 
-	fn getattr_from_node_sync(&self, node: &Node) -> std::io::Result<vfs::Attrs> {
+	fn getattr_from_node_sync(&self, node: &CachedNode) -> std::io::Result<vfs::Attrs> {
 		if let Some(attrs) = node.attrs {
 			return Ok(attrs);
 		}
@@ -1803,6 +1825,45 @@ impl Provider {
 		}
 	}
 
+	fn try_precompute_node_attrs_sync(&self, artifact: &tg::Artifact) -> Option<vfs::Attrs> {
+		match artifact {
+			tg::Artifact::File(file) => {
+				let file = self.file_node_sync(file).ok()?;
+				let size = file
+					.contents
+					.as_ref()
+					.map_or(Some(0), |contents| self.blob_length_sync(contents).ok())?;
+				Some(vfs::Attrs::new(vfs::FileType::File {
+					executable: file.executable,
+					size,
+				}))
+			},
+			_ => Self::attrs_from_artifact(Some(artifact)),
+		}
+	}
+
+	#[cfg(feature = "lmdb")]
+	fn try_precompute_node_attrs_sync_with_lmdb_transaction(
+		artifact: &tg::Artifact,
+		store: &LmdbStore,
+		transaction: &RoTxn<'_>,
+	) -> Option<vfs::Attrs> {
+		match artifact {
+			tg::Artifact::File(file) => {
+				let file =
+					Self::file_node_sync_with_lmdb_transaction(file, store, transaction).ok()?;
+				let size = file.contents.as_ref().map_or(Some(0), |contents| {
+					Self::blob_length_sync_with_lmdb_transaction(contents, store, transaction).ok()
+				})?;
+				Some(vfs::Attrs::new(vfs::FileType::File {
+					executable: file.executable,
+					size,
+				}))
+			},
+			_ => Self::attrs_from_artifact(Some(artifact)),
+		}
+	}
+
 	fn attrs_from_artifact(artifact: Option<&tg::Artifact>) -> Option<vfs::Attrs> {
 		match artifact {
 			Some(tg::Artifact::File(_)) => None,
@@ -1822,6 +1883,7 @@ impl Provider {
 			node.attrs = Some(attrs);
 			self.node_cache.insert(id, node);
 		}
+		self.nodes.set_attrs(id, attrs);
 	}
 
 	fn try_open_backing_fd_sync(&self, id: &tg::blob::Id) -> std::io::Result<Option<OwnedFd>> {
@@ -1863,11 +1925,12 @@ impl Nodes {
 		let nodes = DashMap::default();
 		nodes.insert(
 			vfs::ROOT_NODE_ID,
-			MemoryNode {
+			Node {
 				name: None,
 				parent: vfs::ROOT_NODE_ID,
 				artifact: None,
 				depth: 0,
+				attrs: Some(vfs::Attrs::new(vfs::FileType::Directory)),
 				lookup_count: u64::MAX,
 				children: HashMap::default(),
 			},
@@ -1883,7 +1946,7 @@ impl Nodes {
 		self.lookup_parent_sync(id)
 	}
 
-	async fn get(&self, id: u64) -> std::io::Result<MemoryNode> {
+	async fn get(&self, id: u64) -> std::io::Result<Node> {
 		self.get_sync(id)
 	}
 
@@ -1900,11 +1963,18 @@ impl Nodes {
 		})
 	}
 
-	fn get_sync(&self, id: u64) -> std::io::Result<MemoryNode> {
+	fn get_sync(&self, id: u64) -> std::io::Result<Node> {
 		self.nodes.get(&id).map(|node| node.clone()).ok_or_else(|| {
 			tracing::error!(%id, "node not found");
 			std::io::Error::from_raw_os_error(libc::ENOENT)
 		})
+	}
+
+	fn set_attrs(&self, id: u64, attrs: vfs::Attrs) {
+		let Some(mut node) = self.nodes.get_mut(&id) else {
+			return;
+		};
+		node.attrs = Some(attrs);
 	}
 
 	fn remember(&self, id: u64) {
@@ -1973,15 +2043,24 @@ impl Nodes {
 		}
 	}
 
-	fn insert(&self, id: u64, parent: u64, name: &str, artifact: tg::artifact::Id, depth: u64) {
+	fn insert(
+		&self,
+		id: u64,
+		parent: u64,
+		name: &str,
+		artifact: tg::artifact::Id,
+		depth: u64,
+		attrs: Option<vfs::Attrs>,
+	) {
 		// Insert the new node.
 		self.nodes.insert(
 			id,
-			MemoryNode {
+			Node {
 				name: Some(name.to_owned()),
 				parent,
 				artifact: Some(artifact),
 				depth,
+				attrs,
 				lookup_count: 0,
 				children: HashMap::default(),
 			},
