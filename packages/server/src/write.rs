@@ -12,7 +12,7 @@ use {
 		sync::Arc,
 	},
 	tangram_client::prelude::*,
-	tangram_http::{Body, request::Ext as _},
+	tangram_http::request::Ext as _,
 	tangram_index::prelude::*,
 	tangram_store::prelude::*,
 	tokio::io::{AsyncRead, AsyncWriteExt as _},
@@ -559,9 +559,9 @@ impl Server {
 
 	pub(crate) async fn handle_write_request(
 		&self,
-		request: http::Request<Body>,
+		request: tangram_http::Request,
 		context: &Context,
-	) -> tg::Result<http::Response<Body>> {
+	) -> tg::Result<tangram_http::Response> {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
@@ -589,7 +589,10 @@ impl Server {
 			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => {
 				let content_type = mime::APPLICATION_JSON;
 				let body = serde_json::to_vec(&output).unwrap();
-				(Some(content_type), Body::with_bytes(body))
+				(
+					Some(content_type),
+					tangram_http::body::Boxed::with_bytes(body),
+				)
 			},
 			Some((type_, subtype)) => {
 				return Err(tg::error!(%type_, %subtype, "invalid accept type"));

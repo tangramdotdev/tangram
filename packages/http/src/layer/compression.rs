@@ -1,6 +1,6 @@
 use {
 	crate::{
-		Body, Request, Response,
+		Request, Response, body,
 		body::compression::{Algorithm, Compression, Decompression},
 		header::{accept_encoding::AcceptEncoding, content_encoding::ContentEncoding},
 	},
@@ -12,7 +12,7 @@ use {
 pub struct RequestCompressionLayer {
 	predicate: Option<
 		Arc<
-			dyn Fn(&http::request::Parts, &Body) -> Option<(Algorithm, u32)>
+			dyn Fn(&http::request::Parts, &body::Boxed) -> Option<(Algorithm, u32)>
 				+ Send
 				+ Sync
 				+ 'static,
@@ -23,7 +23,7 @@ pub struct RequestCompressionLayer {
 impl RequestCompressionLayer {
 	pub fn new<F>(predicate: F) -> Self
 	where
-		F: Fn(&http::request::Parts, &Body) -> Option<(Algorithm, u32)>
+		F: Fn(&http::request::Parts, &body::Boxed) -> Option<(Algorithm, u32)>
 			+ Send
 			+ Sync
 			+ 'static + 'static,
@@ -60,7 +60,7 @@ where
 						http::header::CONTENT_ENCODING,
 						http::HeaderValue::from_str(&algorithm.to_string()).unwrap(),
 					);
-					body = Body::new(Compression::new(body, algorithm, level));
+					body = body::Boxed::new(Compression::new(body, algorithm, level));
 				}
 				let request = Request::from_parts(parts, body);
 				let response = service.ready().await?.call(request).await?;
@@ -101,7 +101,7 @@ where
 					None => None,
 				};
 				if let Some(algorithm) = algorithm {
-					body = Body::new(Decompression::new(body, algorithm));
+					body = body::Boxed::new(Decompression::new(body, algorithm));
 				}
 				let request = Request::from_parts(parts, body);
 				let response = service.ready().await?.call(request).await?;
@@ -118,7 +118,7 @@ pub struct ResponseCompressionLayer {
 			dyn Fn(
 					Option<AcceptEncoding>,
 					&http::response::Parts,
-					&Body,
+					&body::Boxed,
 				) -> Option<(Algorithm, u32)>
 				+ Send
 				+ Sync
@@ -130,7 +130,11 @@ pub struct ResponseCompressionLayer {
 impl ResponseCompressionLayer {
 	pub fn new<F>(predicate: F) -> Self
 	where
-		F: Fn(Option<AcceptEncoding>, &http::response::Parts, &Body) -> Option<(Algorithm, u32)>
+		F: Fn(
+				Option<AcceptEncoding>,
+				&http::response::Parts,
+				&body::Boxed,
+			) -> Option<(Algorithm, u32)>
 			+ Send
 			+ Sync
 			+ 'static,
@@ -173,7 +177,7 @@ where
 						http::header::CONTENT_ENCODING,
 						http::HeaderValue::from_str(&algorithm.to_string()).unwrap(),
 					);
-					body = Body::new(Compression::new(body, algorithm, level));
+					body = body::Boxed::new(Compression::new(body, algorithm, level));
 				}
 				let response = Response::from_parts(parts, body);
 				Ok(response)
@@ -218,7 +222,7 @@ where
 					None => None,
 				};
 				if let Some(algorithm) = algorithm {
-					body = Body::new(Decompression::new(body, algorithm));
+					body = body::Boxed::new(Decompression::new(body, algorithm));
 				}
 				let response = Response::from_parts(parts, body);
 				Ok(response)

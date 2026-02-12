@@ -6,7 +6,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::{stream::Ext as _, task::Stop},
-	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+	tangram_http::{request::Ext as _, response::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 	tokio_stream::wrappers::IntervalStream,
 };
@@ -196,10 +196,10 @@ impl Server {
 
 	pub(crate) async fn handle_get_process_status_request(
 		&self,
-		request: http::Request<Body>,
+		request: tangram_http::Request,
 		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>> {
+	) -> tg::Result<tangram_http::Response> {
 		// Parse the ID.
 		let id = id
 			.parse()
@@ -223,7 +223,11 @@ impl Server {
 			.try_get_process_status_stream_with_context(context, &id, arg)
 			.await?
 		else {
-			return Ok(http::Response::builder().not_found().empty().unwrap());
+			return Ok(http::Response::builder()
+				.not_found()
+				.empty()
+				.unwrap()
+				.boxed_body());
 		};
 
 		// Stop the stream when the server stops.
@@ -242,7 +246,10 @@ impl Server {
 					Ok(event) => event.try_into(),
 					Err(error) => error.try_into(),
 				});
-				(Some(content_type), Body::with_sse_stream(stream))
+				(
+					Some(content_type),
+					tangram_http::body::Boxed::with_sse_stream(stream),
+				)
 			},
 
 			Some((type_, subtype)) => {

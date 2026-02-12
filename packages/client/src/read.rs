@@ -2,9 +2,9 @@ use {
 	crate::prelude::*,
 	bytes::Bytes,
 	futures::{Stream, TryStreamExt as _, stream},
-	http_body_util::BodyStream,
 	num::ToPrimitive as _,
 	serde_with::{DisplayFromStr, PickFirst, serde_as},
+	tangram_http::body::BodyStream,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::{BytesBase64, SeekFromNumberOrString, is_default},
 };

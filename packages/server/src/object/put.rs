@@ -3,7 +3,7 @@ use {
 	num::ToPrimitive as _,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
-	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+	tangram_http::{request::Ext as _, response::Ext as _, response::builder::Ext as _},
 	tangram_index::prelude::*,
 	tangram_store::prelude::*,
 };
@@ -118,10 +118,10 @@ impl Server {
 
 	pub(crate) async fn handle_put_object_request(
 		&self,
-		request: http::Request<Body>,
+		request: tangram_http::Request,
 		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>> {
+	) -> tg::Result<tangram_http::Response> {
 		let id = id
 			.parse::<tg::object::Id>()
 			.map_err(|source| tg::error!(!source, "failed to parse the object id"))?;
@@ -150,7 +150,8 @@ impl Server {
 				.status(http::StatusCode::BAD_REQUEST)
 				.json(error)
 				.map_err(|source| tg::error!(!source, "failed to serialize the error"))?
-				.unwrap();
+				.unwrap()
+				.boxed_body();
 			return Ok(response);
 		}
 
@@ -163,7 +164,7 @@ impl Server {
 		self.put_object_with_context(context, &id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to put the object"))?;
-		let response = http::Response::builder().empty().unwrap();
+		let response = http::Response::builder().empty().unwrap().boxed_body();
 		Ok(response)
 	}
 }

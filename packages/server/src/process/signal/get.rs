@@ -3,7 +3,7 @@ use {
 	futures::{FutureExt as _, Stream, StreamExt as _, future},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
-	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+	tangram_http::{request::Ext as _, response::Ext as _, response::builder::Ext as _},
 	tangram_messenger::prelude::*,
 };
 
@@ -118,10 +118,10 @@ impl Server {
 
 	pub(crate) async fn handle_get_process_signal_request(
 		&self,
-		request: http::Request<Body>,
+		request: tangram_http::Request,
 		_context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>> {
+	) -> tg::Result<tangram_http::Response> {
 		// Parse the ID.
 		let id = id
 			.parse()
@@ -142,7 +142,11 @@ impl Server {
 
 		// Get the stream.
 		let Some(stream) = self.try_get_process_signal_stream(&id, arg).await? else {
-			return Ok(http::Response::builder().not_found().empty().unwrap());
+			return Ok(http::Response::builder()
+				.not_found()
+				.empty()
+				.unwrap()
+				.boxed_body());
 		};
 
 		// Stop the stream when the server stops.
@@ -161,7 +165,10 @@ impl Server {
 					Ok(event) => event.try_into(),
 					Err(error) => error.try_into(),
 				});
-				(Some(content_type), Body::with_sse_stream(stream))
+				(
+					Some(content_type),
+					tangram_http::body::Boxed::with_sse_stream(stream),
+				)
 			},
 
 			Some((type_, subtype)) => {

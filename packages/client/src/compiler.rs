@@ -1,8 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{TryFutureExt as _, future},
-	http_body_util::BodyExt as _,
-	tangram_http::request::builder::Ext as _,
+	tangram_http::{request::Ext as _, request::builder::Ext as _, response::Ext as _},
 	tokio::io::{AsyncBufRead, AsyncWrite},
 };
 
@@ -23,15 +22,14 @@ impl tg::Client {
 			.empty()
 			.unwrap();
 		let response = sender
-			.send_request(request)
+			.send_request(request.boxed_body())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if response.status() != http::StatusCode::SWITCHING_PROTOCOLS {
 			let bytes = response
-				.collect()
+				.bytes()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?
-				.to_bytes();
+				.map_err(|source| tg::error!(!source, "failed to collect the response body"))?;
 			let error = serde_json::from_slice(&bytes)
 				.unwrap_or_else(|_| tg::error!("failed to deserialize the error"));
 			return Err(error);

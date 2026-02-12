@@ -2,11 +2,11 @@ use {
 	crate::prelude::*,
 	bytes::Bytes,
 	futures::{prelude::*, stream::BoxStream},
-	http_body_util::BodyStream,
 	num::ToPrimitive as _,
 	serde_with::{DisplayFromStr, PickFirst, serde_as},
 	tangram_futures::{read::Ext as _, stream::Ext as _, task::Task, write::Ext as _},
-	tangram_http::{Body, response::Ext as _},
+	tangram_http::body::BodyStream,
+	tangram_http::response::Ext as _,
 	tangram_util::serde::{CommaSeparatedString, is_default, is_false},
 	tokio::io::AsyncReadExt as _,
 	tokio_stream::wrappers::ReceiverStream,
@@ -292,7 +292,7 @@ impl tg::Client {
 		let uri = format!("/sync?{query}");
 
 		// Create the body.
-		let body = Body::with_stream(stream.then(|result| async {
+		let body = tangram_http::body::Boxed::with_stream(stream.then(|result| async {
 			let frame = match result {
 				Ok(message) => {
 					let message = tangram_serialize::to_vec(&message).unwrap();

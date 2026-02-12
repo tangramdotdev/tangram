@@ -1,15 +1,15 @@
 use {
-	crate::{Body, Error, sse},
+	crate::body::Ext as _,
+	crate::{Error, body, sse},
 	bytes::Bytes,
 	futures::{Stream, TryStreamExt as _, future},
-	http_body_util::{BodyExt as _, BodyStream},
 	tokio::io::AsyncBufRead,
 	tokio_util::io::StreamReader,
 };
 
 pub mod builder;
 
-pub type Response = http::Response<Body>;
+pub type Response = http::Response<body::Boxed>;
 
 pub trait Ext: Sized {
 	fn parse_header<T, E>(&self, key: impl http::header::AsHeaderName) -> Option<Result<T, Error>>
@@ -36,9 +36,15 @@ pub trait Ext: Sized {
 	fn reader(self) -> impl AsyncBufRead + Send + 'static;
 
 	fn sse(self) -> impl Stream<Item = Result<sse::Event, Error>> + Send + 'static;
+
+	fn boxed_body(self) -> http::Response<body::Boxed>;
 }
 
-impl Ext for http::Response<Body> {
+impl<B> Ext for http::Response<B>
+where
+	B: http_body::Body<Data = Bytes> + Send + Unpin + 'static,
+	B::Error: Into<Error> + Send,
+{
 	fn parse_header<T, E>(&self, key: impl http::header::AsHeaderName) -> Option<Result<T, Error>>
 	where
 		T: std::str::FromStr<Err = E>,
@@ -63,8 +69,12 @@ impl Ext for http::Response<Body> {
 	}
 
 	async fn bytes(self) -> Result<Bytes, Error> {
-		let collected = self.collect().await?;
-		Ok(collected.to_bytes())
+		Ok(self
+			.into_body()
+			.collect()
+			.await
+			.map_err(Into::into)?
+			.to_bytes())
 	}
 
 	async fn text(self) -> Result<String, Error> {
@@ -96,7 +106,7 @@ impl Ext for http::Response<Body> {
 
 	fn reader(self) -> impl AsyncBufRead + Send + 'static {
 		StreamReader::new(
-			BodyStream::new(self.into_body())
+			body::BodyStream::new(self.into_body())
 				.try_filter_map(|frame| future::ok(frame.into_data().ok()))
 				.map_err(std::io::Error::other),
 		)
@@ -104,5 +114,9 @@ impl Ext for http::Response<Body> {
 
 	fn sse(self) -> impl Stream<Item = Result<sse::Event, Error>> + Send + 'static {
 		sse::decode(self.reader()).err_into()
+	}
+
+	fn boxed_body(self) -> http::Response<body::Boxed> {
+		self.map(body::Boxed::new)
 	}
 }

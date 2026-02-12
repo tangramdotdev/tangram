@@ -1,7 +1,7 @@
 use {
 	crate::{Context, Server},
 	tangram_client::prelude::*,
-	tangram_http::{Body, request::Ext as _},
+	tangram_http::request::Ext as _,
 };
 
 impl Server {
@@ -47,9 +47,9 @@ impl Server {
 
 	pub(crate) async fn handle_touch_watch_request(
 		&self,
-		request: http::Request<Body>,
+		request: tangram_http::Request,
 		context: &Context,
-	) -> tg::Result<http::Response<Body>> {
+	) -> tg::Result<tangram_http::Response> {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
@@ -78,7 +78,9 @@ impl Server {
 			},
 		}
 
-		let response = http::Response::builder().body(Body::empty()).unwrap();
+		let response = http::Response::builder()
+			.body(tangram_http::body::Boxed::empty())
+			.unwrap();
 
 		Ok(response)
 	}

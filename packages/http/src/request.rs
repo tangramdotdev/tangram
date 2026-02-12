@@ -1,15 +1,15 @@
 use {
-	crate::{Body, Error, sse},
+	crate::body::Ext as _,
+	crate::{Error, body, sse},
 	bytes::Bytes,
 	futures::{Stream, TryStreamExt as _, future},
-	http_body_util::{BodyExt as _, BodyStream},
 	tokio::io::AsyncBufRead,
 	tokio_util::io::StreamReader,
 };
 
 pub mod builder;
 
-pub type Request = http::Request<Body>;
+pub type Request = http::Request<body::Boxed>;
 
 pub trait Ext {
 	fn query_params<T>(&self) -> Option<Result<T, Error>>
@@ -42,9 +42,15 @@ pub trait Ext {
 	fn reader(self) -> impl AsyncBufRead + Send + 'static;
 
 	fn sse(self) -> impl Stream<Item = Result<sse::Event, Error>> + Send + 'static;
+
+	fn boxed_body(self) -> http::Request<body::Boxed>;
 }
 
-impl Ext for http::Request<Body> {
+impl<B> Ext for http::Request<B>
+where
+	B: http_body::Body<Data = Bytes> + Send + Unpin + 'static,
+	B::Error: Into<Error> + Send,
+{
 	fn query_params<T>(&self) -> Option<Result<T, Error>>
 	where
 		T: serde::de::DeserializeOwned,
@@ -106,7 +112,12 @@ impl Ext for http::Request<Body> {
 	}
 
 	async fn bytes(self) -> Result<Bytes, Error> {
-		Ok(self.into_body().collect().await?.to_bytes())
+		Ok(self
+			.into_body()
+			.collect()
+			.await
+			.map_err(Into::into)?
+			.to_bytes())
 	}
 
 	async fn text(self) -> Result<String, Error> {
@@ -138,7 +149,7 @@ impl Ext for http::Request<Body> {
 
 	fn reader(self) -> impl AsyncBufRead + Send + 'static {
 		StreamReader::new(
-			BodyStream::new(self.into_body())
+			body::BodyStream::new(self.into_body())
 				.try_filter_map(|frame| future::ok(frame.into_data().ok()))
 				.map_err(std::io::Error::other),
 		)
@@ -146,5 +157,9 @@ impl Ext for http::Request<Body> {
 
 	fn sse(self) -> impl Stream<Item = Result<sse::Event, Error>> + Send + 'static {
 		sse::decode(self.reader()).err_into()
+	}
+
+	fn boxed_body(self) -> http::Request<body::Boxed> {
+		self.map(body::Boxed::new)
 	}
 }

@@ -4,7 +4,7 @@ use {
 	std::os::fd::AsFd as _,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
-	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+	tangram_http::{request::Ext as _, response::Ext as _, response::builder::Ext as _},
 	tokio_util::io::ReaderStream,
 };
 
@@ -103,10 +103,10 @@ impl Server {
 
 	pub(crate) async fn handle_read_pipe_request(
 		&self,
-		request: http::Request<Body>,
+		request: tangram_http::Request,
 		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>> {
+	) -> tg::Result<tangram_http::Response> {
 		// Parse the ID.
 		let id = id
 			.parse()
@@ -121,7 +121,11 @@ impl Server {
 
 		// Get the stream.
 		let Some(stream) = self.try_read_pipe_with_context(context, &id, arg).await? else {
-			return Ok(http::Response::builder().not_found().empty().unwrap());
+			return Ok(http::Response::builder()
+				.not_found()
+				.empty()
+				.unwrap()
+				.boxed_body());
 		};
 
 		// Stop the stream when the server stops.
@@ -132,7 +136,7 @@ impl Server {
 		let stream = stream.take_until(stop);
 
 		// Create the body.
-		let body = Body::with_stream(stream.map(move |result| {
+		let body = tangram_http::body::Boxed::with_stream(stream.map(move |result| {
 			let event = match result {
 				Ok(event) => match event {
 					tg::pipe::Event::Chunk(bytes) => hyper::body::Frame::data(bytes),

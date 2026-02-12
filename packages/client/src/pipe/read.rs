@@ -1,8 +1,8 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, TryStreamExt as _},
-	http_body_util::{BodyExt as _, BodyStream},
 	serde_with::serde_as,
+	tangram_http::body::{BodyStream, Ext as _},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::CommaSeparatedString,
 };

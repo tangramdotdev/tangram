@@ -1,11 +1,12 @@
 use {
 	crate::{Context, Server},
 	futures::{FutureExt as _, future},
-	http_body_util::BodyExt as _,
 	std::{convert::Infallible, path::Path, pin::pin, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
-	tangram_http::{Body, request::Ext as _, response::builder::Ext as _},
+	tangram_http::{
+		body::Ext as _, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 	tangram_uri::Uri,
 	tokio::net::{TcpListener, UnixListener},
 	tower::ServiceExt as _,
@@ -152,13 +153,20 @@ impl Server {
 						.max_local_error_reset_streams(None);
 					let service = service
 						.map_request(|request: http::Request<hyper::body::Incoming>| {
-							request.map(Body::new)
+							request.boxed_body()
 						})
 						.map_response({
 							let idle = idle.clone();
-							move |response: http::Response<Body>| {
+							move |response: tangram_http::Response| {
 								response.map(move |body| {
-									Body::new(tangram_http::idle::Body::new(idle.token(), body))
+									tangram_http::body::Boxed::new(
+										tangram_http::idle::Body::new(idle.token(), body).map_err(
+											|error| {
+												tracing::error!(?error, "response body error");
+												error
+											},
+										),
+									)
 								})
 							}
 						});
@@ -196,9 +204,9 @@ impl Server {
 	#[tracing::instrument(level = "trace", name = "request", skip_all, fields(id, method, path))]
 	async fn handle_request(
 		server: &Server,
-		mut request: http::Request<Body>,
+		mut request: tangram_http::Request,
 		mut context: Context,
-	) -> http::Response<Body> {
+	) -> tangram_http::Response {
 		let id = tg::Id::new_uuidv7(tg::id::Kind::Request);
 		request.extensions_mut().insert(id.clone());
 
@@ -426,7 +434,8 @@ impl Server {
 				http::Response::builder()
 					.status(http::StatusCode::NOT_FOUND)
 					.bytes("not found")
-					.unwrap(),
+					.unwrap()
+					.boxed_body(),
 			)
 			.boxed(),
 		}
@@ -447,6 +456,7 @@ impl Server {
 				.status(http::StatusCode::INTERNAL_SERVER_ERROR)
 				.bytes(bytes)
 				.unwrap()
+				.boxed_body()
 		});
 
 		// Add the request ID to the response.
@@ -454,11 +464,6 @@ impl Server {
 		let value = http::HeaderValue::from_str(&id.to_string()).unwrap();
 		response.headers_mut().insert(key, value);
 
-		response.map(|body| {
-			Body::new(body.map_err(|error| {
-				tracing::error!(?error, "response body error");
-				error
-			}))
-		})
+		response
 	}
 }

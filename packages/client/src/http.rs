@@ -8,7 +8,7 @@ use {
 		sync::Arc,
 		time::Duration,
 	},
-	tangram_http::Body,
+	tangram_http::request::Ext as _,
 	tangram_uri::Uri,
 	time::format_description::well_known::Rfc3339,
 	tokio::net::{TcpStream, UnixStream},
@@ -16,10 +16,15 @@ use {
 	tower_http::ServiceBuilderExt as _,
 };
 
-pub(crate) type Sender =
-	Arc<tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<Body>>>>;
+pub(crate) type Sender = Arc<
+	tokio::sync::Mutex<Option<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>>>,
+>;
 
-pub(crate) type Service = BoxCloneSyncService<http::Request<Body>, http::Response<Body>, tg::Error>;
+pub(crate) type Service = BoxCloneSyncService<
+	http::Request<tangram_http::body::Boxed>,
+	http::Response<tangram_http::body::Boxed>,
+	tg::Error,
+>;
 
 impl tg::Client {
 	#[expect(clippy::needless_pass_by_value)]
@@ -30,7 +35,7 @@ impl tg::Client {
 		reconnect: &tangram_futures::retry::Options,
 	) -> (Sender, Service) {
 		let sender = Arc::new(tokio::sync::Mutex::new(
-			None::<hyper::client::conn::http2::SendRequest<Body>>,
+			None::<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>>,
 		));
 		let service = tower::service_fn({
 			let sender = sender.clone();
@@ -58,7 +63,7 @@ impl tg::Client {
 					drop(guard);
 					sender
 						.send_request(request)
-						.map_ok(|response| response.map(Body::new))
+						.map_ok(tangram_http::response::Ext::boxed_body)
 						.map_err(|source| tg::error!(!source, "failed to send the request"))
 						.await
 				}
@@ -131,7 +136,7 @@ impl tg::Client {
 
 	pub(crate) async fn connect_h1(
 		url: &Uri,
-	) -> tg::Result<hyper::client::conn::http1::SendRequest<Body>> {
+	) -> tg::Result<hyper::client::conn::http1::SendRequest<tangram_http::body::Boxed>> {
 		match url.scheme() {
 			Some("http+unix") => {
 				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
@@ -165,7 +170,9 @@ impl tg::Client {
 		}
 	}
 
-	async fn connect_h2(url: &Uri) -> tg::Result<hyper::client::conn::http2::SendRequest<Body>> {
+	async fn connect_h2(
+		url: &Uri,
+	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>> {
 		match url.scheme() {
 			Some("http+unix") => {
 				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
@@ -201,7 +208,7 @@ impl tg::Client {
 
 	async fn connect_unix_h1(
 		path: &Path,
-	) -> tg::Result<hyper::client::conn::http1::SendRequest<Body>> {
+	) -> tg::Result<hyper::client::conn::http1::SendRequest<tangram_http::body::Boxed>> {
 		// Connect via UNIX.
 		let stream = UnixStream::connect(path)
 			.await
@@ -235,7 +242,7 @@ impl tg::Client {
 
 	pub(crate) async fn connect_unix_h2(
 		path: &Path,
-	) -> tg::Result<hyper::client::conn::http2::SendRequest<Body>> {
+	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>> {
 		// Connect via UNIX.
 		let stream = UnixStream::connect(path)
 			.await
@@ -273,7 +280,7 @@ impl tg::Client {
 	pub(crate) async fn connect_tcp_h1(
 		host: &str,
 		port: u16,
-	) -> tg::Result<hyper::client::conn::http1::SendRequest<Body>> {
+	) -> tg::Result<hyper::client::conn::http1::SendRequest<tangram_http::body::Boxed>> {
 		// Connect via TCP.
 		let addr = format!("{host}:{port}");
 		let stream = tokio::time::timeout(Duration::from_secs(1), TcpStream::connect(addr))
@@ -310,7 +317,7 @@ impl tg::Client {
 	pub(crate) async fn connect_tcp_h2(
 		host: &str,
 		port: u16,
-	) -> tg::Result<hyper::client::conn::http2::SendRequest<Body>> {
+	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>> {
 		// Connect via TCP.
 		let addr = format!("{host}:{port}");
 		let stream = tokio::time::timeout(Duration::from_secs(1), TcpStream::connect(addr))
@@ -351,7 +358,7 @@ impl tg::Client {
 	pub(crate) async fn connect_tcp_tls_h1(
 		host: &str,
 		port: u16,
-	) -> tg::Result<hyper::client::conn::http1::SendRequest<Body>> {
+	) -> tg::Result<hyper::client::conn::http1::SendRequest<tangram_http::body::Boxed>> {
 		// Connect via TLS over TCP.
 		let stream = Self::connect_tcp_tls(host, port, vec![b"http/1.1".into()]).await?;
 
@@ -395,7 +402,7 @@ impl tg::Client {
 	pub(crate) async fn connect_tcp_tls_h2(
 		host: &str,
 		port: u16,
-	) -> tg::Result<hyper::client::conn::http2::SendRequest<Body>> {
+	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>> {
 		// Connect via TLS over TCP.
 		let stream = Self::connect_tcp_tls(host, port, vec![b"h2".into()]).await?;
 
@@ -478,10 +485,15 @@ impl tg::Client {
 		Ok(stream)
 	}
 
-	pub(crate) async fn send(
+	pub(crate) async fn send<B>(
 		&self,
-		request: http::Request<Body>,
-	) -> tg::Result<http::Response<Body>> {
+		request: http::Request<B>,
+	) -> tg::Result<http::Response<tangram_http::body::Boxed>>
+	where
+		B: http_body::Body<Data = bytes::Bytes> + Send + Unpin + 'static,
+		B::Error: Into<tangram_http::Error> + Send,
+	{
+		let request = request.boxed_body();
 		let future = self.service.clone().call(request);
 		let response = future
 			.await

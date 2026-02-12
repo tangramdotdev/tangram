@@ -5,7 +5,7 @@ use {
 		stream::{self, FuturesUnordered},
 	},
 	tangram_client::prelude::*,
-	tangram_http::{Body, request::Ext as _},
+	tangram_http::request::Ext as _,
 };
 
 #[cfg(feature = "postgres")]
@@ -197,10 +197,10 @@ impl Server {
 
 	pub(crate) async fn handle_get_process_request(
 		&self,
-		request: http::Request<Body>,
+		request: tangram_http::Request,
 		context: &Context,
 		id: &str,
-	) -> tg::Result<http::Response<Body>> {
+	) -> tg::Result<tangram_http::Response> {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
@@ -223,7 +223,7 @@ impl Server {
 		let Some(output) = self.try_get_process_with_context(context, &id, arg).await? else {
 			return Ok(http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)
-				.body(Body::empty())
+				.body(tangram_http::body::Boxed::empty())
 				.unwrap());
 		};
 
@@ -235,7 +235,10 @@ impl Server {
 			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => {
 				let content_type = mime::APPLICATION_JSON;
 				let body = serde_json::to_vec(&output).unwrap();
-				(Some(content_type), Body::with_bytes(body))
+				(
+					Some(content_type),
+					tangram_http::body::Boxed::with_bytes(body),
+				)
 			},
 			Some((type_, subtype)) => {
 				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
