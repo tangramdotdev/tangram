@@ -154,6 +154,8 @@ const WORKER_CQE_BATCH_SIZE: usize = 64;
 const EVENTFD_USER_DATA: u64 = u64::MAX;
 const SQPOLL_IDLE_MS: u32 = 2_000;
 const EVENTFD_BUFFER_INDEX: u16 = 0;
+const WORKER_FIXED_FUSE_FD: u32 = 0;
+const WORKER_FIXED_EVENTFD_FD: u32 = 1;
 const FUSE_DEV_IOC_MAGIC: u8 = 229;
 const FUSE_DEV_IOC_CLONE: rustix::ioctl::Opcode =
 	rustix::ioctl::opcode::read::<u32>(FUSE_DEV_IOC_MAGIC, 0);
@@ -416,6 +418,10 @@ where
 		let mut io_uring = builder
 			.build(IO_URING_ENTRIES)
 			.map_err(|error| Error::other(format!("failed to build worker ring: {error}")))?;
+		io_uring
+			.submitter()
+			.register_files(&[fd.as_raw_fd(), eventfd.as_raw_fd()])
+			.map_err(|error| Error::other(format!("failed to register worker files: {error}")))?;
 		let mut slots = (0..WORKER_READ_DEPTH)
 			.map(|_| UringSlot::new())
 			.collect::<Vec<_>>();
@@ -449,7 +455,7 @@ where
 			let mut submission = io_uring.submission();
 			for (slot, slot_data) in slots.iter().enumerate() {
 				let entry = Self::build_fuse_uring_cmd_entry(
-					fd.as_raw_fd(),
+					types::Fixed(WORKER_FIXED_FUSE_FD),
 					sys::fuse_uring_cmd_FUSE_IO_URING_CMD_REGISTER,
 					0,
 					qid,
@@ -468,7 +474,7 @@ where
 				let mut submission = io_uring.submission();
 				if !eventfd_inflight {
 					let entry: io_uring::squeue::Entry128 = opcode::ReadFixed::new(
-						types::Fd(eventfd.as_raw_fd()),
+						types::Fixed(WORKER_FIXED_EVENTFD_FD),
 						eventfd_buffer.as_mut_ptr(),
 						eventfd_buffer.len().to_u32().unwrap(),
 						EVENTFD_BUFFER_INDEX,
@@ -585,7 +591,7 @@ where
 			for (slot, unique, result) in commits.drain(..) {
 				Self::submit_commit_and_fetch(
 					&mut io_uring,
-					fd.as_raw_fd(),
+					types::Fixed(WORKER_FIXED_FUSE_FD),
 					qid,
 					slot,
 					slots.get_mut(slot).unwrap(),
@@ -597,7 +603,7 @@ where
 			if saw_eventfd || !receiver.is_empty() {
 				Self::drain_async_responses(
 					worker_id,
-					fd.as_raw_fd(),
+					types::Fixed(WORKER_FIXED_FUSE_FD),
 					qid,
 					&mut io_uring,
 					&mut slots,
@@ -609,7 +615,7 @@ where
 	}
 
 	fn build_fuse_uring_cmd_entry(
-		fd: RawFd,
+		fd: types::Fixed,
 		cmd_op: u32,
 		commit_id: u64,
 		qid: u16,
@@ -625,7 +631,7 @@ where
 		};
 		let mut cmd = [0u8; URING_CMD_BYTES];
 		cmd[..size_of::<sys::fuse_uring_cmd_req>()].copy_from_slice(request.as_bytes());
-		let mut entry = opcode::UringCmd80::new(types::Fd(fd), cmd_op)
+		let mut entry = opcode::UringCmd80::new(fd, cmd_op)
 			.cmd(cmd)
 			.build()
 			.user_data(user_data);
@@ -646,7 +652,7 @@ where
 
 	fn submit_commit_and_fetch(
 		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
-		fd: RawFd,
+		fixed_fuse_fd: types::Fixed,
 		qid: u16,
 		slot: usize,
 		slot_data: &mut UringSlot,
@@ -655,7 +661,7 @@ where
 	) -> Result<()> {
 		Self::prepare_uring_response(slot_data, unique, result)?;
 		let entry = Self::build_fuse_uring_cmd_entry(
-			fd,
+			fixed_fuse_fd,
 			sys::fuse_uring_cmd_FUSE_IO_URING_CMD_COMMIT_AND_FETCH,
 			unique,
 			qid,
@@ -900,7 +906,7 @@ where
 
 	fn drain_async_responses(
 		worker_id: usize,
-		fd: RawFd,
+		fixed_fuse_fd: types::Fixed,
 		qid: u16,
 		io_uring: &mut IoUring<io_uring::squeue::Entry128>,
 		slots: &mut [UringSlot],
@@ -935,7 +941,7 @@ where
 			}
 			Self::submit_commit_and_fetch(
 				io_uring,
-				fd,
+				fixed_fuse_fd,
 				qid,
 				response.slot,
 				slot_data,
