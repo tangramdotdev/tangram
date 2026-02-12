@@ -1,10 +1,10 @@
 use {
 	super::ServerWithContext,
-	crate::{Context, Owned, Server},
+	crate::{Context, Server, Shared},
 	tangram_client::prelude::*,
 };
 
-impl tg::handle::Module for Owned {
+impl tg::handle::Module for Shared {
 	async fn resolve_module(
 		&self,
 		arg: tg::module::resolve::Arg,

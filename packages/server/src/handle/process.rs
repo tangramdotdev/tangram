@@ -1,11 +1,11 @@
 use {
 	super::ServerWithContext,
-	crate::{Context, Owned, Server},
+	crate::{Context, Server, Shared},
 	futures::Stream,
 	tangram_client::prelude::*,
 };
 
-impl tg::handle::Process for Owned {
+impl tg::handle::Process for Shared {
 	async fn list_processes(
 		&self,
 		arg: tg::process::list::Arg,

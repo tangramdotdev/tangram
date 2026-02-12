@@ -1,10 +1,10 @@
 use {
 	super::ServerWithContext,
-	crate::{Context, Owned, Server},
+	crate::{Context, Server, Shared},
 	tangram_client::prelude::*,
 };
 
-impl tg::handle::Watch for Owned {
+impl tg::handle::Watch for Shared {
 	async fn list_watches(&self, arg: tg::watch::list::Arg) -> tg::Result<tg::watch::list::Output> {
 		self.0.list_watches(arg).await
 	}

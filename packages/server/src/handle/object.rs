@@ -1,10 +1,10 @@
 use {
 	super::ServerWithContext,
-	crate::{Context, Owned, Server},
+	crate::{Context, Server, Shared},
 	tangram_client::prelude::*,
 };
 
-impl tg::handle::Object for Owned {
+impl tg::handle::Object for Shared {
 	async fn try_get_object_metadata(
 		&self,
 		id: &tg::object::Id,

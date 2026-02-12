@@ -5,7 +5,7 @@ use {
 	num::ToPrimitive as _,
 	std::{os::unix::process::CommandExt as _, path::PathBuf, time::Duration},
 	tangram_client::{Client, prelude::*},
-	tangram_server::Owned as Server,
+	tangram_server::Shared as Server,
 	tangram_uri::Uri,
 	tracing_subscriber::prelude::*,
 };
@@ -743,7 +743,7 @@ impl Cli {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to start the server"))?;
 
-		Ok(server)
+		Ok(server.into())
 	}
 
 	/// Start the server.

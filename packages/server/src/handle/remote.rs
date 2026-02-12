@@ -1,10 +1,10 @@
 use {
 	super::ServerWithContext,
-	crate::{Context, Owned, Server},
+	crate::{Context, Server, Shared},
 	tangram_client::prelude::*,
 };
 
-impl tg::handle::Remote for Owned {
+impl tg::handle::Remote for Shared {
 	async fn list_remotes(
 		&self,
 		arg: tg::remote::list::Arg,
