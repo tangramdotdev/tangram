@@ -22,7 +22,7 @@ bytes = { workspace = true }
 crossbeam-channel = { workspace = true }
 dashmap = { workspace = true }
 futures = { workspace = true }
-io-uring = "0.7"
+io-uring = { workspace = true }
 libc = { workspace = true }
 num = { workspace = true }
 rustix = { workspace = true, features = ["event", "net", "process"] }
