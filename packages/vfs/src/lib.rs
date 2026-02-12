@@ -109,6 +109,23 @@ pub trait Provider {
 		let _ = id;
 		Err(rustix::io::Errno::NOSYS.into())
 	}
+
+	/// Forget a node. Decrements the nlookup count by the given amount.
+	fn forget(&self, id: u64, nlookup: u64) {
+		let _ = (id, nlookup);
+	}
+
+	/// Forget multiple nodes.
+	fn forget_multi(&self, forgets: &[(u64, u64)]) {
+		for &(id, nlookup) in forgets {
+			self.forget(id, nlookup);
+		}
+	}
+
+	/// Increment the lookup count for a node.
+	fn increment_nlookup(&self, id: u64) {
+		let _ = id;
+	}
 }
 
 #[derive(Clone, Copy, Debug)]

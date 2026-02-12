@@ -1,9 +1,9 @@
 use {
 	self::sys::{
 		fuse_attr, fuse_attr_out, fuse_batch_forget_in, fuse_entry_out, fuse_flush_in,
-		fuse_forget_in, fuse_getattr_in, fuse_getxattr_in, fuse_getxattr_out, fuse_in_header,
-		fuse_init_in, fuse_init_out, fuse_open_in, fuse_open_out, fuse_out_header, fuse_read_in,
-		fuse_release_in,
+		fuse_forget_in, fuse_forget_one, fuse_getattr_in, fuse_getxattr_in, fuse_getxattr_out,
+		fuse_in_header, fuse_init_in, fuse_init_out, fuse_open_in, fuse_open_out, fuse_out_header,
+		fuse_read_in, fuse_release_in,
 	},
 	crate::{FileType, Provider, Result},
 	bytes::Bytes,
@@ -167,7 +167,7 @@ struct Request {
 /// A request's data.
 #[derive(Clone, Debug)]
 enum RequestData {
-	BatchForget(sys::fuse_batch_forget_in),
+	BatchForget(Vec<fuse_forget_one>),
 	Destroy,
 	Flush(sys::fuse_flush_in),
 	Forget(sys::fuse_forget_in),
@@ -379,7 +379,17 @@ where
 		let header_len = std::mem::size_of::<sys::fuse_in_header>();
 		let data = &buffer[header_len..];
 		let data = match header.opcode {
-			sys::fuse_opcode_FUSE_BATCH_FORGET => RequestData::BatchForget(read_data(data)?),
+			sys::fuse_opcode_FUSE_BATCH_FORGET => {
+				let batch_in: fuse_batch_forget_in = read_data(data)?;
+				let entries_data = &data[std::mem::size_of::<fuse_batch_forget_in>()..];
+				let mut forgets = Vec::with_capacity(batch_in.count as usize);
+				for i in 0..batch_in.count as usize {
+					let offset = i * std::mem::size_of::<fuse_forget_one>();
+					let entry: fuse_forget_one = read_data(&entries_data[offset..])?;
+					forgets.push(entry);
+				}
+				RequestData::BatchForget(forgets)
+			},
 			sys::fuse_opcode_FUSE_DESTROY => RequestData::Destroy,
 			sys::fuse_opcode_FUSE_FLUSH => RequestData::Flush(read_data(data)?),
 			sys::fuse_opcode_FUSE_FORGET => RequestData::Forget(read_data(data)?),
@@ -442,7 +452,16 @@ where
 		let payload = &entry.payload[..payload_sz];
 
 		let data = match header.opcode {
-			sys::fuse_opcode_FUSE_BATCH_FORGET => RequestData::BatchForget(read_data(op_in_bytes)?),
+			sys::fuse_opcode_FUSE_BATCH_FORGET => {
+				let batch_in: fuse_batch_forget_in = read_data(op_in_bytes)?;
+				let mut forgets = Vec::with_capacity(batch_in.count as usize);
+				for i in 0..batch_in.count as usize {
+					let offset = i * std::mem::size_of::<fuse_forget_one>();
+					let entry: fuse_forget_one = read_data(&payload[offset..])?;
+					forgets.push(entry);
+				}
+				RequestData::BatchForget(forgets)
+			},
 			sys::fuse_opcode_FUSE_DESTROY => RequestData::Destroy,
 			sys::fuse_opcode_FUSE_FLUSH => RequestData::Flush(read_data(op_in_bytes)?),
 			sys::fuse_opcode_FUSE_FORGET => RequestData::Forget(read_data(op_in_bytes)?),
@@ -482,11 +501,18 @@ where
 			// INIT is handled before workers start.
 			RequestData::Init(..) => unreachable!(),
 
-			// These requests do not produce a response.
-			RequestData::Forget(..)
-			| RequestData::BatchForget(..)
-			| RequestData::Destroy
-			| RequestData::Interrupt(..) => SyncResult::NoResponse,
+			// Forget requests free nodes and do not produce a response.
+			RequestData::Forget(data) => {
+				self.provider.forget(request.header.nodeid, data.nlookup);
+				SyncResult::NoResponse
+			},
+			RequestData::BatchForget(forgets) => {
+				let pairs: Vec<(u64, u64)> =
+					forgets.iter().map(|f| (f.nodeid, f.nlookup)).collect();
+				self.provider.forget_multi(&pairs);
+				SyncResult::NoResponse
+			},
+			RequestData::Destroy | RequestData::Interrupt(..) => SyncResult::NoResponse,
 
 			// Flush and release are trivially handled.
 			RequestData::Flush(..) => SyncResult::Response(Ok(Some(Response::Flush))),
@@ -525,9 +551,12 @@ where
 						Err(e) if e.raw_os_error() == Some(ENOSYS) => {
 							SyncResult::NeedAsync(request.clone())
 						},
-						Ok(attr) => SyncResult::Response(Ok(Some(Response::Lookup(
-							make_fuse_entry_out(node, &attr),
-						)))),
+						Ok(attr) => {
+							self.provider.increment_nlookup(node);
+							SyncResult::Response(Ok(Some(Response::Lookup(make_fuse_entry_out(
+								node, &attr,
+							)))))
+						},
 						Err(e) => SyncResult::Response(Err(e)),
 					},
 					Ok(None) => SyncResult::Response(Err(Error::from_raw_os_error(ENOENT))),
@@ -845,8 +874,10 @@ where
 	async fn handle_batch_forget_request(
 		&self,
 		_header: fuse_in_header,
-		_request: fuse_batch_forget_in,
+		forgets: Vec<fuse_forget_one>,
 	) -> Result<Option<Response>> {
+		let pairs: Vec<(u64, u64)> = forgets.iter().map(|f| (f.nodeid, f.nlookup)).collect();
+		self.provider.forget_multi(&pairs);
 		Ok(None)
 	}
 
@@ -860,9 +891,10 @@ where
 
 	async fn handle_forget_request(
 		&self,
-		_header: fuse_in_header,
-		_request: fuse_forget_in,
+		header: fuse_in_header,
+		request: fuse_forget_in,
 	) -> Result<Option<Response>> {
+		self.provider.forget(header.nodeid, request.nlookup);
 		Ok(None)
 	}
 
@@ -975,6 +1007,7 @@ where
 			.await?
 			.ok_or_else(|| Error::from_raw_os_error(ENOENT))?;
 		let attr = self.provider.getattr(node).await?;
+		self.provider.increment_nlookup(node);
 		let out = make_fuse_entry_out(node, &attr);
 		Ok(Some(Response::Lookup(out)))
 	}
@@ -1061,6 +1094,7 @@ where
 			};
 
 			if plus {
+				self.provider.increment_nlookup(node);
 				let entry = fuse_direntplus {
 					entry_out: make_fuse_entry_out(node, &attr),
 					dirent: entry,
@@ -1330,6 +1364,7 @@ fn build_readdir_response<P: Provider>(
 		};
 
 		if plus {
+			provider.increment_nlookup(node);
 			let entry = fuse_direntplus {
 				entry_out: make_fuse_entry_out(node, &attr),
 				dirent: entry,
