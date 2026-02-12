@@ -6,7 +6,9 @@ use {
 	std::os::fd::AsRawFd as _,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
-	tangram_http::{request::Ext as _, response::Ext as _, response::builder::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 };
 
 impl Server {
@@ -135,10 +137,10 @@ impl Server {
 
 	pub(crate) async fn handle_read_pty_request(
 		&self,
-		request: tangram_http::Request,
+		request: http::Request<BoxBody>,
 		context: &Context,
 		id: &str,
-	) -> tg::Result<tangram_http::Response> {
+	) -> tg::Result<http::Response<BoxBody>> {
 		// Parse the ID.
 		let id = id
 			.parse()
@@ -185,10 +187,7 @@ impl Server {
 					Ok(event) => event.try_into(),
 					Err(error) => error.try_into(),
 				});
-				(
-					Some(content_type),
-					tangram_http::body::Boxed::with_sse_stream(stream),
-				)
+				(Some(content_type), BoxBody::with_sse_stream(stream))
 			},
 			Some((type_, subtype)) => {
 				return Err(tg::error!(%type_, %subtype, "invalid accept type"));

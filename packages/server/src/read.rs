@@ -16,7 +16,9 @@ use {
 		stream::Ext as _,
 		task::{Stop, Task},
 	},
-	tangram_http::{request::Ext as _, response::Ext as _, response::builder::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 	tangram_store::prelude::*,
 	tokio::io::{
 		AsyncBufRead, AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _, AsyncSeek,
@@ -160,9 +162,9 @@ impl Server {
 
 	pub(crate) async fn handle_read_request(
 		&self,
-		request: tangram_http::Request,
+		request: http::Request<BoxBody>,
 		context: &Context,
-	) -> tg::Result<tangram_http::Response> {
+	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
@@ -224,7 +226,7 @@ impl Server {
 				Ok(hyper::body::Frame::trailers(trailers))
 			},
 		});
-		let body = tangram_http::body::Boxed::with_stream(frames);
+		let body = BoxBody::with_stream(frames);
 
 		// Create the response.
 		let mut response = http::Response::builder().header(

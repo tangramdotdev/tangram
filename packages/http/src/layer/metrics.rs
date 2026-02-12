@@ -1,7 +1,5 @@
 use {
-	crate::{Request, Response},
-	opentelemetry as otel,
-	std::time::Instant,
+	crate::body::Boxed as BoxBody, opentelemetry as otel, std::time::Instant,
 	tower::ServiceExt as _,
 };
 
@@ -41,38 +39,45 @@ impl Default for MetricsLayer {
 
 impl<S> tower::layer::Layer<S> for MetricsLayer
 where
-	S: tower::Service<Request, Response = Response> + Clone + Send + Sync + 'static,
+	S: tower::Service<http::Request<BoxBody>, Response = http::Response<BoxBody>>
+		+ Clone
+		+ Send
+		+ Sync
+		+ 'static,
 	S::Future: Send + 'static,
 	S::Error: Send + 'static,
 {
-	type Service = tower::util::BoxCloneSyncService<Request, Response, S::Error>;
+	type Service =
+		tower::util::BoxCloneSyncService<http::Request<BoxBody>, http::Response<BoxBody>, S::Error>;
 
 	fn layer(&self, service: S) -> Self::Service {
 		let layer = self.clone();
-		tower::util::BoxCloneSyncService::new(tower::service_fn(move |request: Request| {
-			let layer = layer.clone();
-			let mut service = service.clone();
-			async move {
-				let method = request.method().to_string();
-				let path = request.uri().path().to_owned();
-				let start = Instant::now();
+		tower::util::BoxCloneSyncService::new(tower::service_fn(
+			move |request: http::Request<BoxBody>| {
+				let layer = layer.clone();
+				let mut service = service.clone();
+				async move {
+					let method = request.method().to_string();
+					let path = request.uri().path().to_owned();
+					let start = Instant::now();
 
-				let response = service.ready().await?.call(request).await?;
+					let response = service.ready().await?.call(request).await?;
 
-				let duration = start.elapsed().as_secs_f64();
-				let status = response.status().as_u16().to_string();
+					let duration = start.elapsed().as_secs_f64();
+					let status = response.status().as_u16().to_string();
 
-				let attributes = [
-					otel::KeyValue::new("http.request.method", method),
-					otel::KeyValue::new("http.route", path),
-					otel::KeyValue::new("http.response.status_code", status),
-				];
+					let attributes = [
+						otel::KeyValue::new("http.request.method", method),
+						otel::KeyValue::new("http.route", path),
+						otel::KeyValue::new("http.response.status_code", status),
+					];
 
-				layer.request_count.add(1, &attributes);
-				layer.request_duration.record(duration, &attributes);
+					layer.request_count.add(1, &attributes);
+					layer.request_duration.record(duration, &attributes);
 
-				Ok(response)
-			}
-		}))
+					Ok(response)
+				}
+			},
+		))
 	}
 }

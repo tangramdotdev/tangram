@@ -5,7 +5,8 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
 	tangram_http::{
-		body::Ext as _, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+		body::Boxed as BoxBody, body::Ext as _, request::Ext as _, response::Ext as _,
+		response::builder::Ext as _,
 	},
 	tangram_uri::Uri,
 	tokio::net::{TcpListener, UnixListener},
@@ -157,9 +158,9 @@ impl Server {
 						})
 						.map_response({
 							let idle = idle.clone();
-							move |response: tangram_http::Response| {
+							move |response: http::Response<BoxBody>| {
 								response.map(move |body| {
-									tangram_http::body::Boxed::new(
+									BoxBody::new(
 										tangram_http::idle::Body::new(idle.token(), body).map_err(
 											|error| {
 												tracing::error!(?error, "response body error");
@@ -204,9 +205,9 @@ impl Server {
 	#[tracing::instrument(level = "trace", name = "request", skip_all, fields(id, method, path))]
 	async fn handle_request(
 		server: &Server,
-		mut request: tangram_http::Request,
+		mut request: http::Request<BoxBody>,
 		mut context: Context,
-	) -> tangram_http::Response {
+	) -> http::Response<BoxBody> {
 		let id = tg::Id::new_uuidv7(tg::id::Kind::Request);
 		request.extensions_mut().insert(id.clone());
 

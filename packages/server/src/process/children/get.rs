@@ -10,7 +10,9 @@ use {
 		stream::Ext as _,
 		task::{Stop, Task},
 	},
-	tangram_http::{request::Ext as _, response::Ext as _, response::builder::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 	tangram_messenger::prelude::*,
 	tokio_stream::wrappers::IntervalStream,
 };
@@ -334,10 +336,10 @@ impl Server {
 
 	pub(crate) async fn handle_get_process_children_request(
 		&self,
-		request: tangram_http::Request,
+		request: http::Request<BoxBody>,
 		context: &Context,
 		id: &str,
-	) -> tg::Result<tangram_http::Response> {
+	) -> tg::Result<http::Response<BoxBody>> {
 		// Parse the ID.
 		let id = id
 			.parse()
@@ -384,10 +386,7 @@ impl Server {
 					Ok(event) => event.try_into(),
 					Err(error) => error.try_into(),
 				});
-				(
-					Some(content_type),
-					tangram_http::body::Boxed::with_sse_stream(stream),
-				)
+				(Some(content_type), BoxBody::with_sse_stream(stream))
 			},
 
 			Some((type_, subtype)) => {

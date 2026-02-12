@@ -13,7 +13,7 @@ use {
 		task::{Stop, Task},
 		write::Ext as _,
 	},
-	tangram_http::request::Ext as _,
+	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tokio::io::AsyncReadExt as _,
 	tokio_stream::wrappers::ReceiverStream,
 	tracing::Instrument,
@@ -216,9 +216,9 @@ impl Server {
 
 	pub(crate) async fn handle_sync_request(
 		&self,
-		request: tangram_http::Request,
+		request: http::Request<BoxBody>,
 		context: &Context,
-	) -> tg::Result<tangram_http::Response> {
+	) -> tg::Result<http::Response<BoxBody>> {
 		// Parse the arg.
 		let arg = request
 			.query_params()
@@ -318,7 +318,7 @@ impl Server {
 			};
 			Ok::<_, tg::Error>(frame)
 		});
-		let body = tangram_http::body::Boxed::with_stream(stream);
+		let body = BoxBody::with_stream(stream);
 
 		// Create the response.
 		let mut response = http::Response::builder();

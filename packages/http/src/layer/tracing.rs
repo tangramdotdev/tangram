@@ -1,7 +1,4 @@
-use {
-	crate::{Request, Response},
-	tower::ServiceExt as _,
-};
+use {crate::body::Boxed as BoxBody, tower::ServiceExt as _};
 
 #[derive(Clone)]
 pub struct TracingLayer {
@@ -27,27 +24,34 @@ impl Default for TracingLayer {
 
 impl<S> tower::layer::Layer<S> for TracingLayer
 where
-	S: tower::Service<Request, Response = Response> + Clone + Send + Sync + 'static,
+	S: tower::Service<http::Request<BoxBody>, Response = http::Response<BoxBody>>
+		+ Clone
+		+ Send
+		+ Sync
+		+ 'static,
 	S::Future: Send + 'static,
 	S::Error: Send + 'static,
 {
-	type Service = tower::util::BoxCloneSyncService<Request, Response, S::Error>;
+	type Service =
+		tower::util::BoxCloneSyncService<http::Request<BoxBody>, http::Response<BoxBody>, S::Error>;
 
 	fn layer(&self, service: S) -> Self::Service {
 		let layer = self.clone();
-		tower::util::BoxCloneSyncService::new(tower::service_fn(move |request: Request| {
-			let layer = layer.clone();
-			let mut service = service.clone();
-			async move {
-				if layer.request {
-					tracing::trace!(headers = ?request.headers(), method = ?request.method(), path = ?request.uri().path(), "request");
+		tower::util::BoxCloneSyncService::new(tower::service_fn(
+			move |request: http::Request<BoxBody>| {
+				let layer = layer.clone();
+				let mut service = service.clone();
+				async move {
+					if layer.request {
+						tracing::trace!(headers = ?request.headers(), method = ?request.method(), path = ?request.uri().path(), "request");
+					}
+					let response = service.ready().await?.call(request).await?;
+					if layer.response {
+						tracing::trace!(headers = ?response.headers(), status = ?response.status(), "response");
+					}
+					Ok(response)
 				}
-				let response = service.ready().await?.call(request).await?;
-				if layer.response {
-					tracing::trace!(headers = ?response.headers(), status = ?response.status(), "response");
-				}
-				Ok(response)
-			}
-		}))
+			},
+		))
 	}
 }

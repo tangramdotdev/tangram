@@ -1,7 +1,9 @@
 use {
 	crate::{Context, Database, Server},
 	tangram_client::prelude::*,
-	tangram_http::{request::Ext as _, response::Ext as _, response::builder::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 	tangram_index::prelude::*,
 };
 
@@ -76,9 +78,9 @@ impl Server {
 
 	pub(crate) async fn handle_post_tag_batch_request(
 		&self,
-		request: tangram_http::Request,
+		request: http::Request<BoxBody>,
 		context: &Context,
-	) -> tg::Result<tangram_http::Response> {
+	) -> tg::Result<http::Response<BoxBody>> {
 		let arg = request
 			.json()
 			.await

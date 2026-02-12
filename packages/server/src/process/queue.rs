@@ -7,7 +7,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::task::Stop,
-	tangram_http::request::Ext as _,
+	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_messenger::{self as messenger, prelude::*},
 };
 
@@ -111,9 +111,9 @@ impl Server {
 
 	pub(crate) async fn handle_dequeue_process_request(
 		&self,
-		request: tangram_http::Request,
+		request: http::Request<BoxBody>,
 		context: &Context,
-	) -> tg::Result<tangram_http::Response> {
+	) -> tg::Result<http::Response<BoxBody>> {
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
 
 		// Get the accept header.
@@ -149,10 +149,7 @@ impl Server {
 					Ok(event) => event.try_into(),
 					Err(error) => error.try_into(),
 				});
-				(
-					Some(content_type),
-					tangram_http::body::Boxed::with_sse_stream(stream),
-				)
+				(Some(content_type), BoxBody::with_sse_stream(stream))
 			},
 
 			Some((type_, subtype)) => {

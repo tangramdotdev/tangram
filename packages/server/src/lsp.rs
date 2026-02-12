@@ -4,7 +4,7 @@ use {
 	std::pin::pin,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
-	tangram_http::{response::Ext as _, response::builder::Ext as _},
+	tangram_http::{body::Boxed as BoxBody, response::Ext as _, response::builder::Ext as _},
 	tokio::io::{AsyncBufRead, AsyncWrite},
 };
 
@@ -35,9 +35,9 @@ impl Server {
 impl Server {
 	pub(crate) async fn handle_lsp_request(
 		&self,
-		request: tangram_http::Request,
+		request: http::Request<BoxBody>,
 		context: &Context,
-	) -> tg::Result<tangram_http::Response> {
+	) -> tg::Result<http::Response<BoxBody>> {
 		// Ensure the connection header is set correctly.
 		if request
 			.headers()

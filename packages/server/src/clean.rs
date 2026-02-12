@@ -10,7 +10,7 @@ use {
 		stream::Ext as _,
 		task::{Stop, Task},
 	},
-	tangram_http::request::Ext as _,
+	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::prelude::*,
 	tangram_store::prelude::*,
 };
@@ -326,9 +326,9 @@ impl Server {
 
 	pub(crate) async fn handle_server_clean_request(
 		&self,
-		request: tangram_http::Request,
+		request: http::Request<BoxBody>,
 		context: &Context,
-	) -> tg::Result<tangram_http::Response> {
+	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
@@ -358,10 +358,7 @@ impl Server {
 					Ok(event) => event.try_into(),
 					Err(error) => error.try_into(),
 				});
-				(
-					Some(content_type),
-					tangram_http::body::Boxed::with_sse_stream(stream),
-				)
+				(Some(content_type), BoxBody::with_sse_stream(stream))
 			},
 
 			Some((type_, subtype)) => {

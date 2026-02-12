@@ -3,7 +3,7 @@ use {
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_http::request::Ext as _,
+	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
 impl Server {
@@ -88,9 +88,9 @@ impl Server {
 
 	pub(crate) async fn handle_get_user_request(
 		&self,
-		request: tangram_http::Request,
+		request: http::Request<BoxBody>,
 		context: &Context,
-	) -> tg::Result<tangram_http::Response> {
+	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
@@ -101,7 +101,7 @@ impl Server {
 		let Some(token) = request.token(None) else {
 			let response = http::Response::builder()
 				.status(http::StatusCode::UNAUTHORIZED)
-				.body(tangram_http::body::Boxed::empty())
+				.body(BoxBody::empty())
 				.unwrap();
 			return Ok(response);
 		};
@@ -110,7 +110,7 @@ impl Server {
 		let Some(output) = self.get_user_with_context(context, token).await? else {
 			let response = http::Response::builder()
 				.status(http::StatusCode::UNAUTHORIZED)
-				.body(tangram_http::body::Boxed::empty())
+				.body(BoxBody::empty())
 				.unwrap();
 			return Ok(response);
 		};
@@ -123,10 +123,7 @@ impl Server {
 			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => {
 				let content_type = mime::APPLICATION_JSON;
 				let body = serde_json::to_vec(&output).unwrap();
-				(
-					Some(content_type),
-					tangram_http::body::Boxed::with_bytes(body),
-				)
+				(Some(content_type), BoxBody::with_bytes(body))
 			},
 			Some((type_, subtype)) => {
 				return Err(tg::error!(%type_, %subtype, "invalid accept type"));

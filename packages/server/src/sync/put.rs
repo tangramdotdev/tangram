@@ -2,9 +2,7 @@ use {
 	super::{graph::Graph, progress::Progress, queue::Queue},
 	crate::Server,
 	futures::{future, stream::BoxStream},
-	std::{
-		sync::{Arc, Mutex},
-	},
+	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 	tracing::Instrument as _,

@@ -1,5 +1,3 @@
-pub use self::{request::Request, response::Response};
-
 pub mod body;
 pub mod header;
 pub mod idle;

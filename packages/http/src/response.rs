@@ -9,8 +9,6 @@ use {
 
 pub mod builder;
 
-pub type Response = http::Response<body::Boxed>;
-
 pub trait Ext: Sized {
 	fn parse_header<T, E>(&self, key: impl http::header::AsHeaderName) -> Option<Result<T, Error>>
 	where

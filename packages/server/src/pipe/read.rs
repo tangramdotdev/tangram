@@ -4,7 +4,9 @@ use {
 	std::os::fd::AsFd as _,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
-	tangram_http::{request::Ext as _, response::Ext as _, response::builder::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 	tokio_util::io::ReaderStream,
 };
 
@@ -103,10 +105,10 @@ impl Server {
 
 	pub(crate) async fn handle_read_pipe_request(
 		&self,
-		request: tangram_http::Request,
+		request: http::Request<BoxBody>,
 		context: &Context,
 		id: &str,
-	) -> tg::Result<tangram_http::Response> {
+	) -> tg::Result<http::Response<BoxBody>> {
 		// Parse the ID.
 		let id = id
 			.parse()
@@ -136,7 +138,7 @@ impl Server {
 		let stream = stream.take_until(stop);
 
 		// Create the body.
-		let body = tangram_http::body::Boxed::with_stream(stream.map(move |result| {
+		let body = BoxBody::with_stream(stream.map(move |result| {
 			let event = match result {
 				Ok(event) => match event {
 					tg::pipe::Event::Chunk(bytes) => hyper::body::Frame::data(bytes),

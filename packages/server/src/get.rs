@@ -3,7 +3,7 @@ use {
 	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream, stream::BoxStream},
 	std::path::Path,
 	tangram_client::prelude::*,
-	tangram_http::request::Ext as _,
+	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
 impl Server {
@@ -188,10 +188,10 @@ impl Server {
 
 	pub(crate) async fn handle_get_request(
 		&self,
-		request: tangram_http::Request,
+		request: http::Request<BoxBody>,
 		context: &Context,
 		path: &[&str],
-	) -> tg::Result<tangram_http::Response> {
+	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
@@ -231,10 +231,7 @@ impl Server {
 					Ok(event) => event.try_into(),
 					Err(error) => error.try_into(),
 				});
-				(
-					Some(content_type),
-					tangram_http::body::Boxed::with_sse_stream(stream),
-				)
+				(Some(content_type), BoxBody::with_sse_stream(stream))
 			},
 
 			Some((type_, subtype)) => {

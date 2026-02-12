@@ -7,7 +7,9 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_futures::{future::Ext as _, stream::TryExt as _, task::Stop},
-	tangram_http::{request::Ext as _, response::Ext as _, response::builder::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 };
 
 impl Server {
@@ -187,10 +189,10 @@ impl Server {
 
 	pub(crate) async fn handle_post_process_wait_request(
 		&self,
-		request: tangram_http::Request,
+		request: http::Request<BoxBody>,
 		context: &Context,
 		id: &str,
-	) -> tg::Result<tangram_http::Response> {
+	) -> tg::Result<http::Response<BoxBody>> {
 		// Parse the ID.
 		let id = id
 			.parse::<tg::process::Id>()
@@ -246,10 +248,7 @@ impl Server {
 					Ok(event) => event.try_into(),
 					Err(error) => error.try_into(),
 				});
-				(
-					Some(content_type),
-					tangram_http::body::Boxed::with_sse_stream(stream),
-				)
+				(Some(content_type), BoxBody::with_sse_stream(stream))
 			},
 
 			Some((type_, subtype)) => {

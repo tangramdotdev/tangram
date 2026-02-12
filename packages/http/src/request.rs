@@ -9,8 +9,6 @@ use {
 
 pub mod builder;
 
-pub type Request = http::Request<body::Boxed>;
-
 pub trait Ext {
 	fn query_params<T>(&self) -> Option<Result<T, Error>>
 	where
