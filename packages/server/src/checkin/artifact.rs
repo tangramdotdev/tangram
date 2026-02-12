@@ -313,6 +313,10 @@ impl Server {
 			index_object_args,
 			touched_at,
 		)?;
+		graph.graphs.insert(
+			id.unwrap_graph_ref().clone(),
+			data.try_unwrap_graph().unwrap(),
+		);
 
 		// Set edges and ids for all original nodes in the graph.
 		let graph_id = tg::graph::Id::try_from(id).unwrap();
@@ -753,13 +757,15 @@ impl Server {
 					let root_index = graph.paths.get(root).unwrap();
 					let root_node = graph.nodes.get(root_index).unwrap();
 					let id = root_node.id.as_ref().unwrap().clone();
-					let path = node
+					let Ok(path) = node
 						.path
 						.as_ref()
 						.unwrap()
 						.strip_prefix(root)
-						.unwrap()
-						.to_owned();
+						.map(Path::to_owned)
+					else {
+						continue;
+					};
 					let path = if path == Path::new("") {
 						None
 					} else {

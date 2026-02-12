@@ -11,6 +11,7 @@ use {
 #[derive(Clone, Debug, Default)]
 pub struct Graph {
 	pub artifacts: im::HashMap<tg::artifact::Id, usize, tg::id::BuildHasher>,
+	pub graphs: im::HashMap<tg::graph::Id, tg::graph::Data>,
 	pub ids: im::HashMap<tg::object::Id, SmallVec<[usize; 1]>, tg::id::BuildHasher>,
 	pub next: usize,
 	pub nodes: im::OrdMap<usize, Box<Node>>,

@@ -1,12 +1,18 @@
 use {
-	crate::{Server, checkin::Graph, temp::Temp},
+	crate::{
+		Server,
+		checkin::{Graph, IndexCacheEntryArgs, graph::Variant},
+		temp::Temp,
+	},
 	futures::stream::{self, StreamExt as _, TryStreamExt as _},
 	std::{
+		collections::BTreeSet,
 		os::unix::fs::PermissionsExt as _,
 		path::{Path, PathBuf},
 	},
 	tangram_client::prelude::*,
-	tangram_util::iter::Ext as _,
+	tangram_index::Index,
+	tangram_util::{iter::Ext as _, path},
 };
 
 impl Server {
@@ -17,9 +23,14 @@ impl Server {
 		graph: &Graph,
 		next: usize,
 		root: &Path,
+		index_cache_entry_args: &IndexCacheEntryArgs,
 		progress: &crate::progress::Handle<super::TaskOutput>,
 	) -> tg::Result<()> {
 		if arg.options.destructive {
+			progress.spinner("checking", "checking");
+			self.checkin_ensure_dependencies_are_cached(graph, root, index_cache_entry_args)
+				.await?;
+			progress.finish("checking");
 			progress.spinner("copying", "copying");
 			self.checkin_cache_destructive(graph, root).await?;
 			progress.finish("copying");
@@ -185,5 +196,210 @@ impl Server {
 		}
 
 		Ok(())
+	}
+
+	async fn checkin_ensure_dependencies_are_cached(
+		&self,
+		graph: &Graph,
+		path: &Path,
+		index_cache_entry_args: &IndexCacheEntryArgs,
+	) -> tg::Result<()> {
+		let root = graph
+			.paths
+			.get(path)
+			.copied()
+			.ok_or_else(|| tg::error!("expected a node"))?;
+		let will_cache = index_cache_entry_args
+			.iter()
+			.map(|arg| arg.id.clone())
+			.collect::<BTreeSet<_>>();
+		let mut visited = BTreeSet::new();
+		let mut stack = vec![root];
+		let root_is_dir = graph
+			.nodes
+			.get(&root)
+			.is_some_and(|node| node.variant.is_directory());
+
+		let mut artifacts = Vec::new();
+		while let Some(index) = stack.pop() {
+			if !visited.insert(index) {
+				continue;
+			}
+
+			let Some(node) = graph.nodes.get(&index) else {
+				continue;
+			};
+
+			// Make sure we're not missing local path dependencies.
+			if let Some(node_path) = &node.path
+				&& index != root
+			{
+				if !root_is_dir {
+					return Err(tg::error!(
+						"cannot destructively checkin files or symlinks with path dependencies"
+					));
+				}
+				if path::diff(path, node_path).is_ok_and(|path| path.starts_with("..")) {
+					return Err(tg::error!(
+						"cannot destructively check in an artifact with external path dependencies"
+					));
+				}
+			}
+
+			match &node.variant {
+				Variant::Directory(directory) => {
+					for edge in directory.entries.values() {
+						match edge {
+							tg::graph::data::Edge::Object(id) => {
+								if let Some(index) = graph.artifacts.get(id) {
+									if !will_cache.contains(id) {
+										return Err(tg::error!("missing cache dependency"));
+									}
+									stack.push(*index);
+								}
+								artifacts.push(id.clone());
+							},
+							tg::graph::data::Edge::Pointer(pointer) => {
+								if let Some(id) = &pointer.graph {
+									let artifact = tg::Artifact::with_pointer(tg::graph::Pointer {
+										graph: Some(tg::Graph::with_id(id.clone())),
+										index: pointer.index,
+										kind: pointer.kind,
+									})
+									.id();
+									if will_cache.contains(&artifact) {
+										continue;
+									}
+									let data = graph.graphs.get(id);
+									let ids = self.graph_ids(id, data).await.map_err(|source| {
+										tg::error!(!source, "failed to get the graph ids")
+									})?;
+									artifacts.extend(ids);
+								} else {
+									stack.push(pointer.index);
+								}
+							},
+						}
+					}
+				},
+				Variant::File(file) => {
+					for dependency in file.dependencies.values().flatten() {
+						if let Some(edge) = &dependency.item {
+							match edge {
+								tg::graph::data::Edge::Object(id) => {
+									let Ok(id) = tg::artifact::Id::try_from(id.clone()) else {
+										continue;
+									};
+									if let Some(index) = graph.artifacts.get(&id) {
+										if !will_cache.contains(&id) {
+											return Err(tg::error!("missing cache dependency"));
+										}
+										stack.push(*index);
+									}
+									artifacts.push(id.clone());
+								},
+								tg::graph::data::Edge::Pointer(pointer) => {
+									if let Some(id) = &pointer.graph {
+										let artifact =
+											tg::Artifact::with_pointer(tg::graph::Pointer {
+												graph: Some(tg::Graph::with_id(id.clone())),
+												index: pointer.index,
+												kind: pointer.kind,
+											})
+											.id();
+										if will_cache.contains(&artifact) {
+											continue;
+										}
+										let data = graph.graphs.get(id);
+										let ids =
+											self.graph_ids(id, data).await.map_err(|source| {
+												tg::error!(!source, "failed to get the graph ids")
+											})?;
+										artifacts.extend(ids);
+									} else {
+										stack.push(pointer.index);
+									}
+								},
+							}
+						}
+					}
+				},
+				Variant::Symlink(symlink) => {
+					if let Some(edge) = &symlink.artifact {
+						match edge {
+							tg::graph::data::Edge::Object(id) => {
+								if let Some(index) = graph.artifacts.get(id) {
+									if !will_cache.contains(id) {
+										return Err(tg::error!("missing cache dependency"));
+									}
+									stack.push(*index);
+								}
+								artifacts.push(id.clone());
+							},
+							tg::graph::data::Edge::Pointer(pointer) => {
+								if let Some(id) = &pointer.graph {
+									let artifact = tg::Artifact::with_pointer(tg::graph::Pointer {
+										graph: Some(tg::Graph::with_id(id.clone())),
+										index: pointer.index,
+										kind: pointer.kind,
+									})
+									.id();
+									if will_cache.contains(&artifact) {
+										continue;
+									}
+									let data = graph.graphs.get(id);
+									let ids = self.graph_ids(id, data).await.map_err(|source| {
+										tg::error!(!source, "failed to get the graph ids")
+									})?;
+									artifacts.extend(ids);
+								} else {
+									stack.push(pointer.index);
+								}
+							},
+						}
+					}
+				},
+			}
+		}
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let all_cached = self
+			.index
+			.touch_cache_entries(&artifacts, touched_at)
+			.await
+			.map_err(|source| {
+				tg::error!(!source, "failed to get the cache entries from the index")
+			})?
+			.into_iter()
+			.all(|entry| entry.is_some());
+		if !all_cached {
+			return Err(tg::error!("missing cache dependency"));
+		}
+		Ok(())
+	}
+
+	pub(crate) async fn graph_ids(
+		&self,
+		graph: &tg::graph::Id,
+		data: Option<&tg::graph::Data>,
+	) -> tg::Result<Vec<tg::artifact::Id>> {
+		let data = if let Some(data) = data {
+			data.clone()
+		} else {
+			tg::Graph::with_id(graph.clone())
+				.data(self)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the graph data"))?
+		};
+		let graph = tg::Graph::with_id(graph.clone());
+		let mut nodes = Vec::with_capacity(data.nodes.len());
+		for (index, node) in data.nodes.into_iter().enumerate() {
+			let artifact = tg::Artifact::with_pointer(tg::graph::Pointer {
+				graph: Some(graph.clone()),
+				index,
+				kind: node.kind(),
+			});
+			nodes.push(artifact.id());
+		}
+		Ok(nodes)
 	}
 }

@@ -399,7 +399,7 @@ impl Server {
 				task.await
 					.map_err(|source| tg::error!(!source, "failed to run the fixup task"))?;
 			}
-			self.checkin_cache(&arg, &graph, next, root, progress)
+			self.checkin_cache(&arg, &graph, next, root, &index_cache_entry_args, progress)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to cache"))?;
 		}
