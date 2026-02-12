@@ -58,13 +58,12 @@ export const build = async (...args: std.Args<Arg>) => {
 		});
 	}
 
-	// Set up node_modules.
+	// Merge the pre-built node_modules into the source and set NODE_PATH.
 	const nodeModulesArtifact = nodeModules(build);
-	let pre = tg`
-			cp -R ${nodeModulesArtifact}/. "$SOURCE"
-			export NODE_PATH="$SOURCE/node_modules"
-			export PATH=$PATH:$NODE_PATH/.bin
-	`;
+	const sourceWithNodeModules = tg.directory(source_, nodeModulesArtifact);
+	envs.push({
+		NODE_PATH: tg`${sourceWithNodeModules}/node_modules`,
+	});
 
 	// Configure features.
 	const features = [];
@@ -82,6 +81,7 @@ export const build = async (...args: std.Args<Arg>) => {
 	if (!useFoundationdb) {
 		features.push("lmdb");
 	}
+	let pre: tg.Template.Arg | undefined;
 	if (useFoundationdb) {
 		features.push("foundationdb");
 		const fdbArtifact = foundationdb({ build, host });
@@ -91,7 +91,6 @@ export const build = async (...args: std.Args<Arg>) => {
 		});
 		if (std.triple.os(host) === "linux") {
 			pre = tg`
-				${pre}
 				export LD_LIBRARY_PATH=$LIBRARY_PATH
 				export CPATH=$CPATH:$(gcc -print-sysroot)/include
 			`;
@@ -102,7 +101,6 @@ export const build = async (...args: std.Args<Arg>) => {
 	const env = std.env.arg(...envs, env_);
 	let output = cargo.build({
 		...(await std.triple.rotate({ build, host })),
-		buildInTree: true,
 		captureStderr,
 		disableDefaultFeatures: true,
 		env,
@@ -110,7 +108,7 @@ export const build = async (...args: std.Args<Arg>) => {
 		pre,
 		proxy,
 		sdk,
-		source: source_,
+		source: sourceWithNodeModules,
 		useCargoVendor: true,
 	});
 
