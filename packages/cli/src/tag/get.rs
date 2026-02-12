@@ -4,6 +4,10 @@ use {crate::Cli, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	/// Return only cached remote results without making network requests.
+	#[arg(long)]
+	pub cached: bool,
+
 	#[command(flatten)]
 	pub local: crate::util::args::Local,
 
@@ -15,14 +19,20 @@ pub struct Args {
 
 	#[command(flatten)]
 	pub remotes: crate::util::args::Remotes,
+
+	/// Set the cache TTL in seconds. Use 0 to bypass the cache.
+	#[arg(long)]
+	pub ttl: Option<u64>,
 }
 
 impl Cli {
 	pub async fn command_tag_get(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let arg = tg::tag::get::Arg {
+			cached: if args.cached { Some(true) } else { None },
 			local: args.local.local,
 			remotes: args.remotes.remotes,
+			ttl: args.ttl,
 		};
 		let output = handle
 			.get_tag(&args.tag, arg)

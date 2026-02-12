@@ -69,6 +69,20 @@ impl Server {
 				// This is a leaf tag, safe to delete.
 				let statement = indoc!(
 					"
+						delete from tag_children
+						where child = ?1;
+					"
+				);
+				let mut statement = cache
+					.get(transaction, statement.into())
+					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+				let params = sqlite::params![m.id.to_i64().unwrap()];
+				statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+				let statement = indoc!(
+					"
 						delete from tags
 						where id = ?1;
 					"
@@ -85,8 +99,8 @@ impl Server {
 				// This is a branch tag.
 				let statement = indoc!(
 					"
-						select count(*) from tags
-						where parent = ?1;
+						select count(*) from tag_children
+						where tag = ?1;
 					"
 				);
 				let mut statement = cache
@@ -105,6 +119,20 @@ impl Server {
 				}
 
 				// No children, safe to delete.
+				let statement = indoc!(
+					"
+						delete from tag_children
+						where child = ?1;
+					"
+				);
+				let mut statement = cache
+					.get(transaction, statement.into())
+					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+				let params = sqlite::params![m.id.to_i64().unwrap()];
+				statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
 				let statement = indoc!(
 					"
 						delete from tags

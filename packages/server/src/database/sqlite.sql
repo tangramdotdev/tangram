@@ -68,13 +68,21 @@ create table remotes (
 
 create table tags (
 	id integer primary key autoincrement,
-	parent integer not null default 0,
+	cached_at integer,
+	child_count integer,
 	component text not null,
-	item text
+	item text,
+	remote text
 );
 
-create unique index tags_parent_component_index on tags (parent, component);
-create unique index tags_parent_id_index on tags (parent, id);
+create index tags_cleanable_index on tags (cached_at)
+	where remote is not null and child_count = 0;
+
+create table tag_children (
+	tag integer not null default 0,
+	child integer not null unique,
+	primary key (tag, child)
+);
 
 create table users (
 	id text primary key,

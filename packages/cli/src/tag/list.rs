@@ -21,6 +21,10 @@ pub struct Args {
 
 	#[arg(long)]
 	pub reverse: bool,
+
+	/// Set the cache TTL in seconds. Use 0 to bypass the cache.
+	#[arg(long)]
+	pub ttl: Option<u64>,
 }
 
 impl Cli {
@@ -33,6 +37,7 @@ impl Cli {
 			recursive: args.recursive,
 			remotes: args.remotes.remotes,
 			reverse: args.reverse,
+			ttl: args.ttl,
 		};
 		let output = handle.list_tags(arg).await.map_err(
 			|source| tg::error!(!source, pattern = %args.pattern, "failed to list the tags"),

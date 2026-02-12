@@ -2,6 +2,7 @@ use {
 	crate::{Context, Database, Server},
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
+	tangram_database::prelude::*,
 	tangram_http::{Body, request::Ext as _},
 	tracing::Instrument as _,
 };
@@ -24,7 +25,7 @@ impl Server {
 		}
 
 		// Try to get the tag locally if requested.
-		if Self::local(arg.local, arg.remotes.as_ref()) {
+		if !arg.cached.unwrap_or(false) && Self::local(arg.local, arg.remotes.as_ref()) {
 			let output = self
 				.try_get_tag_local(tag)
 				.instrument(tracing::trace_span!("local"))
@@ -35,18 +36,42 @@ impl Server {
 			}
 		}
 
-		// Try to get the tag from remotes if requested.
+		// Resolve the TTL for cache lookups.
+		let ttl = arg.ttl.unwrap_or(self.config.tag.cache_ttl.as_secs());
+
+		// Get the list of remotes to check.
 		let remotes = self
 			.remotes(arg.local, arg.remotes.clone())
 			.instrument(tracing::trace_span!("get_remotes"))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
+
+		// Try to get a cached output for each remote.
+		for remote in &remotes {
+			let output = self
+				.try_get_cached_tag(tag, remote, ttl)
+				.instrument(tracing::trace_span!("cached", %remote))
+				.await
+				.map_err(|source| tg::error!(!source, %remote, "failed to get the cached tag"))?;
+			if output.is_some() {
+				return Ok(output);
+			}
+		}
+
+		// If cached-only mode, do not fetch from the remotes.
+		if arg.cached.unwrap_or(false) {
+			return Ok(None);
+		}
+
+		// Try to get the tag from the remotes.
 		let remote_outputs = remotes
 			.into_iter()
 			.map(|remote| {
 				let tag_arg = tg::tag::get::Arg {
+					cached: None,
 					local: None,
 					remotes: None,
+					ttl: None,
 				};
 				let span = tracing::trace_span!("remote", %remote);
 				async move {
@@ -68,8 +93,15 @@ impl Server {
 			.try_collect::<Vec<_>>()
 			.await?;
 
-		// Return the first remote result that was found.
+		// Return the first remote result that was found, and cache it.
 		let output = remote_outputs.into_iter().flatten().next();
+		if let Some(output) = &output
+			&& let Some(remote) = &output.remote
+		{
+			self.cache_remote_tag(remote, tag, output)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to cache the remote tag result"))?;
+		}
 		Ok(output)
 	}
 
@@ -79,6 +111,67 @@ impl Server {
 			Database::Postgres(database) => self.try_get_tag_postgres(database, tag).await,
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(database) => self.try_get_tag_sqlite(database, tag).await,
+		}
+	}
+
+	async fn try_get_cached_tag(
+		&self,
+		tag: &tg::Tag,
+		remote: &str,
+		ttl: u64,
+	) -> tg::Result<Option<tg::tag::get::Output>> {
+		match &self.database {
+			#[cfg(feature = "postgres")]
+			Database::Postgres(database) => {
+				self.try_get_cached_tag_postgres(database, tag, remote, ttl)
+					.await
+			},
+			#[cfg(feature = "sqlite")]
+			Database::Sqlite(database) => {
+				let tag = tag.clone();
+				let remote = remote.to_owned();
+				let connection = database
+					.connection()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+				connection
+					.with(move |connection, cache| {
+						Self::try_get_cached_tag_sqlite_sync(connection, cache, &tag, &remote, ttl)
+					})
+					.await
+			},
+		}
+	}
+
+	async fn cache_remote_tag(
+		&self,
+		remote: &str,
+		tag: &tg::Tag,
+		output: &tg::tag::get::Output,
+	) -> tg::Result<()> {
+		match &self.database {
+			#[cfg(feature = "postgres")]
+			Database::Postgres(database) => {
+				self.cache_remote_tag_postgres(database, remote, tag, output)
+					.await
+			},
+			#[cfg(feature = "sqlite")]
+			Database::Sqlite(database) => {
+				let tag = tag.clone();
+				let remote = remote.to_owned();
+				let output = output.clone();
+				let connection = database
+					.write_connection()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+				connection
+					.with(move |connection, cache| {
+						Self::cache_remote_tag_sqlite_sync(
+							connection, cache, &remote, &tag, &output,
+						)
+					})
+					.await
+			},
 		}
 	}
 

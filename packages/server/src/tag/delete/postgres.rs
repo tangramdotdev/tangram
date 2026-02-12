@@ -38,6 +38,18 @@ impl Server {
 				// This is a leaf tag, safe to delete.
 				let statement = indoc!(
 					"
+						delete from tag_children
+						where child = $1;
+					"
+				);
+				transaction
+					.inner()
+					.execute(statement, &[&m.id.to_i64().unwrap()])
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+				let statement = indoc!(
+					"
 						delete from tags
 						where id = $1;
 					"
@@ -52,8 +64,8 @@ impl Server {
 				// This is a branch tag.
 				let statement = indoc!(
 					"
-						select count(*) from tags
-						where parent = $1;
+						select count(*) from tag_children
+						where tag = $1;
 					"
 				);
 				let rows = transaction
@@ -74,6 +86,18 @@ impl Server {
 				}
 
 				// No children, safe to delete.
+				let statement = indoc!(
+					"
+						delete from tag_children
+						where child = $1;
+					"
+				);
+				transaction
+					.inner()
+					.execute(statement, &[&m.id.to_i64().unwrap()])
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
 				let statement = indoc!(
 					"
 						delete from tags

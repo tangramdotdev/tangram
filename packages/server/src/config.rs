@@ -66,6 +66,9 @@ pub struct Config {
 	#[serde(default)]
 	pub sync: Sync,
 
+	#[serde(default)]
+	pub tag: Tag,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub version: Option<String>,
 
@@ -468,6 +471,14 @@ pub struct SyncPutStore {
 }
 
 #[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct Tag {
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub cache_ttl: Duration,
+}
+
+#[serde_as]
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Vfs {
@@ -536,6 +547,7 @@ impl Default for Config {
 			runner: Some(Runner::default()),
 			store: Store::default(),
 			sync: Sync::default(),
+			tag: Tag::default(),
 			version: None,
 			vfs: None,
 			watch: Some(Watch::default()),
@@ -788,6 +800,14 @@ impl Default for SyncPutStore {
 			process_batch_size: 16,
 			process_batch_timeout: Duration::ZERO,
 			process_concurrency: 8,
+		}
+	}
+}
+
+impl Default for Tag {
+	fn default() -> Self {
+		Self {
+			cache_ttl: Duration::from_secs(600),
 		}
 	}
 }

@@ -36,8 +36,8 @@ impl Cli {
 		let bytes = byte_unit::Byte::from_u64(output.bytes)
 			.get_appropriate_unit(byte_unit::UnitType::Decimal);
 		let message = format!(
-			"cleaned {} processes, {} objects, {bytes:#.1}",
-			output.processes, output.objects,
+			"cleaned {} processes, {} objects, {} tags, {bytes:#.1}",
+			output.processes, output.objects, output.tags,
 		);
 		Self::print_info_message(&message);
 

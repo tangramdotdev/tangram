@@ -60,21 +60,8 @@ impl Server {
 		let mut ancestor = tg::Tag::empty();
 		for component in tag.components().take(tag.components().count() - 1) {
 			ancestor.push(component);
-			let statement = indoc!(
-				"
-					insert into tags (parent, component)
-					values (?1, ?2)
-					on conflict (parent, component) do nothing;
-				"
-			);
-			let mut statement = cache
-				.get(transaction, statement.into())
-				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
-			let params = sqlite::params![parent.to_i64().unwrap(), component.to_string()];
-			statement
-				.execute(params)
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
+			// Check if this branch already exists.
 			#[derive(db::sqlite::row::Deserialize)]
 			struct Row {
 				#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
@@ -83,9 +70,10 @@ impl Server {
 			}
 			let statement = indoc!(
 				"
-					select id, item
-					from tags
-					where parent = ?1 and component = ?2;
+					select tags.id, tags.item
+					from tag_children
+					join tags on tag_children.child = tags.id
+					where tag_children.tag = ?1 and tags.component = ?2 and tags.remote is null;
 				"
 			);
 			let mut statement = cache
@@ -95,27 +83,62 @@ impl Server {
 			let mut rows = statement
 				.query(params)
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			let row = rows
+
+			if let Some(row) = rows
 				.next()
-				.map_err(|source| tg::error!(!source, "failed to execute the query"))?
-				.ok_or_else(|| tg::error!("expected a row"))?;
-			let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
-			if row.item.is_some() {
-				return Err(tg::error!(%ancestor, "found existing tag"));
+				.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+			{
+				let row = <Row as db::sqlite::row::Deserialize>::deserialize(row)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
+				if row.item.is_some() {
+					return Err(tg::error!(%ancestor, "found existing tag"));
+				}
+				parent = row.id;
+			} else {
+				drop(rows);
+
+				// Insert the branch node.
+				let statement = indoc!(
+					"
+						insert into tags (component)
+						values (?1);
+					"
+				);
+				let mut statement = cache
+					.get(transaction, statement.into())
+					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+				let params = sqlite::params![component.to_string()];
+				statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				let new_id = transaction.last_insert_rowid();
+
+				// Insert the parent-child relationship.
+				let statement = indoc!(
+					"
+						insert into tag_children (tag, child)
+						values (?1, ?2);
+					"
+				);
+				let mut statement = cache
+					.get(transaction, statement.into())
+					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+				let params = sqlite::params![parent.to_i64().unwrap(), new_id];
+				statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+				parent = new_id.to_u64().unwrap();
 			}
-			parent = row.id;
 		}
 
 		// Ensure there is no branch for the leaf.
 		let statement = indoc!(
 			"
-				select 1
-				from tags
-				where
-					parent = ?1 and
-					component = ?2 and
-					item is null;
+				select tags.id
+				from tag_children
+				join tags on tag_children.child = tags.id
+				where tag_children.tag = ?1 and tags.component = ?2 and tags.remote is null and tags.item is null;
 			"
 		);
 		let mut statement = cache
@@ -135,12 +158,13 @@ impl Server {
 			return Err(tg::error!("found existing branch"));
 		}
 
-		// Create the leaf.
+		// Check if the leaf already exists.
 		let statement = indoc!(
 			"
-				insert into tags (parent, component, item)
-				values (?1, ?2, ?3)
-				on conflict (parent, component) do update set item = ?3;
+				select tags.id
+				from tag_children
+				join tags on tag_children.child = tags.id
+				where tag_children.tag = ?1 and tags.component = ?2 and tags.remote is null;
 			"
 		);
 		let mut statement = cache
@@ -149,11 +173,70 @@ impl Server {
 		let params = sqlite::params![
 			parent.to_i64().unwrap(),
 			tag.components().last().unwrap().to_string(),
-			arg.item.to_string(),
 		];
-		statement
-			.execute(params)
+		let mut rows = statement
+			.query(params)
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		if let Some(row) = rows
+			.next()
+			.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+		{
+			// Update the existing leaf.
+			let id: i64 = row
+				.get(0)
+				.map_err(|source| tg::error!(!source, "failed to get the id"))?;
+			drop(rows);
+			let statement = indoc!(
+				"
+					update tags set item = ?1
+					where id = ?2;
+				"
+			);
+			let mut statement = cache
+				.get(transaction, statement.into())
+				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+			let params = sqlite::params![arg.item.to_string(), id];
+			statement
+				.execute(params)
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		} else {
+			drop(rows);
+
+			// Insert the leaf node.
+			let statement = indoc!(
+				"
+					insert into tags (component, item)
+					values (?1, ?2);
+				"
+			);
+			let mut statement = cache
+				.get(transaction, statement.into())
+				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+			let params = sqlite::params![
+				tag.components().last().unwrap().to_string(),
+				arg.item.to_string(),
+			];
+			statement
+				.execute(params)
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			let new_id = transaction.last_insert_rowid();
+
+			// Insert the parent-child relationship.
+			let statement = indoc!(
+				"
+					insert into tag_children (tag, child)
+					values (?1, ?2);
+				"
+			);
+			let mut statement = cache
+				.get(transaction, statement.into())
+				.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+			let params = sqlite::params![parent.to_i64().unwrap(), new_id];
+			statement
+				.execute(params)
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		}
 
 		Ok(())
 	}
