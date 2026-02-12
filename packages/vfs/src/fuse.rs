@@ -27,7 +27,10 @@ use {
 		ops::Deref,
 		os::fd::{AsRawFd as _, OwnedFd, RawFd},
 		path::Path,
-		sync::{Arc, Mutex},
+		sync::{
+			Arc, Mutex,
+			atomic::{AtomicBool, Ordering},
+		},
 	},
 	sys::{FUSE_KERNEL_MINOR_VERSION, FUSE_KERNEL_VERSION, fuse_interrupt_in},
 	zerocopy::{FromBytes as _, IntoBytes as _},
@@ -110,6 +113,11 @@ enum SyncRequestResult {
 	Defer,
 }
 
+struct SyncBatchScratch {
+	results: Vec<Option<Result<SyncRequestResult>>>,
+	provider_contexts: Vec<(usize, ProviderBatchResponseContext)>,
+}
+
 #[derive(Clone, Copy)]
 enum ProviderBatchResponseContext {
 	GetAttr { nodeid: u64 },
@@ -122,6 +130,21 @@ enum ProviderBatchResponseContext {
 	ReadDir { request: fuse_read_in },
 	ReadDirPlus { request: fuse_read_in },
 	ReadLink,
+}
+
+impl SyncBatchScratch {
+	fn new() -> Self {
+		Self {
+			results: Vec::new(),
+			provider_contexts: Vec::new(),
+		}
+	}
+
+	fn reset(&mut self, request_count: usize) {
+		self.results.clear();
+		self.results.resize_with(request_count, || None);
+		self.provider_contexts.clear();
+	}
 }
 
 const REQUEST_BUFFER_SIZE: usize = 1024 * 1024 + 4096;
@@ -397,8 +420,18 @@ where
 			.map(|_| UringSlot::new())
 			.collect::<Vec<_>>();
 		let mut pending_async = vec![None::<(u64, sys::fuse_opcode)>; WORKER_READ_DEPTH];
+		let async_notification_pending = Arc::new(AtomicBool::new(false));
 		let mut eventfd_inflight = false;
 		let mut eventfd_buffer = [0u8; size_of::<u64>()];
+		let mut batch_requests =
+			Vec::<(usize, Request, u64, sys::fuse_opcode)>::with_capacity(WORKER_CQE_BATCH_SIZE);
+		let mut batch_results =
+			Vec::<Result<SyncRequestResult>>::with_capacity(WORKER_CQE_BATCH_SIZE);
+		let mut commits =
+			Vec::<(usize, u64, Result<Option<Response>>)>::with_capacity(WORKER_CQE_BATCH_SIZE);
+		let mut deferred =
+			Vec::<(usize, Request, u64, sys::fuse_opcode)>::with_capacity(WORKER_CQE_BATCH_SIZE);
+		let mut sync_batch_scratch = SyncBatchScratch::new();
 		let registered_buffers = [libc::iovec {
 			iov_base: eventfd_buffer.as_mut_ptr().cast(),
 			iov_len: eventfd_buffer.len(),
@@ -467,13 +500,14 @@ where
 			}
 
 			let mut saw_eventfd = false;
-			let mut batch_requests = Vec::<(usize, Request, u64, sys::fuse_opcode)>::new();
+			batch_requests.clear();
 			{
 				let mut completion = io_uring.completion();
 				for completion in completion.by_ref().take(WORKER_CQE_BATCH_SIZE) {
 					if completion.user_data() == EVENTFD_USER_DATA {
 						eventfd_inflight = false;
 						saw_eventfd = true;
+						async_notification_pending.store(false, Ordering::Release);
 						continue;
 					}
 
@@ -504,11 +538,16 @@ where
 					batch_requests.push((slot, request, unique, opcode));
 				}
 			}
-			let batch_results = self.handle_request_sync_batch(fd.as_raw_fd(), &batch_requests)?;
-			let mut commits = Vec::<(usize, u64, Result<Option<Response>>)>::new();
-			let mut deferred = Vec::<(usize, Request, u64, sys::fuse_opcode)>::new();
+			self.handle_request_sync_batch(
+				fd.as_raw_fd(),
+				&batch_requests,
+				&mut sync_batch_scratch,
+				&mut batch_results,
+			)?;
+			commits.clear();
+			deferred.clear();
 			for ((slot, request, unique, opcode), result) in
-				std::iter::zip(batch_requests, batch_results)
+				std::iter::zip(batch_requests.drain(..), batch_results.drain(..))
 			{
 				match result {
 					Ok(SyncRequestResult::Handled(response)) => {
@@ -529,7 +568,7 @@ where
 					},
 				}
 			}
-			for (slot, request, unique, opcode) in deferred {
+			for (slot, request, unique, opcode) in deferred.drain(..) {
 				if pending_async.get(slot).and_then(Option::as_ref).is_some() {
 					return Err(Error::other("slot already has a pending async request"));
 				}
@@ -540,10 +579,10 @@ where
 					runtime,
 					sender.clone(),
 					eventfd.clone(),
-					worker_id,
+					async_notification_pending.clone(),
 				);
 			}
-			for (slot, unique, result) in commits {
+			for (slot, unique, result) in commits.drain(..) {
 				Self::submit_commit_and_fetch(
 					&mut io_uring,
 					fd.as_raw_fd(),
@@ -832,7 +871,7 @@ where
 		runtime: &tokio::runtime::Handle,
 		sender: crossbeam_channel::Sender<AsyncResponse>,
 		eventfd: Arc<OwnedFd>,
-		worker_id: usize,
+		async_notification_pending: Arc<AtomicBool>,
 	) {
 		let server = self.clone();
 		runtime.spawn(async move {
@@ -840,7 +879,7 @@ where
 			let unique = request.header.unique;
 			let result = server.handle_request(request).await.inspect_err(|error| {
 				if !is_expected_error(opcode, error.raw_os_error()) {
-					tracing::error!(?error, ?opcode, %worker_id, "unexpected error");
+					tracing::error!(?error, ?opcode, "unexpected error");
 				}
 			});
 			let response = AsyncResponse {
@@ -849,12 +888,12 @@ where
 				opcode,
 				result,
 			};
-			if sender.send(response).is_ok() {
-				signal_eventfd(eventfd.as_raw_fd())
-					.inspect_err(
-						|error| tracing::error!(?error, %worker_id, "failed to signal eventfd"),
-					)
-					.ok();
+			if sender.send(response).is_ok()
+				&& !async_notification_pending.swap(true, Ordering::AcqRel)
+				&& let Err(error) = signal_eventfd(eventfd.as_raw_fd())
+			{
+				async_notification_pending.store(false, Ordering::Release);
+				tracing::error!(?error, "failed to signal eventfd");
 			}
 		});
 	}
@@ -911,30 +950,29 @@ where
 		&self,
 		fd: RawFd,
 		requests: &[(usize, Request, u64, sys::fuse_opcode)],
-	) -> Result<Vec<Result<SyncRequestResult>>> {
-		let mut results = std::iter::repeat_with(|| None)
-			.take(requests.len())
-			.collect::<Vec<_>>();
+		scratch: &mut SyncBatchScratch,
+		batch_results: &mut Vec<Result<SyncRequestResult>>,
+	) -> Result<()> {
+		scratch.reset(requests.len());
 		let mut provider_requests = Vec::<ProviderRequest>::new();
-		let mut provider_contexts = Vec::<(usize, ProviderBatchResponseContext)>::new();
 
 		for (index, (_, request, _, _)) in requests.iter().enumerate() {
 			match &request.data {
 				RequestData::BatchForget(data, entries) => {
-					results[index] = Some(Ok(SyncRequestResult::Handled(
+					scratch.results[index] = Some(Ok(SyncRequestResult::Handled(
 						self.handle_batch_forget_request_sync(request.header, *data, entries),
 					)));
 				},
 				RequestData::Destroy => {
-					results[index] = Some(Ok(SyncRequestResult::Handled(None)));
+					scratch.results[index] = Some(Ok(SyncRequestResult::Handled(None)));
 				},
 				RequestData::Flush(data) => {
-					results[index] = Some(Ok(SyncRequestResult::Handled(Some(
+					scratch.results[index] = Some(Ok(SyncRequestResult::Handled(Some(
 						Self::handle_flush_request_sync(request.header, *data),
 					))));
 				},
 				RequestData::Forget(data) => {
-					results[index] = Some(Ok(SyncRequestResult::Handled(
+					scratch.results[index] = Some(Ok(SyncRequestResult::Handled(
 						self.handle_forget_request_sync(request.header, *data),
 					)));
 				},
@@ -942,7 +980,7 @@ where
 					provider_requests.push(ProviderRequest::GetAttr {
 						id: request.header.nodeid,
 					});
-					provider_contexts.push((
+					scratch.provider_contexts.push((
 						index,
 						ProviderBatchResponseContext::GetAttr {
 							nodeid: request.header.nodeid,
@@ -958,7 +996,7 @@ where
 						id: request.header.nodeid,
 						name,
 					});
-					provider_contexts.push((
+					scratch.provider_contexts.push((
 						index,
 						ProviderBatchResponseContext::GetXattr { request: *data },
 					));
@@ -967,7 +1005,7 @@ where
 					provider_requests.push(ProviderRequest::ListXattrs {
 						id: request.header.nodeid,
 					});
-					provider_contexts.push((
+					scratch.provider_contexts.push((
 						index,
 						ProviderBatchResponseContext::ListXattr { request: *data },
 					));
@@ -981,19 +1019,25 @@ where
 						id: request.header.nodeid,
 						name,
 					});
-					provider_contexts.push((index, ProviderBatchResponseContext::Lookup));
+					scratch
+						.provider_contexts
+						.push((index, ProviderBatchResponseContext::Lookup));
 				},
 				RequestData::Open(_) => {
 					provider_requests.push(ProviderRequest::Open {
 						id: request.header.nodeid,
 					});
-					provider_contexts.push((index, ProviderBatchResponseContext::Open { fd }));
+					scratch
+						.provider_contexts
+						.push((index, ProviderBatchResponseContext::Open { fd }));
 				},
 				RequestData::OpenDir(_) => {
 					provider_requests.push(ProviderRequest::OpenDir {
 						id: request.header.nodeid,
 					});
-					provider_contexts.push((index, ProviderBatchResponseContext::OpenDir));
+					scratch
+						.provider_contexts
+						.push((index, ProviderBatchResponseContext::OpenDir));
 				},
 				RequestData::Read(data) => {
 					provider_requests.push(ProviderRequest::Read {
@@ -1001,22 +1045,24 @@ where
 						position: data.offset,
 						length: data.size.to_u64().unwrap(),
 					});
-					provider_contexts.push((index, ProviderBatchResponseContext::Read));
+					scratch
+						.provider_contexts
+						.push((index, ProviderBatchResponseContext::Read));
 				},
 				RequestData::ReadDir(data) => {
 					provider_requests.push(ProviderRequest::ReadDir {
 						handle: request.header.nodeid,
 					});
-					provider_contexts.push((
+					scratch.provider_contexts.push((
 						index,
 						ProviderBatchResponseContext::ReadDir { request: *data },
 					));
 				},
 				RequestData::ReadDirPlus(data) => {
-					provider_requests.push(ProviderRequest::ReadDir {
+					provider_requests.push(ProviderRequest::ReadDirPlus {
 						handle: request.header.nodeid,
 					});
-					provider_contexts.push((
+					scratch.provider_contexts.push((
 						index,
 						ProviderBatchResponseContext::ReadDirPlus { request: *data },
 					));
@@ -1025,40 +1071,42 @@ where
 					provider_requests.push(ProviderRequest::ReadLink {
 						id: request.header.nodeid,
 					});
-					provider_contexts.push((index, ProviderBatchResponseContext::ReadLink));
+					scratch
+						.provider_contexts
+						.push((index, ProviderBatchResponseContext::ReadLink));
 				},
 				RequestData::Release(data) => {
-					results[index] = Some(Ok(SyncRequestResult::Handled(Some(
+					scratch.results[index] = Some(Ok(SyncRequestResult::Handled(Some(
 						self.handle_release_request_sync(fd, request.header, *data),
 					))));
 				},
 				RequestData::ReleaseDir(data) => {
-					results[index] = Some(Ok(SyncRequestResult::Handled(Some(
+					scratch.results[index] = Some(Ok(SyncRequestResult::Handled(Some(
 						self.handle_release_dir_request_sync(fd, request.header, *data),
 					))));
 				},
 				RequestData::Statfs => {
-					results[index] = Some(Ok(SyncRequestResult::Handled(Some(
+					scratch.results[index] = Some(Ok(SyncRequestResult::Handled(Some(
 						Self::handle_statfs_request_sync(request.header),
 					))));
 				},
 				RequestData::Statx(data) => {
-					results[index] = Some(Self::result_to_sync_result(
+					scratch.results[index] = Some(Self::result_to_sync_result(
 						self.handle_statx_request_sync(request.header, *data),
 					));
 				},
 				RequestData::Init(data) => {
-					results[index] = Some(Self::result_to_sync_result(
+					scratch.results[index] = Some(Self::result_to_sync_result(
 						Self::handle_init_request_sync(request.header, *data),
 					));
 				},
 				RequestData::Interrupt(data) => {
-					results[index] = Some(Ok(SyncRequestResult::Handled(
+					scratch.results[index] = Some(Ok(SyncRequestResult::Handled(
 						Self::handle_interrupt_request_sync(request.header, *data),
 					)));
 				},
 				RequestData::Unsupported(opcode) => {
-					results[index] = Some(Self::result_to_sync_result(
+					scratch.results[index] = Some(Self::result_to_sync_result(
 						Self::handle_unsupported_request_sync(request.header, *opcode),
 					));
 				},
@@ -1067,11 +1115,11 @@ where
 
 		if !provider_requests.is_empty() {
 			let provider_results = self.provider.handle_batch_sync(provider_requests);
-			if provider_results.len() != provider_contexts.len() {
+			if provider_results.len() != scratch.provider_contexts.len() {
 				return Err(Error::other("mismatched provider batch response length"));
 			}
 			for ((index, context), provider_result) in
-				std::iter::zip(provider_contexts, provider_results)
+				std::iter::zip(scratch.provider_contexts.drain(..), provider_results)
 			{
 				let result = match provider_result {
 					Ok(response) => self.map_provider_batch_response(context, response),
@@ -1080,14 +1128,19 @@ where
 					},
 					Err(error) => Err(error),
 				};
-				results[index] = Some(result);
+				scratch.results[index] = Some(result);
 			}
 		}
 
-		results
-			.into_iter()
-			.map(|result| result.ok_or_else(|| Error::other("missing sync batch result")))
-			.collect()
+		batch_results.clear();
+		batch_results.reserve(requests.len());
+		for result in &mut scratch.results {
+			let result = result
+				.take()
+				.ok_or_else(|| Error::other("missing sync batch result"))?;
+			batch_results.push(result);
+		}
+		Ok(())
 	}
 
 	fn map_provider_batch_response(
@@ -1207,14 +1260,14 @@ where
 				let ProviderResponse::ReadDir { entries } = response else {
 					return Err(Error::from_raw_os_error(libc::EIO));
 				};
-				let response = self.build_read_dir_response_sync(entries, request, false)?;
+				let response = self.build_read_dir_response_sync(entries, request)?;
 				Ok(SyncRequestResult::Handled(Some(response)))
 			},
 			ProviderBatchResponseContext::ReadDirPlus { request } => {
-				let ProviderResponse::ReadDir { entries } = response else {
+				let ProviderResponse::ReadDirPlus { entries } = response else {
 					return Err(Error::from_raw_os_error(libc::EIO));
 				};
-				let response = self.build_read_dir_response_sync(entries, request, true)?;
+				let response = self.build_read_dir_plus_response_sync(entries, request);
 				Ok(SyncRequestResult::Handled(Some(response)))
 			},
 			ProviderBatchResponseContext::ReadLink => {
@@ -1286,14 +1339,7 @@ where
 		&self,
 		entries: Vec<(String, u64)>,
 		request: fuse_read_in,
-		plus: bool,
 	) -> Result<Response> {
-		let struct_size = if plus {
-			std::mem::size_of::<FuseDirentPlusHeader>()
-		} else {
-			std::mem::size_of::<FuseDirentHeader>()
-		};
-
 		let entries = entries
 			.into_iter()
 			.enumerate()
@@ -1302,6 +1348,45 @@ where
 		for (offset, (name, node)) in entries {
 			let attr = self.provider.getattr_sync(node)?;
 			let name = name.into_bytes();
+			let struct_size = std::mem::size_of::<FuseDirentHeader>();
+			let padding = (8 - (struct_size + name.len()) % 8) % 8;
+			let entry_size = struct_size + name.len() + padding;
+			if response.len() + entry_size > request.size.to_usize().unwrap() {
+				break;
+			}
+
+			let type_ = match attr.typ {
+				FileType::Directory => S_IFDIR,
+				FileType::File { .. } => S_IFREG,
+				FileType::Symlink => S_IFLNK,
+			};
+
+			let dirent = FuseDirentHeader {
+				ino: node,
+				off: offset.to_u64().unwrap() + 1,
+				namelen: name.len().to_u32().unwrap(),
+				type_,
+			};
+			response.extend_from_slice(dirent.as_bytes());
+			response.extend_from_slice(&name);
+			response.extend((0..padding).map(|_| 0));
+		}
+		Ok(Response::ReadDir(response))
+	}
+
+	fn build_read_dir_plus_response_sync(
+		&self,
+		entries: Vec<(String, u64, crate::Attrs)>,
+		request: fuse_read_in,
+	) -> Response {
+		let entries = entries
+			.into_iter()
+			.enumerate()
+			.skip(request.offset.to_usize().unwrap());
+		let mut response = Vec::with_capacity(request.size.to_usize().unwrap());
+		for (offset, (name, node, attr)) in entries {
+			let name = name.into_bytes();
+			let struct_size = std::mem::size_of::<FuseDirentPlusHeader>();
 			let padding = (8 - (struct_size + name.len()) % 8) % 8;
 			let entry_size = struct_size + name.len() + padding;
 			if response.len() + entry_size > request.size.to_usize().unwrap() {
@@ -1321,24 +1406,17 @@ where
 				type_,
 			};
 
-			if plus {
-				let entry = FuseDirentPlusHeader {
-					entry_out: self.fuse_entry_out_sync(node)?,
-					dirent,
-				};
-				response.extend_from_slice(entry.as_bytes());
-			} else {
-				response.extend_from_slice(dirent.as_bytes());
-			}
+			self.provider.remember_sync(node);
+			let entry = FuseDirentPlusHeader {
+				entry_out: Self::fuse_entry_out_from_attrs(node, attr),
+				dirent,
+			};
+			response.extend_from_slice(entry.as_bytes());
 			response.extend_from_slice(&name);
 			response.extend((0..padding).map(|_| 0));
 		}
 
-		if plus {
-			Ok(Response::ReadDirPlus(response))
-		} else {
-			Ok(Response::ReadDir(response))
-		}
+		Response::ReadDirPlus(response)
 	}
 
 	fn handle_release_request_sync(
@@ -2148,24 +2226,18 @@ where
 	fn fuse_entry_out_sync(&self, node: u64) -> Result<fuse_entry_out> {
 		let attr = self.provider.getattr_sync(node)?;
 		self.provider.remember_sync(node);
-		let attr_out = Self::fuse_attr_out(node, attr);
-		let entry_out = fuse_entry_out {
-			nodeid: node,
-			generation: 0,
-			entry_valid: u64::MAX,
-			attr_valid: u64::MAX,
-			entry_valid_nsec: 0,
-			attr_valid_nsec: 0,
-			attr: attr_out.attr,
-		};
-		Ok(entry_out)
+		Ok(Self::fuse_entry_out_from_attrs(node, attr))
 	}
 
 	async fn fuse_entry_out(&self, node: u64) -> Result<fuse_entry_out> {
 		let attr = self.provider_getattr(node).await?;
 		self.provider.remember_sync(node);
+		Ok(Self::fuse_entry_out_from_attrs(node, attr))
+	}
+
+	fn fuse_entry_out_from_attrs(node: u64, attr: crate::Attrs) -> fuse_entry_out {
 		let attr_out = Self::fuse_attr_out(node, attr);
-		let entry_out = fuse_entry_out {
+		fuse_entry_out {
 			nodeid: node,
 			generation: 0,
 			entry_valid: u64::MAX,
@@ -2173,8 +2245,7 @@ where
 			entry_valid_nsec: 0,
 			attr_valid_nsec: 0,
 			attr: attr_out.attr,
-		};
-		Ok(entry_out)
+		}
 	}
 }
 
