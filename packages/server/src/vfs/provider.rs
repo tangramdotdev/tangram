@@ -11,14 +11,14 @@ use {
 		os::unix::ffi::OsStrExt as _,
 		path::{Path, PathBuf},
 		pin::pin,
-		sync::{
-			Arc,
-			atomic::{AtomicU64, Ordering},
-		},
+		sync::atomic::{AtomicU64, Ordering},
 	},
 	tangram_client::prelude::*,
-	tangram_vfs as vfs,
+	tangram_vfs::{self as vfs, Provider as _},
 };
+
+#[cfg(feature = "lmdb")]
+use {heed::RoTxn, tangram_store::lmdb::Store as LmdbStore};
 
 struct Nodes {
 	nodes: DashMap<u64, MemoryNode, fnv::FnvBuildHasher>,
@@ -26,6 +26,7 @@ struct Nodes {
 
 #[derive(Clone)]
 struct MemoryNode {
+	name: Option<String>,
 	parent: u64,
 	artifact: Option<tg::artifact::Id>,
 	depth: u64,
@@ -39,7 +40,6 @@ pub struct Provider {
 	file_handle_count: AtomicU64,
 	nodes: Nodes,
 	file_handles: DashMap<u64, FileHandle, fnv::FnvBuildHasher>,
-	pending_nodes: Arc<DashMap<u64, Node, fnv::FnvBuildHasher>>,
 	server: Server,
 }
 
@@ -56,6 +56,152 @@ struct Node {
 }
 
 impl vfs::Provider for Provider {
+	fn handle_batch(
+		&self,
+		requests: Vec<vfs::Request>,
+	) -> impl std::future::Future<Output = Vec<std::io::Result<vfs::Response>>> + Send {
+		async move {
+			let mut responses = Vec::with_capacity(requests.len());
+			for request in requests {
+				let response = match request {
+					vfs::Request::Close { handle } => {
+						self.close(handle).await;
+						Ok(vfs::Response::Unit)
+					},
+					vfs::Request::Forget { id, nlookup } => {
+						self.forget_sync(id, nlookup);
+						Ok(vfs::Response::Unit)
+					},
+					vfs::Request::GetAttr { id } => self
+						.getattr(id)
+						.await
+						.map(|attrs| vfs::Response::GetAttr { attrs }),
+					vfs::Request::GetXattr { id, name } => self
+						.getxattr(id, &name)
+						.await
+						.map(|value| vfs::Response::GetXattr { value }),
+					vfs::Request::ListXattrs { id } => self
+						.listxattrs(id)
+						.await
+						.map(|names| vfs::Response::ListXattrs { names }),
+					vfs::Request::Lookup { id, name } => self
+						.lookup(id, &name)
+						.await
+						.map(|id| vfs::Response::Lookup { id }),
+					vfs::Request::LookupParent { id } => self
+						.lookup_parent(id)
+						.await
+						.map(|id| vfs::Response::LookupParent { id }),
+					vfs::Request::Open { id } => {
+						self.open(id).await.map(|handle| vfs::Response::Open {
+							handle,
+							backing_fd: None,
+						})
+					},
+					vfs::Request::OpenDir { id } => self
+						.opendir(id)
+						.await
+						.map(|handle| vfs::Response::OpenDir { handle }),
+					vfs::Request::Read {
+						handle,
+						position,
+						length,
+					} => self
+						.read(handle, position, length)
+						.await
+						.map(|bytes| vfs::Response::Read { bytes }),
+					vfs::Request::ReadDir { handle } => self
+						.readdir(handle)
+						.await
+						.map(|entries| vfs::Response::ReadDir { entries }),
+					vfs::Request::ReadLink { id } => self
+						.readlink(id)
+						.await
+						.map(|target| vfs::Response::ReadLink { target }),
+					vfs::Request::Remember { id } => {
+						self.remember_sync(id);
+						Ok(vfs::Response::Unit)
+					},
+				};
+				responses.push(response);
+			}
+			responses
+		}
+	}
+
+	fn handle_batch_sync(
+		&self,
+		requests: Vec<vfs::Request>,
+	) -> Vec<std::io::Result<vfs::Response>> {
+		#[cfg(feature = "lmdb")]
+		if let crate::store::Store::Lmdb(store) = &self.server.store {
+			let transaction = match store.env().read_txn() {
+				Ok(transaction) => transaction,
+				Err(error) => {
+					tracing::error!(?error, "failed to begin an lmdb read transaction");
+					return (0..requests.len())
+						.map(|_| Err(std::io::Error::from_raw_os_error(libc::EIO)))
+						.collect();
+				},
+			};
+			return self.handle_batch_sync_with_lmdb_transaction(requests, store, &transaction);
+		}
+
+		let mut responses = Vec::with_capacity(requests.len());
+		for request in requests {
+			let response = match request {
+				vfs::Request::Close { handle } => {
+					self.close_sync(handle);
+					Ok(vfs::Response::Unit)
+				},
+				vfs::Request::Forget { id, nlookup } => {
+					self.forget_sync(id, nlookup);
+					Ok(vfs::Response::Unit)
+				},
+				vfs::Request::GetAttr { id } => self
+					.getattr_sync(id)
+					.map(|attrs| vfs::Response::GetAttr { attrs }),
+				vfs::Request::GetXattr { id, name } => self
+					.getxattr_sync(id, &name)
+					.map(|value| vfs::Response::GetXattr { value }),
+				vfs::Request::ListXattrs { id } => self
+					.listxattrs_sync(id)
+					.map(|names| vfs::Response::ListXattrs { names }),
+				vfs::Request::Lookup { id, name } => self
+					.lookup_sync(id, &name)
+					.map(|id| vfs::Response::Lookup { id }),
+				vfs::Request::LookupParent { id } => self
+					.lookup_parent_sync(id)
+					.map(|id| vfs::Response::LookupParent { id }),
+				vfs::Request::Open { id } => self
+					.open_sync(id)
+					.map(|(handle, backing_fd)| vfs::Response::Open { handle, backing_fd }),
+				vfs::Request::OpenDir { id } => self
+					.opendir_sync(id)
+					.map(|handle| vfs::Response::OpenDir { handle }),
+				vfs::Request::Read {
+					handle,
+					position,
+					length,
+				} => self
+					.read_sync(handle, position, length)
+					.map(|bytes| vfs::Response::Read { bytes }),
+				vfs::Request::ReadDir { handle } => self
+					.readdir_sync(handle)
+					.map(|entries| vfs::Response::ReadDir { entries }),
+				vfs::Request::ReadLink { id } => self
+					.readlink_sync(id)
+					.map(|target| vfs::Response::ReadLink { target }),
+				vfs::Request::Remember { id } => {
+					self.remember_sync(id);
+					Ok(vfs::Response::Unit)
+				},
+			};
+			responses.push(response);
+		}
+		responses
+	}
+
 	async fn lookup(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
 		// Handle "." and "..".
 		if name == "." {
@@ -135,8 +281,6 @@ impl vfs::Provider for Provider {
 	}
 
 	fn lookup_sync(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
-		self.check_sync_capability()?;
-
 		// Handle "." and "..".
 		if name == "." {
 			return Ok(Some(parent));
@@ -213,24 +357,12 @@ impl vfs::Provider for Provider {
 			return Ok(node.parent);
 		}
 
-		// Lookup the node in the pending nodes.
-		if let Some(node) = self.pending_nodes.get(&id) {
-			return Ok(node.parent);
-		}
-
 		self.nodes.lookup_parent(id).await
 	}
 
 	fn lookup_parent_sync(&self, id: u64) -> std::io::Result<u64> {
-		self.check_sync_capability()?;
-
 		// Lookup the parent in the cache.
 		if let Some(node) = self.node_cache.get(&id) {
-			return Ok(node.parent);
-		}
-
-		// Lookup the node in the pending nodes.
-		if let Some(node) = self.pending_nodes.get(&id) {
 			return Ok(node.parent);
 		}
 
@@ -245,7 +377,6 @@ impl vfs::Provider for Provider {
 		let removed = self.nodes.forget(id, nlookup);
 		for id in removed {
 			self.node_cache.invalidate(&id);
-			self.pending_nodes.remove(&id);
 		}
 	}
 
@@ -284,7 +415,6 @@ impl vfs::Provider for Provider {
 	}
 
 	fn getattr_sync(&self, id: u64) -> std::io::Result<vfs::Attrs> {
-		self.check_sync_capability()?;
 		if let Some(attrs) = self.lookup_cached_attrs(id) {
 			return Ok(attrs);
 		}
@@ -325,8 +455,6 @@ impl vfs::Provider for Provider {
 	}
 
 	fn open_sync(&self, id: u64) -> std::io::Result<(u64, Option<OwnedFd>)> {
-		self.check_sync_capability()?;
-
 		// Get the node.
 		let Node { artifact, .. } = self.get_sync(id)?;
 
@@ -392,8 +520,6 @@ impl vfs::Provider for Provider {
 	}
 
 	fn read_sync(&self, id: u64, position: u64, length: u64) -> std::io::Result<Bytes> {
-		self.check_sync_capability()?;
-
 		// Get the file handle.
 		let Some(file_handle) = self.file_handles.get(&id) else {
 			tracing::error!(%id, "tried to read from an invalid file handle");
@@ -482,8 +608,6 @@ impl vfs::Provider for Provider {
 	}
 
 	fn readlink_sync(&self, id: u64) -> std::io::Result<Bytes> {
-		self.check_sync_capability()?;
-
 		// Get the node.
 		let Node {
 			artifact, depth, ..
@@ -538,7 +662,6 @@ impl vfs::Provider for Provider {
 	}
 
 	fn listxattrs_sync(&self, id: u64) -> std::io::Result<Vec<String>> {
-		self.check_sync_capability()?;
 		let node = self.get_sync(id)?;
 		let Some(tg::Artifact::File(file)) = node.artifact else {
 			return Ok(Vec::new());
@@ -582,7 +705,6 @@ impl vfs::Provider for Provider {
 	}
 
 	fn getxattr_sync(&self, id: u64, name: &str) -> std::io::Result<Option<Bytes>> {
-		self.check_sync_capability()?;
 		let node = self.get_sync(id)?;
 		let Some(tg::Artifact::File(file)) = node.artifact else {
 			return Ok(None);
@@ -619,8 +741,6 @@ impl vfs::Provider for Provider {
 	}
 
 	fn opendir_sync(&self, id: u64) -> std::io::Result<u64> {
-		self.check_sync_capability()?;
-
 		// Get the node.
 		let Node { artifact, .. } = self.get_sync(id)?;
 		match artifact {
@@ -664,8 +784,6 @@ impl vfs::Provider for Provider {
 	}
 
 	fn readdir_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64)>> {
-		self.check_sync_capability()?;
-
 		let Node { artifact, .. } = self.get_sync(id)?;
 		let directory = match artifact {
 			Some(tg::Artifact::Directory(directory)) => Some(directory),
@@ -719,7 +837,6 @@ impl Provider {
 		let node_count = AtomicU64::new(1000);
 		let file_handle_count = AtomicU64::new(1000);
 		let file_handles = DashMap::default();
-		let pending_nodes = Arc::new(DashMap::default());
 		let server = server.clone();
 		let provider = Self {
 			node_cache: cache,
@@ -727,7 +844,6 @@ impl Provider {
 			file_handle_count,
 			nodes,
 			file_handles,
-			pending_nodes,
 			server,
 		};
 
@@ -737,11 +853,6 @@ impl Provider {
 	async fn get(&self, id: u64) -> std::io::Result<Node> {
 		// Attempt to get the node from the node cache.
 		if let Some(node) = self.node_cache.get(&id) {
-			return Ok(node.clone());
-		}
-
-		// Attempt to get the node from the pending nodes.
-		if let Some(node) = self.pending_nodes.get(&id) {
 			return Ok(node.clone());
 		}
 
@@ -764,11 +875,6 @@ impl Provider {
 	fn get_sync(&self, id: u64) -> std::io::Result<Node> {
 		// Attempt to get the node from the node cache.
 		if let Some(node) = self.node_cache.get(&id) {
-			return Ok(node.clone());
-		}
-
-		// Attempt to get the node from the pending nodes.
-		if let Some(node) = self.pending_nodes.get(&id) {
 			return Ok(node.clone());
 		}
 
@@ -809,22 +915,9 @@ impl Provider {
 		// Get a node ID.
 		let id = self.node_count.fetch_add(1, Ordering::Relaxed);
 
-		// Add the node to the cache.
+		// Add the node to the cache and nodes storage.
 		self.node_cache.insert(id, node.clone());
-
-		// Insert into the pending nodes.
-		self.pending_nodes.insert(id, node);
-
-		// Insert the node into the nodes storage.
 		self.nodes.insert(id, parent, name, artifact_id, depth);
-
-		// Remove from pending nodes after storage insertion completes.
-		let pending_nodes = self.pending_nodes.clone();
-		tokio::spawn(async move {
-			// Give storage time to persist.
-			tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-			pending_nodes.remove(&id);
-		});
 
 		Ok(id)
 	}
@@ -844,29 +937,679 @@ impl Provider {
 		// Get a node ID.
 		let id = self.node_count.fetch_add(1, Ordering::Relaxed);
 
-		// Add the node to the cache.
+		// Add the node to the cache and nodes storage.
 		self.node_cache.insert(id, node.clone());
-
-		// Insert into the pending nodes and nodes storage.
-		self.pending_nodes.insert(id, node);
 		self.nodes.insert(id, parent, name, artifact_id, depth);
-
-		// Storage insertion is synchronous for memory-backed nodes, so remove the pending node now.
-		self.pending_nodes.remove(&id);
 
 		id
 	}
 
-	fn check_sync_capability(&self) -> std::io::Result<()> {
-		#[cfg(feature = "lmdb")]
+	#[cfg(feature = "lmdb")]
+	fn handle_batch_sync_with_lmdb_transaction(
+		&self,
+		requests: Vec<vfs::Request>,
+		store: &LmdbStore,
+		transaction: &RoTxn<'_>,
+	) -> Vec<std::io::Result<vfs::Response>> {
+		let mut responses = Vec::with_capacity(requests.len());
+		for request in requests {
+			let response = match request {
+				vfs::Request::Close { handle } => {
+					self.close_sync(handle);
+					Ok(vfs::Response::Unit)
+				},
+				vfs::Request::Forget { id, nlookup } => {
+					self.forget_sync(id, nlookup);
+					Ok(vfs::Response::Unit)
+				},
+				vfs::Request::GetAttr { id } => self
+					.getattr_sync_with_lmdb_transaction(id, store, transaction)
+					.map(|attrs| vfs::Response::GetAttr { attrs }),
+				vfs::Request::GetXattr { id, name } => self
+					.getxattr_sync_with_lmdb_transaction(id, &name, store, transaction)
+					.map(|value| vfs::Response::GetXattr { value }),
+				vfs::Request::ListXattrs { id } => self
+					.listxattrs_sync_with_lmdb_transaction(id, store, transaction)
+					.map(|names| vfs::Response::ListXattrs { names }),
+				vfs::Request::Lookup { id, name } => self
+					.lookup_sync_with_lmdb_transaction(id, &name, store, transaction)
+					.map(|id| vfs::Response::Lookup { id }),
+				vfs::Request::LookupParent { id } => self
+					.lookup_parent_sync(id)
+					.map(|id| vfs::Response::LookupParent { id }),
+				vfs::Request::Open { id } => self
+					.open_sync_with_lmdb_transaction(id, store, transaction)
+					.map(|(handle, backing_fd)| vfs::Response::Open { handle, backing_fd }),
+				vfs::Request::OpenDir { id } => self
+					.opendir_sync(id)
+					.map(|handle| vfs::Response::OpenDir { handle }),
+				vfs::Request::Read {
+					handle,
+					position,
+					length,
+				} => self
+					.read_sync_with_lmdb_transaction(handle, position, length, store, transaction)
+					.map(|bytes| vfs::Response::Read { bytes }),
+				vfs::Request::ReadDir { handle } => self
+					.readdir_sync_with_lmdb_transaction(handle, store, transaction)
+					.map(|entries| vfs::Response::ReadDir { entries }),
+				vfs::Request::ReadLink { id } => self
+					.readlink_sync_with_lmdb_transaction(id, store, transaction)
+					.map(|target| vfs::Response::ReadLink { target }),
+				vfs::Request::Remember { id } => {
+					self.remember_sync(id);
+					Ok(vfs::Response::Unit)
+				},
+			};
+			responses.push(response);
+		}
+		responses
+	}
+
+	#[cfg(feature = "lmdb")]
+	fn lookup_sync_with_lmdb_transaction(
+		&self,
+		parent: u64,
+		name: &str,
+		store: &LmdbStore,
+		transaction: &RoTxn<'_>,
+	) -> std::io::Result<Option<u64>> {
+		// Handle "." and "..".
+		if name == "." {
+			return Ok(Some(parent));
+		} else if name == ".." {
+			let id = self.lookup_parent_sync(parent)?;
+			return Ok(Some(id));
+		}
+
+		// Check the cache to see if the node is there to avoid going to storage if we do not need to.
+		if let Some(Node {
+			artifact: Some(tg::Artifact::Directory(directory)),
+			..
+		}) = self.node_cache.get(&parent)
 		{
-			if matches!(&self.server.store, crate::store::Store::Lmdb(_))
-				&& matches!(&self.server.index, crate::index::Index::Lmdb(_))
-			{
-				return Ok(());
+			let entries =
+				Self::directory_entries_sync_with_lmdb_transaction(&directory, store, transaction)?;
+			if !entries.contains_key(name) {
+				return Ok(None);
 			}
 		}
-		Err(std::io::Error::from_raw_os_error(libc::ENOSYS))
+
+		// First, try to look up in the nodes storage.
+		if let Some(id) = self.nodes.lookup_sync(parent, name) {
+			return Ok(Some(id));
+		}
+
+		// If the parent is the root, then create a new node.
+		let entry = 'a: {
+			if parent != vfs::ROOT_NODE_ID {
+				break 'a None;
+			}
+			let name = None
+				.or_else(|| name.strip_suffix(".tg.ts"))
+				.or_else(|| name.strip_suffix(".tg.js"))
+				.or_else(|| {
+					std::path::Path::new(name)
+						.file_stem()
+						.and_then(|s| s.to_str())
+				})
+				.unwrap_or(name);
+			let Ok(artifact) = name.parse() else {
+				return Ok(None);
+			};
+			let artifact = tg::Artifact::with_id(artifact);
+			Some((artifact, 1))
+		};
+
+		// Otherwise, get the parent artifact and attempt to lookup.
+		let entry = 'a: {
+			if let Some(entry) = entry {
+				break 'a Some(entry);
+			}
+			let Node {
+				artifact, depth, ..
+			} = self.get_sync(parent)?;
+			let Some(tg::Artifact::Directory(parent)) = artifact else {
+				return Ok(None);
+			};
+			let entries =
+				Self::directory_entries_sync_with_lmdb_transaction(&parent, store, transaction)?;
+			let Some(artifact) = entries.get(name) else {
+				return Ok(None);
+			};
+			Some((artifact.clone(), depth + 1))
+		};
+
+		// Insert the node.
+		let (artifact, depth) = entry.unwrap();
+		let id = self.put_sync(parent, name, &artifact, depth);
+		Ok(Some(id))
+	}
+
+	#[cfg(feature = "lmdb")]
+	fn getattr_sync_with_lmdb_transaction(
+		&self,
+		id: u64,
+		store: &LmdbStore,
+		transaction: &RoTxn<'_>,
+	) -> std::io::Result<vfs::Attrs> {
+		if let Some(attrs) = self.lookup_cached_attrs(id) {
+			return Ok(attrs);
+		}
+		let node = self.get_sync(id)?;
+		let attrs = Self::getattr_from_node_sync_with_lmdb_transaction(&node, store, transaction)?;
+		self.cache_node_attrs(id, attrs);
+		Ok(attrs)
+	}
+
+	#[cfg(feature = "lmdb")]
+	fn open_sync_with_lmdb_transaction(
+		&self,
+		id: u64,
+		store: &LmdbStore,
+		transaction: &RoTxn<'_>,
+	) -> std::io::Result<(u64, Option<OwnedFd>)> {
+		// Get the node.
+		let Node { artifact, .. } = self.get_sync(id)?;
+
+		// Ensure it is a file.
+		let Some(tg::Artifact::File(file)) = artifact else {
+			tracing::error!(%id, "tried to open a non-regular file");
+			return Err(std::io::Error::other("expected a file"));
+		};
+
+		// Get the file object.
+		let file = Self::file_node_sync_with_lmdb_transaction(&file, store, transaction)?;
+		let Some(blob) = file.contents else {
+			tracing::error!(%id, "file has no contents");
+			return Err(std::io::Error::from_raw_os_error(libc::EIO));
+		};
+
+		// Attempt to open a backing file for passthrough.
+		let backing_fd =
+			self.try_open_backing_fd_sync_with_lmdb_transaction(&blob, store, transaction)?;
+
+		// Insert the file handle.
+		let id = self.file_handle_count.fetch_add(1, Ordering::Relaxed);
+		self.file_handles.insert(id, FileHandle { blob });
+
+		Ok((id, backing_fd))
+	}
+
+	#[cfg(feature = "lmdb")]
+	fn listxattrs_sync_with_lmdb_transaction(
+		&self,
+		id: u64,
+		store: &LmdbStore,
+		transaction: &RoTxn<'_>,
+	) -> std::io::Result<Vec<String>> {
+		let node = self.get_sync(id)?;
+		let Some(tg::Artifact::File(file)) = node.artifact else {
+			return Ok(Vec::new());
+		};
+		let file = Self::file_node_sync_with_lmdb_transaction(&file, store, transaction)?;
+		if file.dependencies.is_empty() {
+			return Ok(Vec::new());
+		}
+		Ok(vec![tg::file::DEPENDENCIES_XATTR_NAME.to_owned()])
+	}
+
+	#[cfg(feature = "lmdb")]
+	fn getxattr_sync_with_lmdb_transaction(
+		&self,
+		id: u64,
+		name: &str,
+		store: &LmdbStore,
+		transaction: &RoTxn<'_>,
+	) -> std::io::Result<Option<Bytes>> {
+		let node = self.get_sync(id)?;
+		let Some(tg::Artifact::File(file)) = node.artifact else {
+			return Ok(None);
+		};
+		let file = Self::file_node_sync_with_lmdb_transaction(&file, store, transaction)?;
+		if name == tg::file::DEPENDENCIES_XATTR_NAME {
+			if file.dependencies.is_empty() {
+				return Ok(None);
+			}
+			let references = file.dependencies.keys().cloned().collect::<Vec<_>>();
+			let data = serde_json::to_vec(&references).unwrap();
+			return Ok(Some(data.into()));
+		}
+		if name == tg::file::MODULE_XATTR_NAME {
+			let Some(module) = file.module else {
+				return Ok(None);
+			};
+			return Ok(Some(module.to_string().as_bytes().to_vec().into()));
+		}
+		Ok(None)
+	}
+
+	#[cfg(feature = "lmdb")]
+	fn read_sync_with_lmdb_transaction(
+		&self,
+		id: u64,
+		position: u64,
+		length: u64,
+		store: &LmdbStore,
+		transaction: &RoTxn<'_>,
+	) -> std::io::Result<Bytes> {
+		let Some(file_handle) = self.file_handles.get(&id) else {
+			tracing::error!(%id, "tried to read from an invalid file handle");
+			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
+		};
+		let mut bytes = Vec::with_capacity(length.to_usize().unwrap());
+		self.read_blob_range_sync_with_lmdb_transaction(
+			&file_handle.blob,
+			position,
+			length,
+			&mut bytes,
+			store,
+			transaction,
+		)?;
+		Ok(bytes.into())
+	}
+
+	#[cfg(feature = "lmdb")]
+	fn readdir_sync_with_lmdb_transaction(
+		&self,
+		id: u64,
+		store: &LmdbStore,
+		transaction: &RoTxn<'_>,
+	) -> std::io::Result<Vec<(String, u64)>> {
+		let Node { artifact, .. } = self.get_sync(id)?;
+		let directory = match artifact {
+			Some(tg::Artifact::Directory(directory)) => Some(directory),
+			None => None,
+			Some(_) => {
+				tracing::error!(%id, "called readdir on a file or symlink");
+				return Err(std::io::Error::other("expected a directory"));
+			},
+		};
+		let Some(directory) = directory.as_ref() else {
+			return Ok(Vec::new());
+		};
+		let entries =
+			Self::directory_entries_sync_with_lmdb_transaction(directory, store, transaction)?;
+		let mut result = Vec::with_capacity(entries.len() + 2);
+		result.push((".".to_owned(), id));
+		result.push(("..".to_owned(), self.lookup_parent_sync(id)?));
+		for name in entries.keys() {
+			let entry = self
+				.lookup_sync_with_lmdb_transaction(id, name, store, transaction)?
+				.ok_or_else(|| {
+					tracing::error!(parent = id, %name, "failed to lookup directory entry");
+					std::io::Error::from_raw_os_error(libc::EIO)
+				})?;
+			result.push((name.clone(), entry));
+		}
+		Ok(result)
+	}
+
+	#[cfg(feature = "lmdb")]
+	fn readlink_sync_with_lmdb_transaction(
+		&self,
+		id: u64,
+		store: &LmdbStore,
+		transaction: &RoTxn<'_>,
+	) -> std::io::Result<Bytes> {
+		// Get the node.
+		let Node {
+			artifact, depth, ..
+		} = self.get_sync(id)?;
+
+		// Ensure it is a symlink.
+		let Some(tg::Artifact::Symlink(symlink)) = artifact else {
+			tracing::error!(%id, "tried to readlink on an invalid file type");
+			return Err(std::io::Error::other("expected a symlink"));
+		};
+
+		// Render the target.
+		let symlink = Self::symlink_node_sync_with_lmdb_transaction(&symlink, store, transaction)?;
+		let mut target = PathBuf::new();
+		if let Some(artifact) = symlink.artifact {
+			let artifact = match artifact {
+				tg::graph::data::Edge::Object(artifact) => artifact,
+				tg::graph::data::Edge::Pointer(_) => {
+					return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
+				},
+			};
+			for _ in 0..depth - 1 {
+				target.push("..");
+			}
+			target.push(artifact.to_string());
+		}
+		if let Some(path) = symlink.path {
+			target.push(path);
+		}
+		if target == Path::new("") {
+			tracing::error!("invalid symlink");
+			return Err(std::io::Error::from_raw_os_error(libc::EIO));
+		}
+		let target = target.as_os_str().as_bytes().to_vec().into();
+
+		Ok(target)
+	}
+
+	#[cfg(feature = "lmdb")]
+	fn read_blob_range_sync_with_lmdb_transaction(
+		&self,
+		id: &tg::blob::Id,
+		position: u64,
+		length: u64,
+		output: &mut Vec<u8>,
+		store: &LmdbStore,
+		transaction: &RoTxn<'_>,
+	) -> std::io::Result<()> {
+		if length == 0 {
+			return Ok(());
+		}
+		let object_id: tg::object::Id = id.clone().into();
+		let object = store
+			.try_get_object_with_transaction(transaction, &object_id)
+			.map_err(|error| Self::map_store_sync_error(&error))?;
+		let Some(object) = object else {
+			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
+		};
+		if let Some(bytes) = object.bytes {
+			let data =
+				tg::object::Data::deserialize(object_id.kind(), &*bytes).map_err(|error| {
+					tracing::error!(
+						error = %error.trace(),
+						id = %object_id,
+						"failed to deserialize the object data"
+					);
+					std::io::Error::from_raw_os_error(libc::EIO)
+				})?;
+			let tg::object::Data::Blob(blob) = data else {
+				tracing::error!(id = %object_id, "expected blob data");
+				return Err(std::io::Error::from_raw_os_error(libc::EIO));
+			};
+			match blob {
+				tg::blob::Data::Leaf(leaf) => {
+					let Some(start) = position.to_usize() else {
+						return Ok(());
+					};
+					if start >= leaf.bytes.len() {
+						return Ok(());
+					}
+					let available_length = (leaf.bytes.len() - start).to_u64().unwrap();
+					let copy_length = std::cmp::min(length, available_length).to_usize().unwrap();
+					output.extend_from_slice(&leaf.bytes[start..start + copy_length]);
+				},
+				tg::blob::Data::Branch(branch) => {
+					let mut remaining = length;
+					let mut child_position = position;
+					for child in branch.children {
+						if remaining == 0 {
+							break;
+						}
+						if child_position >= child.length {
+							child_position -= child.length;
+							continue;
+						}
+						let child_length = std::cmp::min(remaining, child.length - child_position);
+						self.read_blob_range_sync_with_lmdb_transaction(
+							&child.blob,
+							child_position,
+							child_length,
+							output,
+							store,
+							transaction,
+						)?;
+						remaining -= child_length;
+						child_position = 0;
+					}
+				},
+			}
+			return Ok(());
+		}
+		let Some(cache_pointer) = object.cache_pointer else {
+			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
+		};
+		if position >= cache_pointer.length {
+			return Ok(());
+		}
+		let read_length = std::cmp::min(length, cache_pointer.length - position);
+		let mut path = self
+			.server
+			.cache_path()
+			.join(cache_pointer.artifact.to_string());
+		if let Some(path_) = cache_pointer.path {
+			path.push(path_);
+		}
+		let mut file = match std::fs::File::open(&path) {
+			Ok(file) => file,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+				return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
+			},
+			Err(error) => {
+				tracing::error!(%error, path = %path.display(), "failed to open cache file");
+				return Err(std::io::Error::from_raw_os_error(libc::EIO));
+			},
+		};
+		file.seek(std::io::SeekFrom::Start(cache_pointer.position + position))
+			.map_err(|error| {
+				tracing::error!(%error, path = %path.display(), "failed to seek while reading");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
+		let mut bytes = vec![0; read_length.to_usize().unwrap()];
+		let mut n = 0;
+		while n < bytes.len() {
+			let n_ = file.read(&mut bytes[n..]).map_err(|error| {
+				tracing::error!(%error, path = %path.display(), "failed to read");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
+			if n_ == 0 {
+				break;
+			}
+			n += n_;
+		}
+		bytes.truncate(n);
+		output.extend_from_slice(&bytes);
+		Ok(())
+	}
+
+	#[cfg(feature = "lmdb")]
+	fn artifact_data_sync_with_lmdb_transaction(
+		artifact: &tg::Artifact,
+		store: &LmdbStore,
+		transaction: &RoTxn<'_>,
+	) -> std::io::Result<tg::object::Data> {
+		let id: tg::object::Id = artifact.id().into();
+		let output = store
+			.try_get_object_data_with_transaction(transaction, &id)
+			.map_err(|error| Self::map_store_sync_error(&error))?;
+		let Some((_, data)) = output else {
+			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
+		};
+		Ok(data)
+	}
+
+	#[cfg(feature = "lmdb")]
+	fn blob_length_sync_with_lmdb_transaction(
+		id: &tg::blob::Id,
+		store: &LmdbStore,
+		transaction: &RoTxn<'_>,
+	) -> std::io::Result<u64> {
+		let id: tg::object::Id = id.clone().into();
+		let output = store
+			.try_get_object_data_with_transaction(transaction, &id)
+			.map_err(|error| Self::map_store_sync_error(&error))?;
+		let Some((_, data)) = output else {
+			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
+		};
+		let tg::object::Data::Blob(blob) = data else {
+			tracing::error!(%id, "expected blob data");
+			return Err(std::io::Error::from_raw_os_error(libc::EIO));
+		};
+		let length = match blob {
+			tg::blob::Data::Leaf(leaf) => leaf.bytes.len().to_u64().unwrap(),
+			tg::blob::Data::Branch(branch) => {
+				branch.children.iter().map(|child| child.length).sum()
+			},
+		};
+		Ok(length)
+	}
+
+	#[cfg(feature = "lmdb")]
+	fn file_node_sync_with_lmdb_transaction(
+		file: &tg::File,
+		store: &LmdbStore,
+		transaction: &RoTxn<'_>,
+	) -> std::io::Result<tg::graph::data::File> {
+		let artifact = tg::Artifact::File(file.clone());
+		let data = Self::artifact_data_sync_with_lmdb_transaction(&artifact, store, transaction)?;
+		let tg::object::Data::File(file) = data else {
+			tracing::error!("expected file data");
+			return Err(std::io::Error::from_raw_os_error(libc::EIO));
+		};
+		match file {
+			tg::file::Data::Node(node) => Ok(node),
+			tg::file::Data::Pointer(_) => Err(std::io::Error::from_raw_os_error(libc::ENOSYS)),
+		}
+	}
+
+	#[cfg(feature = "lmdb")]
+	fn directory_node_sync_with_lmdb_transaction(
+		directory: &tg::Directory,
+		store: &LmdbStore,
+		transaction: &RoTxn<'_>,
+	) -> std::io::Result<tg::graph::data::Directory> {
+		let artifact = tg::Artifact::Directory(directory.clone());
+		let data = Self::artifact_data_sync_with_lmdb_transaction(&artifact, store, transaction)?;
+		let tg::object::Data::Directory(directory) = data else {
+			tracing::error!("expected directory data");
+			return Err(std::io::Error::from_raw_os_error(libc::EIO));
+		};
+		match directory {
+			tg::directory::Data::Node(node) => Ok(node),
+			tg::directory::Data::Pointer(_) => Err(std::io::Error::from_raw_os_error(libc::ENOSYS)),
+		}
+	}
+
+	#[cfg(feature = "lmdb")]
+	fn symlink_node_sync_with_lmdb_transaction(
+		symlink: &tg::Symlink,
+		store: &LmdbStore,
+		transaction: &RoTxn<'_>,
+	) -> std::io::Result<tg::graph::data::Symlink> {
+		let artifact = tg::Artifact::Symlink(symlink.clone());
+		let data = Self::artifact_data_sync_with_lmdb_transaction(&artifact, store, transaction)?;
+		let tg::object::Data::Symlink(symlink) = data else {
+			tracing::error!("expected symlink data");
+			return Err(std::io::Error::from_raw_os_error(libc::EIO));
+		};
+		match symlink {
+			tg::symlink::Data::Node(node) => Ok(node),
+			tg::symlink::Data::Pointer(_) => Err(std::io::Error::from_raw_os_error(libc::ENOSYS)),
+		}
+	}
+
+	#[cfg(feature = "lmdb")]
+	fn directory_entries_sync_with_lmdb_transaction(
+		directory: &tg::Directory,
+		store: &LmdbStore,
+		transaction: &RoTxn<'_>,
+	) -> std::io::Result<BTreeMap<String, tg::Artifact>> {
+		let directory =
+			Self::directory_node_sync_with_lmdb_transaction(directory, store, transaction)?;
+		match directory {
+			tg::graph::data::Directory::Leaf(leaf) => leaf
+				.entries
+				.into_iter()
+				.map(|(name, edge)| {
+					let artifact = match edge {
+						tg::graph::data::Edge::Object(artifact) => tg::Artifact::with_id(artifact),
+						tg::graph::data::Edge::Pointer(_) => {
+							return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
+						},
+					};
+					Ok((name, artifact))
+				})
+				.collect(),
+			tg::graph::data::Directory::Branch(branch) => {
+				let mut entries = BTreeMap::new();
+				for child in branch.children {
+					let directory = match child.directory {
+						tg::graph::data::Edge::Object(directory) => directory,
+						tg::graph::data::Edge::Pointer(_) => {
+							return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
+						},
+					};
+					let child = tg::Directory::with_id(directory);
+					entries.extend(Self::directory_entries_sync_with_lmdb_transaction(
+						&child,
+						store,
+						transaction,
+					)?);
+				}
+				Ok(entries)
+			},
+		}
+	}
+
+	#[cfg(feature = "lmdb")]
+	fn getattr_from_node_sync_with_lmdb_transaction(
+		node: &Node,
+		store: &LmdbStore,
+		transaction: &RoTxn<'_>,
+	) -> std::io::Result<vfs::Attrs> {
+		if let Some(attrs) = node.attrs {
+			return Ok(attrs);
+		}
+		match &node.artifact {
+			Some(tg::Artifact::File(file)) => {
+				let file = Self::file_node_sync_with_lmdb_transaction(file, store, transaction)?;
+				let size = file.contents.as_ref().map_or(Ok(0), |contents| {
+					Self::blob_length_sync_with_lmdb_transaction(contents, store, transaction)
+				})?;
+				Ok(vfs::Attrs::new(vfs::FileType::File {
+					executable: file.executable,
+					size,
+				}))
+			},
+			Some(tg::Artifact::Directory(_)) | None => {
+				Ok(vfs::Attrs::new(vfs::FileType::Directory))
+			},
+			Some(tg::Artifact::Symlink(_)) => Ok(vfs::Attrs::new(vfs::FileType::Symlink)),
+		}
+	}
+
+	#[cfg(feature = "lmdb")]
+	fn try_open_backing_fd_sync_with_lmdb_transaction(
+		&self,
+		id: &tg::blob::Id,
+		store: &LmdbStore,
+		transaction: &RoTxn<'_>,
+	) -> std::io::Result<Option<OwnedFd>> {
+		let id: tg::object::Id = id.clone().into();
+		let Some(object) = store
+			.try_get_object_with_transaction(transaction, &id)
+			.map_err(|error| Self::map_store_sync_error(&error))?
+		else {
+			return Ok(None);
+		};
+		let Some(cache_pointer) = object.cache_pointer else {
+			return Ok(None);
+		};
+		if cache_pointer.position != 0 {
+			return Ok(None);
+		}
+		let mut path = self
+			.server
+			.cache_path()
+			.join(cache_pointer.artifact.to_string());
+		if let Some(path_) = cache_pointer.path {
+			path.push(path_);
+		}
+		match std::fs::File::open(&path) {
+			Ok(file) => Ok(Some(file.into())),
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+			Err(error) => {
+				tracing::error!(%error, path = %path.display(), "failed to open cache file");
+				Err(std::io::Error::from_raw_os_error(libc::EIO))
+			},
+		}
 	}
 
 	fn map_store_sync_error(error: &tg::Error) -> std::io::Error {
@@ -1025,19 +1768,13 @@ impl Provider {
 	}
 
 	fn lookup_cached_attrs(&self, id: u64) -> Option<vfs::Attrs> {
-		self.node_cache
-			.get(&id)
-			.and_then(|node| node.attrs)
-			.or_else(|| self.pending_nodes.get(&id).and_then(|node| node.attrs))
+		self.node_cache.get(&id).and_then(|node| node.attrs)
 	}
 
 	fn cache_node_attrs(&self, id: u64, attrs: vfs::Attrs) {
 		if let Some(mut node) = self.node_cache.get(&id) {
 			node.attrs = Some(attrs);
 			self.node_cache.insert(id, node);
-		}
-		if let Some(mut node) = self.pending_nodes.get_mut(&id) {
-			node.attrs = Some(attrs);
 		}
 	}
 
@@ -1081,6 +1818,7 @@ impl Nodes {
 		nodes.insert(
 			vfs::ROOT_NODE_ID,
 			MemoryNode {
+				name: None,
 				parent: vfs::ROOT_NODE_ID,
 				artifact: None,
 				depth: 0,
@@ -1166,6 +1904,7 @@ impl Nodes {
 				return;
 			}
 			let parent = node.parent;
+			let name = node.name.clone();
 			drop(node);
 
 			self.nodes.remove(&id);
@@ -1174,7 +1913,9 @@ impl Nodes {
 			let Some(mut parent_node) = self.nodes.get_mut(&parent) else {
 				return;
 			};
-			parent_node.children.retain(|_, child_id| *child_id != id);
+			if let Some(name) = name {
+				parent_node.children.remove(&name);
+			}
 			let prune_parent = parent != vfs::ROOT_NODE_ID
 				&& parent_node.lookup_count == 0
 				&& parent_node.children.is_empty();
@@ -1191,6 +1932,7 @@ impl Nodes {
 		self.nodes.insert(
 			id,
 			MemoryNode {
+				name: Some(name.to_owned()),
 				parent,
 				artifact: Some(artifact),
 				depth,

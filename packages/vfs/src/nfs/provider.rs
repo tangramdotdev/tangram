@@ -46,7 +46,7 @@ struct AttrFileHandle {
 
 impl<P> Provider<P>
 where
-	P: crate::Provider,
+	P: crate::Provider + Sync,
 {
 	pub(super) fn new(provider: P) -> Self {
 		Self {
@@ -117,6 +117,104 @@ impl<P> crate::Provider for Provider<P>
 where
 	P: crate::Provider + Send + Sync,
 {
+	fn handle_batch(
+		&self,
+		requests: Vec<crate::Request>,
+	) -> impl std::future::Future<Output = Vec<Result<crate::Response>>> + Send {
+		async move {
+			let mut responses = Vec::with_capacity(requests.len());
+			for request in requests {
+				let response = match request {
+					crate::Request::Close { handle } => {
+						self.close(handle).await;
+						Ok(crate::Response::Unit)
+					},
+					crate::Request::Forget { id, nlookup } => {
+						self.inner.forget_sync(id, nlookup);
+						Ok(crate::Response::Unit)
+					},
+					crate::Request::GetAttr { id } => self
+						.getattr(id)
+						.await
+						.map(|attrs| crate::Response::GetAttr { attrs }),
+					crate::Request::GetXattr { id, name } => self
+						.getxattr(id, &name)
+						.await
+						.map(|value| crate::Response::GetXattr { value }),
+					crate::Request::ListXattrs { id } => self
+						.listxattrs(id)
+						.await
+						.map(|names| crate::Response::ListXattrs { names }),
+					crate::Request::Lookup { id, name } => self
+						.lookup(id, &name)
+						.await
+						.map(|id| crate::Response::Lookup { id }),
+					crate::Request::LookupParent { id } => self
+						.lookup_parent(id)
+						.await
+						.map(|id| crate::Response::LookupParent { id }),
+					crate::Request::Open { id } => {
+						self.open(id).await.map(|handle| crate::Response::Open {
+							handle,
+							backing_fd: None,
+						})
+					},
+					crate::Request::OpenDir { id } => self
+						.opendir(id)
+						.await
+						.map(|handle| crate::Response::OpenDir { handle }),
+					crate::Request::Read {
+						handle,
+						position,
+						length,
+					} => self
+						.read(handle, position, length)
+						.await
+						.map(|bytes| crate::Response::Read { bytes }),
+					crate::Request::ReadDir { handle } => self
+						.readdir(handle)
+						.await
+						.map(|entries| crate::Response::ReadDir { entries }),
+					crate::Request::ReadLink { id } => self
+						.readlink(id)
+						.await
+						.map(|target| crate::Response::ReadLink { target }),
+					crate::Request::Remember { id } => {
+						self.inner.remember_sync(id);
+						Ok(crate::Response::Unit)
+					},
+				};
+				responses.push(response);
+			}
+			responses
+		}
+	}
+
+	fn handle_batch_sync(&self, requests: Vec<crate::Request>) -> Vec<Result<crate::Response>> {
+		requests
+			.into_iter()
+			.map(|request| match request {
+				crate::Request::Close { handle } => {
+					if self.handles.contains_key(&handle) {
+						self.handles.remove(&handle);
+					} else {
+						self.inner.close_sync(handle);
+					}
+					Ok(crate::Response::Unit)
+				},
+				crate::Request::Forget { id, nlookup } => {
+					self.inner.forget_sync(id, nlookup);
+					Ok(crate::Response::Unit)
+				},
+				crate::Request::Remember { id } => {
+					self.inner.remember_sync(id);
+					Ok(crate::Response::Unit)
+				},
+				_ => Err(Error::from_raw_os_error(libc::ENOSYS)),
+			})
+			.collect()
+	}
+
 	async fn lookup(&self, handle: u64, name: &str) -> Result<Option<u64>> {
 		let attr = self.files.get(&handle);
 		if let Some(attr) = attr.as_ref() {

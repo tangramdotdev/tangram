@@ -6692,6 +6692,7 @@ dependencies = [
  "filetime",
  "fnv",
  "futures",
+ "heed",
  "http",
  "hyper",
  "hyper-util",

@@ -5,7 +5,7 @@ use {
 		fuse_init_in, fuse_init_out, fuse_open_in, fuse_open_out, fuse_out_header, fuse_read_in,
 		fuse_release_in,
 	},
-	crate::{FileType, Provider, Result},
+	crate::{FileType, Provider, Request as ProviderRequest, Response as ProviderResponse, Result},
 	bytes::Bytes,
 	io_uring::{IoUring, opcode, types},
 	num::ToPrimitive as _,
@@ -108,6 +108,20 @@ struct AsyncResponse {
 enum SyncRequestResult {
 	Handled(Option<Response>),
 	Defer,
+}
+
+#[derive(Clone, Copy)]
+enum ProviderBatchResponseContext {
+	GetAttr { nodeid: u64 },
+	GetXattr { request: fuse_getxattr_in },
+	ListXattr { request: fuse_getxattr_in },
+	Lookup,
+	Open { fd: RawFd },
+	OpenDir,
+	Read,
+	ReadDir { request: fuse_read_in },
+	ReadDirPlus { request: fuse_read_in },
+	ReadLink,
 }
 
 const REQUEST_BUFFER_SIZE: usize = 1024 * 1024 + 4096;
@@ -453,8 +467,7 @@ where
 			}
 
 			let mut saw_eventfd = false;
-			let mut commits = Vec::<(usize, u64, Result<Option<Response>>)>::new();
-			let mut deferred = Vec::<(usize, Request, u64, sys::fuse_opcode)>::new();
+			let mut batch_requests = Vec::<(usize, Request, u64, sys::fuse_opcode)>::new();
 			{
 				let mut completion = io_uring.completion();
 				for completion in completion.by_ref().take(WORKER_CQE_BATCH_SIZE) {
@@ -488,24 +501,32 @@ where
 						Self::deserialize_uring_request(slots.get(slot).unwrap(), payload)?;
 					let unique = request.header.unique;
 					let opcode = request.header.opcode;
-					match self.handle_request_sync(fd.as_raw_fd(), request.clone()) {
-						Ok(SyncRequestResult::Handled(response)) => {
-							commits.push((slot, unique, Ok(response)));
-						},
-						Ok(SyncRequestResult::Defer) => {
-							deferred.push((slot, request, unique, opcode));
-						},
-						Err(error) if error.raw_os_error() == Some(libc::ENOSYS) => {
-							deferred.push((slot, request, unique, opcode));
-						},
-						Err(error) => {
-							let error_code = error.raw_os_error().unwrap_or(libc::ENOSYS);
-							if !is_expected_error(opcode, Some(error_code)) {
-								tracing::error!(?error, ?opcode, %worker_id, "unexpected error");
-							}
-							commits.push((slot, unique, Err(error)));
-						},
-					}
+					batch_requests.push((slot, request, unique, opcode));
+				}
+			}
+			let batch_results = self.handle_request_sync_batch(fd.as_raw_fd(), &batch_requests)?;
+			let mut commits = Vec::<(usize, u64, Result<Option<Response>>)>::new();
+			let mut deferred = Vec::<(usize, Request, u64, sys::fuse_opcode)>::new();
+			for ((slot, request, unique, opcode), result) in
+				std::iter::zip(batch_requests, batch_results)
+			{
+				match result {
+					Ok(SyncRequestResult::Handled(response)) => {
+						commits.push((slot, unique, Ok(response)));
+					},
+					Ok(SyncRequestResult::Defer) => {
+						deferred.push((slot, request, unique, opcode));
+					},
+					Err(error) if error.raw_os_error() == Some(libc::ENOSYS) => {
+						deferred.push((slot, request, unique, opcode));
+					},
+					Err(error) => {
+						let error_code = error.raw_os_error().unwrap_or(libc::ENOSYS);
+						if !is_expected_error(opcode, Some(error_code)) {
+							tracing::error!(?error, ?opcode, %worker_id, "unexpected error");
+						}
+						commits.push((slot, unique, Err(error)));
+					},
 				}
 			}
 			for (slot, request, unique, opcode) in deferred {
@@ -886,55 +907,328 @@ where
 		Ok(())
 	}
 
-	fn handle_request_sync(&self, fd: RawFd, request: Request) -> Result<SyncRequestResult> {
-		let result = match request.data {
-			RequestData::BatchForget(data, entries) => {
-				Ok(self.handle_batch_forget_request_sync(request.header, data, &entries))
-			},
-			RequestData::Destroy => Ok(None),
-			RequestData::Flush(data) => {
-				Ok(Some(Self::handle_flush_request_sync(request.header, data)))
-			},
-			RequestData::Forget(data) => Ok(self.handle_forget_request_sync(request.header, data)),
-			RequestData::GetAttr(data) => self.handle_get_attr_request_sync(request.header, data),
-			RequestData::GetXattr(data, name) => {
-				self.handle_get_xattr_request_sync(request.header, data, &name)
-			},
-			RequestData::Init(data) => Self::handle_init_request_sync(request.header, data),
-			RequestData::ListXattr(data) => {
-				self.handle_list_xattr_request_sync(request.header, data)
-			},
-			RequestData::Lookup(data) => self.handle_lookup_request_sync(request.header, &data),
-			RequestData::Open(data) => self.handle_open_request_sync(fd, request.header, data),
-			RequestData::OpenDir(data) => self.handle_open_dir_request_sync(request.header, data),
-			RequestData::Read(data) => self.handle_read_request_sync(request.header, data),
-			RequestData::ReadDir(data) => {
-				self.handle_read_dir_request_sync(request.header, data, false)
-			},
-			RequestData::ReadDirPlus(data) => {
-				self.handle_read_dir_request_sync(request.header, data, true)
-			},
-			RequestData::ReadLink => self.handle_read_link_request_sync(request.header),
-			RequestData::Release(data) => Ok(Some(self.handle_release_request_sync(
-				fd,
-				request.header,
-				data,
-			))),
-			RequestData::ReleaseDir(data) => Ok(Some(self.handle_release_dir_request_sync(
-				fd,
-				request.header,
-				data,
-			))),
-			RequestData::Statfs => Ok(Some(Self::handle_statfs_request_sync(request.header))),
-			RequestData::Statx(data) => self.handle_statx_request_sync(request.header, data),
-			RequestData::Interrupt(data) => {
-				Ok(Self::handle_interrupt_request_sync(request.header, data))
-			},
-			RequestData::Unsupported(opcode) => {
-				Self::handle_unsupported_request_sync(request.header, opcode)
-			},
-		};
+	fn handle_request_sync_batch(
+		&self,
+		fd: RawFd,
+		requests: &[(usize, Request, u64, sys::fuse_opcode)],
+	) -> Result<Vec<Result<SyncRequestResult>>> {
+		let mut results = std::iter::repeat_with(|| None)
+			.take(requests.len())
+			.collect::<Vec<_>>();
+		let mut provider_requests = Vec::<ProviderRequest>::new();
+		let mut provider_contexts = Vec::<(usize, ProviderBatchResponseContext)>::new();
 
+		for (index, (_, request, _, _)) in requests.iter().enumerate() {
+			match &request.data {
+				RequestData::BatchForget(data, entries) => {
+					results[index] = Some(Ok(SyncRequestResult::Handled(
+						self.handle_batch_forget_request_sync(request.header, *data, entries),
+					)));
+				},
+				RequestData::Destroy => {
+					results[index] = Some(Ok(SyncRequestResult::Handled(None)));
+				},
+				RequestData::Flush(data) => {
+					results[index] = Some(Ok(SyncRequestResult::Handled(Some(
+						Self::handle_flush_request_sync(request.header, *data),
+					))));
+				},
+				RequestData::Forget(data) => {
+					results[index] = Some(Ok(SyncRequestResult::Handled(
+						self.handle_forget_request_sync(request.header, *data),
+					)));
+				},
+				RequestData::GetAttr(_) => {
+					provider_requests.push(ProviderRequest::GetAttr {
+						id: request.header.nodeid,
+					});
+					provider_contexts.push((
+						index,
+						ProviderBatchResponseContext::GetAttr {
+							nodeid: request.header.nodeid,
+						},
+					));
+				},
+				RequestData::GetXattr(data, name) => {
+					let name = name
+						.to_str()
+						.map_err(|_| Error::from_raw_os_error(libc::ENODATA))?
+						.to_owned();
+					provider_requests.push(ProviderRequest::GetXattr {
+						id: request.header.nodeid,
+						name,
+					});
+					provider_contexts.push((
+						index,
+						ProviderBatchResponseContext::GetXattr { request: *data },
+					));
+				},
+				RequestData::ListXattr(data) => {
+					provider_requests.push(ProviderRequest::ListXattrs {
+						id: request.header.nodeid,
+					});
+					provider_contexts.push((
+						index,
+						ProviderBatchResponseContext::ListXattr { request: *data },
+					));
+				},
+				RequestData::Lookup(name) => {
+					let name = name
+						.to_str()
+						.map_err(|_| Error::from_raw_os_error(libc::ENOENT))?
+						.to_owned();
+					provider_requests.push(ProviderRequest::Lookup {
+						id: request.header.nodeid,
+						name,
+					});
+					provider_contexts.push((index, ProviderBatchResponseContext::Lookup));
+				},
+				RequestData::Open(_) => {
+					provider_requests.push(ProviderRequest::Open {
+						id: request.header.nodeid,
+					});
+					provider_contexts.push((index, ProviderBatchResponseContext::Open { fd }));
+				},
+				RequestData::OpenDir(_) => {
+					provider_requests.push(ProviderRequest::OpenDir {
+						id: request.header.nodeid,
+					});
+					provider_contexts.push((index, ProviderBatchResponseContext::OpenDir));
+				},
+				RequestData::Read(data) => {
+					provider_requests.push(ProviderRequest::Read {
+						handle: data.fh,
+						position: data.offset,
+						length: data.size.to_u64().unwrap(),
+					});
+					provider_contexts.push((index, ProviderBatchResponseContext::Read));
+				},
+				RequestData::ReadDir(data) => {
+					provider_requests.push(ProviderRequest::ReadDir {
+						handle: request.header.nodeid,
+					});
+					provider_contexts.push((
+						index,
+						ProviderBatchResponseContext::ReadDir { request: *data },
+					));
+				},
+				RequestData::ReadDirPlus(data) => {
+					provider_requests.push(ProviderRequest::ReadDir {
+						handle: request.header.nodeid,
+					});
+					provider_contexts.push((
+						index,
+						ProviderBatchResponseContext::ReadDirPlus { request: *data },
+					));
+				},
+				RequestData::ReadLink => {
+					provider_requests.push(ProviderRequest::ReadLink {
+						id: request.header.nodeid,
+					});
+					provider_contexts.push((index, ProviderBatchResponseContext::ReadLink));
+				},
+				RequestData::Release(data) => {
+					results[index] = Some(Ok(SyncRequestResult::Handled(Some(
+						self.handle_release_request_sync(fd, request.header, *data),
+					))));
+				},
+				RequestData::ReleaseDir(data) => {
+					results[index] = Some(Ok(SyncRequestResult::Handled(Some(
+						self.handle_release_dir_request_sync(fd, request.header, *data),
+					))));
+				},
+				RequestData::Statfs => {
+					results[index] = Some(Ok(SyncRequestResult::Handled(Some(
+						Self::handle_statfs_request_sync(request.header),
+					))));
+				},
+				RequestData::Statx(data) => {
+					results[index] = Some(Self::result_to_sync_result(
+						self.handle_statx_request_sync(request.header, *data),
+					));
+				},
+				RequestData::Init(data) => {
+					results[index] = Some(Self::result_to_sync_result(
+						Self::handle_init_request_sync(request.header, *data),
+					));
+				},
+				RequestData::Interrupt(data) => {
+					results[index] = Some(Ok(SyncRequestResult::Handled(
+						Self::handle_interrupt_request_sync(request.header, *data),
+					)));
+				},
+				RequestData::Unsupported(opcode) => {
+					results[index] = Some(Self::result_to_sync_result(
+						Self::handle_unsupported_request_sync(request.header, *opcode),
+					));
+				},
+			}
+		}
+
+		if !provider_requests.is_empty() {
+			let provider_results = self.provider.handle_batch_sync(provider_requests);
+			if provider_results.len() != provider_contexts.len() {
+				return Err(Error::other("mismatched provider batch response length"));
+			}
+			for ((index, context), provider_result) in
+				std::iter::zip(provider_contexts, provider_results)
+			{
+				let result = match provider_result {
+					Ok(response) => self.map_provider_batch_response(context, response),
+					Err(error) if error.raw_os_error() == Some(libc::ENOSYS) => {
+						Ok(SyncRequestResult::Defer)
+					},
+					Err(error) => Err(error),
+				};
+				results[index] = Some(result);
+			}
+		}
+
+		results
+			.into_iter()
+			.map(|result| result.ok_or_else(|| Error::other("missing sync batch result")))
+			.collect()
+	}
+
+	fn map_provider_batch_response(
+		&self,
+		context: ProviderBatchResponseContext,
+		response: ProviderResponse,
+	) -> Result<SyncRequestResult> {
+		match context {
+			ProviderBatchResponseContext::GetAttr { nodeid } => {
+				let ProviderResponse::GetAttr { attrs } = response else {
+					return Err(Error::from_raw_os_error(libc::EIO));
+				};
+				let out = Self::fuse_attr_out(nodeid, attrs);
+				Ok(SyncRequestResult::Handled(Some(Response::GetAttr(out))))
+			},
+			ProviderBatchResponseContext::GetXattr { request } => {
+				let ProviderResponse::GetXattr { value } = response else {
+					return Err(Error::from_raw_os_error(libc::EIO));
+				};
+				let attr = value
+					.map(|value| value.to_vec())
+					.ok_or_else(|| Error::from_raw_os_error(libc::ENODATA))?;
+				if request.size == 0 {
+					let response = fuse_getxattr_out {
+						size: attr.len().to_u32().unwrap(),
+						padding: 0,
+					};
+					Ok(SyncRequestResult::Handled(Some(Response::GetXattr(
+						response.as_bytes().to_vec(),
+					))))
+				} else if request.size.to_usize().unwrap() < attr.len() {
+					Err(Error::from_raw_os_error(libc::ERANGE))
+				} else {
+					Ok(SyncRequestResult::Handled(Some(Response::GetXattr(attr))))
+				}
+			},
+			ProviderBatchResponseContext::ListXattr { request } => {
+				let ProviderResponse::ListXattrs { names } = response else {
+					return Err(Error::from_raw_os_error(libc::EIO));
+				};
+				let attrs = names
+					.into_iter()
+					.flat_map(|name| {
+						let mut bytes = name.into_bytes();
+						bytes.push(0);
+						bytes.into_iter()
+					})
+					.collect::<Vec<_>>();
+				if request.size == 0 {
+					let response = fuse_getxattr_out {
+						size: attrs.len().to_u32().unwrap(),
+						padding: 0,
+					};
+					Ok(SyncRequestResult::Handled(Some(Response::ListXattr(
+						response.as_bytes().to_vec(),
+					))))
+				} else if request.size.to_usize().unwrap() < attrs.len() {
+					Err(Error::from_raw_os_error(libc::ERANGE))
+				} else {
+					Ok(SyncRequestResult::Handled(Some(Response::ListXattr(attrs))))
+				}
+			},
+			ProviderBatchResponseContext::Lookup => {
+				let ProviderResponse::Lookup { id } = response else {
+					return Err(Error::from_raw_os_error(libc::EIO));
+				};
+				let node = id.ok_or_else(|| Error::from_raw_os_error(libc::ENOENT))?;
+				let out = self.fuse_entry_out_sync(node)?;
+				Ok(SyncRequestResult::Handled(Some(Response::Lookup(out))))
+			},
+			ProviderBatchResponseContext::Open { fd } => {
+				let ProviderResponse::Open { handle, backing_fd } = response else {
+					return Err(Error::from_raw_os_error(libc::EIO));
+				};
+				let mut open_flags = sys::FOPEN_NOFLUSH | sys::FOPEN_KEEP_CACHE;
+				let mut backing_id = -1;
+				if let Some(backing_fd) = backing_fd {
+					match self.register_passthrough_backing(fd, handle, &backing_fd) {
+						Ok(id) => {
+							open_flags |= sys::FOPEN_PASSTHROUGH;
+							backing_id = id;
+						},
+						Err(error) => {
+							tracing::trace!(
+								?error,
+								fh = handle,
+								"failed to register passthrough backing"
+							);
+						},
+					}
+				}
+				let out = fuse_open_out {
+					fh: handle,
+					open_flags,
+					backing_id,
+				};
+				Ok(SyncRequestResult::Handled(Some(Response::Open(out))))
+			},
+			ProviderBatchResponseContext::OpenDir => {
+				let ProviderResponse::OpenDir { handle } = response else {
+					return Err(Error::from_raw_os_error(libc::EIO));
+				};
+				let out = fuse_open_out {
+					fh: handle,
+					open_flags: sys::FOPEN_CACHE_DIR | sys::FOPEN_KEEP_CACHE,
+					backing_id: -1,
+				};
+				Ok(SyncRequestResult::Handled(Some(Response::OpenDir(out))))
+			},
+			ProviderBatchResponseContext::Read => {
+				let ProviderResponse::Read { bytes } = response else {
+					return Err(Error::from_raw_os_error(libc::EIO));
+				};
+				Ok(SyncRequestResult::Handled(Some(Response::Read(bytes))))
+			},
+			ProviderBatchResponseContext::ReadDir { request } => {
+				let ProviderResponse::ReadDir { entries } = response else {
+					return Err(Error::from_raw_os_error(libc::EIO));
+				};
+				let response = self.build_read_dir_response_sync(entries, request, false)?;
+				Ok(SyncRequestResult::Handled(Some(response)))
+			},
+			ProviderBatchResponseContext::ReadDirPlus { request } => {
+				let ProviderResponse::ReadDir { entries } = response else {
+					return Err(Error::from_raw_os_error(libc::EIO));
+				};
+				let response = self.build_read_dir_response_sync(entries, request, true)?;
+				Ok(SyncRequestResult::Handled(Some(response)))
+			},
+			ProviderBatchResponseContext::ReadLink => {
+				let ProviderResponse::ReadLink { target } = response else {
+					return Err(Error::from_raw_os_error(libc::EIO));
+				};
+				let target = CString::new(target.to_vec())
+					.map_err(|_| Error::from_raw_os_error(libc::EIO))?;
+				Ok(SyncRequestResult::Handled(Some(Response::ReadLink(target))))
+			},
+		}
+	}
+
+	fn result_to_sync_result(result: Result<Option<Response>>) -> Result<SyncRequestResult> {
 		match result {
 			Ok(response) => Ok(SyncRequestResult::Handled(response)),
 			Err(error) if error.raw_os_error() == Some(libc::ENOSYS) => {
@@ -980,35 +1274,6 @@ where
 		Ok(Some(Response::GetAttr(out)))
 	}
 
-	fn handle_get_xattr_request_sync(
-		&self,
-		header: fuse_in_header,
-		request: fuse_getxattr_in,
-		name: &CString,
-	) -> Result<Option<Response>> {
-		let name = name
-			.to_str()
-			.map_err(|_| Error::from_raw_os_error(libc::ENODATA))?;
-		let attr = self
-			.provider
-			.getxattr_sync(header.nodeid, name)?
-			.map(|value| value.to_vec())
-			.ok_or_else(|| Error::from_raw_os_error(libc::ENODATA))?;
-
-		if request.size == 0 {
-			let response = fuse_getxattr_out {
-				size: attr.len().to_u32().unwrap(),
-				padding: 0,
-			};
-			let response = response.as_bytes().to_vec();
-			Ok(Some(Response::GetXattr(response)))
-		} else if request.size.to_usize().unwrap() < attr.len() {
-			Err(Error::from_raw_os_error(libc::ERANGE))
-		} else {
-			Ok(Some(Response::GetXattr(attr)))
-		}
-	}
-
 	fn handle_init_request_sync(
 		_header: fuse_in_header,
 		request: fuse_init_in,
@@ -1017,112 +1282,12 @@ where
 		Ok(Some(Response::Init(response)))
 	}
 
-	fn handle_list_xattr_request_sync(
+	fn build_read_dir_response_sync(
 		&self,
-		header: fuse_in_header,
-		request: fuse_getxattr_in,
-	) -> Result<Option<Response>> {
-		let attrs = self
-			.provider
-			.listxattrs_sync(header.nodeid)?
-			.into_iter()
-			.flat_map(|s| {
-				let mut s = s.into_bytes();
-				s.push(0);
-				s.into_iter()
-			})
-			.collect::<Vec<_>>();
-
-		if request.size == 0 {
-			let response = fuse_getxattr_out {
-				size: attrs.len().to_u32().unwrap(),
-				padding: 0,
-			};
-			let response = response.as_bytes().to_vec();
-			Ok(Some(Response::ListXattr(response)))
-		} else if request.size.to_usize().unwrap() < attrs.len() {
-			Err(Error::from_raw_os_error(libc::ERANGE))
-		} else {
-			Ok(Some(Response::ListXattr(attrs)))
-		}
-	}
-
-	fn handle_lookup_request_sync(
-		&self,
-		header: fuse_in_header,
-		request: &CString,
-	) -> Result<Option<Response>> {
-		let name = request
-			.to_str()
-			.map_err(|_| Error::from_raw_os_error(libc::ENOENT))?;
-		let node = self
-			.provider
-			.lookup_sync(header.nodeid, name)?
-			.ok_or_else(|| Error::from_raw_os_error(libc::ENOENT))?;
-		let out = self.fuse_entry_out_sync(node)?;
-		Ok(Some(Response::Lookup(out)))
-	}
-
-	fn handle_open_request_sync(
-		&self,
-		fd: RawFd,
-		header: fuse_in_header,
-		_request: fuse_open_in,
-	) -> Result<Option<Response>> {
-		let (fh, backing_fd) = self.provider.open_sync(header.nodeid)?;
-		let mut open_flags = sys::FOPEN_NOFLUSH | sys::FOPEN_KEEP_CACHE;
-		let mut backing_id = -1;
-		if let Some(backing_fd) = backing_fd {
-			match self.register_passthrough_backing(fd, fh, &backing_fd) {
-				Ok(id) => {
-					open_flags |= sys::FOPEN_PASSTHROUGH;
-					backing_id = id;
-				},
-				Err(error) => {
-					tracing::trace!(?error, %fh, "failed to register passthrough backing");
-				},
-			}
-		}
-		let out = fuse_open_out {
-			fh,
-			open_flags,
-			backing_id,
-		};
-		Ok(Some(Response::Open(out)))
-	}
-
-	fn handle_open_dir_request_sync(
-		&self,
-		header: fuse_in_header,
-		_request: fuse_open_in,
-	) -> Result<Option<Response>> {
-		let fh = self.provider.opendir_sync(header.nodeid)?;
-		let out = fuse_open_out {
-			fh,
-			open_flags: sys::FOPEN_CACHE_DIR | sys::FOPEN_KEEP_CACHE,
-			backing_id: -1,
-		};
-		Ok(Some(Response::OpenDir(out)))
-	}
-
-	fn handle_read_request_sync(
-		&self,
-		_header: fuse_in_header,
-		request: fuse_read_in,
-	) -> Result<Option<Response>> {
-		let bytes =
-			self.provider
-				.read_sync(request.fh, request.offset, request.size.to_u64().unwrap())?;
-		Ok(Some(Response::Read(bytes)))
-	}
-
-	fn handle_read_dir_request_sync(
-		&self,
-		header: fuse_in_header,
+		entries: Vec<(String, u64)>,
 		request: fuse_read_in,
 		plus: bool,
-	) -> Result<Option<Response>> {
-		let entries = self.provider.readdir_sync(header.nodeid)?;
+	) -> Result<Response> {
 		let struct_size = if plus {
 			std::mem::size_of::<FuseDirentPlusHeader>()
 		} else {
@@ -1170,16 +1335,10 @@ where
 		}
 
 		if plus {
-			Ok(Some(Response::ReadDirPlus(response)))
+			Ok(Response::ReadDirPlus(response))
 		} else {
-			Ok(Some(Response::ReadDir(response)))
+			Ok(Response::ReadDir(response))
 		}
-	}
-
-	fn handle_read_link_request_sync(&self, header: fuse_in_header) -> Result<Option<Response>> {
-		let target = self.provider.readlink_sync(header.nodeid)?.to_vec();
-		let target = CString::new(target).unwrap();
-		Ok(Some(Response::ReadLink(target)))
 	}
 
 	fn handle_release_request_sync(

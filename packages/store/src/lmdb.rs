@@ -23,7 +23,7 @@ pub struct Store {
 	sender: RequestSender,
 }
 
-type Db = lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>;
+pub type Db = lmdb::Database<lmdb::types::Bytes, lmdb::types::Bytes>;
 
 type RequestSender = tokio::sync::mpsc::Sender<(Request, ResponseSender)>;
 type RequestReceiver = tokio::sync::mpsc::Receiver<(Request, ResponseSender)>;
@@ -122,23 +122,22 @@ impl Store {
 		Ok(Self { db, env, sender })
 	}
 
+	#[must_use]
+	pub fn db(&self) -> Db {
+		self.db
+	}
+
+	#[must_use]
+	pub fn env(&self) -> &lmdb::Env {
+		&self.env
+	}
+
 	pub fn try_get_object_sync(&self, id: &tg::object::Id) -> tg::Result<Option<Object<'static>>> {
 		let transaction = self
 			.env
 			.read_txn()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-		let key = Key::Object(id);
-		let key_bytes = key.pack_to_vec();
-		let Some(bytes) = self
-			.db
-			.get(&transaction, &key_bytes)
-			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
-		else {
-			return Ok(None);
-		};
-		let value = Object::deserialize(bytes)
-			.map_err(|source| tg::error!(!source, %id, "failed to deserialize the object"))?;
-		Ok(Some(value))
+		self.try_get_object_with_transaction(&transaction, id)
 	}
 
 	pub fn try_get_object_batch_sync(
@@ -170,11 +169,38 @@ impl Store {
 			.env
 			.read_txn()
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+		self.try_get_object_data_with_transaction(&transaction, id)
+	}
+
+	pub fn try_get_object_with_transaction(
+		&self,
+		transaction: &lmdb::RoTxn<'_>,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<Object<'static>>> {
+		let key = Key::Object(id);
+		let key_bytes = key.pack_to_vec();
+		let Some(bytes) = self
+			.db
+			.get(transaction, &key_bytes)
+			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
+		else {
+			return Ok(None);
+		};
+		let value = Object::deserialize(bytes)
+			.map_err(|source| tg::error!(!source, %id, "failed to deserialize the object"))?;
+		Ok(Some(value))
+	}
+
+	pub fn try_get_object_data_with_transaction(
+		&self,
+		transaction: &lmdb::RoTxn<'_>,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<(u64, tg::object::Data)>> {
 		let kind = id.kind();
 		let key = Key::Object(id);
 		let Some(raw_bytes) = self
 			.db
-			.get(&transaction, &key.pack_to_vec())
+			.get(transaction, &key.pack_to_vec())
 			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
 		else {
 			return Ok(None);

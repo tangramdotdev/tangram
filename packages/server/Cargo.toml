@@ -16,7 +16,7 @@ workspace = true
 [features]
 foundationdb = ["tangram_index/foundationdb"]
 js = ["dep:tangram_js"]
-lmdb = ["tangram_index/lmdb", "tangram_store/lmdb"]
+lmdb = ["dep:heed", "tangram_index/lmdb", "tangram_store/lmdb"]
 nats = ["dep:async-nats", "tangram_messenger/nats"]
 postgres = ["dep:tokio-postgres", "tangram_database/postgres"]
 quickjs = ["tangram_js/quickjs"]
@@ -43,6 +43,7 @@ futures = { workspace = true }
 http = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
+heed = { workspace = true, optional = true }
 im = { workspace = true }
 indexmap = { workspace = true }
 indoc = { workspace = true }
