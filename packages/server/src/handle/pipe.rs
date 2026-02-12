@@ -1,11 +1,11 @@
 use {
 	super::ServerWithContext,
-	crate::{Context, Owned, Server},
+	crate::{Context, Server, Shared},
 	futures::Stream,
 	tangram_client::prelude::*,
 };
 
-impl tg::handle::Pipe for Owned {
+impl tg::handle::Pipe for Shared {
 	async fn create_pipe(
 		&self,
 		arg: tg::pipe::create::Arg,

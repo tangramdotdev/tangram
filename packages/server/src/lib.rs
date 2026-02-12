@@ -1,6 +1,7 @@
 use {
 	self::{
-		context::Context, database::Database, index::Index, messenger::Messenger, store::Store,
+		context::Context, database::Database, index::Index, messenger::Messenger, pipe::Pipe,
+		pty::Pty, store::Store,
 	},
 	crate::{temp::Temp, watch::Watch},
 	dashmap::{DashMap, DashSet},
@@ -66,6 +67,8 @@ pub mod config;
 pub mod progress;
 
 #[derive(Clone)]
+pub struct Shared(Arc<Owned>);
+
 pub struct Owned(Arc<Inner>);
 
 pub struct Inner {
@@ -93,11 +96,11 @@ pub struct State {
 	lock: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	path: PathBuf,
-	pipes: DashMap<tg::pipe::Id, pipe::Pipe, tg::id::BuildHasher>,
+	pipes: DashMap<tg::pipe::Id, Pipe, tg::id::BuildHasher>,
 	process_permits: ProcessPermits,
 	process_semaphore: Arc<tokio::sync::Semaphore>,
 	process_tasks: ProcessTasks,
-	ptys: DashMap<tg::pty::Id, pty::Pty, tg::id::BuildHasher>,
+	ptys: DashMap<tg::pty::Id, Pty, tg::id::BuildHasher>,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	remote_get_object_tasks: RemoteGetObjectTasks,
 	remote_list_tags_tasks: RemoteListTagsTasks,
@@ -1195,6 +1198,20 @@ impl Server {
 		}
 		let guard = self.clean_lock.clone().read_owned().await;
 		CleanGuard(Some(guard))
+	}
+}
+
+impl From<Owned> for Shared {
+	fn from(value: Owned) -> Self {
+		Self(Arc::new(value))
+	}
+}
+
+impl Deref for Shared {
+	type Target = Owned;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
 	}
 }
 

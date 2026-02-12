@@ -1,11 +1,11 @@
 use {
 	super::ServerWithContext,
-	crate::{Context, Owned, Server},
+	crate::{Context, Server, Shared},
 	futures::Stream,
 	tangram_client::prelude::*,
 };
 
-impl tg::handle::Pty for Owned {
+impl tg::handle::Pty for Shared {
 	async fn create_pty(&self, arg: tg::pty::create::Arg) -> tg::Result<tg::pty::create::Output> {
 		self.0.create_pty(arg).await
 	}
