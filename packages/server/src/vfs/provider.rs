@@ -114,6 +114,10 @@ impl vfs::Provider for Provider {
 						.readdir(handle)
 						.await
 						.map(|entries| vfs::Response::ReadDir { entries }),
+					vfs::Request::ReadDirPlus { handle } => self
+						.readdirplus(handle)
+						.await
+						.map(|entries| vfs::Response::ReadDirPlus { entries }),
 					vfs::Request::ReadLink { id } => self
 						.readlink(id)
 						.await
@@ -189,6 +193,9 @@ impl vfs::Provider for Provider {
 				vfs::Request::ReadDir { handle } => self
 					.readdir_sync(handle)
 					.map(|entries| vfs::Response::ReadDir { entries }),
+				vfs::Request::ReadDirPlus { handle } => self
+					.readdirplus_sync(handle)
+					.map(|entries| vfs::Response::ReadDirPlus { entries }),
 				vfs::Request::ReadLink { id } => self
 					.readlink_sync(id)
 					.map(|target| vfs::Response::ReadLink { target }),
@@ -810,6 +817,26 @@ impl vfs::Provider for Provider {
 		Ok(result)
 	}
 
+	async fn readdirplus(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
+		let entries = self.readdir(id).await?;
+		let mut entries_with_attrs = Vec::with_capacity(entries.len());
+		for (name, node_id) in entries {
+			let attrs = self.getattr(node_id).await?;
+			entries_with_attrs.push((name, node_id, attrs));
+		}
+		Ok(entries_with_attrs)
+	}
+
+	fn readdirplus_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
+		let entries = self.readdir_sync(id)?;
+		let mut entries_with_attrs = Vec::with_capacity(entries.len());
+		for (name, node_id) in entries {
+			let attrs = self.getattr_sync(node_id)?;
+			entries_with_attrs.push((name, node_id, attrs));
+		}
+		Ok(entries_with_attrs)
+	}
+
 	async fn close(&self, id: u64) {
 		if self.file_handles.contains_key(&id) {
 			self.file_handles.remove(&id);
@@ -993,6 +1020,9 @@ impl Provider {
 				vfs::Request::ReadDir { handle } => self
 					.readdir_sync_with_lmdb_transaction(handle, store, transaction)
 					.map(|entries| vfs::Response::ReadDir { entries }),
+				vfs::Request::ReadDirPlus { handle } => self
+					.readdirplus_sync_with_lmdb_transaction(handle, store, transaction)
+					.map(|entries| vfs::Response::ReadDirPlus { entries }),
 				vfs::Request::ReadLink { id } => self
 					.readlink_sync_with_lmdb_transaction(id, store, transaction)
 					.map(|target| vfs::Response::ReadLink { target }),
@@ -1243,6 +1273,22 @@ impl Provider {
 			result.push((name.clone(), entry));
 		}
 		Ok(result)
+	}
+
+	#[cfg(feature = "lmdb")]
+	fn readdirplus_sync_with_lmdb_transaction(
+		&self,
+		id: u64,
+		store: &LmdbStore,
+		transaction: &RoTxn<'_>,
+	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
+		let entries = self.readdir_sync_with_lmdb_transaction(id, store, transaction)?;
+		let mut entries_with_attrs = Vec::with_capacity(entries.len());
+		for (name, node_id) in entries {
+			let attrs = self.getattr_sync_with_lmdb_transaction(node_id, store, transaction)?;
+			entries_with_attrs.push((name, node_id, attrs));
+		}
+		Ok(entries_with_attrs)
 	}
 
 	#[cfg(feature = "lmdb")]

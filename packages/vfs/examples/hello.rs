@@ -132,6 +132,9 @@ impl tangram_vfs::Provider for Provider {
 						.readdir(handle)
 						.await
 						.map(|entries| tangram_vfs::Response::ReadDir { entries }),
+					tangram_vfs::Request::ReadDirPlus { .. } => {
+						Err(Error::from_raw_os_error(libc::ENOSYS))
+					},
 					tangram_vfs::Request::ReadLink { id } => self
 						.readlink(id)
 						.await

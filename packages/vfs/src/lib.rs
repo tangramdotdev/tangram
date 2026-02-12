@@ -45,6 +45,9 @@ pub enum Request {
 	ReadDir {
 		handle: u64,
 	},
+	ReadDirPlus {
+		handle: u64,
+	},
 	ReadLink {
 		id: u64,
 	},
@@ -82,6 +85,9 @@ pub enum Response {
 	},
 	ReadDir {
 		entries: Vec<(String, u64)>,
+	},
+	ReadDirPlus {
+		entries: Vec<(String, u64, Attrs)>,
 	},
 	ReadLink {
 		target: Bytes,
@@ -363,6 +369,36 @@ pub trait Provider {
 			take_single_response(self.handle_batch_sync(vec![Request::ReadDir { handle }]))?;
 		match response {
 			Response::ReadDir { entries } => Ok(entries),
+			_ => Err(Error::other("unexpected response variant")),
+		}
+	}
+
+	/// Read from a directory with attributes.
+	fn readdirplus(
+		&self,
+		handle: u64,
+	) -> impl Future<Output = Result<Vec<(String, u64, Attrs)>>> + Send
+	where
+		Self: Sync,
+	{
+		async move {
+			let response = take_single_response(
+				self.handle_batch(vec![Request::ReadDirPlus { handle }])
+					.await,
+			)?;
+			match response {
+				Response::ReadDirPlus { entries } => Ok(entries),
+				_ => Err(Error::other("unexpected response variant")),
+			}
+		}
+	}
+
+	/// Read from a directory with attributes synchronously.
+	fn readdirplus_sync(&self, handle: u64) -> Result<Vec<(String, u64, Attrs)>> {
+		let response =
+			take_single_response(self.handle_batch_sync(vec![Request::ReadDirPlus { handle }]))?;
+		match response {
+			Response::ReadDirPlus { entries } => Ok(entries),
 			_ => Err(Error::other("unexpected response variant")),
 		}
 	}
