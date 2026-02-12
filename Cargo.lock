@@ -1368,7 +1368,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ab67060fc6b8ef687992d439ca0fa36e7ed17e9a0b16b25b601e8757df720de"
 dependencies = [
  "data-encoding",
- "syn 2.0.114",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -2763,8 +2763,7 @@ dependencies = [
 [[package]]
 name = "io-uring"
 version = "0.7.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fdd7bddefd0a8833b88a4b68f90dae22c7450d11b354198baee3874fd811b344"
+source = "git+https://github.com/tangramdotdev/io-uring.git?branch=setup-no-sqarray#1648de189c5c11edc3b9de4d3f0421ef52830c73"
 dependencies = [
  "bitflags 2.10.0",
  "cfg-if",

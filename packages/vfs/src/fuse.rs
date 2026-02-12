@@ -1431,7 +1431,8 @@ fn worker_thread_loop_uring_cmd<P>(
 	// Create the io_uring ring with Entry128 support (IORING_SETUP_SQE128). SINGLE_ISSUER tells
 	// the kernel that only one thread submits SQEs, avoiding ring locking. COOP_TASKRUN avoids
 	// interrupt-driven completion processing. DEFER_TASKRUN defers all task work to our
-	// submit_and_wait call, avoiding cross-CPU wakeups.
+	// submit_and_wait call, avoiding cross-CPU wakeups. NO_SQARRAY removes the SQ index array
+	// indirection.
 	let ring_size = (u32::try_from(total_entries).unwrap() + 16)
 		.next_power_of_two()
 		.max(64);
@@ -1439,6 +1440,7 @@ fn worker_thread_loop_uring_cmd<P>(
 		.setup_single_issuer()
 		.setup_coop_taskrun()
 		.setup_defer_taskrun()
+		.setup_no_sqarray()
 		.build(ring_size)
 		.expect("failed to create io_uring with SQE128 support");
 

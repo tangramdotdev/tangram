@@ -100,7 +100,7 @@ http = "1"
 http-body = "1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["full"] }
-io-uring = "0.7"
+io-uring = { git = "https://github.com/tangramdotdev/io-uring.git", branch = "setup-no-sqarray" }
 hyper-util = { version = "0.1", features = ["server-auto", "service", "tokio"] }
 im = "15"
 include_dir = "0.7"
