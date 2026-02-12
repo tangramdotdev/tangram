@@ -1,5 +1,6 @@
 use {
 	crate::{Server, context::Context},
+	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
@@ -100,16 +101,29 @@ impl Server {
 				let text = match item {
 					tg::module::data::Item::Edge(edge) => match edge {
 						tg::graph::data::Edge::Pointer(pointer) => {
-							format!(
-								r#"export default tg.{class}.withPointer(tg.Graph.Pointer.fromDataString("{pointer}"));"#
+							formatdoc!(
+								r#"
+									// @ts-nocheck
+									export default tg.{class}.withPointer(tg.Graph.Pointer.fromDataString("{pointer}")) as tg.{class};
+								"#
 							)
 						},
 						tg::graph::data::Edge::Object(object) => {
-							format!(r#"export default tg.{class}.withId("{object}");"#)
+							formatdoc!(
+								r#"
+									// @ts-nocheck
+									export default tg.{class}.withId("{object}") as tg.{class};
+								"#
+							)
 						},
 					},
 					tg::module::data::Item::Path(_) => {
-						r"export default undefined as unknown as tg.{class};".to_owned()
+						formatdoc!(
+							r"
+								// @ts-nocheck
+								export default undefined as tg.{class};
+							"
+						)
 					},
 				};
 				Ok(tg::module::load::Output { text })
