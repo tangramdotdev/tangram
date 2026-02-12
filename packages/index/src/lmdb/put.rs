@@ -15,7 +15,7 @@ impl Index {
 		}
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Put(arg);
-		self.sender_high
+		self.sender_medium
 			.send((request, sender))
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		receiver

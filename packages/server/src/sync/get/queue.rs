@@ -8,7 +8,10 @@ use {
 		},
 	},
 	futures::{StreamExt as _, TryStreamExt as _},
-	std::{collections::BTreeSet, sync::Arc},
+	std::{
+		collections::BTreeSet,
+		sync::Arc,
+	},
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
 };
@@ -33,7 +36,9 @@ impl Server {
 		.try_for_each_concurrent(object_concurrency, |items| {
 			let server = self.clone();
 			let state = state.clone();
-			async move { server.sync_get_queue_object_batch(&state, items).await }
+			async move {
+				server.sync_get_queue_object_batch(&state, items).await
+			}
 		});
 
 		// Create the processes future.
