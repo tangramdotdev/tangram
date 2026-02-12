@@ -11,23 +11,27 @@ import { $ } from "std" with { local: "../packages/packages/std" };
 
 import source from "." with { type: "directory" };
 
-export type Arg = {
-	build?: string;
-	captureStderr?: boolean;
+export type Arg = cargo.Arg & {
 	foundationdb?: boolean;
-	host?: string;
 	nats?: boolean;
 	postgres?: boolean;
-	proxy?: boolean;
-	sdk?: std.sdk.Arg;
 	scylla?: boolean;
-	source?: tg.Directory;
 };
 
-export const build = async (arg?: Arg) => {
+export const build = async (...args: std.Args<Arg>) => {
+	const merged = await std.args.apply<Arg, Arg>({
+		args,
+		map: async (arg) => arg,
+		reduce: {
+			env: (a, b) => std.env.arg(a, b),
+			features: "append",
+			sdk: (a, b) => std.sdk.arg(a, b),
+		},
+	});
 	const {
 		build: build_,
 		captureStderr = false,
+		env: env_,
 		foundationdb: useFoundationdb = false,
 		host: host_,
 		nats = false,
@@ -36,7 +40,7 @@ export const build = async (arg?: Arg) => {
 		sdk,
 		scylla = false,
 		source: source_ = source,
-	} = arg ?? {};
+	} = merged;
 	const host = host_ ?? std.triple.host();
 	const build = build_ ?? host;
 	const cargoLock = await source_.get("Cargo.lock").then(tg.File.expect);
@@ -95,7 +99,7 @@ export const build = async (arg?: Arg) => {
 	}
 
 	// Build tangram.
-	const env = std.env.arg(...envs);
+	const env = std.env.arg(...envs, env_);
 	let output = cargo.build({
 		...(await std.triple.rotate({ build, host })),
 		buildInTree: true,
@@ -138,30 +142,30 @@ export const build = async (arg?: Arg) => {
 
 export default build;
 
-export type CloudArg = {
-	build?: string;
-	host?: string;
-	sdk?: std.sdk.Arg;
-};
-
-export const cloud = async (arg?: CloudArg) => {
-	const host_ = arg?.host ?? std.triple.host();
-	const build_ = arg?.build ?? host_;
-	const sdk = arg?.sdk;
-	if (std.triple.os(host_) !== "linux") {
+export const cloud = async (...args: std.Args<Arg>) => {
+	const merged = await std.args.apply<Arg, Arg>({
+		args,
+		map: async (arg) => arg,
+		reduce: {
+			env: (a, b) => std.env.arg(a, b),
+			sdk: (a, b) => std.sdk.arg(a, b),
+		},
+	});
+	const host = merged.host ?? std.triple.host();
+	if (std.triple.os(host) !== "linux") {
 		throw new Error(
 			"the cloud configuration is only available for Linux hosts",
 		);
 	}
-	return await build({
-		build: build_,
-		foundationdb: true,
-		host: host_,
-		nats: true,
-		postgres: true,
-		sdk,
-		scylla: true,
-	});
+	return await build(
+		{
+			foundationdb: true,
+			nats: true,
+			postgres: true,
+			scylla: true,
+		},
+		merged,
+	);
 };
 
 export const nodeModules = async (hostArg?: string) => {
