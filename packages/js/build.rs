@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use {
+	indoc::formatdoc,
+	std::path::{Path, PathBuf},
+};
 
 fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
@@ -41,27 +44,60 @@ fn js() {
 	// Build the js.
 	println!("cargo:rerun-if-changed=../../packages/clients/js");
 	println!("cargo:rerun-if-changed=./src");
-	std::process::Command::new("bun")
-		.args(["run", "check"])
-		.status()
-		.unwrap()
-		.success()
-		.then_some(())
+	let manifest_directory_path = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+	let node_path = std::env::var("NODE_PATH").ok();
+	if let Some(node_path) = &node_path {
+		let js_path = format!("{manifest_directory_path}/../clients/js");
+		std::fs::write(
+			out_dir_path.join("tsconfig.json"),
+			formatdoc!(
+				r#"
+					{{
+						"extends": "{manifest_directory_path}/tsconfig.json",
+						"compilerOptions": {{
+							"paths": {{
+								"@tangramdotdev/client": ["{js_path}/src/index.ts"],
+								"*": ["{node_path}/*", "{node_path}/../packages/clients/js/node_modules/*"]
+							}}
+						}},
+						"include": ["{manifest_directory_path}/src/**/*", "{js_path}/src/**/*"]
+					}}
+				"#
+			),
+		)
 		.unwrap();
-	std::process::Command::new("bunx")
-		.args([
-			"esbuild",
-			"--bundle",
-			"--minify",
-			&format!("--outdir={}", out_dir_path.display()),
-			"--sourcemap=external",
-			"./src/main.ts",
-		])
-		.status()
-		.unwrap()
-		.success()
-		.then_some(())
-		.unwrap();
+		std::process::Command::new("bunx")
+			.args(["tsgo", "--project", out_dir_path.to_str().unwrap()])
+			.status()
+			.unwrap()
+			.success()
+			.then_some(())
+			.unwrap();
+	} else {
+		std::process::Command::new("bun")
+			.args(["run", "check"])
+			.status()
+			.unwrap()
+			.success()
+			.then_some(())
+			.unwrap();
+	}
+	let mut esbuild = std::process::Command::new("bunx");
+	esbuild.args([
+		"esbuild",
+		"--bundle",
+		"--minify",
+		&format!("--outdir={}", out_dir_path.display()),
+		"--sourcemap=external",
+		"./src/main.ts",
+	]);
+	if let Some(node_path) = &node_path {
+		esbuild.env(
+			"NODE_PATH",
+			format!("{node_path}:{node_path}/../packages/js/node_modules:{node_path}/../packages/clients/js/node_modules"),
+		);
+	}
+	esbuild.status().unwrap().success().then_some(()).unwrap();
 	fixup_source_map(out_dir_path.join("main.js.map"));
 }
 

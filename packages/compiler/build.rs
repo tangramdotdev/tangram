@@ -79,7 +79,10 @@ mod library {
 
 #[cfg(feature = "typescript")]
 mod typescript {
-	use std::path::{Path, PathBuf};
+	use {
+		indoc::formatdoc,
+		std::path::{Path, PathBuf},
+	};
 
 	pub fn build() {
 		// Get the out dir path.
@@ -109,13 +112,42 @@ mod typescript {
 
 		// Build typescript.
 		println!("cargo:rerun-if-changed=../../packages/typescript");
-		std::process::Command::new("bun")
-			.args(["run", "--cwd", "../../packages/typescript", "check"])
-			.status()
-			.unwrap()
-			.success()
-			.then_some(())
+		let manifest_directory_path = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+		let typescript_path = format!("{manifest_directory_path}/../../packages/typescript");
+		if let Ok(node_path) = std::env::var("NODE_PATH") {
+			std::fs::write(
+				out_dir_path.join("tsconfig.json"),
+				formatdoc!(
+					r#"
+						{{
+							"extends": "{typescript_path}/tsconfig.json",
+							"compilerOptions": {{
+								"paths": {{
+									"*": ["{node_path}/*"]
+								}}
+							}},
+							"include": ["{typescript_path}/src/**/*"]
+						}}
+					"#
+				),
+			)
 			.unwrap();
+			std::process::Command::new("bunx")
+				.args(["tsgo", "--project", out_dir_path.to_str().unwrap()])
+				.status()
+				.unwrap()
+				.success()
+				.then_some(())
+				.unwrap();
+		} else {
+			std::process::Command::new("bun")
+				.args(["run", "--cwd", "../../packages/typescript", "check"])
+				.status()
+				.unwrap()
+				.success()
+				.then_some(())
+				.unwrap();
+		}
 		std::process::Command::new("bunx")
 			.args([
 				"esbuild",

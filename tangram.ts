@@ -58,11 +58,11 @@ export const build = async (...args: std.Args<Arg>) => {
 		});
 	}
 
-	// Merge the pre-built node_modules into the source.
+	// Build node_modules and set NODE_PATH for esbuild and build scripts.
 	const nodeModulesArtifact = nodeModules(build);
-	const sourceWithNodeModules = tg.directory(source_, nodeModulesArtifact);
 	envs.push({
 		NODE_PATH: tg`${nodeModulesArtifact}/node_modules`,
+		PATH: tg.Mutation.suffix(tg`${nodeModulesArtifact}/node_modules/.bin`, ":"),
 	});
 
 	// Configure features.
@@ -108,7 +108,7 @@ export const build = async (...args: std.Args<Arg>) => {
 		pre,
 		proxy,
 		sdk,
-		source: sourceWithNodeModules,
+		source: source_,
 		useCargoVendor: true,
 	});
 
