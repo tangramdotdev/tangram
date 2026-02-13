@@ -11,14 +11,6 @@ let remote = spawn -n remote --cloud --config $config --url http://localhost:847
 
 # Spawn a remote runner.
 let runner = spawn -n runner --config {
-	client: {
-		reconnect: {
-			backoff: 0.1,
-			jitter: 0.05,
-			max_delay: 5,
-			max_retries: 32,
-		}
-	}
 	runner: {
 		remotes: ["default"]
 	}
@@ -26,24 +18,40 @@ let runner = spawn -n runner --config {
 		{
 			name: "default"
 			url: $remote.url
+			reconnect: {
+				backoff: 0.1,
+				jitter: 0.05,
+				max_delay: 5,
+				max_retries: 32,
+			}
+			retry: {
+				backoff: 0.1,
+				jitter: 0.05,
+				max_delay: 5,
+				max_retries: 32,
+			}
 		}
 	]
 }
 
 # Spawn a local server.
 let local = spawn -n local --config {
-	client: {
-		reconnect: {
-			backoff: 0.1,
-			jitter: 0.05,
-			max_delay: 5,
-			max_retries: 32,
-		}
-	}
 	remotes: [
 		{
 			name: "default",
 			url: $remote.url
+			reconnect: {
+				backoff: 0.1,
+				jitter: 0.05,
+				max_delay: 5,
+				max_retries: 32,
+			}
+			retry: {
+				backoff: 0.1,
+				jitter: 0.05,
+				max_delay: 5,
+				max_retries: 32,
+			}
 		}
 	]
 }
