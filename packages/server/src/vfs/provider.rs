@@ -681,7 +681,7 @@ impl Provider {
 		Ok(bytes.into())
 	}
 
-	pub async fn readdir(&self, id: u64) -> std::io::Result<Vec<(String, u64)>> {
+	pub async fn readdir(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::DirEntryType)>> {
 		let Node { artifact, .. } = self.get(id).await?;
 		let directory = match artifact {
 			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
@@ -697,20 +697,25 @@ impl Provider {
 			return Ok(Vec::new());
 		};
 		let entries = self.directory_entries_inner(&directory).await?;
-		let mut result = Vec::with_capacity(entries.len());
-		result.push((".".to_owned(), id));
-		result.push(("..".to_owned(), self.lookup_parent(id).await?));
-		for name in entries.keys() {
-			let entry = self.lookup(id, name).await?.ok_or_else(|| {
+		let mut result = Vec::with_capacity(entries.len() + 2);
+		result.push((".".to_owned(), id, vfs::DirEntryType::Directory));
+		result.push((
+			"..".to_owned(),
+			self.lookup_parent(id).await?,
+			vfs::DirEntryType::Directory,
+		));
+		for (name, artifact) in entries {
+			let entry = self.lookup(id, &name).await?.ok_or_else(|| {
 				tracing::error!(parent = id, %name, "failed to lookup directory entry");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
-			result.push((name.clone(), entry));
+			let typ = Self::dir_entry_type_from_artifact(&artifact);
+			result.push((name, entry, typ));
 		}
 		Ok(result)
 	}
 
-	pub fn readdir_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64)>> {
+	pub fn readdir_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::DirEntryType)>> {
 		self.readdir_sync_inner(id, None)
 	}
 
@@ -718,7 +723,7 @@ impl Provider {
 		&self,
 		id: u64,
 		transaction: Option<&Transaction<'_>>,
-	) -> std::io::Result<Vec<(String, u64)>> {
+	) -> std::io::Result<Vec<(String, u64, vfs::DirEntryType)>> {
 		let Node { artifact, .. } = self.get_sync(id)?;
 		let directory = match artifact {
 			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
@@ -735,16 +740,21 @@ impl Provider {
 		};
 		let entries = self.directory_entries_sync_inner(&directory, None, transaction)?;
 		let mut result = Vec::with_capacity(entries.len() + 2);
-		result.push((".".to_owned(), id));
-		result.push(("..".to_owned(), self.lookup_parent_sync(id)?));
-		for name in entries.keys() {
+		result.push((".".to_owned(), id, vfs::DirEntryType::Directory));
+		result.push((
+			"..".to_owned(),
+			self.lookup_parent_sync(id)?,
+			vfs::DirEntryType::Directory,
+		));
+		for (name, artifact) in entries {
 			let entry = self
-				.lookup_sync_inner(id, name, transaction)?
+				.lookup_sync_inner(id, &name, transaction)?
 				.ok_or_else(|| {
 					tracing::error!(parent = id, %name, "failed to lookup directory entry");
 					std::io::Error::from_raw_os_error(libc::EIO)
 				})?;
-			result.push((name.clone(), entry));
+			let typ = Self::dir_entry_type_from_artifact(&artifact);
+			result.push((name, entry, typ));
 		}
 		Ok(result)
 	}
@@ -752,7 +762,7 @@ impl Provider {
 	pub async fn readdirplus(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
 		let entries = self.readdir(id).await?;
 		let mut entries_with_attrs = Vec::with_capacity(entries.len());
-		for (name, node_id) in entries {
+		for (name, node_id, _) in entries {
 			let attrs = self.getattr(node_id).await?;
 			entries_with_attrs.push((name, node_id, attrs));
 		}
@@ -770,7 +780,7 @@ impl Provider {
 	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
 		let entries = self.readdir_sync_inner(id, transaction)?;
 		let mut entries_with_attrs = Vec::with_capacity(entries.len());
-		for (name, node_id) in entries {
+		for (name, node_id, _) in entries {
 			let attrs = self.getattr_sync_inner(node_id, transaction)?;
 			entries_with_attrs.push((name, node_id, attrs));
 		}
@@ -1650,6 +1660,14 @@ impl Provider {
 			_ => None,
 		}
 	}
+
+	fn dir_entry_type_from_artifact(artifact: &tg::artifact::Id) -> vfs::DirEntryType {
+		match artifact.kind() {
+			tg::artifact::Kind::Directory => vfs::DirEntryType::Directory,
+			tg::artifact::Kind::File => vfs::DirEntryType::File,
+			tg::artifact::Kind::Symlink => vfs::DirEntryType::Symlink,
+		}
+	}
 }
 
 impl Nodes {
@@ -1899,11 +1917,11 @@ impl vfs::Provider for Provider {
 		Provider::opendir_sync(self, id)
 	}
 
-	async fn readdir(&self, id: u64) -> std::io::Result<Vec<(String, u64)>> {
+	async fn readdir(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::DirEntryType)>> {
 		Provider::readdir(self, id).await
 	}
 
-	fn readdir_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64)>> {
+	fn readdir_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::DirEntryType)>> {
 		Provider::readdir_sync(self, id)
 	}
 

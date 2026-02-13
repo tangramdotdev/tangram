@@ -256,15 +256,23 @@ impl tangram_vfs::Provider for Provider {
 		Ok(id)
 	}
 
-	async fn readdir(&self, handle: u64) -> Result<Vec<(String, u64)>> {
+	async fn readdir(&self, handle: u64) -> Result<Vec<(String, u64, tangram_vfs::DirEntryType)>> {
 		tracing::debug!(?handle, "readdir");
 		let Some(handle) = self.open_dirs.get(&handle) else {
 			return Err(Error::from_raw_os_error(libc::EIO));
 		};
 		let contents = if handle.dir == ROOT_NODE_ID {
 			vec![
-				(HELLO_PATH.to_owned(), HELLO_NODE_ID),
-				(LINK_PATH.to_owned(), LINK_NODE_ID),
+				(
+					HELLO_PATH.to_owned(),
+					HELLO_NODE_ID,
+					tangram_vfs::DirEntryType::File,
+				),
+				(
+					LINK_PATH.to_owned(),
+					LINK_NODE_ID,
+					tangram_vfs::DirEntryType::Symlink,
+				),
 			]
 		} else {
 			Vec::new()

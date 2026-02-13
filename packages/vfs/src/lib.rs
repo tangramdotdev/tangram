@@ -84,7 +84,7 @@ pub enum Response {
 		bytes: Bytes,
 	},
 	ReadDir {
-		entries: Vec<(String, u64)>,
+		entries: Vec<(String, u64, DirEntryType)>,
 	},
 	ReadDirPlus {
 		entries: Vec<(String, u64, Attrs)>,
@@ -349,7 +349,10 @@ pub trait Provider {
 	}
 
 	/// Read from a directory.
-	fn readdir(&self, handle: u64) -> impl Future<Output = Result<Vec<(String, u64)>>> + Send
+	fn readdir(
+		&self,
+		handle: u64,
+	) -> impl Future<Output = Result<Vec<(String, u64, DirEntryType)>>> + Send
 	where
 		Self: Sync,
 	{
@@ -364,7 +367,7 @@ pub trait Provider {
 	}
 
 	/// Read from a directory synchronously.
-	fn readdir_sync(&self, handle: u64) -> Result<Vec<(String, u64)>> {
+	fn readdir_sync(&self, handle: u64) -> Result<Vec<(String, u64, DirEntryType)>> {
 		let response =
 			take_single_response(self.handle_batch_sync(vec![Request::ReadDir { handle }]))?;
 		match response {
@@ -432,6 +435,13 @@ pub trait Provider {
 #[derive(Clone, Copy, Debug)]
 pub enum FileType {
 	File { executable: bool, size: u64 },
+	Directory,
+	Symlink,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum DirEntryType {
+	File,
 	Directory,
 	Symlink,
 }

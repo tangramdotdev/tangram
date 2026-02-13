@@ -1346,18 +1346,17 @@ where
 		Ok(Some(Response::Init(response)))
 	}
 
-	fn build_read_dir_response_sync(entries: Vec<(String, u64)>, request: fuse_read_in) -> Response {
+	fn build_read_dir_response_sync(
+		entries: Vec<(String, u64, crate::DirEntryType)>,
+		request: fuse_read_in,
+	) -> Response {
 		let entries = entries
 			.into_iter()
 			.enumerate()
 			.skip(request.offset.to_usize().unwrap());
 		let mut response = Vec::with_capacity(request.size.to_usize().unwrap());
-		for (offset, (name, node)) in entries {
-			let type_ = if name == "." || name == ".." {
-				S_IFDIR
-			} else {
-				0
-			};
+		for (offset, (name, node, type_)) in entries {
+			let type_ = Self::fuse_dirent_type(type_);
 			let name = name.into_bytes();
 			let struct_size = std::mem::size_of::<FuseDirentHeader>();
 			let padding = (8 - (struct_size + name.len()) % 8) % 8;
@@ -1878,7 +1877,7 @@ where
 			.enumerate()
 			.skip(request.offset.to_usize().unwrap());
 		let mut response = Vec::with_capacity(request.size.to_usize().unwrap());
-		for (offset, (name, node)) in entries {
+		for (offset, (name, node, typ)) in entries {
 			let type_ = if plus {
 				let attr = self.provider_getattr(node).await?;
 				match attr.typ {
@@ -1886,10 +1885,8 @@ where
 					FileType::File { .. } => S_IFREG,
 					FileType::Symlink => S_IFLNK,
 				}
-			} else if name == "." || name == ".." {
-				S_IFDIR
 			} else {
-				0
+				Self::fuse_dirent_type(typ)
 			};
 			let name = name.into_bytes();
 			let padding = (8 - (struct_size + name.len()) % 8) % 8;
@@ -2183,7 +2180,7 @@ where
 		}
 	}
 
-	async fn provider_readdir(&self, node: u64) -> Result<Vec<(String, u64)>> {
+	async fn provider_readdir(&self, node: u64) -> Result<Vec<(String, u64, crate::DirEntryType)>> {
 		match self.provider.readdir_sync(node) {
 			Ok(value) => Ok(value),
 			Err(error) if error.raw_os_error() == Some(libc::ENOSYS) => {
@@ -2262,6 +2259,14 @@ where
 			entry_valid_nsec: 0,
 			attr_valid_nsec: 0,
 			attr: attr_out.attr,
+		}
+	}
+
+	fn fuse_dirent_type(type_: crate::DirEntryType) -> u32 {
+		match type_ {
+			crate::DirEntryType::Directory => S_IFDIR,
+			crate::DirEntryType::File => S_IFREG,
+			crate::DirEntryType::Symlink => S_IFLNK,
 		}
 	}
 }
