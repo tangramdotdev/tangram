@@ -14,7 +14,7 @@ use {
 		sync::atomic::{AtomicU64, Ordering},
 	},
 	tangram_client::prelude::*,
-	tangram_vfs::{self as vfs, Provider as _},
+	tangram_vfs as vfs,
 };
 
 #[cfg(feature = "lmdb")]
@@ -99,8 +99,8 @@ impl SyncReader<'_> {
 	}
 }
 
-impl vfs::Provider for Provider {
-	fn handle_batch(
+impl Provider {
+	pub fn handle_batch(
 		&self,
 		requests: Vec<vfs::Request>,
 	) -> impl std::future::Future<Output = Vec<std::io::Result<vfs::Response>>> + Send {
@@ -177,7 +177,7 @@ impl vfs::Provider for Provider {
 		}
 	}
 
-	fn handle_batch_sync(
+	pub fn handle_batch_sync(
 		&self,
 		requests: Vec<vfs::Request>,
 	) -> Vec<std::io::Result<vfs::Response>> {
@@ -198,7 +198,7 @@ impl vfs::Provider for Provider {
 		self.handle_batch_sync_inner(requests, None)
 	}
 
-	async fn lookup(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
+	pub async fn lookup(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
 		// Handle "." and "..".
 		if name == "." {
 			return Ok(Some(parent));
@@ -263,28 +263,28 @@ impl vfs::Provider for Provider {
 		Ok(Some(id))
 	}
 
-	fn lookup_sync(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
+	pub fn lookup_sync(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
 		let reader = self.sync_reader(None);
 		self.lookup_sync_inner(parent, name, &reader)
 	}
 
-	async fn lookup_parent(&self, id: u64) -> std::io::Result<u64> {
+	pub async fn lookup_parent(&self, id: u64) -> std::io::Result<u64> {
 		self.nodes.lookup_parent(id).await
 	}
 
-	fn lookup_parent_sync(&self, id: u64) -> std::io::Result<u64> {
+	pub fn lookup_parent_sync(&self, id: u64) -> std::io::Result<u64> {
 		self.nodes.lookup_parent_sync(id)
 	}
 
-	fn remember_sync(&self, id: u64) {
+	pub fn remember_sync(&self, id: u64) {
 		self.nodes.remember(id);
 	}
 
-	fn forget_sync(&self, id: u64, nlookup: u64) {
+	pub fn forget_sync(&self, id: u64, nlookup: u64) {
 		drop(self.nodes.forget(id, nlookup));
 	}
 
-	async fn getattr(&self, id: u64) -> std::io::Result<vfs::Attrs> {
+	pub async fn getattr(&self, id: u64) -> std::io::Result<vfs::Attrs> {
 		let node = self.get(id).await?;
 		if let Some(attrs) = node.attrs {
 			return Ok(attrs);
@@ -309,12 +309,12 @@ impl vfs::Provider for Provider {
 		Ok(attrs)
 	}
 
-	fn getattr_sync(&self, id: u64) -> std::io::Result<vfs::Attrs> {
+	pub fn getattr_sync(&self, id: u64) -> std::io::Result<vfs::Attrs> {
 		let reader = self.sync_reader(None);
 		self.getattr_sync_inner(id, &reader)
 	}
 
-	async fn open(&self, id: u64) -> std::io::Result<u64> {
+	pub async fn open(&self, id: u64) -> std::io::Result<u64> {
 		// Get the node.
 		let Node { artifact, .. } = self.get(id).await?;
 		let artifact = artifact.map(tg::Artifact::with_id);
@@ -345,12 +345,12 @@ impl vfs::Provider for Provider {
 		Ok(id)
 	}
 
-	fn open_sync(&self, id: u64) -> std::io::Result<(u64, Option<OwnedFd>)> {
+	pub fn open_sync(&self, id: u64) -> std::io::Result<(u64, Option<OwnedFd>)> {
 		let reader = self.sync_reader(None);
 		self.open_sync_inner(id, &reader)
 	}
 
-	async fn read(&self, id: u64, position: u64, length: u64) -> std::io::Result<Bytes> {
+	pub async fn read(&self, id: u64, position: u64, length: u64) -> std::io::Result<Bytes> {
 		// Get the file handle.
 		let Some(file_handle) = self.file_handles.get(&id) else {
 			tracing::error!(%id, "tried to read from an invalid file handle");
@@ -388,12 +388,12 @@ impl vfs::Provider for Provider {
 		Ok(bytes.into())
 	}
 
-	fn read_sync(&self, id: u64, position: u64, length: u64) -> std::io::Result<Bytes> {
+	pub fn read_sync(&self, id: u64, position: u64, length: u64) -> std::io::Result<Bytes> {
 		let reader = self.sync_reader(None);
 		self.read_sync_inner(id, position, length, &reader)
 	}
 
-	async fn readlink(&self, id: u64) -> std::io::Result<Bytes> {
+	pub async fn readlink(&self, id: u64) -> std::io::Result<Bytes> {
 		// Get the node.
 		let Node {
 			artifact, depth, ..
@@ -421,12 +421,12 @@ impl vfs::Provider for Provider {
 		Self::build_symlink_target(depth, artifact.as_ref().map(tg::Artifact::id), path)
 	}
 
-	fn readlink_sync(&self, id: u64) -> std::io::Result<Bytes> {
+	pub fn readlink_sync(&self, id: u64) -> std::io::Result<Bytes> {
 		let reader = self.sync_reader(None);
 		self.readlink_sync_inner(id, &reader)
 	}
 
-	async fn listxattrs(&self, id: u64) -> std::io::Result<Vec<String>> {
+	pub async fn listxattrs(&self, id: u64) -> std::io::Result<Vec<String>> {
 		let node = self.get(id).await?;
 		let Some(tg::Artifact::File(file)) = node.artifact.map(tg::Artifact::with_id) else {
 			return Ok(Vec::new());
@@ -441,12 +441,12 @@ impl vfs::Provider for Provider {
 		Ok(vec![tg::file::DEPENDENCIES_XATTR_NAME.to_owned()])
 	}
 
-	fn listxattrs_sync(&self, id: u64) -> std::io::Result<Vec<String>> {
+	pub fn listxattrs_sync(&self, id: u64) -> std::io::Result<Vec<String>> {
 		let reader = self.sync_reader(None);
 		self.listxattrs_sync_inner(id, &reader)
 	}
 
-	async fn getxattr(&self, id: u64, name: &str) -> std::io::Result<Option<Bytes>> {
+	pub async fn getxattr(&self, id: u64, name: &str) -> std::io::Result<Option<Bytes>> {
 		let node = self.get(id).await?;
 		let Some(tg::Artifact::File(file)) = node.artifact.map(tg::Artifact::with_id) else {
 			return Ok(None);
@@ -477,12 +477,12 @@ impl vfs::Provider for Provider {
 		Ok(None)
 	}
 
-	fn getxattr_sync(&self, id: u64, name: &str) -> std::io::Result<Option<Bytes>> {
+	pub fn getxattr_sync(&self, id: u64, name: &str) -> std::io::Result<Option<Bytes>> {
 		let reader = self.sync_reader(None);
 		self.getxattr_sync_inner(id, name, &reader)
 	}
 
-	async fn opendir(&self, id: u64) -> std::io::Result<u64> {
+	pub async fn opendir(&self, id: u64) -> std::io::Result<u64> {
 		// Get the node.
 		let Node { artifact, .. } = self.get(id).await?;
 		let artifact = artifact.map(tg::Artifact::with_id);
@@ -496,7 +496,7 @@ impl vfs::Provider for Provider {
 		Ok(id)
 	}
 
-	fn opendir_sync(&self, id: u64) -> std::io::Result<u64> {
+	pub fn opendir_sync(&self, id: u64) -> std::io::Result<u64> {
 		// Get the node.
 		let Node { artifact, .. } = self.get_sync(id)?;
 		let artifact = artifact.map(tg::Artifact::with_id);
@@ -510,7 +510,7 @@ impl vfs::Provider for Provider {
 		Ok(id)
 	}
 
-	async fn readdir(&self, id: u64) -> std::io::Result<Vec<(String, u64)>> {
+	pub async fn readdir(&self, id: u64) -> std::io::Result<Vec<(String, u64)>> {
 		let Node { artifact, .. } = self.get(id).await?;
 		let artifact = artifact.map(tg::Artifact::with_id);
 		let directory = match artifact {
@@ -541,12 +541,12 @@ impl vfs::Provider for Provider {
 		Ok(result)
 	}
 
-	fn readdir_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64)>> {
+	pub fn readdir_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64)>> {
 		let reader = self.sync_reader(None);
 		self.readdir_sync_inner(id, &reader)
 	}
 
-	async fn readdirplus(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
+	pub async fn readdirplus(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
 		let entries = self.readdir(id).await?;
 		let mut entries_with_attrs = Vec::with_capacity(entries.len());
 		for (name, node_id) in entries {
@@ -556,25 +556,23 @@ impl vfs::Provider for Provider {
 		Ok(entries_with_attrs)
 	}
 
-	fn readdirplus_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
+	pub fn readdirplus_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
 		let reader = self.sync_reader(None);
 		self.readdirplus_sync_inner(id, &reader)
 	}
 
-	async fn close(&self, id: u64) {
+	pub async fn close(&self, id: u64) {
 		if self.file_handles.contains_key(&id) {
 			self.file_handles.remove(&id);
 		}
 	}
 
-	fn close_sync(&self, id: u64) {
+	pub fn close_sync(&self, id: u64) {
 		if self.file_handles.contains_key(&id) {
 			self.file_handles.remove(&id);
 		}
 	}
-}
 
-impl Provider {
 	pub async fn new(server: &Server, _options: crate::config::Vfs) -> tg::Result<Self> {
 		// Create the nodes.
 		let nodes = Nodes::new();
@@ -1455,5 +1453,125 @@ impl Nodes {
 		if let Some(mut parent_node) = self.nodes.get_mut(&parent) {
 			parent_node.children.insert(name.to_owned(), id);
 		}
+	}
+}
+
+impl vfs::Provider for Provider {
+	fn handle_batch(
+		&self,
+		requests: Vec<vfs::Request>,
+	) -> impl std::future::Future<Output = Vec<std::io::Result<vfs::Response>>> + Send {
+		Provider::handle_batch(self, requests)
+	}
+
+	fn handle_batch_sync(
+		&self,
+		requests: Vec<vfs::Request>,
+	) -> Vec<std::io::Result<vfs::Response>> {
+		Provider::handle_batch_sync(self, requests)
+	}
+
+	async fn lookup(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
+		Provider::lookup(self, parent, name).await
+	}
+
+	fn lookup_sync(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
+		Provider::lookup_sync(self, parent, name)
+	}
+
+	async fn lookup_parent(&self, id: u64) -> std::io::Result<u64> {
+		Provider::lookup_parent(self, id).await
+	}
+
+	fn lookup_parent_sync(&self, id: u64) -> std::io::Result<u64> {
+		Provider::lookup_parent_sync(self, id)
+	}
+
+	fn remember_sync(&self, id: u64) {
+		Provider::remember_sync(self, id);
+	}
+
+	fn forget_sync(&self, id: u64, nlookup: u64) {
+		Provider::forget_sync(self, id, nlookup);
+	}
+
+	async fn getattr(&self, id: u64) -> std::io::Result<vfs::Attrs> {
+		Provider::getattr(self, id).await
+	}
+
+	fn getattr_sync(&self, id: u64) -> std::io::Result<vfs::Attrs> {
+		Provider::getattr_sync(self, id)
+	}
+
+	async fn open(&self, id: u64) -> std::io::Result<u64> {
+		Provider::open(self, id).await
+	}
+
+	fn open_sync(&self, id: u64) -> std::io::Result<(u64, Option<OwnedFd>)> {
+		Provider::open_sync(self, id)
+	}
+
+	async fn read(&self, id: u64, position: u64, length: u64) -> std::io::Result<Bytes> {
+		Provider::read(self, id, position, length).await
+	}
+
+	fn read_sync(&self, id: u64, position: u64, length: u64) -> std::io::Result<Bytes> {
+		Provider::read_sync(self, id, position, length)
+	}
+
+	async fn readlink(&self, id: u64) -> std::io::Result<Bytes> {
+		Provider::readlink(self, id).await
+	}
+
+	fn readlink_sync(&self, id: u64) -> std::io::Result<Bytes> {
+		Provider::readlink_sync(self, id)
+	}
+
+	async fn listxattrs(&self, id: u64) -> std::io::Result<Vec<String>> {
+		Provider::listxattrs(self, id).await
+	}
+
+	fn listxattrs_sync(&self, id: u64) -> std::io::Result<Vec<String>> {
+		Provider::listxattrs_sync(self, id)
+	}
+
+	async fn getxattr(&self, id: u64, name: &str) -> std::io::Result<Option<Bytes>> {
+		Provider::getxattr(self, id, name).await
+	}
+
+	fn getxattr_sync(&self, id: u64, name: &str) -> std::io::Result<Option<Bytes>> {
+		Provider::getxattr_sync(self, id, name)
+	}
+
+	async fn opendir(&self, id: u64) -> std::io::Result<u64> {
+		Provider::opendir(self, id).await
+	}
+
+	fn opendir_sync(&self, id: u64) -> std::io::Result<u64> {
+		Provider::opendir_sync(self, id)
+	}
+
+	async fn readdir(&self, id: u64) -> std::io::Result<Vec<(String, u64)>> {
+		Provider::readdir(self, id).await
+	}
+
+	fn readdir_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64)>> {
+		Provider::readdir_sync(self, id)
+	}
+
+	async fn readdirplus(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
+		Provider::readdirplus(self, id).await
+	}
+
+	fn readdirplus_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
+		Provider::readdirplus_sync(self, id)
+	}
+
+	async fn close(&self, id: u64) {
+		Provider::close(self, id).await;
+	}
+
+	fn close_sync(&self, id: u64) {
+		Provider::close_sync(self, id);
 	}
 }
