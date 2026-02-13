@@ -1536,7 +1536,10 @@ impl Server {
 			},
 			tg::graph::data::Node::File(file) => {
 				for reference in file.dependencies.keys() {
-					if let tg::reference::Item::Tag(pattern) = reference.item() {
+					if let tg::reference::Item::Tag(pattern) = reference.item()
+						&& !(prefetch.arg.options.local_dependencies
+							&& reference.options().local.is_some())
+					{
 						self.checkin_solve_get_or_spawn_tag_task(prefetch, pattern);
 					}
 				}
