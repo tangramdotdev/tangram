@@ -768,30 +768,37 @@ export def --env spawn [
 	# Determine the url.
 	let url = $url | default $'http+unix://($directory_path | url encode --all)%2Fsocket'
 	$env.TANGRAM_URL = $url
+	let server_pid_path = $directory_path | path join 'server.pid'
 
 	# Spawn the server.
+	let server_name = $name | default 'server'
 	match $nu.os-info.name {
 		'macos' => {
 			job spawn {
 				bash -c $"
-					PARENT_PID=$PPID
-					SELF_PID=$$
+						PARENT_PID=$PPID
+						SELF_PID=$$
 					\(
 						while kill -0 $PARENT_PID 2>/dev/null; do
 							sleep 1
-						done
-						kill -9 -$SELF_PID
-					\) &
-					tangram -c ($config_path) -d ($directory_path) -u ($url) serve
-				" e>| lines | each { |line| print -e $"($name | default 'server'): ($line)\r" }
+							done
+							kill -9 -$SELF_PID
+						\) &
+						tangram -c ($config_path) -d ($directory_path) -u ($url) serve &
+						SERVER_PID=$!
+						echo $SERVER_PID > ($server_pid_path)
+						wait $SERVER_PID
+					" e>| lines | each { |line| print -e $"($server_name): ($line)\r" }
 			}
 		}
 		'linux' => {
 			job spawn {
-				(
-					setpriv --pdeathsig SIGKILL
-					tangram -c $config_path -d $directory_path -u $url serve
-				) e>| lines | each { |line| print -e $"($name | default 'server'): ($line)\r" }
+				bash -c $"
+					setpriv --pdeathsig SIGKILL tangram -c ($config_path) -d ($directory_path) -u ($url) serve &
+					SERVER_PID=$!
+					echo $SERVER_PID > ($server_pid_path)
+					wait $SERVER_PID
+				" e>| lines | each { |line| print -e $"($server_name): ($line)\r" }
 			}
 		}
 	}
@@ -800,6 +807,15 @@ export def --env spawn [
 		let output = tg health | complete
 		if $output.exit_code == 0 {
 			break;
+		}
+		if ($server_pid_path | path exists) {
+			let server_pid = open $server_pid_path | str trim | into int
+			if (ps | where pid == $server_pid | is-empty) {
+				error make {
+					msg: 'failed to start the server',
+					help: 'the server process exited before it became healthy',
+				}
+			}
 		}
 		sleep 10ms
 	}
