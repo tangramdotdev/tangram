@@ -312,12 +312,15 @@ where
 				))
 			})?;
 			let worker = std::thread::spawn(move || {
-				server
-					.worker_thread(worker_id, &worker_fd, &runtime, sqpoll_wq_fd)
-					.inspect_err(
-						|error| tracing::error!(%error, %worker_id, "worker thread failed"),
-					)
-					.ok();
+				if let Err(error) =
+					server.worker_thread(worker_id, &worker_fd, &runtime, sqpoll_wq_fd)
+				{
+					if error.raw_os_error() == Some(libc::ENOTCONN) {
+						tracing::debug!(%error, %worker_id, "worker thread exited during shutdown");
+					} else {
+						tracing::error!(%error, %worker_id, "worker thread failed");
+					}
+				}
 			});
 			worker_handles.push(worker);
 		}
@@ -1268,7 +1271,7 @@ where
 				let ProviderResponse::ReadDir { entries } = response else {
 					return Err(Error::from_raw_os_error(libc::EIO));
 				};
-				let response = self.build_read_dir_response_sync(entries, request)?;
+				let response = Self::build_read_dir_response_sync(entries, request);
 				Ok(SyncRequestResult::Handled(Some(response)))
 			},
 			ProviderBatchResponseContext::ReadDirPlus { request } => {
@@ -1343,18 +1346,18 @@ where
 		Ok(Some(Response::Init(response)))
 	}
 
-	fn build_read_dir_response_sync(
-		&self,
-		entries: Vec<(String, u64)>,
-		request: fuse_read_in,
-	) -> Result<Response> {
+	fn build_read_dir_response_sync(entries: Vec<(String, u64)>, request: fuse_read_in) -> Response {
 		let entries = entries
 			.into_iter()
 			.enumerate()
 			.skip(request.offset.to_usize().unwrap());
 		let mut response = Vec::with_capacity(request.size.to_usize().unwrap());
 		for (offset, (name, node)) in entries {
-			let attr = self.provider.getattr_sync(node)?;
+			let type_ = if name == "." || name == ".." {
+				S_IFDIR
+			} else {
+				0
+			};
 			let name = name.into_bytes();
 			let struct_size = std::mem::size_of::<FuseDirentHeader>();
 			let padding = (8 - (struct_size + name.len()) % 8) % 8;
@@ -1362,12 +1365,6 @@ where
 			if response.len() + entry_size > request.size.to_usize().unwrap() {
 				break;
 			}
-
-			let type_ = match attr.typ {
-				FileType::Directory => S_IFDIR,
-				FileType::File { .. } => S_IFREG,
-				FileType::Symlink => S_IFLNK,
-			};
 
 			let dirent = FuseDirentHeader {
 				ino: node,
@@ -1379,7 +1376,7 @@ where
 			response.extend_from_slice(&name);
 			response.extend((0..padding).map(|_| 0));
 		}
-		Ok(Response::ReadDir(response))
+		Response::ReadDir(response)
 	}
 
 	fn build_read_dir_plus_response_sync(
@@ -1882,19 +1879,24 @@ where
 			.skip(request.offset.to_usize().unwrap());
 		let mut response = Vec::with_capacity(request.size.to_usize().unwrap());
 		for (offset, (name, node)) in entries {
-			let attr = self.provider_getattr(node).await?;
+			let type_ = if plus {
+				let attr = self.provider_getattr(node).await?;
+				match attr.typ {
+					FileType::Directory => S_IFDIR,
+					FileType::File { .. } => S_IFREG,
+					FileType::Symlink => S_IFLNK,
+				}
+			} else if name == "." || name == ".." {
+				S_IFDIR
+			} else {
+				0
+			};
 			let name = name.into_bytes();
 			let padding = (8 - (struct_size + name.len()) % 8) % 8;
 			let entry_size = struct_size + name.len() + padding;
 			if response.len() + entry_size > request.size.to_usize().unwrap() {
 				break;
 			}
-
-			let type_ = match attr.typ {
-				FileType::Directory => S_IFDIR,
-				FileType::File { .. } => S_IFREG,
-				FileType::Symlink => S_IFLNK,
-			};
 
 			let dirent = FuseDirentHeader {
 				ino: node,

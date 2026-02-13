@@ -44,11 +44,42 @@ impl Cli {
 		Ok(())
 	}
 
+	async fn force_unmount_vfs(path: &std::path::Path) {
+		#[cfg(target_os = "linux")]
+		{
+			tokio::process::Command::new("fusermount3")
+				.args(["-u", "-z"])
+				.arg(path)
+				.stdin(std::process::Stdio::null())
+				.stdout(std::process::Stdio::null())
+				.stderr(std::process::Stdio::null())
+				.status()
+				.await
+				.ok();
+		}
+		#[cfg(target_os = "macos")]
+		{
+			tokio::process::Command::new("umount")
+				.arg("-f")
+				.arg(path)
+				.stdin(std::process::Stdio::null())
+				.stdout(std::process::Stdio::null())
+				.stderr(std::process::Stdio::null())
+				.status()
+				.await
+				.ok();
+		}
+	}
+
 	pub async fn command_clean_force(&mut self) -> tg::Result<()> {
 		let path = self.directory_path();
+		let artifacts_path = path.join("artifacts");
 
 		// Stop the server if it is running.
 		self.stop_server().await.ok();
+
+		// Force unmount the VFS artifacts path if it is mounted.
+		Self::force_unmount_vfs(&artifacts_path).await;
 
 		// Create the progress handle.
 		let progress = tangram_server::progress::Handle::<()>::new();

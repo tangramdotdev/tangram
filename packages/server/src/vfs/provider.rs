@@ -917,9 +917,11 @@ impl Provider {
 			tg::artifact::Kind::Directory => Ok(vfs::Attrs::new(vfs::FileType::Directory)),
 			tg::artifact::Kind::File => {
 				let (file, _) = self.file_node_inner(&artifact).await?;
-				let size = file.contents.as_ref().map_or(Ok(0), |contents| {
-					self.blob_length_sync_inner(contents, None)
-				})?;
+				let size = if let Some(contents) = file.contents.as_ref() {
+					self.blob_length_inner(contents).await?
+				} else {
+					0
+				};
 				Ok(vfs::Attrs::new(vfs::FileType::File {
 					executable: file.executable,
 					size,
@@ -1180,6 +1182,24 @@ impl Provider {
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
 		Ok(Some(data))
+	}
+
+	async fn blob_length_inner(&self, id: &tg::blob::Id) -> std::io::Result<u64> {
+		let id: tg::object::Id = id.clone().into();
+		let Some(data) = self.try_get_object_data_inner(&id).await? else {
+			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
+		};
+		let tg::object::Data::Blob(blob) = data else {
+			tracing::error!(%id, "expected blob data");
+			return Err(std::io::Error::from_raw_os_error(libc::EIO));
+		};
+		let length = match blob {
+			tg::blob::Data::Leaf(leaf) => leaf.bytes.len().to_u64().unwrap(),
+			tg::blob::Data::Branch(branch) => {
+				branch.children.iter().map(|child| child.length).sum()
+			},
+		};
+		Ok(length)
 	}
 
 	fn artifact_data_sync_inner(
