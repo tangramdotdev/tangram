@@ -1,5 +1,5 @@
 use {
-	super::{Index, ItemKind, Key, KeyKind},
+	super::{Index, ItemKind, Key, KeyKind, Request, Response},
 	crate::{CacheEntry, CleanOutput, Object, Process},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
@@ -28,65 +28,27 @@ impl Index {
 		partition_start: u64,
 		partition_count: u64,
 	) -> tg::Result<CleanOutput> {
-		let partition_total = self.partition_total;
-		let result = self
-			.database
-			.run(|txn, _| {
-				let subspace = self.subspace.clone();
-				async move {
-					Self::clean_inner(
-						&txn,
-						&subspace,
-						max_touched_at,
-						batch_size,
-						partition_start,
-						partition_count,
-						partition_total,
-					)
-					.await
-					.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))
-				}
-			})
-			.await;
-
-		let output = match result {
-			Ok(output) => output,
-			Err(fdb::FdbBindingError::NonRetryableFdbError(error))
-				if error.code() == 2101 && batch_size > 1 =>
-			{
-				let half = batch_size / 2;
-				let first =
-					Box::pin(self.clean(max_touched_at, half, partition_start, partition_count))
-						.await?;
-				let second =
-					Box::pin(self.clean(max_touched_at, half, partition_start, partition_count))
-						.await?;
-				CleanOutput {
-					bytes: first.bytes + second.bytes,
-					cache_entries: first
-						.cache_entries
-						.into_iter()
-						.chain(second.cache_entries)
-						.collect(),
-					objects: first.objects.into_iter().chain(second.objects).collect(),
-					processes: first
-						.processes
-						.into_iter()
-						.chain(second.processes)
-						.collect(),
-					done: first.done && second.done,
-				}
-			},
-			Err(error) => {
-				return Err(tg::error!(!error, "failed to run clean transaction"));
-			},
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request::Clean {
+			max_touched_at,
+			batch_size,
+			partition_start,
+			partition_count,
 		};
-
+		self.sender_low
+			.send((request, sender))
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+		let response = receiver
+			.await
+			.map_err(|_| tg::error!("the task panicked"))??;
+		let Response::CleanOutput(output) = response else {
+			return Err(tg::error!("unexpected response"));
+		};
 		Ok(output)
 	}
 
 	#[allow(clippy::too_many_arguments)]
-	async fn clean_inner(
+	pub(super) async fn task_clean(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		max_touched_at: i64,
@@ -95,9 +57,6 @@ impl Index {
 		partition_count: u64,
 		partition_total: u64,
 	) -> tg::Result<CleanOutput> {
-		txn.set_option(fdb::options::TransactionOption::PriorityBatch)
-			.unwrap();
-
 		let mut output = CleanOutput::default();
 		let mut candidates = Vec::new();
 
@@ -700,13 +659,13 @@ impl Index {
 
 			let id_bytes = id.to_bytes();
 			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
-			let clean_key = Key::Clean {
+			let key = Key::Clean {
 				partition,
 				touched_at: entry.touched_at,
 				kind: ItemKind::CacheEntry,
 				id: tg::Either::Left(id.clone().into()),
 			};
-			let clean_key = Self::pack(subspace, &clean_key);
+			let clean_key = Self::pack(subspace, &key);
 			txn.set(&clean_key, &[]);
 		}
 		Ok(())
@@ -740,13 +699,13 @@ impl Index {
 
 			let id_bytes = id.to_bytes();
 			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
-			let clean_key = Key::Clean {
+			let key = Key::Clean {
 				partition,
 				touched_at: object.touched_at,
 				kind: ItemKind::Object,
 				id: tg::Either::Left(id.clone()),
 			};
-			let clean_key = Self::pack(subspace, &clean_key);
+			let clean_key = Self::pack(subspace, &key);
 			txn.set(&clean_key, &[]);
 		}
 		Ok(())
@@ -780,13 +739,13 @@ impl Index {
 
 			let id_bytes = id.to_bytes();
 			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
-			let clean_key = Key::Clean {
+			let key = Key::Clean {
 				partition,
 				touched_at: process.touched_at,
 				kind: ItemKind::Process,
 				id: tg::Either::Right(id.clone()),
 			};
-			let clean_key = Self::pack(subspace, &clean_key);
+			let clean_key = Self::pack(subspace, &key);
 			txn.set(&clean_key, &[]);
 		}
 		Ok(())

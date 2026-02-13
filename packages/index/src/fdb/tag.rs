@@ -1,5 +1,5 @@
 use {
-	super::{Index, Key},
+	super::{Index, Key, Request, Response},
 	crate::{PutTagArg, Tag},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
@@ -11,22 +11,39 @@ impl Index {
 		if args.is_empty() {
 			return Ok(());
 		}
-		let partition_total = self.partition_total;
-		self.database
-			.run(|txn, _| {
-				let subspace = self.subspace.clone();
-				let tags = args.to_vec();
-				async move {
-					Self::put_tags_inner(&txn, &subspace, &tags, partition_total)
-						.await
-						.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))
-				}
-			})
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request::PutTags(args.to_vec());
+		self.sender_high
+			.send((request, sender))
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+		let response = receiver
 			.await
-			.map_err(|source| tg::error!(!source, "failed to put tags"))
+			.map_err(|_| tg::error!("the task panicked"))??;
+		let Response::Unit = response else {
+			return Err(tg::error!("unexpected response"));
+		};
+		Ok(())
 	}
 
-	async fn put_tags_inner(
+	pub async fn delete_tags(&self, tags: &[String]) -> tg::Result<()> {
+		if tags.is_empty() {
+			return Ok(());
+		}
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request::DeleteTags(tags.to_vec());
+		self.sender_high
+			.send((request, sender))
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+		let response = receiver
+			.await
+			.map_err(|_| tg::error!("the task panicked"))??;
+		let Response::Unit = response else {
+			return Err(tg::error!("unexpected response"));
+		};
+		Ok(())
+	}
+
+	pub(super) async fn task_put_tags(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		args: &[PutTagArg],
@@ -100,26 +117,7 @@ impl Index {
 		Ok(())
 	}
 
-	pub async fn delete_tags(&self, tags: &[String]) -> tg::Result<()> {
-		if tags.is_empty() {
-			return Ok(());
-		}
-		let partition_total = self.partition_total;
-		self.database
-			.run(|txn, _| {
-				let subspace = self.subspace.clone();
-				let tags = tags.to_vec();
-				async move {
-					Self::delete_tags_inner(&txn, &subspace, &tags, partition_total)
-						.await
-						.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))
-				}
-			})
-			.await
-			.map_err(|source| tg::error!(!source, "failed to delete tags"))
-	}
-
-	async fn delete_tags_inner(
+	pub(super) async fn task_delete_tags(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
 		tags: &[String],

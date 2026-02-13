@@ -72,23 +72,27 @@ enum Response {
 }
 
 enum RequestItem {
+	Clean,
+	DeleteTag(String),
 	PutCacheEntry(crate::PutCacheEntryArg),
 	PutObject(crate::PutObjectArg),
 	PutProcess(crate::PutProcessArg),
+	PutTag(PutTagArg),
 	TouchCacheEntry(tg::artifact::Id),
 	TouchObject(tg::object::Id),
 	TouchProcess(tg::process::Id),
-	PutTag(PutTagArg),
-	DeleteTag(String),
+	Update,
 }
 
 enum RequestKind {
+	Clean { max_touched_at: i64 },
+	DeleteTags,
 	Put,
+	PutTags,
 	TouchCacheEntries { touched_at: i64 },
 	TouchObjects { touched_at: i64 },
 	TouchProcesses { touched_at: i64 },
-	PutTags,
-	DeleteTags,
+	Update,
 }
 
 struct RequestTracker {
@@ -302,29 +306,26 @@ impl Index {
 
 		loop {
 			// Drain high-priority requests.
-			Self::drain_receiver(
-				receiver_high,
+			queue_high.extend(Self::create_batches(
+				Self::drain_receiver(receiver_high),
 				&mut trackers,
 				max_items_per_transaction,
-				&mut queue_high,
-			);
+			));
 
 			// Drain medium-priority requests.
-			Self::drain_receiver(
-				receiver_medium,
+			queue_medium.extend(Self::create_batches(
+				Self::drain_receiver(receiver_medium),
 				&mut trackers,
 				max_items_per_transaction,
-				&mut queue_medium,
-			);
+			));
 
 			// If all queues are empty, try low-priority requests.
 			if queue_high.is_empty() && queue_medium.is_empty() && queue_low.is_empty() {
-				Self::drain_receiver(
-					receiver_low,
+				queue_low.extend(Self::create_batches(
+					Self::drain_receiver(receiver_low),
 					&mut trackers,
 					max_items_per_transaction,
-					&mut queue_low,
-				);
+				));
 			}
 
 			// If still empty, block until a request arrives.
@@ -332,55 +333,49 @@ impl Index {
 				crossbeam::select! {
 					recv(receiver_high) -> result => {
 						if let Ok(item) = result {
-							let batches = Self::create_batches(
+							queue_high.extend(Self::create_batches(
 								vec![item],
 								&mut trackers,
 								max_items_per_transaction,
-							);
-							queue_high.extend(batches);
+							));
 						}
 					},
 					recv(receiver_medium) -> result => {
 						if let Ok(item) = result {
-							let batches = Self::create_batches(
+							queue_medium.extend(Self::create_batches(
 								vec![item],
 								&mut trackers,
 								max_items_per_transaction,
-							);
-							queue_medium.extend(batches);
+							));
 						}
 					},
 					recv(receiver_low) -> result => {
 						if let Ok(item) = result {
-							let batches = Self::create_batches(
+							queue_low.extend(Self::create_batches(
 								vec![item],
 								&mut trackers,
 								max_items_per_transaction,
-							);
-							queue_low.extend(batches);
+							));
 						}
 					},
 				}
 
 				// After waking, drain all receivers.
-				Self::drain_receiver(
-					receiver_high,
+				queue_high.extend(Self::create_batches(
+					Self::drain_receiver(receiver_high),
 					&mut trackers,
 					max_items_per_transaction,
-					&mut queue_high,
-				);
-				Self::drain_receiver(
-					receiver_medium,
+				));
+				queue_medium.extend(Self::create_batches(
+					Self::drain_receiver(receiver_medium),
 					&mut trackers,
 					max_items_per_transaction,
-					&mut queue_medium,
-				);
-				Self::drain_receiver(
-					receiver_low,
+				));
+				queue_low.extend(Self::create_batches(
+					Self::drain_receiver(receiver_low),
 					&mut trackers,
 					max_items_per_transaction,
-					&mut queue_low,
-				);
+				));
 			}
 
 			// Pop a batch from high-priority first, then medium, then low-priority.
@@ -402,16 +397,7 @@ impl Index {
 				Ok(transaction) => transaction,
 				Err(error) => {
 					for tracker_index in &batch.tracker_indices {
-						let tracker = &mut trackers[*tracker_index];
-						tracker.response = Err(error.clone());
-						tracker.remaining -= 1;
-						if tracker.remaining == 0
-							&& let Some(sender) = tracker.sender.take()
-						{
-							let tracker =
-								std::mem::replace(&mut tracker.response, Ok(Response::Unit));
-							sender.send(tracker).ok();
-						}
+						Self::fail_tracker(&mut trackers[*tracker_index], &error);
 					}
 					continue;
 				},
@@ -472,26 +458,11 @@ impl Index {
 
 			// Merge the results into the trackers and send completed responses.
 			for (result, tracker_index) in std::iter::zip(results, &batch.tracker_indices) {
-				let tracker = &mut trackers[*tracker_index];
-				if let Err(ref commit_error) = commit_result {
-					if tracker.response.is_ok() {
-						tracker.response = Err(commit_error.clone());
-					}
-				} else if let Err(error) = result {
-					if tracker.response.is_ok() {
-						tracker.response = Err(error);
-					}
-				} else if let Ok(response) = result {
-					Self::merge_response(&mut tracker.response, response);
-				}
-				tracker.remaining -= 1;
-				if tracker.remaining == 0
-					&& let Some(sender) = tracker.sender.take()
-				{
-					sender
-						.send(std::mem::replace(&mut tracker.response, Ok(Response::Unit)))
-						.ok();
-				}
+				let result = match commit_result {
+					Err(ref error) => Err(error.clone()),
+					Ok(()) => result,
+				};
+				Self::complete_tracker(&mut trackers[*tracker_index], result);
 			}
 
 			// Clean up completed trackers.
@@ -504,20 +475,12 @@ impl Index {
 		}
 	}
 
-	fn drain_receiver(
-		receiver: &RequestReceiver,
-		trackers: &mut Vec<RequestTracker>,
-		max_items_per_transaction: usize,
-		queue: &mut VecDeque<Batch>,
-	) {
-		let mut requests: Vec<(Request, ResponseSender)> = Vec::new();
+	fn drain_receiver(receiver: &RequestReceiver) -> Vec<(Request, ResponseSender)> {
+		let mut requests = Vec::new();
 		while let Ok(item) = receiver.try_recv() {
 			requests.push(item);
 		}
-		if !requests.is_empty() {
-			let batches = Self::create_batches(requests, trackers, max_items_per_transaction);
-			queue.extend(batches);
-		}
+		requests
 	}
 
 	fn create_batches(
@@ -525,7 +488,9 @@ impl Index {
 		trackers: &mut Vec<RequestTracker>,
 		max_items: usize,
 	) -> Vec<Batch> {
-		assert!(max_items > 0, "max_items must be greater than zero");
+		if requests.is_empty() {
+			return Vec::new();
+		}
 
 		let mut batches: Vec<Batch> = Vec::new();
 		let mut current_batch = Batch {
@@ -542,38 +507,14 @@ impl Index {
 				sender: Some(sender),
 			});
 
-			let count = Self::request_item_count(&request);
+			let (items, kind) = Self::request_into_items(request);
+			let mut iter = items.into_iter().peekable();
+			let mut remaining_count = iter.len();
 
-			if Self::request_splittable(&request) {
-				let (items, kind) = Self::request_into_items(request);
-				let mut iter = items.into_iter();
-				let mut remaining_count = count;
-
-				while remaining_count > 0 {
-					let space = max_items.saturating_sub(current_count);
-					if space == 0 {
-						if !current_batch.requests.is_empty() {
-							batches.push(current_batch);
-							current_batch = Batch {
-								requests: Vec::new(),
-								tracker_indices: Vec::new(),
-							};
-							current_count = 0;
-						}
-						continue;
-					}
-
-					let take = remaining_count.min(space);
-					let chunk: Vec<_> = iter.by_ref().take(take).collect();
-					current_batch
-						.requests
-						.push(Self::request_from_items(chunk, &kind));
-					current_batch.tracker_indices.push(tracker_idx);
-					trackers[tracker_idx].remaining += 1;
-					current_count += take;
-					remaining_count -= take;
-
-					if remaining_count > 0 {
+			while remaining_count > 0 {
+				let space = max_items.saturating_sub(current_count);
+				if space == 0 {
+					if !current_batch.requests.is_empty() {
 						batches.push(current_batch);
 						current_batch = Batch {
 							requests: Vec::new(),
@@ -581,10 +522,20 @@ impl Index {
 						};
 						current_count = 0;
 					}
+					continue;
 				}
-			} else {
-				// Unsplittable requests (Clean, Update) go into their own batch if they would overflow.
-				if current_count > 0 && current_count + count > max_items {
+
+				let take = remaining_count.min(space);
+				let chunk: Vec<_> = iter.by_ref().take(take).collect();
+				current_batch
+					.requests
+					.push(Self::request_from_items(chunk, &kind));
+				current_batch.tracker_indices.push(tracker_idx);
+				trackers[tracker_idx].remaining += 1;
+				current_count += take;
+				remaining_count -= take;
+
+				if remaining_count > 0 {
 					batches.push(current_batch);
 					current_batch = Batch {
 						requests: Vec::new(),
@@ -592,10 +543,6 @@ impl Index {
 					};
 					current_count = 0;
 				}
-				current_batch.requests.push(request);
-				current_batch.tracker_indices.push(tracker_idx);
-				trackers[tracker_idx].remaining += 1;
-				current_count += count;
 			}
 		}
 
@@ -608,41 +555,28 @@ impl Index {
 
 	fn create_initial_response(request: &Request) -> Response {
 		match request {
-			Request::Put(_) | Request::PutTags(_) | Request::DeleteTags(_) => Response::Unit,
+			Request::Clean { .. } => Response::CleanOutput(CleanOutput::default()),
+			Request::DeleteTags(_) | Request::Put(_) | Request::PutTags(_) => Response::Unit,
 			Request::TouchCacheEntries { .. } => Response::CacheEntries(Vec::new()),
 			Request::TouchObjects { .. } => Response::Objects(Vec::new()),
 			Request::TouchProcesses { .. } => Response::Processes(Vec::new()),
-			Request::Clean { .. } => Response::CleanOutput(CleanOutput::default()),
 			Request::Update { .. } => Response::UpdateCount(0),
 		}
 	}
 
-	fn request_item_count(request: &Request) -> usize {
-		match request {
-			Request::Put(arg) => arg.cache_entries.len() + arg.objects.len() + arg.processes.len(),
-			Request::TouchCacheEntries { ids, .. } => ids.len(),
-			Request::TouchObjects { ids, .. } => ids.len(),
-			Request::TouchProcesses { ids, .. } => ids.len(),
-			Request::PutTags(tags) => tags.len(),
-			Request::DeleteTags(tags) => tags.len(),
-			Request::Clean { batch_size, .. } | Request::Update { batch_size } => *batch_size,
-		}
-	}
-
-	fn request_splittable(request: &Request) -> bool {
-		matches!(
-			request,
-			Request::Put(_)
-				| Request::TouchCacheEntries { .. }
-				| Request::TouchObjects { .. }
-				| Request::TouchProcesses { .. }
-				| Request::PutTags(_)
-				| Request::DeleteTags(_)
-		)
-	}
-
 	fn request_into_items(request: Request) -> (Vec<RequestItem>, RequestKind) {
 		match request {
+			Request::Clean {
+				max_touched_at,
+				batch_size,
+			} => {
+				let items = (0..batch_size).map(|_| RequestItem::Clean).collect();
+				(items, RequestKind::Clean { max_touched_at })
+			},
+			Request::DeleteTags(tags) => {
+				let items = tags.into_iter().map(RequestItem::DeleteTag).collect();
+				(items, RequestKind::DeleteTags)
+			},
 			Request::Put(arg) => {
 				let mut items = Vec::with_capacity(
 					arg.cache_entries.len() + arg.objects.len() + arg.processes.len(),
@@ -656,6 +590,10 @@ impl Index {
 				items.extend(arg.processes.into_iter().map(RequestItem::PutProcess));
 				(items, RequestKind::Put)
 			},
+			Request::PutTags(tags) => {
+				let items = tags.into_iter().map(RequestItem::PutTag).collect();
+				(items, RequestKind::PutTags)
+			},
 			Request::TouchCacheEntries { ids, touched_at } => {
 				let items = ids.into_iter().map(RequestItem::TouchCacheEntry).collect();
 				(items, RequestKind::TouchCacheEntries { touched_at })
@@ -668,20 +606,29 @@ impl Index {
 				let items = ids.into_iter().map(RequestItem::TouchProcess).collect();
 				(items, RequestKind::TouchProcesses { touched_at })
 			},
-			Request::PutTags(tags) => {
-				let items = tags.into_iter().map(RequestItem::PutTag).collect();
-				(items, RequestKind::PutTags)
+			Request::Update { batch_size } => {
+				let items = (0..batch_size).map(|_| RequestItem::Update).collect();
+				(items, RequestKind::Update)
 			},
-			Request::DeleteTags(tags) => {
-				let items = tags.into_iter().map(RequestItem::DeleteTag).collect();
-				(items, RequestKind::DeleteTags)
-			},
-			_ => unreachable!(),
 		}
 	}
 
 	fn request_from_items(items: Vec<RequestItem>, kind: &RequestKind) -> Request {
 		match kind {
+			RequestKind::Clean { max_touched_at } => Request::Clean {
+				max_touched_at: *max_touched_at,
+				batch_size: items.len(),
+			},
+			RequestKind::DeleteTags => {
+				let tags = items
+					.into_iter()
+					.map(|item| match item {
+						RequestItem::DeleteTag(tag) => tag,
+						_ => unreachable!(),
+					})
+					.collect();
+				Request::DeleteTags(tags)
+			},
 			RequestKind::Put => {
 				let mut arg = PutArg::default();
 				for item in items {
@@ -693,6 +640,16 @@ impl Index {
 					}
 				}
 				Request::Put(arg)
+			},
+			RequestKind::PutTags => {
+				let tags = items
+					.into_iter()
+					.map(|item| match item {
+						RequestItem::PutTag(tag) => tag,
+						_ => unreachable!(),
+					})
+					.collect();
+				Request::PutTags(tags)
 			},
 			RequestKind::TouchCacheEntries { touched_at } => {
 				let ids = items
@@ -733,25 +690,8 @@ impl Index {
 					touched_at: *touched_at,
 				}
 			},
-			RequestKind::PutTags => {
-				let tags = items
-					.into_iter()
-					.map(|item| match item {
-						RequestItem::PutTag(tag) => tag,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::PutTags(tags)
-			},
-			RequestKind::DeleteTags => {
-				let tags = items
-					.into_iter()
-					.map(|item| match item {
-						RequestItem::DeleteTag(tag) => tag,
-						_ => unreachable!(),
-					})
-					.collect();
-				Request::DeleteTags(tags)
+			RequestKind::Update => Request::Update {
+				batch_size: items.len(),
 			},
 		}
 	}
@@ -781,6 +721,39 @@ impl Index {
 				*existing += new;
 			},
 			_ => {},
+		}
+	}
+
+	fn complete_tracker(tracker: &mut RequestTracker, result: tg::Result<Response>) {
+		match result {
+			Ok(response) => Self::merge_response(&mut tracker.response, response),
+			Err(error) => {
+				if tracker.response.is_ok() {
+					tracker.response = Err(error);
+				}
+			},
+		}
+		tracker.remaining -= 1;
+		if tracker.remaining == 0
+			&& let Some(sender) = tracker.sender.take()
+		{
+			sender
+				.send(std::mem::replace(&mut tracker.response, Ok(Response::Unit)))
+				.ok();
+		}
+	}
+
+	fn fail_tracker(tracker: &mut RequestTracker, error: &tg::Error) {
+		if tracker.response.is_ok() {
+			tracker.response = Err(error.clone());
+		}
+		tracker.remaining -= 1;
+		if tracker.remaining == 0
+			&& let Some(sender) = tracker.sender.take()
+		{
+			sender
+				.send(std::mem::replace(&mut tracker.response, Ok(Response::Unit)))
+				.ok();
 		}
 	}
 
