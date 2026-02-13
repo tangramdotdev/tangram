@@ -871,6 +871,7 @@ impl Server {
 		// Create the args.
 		let mut put_object_args = Vec::new();
 		let mut put_process_args = Vec::new();
+		let mut visited = std::collections::HashSet::new();
 		let mut stack = graph
 			.nodes
 			.iter()
@@ -878,6 +879,9 @@ impl Server {
 			.filter_map(|(index, (_, node))| node.parents().is_empty().then_some(index))
 			.collect::<Vec<_>>();
 		while let Some(index) = stack.pop() {
+			if !visited.insert(index) {
+				continue;
+			}
 			let (id, node) = graph.nodes.get_index(index).unwrap();
 			match node {
 				Node::Object(node) => {
