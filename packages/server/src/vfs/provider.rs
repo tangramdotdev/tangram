@@ -52,54 +52,27 @@ pub struct FileHandle {
 	blob: tg::blob::Id,
 }
 
-struct SyncReader<'a> {
-	provider: &'a Provider,
-	transaction: Option<&'a LmdbTransaction<'a>>,
-}
-
-impl SyncReader<'_> {
-	fn try_get_object(
-		&self,
-		id: &tg::object::Id,
-	) -> std::io::Result<Option<tangram_store::Object<'static>>> {
-		#[cfg(feature = "lmdb")]
-		if let (crate::store::Store::Lmdb(store), Some(transaction)) =
-			(&self.provider.server.store, self.transaction)
-		{
-			return store
-				.try_get_object_with_transaction(transaction, id)
-				.map_err(|error| Provider::map_store_sync_error(&error));
-		}
-
-		self.provider
-			.server
-			.store
-			.try_get_object_sync(id)
-			.map_err(|error| Provider::map_store_sync_error(&error))
-	}
-
-	fn try_get_object_data(
-		&self,
-		id: &tg::object::Id,
-	) -> std::io::Result<Option<(u64, tg::object::Data)>> {
-		#[cfg(feature = "lmdb")]
-		if let (crate::store::Store::Lmdb(store), Some(transaction)) =
-			(&self.provider.server.store, self.transaction)
-		{
-			return store
-				.try_get_object_data_with_transaction(transaction, id)
-				.map_err(|error| Provider::map_store_sync_error(&error));
-		}
-
-		self.provider
-			.server
-			.store
-			.try_get_object_data_sync(id)
-			.map_err(|error| Provider::map_store_sync_error(&error))
-	}
-}
-
 impl Provider {
+	pub async fn new(server: &Server, _options: crate::config::Vfs) -> tg::Result<Self> {
+		// Create the nodes.
+		let nodes = Nodes::new();
+
+		// Create the provider.
+		let node_count = AtomicU64::new(1000);
+		let file_handle_count = AtomicU64::new(1000);
+		let file_handles = DashMap::default();
+		let server = server.clone();
+		let provider = Self {
+			node_count,
+			file_handle_count,
+			nodes,
+			file_handles,
+			server,
+		};
+
+		Ok(provider)
+	}
+
 	pub fn handle_batch(
 		&self,
 		requests: Vec<vfs::Request>,
@@ -198,6 +171,168 @@ impl Provider {
 		self.handle_batch_sync_inner(requests, None)
 	}
 
+	fn handle_batch_sync_inner(
+		&self,
+		requests: Vec<vfs::Request>,
+		transaction: Option<&LmdbTransaction<'_>>,
+	) -> Vec<std::io::Result<vfs::Response>> {
+		let mut responses = Vec::with_capacity(requests.len());
+		for request in requests {
+			let response = match request {
+				vfs::Request::Close { handle } => {
+					self.close_sync(handle);
+					Ok(vfs::Response::Unit)
+				},
+				vfs::Request::Forget { id, nlookup } => {
+					self.forget_sync(id, nlookup);
+					Ok(vfs::Response::Unit)
+				},
+				vfs::Request::GetAttr { id } => self
+					.getattr_sync_inner(id, transaction)
+					.map(|attrs| vfs::Response::GetAttr { attrs }),
+				vfs::Request::GetXattr { id, name } => self
+					.getxattr_sync_inner(id, &name, transaction)
+					.map(|value| vfs::Response::GetXattr { value }),
+				vfs::Request::ListXattrs { id } => self
+					.listxattrs_sync_inner(id, transaction)
+					.map(|names| vfs::Response::ListXattrs { names }),
+				vfs::Request::Lookup { id, name } => self
+					.lookup_sync_inner(id, &name, transaction)
+					.map(|id| vfs::Response::Lookup { id }),
+				vfs::Request::LookupParent { id } => self
+					.lookup_parent_sync(id)
+					.map(|id| vfs::Response::LookupParent { id }),
+				vfs::Request::Open { id } => self
+					.open_sync_inner(id, transaction)
+					.map(|(handle, backing_fd)| vfs::Response::Open { handle, backing_fd }),
+				vfs::Request::OpenDir { id } => self
+					.opendir_sync(id)
+					.map(|handle| vfs::Response::OpenDir { handle }),
+				vfs::Request::Read {
+					handle,
+					position,
+					length,
+				} => self
+					.read_sync_inner(handle, position, length, transaction)
+					.map(|bytes| vfs::Response::Read { bytes }),
+				vfs::Request::ReadDir { handle } => self
+					.readdir_sync_inner(handle, transaction)
+					.map(|entries| vfs::Response::ReadDir { entries }),
+				vfs::Request::ReadDirPlus { handle } => self
+					.readdirplus_sync_inner(handle, transaction)
+					.map(|entries| vfs::Response::ReadDirPlus { entries }),
+				vfs::Request::ReadLink { id } => self
+					.readlink_sync_inner(id, transaction)
+					.map(|target| vfs::Response::ReadLink { target }),
+				vfs::Request::Remember { id } => {
+					self.remember_sync(id);
+					Ok(vfs::Response::Unit)
+				},
+			};
+			responses.push(response);
+		}
+		responses
+	}
+
+	pub async fn close(&self, id: u64) {
+		if self.file_handles.contains_key(&id) {
+			self.file_handles.remove(&id);
+		}
+	}
+
+	pub fn close_sync(&self, id: u64) {
+		if self.file_handles.contains_key(&id) {
+			self.file_handles.remove(&id);
+		}
+	}
+
+	pub fn forget_sync(&self, id: u64, nlookup: u64) {
+		drop(self.nodes.forget(id, nlookup));
+	}
+
+	pub async fn getattr(&self, id: u64) -> std::io::Result<vfs::Attrs> {
+		let node = self.get(id).await?;
+		if let Some(attrs) = node.attrs {
+			return Ok(attrs);
+		}
+		let artifact = node.artifact.map(tg::Artifact::with_id);
+		let attrs = match artifact {
+			Some(tg::Artifact::File(file)) => {
+				let executable = file.executable(&self.server).await.map_err(|error| {
+					tracing::error!(%error, "failed to get file's executable bit");
+					std::io::Error::from_raw_os_error(libc::EIO)
+				})?;
+				let size = file.length(&self.server).await.map_err(|error| {
+					tracing::error!(%error, "failed to get file's size");
+					std::io::Error::from_raw_os_error(libc::EIO)
+				})?;
+				vfs::Attrs::new(vfs::FileType::File { executable, size })
+			},
+			Some(tg::Artifact::Directory(_)) | None => vfs::Attrs::new(vfs::FileType::Directory),
+			Some(tg::Artifact::Symlink(_)) => vfs::Attrs::new(vfs::FileType::Symlink),
+		};
+		self.nodes.set_attrs(id, attrs);
+		Ok(attrs)
+	}
+
+	pub fn getattr_sync(&self, id: u64) -> std::io::Result<vfs::Attrs> {
+		self.getattr_sync_inner(id, None)
+	}
+
+	pub async fn getxattr(&self, id: u64, name: &str) -> std::io::Result<Option<Bytes>> {
+		let node = self.get(id).await?;
+		let Some(tg::Artifact::File(file)) = node.artifact.map(tg::Artifact::with_id) else {
+			return Ok(None);
+		};
+		if name == tg::file::DEPENDENCIES_XATTR_NAME {
+			let dependencies = file.dependencies(&self.server).await.map_err(|error| {
+				tracing::error!(error = %error.trace(), "failed to get file dependencies");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
+			if dependencies.is_empty() {
+				return Ok(None);
+			}
+			let references = dependencies.keys().cloned().collect::<Vec<_>>();
+			let data = serde_json::to_vec(&references).unwrap();
+			return Ok(Some(data.into()));
+		}
+
+		if name == tg::file::MODULE_XATTR_NAME {
+			let module = file.module(&self.server).await.map_err(|error| {
+				tracing::error!(error = %error.trace(), "failed to get file's module");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
+			let Some(module) = module else {
+				return Ok(None);
+			};
+			return Ok(Some(module.to_string().as_bytes().to_vec().into()));
+		}
+		Ok(None)
+	}
+
+	pub fn getxattr_sync(&self, id: u64, name: &str) -> std::io::Result<Option<Bytes>> {
+		self.getxattr_sync_inner(id, name, None)
+	}
+
+	pub async fn listxattrs(&self, id: u64) -> std::io::Result<Vec<String>> {
+		let node = self.get(id).await?;
+		let Some(tg::Artifact::File(file)) = node.artifact.map(tg::Artifact::with_id) else {
+			return Ok(Vec::new());
+		};
+		let dependencies = file.dependencies(&self.server).await.map_err(|error| {
+			tracing::error!(error = %error.trace(), "failed to get file dependencies");
+			std::io::Error::from_raw_os_error(libc::EIO)
+		})?;
+		if dependencies.is_empty() {
+			return Ok(Vec::new());
+		}
+		Ok(vec![tg::file::DEPENDENCIES_XATTR_NAME.to_owned()])
+	}
+
+	pub fn listxattrs_sync(&self, id: u64) -> std::io::Result<Vec<String>> {
+		self.listxattrs_sync_inner(id, None)
+	}
+
 	pub async fn lookup(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
 		// Handle "." and "..".
 		if name == "." {
@@ -264,8 +399,7 @@ impl Provider {
 	}
 
 	pub fn lookup_sync(&self, parent: u64, name: &str) -> std::io::Result<Option<u64>> {
-		let reader = self.sync_reader(None);
-		self.lookup_sync_inner(parent, name, &reader)
+		self.lookup_sync_inner(parent, name, None)
 	}
 
 	pub async fn lookup_parent(&self, id: u64) -> std::io::Result<u64> {
@@ -274,44 +408,6 @@ impl Provider {
 
 	pub fn lookup_parent_sync(&self, id: u64) -> std::io::Result<u64> {
 		self.nodes.lookup_parent_sync(id)
-	}
-
-	pub fn remember_sync(&self, id: u64) {
-		self.nodes.remember(id);
-	}
-
-	pub fn forget_sync(&self, id: u64, nlookup: u64) {
-		drop(self.nodes.forget(id, nlookup));
-	}
-
-	pub async fn getattr(&self, id: u64) -> std::io::Result<vfs::Attrs> {
-		let node = self.get(id).await?;
-		if let Some(attrs) = node.attrs {
-			return Ok(attrs);
-		}
-		let artifact = node.artifact.map(tg::Artifact::with_id);
-		let attrs = match artifact {
-			Some(tg::Artifact::File(file)) => {
-				let executable = file.executable(&self.server).await.map_err(|error| {
-					tracing::error!(%error, "failed to get file's executable bit");
-					std::io::Error::from_raw_os_error(libc::EIO)
-				})?;
-				let size = file.length(&self.server).await.map_err(|error| {
-					tracing::error!(%error, "failed to get file's size");
-					std::io::Error::from_raw_os_error(libc::EIO)
-				})?;
-				vfs::Attrs::new(vfs::FileType::File { executable, size })
-			},
-			Some(tg::Artifact::Directory(_)) | None => vfs::Attrs::new(vfs::FileType::Directory),
-			Some(tg::Artifact::Symlink(_)) => vfs::Attrs::new(vfs::FileType::Symlink),
-		};
-		self.nodes.set_attrs(id, attrs);
-		Ok(attrs)
-	}
-
-	pub fn getattr_sync(&self, id: u64) -> std::io::Result<vfs::Attrs> {
-		let reader = self.sync_reader(None);
-		self.getattr_sync_inner(id, &reader)
 	}
 
 	pub async fn open(&self, id: u64) -> std::io::Result<u64> {
@@ -346,8 +442,35 @@ impl Provider {
 	}
 
 	pub fn open_sync(&self, id: u64) -> std::io::Result<(u64, Option<OwnedFd>)> {
-		let reader = self.sync_reader(None);
-		self.open_sync_inner(id, &reader)
+		self.open_sync_inner(id, None)
+	}
+
+	pub async fn opendir(&self, id: u64) -> std::io::Result<u64> {
+		// Get the node.
+		let Node { artifact, .. } = self.get(id).await?;
+		let artifact = artifact.map(tg::Artifact::with_id);
+		match artifact {
+			Some(tg::Artifact::Directory(_)) | None => {},
+			Some(_) => {
+				tracing::error!(%id, "called opendir on a file or symlink");
+				return Err(std::io::Error::other("expected a directory"));
+			},
+		}
+		Ok(id)
+	}
+
+	pub fn opendir_sync(&self, id: u64) -> std::io::Result<u64> {
+		// Get the node.
+		let Node { artifact, .. } = self.get_sync(id)?;
+		let artifact = artifact.map(tg::Artifact::with_id);
+		match artifact {
+			Some(tg::Artifact::Directory(_)) | None => {},
+			Some(_) => {
+				tracing::error!(%id, "called opendir on a file or symlink");
+				return Err(std::io::Error::other("expected a directory"));
+			},
+		}
+		Ok(id)
 	}
 
 	pub async fn read(&self, id: u64, position: u64, length: u64) -> std::io::Result<Bytes> {
@@ -389,125 +512,7 @@ impl Provider {
 	}
 
 	pub fn read_sync(&self, id: u64, position: u64, length: u64) -> std::io::Result<Bytes> {
-		let reader = self.sync_reader(None);
-		self.read_sync_inner(id, position, length, &reader)
-	}
-
-	pub async fn readlink(&self, id: u64) -> std::io::Result<Bytes> {
-		// Get the node.
-		let Node {
-			artifact, depth, ..
-		} = self.get(id).await.map_err(|error| {
-			tracing::error!(%error, "failed to lookup node");
-			std::io::Error::from_raw_os_error(libc::EIO)
-		})?;
-		let artifact = artifact.map(tg::Artifact::with_id);
-
-		// Ensure it is a symlink.
-		let Some(tg::Artifact::Symlink(symlink)) = artifact else {
-			tracing::error!(%id, "tried to readlink on an invalid file type");
-			return Err(std::io::Error::other("expected a symlink"));
-		};
-
-		// Render the target.
-		let Ok(artifact) = symlink.artifact(&self.server).await else {
-			tracing::error!("failed to get the symlink's artifact");
-			return Err(std::io::Error::from_raw_os_error(libc::EIO));
-		};
-		let Ok(path) = symlink.path(&self.server).await else {
-			tracing::error!("failed to get the symlink's path");
-			return Err(std::io::Error::from_raw_os_error(libc::EIO));
-		};
-		Self::build_symlink_target(depth, artifact.as_ref().map(tg::Artifact::id), path)
-	}
-
-	pub fn readlink_sync(&self, id: u64) -> std::io::Result<Bytes> {
-		let reader = self.sync_reader(None);
-		self.readlink_sync_inner(id, &reader)
-	}
-
-	pub async fn listxattrs(&self, id: u64) -> std::io::Result<Vec<String>> {
-		let node = self.get(id).await?;
-		let Some(tg::Artifact::File(file)) = node.artifact.map(tg::Artifact::with_id) else {
-			return Ok(Vec::new());
-		};
-		let dependencies = file.dependencies(&self.server).await.map_err(|error| {
-			tracing::error!(error = %error.trace(), "failed to get file dependencies");
-			std::io::Error::from_raw_os_error(libc::EIO)
-		})?;
-		if dependencies.is_empty() {
-			return Ok(Vec::new());
-		}
-		Ok(vec![tg::file::DEPENDENCIES_XATTR_NAME.to_owned()])
-	}
-
-	pub fn listxattrs_sync(&self, id: u64) -> std::io::Result<Vec<String>> {
-		let reader = self.sync_reader(None);
-		self.listxattrs_sync_inner(id, &reader)
-	}
-
-	pub async fn getxattr(&self, id: u64, name: &str) -> std::io::Result<Option<Bytes>> {
-		let node = self.get(id).await?;
-		let Some(tg::Artifact::File(file)) = node.artifact.map(tg::Artifact::with_id) else {
-			return Ok(None);
-		};
-		if name == tg::file::DEPENDENCIES_XATTR_NAME {
-			let dependencies = file.dependencies(&self.server).await.map_err(|error| {
-				tracing::error!(error = %error.trace(), "failed to get file dependencies");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
-			if dependencies.is_empty() {
-				return Ok(None);
-			}
-			let references = dependencies.keys().cloned().collect::<Vec<_>>();
-			let data = serde_json::to_vec(&references).unwrap();
-			return Ok(Some(data.into()));
-		}
-
-		if name == tg::file::MODULE_XATTR_NAME {
-			let module = file.module(&self.server).await.map_err(|error| {
-				tracing::error!(error = %error.trace(), "failed to get file's module");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
-			let Some(module) = module else {
-				return Ok(None);
-			};
-			return Ok(Some(module.to_string().as_bytes().to_vec().into()));
-		}
-		Ok(None)
-	}
-
-	pub fn getxattr_sync(&self, id: u64, name: &str) -> std::io::Result<Option<Bytes>> {
-		let reader = self.sync_reader(None);
-		self.getxattr_sync_inner(id, name, &reader)
-	}
-
-	pub async fn opendir(&self, id: u64) -> std::io::Result<u64> {
-		// Get the node.
-		let Node { artifact, .. } = self.get(id).await?;
-		let artifact = artifact.map(tg::Artifact::with_id);
-		match artifact {
-			Some(tg::Artifact::Directory(_)) | None => {},
-			Some(_) => {
-				tracing::error!(%id, "called opendir on a file or symlink");
-				return Err(std::io::Error::other("expected a directory"));
-			},
-		}
-		Ok(id)
-	}
-
-	pub fn opendir_sync(&self, id: u64) -> std::io::Result<u64> {
-		// Get the node.
-		let Node { artifact, .. } = self.get_sync(id)?;
-		let artifact = artifact.map(tg::Artifact::with_id);
-		match artifact {
-			Some(tg::Artifact::Directory(_)) | None => {},
-			Some(_) => {
-				tracing::error!(%id, "called opendir on a file or symlink");
-				return Err(std::io::Error::other("expected a directory"));
-			},
-		}
-		Ok(id)
+		self.read_sync_inner(id, position, length, None)
 	}
 
 	pub async fn readdir(&self, id: u64) -> std::io::Result<Vec<(String, u64)>> {
@@ -542,8 +547,7 @@ impl Provider {
 	}
 
 	pub fn readdir_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64)>> {
-		let reader = self.sync_reader(None);
-		self.readdir_sync_inner(id, &reader)
+		self.readdir_sync_inner(id, None)
 	}
 
 	pub async fn readdirplus(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
@@ -557,40 +561,43 @@ impl Provider {
 	}
 
 	pub fn readdirplus_sync(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
-		let reader = self.sync_reader(None);
-		self.readdirplus_sync_inner(id, &reader)
+		self.readdirplus_sync_inner(id, None)
 	}
 
-	pub async fn close(&self, id: u64) {
-		if self.file_handles.contains_key(&id) {
-			self.file_handles.remove(&id);
-		}
-	}
+	pub async fn readlink(&self, id: u64) -> std::io::Result<Bytes> {
+		// Get the node.
+		let Node {
+			artifact, depth, ..
+		} = self.get(id).await.map_err(|error| {
+			tracing::error!(%error, "failed to lookup node");
+			std::io::Error::from_raw_os_error(libc::EIO)
+		})?;
+		let artifact = artifact.map(tg::Artifact::with_id);
 
-	pub fn close_sync(&self, id: u64) {
-		if self.file_handles.contains_key(&id) {
-			self.file_handles.remove(&id);
-		}
-	}
-
-	pub async fn new(server: &Server, _options: crate::config::Vfs) -> tg::Result<Self> {
-		// Create the nodes.
-		let nodes = Nodes::new();
-
-		// Create the provider.
-		let node_count = AtomicU64::new(1000);
-		let file_handle_count = AtomicU64::new(1000);
-		let file_handles = DashMap::default();
-		let server = server.clone();
-		let provider = Self {
-			node_count,
-			file_handle_count,
-			nodes,
-			file_handles,
-			server,
+		// Ensure it is a symlink.
+		let Some(tg::Artifact::Symlink(symlink)) = artifact else {
+			tracing::error!(%id, "tried to readlink on an invalid file type");
+			return Err(std::io::Error::other("expected a symlink"));
 		};
 
-		Ok(provider)
+		// Render the target.
+		let Ok(artifact) = symlink.artifact(&self.server).await else {
+			tracing::error!("failed to get the symlink's artifact");
+			return Err(std::io::Error::from_raw_os_error(libc::EIO));
+		};
+		let Ok(path) = symlink.path(&self.server).await else {
+			tracing::error!("failed to get the symlink's path");
+			return Err(std::io::Error::from_raw_os_error(libc::EIO));
+		};
+		Self::build_symlink_target(depth, artifact.as_ref().map(tg::Artifact::id), path)
+	}
+
+	pub fn readlink_sync(&self, id: u64) -> std::io::Result<Bytes> {
+		self.readlink_sync_inner(id, None)
+	}
+
+	pub fn remember_sync(&self, id: u64) {
+		self.nodes.remember(id);
 	}
 
 	async fn get(&self, id: u64) -> std::io::Result<Node> {
@@ -643,82 +650,11 @@ impl Provider {
 		id
 	}
 
-	fn handle_batch_sync_inner(
-		&self,
-		requests: Vec<vfs::Request>,
-		transaction: Option<&LmdbTransaction<'_>>,
-	) -> Vec<std::io::Result<vfs::Response>> {
-		let reader = self.sync_reader(transaction);
-		let mut responses = Vec::with_capacity(requests.len());
-		for request in requests {
-			let response = match request {
-				vfs::Request::Close { handle } => {
-					self.close_sync(handle);
-					Ok(vfs::Response::Unit)
-				},
-				vfs::Request::Forget { id, nlookup } => {
-					self.forget_sync(id, nlookup);
-					Ok(vfs::Response::Unit)
-				},
-				vfs::Request::GetAttr { id } => self
-					.getattr_sync_inner(id, &reader)
-					.map(|attrs| vfs::Response::GetAttr { attrs }),
-				vfs::Request::GetXattr { id, name } => self
-					.getxattr_sync_inner(id, &name, &reader)
-					.map(|value| vfs::Response::GetXattr { value }),
-				vfs::Request::ListXattrs { id } => self
-					.listxattrs_sync_inner(id, &reader)
-					.map(|names| vfs::Response::ListXattrs { names }),
-				vfs::Request::Lookup { id, name } => self
-					.lookup_sync_inner(id, &name, &reader)
-					.map(|id| vfs::Response::Lookup { id }),
-				vfs::Request::LookupParent { id } => self
-					.lookup_parent_sync(id)
-					.map(|id| vfs::Response::LookupParent { id }),
-				vfs::Request::Open { id } => self
-					.open_sync_inner(id, &reader)
-					.map(|(handle, backing_fd)| vfs::Response::Open { handle, backing_fd }),
-				vfs::Request::OpenDir { id } => self
-					.opendir_sync(id)
-					.map(|handle| vfs::Response::OpenDir { handle }),
-				vfs::Request::Read {
-					handle,
-					position,
-					length,
-				} => self
-					.read_sync_inner(handle, position, length, &reader)
-					.map(|bytes| vfs::Response::Read { bytes }),
-				vfs::Request::ReadDir { handle } => self
-					.readdir_sync_inner(handle, &reader)
-					.map(|entries| vfs::Response::ReadDir { entries }),
-				vfs::Request::ReadDirPlus { handle } => self
-					.readdirplus_sync_inner(handle, &reader)
-					.map(|entries| vfs::Response::ReadDirPlus { entries }),
-				vfs::Request::ReadLink { id } => self
-					.readlink_sync_inner(id, &reader)
-					.map(|target| vfs::Response::ReadLink { target }),
-				vfs::Request::Remember { id } => {
-					self.remember_sync(id);
-					Ok(vfs::Response::Unit)
-				},
-			};
-			responses.push(response);
-		}
-		responses
-	}
-
-	fn sync_reader<'a>(&'a self, transaction: Option<&'a LmdbTransaction<'a>>) -> SyncReader<'a> {
-		SyncReader {
-			provider: self,
-			transaction,
-		}
-	}
-
 	fn lookup_sync_inner(
 		&self,
 		parent: u64,
 		name: &str,
-		reader: &SyncReader<'_>,
+		transaction: Option<&LmdbTransaction<'_>>,
 	) -> std::io::Result<Option<u64>> {
 		// Handle "." and "..".
 		if name == "." {
@@ -766,7 +702,7 @@ impl Provider {
 			let Some(tg::Artifact::Directory(parent)) = artifact else {
 				return Ok(None);
 			};
-			let entries = Self::directory_entries_sync_inner(&parent, reader)?;
+			let entries = self.directory_entries_sync_inner(&parent, transaction)?;
 			let Some(artifact) = entries.get(name) else {
 				return Ok(None);
 			};
@@ -775,80 +711,36 @@ impl Provider {
 
 		// Insert the node.
 		let (artifact, depth) = entry.unwrap();
-		let attrs = Self::try_precompute_node_attrs_sync_inner(&artifact, reader);
+		let attrs = self.try_precompute_node_attrs_sync_inner(&artifact, transaction);
 		let id = self.put_sync(parent, name, &artifact, depth, attrs);
 		Ok(Some(id))
 	}
 
-	fn getattr_sync_inner(&self, id: u64, reader: &SyncReader<'_>) -> std::io::Result<vfs::Attrs> {
+	fn getattr_sync_inner(
+		&self,
+		id: u64,
+		transaction: Option<&LmdbTransaction<'_>>,
+	) -> std::io::Result<vfs::Attrs> {
 		let node = self.get_sync(id)?;
 		if let Some(attrs) = node.attrs {
 			return Ok(attrs);
 		}
-		let attrs = Self::getattr_from_node_sync_inner(&node, reader)?;
+		let attrs = self.getattr_from_node_sync_inner(&node, transaction)?;
 		self.nodes.set_attrs(id, attrs);
 		Ok(attrs)
-	}
-
-	fn open_sync_inner(
-		&self,
-		id: u64,
-		reader: &SyncReader<'_>,
-	) -> std::io::Result<(u64, Option<OwnedFd>)> {
-		// Get the node.
-		let Node { artifact, .. } = self.get_sync(id)?;
-		let artifact = artifact.map(tg::Artifact::with_id);
-
-		// Ensure it is a file.
-		let Some(tg::Artifact::File(file)) = artifact else {
-			tracing::error!(%id, "tried to open a non-regular file");
-			return Err(std::io::Error::other("expected a file"));
-		};
-
-		// Get the file object.
-		let file = Self::file_node_sync_inner(&file, reader)?;
-		let Some(blob) = file.contents else {
-			tracing::error!(%id, "file has no contents");
-			return Err(std::io::Error::from_raw_os_error(libc::EIO));
-		};
-
-		// Attempt to open a backing file for passthrough.
-		let backing_fd = self.try_open_backing_fd_sync_inner(&blob, reader)?;
-
-		// Insert the file handle.
-		let id = self.file_handle_count.fetch_add(1, Ordering::Relaxed);
-		self.file_handles.insert(id, FileHandle { blob });
-
-		Ok((id, backing_fd))
-	}
-
-	fn listxattrs_sync_inner(
-		&self,
-		id: u64,
-		reader: &SyncReader<'_>,
-	) -> std::io::Result<Vec<String>> {
-		let node = self.get_sync(id)?;
-		let Some(tg::Artifact::File(file)) = node.artifact.map(tg::Artifact::with_id) else {
-			return Ok(Vec::new());
-		};
-		let file = Self::file_node_sync_inner(&file, reader)?;
-		if file.dependencies.is_empty() {
-			return Ok(Vec::new());
-		}
-		Ok(vec![tg::file::DEPENDENCIES_XATTR_NAME.to_owned()])
 	}
 
 	fn getxattr_sync_inner(
 		&self,
 		id: u64,
 		name: &str,
-		reader: &SyncReader<'_>,
+		transaction: Option<&LmdbTransaction<'_>>,
 	) -> std::io::Result<Option<Bytes>> {
 		let node = self.get_sync(id)?;
 		let Some(tg::Artifact::File(file)) = node.artifact.map(tg::Artifact::with_id) else {
 			return Ok(None);
 		};
-		let file = Self::file_node_sync_inner(&file, reader)?;
+		let file = self.file_node_sync_inner(&file, transaction)?;
 		if name == tg::file::DEPENDENCIES_XATTR_NAME {
 			if file.dependencies.is_empty() {
 				return Ok(None);
@@ -866,12 +758,60 @@ impl Provider {
 		Ok(None)
 	}
 
+	fn listxattrs_sync_inner(
+		&self,
+		id: u64,
+		transaction: Option<&LmdbTransaction<'_>>,
+	) -> std::io::Result<Vec<String>> {
+		let node = self.get_sync(id)?;
+		let Some(tg::Artifact::File(file)) = node.artifact.map(tg::Artifact::with_id) else {
+			return Ok(Vec::new());
+		};
+		let file = self.file_node_sync_inner(&file, transaction)?;
+		if file.dependencies.is_empty() {
+			return Ok(Vec::new());
+		}
+		Ok(vec![tg::file::DEPENDENCIES_XATTR_NAME.to_owned()])
+	}
+
+	fn open_sync_inner(
+		&self,
+		id: u64,
+		transaction: Option<&LmdbTransaction<'_>>,
+	) -> std::io::Result<(u64, Option<OwnedFd>)> {
+		// Get the node.
+		let Node { artifact, .. } = self.get_sync(id)?;
+		let artifact = artifact.map(tg::Artifact::with_id);
+
+		// Ensure it is a file.
+		let Some(tg::Artifact::File(file)) = artifact else {
+			tracing::error!(%id, "tried to open a non-regular file");
+			return Err(std::io::Error::other("expected a file"));
+		};
+
+		// Get the file object.
+		let file = self.file_node_sync_inner(&file, transaction)?;
+		let Some(blob) = file.contents else {
+			tracing::error!(%id, "file has no contents");
+			return Err(std::io::Error::from_raw_os_error(libc::EIO));
+		};
+
+		// Attempt to open a backing file for passthrough.
+		let backing_fd = self.try_open_backing_fd_sync_inner(&blob, transaction)?;
+
+		// Insert the file handle.
+		let id = self.file_handle_count.fetch_add(1, Ordering::Relaxed);
+		self.file_handles.insert(id, FileHandle { blob });
+
+		Ok((id, backing_fd))
+	}
+
 	fn read_sync_inner(
 		&self,
 		id: u64,
 		position: u64,
 		length: u64,
-		reader: &SyncReader<'_>,
+		transaction: Option<&LmdbTransaction<'_>>,
 	) -> std::io::Result<Bytes> {
 		// Get the file handle.
 		let Some(file_handle) = self.file_handles.get(&id) else {
@@ -880,14 +820,20 @@ impl Provider {
 		};
 
 		let mut bytes = Vec::with_capacity(length.to_usize().unwrap());
-		self.read_blob_range_sync_inner(&file_handle.blob, position, length, &mut bytes, reader)?;
+		self.read_blob_range_sync_inner(
+			&file_handle.blob,
+			position,
+			length,
+			&mut bytes,
+			transaction,
+		)?;
 		Ok(bytes.into())
 	}
 
 	fn readdir_sync_inner(
 		&self,
 		id: u64,
-		reader: &SyncReader<'_>,
+		transaction: Option<&LmdbTransaction<'_>>,
 	) -> std::io::Result<Vec<(String, u64)>> {
 		let Node { artifact, .. } = self.get_sync(id)?;
 		let artifact = artifact.map(tg::Artifact::with_id);
@@ -902,15 +848,17 @@ impl Provider {
 		let Some(directory) = directory.as_ref() else {
 			return Ok(Vec::new());
 		};
-		let entries = Self::directory_entries_sync_inner(directory, reader)?;
+		let entries = self.directory_entries_sync_inner(directory, transaction)?;
 		let mut result = Vec::with_capacity(entries.len() + 2);
 		result.push((".".to_owned(), id));
 		result.push(("..".to_owned(), self.lookup_parent_sync(id)?));
 		for name in entries.keys() {
-			let entry = self.lookup_sync_inner(id, name, reader)?.ok_or_else(|| {
-				tracing::error!(parent = id, %name, "failed to lookup directory entry");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
+			let entry = self
+				.lookup_sync_inner(id, name, transaction)?
+				.ok_or_else(|| {
+					tracing::error!(parent = id, %name, "failed to lookup directory entry");
+					std::io::Error::from_raw_os_error(libc::EIO)
+				})?;
 			result.push((name.clone(), entry));
 		}
 		Ok(result)
@@ -919,18 +867,22 @@ impl Provider {
 	fn readdirplus_sync_inner(
 		&self,
 		id: u64,
-		reader: &SyncReader<'_>,
+		transaction: Option<&LmdbTransaction<'_>>,
 	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
-		let entries = self.readdir_sync_inner(id, reader)?;
+		let entries = self.readdir_sync_inner(id, transaction)?;
 		let mut entries_with_attrs = Vec::with_capacity(entries.len());
 		for (name, node_id) in entries {
-			let attrs = self.getattr_sync_inner(node_id, reader)?;
+			let attrs = self.getattr_sync_inner(node_id, transaction)?;
 			entries_with_attrs.push((name, node_id, attrs));
 		}
 		Ok(entries_with_attrs)
 	}
 
-	fn readlink_sync_inner(&self, id: u64, reader: &SyncReader<'_>) -> std::io::Result<Bytes> {
+	fn readlink_sync_inner(
+		&self,
+		id: u64,
+		transaction: Option<&LmdbTransaction<'_>>,
+	) -> std::io::Result<Bytes> {
 		// Get the node.
 		let Node {
 			artifact, depth, ..
@@ -944,7 +896,7 @@ impl Provider {
 		};
 
 		// Render the target.
-		let symlink = Self::symlink_node_sync_inner(&symlink, reader)?;
+		let symlink = self.symlink_node_sync_inner(&symlink, transaction)?;
 		let artifact = symlink.artifact.map(|artifact| match artifact {
 			tg::graph::data::Edge::Object(artifact) => Ok(artifact),
 			tg::graph::data::Edge::Pointer(_) => {
@@ -983,20 +935,25 @@ impl Provider {
 	}
 
 	fn artifact_data_sync_inner(
+		&self,
 		artifact: &tg::Artifact,
-		reader: &SyncReader<'_>,
+		transaction: Option<&LmdbTransaction<'_>>,
 	) -> std::io::Result<tg::object::Data> {
 		let id: tg::object::Id = artifact.id().into();
-		let output = reader.try_get_object_data(&id)?;
+		let output = self.try_get_object_data(&id, transaction)?;
 		let Some((_, data)) = output else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
 		};
 		Ok(data)
 	}
 
-	fn blob_length_sync_inner(id: &tg::blob::Id, reader: &SyncReader<'_>) -> std::io::Result<u64> {
+	fn blob_length_sync_inner(
+		&self,
+		id: &tg::blob::Id,
+		transaction: Option<&LmdbTransaction<'_>>,
+	) -> std::io::Result<u64> {
 		let id: tg::object::Id = id.clone().into();
-		let output = reader.try_get_object_data(&id)?;
+		let output = self.try_get_object_data(&id, transaction)?;
 		let Some((_, data)) = output else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
 		};
@@ -1014,11 +971,12 @@ impl Provider {
 	}
 
 	fn directory_node_sync_inner(
+		&self,
 		directory: &tg::Directory,
-		reader: &SyncReader<'_>,
+		transaction: Option<&LmdbTransaction<'_>>,
 	) -> std::io::Result<tg::graph::data::Directory> {
 		let artifact = tg::Artifact::Directory(directory.clone());
-		let data = Self::artifact_data_sync_inner(&artifact, reader)?;
+		let data = self.artifact_data_sync_inner(&artifact, transaction)?;
 		let tg::object::Data::Directory(directory) = data else {
 			tracing::error!("expected directory data");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -1035,13 +993,13 @@ impl Provider {
 		position: u64,
 		length: u64,
 		output: &mut Vec<u8>,
-		reader: &SyncReader<'_>,
+		transaction: Option<&LmdbTransaction<'_>>,
 	) -> std::io::Result<()> {
 		if length == 0 {
 			return Ok(());
 		}
 		let object_id: tg::object::Id = id.clone().into();
-		let object = reader.try_get_object(&object_id)?;
+		let object = self.try_get_object(&object_id, transaction)?;
 		let Some(object) = object else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
 		};
@@ -1088,7 +1046,7 @@ impl Provider {
 							child_position,
 							child_length,
 							output,
-							reader,
+							transaction,
 						)?;
 						remaining -= child_length;
 						child_position = 0;
@@ -1144,11 +1102,12 @@ impl Provider {
 	}
 
 	fn file_node_sync_inner(
+		&self,
 		file: &tg::File,
-		reader: &SyncReader<'_>,
+		transaction: Option<&LmdbTransaction<'_>>,
 	) -> std::io::Result<tg::graph::data::File> {
 		let artifact = tg::Artifact::File(file.clone());
-		let data = Self::artifact_data_sync_inner(&artifact, reader)?;
+		let data = self.artifact_data_sync_inner(&artifact, transaction)?;
 		let tg::object::Data::File(file) = data else {
 			tracing::error!("expected file data");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -1160,11 +1119,12 @@ impl Provider {
 	}
 
 	fn symlink_node_sync_inner(
+		&self,
 		symlink: &tg::Symlink,
-		reader: &SyncReader<'_>,
+		transaction: Option<&LmdbTransaction<'_>>,
 	) -> std::io::Result<tg::graph::data::Symlink> {
 		let artifact = tg::Artifact::Symlink(symlink.clone());
-		let data = Self::artifact_data_sync_inner(&artifact, reader)?;
+		let data = self.artifact_data_sync_inner(&artifact, transaction)?;
 		let tg::object::Data::Symlink(symlink) = data else {
 			tracing::error!("expected symlink data");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -1176,10 +1136,11 @@ impl Provider {
 	}
 
 	fn directory_entries_sync_inner(
+		&self,
 		directory: &tg::Directory,
-		reader: &SyncReader<'_>,
+		transaction: Option<&LmdbTransaction<'_>>,
 	) -> std::io::Result<BTreeMap<String, tg::Artifact>> {
-		let directory = Self::directory_node_sync_inner(directory, reader)?;
+		let directory = self.directory_node_sync_inner(directory, transaction)?;
 		match directory {
 			tg::graph::data::Directory::Leaf(leaf) => leaf
 				.entries
@@ -1204,7 +1165,7 @@ impl Provider {
 						},
 					};
 					let child = tg::Directory::with_id(directory);
-					entries.extend(Self::directory_entries_sync_inner(&child, reader)?);
+					entries.extend(self.directory_entries_sync_inner(&child, transaction)?);
 				}
 				Ok(entries)
 			},
@@ -1212,8 +1173,9 @@ impl Provider {
 	}
 
 	fn getattr_from_node_sync_inner(
+		&self,
 		node: &Node,
-		reader: &SyncReader<'_>,
+		transaction: Option<&LmdbTransaction<'_>>,
 	) -> std::io::Result<vfs::Attrs> {
 		if let Some(attrs) = node.attrs {
 			return Ok(attrs);
@@ -1221,9 +1183,9 @@ impl Provider {
 		let artifact = node.artifact.clone().map(tg::Artifact::with_id);
 		match artifact {
 			Some(tg::Artifact::File(file)) => {
-				let file = Self::file_node_sync_inner(&file, reader)?;
+				let file = self.file_node_sync_inner(&file, transaction)?;
 				let size = file.contents.as_ref().map_or(Ok(0), |contents| {
-					Self::blob_length_sync_inner(contents, reader)
+					self.blob_length_sync_inner(contents, transaction)
 				})?;
 				Ok(vfs::Attrs::new(vfs::FileType::File {
 					executable: file.executable,
@@ -1240,10 +1202,10 @@ impl Provider {
 	fn try_open_backing_fd_sync_inner(
 		&self,
 		id: &tg::blob::Id,
-		reader: &SyncReader<'_>,
+		transaction: Option<&LmdbTransaction<'_>>,
 	) -> std::io::Result<Option<OwnedFd>> {
 		let id: tg::object::Id = id.clone().into();
-		let Some(object) = reader.try_get_object(&id)? else {
+		let Some(object) = self.try_get_object(&id, transaction)? else {
 			return Ok(None);
 		};
 		let Some(cache_pointer) = object.cache_pointer else {
@@ -1270,14 +1232,15 @@ impl Provider {
 	}
 
 	fn try_precompute_node_attrs_sync_inner(
+		&self,
 		artifact: &tg::Artifact,
-		reader: &SyncReader<'_>,
+		transaction: Option<&LmdbTransaction<'_>>,
 	) -> Option<vfs::Attrs> {
 		match artifact {
 			tg::Artifact::File(file) => {
-				let file = Self::file_node_sync_inner(file, reader).ok()?;
+				let file = self.file_node_sync_inner(file, transaction).ok()?;
 				let size = file.contents.as_ref().map_or(Some(0), |contents| {
-					Self::blob_length_sync_inner(contents, reader).ok()
+					self.blob_length_sync_inner(contents, transaction).ok()
 				})?;
 				Some(vfs::Attrs::new(vfs::FileType::File {
 					executable: file.executable,
@@ -1286,6 +1249,52 @@ impl Provider {
 			},
 			_ => Self::attrs_from_artifact(Some(artifact)),
 		}
+	}
+
+	fn try_get_object(
+		&self,
+		id: &tg::object::Id,
+		transaction: Option<&LmdbTransaction<'_>>,
+	) -> std::io::Result<Option<tangram_store::Object<'static>>> {
+		#[cfg(feature = "lmdb")]
+		if let (crate::store::Store::Lmdb(store), Some(transaction)) =
+			(&self.server.store, transaction)
+		{
+			return store
+				.try_get_object_with_transaction(transaction, id)
+				.map_err(|error| Self::map_store_sync_error(&error));
+		}
+
+		#[cfg(not(feature = "lmdb"))]
+		let _ = transaction;
+
+		self.server
+			.store
+			.try_get_object_sync(id)
+			.map_err(|error| Self::map_store_sync_error(&error))
+	}
+
+	fn try_get_object_data(
+		&self,
+		id: &tg::object::Id,
+		transaction: Option<&LmdbTransaction<'_>>,
+	) -> std::io::Result<Option<(u64, tg::object::Data)>> {
+		#[cfg(feature = "lmdb")]
+		if let (crate::store::Store::Lmdb(store), Some(transaction)) =
+			(&self.server.store, transaction)
+		{
+			return store
+				.try_get_object_data_with_transaction(transaction, id)
+				.map_err(|error| Self::map_store_sync_error(&error));
+		}
+
+		#[cfg(not(feature = "lmdb"))]
+		let _ = transaction;
+
+		self.server
+			.store
+			.try_get_object_data_sync(id)
+			.map_err(|error| Self::map_store_sync_error(&error))
 	}
 
 	fn map_store_sync_error(error: &tg::Error) -> std::io::Error {
