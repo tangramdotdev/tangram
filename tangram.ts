@@ -1,4 +1,5 @@
 import bun from "bun" with { local: "../packages/packages/bun.tg.ts" };
+import dash from "dash" with { local: "../packages/packages/dash.tg.ts" };
 import foundationdb from "foundationdb" with {
 	local: "../packages/packages/foundationdb.tg.ts",
 };
@@ -205,7 +206,93 @@ export const nodeModules = async (hostArg?: string) => {
 		.env(bunEnvArg(host))
 		.then(tg.Directory.expect);
 
-	return output;
+	// Wrap shebang scripts in node_modules/.bin so they don't need /usr/bin/env
+	// in the sandbox. This makes them native ELF executables with explicit interpreters.
+	const bunBin = await bun({ host })
+		.then((d) => d.get("bin/bun"))
+		.then(tg.File.expect);
+	const dashBin = await dash({ host })
+		.then((d) => d.get("bin/dash"))
+		.then(tg.File.expect);
+	const interpreters = { node: bunBin, sh: dashBin, bash: dashBin };
+	const binDir = await output
+		.get("node_modules/.bin")
+		.then(tg.Directory.expect);
+	const wrappedBin = await wrapShebangs(binDir, output, host, interpreters);
+	// Provide `node` (bun) in .bin since many scripts use #!/usr/bin/env node.
+	return tg.directory(output, {
+		"node_modules/.bin": tg.directory(wrappedBin, { node: bunBin }),
+	});
+};
+
+/** Wrap shebang scripts in a directory with explicit interpreters.
+ *
+ * For each executable shebang script, detects the interpreter and wraps it with
+ * `std.wrap` so it becomes a native ELF that doesn't need `/usr/bin/env` at
+ * runtime. The executable is referenced via a symlink into `root`, preserving
+ * the directory context so scripts can resolve relative paths (e.g., package.json
+ * subpath imports).
+ */
+const wrapShebangs = async (
+	binDir: tg.Directory,
+	root: tg.Directory,
+	host: string,
+	interpreters: Record<string, tg.File>,
+) => {
+	let result = binDir;
+	for await (const [name, artifact] of binDir) {
+		// Resolve the entry to a file for metadata detection.
+		let file: tg.File;
+		if (artifact instanceof tg.Symlink) {
+			try {
+				const resolved = await root.get(`node_modules/.bin/${name}`);
+				if (!(resolved instanceof tg.File)) continue;
+				file = resolved;
+			} catch {
+				continue;
+			}
+		} else if (artifact instanceof tg.File) {
+			file = artifact;
+		} else {
+			continue;
+		}
+		if (!(await file.executable)) continue;
+
+		const metadata = await std.file.tryExecutableMetadata(file);
+		if (!metadata || metadata.format !== "shebang") continue;
+
+		let interpreter: tg.File | undefined;
+		if (metadata.interpreter === "/usr/bin/env") {
+			// For env shebangs, read the first line to get the command argument.
+			const bytes = await file.read({ length: 128 });
+			const text = tg.encoding.utf8.decode(bytes);
+			const line = text.split("\n")[0] ?? "";
+			const cmd = line.match(/^#!\s*\S+\s+(\S+)/)?.[1];
+			if (cmd) {
+				interpreter = interpreters[cmd];
+			}
+		} else {
+			// Direct interpreter shebangs like #!/bin/sh or #!/bin/bash.
+			const base = metadata.interpreter.split("/").pop();
+			if (base) {
+				interpreter = interpreters[base];
+			}
+		}
+		if (!interpreter) continue;
+
+		// Use a symlink so the wrapper resolves this as a path, not content.
+		const executableRef = tg.symlink({
+			artifact: root,
+			path: `node_modules/.bin/${name}`,
+		});
+		const wrapped = await std.wrap({
+			executable: executableRef,
+			interpreter,
+			host,
+		});
+		result = await tg.directory(result, { [name]: wrapped });
+	}
+	return result;
 };
 
 const bunEnvArg = async (hostArg?: string) => {
@@ -297,7 +384,7 @@ export const testCloud = async () => {
 
 export const testProxy = async () => {
 	const output = await $`tg --help > ${tg.output}`
-		.env(build({ proxy: true }))
+		.env(build({ proxy: true, profile: "dev" }))
 		.then(tg.File.expect)
 		.then((f) => f.text);
 	tg.assert(output.includes("Usage:"));
