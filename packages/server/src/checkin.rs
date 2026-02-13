@@ -48,6 +48,8 @@ type IndexCacheEntryArgs = Vec<tangram_index::PutCacheEntryArg>;
 
 type StoreArgs = IndexMap<tg::object::Id, crate::store::PutObjectArg, tg::id::BuildHasher>;
 
+type GraphData = IndexMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>;
+
 impl Server {
 	#[tracing::instrument(
 		fields(path = ?arg.path, root = arg.options.root),
@@ -378,6 +380,7 @@ impl Server {
 		let mut store_args = IndexMap::default();
 		let mut index_object_args = IndexMap::default();
 		let mut index_cache_entry_args = Vec::new();
+		let mut graph_data = IndexMap::default();
 
 		// Create blobs.
 		self.checkin_create_blobs(
@@ -402,6 +405,7 @@ impl Server {
 			&mut store_args,
 			&mut index_object_args,
 			&mut index_cache_entry_args,
+			&mut graph_data,
 			root,
 			touched_at,
 		)?;
@@ -412,9 +416,17 @@ impl Server {
 				task.await
 					.map_err(|source| tg::error!(!source, "failed to run the fixup task"))?;
 			}
-			self.checkin_cache(&arg, &graph, next, root, &index_cache_entry_args, progress)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to cache"))?;
+			self.checkin_cache(
+				&arg,
+				&graph,
+				next,
+				root,
+				&index_cache_entry_args,
+				&mut graph_data,
+				progress,
+			)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to cache"))?;
 		}
 
 		// Store.
