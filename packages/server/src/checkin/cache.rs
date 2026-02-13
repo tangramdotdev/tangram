@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Server,
-		checkin::{Graph, IndexCacheEntryArgs, graph::Variant},
+		checkin::{Graph, GraphData, IndexCacheEntryArgs, graph::Variant},
 		temp::Temp,
 	},
 	futures::stream::{self, StreamExt as _, TryStreamExt as _},
@@ -9,14 +9,15 @@ use {
 		collections::BTreeSet,
 		os::unix::fs::PermissionsExt as _,
 		path::{Path, PathBuf},
+		pin::pin,
 	},
 	tangram_client::prelude::*,
-	tangram_index::Index,
 	tangram_util::{iter::Ext as _, path},
 };
 
 impl Server {
 	#[tracing::instrument(level = "trace", skip_all)]
+	#[allow(clippy::too_many_arguments)]
 	pub(super) async fn checkin_cache(
 		&self,
 		arg: &tg::checkin::Arg,
@@ -24,12 +25,19 @@ impl Server {
 		next: usize,
 		root: &Path,
 		index_cache_entry_args: &IndexCacheEntryArgs,
+		graph_data: &mut GraphData,
 		progress: &crate::progress::Handle<super::TaskOutput>,
 	) -> tg::Result<()> {
 		if arg.options.destructive {
 			progress.spinner("checking", "checking");
-			self.checkin_ensure_dependencies_are_cached(graph, root, index_cache_entry_args)
-				.await?;
+			self.checkin_ensure_dependencies_are_cached(
+				graph,
+				root,
+				index_cache_entry_args,
+				graph_data,
+				progress,
+			)
+			.await?;
 			progress.finish("checking");
 			progress.spinner("copying", "copying");
 			self.checkin_cache_destructive(graph, root).await?;
@@ -203,6 +211,8 @@ impl Server {
 		graph: &Graph,
 		path: &Path,
 		index_cache_entry_args: &IndexCacheEntryArgs,
+		graph_data: &mut GraphData,
+		progress: &crate::progress::Handle<super::TaskOutput>,
 	) -> tg::Result<()> {
 		let root = graph
 			.paths
@@ -270,7 +280,7 @@ impl Server {
 									if will_cache.contains(&artifact) {
 										continue;
 									}
-									let data = graph.graphs.get(id);
+									let data = graph_data.get(id);
 									let ids = self.graph_ids(id, data).await.map_err(|source| {
 										tg::error!(!source, "failed to get the graph ids")
 									})?;
@@ -310,7 +320,7 @@ impl Server {
 										if will_cache.contains(&artifact) {
 											continue;
 										}
-										let data = graph.graphs.get(id);
+										let data = graph_data.get(id);
 										let ids =
 											self.graph_ids(id, data).await.map_err(|source| {
 												tg::error!(!source, "failed to get the graph ids")
@@ -347,7 +357,7 @@ impl Server {
 									if will_cache.contains(&artifact) {
 										continue;
 									}
-									let data = graph.graphs.get(id);
+									let data = graph_data.get(id);
 									let ids = self.graph_ids(id, data).await.map_err(|source| {
 										tg::error!(!source, "failed to get the graph ids")
 									})?;
@@ -361,19 +371,20 @@ impl Server {
 				},
 			}
 		}
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let all_cached = self
-			.index
-			.touch_cache_entries(&artifacts, touched_at)
+
+		progress.spinner("dependencies", "caching dependencies");
+		let stream = self
+			.cache(tg::cache::Arg { artifacts })
 			.await
-			.map_err(|source| {
-				tg::error!(!source, "failed to get the cache entries from the index")
-			})?
-			.into_iter()
-			.all(|entry| entry.is_some());
-		if !all_cached {
-			return Err(tg::error!("missing cache dependency"));
+			.map_err(|source| tg::error!(!source, "failed to cache dependencies"))?;
+		let mut stream = pin!(stream);
+		while let Some(event) = stream.next().await {
+			if matches!(event, Ok(tg::progress::Event::Output(()))) {
+				break;
+			}
+			progress.forward(event);
 		}
+		progress.finish("dependencies");
 		Ok(())
 	}
 

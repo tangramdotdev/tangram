@@ -2,7 +2,7 @@ use {
 	crate::{
 		Server,
 		checkin::{
-			Graph, IndexCacheEntryArgs, IndexObjectArgs, StoreArgs,
+			Graph, GraphData, IndexCacheEntryArgs, IndexObjectArgs, StoreArgs,
 			graph::{Contents, Node, Petgraph, Variant},
 			path::Paths,
 		},
@@ -31,6 +31,7 @@ impl Server {
 		store_args: &mut StoreArgs,
 		index_object_args: &mut IndexObjectArgs,
 		index_cache_entry_args: &mut IndexCacheEntryArgs,
+		graph_data: &mut GraphData,
 		root: &Path,
 		touched_at: i64,
 	) -> tg::Result<()> {
@@ -67,6 +68,7 @@ impl Server {
 					paths,
 					store_args,
 					index_object_args,
+					graph_data,
 					scc,
 					touched_at,
 				)?;
@@ -269,6 +271,7 @@ impl Server {
 		paths: &Paths,
 		store_args: &mut StoreArgs,
 		index_object_args: &mut IndexObjectArgs,
+		graph_data: &mut GraphData,
 		scc: &[usize],
 		touched_at: i64,
 	) -> tg::Result<()> {
@@ -313,7 +316,7 @@ impl Server {
 			index_object_args,
 			touched_at,
 		)?;
-		graph.graphs.insert(
+		graph_data.insert(
 			id.unwrap_graph_ref().clone(),
 			data.try_unwrap_graph().unwrap(),
 		);
