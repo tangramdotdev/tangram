@@ -147,9 +147,9 @@ impl LocalDependencies {
 
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Lock {
-	/// Whether to write the lock. Use `--lock=file` to write a lockfile, "attr" to write a lockattr. "file" is the default if not specified.
+	/// Whether to write the lock. Use `--lock=auto` to reuse an existing lock kind or prefer a lockattr for files. Use `--lock=file` to write a lockfile, and `--lock=attr` to write a lockattr. `auto` is the default if not specified.
 	#[arg(
-		default_missing_value = "file",
+		default_missing_value = "auto",
 		long,
 		num_args = 0..=1,
 		overrides_with = "no_lock",

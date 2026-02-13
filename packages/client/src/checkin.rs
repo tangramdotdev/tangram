@@ -21,8 +21,9 @@ use {
 )]
 pub enum Lock {
 	#[default]
-	File,
+	Auto,
 	Attr,
+	File,
 }
 
 #[serde_as]
@@ -179,8 +180,9 @@ impl Default for Options {
 impl std::fmt::Display for Lock {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			Self::File => write!(f, "file"),
+			Self::Auto => write!(f, "auto"),
 			Self::Attr => write!(f, "attr"),
+			Self::File => write!(f, "file"),
 		}
 	}
 }
@@ -190,8 +192,9 @@ impl std::str::FromStr for Lock {
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		match s {
-			"file" => Ok(Self::File),
+			"auto" => Ok(Self::Auto),
 			"attr" => Ok(Self::Attr),
+			"file" => Ok(Self::File),
 			_ => Err(tg::error!(%s, "invalid lock")),
 		}
 	}
@@ -204,5 +207,5 @@ pub(crate) fn default_lock() -> Option<Lock> {
 
 #[expect(clippy::trivially_copy_pass_by_ref, clippy::ref_option)]
 pub(crate) fn is_default_lock(lock: &Option<Lock>) -> bool {
-	*lock == Some(Lock::File)
+	*lock == Some(Lock::Auto)
 }

@@ -38,22 +38,38 @@ impl Server {
 				|source| tg::error!(!source, path = %lockfile_path.display(), "failed to write the lockfile"),
 			)?;
 		} else if state.artifact.is_file() {
-			match state.arg.lock {
-				Some(tg::checkout::Lock::File) => {
-					let contents = serde_json::to_vec_pretty(&lock)
-						.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
+			let lock_kind = state.arg.lock.unwrap();
+			let lock_kind = if matches!(lock_kind, tg::checkout::Lock::Auto) {
+				let lockfile_path = state.path.with_extension("lock");
+				if std::fs::metadata(&lockfile_path).is_ok_and(|metadata| metadata.is_file()) {
+					tg::checkout::Lock::File
+				} else {
+					tg::checkout::Lock::Attr
+				}
+			} else {
+				lock_kind
+			};
+			match lock_kind {
+				tg::checkout::Lock::Attr => {
 					let lockfile_path = state.path.with_extension("lock");
-					std::fs::write(&lockfile_path, &contents).map_err(
-						|source| tg::error!(!source, path = %lockfile_path.display(), "failed to write the lockfile"),
-					)?;
-				},
-				Some(tg::checkout::Lock::Attr) => {
+					std::fs::remove_file(&lockfile_path).ok();
+					xattr::remove(&state.path, tg::file::LOCKATTR_XATTR_NAME).ok();
 					let contents = serde_json::to_vec(&lock)
 						.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
 					xattr::set(&state.path, tg::file::LOCKATTR_XATTR_NAME, &contents)
 						.map_err(|source| tg::error!(!source, "failed to write the lockattr"))?;
 				},
-				None => unreachable!(),
+				tg::checkout::Lock::File => {
+					xattr::remove(&state.path, tg::file::LOCKATTR_XATTR_NAME).ok();
+					let contents = serde_json::to_vec_pretty(&lock)
+						.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
+					let lockfile_path = state.path.with_extension("lock");
+					std::fs::remove_file(&lockfile_path).ok();
+					std::fs::write(&lockfile_path, &contents).map_err(
+						|source| tg::error!(!source, path = %lockfile_path.display(), "failed to write the lockfile"),
+					)?;
+				},
+				tg::checkout::Lock::Auto => unreachable!(),
 			}
 		}
 
