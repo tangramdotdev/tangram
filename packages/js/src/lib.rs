@@ -5,10 +5,25 @@ pub mod quickjs;
 #[cfg(feature = "v8")]
 pub mod v8;
 
-#[cfg(all(feature = "quickjs", not(feature = "v8")))]
-pub use self::quickjs::{Abort, run};
-#[cfg(feature = "v8")]
-pub use self::v8::{Abort, run};
+pub enum Abort {
+	#[cfg(feature = "quickjs")]
+	QuickJs(self::quickjs::Abort),
+	#[cfg(feature = "v8")]
+	V8(self::v8::Abort),
+}
+
+impl Abort {
+	pub fn abort(&self) {
+		match self {
+			#[cfg(feature = "quickjs")]
+			Self::QuickJs(abort) => abort.abort(),
+			#[cfg(feature = "v8")]
+			Self::V8(abort) => abort.abort(),
+			#[cfg(not(any(feature = "quickjs", feature = "v8")))]
+			_ => {},
+		}
+	}
+}
 
 pub type Logger = Arc<
 	dyn Fn(tg::process::log::Stream, Vec<u8>) -> BoxFuture<'static, tg::Result<()>>

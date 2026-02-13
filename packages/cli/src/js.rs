@@ -23,11 +23,23 @@ pub struct Args {
 	)]
 	pub arg_values: Vec<String>,
 
+	/// The JS engine to use.
+	#[arg(long, default_value = "auto")]
+	pub engine: JsEngine,
+
 	#[arg(index = 1)]
 	pub executable: tg::command::data::Executable,
 
 	#[arg(index = 2, trailing_var_arg = true)]
 	pub trailing: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
+pub enum JsEngine {
+	#[default]
+	Auto,
+	QuickJs,
+	V8,
 }
 
 impl Cli {
@@ -112,16 +124,35 @@ impl Cli {
 		runtime.block_on(client.connect())?;
 
 		// Run.
-		let future = tangram_js::run(
-			&client,
-			args_,
-			cwd,
-			env,
-			executable,
-			logger,
-			runtime.handle().clone(),
-			None,
-		);
+		let future = match args.engine {
+			#[cfg(feature = "v8")]
+			JsEngine::Auto | JsEngine::V8 => tangram_js::v8::run(
+				&client,
+				args_,
+				cwd,
+				env,
+				executable,
+				logger,
+				runtime.handle().clone(),
+				None,
+			)
+			.boxed_local(),
+			#[cfg(feature = "quickjs")]
+			#[allow(unreachable_patterns)]
+			JsEngine::Auto | JsEngine::QuickJs => tangram_js::quickjs::run(
+				&client,
+				args_,
+				cwd,
+				env,
+				executable,
+				logger,
+				runtime.handle().clone(),
+				None,
+			)
+			.boxed_local(),
+			#[allow(unreachable_patterns)]
+			_ => return Err(tg::error!("the requested JS engine is not available")),
+		};
 		let tangram_js::Output {
 			error,
 			exit,

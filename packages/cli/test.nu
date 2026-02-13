@@ -693,6 +693,7 @@ export def --env spawn [
 			kind: 'lmdb',
 			map_size: 10_485_760,
 		},
+		runner: { js: { engine: 'quickjs' } },
 		remotes: [],
 		store: {
 			kind: 'lmdb',

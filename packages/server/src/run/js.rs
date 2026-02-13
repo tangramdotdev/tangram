@@ -10,6 +10,13 @@ impl Server {
 	pub(crate) async fn run_js(&self, process: &tg::Process) -> tg::Result<super::Output> {
 		let main_runtime_handle = tokio::runtime::Handle::current();
 
+		// Get the JS engine.
+		let engine = self
+			.config
+			.runner
+			.as_ref()
+			.map_or(crate::config::JsEngine::Auto, |runner| runner.js.engine);
+
 		// Get the args, cwd, env, and executable.
 		let state = process
 			.load(self)
@@ -45,7 +52,8 @@ impl Server {
 		});
 
 		// Create a channel to receive the abort handle.
-		let (abort_sender, abort_receiver) = tokio::sync::watch::channel(None);
+		let (abort_sender, abort_receiver) =
+			tokio::sync::watch::channel::<Option<tangram_js::Abort>>(None);
 
 		// Spawn the task.
 		let local_pool_handle = self.local_pool_handle.get_or_init(|| {
@@ -57,35 +65,112 @@ impl Server {
 			});
 			tokio_util::task::LocalPoolHandle::new(concurrency)
 		});
-		let task = AbortOnDropHandle::new(local_pool_handle.spawn_pinned({
-			let server = self.clone();
-			let process = process.clone();
-			move || async move {
-				let process = crate::context::Process {
-					id: process.id().clone(),
-					paths: None,
-					remote: process.remote().cloned(),
-					retry: *process.retry(&server).await?,
-				};
-				let context = Context {
-					process: Some(Arc::new(process)),
-					..Default::default()
-				};
-				let handle = ServerWithContext(server, context);
-				tangram_js::run(
-					&handle,
-					args,
-					cwd,
-					env,
-					executable,
-					logger,
-					main_runtime_handle,
-					Some(abort_sender),
-				)
-				.boxed_local()
-				.await
-			}
-		}));
+
+		let task = match engine {
+			#[cfg(feature = "v8")]
+			crate::config::JsEngine::Auto | crate::config::JsEngine::V8 => {
+				// Create a channel for the engine-specific abort.
+				let (engine_abort_sender, mut engine_abort_receiver) =
+					tokio::sync::watch::channel::<Option<tangram_js::v8::Abort>>(None);
+
+				// Forward abort from engine-specific to unified.
+				let abort_sender_clone = abort_sender.clone();
+				tokio::spawn(async move {
+					while engine_abort_receiver.changed().await.is_ok() {
+						if let Some(abort) = engine_abort_receiver.borrow().clone() {
+							abort_sender_clone
+								.send(Some(tangram_js::Abort::V8(abort)))
+								.ok();
+							break;
+						}
+					}
+				});
+
+				AbortOnDropHandle::new(local_pool_handle.spawn_pinned({
+					let server = self.clone();
+					let process = process.clone();
+					move || async move {
+						let process = crate::context::Process {
+							id: process.id().clone(),
+							paths: None,
+							remote: process.remote().cloned(),
+							retry: *process.retry(&server).await?,
+						};
+						let context = Context {
+							process: Some(Arc::new(process)),
+							..Default::default()
+						};
+						let handle = ServerWithContext(server, context);
+						tangram_js::v8::run(
+							&handle,
+							args,
+							cwd,
+							env,
+							executable,
+							logger,
+							main_runtime_handle,
+							Some(engine_abort_sender),
+						)
+						.boxed_local()
+						.await
+					}
+				}))
+			},
+
+			#[allow(unreachable_patterns)]
+			#[cfg(feature = "quickjs")]
+			crate::config::JsEngine::Auto | crate::config::JsEngine::QuickJs => {
+				// Create a channel for the engine-specific abort.
+				let (engine_abort_sender, mut engine_abort_receiver) =
+					tokio::sync::watch::channel::<Option<tangram_js::quickjs::Abort>>(None);
+
+				// Forward abort from engine-specific to unified.
+				let abort_sender_clone = abort_sender.clone();
+				tokio::spawn(async move {
+					while engine_abort_receiver.changed().await.is_ok() {
+						if let Some(abort) = engine_abort_receiver.borrow().clone() {
+							abort_sender_clone
+								.send(Some(tangram_js::Abort::QuickJs(abort)))
+								.ok();
+							break;
+						}
+					}
+				});
+
+				AbortOnDropHandle::new(local_pool_handle.spawn_pinned({
+					let server = self.clone();
+					let process = process.clone();
+					move || async move {
+						let process = crate::context::Process {
+							id: process.id().clone(),
+							paths: None,
+							remote: process.remote().cloned(),
+							retry: *process.retry(&server).await?,
+						};
+						let context = Context {
+							process: Some(Arc::new(process)),
+							..Default::default()
+						};
+						let handle = ServerWithContext(server, context);
+						tangram_js::quickjs::run(
+							&handle,
+							args,
+							cwd,
+							env,
+							executable,
+							logger,
+							main_runtime_handle,
+							Some(engine_abort_sender),
+						)
+						.boxed_local()
+						.await
+					}
+				}))
+			},
+
+			#[allow(unreachable_patterns)]
+			_ => return Err(tg::error!("the requested JS engine is not available")),
+		};
 
 		// If this future is dropped before the task is done, then abort execution.
 		let mut done = scopeguard::guard(false, |done| {

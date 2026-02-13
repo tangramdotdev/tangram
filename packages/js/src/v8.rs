@@ -49,6 +49,7 @@ struct Module {
 	v8: Option<v8::Global<v8::Module>>,
 }
 
+#[derive(Clone)]
 pub struct Abort(v8::IsolateHandle);
 
 #[expect(clippy::too_many_arguments)]

@@ -132,7 +132,7 @@ radix_trie = "0.3.0"
 rand = "0.10"
 ratatui = "0.30"
 reflink-copy = "0.1"
-rquickjs = { version = "0.11", features = ["full-async", "loader", "futures"] }
+rquickjs = { git = "https://github.com/tangramdotdev/rquickjs", features = ["full-async", "loader", "futures"] }
 rquickjs-serde = "0.4"
 regex = "1"
 reqwest = { version = "0.13", features = ["json", "stream"] }

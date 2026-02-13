@@ -19,11 +19,11 @@ snapshot $first_output '
 	error an error occurred
 	-> the process failed
 	   id = PROCESS
-	-> Uncaught Error: whoops
+	-> whoops
 	   ╭─[./tangram.ts:1:30]
 	 1 │ export default () => { throw new Error("whoops"); };
 	   ·                              ▲
-	   ·                              ╰── Uncaught Error: whoops
+	   ·                              ╰── whoops
 	   ╰────
 
 '

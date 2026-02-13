@@ -16,6 +16,10 @@ pub struct Config {
 	#[serde(flatten)]
 	pub server: tangram_server::Config,
 
+	/// Configure telemetry export via OpenTelemetry.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub telemetry: Option<Telemetry>,
+
 	/// Enable tokio console.
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub tokio_console: bool,
@@ -24,18 +28,14 @@ pub struct Config {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub tokio_single_threaded: bool,
 
-	/// Set the V8 thread pool size.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub v8_thread_pool_size: Option<u32>,
-
-	/// Configure telemetry export via OpenTelemetry.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub telemetry: Option<Telemetry>,
-
 	/// Configure tracing.
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default = "default_tracing")]
 	pub tracing: Option<Tracing>,
+
+	/// Set the V8 thread pool size.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub v8_thread_pool_size: Option<u32>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

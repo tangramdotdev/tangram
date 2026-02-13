@@ -303,6 +303,23 @@ pub struct Remote {
 	pub token: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JsEngine {
+	#[default]
+	Auto,
+	#[serde(rename = "quickjs", alias = "quick_js")]
+	QuickJs,
+	V8,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct Js {
+	#[serde(default)]
+	pub engine: JsEngine,
+}
+
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
@@ -311,6 +328,8 @@ pub struct Runner {
 	pub concurrency: Option<usize>,
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub heartbeat_interval: Duration,
+	#[serde(default)]
+	pub js: Js,
 	pub remotes: Vec<String>,
 }
 
@@ -710,6 +729,7 @@ impl Default for Runner {
 		Self {
 			concurrency: None,
 			heartbeat_interval: Duration::from_secs(1),
+			js: Js::default(),
 			remotes: Vec::new(),
 		}
 	}

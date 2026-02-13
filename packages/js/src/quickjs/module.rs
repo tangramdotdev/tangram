@@ -8,7 +8,13 @@ use {
 pub struct Resolver;
 
 impl qjs::loader::Resolver for Resolver {
-	fn resolve(&mut self, ctx: &qjs::Ctx<'_>, base: &str, name: &str) -> qjs::Result<String> {
+	fn resolve(
+		&mut self,
+		ctx: &qjs::Ctx<'_>,
+		base: &str,
+		name: &str,
+		attributes: Option<qjs::loader::ImportAttributes<'_>>,
+	) -> qjs::Result<String> {
 		// Handle the root module.
 		if name == "!" {
 			return Ok("!".to_string());
@@ -25,8 +31,25 @@ impl qjs::loader::Resolver for Resolver {
 				.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?
 		};
 
-		// Parse the import specifier.
-		let import = tg::module::Import::with_specifier_and_attributes(name, None)
+		// Parse the import attributes.
+		let attributes = if let Some(attributes) = attributes {
+			let mut map = std::collections::BTreeMap::new();
+			for key in attributes.keys() {
+				let key = key.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
+				if let Some(value) = attributes
+					.get(&key)
+					.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?
+				{
+					map.insert(key, value);
+				}
+			}
+			Some(map)
+		} else {
+			None
+		};
+
+		// Parse the import specifier with attributes.
+		let import = tg::module::Import::with_specifier_and_attributes(name, attributes)
 			.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
 
 		// Resolve the module.
@@ -46,7 +69,6 @@ impl qjs::loader::Resolver for Resolver {
 			.unwrap()
 			.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
 
-		// Return the module ID as the resolved name.
 		Ok(module.to_string())
 	}
 }
@@ -54,15 +76,17 @@ impl qjs::loader::Resolver for Resolver {
 pub struct Loader;
 
 impl qjs::loader::Loader for Loader {
-	fn load<'js>(&mut self, ctx: &qjs::Ctx<'js>, name: &str) -> qjs::Result<qjs::Module<'js>> {
-		// Get the state from the context's userdata.
+	fn load<'js>(
+		&mut self,
+		ctx: &qjs::Ctx<'js>,
+		name: &str,
+		_attributes: Option<qjs::loader::ImportAttributes<'js>>,
+	) -> qjs::Result<qjs::Module<'js>> {
 		let state = ctx.userdata::<StateHandle>().unwrap().clone();
 
-		// Handle root module.
 		let module_data = if name == "!" {
 			state.root.clone()
 		} else {
-			// Parse module ID back to module data.
 			name.parse()
 				.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?
 		};
