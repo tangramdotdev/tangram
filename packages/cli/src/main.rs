@@ -540,7 +540,7 @@ impl Cli {
 		let reconnect = self
 			.config
 			.as_ref()
-			.and_then(|config| config.server.client.as_ref())
+			.and_then(|config| config.client.as_ref())
 			.and_then(|client| client.reconnect.clone())
 			.map(|reconnect| tangram_futures::retry::Options {
 				backoff: reconnect.backoff,
@@ -549,8 +549,21 @@ impl Cli {
 				max_retries: reconnect.max_retries,
 			});
 
+		// Get the retry options.
+		let retry = self
+			.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.retry.clone())
+			.map(|retry| tangram_futures::retry::Options {
+				backoff: retry.backoff,
+				jitter: retry.jitter,
+				max_delay: retry.max_delay,
+				max_retries: retry.max_retries,
+			});
+
 		// Create the client.
-		let client = tg::Client::new(url, Some(version()), token, reconnect);
+		let client = tg::Client::new(url, Some(version()), token, reconnect, retry);
 
 		// Attempt to connect to the server.
 		let mut connected = client.connect().await.is_ok();
@@ -647,7 +660,7 @@ impl Cli {
 		let reconnect = self
 			.config
 			.as_ref()
-			.and_then(|config| config.server.client.as_ref())
+			.and_then(|config| config.client.as_ref())
 			.and_then(|client| client.reconnect.clone())
 			.map(|reconnect| tangram_futures::retry::Options {
 				backoff: reconnect.backoff,
@@ -656,8 +669,21 @@ impl Cli {
 				max_retries: reconnect.max_retries,
 			});
 
+		// Get the retry options.
+		let retry = self
+			.config
+			.as_ref()
+			.and_then(|config| config.client.as_ref())
+			.and_then(|client| client.retry.clone())
+			.map(|retry| tangram_futures::retry::Options {
+				backoff: retry.backoff,
+				jitter: retry.jitter,
+				max_delay: retry.max_delay,
+				max_retries: retry.max_retries,
+			});
+
 		// Create the client.
-		let client = tg::Client::new(url, Some(version()), token, reconnect);
+		let client = tg::Client::new(url, Some(version()), token, reconnect, retry);
 
 		// Try to connect. If the client is not connected, then return an error.
 		let connected = client.connect().await.is_ok();
@@ -703,6 +729,8 @@ impl Cli {
 						Some(tangram_server::config::Remote {
 							name: name.to_owned(),
 							url,
+							reconnect: None,
+							retry: None,
 							token: None,
 						})
 					})

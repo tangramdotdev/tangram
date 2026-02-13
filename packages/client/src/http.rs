@@ -1,6 +1,5 @@
 use {
 	crate::prelude::*,
-	futures::TryFutureExt as _,
 	std::{
 		ops::ControlFlow,
 		path::{Path, PathBuf},
@@ -23,8 +22,14 @@ pub(crate) type Sender = Arc<
 pub(crate) type Service = BoxCloneSyncService<
 	http::Request<tangram_http::body::Boxed>,
 	http::Response<tangram_http::body::Boxed>,
-	tg::Error,
+	Error,
 >;
+
+#[derive(Debug, derive_more::Display, derive_more::Error)]
+pub(crate) enum Error {
+	Hyper(hyper::Error),
+	Other(tg::Error),
+}
 
 impl tg::Client {
 	#[expect(clippy::needless_pass_by_value)]
@@ -55,7 +60,8 @@ impl tg::Client {
 									Err(error) => Ok(ControlFlow::Continue(error)),
 								}
 							})
-							.await?;
+							.await
+							.map_err(Error::Other)?;
 							guard.replace(sender.clone());
 							sender
 						},
@@ -63,16 +69,26 @@ impl tg::Client {
 					drop(guard);
 					sender
 						.send_request(request)
-						.map_ok(tangram_http::response::Ext::boxed_body)
-						.map_err(|source| tg::error!(!source, "failed to send the request"))
 						.await
+						.map(tangram_http::response::Ext::boxed_body)
+						.map_err(Error::Hyper)
 				}
 			}
 		});
 		let service = tower::ServiceBuilder::new()
 			.layer(tangram_http::layer::tracing::TracingLayer::new())
-			.map_err(tg::Error::from)
-			.layer(tower::timeout::TimeoutLayer::new(Duration::from_secs(60)))
+			.layer(tower::layer::layer_fn(|service| {
+				let service = Service::new(service);
+				tower::service_fn(move |request| {
+					let future = service.clone().call(request);
+					async move {
+						match tokio::time::timeout(Duration::from_secs(60), future).await {
+							Ok(result) => result,
+							Err(_) => Err(Error::Other(tg::error!("request timed out"))),
+						}
+					}
+				})
+			}))
 			.insert_request_header_if_not_present(
 				http::HeaderName::from_str("x-tg-compatibility-date").unwrap(),
 				http::HeaderValue::from_str(&Self::compatibility_date().format(&Rfc3339).unwrap())
@@ -495,10 +511,51 @@ impl tg::Client {
 	{
 		let request = request.boxed_body();
 		let future = self.service.clone().call(request);
-		let response = future
-			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+		let response = future.await.map_err(|error| match error {
+			Error::Hyper(source) => tg::error!(!source, "failed to send the request"),
+			Error::Other(error) => error,
+		})?;
 		let response = response.map(Into::into);
 		Ok(response)
+	}
+
+	pub(crate) async fn send_with_retry<B>(
+		&self,
+		request: http::Request<B>,
+	) -> tg::Result<http::Response<tangram_http::body::Boxed>>
+	where
+		B: http_body::Body<Data = bytes::Bytes> + Clone + Send + Unpin + 'static,
+		B::Error: Into<tangram_http::Error> + Clone + Send,
+	{
+		tangram_futures::retry(&self.retry, || {
+			let request = request.clone();
+			async move {
+				let request = request.boxed_body();
+				let future = self.service.clone().call(request);
+				match future.await {
+					Ok(response) => {
+						let response = response.map(Into::into);
+						Ok(ControlFlow::Break(response))
+					},
+					Err(Error::Hyper(source))
+						if source.is_closed()
+							|| source.is_canceled()
+							|| source.is_incomplete_message() =>
+					{
+						Ok(ControlFlow::Continue(tg::error!(
+							!source,
+							"failed to send the request"
+						)))
+					},
+					Err(error) => Err(match error {
+						Error::Hyper(source) => {
+							tg::error!(!source, "failed to send the request")
+						},
+						Error::Other(error) => error,
+					}),
+				}
+			}
+		})
+		.await
 	}
 }

@@ -49,22 +49,35 @@ impl Server {
 		else {
 			return Ok(None);
 		};
-		let token = self.config().remotes.as_ref().and_then(|remotes| {
-			let remote = remotes.iter().find(|r| r.name == remote)?;
-			remote.token.clone()
-		});
-		let reconnect = self
+		let remote_config = self
 			.config()
-			.client
+			.remotes
 			.as_ref()
-			.and_then(|client| client.reconnect.clone())
+			.and_then(|remotes| remotes.iter().find(|r| r.name == remote));
+		let token = remote_config.and_then(|r| r.token.clone());
+		let reconnect = remote_config
+			.and_then(|r| r.reconnect.clone())
 			.map(|reconnect| tangram_futures::retry::Options {
 				backoff: reconnect.backoff,
 				jitter: reconnect.jitter,
 				max_delay: reconnect.max_delay,
 				max_retries: reconnect.max_retries,
 			});
-		let client = tg::Client::new(output.url, Some(self.version.clone()), token, reconnect);
+		let retry = remote_config.and_then(|r| r.retry.clone()).map(|retry| {
+			tangram_futures::retry::Options {
+				backoff: retry.backoff,
+				jitter: retry.jitter,
+				max_delay: retry.max_delay,
+				max_retries: retry.max_retries,
+			}
+		});
+		let client = tg::Client::new(
+			output.url,
+			Some(self.version.clone()),
+			token,
+			reconnect,
+			retry,
+		);
 		self.remotes.insert(remote, client.clone());
 		Ok(Some(client))
 	}

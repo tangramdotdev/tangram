@@ -12,9 +12,6 @@ pub struct Config {
 	#[serde(default)]
 	pub advanced: Advanced,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub client: Option<Client>,
-
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default)]
 	pub authentication: Option<Authentication>,
@@ -105,12 +102,29 @@ pub struct Client {
 	/// Configure reconnect retry options.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub reconnect: Option<Reconnect>,
+
+	/// Configure request retry options.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<Retry>,
 }
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Reconnect {
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub backoff: Duration,
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub jitter: Duration,
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub max_delay: Duration,
+	pub max_retries: u64,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Retry {
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub backoff: Duration,
 	#[serde_as(as = "DurationSecondsWithFrac")]
@@ -281,6 +295,10 @@ pub struct NatsMessenger {
 pub struct Remote {
 	pub name: String,
 	pub url: Uri,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub reconnect: Option<Reconnect>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<Retry>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
 }
@@ -531,7 +549,6 @@ impl Default for Config {
 	fn default() -> Self {
 		Self {
 			advanced: Advanced::default(),
-			client: None,
 			authentication: None,
 			authorization: false,
 			checkin: Checkin::default(),

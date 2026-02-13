@@ -8,9 +8,13 @@ use {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+	/// Configure the client.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub client: Option<server::Client>,
+
 	/// Configure the server.
 	#[serde(flatten)]
-	pub server: server::Config,
+	pub server: tangram_server::Config,
 
 	/// Enable tokio console.
 	#[serde(default, skip_serializing_if = "is_false")]

@@ -111,6 +111,7 @@ pub struct Client(Arc<State>);
 pub struct State {
 	url: Uri,
 	reconnect: tangram_futures::retry::Options,
+	retry: tangram_futures::retry::Options,
 	sender: self::http::Sender,
 	service: self::http::Service,
 	#[expect(dead_code)]
@@ -125,14 +126,17 @@ impl Client {
 		version: Option<String>,
 		token: Option<String>,
 		reconnect: Option<tangram_futures::retry::Options>,
+		retry: Option<tangram_futures::retry::Options>,
 	) -> Self {
 		let version = version.unwrap_or(env!("CARGO_PKG_VERSION").to_owned());
 		let reconnect = reconnect.unwrap_or_default();
+		let retry = retry.unwrap_or_default();
 		let (sender, service) =
 			Self::service(url.clone(), version.clone(), token.clone(), &reconnect);
 		Self(Arc::new(State {
 			url,
 			reconnect,
+			retry,
 			sender,
 			service,
 			token,
@@ -157,7 +161,7 @@ impl Client {
 				.map_err(|error| tg::error!(source = error, "failed to build the URL"))?
 		};
 		let token = std::env::var("TANGRAM_TOKEN").ok();
-		Ok(Self::new(url, None, token, None))
+		Ok(Self::new(url, None, token, None, None))
 	}
 
 	#[must_use]
