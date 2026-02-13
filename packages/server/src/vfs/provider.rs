@@ -1,3 +1,5 @@
+#[cfg(feature = "lmdb")]
+use heed as lmdb;
 use {
 	crate::Server,
 	bytes::Bytes,
@@ -18,18 +20,15 @@ use {
 };
 
 #[cfg(feature = "lmdb")]
-use heed as lmdb;
-
-#[cfg(feature = "lmdb")]
-type LmdbTransaction<'a> = lmdb::RoTxn<'a>;
+type Transaction<'a> = lmdb::RoTxn<'a>;
 #[cfg(not(feature = "lmdb"))]
-type LmdbTransaction<'a> = ();
+type Transaction<'a> = ();
 
 pub struct Provider {
-	node_count: AtomicU64,
 	file_handle_count: AtomicU64,
-	nodes: Nodes,
 	file_handles: DashMap<u64, FileHandle, fnv::FnvBuildHasher>,
+	node_count: AtomicU64,
+	nodes: Nodes,
 	server: Server,
 }
 
@@ -39,13 +38,13 @@ struct Nodes {
 
 #[derive(Clone)]
 struct Node {
+	artifact: Option<tg::artifact::Id>,
+	attrs: Option<vfs::Attrs>,
+	children: HashMap<String, u64, fnv::FnvBuildHasher>,
+	depth: u64,
+	lookup_count: u64,
 	name: Option<String>,
 	parent: u64,
-	artifact: Option<tg::artifact::Id>,
-	depth: u64,
-	attrs: Option<vfs::Attrs>,
-	lookup_count: u64,
-	children: HashMap<String, u64, fnv::FnvBuildHasher>,
 }
 
 pub struct FileHandle {
@@ -58,15 +57,15 @@ impl Provider {
 		let nodes = Nodes::new();
 
 		// Create the provider.
-		let node_count = AtomicU64::new(1000);
 		let file_handle_count = AtomicU64::new(1000);
 		let file_handles = DashMap::default();
+		let node_count = AtomicU64::new(1000);
 		let server = server.clone();
 		let provider = Self {
-			node_count,
 			file_handle_count,
-			nodes,
 			file_handles,
+			node_count,
+			nodes,
 			server,
 		};
 
@@ -174,7 +173,7 @@ impl Provider {
 	fn handle_batch_sync_inner(
 		&self,
 		requests: Vec<vfs::Request>,
-		transaction: Option<&LmdbTransaction<'_>>,
+		transaction: Option<&Transaction<'_>>,
 	) -> Vec<std::io::Result<vfs::Response>> {
 		let mut responses = Vec::with_capacity(requests.len());
 		for request in requests {
@@ -255,22 +254,7 @@ impl Provider {
 		if let Some(attrs) = node.attrs {
 			return Ok(attrs);
 		}
-		let artifact = node.artifact.map(tg::Artifact::with_id);
-		let attrs = match artifact {
-			Some(tg::Artifact::File(file)) => {
-				let executable = file.executable(&self.server).await.map_err(|error| {
-					tracing::error!(%error, "failed to get file's executable bit");
-					std::io::Error::from_raw_os_error(libc::EIO)
-				})?;
-				let size = file.length(&self.server).await.map_err(|error| {
-					tracing::error!(%error, "failed to get file's size");
-					std::io::Error::from_raw_os_error(libc::EIO)
-				})?;
-				vfs::Attrs::new(vfs::FileType::File { executable, size })
-			},
-			Some(tg::Artifact::Directory(_)) | None => vfs::Attrs::new(vfs::FileType::Directory),
-			Some(tg::Artifact::Symlink(_)) => vfs::Attrs::new(vfs::FileType::Symlink),
-		};
+		let attrs = self.getattr_from_node_inner(&node).await?;
 		self.nodes.set_attrs(id, attrs);
 		Ok(attrs)
 	}
@@ -281,28 +265,24 @@ impl Provider {
 
 	pub async fn getxattr(&self, id: u64, name: &str) -> std::io::Result<Option<Bytes>> {
 		let node = self.get(id).await?;
-		let Some(tg::Artifact::File(file)) = node.artifact.map(tg::Artifact::with_id) else {
+		let Some(artifact) = node.artifact else {
 			return Ok(None);
 		};
+		if !matches!(artifact.kind(), tg::artifact::Kind::File) {
+			return Ok(None);
+		}
+		let (file, _) = self.file_node_inner(&artifact).await?;
 		if name == tg::file::DEPENDENCIES_XATTR_NAME {
-			let dependencies = file.dependencies(&self.server).await.map_err(|error| {
-				tracing::error!(error = %error.trace(), "failed to get file dependencies");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
-			if dependencies.is_empty() {
+			if file.dependencies.is_empty() {
 				return Ok(None);
 			}
-			let references = dependencies.keys().cloned().collect::<Vec<_>>();
+			let references = file.dependencies.keys().cloned().collect::<Vec<_>>();
 			let data = serde_json::to_vec(&references).unwrap();
 			return Ok(Some(data.into()));
 		}
 
 		if name == tg::file::MODULE_XATTR_NAME {
-			let module = file.module(&self.server).await.map_err(|error| {
-				tracing::error!(error = %error.trace(), "failed to get file's module");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
-			let Some(module) = module else {
+			let Some(module) = file.module else {
 				return Ok(None);
 			};
 			return Ok(Some(module.to_string().as_bytes().to_vec().into()));
@@ -316,14 +296,14 @@ impl Provider {
 
 	pub async fn listxattrs(&self, id: u64) -> std::io::Result<Vec<String>> {
 		let node = self.get(id).await?;
-		let Some(tg::Artifact::File(file)) = node.artifact.map(tg::Artifact::with_id) else {
+		let Some(artifact) = node.artifact else {
 			return Ok(Vec::new());
 		};
-		let dependencies = file.dependencies(&self.server).await.map_err(|error| {
-			tracing::error!(error = %error.trace(), "failed to get file dependencies");
-			std::io::Error::from_raw_os_error(libc::EIO)
-		})?;
-		if dependencies.is_empty() {
+		if !matches!(artifact.kind(), tg::artifact::Kind::File) {
+			return Ok(Vec::new());
+		}
+		let (file, _) = self.file_node_inner(&artifact).await?;
+		if file.dependencies.is_empty() {
 			return Ok(Vec::new());
 		}
 		Ok(vec![tg::file::DEPENDENCIES_XATTR_NAME.to_owned()])
@@ -364,7 +344,6 @@ impl Provider {
 			let Ok(artifact) = name.parse() else {
 				return Ok(None);
 			};
-			let artifact = tg::Artifact::with_id(artifact);
 			Some((artifact, 1))
 		};
 
@@ -376,14 +355,13 @@ impl Provider {
 			let Node {
 				artifact, depth, ..
 			} = self.get(parent).await?;
-			let artifact = artifact.map(tg::Artifact::with_id);
-			let Some(tg::Artifact::Directory(parent)) = artifact else {
+			let Some(artifact) = artifact else {
 				return Ok(None);
 			};
-			let entries = parent.entries(&self.server).await.map_err(|error| {
-				tracing::error!(%error, "failed to get parent directory entries");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
+			if !matches!(artifact.kind(), tg::artifact::Kind::Directory) {
+				return Ok(None);
+			}
+			let entries = self.directory_entries_inner(&artifact).await?;
 			let Some(artifact) = entries.get(name) else {
 				return Ok(None);
 			};
@@ -413,23 +391,23 @@ impl Provider {
 	pub async fn open(&self, id: u64) -> std::io::Result<u64> {
 		// Get the node.
 		let Node { artifact, .. } = self.get(id).await?;
-		let artifact = artifact.map(tg::Artifact::with_id);
-
-		// Ensure it is a file.
-		let Some(tg::Artifact::File(file)) = artifact else {
+		let Some(artifact) = artifact else {
 			tracing::error!(%id, "tried to open a non-regular file");
 			return Err(std::io::Error::other("expected a file"));
 		};
 
+		// Ensure it is a file.
+		if !matches!(artifact.kind(), tg::artifact::Kind::File) {
+			tracing::error!(%id, "tried to open a non-regular file");
+			return Err(std::io::Error::other("expected a file"));
+		}
+
 		// Get the blob id.
-		let blob = file
-			.contents(&self.server)
-			.await
-			.map_err(|error| {
-				tracing::error!(%error, ?file, "failed to get blob for file");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?
-			.id();
+		let (file, _) = self.file_node_inner(&artifact).await?;
+		let Some(blob) = file.contents else {
+			tracing::error!(%id, "file has no contents");
+			return Err(std::io::Error::from_raw_os_error(libc::EIO));
+		};
 
 		// Create the file handle.
 		let file_handle = FileHandle { blob };
@@ -448,13 +426,12 @@ impl Provider {
 	pub async fn opendir(&self, id: u64) -> std::io::Result<u64> {
 		// Get the node.
 		let Node { artifact, .. } = self.get(id).await?;
-		let artifact = artifact.map(tg::Artifact::with_id);
 		match artifact {
-			Some(tg::Artifact::Directory(_)) | None => {},
-			Some(_) => {
+			Some(artifact) if !matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
 				tracing::error!(%id, "called opendir on a file or symlink");
 				return Err(std::io::Error::other("expected a directory"));
 			},
+			_ => {},
 		}
 		Ok(id)
 	}
@@ -462,13 +439,12 @@ impl Provider {
 	pub fn opendir_sync(&self, id: u64) -> std::io::Result<u64> {
 		// Get the node.
 		let Node { artifact, .. } = self.get_sync(id)?;
-		let artifact = artifact.map(tg::Artifact::with_id);
 		match artifact {
-			Some(tg::Artifact::Directory(_)) | None => {},
-			Some(_) => {
+			Some(artifact) if !matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
 				tracing::error!(%id, "called opendir on a file or symlink");
 				return Err(std::io::Error::other("expected a directory"));
 			},
+			_ => {},
 		}
 		Ok(id)
 	}
@@ -517,22 +493,20 @@ impl Provider {
 
 	pub async fn readdir(&self, id: u64) -> std::io::Result<Vec<(String, u64)>> {
 		let Node { artifact, .. } = self.get(id).await?;
-		let artifact = artifact.map(tg::Artifact::with_id);
 		let directory = match artifact {
-			Some(tg::Artifact::Directory(directory)) => Some(directory),
+			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
+				Some(artifact)
+			},
 			None => None,
 			Some(_) => {
 				tracing::error!(%id, "called readdir on a file or symlink");
 				return Err(std::io::Error::other("expected a directory"));
 			},
 		};
-		let Some(directory) = directory.as_ref() else {
+		let Some(directory) = directory else {
 			return Ok(Vec::new());
 		};
-		let entries = directory.entries(&self.server).await.map_err(|error| {
-			tracing::error!(%error, "failed to get directory entries");
-			std::io::Error::from_raw_os_error(libc::EIO)
-		})?;
+		let entries = self.directory_entries_inner(&directory).await?;
 		let mut result = Vec::with_capacity(entries.len());
 		result.push((".".to_owned(), id));
 		result.push(("..".to_owned(), self.lookup_parent(id).await?));
@@ -572,24 +546,24 @@ impl Provider {
 			tracing::error!(%error, "failed to lookup node");
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
-		let artifact = artifact.map(tg::Artifact::with_id);
-
-		// Ensure it is a symlink.
-		let Some(tg::Artifact::Symlink(symlink)) = artifact else {
+		let Some(artifact) = artifact else {
 			tracing::error!(%id, "tried to readlink on an invalid file type");
 			return Err(std::io::Error::other("expected a symlink"));
 		};
 
+		// Ensure it is a symlink.
+		if !matches!(artifact.kind(), tg::artifact::Kind::Symlink) {
+			tracing::error!(%id, "tried to readlink on an invalid file type");
+			return Err(std::io::Error::other("expected a symlink"));
+		}
+
 		// Render the target.
-		let Ok(artifact) = symlink.artifact(&self.server).await else {
-			tracing::error!("failed to get the symlink's artifact");
-			return Err(std::io::Error::from_raw_os_error(libc::EIO));
+		let (symlink, graph) = self.symlink_node_inner(&artifact).await?;
+		let artifact = match symlink.artifact {
+			Some(edge) => Some(Self::artifact_id_from_edge_inner(edge, graph.as_ref())?),
+			None => None,
 		};
-		let Ok(path) = symlink.path(&self.server).await else {
-			tracing::error!("failed to get the symlink's path");
-			return Err(std::io::Error::from_raw_os_error(libc::EIO));
-		};
-		Self::build_symlink_target(depth, artifact.as_ref().map(tg::Artifact::id), path)
+		Self::build_symlink_target(depth, artifact, symlink.path)
 	}
 
 	pub fn readlink_sync(&self, id: u64) -> std::io::Result<Bytes> {
@@ -612,19 +586,15 @@ impl Provider {
 		&self,
 		parent: u64,
 		name: &str,
-		artifact: tg::Artifact,
+		artifact: tg::artifact::Id,
 		depth: u64,
 		attrs: Option<vfs::Attrs>,
 	) -> std::io::Result<u64> {
-		// Get the artifact id.
-		let artifact_id = artifact.id();
-
 		// Get a node ID.
 		let id = self.node_count.fetch_add(1, Ordering::Relaxed);
 
 		// Add the node to the nodes storage.
-		self.nodes
-			.insert(id, parent, name, artifact_id, depth, attrs);
+		self.nodes.insert(id, parent, name, artifact, depth, attrs);
 
 		Ok(id)
 	}
@@ -633,19 +603,16 @@ impl Provider {
 		&self,
 		parent: u64,
 		name: &str,
-		artifact: &tg::Artifact,
+		artifact: &tg::artifact::Id,
 		depth: u64,
 		attrs: Option<vfs::Attrs>,
 	) -> u64 {
-		// Get the artifact id.
-		let artifact_id = artifact.id();
-
 		// Get a node ID.
 		let id = self.node_count.fetch_add(1, Ordering::Relaxed);
 
 		// Add the node to the nodes storage.
 		self.nodes
-			.insert(id, parent, name, artifact_id, depth, attrs);
+			.insert(id, parent, name, artifact.clone(), depth, attrs);
 
 		id
 	}
@@ -654,7 +621,7 @@ impl Provider {
 		&self,
 		parent: u64,
 		name: &str,
-		transaction: Option<&LmdbTransaction<'_>>,
+		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Option<u64>> {
 		// Handle "." and "..".
 		if name == "." {
@@ -686,7 +653,6 @@ impl Provider {
 			let Ok(artifact) = name.parse() else {
 				return Ok(None);
 			};
-			let artifact = tg::Artifact::with_id(artifact);
 			Some((artifact, 1))
 		};
 
@@ -698,11 +664,13 @@ impl Provider {
 			let Node {
 				artifact, depth, ..
 			} = self.get_sync(parent)?;
-			let artifact = artifact.map(tg::Artifact::with_id);
-			let Some(tg::Artifact::Directory(parent)) = artifact else {
+			let Some(artifact) = artifact else {
 				return Ok(None);
 			};
-			let entries = self.directory_entries_sync_inner(&parent, transaction)?;
+			if !matches!(artifact.kind(), tg::artifact::Kind::Directory) {
+				return Ok(None);
+			}
+			let entries = self.directory_entries_sync_inner(&artifact, None, transaction)?;
 			let Some(artifact) = entries.get(name) else {
 				return Ok(None);
 			};
@@ -719,7 +687,7 @@ impl Provider {
 	fn getattr_sync_inner(
 		&self,
 		id: u64,
-		transaction: Option<&LmdbTransaction<'_>>,
+		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<vfs::Attrs> {
 		let node = self.get_sync(id)?;
 		if let Some(attrs) = node.attrs {
@@ -734,13 +702,16 @@ impl Provider {
 		&self,
 		id: u64,
 		name: &str,
-		transaction: Option<&LmdbTransaction<'_>>,
+		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Option<Bytes>> {
 		let node = self.get_sync(id)?;
-		let Some(tg::Artifact::File(file)) = node.artifact.map(tg::Artifact::with_id) else {
+		let Some(artifact) = node.artifact else {
 			return Ok(None);
 		};
-		let file = self.file_node_sync_inner(&file, transaction)?;
+		if !matches!(artifact.kind(), tg::artifact::Kind::File) {
+			return Ok(None);
+		}
+		let (file, _) = self.file_node_sync_inner(&artifact, transaction)?;
 		if name == tg::file::DEPENDENCIES_XATTR_NAME {
 			if file.dependencies.is_empty() {
 				return Ok(None);
@@ -761,13 +732,16 @@ impl Provider {
 	fn listxattrs_sync_inner(
 		&self,
 		id: u64,
-		transaction: Option<&LmdbTransaction<'_>>,
+		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Vec<String>> {
 		let node = self.get_sync(id)?;
-		let Some(tg::Artifact::File(file)) = node.artifact.map(tg::Artifact::with_id) else {
+		let Some(artifact) = node.artifact else {
 			return Ok(Vec::new());
 		};
-		let file = self.file_node_sync_inner(&file, transaction)?;
+		if !matches!(artifact.kind(), tg::artifact::Kind::File) {
+			return Ok(Vec::new());
+		}
+		let (file, _) = self.file_node_sync_inner(&artifact, transaction)?;
 		if file.dependencies.is_empty() {
 			return Ok(Vec::new());
 		}
@@ -777,20 +751,23 @@ impl Provider {
 	fn open_sync_inner(
 		&self,
 		id: u64,
-		transaction: Option<&LmdbTransaction<'_>>,
+		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<(u64, Option<OwnedFd>)> {
 		// Get the node.
 		let Node { artifact, .. } = self.get_sync(id)?;
-		let artifact = artifact.map(tg::Artifact::with_id);
-
-		// Ensure it is a file.
-		let Some(tg::Artifact::File(file)) = artifact else {
+		let Some(artifact) = artifact else {
 			tracing::error!(%id, "tried to open a non-regular file");
 			return Err(std::io::Error::other("expected a file"));
 		};
 
+		// Ensure it is a file.
+		if !matches!(artifact.kind(), tg::artifact::Kind::File) {
+			tracing::error!(%id, "tried to open a non-regular file");
+			return Err(std::io::Error::other("expected a file"));
+		}
+
 		// Get the file object.
-		let file = self.file_node_sync_inner(&file, transaction)?;
+		let (file, _) = self.file_node_sync_inner(&artifact, transaction)?;
 		let Some(blob) = file.contents else {
 			tracing::error!(%id, "file has no contents");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -811,7 +788,7 @@ impl Provider {
 		id: u64,
 		position: u64,
 		length: u64,
-		transaction: Option<&LmdbTransaction<'_>>,
+		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Bytes> {
 		// Get the file handle.
 		let Some(file_handle) = self.file_handles.get(&id) else {
@@ -833,22 +810,23 @@ impl Provider {
 	fn readdir_sync_inner(
 		&self,
 		id: u64,
-		transaction: Option<&LmdbTransaction<'_>>,
+		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Vec<(String, u64)>> {
 		let Node { artifact, .. } = self.get_sync(id)?;
-		let artifact = artifact.map(tg::Artifact::with_id);
 		let directory = match artifact {
-			Some(tg::Artifact::Directory(directory)) => Some(directory),
+			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
+				Some(artifact)
+			},
 			None => None,
 			Some(_) => {
 				tracing::error!(%id, "called readdir on a file or symlink");
 				return Err(std::io::Error::other("expected a directory"));
 			},
 		};
-		let Some(directory) = directory.as_ref() else {
+		let Some(directory) = directory else {
 			return Ok(Vec::new());
 		};
-		let entries = self.directory_entries_sync_inner(directory, transaction)?;
+		let entries = self.directory_entries_sync_inner(&directory, None, transaction)?;
 		let mut result = Vec::with_capacity(entries.len() + 2);
 		result.push((".".to_owned(), id));
 		result.push(("..".to_owned(), self.lookup_parent_sync(id)?));
@@ -867,7 +845,7 @@ impl Provider {
 	fn readdirplus_sync_inner(
 		&self,
 		id: u64,
-		transaction: Option<&LmdbTransaction<'_>>,
+		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
 		let entries = self.readdir_sync_inner(id, transaction)?;
 		let mut entries_with_attrs = Vec::with_capacity(entries.len());
@@ -881,31 +859,25 @@ impl Provider {
 	fn readlink_sync_inner(
 		&self,
 		id: u64,
-		transaction: Option<&LmdbTransaction<'_>>,
+		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Bytes> {
 		// Get the node.
 		let Node {
 			artifact, depth, ..
 		} = self.get_sync(id)?;
-		let artifact = artifact.map(tg::Artifact::with_id);
-
-		// Ensure it is a symlink.
-		let Some(tg::Artifact::Symlink(symlink)) = artifact else {
+		let Some(artifact) = artifact else {
 			tracing::error!(%id, "tried to readlink on an invalid file type");
 			return Err(std::io::Error::other("expected a symlink"));
 		};
+		if !matches!(artifact.kind(), tg::artifact::Kind::Symlink) {
+			tracing::error!(%id, "tried to readlink on an invalid file type");
+			return Err(std::io::Error::other("expected a symlink"));
+		}
 
 		// Render the target.
-		let symlink = self.symlink_node_sync_inner(&symlink, transaction)?;
-		let artifact = symlink.artifact.map(|artifact| match artifact {
-			tg::graph::data::Edge::Object(artifact) => Ok(artifact),
-			tg::graph::data::Edge::Pointer(_) => {
-				Err(std::io::Error::from_raw_os_error(libc::ENOSYS))
-			},
-		});
-		let artifact = match artifact {
-			Some(Ok(artifact)) => Some(artifact),
-			Some(Err(error)) => return Err(error),
+		let (symlink, graph) = self.symlink_node_sync_inner(&artifact, transaction)?;
+		let artifact = match symlink.artifact {
+			Some(edge) => Some(Self::artifact_id_from_edge_inner(edge, graph.as_ref())?),
 			None => None,
 		};
 		Self::build_symlink_target(depth, artifact, symlink.path)
@@ -934,23 +906,346 @@ impl Provider {
 		Ok(target)
 	}
 
+	async fn getattr_from_node_inner(&self, node: &Node) -> std::io::Result<vfs::Attrs> {
+		if let Some(attrs) = node.attrs {
+			return Ok(attrs);
+		}
+		let Some(artifact) = node.artifact.clone() else {
+			return Ok(vfs::Attrs::new(vfs::FileType::Directory));
+		};
+		match artifact.kind() {
+			tg::artifact::Kind::Directory => Ok(vfs::Attrs::new(vfs::FileType::Directory)),
+			tg::artifact::Kind::File => {
+				let (file, _) = self.file_node_inner(&artifact).await?;
+				let size = file.contents.as_ref().map_or(Ok(0), |contents| {
+					self.blob_length_sync_inner(contents, None)
+				})?;
+				Ok(vfs::Attrs::new(vfs::FileType::File {
+					executable: file.executable,
+					size,
+				}))
+			},
+			tg::artifact::Kind::Symlink => Ok(vfs::Attrs::new(vfs::FileType::Symlink)),
+		}
+	}
+
+	fn artifact_id_from_directory_edge_inner(
+		edge: tg::graph::data::Edge<tg::directory::Id>,
+		default_graph: Option<&tg::graph::Id>,
+	) -> std::io::Result<tg::artifact::Id> {
+		match edge {
+			tg::graph::data::Edge::Object(directory) => Ok(directory.into()),
+			tg::graph::data::Edge::Pointer(pointer) => Self::artifact_id_from_pointer_inner(
+				&pointer,
+				default_graph,
+				Some(tg::artifact::Kind::Directory),
+			),
+		}
+	}
+
+	fn artifact_id_from_edge_inner(
+		edge: tg::graph::data::Edge<tg::artifact::Id>,
+		default_graph: Option<&tg::graph::Id>,
+	) -> std::io::Result<tg::artifact::Id> {
+		match edge {
+			tg::graph::data::Edge::Object(artifact) => Ok(artifact),
+			tg::graph::data::Edge::Pointer(pointer) => {
+				Self::artifact_id_from_pointer_inner(&pointer, default_graph, None)
+			},
+		}
+	}
+
+	fn artifact_id_from_pointer_inner(
+		pointer: &tg::graph::data::Pointer,
+		default_graph: Option<&tg::graph::Id>,
+		expected_kind: Option<tg::artifact::Kind>,
+	) -> std::io::Result<tg::artifact::Id> {
+		if let Some(expected_kind) = expected_kind
+			&& pointer.kind != expected_kind
+		{
+			tracing::error!(kind = ?pointer.kind, expected = ?expected_kind, "invalid pointer kind");
+			return Err(std::io::Error::from_raw_os_error(libc::EIO));
+		}
+		let pointer = Self::pointer_with_graph_inner(pointer, default_graph)?;
+		let kind = pointer.kind;
+		let data: tg::artifact::data::Artifact = match kind {
+			tg::artifact::Kind::Directory => tg::directory::Data::Pointer(pointer).into(),
+			tg::artifact::Kind::File => tg::file::Data::Pointer(pointer).into(),
+			tg::artifact::Kind::Symlink => tg::symlink::Data::Pointer(pointer).into(),
+		};
+		let bytes = data.serialize().map_err(|error| {
+			tracing::error!(error = %error.trace(), "failed to serialize the pointer artifact data");
+			std::io::Error::from_raw_os_error(libc::EIO)
+		})?;
+		Ok(tg::artifact::Id::new(kind, &bytes))
+	}
+
+	async fn artifact_data_inner(
+		&self,
+		artifact: &tg::artifact::Id,
+	) -> std::io::Result<tg::artifact::data::Artifact> {
+		let id: tg::object::Id = artifact.clone().into();
+		let Some(data) = self.try_get_object_data_inner(&id).await? else {
+			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
+		};
+		data.try_into().map_err(|_| {
+			tracing::error!(%artifact, "expected artifact data");
+			std::io::Error::from_raw_os_error(libc::EIO)
+		})
+	}
+
+	async fn directory_entries_inner(
+		&self,
+		directory: &tg::artifact::Id,
+	) -> std::io::Result<BTreeMap<String, tg::artifact::Id>> {
+		let mut entries = BTreeMap::new();
+		let mut stack = vec![directory.clone()];
+		while let Some(directory) = stack.pop() {
+			let (directory, graph) = self.directory_node_inner(&directory).await?;
+			match directory {
+				tg::graph::data::Directory::Leaf(leaf) => {
+					for (name, edge) in leaf.entries {
+						let artifact = Self::artifact_id_from_edge_inner(edge, graph.as_ref())?;
+						entries.insert(name, artifact);
+					}
+				},
+				tg::graph::data::Directory::Branch(branch) => {
+					for child in branch.children.into_iter().rev() {
+						let artifact = Self::artifact_id_from_directory_edge_inner(
+							child.directory,
+							graph.as_ref(),
+						)?;
+						stack.push(artifact);
+					}
+				},
+			}
+		}
+		Ok(entries)
+	}
+
+	async fn directory_node_inner(
+		&self,
+		directory: &tg::artifact::Id,
+	) -> std::io::Result<(tg::graph::data::Directory, Option<tg::graph::Id>)> {
+		let data = self.artifact_data_inner(directory).await?;
+		let tg::artifact::data::Artifact::Directory(directory) = data else {
+			tracing::error!("expected directory data");
+			return Err(std::io::Error::from_raw_os_error(libc::EIO));
+		};
+		match directory {
+			tg::directory::Data::Node(node) => Ok((node, None)),
+			tg::directory::Data::Pointer(pointer) => {
+				let (node, graph) = self.resolve_graph_node_inner(&pointer, None).await?;
+				let tg::graph::data::Node::Directory(node) = node else {
+					tracing::error!(pointer = ?pointer, "expected directory node in the graph");
+					return Err(std::io::Error::from_raw_os_error(libc::EIO));
+				};
+				Ok((node, Some(graph)))
+			},
+		}
+	}
+
+	async fn file_node_inner(
+		&self,
+		file: &tg::artifact::Id,
+	) -> std::io::Result<(tg::graph::data::File, Option<tg::graph::Id>)> {
+		let data = self.artifact_data_inner(file).await?;
+		let tg::artifact::data::Artifact::File(file) = data else {
+			tracing::error!("expected file data");
+			return Err(std::io::Error::from_raw_os_error(libc::EIO));
+		};
+		match file {
+			tg::file::Data::Node(node) => Ok((node, None)),
+			tg::file::Data::Pointer(pointer) => {
+				let (node, graph) = self.resolve_graph_node_inner(&pointer, None).await?;
+				let tg::graph::data::Node::File(node) = node else {
+					tracing::error!(pointer = ?pointer, "expected file node in the graph");
+					return Err(std::io::Error::from_raw_os_error(libc::EIO));
+				};
+				Ok((node, Some(graph)))
+			},
+		}
+	}
+
+	async fn graph_data_inner(&self, graph: &tg::graph::Id) -> std::io::Result<tg::graph::Data> {
+		let id: tg::object::Id = graph.clone().into();
+		let Some(data) = self.try_get_object_data_inner(&id).await? else {
+			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
+		};
+		data.try_into().map_err(|_| {
+			tracing::error!(%graph, "expected graph data");
+			std::io::Error::from_raw_os_error(libc::EIO)
+		})
+	}
+
+	fn graph_id_from_pointer_inner(
+		pointer: &tg::graph::data::Pointer,
+		default_graph: Option<&tg::graph::Id>,
+	) -> std::io::Result<tg::graph::Id> {
+		pointer
+			.graph
+			.clone()
+			.or_else(|| default_graph.cloned())
+			.ok_or_else(|| {
+				tracing::error!(pointer = ?pointer, "missing pointer graph");
+				std::io::Error::from_raw_os_error(libc::ENOSYS)
+			})
+	}
+
+	fn pointer_with_graph_inner(
+		pointer: &tg::graph::data::Pointer,
+		default_graph: Option<&tg::graph::Id>,
+	) -> std::io::Result<tg::graph::data::Pointer> {
+		let graph = pointer
+			.graph
+			.clone()
+			.or_else(|| default_graph.cloned())
+			.ok_or_else(|| {
+				tracing::error!(pointer = ?pointer, "missing pointer graph");
+				std::io::Error::from_raw_os_error(libc::ENOSYS)
+			})?;
+		Ok(tg::graph::data::Pointer {
+			graph: Some(graph),
+			index: pointer.index,
+			kind: pointer.kind,
+		})
+	}
+
+	async fn resolve_graph_node_inner(
+		&self,
+		pointer: &tg::graph::data::Pointer,
+		default_graph: Option<&tg::graph::Id>,
+	) -> std::io::Result<(tg::graph::data::Node, tg::graph::Id)> {
+		let graph = Self::graph_id_from_pointer_inner(pointer, default_graph)?;
+		let graph_data = self.graph_data_inner(&graph).await?;
+		let node = graph_data
+			.nodes
+			.get(pointer.index)
+			.cloned()
+			.ok_or_else(|| {
+				tracing::error!(graph = %graph, pointer = ?pointer, "invalid graph node");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
+		if node.kind() != pointer.kind {
+			tracing::error!(
+				graph = %graph,
+				pointer = ?pointer,
+				kind = ?node.kind(),
+				"invalid pointer kind"
+			);
+			return Err(std::io::Error::from_raw_os_error(libc::EIO));
+		}
+		Ok((node, graph))
+	}
+
+	async fn symlink_node_inner(
+		&self,
+		symlink: &tg::artifact::Id,
+	) -> std::io::Result<(tg::graph::data::Symlink, Option<tg::graph::Id>)> {
+		let data = self.artifact_data_inner(symlink).await?;
+		let tg::artifact::data::Artifact::Symlink(symlink) = data else {
+			tracing::error!("expected symlink data");
+			return Err(std::io::Error::from_raw_os_error(libc::EIO));
+		};
+		match symlink {
+			tg::symlink::Data::Node(node) => Ok((node, None)),
+			tg::symlink::Data::Pointer(pointer) => {
+				let (node, graph) = self.resolve_graph_node_inner(&pointer, None).await?;
+				let tg::graph::data::Node::Symlink(node) = node else {
+					tracing::error!(pointer = ?pointer, "expected symlink node in the graph");
+					return Err(std::io::Error::from_raw_os_error(libc::EIO));
+				};
+				Ok((node, Some(graph)))
+			},
+		}
+	}
+
+	async fn try_get_object_data_inner(
+		&self,
+		id: &tg::object::Id,
+	) -> std::io::Result<Option<tg::object::Data>> {
+		let output = self
+			.server
+			.try_get_object(id, tg::object::get::Arg::default())
+			.await
+			.map_err(|error| {
+				tracing::error!(error = %error.trace(), %id, "failed to get object");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
+		let Some(output) = output else {
+			return Ok(None);
+		};
+		let data = tg::object::Data::deserialize(id.kind(), output.bytes).map_err(|error| {
+			tracing::error!(error = %error.trace(), %id, "failed to deserialize object data");
+			std::io::Error::from_raw_os_error(libc::EIO)
+		})?;
+		Ok(Some(data))
+	}
+
 	fn artifact_data_sync_inner(
 		&self,
-		artifact: &tg::Artifact,
-		transaction: Option<&LmdbTransaction<'_>>,
-	) -> std::io::Result<tg::object::Data> {
-		let id: tg::object::Id = artifact.id().into();
+		artifact: &tg::artifact::Id,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<tg::artifact::data::Artifact> {
+		let id: tg::object::Id = artifact.clone().into();
 		let output = self.try_get_object_data(&id, transaction)?;
 		let Some((_, data)) = output else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
 		};
-		Ok(data)
+		data.try_into().map_err(|_| {
+			tracing::error!(%artifact, "expected artifact data");
+			std::io::Error::from_raw_os_error(libc::EIO)
+		})
+	}
+
+	fn graph_data_sync_inner(
+		&self,
+		graph: &tg::graph::Id,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<tg::graph::Data> {
+		let id: tg::object::Id = graph.clone().into();
+		let output = self.try_get_object_data(&id, transaction)?;
+		let Some((_, data)) = output else {
+			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
+		};
+		data.try_into().map_err(|_| {
+			tracing::error!(%graph, "expected graph data");
+			std::io::Error::from_raw_os_error(libc::EIO)
+		})
+	}
+
+	fn resolve_graph_node_sync_inner(
+		&self,
+		pointer: &tg::graph::data::Pointer,
+		default_graph: Option<&tg::graph::Id>,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<(tg::graph::data::Node, tg::graph::Id)> {
+		let graph = Self::graph_id_from_pointer_inner(pointer, default_graph)?;
+		let graph_data = self.graph_data_sync_inner(&graph, transaction)?;
+		let node = graph_data
+			.nodes
+			.get(pointer.index)
+			.cloned()
+			.ok_or_else(|| {
+				tracing::error!(graph = %graph, pointer = ?pointer, "invalid graph node");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
+		if node.kind() != pointer.kind {
+			tracing::error!(
+				graph = %graph,
+				pointer = ?pointer,
+				kind = ?node.kind(),
+				"invalid pointer kind"
+			);
+			return Err(std::io::Error::from_raw_os_error(libc::EIO));
+		}
+		Ok((node, graph))
 	}
 
 	fn blob_length_sync_inner(
 		&self,
 		id: &tg::blob::Id,
-		transaction: Option<&LmdbTransaction<'_>>,
+		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<u64> {
 		let id: tg::object::Id = id.clone().into();
 		let output = self.try_get_object_data(&id, transaction)?;
@@ -972,18 +1267,25 @@ impl Provider {
 
 	fn directory_node_sync_inner(
 		&self,
-		directory: &tg::Directory,
-		transaction: Option<&LmdbTransaction<'_>>,
-	) -> std::io::Result<tg::graph::data::Directory> {
-		let artifact = tg::Artifact::Directory(directory.clone());
-		let data = self.artifact_data_sync_inner(&artifact, transaction)?;
-		let tg::object::Data::Directory(directory) = data else {
+		directory: &tg::artifact::Id,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<(tg::graph::data::Directory, Option<tg::graph::Id>)> {
+		let data = self.artifact_data_sync_inner(directory, transaction)?;
+		let tg::artifact::data::Artifact::Directory(directory) = data else {
 			tracing::error!("expected directory data");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		};
 		match directory {
-			tg::directory::Data::Node(node) => Ok(node),
-			tg::directory::Data::Pointer(_) => Err(std::io::Error::from_raw_os_error(libc::ENOSYS)),
+			tg::directory::Data::Node(node) => Ok((node, None)),
+			tg::directory::Data::Pointer(pointer) => {
+				let (node, graph) =
+					self.resolve_graph_node_sync_inner(&pointer, None, transaction)?;
+				let tg::graph::data::Node::Directory(node) = node else {
+					tracing::error!(pointer = ?pointer, "expected directory node in the graph");
+					return Err(std::io::Error::from_raw_os_error(libc::EIO));
+				};
+				Ok((node, Some(graph)))
+			},
 		}
 	}
 
@@ -993,7 +1295,7 @@ impl Provider {
 		position: u64,
 		length: u64,
 		output: &mut Vec<u8>,
-		transaction: Option<&LmdbTransaction<'_>>,
+		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<()> {
 		if length == 0 {
 			return Ok(());
@@ -1103,87 +1405,96 @@ impl Provider {
 
 	fn file_node_sync_inner(
 		&self,
-		file: &tg::File,
-		transaction: Option<&LmdbTransaction<'_>>,
-	) -> std::io::Result<tg::graph::data::File> {
-		let artifact = tg::Artifact::File(file.clone());
-		let data = self.artifact_data_sync_inner(&artifact, transaction)?;
-		let tg::object::Data::File(file) = data else {
+		file: &tg::artifact::Id,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<(tg::graph::data::File, Option<tg::graph::Id>)> {
+		let data = self.artifact_data_sync_inner(file, transaction)?;
+		let tg::artifact::data::Artifact::File(file) = data else {
 			tracing::error!("expected file data");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		};
 		match file {
-			tg::file::Data::Node(node) => Ok(node),
-			tg::file::Data::Pointer(_) => Err(std::io::Error::from_raw_os_error(libc::ENOSYS)),
+			tg::file::Data::Node(node) => Ok((node, None)),
+			tg::file::Data::Pointer(pointer) => {
+				let (node, graph) =
+					self.resolve_graph_node_sync_inner(&pointer, None, transaction)?;
+				let tg::graph::data::Node::File(node) = node else {
+					tracing::error!(pointer = ?pointer, "expected file node in the graph");
+					return Err(std::io::Error::from_raw_os_error(libc::EIO));
+				};
+				Ok((node, Some(graph)))
+			},
 		}
 	}
 
 	fn symlink_node_sync_inner(
 		&self,
-		symlink: &tg::Symlink,
-		transaction: Option<&LmdbTransaction<'_>>,
-	) -> std::io::Result<tg::graph::data::Symlink> {
-		let artifact = tg::Artifact::Symlink(symlink.clone());
-		let data = self.artifact_data_sync_inner(&artifact, transaction)?;
-		let tg::object::Data::Symlink(symlink) = data else {
+		symlink: &tg::artifact::Id,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<(tg::graph::data::Symlink, Option<tg::graph::Id>)> {
+		let data = self.artifact_data_sync_inner(symlink, transaction)?;
+		let tg::artifact::data::Artifact::Symlink(symlink) = data else {
 			tracing::error!("expected symlink data");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		};
 		match symlink {
-			tg::symlink::Data::Node(node) => Ok(node),
-			tg::symlink::Data::Pointer(_) => Err(std::io::Error::from_raw_os_error(libc::ENOSYS)),
+			tg::symlink::Data::Node(node) => Ok((node, None)),
+			tg::symlink::Data::Pointer(pointer) => {
+				let (node, graph) =
+					self.resolve_graph_node_sync_inner(&pointer, None, transaction)?;
+				let tg::graph::data::Node::Symlink(node) = node else {
+					tracing::error!(pointer = ?pointer, "expected symlink node in the graph");
+					return Err(std::io::Error::from_raw_os_error(libc::EIO));
+				};
+				Ok((node, Some(graph)))
+			},
 		}
 	}
 
 	fn directory_entries_sync_inner(
 		&self,
-		directory: &tg::Directory,
-		transaction: Option<&LmdbTransaction<'_>>,
-	) -> std::io::Result<BTreeMap<String, tg::Artifact>> {
-		let directory = self.directory_node_sync_inner(directory, transaction)?;
-		match directory {
-			tg::graph::data::Directory::Leaf(leaf) => leaf
-				.entries
-				.into_iter()
-				.map(|(name, edge)| {
-					let artifact = match edge {
-						tg::graph::data::Edge::Object(artifact) => tg::Artifact::with_id(artifact),
-						tg::graph::data::Edge::Pointer(_) => {
-							return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
-						},
-					};
-					Ok((name, artifact))
-				})
-				.collect(),
-			tg::graph::data::Directory::Branch(branch) => {
-				let mut entries = BTreeMap::new();
-				for child in branch.children {
-					let directory = match child.directory {
-						tg::graph::data::Edge::Object(directory) => directory,
-						tg::graph::data::Edge::Pointer(_) => {
-							return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
-						},
-					};
-					let child = tg::Directory::with_id(directory);
-					entries.extend(self.directory_entries_sync_inner(&child, transaction)?);
-				}
-				Ok(entries)
-			},
+		directory: &tg::artifact::Id,
+		default_graph: Option<&tg::graph::Id>,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<BTreeMap<String, tg::artifact::Id>> {
+		let mut entries = BTreeMap::new();
+		let mut stack = vec![(directory.clone(), default_graph.cloned())];
+		while let Some((directory, default_graph)) = stack.pop() {
+			let (directory, graph) = self.directory_node_sync_inner(&directory, transaction)?;
+			let graph = graph.or(default_graph);
+			match directory {
+				tg::graph::data::Directory::Leaf(leaf) => {
+					for (name, edge) in leaf.entries {
+						let artifact = Self::artifact_id_from_edge_inner(edge, graph.as_ref())?;
+						entries.insert(name, artifact);
+					}
+				},
+				tg::graph::data::Directory::Branch(branch) => {
+					for child in branch.children.into_iter().rev() {
+						let artifact = Self::artifact_id_from_directory_edge_inner(
+							child.directory,
+							graph.as_ref(),
+						)?;
+						stack.push((artifact, graph.clone()));
+					}
+				},
+			}
 		}
+		Ok(entries)
 	}
 
 	fn getattr_from_node_sync_inner(
 		&self,
 		node: &Node,
-		transaction: Option<&LmdbTransaction<'_>>,
+		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<vfs::Attrs> {
 		if let Some(attrs) = node.attrs {
 			return Ok(attrs);
 		}
-		let artifact = node.artifact.clone().map(tg::Artifact::with_id);
+		let artifact = node.artifact.clone();
 		match artifact {
-			Some(tg::Artifact::File(file)) => {
-				let file = self.file_node_sync_inner(&file, transaction)?;
+			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::File) => {
+				let (file, _) = self.file_node_sync_inner(&artifact, transaction)?;
 				let size = file.contents.as_ref().map_or(Ok(0), |contents| {
 					self.blob_length_sync_inner(contents, transaction)
 				})?;
@@ -1192,17 +1503,21 @@ impl Provider {
 					size,
 				}))
 			},
-			Some(tg::Artifact::Directory(_)) | None => {
+			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
 				Ok(vfs::Attrs::new(vfs::FileType::Directory))
 			},
-			Some(tg::Artifact::Symlink(_)) => Ok(vfs::Attrs::new(vfs::FileType::Symlink)),
+			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Symlink) => {
+				Ok(vfs::Attrs::new(vfs::FileType::Symlink))
+			},
+			None => Ok(vfs::Attrs::new(vfs::FileType::Directory)),
+			_ => Err(std::io::Error::from_raw_os_error(libc::EIO)),
 		}
 	}
 
 	fn try_open_backing_fd_sync_inner(
 		&self,
 		id: &tg::blob::Id,
-		transaction: Option<&LmdbTransaction<'_>>,
+		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Option<OwnedFd>> {
 		let id: tg::object::Id = id.clone().into();
 		let Some(object) = self.try_get_object(&id, transaction)? else {
@@ -1233,12 +1548,12 @@ impl Provider {
 
 	fn try_precompute_node_attrs_sync_inner(
 		&self,
-		artifact: &tg::Artifact,
-		transaction: Option<&LmdbTransaction<'_>>,
+		artifact: &tg::artifact::Id,
+		transaction: Option<&Transaction<'_>>,
 	) -> Option<vfs::Attrs> {
-		match artifact {
-			tg::Artifact::File(file) => {
-				let file = self.file_node_sync_inner(file, transaction).ok()?;
+		match artifact.kind() {
+			tg::artifact::Kind::File => {
+				let (file, _) = self.file_node_sync_inner(artifact, transaction).ok()?;
 				let size = file.contents.as_ref().map_or(Some(0), |contents| {
 					self.blob_length_sync_inner(contents, transaction).ok()
 				})?;
@@ -1254,7 +1569,7 @@ impl Provider {
 	fn try_get_object(
 		&self,
 		id: &tg::object::Id,
-		transaction: Option<&LmdbTransaction<'_>>,
+		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Option<tangram_store::Object<'static>>> {
 		#[cfg(feature = "lmdb")]
 		if let (crate::store::Store::Lmdb(store), Some(transaction)) =
@@ -1277,7 +1592,7 @@ impl Provider {
 	fn try_get_object_data(
 		&self,
 		id: &tg::object::Id,
-		transaction: Option<&LmdbTransaction<'_>>,
+		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Option<(u64, tg::object::Data)>> {
 		#[cfg(feature = "lmdb")]
 		if let (crate::store::Store::Lmdb(store), Some(transaction)) =
@@ -1302,13 +1617,17 @@ impl Provider {
 		std::io::Error::from_raw_os_error(libc::EIO)
 	}
 
-	fn attrs_from_artifact(artifact: Option<&tg::Artifact>) -> Option<vfs::Attrs> {
+	fn attrs_from_artifact(artifact: Option<&tg::artifact::Id>) -> Option<vfs::Attrs> {
 		match artifact {
-			Some(tg::Artifact::File(_)) => None,
-			Some(tg::Artifact::Directory(_)) | None => {
+			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::File) => None,
+			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
 				Some(vfs::Attrs::new(vfs::FileType::Directory))
 			},
-			Some(tg::Artifact::Symlink(_)) => Some(vfs::Attrs::new(vfs::FileType::Symlink)),
+			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Symlink) => {
+				Some(vfs::Attrs::new(vfs::FileType::Symlink))
+			},
+			None => Some(vfs::Attrs::new(vfs::FileType::Directory)),
+			_ => None,
 		}
 	}
 }
@@ -1319,13 +1638,13 @@ impl Nodes {
 		nodes.insert(
 			vfs::ROOT_NODE_ID,
 			Node {
+				artifact: None,
+				attrs: Some(vfs::Attrs::new(vfs::FileType::Directory)),
+				children: HashMap::default(),
+				depth: 0,
+				lookup_count: u64::MAX,
 				name: None,
 				parent: vfs::ROOT_NODE_ID,
-				artifact: None,
-				depth: 0,
-				attrs: Some(vfs::Attrs::new(vfs::FileType::Directory)),
-				lookup_count: u64::MAX,
-				children: HashMap::default(),
 			},
 		);
 		Self { nodes }
@@ -1449,13 +1768,13 @@ impl Nodes {
 		self.nodes.insert(
 			id,
 			Node {
+				artifact: Some(artifact),
+				attrs,
+				children: HashMap::default(),
+				depth,
+				lookup_count: 0,
 				name: Some(name.to_owned()),
 				parent,
-				artifact: Some(artifact),
-				depth,
-				attrs,
-				lookup_count: 0,
-				children: HashMap::default(),
 			},
 		);
 		// Update the parent's children map.
