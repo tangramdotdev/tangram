@@ -73,7 +73,7 @@ impl Server {
 					select tags.id, tags.item
 					from tag_children
 					join tags on tag_children.child = tags.id
-					where tag_children.tag = ?1 and tags.component = ?2 and tags.remote is null;
+					where tag_children.tag = ?1 and tags.component = ?2;
 				"
 			);
 			let mut statement = cache
@@ -138,7 +138,7 @@ impl Server {
 				select tags.id
 				from tag_children
 				join tags on tag_children.child = tags.id
-				where tag_children.tag = ?1 and tags.component = ?2 and tags.remote is null and tags.item is null;
+				where tag_children.tag = ?1 and tags.component = ?2 and tags.item is null;
 			"
 		);
 		let mut statement = cache
@@ -164,7 +164,7 @@ impl Server {
 				select tags.id
 				from tag_children
 				join tags on tag_children.child = tags.id
-				where tag_children.tag = ?1 and tags.component = ?2 and tags.remote is null;
+				where tag_children.tag = ?1 and tags.component = ?2;
 			"
 		);
 		let mut statement = cache

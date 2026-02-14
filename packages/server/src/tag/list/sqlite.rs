@@ -82,7 +82,7 @@ impl Server {
 					select tags.id, tags.component, tags.item
 					from tag_children
 					join tags on tag_children.child = tags.id
-					where tag_children.tag = ?1 and tags.remote is null;
+					where tag_children.tag = ?1 ;
 				"
 			);
 			let mut statement = cache
@@ -127,8 +127,7 @@ impl Server {
 		// Create the output.
 		let data = output
 			.into_iter()
-			.map(|m| tg::tag::get::Output {
-				children: None,
+			.map(|m| tg::tag::list::Entry {
 				item: m.item,
 				remote: None,
 				tag: m.tag,
@@ -171,7 +170,7 @@ impl Server {
 					select tags.id, tags.component, tags.item
 					from tag_children
 					join tags on tag_children.child = tags.id
-					where tag_children.tag = 0 and tags.remote is null;
+					where tag_children.tag = 0 ;
 				"
 			);
 			let mut statement = cache
@@ -210,7 +209,7 @@ impl Server {
 							select tags.id, tags.component, tags.item
 							from tag_children
 							join tags on tag_children.child = tags.id
-							where tag_children.tag = ?1 and tags.remote is null;
+							where tag_children.tag = ?1 ;
 						"
 					);
 					let mut statement = cache
@@ -244,7 +243,7 @@ impl Server {
 							select tags.id, tags.component, tags.item
 							from tag_children
 							join tags on tag_children.child = tags.id
-							where tag_children.tag = ?1 and tags.remote is null;
+							where tag_children.tag = ?1 ;
 						"
 					);
 					let mut statement = cache
@@ -280,7 +279,7 @@ impl Server {
 							select tags.id, tags.item
 							from tag_children
 							join tags on tag_children.child = tags.id
-							where tag_children.tag = ?1 and tags.component = ?2 and tags.remote is null;
+							where tag_children.tag = ?1 and tags.component = ?2 ;
 						"
 					);
 					let mut statement = cache
@@ -331,7 +330,7 @@ impl Server {
 							select tags.id, tags.component, tags.item
 							from tag_children
 							join tags on tag_children.child = tags.id
-							where tag_children.tag = ?1 and tags.remote is null;
+							where tag_children.tag = ?1 ;
 						"
 					);
 					let mut statement = cache

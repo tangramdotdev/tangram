@@ -6,12 +6,6 @@ pub trait Tag: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::tag::list::Arg,
 	) -> impl Future<Output = tg::Result<tg::tag::list::Output>> + Send;
 
-	fn try_get_tag(
-		&self,
-		tag: &tg::Tag,
-		arg: tg::tag::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> + Send;
-
 	fn put_tag(
 		&self,
 		tag: &tg::Tag,
@@ -35,14 +29,6 @@ impl tg::handle::Tag for tg::Client {
 		arg: tg::tag::list::Arg,
 	) -> impl Future<Output = tg::Result<tg::tag::list::Output>> {
 		self.list_tags(arg)
-	}
-
-	fn try_get_tag(
-		&self,
-		tag: &tg::Tag,
-		arg: tg::tag::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> {
-		self.try_get_tag(tag, arg)
 	}
 
 	fn put_tag(

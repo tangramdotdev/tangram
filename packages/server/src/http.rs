@@ -413,9 +413,6 @@ impl Server {
 			(http::Method::GET, ["tags"]) => {
 				server.handle_list_tags_request(request, &context).boxed()
 			},
-			(http::Method::GET, ["tags", pattern @ ..]) => server
-				.handle_get_tag_request(request, &context, pattern)
-				.boxed(),
 			(http::Method::POST, ["tags", "batch"]) => server
 				.handle_post_tag_batch_request(request, &context)
 				.boxed(),

@@ -31,10 +31,21 @@ pub struct Arg {
 	pub ttl: Option<u64>,
 }
 
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Hash, serde::Deserialize, serde::Serialize)]
+pub struct Entry {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub item: Option<tg::Either<tg::object::Id, tg::process::Id>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub remote: Option<String>,
+
+	pub tag: tg::Tag,
+}
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(transparent)]
 pub struct Output {
-	pub data: Vec<tg::tag::get::Output>,
+	pub data: Vec<Entry>,
 }
 
 impl tg::Client {

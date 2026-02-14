@@ -135,7 +135,7 @@ impl Server {
 			self.list_tags_with_context(context, list_arg)
 				.await
 				.map_err(|source| tg::error!(!source, %pattern, "failed to list tags"))?;
-		let Some(tg::tag::get::Output { item, tag, .. }) = data.into_iter().next() else {
+		let Some(tg::tag::list::Entry { item, tag, .. }) = data.into_iter().next() else {
 			let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 			return Ok(stream.boxed());
 		};

@@ -526,16 +526,6 @@ pub trait Ext: tg::Handle {
 		})
 	}
 
-	fn get_tag(
-		&self,
-		tag: &tg::Tag,
-		arg: tg::tag::get::Arg,
-	) -> impl Future<Output = tg::Result<tg::tag::get::Output>> + Send {
-		self.try_get_tag(tag, arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the tag")))
-		})
-	}
-
 	fn try_read_pipe(
 		&self,
 		id: &tg::pipe::Id,

@@ -49,7 +49,6 @@ impl Server {
 		// Create the branches.
 		let mut parent: i64 = 0;
 		let mut ancestor = tg::Tag::empty();
-		let remote: Option<String> = None;
 		for component in tag.components().take(tag.components().count() - 1) {
 			ancestor.push(component);
 
@@ -59,12 +58,12 @@ impl Server {
 					select tags.id, tags.item
 					from tag_children
 					join tags on tag_children.child = tags.id
-					where tag_children.tag = $1 and tags.component = $2 and tags.remote is not distinct from $3;
+					where tag_children.tag = $1 and tags.component = $2;
 				"
 			);
 			let rows = transaction
 				.inner()
-				.query(statement, &[&parent, &component.to_string(), &remote])
+				.query(statement, &[&parent, &component.to_string()])
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
@@ -119,7 +118,7 @@ impl Server {
 				select tags.id
 				from tag_children
 				join tags on tag_children.child = tags.id
-				where tag_children.tag = $1 and tags.component = $2 and tags.remote is null and tags.item is null;
+				where tag_children.tag = $1 and tags.component = $2 and tags.item is null;
 			"
 		);
 		let params = db::params![parent, tag.components().last().unwrap().to_string(),];
@@ -138,7 +137,7 @@ impl Server {
 				select tags.id
 				from tag_children
 				join tags on tag_children.child = tags.id
-				where tag_children.tag = $1 and tags.component = $2 and tags.remote is null;
+				where tag_children.tag = $1 and tags.component = $2;
 			"
 		);
 		let rows = transaction

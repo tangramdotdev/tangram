@@ -9,12 +9,6 @@ pub trait Tag: Send + Sync + 'static {
 		arg: tg::tag::list::Arg,
 	) -> BoxFuture<'_, tg::Result<tg::tag::list::Output>>;
 
-	fn try_get_tag<'a>(
-		&'a self,
-		tag: &'a tg::Tag,
-		arg: tg::tag::get::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::tag::get::Output>>>;
-
 	fn put_tag<'a>(
 		&'a self,
 		tag: &'a tg::Tag,
@@ -38,14 +32,6 @@ where
 		arg: tg::tag::list::Arg,
 	) -> BoxFuture<'_, tg::Result<tg::tag::list::Output>> {
 		self.list_tags(arg).boxed()
-	}
-
-	fn try_get_tag<'a>(
-		&'a self,
-		tag: &'a tg::Tag,
-		arg: tg::tag::get::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::tag::get::Output>>> {
-		self.try_get_tag(tag, arg).boxed()
 	}
 
 	fn put_tag<'a>(
