@@ -248,11 +248,11 @@ pub enum Index {
 #[serde(deny_unknown_fields, default)]
 pub struct FdbIndex {
 	pub cluster: PathBuf,
+	pub concurrency: usize,
+	pub max_items_per_transaction: usize,
 	pub partition_total: u64,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub prefix: Option<String>,
-	pub put_concurrency: usize,
-	pub put_max_items_per_transaction: usize,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -659,10 +659,10 @@ impl Default for FdbIndex {
 	fn default() -> Self {
 		Self {
 			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
+			concurrency: 256,
+			max_items_per_transaction: 8_000,
 			partition_total: 256,
 			prefix: None,
-			put_concurrency: 256,
-			put_max_items_per_transaction: 8_000,
 		}
 	}
 }

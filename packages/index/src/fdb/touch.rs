@@ -1,5 +1,5 @@
 use {
-	super::{Index, Key},
+	super::{Index, Key, Request, Response},
 	crate::{CacheEntry, Object, Process},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
@@ -16,25 +16,110 @@ impl Index {
 		if ids.is_empty() {
 			return Ok(vec![]);
 		}
-		self.database
-			.run(|txn, _| {
-				let subspace = self.subspace.clone();
-				let ids = ids.to_vec();
-				async move {
-					let txn = &txn;
-					future::try_join_all(ids.iter().map(|id| {
-						let subspace = subspace.clone();
-						async move {
-							Self::touch_cache_entry_with_transaction(txn, &subspace, id, touched_at)
-								.await
-						}
-					}))
-					.await
-					.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))
-				}
-			})
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request::TouchCacheEntries {
+			ids: ids.to_vec(),
+			touched_at,
+		};
+		self.sender_high
+			.send((request, sender))
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+		let response = receiver
 			.await
-			.map_err(|source| tg::error!(!source, "failed to touch cache entries"))
+			.map_err(|_| tg::error!("the task panicked"))??;
+		let Response::CacheEntries(cache_entries) = response else {
+			return Err(tg::error!("unexpected response"));
+		};
+		Ok(cache_entries)
+	}
+
+	pub async fn touch_objects(
+		&self,
+		ids: &[tg::object::Id],
+		touched_at: i64,
+	) -> tg::Result<Vec<Option<Object>>> {
+		if ids.is_empty() {
+			return Ok(vec![]);
+		}
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request::TouchObjects {
+			ids: ids.to_vec(),
+			touched_at,
+		};
+		self.sender_high
+			.send((request, sender))
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+		let response = receiver
+			.await
+			.map_err(|_| tg::error!("the task panicked"))??;
+		let Response::Objects(objects) = response else {
+			return Err(tg::error!("unexpected response"));
+		};
+		Ok(objects)
+	}
+
+	pub async fn touch_processes(
+		&self,
+		ids: &[tg::process::Id],
+		touched_at: i64,
+	) -> tg::Result<Vec<Option<Process>>> {
+		if ids.is_empty() {
+			return Ok(vec![]);
+		}
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let request = Request::TouchProcesses {
+			ids: ids.to_vec(),
+			touched_at,
+		};
+		self.sender_high
+			.send((request, sender))
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+		let response = receiver
+			.await
+			.map_err(|_| tg::error!("the task panicked"))??;
+		let Response::Processes(processes) = response else {
+			return Err(tg::error!("unexpected response"));
+		};
+		Ok(processes)
+	}
+
+	pub(super) async fn task_touch_cache_entries(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		ids: &[tg::artifact::Id],
+		touched_at: i64,
+	) -> tg::Result<Vec<Option<CacheEntry>>> {
+		future::try_join_all(ids.iter().map(|id| {
+			let subspace = subspace.clone();
+			async move { Self::touch_cache_entry_with_transaction(txn, &subspace, id, touched_at).await }
+		}))
+		.await
+	}
+
+	pub(super) async fn task_touch_objects(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		ids: &[tg::object::Id],
+		touched_at: i64,
+	) -> tg::Result<Vec<Option<Object>>> {
+		future::try_join_all(ids.iter().map(|id| {
+			let subspace = subspace.clone();
+			async move { Self::touch_object_with_transaction(txn, &subspace, id, touched_at).await }
+		}))
+		.await
+	}
+
+	pub(super) async fn task_touch_processes(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		ids: &[tg::process::Id],
+		touched_at: i64,
+	) -> tg::Result<Vec<Option<Process>>> {
+		future::try_join_all(ids.iter().map(|id| {
+			let subspace = subspace.clone();
+			async move { Self::touch_process_with_transaction(txn, &subspace, id, touched_at).await }
+		}))
+		.await
 	}
 
 	async fn touch_cache_entry_with_transaction(
@@ -69,64 +154,6 @@ impl Index {
 		txn.set(&key, &value);
 
 		Ok(Some(cache_entry))
-	}
-
-	pub async fn touch_objects(
-		&self,
-		ids: &[tg::object::Id],
-		touched_at: i64,
-	) -> tg::Result<Vec<Option<Object>>> {
-		if ids.is_empty() {
-			return Ok(vec![]);
-		}
-		self.database
-			.run(|txn, _| {
-				let subspace = self.subspace.clone();
-				let ids = ids.to_vec();
-				async move {
-					let txn = &txn;
-					future::try_join_all(ids.iter().map(|id| {
-						let subspace = subspace.clone();
-						async move {
-							Self::touch_object_with_transaction(txn, &subspace, id, touched_at)
-								.await
-						}
-					}))
-					.await
-					.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))
-				}
-			})
-			.await
-			.map_err(|source| tg::error!(!source, "failed to touch objects"))
-	}
-
-	pub async fn touch_processes(
-		&self,
-		ids: &[tg::process::Id],
-		touched_at: i64,
-	) -> tg::Result<Vec<Option<Process>>> {
-		if ids.is_empty() {
-			return Ok(vec![]);
-		}
-		self.database
-			.run(|txn, _| {
-				let subspace = self.subspace.clone();
-				let ids = ids.to_vec();
-				async move {
-					let txn = &txn;
-					future::try_join_all(ids.iter().map(|id| {
-						let subspace = subspace.clone();
-						async move {
-							Self::touch_process_with_transaction(txn, &subspace, id, touched_at)
-								.await
-						}
-					}))
-					.await
-					.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))
-				}
-			})
-			.await
-			.map_err(|source| tg::error!(!source, "failed to touch processes"))
 	}
 
 	async fn touch_object_with_transaction(

@@ -5,7 +5,7 @@ let server = spawn
 let path = artifact {
 	tangram.ts: '
 		export default async () => {
-			let blob = await tg.download("https://www.example.com", "sha256:0000000000000000000000000000000000000000000000000000000000000000");
+			let blob = await tg.download("http://www.example.com", "sha256:0000000000000000000000000000000000000000000000000000000000000000");
 			return tg.file(blob);
 		};
 	'

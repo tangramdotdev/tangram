@@ -1,37 +1,13 @@
 use {
-	super::{Index, ItemKind, Key, KeyKind, Metrics, Update},
+	super::{Index, ItemKind, Key, KeyKind, Request, Response, Update},
 	crate::{
-		CacheEntry, ItemArg, Object, ObjectStored, Process, PutArg, PutCacheEntryArg, PutObjectArg,
+		CacheEntry, Object, ObjectStored, Process, PutArg, PutCacheEntryArg, PutObjectArg,
 		PutProcessArg,
 	},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
-	futures::{StreamExt as _, stream},
 	num_traits::ToPrimitive as _,
-	std::{
-		collections::HashSet,
-		sync::{
-			Arc, Mutex,
-			atomic::{AtomicU64, Ordering},
-		},
-	},
 	tangram_client::prelude::*,
 };
-
-pub(super) struct Request {
-	arg: PutArg,
-	sender: tokio::sync::oneshot::Sender<tg::Result<()>>,
-}
-
-struct RequestState {
-	remaining: usize,
-	result: tg::Result<()>,
-	sender: Option<tokio::sync::oneshot::Sender<tg::Result<()>>>,
-}
-
-struct Batch {
-	arg: PutArg,
-	trackers: Vec<Arc<Mutex<RequestState>>>,
-}
 
 impl Index {
 	pub async fn put(&self, arg: PutArg) -> tg::Result<()> {
@@ -39,216 +15,39 @@ impl Index {
 			return Ok(());
 		}
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		self.put_sender
-			.send(Request { arg, sender })
-			.map_err(|_| tg::error!("failed to send the request to the put task"))?;
-		receiver
+		let request = Request::Put(arg);
+		self.sender_medium
+			.send((request, sender))
+			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+		let response = receiver
 			.await
-			.map_err(|_| tg::error!("the put task failed"))??;
+			.map_err(|_| tg::error!("the task panicked"))??;
+		let Response::Unit = response else {
+			return Err(tg::error!("unexpected response"));
+		};
 		Ok(())
 	}
 
-	pub(super) async fn put_task(
-		database: Arc<fdb::Database>,
-		subspace: fdbt::Subspace,
-		mut receiver: tokio::sync::mpsc::UnboundedReceiver<Request>,
-		concurrency: usize,
-		max_items_per_transaction: usize,
-		partition_total: u64,
-		metrics: Metrics,
-	) {
-		futures::stream::unfold(&mut receiver, |receiver| async move {
-			let request = receiver.recv().await?;
-			let mut requests = vec![request];
-			while let Ok(request) = receiver.try_recv() {
-				requests.push(request);
-			}
-			let batches = Self::put_task_create_batches(requests, max_items_per_transaction);
-			Some((batches, receiver))
-		})
-		.flat_map(stream::iter)
-		.for_each_concurrent(concurrency, |batch| {
-			let database = database.clone();
-			let subspace = subspace.clone();
-			let metrics = metrics.clone();
-			async move {
-				let result = Self::put_task_put_batch(
-					&database,
-					&subspace,
-					&batch.arg,
-					partition_total,
-					&metrics,
-				)
-				.await;
-				for tracker in batch.trackers {
-					let mut state = tracker.lock().unwrap();
-					if let Err(error) = &result {
-						state.result = Err(error.clone());
-					}
-					state.remaining -= 1;
-					if state.remaining == 0
-						&& let Some(sender) = state.sender.take()
-					{
-						sender.send(state.result.clone()).ok();
-					}
-				}
-			}
-		})
-		.await;
-	}
-
-	fn put_task_create_batches(requests: Vec<Request>, max_item_count: usize) -> Vec<Batch> {
-		let mut items = Vec::new();
-
-		for request in requests {
-			let tracker = Arc::new(Mutex::new(RequestState {
-				remaining: 0,
-				result: Ok(()),
-				sender: Some(request.sender),
-			}));
-
-			for item in request.arg.cache_entries {
-				items.push((ItemArg::CacheEntry(item), tracker.clone()));
-			}
-			for item in request.arg.objects {
-				items.push((ItemArg::Object(item), tracker.clone()));
-			}
-			for item in request.arg.processes {
-				items.push((ItemArg::Process(item), tracker.clone()));
-			}
-		}
-
-		let mut batches = Vec::new();
-		let mut current_arg = PutArg::default();
-		let mut current_trackers: Vec<Arc<Mutex<RequestState>>> = Vec::new();
-		let mut current_tracker_set: HashSet<*const Mutex<RequestState>> = HashSet::new();
-		let mut current_item_count = 0;
-
-		for (item, tracker) in items {
-			if current_item_count + 1 > max_item_count && current_item_count > 0 {
-				for tracker in &current_trackers {
-					tracker.lock().unwrap().remaining += 1;
-				}
-				batches.push(Batch {
-					arg: std::mem::take(&mut current_arg),
-					trackers: std::mem::take(&mut current_trackers),
-				});
-				current_tracker_set.clear();
-				current_item_count = 0;
-			}
-
-			match item {
-				ItemArg::CacheEntry(c) => current_arg.cache_entries.push(c),
-				ItemArg::Object(o) => current_arg.objects.push(o),
-				ItemArg::Process(p) => current_arg.processes.push(p),
-			}
-			current_item_count += 1;
-
-			let ptr = Arc::as_ptr(&tracker);
-			if current_tracker_set.insert(ptr) {
-				current_trackers.push(tracker);
-			}
-		}
-
-		if current_item_count > 0 {
-			for tracker in &current_trackers {
-				tracker.lock().unwrap().remaining += 1;
-			}
-			batches.push(Batch {
-				arg: current_arg,
-				trackers: current_trackers,
-			});
-		}
-
-		batches
-	}
-
-	async fn put_task_put_batch(
-		database: &fdb::Database,
+	pub(super) async fn task_put(
+		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &PutArg,
 		partition_total: u64,
-		metrics: &Metrics,
 	) -> tg::Result<()> {
-		let start = std::time::Instant::now();
-		let retry_count = AtomicU64::new(0);
-
-		let result = database
-			.run(|txn, _maybe_committed| {
-				retry_count.fetch_add(1, Ordering::Relaxed);
-				let subspace = subspace.clone();
-				let arg = arg.clone();
-				async move {
-					txn.set_option(fdb::options::TransactionOption::PriorityBatch)
-						.unwrap();
-					for cache_entry in &arg.cache_entries {
-						Self::put_cache_entry(&txn, &subspace, cache_entry, partition_total)?;
-					}
-					for object in &arg.objects {
-						Self::put_object(&txn, &subspace, object, partition_total).await?;
-					}
-					for process in &arg.processes {
-						Self::put_process(&txn, &subspace, process, partition_total).await?;
-					}
-					Ok::<_, fdb::FdbBindingError>(())
-				}
-			})
-			.await;
-
-		let duration = start.elapsed().as_secs_f64();
-		metrics.put_commit_duration.record(duration, &[]);
-		metrics.put_transactions.add(1, &[]);
-
-		let attempts = retry_count.load(Ordering::Relaxed);
-		if attempts > 1 {
-			metrics
-				.put_transaction_conflict_retry
-				.add(attempts - 1, &[]);
+		for cache_entry in &arg.cache_entries {
+			Self::put_cache_entry(txn, subspace, cache_entry, partition_total)
+				.map_err(|source| tg::error!(!source, "failed to put the cache entry"))?;
 		}
-
-		match result {
-			Ok(()) => (),
-			Err(fdb::FdbBindingError::NonRetryableFdbError(error)) if error.code() == 2101 => {
-				metrics.put_transaction_too_large.add(1, &[]);
-				let count = arg.cache_entries.len() + arg.objects.len() + arg.processes.len();
-				if count <= 1 {
-					return Err(tg::error!(
-						source = fdb::FdbBindingError::NonRetryableFdbError(error),
-						"single item exceeds transaction size limit"
-					));
-				}
-				let left = PutArg {
-					cache_entries: arg.cache_entries[..arg.cache_entries.len() / 2].to_vec(),
-					objects: arg.objects[..arg.objects.len() / 2].to_vec(),
-					processes: arg.processes[..arg.processes.len() / 2].to_vec(),
-				};
-				let right = PutArg {
-					cache_entries: arg.cache_entries[arg.cache_entries.len() / 2..].to_vec(),
-					objects: arg.objects[arg.objects.len() / 2..].to_vec(),
-					processes: arg.processes[arg.processes.len() / 2..].to_vec(),
-				};
-				Box::pin(Self::put_task_put_batch(
-					database,
-					subspace,
-					&left,
-					partition_total,
-					metrics,
-				))
-				.await?;
-				Box::pin(Self::put_task_put_batch(
-					database,
-					subspace,
-					&right,
-					partition_total,
-					metrics,
-				))
-				.await?;
-			},
-			Err(error) => {
-				return Err(tg::error!(!error, "failed to put"));
-			},
+		for object in &arg.objects {
+			Self::put_object(txn, subspace, object, partition_total)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to put the object"))?;
 		}
-
+		for process in &arg.processes {
+			Self::put_process(txn, subspace, process, partition_total)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to put the process"))?;
+		}
 		Ok(())
 	}
 

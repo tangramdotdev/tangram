@@ -1,8 +1,7 @@
 use {
-	crate::{CleanOutput, ProcessObjectKind},
+	crate::{CleanOutput, Object, Process, ProcessObjectKind, PutArg, PutTagArg},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	num_traits::{FromPrimitive as _, ToPrimitive as _},
-	opentelemetry as otel,
 	std::sync::Arc,
 	tangram_client::prelude::*,
 };
@@ -11,23 +10,71 @@ mod clean;
 mod get;
 mod put;
 mod tag;
+mod task;
 mod touch;
 mod update;
 
+pub(super) use task::Metrics;
+
 pub struct Index {
 	database: Arc<fdb::Database>,
-	metrics: Metrics,
 	partition_total: u64,
 	subspace: fdbt::Subspace,
-	put_sender: tokio::sync::mpsc::UnboundedSender<self::put::Request>,
+	sender_high: RequestSender,
+	sender_medium: RequestSender,
+	sender_low: RequestSender,
 }
 
 pub struct Options {
 	pub cluster: std::path::PathBuf,
+	pub concurrency: usize,
+	pub max_items_per_transaction: usize,
 	pub partition_total: u64,
 	pub prefix: Option<String>,
-	pub put_concurrency: usize,
-	pub put_max_items_per_transaction: usize,
+}
+
+type RequestSender = tokio::sync::mpsc::UnboundedSender<(Request, ResponseSender)>;
+type RequestReceiver = tokio::sync::mpsc::UnboundedReceiver<(Request, ResponseSender)>;
+type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
+
+#[derive(Clone)]
+enum Request {
+	Clean {
+		max_touched_at: i64,
+		batch_size: usize,
+		partition_start: u64,
+		partition_count: u64,
+	},
+	DeleteTags(Vec<String>),
+	Put(PutArg),
+	PutTags(Vec<PutTagArg>),
+	TouchCacheEntries {
+		ids: Vec<tg::artifact::Id>,
+		touched_at: i64,
+	},
+	TouchObjects {
+		ids: Vec<tg::object::Id>,
+		touched_at: i64,
+	},
+	TouchProcesses {
+		ids: Vec<tg::process::Id>,
+		touched_at: i64,
+	},
+	Update {
+		batch_size: usize,
+		partition_start: u64,
+		partition_count: u64,
+	},
+}
+
+#[derive(Clone)]
+enum Response {
+	Unit,
+	CacheEntries(Vec<Option<crate::CacheEntry>>),
+	Objects(Vec<Option<Object>>),
+	Processes(Vec<Option<Process>>),
+	CleanOutput(CleanOutput),
+	UpdateCount(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -82,18 +129,18 @@ enum Key {
 		item: Vec<u8>,
 		tag: String,
 	},
+	Clean {
+		partition: u64,
+		touched_at: i64,
+		kind: ItemKind,
+		id: tg::Either<tg::object::Id, tg::process::Id>,
+	},
 	Update {
 		id: tg::Either<tg::object::Id, tg::process::Id>,
 	},
 	UpdateVersion {
 		partition: u64,
 		version: fdbt::Versionstamp,
-		id: tg::Either<tg::object::Id, tg::process::Id>,
-	},
-	Clean {
-		partition: u64,
-		touched_at: i64,
-		kind: ItemKind,
 		id: tg::Either<tg::object::Id, tg::process::Id>,
 	},
 }
@@ -124,9 +171,9 @@ enum KeyKind {
 	ProcessObject = 12,
 	ObjectProcess = 13,
 	ItemTag = 14,
-	Update = 15,
-	UpdateVersion = 16,
-	Clean = 17,
+	Clean = 15,
+	Update = 16,
+	UpdateVersion = 17,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
@@ -134,18 +181,6 @@ enum KeyKind {
 enum Update {
 	Put = 0,
 	Propagate = 1,
-}
-
-#[derive(Clone)]
-struct Metrics {
-	put_commit_duration: otel::metrics::Histogram<f64>,
-	put_transaction_conflict_retry: otel::metrics::Counter<u64>,
-	put_transaction_too_large: otel::metrics::Counter<u64>,
-	put_transactions: otel::metrics::Counter<u64>,
-	update_commit_duration: otel::metrics::Histogram<f64>,
-	update_transaction_conflict_retry: otel::metrics::Counter<u64>,
-	update_transaction_too_large: otel::metrics::Counter<u64>,
-	update_transactions: otel::metrics::Counter<u64>,
 }
 
 impl Index {
@@ -163,20 +198,25 @@ impl Index {
 
 		let metrics = Metrics::new();
 
-		let (put_sender, put_receiver) = tokio::sync::mpsc::unbounded_channel();
-		let put_concurrency = options.put_concurrency;
-		let put_max_items_per_transaction = options.put_max_items_per_transaction;
+		let (sender_high, receiver_high) = tokio::sync::mpsc::unbounded_channel();
+		let (sender_medium, receiver_medium) = tokio::sync::mpsc::unbounded_channel();
+		let (sender_low, receiver_low) = tokio::sync::mpsc::unbounded_channel();
+
+		let concurrency = options.concurrency;
+		let max_items_per_transaction = options.max_items_per_transaction;
 		tokio::spawn({
 			let database = database.clone();
 			let subspace = subspace.clone();
 			let metrics = metrics.clone();
 			async move {
-				Self::put_task(
+				Self::task(
 					database,
 					subspace,
-					put_receiver,
-					put_concurrency,
-					put_max_items_per_transaction,
+					receiver_high,
+					receiver_medium,
+					receiver_low,
+					concurrency,
+					max_items_per_transaction,
 					partition_total,
 					metrics,
 				)
@@ -186,10 +226,11 @@ impl Index {
 
 		let index = Self {
 			database,
-			metrics,
 			partition_total,
 			subspace,
-			put_sender,
+			sender_high,
+			sender_medium,
+			sender_low,
 		};
 
 		Ok(index)
@@ -452,6 +493,23 @@ impl fdbt::TuplePack for Key {
 			)
 				.pack(w, tuple_depth),
 
+			Key::Clean {
+				partition,
+				touched_at,
+				kind,
+				id,
+			} => {
+				KeyKind::Clean.to_i32().unwrap().pack(w, tuple_depth)?;
+				partition.pack(w, tuple_depth)?;
+				touched_at.pack(w, tuple_depth)?;
+				kind.to_i32().unwrap().pack(w, tuple_depth)?;
+				let id = match &id {
+					tg::Either::Left(id) => id.to_bytes(),
+					tg::Either::Right(id) => id.to_bytes(),
+				};
+				id.as_ref().pack(w, tuple_depth)
+			},
+
 			Key::Update { id } => {
 				KeyKind::Update.to_i32().unwrap().pack(w, tuple_depth)?;
 				let id = match &id {
@@ -478,23 +536,6 @@ impl fdbt::TuplePack for Key {
 				};
 				offset += id.as_ref().pack(w, tuple_depth)?;
 				Ok(offset)
-			},
-
-			Key::Clean {
-				partition,
-				touched_at,
-				kind,
-				id,
-			} => {
-				KeyKind::Clean.to_i32().unwrap().pack(w, tuple_depth)?;
-				partition.pack(w, tuple_depth)?;
-				touched_at.pack(w, tuple_depth)?;
-				kind.to_i32().unwrap().pack(w, tuple_depth)?;
-				let id = match &id {
-					tg::Either::Left(id) => id.to_bytes(),
-					tg::Either::Right(id) => id.to_bytes(),
-				};
-				id.as_ref().pack(w, tuple_depth)
 			},
 		}
 	}
@@ -690,6 +731,32 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, Key::ItemTag { item, tag }))
 			},
 
+			KeyKind::Clean => {
+				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, touched_at): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, kind): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let kind = ItemKind::from_i32(kind)
+					.ok_or(fdbt::PackError::Message("invalid item kind".into()))?;
+				let (input, id_bytes): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::Id::from_slice(&id_bytes)
+					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
+				let id = if let Ok(id) = tg::process::Id::try_from(id.clone()) {
+					tg::Either::Right(id)
+				} else if let Ok(id) = tg::object::Id::try_from(id) {
+					tg::Either::Left(id)
+				} else {
+					return Err(fdbt::PackError::Message("invalid id".into()));
+				};
+				let key = Key::Clean {
+					partition,
+					touched_at,
+					kind,
+					id,
+				};
+				Ok((input, key))
+			},
+
 			KeyKind::Update => {
 				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let id = tg::Id::from_slice(&id)
@@ -720,32 +787,6 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let key = Key::UpdateVersion {
 					partition,
 					version,
-					id,
-				};
-				Ok((input, key))
-			},
-
-			KeyKind::Clean => {
-				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, touched_at): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, kind): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let kind = ItemKind::from_i32(kind)
-					.ok_or(fdbt::PackError::Message("invalid item kind".into()))?;
-				let (input, id_bytes): (_, Vec<u8>) =
-					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let id = tg::Id::from_slice(&id_bytes)
-					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
-				let id = if let Ok(id) = tg::process::Id::try_from(id.clone()) {
-					tg::Either::Right(id)
-				} else if let Ok(id) = tg::object::Id::try_from(id) {
-					tg::Either::Left(id)
-				} else {
-					return Err(fdbt::PackError::Message("invalid id".into()));
-				};
-				let key = Key::Clean {
-					partition,
-					touched_at,
-					kind,
 					id,
 				};
 				Ok((input, key))
@@ -789,64 +830,5 @@ impl fdbt::TupleUnpack<'_> for ProcessObjectKind {
 			"invalid process object kind".into(),
 		))?;
 		Ok((input, kind))
-	}
-}
-
-impl Metrics {
-	fn new() -> Self {
-		let meter = otel::global::meter("tangram_index_fdb");
-
-		let put_commit_duration = meter
-			.f64_histogram("index.fdb.put.commit_duration")
-			.with_description("FDB put transaction commit duration in seconds.")
-			.with_unit("s")
-			.build();
-
-		let put_transaction_conflict_retry = meter
-			.u64_counter("index.fdb.put.transaction_conflict_retry")
-			.with_description("Number of FDB put transaction conflict retries.")
-			.build();
-
-		let put_transaction_too_large = meter
-			.u64_counter("index.fdb.put.transaction_too_large")
-			.with_description("Number of FDB put transaction too large errors.")
-			.build();
-
-		let put_transactions = meter
-			.u64_counter("index.fdb.put.transactions")
-			.with_description("Total number of FDB put transactions.")
-			.build();
-
-		let update_commit_duration = meter
-			.f64_histogram("index.fdb.update.commit_duration")
-			.with_description("FDB update transaction commit duration in seconds.")
-			.with_unit("s")
-			.build();
-
-		let update_transaction_conflict_retry = meter
-			.u64_counter("index.fdb.update.transaction_conflict_retry")
-			.with_description("Number of FDB update transaction conflict retries.")
-			.build();
-
-		let update_transaction_too_large = meter
-			.u64_counter("index.fdb.update.transaction_too_large")
-			.with_description("Number of FDB update transaction too large errors.")
-			.build();
-
-		let update_transactions = meter
-			.u64_counter("index.fdb.update.transactions")
-			.with_description("Total number of FDB update transactions.")
-			.build();
-
-		Self {
-			put_commit_duration,
-			put_transaction_conflict_retry,
-			put_transaction_too_large,
-			put_transactions,
-			update_commit_duration,
-			update_transaction_conflict_retry,
-			update_transaction_too_large,
-			update_transactions,
-		}
 	}
 }
