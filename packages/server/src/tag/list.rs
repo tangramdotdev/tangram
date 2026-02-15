@@ -84,16 +84,16 @@ impl Server {
 		arg: &tg::tag::list::Arg,
 	) -> tg::Result<Vec<tg::tag::list::Entry>> {
 		// Build the task key by clearing fields that do not affect the remote query.
-		let task_key = RemoteTagListTaskKey {
+		let key = RemoteTagListTaskKey {
 			remote: remote.to_owned(),
 			arg: Self::list_tags_remote_arg(arg),
 		};
-		let cache_key = serde_json::to_string(&task_key).unwrap();
+		let key_json = serde_json::to_string(&key).unwrap();
 
 		// Check the cache unless ttl is Some(0).
 		if arg.ttl != Some(0)
 			&& let Some((cached_output, timestamp)) = self
-				.list_tags_cache_get(&cache_key)
+				.list_tags_cache_get(&key_json)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the tag list cache"))?
 		{
@@ -119,9 +119,9 @@ impl Server {
 		// Fetch from the remote with deduplication.
 		let task = self
 			.remote_list_tags_tasks
-			.get_or_spawn_detached(task_key.clone(), {
+			.get_or_spawn_detached(key.clone(), {
 				let server = self.clone();
-				move |_stop| async move { server.list_tags_remote_task(task_key).await }
+				move |_stop| async move { server.list_tags_remote_task(key).await }
 			});
 		let entries = task
 			.wait()
@@ -153,9 +153,9 @@ impl Server {
 
 	async fn list_tags_remote_task(
 		&self,
-		task_key: RemoteTagListTaskKey,
+		key: RemoteTagListTaskKey,
 	) -> tg::Result<Vec<tg::tag::list::Entry>> {
-		let RemoteTagListTaskKey { arg, remote } = task_key;
+		let RemoteTagListTaskKey { arg, remote } = key;
 
 		// Fetch from the remote.
 		let client = self
@@ -168,10 +168,10 @@ impl Server {
 			.map_err(|source| tg::error!(!source, %remote, "failed to list tags"))?;
 
 		// Upsert the result into the cache.
-		let cache_key = serde_json::to_string(&RemoteTagListTaskKey { remote, arg }).unwrap();
-		let serialized_output = serde_json::to_string(&output.data).unwrap();
+		let key = serde_json::to_string(&RemoteTagListTaskKey { remote, arg }).unwrap();
+		let output_json = serde_json::to_string(&output.data).unwrap();
 		let now = OffsetDateTime::now_utc().unix_timestamp();
-		self.list_tags_cache_put(&cache_key, &serialized_output, now)
+		self.list_tags_cache_put(&key, &output_json, now)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the tag list cache"))?;
 

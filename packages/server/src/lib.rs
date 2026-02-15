@@ -99,6 +99,7 @@ pub struct State {
 	process_tasks: ProcessTasks,
 	ptys: DashMap<tg::pty::Id, pty::Pty, tg::id::BuildHasher>,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
+	remote_get_object_tasks: RemoteGetObjectTasks,
 	remote_list_tags_tasks: RemoteListTagsTasks,
 	store: Store,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
@@ -144,6 +145,13 @@ struct ProcessPermit(
 );
 
 type ProcessTasks = tangram_futures::task::Map<tg::process::Id, (), (), tg::id::BuildHasher>;
+
+type RemoteGetObjectTasks = tangram_futures::task::Map<
+	crate::object::get::RemoteObjectGetTaskKey,
+	tg::Result<tg::object::get::Output>,
+	(),
+	fnv::FnvBuildHasher,
+>;
 
 type RemoteListTagsTasks = tangram_futures::task::Map<
 	crate::tag::list::RemoteTagListTaskKey,
@@ -488,6 +496,9 @@ impl Server {
 		// Create the remotes.
 		let remotes = DashMap::default();
 
+		// Create the remote get object tasks.
+		let remote_get_object_tasks = tangram_futures::task::Map::default();
+
 		// Create the remote list tags tasks.
 		let remote_list_tags_tasks = tangram_futures::task::Map::default();
 
@@ -565,6 +576,7 @@ impl Server {
 			process_tasks,
 			ptys,
 			remotes,
+			remote_get_object_tasks,
 			remote_list_tags_tasks,
 			store,
 			temps,
@@ -939,6 +951,18 @@ impl Server {
 				}
 				tracing::trace!("cache tasks");
 
+				// Abort the remote get object tasks.
+				server.remote_get_object_tasks.abort_all();
+				let results = server.remote_get_object_tasks.wait().await;
+				for result in results {
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "a remote get object task panicked");
+					}
+				}
+				tracing::trace!("remote get object tasks");
+
 				// Abort the remote list tags tasks.
 				server.remote_list_tags_tasks.abort_all();
 				let results = server.remote_list_tags_tasks.wait().await;
@@ -1204,6 +1228,7 @@ impl Drop for Owned {
 		self.cache_tasks.abort_all();
 		self.library.lock().unwrap().take();
 		self.process_tasks.abort_all();
+		self.remote_get_object_tasks.abort_all();
 		self.remote_list_tags_tasks.abort_all();
 		self.index_tasks.abort_all();
 		self.vfs.lock().unwrap().take();

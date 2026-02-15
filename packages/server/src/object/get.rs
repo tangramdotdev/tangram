@@ -25,6 +25,13 @@ pub struct File {
 	pub file: std::fs::File,
 }
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct RemoteObjectGetTaskKey {
+	pub remote: String,
+	pub id: tg::object::Id,
+	pub metadata: bool,
+}
+
 impl Server {
 	pub async fn try_get_object_with_context(
 		&self,
@@ -227,17 +234,12 @@ impl Server {
 		let futures = remotes.iter().map(|remote| {
 			let remote = remote.clone();
 			async move {
-				let client = self.get_remote_client(remote.clone()).await.map_err(
-					|source| tg::error!(!source, %remote, "failed to get the remote client"),
-				)?;
-				let arg = tg::object::get::Arg {
+				let key = RemoteObjectGetTaskKey {
+					remote,
+					id: id.clone(),
 					metadata,
-					..Default::default()
 				};
-				client
-					.get_object(id, arg)
-					.await
-					.map_err(|source| tg::error!(!source, %id, %remote, "failed to get the object"))
+				self.try_get_object_remote_task(key).await
 			}
 			.boxed()
 		});
@@ -263,6 +265,44 @@ impl Server {
 		});
 
 		Ok(Some(output))
+	}
+
+	async fn try_get_object_remote_task(
+		&self,
+		key: RemoteObjectGetTaskKey,
+	) -> tg::Result<tg::object::get::Output> {
+		let task = self
+			.remote_get_object_tasks
+			.get_or_spawn_detached(key.clone(), {
+				let server = self.clone();
+				move |_stop| async move { server.try_get_object_remote_task_inner(key).await }
+			});
+		task.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "the remote get object task panicked"))?
+	}
+
+	async fn try_get_object_remote_task_inner(
+		&self,
+		key: RemoteObjectGetTaskKey,
+	) -> tg::Result<tg::object::get::Output> {
+		let RemoteObjectGetTaskKey {
+			remote,
+			id,
+			metadata,
+		} = key;
+		let client = self
+			.get_remote_client(remote.clone())
+			.await
+			.map_err(|source| tg::error!(!source, %remote, "failed to get the remote client"))?;
+		let arg = tg::object::get::Arg {
+			metadata,
+			..Default::default()
+		};
+		client
+			.get_object(&id, arg)
+			.await
+			.map_err(|source| tg::error!(!source, %id, %remote, "failed to get the object"))
 	}
 
 	async fn try_read_cache_pointer(
