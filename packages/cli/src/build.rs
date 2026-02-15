@@ -1,6 +1,6 @@
 use {
 	crate::Cli,
-	futures::{FutureExt as _, TryStreamExt as _},
+	futures::FutureExt as _,
 	std::{fmt::Write as _, path::PathBuf},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
@@ -105,30 +105,12 @@ impl Cli {
 			Self::print_info_message(&message);
 		}
 
-		// Get the process's status.
-		let status = process
-			.item()
-			.status(&handle)
-			.await?
-			.try_next()
-			.await?
-			.ok_or_else(|| tg::error!("failed to get the status"))?;
-
-		// If the process is finished, then get the process's output.
-		let wait = if status.is_finished() {
-			let arg = tg::process::wait::Arg {
-				token: process.item().token().cloned(),
-				..tg::process::wait::Arg::default()
-			};
-			let output = process
-				.item()
-				.wait(&handle, arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the output"))?;
-			Some(output)
-		} else {
-			None
-		};
+		// If the spawn output includes a wait output, then use it.
+		let wait = output
+			.wait
+			.map(TryInto::try_into)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the wait output"))?;
 
 		// If the process is not finished, then wait for it to finish while showing the viewer if enabled.
 		let wait = if let Some(wait) = wait {

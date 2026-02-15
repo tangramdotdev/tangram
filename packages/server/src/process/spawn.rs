@@ -20,6 +20,7 @@ struct LocalOutput {
 	permit: Option<ProcessPermit>,
 	status: tg::process::Status,
 	token: Option<String>,
+	wait: Option<tg::process::wait::Output>,
 }
 
 impl Server {
@@ -46,7 +47,7 @@ impl Server {
 		let task = Task::spawn({
 			let server = self.clone();
 			let progress = progress.clone();
-			async move |_| match server.try_spawn_process_task(arg, &progress).await {
+			async move |_| match Box::pin(server.try_spawn_process_task(arg, &progress)).await {
 				Ok(output) => {
 					progress.output(output);
 				},
@@ -212,17 +213,19 @@ impl Server {
 		// Create a future that will await the local process if there is one.
 		let local_future = {
 			let id = output.as_ref().map(|output| output.id.clone());
+			let wait = output.as_ref().and_then(|output| output.wait.clone());
 			async {
 				if finished {
-					return Ok::<_, tg::Error>(Some(()));
+					return Ok::<_, tg::Error>(wait);
 				}
 				if let Some(id) = id {
-					self.wait_process(&id, tg::process::wait::Arg::default())
+					let wait = self
+						.wait_process(&id, tg::process::wait::Arg::default())
 						.await
 						.map_err(
 							|source| tg::error!(!source, %id, "failed to wait for the process"),
 						)?;
-					Ok(Some(()))
+					Ok(Some(wait))
 				} else {
 					Ok(None)
 				}
@@ -255,12 +258,13 @@ impl Server {
 		// If the local process finishes before the remote responds, then use the local process. If a remote process is found sooner, then spawn a task to cancel the local process and use the remote process.
 		let output = match future::select(pin!(local_future), pin!(remote_future)).await {
 			future::Either::Left((result, remote_future)) => {
-				if result?.is_some() {
+				if let Some(wait) = result? {
 					let output = output.unwrap();
 					tg::process::spawn::Output {
 						process: output.id,
 						remote: None,
 						token: output.token,
+						wait: Some(wait),
 					}
 				} else {
 					let Some(remote_output) = remote_future.await? else {
@@ -295,6 +299,7 @@ impl Server {
 						process: output.id,
 						remote: None,
 						token: output.token,
+						wait: output.wait,
 					}
 				}
 			},
@@ -332,6 +337,8 @@ impl Server {
 			id: tg::process::Id,
 			error: Option<String>,
 			exit: Option<u8>,
+			#[tangram_database(as = "Option<db::value::Json<tg::value::Data>>")]
+			output: Option<tg::value::Data>,
 			#[tangram_database(as = "db::value::FromStr")]
 			status: tg::process::Status,
 		}
@@ -358,7 +365,7 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				{params}
-				select id, error, exit, status
+				select id, error, exit, output, status
 				from processes, params
 				where
 					processes.command = params.command and
@@ -378,6 +385,7 @@ impl Server {
 			id,
 			error,
 			exit,
+			output,
 			status,
 		}) = transaction
 			.query_optional_into::<Row>(statement.into(), params)
@@ -392,6 +400,33 @@ impl Server {
 		if failed && arg.retry {
 			return Ok(None);
 		}
+
+		let wait =
+			if status == tg::process::Status::Finished {
+				let error =
+					error
+						.map(|error| {
+							if error.starts_with('{') {
+								serde_json::from_str(&error).map(tg::Either::Left).map_err(
+									|source| tg::error!(!source, "failed to deserialize the error"),
+								)
+							} else {
+								error.parse().map(tg::Either::Right).map_err(|source| {
+									tg::error!(!source, "failed to parse the error id")
+								})
+							}
+						})
+						.transpose()
+						.map_err(|source| tg::error!(!source, "invalid error"))?;
+				let exit = exit.ok_or_else(|| tg::error!("expected the exit to be set"))?;
+				Some(tg::process::wait::Output {
+					error,
+					exit,
+					output,
+				})
+			} else {
+				None
+			};
 
 		// If the process is not finished, then create a process token.
 		let token = if status == tg::process::Status::Finished {
@@ -432,6 +467,7 @@ impl Server {
 			permit: None,
 			status,
 			token,
+			wait,
 		}))
 	}
 
@@ -641,7 +677,7 @@ impl Server {
 			host,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
 			arg.network,
-			output.map(db::value::Json),
+			output.clone().map(db::value::Json),
 			arg.retry,
 			status.to_string(),
 			0,
@@ -657,6 +693,11 @@ impl Server {
 			permit: None,
 			status,
 			token: None,
+			wait: Some(tg::process::wait::Output {
+				error: error.as_ref().map(tg::Error::to_data_or_id),
+				exit,
+				output,
+			}),
 		}))
 	}
 
@@ -825,6 +866,7 @@ impl Server {
 			permit,
 			status,
 			token: Some(token),
+			wait: None,
 		})
 	}
 

@@ -128,7 +128,10 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 		token: spawnOutput.token,
 	});
 
-	let wait = await process.wait();
+	let wait =
+		spawnOutput.wait !== undefined
+			? tg.Process.Wait.fromData(spawnOutput.wait)
+			: await process.wait();
 
 	if (wait.error !== undefined) {
 		let error = wait.error;

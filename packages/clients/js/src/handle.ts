@@ -43,6 +43,7 @@ export namespace Handle {
 		process: tg.Process.Id;
 		remote: string | undefined;
 		token: string | undefined;
+		wait: tg.Process.Wait.Data | undefined;
 	};
 
 	export type WaitArg = {
