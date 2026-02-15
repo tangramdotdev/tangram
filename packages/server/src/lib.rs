@@ -99,6 +99,7 @@ pub struct State {
 	process_tasks: ProcessTasks,
 	ptys: DashMap<tg::pty::Id, pty::Pty, tg::id::BuildHasher>,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
+	remote_list_tags_tasks: RemoteListTagsTasks,
 	store: Store,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
@@ -143,6 +144,13 @@ struct ProcessPermit(
 );
 
 type ProcessTasks = tangram_futures::task::Map<tg::process::Id, (), (), tg::id::BuildHasher>;
+
+type RemoteListTagsTasks = tangram_futures::task::Map<
+	crate::tag::list::RemoteTagListTaskKey,
+	tg::Result<Vec<tg::tag::list::Entry>>,
+	(),
+	fnv::FnvBuildHasher,
+>;
 
 impl Owned {
 	pub fn stop(&self) {
@@ -480,6 +488,9 @@ impl Server {
 		// Create the remotes.
 		let remotes = DashMap::default();
 
+		// Create the remote list tags tasks.
+		let remote_list_tags_tasks = tangram_futures::task::Map::default();
+
 		// Create the store.
 		let store = match &config.store {
 			config::Store::Lmdb(lmdb) => {
@@ -554,6 +565,7 @@ impl Server {
 			process_tasks,
 			ptys,
 			remotes,
+			remote_list_tags_tasks,
 			store,
 			temps,
 			version,
@@ -927,6 +939,18 @@ impl Server {
 				}
 				tracing::trace!("cache tasks");
 
+				// Abort the remote list tags tasks.
+				server.remote_list_tags_tasks.abort_all();
+				let results = server.remote_list_tags_tasks.wait().await;
+				for result in results {
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "a remote list tags task panicked");
+					}
+				}
+				tracing::trace!("remote list tags tasks");
+
 				// Abort the index tasks.
 				server.index_tasks.abort_all();
 				server.index_tasks.wait().await;
@@ -1180,6 +1204,7 @@ impl Drop for Owned {
 		self.cache_tasks.abort_all();
 		self.library.lock().unwrap().take();
 		self.process_tasks.abort_all();
+		self.remote_list_tags_tasks.abort_all();
 		self.index_tasks.abort_all();
 		self.vfs.lock().unwrap().take();
 		self.watches.clear();

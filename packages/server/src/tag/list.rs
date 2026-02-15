@@ -12,6 +12,12 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize)]
+pub(crate) struct RemoteTagListTaskKey {
+	pub remote: String,
+	pub arg: tg::tag::list::Arg,
+}
+
 impl Server {
 	#[tracing::instrument(level = "trace", name = "list_tags", skip_all, fields(pattern = %arg.pattern))]
 	pub(crate) async fn list_tags_with_context(
@@ -77,18 +83,12 @@ impl Server {
 		remote: &str,
 		arg: &tg::tag::list::Arg,
 	) -> tg::Result<Vec<tg::tag::list::Entry>> {
-		// Build the cache key arg by clearing fields that do not affect the remote query.
-		let cache_key_arg = tg::tag::list::Arg {
-			cached: false,
-			length: None,
-			local: None,
-			remotes: None,
-			ttl: None,
-			..arg.clone()
+		// Build the task key by clearing fields that do not affect the remote query.
+		let task_key = RemoteTagListTaskKey {
+			remote: remote.to_owned(),
+			arg: Self::list_tags_remote_arg(arg),
 		};
-		let cache_key =
-			serde_json::to_string(&serde_json::json!({ "remote": remote, "arg": cache_key_arg }))
-				.unwrap();
+		let cache_key = serde_json::to_string(&task_key).unwrap();
 
 		// Check the cache unless ttl is Some(0).
 		if arg.ttl != Some(0)
@@ -116,34 +116,20 @@ impl Server {
 			return Ok(Vec::new());
 		}
 
-		// Fetch from the remote.
-		let client = self
-			.get_remote_client(remote.to_owned())
+		// Fetch from the remote with deduplication.
+		let task = self
+			.remote_list_tags_tasks
+			.get_or_spawn_detached(task_key.clone(), {
+				let server = self.clone();
+				move |_stop| async move { server.list_tags_remote_task(task_key).await }
+			});
+		let entries = task
+			.wait()
 			.await
-			.map_err(|source| tg::error!(!source, %remote, "failed to get the remote client"))?;
-		let remote_arg = tg::tag::list::Arg {
-			cached: false,
-			length: None,
-			local: None,
-			remotes: None,
-			ttl: None,
-			..arg.clone()
-		};
-		let output = client
-			.list_tags(remote_arg)
-			.await
-			.map_err(|source| tg::error!(!source, %remote, "failed to list tags"))?;
-
-		// Upsert the result into the cache.
-		let serialized_output = serde_json::to_string(&output.data).unwrap();
-		let now = OffsetDateTime::now_utc().unix_timestamp();
-		self.list_tags_cache_put(&cache_key, &serialized_output, now)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to put the tag list cache"))?;
+			.map_err(|source| tg::error!(!source, "the remote tag list task panicked"))??;
 
 		// Set the remote field on each entry.
-		let entries = output
-			.data
+		let entries = entries
 			.into_iter()
 			.map(|mut entry| {
 				entry.remote = Some(remote.to_owned());
@@ -152,6 +138,44 @@ impl Server {
 			.collect();
 
 		Ok(entries)
+	}
+
+	fn list_tags_remote_arg(arg: &tg::tag::list::Arg) -> tg::tag::list::Arg {
+		tg::tag::list::Arg {
+			cached: false,
+			length: None,
+			local: None,
+			remotes: None,
+			ttl: None,
+			..arg.clone()
+		}
+	}
+
+	async fn list_tags_remote_task(
+		&self,
+		task_key: RemoteTagListTaskKey,
+	) -> tg::Result<Vec<tg::tag::list::Entry>> {
+		let RemoteTagListTaskKey { arg, remote } = task_key;
+
+		// Fetch from the remote.
+		let client = self
+			.get_remote_client(remote.clone())
+			.await
+			.map_err(|source| tg::error!(!source, %remote, "failed to get the remote client"))?;
+		let output = client
+			.list_tags(arg.clone())
+			.await
+			.map_err(|source| tg::error!(!source, %remote, "failed to list tags"))?;
+
+		// Upsert the result into the cache.
+		let cache_key = serde_json::to_string(&RemoteTagListTaskKey { remote, arg }).unwrap();
+		let serialized_output = serde_json::to_string(&output.data).unwrap();
+		let now = OffsetDateTime::now_utc().unix_timestamp();
+		self.list_tags_cache_put(&cache_key, &serialized_output, now)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to put the tag list cache"))?;
+
+		Ok(output.data)
 	}
 
 	async fn list_tags_local(&self, arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
