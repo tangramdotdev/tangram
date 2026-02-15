@@ -108,21 +108,23 @@ create table remotes (
 
 create table tags (
 	id bigserial primary key,
-	cached_at int8,
-	child_count int8,
 	component text not null,
-	item text,
-	remote text
+	item text
 );
-
-create index tags_cleanable_index on tags (cached_at)
-	where remote is not null and child_count = 0;
 
 create table tag_children (
 	tag int8 not null default 0,
 	child int8 not null unique,
 	primary key (tag, child)
 );
+
+create table remote_tag_list_cache (
+	arg text not null,
+	output text not null,
+	timestamp int8 not null
+);
+
+create unique index remote_tag_list_cache_arg_index on remote_tag_list_cache (arg);
 
 create table users (
 	id text primary key,

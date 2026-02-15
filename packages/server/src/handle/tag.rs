@@ -9,14 +9,6 @@ impl tg::handle::Tag for Owned {
 		self.0.list_tags(arg).await
 	}
 
-	async fn try_get_tag(
-		&self,
-		tag: &tg::Tag,
-		arg: tg::tag::get::Arg,
-	) -> tg::Result<Option<tg::tag::get::Output>> {
-		self.0.try_get_tag(tag, arg).await
-	}
-
 	async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
 		self.0.put_tag(tag, arg).await
 	}
@@ -33,15 +25,6 @@ impl tg::handle::Tag for Owned {
 impl tg::handle::Tag for Server {
 	async fn list_tags(&self, arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
 		self.list_tags_with_context(&Context::default(), arg).await
-	}
-
-	async fn try_get_tag(
-		&self,
-		tag: &tg::Tag,
-		arg: tg::tag::get::Arg,
-	) -> tg::Result<Option<tg::tag::get::Output>> {
-		self.try_get_tag_with_context(&Context::default(), tag, arg)
-			.await
 	}
 
 	async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
@@ -62,14 +45,6 @@ impl tg::handle::Tag for Server {
 impl tg::handle::Tag for ServerWithContext {
 	async fn list_tags(&self, arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
 		self.0.list_tags_with_context(&self.1, arg).await
-	}
-
-	async fn try_get_tag(
-		&self,
-		tag: &tg::Tag,
-		arg: tg::tag::get::Arg,
-	) -> tg::Result<Option<tg::tag::get::Output>> {
-		self.0.try_get_tag_with_context(&self.1, tag, arg).await
 	}
 
 	async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {

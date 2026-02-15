@@ -70,7 +70,7 @@ impl Server {
 					select tags.id, tags.component, tags.item
 					from tag_children
 					join tags on tag_children.child = tags.id
-					where tag_children.tag = $1 and tags.remote is null;
+					where tag_children.tag = $1 ;
 				"
 			);
 			let rows = async {
@@ -118,8 +118,7 @@ impl Server {
 		// Create the output.
 		let data = output
 			.into_iter()
-			.map(|m| tg::tag::get::Output {
-				children: None,
+			.map(|m| tg::tag::list::Entry {
 				item: m.item,
 				remote: None,
 				tag: m.tag,
@@ -128,6 +127,70 @@ impl Server {
 		let output = tg::tag::list::Output { data };
 
 		Ok(output)
+	}
+
+	pub(super) async fn list_tags_cache_get_postgres(
+		&self,
+		database: &db::postgres::Database,
+		arg: &str,
+	) -> tg::Result<Option<(String, i64)>> {
+		let connection = database
+			.connection()
+			.instrument(tracing::trace_span!("connection"))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let statement = indoc!(
+			"
+				select output, timestamp
+				from remote_tag_list_cache
+				where arg = $1 ;
+			"
+		);
+		let rows = connection
+			.inner()
+			.query(statement, &[&arg])
+			.instrument(tracing::trace_span!("query_cache_get"))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		let Some(row) = rows.first() else {
+			return Ok(None);
+		};
+		let output: String = row
+			.try_get(0)
+			.map_err(|source| tg::error!(!source, "failed to get the output column"))?;
+		let timestamp: i64 = row
+			.try_get(1)
+			.map_err(|source| tg::error!(!source, "failed to get the timestamp column"))?;
+		Ok(Some((output, timestamp)))
+	}
+
+	pub(super) async fn list_tags_cache_put_postgres(
+		&self,
+		database: &db::postgres::Database,
+		arg: &str,
+		output: &str,
+		timestamp: i64,
+	) -> tg::Result<()> {
+		let connection = database
+			.connection()
+			.instrument(tracing::trace_span!("connection"))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let statement = indoc!(
+			"
+				insert into remote_tag_list_cache (arg, output, timestamp)
+				values ($1, $2, $3)
+				on conflict (arg) do update
+				set output = excluded.output, timestamp = excluded.timestamp ;
+			"
+		);
+		connection
+			.inner()
+			.execute(statement, &[&arg, &output, &timestamp])
+			.instrument(tracing::trace_span!("query_cache_put"))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		Ok(())
 	}
 
 	#[tracing::instrument(level = "trace", skip_all, fields(pattern = %pattern, recursive))]
@@ -143,7 +206,7 @@ impl Server {
 					select tags.id, tags.component, tags.item
 					from tag_children
 					join tags on tag_children.child = tags.id
-					where tag_children.tag = 0 and tags.remote is null;
+					where tag_children.tag = 0 ;
 				"
 			);
 			let rows = async { transaction.inner().query(statement, &[]).await }
@@ -181,7 +244,7 @@ impl Server {
 							select tags.id, tags.component, tags.item
 							from tag_children
 							join tags on tag_children.child = tags.id
-							where tag_children.tag = $1 and tags.remote is null;
+							where tag_children.tag = $1 ;
 						"
 					);
 					let rows = async {
@@ -217,7 +280,7 @@ impl Server {
 							select tags.id, tags.component, tags.item
 							from tag_children
 							join tags on tag_children.child = tags.id
-							where tag_children.tag = $1 and tags.remote is null;
+							where tag_children.tag = $1 ;
 						"
 					);
 					let rows = async {
@@ -258,7 +321,7 @@ impl Server {
 							select tags.id, tags.item
 							from tag_children
 							join tags on tag_children.child = tags.id
-							where tag_children.tag = $1 and tags.component = $2 and tags.remote is null;
+							where tag_children.tag = $1 and tags.component = $2 ;
 						"
 					);
 					let rows = async {
@@ -310,7 +373,7 @@ impl Server {
 							select tags.id, tags.component, tags.item
 							from tag_children
 							join tags on tag_children.child = tags.id
-							where tag_children.tag = $1 and tags.remote is null;
+							where tag_children.tag = $1 ;
 						"
 					);
 					let rows = async {

@@ -1670,6 +1670,7 @@ impl Server {
 				} else {
 					server
 						.list_tags(tg::tag::list::Arg {
+							cached: false,
 							length: None,
 							local: None,
 							pattern: pattern.clone(),

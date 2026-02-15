@@ -15,8 +15,6 @@ use {
 	tangram_store::prelude::*,
 };
 
-mod database;
-
 impl Server {
 	pub(crate) async fn clean_with_context(
 		&self,
@@ -98,8 +96,6 @@ impl Server {
 			.map_or(1024, |config| config.batch_size);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let ttl = Duration::from_secs(0);
-		let tag_ttl = self.config.tag.cache_ttl;
-		let max_cached_at = now - tag_ttl.as_secs().to_i64().unwrap();
 		progress.start(
 			"cache_entries".into(),
 			"cache entries".into(),
@@ -121,13 +117,6 @@ impl Server {
 			Some(0),
 			None,
 		);
-		progress.start(
-			"tags".into(),
-			"tags".into(),
-			tangram_client::progress::IndicatorFormat::Normal,
-			Some(0),
-			None,
-		);
 
 		// For manual cleaning, process all partitions.
 		let partition_total = self.index.partition_total();
@@ -143,15 +132,6 @@ impl Server {
 				},
 			};
 
-			// Clean remote tags.
-			let tags = match self.clean_remote_tags(max_cached_at, batch_size).await {
-				Ok(tags) => tags,
-				Err(error) => {
-					progress.error(error);
-					break;
-				},
-			};
-
 			// Get the number of items cleaned.
 			let bytes = inner_output.bytes;
 			let cache_entries = inner_output.cache_entries.len().to_u64().unwrap();
@@ -161,15 +141,26 @@ impl Server {
 			output.cache_entries += cache_entries;
 			output.objects += objects;
 			output.processes += processes;
-			output.tags += tags;
 			progress.increment("cache_entries", cache_entries);
 			progress.increment("objects", objects);
 			progress.increment("processes", processes);
-			progress.increment("tags", tags);
-			if inner_output.done && tags == 0 {
+			if inner_output.done {
 				break;
 			}
 		}
+
+		// Delete the remote tag list cache.
+		let connection = self
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let statement = "delete from remote_tag_list_cache;";
+		connection
+			.execute(statement.into(), db::params![])
+			.await
+			.map_err(|source| tg::error!(!source, "failed to delete the remote tag list cache"))?;
+		drop(connection);
 
 		Ok::<_, tg::Error>(output)
 	}
@@ -178,7 +169,6 @@ impl Server {
 		let partition_start = config.partition_start;
 		let partition_count = config.partition_count;
 		let concurrency = config.concurrency.to_u64().unwrap();
-		let tag_ttl = self.config.tag.cache_ttl;
 		loop {
 			let now = time::OffsetDateTime::now_utc().unix_timestamp();
 			let ttl = config.ttl;
@@ -193,19 +183,14 @@ impl Server {
 				let task_count = partitions_per_task + u64::from(task_index < extra);
 				self.cleaner_task_inner(now, ttl, n, task_start, task_count)
 			});
-			let result = future::try_join_all(futures).await;
 
-			// Clean remote tags.
-			let max_cached_at = now - tag_ttl.as_secs().to_i64().unwrap();
-			let tags_result = self.clean_remote_tags(max_cached_at, n).await;
-
-			match (result, tags_result) {
-				(Ok(outputs), Ok(tags)) => {
-					if outputs.iter().all(|output| output.done) && tags == 0 {
+			match future::try_join_all(futures).await {
+				Ok(outputs) => {
+					if outputs.iter().all(|output| output.done) {
 						tokio::time::sleep(Duration::from_secs(1)).await;
 					}
 				},
-				(Err(error), _) | (_, Err(error)) => {
+				Err(error) => {
 					tracing::error!(error = %error.trace(), "failed to clean");
 					tokio::time::sleep(Duration::from_secs(1)).await;
 				},

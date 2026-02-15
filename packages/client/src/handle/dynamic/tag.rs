@@ -8,14 +8,6 @@ impl tg::handle::Tag for Handle {
 		self.0.list_tags(arg)
 	}
 
-	fn try_get_tag(
-		&self,
-		tag: &tg::Tag,
-		arg: tg::tag::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_tag(tag, arg)) }
-	}
-
 	fn put_tag(
 		&self,
 		tag: &tg::Tag,

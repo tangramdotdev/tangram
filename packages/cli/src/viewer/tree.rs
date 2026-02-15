@@ -1375,6 +1375,7 @@ where
 		// List the tag.
 		let output = handle
 			.list_tags(tg::tag::list::Arg {
+				cached: false,
 				length: None,
 				local: None,
 				pattern: tg::tag::Pattern::new(pattern.to_string()),

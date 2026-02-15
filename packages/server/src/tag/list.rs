@@ -1,9 +1,10 @@
 use {
 	crate::{Context, Database, Server},
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
+	num::ToPrimitive as _,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tracing::Instrument as _,
+	time::OffsetDateTime,
 };
 
 #[cfg(feature = "postgres")]
@@ -22,256 +23,135 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 
-		let mut output = tg::tag::list::Output { data: Vec::new() };
+		let mut data = Vec::new();
 
-		// List the local tags if requested.
+		// Collect local results.
 		if Self::local(arg.local, arg.remotes.as_ref()) {
+			let local_arg = tg::tag::list::Arg {
+				length: None,
+				..arg.clone()
+			};
 			let local_output = self
-				.list_tags_local(arg.clone())
-				.instrument(tracing::trace_span!("local"))
+				.list_tags_local(local_arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to list local tags"))?;
-			output.data.extend(local_output.data);
+			data.extend(local_output.data);
 		}
 
-		// List the remote tags using try_get_tag instead of client.list_tags.
+		// Collect remote results concurrently.
 		let remotes = self
 			.remotes(arg.local, arg.remotes.clone())
-			.instrument(tracing::trace_span!("get_remotes"))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
-		let remote_outputs = remotes
+		let remote_results = remotes
 			.into_iter()
 			.map(|remote| {
 				let arg = arg.clone();
-				let span = tracing::trace_span!("remote", %remote);
-				async move {
-					self.list_tags_remote(context, &remote, &arg).await.map_err(
-						|source| tg::error!(!source, %remote, "failed to list remote tags"),
-					)
-				}
-				.instrument(span)
+				async move { self.list_tags_remote(&remote, &arg).await }
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
+		data.extend(remote_results.into_iter().flatten());
 
-		output
-			.data
-			.extend(remote_outputs.into_iter().flat_map(|output| output.data));
+		// Sort by tag, then by remote, preferring local over remote.
+		data.sort_by(|a, b| {
+			let tag_cmp = if arg.reverse {
+				b.tag.cmp(&a.tag)
+			} else {
+				a.tag.cmp(&b.tag)
+			};
+			tag_cmp.then_with(|| a.remote.cmp(&b.remote))
+		});
 
-		// Sort by tag, then by remote (local first for ties).
-		if arg.reverse {
-			output.data.sort_by(|a, b| match b.tag.cmp(&a.tag) {
-				std::cmp::Ordering::Equal => a.remote.cmp(&b.remote),
-				other => other,
-			});
-		} else {
-			output.data.sort_by(|a, b| match a.tag.cmp(&b.tag) {
-				std::cmp::Ordering::Equal => a.remote.cmp(&b.remote),
-				other => other,
-			});
-		}
-
-		Ok(output)
-	}
-
-	/// List tags on a remote by walking the pattern tree using `try_get_tag`.
-	async fn list_tags_remote(
-		&self,
-		context: &Context,
-		remote: &str,
-		arg: &tg::tag::list::Arg,
-	) -> tg::Result<tg::tag::list::Output> {
-		// Split the pattern into an exact prefix and a filter suffix.
-		let components: Vec<&str> = if arg.pattern.is_empty() {
-			Vec::new()
-		} else {
-			arg.pattern.components().collect()
-		};
-		let split_index = components
-			.iter()
-			.position(|c| c.contains(['*', '=', '>', '<', '^']))
-			.unwrap_or(components.len());
-		let prefix_components = &components[..split_index];
-		let suffix_components = &components[split_index..];
-
-		// Build the prefix tag and fetch it with a single try_get_tag call.
-		let mut prefix_tag = tg::Tag::empty();
-		for component in prefix_components {
-			prefix_tag.push(component);
-		}
-		let get_arg = tg::tag::get::Arg {
-			cached: None,
-			local: Some(false),
-			remotes: Some(vec![remote.to_owned()]),
-			ttl: arg.ttl,
-		};
-		let prefix_output = self
-			.try_get_tag_with_context(context, &prefix_tag, get_arg)
-			.await
-			.map_err(|source| {
-				tg::error!(!source, "failed to get the prefix tag from the remote")
-			})?;
-
-		// If the prefix is a leaf with no suffix, return it directly.
-		if suffix_components.is_empty() {
-			if let Some(output) = prefix_output {
-				if output.item.is_some() {
-					// This is a leaf tag. Return it as a single result.
-					return Ok(tg::tag::list::Output {
-						data: vec![tg::tag::get::Output {
-							children: None,
-							item: output.item,
-							remote: Some(remote.to_owned()),
-							tag: prefix_tag,
-						}],
-					});
-				}
-				// This is a branch tag with no suffix. Expand its children.
-				if let Some(children) = &output.children {
-					let mut data = Vec::new();
-					for child in children {
-						let mut child_tag = prefix_tag.clone();
-						child_tag.push(&child.component);
-						if child.item.is_some() {
-							data.push(tg::tag::get::Output {
-								children: None,
-								item: child.item.clone(),
-								remote: Some(remote.to_owned()),
-								tag: child_tag,
-							});
-						} else {
-							data.push(tg::tag::get::Output {
-								children: None,
-								item: None,
-								remote: Some(remote.to_owned()),
-								tag: child_tag,
-							});
-						}
-					}
-					if arg.recursive {
-						self.expand_remote_branches(context, remote, &mut data)
-							.await?;
-					}
-					return Ok(tg::tag::list::Output { data });
-				}
-			}
-			return Ok(tg::tag::list::Output { data: Vec::new() });
-		}
-
-		// The prefix output must exist and have children to continue.
-		let Some(prefix_output) = prefix_output else {
-			return Ok(tg::tag::list::Output { data: Vec::new() });
-		};
-		let Some(children) = prefix_output.children else {
-			return Ok(tg::tag::list::Output { data: Vec::new() });
-		};
-
-		// Walk the suffix components, filtering children at each level.
-		let mut current: Vec<(tg::Tag, Option<tg::Either<tg::object::Id, tg::process::Id>>)> =
-			children
-				.into_iter()
-				.filter(|child| tg::tag::pattern::matches(&child.component, suffix_components[0]))
-				.map(|child| {
-					let mut tag = prefix_tag.clone();
-					tag.push(&child.component);
-					(tag, child.item)
-				})
-				.collect();
-
-		// Process remaining suffix components.
-		for &suffix in &suffix_components[1..] {
-			let mut next = Vec::new();
-			for (tag, _item) in &current {
-				let get_arg = tg::tag::get::Arg {
-					cached: None,
-					local: Some(false),
-					remotes: Some(vec![remote.to_owned()]),
-					ttl: None,
-				};
-				let output = self
-					.try_get_tag_with_context(context, tag, get_arg)
-					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to get the tag from the remote")
-					})?;
-				if let Some(output) = output
-					&& let Some(children) = output.children
-				{
-					for child in children {
-						if tg::tag::pattern::matches(&child.component, suffix) {
-							let mut child_tag = tag.clone();
-							child_tag.push(&child.component);
-							next.push((child_tag, child.item));
-						}
-					}
-				}
-			}
-			current = next;
-		}
-
-		// Build the output.
-		let mut data: Vec<tg::tag::get::Output> = current
-			.into_iter()
-			.map(|(tag, item)| tg::tag::get::Output {
-				children: None,
-				item,
-				remote: Some(remote.to_owned()),
-				tag,
-			})
-			.collect();
-
-		// Recursively expand branches if requested.
-		if arg.recursive {
-			self.expand_remote_branches(context, remote, &mut data)
-				.await?;
+		// Truncate to the requested length.
+		if let Some(length) = arg.length {
+			data.truncate(length.to_usize().unwrap());
 		}
 
 		Ok(tg::tag::list::Output { data })
 	}
 
-	/// Recursively expand branch tags by fetching their children from the remote.
-	async fn expand_remote_branches(
+	async fn list_tags_remote(
 		&self,
-		context: &Context,
 		remote: &str,
-		data: &mut Vec<tg::tag::get::Output>,
-	) -> tg::Result<()> {
-		let mut i = 0;
-		while i < data.len() {
-			if data[i].item.is_none() {
-				let tag = data[i].tag.clone();
-				let get_arg = tg::tag::get::Arg {
-					cached: None,
-					local: Some(false),
-					remotes: Some(vec![remote.to_owned()]),
-					ttl: None,
-				};
-				let output = self
-					.try_get_tag_with_context(context, &tag, get_arg)
-					.await
+		arg: &tg::tag::list::Arg,
+	) -> tg::Result<Vec<tg::tag::list::Entry>> {
+		// Build the cache key arg by clearing fields that do not affect the remote query.
+		let cache_key_arg = tg::tag::list::Arg {
+			cached: false,
+			length: None,
+			local: None,
+			remotes: None,
+			ttl: None,
+			..arg.clone()
+		};
+		let cache_key =
+			serde_json::to_string(&serde_json::json!({ "remote": remote, "arg": cache_key_arg }))
+				.unwrap();
+
+		// Check the cache unless ttl is Some(0).
+		if arg.ttl != Some(0)
+			&& let Some((cached_output, timestamp)) = self
+				.list_tags_cache_get(&cache_key)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the tag list cache"))?
+		{
+			let now = OffsetDateTime::now_utc().unix_timestamp();
+			let ttl = arg.ttl.map_or(i64::MAX, u64::cast_signed);
+			if now - timestamp < ttl {
+				let mut entries: Vec<tg::tag::list::Entry> = serde_json::from_str(&cached_output)
 					.map_err(|source| {
-						tg::error!(!source, "failed to get the tag from the remote")
-					})?;
-				if let Some(output) = output
-					&& let Some(children) = output.children
-				{
-					for child in children {
-						let mut child_tag = tag.clone();
-						child_tag.push(&child.component);
-						data.push(tg::tag::get::Output {
-							children: None,
-							item: child.item,
-							remote: Some(remote.to_owned()),
-							tag: child_tag,
-						});
-					}
+					tg::error!(!source, "failed to deserialize the cached tag list")
+				})?;
+				for entry in &mut entries {
+					entry.remote = Some(remote.to_owned());
 				}
+				return Ok(entries);
 			}
-			i += 1;
 		}
-		Ok(())
+
+		// If cached mode is enabled, do not fetch from the remote.
+		if arg.cached {
+			return Ok(Vec::new());
+		}
+
+		// Fetch from the remote.
+		let client = self
+			.get_remote_client(remote.to_owned())
+			.await
+			.map_err(|source| tg::error!(!source, %remote, "failed to get the remote client"))?;
+		let remote_arg = tg::tag::list::Arg {
+			cached: false,
+			length: None,
+			local: None,
+			remotes: None,
+			ttl: None,
+			..arg.clone()
+		};
+		let output = client
+			.list_tags(remote_arg)
+			.await
+			.map_err(|source| tg::error!(!source, %remote, "failed to list tags"))?;
+
+		// Upsert the result into the cache.
+		let serialized_output = serde_json::to_string(&output.data).unwrap();
+		let now = OffsetDateTime::now_utc().unix_timestamp();
+		self.list_tags_cache_put(&cache_key, &serialized_output, now)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to put the tag list cache"))?;
+
+		// Set the remote field on each entry.
+		let entries = output
+			.data
+			.into_iter()
+			.map(|mut entry| {
+				entry.remote = Some(remote.to_owned());
+				entry
+			})
+			.collect();
+
+		Ok(entries)
 	}
 
 	async fn list_tags_local(&self, arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
@@ -280,6 +160,30 @@ impl Server {
 			Database::Postgres(database) => self.list_tags_postgres(database, arg).await,
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(database) => self.list_tags_sqlite(database, arg).await,
+		}
+	}
+
+	async fn list_tags_cache_get(&self, arg: &str) -> tg::Result<Option<(String, i64)>> {
+		match &self.database {
+			#[cfg(feature = "postgres")]
+			Database::Postgres(database) => self.list_tags_cache_get_postgres(database, arg).await,
+			#[cfg(feature = "sqlite")]
+			Database::Sqlite(database) => self.list_tags_cache_get_sqlite(database, arg).await,
+		}
+	}
+
+	async fn list_tags_cache_put(&self, arg: &str, output: &str, timestamp: i64) -> tg::Result<()> {
+		match &self.database {
+			#[cfg(feature = "postgres")]
+			Database::Postgres(database) => {
+				self.list_tags_cache_put_postgres(database, arg, output, timestamp)
+					.await
+			},
+			#[cfg(feature = "sqlite")]
+			Database::Sqlite(database) => {
+				self.list_tags_cache_put_sqlite(database, arg, output, timestamp)
+					.await
+			},
 		}
 	}
 

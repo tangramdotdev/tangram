@@ -1,10 +1,10 @@
 use {crate::Cli, tangram_client::prelude::*};
 
-/// Get a tag.
+/// Get the latest tag matching a pattern.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	/// Return only cached remote results without making network requests.
+	/// Only use cached remote results. Do not fetch from remotes.
 	#[arg(long)]
 	pub cached: bool,
 
@@ -12,7 +12,7 @@ pub struct Args {
 	pub local: crate::util::args::Local,
 
 	#[arg(index = 1)]
-	pub tag: tg::Tag,
+	pub pattern: tg::tag::Pattern,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
@@ -28,17 +28,25 @@ pub struct Args {
 impl Cli {
 	pub async fn command_tag_get(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let arg = tg::tag::get::Arg {
-			cached: if args.cached { Some(true) } else { None },
+		let arg = tg::tag::list::Arg {
+			cached: args.cached,
+			length: Some(1),
 			local: args.local.local,
+			pattern: args.pattern.clone(),
+			recursive: false,
 			remotes: args.remotes.remotes,
+			reverse: true,
 			ttl: args.ttl,
 		};
-		let output = handle
-			.get_tag(&args.tag, arg)
-			.await
-			.map_err(|source| tg::error!(!source, tag = %args.tag, "failed to get the tag"))?;
-		self.print_serde(output, args.print).await?;
+		let output = handle.list_tags(arg).await.map_err(
+			|source| tg::error!(!source, pattern = %args.pattern, "failed to get the tag"),
+		)?;
+		let entry = output
+			.data
+			.into_iter()
+			.next()
+			.ok_or_else(|| tg::error!(pattern = %args.pattern, "no tag was found"))?;
+		self.print_serde(entry, args.print).await?;
 		Ok(())
 	}
 }

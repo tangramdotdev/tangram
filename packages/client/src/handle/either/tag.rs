@@ -15,17 +15,6 @@ where
 		}
 	}
 
-	fn try_get_tag(
-		&self,
-		tag: &tg::Tag,
-		arg: tg::tag::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::tag::get::Output>>> {
-		match self {
-			tg::Either::Left(s) => s.try_get_tag(tag, arg.clone()).left_future(),
-			tg::Either::Right(s) => s.try_get_tag(tag, arg).right_future(),
-		}
-	}
-
 	fn put_tag(
 		&self,
 		tag: &tg::Tag,

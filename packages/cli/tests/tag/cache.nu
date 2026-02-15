@@ -37,7 +37,7 @@ assert ($fresh.item == $id2) "ttl 0 should return new item"
 
 # Fetch c.
 let c1 = tg -u $local.url tag get "a/c"
-snapshot $c1 '{"children":[{"component":"d","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"component":"e"}],"remote":"default","tag":"a/c"}'
+snapshot $c1 '{"remote":"default","tag":"a/c/e"}'
 
 # Add another child to c. Within ttl, should be the same as the last one.
 tg -u $remote.url tag put -f "a/c/h" $id2
@@ -46,7 +46,7 @@ assert ($c2 == $c1) "within TTL should return the same result"
 
 # With --ttl 0, should return the new child.
 let c3 = tg -u $local.url tag get --ttl 0 "a/c"
-snapshot $c3 '{"children":[{"component":"d","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"component":"e"},{"component":"h","item":"fil_01ne07s5fgpn2cxfg2b5xgasfrfcjev22snh7g2nfjxpy02ady2yfg"}],"remote":"default","tag":"a/c"}'
+snapshot $c3 '{"item":"fil_01ne07s5fgpn2cxfg2b5xgasfrfcjev22snh7g2nfjxpy02ady2yfg","remote":"default","tag":"a/c/h"}'
 
 # Test that intermediate nodes are not cached.
 tg -u $local.url tag get "a/c/e/f/g"
@@ -56,7 +56,7 @@ tg -u $remote.url tag put "a/c/e/i/j" $id
 
 # Fetch e, should return the new sibling i.
 let e = tg -u $local.url tag get "a/c/e"
-snapshot $e '{"children":[{"component":"f"},{"component":"i"}],"remote":"default","tag":"a/c/e"}'
+snapshot $e '{"remote":"default","tag":"a/c/e/i"}'
 
 # Stale children are deleted when the cache is refreshed.
 # Create a branch with two children on the remote.
@@ -65,14 +65,14 @@ tg -u $remote.url tag put "a/k/m" $id
 
 # Fetch the branch to cache both children.
 let k = tg -u $local.url tag get "a/k"
-snapshot $k '{"children":[{"component":"l","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"component":"m","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}],"remote":"default","tag":"a/k"}'
+snapshot $k '{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","remote":"default","tag":"a/k/m"}'
 
 # Delete one child on the remote.
 tg -u $remote.url tag delete "a/k/l"
 
 # Bust the cache and fetch again. The deleted child should be gone.
 let k2 = tg -u $local.url tag get --ttl 0 "a/k"
-snapshot $k2 '{"children":[{"component":"m","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}],"remote":"default","tag":"a/k"}'
+snapshot $k2 '{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","remote":"default","tag":"a/k/m"}'
 
 # A branch that becomes a leaf should have its cached children cleaned up.
 # Create a branch with children on the remote.
@@ -81,7 +81,7 @@ tg -u $remote.url tag put "a/n/p" $id
 
 # Fetch the branch to cache the children.
 let n = tg -u $local.url tag get "a/n"
-snapshot $n '{"children":[{"component":"o","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"},{"component":"p","item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60"}],"remote":"default","tag":"a/n"}'
+snapshot $n '{"item":"fil_0161g41yea30wb48ta1dt778xfgfxrm09e1p1dznezech34e27tp60","remote":"default","tag":"a/n/p"}'
 
 # Replace the branch with a leaf on the remote.
 tg -u $remote.url tag delete "a/n/o"

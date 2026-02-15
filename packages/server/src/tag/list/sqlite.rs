@@ -67,8 +67,8 @@ impl Server {
 			&& let Some(m) = output.first()
 			&& m.item.is_none()
 		{
-			let _span = tracing::trace_span!("query_branch_children").entered();
 			// This is a branch tag, get its children.
+			let _span = tracing::trace_span!("query_branch_children").entered();
 			#[derive(db::sqlite::row::Deserialize)]
 			struct Row {
 				#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
@@ -82,7 +82,7 @@ impl Server {
 					select tags.id, tags.component, tags.item
 					from tag_children
 					join tags on tag_children.child = tags.id
-					where tag_children.tag = ?1 and tags.remote is null;
+					where tag_children.tag = ?1 ;
 				"
 			);
 			let mut statement = cache
@@ -127,8 +127,7 @@ impl Server {
 		// Create the output.
 		let data = output
 			.into_iter()
-			.map(|m| tg::tag::get::Output {
-				children: None,
+			.map(|m| tg::tag::list::Entry {
 				item: m.item,
 				remote: None,
 				tag: m.tag,
@@ -137,6 +136,84 @@ impl Server {
 		let output = tg::tag::list::Output { data };
 
 		Ok(output)
+	}
+
+	pub(super) async fn list_tags_cache_get_sqlite(
+		&self,
+		database: &db::sqlite::Database,
+		arg: &str,
+	) -> tg::Result<Option<(String, i64)>> {
+		let connection = database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let arg = arg.to_owned();
+		connection
+			.with(move |connection, cache| {
+				let statement = indoc!(
+					"
+						select output, timestamp
+						from remote_tag_list_cache
+						where arg = ?1 ;
+					"
+				);
+				let mut statement = cache
+					.get(connection, statement.into())
+					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+				let params = sqlite::params![arg];
+				let mut rows = statement
+					.query(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				let Some(row) = rows
+					.next()
+					.map_err(|source| tg::error!(!source, "failed to get the next row"))?
+				else {
+					return Ok(None);
+				};
+				let output: String = row
+					.get(0)
+					.map_err(|source| tg::error!(!source, "failed to get the output column"))?;
+				let timestamp: i64 = row
+					.get(1)
+					.map_err(|source| tg::error!(!source, "failed to get the timestamp column"))?;
+				Ok(Some((output, timestamp)))
+			})
+			.await
+	}
+
+	pub(super) async fn list_tags_cache_put_sqlite(
+		&self,
+		database: &db::sqlite::Database,
+		arg: &str,
+		output: &str,
+		timestamp: i64,
+	) -> tg::Result<()> {
+		let connection = database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let arg = arg.to_owned();
+		let output = output.to_owned();
+		connection
+			.with(move |connection, cache| {
+				let statement = indoc!(
+					"
+						insert into remote_tag_list_cache (arg, output, timestamp)
+						values (?1, ?2, ?3)
+						on conflict (arg) do update
+						set output = excluded.output, timestamp = excluded.timestamp ;
+					"
+				);
+				let mut statement = cache
+					.get(connection, statement.into())
+					.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+				let params = sqlite::params![arg, output, timestamp];
+				statement
+					.execute(params)
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				Ok(())
+			})
+			.await
 	}
 
 	#[tracing::instrument(level = "trace", skip_all, fields(pattern = %pattern, recursive))]
@@ -171,7 +248,7 @@ impl Server {
 					select tags.id, tags.component, tags.item
 					from tag_children
 					join tags on tag_children.child = tags.id
-					where tag_children.tag = 0 and tags.remote is null;
+					where tag_children.tag = 0 ;
 				"
 			);
 			let mut statement = cache
@@ -210,7 +287,7 @@ impl Server {
 							select tags.id, tags.component, tags.item
 							from tag_children
 							join tags on tag_children.child = tags.id
-							where tag_children.tag = ?1 and tags.remote is null;
+							where tag_children.tag = ?1 ;
 						"
 					);
 					let mut statement = cache
@@ -244,7 +321,7 @@ impl Server {
 							select tags.id, tags.component, tags.item
 							from tag_children
 							join tags on tag_children.child = tags.id
-							where tag_children.tag = ?1 and tags.remote is null;
+							where tag_children.tag = ?1 ;
 						"
 					);
 					let mut statement = cache
@@ -280,7 +357,7 @@ impl Server {
 							select tags.id, tags.item
 							from tag_children
 							join tags on tag_children.child = tags.id
-							where tag_children.tag = ?1 and tags.component = ?2 and tags.remote is null;
+							where tag_children.tag = ?1 and tags.component = ?2 ;
 						"
 					);
 					let mut statement = cache
@@ -331,7 +408,7 @@ impl Server {
 							select tags.id, tags.component, tags.item
 							from tag_children
 							join tags on tag_children.child = tags.id
-							where tag_children.tag = ?1 and tags.remote is null;
+							where tag_children.tag = ?1 ;
 						"
 					);
 					let mut statement = cache
