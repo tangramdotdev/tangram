@@ -8,6 +8,9 @@ use {
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub cached: bool,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub length: Option<u64>,
 
@@ -31,6 +34,12 @@ pub struct Arg {
 	pub ttl: Option<u64>,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(transparent)]
+pub struct Output {
+	pub data: Vec<Entry>,
+}
+
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Hash, serde::Deserialize, serde::Serialize)]
 pub struct Entry {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -40,12 +49,6 @@ pub struct Entry {
 	pub remote: Option<String>,
 
 	pub tag: tg::Tag,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(transparent)]
-pub struct Output {
-	pub data: Vec<Entry>,
 }
 
 impl tg::Client {

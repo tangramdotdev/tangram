@@ -4,6 +4,10 @@ use {crate::Cli, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	/// Only use cached remote results. Do not fetch from remotes.
+	#[arg(long)]
+	pub cached: bool,
+
 	#[command(flatten)]
 	pub local: crate::util::args::Local,
 
@@ -31,6 +35,7 @@ impl Cli {
 	pub async fn command_tag_list(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let arg = tg::tag::list::Arg {
+			cached: args.cached,
 			length: None,
 			local: args.local.local,
 			pattern: args.pattern.clone(),

@@ -123,6 +123,7 @@ impl Server {
 		arg: tg::get::Arg,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
 		let list_arg = tg::tag::list::Arg {
+			cached: false,
 			length: Some(1),
 			local: arg.local,
 			pattern: pattern.clone(),

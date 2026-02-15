@@ -118,6 +118,14 @@ create table tag_children (
 	primary key (tag, child)
 );
 
+create table remote_tag_list_cache (
+	arg text not null,
+	output text not null,
+	timestamp int8 not null
+);
+
+create unique index remote_tag_list_cache_arg_index on remote_tag_list_cache (arg);
+
 create table users (
 	id text primary key,
 	email text not null

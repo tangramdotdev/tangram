@@ -13,6 +13,7 @@ impl Server {
 	) -> tg::Result<()> {
 		let list = self
 			.list_tags(tg::tag::list::Arg {
+				cached: false,
 				length: None,
 				local: None,
 				pattern,
