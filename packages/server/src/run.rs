@@ -126,6 +126,8 @@ impl Server {
 		permit: ProcessPermit,
 		clean_guard: crate::CleanGuard,
 	) -> tg::Result<()> {
+		eprintln!("start : {:x}", time::OffsetDateTime::now_utc().unix_timestamp_nanos());
+
 		// Guard against concurrent cleans.
 		let _clean_guard = self.try_acquire_clean_guard()?;
 

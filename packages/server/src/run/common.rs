@@ -509,11 +509,14 @@ async fn run_inner(arg: Arg<'_>) -> tg::Result<u8> {
 	cmd.stdin(stdin).stdout(stdout).stderr(stderr);
 
 	// Spawn the process.
+	let start = std::time::Instant::now();
 	let mut child = cmd
 		.spawn()
 		.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
 	drop(cmd);
 	let pid = child.id().unwrap().to_i32().unwrap();
+	let spawn = std::time::Instant::now();
+	
 
 	// Spawn the stdio task.
 	let stdio_task = tokio::spawn({
@@ -550,6 +553,7 @@ async fn run_inner(arg: Arg<'_>) -> tg::Result<u8> {
 	});
 
 	// Await the process.
+	eprintln!("spawn : {:x}", time::OffsetDateTime::now_utc().unix_timestamp_nanos());
 	let exit = child.wait().await.map_err(
 		|source| tg::error!(!source, process = %id, "failed to wait for the child process"),
 	)?;
