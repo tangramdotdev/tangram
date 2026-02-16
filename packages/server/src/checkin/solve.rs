@@ -197,6 +197,18 @@ impl Server {
 			root: root.to_owned(),
 		};
 
+		// Ensure prefetch tasks are always aborted before returning.
+		let _prefetch_abort_guard = scopeguard::guard(
+			(
+				state.prefetch.object_tasks.clone(),
+				state.prefetch.tag_tasks.clone(),
+			),
+			|(object_tasks, tag_tasks)| {
+				object_tasks.abort_all();
+				tag_tasks.abort_all();
+			},
+		);
+
 		// Prefetch from the lock.
 		if let Some(lock) = &lock {
 			self.checkin_solve_prefetch_from_lock(&state.prefetch, lock);
@@ -223,10 +235,6 @@ impl Server {
 			self.checkin_solve_item(&mut state, &mut checkpoint, item)
 				.await?;
 		}
-
-		// Abort all prefetch tasks.
-		state.prefetch.object_tasks.abort_all();
-		state.prefetch.tag_tasks.abort_all();
 
 		// Mark all new nodes as solved.
 		for index in next..checkpoint.graph.next {
