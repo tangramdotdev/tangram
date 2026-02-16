@@ -6,7 +6,7 @@ use {
 			fd::{FromRawFd, RawFd},
 			unix::{io::AsRawFd, process::ExitStatusExt as _},
 		},
-		path::PathBuf,
+		path::{Path, PathBuf},
 	},
 	tangram_client::prelude::*,
 	tangram_futures::{read::Ext as _, write::Ext as _},
@@ -17,12 +17,15 @@ use {
 pub struct Server;
 
 impl Server {
-	pub async fn run(path: PathBuf) -> tg::Result<()> {
-		let server = Self;
-
+	pub fn bind(path: &Path) -> tg::Result<tokio::net::UnixListener> {
 		// Bind the Unix listener to the specified path.
-		let listener = tokio::net::UnixListener::bind(&path)
+		let listener = tokio::net::UnixListener::bind(path)
 			.map_err(|source| tg::error!(!source, "failed to bind the listener"))?;
+		Ok(listener)
+	}
+
+	pub async fn serve(listener: tokio::net::UnixListener) -> tg::Result<()> {
+		let server = Self;
 
 		// Accept connections in a loop.
 		loop {
@@ -38,6 +41,11 @@ impl Server {
 				}
 			});
 		}
+	}
+
+	pub async fn run(path: PathBuf) -> tg::Result<()> {
+		let listener = Self::bind(&path)?;
+		Self::serve(listener).await
 	}
 
 	async fn handle_connection(&self, mut stream: tokio::net::UnixStream) -> tg::Result<()> {

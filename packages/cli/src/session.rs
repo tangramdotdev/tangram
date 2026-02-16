@@ -1,4 +1,12 @@
-use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*};
+use {
+	crate::Cli,
+	std::{
+		io::Write as _,
+		os::fd::{FromRawFd as _, RawFd},
+		path::PathBuf,
+	},
+	tangram_client::prelude::*,
+};
 
 #[derive(Clone, Debug, clap::Args)]
 pub struct Args {
@@ -7,6 +15,9 @@ pub struct Args {
 
 	#[arg(long)]
 	path: PathBuf,
+
+	#[arg(hide = true, long)]
+	ready_fd: Option<RawFd>,
 }
 
 impl Cli {
@@ -87,8 +98,24 @@ impl Cli {
 			.build()
 			.map_err(|source| tg::error!(!source, "failed to create the runtime"))?;
 
+		let path = args.path;
+		let ready_fd = args.ready_fd;
+
 		// Run the server.
-		runtime.block_on(async { tangram_session::Server::run(args.path).await })?;
+		runtime.block_on(async move {
+			let listener = tangram_session::Server::bind(&path)?;
+			if let Some(ready_fd) = ready_fd {
+				let ready_fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(ready_fd) };
+				let mut ready = std::fs::File::from(ready_fd);
+				ready
+					.write_all(&[0x00])
+					.map_err(|source| tg::error!(!source, "failed to write the ready signal"))?;
+				ready
+					.flush()
+					.map_err(|source| tg::error!(!source, "failed to flush the ready signal"))?;
+			}
+			tangram_session::Server::serve(listener).await
+		})?;
 
 		Ok(())
 	}

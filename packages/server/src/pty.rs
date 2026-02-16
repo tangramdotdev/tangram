@@ -2,7 +2,10 @@ use {
 	crate::{Server, temp::Temp},
 	std::{
 		ffi::{CStr, CString},
-		os::fd::{FromRawFd as _, OwnedFd},
+		io::Read as _,
+		os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
+		process::Stdio,
+		time::Duration,
 	},
 	tangram_client::prelude::*,
 };
@@ -63,21 +66,97 @@ impl Pty {
 		// Create a temp for the session socket.
 		let temp = Temp::new(server);
 
+		// Create a pipe to wait for the session readiness signal.
+		let (ready_reader, ready_writer) = std::io::pipe()
+			.map_err(|source| tg::error!(!source, "failed to create the session ready pipe"))?;
+
+		// Unset FD_CLOEXEC on the pipe writer.
+		let flags = unsafe { libc::fcntl(ready_writer.as_raw_fd(), libc::F_GETFD) };
+		if flags < 0 {
+			return Err(tg::error!(
+				source = std::io::Error::last_os_error(),
+				"failed to get the ready pipe flags"
+			));
+		}
+		let ret = unsafe {
+			libc::fcntl(
+				ready_writer.as_raw_fd(),
+				libc::F_SETFD,
+				flags & !libc::FD_CLOEXEC,
+			)
+		};
+		if ret < 0 {
+			return Err(tg::error!(
+				source = std::io::Error::last_os_error(),
+				"failed to set the ready pipe flags"
+			));
+		}
+		let ready_fd = ready_writer.as_raw_fd();
+
 		// Spawn the session process.
 		let executable = tangram_util::env::current_exe()
 			.map_err(|source| tg::error!(!source, "failed to get the current executable path"))?;
 		let pty = name
 			.to_str()
 			.map_err(|source| tg::error!(!source, "failed to convert the pty name to a string"))?;
-		let session = tokio::process::Command::new(executable)
+		let mut session = tokio::process::Command::new(executable)
 			.kill_on_drop(true)
 			.arg("session")
 			.arg("--pty")
 			.arg(pty)
 			.arg("--path")
 			.arg(temp.path())
+			.arg("--ready-fd")
+			.arg(ready_fd.to_string())
+			.stderr(Stdio::piped())
 			.spawn()
 			.map_err(|source| tg::error!(!source, "failed to spawn the session process"))?;
+		drop(ready_writer);
+
+		// Wait for the session process to signal readiness.
+		let task = tokio::task::spawn_blocking(move || -> std::io::Result<Option<u8>> {
+			let mut ready_reader = ready_reader;
+			let mut byte = [0; 1];
+			let length = ready_reader.read(&mut byte)?;
+			if length == 0 {
+				Ok(None)
+			} else {
+				Ok(Some(byte[0]))
+			}
+		});
+		let result = tokio::time::timeout(Duration::from_secs(2), task)
+			.await
+			.map_err(|source| tg::error!(!source, "timed out waiting for the session ready signal"))
+			.and_then(|output| {
+				output.map_err(|source| tg::error!(!source, "the session ready task panicked"))
+			})
+			.and_then(|output| {
+				output.map_err(|source| {
+					tg::error!(!source, "failed to read the session ready signal")
+				})
+			})
+			.and_then(|output| match output {
+				Some(0x00) => Ok(()),
+				Some(byte) => Err(tg::error!("received an invalid ready byte {byte}")),
+				None => Err(tg::error!(
+					"the session process exited before signaling readiness"
+				)),
+			});
+		if let Err(source) = result {
+			session.start_kill().ok();
+			let stderr = tokio::time::timeout(Duration::from_secs(2), session.wait_with_output())
+				.await
+				.ok()
+				.and_then(Result::ok)
+				.map(|output| String::from_utf8_lossy(&output.stderr).trim().to_owned())
+				.filter(|stderr| !stderr.is_empty());
+			let error = if let Some(stderr) = stderr {
+				tg::error!(!source, stderr = %stderr, "failed to start the session listener")
+			} else {
+				tg::error!(!source, "failed to start the session listener")
+			};
+			return Err(error);
+		}
 		let session = Some(session);
 
 		let pty = Self {
