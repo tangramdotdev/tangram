@@ -17,3 +17,4 @@ bytes = { workspace = true }
 indoc = { workspace = true }
 libc = { workspace = true }
 num = { workspace = true }
+time = { workspace = true }

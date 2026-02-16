@@ -22,6 +22,8 @@ struct Context {
 
 #[expect(clippy::needless_pass_by_value)]
 pub fn spawn(command: Command) -> std::io::Result<std::process::ExitCode> {
+	eprintln!("darwin spawn : {:x}", time::OffsetDateTime::now_utc().unix_timestamp_nanos());
+
 	// Create the argv.
 	let argv = std::iter::once(cstring(&command.executable))
 		.chain(command.trailing.iter().map(cstring))
@@ -98,6 +100,7 @@ pub fn spawn(command: Command) -> std::io::Result<std::process::ExitCode> {
 			abort_errno!("failed to exec");
 		}
 	}
+	eprintln!("darwin wait : {:x}", time::OffsetDateTime::now_utc().unix_timestamp_nanos());
 
 	// Wait for the child process to exit.
 	let mut status = 0;

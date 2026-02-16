@@ -38,6 +38,7 @@ pub fn main(mut context: Context) -> ! {
 		if ret == -1 {
 			abort_errno!("failed to set the working directory");
 		}
+		eprintln!("execvpe : {:x}", time::OffsetDateTime::now_utc().unix_timestamp_nanos());
 
 		// Finally, exec the process.
 		libc::execvpe(

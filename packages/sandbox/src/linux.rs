@@ -36,6 +36,7 @@ struct Context {
 }
 
 pub fn spawn(mut command: Command) -> std::io::Result<std::process::ExitCode> {
+	eprintln!("linux spawn : {:x}", time::OffsetDateTime::now_utc().unix_timestamp_nanos());
 	if !command.mounts.is_empty() && command.chroot.is_none() {
 		return Err(std::io::Error::other(
 			"cannot create mounts without a chroot directory",
