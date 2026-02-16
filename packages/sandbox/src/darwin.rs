@@ -95,12 +95,13 @@ pub fn spawn(command: Command) -> std::io::Result<std::process::ExitCode> {
 		}
 
 		// Exec.
+		eprintln!("darwin exec: {:x}", time::OffsetDateTime::now_utc().unix_timestamp_nanos());
 		unsafe {
 			libc::execvp(context.executable.as_ptr(), context.argv.as_ptr());
 			abort_errno!("failed to exec");
 		}
 	}
-	eprintln!("darwin wait : {:x}", time::OffsetDateTime::now_utc().unix_timestamp_nanos());
+	
 
 	// Wait for the child process to exit.
 	let mut status = 0;
