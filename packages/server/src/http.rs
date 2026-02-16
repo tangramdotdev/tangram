@@ -28,7 +28,7 @@ impl Server {
 				)?;
 				tokio_util::either::Either::Left(listener)
 			},
-			Some("http") => {
+			Some("http" | "https") => {
 				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let port = url
 					.port_or_known_default()
@@ -51,6 +51,27 @@ impl Server {
 		context: Context,
 		stop: Stop,
 	) {
+		#[cfg(feature = "tls")]
+		let tls = if self
+			.http
+			.as_ref()
+			.is_some_and(|http| matches!(http.url.scheme(), Some("https")))
+		{
+			let Some(config) = self.config.http.as_ref().and_then(|http| http.tls.as_ref()) else {
+				tracing::error!("missing tls configuration");
+				return;
+			};
+			match Self::create_tls_acceptor(config).await {
+				Ok(tls) => Some(tls),
+				Err(error) => {
+					tracing::error!(error = %error.trace(), "failed to create the TLS acceptor");
+					return;
+				},
+			}
+		} else {
+			None
+		};
+
 		// Create the task tracker.
 		let task_tracker = tokio_util::task::TaskTracker::new();
 
@@ -143,7 +164,37 @@ impl Server {
 			task_tracker.spawn({
 				let service = service.clone();
 				let stop = stop.clone();
+				#[cfg(feature = "tls")]
+				let tls = tls.clone();
 				async move {
+					#[cfg(feature = "tls")]
+					let stream = match stream {
+						tokio_util::either::Either::Left(stream) => {
+							tokio_util::either::Either::Left(stream)
+						},
+						tokio_util::either::Either::Right(stream) => {
+							if let Some(tls) = tls {
+								match tls.accept(stream).await {
+									Ok(stream) => tokio_util::either::Either::Right(
+										tokio_util::either::Either::Right(stream),
+									),
+									Err(error) => {
+										tracing::error!(
+											?error,
+											"failed to perform the TLS handshake"
+										);
+										drop(guard);
+										return;
+									},
+								}
+							} else {
+								tokio_util::either::Either::Right(tokio_util::either::Either::Left(
+									stream,
+								))
+							}
+						},
+					};
+
 					let idle = tangram_http::idle::Idle::new(Duration::from_secs(30));
 					let executor = hyper_util::rt::TokioExecutor::new();
 					let mut builder = hyper_util::server::conn::auto::Builder::new(executor);
@@ -200,6 +251,78 @@ impl Server {
 		// Wait for all tasks to finish.
 		task_tracker.close();
 		task_tracker.wait().await;
+	}
+
+	#[cfg(feature = "tls")]
+	pub(crate) async fn create_tls_acceptor(
+		config: &crate::config::HttpTls,
+	) -> tg::Result<tokio_rustls::TlsAcceptor> {
+		let certificates = tokio::fs::read(&config.certificate)
+			.await
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					path = %config.certificate.display(),
+					"failed to read the certificate file"
+				)
+			})?;
+		let certificates = {
+			let mut reader = std::io::BufReader::new(certificates.as_slice());
+			rustls_pemfile::certs(&mut reader)
+				.collect::<Result<Vec<_>, _>>()
+				.map_err(|source| {
+					tg::error!(
+						!source,
+						path = %config.certificate.display(),
+						"failed to parse the certificate file"
+					)
+				})?
+		};
+		if certificates.is_empty() {
+			return Err(tg::error!(
+				path = %config.certificate.display(),
+				"missing certificates in the certificate file"
+			));
+		}
+
+		let private_key = tokio::fs::read(&config.key).await.map_err(|source| {
+			tg::error!(
+				!source,
+				path = %config.key.display(),
+				"failed to read the private key file"
+			)
+		})?;
+		let private_key = {
+			let mut reader = std::io::BufReader::new(private_key.as_slice());
+			rustls_pemfile::private_key(&mut reader)
+				.map_err(|source| {
+					tg::error!(
+						!source,
+						path = %config.key.display(),
+						"failed to parse the private key file"
+					)
+				})?
+				.ok_or_else(|| {
+					tg::error!(
+						path = %config.key.display(),
+						"missing private key in the private key file"
+					)
+				})?
+		};
+
+		let mut config = rustls::ServerConfig::builder_with_provider(std::sync::Arc::new(
+			rustls::crypto::ring::default_provider(),
+		))
+		.with_safe_default_protocol_versions()
+		.map_err(|source| tg::error!(!source, "failed to create the tls config"))?
+		.with_no_client_auth()
+		.with_single_cert(certificates, private_key)
+		.map_err(|source| tg::error!(!source, "failed to create the tls config"))?;
+		config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+
+		let acceptor = tokio_rustls::TlsAcceptor::from(std::sync::Arc::new(config));
+
+		Ok(acceptor)
 	}
 
 	#[tracing::instrument(level = "trace", name = "request", skip_all, fields(id, method, path))]

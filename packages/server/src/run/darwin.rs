@@ -156,8 +156,9 @@ impl Server {
 				})),
 				..Default::default()
 			};
-			let task =
-				Task::spawn(|stop| async move { server.serve(listener, context, stop).await });
+			let task = Task::spawn(|stop| async move {
+				server.serve(listener, context, stop).await;
+			});
 
 			Some((task, url))
 		};

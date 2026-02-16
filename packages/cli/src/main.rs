@@ -712,6 +712,7 @@ impl Cli {
 		// Set the URL.
 		if let Some(url) = &self.args.url {
 			config.http = Some(tangram_server::config::Http {
+				tls: None,
 				url: Some(url.clone()),
 			});
 		}

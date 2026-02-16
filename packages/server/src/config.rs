@@ -234,7 +234,16 @@ pub struct Finalizer {
 #[serde(deny_unknown_fields)]
 pub struct Http {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub tls: Option<HttpTls>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub url: Option<Uri>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct HttpTls {
+	pub certificate: PathBuf,
+	pub key: PathBuf,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

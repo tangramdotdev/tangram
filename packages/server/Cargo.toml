@@ -22,6 +22,7 @@ postgres = ["dep:tokio-postgres", "tangram_database/postgres"]
 quickjs = ["tangram_js/quickjs"]
 sqlite = ["dep:rusqlite", "tangram_database/sqlite"]
 scylla = ["tangram_store/scylla"]
+tls = ["dep:rustls", "dep:rustls-pemfile", "dep:tokio-rustls"]
 typescript = ["tangram_compiler/typescript"]
 v8 = ["tangram_js/v8"]
 
@@ -60,6 +61,8 @@ octocrab = { workspace = true }
 petgraph = { workspace = true }
 reflink-copy = { workspace = true }
 reqwest = { workspace = true }
+rustls = { workspace = true, optional = true }
+rustls-pemfile = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }
 scopeguard = { workspace = true }
 serde = { workspace = true }
@@ -86,6 +89,7 @@ tangram_vfs = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
 tokio-postgres = { workspace = true, optional = true }
+tokio-rustls = { workspace = true, optional = true }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tower = { workspace = true }
