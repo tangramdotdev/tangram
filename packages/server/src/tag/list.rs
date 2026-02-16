@@ -146,6 +146,7 @@ impl Server {
 			length: None,
 			local: None,
 			remotes: None,
+			reverse: false,
 			ttl: None,
 			..arg.clone()
 		}
