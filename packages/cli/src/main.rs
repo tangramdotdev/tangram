@@ -243,6 +243,7 @@ enum Command {
 
 	Push(self::push::Args),
 
+	#[command(alias = "add")]
 	Put(self::put::Args),
 
 	#[command(alias = "cat")]

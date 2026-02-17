@@ -26,10 +26,12 @@ pub enum Command {
 	Cancel(self::cancel::Args),
 	Children(self::children::Args),
 	Get(self::get::Args),
+	#[command(alias = "ls")]
 	List(self::list::Args),
 	Log(self::log::Args),
 	Metadata(self::metadata::Args),
 	Output(self::output::Args),
+	#[command(alias = "add")]
 	Put(self::put::Args),
 	#[command(alias = "kill")]
 	Signal(self::signal::Args),

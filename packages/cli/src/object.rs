@@ -18,6 +18,7 @@ pub enum Command {
 	Children(self::children::Args),
 	Get(self::get::Args),
 	Metadata(self::metadata::Args),
+	#[command(alias = "add")]
 	Put(self::put::Args),
 }
 
