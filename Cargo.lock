@@ -6322,6 +6322,7 @@ version = "0.0.0"
 dependencies = [
  "anstream 1.0.0",
  "byte-unit",
+ "byteorder",
  "bytes",
  "clap",
  "clap_complete",

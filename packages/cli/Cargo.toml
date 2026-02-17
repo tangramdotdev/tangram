@@ -34,6 +34,7 @@ workspace = true
 [dependencies]
 anstream = { workspace = true }
 byte-unit = { workspace = true }
+byteorder = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }

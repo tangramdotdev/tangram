@@ -1,13 +1,9 @@
 use {
 	self::telemetry::Telemetry,
+	byteorder::ReadBytesExt as _,
 	clap::{CommandFactory as _, FromArgMatches as _},
 	futures::FutureExt as _,
-	std::{
-		io::Read as _,
-		os::{fd::AsRawFd as _, unix::process::CommandExt as _},
-		path::{Path, PathBuf},
-		time::Duration,
-	},
+	std::{os::fd::AsRawFd as _, path::PathBuf, time::Duration},
 	tangram_client::{Client, prelude::*},
 	tangram_server::Owned as Server,
 	tangram_uri::Uri,
@@ -711,14 +707,11 @@ impl Cli {
 		.map_err(|source| tg::error!(!source, "the start lock task panicked"))?
 		.map_err(|source| tg::error!(!source, "failed to lock the start lock file"))?;
 
+		// Attempt to connect.
 		if client.connect().await.is_ok() {
-			Ok(())
-		} else {
-			self.start_server_inner(directory.as_path(), client).await
+			return Ok(());
 		}
-	}
 
-	async fn start_server_inner(&self, directory: &Path, client: &tg::Client) -> tg::Result<()> {
 		// Get the log file path.
 		let log_path = directory.join("log");
 
@@ -749,7 +742,7 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to get the current executable path"))?;
 
 		// Spawn the server.
-		let mut command = std::process::Command::new(executable);
+		let mut command = tokio::process::Command::new(executable);
 
 		// Create the ready pipe.
 		let (mut ready_reader, ready_writer) = std::io::pipe()
@@ -826,11 +819,7 @@ impl Cli {
 		drop(ready_writer);
 
 		// Wait for the server to be ready.
-		let task = tokio::task::spawn_blocking(move || -> std::io::Result<u8> {
-			let mut byte = [0; 1];
-			ready_reader.read_exact(&mut byte)?;
-			Ok(byte[0])
-		});
+		let task = tokio::task::spawn_blocking(move || ready_reader.read_u8());
 		let ready = tokio::time::timeout(Duration::from_secs(5), task)
 			.await
 			.map_err(|source| tg::error!(!source, "timed out waiting for the server ready signal"))
@@ -848,20 +837,18 @@ impl Cli {
 				Ok(())
 			});
 		if let Err(source) = ready {
-			child.kill().ok();
-			child.wait().ok();
-
-			// If another invocation won the race to start the server, then connect to it.
+			child.start_kill().ok();
+			child.wait().await.ok();
 			if client.connect().await.is_ok() {
-				Ok(())
-			} else {
-				Err(tg::error!(!source, "failed to start the server"))
+				return Ok(());
 			}
-		} else if client.connect().await.is_ok() {
-			Ok(())
-		} else {
-			Err(tg::error!(url = %client.url(), "failed to connect to the server"))
+			return Err(tg::error!(!source, "failed to start the server"));
 		}
+		if client.connect().await.is_err() {
+			return Err(tg::error!(url = %client.url(), "failed to connect to the server"));
+		}
+
+		Ok(())
 	}
 
 	/// Stop the server.
