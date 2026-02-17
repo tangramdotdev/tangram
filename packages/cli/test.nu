@@ -32,7 +32,7 @@ def main [
 			try { dropdb -U postgres -h localhost $db }
 		}
 
-		let preserved_streams = ['finish']
+		let preserved_streams = ['finalize', 'queue']
 		let streams = nats stream ls -n | lines | where { $in not-in $preserved_streams }
 		for stream in $streams {
 			print -e $"deleting nats stream ($stream)"
@@ -715,8 +715,8 @@ export def --env spawn [
 		let cluster = mktemp -t
 		"docker:docker@localhost:4500" | save -f $cluster
 
-		nats stream create $'finalize_($id)' --discard new --retention work --subjects $'($id).finish' --defaults
-		nats consumer create $'finalize_($id)' finish --deliver all --max-pending 1000000 --pull --defaults
+		nats stream create $'finalize_($id)' --discard new --retention work --subjects $'($id).finalize' --defaults
+		nats consumer create $'finalize_($id)' finalize --deliver all --max-pending 1000000 --pull --defaults
 		nats stream create $'queue_($id)' --discard new --retention work --subjects $'($id).queue' --defaults
 		nats consumer create $'queue_($id)' queue --deliver all --max-pending 1000000 --pull --defaults
 
@@ -860,7 +860,7 @@ def clean_databases [id: string] {
 	try { fdbcli -C $cluster --exec $'writemode on; clearrange "($id)" "($id)\xff"' }
 
 	# Remove the NATS streams and consumers.
-	try { nats consumer rm -f $'finalize_($id)' finish }
+	try { nats consumer rm -f $'finalize_($id)' finalize }
 	try { nats stream rm -f $'finalize_($id)' }
 	try { nats consumer rm -f $'queue_($id)' queue }
 	try { nats stream rm -f $'queue_($id)' }

@@ -82,7 +82,7 @@ let pid = open ($remote.directory | path join 'lock') | into int
 kill --signal 2 $pid
 
 # Wait for the process to finish.
-tail --pid $pid -f
+if $nu.os-info.name == "linux" { ^tail --pid $pid -f /dev/null } else { while (ps | where pid == $pid | is-not-empty) { sleep 10ms } }
 print 'server stopped.'
 
 # Restart the remote server.
