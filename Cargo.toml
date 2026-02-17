@@ -199,6 +199,7 @@ unicode-segmentation = "1"
 unicode-width = "0.2"
 uuid = { version = "1", features = ["v7"] }
 v8 = { git = "https://github.com/tangramdotdev/rusty_v8" }
+waitpid-any = "0.3"
 webbrowser = "1"
 webpki-roots = "1"
 winnow = "0.7"

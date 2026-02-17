@@ -33,6 +33,7 @@ impl Cli {
 		}
 	}
 
+	#[expect(clippy::needless_pass_by_value)]
 	pub fn command_internal_session_inner(args: Args) -> tg::Result<()> {
 		// Open the pty and set up the controlling tty.
 		unsafe {
@@ -98,24 +99,23 @@ impl Cli {
 			.build()
 			.map_err(|source| tg::error!(!source, "failed to create the runtime"))?;
 
-		let path = args.path;
-		let ready_fd = args.ready_fd;
+		// Bind.
+		let listener = tangram_session::Server::bind(&args.path)?;
+
+		// Notify on the ready fd.
+		if let Some(ready_fd) = args.ready_fd {
+			let ready_fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(ready_fd) };
+			let mut ready = std::fs::File::from(ready_fd);
+			ready
+				.write_all(&[0x00])
+				.map_err(|source| tg::error!(!source, "failed to write the ready signal"))?;
+			ready
+				.flush()
+				.map_err(|source| tg::error!(!source, "failed to flush the ready signal"))?;
+		}
 
 		// Run the server.
-		runtime.block_on(async move {
-			let listener = tangram_session::Server::bind(&path)?;
-			if let Some(ready_fd) = ready_fd {
-				let ready_fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(ready_fd) };
-				let mut ready = std::fs::File::from(ready_fd);
-				ready
-					.write_all(&[0x00])
-					.map_err(|source| tg::error!(!source, "failed to write the ready signal"))?;
-				ready
-					.flush()
-					.map_err(|source| tg::error!(!source, "failed to flush the ready signal"))?;
-			}
-			tangram_session::Server::serve(listener).await
-		})?;
+		runtime.block_on(async move { tangram_session::Server::serve(listener).await })?;
 
 		Ok(())
 	}

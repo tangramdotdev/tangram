@@ -1,8 +1,8 @@
 use {
 	crate::{Server, temp::Temp},
+	byteorder::ReadBytesExt as _,
 	std::{
 		ffi::{CStr, CString},
-		io::Read as _,
 		os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
 		process::Stdio,
 		time::Duration,
@@ -67,7 +67,7 @@ impl Pty {
 		let temp = Temp::new(server);
 
 		// Create a pipe to wait for the session readiness signal.
-		let (ready_reader, ready_writer) = std::io::pipe()
+		let (mut ready_reader, ready_writer) = std::io::pipe()
 			.map_err(|source| tg::error!(!source, "failed to create the session ready pipe"))?;
 
 		// Unset FD_CLOEXEC on the pipe writer.
@@ -114,17 +114,8 @@ impl Pty {
 		drop(ready_writer);
 
 		// Wait for the session process to signal readiness.
-		let task = tokio::task::spawn_blocking(move || -> std::io::Result<Option<u8>> {
-			let mut ready_reader = ready_reader;
-			let mut byte = [0; 1];
-			let length = ready_reader.read(&mut byte)?;
-			if length == 0 {
-				Ok(None)
-			} else {
-				Ok(Some(byte[0]))
-			}
-		});
-		let result = tokio::time::timeout(Duration::from_secs(2), task)
+		let task = tokio::task::spawn_blocking(move || ready_reader.read_u8());
+		let result = tokio::time::timeout(Duration::from_secs(1), task)
 			.await
 			.map_err(|source| tg::error!(!source, "timed out waiting for the session ready signal"))
 			.and_then(|output| {
@@ -135,16 +126,15 @@ impl Pty {
 					tg::error!(!source, "failed to read the session ready signal")
 				})
 			})
-			.and_then(|output| match output {
-				Some(0x00) => Ok(()),
-				Some(byte) => Err(tg::error!("received an invalid ready byte {byte}")),
-				None => Err(tg::error!(
-					"the session process exited before signaling readiness"
-				)),
+			.and_then(|byte| {
+				if byte != 0x00 {
+					return Err(tg::error!("received an invalid ready byte {byte}"));
+				}
+				Ok(())
 			});
 		if let Err(source) = result {
 			session.start_kill().ok();
-			let stderr = tokio::time::timeout(Duration::from_secs(2), session.wait_with_output())
+			let stderr = tokio::time::timeout(Duration::from_secs(1), session.wait_with_output())
 				.await
 				.ok()
 				.and_then(Result::ok)

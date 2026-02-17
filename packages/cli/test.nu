@@ -768,6 +768,10 @@ export def --env spawn [
 	let url = $url | default $'http+unix://($directory_path | url encode --all)%2Fsocket'
 	$env.TANGRAM_URL = $url
 
+	# Create a path for server readiness signaling.
+	let ready_path = ($config_path | path dirname | path join 'ready')
+	mkfifo $ready_path
+
 	# Spawn the server.
 	match $nu.os-info.name {
 		'macos' => {
@@ -781,27 +785,26 @@ export def --env spawn [
 						done
 						kill -9 -$SELF_PID
 					\) &
-					tangram -c ($config_path) -d ($directory_path) -u ($url) serve
+					exec 3>\"($ready_path)\"
+					tangram -c ($config_path) -d ($directory_path) -u ($url) serve --ready-fd 3
 				" e>| lines | each { |line| print -e $"($name | default 'server'): ($line)\r" }
 			}
 		}
 		'linux' => {
 			job spawn {
-				(
-					setpriv --pdeathsig SIGKILL
-					tangram -c $config_path -d $directory_path -u $url serve
-				) e>| lines | each { |line| print -e $"($name | default 'server'): ($line)\r" }
+				bash -c $"
+					exec 3>\"($ready_path)\"
+					setpriv --pdeathsig SIGKILL tangram -c \"($config_path)\" -d \"($directory_path)\" -u \"($url)\" serve --ready-fd 3
+				" e>| lines | each { |line| print -e $"($name | default 'server'): ($line)\r" }
 			}
 		}
 	}
 
-	loop {
-		let output = tg health | complete
-		if $output.exit_code == 0 {
-			break;
-		}
-		sleep 10ms
-	}
+	# Wait for the server to be ready.
+	let ready_output = (open /dev/null | timeout 5 bash -c 'od -An -t u1 -N1 "$1"' _ $ready_path | complete)
+	rm -f $ready_path
+	assert ($ready_output.exit_code == 0) "the server did not signal readiness"
+	assert (($ready_output.stdout | str trim) == '0') "the server signaled an invalid readiness byte"
 
 	# Tag busybox if requested.
 	if $busybox {

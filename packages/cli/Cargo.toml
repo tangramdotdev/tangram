@@ -83,5 +83,6 @@ tracing-tree = { workspace = true }
 unicode-segmentation = { workspace = true }
 unicode-width = { workspace = true }
 v8 = { workspace = true, optional = true }
+waitpid-any = { workspace = true }
 webbrowser = { workspace = true }
 xattr = { workspace = true }

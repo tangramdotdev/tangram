@@ -6372,6 +6372,7 @@ dependencies = [
  "unicode-segmentation",
  "unicode-width 0.2.2",
  "v8",
+ "waitpid-any",
  "webbrowser",
  "xattr",
 ]
@@ -7709,6 +7710,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6d9b2acfb050df409c972a37d3b8e08cdea3bddb0c09db9d53137e504cfabed0"
 dependencies = [
  "utf8parse",
+]
+
+[[package]]
+name = "waitpid-any"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18aa3ce681e189f125c4c1e1388c03285e2fd434ef52c7203084012ac29c5e4a"
+dependencies = [
+ "rustix 1.1.3",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

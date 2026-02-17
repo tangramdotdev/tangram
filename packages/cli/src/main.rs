@@ -2,8 +2,12 @@ use {
 	self::telemetry::Telemetry,
 	clap::{CommandFactory as _, FromArgMatches as _},
 	futures::FutureExt as _,
-	num::ToPrimitive as _,
-	std::{os::unix::process::CommandExt as _, path::PathBuf, time::Duration},
+	std::{
+		io::Read as _,
+		os::{fd::AsRawFd as _, unix::process::CommandExt as _},
+		path::{Path, PathBuf},
+		time::Duration,
+	},
 	tangram_client::{Client, prelude::*},
 	tangram_server::Owned as Server,
 	tangram_uri::Uri,
@@ -512,80 +516,18 @@ impl Cli {
 	}
 
 	async fn auto(&self) -> tg::Result<Client> {
-		// Get the url.
-		let url = self
-			.args
-			.url
-			.clone()
-			.or(self
-				.config
-				.as_ref()
-				.and_then(|config| config.server.http.as_ref())
-				.and_then(|config| config.url.clone()))
-			.unwrap_or_else(|| {
-				let path = self.directory_path().join("socket");
-				let path = path.to_str().unwrap();
-				tangram_uri::Uri::builder()
-					.scheme("http+unix")
-					.authority(path)
-					.path("")
-					.build()
-					.unwrap()
-			});
-
-		// Get the token.
-		let token = self.args.token.clone();
-
-		// Get the reconnect options.
-		let reconnect = self
-			.config
-			.as_ref()
-			.and_then(|config| config.client.as_ref())
-			.and_then(|client| client.reconnect.clone())
-			.map(|reconnect| tangram_futures::retry::Options {
-				backoff: reconnect.backoff,
-				jitter: reconnect.jitter,
-				max_delay: reconnect.max_delay,
-				max_retries: reconnect.max_retries,
-			});
-
-		// Get the retry options.
-		let retry = self
-			.config
-			.as_ref()
-			.and_then(|config| config.client.as_ref())
-			.and_then(|client| client.retry.clone())
-			.map(|retry| tangram_futures::retry::Options {
-				backoff: retry.backoff,
-				jitter: retry.jitter,
-				max_delay: retry.max_delay,
-				max_retries: retry.max_retries,
-			});
-
 		// Create the client.
-		let client = tg::Client::new(url, Some(version()), token, reconnect, retry);
+		let client = self.create_client();
 
 		// Attempt to connect to the server.
-		let mut connected = client.connect().await.is_ok();
+		let connected = client.connect().await.is_ok();
 
 		// If the client is not connected and the URL is local, then start the server and attempt to connect.
 		let local = client.url().scheme() == Some("http+unix")
 			|| matches!(client.url().host_raw(), Some("localhost" | "0.0.0.0"));
 		if !connected && local {
 			// Start the server.
-			self.start_server().await?;
-
-			// Try to connect for up to one second. If the client is still not connected, then return an error.
-			for duration in [10, 20, 30, 50, 100, 300, 500] {
-				connected = client.connect().await.is_ok();
-				if connected {
-					break;
-				}
-				tokio::time::sleep(Duration::from_millis(duration)).await;
-			}
-			if !connected {
-				return Err(tg::error!(url = %client.url(), "failed to connect to the server"));
-			}
+			self.start_server(&client).await?;
 		}
 
 		// If the URL is local and the server's version is different from the client, then disconnect and restart the server.
@@ -613,25 +555,26 @@ impl Cli {
 			self.stop_server().await?;
 
 			// Start the server.
-			self.start_server().await?;
-
-			// Try to connect for up to one second. If the client is still not connected, then return an error.
-			for duration in [10, 20, 30, 50, 100, 300, 500] {
-				connected = client.connect().await.is_ok();
-				if connected {
-					break;
-				}
-				tokio::time::sleep(Duration::from_millis(duration)).await;
-			}
-			if !connected {
-				return Err(tg::error!(url = %client.url(), "failed to connect to the server"));
-			}
+			self.start_server(&client).await?;
 		}
 
 		Ok(client)
 	}
 
 	async fn client(&self) -> tg::Result<Client> {
+		// Create the client.
+		let client = self.create_client();
+
+		// Try to connect. If the client is not connected, then return an error.
+		let connected = client.connect().await.is_ok();
+		if !connected {
+			return Err(tg::error!(url = %client.url(), "failed to connect to the server"));
+		}
+
+		Ok(client)
+	}
+
+	fn create_client(&self) -> Client {
 		// Get the url.
 		let url = self
 			.args
@@ -683,15 +626,7 @@ impl Cli {
 			});
 
 		// Create the client.
-		let client = tg::Client::new(url, Some(version()), token, reconnect, retry);
-
-		// Try to connect. If the client is not connected, then return an error.
-		let connected = client.connect().await.is_ok();
-		if !connected {
-			return Err(tg::error!(url = %client.url(), "failed to connect to the server"));
-		}
-
-		Ok(client)
+		tg::Client::new(url, Some(version()), token, reconnect, retry)
 	}
 
 	async fn server(&self) -> tg::Result<Server> {
@@ -748,13 +683,41 @@ impl Cli {
 	}
 
 	/// Start the server.
-	async fn start_server(&self) -> tg::Result<()> {
+	async fn start_server(&self, client: &tg::Client) -> tg::Result<()> {
 		// Ensure the directory exists.
 		let directory = self.directory_path();
 		tokio::fs::create_dir_all(&directory)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
 
+		// Acquire an exclusive lock on the start file.
+		let start_path = directory.join("start");
+		let start_file = tokio::fs::OpenOptions::new()
+			.create(true)
+			.read(true)
+			.write(true)
+			.truncate(false)
+			.open(&start_path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to open the start lock file"))?
+			.into_std()
+			.await;
+		let _start_file = tokio::task::spawn_blocking(move || {
+			start_file.lock()?;
+			Ok::<_, std::io::Error>(start_file)
+		})
+		.await
+		.map_err(|source| tg::error!(!source, "the start lock task panicked"))?
+		.map_err(|source| tg::error!(!source, "failed to lock the start lock file"))?;
+
+		if client.connect().await.is_ok() {
+			Ok(())
+		} else {
+			self.start_server_inner(directory.as_path(), client).await
+		}
+	}
+
+	async fn start_server_inner(&self, directory: &Path, client: &tg::Client) -> tg::Result<()> {
 		// Get the log file path.
 		let log_path = directory.join("log");
 
@@ -762,7 +725,8 @@ impl Cli {
 		let stdout = tokio::fs::OpenOptions::new()
 			.create(true)
 			.write(true)
-			.truncate(true)
+			.append(true)
+			.truncate(false)
 			.open(&log_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to open the log file"))?
@@ -771,7 +735,8 @@ impl Cli {
 		let stderr = tokio::fs::OpenOptions::new()
 			.create(true)
 			.write(true)
-			.truncate(true)
+			.append(true)
+			.truncate(false)
 			.open(&log_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to open the log file"))?
@@ -784,6 +749,34 @@ impl Cli {
 
 		// Spawn the server.
 		let mut command = std::process::Command::new(executable);
+
+		// Create the ready pipe.
+		let (mut ready_reader, ready_writer) = std::io::pipe()
+			.map_err(|source| tg::error!(!source, "failed to create the server ready pipe"))?;
+
+		// Unset FD_CLOEXEC on the ready writer.
+		let flags = unsafe { libc::fcntl(ready_writer.as_raw_fd(), libc::F_GETFD) };
+		if flags < 0 {
+			return Err(tg::error!(
+				source = std::io::Error::last_os_error(),
+				"failed to get the ready pipe flags"
+			));
+		}
+		let ret = unsafe {
+			libc::fcntl(
+				ready_writer.as_raw_fd(),
+				libc::F_SETFD,
+				flags & !libc::FD_CLOEXEC,
+			)
+		};
+		if ret < 0 {
+			return Err(tg::error!(
+				source = std::io::Error::last_os_error(),
+				"failed to set the ready pipe flags"
+			));
+		}
+		let ready_fd = ready_writer.as_raw_fd();
+
 		let mut args = vec![];
 		if let Some(config) = &self.args.config {
 			args.push("-c".to_owned());
@@ -808,6 +801,8 @@ impl Cli {
 			args.push(tracing.clone());
 		}
 		args.push("serve".to_owned());
+		args.push("--ready-fd".to_owned());
+		args.push(ready_fd.to_string());
 		command
 			.args(args)
 			.current_dir(PathBuf::from(std::env::var("HOME").unwrap()))
@@ -824,11 +819,48 @@ impl Cli {
 			});
 		}
 
-		command
+		let mut child = command
 			.spawn()
 			.map_err(|source| tg::error!(!source, "failed to spawn the server"))?;
+		drop(ready_writer);
 
-		Ok(())
+		// Wait for the server to be ready.
+		let task = tokio::task::spawn_blocking(move || -> std::io::Result<u8> {
+			let mut byte = [0; 1];
+			ready_reader.read_exact(&mut byte)?;
+			Ok(byte[0])
+		});
+		let ready = tokio::time::timeout(Duration::from_secs(5), task)
+			.await
+			.map_err(|source| tg::error!(!source, "timed out waiting for the server ready signal"))
+			.and_then(|output| {
+				output.map_err(|source| tg::error!(!source, "the server ready task panicked"))
+			})
+			.and_then(|output| {
+				output
+					.map_err(|source| tg::error!(!source, "failed to read the server ready signal"))
+			})
+			.and_then(|byte| {
+				if byte != 0x00 {
+					return Err(tg::error!("received an invalid ready byte {byte}"));
+				}
+				Ok(())
+			});
+		if let Err(source) = ready {
+			child.kill().ok();
+			child.wait().ok();
+
+			// If another invocation won the race to start the server, then connect to it.
+			if client.connect().await.is_ok() {
+				Ok(())
+			} else {
+				Err(tg::error!(!source, "failed to start the server"))
+			}
+		} else if client.connect().await.is_ok() {
+			Ok(())
+		} else {
+			Err(tg::error!(url = %client.url(), "failed to connect to the server"))
+		}
 	}
 
 	/// Stop the server.
@@ -838,51 +870,63 @@ impl Cli {
 		let pid = tokio::fs::read_to_string(&lock_path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read the pid from the lock file"))?
-			.parse::<u32>()
+			.parse::<i32>()
 			.map_err(|source| tg::error!(!source, "invalid lock file"))?;
 
+		// Open a wait handle for the process.
+		let handle = match waitpid_any::WaitHandle::open(pid) {
+			Ok(handle) => handle,
+			Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {
+				return Ok(());
+			},
+			Err(error) => {
+				return Err(tg::error!(
+					!error,
+					"failed to open a handle to the server process"
+				));
+			},
+		};
+
 		// Send SIGINT to the server.
-		let ret = unsafe { libc::kill(pid.to_i32().unwrap(), libc::SIGINT) };
+		let ret = unsafe { libc::kill(pid, libc::SIGINT) };
 		if ret != 0 {
-			return Err(tg::error!("failed to send SIGINT to the server"));
+			let error = std::io::Error::last_os_error();
+			if error.raw_os_error() == Some(libc::ESRCH) {
+				return Ok(());
+			}
+			return Err(tg::error!(!error, "failed to send SIGINT to the server"));
 		}
 
 		// Wait up to one second for the server to exit.
-		for duration in [10, 20, 30, 50, 100, 300, 500] {
-			// Kill the server. If the server has exited, then return.
-			let ret = unsafe { libc::kill(pid.to_i32().unwrap(), libc::SIGINT) };
-			if ret != 0 {
-				let error = std::io::Error::last_os_error();
-				if error.raw_os_error() == Some(libc::ESRCH) {
-					return Ok(());
-				}
-				return Err(tg::error!(!error, "failed to stop the server"));
-			}
-
-			// Otherwise, sleep.
-			tokio::time::sleep(Duration::from_millis(duration)).await;
+		let (mut handle, wait) = tokio::task::spawn_blocking(move || {
+			let mut handle = handle;
+			let wait = handle.wait_timeout(Duration::from_secs(1))?;
+			Ok::<_, std::io::Error>((handle, wait))
+		})
+		.await
+		.map_err(|source| tg::error!(!source, "the server wait task panicked"))?
+		.map_err(|source| tg::error!(!source, "failed to wait for the server process"))?;
+		if wait.is_some() {
+			return Ok(());
 		}
 
 		// If the server has still not exited, then send SIGTERM to the server.
-		let ret = unsafe { libc::kill(pid.to_i32().unwrap(), libc::SIGTERM) };
+		let ret = unsafe { libc::kill(pid, libc::SIGTERM) };
 		if ret != 0 {
-			return Err(tg::error!("failed to send SIGTERM to the server"));
+			let error = std::io::Error::last_os_error();
+			if error.raw_os_error() == Some(libc::ESRCH) {
+				return Ok(());
+			}
+			return Err(tg::error!(!error, "failed to send SIGTERM to the server"));
 		}
 
 		// Wait up to one second for the server to exit.
-		for duration in [10, 20, 30, 50, 100, 300, 500] {
-			// Kill the server. If the server has exited, then return.
-			let ret = unsafe { libc::kill(pid.to_i32().unwrap(), libc::SIGTERM) };
-			if ret != 0 {
-				let error = std::io::Error::last_os_error();
-				if error.raw_os_error() == Some(libc::ESRCH) {
-					return Ok(());
-				}
-				return Err(tg::error!(!error, "failed to stop the server"));
-			}
-
-			// Otherwise, sleep.
-			tokio::time::sleep(Duration::from_millis(duration)).await;
+		let wait = tokio::task::spawn_blocking(move || handle.wait_timeout(Duration::from_secs(1)))
+			.await
+			.map_err(|source| tg::error!(!source, "the server wait task panicked"))?
+			.map_err(|source| tg::error!(!source, "failed to wait for the server process"))?;
+		if wait.is_some() {
+			return Ok(());
 		}
 
 		// If the server has still not exited, then return an error.
