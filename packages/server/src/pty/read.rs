@@ -77,6 +77,12 @@ impl Server {
 							return Ok(None);
 						}
 					}
+					#[cfg(target_os = "macos")]
+					{
+						if error.raw_os_error() == Some(libc::EBADF) {
+							return Ok(None);
+						}
+					}
 					return Err(error);
 				}
 				if n == 0 {
