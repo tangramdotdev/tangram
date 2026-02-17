@@ -1050,6 +1050,22 @@ impl Cli {
 		arg: tg::get::Arg,
 		relative_paths: bool,
 	) -> tg::Result<tg::Referent<tg::Either<tg::Object, tg::Process>>> {
+		if reference.options() == &tg::reference::Options::default() {
+			match reference.item() {
+				tg::reference::Item::Object(id) => {
+					let object = tg::Object::with_id(id.clone());
+					let referent = tg::Referent::with_item(tg::Either::Left(object));
+					return Ok(referent);
+				},
+				tg::reference::Item::Process(id) => {
+					let process = tg::Process::new(id.clone(), None, None, None, None);
+					let referent = tg::Referent::with_item(tg::Either::Right(process));
+					return Ok(referent);
+				},
+				_ => (),
+			}
+		}
+
 		let handle = self.handle().await?;
 
 		// Make the path absolute.
