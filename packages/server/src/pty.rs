@@ -3,7 +3,10 @@ use {
 	byteorder::ReadBytesExt as _,
 	std::{
 		ffi::{CStr, CString},
-		os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
+		os::{
+			fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
+			unix::process::ExitStatusExt as _,
+		},
 		process::Stdio,
 		time::Duration,
 	},
@@ -115,7 +118,7 @@ impl Pty {
 
 		// Wait for the session process to signal readiness.
 		let task = tokio::task::spawn_blocking(move || ready_reader.read_u8());
-		let result = tokio::time::timeout(Duration::from_secs(1), task)
+		let result = tokio::time::timeout(Duration::from_secs(5), task)
 			.await
 			.map_err(|source| tg::error!(!source, "timed out waiting for the session ready signal"))
 			.and_then(|output| {
@@ -134,16 +137,31 @@ impl Pty {
 			});
 		if let Err(source) = result {
 			session.start_kill().ok();
-			let stderr = tokio::time::timeout(Duration::from_secs(1), session.wait_with_output())
+			let output = tokio::time::timeout(Duration::from_secs(1), session.wait_with_output())
 				.await
 				.ok()
-				.and_then(Result::ok)
+				.and_then(Result::ok);
+			let stderr = output
+				.as_ref()
 				.map(|output| String::from_utf8_lossy(&output.stderr).trim().to_owned())
 				.filter(|stderr| !stderr.is_empty());
+			let exit_code = output.as_ref().and_then(|output| output.status.code());
+			let signal = output.as_ref().and_then(|output| output.status.signal());
 			let error = if let Some(stderr) = stderr {
-				tg::error!(!source, stderr = %stderr, "failed to start the session listener")
+				tg::error!(
+					!source,
+					stderr = %stderr,
+					exit_code = ?exit_code,
+					signal = ?signal,
+					"failed to start the session listener"
+				)
 			} else {
-				tg::error!(!source, "failed to start the session listener")
+				tg::error!(
+					!source,
+					exit_code = ?exit_code,
+					signal = ?signal,
+					"failed to start the session listener"
+				)
 			};
 			return Err(error);
 		}

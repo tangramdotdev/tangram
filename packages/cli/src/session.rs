@@ -35,6 +35,24 @@ impl Cli {
 
 	#[expect(clippy::needless_pass_by_value)]
 	pub fn command_internal_session_inner(args: Args) -> tg::Result<()> {
+		// Create a single-threaded tokio runtime.
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.map_err(|source| tg::error!(!source, "failed to create the runtime"))?;
+
+		// Bind the listener.
+		let listener = {
+			let guard = runtime.enter();
+			let listener = tangram_session::Server::bind(&args.path)?;
+			drop(guard);
+			listener
+		};
+
+		// Create the pty path.
+		let pty = std::ffi::CString::new(args.pty.as_bytes())
+			.map_err(|source| tg::error!(!source, "invalid pty path"))?;
+
 		// Open the pty and set up the controlling tty.
 		unsafe {
 			// Ignore signals.
@@ -60,12 +78,7 @@ impl Cli {
 			}
 
 			// Open the pty.
-			let fd = libc::open(
-				std::ffi::CString::new(args.pty.as_bytes())
-					.unwrap()
-					.as_ptr(),
-				libc::O_RDWR,
-			);
+			let fd = libc::open(pty.as_ptr(), libc::O_RDWR);
 			if fd < 0 {
 				return Err(tg::error!(
 					source = std::io::Error::last_os_error(),
@@ -92,15 +105,6 @@ impl Cli {
 			}
 			libc::close(fd);
 		}
-
-		// Create a single-threaded tokio runtime.
-		let runtime = tokio::runtime::Builder::new_current_thread()
-			.enable_all()
-			.build()
-			.map_err(|source| tg::error!(!source, "failed to create the runtime"))?;
-
-		// Bind.
-		let listener = tangram_session::Server::bind(&args.path)?;
 
 		// Notify on the ready fd.
 		if let Some(ready_fd) = args.ready_fd {
