@@ -45,8 +45,13 @@ struct StreamState {
 	closed: bool,
 	config: StreamConfig,
 	consumers: HashMap<String, (Consumer, ConsumerState)>,
-	messages: BTreeMap<u64, Arc<dyn Payload>>,
+	messages: BTreeMap<u64, MessageState>,
 	sequence: u64,
+}
+
+struct MessageState {
+	payload: Arc<dyn Payload>,
+	acks_remaining: usize,
 }
 
 #[derive(Debug)]
@@ -324,7 +329,12 @@ impl Stream {
 			state.sequence += 1;
 			let sequence = state.sequence;
 			let payload: Arc<dyn Payload> = Arc::new(payload);
-			state.messages.insert(sequence, payload);
+			let acks_remaining = state.consumers.len();
+			let message_state = MessageState {
+				payload,
+				acks_remaining,
+			};
+			state.messages.insert(sequence, message_state);
 			sequences.push(sequence);
 		}
 
@@ -452,7 +462,7 @@ impl Consumer {
 				.iter()
 				.skip_while(|(sequence, _)| **sequence <= consumer_sequence)
 				.take(max_messages)
-				.map(|(sequence, payload)| (*sequence, payload.clone()))
+				.map(|(sequence, state)| (*sequence, Arc::clone(&state.payload)))
 				.collect::<Vec<_>>();
 
 			// Set the consumer's sequence number.
@@ -506,7 +516,12 @@ impl Consumer {
 			.upgrade()
 			.ok_or_else(|| Error::other("the stream was destroyed"))?;
 		let mut state = stream.state.write().unwrap();
-		state.messages.remove(&sequence);
+		if let Some(message_state) = state.messages.get_mut(&sequence) {
+			message_state.acks_remaining = message_state.acks_remaining.saturating_sub(1);
+			if message_state.acks_remaining == 0 {
+				state.messages.remove(&sequence);
+			}
+		}
 		Ok(())
 	}
 }

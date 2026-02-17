@@ -716,7 +716,7 @@ export def --env spawn [
 		"docker:docker@localhost:4500" | save -f $cluster
 
 		nats stream create $'finalize_($id)' --discard new --retention work --subjects $'($id).finish' --defaults
-		nats consumer create $'finalize_($id)' finish --deliver all --max-pending 1000000 --pull --defaults
+		nats consumer create $'finalize_($id)' finalize --deliver all --max-pending 1000000 --pull --defaults
 		nats stream create $'queue_($id)' --discard new --retention work --subjects $'($id).queue' --defaults
 		nats consumer create $'queue_($id)' queue --deliver all --max-pending 1000000 --pull --defaults
 

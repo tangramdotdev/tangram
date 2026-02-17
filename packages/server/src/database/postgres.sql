@@ -46,16 +46,18 @@ as $$
 declare
 	current_ids text[];
 	updated_ids text[];
+	visited_ids text[] := '{}';
 begin
 	current_ids := changed_process_ids;
 
 	while array_length(current_ids, 1) is not null and array_length(current_ids, 1) > 0 loop
-		-- Update parents based on their children's depths
+		-- Update parents based on their children's depths, excluding already visited parents to handle cycles.
 		with child_depths as (
 			select process_children.process, max(processes.depth) as max_child_depth
 			from process_children
 			join processes on processes.id = process_children.child
 			where process_children.child = any(current_ids)
+			and not process_children.process = any(visited_ids)
 			group by process_children.process
 		),
 		updated as (
@@ -69,11 +71,69 @@ begin
 		select coalesce(array_agg(id), '{}') into updated_ids
 		from updated;
 
-		-- Exit if no parents were updated
+		-- Mark the current batch as visited.
+		visited_ids := visited_ids || current_ids;
+
+		-- Exit if no parents were updated.
 		exit when cardinality(updated_ids) = 0;
 
-		-- Continue with the updated parents
+		-- Continue with the updated parents.
 		current_ids := updated_ids;
+	end loop;
+end;
+$$;
+
+create or replace function get_cyclic_processes(
+	parent_ids text[],
+	child_ids text[]
+)
+returns table(process_id text, cycle_path text)
+language plpgsql
+as $$
+declare
+	i int;
+	p_id text;
+	c_id text;
+	is_cycle boolean;
+	found_path text;
+begin
+	for i in 1..coalesce(array_length(parent_ids, 1), 0) loop
+		p_id := parent_ids[i];
+		c_id := child_ids[i];
+
+		-- Check if adding c_id as a child of p_id creates a cycle by walking ancestors of p_id.
+		select exists(
+			with recursive ancestors as (
+				select p_id as ancestor_id
+				union
+				select pc.process
+				from ancestors a
+				join process_children pc on a.ancestor_id = pc.child
+			)
+			select 1 from ancestors where ancestor_id = c_id
+		) into is_cycle;
+
+		if not is_cycle then
+			continue;
+		end if;
+
+		-- Reconstruct the cycle path by walking descendants of c_id to find p_id.
+		select p_id || ' ' || r.path into found_path
+		from (
+			with recursive reachable(current_process, path) as (
+				select c_id, c_id::text
+				union
+				select pc.child, r.path || ' ' || pc.child
+				from reachable r
+				join process_children pc on r.current_process = pc.process
+				where r.path not like '%' || pc.child || '%'
+			)
+			select current_process, path from reachable where current_process = p_id limit 1
+		) r;
+
+		process_id := c_id;
+		cycle_path := found_path;
+		return next;
 	end loop;
 end;
 $$;
@@ -90,8 +150,8 @@ create index process_tokens_token_index on process_tokens (token);
 create table process_children (
 	process text not null,
 	child text not null,
-	position int8 not null,
 	options text,
+	position int8 not null,
 	token text
 );
 
