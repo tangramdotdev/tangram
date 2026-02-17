@@ -61,8 +61,8 @@ impl tg::Handle for Owned {
 		self.0.format(arg).await
 	}
 
-	async fn health(&self) -> tg::Result<tg::Health> {
-		self.0.health().await
+	async fn health(&self, arg: tg::health::Arg) -> tg::Result<tg::Health> {
+		self.0.health(arg).await
 	}
 
 	async fn index(
@@ -177,8 +177,8 @@ impl tg::Handle for Server {
 		self.format_with_context(&Context::default(), arg).await
 	}
 
-	async fn health(&self) -> tg::Result<tg::Health> {
-		self.health_with_context(&Context::default()).await
+	async fn health(&self, arg: tg::health::Arg) -> tg::Result<tg::Health> {
+		self.health_with_context(&Context::default(), arg).await
 	}
 
 	async fn index(
@@ -302,8 +302,8 @@ impl tg::Handle for ServerWithContext {
 		self.0.format_with_context(&self.1, arg).await
 	}
 
-	async fn health(&self) -> tg::Result<tg::Health> {
-		self.0.health_with_context(&self.1).await
+	async fn health(&self, arg: tg::health::Arg) -> tg::Result<tg::Health> {
+		self.0.health_with_context(&self.1, arg).await
 	}
 
 	async fn index(

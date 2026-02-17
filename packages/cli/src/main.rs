@@ -74,6 +74,7 @@ pub struct Cli {
 	config: Option<Config>,
 	exit: Option<u8>,
 	handle: Option<tg::Either<Client, Server>>,
+	health: Option<tg::Health>,
 	matches: clap::ArgMatches,
 	mode: Mode,
 }
@@ -433,6 +434,7 @@ fn main() -> std::process::ExitCode {
 		config,
 		exit: None,
 		handle: None,
+		health: None,
 		matches,
 		mode,
 	};
@@ -493,13 +495,23 @@ impl Cli {
 			Mode::Server => tg::Either::Right(self.server().boxed().await?),
 		};
 
-		// Get the health and print diagnostics.
-		let health = handle
-			.health()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the health"))?;
-		if !self.args.quiet {
-			for diagnostic in health.diagnostics {
+		if self.health.is_none() {
+			let arg = tg::health::Arg {
+				fields: Some(vec!["diagnostics".to_owned()]),
+			};
+			let health = handle
+				.health(arg)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the health"))?;
+			self.health.replace(health);
+		}
+		if !self.args.quiet
+			&& let Some(diagnostics) = self
+				.health
+				.as_ref()
+				.and_then(|health| health.diagnostics.clone())
+		{
+			for diagnostic in diagnostics {
 				let diagnostic: tg::Diagnostic = diagnostic.try_into()?;
 				let diagnostic = tg::Referent::with_item(diagnostic);
 				self.print_diagnostic(diagnostic).await;
@@ -512,7 +524,7 @@ impl Cli {
 		Ok(handle)
 	}
 
-	async fn auto(&self) -> tg::Result<Client> {
+	async fn auto(&mut self) -> tg::Result<Client> {
 		// Create the client.
 		let client = self.create_client();
 
@@ -533,15 +545,20 @@ impl Cli {
 				break 'a;
 			}
 
+			let arg = tg::health::Arg {
+				fields: Some(vec!["version".to_owned(), "diagnostics".to_owned()]),
+			};
 			let health = client
-				.health()
+				.health(arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the health"))?;
-			let Some(server_version) = &health.version else {
+			let server_version = health.version.clone();
+			self.health.replace(health);
+			let Some(server_version) = server_version else {
 				break 'a;
 			};
 
-			if &version() == server_version {
+			if version() == server_version {
 				break 'a;
 			}
 

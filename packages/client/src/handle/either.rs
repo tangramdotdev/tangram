@@ -122,10 +122,10 @@ where
 		}
 	}
 
-	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> {
+	fn health(&self, arg: tg::health::Arg) -> impl Future<Output = tg::Result<tg::Health>> {
 		match self {
-			tg::Either::Left(s) => s.health().left_future(),
-			tg::Either::Right(s) => s.health().right_future(),
+			tg::Either::Left(s) => s.health(arg).left_future(),
+			tg::Either::Right(s) => s.health(arg).right_future(),
 		}
 	}
 

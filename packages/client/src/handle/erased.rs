@@ -56,7 +56,7 @@ pub trait Handle:
 
 	fn format(&self, arg: tg::format::Arg) -> BoxFuture<'_, tg::Result<()>>;
 
-	fn health(&self) -> BoxFuture<'_, tg::Result<tg::Health>>;
+	fn health(&self, arg: tg::health::Arg) -> BoxFuture<'_, tg::Result<tg::Health>>;
 
 	fn index(
 		&self,
@@ -163,8 +163,8 @@ where
 		self.format(arg).boxed()
 	}
 
-	fn health(&self) -> BoxFuture<'_, tg::Result<tg::Health>> {
-		self.health().boxed()
+	fn health(&self, arg: tg::health::Arg) -> BoxFuture<'_, tg::Result<tg::Health>> {
+		self.health(arg).boxed()
 	}
 
 	fn index(

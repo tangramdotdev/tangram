@@ -83,8 +83,8 @@ impl tg::Handle for Handle {
 		self.0.format(arg)
 	}
 
-	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> {
-		self.0.health()
+	fn health(&self, arg: tg::health::Arg) -> impl Future<Output = tg::Result<tg::Health>> {
+		self.0.health(arg)
 	}
 
 	fn index(

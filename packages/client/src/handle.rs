@@ -87,7 +87,7 @@ pub trait Handle:
 
 	fn format(&self, arg: tg::format::Arg) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> + Send;
+	fn health(&self, arg: tg::health::Arg) -> impl Future<Output = tg::Result<tg::Health>> + Send;
 
 	fn index(
 		&self,
@@ -216,8 +216,8 @@ impl tg::Handle for tg::Client {
 		self.format(arg)
 	}
 
-	fn health(&self) -> impl Future<Output = tg::Result<tg::Health>> {
-		self.health()
+	fn health(&self, arg: tg::health::Arg) -> impl Future<Output = tg::Result<tg::Health>> {
+		self.health(arg)
 	}
 
 	fn index(
