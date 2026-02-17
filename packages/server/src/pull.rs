@@ -1,8 +1,9 @@
 use {
 	crate::{Context, Server},
-	futures::{Stream, StreamExt as _},
+	futures::{Stream, StreamExt as _, future, stream},
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_index::prelude::*,
 };
 
 impl Server {
@@ -13,6 +14,19 @@ impl Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + use<>,
 	> {
+		if !arg.force
+			&& self
+				.pull_items_are_stored_for_arg(&arg)
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to check whether the pull is local")
+				})? {
+			let stream = stream::once(future::ok(tg::progress::Event::Output(
+				tg::pull::Output::default(),
+			)));
+			return Ok(stream.boxed());
+		}
+
 		let remote = arg.remote.clone().unwrap_or_else(|| "default".to_owned());
 		let remote = self
 			.get_remote_client(remote)
@@ -20,7 +34,70 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
 		Self::push_or_pull(&remote, self, &arg)
 			.await
+			.map(futures::StreamExt::boxed)
 			.map_err(|source| tg::error!(!source, "failed to start the pull"))
+	}
+
+	async fn pull_items_are_stored_for_arg(&self, arg: &tg::pull::Arg) -> tg::Result<bool> {
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let object_ids = arg
+			.items
+			.iter()
+			.filter_map(|item| match item {
+				tg::Either::Left(object) => Some(object.clone()),
+				tg::Either::Right(_) => None,
+			})
+			.collect::<Vec<_>>();
+		if !object_ids.is_empty() {
+			let objects = self
+				.index
+				.touch_objects(&object_ids, touched_at)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to touch the objects"))?;
+			if objects
+				.into_iter()
+				.any(|object| !object.is_some_and(|object| object.stored.subtree))
+			{
+				return Ok(false);
+			}
+		}
+
+		let process_ids = arg
+			.items
+			.iter()
+			.filter_map(|item| match item {
+				tg::Either::Left(_) => None,
+				tg::Either::Right(process) => Some(process.clone()),
+			})
+			.collect::<Vec<_>>();
+		if process_ids.is_empty() {
+			return Ok(true);
+		}
+
+		let processes = self
+			.index
+			.touch_processes(&process_ids, touched_at)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to touch the processes"))?;
+		let all_processes_stored = processes.into_iter().all(|process| {
+			let Some(process) = process else {
+				return false;
+			};
+			let stored = process.stored;
+			if arg.recursive {
+				stored.subtree
+					&& (!arg.commands || stored.subtree_command)
+					&& (!arg.errors || stored.subtree_error)
+					&& (!arg.logs || stored.subtree_log)
+					&& (!arg.outputs || stored.subtree_output)
+			} else {
+				(!arg.commands || stored.node_command)
+					&& (!arg.errors || stored.node_error)
+					&& (!arg.logs || stored.node_log)
+					&& (!arg.outputs || stored.node_output)
+			}
+		});
+		Ok(all_processes_stored)
 	}
 
 	pub(crate) async fn handle_pull_request(
