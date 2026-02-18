@@ -1,0 +1,7 @@
+tg.directory({
+  "link": tg.symlink({
+    "artifact": tg.file({
+      "contents": tg.blob("hello from artifact"),
+    }),
+  }),
+})

@@ -211,20 +211,32 @@ impl Server {
 			(args, cwd, env, executable, root)
 		};
 
+		// Create the paths for sandboxed processes.
+		let paths = if root_mounted {
+			None
+		} else {
+			Some(crate::context::Paths {
+				server_guest: "/.tangram".into(),
+				server_host: self.path.clone(),
+				output_host: temp.path().join("output"),
+				output_guest: "/output".into(),
+				root_host: root,
+			})
+		};
+
+		// Create the context process.
+		let context_process = Arc::new(crate::context::Process {
+			id: process.id().clone(),
+			paths,
+			remote: remote.cloned(),
+			retry: *process
+				.retry(self)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the process retry"))?,
+		});
+
 		// Create the serve task.
 		let serve_task = {
-			// Create the paths for sandboxed processes.
-			let paths = if root_mounted {
-				None
-			} else {
-				Some(crate::context::Paths {
-					server_host: self.path.clone(),
-					output_host: temp.path().join("output"),
-					output_guest: "/output".into(),
-					root_host: root,
-				})
-			};
-
 			// Create the host uri.
 			let host_socket = temp.path().join(".tangram/socket");
 			tokio::fs::create_dir_all(host_socket.parent().unwrap())
@@ -248,15 +260,7 @@ impl Server {
 			// Serve.
 			let server = self.clone();
 			let context = Context {
-				process: Some(Arc::new(crate::context::Process {
-					id: process.id().clone(),
-					paths,
-					remote: remote.cloned(),
-					retry: *process
-						.retry(self)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to get the process retry"))?,
-				})),
+				process: Some(context_process.clone()),
 				..Default::default()
 			};
 			let task = Task::spawn(|stop| async move {
@@ -274,6 +278,7 @@ impl Server {
 			env,
 			executable,
 			id,
+			process: Some(context_process),
 			remote,
 			serve_task,
 			server: self,

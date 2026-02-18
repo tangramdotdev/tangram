@@ -90,11 +90,14 @@ impl Server {
 		let id = node.id.as_ref().unwrap();
 		let src = node.path.as_ref().unwrap();
 		let dst = &self.cache_path().join(id.to_string());
+
 		if id.is_directory() {
 			let permissions = std::fs::Permissions::from_mode(0o755);
 			std::fs::set_permissions(src, permissions).map_err(
 				|source| tg::error!(!source, path = %src.display(), "failed to set permissions"),
 			)?;
+			// Rewrite symlinks that have artifact edges.
+			Self::checkin_cache_rewrite_symlinks(graph, root);
 		}
 		let done = match tangram_util::fs::rename_noreplace(src, dst).await {
 			Ok(()) => false,
@@ -125,6 +128,59 @@ impl Server {
 			)?;
 		}
 		Ok(())
+	}
+
+	fn checkin_cache_rewrite_symlinks(graph: &Graph, root: &Path) {
+		use super::graph::Variant;
+		for node in graph.nodes.values() {
+			let Some(path) = &node.path else { continue };
+			let Variant::Symlink(symlink) = &node.variant else {
+				continue;
+			};
+			let Some(edge) = &symlink.artifact else {
+				continue;
+			};
+
+			// Only process symlinks under the root.
+			let Ok(relative) = path.strip_prefix(root) else {
+				continue;
+			};
+
+			// Get the artifact ID from the edge.
+			let artifact_id = match edge {
+				tg::graph::data::Edge::Object(id) => id.clone(),
+				tg::graph::data::Edge::Pointer(pointer) => {
+					let Some(target_node) = graph.nodes.get(&pointer.index) else {
+						continue;
+					};
+					let Some(id) = &target_node.id else { continue };
+					let Ok(id) = id.clone().try_into() else {
+						continue;
+					};
+					id
+				},
+			};
+
+			// Compute the depth.
+			let parent_depth = relative.parent().map_or(0, |p| p.components().count());
+			let depth = parent_depth + 1;
+
+			// Build the relative target path.
+			let mut target = PathBuf::new();
+			for _ in 0..depth {
+				target.push("..");
+			}
+			target.push(artifact_id.to_string());
+			if let Some(subpath) = &symlink.path {
+				target.push(subpath);
+			}
+
+			// Rewrite the symlink on disk.
+			if std::fs::remove_file(path).is_err() {
+				continue;
+			}
+			std::os::unix::fs::symlink(&target, path).ok();
+		}
 	}
 
 	fn checkin_cache_inner(

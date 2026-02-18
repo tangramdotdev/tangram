@@ -102,18 +102,21 @@ impl Server {
 			root: root.clone(),
 			updates: arg.updates.clone(),
 		};
+		let process = context.process.clone();
 		let root_task = self.checkin_tasks.get_or_spawn_with_context(
 			key,
 			crate::progress::Handle::new,
 			|progress, _stop| {
 				let server = self.clone();
 				let arg = arg.clone();
+				let process = process.clone();
 				let root = root.clone();
 				async move {
-					let result =
-						AssertUnwindSafe(server.checkin_task(arg, &root, ignorer, &progress))
-							.catch_unwind()
-							.await;
+					let result = AssertUnwindSafe(
+						server.checkin_task(arg, process, &root, ignorer, &progress),
+					)
+					.catch_unwind()
+					.await;
 					match result {
 						Ok(Ok(output)) => {
 							progress.output(output);
@@ -244,6 +247,7 @@ impl Server {
 	async fn checkin_task(
 		&self,
 		arg: tg::checkin::Arg,
+		process: Option<Arc<crate::context::Process>>,
 		root: &Path,
 		ignorer: Option<ignore::Ignorer>,
 		progress: &crate::progress::Handle<TaskOutput>,
@@ -328,6 +332,7 @@ impl Server {
 					ignorer,
 					lock.as_deref(),
 					next,
+					process.as_deref(),
 					progress,
 					&root,
 				)?;

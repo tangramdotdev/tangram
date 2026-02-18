@@ -18,6 +18,7 @@ struct State<'a> {
 	graph: &'a mut Graph,
 	ignorer: Option<ignore::Ignorer>,
 	lock: Option<&'a tg::graph::Data>,
+	process: Option<&'a crate::context::Process>,
 	progress: crate::progress::Handle<super::TaskOutput>,
 	root: &'a Path,
 }
@@ -50,6 +51,7 @@ impl Server {
 		ignorer: Option<ignore::Ignorer>,
 		lock: Option<&tg::graph::Data>,
 		next: usize,
+		process: Option<&crate::context::Process>,
 		progress: crate::progress::Handle<super::TaskOutput>,
 		root: &Path,
 	) -> tg::Result<()> {
@@ -78,6 +80,7 @@ impl Server {
 			graph,
 			ignorer,
 			lock,
+			process,
 			progress,
 			root,
 		};
@@ -563,13 +566,20 @@ impl Server {
 		let target = std::fs::read_link(path)
 			.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;
 
+		// Remap guest paths to host paths.
+		let target = if let Some(process) = state.process {
+			process.host_path_for_guest_path(target)
+		} else {
+			target
+		};
+
 		// If the target is in the artifacts directory, then treat it as an artifact symlink.
 		let Ok(absolute_target) =
 			tangram_util::fs::canonicalize_parent_sync(path.parent().unwrap().join(&target))
 		else {
 			return Ok(());
 		};
-		if let Some(artifacts_path) = &state.artifacts_path
+		if let Some(artifacts_path) = state.artifacts_path
 			&& let Ok(path) = absolute_target.strip_prefix(artifacts_path)
 		{
 			// Get the entry.
@@ -613,6 +623,46 @@ impl Server {
 				path,
 				parent: Some(parent),
 			});
+
+			return Ok(());
+		}
+
+		// Check the server's artifacts path for sandboxed processes.
+		if let Some(server_artifacts_path) = state
+			.process
+			.and_then(|p| p.paths.as_ref())
+			.map(|paths| paths.server_host.join("artifacts"))
+			&& let Ok(path) = absolute_target.strip_prefix(&server_artifacts_path)
+		{
+			let mut components = path.components();
+			let Some(artifact) = components.next().and_then(|component| {
+				if let std::path::Component::Normal(component) = component {
+					component.to_str()?.parse::<tg::artifact::Id>().ok()
+				} else {
+					None
+				}
+			}) else {
+				return Ok(());
+			};
+
+			// Get the path within the artifact.
+			let artifact_path: PathBuf = components.collect();
+			let artifact_path = if artifact_path == Path::new("") {
+				None
+			} else {
+				Some(artifact_path)
+			};
+
+			// Set the artifact edge directly since it's already stored.
+			let symlink = state
+				.graph
+				.nodes
+				.get_mut(&index)
+				.unwrap()
+				.variant
+				.unwrap_symlink_mut();
+			symlink.artifact = Some(tg::graph::data::Edge::Object(artifact));
+			symlink.path = artifact_path;
 
 			return Ok(());
 		}

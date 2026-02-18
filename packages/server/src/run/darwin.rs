@@ -112,6 +112,17 @@ impl Server {
 			},
 		};
 
+		// Create the context process.
+		let context_process = Arc::new(crate::context::Process {
+			id: process.id().clone(),
+			paths: None,
+			remote: remote.cloned(),
+			retry: *process
+				.retry(self)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the process retry"))?,
+		});
+
 		// Create the serve task.
 		let serve_task = {
 			let path = temp.path().join(".tangram");
@@ -145,15 +156,7 @@ impl Server {
 			// Serve.
 			let server = self.clone();
 			let context = Context {
-				process: Some(Arc::new(crate::context::Process {
-					id: process.id().clone(),
-					paths: None,
-					remote: remote.cloned(),
-					retry: *process
-						.retry(self)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to get the process retry"))?,
-				})),
+				process: Some(context_process.clone()),
 				..Default::default()
 			};
 			let task = Task::spawn(|stop| async move {
@@ -237,6 +240,7 @@ impl Server {
 			env,
 			executable,
 			id,
+			process: Some(context_process),
 			remote,
 			serve_task,
 			server: self,

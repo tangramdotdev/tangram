@@ -17,6 +17,7 @@ pub struct Process {
 
 #[derive(Clone, Debug)]
 pub struct Paths {
+	pub server_guest: PathBuf,
 	pub server_host: PathBuf,
 	pub output_guest: PathBuf,
 	pub output_host: PathBuf,
@@ -30,6 +31,8 @@ impl Process {
 		};
 		if let Ok(path) = path.strip_prefix(&path_map.output_guest) {
 			path_map.output_host.join(path)
+		} else if let Ok(path) = path.strip_prefix(&path_map.server_guest) {
+			path_map.server_host.join(path)
 		} else {
 			path_map
 				.root_host
@@ -46,7 +49,7 @@ impl Process {
 			paths.output_guest.join(suffix)
 		} else if path.starts_with(&paths.server_host) {
 			let suffix = path.strip_prefix(&paths.server_host).unwrap();
-			PathBuf::from("/.tangram").join(suffix)
+			paths.server_guest.join(suffix)
 		} else {
 			let suffix = path.strip_prefix(&paths.root_host).map_err(|error| {
 				tg::error!(source = error, "cannot map path outside of host root")

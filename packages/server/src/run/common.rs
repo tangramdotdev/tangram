@@ -25,6 +25,7 @@ pub struct Arg<'a> {
 	pub env: BTreeMap<String, String>,
 	pub executable: PathBuf,
 	pub id: &'a tg::process::Id,
+	pub process: Option<std::sync::Arc<crate::context::Process>>,
 	pub remote: Option<&'a String>,
 	pub serve_task: Option<(Task<()>, Uri)>,
 	pub server: &'a Server,
@@ -56,6 +57,7 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 	let server = arg.server;
 	let temp = arg.temp;
 	let serve_task = arg.serve_task.take();
+	let process = arg.process.take();
 
 	let exit = if let Some(pty) = pty {
 		run_session(arg, pty)
@@ -110,6 +112,16 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 
 	// Check in the output.
 	if output.output.is_none() && exists {
+		let path = if let Some(process) = &process {
+			process.guest_path_for_host_path(path)?
+		} else {
+			path
+		};
+		let context = crate::Context {
+			process,
+			..Default::default()
+		};
+		let handle = crate::handle::ServerWithContext(server.clone(), context);
 		let arg = tg::checkin::Arg {
 			options: tg::checkin::Options {
 				destructive: true,
@@ -122,7 +134,7 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 			path,
 			updates: Vec::new(),
 		};
-		let artifact = tg::checkin(server, arg)
+		let artifact = tg::checkin(&handle, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check in the output"))?;
 		output.output = Some(tg::Value::from(artifact));
