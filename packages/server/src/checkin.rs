@@ -257,13 +257,15 @@ impl Server {
 			return Err(tg::error!("ignore is forbidden for destructive checkins"));
 		}
 
-		// Try to find the artifacts path.
+		// Try to find the artifacts path. Fall back to the server's artifacts directory for sandboxed processes.
 		let artifacts_path = root.join(".tangram/artifacts");
 		let artifacts_path = if tokio::fs::try_exists(&artifacts_path)
 			.await
 			.is_ok_and(|exists| exists)
 		{
 			Some(artifacts_path)
+		} else if process.is_some() {
+			Some(self.artifacts_path())
 		} else {
 			None
 		};

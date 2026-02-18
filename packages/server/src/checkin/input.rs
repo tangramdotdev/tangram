@@ -36,7 +36,7 @@ struct Parent {
 enum ParentVariant {
 	DirectoryEntry(String),
 	FileDependency(tg::Reference),
-	SymlinkArtifact,
+	SymlinkArtifact(tg::artifact::Id),
 }
 
 impl Server {
@@ -92,8 +92,10 @@ impl Server {
 		};
 		let mut stack = vec![item];
 
-		// Collect the artifacts path entries.
-		let artifacts_entries = if let Some(artifacts_path) = artifacts_path {
+		// Collect the artifacts path entries. Only pre-walk local artifacts directories.
+		let artifacts_entries = if let Some(artifacts_path) = artifacts_path
+			&& artifacts_path.starts_with(root)
+		{
 			let read_dir = std::fs::read_dir(artifacts_path).map_err(
 				|source| tg::error!(!source, path = %artifacts_path.display(), "failed to read the artifacts directory"),
 			)?;
@@ -597,7 +599,7 @@ impl Server {
 			// Create an item for the artifact.
 			let parent = Parent {
 				index,
-				variant: ParentVariant::SymlinkArtifact,
+				variant: ParentVariant::SymlinkArtifact(artifact.clone()),
 			};
 			let path = artifacts_path.join(artifact.to_string());
 
@@ -623,46 +625,6 @@ impl Server {
 				path,
 				parent: Some(parent),
 			});
-
-			return Ok(());
-		}
-
-		// Check the server's artifacts path for sandboxed processes.
-		if let Some(server_artifacts_path) = state
-			.process
-			.and_then(|p| p.paths.as_ref())
-			.map(|paths| paths.server_host.join("artifacts"))
-			&& let Ok(path) = absolute_target.strip_prefix(&server_artifacts_path)
-		{
-			let mut components = path.components();
-			let Some(artifact) = components.next().and_then(|component| {
-				if let std::path::Component::Normal(component) = component {
-					component.to_str()?.parse::<tg::artifact::Id>().ok()
-				} else {
-					None
-				}
-			}) else {
-				return Ok(());
-			};
-
-			// Get the path within the artifact.
-			let artifact_path: PathBuf = components.collect();
-			let artifact_path = if artifact_path == Path::new("") {
-				None
-			} else {
-				Some(artifact_path)
-			};
-
-			// Set the artifact edge directly since it's already stored.
-			let symlink = state
-				.graph
-				.nodes
-				.get_mut(&index)
-				.unwrap()
-				.variant
-				.unwrap_symlink_mut();
-			symlink.artifact = Some(tg::graph::data::Edge::Object(artifact));
-			symlink.path = artifact_path;
 
 			return Ok(());
 		}
@@ -760,7 +722,7 @@ impl Server {
 					.replace(dependency);
 			},
 
-			ParentVariant::SymlinkArtifact => {
+			ParentVariant::SymlinkArtifact(artifact_id) => {
 				let edge: tg::graph::data::Edge<tg::artifact::Id> =
 					tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
 						graph: None,
@@ -776,6 +738,9 @@ impl Server {
 					.unwrap_symlink_mut()
 					.artifact
 					.replace(edge);
+				let child_node = state.graph.nodes.get_mut(&child_index).unwrap();
+				child_node.artifact = Some(artifact_id.clone());
+				state.graph.artifacts.insert(artifact_id, child_index);
 			},
 		}
 		Ok(())
@@ -811,7 +776,7 @@ impl Server {
 					.ok()?
 					.index,
 			),
-			ParentVariant::SymlinkArtifact => Some(
+			ParentVariant::SymlinkArtifact(_) => Some(
 				parent_node
 					.try_unwrap_symlink_ref()
 					.ok()?
