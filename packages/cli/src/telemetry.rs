@@ -68,13 +68,13 @@ impl Telemetry {
 
 	pub fn shutdown(&self) {
 		if let Err(error) = self.tracer_provider.shutdown() {
-			tracing::error!(?error, "failed to shutdown tracer provider");
+			tracing::trace!(?error, "failed to shutdown tracer provider");
 		}
 		if let Err(error) = self.meter_provider.shutdown() {
-			tracing::error!(?error, "failed to shutdown meter provider");
+			tracing::trace!(?error, "failed to shutdown meter provider");
 		}
 		if let Err(error) = self.logger_provider.shutdown() {
-			tracing::error!(?error, "failed to shutdown logger provider");
+			tracing::trace!(?error, "failed to shutdown logger provider");
 		}
 	}
 }

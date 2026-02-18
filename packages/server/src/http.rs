@@ -240,7 +240,7 @@ impl Server {
 					};
 					result
 						.inspect_err(|error| {
-							tracing::error!(?error, "connection failed");
+							tracing::trace!(?error, "connection failed");
 						})
 						.ok();
 					drop(guard);
