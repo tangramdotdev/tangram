@@ -1,20 +1,19 @@
 use {crate::Server, dashmap::DashMap, std::sync::Arc, tangram_client::prelude::*};
 
-pub(super) const PREFETCH_CONCURRENCY: usize = 16;
+const PREFETCH_CONCURRENCY: usize = 16;
 
-pub(super) type Objects =
-	Arc<DashMap<tg::object::Id, tg::object::get::Output, tg::id::BuildHasher>>;
+type Objects = Arc<DashMap<tg::object::Id, tg::object::get::Output, tg::id::BuildHasher>>;
 
-pub(super) type ObjectTasks = tangram_futures::task::Map<
+type ObjectTasks = tangram_futures::task::Map<
 	tg::object::Id,
 	tg::Result<tg::object::get::Output>,
 	(),
 	tg::id::BuildHasher,
 >;
 
-pub(super) type Tags = Arc<DashMap<tg::tag::Pattern, tg::tag::list::Output, fnv::FnvBuildHasher>>;
+type Tags = Arc<DashMap<tg::tag::Pattern, tg::tag::list::Output, fnv::FnvBuildHasher>>;
 
-pub(super) type TagTasks = tangram_futures::task::Map<
+type TagTasks = tangram_futures::task::Map<
 	tg::tag::Pattern,
 	tg::Result<tg::tag::list::Output>,
 	(),
@@ -22,7 +21,7 @@ pub(super) type TagTasks = tangram_futures::task::Map<
 >;
 
 #[derive(Clone)]
-pub(super) struct Prefetch {
+pub struct Prefetch {
 	arg: tg::checkin::Arg,
 	object_tasks: ObjectTasks,
 	objects: Objects,
