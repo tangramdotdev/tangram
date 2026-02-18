@@ -77,6 +77,9 @@ pub struct Options {
 	#[serde(default = "return_false", skip_serializing_if = "is_false")]
 	pub unsolved_dependencies: bool,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ttl: Option<u64>,
+
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub watch: bool,
@@ -172,6 +175,7 @@ impl Default for Options {
 			locked: false,
 			solve: true,
 			unsolved_dependencies: false,
+			ttl: None,
 			watch: false,
 		}
 	}

@@ -4,6 +4,9 @@ use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[command(flatten)]
+	pub checkin: crate::checkin::Options,
+
 	#[arg(default_value = ".", index = 1)]
 	pub path: PathBuf,
 
@@ -29,7 +32,7 @@ impl Cli {
 
 		// Check in.
 		let arg = tg::checkin::Arg {
-			options: tg::checkin::Options::default(),
+			options: args.checkin.to_options(),
 			path: path.clone(),
 			updates,
 		};

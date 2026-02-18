@@ -55,6 +55,10 @@ pub struct Options {
 	#[command(flatten)]
 	pub unsolved_dependencies: UnsolvedDependencies,
 
+	/// Set the cache TTL in seconds for tag resolution. Use 0 to bypass the cache.
+	#[arg(long)]
+	pub ttl: Option<u64>,
+
 	#[arg(long)]
 	pub watch: bool,
 }
@@ -279,6 +283,7 @@ impl Options {
 			locked: self.locked,
 			solve: self.solve.get(),
 			unsolved_dependencies: self.unsolved_dependencies.get(),
+			ttl: self.ttl,
 			watch: self.watch,
 		}
 	}

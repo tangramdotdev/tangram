@@ -345,7 +345,7 @@ impl Server {
 				recursive: false,
 				remotes: None,
 				reverse: true,
-				ttl: None,
+				ttl: prefetch.arg.options.ttl,
 			})
 			.await
 			.map_err(|source| tg::error!(!source, %pattern, "failed to list tags"))?
