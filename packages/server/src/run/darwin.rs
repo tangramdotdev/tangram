@@ -112,56 +112,56 @@ impl Server {
 			},
 		};
 
-		// Create the serve task.
-		let serve_task = {
-			let path = temp.path().join(".tangram");
-			tokio::fs::create_dir_all(&path).await.map_err(
-				|source| tg::error!(!source, path = %path.display(), "failed to create the directory"),
-			)?;
+		let path = temp.path().join(".tangram");
+		tokio::fs::create_dir_all(&path).await.map_err(
+			|source| tg::error!(!source, path = %path.display(), "failed to create the directory"),
+		)?;
 
-			// Listen.
-			let socket_path = path.join("socket").display().to_string();
-			let mut url = if socket_path.len() <= MAX_URL_LEN {
-				tangram_uri::Uri::builder()
-					.scheme("http+unix")
-					.authority(&socket_path)
-					.path("")
-					.build()
-					.unwrap()
-			} else {
-				"http://localhost:0".to_owned().parse::<Uri>().unwrap()
-			};
-			let listener = Server::listen(&url)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to listen"))?;
-			let listener_addr = listener
-				.local_addr()
-				.map_err(|source| tg::error!(!source, "failed to get listener address"))?;
-			if let tokio_util::either::Either::Right(listener) = listener_addr {
-				let port = listener.port();
-				url = format!("http://localhost:{port}").parse::<Uri>().unwrap();
-			}
-
-			// Serve.
-			let server = self.clone();
-			let context = Context {
-				process: Some(Arc::new(crate::context::Process {
-					id: process.id().clone(),
-					paths: None,
-					remote: remote.cloned(),
-					retry: *process
-						.retry(self)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to get the process retry"))?,
-				})),
-				..Default::default()
-			};
-			let task = Task::spawn(|stop| async move {
-				server.serve(listener, context, stop).await;
-			});
-
-			Some((task, url))
+		// Listen.
+		let socket_path = path.join("socket").display().to_string();
+		let mut url = if socket_path.len() <= MAX_URL_LEN {
+			tangram_uri::Uri::builder()
+				.scheme("http+unix")
+				.authority(&socket_path)
+				.path("")
+				.build()
+				.unwrap()
+		} else {
+			"http://localhost:0".to_owned().parse::<Uri>().unwrap()
 		};
+		let listener = Server::listen(&url)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to listen"))?;
+		let listener_addr = listener
+			.local_addr()
+			.map_err(|source| tg::error!(!source, "failed to get listener address"))?;
+		if let tokio_util::either::Either::Right(listener) = listener_addr {
+			let port = listener.port();
+			url = format!("http://localhost:{port}").parse::<Uri>().unwrap();
+		}
+
+		// Serve.
+		let server = self.clone();
+		let context = Context {
+			process: Some(Arc::new(crate::context::Process {
+				id: process.id().clone(),
+				paths: None,
+				remote: remote.cloned(),
+				retry: *process
+					.retry(self)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the process retry"))?,
+			})),
+			..Default::default()
+		};
+		let task = Task::spawn({
+			let context = context.clone();
+			|stop| async move {
+				server.serve(listener, context, stop).await;
+			}
+		});
+
+		let serve_task = Some((task, url));
 
 		// Set `$TANGRAM_OUTPUT`.
 		env.insert(
@@ -233,6 +233,7 @@ impl Server {
 		let arg = crate::run::common::Arg {
 			args,
 			command,
+			context: &context,
 			cwd,
 			env,
 			executable,

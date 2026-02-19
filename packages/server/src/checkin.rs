@@ -107,13 +107,15 @@ impl Server {
 			crate::progress::Handle::new,
 			|progress, _stop| {
 				let server = self.clone();
+				let context = context.clone();
 				let arg = arg.clone();
 				let root = root.clone();
 				async move {
-					let result =
-						AssertUnwindSafe(server.checkin_task(arg, &root, ignorer, &progress))
-							.catch_unwind()
-							.await;
+					let result = AssertUnwindSafe(
+						server.checkin_task(&context, arg, &root, ignorer, &progress),
+					)
+					.catch_unwind()
+					.await;
 					match result {
 						Ok(Ok(output)) => {
 							progress.output(output);
@@ -243,6 +245,7 @@ impl Server {
 	// Check in the artifact.
 	async fn checkin_task(
 		&self,
+		context: &Context,
 		arg: tg::checkin::Arg,
 		root: &Path,
 		ignorer: Option<ignore::Ignorer>,
@@ -314,6 +317,7 @@ impl Server {
 		// Collect input.
 		let mut graph = tokio::task::spawn_blocking({
 			let server = self.clone();
+			let context = context.clone();
 			let arg = arg.clone();
 			let artifacts_path = artifacts_path.clone();
 			let lock = lock.clone();
@@ -321,6 +325,7 @@ impl Server {
 			let root = root.to_owned();
 			move || {
 				server.checkin_input(
+					&context,
 					&arg,
 					artifacts_path.as_deref(),
 					fixup_sender,

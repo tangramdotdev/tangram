@@ -1,5 +1,5 @@
 use {
-	crate::{Server, temp::Temp},
+	crate::{Server, context::Context, temp::Temp},
 	futures::{future, prelude::*},
 	num::ToPrimitive as _,
 	std::{
@@ -12,7 +12,7 @@ use {
 		pin::pin,
 	},
 	tangram_client::prelude::*,
-	tangram_futures::{read::Ext as _, task::Task, write::Ext as _},
+	tangram_futures::{read::Ext as _, stream::TryExt as _, task::Task, write::Ext as _},
 	tangram_uri::Uri,
 	tokio::io::{AsyncRead, AsyncWrite},
 	tokio_util::io::ReaderStream,
@@ -21,6 +21,7 @@ use {
 pub struct Arg<'a> {
 	pub args: Vec<String>,
 	pub command: &'a tg::command::Data,
+	pub context: &'a Context,
 	pub cwd: PathBuf,
 	pub env: BTreeMap<String, String>,
 	pub executable: PathBuf,
@@ -53,9 +54,10 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 			})
 		});
 
+	let context = arg.context;
+	let serve_task = arg.serve_task.take();
 	let server = arg.server;
 	let temp = arg.temp;
-	let serve_task = arg.serve_task.take();
 
 	let exit = if let Some(pty) = pty {
 		run_session(arg, pty)
@@ -110,6 +112,13 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 
 	// Check in the output.
 	if output.output.is_none() && exists {
+		let path = if let Some(process) = &context.process {
+			process
+				.guest_path_for_host_path(path.clone())
+				.map_err(|source| tg::error!(!source, "failed to map the output path"))?
+		} else {
+			path.clone()
+		};
 		let arg = tg::checkin::Arg {
 			options: tg::checkin::Options {
 				destructive: true,
@@ -122,10 +131,16 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 			path,
 			updates: Vec::new(),
 		};
-		let artifact = tg::checkin(server, arg)
+		let checkin_output = server
+			.checkin_with_context(context, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to check in the output"))?;
-		output.output = Some(tg::Value::from(artifact));
+			.map_err(|source| tg::error!(!source, "failed to check in the output"))?
+			.try_last()
+			.await?
+			.and_then(|event| event.try_unwrap_output().ok())
+			.ok_or_else(|| tg::error!("stream ended without output"))?;
+		let value = tg::Artifact::with_id(checkin_output.artifact.item).into();
+		output.output = Some(value);
 	}
 
 	Ok(output)
@@ -133,15 +148,15 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 
 async fn run_session(arg: Arg<'_>, pty: &tg::pty::Id) -> tg::Result<u8> {
 	let Arg {
-		server,
-		id,
-		remote,
-		command,
-		state,
 		args,
+		command,
 		cwd,
 		env,
 		executable,
+		id,
+		remote,
+		server,
+		state,
 		..
 	} = arg;
 
@@ -359,15 +374,15 @@ async fn run_session(arg: Arg<'_>, pty: &tg::pty::Id) -> tg::Result<u8> {
 
 async fn run_inner(arg: Arg<'_>) -> tg::Result<u8> {
 	let Arg {
-		server,
-		id,
-		remote,
-		command,
-		state,
 		args,
+		command,
 		cwd,
 		env,
 		executable,
+		id,
+		remote,
+		server,
+		state,
 		..
 	} = arg;
 

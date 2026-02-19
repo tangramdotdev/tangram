@@ -11,6 +11,7 @@ def main [
 	--clean # Clean up leftover test resources from postgres, scylla, and nats.
 	--cloud # Enable cloud database backends (postgres, scylla, nats) for spawn --cloud.
 	--jobs (-j): int # The number of concurrent tests to run.
+	--preserve-temps # Keep the temporary directories.
 	--no-capture # Do not capture the output of each test. This sets --jobs to 1.
 	--print-passing-test-output # Print the output of passing tests.
 	--review (-r) # Review snapshots.
@@ -103,6 +104,14 @@ def main [
 			# Run the test.
 			let start = date now
 			let timeout = $timeout | into int | $in / 1_000_000_000
+			if $preserve_temps {
+				let config = {
+					advanced: {
+						preserve_temp_directories: true,
+					},
+				}
+				$config | to json | save -f ($temp_path | path join "config.json")
+			}
 			let output = with-env {
 				TANGRAM_CONFIG: ($temp_path | path join "config.json"),
 				TANGRAM_MODE: client,
@@ -147,14 +156,17 @@ def main [
 			}
 
 			# Clean up the temp directory.
-			chmod -R +w $temp_path
-			rm -rf $temp_path
+			if not $preserve_temps {
+				chmod -R +w $temp_path
+				rm -rf $temp_path
+			}
 
 			# Send the result.
 			let result = {
 				duration: $duration,
 				name: $test.name,
 				output: $output,
+				temp_path: $temp_path,
 			}
 			$result | job send 0
 		}
@@ -373,6 +385,14 @@ def main [
 	if $failed > 0 {
 		for result in ($results | where output.exit_code != 0) {
 			print -e $'(ansi red)✗(ansi reset) ($result.name) ($result.duration)'
+		}
+	}
+
+	if $preserve_temps {
+		print -e ''
+		print -e 'preserved temp directories:'
+		for result in $results {
+			print -e $'  ($result.name): ($result.temp_path)'
 		}
 	}
 

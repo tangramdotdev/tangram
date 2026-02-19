@@ -28,7 +28,9 @@ impl Process {
 		let Some(path_map) = &self.paths else {
 			return path;
 		};
-		if let Ok(path) = path.strip_prefix(&path_map.output_guest) {
+		if let Ok(path) = path.strip_prefix("/.tangram") {
+			path_map.server_host.join(path)
+		} else if let Ok(path) = path.strip_prefix(&path_map.output_guest) {
 			path_map.output_host.join(path)
 		} else {
 			path_map

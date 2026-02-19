@@ -1,6 +1,6 @@
 use {
 	super::graph::{Directory, File, Node, Symlink, Variant},
-	crate::{Server, checkin::Graph},
+	crate::{Server, checkin::Graph, context::Context},
 	smallvec::SmallVec,
 	std::{
 		collections::BTreeMap,
@@ -14,6 +14,7 @@ use {
 struct State<'a> {
 	arg: &'a tg::checkin::Arg,
 	artifacts_path: Option<&'a Path>,
+	context: &'a Context,
 	fixup_sender: Option<std::sync::mpsc::Sender<super::fixup::Message>>,
 	graph: &'a mut Graph,
 	ignorer: Option<ignore::Ignorer>,
@@ -43,6 +44,7 @@ impl Server {
 	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) fn checkin_input(
 		&self,
+		context: &Context,
 		arg: &tg::checkin::Arg,
 		artifacts_path: Option<&Path>,
 		fixup_sender: Option<std::sync::mpsc::Sender<super::fixup::Message>>,
@@ -74,6 +76,7 @@ impl Server {
 		let mut state = State {
 			arg,
 			artifacts_path,
+			context,
 			fixup_sender,
 			graph,
 			ignorer,
@@ -214,12 +217,6 @@ impl Server {
 			return Ok(());
 		}
 
-		// Update the progress.
-		state.progress.increment("artifacts", 1);
-		if metadata.is_file() {
-			state.progress.increment("bytes", metadata.len());
-		}
-
 		// Create the variant.
 		let variant = if metadata.is_dir() {
 			Variant::Directory(Directory {
@@ -243,15 +240,6 @@ impl Server {
 			return Err(tg::error!(?metadata, "invalid file type"));
 		};
 
-		// Send the message to the fixup task.
-		if let Some(sender) = &state.fixup_sender {
-			let message = super::fixup::Message {
-				path: item.path.clone(),
-				metadata: metadata.clone(),
-			};
-			sender.send(message).ok();
-		}
-
 		// Get the node index.
 		let index = state.graph.next;
 		state.graph.next += 1;
@@ -270,7 +258,7 @@ impl Server {
 			lock_node,
 			metadata: None,
 			path: Some(item.path),
-			path_metadata: Some(metadata),
+			path_metadata: Some(metadata.clone()),
 			referrers: SmallVec::new(),
 			solvable: false,
 			solved: true,
@@ -292,8 +280,24 @@ impl Server {
 				self.checkin_visit_file(state, stack, index)?;
 			},
 			Variant::Symlink(_) => {
-				Self::checkin_visit_symlink(state, stack, index)?;
+				self.checkin_visit_symlink(state, stack, index)?;
 			},
+		}
+
+		// Send the message to the fixup task.
+		if let Some(sender) = &state.fixup_sender {
+			let node = state.graph.nodes.get(&index).unwrap();
+			let message = super::fixup::Message {
+				path: node.path.as_ref().unwrap().clone(),
+				metadata: node.path_metadata.as_ref().unwrap().clone(),
+			};
+			sender.send(message).ok();
+		}
+
+		// Update the progress.
+		state.progress.increment("artifacts", 1);
+		if metadata.is_file() {
+			state.progress.increment("bytes", metadata.len());
 		}
 
 		Ok(())
@@ -547,6 +551,7 @@ impl Server {
 	}
 
 	fn checkin_visit_symlink(
+		&self,
 		state: &mut State,
 		stack: &mut Vec<Item>,
 		index: usize,
@@ -555,25 +560,33 @@ impl Server {
 		let path = state
 			.graph
 			.nodes
-			.get_mut(&index)
+			.get(&index)
 			.unwrap()
 			.path
 			.as_ref()
-			.unwrap();
-		let target = std::fs::read_link(path)
+			.unwrap()
+			.clone();
+		let mut target = std::fs::read_link(&path)
 			.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;
 
-		// If the target is in the artifacts directory, then treat it as an artifact symlink.
+		// If the target is absolute, then get the host path if necessary.
+		if target.is_absolute()
+			&& let Some(process) = &state.context.process
+		{
+			target = process.host_path_for_guest_path(target);
+		}
+
+		// Canonicalize the target.
 		let Ok(absolute_target) =
 			tangram_util::fs::canonicalize_parent_sync(path.parent().unwrap().join(&target))
 		else {
 			return Ok(());
 		};
-		if let Some(artifacts_path) = &state.artifacts_path
-			&& let Ok(path) = absolute_target.strip_prefix(artifacts_path)
-		{
-			// Get the entry.
-			let mut components = path.components();
+
+		// If the target is in the cache directory, then treat it as an artifact symlink.
+		if let Ok(path_in_cache_path) = absolute_target.strip_prefix(self.cache_path()) {
+			// Get the artifact.
+			let mut components = path_in_cache_path.components();
 			let Some(artifact) = components.next().and_then(|component| {
 				if let std::path::Component::Normal(component) = component {
 					component.to_str()?.parse::<tg::artifact::Id>().ok()
@@ -584,33 +597,90 @@ impl Server {
 				return Ok(());
 			};
 
-			// Create an item for the artifact.
+			// Get the path in the entry.
+			let path_in_entry = components.collect();
+			let path_in_entry = if path_in_entry == Path::new("") {
+				None
+			} else {
+				Some(path_in_entry)
+			};
+
+			// If this is a destructive checkin and the target is absolute, make it relative.
+			if state.arg.options.destructive && target.is_absolute() {
+				let mut source = self.cache_path().join("_");
+				if let Ok(path) = path.strip_prefix(state.root) {
+					source.push(path);
+				}
+				let src = source
+					.parent()
+					.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
+				let dst = &absolute_target;
+				let target = tangram_util::path::diff(src, dst)
+					.map_err(|source| tg::error!(!source, "failed to diff the paths"))?;
+				Self::checkin_replace_symlink(state, &path, &target)?;
+			}
+
+			// Update the node.
+			let node = state.graph.nodes.get_mut(&index).unwrap();
+			let symlink = node.variant.unwrap_symlink_mut();
+			symlink.artifact = Some(tg::graph::data::Edge::Object(artifact));
+			symlink.path = path_in_entry;
+
+			return Ok(());
+		}
+
+		// If the target is in the artifacts directory, then treat it as an artifact symlink.
+		if let Some(artifacts_path) = &state.artifacts_path
+			&& let Ok(path_in_artifacts_path) = absolute_target.strip_prefix(artifacts_path)
+		{
+			// Get the artifact.
+			let mut components = path_in_artifacts_path.components();
+			let Some(artifact) = components.next().and_then(|component| {
+				if let std::path::Component::Normal(component) = component {
+					component.to_str()?.parse::<tg::artifact::Id>().ok()
+				} else {
+					None
+				}
+			}) else {
+				return Ok(());
+			};
+
+			// Get the path in the entry.
+			let path_in_entry = components.collect();
+			let path_in_entry = if path_in_entry == Path::new("") {
+				None
+			} else {
+				Some(path_in_entry)
+			};
+
+			// If this is a destructive checkin and the target is absolute, make it relative.
+			if state.arg.options.destructive && target.is_absolute() {
+				let mut source = artifacts_path.join("_");
+				if let Ok(path) = path.strip_prefix(state.root) {
+					source.push(path);
+				}
+				let src = source
+					.parent()
+					.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
+				let dst = &absolute_target;
+				let target = tangram_util::path::diff(src, dst)
+					.map_err(|source| tg::error!(!source, "failed to diff the paths"))?;
+				Self::checkin_replace_symlink(state, &path, &target)?;
+			}
+
+			// Update the path.
+			let node = state.graph.nodes.get_mut(&index).unwrap();
+			let symlink = node.variant.unwrap_symlink_mut();
+			symlink.path = path_in_entry;
+
+			// Add the artifact to the stack.
 			let parent = Parent {
 				index,
 				variant: ParentVariant::SymlinkArtifact,
 			};
-			let path = artifacts_path.join(artifact.to_string());
-
-			// Get the path within the artifact.
-			let artifact_path = components.collect();
-			let artifact_path = if artifact_path == Path::new("") {
-				None
-			} else {
-				Some(artifact_path)
-			};
-
-			// Update the symlink path.
-			state
-				.graph
-				.nodes
-				.get_mut(&index)
-				.unwrap()
-				.variant
-				.unwrap_symlink_mut()
-				.path = artifact_path;
-
+			let entry_path = artifacts_path.join(artifact.to_string());
 			stack.push(Item {
-				path,
+				path: entry_path,
 				parent: Some(parent),
 			});
 
@@ -627,6 +697,59 @@ impl Server {
 			.unwrap_symlink_mut()
 			.path = Some(target);
 
+		Ok(())
+	}
+
+	fn checkin_replace_symlink(state: &State, path: &Path, target: &Path) -> tg::Result<()> {
+		match std::fs::remove_file(path) {
+			Ok(()) => (),
+			Err(source) if source.kind() == std::io::ErrorKind::PermissionDenied => {
+				Self::checkin_make_parent_writable(state, path)?;
+				std::fs::remove_file(path)
+					.map_err(|source| tg::error!(!source, "failed to remove the symlink"))?;
+			},
+			Err(source) => {
+				return Err(tg::error!(!source, "failed to remove the symlink"));
+			},
+		}
+		match std::os::unix::fs::symlink(target, path) {
+			Ok(()) => (),
+			Err(source) if source.kind() == std::io::ErrorKind::PermissionDenied => {
+				Self::checkin_make_parent_writable(state, path)?;
+				std::os::unix::fs::symlink(target, path)
+					.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
+			},
+			Err(source) => {
+				return Err(tg::error!(!source, "failed to create the symlink"));
+			},
+		}
+		Ok(())
+	}
+
+	fn checkin_make_parent_writable(state: &State, path: &Path) -> tg::Result<()> {
+		let parent = path.parent().unwrap();
+		if let Some(index) = state.graph.paths.get(parent)
+			&& let Some(metadata) = state
+				.graph
+				.nodes
+				.get(index)
+				.and_then(|node| node.path_metadata.as_ref())
+		{
+			let mode = metadata.permissions().mode();
+			let permissions = std::fs::Permissions::from_mode(mode | 0o222);
+			std::fs::set_permissions(parent, permissions)
+				.map_err(|source| tg::error!(!source, "failed to set the parent permissions"))?;
+		} else {
+			let mut permissions = std::fs::symlink_metadata(parent)
+				.map_err(|source| tg::error!(!source, "failed to get the parent permissions"))?
+				.permissions();
+			if permissions.mode() & 0o222 == 0 {
+				permissions.set_mode(permissions.mode() | 0o222);
+				std::fs::set_permissions(parent, permissions).map_err(|source| {
+					tg::error!(!source, "failed to set the parent permissions")
+				})?;
+			}
+		}
 		Ok(())
 	}
 

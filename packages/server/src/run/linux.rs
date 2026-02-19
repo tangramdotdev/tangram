@@ -211,65 +211,66 @@ impl Server {
 			(args, cwd, env, executable, root)
 		};
 
-		// Create the serve task.
-		let serve_task = {
-			// Create the paths for sandboxed processes.
-			let paths = if root_mounted {
-				None
-			} else {
-				Some(crate::context::Paths {
-					server_host: self.path.clone(),
-					output_host: temp.path().join("output"),
-					output_guest: "/output".into(),
-					root_host: root,
-				})
-			};
-
-			// Create the host uri.
-			let host_socket = temp.path().join(".tangram/socket");
-			tokio::fs::create_dir_all(host_socket.parent().unwrap())
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
-			let host_socket = host_socket
-				.to_str()
-				.ok_or_else(|| tg::error!(path = %host_socket.display(), "invalid path"))?;
-			let host_uri = tangram_uri::Uri::builder()
-				.scheme("http+unix")
-				.authority(host_socket)
-				.path("")
-				.build()
-				.unwrap();
-
-			// Listen.
-			let listener = Server::listen(&host_uri)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to listen"))?;
-
-			// Serve.
-			let server = self.clone();
-			let context = Context {
-				process: Some(Arc::new(crate::context::Process {
-					id: process.id().clone(),
-					paths,
-					remote: remote.cloned(),
-					retry: *process
-						.retry(self)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to get the process retry"))?,
-				})),
-				..Default::default()
-			};
-			let task = Task::spawn(|stop| async move {
-				server.serve(listener, context, stop).await;
-			});
-
-			Some((task, guest_uri))
+		// Create the paths for sandboxed processes.
+		let paths = if root_mounted {
+			None
+		} else {
+			Some(crate::context::Paths {
+				server_host: self.path.clone(),
+				output_host: temp.path().join("output"),
+				output_guest: "/output".into(),
+				root_host: root,
+			})
 		};
+
+		// Create the host uri.
+		let host_socket = temp.path().join(".tangram/socket");
+		tokio::fs::create_dir_all(host_socket.parent().unwrap())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
+		let host_socket = host_socket
+			.to_str()
+			.ok_or_else(|| tg::error!(path = %host_socket.display(), "invalid path"))?;
+		let host_uri = tangram_uri::Uri::builder()
+			.scheme("http+unix")
+			.authority(host_socket)
+			.path("")
+			.build()
+			.unwrap();
+
+		// Listen.
+		let listener = Server::listen(&host_uri)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to listen"))?;
+
+		// Serve.
+		let server = self.clone();
+		let context = Context {
+			process: Some(Arc::new(crate::context::Process {
+				id: process.id().clone(),
+				paths,
+				remote: remote.cloned(),
+				retry: *process
+					.retry(self)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the process retry"))?,
+			})),
+			..Default::default()
+		};
+		let task = Task::spawn({
+			let context = context.clone();
+			|stop| async move {
+				server.serve(listener, context, stop).await;
+			}
+		});
+
+		let serve_task = Some((task, guest_uri));
 
 		// Run the process.
 		let arg = crate::run::common::Arg {
 			args,
 			command,
+			context: &context,
 			cwd,
 			env,
 			executable,
@@ -303,7 +304,7 @@ async fn sandbox(arg: SandboxArg<'_>) -> tg::Result<SandboxOutput> {
 		command,
 	} = arg;
 
-	// Create the output/root paths.
+	// Create the output path.
 	let output_path = temp.path().join("output");
 
 	// Initialize the output with all fields.
