@@ -183,7 +183,7 @@ impl State {
 			.server
 			.get_pty_size(&self.pty, tg::pty::size::get::Arg::default())
 			.await?
-			.map_or((128, 128), |size| (size.rows, size.cols));
+			.map_or((64, 64), |size| (size.cols, size.rows));
 
 		// Render the indicators.
 		let title_length = self
