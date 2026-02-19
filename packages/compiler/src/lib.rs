@@ -1082,6 +1082,21 @@ impl Compiler {
 					} else {
 						path.clone()
 					};
+					if let Ok(metadata) = tokio::fs::symlink_metadata(&symlink_path).await {
+						if metadata.is_dir() {
+							tokio::fs::remove_dir_all(&symlink_path)
+								.await
+								.map_err(|source| {
+									tg::error!(!source, "failed to remove the directory")
+								})?;
+						} else {
+							tokio::fs::remove_file(&symlink_path)
+								.await
+								.map_err(|source| {
+									tg::error!(!source, "failed to remove the file")
+								})?;
+						}
+					}
 					tokio::fs::symlink(&target, &symlink_path)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;

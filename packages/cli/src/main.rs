@@ -1230,7 +1230,7 @@ impl Cli {
 	#[cfg(feature = "v8")]
 	fn initialize_v8(thread_pool_size: u32) {
 		// Set the ICU data.
-		v8::icu::set_common_data_74(deno_core_icudata::ICU_DATA).unwrap();
+		v8::icu::set_common_data_77(deno_core_icudata::ICU_DATA).unwrap();
 
 		// Initialize the platform.
 		let platform = v8::new_default_platform(thread_pool_size, true);
