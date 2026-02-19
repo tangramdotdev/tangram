@@ -28,13 +28,18 @@ pub mod completion;
 pub mod definition;
 pub mod diagnostics;
 pub mod document;
+pub mod document_highlight;
 pub mod format;
 pub mod hover;
+pub mod implementation;
 pub mod initialize;
+pub mod inlay_hint;
 pub mod jsonrpc;
 pub mod metadata;
+pub mod prepare_rename;
 pub mod references;
 pub mod rename;
+pub mod semantic_tokens;
 pub mod signature_help;
 pub mod symbols;
 pub mod transpile;
@@ -105,12 +110,18 @@ pub struct State {
 enum Request {
 	Check(check::Request),
 	Completion(completion::Request),
+	CompletionResolve(completion::ResolveRequest),
 	Definition(definition::Request),
 	DocumentDiagnostics(diagnostics::DocumentRequest),
+	DocumentHighlight(document_highlight::Request),
 	Document(document::Request),
 	Hover(hover::Request),
+	Implementation(implementation::Request),
+	InlayHint(inlay_hint::Request),
+	PrepareRename(prepare_rename::Request),
 	References(references::Request),
 	Rename(rename::Request),
+	SemanticTokens(semantic_tokens::Request),
 	SignatureHelp(signature_help::Request),
 	Symbols(symbols::Request),
 	TypeDefinition(definition::Request),
@@ -121,12 +132,18 @@ enum Request {
 enum Response {
 	Check(check::Response),
 	Completion(completion::Response),
+	CompletionResolve(completion::ResolveResponse),
 	Definition(definition::Response),
 	DocumentDiagnostics(diagnostics::DocumentResponse),
+	DocumentHighlight(document_highlight::Response),
 	Document(document::Response),
 	Hover(hover::Response),
+	Implementation(implementation::Response),
+	InlayHint(inlay_hint::Response),
+	PrepareRename(prepare_rename::Response),
 	References(references::Response),
 	Rename(rename::Response),
+	SemanticTokens(semantic_tokens::Response),
 	SignatureHelp(signature_help::Response),
 	Symbols(symbols::Response),
 	TypeDefinition(definition::Response),
@@ -422,10 +439,24 @@ impl Compiler {
 				})
 				.boxed(),
 
+			lsp::request::ResolveCompletionItem::METHOD => self
+				.handle_request_with::<lsp::request::ResolveCompletionItem, _, _>(
+					request,
+					|params| self.handle_completion_item_resolve_request(params),
+				)
+				.boxed(),
+
 			lsp::request::DocumentDiagnosticRequest::METHOD => self
 				.handle_request_with::<lsp::request::DocumentDiagnosticRequest, _, _>(
 					request,
 					|params| self.handle_document_diagnostic_request(params),
+				)
+				.boxed(),
+
+			lsp::request::DocumentHighlightRequest::METHOD => self
+				.handle_request_with::<lsp::request::DocumentHighlightRequest, _, _>(
+					request,
+					|params| self.handle_document_highlight_request(params),
 				)
 				.boxed(),
 
@@ -448,6 +479,12 @@ impl Compiler {
 				})
 				.boxed(),
 
+			lsp::request::GotoImplementation::METHOD => self
+				.handle_request_with::<lsp::request::GotoImplementation, _, _>(request, |params| {
+					self.handle_implementation_request(params)
+				})
+				.boxed(),
+
 			lsp::request::Formatting::METHOD => self
 				.handle_request_with::<lsp::request::Formatting, _, _>(request, |params| {
 					self.handle_format_request(params)
@@ -458,6 +495,19 @@ impl Compiler {
 				.handle_request_with::<lsp::request::HoverRequest, _, _>(request, |params| {
 					self.handle_hover_request(params)
 				})
+				.boxed(),
+
+			lsp::request::InlayHintRequest::METHOD => self
+				.handle_request_with::<lsp::request::InlayHintRequest, _, _>(request, |params| {
+					self.handle_inlay_hint_request(params)
+				})
+				.boxed(),
+
+			lsp::request::SemanticTokensFullRequest::METHOD => self
+				.handle_request_with::<lsp::request::SemanticTokensFullRequest, _, _>(
+					request,
+					|params| self.handle_semantic_tokens_full_request(params),
+				)
 				.boxed(),
 
 			lsp::request::SignatureHelpRequest::METHOD => self
@@ -471,6 +521,13 @@ impl Compiler {
 				.handle_request_with::<lsp::request::Initialize, _, _>(request, |params| {
 					self.handle_initialize_request(params)
 				})
+				.boxed(),
+
+			lsp::request::PrepareRenameRequest::METHOD => self
+				.handle_request_with::<lsp::request::PrepareRenameRequest, _, _>(
+					request,
+					|params| self.handle_prepare_rename_request(params),
+				)
 				.boxed(),
 
 			lsp::request::References::METHOD => self
