@@ -56,6 +56,11 @@ impl Compiler {
 				hover_provider: Some(lsp::HoverProviderCapability::Simple(true)),
 				references_provider: Some(lsp::OneOf::Left(true)),
 				rename_provider: Some(lsp::OneOf::Left(true)),
+				signature_help_provider: Some(lsp::SignatureHelpOptions {
+					trigger_characters: Some(vec!["(".to_owned(), ",".to_owned()]),
+					retrigger_characters: Some(vec![",".to_owned()]),
+					work_done_progress_options: lsp::WorkDoneProgressOptions::default(),
+				}),
 				type_definition_provider: Some(lsp::TypeDefinitionProviderCapability::Simple(true)),
 				text_document_sync: Some(lsp::TextDocumentSyncCapability::Options(
 					lsp::TextDocumentSyncOptions {

@@ -6,6 +6,7 @@ import * as document from "./document.ts";
 import * as hover from "./hover.ts";
 import * as references from "./references.ts";
 import * as rename from "./rename.ts";
+import * as signatureHelp from "./signature_help.ts";
 import * as symbols from "./symbols.ts";
 
 type Request =
@@ -17,6 +18,7 @@ type Request =
 	| { kind: "hover"; request: hover.Request }
 	| { kind: "references"; request: references.Request }
 	| { kind: "rename"; request: rename.Request }
+	| { kind: "signature_help"; request: signatureHelp.Request }
 	| { kind: "symbols"; request: symbols.Request }
 	| { kind: "type_definition"; request: definition.Request };
 
@@ -29,6 +31,7 @@ type Response =
 	| { kind: "hover"; response: hover.Response }
 	| { kind: "references"; response: references.Response }
 	| { kind: "rename"; response: rename.Response }
+	| { kind: "signature_help"; response: signatureHelp.Response }
 	| { kind: "symbols"; response: symbols.Response }
 	| { kind: "type_definition"; response: definition.Response };
 
@@ -65,6 +68,10 @@ let handle = ({ kind, request }: Request): Response => {
 		case "rename": {
 			let response = rename.handle(request);
 			return { kind: "rename", response };
+		}
+		case "signature_help": {
+			let response = signatureHelp.handle(request);
+			return { kind: "signature_help", response };
 		}
 		case "symbols": {
 			let response = symbols.handle(request);

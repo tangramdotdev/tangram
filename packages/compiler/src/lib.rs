@@ -35,6 +35,7 @@ pub mod jsonrpc;
 pub mod metadata;
 pub mod references;
 pub mod rename;
+pub mod signature_help;
 pub mod symbols;
 pub mod transpile;
 pub mod version;
@@ -110,6 +111,7 @@ enum Request {
 	Hover(hover::Request),
 	References(references::Request),
 	Rename(rename::Request),
+	SignatureHelp(signature_help::Request),
 	Symbols(symbols::Request),
 	TypeDefinition(definition::Request),
 }
@@ -125,6 +127,7 @@ enum Response {
 	Hover(hover::Response),
 	References(references::Response),
 	Rename(rename::Response),
+	SignatureHelp(signature_help::Response),
 	Symbols(symbols::Response),
 	TypeDefinition(definition::Response),
 }
@@ -455,6 +458,13 @@ impl Compiler {
 				.handle_request_with::<lsp::request::HoverRequest, _, _>(request, |params| {
 					self.handle_hover_request(params)
 				})
+				.boxed(),
+
+			lsp::request::SignatureHelpRequest::METHOD => self
+				.handle_request_with::<lsp::request::SignatureHelpRequest, _, _>(
+					request,
+					|params| self.handle_signature_help_request(params),
+				)
 				.boxed(),
 
 			lsp::request::Initialize::METHOD => self
