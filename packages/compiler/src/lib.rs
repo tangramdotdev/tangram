@@ -23,12 +23,16 @@ mod typescript;
 mod util;
 
 pub mod analyze;
+pub mod call_hierarchy;
 pub mod check;
+pub mod code_action;
 pub mod completion;
 pub mod definition;
 pub mod diagnostics;
 pub mod document;
 pub mod document_highlight;
+pub mod document_link;
+pub mod folding_range;
 pub mod format;
 pub mod hover;
 pub mod implementation;
@@ -39,12 +43,14 @@ pub mod metadata;
 pub mod prepare_rename;
 pub mod references;
 pub mod rename;
+pub mod selection_range;
 pub mod semantic_tokens;
 pub mod signature_help;
 pub mod symbols;
 pub mod transpile;
 pub mod version;
 pub mod workspace;
+pub mod workspace_symbols;
 
 pub const LIBRARY: include_dir::Dir = include_dir::include_dir!("$OUT_DIR/lib");
 
@@ -108,45 +114,63 @@ pub struct State {
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "snake_case", tag = "kind", content = "request")]
 enum Request {
+	CallHierarchyIncoming(call_hierarchy::IncomingRequest),
+	CallHierarchyOutgoing(call_hierarchy::OutgoingRequest),
+	CallHierarchyPrepare(call_hierarchy::PrepareRequest),
 	Check(check::Request),
+	CodeAction(code_action::Request),
 	Completion(completion::Request),
 	CompletionResolve(completion::ResolveRequest),
+	Declaration(definition::Request),
 	Definition(definition::Request),
 	DocumentDiagnostics(diagnostics::DocumentRequest),
 	DocumentHighlight(document_highlight::Request),
 	Document(document::Request),
+	DocumentLink(document_link::Request),
+	FoldingRange(folding_range::Request),
 	Hover(hover::Request),
 	Implementation(implementation::Request),
 	InlayHint(inlay_hint::Request),
 	PrepareRename(prepare_rename::Request),
 	References(references::Request),
 	Rename(rename::Request),
+	SelectionRange(selection_range::Request),
 	SemanticTokens(semantic_tokens::Request),
 	SignatureHelp(signature_help::Request),
 	Symbols(symbols::Request),
 	TypeDefinition(definition::Request),
+	WorkspaceSymbol(workspace_symbols::Request),
 }
 
 #[derive(Debug, derive_more::Unwrap, serde::Deserialize)]
 #[serde(rename_all = "snake_case", tag = "kind", content = "response")]
 enum Response {
+	CallHierarchyIncoming(call_hierarchy::IncomingResponse),
+	CallHierarchyOutgoing(call_hierarchy::OutgoingResponse),
+	CallHierarchyPrepare(call_hierarchy::PrepareResponse),
 	Check(check::Response),
+	CodeAction(code_action::Response),
 	Completion(completion::Response),
 	CompletionResolve(completion::ResolveResponse),
+	Declaration(definition::Response),
 	Definition(definition::Response),
 	DocumentDiagnostics(diagnostics::DocumentResponse),
 	DocumentHighlight(document_highlight::Response),
 	Document(document::Response),
+	DocumentLink(document_link::Response),
+	FoldingRange(folding_range::Response),
 	Hover(hover::Response),
 	Implementation(implementation::Response),
 	InlayHint(inlay_hint::Response),
 	PrepareRename(prepare_rename::Response),
 	References(references::Response),
 	Rename(rename::Response),
+	SelectionRange(selection_range::Response),
 	SemanticTokens(semantic_tokens::Response),
 	SignatureHelp(signature_help::Response),
 	Symbols(symbols::Response),
 	TypeDefinition(definition::Response),
+	WorkspaceSymbol(workspace_symbols::Response),
 }
 
 impl Handle {
@@ -433,6 +457,40 @@ impl Compiler {
 
 	async fn handle_request(&self, request: jsonrpc::Request) {
 		match request.method.as_str() {
+			lsp::request::CallHierarchyIncomingCalls::METHOD => self
+				.handle_request_with::<lsp::request::CallHierarchyIncomingCalls, _, _>(
+					request,
+					|params| self.handle_call_hierarchy_incoming_calls_request(params),
+				)
+				.boxed(),
+
+			lsp::request::CallHierarchyOutgoingCalls::METHOD => self
+				.handle_request_with::<lsp::request::CallHierarchyOutgoingCalls, _, _>(
+					request,
+					|params| self.handle_call_hierarchy_outgoing_calls_request(params),
+				)
+				.boxed(),
+
+			lsp::request::CallHierarchyPrepare::METHOD => self
+				.handle_request_with::<lsp::request::CallHierarchyPrepare, _, _>(
+					request,
+					|params| self.handle_call_hierarchy_prepare_request(params),
+				)
+				.boxed(),
+
+			lsp::request::CodeActionRequest::METHOD => self
+				.handle_request_with::<lsp::request::CodeActionRequest, _, _>(request, |params| {
+					self.handle_code_action_request(params)
+				})
+				.boxed(),
+
+			lsp::request::CodeActionResolveRequest::METHOD => self
+				.handle_request_with::<lsp::request::CodeActionResolveRequest, _, _>(
+					request,
+					|params| self.handle_code_action_resolve_request(params),
+				)
+				.boxed(),
+
 			lsp::request::Completion::METHOD => self
 				.handle_request_with::<lsp::request::Completion, _, _>(request, |params| {
 					self.handle_completion_request(params)
@@ -460,11 +518,35 @@ impl Compiler {
 				)
 				.boxed(),
 
+			lsp::request::DocumentLinkRequest::METHOD => self
+				.handle_request_with::<lsp::request::DocumentLinkRequest, _, _>(request, |params| {
+					self.handle_document_link_request(params)
+				})
+				.boxed(),
+
+			lsp::request::DocumentLinkResolve::METHOD => self
+				.handle_request_with::<lsp::request::DocumentLinkResolve, _, _>(request, |params| {
+					self.handle_document_link_resolve_request(params)
+				})
+				.boxed(),
+
 			lsp::request::DocumentSymbolRequest::METHOD => self
 				.handle_request_with::<lsp::request::DocumentSymbolRequest, _, _>(
 					request,
 					|params| self.handle_document_symbol_request(params),
 				)
+				.boxed(),
+
+			lsp::request::FoldingRangeRequest::METHOD => self
+				.handle_request_with::<lsp::request::FoldingRangeRequest, _, _>(request, |params| {
+					self.handle_folding_range_request(params)
+				})
+				.boxed(),
+
+			lsp::request::GotoDeclaration::METHOD => self
+				.handle_request_with::<lsp::request::GotoDeclaration, _, _>(request, |params| {
+					self.handle_declaration_request(params)
+				})
 				.boxed(),
 
 			lsp::request::GotoDefinition::METHOD => self
@@ -542,10 +624,24 @@ impl Compiler {
 				})
 				.boxed(),
 
+			lsp::request::SelectionRangeRequest::METHOD => self
+				.handle_request_with::<lsp::request::SelectionRangeRequest, _, _>(
+					request,
+					|params| self.handle_selection_range_request(params),
+				)
+				.boxed(),
+
 			lsp::request::Shutdown::METHOD => self
 				.handle_request_with::<lsp::request::Shutdown, _, _>(request, |()| async move {
 					Ok::<_, tg::Error>(())
 				})
+				.boxed(),
+
+			lsp::request::WorkspaceSymbolRequest::METHOD => self
+				.handle_request_with::<lsp::request::WorkspaceSymbolRequest, _, _>(
+					request,
+					|params| self.handle_workspace_symbol_request(params),
+				)
 				.boxed(),
 
 			// If the request method does not have a handler, then send a method not found response.

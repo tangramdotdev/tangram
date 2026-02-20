@@ -41,6 +41,17 @@ impl Compiler {
 
 		let output = lsp::InitializeResult {
 			capabilities: lsp::ServerCapabilities {
+				call_hierarchy_provider: Some(lsp::CallHierarchyServerCapability::Simple(true)),
+				code_action_provider: Some(lsp::CodeActionProviderCapability::Options(
+					lsp::CodeActionOptions {
+						code_action_kinds: Some(vec![
+							lsp::CodeActionKind::QUICKFIX,
+							lsp::CodeActionKind::SOURCE_ORGANIZE_IMPORTS,
+						]),
+						work_done_progress_options: lsp::WorkDoneProgressOptions::default(),
+						resolve_provider: Some(true),
+					},
+				)),
 				position_encoding: Some(position_encoding),
 				completion_provider: Some(lsp::CompletionOptions {
 					resolve_provider: Some(true),
@@ -58,6 +69,7 @@ impl Compiler {
 					work_done_progress_options: lsp::WorkDoneProgressOptions::default(),
 					..Default::default()
 				}),
+				declaration_provider: Some(lsp::DeclarationCapability::Simple(true)),
 				definition_provider: Some(lsp::OneOf::Left(true)),
 				diagnostic_provider: Some(lsp::DiagnosticServerCapabilities::Options(
 					lsp::DiagnosticOptions {
@@ -67,8 +79,13 @@ impl Compiler {
 					},
 				)),
 				document_highlight_provider: Some(lsp::OneOf::Left(true)),
+				document_link_provider: Some(lsp::DocumentLinkOptions {
+					resolve_provider: Some(true),
+					work_done_progress_options: lsp::WorkDoneProgressOptions::default(),
+				}),
 				document_formatting_provider: Some(lsp::OneOf::Left(true)),
 				document_symbol_provider: Some(lsp::OneOf::Left(true)),
+				folding_range_provider: Some(lsp::FoldingRangeProviderCapability::Simple(true)),
 				hover_provider: Some(lsp::HoverProviderCapability::Simple(true)),
 				implementation_provider: Some(lsp::ImplementationProviderCapability::Simple(true)),
 				inlay_hint_provider: Some(lsp::OneOf::Left(true)),
@@ -110,6 +127,7 @@ impl Compiler {
 						},
 					),
 				),
+				selection_range_provider: Some(lsp::SelectionRangeProviderCapability::Simple(true)),
 				signature_help_provider: Some(lsp::SignatureHelpOptions {
 					trigger_characters: Some(vec!["(".to_owned(), ",".to_owned()]),
 					retrigger_characters: Some(vec![",".to_owned()]),
@@ -131,6 +149,7 @@ impl Compiler {
 					}),
 					..Default::default()
 				}),
+				workspace_symbol_provider: Some(lsp::OneOf::Left(true)),
 				..Default::default()
 			},
 			server_info: Some(lsp::ServerInfo {
