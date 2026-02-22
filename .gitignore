@@ -1,6 +1,7 @@
 *.pending-snap
 .DS_Store
 /.claude
+/.tangram
 /release
 /target
 node_modules
