@@ -676,13 +676,9 @@ impl Server {
 			Ok(exists) => exists,
 			Err(error) if error.raw_os_error() == Some(libc::ENOTCONN) => {
 				if cfg!(target_os = "macos") {
-					tangram_vfs::nfs::unmount(&artifacts_path)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to unmount"))?;
+					self::vfs::Server::unmount(self::vfs::Kind::Nfs, &artifacts_path).await?;
 				} else if cfg!(target_os = "linux") {
-					tangram_vfs::fuse::unmount(&artifacts_path)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to unmount"))?;
+					self::vfs::Server::unmount(self::vfs::Kind::Fuse, &artifacts_path).await?;
 				} else {
 					return Err(tg::error!("unsupported operating system"));
 				}

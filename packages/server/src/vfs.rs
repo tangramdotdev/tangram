@@ -71,6 +71,18 @@ impl Server {
 		Ok(vfs)
 	}
 
+	pub async fn unmount(kind: Kind, path: &Path) -> tg::Result<()> {
+		match kind {
+			Kind::Fuse => vfs::fuse::Server::<Provider>::unmount(path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to unmount"))?,
+			Kind::Nfs => vfs::nfs::unmount(path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to unmount"))?,
+		}
+		Ok(())
+	}
+
 	pub fn stop(&self) {
 		match self {
 			Server::Fuse(server) => server.stop(),

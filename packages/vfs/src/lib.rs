@@ -125,8 +125,12 @@ pub trait Provider {
 		Self: Sync,
 	{
 		async move {
-			let response =
-				take_single_response(self.handle_batch(vec![Request::GetAttr { id }]).await)?;
+			let response = self
+				.handle_batch(vec![Request::GetAttr { id }])
+				.await
+				.into_iter()
+				.next()
+				.ok_or_else(|| Error::other("expected exactly one response"))??;
 			match response {
 				Response::GetAttr { attrs } => Ok(attrs),
 				_ => Err(Error::other("unexpected response variant")),
@@ -136,7 +140,11 @@ pub trait Provider {
 
 	/// Get the attributes for a node synchronously.
 	fn getattr_sync(&self, id: u64) -> Result<Attrs> {
-		let response = take_single_response(self.handle_batch_sync(vec![Request::GetAttr { id }]))?;
+		let response = self
+			.handle_batch_sync(vec![Request::GetAttr { id }])
+			.into_iter()
+			.next()
+			.ok_or_else(|| Error::other("expected exactly one response"))??;
 		match response {
 			Response::GetAttr { attrs } => Ok(attrs),
 			_ => Err(Error::other("unexpected response variant")),
@@ -150,10 +158,12 @@ pub trait Provider {
 	{
 		let name = name.to_owned();
 		async move {
-			let response = take_single_response(
-				self.handle_batch(vec![Request::GetXattr { id, name }])
-					.await,
-			)?;
+			let response = self
+				.handle_batch(vec![Request::GetXattr { id, name }])
+				.await
+				.into_iter()
+				.next()
+				.ok_or_else(|| Error::other("expected exactly one response"))??;
 			match response {
 				Response::GetXattr { value } => Ok(value),
 				_ => Err(Error::other("unexpected response variant")),
@@ -163,10 +173,14 @@ pub trait Provider {
 
 	/// Get the value for an extended attribute for a node synchronously.
 	fn getxattr_sync(&self, id: u64, name: &str) -> Result<Option<Bytes>> {
-		let response = take_single_response(self.handle_batch_sync(vec![Request::GetXattr {
-			id,
-			name: name.to_owned(),
-		}]))?;
+		let response = self
+			.handle_batch_sync(vec![Request::GetXattr {
+				id,
+				name: name.to_owned(),
+			}])
+			.into_iter()
+			.next()
+			.ok_or_else(|| Error::other("expected exactly one response"))??;
 		match response {
 			Response::GetXattr { value } => Ok(value),
 			_ => Err(Error::other("unexpected response variant")),
@@ -179,8 +193,12 @@ pub trait Provider {
 		Self: Sync,
 	{
 		async move {
-			let response =
-				take_single_response(self.handle_batch(vec![Request::ListXattrs { id }]).await)?;
+			let response = self
+				.handle_batch(vec![Request::ListXattrs { id }])
+				.await
+				.into_iter()
+				.next()
+				.ok_or_else(|| Error::other("expected exactly one response"))??;
 			match response {
 				Response::ListXattrs { names } => Ok(names),
 				_ => Err(Error::other("unexpected response variant")),
@@ -190,8 +208,11 @@ pub trait Provider {
 
 	/// List extended attributes for a node synchronously.
 	fn listxattrs_sync(&self, id: u64) -> Result<Vec<String>> {
-		let response =
-			take_single_response(self.handle_batch_sync(vec![Request::ListXattrs { id }]))?;
+		let response = self
+			.handle_batch_sync(vec![Request::ListXattrs { id }])
+			.into_iter()
+			.next()
+			.ok_or_else(|| Error::other("expected exactly one response"))??;
 		match response {
 			Response::ListXattrs { names } => Ok(names),
 			_ => Err(Error::other("unexpected response variant")),
@@ -205,8 +226,12 @@ pub trait Provider {
 	{
 		let name = name.to_owned();
 		async move {
-			let response =
-				take_single_response(self.handle_batch(vec![Request::Lookup { id, name }]).await)?;
+			let response = self
+				.handle_batch(vec![Request::Lookup { id, name }])
+				.await
+				.into_iter()
+				.next()
+				.ok_or_else(|| Error::other("expected exactly one response"))??;
 			match response {
 				Response::Lookup { id } => Ok(id),
 				_ => Err(Error::other("unexpected response variant")),
@@ -216,10 +241,14 @@ pub trait Provider {
 
 	/// Look up a node synchronously.
 	fn lookup_sync(&self, id: u64, name: &str) -> Result<Option<u64>> {
-		let response = take_single_response(self.handle_batch_sync(vec![Request::Lookup {
-			id,
-			name: name.to_owned(),
-		}]))?;
+		let response = self
+			.handle_batch_sync(vec![Request::Lookup {
+				id,
+				name: name.to_owned(),
+			}])
+			.into_iter()
+			.next()
+			.ok_or_else(|| Error::other("expected exactly one response"))??;
 		match response {
 			Response::Lookup { id } => Ok(id),
 			_ => Err(Error::other("unexpected response variant")),
@@ -232,8 +261,12 @@ pub trait Provider {
 		Self: Sync,
 	{
 		async move {
-			let response =
-				take_single_response(self.handle_batch(vec![Request::LookupParent { id }]).await)?;
+			let response = self
+				.handle_batch(vec![Request::LookupParent { id }])
+				.await
+				.into_iter()
+				.next()
+				.ok_or_else(|| Error::other("expected exactly one response"))??;
 			match response {
 				Response::LookupParent { id } => Ok(id),
 				_ => Err(Error::other("unexpected response variant")),
@@ -243,8 +276,11 @@ pub trait Provider {
 
 	/// Look up a node's parent synchronously.
 	fn lookup_parent_sync(&self, id: u64) -> Result<u64> {
-		let response =
-			take_single_response(self.handle_batch_sync(vec![Request::LookupParent { id }]))?;
+		let response = self
+			.handle_batch_sync(vec![Request::LookupParent { id }])
+			.into_iter()
+			.next()
+			.ok_or_else(|| Error::other("expected exactly one response"))??;
 		match response {
 			Response::LookupParent { id } => Ok(id),
 			_ => Err(Error::other("unexpected response variant")),
@@ -267,8 +303,12 @@ pub trait Provider {
 		Self: Sync,
 	{
 		async move {
-			let response =
-				take_single_response(self.handle_batch(vec![Request::Open { id }]).await)?;
+			let response = self
+				.handle_batch(vec![Request::Open { id }])
+				.await
+				.into_iter()
+				.next()
+				.ok_or_else(|| Error::other("expected exactly one response"))??;
 			match response {
 				Response::Open { handle, .. } => Ok(handle),
 				_ => Err(Error::other("unexpected response variant")),
@@ -278,7 +318,11 @@ pub trait Provider {
 
 	/// Open a file synchronously.
 	fn open_sync(&self, id: u64) -> Result<(u64, Option<OwnedFd>)> {
-		let response = take_single_response(self.handle_batch_sync(vec![Request::Open { id }]))?;
+		let response = self
+			.handle_batch_sync(vec![Request::Open { id }])
+			.into_iter()
+			.next()
+			.ok_or_else(|| Error::other("expected exactly one response"))??;
 		match response {
 			Response::Open { handle, backing_fd } => Ok((handle, backing_fd)),
 			_ => Err(Error::other("unexpected response variant")),
@@ -291,8 +335,12 @@ pub trait Provider {
 		Self: Sync,
 	{
 		async move {
-			let response =
-				take_single_response(self.handle_batch(vec![Request::OpenDir { id }]).await)?;
+			let response = self
+				.handle_batch(vec![Request::OpenDir { id }])
+				.await
+				.into_iter()
+				.next()
+				.ok_or_else(|| Error::other("expected exactly one response"))??;
 			match response {
 				Response::OpenDir { handle } => Ok(handle),
 				_ => Err(Error::other("unexpected response variant")),
@@ -302,7 +350,11 @@ pub trait Provider {
 
 	/// Open a directory synchronously.
 	fn opendir_sync(&self, id: u64) -> Result<u64> {
-		let response = take_single_response(self.handle_batch_sync(vec![Request::OpenDir { id }]))?;
+		let response = self
+			.handle_batch_sync(vec![Request::OpenDir { id }])
+			.into_iter()
+			.next()
+			.ok_or_else(|| Error::other("expected exactly one response"))??;
 		match response {
 			Response::OpenDir { handle } => Ok(handle),
 			_ => Err(Error::other("unexpected response variant")),
@@ -320,14 +372,16 @@ pub trait Provider {
 		Self: Sync,
 	{
 		async move {
-			let response = take_single_response(
-				self.handle_batch(vec![Request::Read {
+			let response = self
+				.handle_batch(vec![Request::Read {
 					handle,
 					position,
 					length,
 				}])
-				.await,
-			)?;
+				.await
+				.into_iter()
+				.next()
+				.ok_or_else(|| Error::other("expected exactly one response"))??;
 			match response {
 				Response::Read { bytes } => Ok(bytes),
 				_ => Err(Error::other("unexpected response variant")),
@@ -337,11 +391,15 @@ pub trait Provider {
 
 	/// Read from a file synchronously.
 	fn read_sync(&self, handle: u64, position: u64, length: u64) -> Result<Bytes> {
-		let response = take_single_response(self.handle_batch_sync(vec![Request::Read {
-			handle,
-			position,
-			length,
-		}]))?;
+		let response = self
+			.handle_batch_sync(vec![Request::Read {
+				handle,
+				position,
+				length,
+			}])
+			.into_iter()
+			.next()
+			.ok_or_else(|| Error::other("expected exactly one response"))??;
 		match response {
 			Response::Read { bytes } => Ok(bytes),
 			_ => Err(Error::other("unexpected response variant")),
@@ -357,8 +415,12 @@ pub trait Provider {
 		Self: Sync,
 	{
 		async move {
-			let response =
-				take_single_response(self.handle_batch(vec![Request::ReadDir { handle }]).await)?;
+			let response = self
+				.handle_batch(vec![Request::ReadDir { handle }])
+				.await
+				.into_iter()
+				.next()
+				.ok_or_else(|| Error::other("expected exactly one response"))??;
 			match response {
 				Response::ReadDir { entries } => Ok(entries),
 				_ => Err(Error::other("unexpected response variant")),
@@ -368,8 +430,11 @@ pub trait Provider {
 
 	/// Read from a directory synchronously.
 	fn readdir_sync(&self, handle: u64) -> Result<Vec<(String, u64, DirEntryType)>> {
-		let response =
-			take_single_response(self.handle_batch_sync(vec![Request::ReadDir { handle }]))?;
+		let response = self
+			.handle_batch_sync(vec![Request::ReadDir { handle }])
+			.into_iter()
+			.next()
+			.ok_or_else(|| Error::other("expected exactly one response"))??;
 		match response {
 			Response::ReadDir { entries } => Ok(entries),
 			_ => Err(Error::other("unexpected response variant")),
@@ -385,10 +450,12 @@ pub trait Provider {
 		Self: Sync,
 	{
 		async move {
-			let response = take_single_response(
-				self.handle_batch(vec![Request::ReadDirPlus { handle }])
-					.await,
-			)?;
+			let response = self
+				.handle_batch(vec![Request::ReadDirPlus { handle }])
+				.await
+				.into_iter()
+				.next()
+				.ok_or_else(|| Error::other("expected exactly one response"))??;
 			match response {
 				Response::ReadDirPlus { entries } => Ok(entries),
 				_ => Err(Error::other("unexpected response variant")),
@@ -398,8 +465,11 @@ pub trait Provider {
 
 	/// Read from a directory with attributes synchronously.
 	fn readdirplus_sync(&self, handle: u64) -> Result<Vec<(String, u64, Attrs)>> {
-		let response =
-			take_single_response(self.handle_batch_sync(vec![Request::ReadDirPlus { handle }]))?;
+		let response = self
+			.handle_batch_sync(vec![Request::ReadDirPlus { handle }])
+			.into_iter()
+			.next()
+			.ok_or_else(|| Error::other("expected exactly one response"))??;
 		match response {
 			Response::ReadDirPlus { entries } => Ok(entries),
 			_ => Err(Error::other("unexpected response variant")),
@@ -412,8 +482,12 @@ pub trait Provider {
 		Self: Sync,
 	{
 		async move {
-			let response =
-				take_single_response(self.handle_batch(vec![Request::ReadLink { id }]).await)?;
+			let response = self
+				.handle_batch(vec![Request::ReadLink { id }])
+				.await
+				.into_iter()
+				.next()
+				.ok_or_else(|| Error::other("expected exactly one response"))??;
 			match response {
 				Response::ReadLink { target } => Ok(target),
 				_ => Err(Error::other("unexpected response variant")),
@@ -423,8 +497,11 @@ pub trait Provider {
 
 	/// Read from a symlink synchronously.
 	fn readlink_sync(&self, id: u64) -> Result<Bytes> {
-		let response =
-			take_single_response(self.handle_batch_sync(vec![Request::ReadLink { id }]))?;
+		let response = self
+			.handle_batch_sync(vec![Request::ReadLink { id }])
+			.into_iter()
+			.next()
+			.ok_or_else(|| Error::other("expected exactly one response"))??;
 		match response {
 			Response::ReadLink { target } => Ok(target),
 			_ => Err(Error::other("unexpected response variant")),
@@ -464,13 +541,6 @@ pub struct TimeSpec {
 }
 
 pub type Result<T> = std::io::Result<T>;
-
-fn take_single_response(mut responses: Vec<Result<Response>>) -> Result<Response> {
-	if responses.len() != 1 {
-		return Err(Error::other("expected exactly one response"));
-	}
-	responses.remove(0)
-}
 
 impl Attrs {
 	#[must_use]
