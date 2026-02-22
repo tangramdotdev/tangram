@@ -109,6 +109,7 @@ where
 				destructive: true,
 				ignore: false,
 				lock: None,
+				root: true,
 				..Default::default()
 			},
 			path: temp.path().to_owned(),

@@ -36,6 +36,10 @@ pub struct Options {
 	#[arg(long)]
 	pub deterministic: bool,
 
+	/// Treat the provided path as the root path.
+	#[arg(long)]
+	pub root: bool,
+
 	#[command(flatten)]
 	pub ignore: Ignore,
 
@@ -277,6 +281,7 @@ impl Options {
 			cache_pointers: self.cache_pointers.get(),
 			destructive: self.destructive,
 			deterministic: self.deterministic,
+			root: self.root,
 			ignore: self.ignore.get(),
 			local_dependencies: self.local_dependencies.get(),
 			lock: self.lock.get(),

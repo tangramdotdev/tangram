@@ -49,7 +49,12 @@ type IndexCacheEntryArgs = Vec<tangram_index::PutCacheEntryArg>;
 type StoreArgs = IndexMap<tg::object::Id, crate::store::PutObjectArg, tg::id::BuildHasher>;
 
 impl Server {
-	#[tracing::instrument(fields(path = ?arg.path), level = "trace", name = "checkin", skip_all)]
+	#[tracing::instrument(
+		fields(path = ?arg.path, root = arg.options.root),
+		level = "trace",
+		name = "checkin",
+		skip_all
+	)]
 	pub(crate) async fn checkin_with_context(
 		&self,
 		context: &Context,
@@ -84,17 +89,20 @@ impl Server {
 			return Ok(progress.stream().left_stream());
 		}
 
-		// Create the ignorer and find the root.
+		// Create the ignorer and determine the root.
 		let ignorer = arg
 			.options
 			.ignore
 			.then(Self::checkin_create_ignorer)
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to create the ignorer"))?;
-		let (root, ignorer) = self
-			.checkin_find_root_path(&arg.path, ignorer)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to find the root path"))?;
+		let (root, ignorer) = if arg.options.root {
+			(arg.path.clone(), ignorer)
+		} else {
+			self.checkin_find_root_path(&arg.path, ignorer)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to find the root path"))?
+		};
 
 		// Get or spawn the checkin task for the root.
 		let key = TaskKey {

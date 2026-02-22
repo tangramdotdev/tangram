@@ -229,6 +229,7 @@ where
 			deterministic: true,
 			ignore: false,
 			lock: None,
+			root: true,
 			..Default::default()
 		},
 		path,

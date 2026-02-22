@@ -55,6 +55,10 @@ pub struct Options {
 	pub deterministic: bool,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub root: bool,
+
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub ignore: bool,
 
@@ -169,6 +173,7 @@ impl Default for Options {
 			cache_pointers: true,
 			destructive: false,
 			deterministic: false,
+			root: false,
 			ignore: true,
 			local_dependencies: true,
 			lock: Some(Lock::default()),

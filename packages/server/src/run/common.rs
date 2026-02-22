@@ -126,6 +126,7 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 				ignore: false,
 				lock: None,
 				locked: true,
+				root: true,
 				..Default::default()
 			},
 			path,
