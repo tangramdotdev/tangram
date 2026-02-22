@@ -83,7 +83,7 @@ begin
 end;
 $$;
 
-create or replace function get_cyclic_processes(
+create or replace function get_process_cycles(
 	parent_ids text[],
 	child_ids text[]
 )

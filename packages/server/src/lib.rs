@@ -488,7 +488,7 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the queue consumer"))?;
 			stream
-				.create_consumer("cycle_detector".to_owned(), consumer_config)
+				.create_consumer("watchdog".to_owned(), consumer_config)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the queue consumer"))?;
 		}
