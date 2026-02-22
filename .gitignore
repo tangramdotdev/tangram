@@ -1,6 +1,7 @@
 *.pending-snap
 .DS_Store
 /.claude
+/.config/tangram/config.json
 /.tangram
 /release
 /target
