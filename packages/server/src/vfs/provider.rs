@@ -42,6 +42,14 @@ struct Node {
 	parent: u64,
 }
 
+#[derive(Clone)]
+struct NodeInfo {
+	artifact: Option<tg::artifact::Id>,
+	attrs: Option<vfs::Attrs>,
+	depth: u64,
+	parent: u64,
+}
+
 pub struct FileHandle {
 	blob: tg::blob::Id,
 }
@@ -416,7 +424,7 @@ impl Provider {
 			if let Some(entry) = entry {
 				break 'a Some(entry);
 			}
-			let Node {
+			let NodeInfo {
 				artifact, depth, ..
 			} = self.get(parent).await?;
 			let Some(artifact) = artifact else {
@@ -425,11 +433,13 @@ impl Provider {
 			if !matches!(artifact.kind(), tg::artifact::Kind::Directory) {
 				return Ok(None);
 			}
-			let entries = self.directory_entries_inner(&artifact).await?;
-			let Some(artifact) = entries.get(name) else {
+			let artifact = self
+				.directory_lookup_entry_inner(&artifact, name, None)
+				.await?;
+			let Some(artifact) = artifact else {
 				return Ok(None);
 			};
-			Some((artifact.clone(), depth + 1))
+			Some((artifact, depth + 1))
 		};
 
 		// Insert the node.
@@ -488,7 +498,7 @@ impl Provider {
 			if let Some(entry) = entry {
 				break 'a Some(entry);
 			}
-			let Node {
+			let NodeInfo {
 				artifact, depth, ..
 			} = self.get_sync(parent)?;
 			let Some(artifact) = artifact else {
@@ -497,16 +507,17 @@ impl Provider {
 			if !matches!(artifact.kind(), tg::artifact::Kind::Directory) {
 				return Ok(None);
 			}
-			let entries = self.directory_entries_sync_inner(&artifact, None, transaction)?;
-			let Some(artifact) = entries.get(name) else {
+			let artifact =
+				self.directory_lookup_entry_sync_inner(&artifact, name, None, transaction)?;
+			let Some(artifact) = artifact else {
 				return Ok(None);
 			};
-			Some((artifact.clone(), depth + 1))
+			Some((artifact, depth + 1))
 		};
 
 		// Insert the node.
 		let (artifact, depth) = entry.unwrap();
-		let attrs = self.try_precompute_node_attrs_sync_inner(&artifact, transaction);
+		let attrs = Self::attrs_from_artifact(Some(&artifact));
 		let id = self.put_sync(parent, name, &artifact, depth, attrs);
 		Ok(Some(id))
 	}
@@ -521,7 +532,7 @@ impl Provider {
 
 	pub async fn open(&self, id: u64) -> std::io::Result<u64> {
 		// Get the node.
-		let Node { artifact, .. } = self.get(id).await?;
+		let NodeInfo { artifact, .. } = self.get(id).await?;
 		let Some(artifact) = artifact else {
 			tracing::error!(%id, "tried to open a non-regular file");
 			return Err(std::io::Error::other("expected a file"));
@@ -560,7 +571,7 @@ impl Provider {
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<(u64, Option<OwnedFd>)> {
 		// Get the node.
-		let Node { artifact, .. } = self.get_sync(id)?;
+		let NodeInfo { artifact, .. } = self.get_sync(id)?;
 		let Some(artifact) = artifact else {
 			tracing::error!(%id, "tried to open a non-regular file");
 			return Err(std::io::Error::other("expected a file"));
@@ -591,7 +602,7 @@ impl Provider {
 
 	pub async fn opendir(&self, id: u64) -> std::io::Result<u64> {
 		// Get the node.
-		let Node { artifact, .. } = self.get(id).await?;
+		let NodeInfo { artifact, .. } = self.get(id).await?;
 		match artifact {
 			Some(artifact) if !matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
 				tracing::error!(%id, "called opendir on a file or symlink");
@@ -604,7 +615,7 @@ impl Provider {
 
 	pub fn opendir_sync(&self, id: u64) -> std::io::Result<u64> {
 		// Get the node.
-		let Node { artifact, .. } = self.get_sync(id)?;
+		let NodeInfo { artifact, .. } = self.get_sync(id)?;
 		match artifact {
 			Some(artifact) if !matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
 				tracing::error!(%id, "called opendir on a file or symlink");
@@ -681,8 +692,55 @@ impl Provider {
 		Ok(bytes.into())
 	}
 
+	async fn resolve_directory_children_inner(
+		&self,
+		parent: u64,
+		depth: u64,
+		directory: &tg::artifact::Id,
+	) -> std::io::Result<Vec<(String, u64, tg::artifact::Id)>> {
+		let entries = self.directory_entries_inner(directory).await?;
+		let mut result = Vec::with_capacity(entries.len());
+		for (name, artifact) in entries {
+			let entry = if let Some(entry) = self.nodes.lookup(parent, &name).await? {
+				entry
+			} else {
+				let attrs = Self::attrs_from_artifact(Some(&artifact));
+				self.put(parent, &name, artifact.clone(), depth + 1, attrs)
+					.await?
+			};
+			result.push((name, entry, artifact));
+		}
+		Ok(result)
+	}
+
+	fn resolve_directory_children_sync_inner(
+		&self,
+		parent: u64,
+		depth: u64,
+		directory: &tg::artifact::Id,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<Vec<(String, u64, tg::artifact::Id)>> {
+		let entries = self.directory_entries_sync_inner(directory, None, transaction)?;
+		let mut result = Vec::with_capacity(entries.len());
+		for (name, artifact) in entries {
+			let entry = if let Some(entry) = self.nodes.lookup_sync(parent, &name) {
+				entry
+			} else {
+				let attrs = Self::attrs_from_artifact(Some(&artifact));
+				self.put_sync(parent, &name, &artifact, depth + 1, attrs)
+			};
+			result.push((name, entry, artifact));
+		}
+		Ok(result)
+	}
+
 	pub async fn readdir(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::DirEntryType)>> {
-		let Node { artifact, .. } = self.get(id).await?;
+		let NodeInfo {
+			artifact,
+			depth,
+			parent,
+			..
+		} = self.get(id).await?;
 		let directory = match artifact {
 			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
 				Some(artifact)
@@ -696,19 +754,13 @@ impl Provider {
 		let Some(directory) = directory else {
 			return Ok(Vec::new());
 		};
-		let entries = self.directory_entries_inner(&directory).await?;
+		let entries = self
+			.resolve_directory_children_inner(id, depth, &directory)
+			.await?;
 		let mut result = Vec::with_capacity(entries.len() + 2);
 		result.push((".".to_owned(), id, vfs::DirEntryType::Directory));
-		result.push((
-			"..".to_owned(),
-			self.lookup_parent(id).await?,
-			vfs::DirEntryType::Directory,
-		));
-		for (name, artifact) in entries {
-			let entry = self.lookup(id, &name).await?.ok_or_else(|| {
-				tracing::error!(parent = id, %name, "failed to lookup directory entry");
-				std::io::Error::from_raw_os_error(libc::EIO)
-			})?;
+		result.push(("..".to_owned(), parent, vfs::DirEntryType::Directory));
+		for (name, entry, artifact) in entries {
 			let typ = Self::dir_entry_type_from_artifact(&artifact);
 			result.push((name, entry, typ));
 		}
@@ -724,7 +776,12 @@ impl Provider {
 		id: u64,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Vec<(String, u64, vfs::DirEntryType)>> {
-		let Node { artifact, .. } = self.get_sync(id)?;
+		let NodeInfo {
+			artifact,
+			depth,
+			parent,
+			..
+		} = self.get_sync(id)?;
 		let directory = match artifact {
 			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
 				Some(artifact)
@@ -738,21 +795,12 @@ impl Provider {
 		let Some(directory) = directory else {
 			return Ok(Vec::new());
 		};
-		let entries = self.directory_entries_sync_inner(&directory, None, transaction)?;
+		let entries =
+			self.resolve_directory_children_sync_inner(id, depth, &directory, transaction)?;
 		let mut result = Vec::with_capacity(entries.len() + 2);
 		result.push((".".to_owned(), id, vfs::DirEntryType::Directory));
-		result.push((
-			"..".to_owned(),
-			self.lookup_parent_sync(id)?,
-			vfs::DirEntryType::Directory,
-		));
-		for (name, artifact) in entries {
-			let entry = self
-				.lookup_sync_inner(id, &name, transaction)?
-				.ok_or_else(|| {
-					tracing::error!(parent = id, %name, "failed to lookup directory entry");
-					std::io::Error::from_raw_os_error(libc::EIO)
-				})?;
+		result.push(("..".to_owned(), parent, vfs::DirEntryType::Directory));
+		for (name, entry, artifact) in entries {
 			let typ = Self::dir_entry_type_from_artifact(&artifact);
 			result.push((name, entry, typ));
 		}
@@ -760,10 +808,43 @@ impl Provider {
 	}
 
 	pub async fn readdirplus(&self, id: u64) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
-		let entries = self.readdir(id).await?;
-		let mut entries_with_attrs = Vec::with_capacity(entries.len());
-		for (name, node_id, _) in entries {
-			let attrs = self.getattr(node_id).await?;
+		let NodeInfo {
+			artifact,
+			depth,
+			parent,
+			..
+		} = self.get(id).await?;
+		let directory = match artifact {
+			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
+				Some(artifact)
+			},
+			None => None,
+			Some(_) => {
+				tracing::error!(%id, "called readdirplus on a file or symlink");
+				return Err(std::io::Error::other("expected a directory"));
+			},
+		};
+		let Some(directory) = directory else {
+			return Ok(Vec::new());
+		};
+		let entries = self
+			.resolve_directory_children_inner(id, depth, &directory)
+			.await?;
+		let mut entries_with_attrs = Vec::with_capacity(entries.len() + 2);
+		let attrs = self.getattr(id).await?;
+		entries_with_attrs.push((".".to_owned(), id, attrs));
+		let parent_attrs = self.getattr(parent).await?;
+		entries_with_attrs.push(("..".to_owned(), parent, parent_attrs));
+		for (name, node_id, artifact) in entries {
+			let attrs = if let Some(attrs) = self.nodes.get_attrs(node_id).await? {
+				attrs
+			} else {
+				let attrs = self
+					.compute_attrs_from_artifact_inner(Some(&artifact))
+					.await?;
+				self.nodes.set_attrs(node_id, attrs);
+				attrs
+			};
 			entries_with_attrs.push((name, node_id, attrs));
 		}
 		Ok(entries_with_attrs)
@@ -778,10 +859,41 @@ impl Provider {
 		id: u64,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
-		let entries = self.readdir_sync_inner(id, transaction)?;
-		let mut entries_with_attrs = Vec::with_capacity(entries.len());
-		for (name, node_id, _) in entries {
-			let attrs = self.getattr_sync_inner(node_id, transaction)?;
+		let NodeInfo {
+			artifact,
+			depth,
+			parent,
+			..
+		} = self.get_sync(id)?;
+		let directory = match artifact {
+			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
+				Some(artifact)
+			},
+			None => None,
+			Some(_) => {
+				tracing::error!(%id, "called readdirplus on a file or symlink");
+				return Err(std::io::Error::other("expected a directory"));
+			},
+		};
+		let Some(directory) = directory else {
+			return Ok(Vec::new());
+		};
+		let entries =
+			self.resolve_directory_children_sync_inner(id, depth, &directory, transaction)?;
+		let mut entries_with_attrs = Vec::with_capacity(entries.len() + 2);
+		let attrs = self.getattr_sync_inner(id, transaction)?;
+		entries_with_attrs.push((".".to_owned(), id, attrs));
+		let parent_attrs = self.getattr_sync_inner(parent, transaction)?;
+		entries_with_attrs.push(("..".to_owned(), parent, parent_attrs));
+		for (name, node_id, artifact) in entries {
+			let attrs = if let Some(attrs) = self.nodes.get_attrs_sync(node_id)? {
+				attrs
+			} else {
+				let attrs =
+					self.compute_attrs_from_artifact_sync_inner(Some(&artifact), transaction)?;
+				self.nodes.set_attrs(node_id, attrs);
+				attrs
+			};
 			entries_with_attrs.push((name, node_id, attrs));
 		}
 		Ok(entries_with_attrs)
@@ -789,7 +901,7 @@ impl Provider {
 
 	pub async fn readlink(&self, id: u64) -> std::io::Result<Bytes> {
 		// Get the node.
-		let Node {
+		let NodeInfo {
 			artifact, depth, ..
 		} = self.get(id).await.map_err(|error| {
 			tracing::error!(%error, "failed to lookup node");
@@ -825,7 +937,7 @@ impl Provider {
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Bytes> {
 		// Get the node.
-		let Node {
+		let NodeInfo {
 			artifact, depth, ..
 		} = self.get_sync(id)?;
 		let Some(artifact) = artifact else {
@@ -850,11 +962,11 @@ impl Provider {
 		self.nodes.remember(id);
 	}
 
-	async fn get(&self, id: u64) -> std::io::Result<Node> {
+	async fn get(&self, id: u64) -> std::io::Result<NodeInfo> {
 		self.nodes.get(id).await
 	}
 
-	fn get_sync(&self, id: u64) -> std::io::Result<Node> {
+	fn get_sync(&self, id: u64) -> std::io::Result<NodeInfo> {
 		self.nodes.get_sync(id)
 	}
 
@@ -916,17 +1028,21 @@ impl Provider {
 		Ok(target)
 	}
 
-	async fn getattr_from_node_inner(&self, node: &Node) -> std::io::Result<vfs::Attrs> {
+	async fn getattr_from_node_inner(&self, node: &NodeInfo) -> std::io::Result<vfs::Attrs> {
 		if let Some(attrs) = node.attrs {
 			return Ok(attrs);
 		}
-		let Some(artifact) = node.artifact.clone() else {
-			return Ok(vfs::Attrs::new(vfs::FileType::Directory));
-		};
-		match artifact.kind() {
-			tg::artifact::Kind::Directory => Ok(vfs::Attrs::new(vfs::FileType::Directory)),
-			tg::artifact::Kind::File => {
-				let (file, _) = self.file_node_inner(&artifact).await?;
+		self.compute_attrs_from_artifact_inner(node.artifact.as_ref())
+			.await
+	}
+
+	async fn compute_attrs_from_artifact_inner(
+		&self,
+		artifact: Option<&tg::artifact::Id>,
+	) -> std::io::Result<vfs::Attrs> {
+		match artifact {
+			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::File) => {
+				let (file, _) = self.file_node_inner(artifact).await?;
 				let size = if let Some(contents) = file.contents.as_ref() {
 					self.blob_length_inner(contents).await?
 				} else {
@@ -937,7 +1053,14 @@ impl Provider {
 					size,
 				}))
 			},
-			tg::artifact::Kind::Symlink => Ok(vfs::Attrs::new(vfs::FileType::Symlink)),
+			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Directory) => {
+				Ok(vfs::Attrs::new(vfs::FileType::Directory))
+			},
+			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::Symlink) => {
+				Ok(vfs::Attrs::new(vfs::FileType::Symlink))
+			},
+			None => Ok(vfs::Attrs::new(vfs::FileType::Directory)),
+			_ => Err(std::io::Error::from_raw_os_error(libc::EIO)),
 		}
 	}
 
@@ -1033,6 +1156,43 @@ impl Provider {
 			}
 		}
 		Ok(entries)
+	}
+
+	async fn directory_lookup_entry_inner(
+		&self,
+		directory: &tg::artifact::Id,
+		name: &str,
+		default_graph: Option<&tg::graph::Id>,
+	) -> std::io::Result<Option<tg::artifact::Id>> {
+		let mut directory = directory.clone();
+		let mut default_graph = default_graph.cloned();
+		loop {
+			let (directory_data, graph) = self.directory_node_inner(&directory).await?;
+			let graph = graph.or(default_graph);
+			match directory_data {
+				tg::graph::data::Directory::Leaf(leaf) => {
+					let Some(edge) = leaf.entries.get(name).cloned() else {
+						return Ok(None);
+					};
+					let artifact = Self::artifact_id_from_edge_inner(edge, graph.as_ref())?;
+					return Ok(Some(artifact));
+				},
+				tg::graph::data::Directory::Branch(branch) => {
+					let Some(child) = branch
+						.children
+						.into_iter()
+						.find(|child| name <= child.last.as_str())
+					else {
+						return Ok(None);
+					};
+					directory = Self::artifact_id_from_directory_edge_inner(
+						child.directory,
+						graph.as_ref(),
+					)?;
+					default_graph = graph;
+				},
+			}
+		}
 	}
 
 	async fn directory_node_inner(
@@ -1513,18 +1673,64 @@ impl Provider {
 		Ok(entries)
 	}
 
+	fn directory_lookup_entry_sync_inner(
+		&self,
+		directory: &tg::artifact::Id,
+		name: &str,
+		default_graph: Option<&tg::graph::Id>,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<Option<tg::artifact::Id>> {
+		let mut directory = directory.clone();
+		let mut default_graph = default_graph.cloned();
+		loop {
+			let (directory_data, graph) =
+				self.directory_node_sync_inner(&directory, transaction)?;
+			let graph = graph.or(default_graph);
+			match directory_data {
+				tg::graph::data::Directory::Leaf(leaf) => {
+					let Some(edge) = leaf.entries.get(name).cloned() else {
+						return Ok(None);
+					};
+					let artifact = Self::artifact_id_from_edge_inner(edge, graph.as_ref())?;
+					return Ok(Some(artifact));
+				},
+				tg::graph::data::Directory::Branch(branch) => {
+					let Some(child) = branch
+						.children
+						.into_iter()
+						.find(|child| name <= child.last.as_str())
+					else {
+						return Ok(None);
+					};
+					directory = Self::artifact_id_from_directory_edge_inner(
+						child.directory,
+						graph.as_ref(),
+					)?;
+					default_graph = graph;
+				},
+			}
+		}
+	}
+
 	fn getattr_from_node_sync_inner(
 		&self,
-		node: &Node,
+		node: &NodeInfo,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<vfs::Attrs> {
 		if let Some(attrs) = node.attrs {
 			return Ok(attrs);
 		}
-		let artifact = node.artifact.clone();
+		self.compute_attrs_from_artifact_sync_inner(node.artifact.as_ref(), transaction)
+	}
+
+	fn compute_attrs_from_artifact_sync_inner(
+		&self,
+		artifact: Option<&tg::artifact::Id>,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<vfs::Attrs> {
 		match artifact {
 			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::File) => {
-				let (file, _) = self.file_node_sync_inner(&artifact, transaction)?;
+				let (file, _) = self.file_node_sync_inner(artifact, transaction)?;
 				let size = file.contents.as_ref().map_or(Ok(0), |contents| {
 					self.blob_length_sync_inner(contents, transaction)
 				})?;
@@ -1573,26 +1779,6 @@ impl Provider {
 				tracing::error!(%error, path = %path.display(), "failed to open cache file");
 				Err(std::io::Error::from_raw_os_error(libc::EIO))
 			},
-		}
-	}
-
-	fn try_precompute_node_attrs_sync_inner(
-		&self,
-		artifact: &tg::artifact::Id,
-		transaction: Option<&Transaction<'_>>,
-	) -> Option<vfs::Attrs> {
-		match artifact.kind() {
-			tg::artifact::Kind::File => {
-				let (file, _) = self.file_node_sync_inner(artifact, transaction).ok()?;
-				let size = file.contents.as_ref().map_or(Some(0), |contents| {
-					self.blob_length_sync_inner(contents, transaction).ok()
-				})?;
-				Some(vfs::Attrs::new(vfs::FileType::File {
-					executable: file.executable,
-					size,
-				}))
-			},
-			_ => Self::attrs_from_artifact(Some(artifact)),
 		}
 	}
 
@@ -1696,8 +1882,12 @@ impl Nodes {
 		self.lookup_parent_sync(id)
 	}
 
-	async fn get(&self, id: u64) -> std::io::Result<Node> {
+	async fn get(&self, id: u64) -> std::io::Result<NodeInfo> {
 		self.get_sync(id)
+	}
+
+	async fn get_attrs(&self, id: u64) -> std::io::Result<Option<vfs::Attrs>> {
+		self.get_attrs_sync(id)
 	}
 
 	fn lookup_sync(&self, parent: u64, name: &str) -> Option<u64> {
@@ -1713,8 +1903,23 @@ impl Nodes {
 		})
 	}
 
-	fn get_sync(&self, id: u64) -> std::io::Result<Node> {
-		self.nodes.get(&id).map(|node| node.clone()).ok_or_else(|| {
+	fn get_sync(&self, id: u64) -> std::io::Result<NodeInfo> {
+		self.nodes
+			.get(&id)
+			.map(|node| NodeInfo {
+				artifact: node.artifact.clone(),
+				attrs: node.attrs,
+				depth: node.depth,
+				parent: node.parent,
+			})
+			.ok_or_else(|| {
+				tracing::error!(%id, "node not found");
+				std::io::Error::from_raw_os_error(libc::ENOENT)
+			})
+	}
+
+	fn get_attrs_sync(&self, id: u64) -> std::io::Result<Option<vfs::Attrs>> {
+		self.nodes.get(&id).map(|node| node.attrs).ok_or_else(|| {
 			tracing::error!(%id, "node not found");
 			std::io::Error::from_raw_os_error(libc::ENOENT)
 		})

@@ -1639,8 +1639,8 @@ where
 
 	fn init_response(request: fuse_init_in) -> Result<fuse_init_out> {
 		const REQUIRED_FLAGS: u32 = sys::FUSE_INIT_EXT | sys::FUSE_MAX_PAGES;
-		const REQUIRED_FLAGS2: u32 =
-			((sys::FUSE_PASSTHROUGH | sys::FUSE_OVER_IO_URING) >> 32) as u32;
+		// The server uses the FUSE over io_uring transport and cannot run without it.
+		const REQUIRED_FLAGS2: u32 = (sys::FUSE_OVER_IO_URING >> 32) as u32;
 		const NEGOTIATED_FLAGS: u32 = sys::FUSE_ASYNC_READ
 			| sys::FUSE_DO_READDIRPLUS
 			| sys::FUSE_PARALLEL_DIROPS
