@@ -304,7 +304,7 @@ fn main() -> std::process::ExitCode {
 			return Cli::command_js(&matches, args);
 		},
 		Command::Sandbox(self::sandbox::Args {
-			command: self::sandbox::Command::Run(_) | self::sandbox::Command::Serve(_),
+			command: self::sandbox::Command::Serve(_),
 			..
 		}) => {
 			let Command::Sandbox(args) = args.command else {

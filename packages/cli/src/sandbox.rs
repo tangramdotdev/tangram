@@ -8,7 +8,6 @@ use {
 pub mod create;
 pub mod delete;
 pub mod exec;
-pub mod run;
 pub mod serve;
 
 /// Manage sandboxes.
@@ -24,7 +23,6 @@ pub enum Command {
 	Create(self::create::Args),
 	Delete(self::delete::Args),
 	Exec(self::exec::Args),
-	Run(self::run::Args),
 	Serve(self::serve::Args),
 }
 
@@ -97,7 +95,6 @@ impl Cli {
 	#[must_use]
 	pub fn command_sandbox_sync(args: Args) -> std::process::ExitCode {
 		match args.command {
-			Command::Run(args) => Cli::command_sandbox_run(args),
 			Command::Serve(args) => Cli::command_sandbox_serve(args),
 			_ => unreachable!(),
 		}
@@ -114,19 +111,12 @@ impl Cli {
 			Command::Exec(args) => {
 				self.command_sandbox_exec(args).await?;
 			},
-			Command::Run(_) | Command::Serve(_) => {
+			Command::Serve(_) => {
 				unreachable!()
 			},
 		}
 		Ok(())
 	}
-}
-
-pub(crate) fn parse_env(arg: &str) -> Result<(String, String), String> {
-	let (name, value) = arg
-		.split_once('=')
-		.ok_or_else(|| "expected NAME=value".to_owned())?;
-	Ok((name.to_owned(), value.to_owned()))
 }
 
 pub(crate) fn parse_mount(arg: &str) -> Result<Mount, String> {

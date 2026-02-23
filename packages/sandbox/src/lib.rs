@@ -7,25 +7,14 @@ pub mod client;
 pub mod server;
 
 mod common;
-#[cfg(target_os = "macos")]
-pub mod darwin;
-
-#[cfg(target_os = "linux")]
-pub mod linux;
-
 mod daemon;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Command {
-	pub chroot: Option<PathBuf>,
 	pub cwd: Option<PathBuf>,
 	pub env: Vec<(String, String)>,
 	pub executable: PathBuf,
-	pub hostname: Option<String>,
-	pub mounts: Vec<Mount>,
-	pub network: bool,
 	pub trailing: Vec<String>,
-	pub user: Option<String>,
 	pub stdin: Option<i32>,
 	pub stdout: Option<i32>,
 	pub stderr: Option<i32>,

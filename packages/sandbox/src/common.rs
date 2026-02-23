@@ -67,5 +67,3 @@ macro_rules! abort_errno {
 		std::process::exit(std::io::Error::last_os_error().raw_os_error().unwrap_or(1));
 	}};
 }
-
-pub use abort_errno;

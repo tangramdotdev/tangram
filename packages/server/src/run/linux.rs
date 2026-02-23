@@ -354,18 +354,13 @@ impl Server {
 
 		// Create the sandbox command.
 		let sandbox_command = sandbox::Command {
-			chroot: None,
 			cwd: Some(cwd),
 			env: env.into_iter().collect(),
 			executable,
-			hostname: None,
-			mounts: Vec::new(),
-			network: false,
 			stdin,
 			stdout,
 			stderr,
 			trailing: args,
-			user: None,
 		};
 
 		// Spawn the command in the sandbox.
@@ -378,10 +373,9 @@ impl Server {
 		drop(fds);
 
 		// Wait for the process in the sandbox.
-		let status = client
-			.wait(pid)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to wait for the process in the sandbox"))?;
+		let status = client.wait(pid).await.map_err(|source| {
+			tg::error!(!source, "failed to wait for the process in the sandbox")
+		})?;
 
 		// Stop and await the serve task.
 		if let Some((task, _)) = serve_task {
@@ -402,9 +396,9 @@ impl Server {
 
 		// Get the output path on the host.
 		let path = temp.path().join("output/output");
-		let exists = tokio::fs::try_exists(&path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to determine if the output path exists"))?;
+		let exists = tokio::fs::try_exists(&path).await.map_err(|source| {
+			tg::error!(!source, "failed to determine if the output path exists")
+		})?;
 
 		// Try to read the user.tangram.output xattr.
 		if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.output") {

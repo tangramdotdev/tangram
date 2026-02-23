@@ -2,9 +2,13 @@ use {
 	crate::{
 		Command, Options, abort_errno,
 		common::{CStringVec, cstring, envstring},
-		linux::{get_existing_mount_flags, get_user, guest::mount_and_chroot},
 	},
-	std::path::PathBuf,
+	num::ToPrimitive as _,
+	std::{
+		ffi::{CString, OsStr},
+		mem::MaybeUninit,
+		path::PathBuf,
+	},
 };
 
 pub fn enter(options: &Options) -> std::io::Result<()> {
@@ -62,32 +66,12 @@ pub fn enter(options: &Options) -> std::io::Result<()> {
 			.map_or(0, |path| path.components().count())
 	});
 	for m in &mounts {
-		eprintln!("mount: {m:?}");
 		mount(m, options.chroot.as_ref())?;
-	}
-	if let Some(root) = &options.chroot {
-		eprintln!("--- mount tree for {:?} ---", root);
-		print_tree(root.parent().unwrap(), 0, 2);
-		eprintln!("--- end mount tree ---");
 	}
 	Ok(())
 }
 
-pub fn spawn(mut command: Command) -> std::io::Result<i32> {
-	if !command.mounts.is_empty() && command.chroot.is_none() {
-		return Err(std::io::Error::other(
-			"cannot create mounts without a chroot directory",
-		));
-	}
-
-	// Sort the mounts.
-	command.mounts.sort_unstable_by_key(|mount| {
-		mount
-			.target
-			.as_ref()
-			.map_or(0, |path| path.components().count())
-	});
-
+pub fn spawn(command: Command) -> std::io::Result<i32> {
 	// Create argv, cwd, and envp strings.
 	let argv = std::iter::once(cstring(&command.executable))
 		.chain(command.trailing.iter().map(cstring))
@@ -99,48 +83,8 @@ pub fn spawn(mut command: Command) -> std::io::Result<i32> {
 		.map(|(key, value)| envstring(key, value))
 		.collect::<CStringVec>();
 	let executable = cstring(&command.executable);
-
-	// Create the mounts.
-	let mut mounts = Vec::with_capacity(command.mounts.len());
-	for mount in &command.mounts {
-		// Remap the target path.
-		let target = mount.target.as_ref().map(|target| {
-			if let Some(chroot) = &command.chroot {
-				chroot.join(target.strip_prefix("/").unwrap())
-			} else {
-				target.clone()
-			}
-		});
-		let source = mount.source.as_ref().map(cstring);
-		let flags = if let Some(source) = &source
-			&& mount.fstype.is_none()
-		{
-			let existing = get_existing_mount_flags(source)
-				.inspect_err(|error| eprintln!("failed to get mount flags: {error}"))?;
-			existing | mount.flags
-		} else {
-			mount.flags
-		};
-		// Create the mount.
-		let mount = crate::linux::Mount {
-			source,
-			target: target.map(cstring),
-			fstype: mount.fstype.as_ref().map(cstring),
-			flags,
-			data: mount.data.clone(),
-		};
-		mounts.push(mount);
-	}
-
-	// Get the chroot path.
-	let root = command.chroot.as_ref().map(cstring);
-
-	let mut flags = 0u64;
-	if !mounts.is_empty() {
-		flags |= libc::CLONE_NEWNS as u64;
-	};
 	let mut clone_args: libc::clone_args = libc::clone_args {
-		flags,
+		flags: 0,
 		stack: 0,
 		stack_size: 0,
 		pidfd: 0,
@@ -152,6 +96,7 @@ pub fn spawn(mut command: Command) -> std::io::Result<i32> {
 		set_tid_size: 0,
 		cgroup: 0,
 	};
+
 	let pid = unsafe {
 		libc::syscall(
 			libc::SYS_clone3,
@@ -178,9 +123,6 @@ pub fn spawn(mut command: Command) -> std::io::Result<i32> {
 			if let Some(fd) = command.stderr {
 				libc::dup2(fd, libc::STDERR_FILENO);
 			}
-			if let Some(root) = &root {
-				mount_and_chroot(&mut mounts, &root);
-			}
 			if let Some(cwd) = &cwd {
 				let ret = libc::chdir(cwd.as_ptr());
 				if ret == -1 {
@@ -197,38 +139,6 @@ pub fn spawn(mut command: Command) -> std::io::Result<i32> {
 	}
 
 	Ok(pid as _)
-}
-
-fn print_tree(path: &std::path::Path, depth: usize, max_depth: usize) {
-	if depth >= max_depth {
-		return;
-	}
-	let indent = "  ".repeat(depth);
-	let name = path.file_name().map_or_else(
-		|| path.display().to_string(),
-		|n| n.to_string_lossy().to_string(),
-	);
-	let meta = std::fs::symlink_metadata(path);
-	let suffix = match &meta {
-		Ok(m) if m.is_symlink() => {
-			let target = std::fs::read_link(path).unwrap_or_default();
-			format!(" -> {}", target.display())
-		},
-		Ok(m) if m.is_dir() => "/".to_string(),
-		_ => String::new(),
-	};
-	eprintln!("{indent}{name}{suffix}");
-	if let Ok(m) = &meta {
-		if m.is_dir() && !m.is_symlink() {
-			if let Ok(entries) = std::fs::read_dir(path) {
-				let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
-				entries.sort_by_key(|e| e.file_name());
-				for entry in entries {
-					print_tree(&entry.path(), depth + 1, max_depth);
-				}
-			}
-		}
-	}
 }
 
 fn mount(mount: &crate::Mount, chroot: Option<&PathBuf>) -> std::io::Result<()> {
@@ -259,7 +169,7 @@ fn mount(mount: &crate::Mount, chroot: Option<&PathBuf>) -> std::io::Result<()> 
 	unsafe {
 		// Create the mount point.
 		if let (Some(source), Some(target)) = (&source, &mut target) {
-			crate::linux::guest::create_mountpoint_if_not_exists(source, target);
+			create_mountpoint_if_not_exists(source, target);
 		}
 
 		let result = libc::mount(
@@ -284,4 +194,104 @@ fn mount(mount: &crate::Mount, chroot: Option<&PathBuf>) -> std::io::Result<()> 
 		}
 	}
 	Ok(())
+}
+
+fn create_mountpoint_if_not_exists(source: &CString, target: &mut CString) {
+	unsafe {
+		#[cfg_attr(all(target_arch = "x86_64"), expect(clippy::cast_possible_wrap))]
+		const BACKSLASH: libc::c_char = b'\\' as _;
+		#[cfg_attr(all(target_arch = "x86_64"), expect(clippy::cast_possible_wrap))]
+		const SLASH: libc::c_char = b'/' as _;
+		const NULL: libc::c_char = 0;
+
+		// Determine if the target is a directory or not.
+		let is_dir = 'a: {
+			if source.as_bytes() == b"overlay" {
+				break 'a true;
+			}
+			let mut stat = MaybeUninit::<libc::stat>::zeroed();
+			if libc::stat(source.as_ptr(), stat.as_mut_ptr().cast()) < 0 {
+				abort_errno!("failed to stat source");
+			}
+			let stat = stat.assume_init();
+			if !(stat.st_mode & libc::S_IFDIR != 0 || stat.st_mode & libc::S_IFREG != 0) {
+				abort_errno!("mount source is not a directory or regular file");
+			}
+			stat.st_mode & libc::S_IFDIR != 0
+		};
+
+		let ptr = target.as_ptr().cast_mut();
+		let len = target.as_bytes_with_nul().len();
+		let mut esc = false;
+		for n in 1..len {
+			match (*ptr.add(n), esc) {
+				(SLASH, false) => {
+					*ptr.add(n) = 0;
+					libc::mkdir(target.as_ptr(), 0o755);
+					*ptr.add(n) = SLASH;
+				},
+				(BACKSLASH, false) => {
+					esc = true;
+				},
+				(NULL, _) => {
+					break;
+				},
+				_ => {
+					esc = false;
+				},
+			}
+		}
+		if is_dir {
+			libc::mkdir(target.as_ptr(), 0o755);
+		} else {
+			libc::creat(target.as_ptr(), 0o777);
+		}
+	}
+}
+
+fn get_user(name: Option<impl AsRef<OsStr>>) -> std::io::Result<(libc::uid_t, libc::gid_t)> {
+	let Some(name) = name else {
+		unsafe {
+			let uid = libc::getuid();
+			let gid = libc::getgid();
+			return Ok((uid, gid));
+		}
+	};
+	unsafe {
+		let passwd = libc::getpwnam(cstring(name.as_ref()).as_ptr());
+		if passwd.is_null() {
+			return Err(std::io::Error::other("getpwname failed"));
+		}
+		let uid = (*passwd).pw_uid;
+		let gid = (*passwd).pw_gid;
+		Ok((uid, gid))
+	}
+}
+
+fn get_existing_mount_flags(path: &CString) -> std::io::Result<libc::c_ulong> {
+	const FLAGS: [(u64, u64); 7] = [
+		(libc::MS_RDONLY, libc::ST_RDONLY),
+		(libc::MS_NODEV, libc::ST_NODEV),
+		(libc::MS_NOEXEC, libc::ST_NOEXEC),
+		(libc::MS_NOSUID, libc::ST_NOSUID),
+		(libc::MS_NOATIME, libc::ST_NOATIME),
+		(libc::MS_RELATIME, libc::ST_RELATIME),
+		(libc::MS_NODIRATIME, libc::ST_NODIRATIME),
+	];
+	let statfs = unsafe {
+		let mut statfs = std::mem::MaybeUninit::zeroed();
+		let ret = libc::statfs64(path.as_ptr(), statfs.as_mut_ptr());
+		if ret != 0 {
+			eprintln!("failed to statfs {}", path.to_string_lossy());
+			return Err(std::io::Error::last_os_error());
+		}
+		statfs.assume_init()
+	};
+	let mut flags = 0;
+	for (mount_flag, stat_flag) in FLAGS {
+		if (statfs.f_flags.abs().to_u64().unwrap() & stat_flag) != 0 {
+			flags |= mount_flag;
+		}
+	}
+	Ok(flags)
 }

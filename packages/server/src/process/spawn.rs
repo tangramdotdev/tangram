@@ -135,9 +135,7 @@ impl Server {
 		// Look up the parent's sandbox if there is a parent.
 		let parent_sandbox = if let Some(parent) = &arg.parent {
 			let p = transaction.p();
-			let statement = formatdoc!(
-				"select sandbox from processes where id = {p}1;"
-			);
+			let statement = formatdoc!("select sandbox from processes where id = {p}1;");
 			let params = db::params![parent.to_string()];
 			let sandbox: Option<String> = transaction
 				.query_optional_value_into(statement.into(), params)
@@ -185,7 +183,13 @@ impl Server {
 		} else if matches!(arg.cached, None | Some(false)) {
 			let host = host.ok_or_else(|| tg::error!("expected the host to be set"))?;
 			let output = self
-				.create_local_process(&transaction, &arg, cacheable, &host, parent_sandbox.as_ref())
+				.create_local_process(
+					&transaction,
+					&arg,
+					cacheable,
+					&host,
+					parent_sandbox.as_ref(),
+				)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create a local process"))?;
 			tracing::trace!(?output, "created local process");

@@ -24,18 +24,7 @@ impl Server {
 			.get(id)
 			.ok_or_else(|| tg::error!("sandbox not found"))?;
 		let client = sandbox.client.clone();
-		let cwd: Option<PathBuf>;
-		let chroot: Option<PathBuf>;
-		#[cfg(target_os = "linux")]
-		{
-			chroot = Some(sandbox.root.clone());
-			cwd = None;
-		}
-		#[cfg(target_os = "macos")]
-		{
-			chroot = None;
-			cwd = Some(sandbox.root.clone());
-		}
+		let cwd = Some(sandbox.root.clone());
 		drop(sandbox);
 
 		// Collect FDs that need to be kept alive until after the spawn call.
@@ -164,18 +153,13 @@ impl Server {
 
 		// Create the command.
 		let command = sandbox::Command {
-			chroot,
 			cwd,
 			env: arg.env.into_iter().collect(),
 			executable: arg.command,
-			hostname: None,
-			mounts: Vec::new(),
-			network: false,
 			stdin: Some(stdin),
 			stdout: Some(stdout),
 			stderr: Some(stderr),
 			trailing: arg.args,
-			user: None,
 		};
 
 		// Spawn the command via the sandbox client.
