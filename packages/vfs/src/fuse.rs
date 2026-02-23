@@ -64,6 +64,7 @@ pub struct Server<P>(Arc<Inner<P>>);
 
 pub struct Inner<P> {
 	provider: P,
+	no_opendir_support: bool,
 	passthrough_backing_ids: Mutex<HashMap<u64, u32>>,
 	task: Mutex<Option<tangram_futures::task::Shared<()>>>,
 }
@@ -185,13 +186,6 @@ where
 	P: Provider + Send + Sync + 'static,
 {
 	pub async fn start(provider: P, path: &Path) -> Result<Self> {
-		// Create the server.
-		let server = Self(Arc::new(Inner {
-			provider,
-			passthrough_backing_ids: Mutex::new(HashMap::default()),
-			task: Mutex::new(None),
-		}));
-
 		// Unmount.
 		Self::unmount(path).await.ok();
 
@@ -201,8 +195,16 @@ where
 			.inspect_err(|error| tracing::error!(%error, "failed to mount"))?;
 
 		// Complete INIT before entering io_uring command mode.
-		Self::init_handshake(fd.as_ref())
+		let no_opendir_support = Self::init_handshake(fd.as_ref())
 			.map_err(|error| Error::other(format!("failed to complete init handshake: {error}")))?;
+
+		// Create the server.
+		let server = Self(Arc::new(Inner {
+			provider,
+			no_opendir_support,
+			passthrough_backing_ids: Mutex::new(HashMap::default()),
+			task: Mutex::new(None),
+		}));
 
 		// Create a primary SQPOLL ring. Thread rings attach to this shared backend.
 		let mut sqpoll_builder = IoUring::<io_uring::squeue::Entry128>::builder();
@@ -349,7 +351,7 @@ where
 		task.wait().await.unwrap();
 	}
 
-	fn init_handshake(fd: &OwnedFd) -> Result<()> {
+	fn init_handshake(fd: &OwnedFd) -> Result<bool> {
 		const REQUIRED_FLAGS: u32 = sys::FUSE_INIT_EXT | sys::FUSE_MAX_PAGES;
 		// The server uses the FUSE over io_uring transport and cannot run without it.
 		const REQUIRED_FLAGS2: u32 = (sys::FUSE_OVER_IO_URING >> 32) as u32;
@@ -430,7 +432,7 @@ where
 			let header = header.as_bytes();
 			let iov = [IoSlice::new(header), IoSlice::new(data)];
 			rustix::io::writev(fd, &iov).map_err(std::io::Error::from)?;
-			return Ok(());
+			return Ok((flags & sys::FUSE_NO_OPENDIR_SUPPORT) != 0);
 		}
 	}
 
@@ -613,8 +615,14 @@ where
 					Ok(None) => {
 						deferred.push(pending_request);
 					},
-					Err(error) if error.raw_os_error() == Some(libc::ENOSYS) => {
+					Err(error)
+						if error.raw_os_error() == Some(libc::ENOSYS)
+							&& opcode != sys::fuse_opcode_FUSE_OPENDIR =>
+					{
 						deferred.push(pending_request);
+					},
+					Err(error) if error.raw_os_error() == Some(libc::ENOSYS) => {
+						commits.push((slot, unique, Err(error)));
 					},
 					Err(error) => {
 						let error_code = error.raw_os_error().unwrap_or(libc::ENOSYS);
@@ -1097,10 +1105,16 @@ where
 					actions.push(BatchAction::NeedsProvider);
 				},
 				RequestData::OpenDir(_) => {
-					provider_requests.push(ProviderRequest::OpenDir {
-						id: request.header.nodeid,
-					});
-					actions.push(BatchAction::NeedsProvider);
+					if self.no_opendir_support {
+						actions.push(BatchAction::Ready(Err(Error::from_raw_os_error(
+							libc::ENOSYS,
+						))));
+					} else {
+						provider_requests.push(ProviderRequest::OpenDir {
+							id: request.header.nodeid,
+						});
+						actions.push(BatchAction::NeedsProvider);
+					}
 				},
 				RequestData::Read(data) => {
 					provider_requests.push(ProviderRequest::Read {
@@ -1575,6 +1589,9 @@ where
 		header: fuse_in_header,
 		_request: fuse_open_in,
 	) -> Result<Option<Response>> {
+		if self.no_opendir_support {
+			return Err(Error::from_raw_os_error(libc::ENOSYS));
+		}
 		let fh = self.provider.opendir(header.nodeid).await?;
 		let out = fuse_open_out {
 			fh,
@@ -1769,6 +1786,9 @@ where
 		_header: fuse_in_header,
 		request: fuse_release_in,
 	) -> Result<Option<Response>> {
+		if self.no_opendir_support {
+			return Ok(Some(Response::ReleaseDir));
+		}
 		self.provider.close(request.fh).await;
 		Ok(Some(Response::ReleaseDir))
 	}
@@ -1778,6 +1798,9 @@ where
 		_header: fuse_in_header,
 		request: fuse_release_in,
 	) -> Response {
+		if self.no_opendir_support {
+			return Response::ReleaseDir;
+		}
 		self.close_passthrough_backing(fd, request.fh);
 		self.provider.close_sync(request.fh);
 		Response::ReleaseDir

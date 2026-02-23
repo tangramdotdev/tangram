@@ -2797,7 +2797,7 @@ name = "io-uring"
 version = "0.7.11"
 source = "git+https://github.com/tangramdotdev/io-uring?rev=1648de189c5c11edc3b9de4d3f0421ef52830c73#1648de189c5c11edc3b9de4d3f0421ef52830c73"
 dependencies = [
- "bitflags 2.10.0",
+ "bitflags 2.11.0",
  "cfg-if",
  "libc",
 ]
