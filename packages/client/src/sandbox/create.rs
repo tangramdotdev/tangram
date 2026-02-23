@@ -1,5 +1,6 @@
 use {
 	crate::prelude::*,
+	std::path::PathBuf,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::is_false,
 };
@@ -9,14 +10,36 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub hostname: Option<String>,
 
+	pub host: String,
+
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub mounts: Vec<tg::Either<tg::process::data::Mount, tg::command::data::Mount>>,
+	pub mounts: Vec<tg::Either<tg::sandbox::Mount>>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub network: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub user: Option<String>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct Mount {
+	#[tangram_serialize(id = 0)]
+	pub source: PathBuf,
+
+	#[tangram_serialize(id = 1)]
+	pub target: PathBuf,
+
+	#[serde(default = "return_true", skip_serializing_if = "is_true")]
+	#[tangram_serialize(id = 2, default = "return_true", skip_serializing_if = "is_true")]
+	pub readonly: bool,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

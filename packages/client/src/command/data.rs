@@ -35,10 +35,6 @@ pub struct Command {
 	#[tangram_serialize(id = 4)]
 	pub host: String,
 
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	#[tangram_serialize(id = 5, default, skip_serializing_if = "Vec::is_empty")]
-	pub mounts: Vec<tg::command::data::Mount>,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 6, default, skip_serializing_if = "Option::is_none")]
 	pub stdin: Option<tg::blob::Id>,
@@ -113,22 +109,6 @@ pub struct ModuleExecutable {
 pub struct PathExecutable {
 	#[tangram_serialize(id = 0)]
 	pub path: PathBuf,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct Mount {
-	#[tangram_serialize(id = 0)]
-	pub source: tg::artifact::Id,
-
-	#[tangram_serialize(id = 1)]
-	pub target: PathBuf,
 }
 
 impl Command {
