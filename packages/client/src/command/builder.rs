@@ -10,7 +10,6 @@ pub struct Builder {
 	env: BTreeMap<String, tg::Value>,
 	executable: tg::command::Executable,
 	host: String,
-	mounts: Vec<tg::command::Mount>,
 	stdin: Option<tg::Blob>,
 	user: Option<String>,
 }
@@ -24,7 +23,6 @@ impl Builder {
 			env: BTreeMap::new(),
 			executable: executable.into(),
 			host: host.into(),
-			mounts: Vec::new(),
 			stdin: None,
 			user: None,
 		}
@@ -38,7 +36,6 @@ impl Builder {
 			env: object.env.clone(),
 			executable: object.executable.clone(),
 			host: object.host.clone(),
-			mounts: object.mounts.clone(),
 			stdin: object.stdin.clone(),
 			user: object.user.clone(),
 		}
@@ -81,18 +78,6 @@ impl Builder {
 	}
 
 	#[must_use]
-	pub fn mount(mut self, mount: tg::command::Mount) -> Self {
-		self.mounts.push(mount);
-		self
-	}
-
-	#[must_use]
-	pub fn mounts(mut self, mounts: impl IntoIterator<Item = tg::command::Mount>) -> Self {
-		self.mounts.extend(mounts);
-		self
-	}
-
-	#[must_use]
 	pub fn stdin(mut self, stdin: impl Into<Option<tg::Blob>>) -> Self {
 		self.stdin = stdin.into();
 		self
@@ -112,7 +97,6 @@ impl Builder {
 			env: self.env,
 			executable: self.executable,
 			host: self.host,
-			mounts: self.mounts,
 			stdin: self.stdin,
 			user: self.user,
 		})

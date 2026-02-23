@@ -93,23 +93,7 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 	}
 
 	let checksum = arg.checksum;
-	let processMounts: Array<tg.Process.Mount> = [];
-	let commandMounts: Array<tg.Command.Mount> | undefined;
-	if ("mounts" in arg && arg.mounts !== undefined) {
-		for (let mount of arg.mounts) {
-			if (tg.Artifact.is(mount.source)) {
-				if (commandMounts === undefined) {
-					commandMounts = [];
-				}
-				commandMounts.push(mount as tg.Command.Mount);
-			} else {
-				processMounts.push(mount as tg.Process.Mount);
-			}
-		}
-	} else {
-		commandMounts = await currentCommand?.mounts;
-		processMounts = tg.Process.current?.state?.mounts ?? [];
-	}
+	let sandbox = "sandbox" in arg ? arg.sandbox : undefined;
 	let processStdin = tg.Process.current?.state?.stdin;
 	let commandStdin: tg.Blob.Arg | undefined;
 	if ("stdin" in arg) {
@@ -135,14 +119,9 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		executable !== undefined ? { executable: executable } : undefined,
 		"host" in arg ? { host: arg.host } : undefined,
 		"user" in arg ? { user: arg.user } : undefined,
-		commandMounts !== undefined ? { mounts: commandMounts } : undefined,
 		commandStdin !== undefined ? { stdin: commandStdin } : undefined,
 	);
 
-	let network =
-		"network" in arg
-			? (arg.network ?? false)
-			: (tg.Process.current?.state?.network ?? false);
 	let commandId = await command.store();
 	let commandReferent = {
 		item: commandId,
@@ -152,11 +131,10 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		checksum,
 		command: commandReferent,
 		create: false,
-		mounts: processMounts,
-		network,
 		parent: undefined,
 		remote: undefined,
 		retry: false,
+		sandbox,
 		stderr,
 		stdin: processStdin,
 		stdout,
@@ -256,7 +234,6 @@ async function arg_(
 					env: object.env,
 					executable: object.executable,
 					host: object.host,
-					mounts: object.mounts,
 				};
 				if (object.cwd !== undefined) {
 					output.cwd = object.cwd;
@@ -352,31 +329,13 @@ export class RunBuilder<
 		return this;
 	}
 
-	mount(
-		...mounts: Array<tg.Unresolved<tg.Command.Mount | tg.Process.Mount>>
-	): this {
-		this.#args.push({ mounts });
-		return this;
-	}
-
-	mounts(
-		...mounts: Array<
-			tg.Unresolved<
-				tg.MaybeMutation<Array<tg.Command.Mount | tg.Process.Mount>>
-			>
-		>
-	): this {
-		this.#args.push(...mounts.map((mounts) => ({ mounts })));
+	sandbox(sandbox: tg.Process.Sandbox | undefined): this {
+		this.#args.push({ sandbox });
 		return this;
 	}
 
 	named(name: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this {
 		this.#args.push({ name });
-		return this;
-	}
-
-	network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this {
-		this.#args.push({ network });
 		return this;
 	}
 

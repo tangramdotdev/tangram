@@ -79,10 +79,6 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 		}
 	}
 
-	let commandMounts: Array<tg.Command.Mount> | undefined;
-	if ("mounts" in arg && arg.mounts !== undefined) {
-		commandMounts = arg.mounts;
-	}
 	let commandStdin: tg.Blob.Arg | undefined;
 	if ("stdin" in arg && arg.stdin !== undefined) {
 		commandStdin = arg.stdin;
@@ -94,15 +90,11 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 		executable !== undefined ? { executable: executable } : undefined,
 		"host" in arg ? { host: arg.host } : undefined,
 		"user" in arg ? { user: arg.user } : undefined,
-		commandMounts !== undefined ? { mounts: commandMounts } : undefined,
 		commandStdin !== undefined ? { stdin: commandStdin } : undefined,
 	);
 
 	let checksum = arg.checksum;
-	let network = "network" in arg ? (arg.network ?? false) : false;
-	if (network === true && checksum === undefined) {
-		throw new Error("a checksum is required to build with network enabled");
-	}
+	let sandbox = "sandbox" in arg ? arg.sandbox : undefined;
 	let commandId = await command.store();
 	let commandReferent = {
 		item: commandId,
@@ -112,11 +104,10 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 		checksum,
 		command: commandReferent,
 		create: false,
-		mounts: [],
-		network,
 		parent: undefined,
 		remote: undefined,
 		retry: false,
+		sandbox,
 		stderr: undefined,
 		stdin: undefined,
 		stdout: undefined,
@@ -216,7 +207,6 @@ async function arg_(
 					env: object.env,
 					executable: object.executable,
 					host: object.host,
-					mounts: object.mounts,
 				};
 				if (object.cwd !== undefined) {
 					output.cwd = object.cwd;
@@ -312,25 +302,13 @@ export class BuildBuilder<
 		return this;
 	}
 
-	mount(...mounts: Array<tg.Unresolved<tg.Command.Mount>>): this {
-		this.#args.push({ mounts });
-		return this;
-	}
-
-	mounts(
-		...mounts: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Command.Mount>>>>
-	): this {
-		this.#args.push(...mounts.map((mounts) => ({ mounts })));
+	sandbox(sandbox: tg.Process.Sandbox | undefined): this {
+		this.#args.push({ sandbox });
 		return this;
 	}
 
 	named(name: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this {
 		this.#args.push({ name });
-		return this;
-	}
-
-	network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this {
-		this.#args.push({ network });
 		return this;
 	}
 

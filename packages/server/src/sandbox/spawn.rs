@@ -7,7 +7,7 @@ use {
 };
 
 impl Server {
-	pub(crate) async fn sandbox_spawn(
+	pub(crate) async fn sandbox_spawn_with_context(
 		&self,
 		context: &Context,
 		id: &tg::sandbox::Id,
@@ -212,7 +212,7 @@ impl Server {
 
 		// Spawn the command.
 		let output = self
-			.sandbox_spawn(context, &id, arg)
+			.sandbox_spawn_with_context(context, &id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to spawn the command in the sandbox"))?;
 

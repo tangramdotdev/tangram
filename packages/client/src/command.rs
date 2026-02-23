@@ -4,7 +4,7 @@ pub use self::{
 	handle::Command as Handle,
 	id::Id,
 	object::{
-		ArtifactExecutable, Command as Object, Executable, ModuleExecutable, Mount, PathExecutable,
+		ArtifactExecutable, Command as Object, Executable, ModuleExecutable, PathExecutable,
 	},
 };
 

@@ -12,9 +12,7 @@ pub struct Arg {
 	pub env: tg::value::Map,
 	pub executable: Option<tg::command::Executable>,
 	pub host: Option<String>,
-	pub mounts: Option<Vec<tg::Either<tg::process::Mount, tg::command::Mount>>>,
 	pub name: Option<String>,
-	pub network: Option<bool>,
 	pub parent: Option<tg::process::Id>,
 	pub progress: bool,
 	pub remote: Option<String>,
@@ -73,24 +71,6 @@ where
 	env.remove("TANGRAM_PROCESS");
 	env.remove("TANGRAM_URL");
 	builder = builder.env(env);
-	let mut command_mounts = vec![];
-	let mut process_mounts = vec![];
-	if let Some(mounts) = arg.mounts {
-		for mount in mounts {
-			match mount {
-				tg::Either::Left(mount) => process_mounts.push(mount.to_data()),
-				tg::Either::Right(mount) => command_mounts.push(mount),
-			}
-		}
-	} else {
-		if let Some(mounts) = command.as_ref().map(|command| command.mounts.clone()) {
-			command_mounts = mounts;
-		}
-		if let Some(mounts) = state.as_ref().map(|state| state.mounts.clone()) {
-			process_mounts = mounts.iter().map(tg::process::Mount::to_data).collect();
-		}
-	}
-	builder = builder.mounts(command_mounts);
 	let stdin = if arg.stdin.is_none() {
 		command
 			.as_ref()
@@ -112,10 +92,6 @@ where
 		command.options.name.replace(name);
 	}
 	let checksum = arg.checksum;
-	let network = arg
-		.network
-		.or(state.as_ref().map(|state| state.network))
-		.unwrap_or_default();
 	let stderr = arg
 		.stderr
 		.unwrap_or_else(|| state.as_ref().and_then(|state| state.stderr.clone()));
@@ -134,22 +110,16 @@ where
 	let stdout = arg
 		.stdout
 		.unwrap_or_else(|| state.as_ref().and_then(|state| state.stdout.clone()));
-	if network && checksum.is_none() {
-		return Err(tg::error!(
-			"a checksum is required to build with network enabled"
-		));
-	}
 	let progress = arg.progress;
 	let arg = tg::process::spawn::Arg {
 		cached: arg.cached,
 		checksum,
 		command,
 		local: None,
-		mounts: process_mounts,
-		network,
 		parent: arg.parent,
 		remotes: arg.remote.map(|r| vec![r]),
 		retry: arg.retry,
+		sandbox: None,
 		stderr,
 		stdin,
 		stdout,

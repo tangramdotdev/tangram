@@ -2,7 +2,7 @@ use {
 	crate::prelude::*,
 	std::path::PathBuf,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
-	tangram_util::serde::is_false,
+	tangram_util::serde::{is_false, is_true, return_true},
 };
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -13,7 +13,7 @@ pub struct Arg {
 	pub host: String,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub mounts: Vec<tg::Either<tg::sandbox::Mount>>,
+	pub mounts: Vec<Mount>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub network: bool,

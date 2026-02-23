@@ -1,9 +1,4 @@
-use {
-	crate::prelude::*,
-	serde::Deserialize as _,
-	std::path::PathBuf,
-	tangram_util::serde::{is_false, is_true, return_true},
-};
+use {crate::prelude::*, serde::Deserialize as _, tangram_util::serde::is_false};
 
 #[derive(
 	Clone,

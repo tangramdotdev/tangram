@@ -12,7 +12,7 @@ use {
 };
 
 impl Server {
-	pub(crate) async fn create_sandbox(
+	pub(crate) async fn create_sandbox_with_context(
 		&self,
 		context: &Context,
 		arg: tg::sandbox::create::Arg,
@@ -161,7 +161,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		let output = self
-			.create_sandbox(context, arg)
+			.create_sandbox_with_context(context, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the sandbox"))?;
 

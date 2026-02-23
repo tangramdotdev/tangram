@@ -118,10 +118,6 @@ export class Command<
 			};
 		}
 		let host = arg.host ?? (tg.process.env.TANGRAM_HOST as string);
-		let mounts: Array<tg.Command.Mount> = [];
-		if (arg.mounts && arg.mounts.length > 0) {
-			mounts = arg.mounts;
-		}
 		if (executable === undefined) {
 			throw new Error("cannot create a command without an executable");
 		}
@@ -136,7 +132,6 @@ export class Command<
 			env,
 			executable,
 			host,
-			mounts,
 			stdin,
 			user,
 		};
@@ -258,12 +253,6 @@ export class Command<
 		})();
 	}
 
-	get mounts(): Promise<Array<tg.Command.Mount> | undefined> {
-		return (async () => {
-			return (await this.object()).mounts;
-		})();
-	}
-
 	build(...args: tg.UnresolvedArgs<A>): tg.BuildBuilder<[], R> {
 		return tg.build(this, { args }) as tg.BuildBuilder<[], R>;
 	}
@@ -291,7 +280,6 @@ export namespace Command {
 			env?: tg.MaybeMutationMap | undefined;
 			executable?: tg.Command.Arg.Executable | undefined;
 			host?: string | undefined;
-			mounts?: Array<tg.Command.Mount> | undefined;
 			stdin?: tg.Blob.Arg | undefined;
 			user?: string | undefined;
 		};
@@ -348,7 +336,6 @@ export namespace Command {
 		env: { [key: string]: tg.Value };
 		executable: tg.Command.Executable;
 		host: string;
-		mounts: Array<tg.Command.Mount>;
 		stdin: tg.Blob | undefined;
 		user: string | undefined;
 	};
@@ -368,9 +355,6 @@ export namespace Command {
 			};
 			if (object.cwd !== undefined) {
 				output.cwd = object.cwd;
-			}
-			if (object.mounts.length > 0) {
-				output.mounts = object.mounts.map(tg.Command.Mount.toData);
 			}
 			if (object.stdin !== undefined) {
 				output.stdin = object.stdin.id;
@@ -393,7 +377,6 @@ export namespace Command {
 				),
 				executable: tg.Command.Executable.fromData(data.executable),
 				host: data.host,
-				mounts: (data.mounts ?? []).map(tg.Command.Mount.fromData),
 				stdin:
 					data.stdin !== undefined ? tg.Blob.withId(data.stdin) : undefined,
 				user: data.user,
@@ -407,7 +390,6 @@ export namespace Command {
 					tg.Value.objects(value),
 				),
 				...tg.Command.Executable.children(object.executable),
-				...object.mounts.map(({ source }) => source),
 				...(object.stdin !== undefined ? [object.stdin] : []),
 			];
 		};
@@ -496,34 +478,12 @@ export namespace Command {
 		};
 	}
 
-	export type Mount = {
-		source: tg.Artifact;
-		target: string;
-	};
-
-	export namespace Mount {
-		export let toData = (data: tg.Command.Mount): tg.Command.Data.Mount => {
-			return {
-				source: data.source.id,
-				target: data.target,
-			};
-		};
-
-		export let fromData = (data: tg.Command.Data.Mount): tg.Command.Mount => {
-			return {
-				source: tg.Artifact.withId(data.source),
-				target: data.target,
-			};
-		};
-	}
-
 	export type Data = {
 		args?: Array<tg.Value.Data>;
 		cwd?: string;
 		env?: { [key: string]: tg.Value.Data };
 		executable: tg.Command.Data.Executable;
 		host: string;
-		mounts?: Array<tg.Command.Data.Mount>;
 		stdin?: tg.Blob.Id;
 		user?: string;
 	};
@@ -550,10 +510,6 @@ export namespace Command {
 			};
 		}
 
-		export type Mount = {
-			source: tg.Artifact.Id;
-			target: string;
-		};
 	}
 }
 
@@ -620,18 +576,6 @@ export class CommandBuilder<
 
 	host(host: tg.Unresolved<tg.MaybeMutation<string>>): this {
 		this.#args.push({ host });
-		return this;
-	}
-
-	mount(...mounts: Array<tg.Unresolved<tg.Command.Mount>>): this {
-		this.#args.push({ mounts });
-		return this;
-	}
-
-	mounts(
-		...mounts: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Command.Mount>>>>
-	): this {
-		this.#args.push(...mounts.map((mounts) => ({ mounts })));
 		return this;
 	}
 

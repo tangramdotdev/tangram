@@ -645,9 +645,6 @@ declare namespace tg {
 		/** Get this command's object. */
 		object(): Promise<tg.Command.Object>;
 
-		/** Get this command's mounts. */
-		get mounts(): Promise<Array<tg.Command.Mount> | undefined>;
-
 		/** Get this command's user. */
 		get user(): Promise<string | undefined>;
 
@@ -686,9 +683,6 @@ declare namespace tg {
 				/** The command's host. */
 				host?: string | undefined;
 
-				/** The command's mounts. */
-				mounts?: Array<tg.Command.Mount> | undefined;
-
 				/** The command's user. */
 				user?: string | undefined;
 
@@ -726,7 +720,6 @@ declare namespace tg {
 			env: { [key: string]: tg.Value };
 			executable: tg.Command.Executable;
 			host: string;
-			mounts: Array<tg.Command.Mount> | undefined;
 			stdin: tg.Blob | undefined;
 			user: string | undefined;
 		};
@@ -752,11 +745,6 @@ declare namespace tg {
 			};
 		}
 
-		/** A mount. */
-		export type Mount = {
-			source: tg.Artifact;
-			target: string;
-		};
 	}
 
 	export namespace path {
@@ -1346,12 +1334,6 @@ declare namespace tg {
 		/** Get this process's command's executable. */
 		get executable(): Promise<tg.Command.Executable>;
 
-		/** Get the mounts for this process and its command. */
-		get mounts(): Promise<Array<tg.Command.Mount | tg.Process.Mount>>;
-
-		/** Get whether this process has the network enabled. */
-		get network(): Promise<boolean>;
-
 		/** Get this process's command's user. */
 		get user(): Promise<string | undefined>;
 	}
@@ -1386,11 +1368,8 @@ declare namespace tg {
 			/** The command's host. */
 			host?: string | undefined;
 
-			/** The command's mounts. */
-			mounts?: Array<tg.Command.Mount> | undefined;
-
-			/** Configure whether the process has access to the network. **/
-			network?: boolean | undefined;
+			/** The sandbox configuration. */
+			sandbox?: tg.Process.Sandbox | undefined;
 
 			/** Ignore stdin, or set it to a blob. */
 			stdin?: tg.Blob.Arg | undefined;
@@ -1426,11 +1405,8 @@ declare namespace tg {
 			/** The command's host. */
 			host?: string | undefined;
 
-			/** The command's or process's mounts. */
-			mounts?: Array<tg.Command.Mount | tg.Process.Mount> | undefined;
-
-			/** Configure whether the process has access to the network. **/
-			network?: boolean | undefined;
+			/** The sandbox configuration. */
+			sandbox?: tg.Process.Sandbox | undefined;
 
 			/** Suppress stderr. */
 			stderr?: undefined;
@@ -1445,12 +1421,26 @@ declare namespace tg {
 			user?: string | undefined;
 		};
 
-		/** A mount. */
-		export type Mount = {
-			source: string;
-			target: string;
-			readonly: boolean;
-		};
+		/** A sandbox configuration, either an inline create arg or a sandbox ID. */
+		export type Sandbox =
+			| tg.Process.Sandbox.Create
+			| string;
+
+		export namespace Sandbox {
+			export type Create = {
+				hostname?: string | undefined;
+				host: string;
+				mounts?: Array<tg.Process.Sandbox.Mount> | undefined;
+				network?: boolean | undefined;
+				user?: string | undefined;
+			};
+
+			export type Mount = {
+				source: string;
+				target: string;
+				readonly?: boolean;
+			};
+		}
 	}
 
 	export interface BuildBuilder<
@@ -1486,15 +1476,9 @@ declare namespace tg {
 
 		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
 
-		mount(...mounts: Array<tg.Unresolved<tg.Command.Mount>>): this;
-
-		mounts(
-			...mounts: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Command.Mount>>>>
-		): this;
+		sandbox(sandbox: tg.Process.Sandbox | undefined): this;
 
 		named(name: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
-
-		network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
 
 		then<TResult1 = R, TResult2 = never>(
 			this: tg.BuildBuilder<[], R>,
@@ -1541,12 +1525,6 @@ declare namespace tg {
 		): this;
 
 		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
-
-		mount(...mounts: Array<tg.Unresolved<tg.Command.Mount>>): this;
-
-		mounts(
-			...mounts: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Command.Mount>>>>
-		): this;
 
 		/** Build this command and return the process's output. */
 		build(...args: tg.UnresolvedArgs<A>): tg.BuildBuilder<[], R>;
@@ -1599,21 +1577,9 @@ declare namespace tg {
 
 		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
 
-		mount(
-			...mounts: Array<tg.Unresolved<tg.Command.Mount | tg.Process.Mount>>
-		): this;
-
-		mounts(
-			...mounts: Array<
-				tg.Unresolved<
-					tg.MaybeMutation<Array<tg.Command.Mount | tg.Process.Mount>>
-				>
-			>
-		): this;
+		sandbox(sandbox: tg.Process.Sandbox | undefined): this;
 
 		named(name: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
-
-		network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
 
 		then<TResult1 = R, TResult2 = never>(
 			this: tg.RunBuilder<[], R>,

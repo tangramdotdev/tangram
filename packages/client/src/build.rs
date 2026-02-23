@@ -12,9 +12,7 @@ pub struct Arg {
 	pub env: tg::value::Map,
 	pub executable: Option<tg::command::Executable>,
 	pub host: Option<String>,
-	pub mounts: Vec<tg::command::Mount>,
 	pub name: Option<String>,
-	pub network: bool,
 	pub parent: Option<tg::process::Id>,
 	pub progress: bool,
 	pub remote: Option<String>,
@@ -37,7 +35,6 @@ where
 	builder = builder.args(arg.args);
 	builder = builder.cwd(arg.cwd);
 	builder = builder.env(arg.env);
-	builder = builder.mounts(arg.mounts);
 	builder = builder.stdin(arg.stdin);
 	builder = builder.user(arg.user);
 	let command = builder.build();
@@ -46,22 +43,16 @@ where
 	if let Some(name) = arg.name {
 		command.options.name.replace(name);
 	}
-	if arg.network && arg.checksum.is_none() {
-		return Err(tg::error!(
-			"a checksum is required to build with network enabled"
-		));
-	}
 	let progress = arg.progress;
 	let arg = tg::process::spawn::Arg {
 		cached: arg.cached,
 		checksum: arg.checksum,
 		command,
 		local: None,
-		mounts: vec![],
-		network: arg.network,
 		parent: arg.parent,
 		remotes: arg.remote.map(|r| vec![r]),
 		retry: arg.retry,
+		sandbox: None,
 		stderr: None,
 		stdin: None,
 		stdout: None,

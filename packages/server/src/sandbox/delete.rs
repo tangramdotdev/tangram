@@ -5,7 +5,7 @@ use {
 };
 
 impl Server {
-	pub(crate) async fn delete_sandbox(
+	pub(crate) async fn delete_sandbox_with_context(
 		&self,
 		context: &Context,
 		id: &tg::sandbox::Id,
@@ -48,7 +48,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to parse the sandbox id"))?;
 
 		// Delete the sandbox.
-		self.delete_sandbox(context, &id)
+		self.delete_sandbox_with_context(context, &id)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to delete the sandbox"))?;
 

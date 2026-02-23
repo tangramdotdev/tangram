@@ -12,7 +12,7 @@ use {
 };
 
 impl Server {
-	pub(crate) async fn sandbox_wait(
+	pub(crate) async fn sandbox_wait_with_context(
 		&self,
 		context: &Context,
 		id: &tg::sandbox::Id,
@@ -65,7 +65,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Get the future.
-		let Some(future) = self.sandbox_wait(context, &id, arg).await? else {
+		let Some(future) = self.sandbox_wait_with_context(context, &id, arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()

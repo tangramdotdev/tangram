@@ -151,9 +151,6 @@ impl Command {
 		for value in self.env.values() {
 			value.children(children);
 		}
-		for mount in &self.mounts {
-			mount.children(children);
-		}
 	}
 }
 
@@ -199,12 +196,6 @@ impl ModuleExecutable {
 		if let tg::module::data::Item::Edge(edge) = &self.module.referent.item {
 			edge.children(children);
 		}
-	}
-}
-
-impl Mount {
-	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
-		children.insert(self.source.clone().into());
 	}
 }
 

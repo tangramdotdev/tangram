@@ -12,6 +12,7 @@ export type Handle = {
 	write(bytes: string | Uint8Array): Promise<tg.Blob.Id>;
 } & tg.Handle.Object &
 	tg.Handle.Process &
+	tg.Handle.Sandbox &
 	tg.Handle.System;
 
 export namespace Handle {
@@ -29,11 +30,10 @@ export namespace Handle {
 		checksum: tg.Checksum | undefined;
 		command: tg.Referent<tg.Command.Id>;
 		create: boolean;
-		mounts: Array<tg.Process.Mount>;
-		network: boolean;
 		parent: tg.Process.Id | undefined;
 		remote: string | undefined;
 		retry: boolean;
+		sandbox: tg.Process.Sandbox | undefined;
 		stderr: string | undefined;
 		stdin: string | undefined;
 		stdout: string | undefined;
@@ -76,6 +76,54 @@ export namespace Handle {
 			id: tg.Process.Id,
 			arg: tg.Handle.WaitArg,
 		): Promise<tg.Process.Wait.Data>;
+	};
+
+	export type Sandbox = {
+		createSandbox(arg: SandboxCreateArg): Promise<SandboxCreateOutput>;
+
+		deleteSandbox(id: string): Promise<void>;
+
+		sandboxSpawn(
+			id: string,
+			arg: SandboxSpawnArg,
+		): Promise<SandboxSpawnOutput>;
+
+		sandboxWait(
+			id: string,
+			arg: SandboxWaitArg,
+		): Promise<SandboxWaitOutput>;
+	};
+
+	export type SandboxCreateArg = {
+		hostname?: string | undefined;
+		host: string;
+		mounts?: Array<tg.Process.Sandbox.Mount> | undefined;
+		network?: boolean | undefined;
+		user?: string | undefined;
+	};
+
+	export type SandboxCreateOutput = {
+		id: string;
+	};
+
+	export type SandboxSpawnArg = {
+		command: string;
+		args?: Array<string> | undefined;
+		stdin: string;
+		stdout: string;
+		stderr: string;
+	};
+
+	export type SandboxSpawnOutput = {
+		pid: number;
+	};
+
+	export type SandboxWaitArg = {
+		pid: number;
+	};
+
+	export type SandboxWaitOutput = {
+		status: number;
 	};
 
 	export type LogStream = "stdout" | "stderr";

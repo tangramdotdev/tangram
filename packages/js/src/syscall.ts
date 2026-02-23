@@ -82,6 +82,28 @@ declare global {
 		arg: tg.Handle.ReadArg,
 	): Promise<Uint8Array>;
 
+	function syscall(
+		syscall: "sandbox_create",
+		arg: tg.Handle.SandboxCreateArg,
+	): Promise<tg.Handle.SandboxCreateOutput>;
+
+	function syscall(
+		syscall: "sandbox_delete",
+		id: string,
+	): Promise<void>;
+
+	function syscall(
+		syscall: "sandbox_spawn",
+		id: string,
+		arg: tg.Handle.SandboxSpawnArg,
+	): Promise<tg.Handle.SandboxSpawnOutput>;
+
+	function syscall(
+		syscall: "sandbox_wait",
+		id: string,
+		arg: tg.Handle.SandboxWaitArg,
+	): Promise<tg.Handle.SandboxWaitOutput>;
+
 	function syscall(syscall: "sleep", duration: number): Promise<void>;
 
 	function syscall(

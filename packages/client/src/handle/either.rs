@@ -10,6 +10,7 @@ mod pipe;
 mod process;
 mod pty;
 mod remote;
+mod sandbox;
 mod tag;
 mod user;
 mod watch;
