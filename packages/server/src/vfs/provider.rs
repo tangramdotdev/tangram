@@ -16,6 +16,7 @@ use {
 		sync::atomic::{AtomicU64, Ordering},
 	},
 	tangram_client::prelude::*,
+	tangram_store::prelude::*,
 	tangram_vfs as vfs,
 };
 
@@ -1356,9 +1357,32 @@ impl Provider {
 
 	async fn blob_length_inner(&self, id: &tg::blob::Id) -> std::io::Result<u64> {
 		let id: tg::object::Id = id.clone().into();
-		let Some(data) = self.try_get_object_data_inner(&id).await? else {
+		let object = self
+			.server
+			.store
+			.try_get_object(&id)
+			.await
+			.map_err(|error| {
+				tracing::error!(error = %error.trace(), %id, "failed to get the object");
+				std::io::Error::from_raw_os_error(libc::EIO)
+			})?;
+		let Some(object) = object else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
 		};
+		if let Some(cache_pointer) = object.cache_pointer {
+			return Ok(cache_pointer.length);
+		}
+		let Some(bytes) = object.bytes else {
+			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
+		};
+		let data = tg::object::Data::deserialize(id.kind(), &*bytes).map_err(|error| {
+			tracing::error!(error = %error.trace(), %id, "failed to deserialize object data");
+			std::io::Error::from_raw_os_error(libc::EIO)
+		})?;
+		Self::blob_length_from_data(&id, data)
+	}
+
+	fn blob_length_from_data(id: &tg::object::Id, data: tg::object::Data) -> std::io::Result<u64> {
 		let tg::object::Data::Blob(blob) = data else {
 			tracing::error!(%id, "expected blob data");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -1438,21 +1462,21 @@ impl Provider {
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<u64> {
 		let id: tg::object::Id = id.clone().into();
-		let output = self.try_get_object_data(&id, transaction)?;
-		let Some((_, data)) = output else {
+		let object = self.try_get_object(&id, transaction)?;
+		let Some(object) = object else {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
 		};
-		let tg::object::Data::Blob(blob) = data else {
-			tracing::error!(%id, "expected blob data");
-			return Err(std::io::Error::from_raw_os_error(libc::EIO));
+		if let Some(cache_pointer) = object.cache_pointer {
+			return Ok(cache_pointer.length);
+		}
+		let Some(bytes) = object.bytes else {
+			return Err(std::io::Error::from_raw_os_error(libc::ENOSYS));
 		};
-		let length = match blob {
-			tg::blob::Data::Leaf(leaf) => leaf.bytes.len().to_u64().unwrap(),
-			tg::blob::Data::Branch(branch) => {
-				branch.children.iter().map(|child| child.length).sum()
-			},
-		};
-		Ok(length)
+		let data = tg::object::Data::deserialize(id.kind(), &*bytes).map_err(|error| {
+			tracing::error!(error = %error.trace(), %id, "failed to deserialize object data");
+			std::io::Error::from_raw_os_error(libc::EIO)
+		})?;
+		Self::blob_length_from_data(&id, data)
 	}
 
 	fn directory_node_sync_inner(
