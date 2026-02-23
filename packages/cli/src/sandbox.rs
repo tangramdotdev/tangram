@@ -31,6 +31,9 @@ pub enum Command {
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Options {
+	/// The desired host.
+	pub host: Option<String>,
+
 	/// The desired hostname.
 	#[arg(long)]
 	pub hostname: Option<String>,

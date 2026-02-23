@@ -9,11 +9,15 @@ impl tg::handle::Sandbox for Shared {
 		&self,
 		arg: tg::sandbox::create::Arg,
 	) -> tg::Result<tg::sandbox::create::Output> {
-		self.0.create_sandbox_with_context(&Context::default(), arg).await
+		self.0
+			.create_sandbox_with_context(&Context::default(), arg)
+			.await
 	}
 
 	async fn delete_sandbox(&self, id: &tg::sandbox::Id) -> tg::Result<()> {
-		self.0.delete_sandbox_with_context(&Context::default(), id).await
+		self.0
+			.delete_sandbox_with_context(&Context::default(), id)
+			.await
 	}
 
 	async fn sandbox_spawn(
@@ -21,7 +25,9 @@ impl tg::handle::Sandbox for Shared {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::spawn::Arg,
 	) -> tg::Result<tg::sandbox::spawn::Output> {
-		self.0.sandbox_spawn_with_context(&Context::default(), id, arg).await
+		self.0
+			.sandbox_spawn_with_context(&Context::default(), id, arg)
+			.await
 	}
 
 	async fn try_sandbox_wait_future(
@@ -33,7 +39,9 @@ impl tg::handle::Sandbox for Shared {
 			impl Future<Output = tg::Result<Option<tg::sandbox::wait::Output>>> + Send + 'static,
 		>,
 	> {
-		self.0.sandbox_wait_with_context(&Context::default(), id, arg).await
+		self.0
+			.sandbox_wait_with_context(&Context::default(), id, arg)
+			.await
 	}
 }
 
@@ -42,11 +50,13 @@ impl tg::handle::Sandbox for Server {
 		&self,
 		arg: tg::sandbox::create::Arg,
 	) -> tg::Result<tg::sandbox::create::Output> {
-		self.create_sandbox_with_context(&Context::default(), arg).await
+		self.create_sandbox_with_context(&Context::default(), arg)
+			.await
 	}
 
 	async fn delete_sandbox(&self, id: &tg::sandbox::Id) -> tg::Result<()> {
-		self.delete_sandbox_with_context(&Context::default(), id).await
+		self.delete_sandbox_with_context(&Context::default(), id)
+			.await
 	}
 
 	async fn sandbox_spawn(
@@ -54,7 +64,8 @@ impl tg::handle::Sandbox for Server {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::spawn::Arg,
 	) -> tg::Result<tg::sandbox::spawn::Output> {
-		self.sandbox_spawn_with_context(&Context::default(), id, arg).await
+		self.sandbox_spawn_with_context(&Context::default(), id, arg)
+			.await
 	}
 
 	async fn try_sandbox_wait_future(
@@ -66,7 +77,8 @@ impl tg::handle::Sandbox for Server {
 			impl Future<Output = tg::Result<Option<tg::sandbox::wait::Output>>> + Send + 'static,
 		>,
 	> {
-		self.sandbox_wait_with_context(&Context::default(), id, arg).await
+		self.sandbox_wait_with_context(&Context::default(), id, arg)
+			.await
 	}
 }
 

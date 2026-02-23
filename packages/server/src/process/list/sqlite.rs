@@ -50,9 +50,8 @@ impl Server {
 			#[tangram_database(as = "Option<db::value::Json<tg::value::Data>>")]
 			output: Option<tg::value::Data>,
 			retry: bool,
-			#[tangram_database(as = "Option<db::value::Json<Vec<tg::process::data::Mount>>>")]
-			mounts: Option<Vec<tg::process::data::Mount>>,
-			network: bool,
+			#[tangram_database(as = "Option<db::sqlite::value::FromStr>")]
+			sandbox: Option<tg::sandbox::Id>,
 			started_at: Option<i64>,
 			#[tangram_database(as = "db::sqlite::value::FromStr")]
 			status: tg::process::Status,
@@ -81,8 +80,7 @@ impl Server {
 					log,
 					output,
 					retry,
-					mounts,
-					network,
+					sandbox,
 					started_at,
 					status,
 					stderr,
@@ -173,8 +171,7 @@ impl Server {
 				log: row.log,
 				output: row.output,
 				retry: row.retry,
-				mounts: row.mounts.unwrap_or_default(),
-				network: row.network,
+				sandbox: row.sandbox,
 				started_at: row.started_at,
 				status: row.status,
 				stderr: row.stderr,

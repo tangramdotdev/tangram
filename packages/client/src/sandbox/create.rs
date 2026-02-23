@@ -32,7 +32,7 @@ pub struct Arg {
 )]
 pub struct Mount {
 	#[tangram_serialize(id = 0)]
-	pub source: PathBuf,
+	pub source: tg::Either<PathBuf, tg::artifact::Id>,
 
 	#[tangram_serialize(id = 1)]
 	pub target: PathBuf,

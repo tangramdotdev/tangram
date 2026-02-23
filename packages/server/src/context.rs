@@ -13,6 +13,7 @@ pub struct Process {
 	pub paths: Option<Paths>,
 	pub remote: Option<String>,
 	pub retry: bool,
+	pub sandbox: Option<tg::sandbox::Id>,
 }
 
 #[derive(Clone, Debug)]

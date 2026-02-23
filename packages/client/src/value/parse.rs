@@ -1339,7 +1339,6 @@ fn parse_module_referent(map: &tg::value::Map) -> tg::Result<tg::Referent<tg::mo
 	Ok(tg::Referent { item, options })
 }
 
-
 fn whitespace(input: &mut Input) -> ModalResult<()> {
 	take_while(0.., [' ', '\t', '\r', '\n'])
 		.parse_next(input)

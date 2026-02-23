@@ -10,7 +10,7 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub args: Vec<String>,
-	
+
 	pub stdin: tg::process::Stdio,
 
 	pub stdout: tg::process::Stdio,

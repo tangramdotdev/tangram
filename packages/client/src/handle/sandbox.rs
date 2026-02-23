@@ -6,10 +6,7 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::sandbox::create::Arg,
 	) -> impl Future<Output = tg::Result<tg::sandbox::create::Output>> + Send;
 
-	fn delete_sandbox(
-		&self,
-		id: &tg::sandbox::Id,
-	) -> impl Future<Output = tg::Result<()>> + Send;
+	fn delete_sandbox(&self, id: &tg::sandbox::Id) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn sandbox_spawn(
 		&self,
@@ -38,10 +35,7 @@ impl tg::handle::Sandbox for tg::Client {
 		self.create_sandbox(arg)
 	}
 
-	fn delete_sandbox(
-		&self,
-		id: &tg::sandbox::Id,
-	) -> impl Future<Output = tg::Result<()>> {
+	fn delete_sandbox(&self, id: &tg::sandbox::Id) -> impl Future<Output = tg::Result<()>> {
 		self.delete_sandbox(id)
 	}
 

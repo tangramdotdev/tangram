@@ -1,38 +1,10 @@
 use {
-	super::util::{cache_children, render_args_dash_a, render_args_string, render_env, whoami},
+	super::util::{cache_children, render_args_dash_a, render_args_string, render_env},
 	crate::{Context, Server, temp::Temp},
-	indoc::formatdoc,
-	std::{
-		collections::{BTreeMap, HashMap},
-		os::unix::ffi::OsStrExt as _,
-		path::{Path, PathBuf},
-		sync::Arc,
-	},
+	std::{path::Path, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 };
-
-struct SandboxArg<'a> {
-	args: &'a [String],
-	command: &'a tg::command::Data,
-	cwd: &'a Path,
-	env: &'a BTreeMap<String, String>,
-	executable: &'a Path,
-	id: &'a tg::process::Id,
-	mounts: &'a [tg::Either<&'a tg::process::Mount, &'a tg::command::data::Mount>],
-	root_mounted: bool,
-	server: &'a Server,
-	state: &'a tg::process::State,
-	temp: &'a Temp,
-}
-
-struct SandboxOutput {
-	args: Vec<String>,
-	cwd: PathBuf,
-	env: BTreeMap<String, String>,
-	executable: PathBuf,
-	root: PathBuf,
-}
 
 impl Server {
 	pub(crate) async fn run_linux(&self, process: &tg::Process) -> tg::Result<super::Output> {
@@ -57,33 +29,20 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to cache the children"))?;
 
-		// Create the temp.
-		let temp = Temp::new(self);
-		tokio::fs::create_dir_all(temp.path())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
-
-		// Create the output directory.
-		tokio::fs::create_dir_all(temp.path().join("output"))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
-
-		// Determine if the root is mounted.
-		let root_mounted = state
-			.mounts
-			.iter()
-			.any(|mount| mount.source == mount.target && mount.target == Path::new("/"));
-
 		// Get the artifacts path.
-		let artifacts_path = if root_mounted {
+		let artifacts_path = if state.sandbox.is_none() {
 			self.artifacts_path()
 		} else {
 			"/.tangram/artifacts".into()
 		};
 
 		// Get the output path.
-		let output_path = if root_mounted {
-			temp.path().join("output/output")
+		let temp = Temp::new(self);
+		let output_path = if state.sandbox.is_none() {
+			tokio::fs::create_dir_all(temp.path())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create output directory"))?;
+			temp.path().join("output")
 		} else {
 			Path::new("/output/output").to_owned()
 		};
@@ -139,12 +98,6 @@ impl Server {
 			},
 		};
 
-		// Create mounts.
-		let mounts = std::iter::empty()
-			.chain(state.mounts.iter().map(tg::Either::Left))
-			.chain(command.mounts.iter().map(tg::Either::Right))
-			.collect::<Vec<_>>();
-
 		// Set `$TANGRAM_OUTPUT`.
 		env.insert(
 			"TANGRAM_OUTPUT".to_owned(),
@@ -155,8 +108,8 @@ impl Server {
 		env.insert("TANGRAM_PROCESS".to_owned(), id.to_string());
 
 		// Create the guest uri.
-		let guest_socket = if root_mounted {
-			temp.path().join(".tangram/socket")
+		let guest_socket = if state.sandbox.is_none() {
+			self.path.join("socket")
 		} else {
 			Path::new("/.tangram/socket").to_owned()
 		};
@@ -171,57 +124,8 @@ impl Server {
 		// Set `$TANGRAM_URL`.
 		env.insert("TANGRAM_URL".to_owned(), guest_uri.to_string());
 
-		// Get the server's user.
-		let whoami = whoami().map_err(|error| tg::error!(!error, "failed to get username"))?;
-
-		// Determine if the process is sandboxed.
-		let unsandboxed = root_mounted
-			&& (command.mounts.is_empty() && state.mounts.len() == 1)
-			&& state.network
-			&& command.user.as_ref().is_none_or(|user| user == &whoami);
-
-		// Sandbox if necessary.
-		let (args, cwd, env, executable, root) = if unsandboxed {
-			let root = temp.path().join("root");
-			(args, cwd, env, executable, root)
-		} else {
-			let arg = SandboxArg {
-				args: &args,
-				command,
-				cwd: &cwd,
-				env: &env,
-				executable: &executable,
-				id,
-				mounts: &mounts,
-				root_mounted,
-				server: self,
-				state,
-				temp: &temp,
-			};
-			let output = sandbox(arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the sandbox"))?;
-			let SandboxOutput {
-				args,
-				cwd,
-				env,
-				executable,
-				root,
-			} = output;
-			(args, cwd, env, executable, root)
-		};
-
 		// Create the paths for sandboxed processes.
-		let paths = if root_mounted {
-			None
-		} else {
-			Some(crate::context::Paths {
-				server_host: self.path.clone(),
-				output_host: temp.path().join("output"),
-				output_guest: "/output".into(),
-				root_host: root,
-			})
-		};
+		let paths = None;
 
 		// Create the host uri.
 		let host_socket = temp.path().join(".tangram/socket");
@@ -254,6 +158,7 @@ impl Server {
 					.retry(self)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get the process retry"))?,
+				sandbox: state.sandbox.clone(),
 			})),
 			..Default::default()
 		};
@@ -287,241 +192,4 @@ impl Server {
 
 		Ok(output)
 	}
-}
-
-async fn sandbox(arg: SandboxArg<'_>) -> tg::Result<SandboxOutput> {
-	let SandboxArg {
-		args,
-		cwd,
-		env,
-		executable,
-		id,
-		mounts,
-		root_mounted,
-		server,
-		temp,
-		state,
-		command,
-	} = arg;
-
-	// Create the output path.
-	let output_path = temp.path().join("output");
-
-	// Initialize the output with all fields.
-	let mut output = SandboxOutput {
-		root: temp.path().join("root"),
-		args: vec!["sandbox".to_owned()],
-		cwd: PathBuf::from("/"),
-		env: BTreeMap::new(),
-		executable: tangram_util::env::current_exe()
-			.map_err(|source| tg::error!(!source, "failed to get the current executable"))?,
-	};
-
-	let mut overlays = HashMap::new();
-	for mount in mounts {
-		match mount {
-			tg::Either::Left(mount) => {
-				output.args.push("--mount".to_owned());
-				output
-					.args
-					.push(bind(&mount.source, &mount.target, mount.readonly));
-			},
-			tg::Either::Right(mount) => {
-				// Create the overlay state if it does not exist. Since we use async here, we can't use the .entry() api.
-				if !overlays.contains_key(&mount.target) {
-					let lowerdirs = Vec::new();
-					let upperdir = temp.path().join("upper").join(overlays.len().to_string());
-					let workdir = temp.path().join("work").join(overlays.len().to_string());
-					tokio::fs::create_dir_all(&upperdir).await.ok();
-					tokio::fs::create_dir_all(&workdir).await.ok();
-					if mount.target == Path::new("/") {
-						output.root = upperdir.clone();
-					}
-					overlays.insert(mount.target.clone(), (lowerdirs, upperdir, workdir));
-				}
-
-				// Compute the path.
-				let path = server.artifacts_path().join(mount.source.to_string());
-
-				// Get the lower dirs.
-				let (lowerdirs, _, _) = overlays.get_mut(&mount.target).unwrap();
-
-				// Add this path to the lowerdirs.
-				lowerdirs.push(path);
-			},
-		}
-	}
-
-	// Add additional mounts.
-	if !root_mounted {
-		let path = temp.path().join(".tangram");
-		tokio::fs::create_dir_all(&path).await.map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to create the data directory"),
-		)?;
-
-		// Create /etc.
-		tokio::fs::create_dir_all(temp.path().join("lower/etc"))
-			.await
-			.ok();
-
-		// Create /tmp.
-		tokio::fs::create_dir_all(temp.path().join("lower/tmp"))
-			.await
-			.ok();
-
-		// Create nsswitch.conf.
-		tokio::fs::write(
-			temp.path().join("lower/etc/nsswitch.conf"),
-			formatdoc!(
-				"
-					passwd: files compat
-					shadow: files compat
-					hosts: files dns compat
-				"
-			),
-		)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to create /etc/nsswitch.conf"))?;
-
-		// Create /etc/passwd.
-		tokio::fs::write(
-			temp.path().join("lower/etc/passwd"),
-			formatdoc!(
-				"
-					root:!:0:0:root:/nonexistent:/bin/false
-					nobody:!:65534:65534:nobody:/nonexistent:/bin/false
-				"
-			),
-		)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to create /etc/passwd"))?;
-
-		// Copy resolv.conf.
-		if state.network {
-			tokio::fs::copy(
-				"/etc/resolv.conf",
-				temp.path().join("lower/etc/resolv.conf"),
-			)
-			.await
-			.map_err(|source| {
-				tg::error!(!source, "failed to copy /etc/resolv.conf to the sandbox")
-			})?;
-			output.args.push("--network".to_owned());
-		}
-
-		// Get or create the root overlay.
-		if !overlays.contains_key(Path::new("/")) {
-			let lowerdirs = Vec::new();
-			let upperdir = temp.path().join("upper").join(overlays.len().to_string());
-			let workdir = temp.path().join("work").join(overlays.len().to_string());
-			tokio::fs::create_dir_all(&upperdir).await.ok();
-			tokio::fs::create_dir_all(&workdir).await.ok();
-			output.root = upperdir.clone();
-			overlays.insert("/".into(), (lowerdirs, upperdir, workdir));
-		}
-		let (lowerdirs, _, _) = overlays.get_mut(Path::new("/")).unwrap();
-		lowerdirs.push(temp.path().join("lower"));
-
-		// Add mounts for /dev, /proc, /tmp, /.tangram, /.tangram/artifacts, and /output.
-		output.args.push("--mount".to_owned());
-		output.args.push(bind("/dev", "/dev", false));
-		output.args.push("--mount".to_owned());
-		output.args.push(bind("/proc", "/proc", false));
-		output.args.push("--mount".to_owned());
-		output
-			.args
-			.push(bind(temp.path().join(".tangram"), "/.tangram", false));
-		output.args.push("--mount".to_owned());
-		output
-			.args
-			.push(bind(server.artifacts_path(), "/.tangram/artifacts", true));
-		output.args.push("--mount".to_owned());
-		output.args.push(bind(&output_path, "/output", false));
-	}
-
-	// Add the overlay mounts.
-	for (merged, (lowerdirs, upperdir, workdir)) in &overlays {
-		output.args.push("--mount".to_owned());
-		output
-			.args
-			.push(overlay(lowerdirs, upperdir, workdir, merged));
-	}
-
-	output.args.push("-C".to_owned());
-	output.args.push(cwd.display().to_string());
-
-	// Add env vars to the command.
-	for (name, value) in env {
-		output.args.push("-e".to_owned());
-		output.args.push(format!("{name}={value}"));
-	}
-
-	// Set the user.
-	let user = command.user.as_deref().unwrap_or("root");
-	output.args.push("--user".to_owned());
-	output.args.push(user.to_owned());
-
-	// Set the hostname
-	output.args.push("--hostname".to_owned());
-	output.args.push(id.to_string());
-
-	// Set the chroot.
-	output.args.push("--chroot".to_owned());
-	output.args.push(output.root.display().to_string());
-
-	// Add the executable and original args.
-	output.args.push(executable.display().to_string());
-	output.args.push("--".to_owned());
-	output.args.extend(args.iter().cloned());
-
-	Ok(output)
-}
-
-fn bind(source: impl AsRef<Path>, target: impl AsRef<Path>, readonly: bool) -> String {
-	let mut string = format!(
-		"type=bind,source={},target={}",
-		source.as_ref().display(),
-		target.as_ref().display()
-	);
-	if readonly {
-		string.push_str(",ro");
-	}
-	string
-}
-
-fn overlay(lowerdirs: &[PathBuf], upperdir: &Path, workdir: &Path, merged: &Path) -> String {
-	fn escape(out: &mut Vec<u8>, path: &[u8]) {
-		for byte in path.iter().copied() {
-			if byte == 0 {
-				break;
-			}
-			if byte == b':' {
-				out.push(b'\\');
-			}
-			out.push(byte);
-		}
-	}
-
-	// Create the mount options.
-	let mut data = b"type=overlay,source=overlay,target=".to_vec();
-	data.extend_from_slice(merged.as_os_str().as_bytes());
-
-	// Add the lower directories.
-	data.extend_from_slice(b",userxattr,lowerdir=");
-	for (n, dir) in lowerdirs.iter().enumerate() {
-		escape(&mut data, dir.as_os_str().as_bytes());
-		if n != lowerdirs.len() - 1 {
-			data.push(b':');
-		}
-	}
-
-	// Add the upper directory.
-	data.extend_from_slice(b",upperdir=");
-	data.extend_from_slice(upperdir.as_os_str().as_bytes());
-
-	// Add the working directory.
-	data.extend_from_slice(b",workdir=");
-	data.extend_from_slice(workdir.as_os_str().as_bytes());
-
-	String::from_utf8(data).unwrap()
 }

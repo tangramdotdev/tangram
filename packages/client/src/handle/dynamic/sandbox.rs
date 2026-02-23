@@ -8,10 +8,7 @@ impl tg::handle::Sandbox for super::Handle {
 		self.0.create_sandbox(arg)
 	}
 
-	fn delete_sandbox(
-		&self,
-		id: &tg::sandbox::Id,
-	) -> impl Future<Output = tg::Result<()>> {
+	fn delete_sandbox(&self, id: &tg::sandbox::Id) -> impl Future<Output = tg::Result<()>> {
 		unsafe {
 			std::mem::transmute::<_, futures::future::BoxFuture<'_, tg::Result<()>>>(
 				self.0.delete_sandbox(id),

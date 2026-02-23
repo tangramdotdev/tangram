@@ -1,4 +1,4 @@
-use {crate::Cli, std::path::Path, tangram_client::prelude::*};
+use {crate::Cli, tangram_client::prelude::*};
 
 /// Create a sandbox.
 #[derive(Clone, Debug, clap::Args)]
@@ -21,22 +21,24 @@ impl Cli {
 			.left()
 			.ok_or_else(|| tg::error!("this command requires a client, not a server"))?;
 
+		// Get the host.
+		let host = args.options.host.unwrap_or_else(|| tg::host().to_owned());
+
 		// Convert the CLI mounts to the create arg mounts.
 		let mounts = args
 			.options
 			.mounts
 			.into_iter()
-			.map(|mount| {
-				tg::Either::Left(tg::process::data::Mount {
-					source: mount.source.unwrap_or_else(|| Path::new("/").to_owned()),
-					target: mount.target.unwrap_or_else(|| Path::new("/").to_owned()),
-					readonly: mount.flags & RD_ONLY != 0,
-				})
+			.map(|mount| tg::sandbox::create::Mount {
+				source: mount.source.map(tg::Either::Left).unwrap(),
+				target: mount.target.unwrap(),
+				readonly: mount.flags & RD_ONLY != 0,
 			})
 			.collect();
 
 		// Create the arg.
 		let arg = tg::sandbox::create::Arg {
+			host,
 			hostname: args.options.hostname,
 			mounts,
 			network: args.options.network.get(),

@@ -65,9 +65,7 @@ impl Server {
 			output: Option<String>,
 			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			retry: u64,
-			mounts: Option<String>,
-			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
-			network: u64,
+			sandbox: Option<String>,
 			started_at: Option<i64>,
 			status: String,
 			stderr: Option<String>,
@@ -91,8 +89,7 @@ impl Server {
 					log,
 					output,
 					retry,
-					mounts,
-					network,
+					sandbox,
 					started_at,
 					status,
 					stderr,
@@ -157,13 +154,11 @@ impl Server {
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to deserialize"))?;
 		let retry = row.retry != 0;
-		let mounts = row
-			.mounts
-			.map(|s| serde_json::from_str(&s))
+		let sandbox = row
+			.sandbox
+			.map(|s| s.parse())
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to deserialize"))?
-			.unwrap_or_default();
-		let network = row.network != 0;
+			.map_err(|source| tg::error!(!source, %id, "failed to parse the sandbox id"))?;
 		let status = row
 			.status
 			.parse()
@@ -235,8 +230,7 @@ impl Server {
 			log,
 			output,
 			retry,
-			mounts,
-			network,
+			sandbox,
 			started_at: row.started_at,
 			status,
 			stderr,

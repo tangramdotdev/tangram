@@ -85,15 +85,6 @@ pub struct Options {
 	#[command(flatten)]
 	pub checkin: crate::checkin::Options,
 
-	/// Configure mounts.
-	#[arg(
-		action = clap::ArgAction::Append,
-		long = "mount",
-		num_args = 1,
-		short,
-	)]
-	pub mounts: Vec<tg::Either<tg::process::Mount, tg::command::Mount>>,
-
 	#[command(flatten)]
 	pub local: crate::util::args::Local,
 
@@ -250,7 +241,6 @@ impl Cli {
 				tg::Command::builder(object.host.clone(), object.executable.clone())
 					.args(object.args.clone())
 					.cwd(object.cwd.clone())
-					.mounts(object.mounts.clone())
 					.stdin(object.stdin.clone())
 			},
 
@@ -442,22 +432,15 @@ impl Cli {
 				env.insert(key, value);
 			}
 		}
+		let host = if let Some(host) = options.host {
+			host
+		} else {
+			tg::host().to_owned()
+		};
 		if !env.contains_key("TANGRAM_HOST") {
-			let host = if let Some(host) = options.host {
-				host
-			} else {
-				tg::host().to_owned()
-			};
-			env.insert("TANGRAM_HOST".to_owned(), host.into());
+			env.insert("TANGRAM_HOST".to_owned(), host.clone().into());
 		}
 		command = command.env(env);
-
-		// Set the mounts.
-		for mount in &options.mounts {
-			if let tg::Either::Right(mount) = mount {
-				command = command.mount(mount.clone());
-			}
-		}
 
 		// Create the command and store it.
 		let command = command.build();
@@ -468,31 +451,19 @@ impl Cli {
 
 		// Determine if the network is enabled.
 		let network = options.network.unwrap_or(!sandbox);
-
+		let sandbox = if network {
+			None
+		} else {
+			Some(tg::Either::Left(tg::sandbox::create::Arg {
+				host,
+				network: true,
+				hostname: None,
+				mounts: Vec::new(),
+				user: None,
+			}))
+		};
 		// Determine the retry.
 		let retry = options.retry;
-
-		// Get the mounts.
-		let mut mounts = Vec::new();
-		if !sandbox {
-			mounts.push(tg::process::data::Mount {
-				source: "/".into(),
-				target: "/".into(),
-				readonly: false,
-			});
-		}
-		for mount in &options.mounts {
-			if let tg::Either::Left(mount) = mount {
-				let source = tokio::fs::canonicalize(&mount.source)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
-				mounts.push(tg::process::data::Mount {
-					source,
-					target: mount.target.clone(),
-					readonly: mount.readonly,
-				});
-			}
-		}
 
 		// Spawn the process.
 		let arg = tg::process::spawn::Arg {
@@ -500,11 +471,10 @@ impl Cli {
 			checksum: options.checksum,
 			command: tg::Referent::with_item(command.id()),
 			local: options.local.local,
-			mounts,
-			network,
 			parent: None,
 			remotes: options.remotes.remotes.clone(),
 			retry,
+			sandbox,
 			stderr,
 			stdin,
 			stdout,

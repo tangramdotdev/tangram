@@ -151,6 +151,7 @@ impl Server {
 					.retry(self)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get the process retry"))?,
+				sandbox: state.sandbox.clone(),
 			})),
 			..Default::default()
 		};

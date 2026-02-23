@@ -1,6 +1,9 @@
 use {
 	crate::{Context, Server},
-	std::{os::fd::{AsFd as _, AsRawFd as _}, path::PathBuf},
+	std::{
+		os::fd::{AsFd as _, AsRawFd as _},
+		path::PathBuf,
+	},
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_sandbox as sandbox,

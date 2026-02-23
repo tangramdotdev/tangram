@@ -1,7 +1,7 @@
 use {
 	crate::{ProcessPermit, Server},
 	futures::{FutureExt as _, TryFutureExt as _, future},
-	std::{collections::BTreeSet, path::Path, sync::Arc, time::Duration},
+	std::{collections::BTreeSet, sync::Arc, time::Duration},
 	tangram_client::prelude::*,
 };
 
@@ -247,30 +247,10 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the host"))?;
 
-		// Determine if the root is mounted.
-		let root_mounted = state
-			.mounts
-			.iter()
-			.any(|mount| mount.source == mount.target && mount.target == Path::new("/"));
-
-		// Get the server's user.
-		let whoami =
-			util::whoami().map_err(|error| tg::error!(!error, "failed to get username"))?;
-
-		// Determine if the process is unsandboxed.
-		let mounts = command
-			.mounts(self)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the mounts"))?;
-		let user = command
-			.user(self)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the user"))?;
-		let unsandboxed = root_mounted
-			&& (mounts.is_empty() && state.mounts.len() == 1)
-			&& state.network
-			&& user.as_ref().is_none_or(|user| user == &whoami);
-		let sandboxed = !unsandboxed;
+		// Determine if the process is unsandboxed.'
+		let sandboxed = todo!(
+			"a process is unsandboxed if its spawn arg.sandbox.is_none() and its parent sandbox is none"
+		);
 
 		let result = {
 			match host.as_str() {

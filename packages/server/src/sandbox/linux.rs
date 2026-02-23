@@ -19,21 +19,22 @@ impl Server {
 		// Determine if the root is mounted.
 		let root_mounted = arg.mounts.iter().any(|mount| {
 			mount
+				.source
 				.as_ref()
 				.left()
-				.is_some_and(|mount| mount.source == mount.target && mount.target == Path::new("/"))
+				.is_some_and(|source| source == &mount.target && mount.target == Path::new("/"))
 		});
 
 		let mut args = Vec::new();
 		let root = temp.path().join("root");
 		let mut overlays = HashMap::new();
 		for mount in &arg.mounts {
-			match mount {
-				tg::Either::Left(mount) => {
+			match &mount.source {
+				tg::Either::Left(source) => {
 					args.push("--mount".to_owned());
-					args.push(bind(&mount.source, &mount.target, mount.readonly));
+					args.push(bind(&source, &mount.target, mount.readonly));
 				},
-				tg::Either::Right(mount) => {
+				tg::Either::Right(id) => {
 					// Create the overlay state if it does not exist. Since we use async here, we can't use the .entry() api.
 					if !overlays.contains_key(&mount.target) {
 						let lowerdirs = Vec::new();
@@ -45,7 +46,7 @@ impl Server {
 					}
 
 					// Compute the path.
-					let path = self.artifacts_path().join(mount.source.to_string());
+					let path = self.artifacts_path().join(id.to_string());
 
 					// Get the lower dirs.
 					let (lowerdirs, _, _) = overlays.get_mut(&mount.target).unwrap();

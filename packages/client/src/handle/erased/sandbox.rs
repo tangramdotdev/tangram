@@ -9,10 +9,7 @@ pub trait Sandbox: Send + Sync + 'static {
 		arg: tg::sandbox::create::Arg,
 	) -> BoxFuture<'_, tg::Result<tg::sandbox::create::Output>>;
 
-	fn delete_sandbox<'a>(
-		&'a self,
-		id: &'a tg::sandbox::Id,
-	) -> BoxFuture<'a, tg::Result<()>>;
+	fn delete_sandbox<'a>(&'a self, id: &'a tg::sandbox::Id) -> BoxFuture<'a, tg::Result<()>>;
 
 	fn sandbox_spawn<'a>(
 		&'a self,
@@ -41,10 +38,7 @@ where
 		self.create_sandbox(arg).boxed()
 	}
 
-	fn delete_sandbox<'a>(
-		&'a self,
-		id: &'a tg::sandbox::Id,
-	) -> BoxFuture<'a, tg::Result<()>> {
+	fn delete_sandbox<'a>(&'a self, id: &'a tg::sandbox::Id) -> BoxFuture<'a, tg::Result<()>> {
 		self.delete_sandbox(id).boxed()
 	}
 

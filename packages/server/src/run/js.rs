@@ -66,6 +66,7 @@ impl Server {
 					paths: None,
 					remote: process.remote().cloned(),
 					retry: *process.retry(&server).await?,
+					sandbox: state.sandbox.clone(),
 				};
 				let context = Context {
 					process: Some(Arc::new(process)),

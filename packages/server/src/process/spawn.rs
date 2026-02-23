@@ -134,11 +134,7 @@ impl Server {
 
 		// Determine if the process is cacheable.
 		let cacheable = arg.checksum.is_some()
-			|| (arg.mounts.is_empty()
-				&& !arg.network
-				&& arg.stdin.is_none()
-				&& arg.stdout.is_none()
-				&& arg.stderr.is_none());
+			|| (arg.stdin.is_none() && arg.stdout.is_none() && arg.stderr.is_none());
 
 		// Get or create a local process.
 		let mut output = if cacheable
@@ -604,10 +600,9 @@ impl Server {
 					expected_checksum,
 					finished_at,
 					host,
-					mounts,
-					network,
 					output,
 					retry,
+					sandbox,
 					status,
 					token_count,
 					touched_at
@@ -629,8 +624,7 @@ impl Server {
 					{p}14,
 					{p}15,
 					{p}16,
-					{p}17,
-					{p}18
+					{p}17
 				)
 				on conflict (id) do update set
 					actual_checksum = {p}2,
@@ -643,13 +637,12 @@ impl Server {
 					expected_checksum = {p}9,
 					finished_at = {p}10,
 					host = {p}11,
-					mounts = {p}12,
-					network = {p}13,
-					output = {p}14,
-					retry = {p}15,
-					status = {p}16,
-					token_count = {p}17,
-					touched_at = {p}18;
+					output = {p}12,
+					retry = {p}13,
+					sandbox = {p}14,
+					status = {p}15,
+					token_count = {p}16,
+					touched_at = {p}17;
 			"
 		);
 		let now: i64 = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -675,10 +668,15 @@ impl Server {
 			expected_checksum.to_string(),
 			now,
 			host,
-			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
-			arg.network,
 			output.clone().map(db::value::Json),
 			arg.retry,
+			arg.sandbox
+				.as_ref()
+				.map(|s| match s {
+					tg::Either::Left(_) => None,
+					tg::Either::Right(id) => Some(id.to_string()),
+				})
+				.flatten(),
 			status.to_string(),
 			0,
 			now,
@@ -752,9 +750,8 @@ impl Server {
 					expected_checksum,
 					heartbeat_at,
 					host,
-					mounts,
-					network,
 					retry,
+					sandbox,
 					started_at,
 					status,
 					stderr,
@@ -781,8 +778,7 @@ impl Server {
 					{p}15,
 					{p}16,
 					{p}17,
-					{p}18,
-					{p}19
+					{p}18
 				)
 				on conflict (id) do update set
 					cacheable = {p}2,
@@ -793,16 +789,15 @@ impl Server {
 					expected_checksum = {p}7,
 					heartbeat_at = {p}8,
 					host = {p}9,
-					mounts = {p}10,
-					network = {p}11,
-					retry = {p}12,
-					started_at = {p}13,
-					status = {p}14,
-					stderr = {p}15,
-					stdin = {p}16,
-					stdout = {p}17,
-					token_count = {p}18,
-					touched_at = {p}19;
+					retry = {p}10,
+					sandbox = {p}11,
+					started_at = {p}12,
+					status = {p}13,
+					stderr = {p}14,
+					stdin = {p}15,
+					stdout = {p}16,
+					token_count = {p}17,
+					touched_at = {p}18;
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -818,9 +813,14 @@ impl Server {
 			arg.checksum.as_ref().map(ToString::to_string),
 			heartbeat_at,
 			host,
-			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
-			arg.network,
 			arg.retry,
+			arg.sandbox
+				.as_ref()
+				.map(|s| match s {
+					tg::Either::Left(_) => None,
+					tg::Either::Right(id) => Some(id.to_string()),
+				})
+				.flatten(),
 			started_at,
 			status.to_string(),
 			arg.stderr.as_ref().map(ToString::to_string),

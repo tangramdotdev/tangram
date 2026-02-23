@@ -24,12 +24,12 @@ impl Server {
 
 		// Add bind mounts.
 		for mount in &arg.mounts {
-			match mount {
-				tg::Either::Left(mount) => {
+			match mount.source {
+				tg::Either::Left(path) => {
 					let mount_arg = if mount.readonly {
-						format!("source={},ro", mount.source.display())
+						format!("source={},ro", path.display())
 					} else {
-						format!("source={}", mount.source.display())
+						format!("source={}", path.display())
 					};
 					args.push("--mount".to_owned());
 					args.push(mount_arg);
@@ -43,9 +43,9 @@ impl Server {
 		if !root_mounted {
 			// Create the .tangram directory.
 			let path = temp.path().join(".tangram");
-			tokio::fs::create_dir_all(&path).await.map_err(|source| {
-				tg::error!(!source, path = %path.display(), "failed to create the data directory")
-			})?;
+			tokio::fs::create_dir_all(&path).await.map_err(
+				|source| tg::error!(!source, path = %path.display(), "failed to create the data directory"),
+			)?;
 
 			// Add mounts for the temp directory, artifacts, and the working directory.
 			args.push("--mount".to_owned());

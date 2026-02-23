@@ -53,10 +53,9 @@ impl Server {
 		let mut finished_ats: Vec<Option<i64>> = Vec::with_capacity(items.len());
 		let mut hosts: Vec<String> = Vec::with_capacity(items.len());
 		let mut logs: Vec<Option<String>> = Vec::with_capacity(items.len());
-		let mut mounts: Vec<Option<String>> = Vec::with_capacity(items.len());
-		let mut networks: Vec<bool> = Vec::with_capacity(items.len());
 		let mut outputs: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut retries: Vec<bool> = Vec::with_capacity(items.len());
+		let mut sandboxes: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut started_ats: Vec<Option<i64>> = Vec::with_capacity(items.len());
 		let mut statuses = Vec::with_capacity(items.len());
 		let mut stderrs: Vec<Option<String>> = Vec::with_capacity(items.len());
@@ -92,16 +91,13 @@ impl Server {
 			finished_ats.push(data.finished_at);
 			hosts.push(data.host.clone());
 			logs.push(data.log.as_ref().map(ToString::to_string));
-			mounts.push(
-				(!data.mounts.is_empty()).then(|| serde_json::to_string(&data.mounts).unwrap()),
-			);
-			networks.push(data.network);
 			outputs.push(
 				data.output
 					.as_ref()
 					.map(|output| serde_json::to_string(output).unwrap()),
 			);
 			retries.push(data.retry);
+			sandboxes.push(data.sandbox.as_ref().map(ToString::to_string));
 			started_ats.push(data.started_at);
 			statuses.push(data.status.to_string());
 			stderrs.push(data.stderr.as_ref().map(ToString::to_string));
@@ -129,10 +125,9 @@ impl Server {
 					finished_at,
 					host,
 					log,
-					mounts,
-					network,
 					output,
 					retry,
+					sandbox,
 					started_at,
 					status,
 					stderr,
@@ -159,14 +154,13 @@ impl Server {
 					unnest($15::text[]),
 					unnest($16::bool[]),
 					unnest($17::text[]),
-					unnest($18::bool[]),
-					unnest($19::int8[]),
+					unnest($18::int8[]),
+					unnest($19::text[]),
 					unnest($20::text[]),
 					unnest($21::text[]),
 					unnest($22::text[]),
-					unnest($23::text[]),
-					unnest($24::int8[]),
-					unnest($25::int8[])
+					unnest($23::int8[]),
+					unnest($24::int8[])
 				on conflict (id) do update set
 					actual_checksum = excluded.actual_checksum,
 					cacheable = excluded.cacheable,
@@ -181,10 +175,9 @@ impl Server {
 					finished_at = excluded.finished_at,
 					host = excluded.host,
 					log = excluded.log,
-					mounts = excluded.mounts,
-					network = excluded.network,
 					output = excluded.output,
 					retry = excluded.retry,
+					sandbox = excluded.sandbox,
 					started_at = excluded.started_at,
 					status = excluded.status,
 					stderr = excluded.stderr,
@@ -212,10 +205,9 @@ impl Server {
 					&finished_ats,
 					&hosts,
 					&logs,
-					&mounts,
-					&networks,
 					&outputs,
 					&retries,
+					&sandboxes,
 					&started_ats,
 					&statuses,
 					&stderrs,

@@ -18,10 +18,7 @@ where
 		}
 	}
 
-	fn delete_sandbox(
-		&self,
-		id: &tg::sandbox::Id,
-	) -> impl Future<Output = tg::Result<()>> {
+	fn delete_sandbox(&self, id: &tg::sandbox::Id) -> impl Future<Output = tg::Result<()>> {
 		match self {
 			tg::Either::Left(s) => s.delete_sandbox(id).left_future(),
 			tg::Either::Right(s) => s.delete_sandbox(id).right_future(),

@@ -21,7 +21,19 @@ pub use self::{
 };
 
 pub trait Handle:
-	Module + Object + Process + Pipe + Pty + Remote + Sandbox + Tag + User + Watch + Send + Sync + 'static
+	Module
+	+ Object
+	+ Process
+	+ Pipe
+	+ Pty
+	+ Remote
+	+ Sandbox
+	+ Tag
+	+ User
+	+ Watch
+	+ Send
+	+ Sync
+	+ 'static
 {
 	fn cache(
 		&self,
