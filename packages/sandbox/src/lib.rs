@@ -10,14 +10,10 @@ mod common;
 #[cfg(target_os = "macos")]
 pub mod darwin;
 
-#[cfg(target_os = "macos")]
-pub mod darwin2;
-
 #[cfg(target_os = "linux")]
 pub mod linux;
 
-#[cfg(target_os = "linux")]
-pub mod linux2;
+mod daemon;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Command {

@@ -90,11 +90,11 @@ impl Server {
 				let result;
 				#[cfg(target_os = "linux")]
 				{
-					result = crate::linux2::spawn(spawn.command);
+					result = crate::daemon::linux::spawn(spawn.command);
 				}
 				#[cfg(target_os = "macos")]
 				{
-					result = crate::darwin2::spawn(spawn.command);
+					result = crate::daemon::darwin::spawn(spawn.command);
 				}
 				let kind = result
 					.map(|pid| {
@@ -184,11 +184,11 @@ impl Server {
 	// Enter the sandbox. This is irreversible for the current process.
 	pub unsafe fn enter(options: &Options) -> tg::Result<()> {
 		#[cfg(target_os = "linux")]
-		crate::linux2::enter(&options)
+		crate::daemon::linux::enter(&options)
 			.map_err(|source| tg::error!(!source, "failed to enter the sandbox"))?;
 
 		#[cfg(target_os = "macos")]
-		crate::darwin2::enter(&options)
+		crate::daemon::darwin::enter(&options)
 			.map_err(|source| tg::error!(!source, "failed to enter the sandbox"))?;
 
 		Ok(())
