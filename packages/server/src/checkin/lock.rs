@@ -357,6 +357,7 @@ impl Server {
 						dependencies,
 						executable: file.executable,
 						module: file.module,
+						size: file.size,
 					};
 					(tg::graph::data::Node::File(data), children)
 				},

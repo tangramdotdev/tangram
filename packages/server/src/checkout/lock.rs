@@ -315,6 +315,7 @@ impl Server {
 			dependencies,
 			executable: node.executable,
 			module: node.module,
+			size: node.size,
 		};
 		let node = tg::graph::data::Node::File(file);
 		Ok(node)
@@ -535,6 +536,7 @@ impl Server {
 			dependencies,
 			executable: node.executable,
 			module: node.module,
+			size: node.size,
 		};
 		let node = tg::graph::data::Node::File(file);
 		Ok(node)

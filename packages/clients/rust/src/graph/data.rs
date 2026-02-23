@@ -155,6 +155,10 @@ pub struct File {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 3, default, skip_serializing_if = "Option::is_none")]
 	pub module: Option<tg::module::Kind>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 4, default, skip_serializing_if = "Option::is_none")]
+	pub size: Option<u64>,
 }
 
 #[serde_as]

@@ -189,6 +189,7 @@ pub struct File {
 	pub dependencies: BTreeMap<tg::Reference, Option<tg::graph::data::Dependency>>,
 	pub executable: bool,
 	pub module: Option<tg::module::Kind>,
+	pub size: Option<u64>,
 }
 
 #[derive(Clone, Debug)]

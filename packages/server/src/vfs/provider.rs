@@ -1036,7 +1036,9 @@ impl Provider {
 		match artifact {
 			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::File) => {
 				let (file, _) = self.file_node_inner(artifact).await?;
-				let size = if let Some(contents) = file.contents.as_ref() {
+				let size = if let Some(size) = file.size {
+					size
+				} else if let Some(contents) = file.contents.as_ref() {
 					self.blob_length_inner(contents).await?
 				} else {
 					0
@@ -1747,9 +1749,13 @@ impl Provider {
 		match artifact {
 			Some(artifact) if matches!(artifact.kind(), tg::artifact::Kind::File) => {
 				let (file, _) = self.file_node_sync_inner(artifact, transaction)?;
-				let size = file.contents.as_ref().map_or(Ok(0), |contents| {
-					self.blob_length_sync_inner(contents, transaction)
-				})?;
+				let size = if let Some(size) = file.size {
+					size
+				} else {
+					file.contents.as_ref().map_or(Ok(0), |contents| {
+						self.blob_length_sync_inner(contents, transaction)
+					})?
+				};
 				Ok(vfs::Attrs::new(vfs::FileType::File {
 					executable: file.executable,
 					size,
