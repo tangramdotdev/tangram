@@ -92,10 +92,7 @@ pub fn spawn(mut command: Command) -> std::io::Result<i32> {
 	let argv = std::iter::once(cstring(&command.executable))
 		.chain(command.trailing.iter().map(cstring))
 		.collect::<CStringVec>();
-	let cwd = command
-		.cwd
-		.clone()
-		.map(cstring);
+	let cwd = command.cwd.clone().map(cstring);
 	let envp = command
 		.env
 		.iter()
@@ -188,7 +185,7 @@ pub fn spawn(mut command: Command) -> std::io::Result<i32> {
 				let ret = libc::chdir(cwd.as_ptr());
 				if ret == -1 {
 					abort_errno!("failed to set the working directory {:?}", command.cwd);
-				}				
+				}
 			}
 			libc::execvpe(
 				executable.as_ptr(),

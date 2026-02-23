@@ -98,7 +98,6 @@ pub fn spawn(command: Command) -> std::io::Result<std::process::ExitCode> {
 			abort_errno!("failed to exec");
 		}
 	}
-	
 
 	// Wait for the child process to exit.
 	let mut status = 0;

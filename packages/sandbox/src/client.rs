@@ -4,7 +4,7 @@ use {
 		collections::BTreeMap,
 		os::{fd::RawFd, unix::io::AsRawFd},
 		path::PathBuf,
-		sync::{atomic::AtomicU32, Arc, Mutex},
+		sync::{Arc, Mutex, atomic::AtomicU32},
 	},
 	tangram_client::prelude::*,
 	tangram_futures::{read::Ext as _, write::Ext as _},

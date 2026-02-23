@@ -16,12 +16,9 @@ impl Cli {
 			.ok_or_else(|| tg::error!("this command requires a client, not a server"))?;
 
 		// Delete the sandbox.
-		client
-			.delete_sandbox(&args.sandbox)
-			.await
-			.map_err(|source| {
-				tg::error!(!source, id = %args.sandbox, "failed to delete the sandbox")
-			})?;
+		client.delete_sandbox(&args.sandbox).await.map_err(
+			|source| tg::error!(!source, id = %args.sandbox, "failed to delete the sandbox"),
+		)?;
 
 		Ok(())
 	}

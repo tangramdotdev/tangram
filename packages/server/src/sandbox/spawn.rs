@@ -176,7 +176,6 @@ impl Server {
 		Ok(tg::sandbox::spawn::Output { pid })
 	}
 
-
 	pub(crate) async fn handle_sandbox_spawn_request(
 		&self,
 		request: http::Request<BoxBody>,

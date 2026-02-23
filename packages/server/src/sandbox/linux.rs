@@ -59,9 +59,9 @@ impl Server {
 		if !root_mounted {
 			// Create the .tangram directory.
 			let path = temp.path().join(".tangram");
-			tokio::fs::create_dir_all(&path).await.map_err(|source| {
-				tg::error!(!source, path = %path.display(), "failed to create the data directory")
-			})?;
+			tokio::fs::create_dir_all(&path).await.map_err(
+				|source| tg::error!(!source, path = %path.display(), "failed to create the data directory"),
+			)?;
 
 			// Create /etc.
 			tokio::fs::create_dir_all(temp.path().join("lower/etc"))
@@ -141,8 +141,7 @@ impl Server {
 		// Add the overlay mounts.
 		for (merged, (lowerdirs, upperdir, workdir)) in &overlays {
 			args.push("--mount".to_owned());
-			args
-				.push(overlay(lowerdirs, upperdir, workdir, merged));
+			args.push(overlay(lowerdirs, upperdir, workdir, merged));
 		}
 
 		// Set the user.

@@ -8,6 +8,12 @@ pub struct Args {
 	pub options: super::Options,
 }
 
+#[cfg(target_os = "linux")]
+const RD_ONLY: u64 = libc::MS_RDONLY as _;
+
+#[cfg(target_os = "macos")]
+const RD_ONLY: u64 = libc::MNT_RDONLY as _;
+
 impl Cli {
 	pub async fn command_sandbox_create(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
@@ -24,7 +30,7 @@ impl Cli {
 				tg::Either::Left(tg::process::data::Mount {
 					source: mount.source.unwrap_or_else(|| Path::new("/").to_owned()),
 					target: mount.target.unwrap_or_else(|| Path::new("/").to_owned()),
-					readonly: mount.flags & libc::MS_RDONLY != 0,
+					readonly: mount.flags & RD_ONLY != 0,
 				})
 			})
 			.collect();

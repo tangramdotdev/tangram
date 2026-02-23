@@ -514,7 +514,7 @@ async fn run_inner(arg: Arg<'_>) -> tg::Result<u8> {
 		.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
 	drop(cmd);
 	let pid = child.id().unwrap().to_i32().unwrap();
-	
+
 	// Spawn the stdio task.
 	let stdio_task = tokio::spawn({
 		let server = server.clone();

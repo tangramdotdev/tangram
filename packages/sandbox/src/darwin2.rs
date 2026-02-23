@@ -16,13 +16,17 @@ use {
 pub fn enter(options: &Options) -> std::io::Result<()> {
 	let profile = create_sandbox_profile(&options);
 	unsafe {
-		let error = std::ptr::null_mut::<*const libc::c_char>();
-		let ret = sandbox_init(profile.as_ptr(), 0, error);
+		let mut error = std::ptr::null::<std::ffi::c_char>();
+		let ret = sandbox_init(profile.as_ptr(), 0, std::ptr::addr_of_mut!(error));
 		if ret != 0 {
-			let error = *error;
+			let error = error;
 			let message = CStr::from_ptr(error);
+			let result = std::io::Error::other(format!(
+				"failed to enter sandbox: {}",
+				message.to_string_lossy()
+			));
 			sandbox_free_error(error);
-			return Err(std::io::Error::other(format!("failed to enter sandbox: {message}")));
+			return Err(result);
 		}
 	}
 	Ok(())
@@ -93,7 +97,7 @@ pub fn spawn(command: Command) -> std::io::Result<i32> {
 	Ok(pid as _)
 }
 
-fn create_sandbox_profile(command: &Command) -> CString {
+fn create_sandbox_profile(options: &Options) -> CString {
 	let mut profile = String::new();
 	writedoc!(
 		profile,
@@ -103,7 +107,7 @@ fn create_sandbox_profile(command: &Command) -> CString {
 	)
 	.unwrap();
 
-	let root_mount = command.mounts.iter().any(|mount| {
+	let root_mount = options.mounts.iter().any(|mount| {
 		mount.source == mount.target
 			&& mount
 				.target
@@ -225,7 +229,7 @@ fn create_sandbox_profile(command: &Command) -> CString {
 	}
 
 	// Write the network profile.
-	if command.network {
+	if options.network {
 		writedoc!(
 			profile,
 			r#"
@@ -257,7 +261,7 @@ fn create_sandbox_profile(command: &Command) -> CString {
 		.unwrap();
 	}
 
-	for mount in &command.mounts {
+	for mount in &options.mounts {
 		if !root_mount {
 			let path = mount.source.as_ref().unwrap();
 			if (mount.flags & libc::MNT_RDONLY.to_u64().unwrap()) != 0 {
@@ -304,10 +308,11 @@ fn create_sandbox_profile(command: &Command) -> CString {
 			}
 		}
 	}
-
+	eprintln!("{profile}");
 	CString::new(profile).unwrap()
 }
 
+#[allow(dead_code)]
 fn kill_process_tree(pid: i32) {
 	let mut pids = vec![pid];
 	let mut i = 0;
@@ -332,7 +337,7 @@ fn kill_process_tree(pid: i32) {
 	}
 }
 
-unsafe extern "system" {
+unsafe extern "C" {
 	fn sandbox_init(
 		profile: *const libc::c_char,
 		flags: u64,

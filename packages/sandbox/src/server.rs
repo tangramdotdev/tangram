@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Options,
-		client::{Request, RequestKind, Response, ResponseKind, WaitResponse},
+		client::{Request, RequestKind, Response, ResponseKind, SpawnResponse, WaitResponse},
 	},
 	futures::future,
 	num::ToPrimitive as _,
@@ -86,10 +86,17 @@ impl Server {
 		sender: oneshot::Sender<tg::Result<Response>>,
 	) {
 		match request.kind {
-			#[cfg(target_os = "linux")]
 			RequestKind::Spawn(spawn) => {
-				use crate::{client::SpawnResponse, linux2};
-				let kind = dbg!(linux2::spawn(spawn.command))
+				let result;
+				#[cfg(target_os = "linux")]
+				{
+					result = crate::linux2::spawn(spawn.command);
+				}
+				#[cfg(target_os = "macos")]
+				{
+					result = crate::darwin2::spawn(spawn.command);
+				}
+				let kind = result
 					.map(|pid| {
 						ResponseKind::Spawn(SpawnResponse {
 							pid: Some(pid),
@@ -178,7 +185,13 @@ impl Server {
 	pub unsafe fn enter(options: &Options) -> tg::Result<()> {
 		#[cfg(target_os = "linux")]
 		crate::linux2::enter(&options)
-			.map_err(|source| tg::error!(!source, "failed to enter the sandbox"))
+			.map_err(|source| tg::error!(!source, "failed to enter the sandbox"))?;
+
+		#[cfg(target_os = "macos")]
+		crate::darwin2::enter(&options)
+			.map_err(|source| tg::error!(!source, "failed to enter the sandbox"))?;
+
+		Ok(())
 	}
 
 	pub async fn run(&self, path: PathBuf) -> tg::Result<()> {

@@ -20,6 +20,7 @@ pub fn cstring(s: impl AsRef<OsStr>) -> CString {
 	CString::new(s.as_ref().as_bytes()).unwrap()
 }
 
+#[allow(dead_code)]
 pub fn envstring(k: impl AsRef<OsStr>, v: impl AsRef<OsStr>) -> CString {
 	let string = format!(
 		"{}={}",

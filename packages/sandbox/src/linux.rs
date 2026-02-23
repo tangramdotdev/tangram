@@ -239,7 +239,9 @@ fn try_start(
 	Ok(())
 }
 
-pub(crate) fn get_user(name: Option<impl AsRef<OsStr>>) -> std::io::Result<(libc::uid_t, libc::gid_t)> {
+pub(crate) fn get_user(
+	name: Option<impl AsRef<OsStr>>,
+) -> std::io::Result<(libc::uid_t, libc::gid_t)> {
 	let Some(name) = name else {
 		unsafe {
 			let uid = libc::getuid();
@@ -257,7 +259,6 @@ pub(crate) fn get_user(name: Option<impl AsRef<OsStr>>) -> std::io::Result<(libc
 		Ok((uid, gid))
 	}
 }
-
 
 pub(crate) fn get_existing_mount_flags(path: &CString) -> std::io::Result<libc::c_ulong> {
 	const FLAGS: [(u64, u64); 7] = [

@@ -24,11 +24,7 @@ pub struct Output {
 }
 
 impl tg::Client {
-	pub async fn sandbox_spawn(
-		&self,
-		id: &tg::sandbox::Id,
-		arg: Arg,
-	) -> tg::Result<Output> {
+	pub async fn sandbox_spawn(&self, id: &tg::sandbox::Id, arg: Arg) -> tg::Result<Output> {
 		let method = http::Method::POST;
 		let uri = format!("/sandbox/{id}/spawn");
 		let request = http::request::Builder::default()

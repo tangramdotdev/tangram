@@ -50,10 +50,7 @@ pub(super) fn main(mut context: Context) -> ! {
 	}
 }
 
-pub(crate) fn mount_and_chroot(
-	mounts: &mut [crate::linux::Mount],
-	root: &CString,
-) {
+pub(crate) fn mount_and_chroot(mounts: &mut [crate::linux::Mount], root: &CString) {
 	unsafe {
 		for mount in mounts {
 			// Create the mount point.
@@ -110,7 +107,7 @@ pub(crate) fn mount_and_chroot(
 		if ret == -1 {
 			abort_errno!("failed to change directory to the root");
 		}
-	
+
 		// Pivot the root.
 		let ret = libc::syscall(libc::SYS_pivot_root, c".".as_ptr(), c".".as_ptr());
 		if ret == -1 {

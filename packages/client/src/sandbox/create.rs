@@ -16,7 +16,7 @@ pub struct Arg {
 	pub network: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub user: Option<String>
+	pub user: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -25,10 +25,7 @@ pub struct Output {
 }
 
 impl tg::Client {
-	pub async fn create_sandbox(
-		&self,
-		arg: Arg,
-	) -> tg::Result<tg::sandbox::create::Output> {
+	pub async fn create_sandbox(&self, arg: Arg) -> tg::Result<tg::sandbox::create::Output> {
 		let method = http::Method::POST;
 		let uri = "/sandbox/create";
 		let request = http::request::Builder::default()

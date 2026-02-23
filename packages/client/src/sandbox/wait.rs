@@ -21,11 +21,7 @@ pub enum Event {
 }
 
 impl tg::Client {
-	pub async fn sandbox_wait(
-		&self,
-		id: &tg::sandbox::Id,
-		arg: Arg,
-	) -> tg::Result<Output> {
+	pub async fn sandbox_wait(&self, id: &tg::sandbox::Id, arg: Arg) -> tg::Result<Output> {
 		let future = self
 			.try_sandbox_wait_future(id, arg)
 			.await?
@@ -40,9 +36,7 @@ impl tg::Client {
 		&self,
 		id: &tg::sandbox::Id,
 		arg: Arg,
-	) -> tg::Result<
-		Option<impl Future<Output = tg::Result<Option<Output>>> + Send + 'static>,
-	> {
+	) -> tg::Result<Option<impl Future<Output = tg::Result<Option<Output>>> + Send + 'static>> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(&arg)
 			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
