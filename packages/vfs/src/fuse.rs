@@ -141,6 +141,12 @@ struct AsyncResponse {
 	result: Result<Option<Response>>,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct Features {
+	no_opendir_support: bool,
+	over_io_uring: bool,
+}
+
 #[repr(C)]
 struct IoUringSqePrefix {
 	opcode: u8,
@@ -196,50 +202,100 @@ where
 			.inspect_err(|error| tracing::error!(%error, "failed to mount"))?;
 
 		// Complete INIT before entering io_uring command mode.
-		let no_opendir_support = Self::init_handshake(fd.as_ref())
+		let features = Self::init_handshake(fd.as_ref())
 			.map_err(|error| Error::other(format!("failed to complete init handshake: {error}")))?;
 
 		// Create the server.
 		let server = Self(Arc::new(Inner {
 			provider,
-			no_opendir_support,
+			no_opendir_support: features.no_opendir_support,
 			passthrough_backing_ids: Mutex::new(HashMap::default()),
 			passthrough_permission_warning_emitted: AtomicBool::new(false),
 			task: Mutex::new(None),
 		}));
 
-		// Create a primary SQPOLL ring. Thread rings attach to this shared backend.
-		let mut sqpoll_builder = IoUring::<io_uring::squeue::Entry128>::builder();
-		sqpoll_builder
-			.setup_sqpoll(SQPOLL_IDLE_MS)
-			.setup_no_sqarray();
-		let sqpoll_ring = sqpoll_builder
-			.build(IO_URING_ENTRIES)
-			.map_err(|error| Error::other(format!("failed to build sqpoll ring: {error}")))?;
-		let sqpoll_wq_fd = sqpoll_ring.as_raw_fd();
-
-		// Create threads.
-		let thread_count = std::thread::available_parallelism()
-			.map(std::num::NonZero::get)
-			.unwrap_or(1);
 		let runtime = tokio::runtime::Handle::current();
-		let mut thread_handles = Vec::with_capacity(thread_count);
-		for thread_id in 0..thread_count {
+		let mut thread_handles = Vec::new();
+		let mut sqpoll_ring = None;
+		if features.over_io_uring {
+			// Create a primary SQPOLL ring. Thread rings attach to this shared backend.
+			let mut sqpoll_builder = IoUring::<io_uring::squeue::Entry128>::builder();
+			sqpoll_builder
+				.setup_sqpoll(SQPOLL_IDLE_MS)
+				.setup_no_sqarray();
+			let ring = sqpoll_builder
+				.build(IO_URING_ENTRIES)
+				.map_err(|error| Error::other(format!("failed to build sqpoll ring: {error}")))?;
+			let sqpoll_wq_fd = ring.as_raw_fd();
+			sqpoll_ring = Some(ring);
+
+			// Create threads.
+			let preferred_thread_count = std::thread::available_parallelism()
+				.map(std::num::NonZero::get)
+				.unwrap_or(1);
+			let mut thread_count = preferred_thread_count;
+			let mut first_cloned_fd = None;
+			if preferred_thread_count > 1 {
+				match Self::clone_thread_fd(fd.as_ref()) {
+					Ok(cloned_fd) => {
+						first_cloned_fd = Some(cloned_fd);
+					},
+					Err(error) if Self::is_clone_not_supported_error(&error) => {
+						thread_count = 1;
+						tracing::warn!(
+							?error,
+							"fuse fd cloning is not supported by this kernel; falling back to a single thread"
+						);
+					},
+					Err(error) => {
+						return Err(Error::other(format!(
+							"failed to clone the thread fuse fd: {error}"
+						)));
+					},
+				}
+			}
+
+			for thread_id in 0..thread_count {
+				let server = server.clone();
+				let runtime = runtime.clone();
+				let thread_fd: Arc<OwnedFd> = if thread_id == 0 {
+					fd.clone()
+				} else if thread_id == 1 {
+					Arc::new(first_cloned_fd.take().unwrap())
+				} else {
+					let thread_fd = Self::clone_thread_fd(fd.as_ref()).map_err(|error| {
+						Error::other(format!(
+							"failed to clone the thread fuse fd {thread_id}: {error}"
+						))
+					})?;
+					Arc::new(thread_fd)
+				};
+				let thread = std::thread::spawn(move || {
+					if let Err(error) =
+						server.thread_loop(thread_id, thread_fd.as_ref(), &runtime, sqpoll_wq_fd)
+					{
+						if error.raw_os_error() == Some(libc::ENOTCONN) {
+							tracing::debug!(%error, %thread_id, "thread exited during shutdown");
+						} else {
+							tracing::error!(%error, %thread_id, "thread failed");
+						}
+					}
+				});
+				thread_handles.push(thread);
+			}
+		} else {
+			tracing::warn!(
+				"fuse over io_uring is unavailable; falling back to legacy fuse read/write transport"
+			);
 			let server = server.clone();
 			let runtime = runtime.clone();
-			let thread_fd = Self::clone_thread_fd(fd.as_ref()).map_err(|error| {
-				Error::other(format!(
-					"failed to clone the thread fuse fd {thread_id}: {error}"
-				))
-			})?;
+			let thread_fd = fd.clone();
 			let thread = std::thread::spawn(move || {
-				if let Err(error) =
-					server.thread_loop(thread_id, &thread_fd, &runtime, sqpoll_wq_fd)
-				{
+				if let Err(error) = server.thread_loop_legacy(thread_fd.as_ref(), &runtime) {
 					if error.raw_os_error() == Some(libc::ENOTCONN) {
-						tracing::debug!(%error, %thread_id, "thread exited during shutdown");
+						tracing::debug!(%error, "thread exited during shutdown");
 					} else {
-						tracing::error!(%error, %thread_id, "thread failed");
+						tracing::error!(%error, "thread failed");
 					}
 				}
 			});
@@ -353,10 +409,9 @@ where
 		task.wait().await.unwrap();
 	}
 
-	fn init_handshake(fd: &OwnedFd) -> Result<bool> {
+	fn init_handshake(fd: &OwnedFd) -> Result<Features> {
 		const REQUIRED_FLAGS: u32 = sys::FUSE_INIT_EXT | sys::FUSE_MAX_PAGES;
-		// The server uses the FUSE over io_uring transport and cannot run without it.
-		const REQUIRED_FLAGS2: u32 = (sys::FUSE_OVER_IO_URING >> 32) as u32;
+		const REQUIRED_FLAGS2: u32 = 0;
 		const NEGOTIATED_FLAGS: u32 = sys::FUSE_ASYNC_READ
 			| sys::FUSE_DO_READDIRPLUS
 			| sys::FUSE_PARALLEL_DIROPS
@@ -436,8 +491,18 @@ where
 			let header = header.as_bytes();
 			let iov = [IoSlice::new(header), IoSlice::new(data)];
 			rustix::io::writev(fd, &iov).map_err(std::io::Error::from)?;
-			return Ok((flags & sys::FUSE_NO_OPENDIR_SUPPORT) != 0);
+			return Ok(Features {
+				no_opendir_support: (flags & sys::FUSE_NO_OPENDIR_SUPPORT) != 0,
+				over_io_uring: (flags2 & ((sys::FUSE_OVER_IO_URING >> 32) as u32)) != 0,
+			});
 		}
+	}
+
+	fn is_clone_not_supported_error(error: &Error) -> bool {
+		matches!(
+			error.raw_os_error(),
+			Some(libc::ENOSYS | libc::ENOTTY | libc::EINVAL)
+		)
 	}
 
 	fn clone_thread_fd(fd: &OwnedFd) -> Result<OwnedFd> {
@@ -680,6 +745,58 @@ where
 		}
 	}
 
+	fn thread_loop_legacy(&self, fd: &OwnedFd, runtime: &tokio::runtime::Handle) -> Result<()> {
+		let mut buffer = vec![0u8; REQUEST_BUFFER_SIZE];
+		let mut batch_results = Vec::<Result<Option<Response>>>::with_capacity(1);
+		loop {
+			let size = loop {
+				match rustix::io::read(fd, &mut buffer) {
+					Ok(size) => break size,
+					Err(Errno::INTR) => {},
+					Err(Errno::NOTCONN) => return Ok(()),
+					Err(error) => return Err(error.into()),
+				}
+			};
+			if size == 0 {
+				return Ok(());
+			}
+			let size = size.to_usize().unwrap();
+			let request = Self::deserialize_request(&buffer[..size])?;
+			let unique = request.header.unique;
+			let opcode = request.header.opcode;
+			let pending_request = PendingRequest {
+				slot: 0,
+				request: request.clone(),
+			};
+			self.handle_request_sync_batch(fd.as_raw_fd(), &[pending_request], &mut batch_results)?;
+			let result = batch_results
+				.pop()
+				.ok_or_else(|| Error::other("missing sync batch result"))?;
+			let result = match result {
+				Ok(None) => runtime.block_on(self.handle_request(request)),
+				Err(error)
+					if error.raw_os_error() == Some(libc::ENOSYS)
+						&& opcode != sys::fuse_opcode_FUSE_OPENDIR =>
+				{
+					runtime.block_on(self.handle_request(request))
+				},
+				result => result,
+			};
+			if let Err(error) = &result {
+				let error_code = error.raw_os_error().unwrap_or(libc::ENOSYS);
+				if !Self::is_expected_error(opcode, error_code) {
+					tracing::error!(?error, ?opcode, "unexpected error");
+				}
+			}
+			if let Err(error) = Self::write_response(fd.as_raw_fd(), unique, result) {
+				match error.raw_os_error() {
+					Some(libc::ENOENT | libc::EINTR | libc::EAGAIN) => {},
+					_ => return Err(error),
+				}
+			}
+		}
+	}
+
 	fn build_fuse_uring_cmd_entry(
 		fd: types::Fixed,
 		cmd_op: u32,
@@ -740,6 +857,38 @@ where
 			return Err(Error::other(
 				"failed to submit uring commit and fetch command",
 			));
+		}
+		Ok(())
+	}
+
+	fn write_response(fd: RawFd, unique: u64, result: Result<Option<Response>>) -> Result<()> {
+		let mut payload_storage = None;
+		let error = match result {
+			Ok(Some(response)) => {
+				payload_storage = Some(Self::response_bytes(&response).to_vec());
+				0
+			},
+			Ok(None) => 0,
+			Err(error) => error.raw_os_error().unwrap_or(libc::ENOSYS),
+		};
+		let payload = payload_storage.as_deref().unwrap_or(&[]);
+		let len = size_of::<fuse_out_header>() + payload.len();
+		let header = fuse_out_header {
+			unique,
+			len: len.to_u32().unwrap(),
+			error: -error,
+		};
+		let iov = [IoSlice::new(header.as_bytes()), IoSlice::new(payload)];
+		let fd = unsafe { BorrowedFd::borrow_raw(fd) };
+		let written = loop {
+			match rustix::io::writev(fd, &iov) {
+				Ok(written) => break written,
+				Err(Errno::INTR) => {},
+				Err(error) => return Err(error.into()),
+			}
+		};
+		if written != len {
+			return Err(Error::other("failed to write a complete response"));
 		}
 		Ok(())
 	}
