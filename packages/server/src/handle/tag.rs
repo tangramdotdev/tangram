@@ -1,10 +1,10 @@
 use {
 	super::ServerWithContext,
-	crate::{Context, Owned, Server},
+	crate::{Context, Server, Shared},
 	tangram_client::prelude::*,
 };
 
-impl tg::handle::Tag for Owned {
+impl tg::handle::Tag for Shared {
 	async fn list_tags(&self, arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
 		self.0.list_tags(arg).await
 	}

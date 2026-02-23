@@ -946,7 +946,7 @@ where
 		let mut reply = Vec::with_capacity(entries.len());
 		let mut count = 0;
 		let mut eof = true;
-		for (cookie, (name, id)) in entries
+		for (cookie, (name, id, _)) in entries
 			.into_iter()
 			.enumerate()
 			.skip(arg.cookie.to_usize().unwrap())

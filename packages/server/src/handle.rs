@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Owned, Server},
+	crate::{Context, Server, Shared},
 	futures::{Stream, stream::BoxStream},
 	tangram_client::prelude::*,
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
@@ -15,7 +15,7 @@ mod tag;
 mod user;
 mod watch;
 
-impl tg::Handle for Owned {
+impl tg::Handle for Shared {
 	async fn cache(
 		&self,
 		arg: tg::cache::Arg,

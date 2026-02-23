@@ -73,6 +73,94 @@ impl Provider {
 }
 
 impl tangram_vfs::Provider for Provider {
+	fn handle_batch(
+		&self,
+		requests: Vec<tangram_vfs::Request>,
+	) -> impl std::future::Future<Output = Vec<Result<tangram_vfs::Response>>> + Send {
+		async move {
+			let mut responses = Vec::with_capacity(requests.len());
+			for request in requests {
+				let response = match request {
+					tangram_vfs::Request::Close { handle } => {
+						self.close(handle).await;
+						Ok(tangram_vfs::Response::Unit)
+					},
+					tangram_vfs::Request::Forget { .. } | tangram_vfs::Request::Remember { .. } => {
+						Ok(tangram_vfs::Response::Unit)
+					},
+					tangram_vfs::Request::GetAttr { id } => self
+						.getattr(id)
+						.await
+						.map(|attrs| tangram_vfs::Response::GetAttr { attrs }),
+					tangram_vfs::Request::GetXattr { id, name } => self
+						.getxattr(id, &name)
+						.await
+						.map(|value| tangram_vfs::Response::GetXattr { value }),
+					tangram_vfs::Request::ListXattrs { id } => self
+						.listxattrs(id)
+						.await
+						.map(|names| tangram_vfs::Response::ListXattrs { names }),
+					tangram_vfs::Request::Lookup { id, name } => self
+						.lookup(id, &name)
+						.await
+						.map(|id| tangram_vfs::Response::Lookup { id }),
+					tangram_vfs::Request::LookupParent { id } => self
+						.lookup_parent(id)
+						.await
+						.map(|id| tangram_vfs::Response::LookupParent { id }),
+					tangram_vfs::Request::Open { id } => {
+						self.open(id)
+							.await
+							.map(|handle| tangram_vfs::Response::Open {
+								handle,
+								backing_fd: None,
+							})
+					},
+					tangram_vfs::Request::OpenDir { id } => self
+						.opendir(id)
+						.await
+						.map(|handle| tangram_vfs::Response::OpenDir { handle }),
+					tangram_vfs::Request::Read {
+						handle,
+						position,
+						length,
+					} => self
+						.read(handle, position, length)
+						.await
+						.map(|bytes| tangram_vfs::Response::Read { bytes }),
+					tangram_vfs::Request::ReadDir { handle } => self
+						.readdir(handle)
+						.await
+						.map(|entries| tangram_vfs::Response::ReadDir { entries }),
+					tangram_vfs::Request::ReadDirPlus { .. } => {
+						Err(Error::from_raw_os_error(libc::ENOSYS))
+					},
+					tangram_vfs::Request::ReadLink { id } => self
+						.readlink(id)
+						.await
+						.map(|target| tangram_vfs::Response::ReadLink { target }),
+				};
+				responses.push(response);
+			}
+			responses
+		}
+	}
+
+	fn handle_batch_sync(
+		&self,
+		requests: Vec<tangram_vfs::Request>,
+	) -> Vec<Result<tangram_vfs::Response>> {
+		requests
+			.into_iter()
+			.map(|request| match request {
+				tangram_vfs::Request::Close { .. }
+				| tangram_vfs::Request::Forget { .. }
+				| tangram_vfs::Request::Remember { .. } => Ok(tangram_vfs::Response::Unit),
+				_ => Err(Error::from_raw_os_error(libc::ENOSYS)),
+			})
+			.collect()
+	}
+
 	async fn lookup(&self, handle: u64, name: &str) -> Result<Option<u64>> {
 		tracing::debug!(?handle, ?name, "lookup");
 		if handle != ROOT_NODE_ID {
@@ -168,15 +256,23 @@ impl tangram_vfs::Provider for Provider {
 		Ok(id)
 	}
 
-	async fn readdir(&self, handle: u64) -> Result<Vec<(String, u64)>> {
+	async fn readdir(&self, handle: u64) -> Result<Vec<(String, u64, tangram_vfs::DirEntryType)>> {
 		tracing::debug!(?handle, "readdir");
 		let Some(handle) = self.open_dirs.get(&handle) else {
 			return Err(Error::from_raw_os_error(libc::EIO));
 		};
 		let contents = if handle.dir == ROOT_NODE_ID {
 			vec![
-				(HELLO_PATH.to_owned(), HELLO_NODE_ID),
-				(LINK_PATH.to_owned(), LINK_NODE_ID),
+				(
+					HELLO_PATH.to_owned(),
+					HELLO_NODE_ID,
+					tangram_vfs::DirEntryType::File,
+				),
+				(
+					LINK_PATH.to_owned(),
+					LINK_NODE_ID,
+					tangram_vfs::DirEntryType::Symlink,
+				),
 			]
 		} else {
 			Vec::new()
@@ -214,7 +310,9 @@ async fn main() -> Result<()> {
 
 async fn fuse(path: PathBuf) -> Result<()> {
 	let provider = Provider::new();
-	let server = tangram_vfs::fuse::Server::start(provider, &path).await?;
+	let server =
+		tangram_vfs::fuse::Server::start(provider, &path, tangram_vfs::fuse::Options::default())
+			.await?;
 	tokio::spawn({
 		let server = server.clone();
 		async move {
