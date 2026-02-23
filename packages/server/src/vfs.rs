@@ -10,6 +10,7 @@ pub enum Kind {
 
 #[derive(Clone)]
 pub enum Server {
+	#[cfg(target_os = "linux")]
 	Fuse(vfs::fuse::Server<Provider>),
 	Nfs(vfs::nfs::Server<Provider>),
 }
@@ -34,22 +35,33 @@ impl Server {
 
 		let vfs = match kind {
 			Kind::Fuse => {
-				let options = vfs::fuse::Options {
-					io: match options.io {
-						crate::config::VfsIo::Auto => vfs::fuse::Io::Auto,
-						crate::config::VfsIo::IoUring => vfs::fuse::Io::IoUring,
-						crate::config::VfsIo::ReadWrite => vfs::fuse::Io::ReadWrite,
-					},
-					passthrough: match options.passthrough {
-						crate::config::VfsPassthrough::Auto => vfs::fuse::Passthrough::Auto,
-						crate::config::VfsPassthrough::Disabled => vfs::fuse::Passthrough::Disabled,
-						crate::config::VfsPassthrough::Required => vfs::fuse::Passthrough::Required,
-					},
-				};
-				let fuse = vfs::fuse::Server::start(provider, path, options)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to start the FUSE server"))?;
-				Server::Fuse(fuse)
+				#[cfg(target_os = "linux")]
+				{
+					let options = vfs::fuse::Options {
+						io: match options.io {
+							crate::config::VfsIo::Auto => vfs::fuse::Io::Auto,
+							crate::config::VfsIo::IoUring => vfs::fuse::Io::IoUring,
+							crate::config::VfsIo::ReadWrite => vfs::fuse::Io::ReadWrite,
+						},
+						passthrough: match options.passthrough {
+							crate::config::VfsPassthrough::Auto => vfs::fuse::Passthrough::Auto,
+							crate::config::VfsPassthrough::Disabled => {
+								vfs::fuse::Passthrough::Disabled
+							},
+							crate::config::VfsPassthrough::Required => {
+								vfs::fuse::Passthrough::Required
+							},
+						},
+					};
+					let fuse = vfs::fuse::Server::start(provider, path, options)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to start the FUSE server"))?;
+					Server::Fuse(fuse)
+				}
+				#[cfg(not(target_os = "linux"))]
+				{
+					return Err(tg::error!("fuse is only supported on linux"));
+				}
 			},
 			Kind::Nfs => {
 				let port = 8476;
@@ -85,9 +97,19 @@ impl Server {
 
 	pub async fn unmount(kind: Kind, path: &Path) -> tg::Result<()> {
 		match kind {
-			Kind::Fuse => vfs::fuse::Server::<Provider>::unmount(path)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to unmount"))?,
+			Kind::Fuse => {
+				#[cfg(target_os = "linux")]
+				{
+					vfs::fuse::Server::<Provider>::unmount(path)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to unmount"))?;
+				}
+				#[cfg(not(target_os = "linux"))]
+				{
+					let _ = path;
+					return Err(tg::error!("fuse is only supported on linux"));
+				}
+			},
 			Kind::Nfs => vfs::nfs::unmount(path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to unmount"))?,
@@ -97,6 +119,7 @@ impl Server {
 
 	pub fn stop(&self) {
 		match self {
+			#[cfg(target_os = "linux")]
 			Server::Fuse(server) => server.stop(),
 			Server::Nfs(server) => server.stop(),
 		}
@@ -104,6 +127,7 @@ impl Server {
 
 	pub async fn wait(self) {
 		match self {
+			#[cfg(target_os = "linux")]
 			Server::Fuse(server) => {
 				server.wait().await;
 			},

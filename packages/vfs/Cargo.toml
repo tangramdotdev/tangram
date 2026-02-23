@@ -22,7 +22,6 @@ bytes = { workspace = true }
 crossbeam-channel = { workspace = true }
 dashmap = { workspace = true }
 futures = { workspace = true }
-io-uring = { workspace = true }
 libc = { workspace = true }
 num = { workspace = true }
 rustix = { workspace = true, features = ["event", "net", "process"] }
@@ -32,3 +31,6 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 zerocopy = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+io-uring = { workspace = true }

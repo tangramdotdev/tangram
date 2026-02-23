@@ -19,10 +19,12 @@ struct Args {
 
 #[derive(Clone, Debug, clap::Subcommand)]
 enum Command {
+	#[cfg(target_os = "linux")]
 	Fuse(Fuse),
 	Nfs(Nfs),
 }
 
+#[cfg(target_os = "linux")]
 #[derive(Clone, Debug, clap::Args)]
 pub struct Fuse {
 	#[arg(index = 1)]
@@ -302,12 +304,14 @@ async fn main() -> Result<()> {
 	tracing_subscriber::registry().with(layer).init();
 	let Args { command } = <Args as clap::Parser>::parse();
 	match command {
+		#[cfg(target_os = "linux")]
 		Command::Fuse(Fuse { path }) => fuse(path).await?,
 		Command::Nfs(Nfs { host, port, path }) => nfs(path, host, port).await?,
 	}
 	Ok(())
 }
 
+#[cfg(target_os = "linux")]
 async fn fuse(path: PathBuf) -> Result<()> {
 	let provider = Provider::new();
 	let server =

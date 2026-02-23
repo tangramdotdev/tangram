@@ -1,5 +1,6 @@
 use {bytes::Bytes, futures::Future, std::io::Error, std::os::fd::OwnedFd};
 
+#[cfg(target_os = "linux")]
 pub mod fuse;
 pub mod nfs;
 
