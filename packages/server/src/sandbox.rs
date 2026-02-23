@@ -6,6 +6,9 @@ use {
 
 pub mod create;
 pub mod delete;
+#[cfg(target_os = "macos")]
+mod darwin;
+#[cfg(target_os = "linux")]
 mod linux;
 pub mod spawn;
 pub mod wait;
