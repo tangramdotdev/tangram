@@ -10,7 +10,7 @@ use {
 #[group(skip)]
 pub struct Args {
 	#[arg(long)]
-	pub root: PathBuf,
+	pub root: Option<PathBuf>,
 
 	#[command(flatten)]
 	pub options: super::Options,
@@ -53,7 +53,7 @@ impl Cli {
 
 		// Create the sandbox options.
 		let options = sandbox::Options {
-			chroot: Some(args.root),
+			chroot: args.root,
 			hostname: args.options.hostname,
 			mounts: args
 				.options
@@ -79,22 +79,17 @@ impl Cli {
 			.enable_io()
 			.build()
 			.map_err(|source| tg::error!(!source, "failed to start tokio runtime"))?;
+
+		// Run the server
 		runtime.block_on(async move {
 			let server = sandbox::server::Server::new()
 				.map_err(|source| tg::error!(!source, "failed to start the server"))?;
-			eprintln!("created the server");
-
-			// Bind the socket.
 			let listener = sandbox::server::Server::bind(&args.socket)?;
-			eprintln!("bound the listener");
-
-			// Signal readiness if a ready fd was provided.
 			if let Some(fd) = args.ready_fd {
 				let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
 				file.write_all(&[0x00])
 					.map_err(|source| tg::error!(!source, "failed to write the ready signal"))?;
 				drop(file);
-				eprintln!("signalled ready");
 			}
 
 			// Serve.

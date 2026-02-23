@@ -1,6 +1,6 @@
 use {
 	crate::{Context, Server},
-	std::os::fd::{AsFd as _, AsRawFd as _},
+	std::{os::fd::{AsFd as _, AsRawFd as _}, path::PathBuf},
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_sandbox as sandbox,
@@ -21,7 +21,18 @@ impl Server {
 			.get(id)
 			.ok_or_else(|| tg::error!("sandbox not found"))?;
 		let client = sandbox.client.clone();
-		let root = sandbox.root.clone();
+		let cwd: Option<PathBuf>;
+		let chroot: Option<PathBuf>;
+		#[cfg(target_os = "linux")]
+		{
+			chroot = Some(sandbox.root.clone());
+			cwd = None;
+		}
+		#[cfg(target_os = "macos")]
+		{
+			chroot = None;
+			cwd = Some(sandbox.root.clone());
+		}
 		drop(sandbox);
 
 		// Collect FDs that need to be kept alive until after the spawn call.
@@ -150,8 +161,8 @@ impl Server {
 
 		// Create the command.
 		let command = sandbox::Command {
-			chroot: Some(root),
-			cwd: None,
+			chroot,
+			cwd,
 			env: Vec::new(),
 			executable: arg.command,
 			hostname: None,

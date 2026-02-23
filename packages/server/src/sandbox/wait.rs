@@ -22,7 +22,6 @@ impl Server {
 			impl Future<Output = tg::Result<Option<tg::sandbox::wait::Output>>> + Send + 'static + use<>,
 		>,
 	> {
-		eprintln!("waiting {id} {arg:?}");
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
@@ -36,7 +35,7 @@ impl Server {
 				.wait(arg.pid)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to wait for the process"))?;
-			dbg!(Ok(Some(tg::sandbox::wait::Output { status })))
+			Ok(Some(tg::sandbox::wait::Output { status }))
 		};
 		Ok(Some(future))
 	}

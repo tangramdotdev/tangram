@@ -308,7 +308,7 @@ fn create_sandbox_profile(options: &Options) -> CString {
 			}
 		}
 	}
-	eprintln!("{profile}");
+
 	CString::new(profile).unwrap()
 }
 
