@@ -198,11 +198,18 @@ impl Server {
 					.collect::<tg::Result<_>>()?;
 				let executable = file.executable;
 				let module = file.module;
+				let size = file.size.or_else(|| {
+					file.contents.as_ref().and_then(|contents| match contents {
+						Contents::Write(output) => Some(output.length),
+						Contents::Id { .. } => None,
+					})
+				});
 				let data = tg::file::data::Node {
 					contents: Some(contents),
 					dependencies,
 					executable,
 					module,
+					size,
 				};
 				tg::file::Data::Node(data).into()
 			},
@@ -470,11 +477,18 @@ impl Server {
 					.collect::<tg::Result<_>>()?;
 				let executable = file.executable;
 				let module = file.module;
+				let size = file.size.or_else(|| {
+					file.contents.as_ref().and_then(|contents| match contents {
+						Contents::Write(output) => Some(output.length),
+						Contents::Id { .. } => None,
+					})
+				});
 				let data = tg::graph::data::File {
 					contents: Some(contents),
 					dependencies,
 					executable,
 					module,
+					size,
 				};
 				tg::graph::data::Node::File(data)
 			},
@@ -911,6 +925,12 @@ impl Server {
 					dependencies,
 					executable: file.executable,
 					module: file.module,
+					size: file.size.or_else(|| {
+						file.contents.as_ref().and_then(|contents| match contents {
+							Contents::Write(output) => Some(output.length),
+							Contents::Id { .. } => None,
+						})
+					}),
 				})
 			},
 			Variant::Directory(directory) => {
