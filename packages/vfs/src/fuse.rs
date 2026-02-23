@@ -66,6 +66,7 @@ pub struct Inner<P> {
 	provider: P,
 	no_opendir_support: bool,
 	passthrough_backing_ids: Mutex<HashMap<u64, u32>>,
+	passthrough_permission_warning_emitted: AtomicBool,
 	task: Mutex<Option<tangram_futures::task::Shared<()>>>,
 }
 
@@ -203,6 +204,7 @@ where
 			provider,
 			no_opendir_support,
 			passthrough_backing_ids: Mutex::new(HashMap::default()),
+			passthrough_permission_warning_emitted: AtomicBool::new(false),
 			task: Mutex::new(None),
 		}));
 
@@ -369,6 +371,8 @@ where
 			((sys::FUSE_PASSTHROUGH | sys::FUSE_OVER_IO_URING) >> 32) as u32;
 		const MAX_PAGES: u16 = 256;
 		const MAP_ALIGNMENT: u16 = 12;
+		// The kernel requires a non-zero max_stack_depth to enable FUSE_PASSTHROUGH.
+		const MAX_STACK_DEPTH: u32 = 2;
 
 		let mut buffer = vec![0u8; REQUEST_BUFFER_SIZE];
 		loop {
@@ -417,7 +421,7 @@ where
 				max_pages: MAX_PAGES,
 				map_alignment: MAP_ALIGNMENT,
 				flags2,
-				max_stack_depth: 0,
+				max_stack_depth: MAX_STACK_DEPTH,
 				request_timeout: 0,
 				unused: [0; 11],
 			};
@@ -1296,10 +1300,19 @@ where
 				if let Some(backing_fd) = backing_fd {
 					match self.register_passthrough_backing(fd, handle, &backing_fd) {
 						Ok(id) => {
-							open_flags |= sys::FOPEN_PASSTHROUGH;
+							open_flags = sys::FOPEN_PASSTHROUGH;
 							backing_id = id;
 						},
 						Err(error) => {
+							if error.raw_os_error() == Some(libc::EPERM)
+								&& !self
+									.passthrough_permission_warning_emitted
+									.swap(true, Ordering::Relaxed)
+							{
+								tracing::warn!(
+									"failed to register a passthrough backing due to missing CAP_SYS_ADMIN; falling back to regular fuse I/O"
+								);
+							}
 							tracing::trace!(
 								?error,
 								fh = handle,
