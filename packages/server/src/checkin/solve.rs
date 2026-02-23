@@ -892,11 +892,18 @@ impl Server {
 					.collect();
 				let executable = file.executable;
 				let module = file.module;
+				let size = file.size.or_else(|| {
+					contents.as_ref().and_then(|contents| match contents {
+						Contents::Write(output) => Some(output.length),
+						Contents::Id { .. } => None,
+					})
+				});
 				Variant::File(File {
 					contents,
 					dependencies,
 					executable,
 					module,
+					size,
 				})
 			},
 			tg::artifact::Data::Symlink(tg::symlink::Data::Node(symlink)) => {
@@ -1062,11 +1069,18 @@ impl Server {
 						);
 					}
 				}
+				let size = file.size.or_else(|| {
+					contents.as_ref().and_then(|contents| match contents {
+						Contents::Write(output) => Some(output.length),
+						Contents::Id { .. } => None,
+					})
+				});
 				Variant::File(File {
 					contents,
 					dependencies,
 					executable: file.executable,
 					module: file.module,
+					size,
 				})
 			},
 

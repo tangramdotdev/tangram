@@ -405,6 +405,7 @@ fn directory_node_entry(input: &mut Input) -> ModalResult<tg::graph::Edge<tg::Ar
 	alt((
 		string.map(|s| {
 			let bytes = Bytes::from(s.into_bytes());
+			let size = bytes.len().to_u64().unwrap();
 			let leaf = tg::blob::object::Leaf { bytes };
 			let blob_object = tg::blob::Object::Leaf(leaf);
 			let blob = tg::Blob::with_object(blob_object);
@@ -413,6 +414,7 @@ fn directory_node_entry(input: &mut Input) -> ModalResult<tg::graph::Edge<tg::Ar
 				dependencies: BTreeMap::new(),
 				executable: false,
 				module: None,
+				size: Some(size),
 			};
 			let object = tg::file::Object::Node(node);
 			let file = tg::File::with_object(object);
@@ -439,6 +441,7 @@ fn file_string(input: &mut Input) -> ModalResult<tg::Object> {
 	string
 		.map(|s| {
 			let bytes = Bytes::from(s.into_bytes());
+			let size = bytes.len().to_u64().unwrap();
 			let leaf = tg::blob::object::Leaf { bytes };
 			let blob_object = tg::blob::Object::Leaf(leaf);
 			let blob = tg::Blob::with_object(blob_object);
@@ -447,6 +450,7 @@ fn file_string(input: &mut Input) -> ModalResult<tg::Object> {
 				dependencies: BTreeMap::new(),
 				executable: false,
 				module: None,
+				size: Some(size),
 			};
 			let object = tg::file::Object::Node(node);
 			tg::File::with_object(object).into()
@@ -478,6 +482,7 @@ fn file_node(input: &mut Input) -> ModalResult<tg::Object> {
 		let mut dependencies = BTreeMap::new();
 		let mut executable = false;
 		let mut module = None;
+		let mut size = None;
 		for (key, value) in entries {
 			match key.as_str() {
 				"contents" => {
@@ -530,6 +535,16 @@ fn file_node(input: &mut Input) -> ModalResult<tg::Object> {
 						.map_err(|_| tg::error!("expected a module kind"))?;
 					module.replace(value);
 				},
+				"size" => {
+					let value = value
+						.try_unwrap_number_ref()
+						.map_err(|_| tg::error!("expected number for size"))?;
+					size = Some(
+						value
+							.to_u64()
+							.ok_or_else(|| tg::error!("size must be a non-negative integer"))?,
+					);
+				},
 				_ => {
 					return Err(tg::error!("unexpected field in file: {}", key));
 				},
@@ -541,6 +556,7 @@ fn file_node(input: &mut Input) -> ModalResult<tg::Object> {
 			dependencies,
 			executable,
 			module,
+			size,
 		};
 		let object = tg::file::Object::Node(node);
 		Ok(tg::File::with_object(object).into())
@@ -1433,6 +1449,7 @@ fn parse_graph_node(map: &tg::value::Map) -> tg::Result<tg::graph::Node> {
 	let mut dependencies = BTreeMap::new();
 	let mut executable = false;
 	let mut module = None;
+	let mut size = None;
 	let mut artifact = None;
 	let mut path = None;
 	for (key, value) in map {
@@ -1514,6 +1531,16 @@ fn parse_graph_node(map: &tg::value::Map) -> tg::Result<tg::graph::Node> {
 					.map_err(|_| tg::error!("expected a module kind"))?;
 				module.replace(value);
 			},
+			"size" => {
+				let value = value
+					.try_unwrap_number_ref()
+					.map_err(|_| tg::error!("expected number for size"))?;
+				size = Some(
+					value
+						.to_u64()
+						.ok_or_else(|| tg::error!("size must be a non-negative integer"))?,
+				);
+			},
 			_ => {
 				return Err(tg::error!("unexpected field in graph node: {}", key));
 			},
@@ -1533,6 +1560,7 @@ fn parse_graph_node(map: &tg::value::Map) -> tg::Result<tg::graph::Node> {
 				dependencies,
 				executable,
 				module,
+				size,
 			}))
 		},
 		"symlink" => Ok(tg::graph::Node::Symlink(tg::graph::Symlink {

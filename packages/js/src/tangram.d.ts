@@ -502,6 +502,8 @@ declare namespace tg {
 					  }
 					| undefined;
 				executable?: boolean | undefined;
+				module?: string | undefined;
+				size?: number | undefined;
 			};
 
 			type Symlink = {
@@ -563,6 +565,8 @@ declare namespace tg {
 				[reference: tg.Reference]: tg.Graph.Dependency | undefined;
 			};
 			executable: boolean;
+			module: string | undefined;
+			size: number | undefined;
 		};
 
 		type Symlink = {
