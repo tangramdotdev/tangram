@@ -88,6 +88,7 @@ pub struct Inner<P> {
 	provider: P,
 	no_opendir_support: bool,
 	passthrough_enabled: bool,
+	passthrough_required: bool,
 	passthrough_backing_ids: Mutex<HashMap<u64, u32>>,
 	passthrough_permission_warning_emitted: AtomicBool,
 	task: Mutex<Option<tangram_futures::task::Shared<()>>>,
@@ -250,6 +251,7 @@ where
 			provider,
 			no_opendir_support: features.no_opendir_support,
 			passthrough_enabled: features.passthrough,
+			passthrough_required: options.passthrough == Passthrough::Required,
 			passthrough_backing_ids: Mutex::new(HashMap::default()),
 			passthrough_permission_warning_emitted: AtomicBool::new(false),
 			task: Mutex::new(None),
@@ -458,6 +460,7 @@ where
 		const REQUIRED_FLAGS: u32 = 0;
 		const NEGOTIATED_FLAGS: u32 = sys::FUSE_ASYNC_READ
 			| sys::FUSE_DO_READDIRPLUS
+			| sys::FUSE_READDIRPLUS_AUTO
 			| sys::FUSE_PARALLEL_DIROPS
 			| sys::FUSE_CACHE_SYMLINKS
 			| sys::FUSE_NO_OPENDIR_SUPPORT
@@ -1559,9 +1562,22 @@ where
 				};
 				let mut open_flags = sys::FOPEN_NOFLUSH | sys::FOPEN_KEEP_CACHE;
 				let mut backing_id = -1;
-				if self.passthrough_enabled
-					&& let Some(backing_fd) = backing_fd
-				{
+				if self.passthrough_enabled {
+					let Some(backing_fd) = backing_fd else {
+						if self.passthrough_required {
+							tracing::error!(
+								fh = handle,
+								"passthrough is required but the provider did not supply a backing fd"
+							);
+							return Err(Error::from_raw_os_error(libc::EOPNOTSUPP));
+						}
+						let out = fuse_open_out {
+							fh: handle,
+							open_flags,
+							backing_id,
+						};
+						return Ok(Some(Response::Open(out)));
+					};
 					match self.register_passthrough_backing(fd, handle, &backing_fd) {
 						Ok(id) => {
 							open_flags = sys::FOPEN_PASSTHROUGH;
@@ -1576,6 +1592,14 @@ where
 								tracing::warn!(
 									"failed to register a passthrough backing due to missing CAP_SYS_ADMIN; falling back to regular fuse I/O"
 								);
+							}
+							if self.passthrough_required {
+								tracing::error!(
+									?error,
+									fh = handle,
+									"passthrough is required but backing registration failed"
+								);
+								return Err(error);
 							}
 							tracing::trace!(
 								?error,
