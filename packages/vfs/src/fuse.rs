@@ -60,11 +60,34 @@ const S_IFDIR: u32 = 0o040_000;
 const S_IFREG: u32 = 0o100_000;
 const S_IFLNK: u32 = 0o120_000;
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Options {
+	pub io: Io,
+	pub passthrough: Passthrough,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Io {
+	#[default]
+	Auto,
+	IoUring,
+	ReadWrite,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Passthrough {
+	#[default]
+	Auto,
+	Disabled,
+	Required,
+}
+
 pub struct Server<P>(Arc<Inner<P>>);
 
 pub struct Inner<P> {
 	provider: P,
 	no_opendir_support: bool,
+	passthrough_enabled: bool,
 	passthrough_backing_ids: Mutex<HashMap<u64, u32>>,
 	passthrough_permission_warning_emitted: AtomicBool,
 	task: Mutex<Option<tangram_futures::task::Shared<()>>>,
@@ -145,6 +168,23 @@ struct AsyncResponse {
 struct Features {
 	no_opendir_support: bool,
 	over_io_uring: bool,
+	passthrough: bool,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, zerocopy::FromBytes, zerocopy::Immutable, zerocopy::IntoBytes)]
+struct FuseInitInV7p1 {
+	major: u32,
+	minor: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, zerocopy::FromBytes, zerocopy::Immutable, zerocopy::IntoBytes)]
+struct FuseInitInV7p6 {
+	major: u32,
+	minor: u32,
+	max_readahead: u32,
+	flags: u32,
 }
 
 #[repr(C)]
@@ -192,7 +232,7 @@ impl<P> Server<P>
 where
 	P: Provider + Send + Sync + 'static,
 {
-	pub async fn start(provider: P, path: &Path) -> Result<Self> {
+	pub async fn start(provider: P, path: &Path, options: Options) -> Result<Self> {
 		// Unmount.
 		Self::unmount(path).await.ok();
 
@@ -202,13 +242,14 @@ where
 			.inspect_err(|error| tracing::error!(%error, "failed to mount"))?;
 
 		// Complete INIT before entering io_uring command mode.
-		let features = Self::init_handshake(fd.as_ref())
+		let features = Self::init_handshake(fd.as_ref(), options)
 			.map_err(|error| Error::other(format!("failed to complete init handshake: {error}")))?;
 
 		// Create the server.
 		let server = Self(Arc::new(Inner {
 			provider,
 			no_opendir_support: features.no_opendir_support,
+			passthrough_enabled: features.passthrough,
 			passthrough_backing_ids: Mutex::new(HashMap::default()),
 			passthrough_permission_warning_emitted: AtomicBool::new(false),
 			task: Mutex::new(None),
@@ -284,9 +325,11 @@ where
 				thread_handles.push(thread);
 			}
 		} else {
-			tracing::warn!(
-				"fuse over io_uring is unavailable; falling back to legacy fuse read/write transport"
-			);
+			if options.io == Io::Auto {
+				tracing::warn!(
+					"fuse over io_uring is unavailable; falling back to legacy fuse read/write transport"
+				);
+			}
 			let server = server.clone();
 			let runtime = runtime.clone();
 			let thread_fd = fd.clone();
@@ -409,9 +452,10 @@ where
 		task.wait().await.unwrap();
 	}
 
-	fn init_handshake(fd: &OwnedFd) -> Result<Features> {
-		const REQUIRED_FLAGS: u32 = sys::FUSE_INIT_EXT | sys::FUSE_MAX_PAGES;
-		const REQUIRED_FLAGS2: u32 = 0;
+	fn init_handshake(fd: &OwnedFd, options: Options) -> Result<Features> {
+		const FUSE_PASSTHROUGH_FLAGS2: u32 = (sys::FUSE_PASSTHROUGH >> 32) as u32;
+		const FUSE_OVER_IO_URING_FLAGS2: u32 = (sys::FUSE_OVER_IO_URING >> 32) as u32;
+		const REQUIRED_FLAGS: u32 = 0;
 		const NEGOTIATED_FLAGS: u32 = sys::FUSE_ASYNC_READ
 			| sys::FUSE_DO_READDIRPLUS
 			| sys::FUSE_PARALLEL_DIROPS
@@ -422,12 +466,24 @@ where
 			| sys::FUSE_MAX_PAGES
 			| sys::FUSE_MAP_ALIGNMENT
 			| sys::FUSE_INIT_EXT;
-		const NEGOTIATED_FLAGS2: u32 =
-			((sys::FUSE_PASSTHROUGH | sys::FUSE_OVER_IO_URING) >> 32) as u32;
 		const MAX_PAGES: u16 = 256;
 		const MAP_ALIGNMENT: u16 = 12;
 		// The kernel requires a non-zero max_stack_depth to enable FUSE_PASSTHROUGH.
 		const MAX_STACK_DEPTH: u32 = 2;
+		let mut required_flags2 = 0;
+		if options.io == Io::IoUring {
+			required_flags2 |= FUSE_OVER_IO_URING_FLAGS2;
+		}
+		if options.passthrough == Passthrough::Required {
+			required_flags2 |= FUSE_PASSTHROUGH_FLAGS2;
+		}
+		let mut negotiated_flags2 = 0;
+		if options.io != Io::ReadWrite {
+			negotiated_flags2 |= FUSE_OVER_IO_URING_FLAGS2;
+		}
+		if options.passthrough != Passthrough::Disabled {
+			negotiated_flags2 |= FUSE_PASSTHROUGH_FLAGS2;
+		}
 
 		let mut buffer = vec![0u8; REQUEST_BUFFER_SIZE];
 		loop {
@@ -448,13 +504,15 @@ where
 			if init.major != FUSE_KERNEL_VERSION {
 				return Err(Error::other("unsupported fuse major version"));
 			}
+			let init_ext_available = (init.flags & sys::FUSE_INIT_EXT) != 0;
+			let init_flags2 = if init_ext_available { init.flags2 } else { 0 };
 			let missing_flags = REQUIRED_FLAGS & !init.flags;
 			if missing_flags != 0 {
 				return Err(Error::other(format!(
 					"missing required fuse init flags, missing = {missing_flags:#x}",
 				)));
 			}
-			let missing_flags2 = REQUIRED_FLAGS2 & !init.flags2;
+			let missing_flags2 = required_flags2 & !init_flags2;
 			if missing_flags2 != 0 {
 				return Err(Error::other(format!(
 					"missing required fuse init flags2, missing = {missing_flags2:#x}",
@@ -463,7 +521,22 @@ where
 
 			let minor = init.minor.min(FUSE_KERNEL_MINOR_VERSION);
 			let flags = NEGOTIATED_FLAGS & init.flags;
-			let flags2 = NEGOTIATED_FLAGS2 & init.flags2;
+			let flags2 = negotiated_flags2 & init_flags2;
+			let max_pages = if (flags & sys::FUSE_MAX_PAGES) != 0 {
+				MAX_PAGES
+			} else {
+				0
+			};
+			let map_alignment = if (flags & sys::FUSE_MAP_ALIGNMENT) != 0 {
+				MAP_ALIGNMENT
+			} else {
+				0
+			};
+			let max_stack_depth = if (flags2 & FUSE_PASSTHROUGH_FLAGS2) != 0 {
+				MAX_STACK_DEPTH
+			} else {
+				0
+			};
 			let response = fuse_init_out {
 				major: FUSE_KERNEL_VERSION,
 				minor,
@@ -473,15 +546,15 @@ where
 				congestion_threshold: 0,
 				max_write: 1024 * 1024,
 				time_gran: 0,
-				max_pages: MAX_PAGES,
-				map_alignment: MAP_ALIGNMENT,
+				max_pages,
+				map_alignment,
 				flags2,
-				max_stack_depth: MAX_STACK_DEPTH,
+				max_stack_depth,
 				request_timeout: 0,
 				unused: [0; 11],
 			};
 
-			let data = response.as_bytes();
+			let data = &response.as_bytes()[..Self::init_response_size(minor)];
 			let len = size_of::<fuse_out_header>() + data.len();
 			let header = fuse_out_header {
 				unique: request.header.unique,
@@ -493,8 +566,19 @@ where
 			rustix::io::writev(fd, &iov).map_err(std::io::Error::from)?;
 			return Ok(Features {
 				no_opendir_support: (flags & sys::FUSE_NO_OPENDIR_SUPPORT) != 0,
-				over_io_uring: (flags2 & ((sys::FUSE_OVER_IO_URING >> 32) as u32)) != 0,
+				over_io_uring: (flags2 & FUSE_OVER_IO_URING_FLAGS2) != 0,
+				passthrough: (flags2 & FUSE_PASSTHROUGH_FLAGS2) != 0,
 			});
+		}
+	}
+
+	fn init_response_size(minor: u32) -> usize {
+		if minor < 5 {
+			sys::FUSE_COMPAT_INIT_OUT_SIZE.to_usize().unwrap()
+		} else if minor < 23 {
+			sys::FUSE_COMPAT_22_INIT_OUT_SIZE.to_usize().unwrap()
+		} else {
+			size_of::<fuse_init_out>()
 		}
 	}
 
@@ -1076,7 +1160,7 @@ where
 					.map_err(|_| Error::other("failed to deserialize request data"))?;
 				RequestData::GetXattr(fuse_getxattr_in, name)
 			},
-			sys::fuse_opcode_FUSE_INIT => RequestData::Init(read_data(data)?),
+			sys::fuse_opcode_FUSE_INIT => RequestData::Init(Self::parse_init_request_data(data)?),
 			sys::fuse_opcode_FUSE_LISTXATTR => RequestData::ListXattr(read_data(data)?),
 			sys::fuse_opcode_FUSE_LOOKUP => {
 				let data = CString::from_vec_with_nul(data.to_owned())
@@ -1097,6 +1181,35 @@ where
 			_ => RequestData::Unsupported(header.opcode),
 		};
 		Ok(data)
+	}
+
+	fn parse_init_request_data(data: &[u8]) -> Result<sys::fuse_init_in> {
+		if data.len() >= size_of::<sys::fuse_init_in>() {
+			return read_data::<sys::fuse_init_in>(data);
+		}
+		if data.len() >= size_of::<FuseInitInV7p6>() {
+			let data = read_data::<FuseInitInV7p6>(data)?;
+			return Ok(sys::fuse_init_in {
+				major: data.major,
+				minor: data.minor,
+				max_readahead: data.max_readahead,
+				flags: data.flags,
+				flags2: 0,
+				unused: [0; 11],
+			});
+		}
+		if data.len() >= size_of::<FuseInitInV7p1>() {
+			let data = read_data::<FuseInitInV7p1>(data)?;
+			return Ok(sys::fuse_init_in {
+				major: data.major,
+				minor: data.minor,
+				max_readahead: 0,
+				flags: 0,
+				flags2: 0,
+				unused: [0; 11],
+			});
+		}
+		Err(Error::other("failed to deserialize the init request data"))
 	}
 
 	fn spawn_async_request(
@@ -1446,7 +1559,9 @@ where
 				};
 				let mut open_flags = sys::FOPEN_NOFLUSH | sys::FOPEN_KEEP_CACHE;
 				let mut backing_id = -1;
-				if let Some(backing_fd) = backing_fd {
+				if self.passthrough_enabled
+					&& let Some(backing_fd) = backing_fd
+				{
 					match self.register_passthrough_backing(fd, handle, &backing_fd) {
 						Ok(id) => {
 							open_flags = sys::FOPEN_PASSTHROUGH;

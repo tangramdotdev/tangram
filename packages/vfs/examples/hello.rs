@@ -310,7 +310,9 @@ async fn main() -> Result<()> {
 
 async fn fuse(path: PathBuf) -> Result<()> {
 	let provider = Provider::new();
-	let server = tangram_vfs::fuse::Server::start(provider, &path).await?;
+	let server =
+		tangram_vfs::fuse::Server::start(provider, &path, tangram_vfs::fuse::Options::default())
+			.await?;
 	tokio::spawn({
 		let server = server.clone();
 		async move {

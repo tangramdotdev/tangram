@@ -513,6 +513,26 @@ pub struct Vfs {
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub cache_ttl: Duration,
 	pub database_connections: usize,
+	pub io: VfsIo,
+	pub passthrough: VfsPassthrough,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VfsIo {
+	#[default]
+	Auto,
+	IoUring,
+	ReadWrite,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VfsPassthrough {
+	#[default]
+	Auto,
+	Disabled,
+	Required,
 }
 
 #[serde_as]
@@ -844,6 +864,8 @@ impl Default for Vfs {
 			cache_size: 4096,
 			cache_ttl: Duration::from_secs(3600),
 			database_connections: 4,
+			io: VfsIo::Auto,
+			passthrough: VfsPassthrough::Auto,
 		}
 	}
 }

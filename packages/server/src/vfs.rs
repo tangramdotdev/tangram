@@ -34,7 +34,19 @@ impl Server {
 
 		let vfs = match kind {
 			Kind::Fuse => {
-				let fuse = vfs::fuse::Server::start(provider, path)
+				let options = vfs::fuse::Options {
+					io: match options.io {
+						crate::config::VfsIo::Auto => vfs::fuse::Io::Auto,
+						crate::config::VfsIo::IoUring => vfs::fuse::Io::IoUring,
+						crate::config::VfsIo::ReadWrite => vfs::fuse::Io::ReadWrite,
+					},
+					passthrough: match options.passthrough {
+						crate::config::VfsPassthrough::Auto => vfs::fuse::Passthrough::Auto,
+						crate::config::VfsPassthrough::Disabled => vfs::fuse::Passthrough::Disabled,
+						crate::config::VfsPassthrough::Required => vfs::fuse::Passthrough::Required,
+					},
+				};
+				let fuse = vfs::fuse::Server::start(provider, path, options)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to start the FUSE server"))?;
 				Server::Fuse(fuse)
