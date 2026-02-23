@@ -6,7 +6,7 @@ use {
 };
 
 // The "root" process takes over after the host spawns with CLONE_NEWUSER.
-pub fn main(context: Context) -> ! {
+pub(super) fn main(context: Context) -> ! {
 	unsafe {
 		// If the host process dies, kill this process.
 		let ret = libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);

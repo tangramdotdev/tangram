@@ -5,29 +5,32 @@ use {
 	tangram_client::prelude::*,
 };
 
-#[derive(Debug, Clone, clap::Args)]
+pub mod create;
+pub mod delete;
+pub mod exec;
+pub mod run;
+pub mod serve;
+
+/// Manage sandboxes.
+#[derive(Clone, Debug, clap::Args)]
+#[group(skip)]
 pub struct Args {
-	/// Provide a path for the chroot.
-	#[arg(long)]
-	pub chroot: Option<PathBuf>,
+	#[command(subcommand)]
+	pub command: Command,
+}
 
-	/// Change the working directory prior to spawn.
-	#[arg(long, short = 'C')]
-	pub cwd: Option<PathBuf>,
+#[derive(Clone, Debug, clap::Subcommand)]
+pub enum Command {
+	Create(self::create::Args),
+	Delete(self::delete::Args),
+	Exec(self::exec::Args),
+	Run(self::run::Args),
+	Serve(self::serve::Args),
+}
 
-	/// Define environment variables.
-	#[arg(
-		action = clap::ArgAction::Append,
-		num_args = 1,
-		short = 'e',
-		value_parser = parse_env,
-	)]
-	pub env: Vec<(String, String)>,
-
-	/// The executable path.
-	#[arg(index = 1)]
-	pub executable: PathBuf,
-
+#[derive(Clone, Debug, clap::Args)]
+#[group(skip)]
+pub struct Options {
 	/// The desired hostname.
 	#[arg(long)]
 	pub hostname: Option<String>,
@@ -42,13 +45,10 @@ pub struct Args {
 	)]
 	pub mounts: Vec<Mount>,
 
-	/// Whether to enable network access.
-	#[arg(long)]
-	pub network: bool,
+	#[clap(flatten)]
+	pub network: Network,
 
-	#[arg(index = 2, trailing_var_arg = true)]
-	pub trailing: Vec<String>,
-
+	/// The desired user.
 	#[arg(long)]
 	pub user: Option<String>,
 }
@@ -62,57 +62,71 @@ pub struct Mount {
 	pub data: Option<Bytes>,
 }
 
-impl Cli {
-	#[must_use]
-	pub fn command_sandbox(args: Args) -> std::process::ExitCode {
-		// Create the command.
-		let command = tangram_sandbox::Command {
-			chroot: args.chroot,
-			cwd: args.cwd,
-			env: args.env,
-			executable: args.executable,
-			hostname: args.hostname,
-			mounts: args
-				.mounts
-				.into_iter()
-				.map(|mount| tangram_sandbox::Mount {
-					source: mount.source,
-					target: mount.target,
-					fstype: mount.fstype,
-					flags: mount.flags,
-					data: mount.data,
-				})
-				.collect(),
-			network: args.network,
-			trailing: args.trailing,
-			user: args.user,
-		};
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct Network {
+	/// Whether to allow network access
+	#[arg(
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		overrides_with = "no_network",
+		require_equals = true,
+	)]
+	network: Option<bool>,
 
-		// Run the sandbox.
-		#[cfg(target_os = "linux")]
-		let result = tangram_sandbox::linux::spawn(command);
-		#[cfg(target_os = "macos")]
-		let result = tangram_sandbox::darwin::spawn(command);
+	#[arg(
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		overrides_with = "network",
+		require_equals = true,
+	)]
+	no_network: Option<bool>,
+}
 
-		match result {
-			Ok(status) => status,
-			Err(error) => {
-				let error = tg::error!(!error, "failed to run the sandbox");
-				Cli::print_error_basic(tg::Referent::with_item(error));
-				std::process::ExitCode::FAILURE
-			},
-		}
+impl Network {
+	pub fn get(&self) -> bool {
+		self.network.or(self.no_network.map(|v| !v)).unwrap_or(true)
 	}
 }
 
-fn parse_env(arg: &str) -> Result<(String, String), String> {
+impl Cli {
+	#[must_use]
+	pub fn command_sandbox_sync(args: Args) -> std::process::ExitCode {
+		match args.command {
+			Command::Run(args) => Cli::command_sandbox_run(args),
+			Command::Serve(args) => Cli::command_sandbox_serve(args),
+			_ => unreachable!(),
+		}
+	}
+
+	pub async fn command_sandbox(&mut self, args: Args) -> tg::Result<()> {
+		match args.command {
+			Command::Create(args) => {
+				self.command_sandbox_create(args).await?;
+			},
+			Command::Delete(args) => {
+				self.command_sandbox_delete(args).await?;
+			},
+			Command::Exec(args) => {
+				self.command_sandbox_exec(args).await?;
+			},
+			Command::Run(_) | Command::Serve(_) => {
+				unreachable!()
+			},
+		}
+		Ok(())
+	}
+}
+
+pub(crate) fn parse_env(arg: &str) -> Result<(String, String), String> {
 	let (name, value) = arg
 		.split_once('=')
 		.ok_or_else(|| "expected NAME=value".to_owned())?;
 	Ok((name.to_owned(), value.to_owned()))
 }
 
-fn parse_mount(arg: &str) -> Result<Mount, String> {
+pub(crate) fn parse_mount(arg: &str) -> Result<Mount, String> {
 	let mut source = None;
 	let mut target = None;
 	let mut fstype = None;

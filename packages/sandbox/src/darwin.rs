@@ -22,8 +22,6 @@ struct Context {
 
 #[expect(clippy::needless_pass_by_value)]
 pub fn spawn(command: Command) -> std::io::Result<std::process::ExitCode> {
-	eprintln!("darwin spawn : {:x}", time::OffsetDateTime::now_utc().unix_timestamp_nanos());
-
 	// Create the argv.
 	let argv = std::iter::once(cstring(&command.executable))
 		.chain(command.trailing.iter().map(cstring))
@@ -95,7 +93,6 @@ pub fn spawn(command: Command) -> std::io::Result<std::process::ExitCode> {
 		}
 
 		// Exec.
-		eprintln!("darwin exec: {:x}", time::OffsetDateTime::now_utc().unix_timestamp_nanos());
 		unsafe {
 			libc::execvp(context.executable.as_ptr(), context.argv.as_ptr());
 			abort_errno!("failed to exec");

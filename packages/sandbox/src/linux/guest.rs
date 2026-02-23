@@ -4,7 +4,7 @@ use {
 	std::{ffi::CString, mem::MaybeUninit, os::fd::AsRawFd},
 };
 
-pub fn main(mut context: Context) -> ! {
+pub(super) fn main(mut context: Context) -> ! {
 	unsafe {
 		// Set hostname.
 		if let Some(hostname) = context.hostname.take()
@@ -30,7 +30,7 @@ pub fn main(mut context: Context) -> ! {
 
 		// If requested to spawn in a chroot, perform the mounts and chroot.
 		if context.root.is_some() {
-			mount_and_chroot(&mut context);
+			mount_and_chroot(&mut context.mounts, context.root.as_ref().unwrap());
 		}
 
 		// Set the working directory.
@@ -38,7 +38,6 @@ pub fn main(mut context: Context) -> ! {
 		if ret == -1 {
 			abort_errno!("failed to set the working directory");
 		}
-		eprintln!("execvpe : {:x}", time::OffsetDateTime::now_utc().unix_timestamp_nanos());
 
 		// Finally, exec the process.
 		libc::execvpe(
@@ -51,10 +50,12 @@ pub fn main(mut context: Context) -> ! {
 	}
 }
 
-fn mount_and_chroot(context: &mut Context) {
+pub(crate) fn mount_and_chroot(
+	mounts: &mut [crate::linux::Mount],
+	root: &CString,
+) {
 	unsafe {
-		let root = context.root.as_ref().unwrap();
-		for mount in &mut context.mounts {
+		for mount in mounts {
 			// Create the mount point.
 			if let (Some(source), Some(target)) = (&mount.source, &mut mount.target) {
 				create_mountpoint_if_not_exists(source, target);
@@ -105,13 +106,11 @@ fn mount_and_chroot(context: &mut Context) {
 		}
 
 		// Change the working directory to the pivoted root.
-		if let Some(root) = &context.root {
-			let ret = libc::chdir(root.as_ptr());
-			if ret == -1 {
-				abort_errno!("failed to change directory to the root");
-			}
+		let ret = libc::chdir(root.as_ptr());
+		if ret == -1 {
+			abort_errno!("failed to change directory to the root");
 		}
-
+	
 		// Pivot the root.
 		let ret = libc::syscall(libc::SYS_pivot_root, c".".as_ptr(), c".".as_ptr());
 		if ret == -1 {
@@ -126,7 +125,7 @@ fn mount_and_chroot(context: &mut Context) {
 	}
 }
 
-fn create_mountpoint_if_not_exists(source: &CString, target: &mut CString) {
+pub fn create_mountpoint_if_not_exists(source: &CString, target: &mut CString) {
 	unsafe {
 		#[cfg_attr(all(target_arch = "x86_64"), expect(clippy::cast_possible_wrap))]
 		const BACKSLASH: libc::c_char = b'\\' as _;

@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Command,
-		common::{CStringVec, cstring},
+		common::{CStringVec, cstring, envstring},
 	},
 	bytes::Bytes,
 	num::ToPrimitive as _,
@@ -11,16 +11,17 @@ use {
 	},
 };
 
-mod guest;
-mod root;
+// pub(crate) mod init;
+pub(crate) mod guest;
+pub(crate) mod root;
 
 #[derive(Debug)]
-struct Mount {
-	source: Option<CString>,
-	target: Option<CString>,
-	fstype: Option<CString>,
-	flags: libc::c_ulong,
-	data: Option<Bytes>,
+pub(crate) struct Mount {
+	pub(crate) source: Option<CString>,
+	pub(crate) target: Option<CString>,
+	pub(crate) fstype: Option<CString>,
+	pub(crate) flags: libc::c_ulong,
+	pub(crate) data: Option<Bytes>,
 }
 
 struct Context {
@@ -36,7 +37,6 @@ struct Context {
 }
 
 pub fn spawn(mut command: Command) -> std::io::Result<std::process::ExitCode> {
-	eprintln!("linux spawn : {:x}", time::OffsetDateTime::now_utc().unix_timestamp_nanos());
 	if !command.mounts.is_empty() && command.chroot.is_none() {
 		return Err(std::io::Error::other(
 			"cannot create mounts without a chroot directory",
@@ -239,7 +239,7 @@ fn try_start(
 	Ok(())
 }
 
-fn get_user(name: Option<impl AsRef<OsStr>>) -> std::io::Result<(libc::uid_t, libc::gid_t)> {
+pub(crate) fn get_user(name: Option<impl AsRef<OsStr>>) -> std::io::Result<(libc::uid_t, libc::gid_t)> {
 	let Some(name) = name else {
 		unsafe {
 			let uid = libc::getuid();
@@ -258,16 +258,8 @@ fn get_user(name: Option<impl AsRef<OsStr>>) -> std::io::Result<(libc::uid_t, li
 	}
 }
 
-fn envstring(k: impl AsRef<OsStr>, v: impl AsRef<OsStr>) -> CString {
-	let string = format!(
-		"{}={}",
-		k.as_ref().to_string_lossy(),
-		v.as_ref().to_string_lossy()
-	);
-	CString::new(string).unwrap()
-}
 
-fn get_existing_mount_flags(path: &CString) -> std::io::Result<libc::c_ulong> {
+pub(crate) fn get_existing_mount_flags(path: &CString) -> std::io::Result<libc::c_ulong> {
 	const FLAGS: [(u64, u64); 7] = [
 		(libc::MS_RDONLY, libc::ST_RDONLY),
 		(libc::MS_NODEV, libc::ST_NODEV),

@@ -507,6 +507,20 @@ impl Server {
 				.handle_write_pty_request(request, &context, pty)
 				.boxed(),
 
+			// Sandboxes.
+			(http::Method::POST, ["sandbox", "create"]) => server
+				.handle_create_sandbox_request(request, &context)
+				.boxed(),
+			(http::Method::DELETE, ["sandbox", sandbox]) => server
+				.handle_delete_sandbox_request(request, &context, sandbox)
+				.boxed(),
+			(http::Method::POST, ["sandbox", sandbox, "spawn"]) => server
+				.handle_sandbox_spawn_request(request, &context, sandbox)
+				.boxed(),
+			(http::Method::POST, ["sandbox", sandbox, "wait"]) => server
+				.handle_sandbox_wait_request(request, &context, sandbox)
+				.boxed(),
+
 			// Remotes.
 			(http::Method::GET, ["remotes"]) => server
 				.handle_list_remotes_request(request, &context)

@@ -1,5 +1,4 @@
 use {
-	super::Options,
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, future},
 	std::{
 		io::IsTerminal as _,
@@ -28,7 +27,7 @@ pub struct Tty {
 	pub termios: libc::termios,
 }
 
-pub(super) async fn task<H>(handle: &H, stop: Stop, stdio: Stdio) -> tg::Result<()>
+pub(crate) async fn task<H>(handle: &H, stop: Stop, stdio: Stdio) -> tg::Result<()>
 where
 	H: tg::Handle,
 {
@@ -264,24 +263,13 @@ impl Stdio {
 	pub(crate) async fn new<H>(
 		handle: &H,
 		remote: Option<String>,
-		options: &Options,
+		allow_tty: bool,
 	) -> tg::Result<Self>
 	where
 		H: tg::Handle,
 	{
-		// If the process is detached, then do not create stdio.
-		if options.detach {
-			return Ok(Self {
-				tty: None,
-				remote,
-				stdin: None,
-				stdout: None,
-				stderr: None,
-			});
-		}
-
 		// Create a PTY for stdin if it is a terminal.
-		let (tty, stdin) = if options.spawn.tty.get() && std::io::stdin().is_terminal() {
+		let (tty, stdin) = if allow_tty && std::io::stdin().is_terminal() {
 			let tty = Tty::new()?;
 			let size = tty.get_size()?;
 			let arg = tg::pty::create::Arg {
