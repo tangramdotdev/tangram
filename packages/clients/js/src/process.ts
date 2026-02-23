@@ -178,6 +178,7 @@ export namespace Process {
 		error: tg.Error | undefined;
 		exit: number | undefined;
 		output?: tg.Value;
+		pid: number | undefined;
 		status: tg.Process.Status;
 		stderr: string | undefined;
 		stdin: string | undefined;
@@ -198,6 +199,9 @@ export namespace Process {
 			}
 			if ("output" in value) {
 				output.output = tg.Value.toData(value.output);
+			}
+			if (value.pid !== undefined) {
+				output.pid = value.pid;
 			}
 			if (value.stderr !== undefined) {
 				output.stderr = value.stderr;
@@ -221,6 +225,7 @@ export namespace Process {
 							: tg.Error.fromData(data.error)
 						: undefined,
 				exit: data.exit,
+				pid: data.pid,
 				status: data.status,
 				stderr: data.stderr,
 				stdin: data.stdin,
@@ -265,6 +270,7 @@ export namespace Process {
 		error?: tg.Error.Data | tg.Error.Id;
 		exit?: number;
 		output?: tg.Value.Data;
+		pid?: number;
 		status: tg.Process.Status;
 		stderr?: string;
 		stdin?: string;

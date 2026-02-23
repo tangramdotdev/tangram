@@ -1,6 +1,6 @@
 use {
 	crate::prelude::*,
-	std::path::PathBuf,
+	std::{collections::BTreeMap, path::PathBuf},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
 
@@ -10,6 +10,9 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub args: Vec<String>,
+
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	pub env: BTreeMap<String, String>,
 
 	pub stdin: tg::process::Stdio,
 

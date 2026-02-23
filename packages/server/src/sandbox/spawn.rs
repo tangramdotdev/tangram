@@ -166,7 +166,7 @@ impl Server {
 		let command = sandbox::Command {
 			chroot,
 			cwd,
-			env: Vec::new(),
+			env: arg.env.into_iter().collect(),
 			executable: arg.command,
 			hostname: None,
 			mounts: Vec::new(),

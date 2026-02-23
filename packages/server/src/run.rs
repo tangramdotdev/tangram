@@ -247,10 +247,8 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the host"))?;
 
-		// Determine if the process is unsandboxed.'
-		let sandboxed = todo!(
-			"a process is unsandboxed if its spawn arg.sandbox.is_none() and its parent sandbox is none"
-		);
+		// Determine if the process is sandboxed.
+		let sandboxed = state.sandbox.is_some();
 
 		let result = {
 			match host.as_str() {

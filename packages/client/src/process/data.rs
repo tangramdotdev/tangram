@@ -62,6 +62,10 @@ pub struct Data {
 	#[tangram_serialize(id = 13, default, skip_serializing_if = "Option::is_none")]
 	pub sandbox: Option<tg::sandbox::Id>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 14, default, skip_serializing_if = "Option::is_none")]
+	pub pid: Option<i32>,
+
 	#[serde(
 		default,
 		deserialize_with = "deserialize_output",

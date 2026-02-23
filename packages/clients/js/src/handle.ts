@@ -109,6 +109,7 @@ export namespace Handle {
 	export type SandboxSpawnArg = {
 		command: string;
 		args?: Array<string> | undefined;
+		env?: Record<string, string> | undefined;
 		stdin: string;
 		stdout: string;
 		stderr: string;

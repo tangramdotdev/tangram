@@ -68,6 +68,7 @@ impl Cli {
 		let arg = tg::sandbox::spawn::Arg {
 			command: args.command,
 			args: args.args,
+			env: std::collections::BTreeMap::new(),
 			stdin: stdio.stdin.clone().unwrap(),
 			stdout: stdio.stdout.clone().unwrap(),
 			stderr: stdio.stderr.clone().unwrap(),

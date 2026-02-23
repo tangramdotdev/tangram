@@ -229,6 +229,7 @@ impl Server {
 			host: row.host,
 			log,
 			output,
+			pid: None,
 			retry,
 			sandbox,
 			started_at: row.started_at,

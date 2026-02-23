@@ -15,6 +15,7 @@ pub struct State {
 	pub finished_at: Option<i64>,
 	pub log: Option<tg::Blob>,
 	pub output: Option<tg::Value>,
+	pub pid: Option<i32>,
 	pub retry: bool,
 	pub sandbox: Option<tg::sandbox::Id>,
 	pub started_at: Option<i64>,
@@ -55,6 +56,7 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 		let finished_at = value.finished_at;
 		let log = value.log.map(tg::Blob::with_id);
 		let output = value.output.map(tg::Value::try_from).transpose()?;
+		let pid = value.pid;
 		let retry = value.retry;
 		let sandbox = value.sandbox;
 		let started_at = value.started_at;
@@ -76,6 +78,7 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 			finished_at,
 			log,
 			output,
+			pid,
 			retry,
 			sandbox,
 			started_at,

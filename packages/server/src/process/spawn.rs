@@ -6,7 +6,7 @@ use {
 	},
 	indoc::{formatdoc, indoc},
 	std::{fmt::Write, pin::pin},
-	tangram_client::prelude::*,
+	tangram_client::{handle::Sandbox, prelude::*},
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -132,9 +132,31 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
+		// Look up the parent's sandbox if there is a parent.
+		let parent_sandbox = if let Some(parent) = &arg.parent {
+			let p = transaction.p();
+			let statement = formatdoc!(
+				"select sandbox from processes where id = {p}1;"
+			);
+			let params = db::params![parent.to_string()];
+			let sandbox: Option<String> = transaction
+				.query_optional_value_into(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to query the parent's sandbox"))?;
+			sandbox
+				.map(|s| s.parse::<tg::sandbox::Id>())
+				.transpose()
+				.map_err(|source| tg::error!(!source, "failed to parse the parent's sandbox id"))?
+		} else {
+			None
+		};
+
+		// Determine if the process is sandboxed by checking if a sandbox arg was provided or if the parent process has a sandbox.
+		let sandboxed = parent_sandbox.is_some() || arg.sandbox.is_some();
+
 		// Determine if the process is cacheable.
 		let cacheable = arg.checksum.is_some()
-			|| (arg.stdin.is_none() && arg.stdout.is_none() && arg.stderr.is_none());
+			|| (arg.stdin.is_none() && arg.stdout.is_none() && arg.stderr.is_none() && sandboxed);
 
 		// Get or create a local process.
 		let mut output = if cacheable
@@ -163,7 +185,7 @@ impl Server {
 		} else if matches!(arg.cached, None | Some(false)) {
 			let host = host.ok_or_else(|| tg::error!("expected the host to be set"))?;
 			let output = self
-				.create_local_process(&transaction, &arg, cacheable, &host)
+				.create_local_process(&transaction, &arg, cacheable, &host, parent_sandbox.as_ref())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create a local process"))?;
 			tracing::trace!(?output, "created local process");
@@ -705,8 +727,19 @@ impl Server {
 		arg: &tg::process::spawn::Arg,
 		cacheable: bool,
 		host: &str,
+		parent_sandbox: Option<&tg::sandbox::Id>,
 	) -> tg::Result<LocalOutput> {
 		let p = transaction.p();
+
+		// Get or create a sandbox.
+		let sandbox = match &arg.sandbox {
+			Some(tg::Either::Left(arg)) => {
+				let id = self.create_sandbox(arg.clone()).await?.id;
+				Some(id)
+			},
+			Some(tg::Either::Right(id)) => Some(id.clone()),
+			None => parent_sandbox.cloned(),
+		};
 
 		// Create an ID.
 		let id = tg::process::Id::new();
@@ -814,13 +847,7 @@ impl Server {
 			heartbeat_at,
 			host,
 			arg.retry,
-			arg.sandbox
-				.as_ref()
-				.map(|s| match s {
-					tg::Either::Left(_) => None,
-					tg::Either::Right(id) => Some(id.to_string()),
-				})
-				.flatten(),
+			sandbox.as_ref().map(ToString::to_string),
 			started_at,
 			status.to_string(),
 			arg.stderr.as_ref().map(ToString::to_string),

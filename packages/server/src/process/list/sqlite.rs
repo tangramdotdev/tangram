@@ -170,6 +170,7 @@ impl Server {
 				host: row.host,
 				log: row.log,
 				output: row.output,
+				pid: None,
 				retry: row.retry,
 				sandbox: row.sandbox,
 				started_at: row.started_at,
