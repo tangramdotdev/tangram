@@ -12,7 +12,7 @@ use {
 #[group(skip)]
 pub struct Args {
 	#[arg(long)]
-	pub base: bool,
+	pub permanent: bool,
 
 	#[arg(index = 2)]
 	pub reference: tg::Reference,
@@ -40,15 +40,16 @@ impl Cli {
 		let code = Self::create_shell_code(args.shell, &activate);
 		output.push_str(&code);
 
-		if args.base {
+		if args.permanent {
 			let code = Self::create_shell_state_code(args.shell, None);
 			output.push_str(&code);
 		} else {
 			let path = Self::shell_state_path()?;
 			let state = State {
 				current,
-				directory: None,
+				directory: false,
 				previous,
+				reference: args.reference.clone(),
 			};
 			Self::write_shell_state(&path, &state)?;
 			let code = Self::create_shell_state_code(args.shell, Some(&path));

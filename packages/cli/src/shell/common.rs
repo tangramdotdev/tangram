@@ -16,19 +16,13 @@ pub struct State {
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub current: BTreeMap<String, Option<String>>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub directory: Option<Directory>,
+	#[serde(default)]
+	pub directory: bool,
 
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
 	pub previous: BTreeMap<String, Option<String>>,
-}
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Directory {
-	#[serde(default = "default_export", skip_serializing_if = "is_default_export")]
-	pub export: String,
-
-	pub path: PathBuf,
+	pub reference: tg::Reference,
 }
 
 #[derive(Clone, Debug)]
@@ -41,6 +35,7 @@ pub enum Mutation {
 pub struct DeactivateShellOutput {
 	pub mutations: Vec<Mutation>,
 	pub preserved: Vec<String>,
+	pub reference: tg::Reference,
 }
 
 impl Cli {
@@ -159,6 +154,7 @@ impl Cli {
 		let deactivate = DeactivateShellOutput {
 			mutations,
 			preserved,
+			reference: state.reference,
 		};
 		Ok(Some(deactivate))
 	}
@@ -316,31 +312,30 @@ impl Cli {
 			let view_task = {
 				let handle = handle.clone();
 				let root = process.clone().map(crate::viewer::Item::Process);
-				let task = Task::spawn_blocking(move |stop| {
+				let task = Task::spawn_blocking(move |stop| -> tg::Result<()> {
 					let local_set = tokio::task::LocalSet::new();
 					let runtime = tokio::runtime::Builder::new_current_thread()
 						.enable_all()
 						.build()
-						.unwrap();
-					local_set
-						.block_on(&runtime, async move {
-							let viewer_options = crate::viewer::Options {
-								collapse_process_children: true,
-								depth: None,
-								expand_objects: false,
-								expand_packages: false,
-								expand_processes: true,
-								expand_metadata: false,
-								expand_tags: false,
-								expand_values: false,
-								show_process_commands: false,
-							};
-							let mut viewer =
-								crate::viewer::Viewer::new(&handle, root, viewer_options);
-							viewer.run_inline(stop, false).await?;
-							Ok::<_, tg::Error>(())
-						})
-						.unwrap();
+						.map_err(|source| {
+							tg::error!(!source, "failed to create the tokio runtime")
+						})?;
+					local_set.block_on(&runtime, async move {
+						let viewer_options = crate::viewer::Options {
+							collapse_process_children: true,
+							depth: None,
+							expand_objects: false,
+							expand_packages: false,
+							expand_processes: true,
+							expand_metadata: false,
+							expand_tags: false,
+							expand_values: false,
+							show_process_commands: false,
+						};
+						let mut viewer = crate::viewer::Viewer::new(&handle, root, viewer_options);
+						viewer.run_inline(stop, false).await?;
+						Ok::<_, tg::Error>(())
+					})
 				});
 				Some(task)
 			};
@@ -374,7 +369,17 @@ impl Cli {
 
 			if let Some(view_task) = view_task {
 				view_task.stop();
-				view_task.wait().await.unwrap();
+				match view_task.wait().await {
+					Ok(Ok(())) => {},
+					Ok(Err(error)) => {
+						tracing::warn!(?error, "failed to render the process viewer");
+						Self::print_warning_message("failed to render the process viewer");
+					},
+					Err(error) => {
+						tracing::warn!(?error, "failed to join the process viewer task");
+						Self::print_warning_message("failed to render the process viewer");
+					},
+				}
 			}
 
 			result?
@@ -415,7 +420,7 @@ impl Cli {
 		let artifact = artifact.id();
 		let arg = tg::checkout::Arg {
 			artifact: artifact.clone(),
-			dependencies: false,
+			dependencies: true,
 			extension: None,
 			force: true,
 			lock: None,
@@ -507,12 +512,4 @@ fn quote(shell: super::Kind, value: &str) -> String {
 			format!("'{value}'")
 		},
 	}
-}
-
-fn default_export() -> String {
-	"default".to_owned()
-}
-
-fn is_default_export(export: &String) -> bool {
-	export == "default"
 }

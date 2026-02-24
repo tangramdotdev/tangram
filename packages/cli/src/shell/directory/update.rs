@@ -1,10 +1,7 @@
 use {
 	crate::{
 		Cli,
-		shell::{
-			Kind,
-			common::{Directory, State},
-		},
+		shell::{Kind, common::State},
 	},
 	std::collections::BTreeMap,
 	tangram_client::prelude::*,
@@ -36,10 +33,7 @@ impl Cli {
 		let mut output = String::new();
 
 		let Some((directory_path, desired)) = directory else {
-			if state
-				.as_ref()
-				.is_some_and(|state| state.directory.is_some())
-			{
+			if state.as_ref().is_some_and(|state| state.directory) {
 				let deactivate = Self::deactivate_shell()?
 					.ok_or_else(|| tg::error!("expected an active shell environment"))?;
 				let code = Self::create_shell_code(args.shell, &deactivate.mutations);
@@ -47,16 +41,24 @@ impl Cli {
 				let code = Self::create_shell_state_code(args.shell, None);
 				output.push_str(&code);
 				print!("{output}");
-				Self::print_info_message("deactivated the environment");
+				Self::print_info_message(&format!("deactivated {}", deactivate.reference));
 				Self::print_shell_preserved_variable_messages(&deactivate.preserved);
 			}
 			return Ok(());
 		};
+		let directory = directory_path
+			.to_str()
+			.ok_or_else(|| tg::error!("the directory path is not valid UTF-8"))?
+			.to_owned();
+		let reference = format!("{directory}#{}", desired.export)
+			.parse::<tg::Reference>()
+			.map_err(|source| {
+				tg::error!(!source, "failed to parse the shell directory reference")
+			})?;
 
 		if state
 			.as_ref()
-			.and_then(|state| state.directory.as_ref())
-			.is_some_and(|state| state.export == desired.export && state.path == directory_path)
+			.is_some_and(|state| state.directory && state.reference == reference)
 		{
 			return Ok(());
 		}
@@ -70,15 +72,6 @@ impl Cli {
 			Self::print_shell_preserved_variable_messages(&deactivate.preserved);
 		}
 
-		let directory = directory_path
-			.to_str()
-			.ok_or_else(|| tg::error!("the directory path is not valid UTF-8"))?
-			.to_owned();
-		let reference = format!("{directory}#{}", desired.export)
-			.parse::<tg::Reference>()
-			.map_err(|source| {
-				tg::error!(!source, "failed to parse the shell directory reference")
-			})?;
 		let path = self.build_shell_executable(&reference).await?;
 		let env = self.run_shell_executable(&path).await?;
 		let (activate, previous, current) = Self::create_shell_mutations(&current, &env);
@@ -87,11 +80,9 @@ impl Cli {
 		let state_path = Self::shell_state_path()?;
 		let state = State {
 			current,
-			directory: Some(Directory {
-				export: desired.export.clone(),
-				path: directory_path,
-			}),
+			directory: true,
 			previous,
+			reference: reference.clone(),
 		};
 		Self::write_shell_state(&state_path, &state)?;
 		let code = Self::create_shell_state_code(args.shell, Some(&state_path));

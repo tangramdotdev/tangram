@@ -7,14 +7,6 @@ pub mod deactivate;
 pub mod directory;
 pub mod integration;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, clap::ValueEnum)]
-pub enum Kind {
-	Bash,
-	Fish,
-	Nu,
-	Zsh,
-}
-
 /// Manage shell integration.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -30,6 +22,14 @@ pub enum Command {
 	Deactivate(self::deactivate::Args),
 	Directory(self::directory::Args),
 	Integration(self::integration::Args),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, clap::ValueEnum)]
+pub enum Kind {
+	Bash,
+	Fish,
+	Nu,
+	Zsh,
 }
 
 impl Cli {

@@ -18,48 +18,69 @@ def --env __tg_shell_apply [output] {
 	}
 }
 
+def __tg_shell_output_path [] {
+	let directory = ($env | get -o TMPDIR | default $nu.temp-dir)
+	let name = $"tg-shell-((random uuid))"
+	$directory | path join $name
+}
+
 def --env __tg_shell_eval [...argv] {
-	let result = (^tangram ...$argv | complete)
-	if ($result.stderr | str length) > 0 {
-		print --stderr $result.stderr
-	}
-	if $result.exit_code != 0 {
+	let output_path = (__tg_shell_output_path)
+	'' | save --force --raw $output_path
+	^tangram ...$argv o> $output_path
+	if $env.LAST_EXIT_CODE != 0 {
+		rm --force $output_path
 		return
 	}
-	if ($result.stdout | str length) == 0 {
+	let output = (open --raw $output_path)
+	rm --force $output_path
+	if ($output | str length) == 0 {
 		return
 	}
-	__tg_shell_apply $result.stdout
+	__tg_shell_apply $output
 }
 
-def --env __tg_shell_dispatch [...argv] {
-	if (($argv | length) >= 2 and $argv.0 == "shell" and $argv.1 == "activate") {
-		let trailing = ($argv | skip 2)
-		if (($trailing | length) > 0 and (($trailing | first) in ["bash", "fish", "nu", "zsh"])) {
-			__tg_shell_eval shell activate ...$trailing
-		} else {
-			__tg_shell_eval shell activate nu ...$trailing
-		}
-		return
+def __tg_shell_expand_reference [reference] {
+	let parsed = ($reference | parse -r '^(?<path>[^#]+)(?:#(?<export>.*))?$')
+	if ($parsed | is-empty) {
+		return $reference
 	}
-	if (($argv | length) >= 2 and $argv.0 == "shell" and $argv.1 == "deactivate") {
-		let trailing = ($argv | skip 2)
-		if (($trailing | length) > 0 and (($trailing | first) in ["bash", "fish", "nu", "zsh"])) {
-			__tg_shell_eval shell deactivate ($trailing | first)
-		} else {
-			__tg_shell_eval shell deactivate nu
-		}
-		return
+	let parsed = ($parsed | first)
+	if not ($parsed.path | str starts-with "~") {
+		return $reference
 	}
-	^tangram ...$argv
+	let path = ($parsed.path | path expand)
+	let export = ($parsed | get -o export)
+	if $export == null {
+		return $path
+	}
+	$"($path)#($export)"
 }
 
-def --env --wrapped tg [...argv] {
-	__tg_shell_dispatch ...$argv
+def --env "tg shell activate" [reference, --base] {
+	let reference = (__tg_shell_expand_reference $reference)
+	if $base {
+		__tg_shell_eval shell activate nu '--base' $reference
+		return
+	}
+	__tg_shell_eval shell activate nu $reference
 }
 
-def --env --wrapped tangram [...argv] {
-	__tg_shell_dispatch ...$argv
+def --env "tangram shell activate" [reference, --base] {
+	let reference = (__tg_shell_expand_reference $reference)
+	if $base {
+		__tg_shell_eval shell activate nu '--base' $reference
+		return
+	}
+	__tg_shell_eval shell activate nu $reference
+}
+
+def --env "tg shell deactivate" [] {
+	__tg_shell_eval shell deactivate nu
+}
+
+def --env "tangram shell deactivate" [] {
+	__tg_shell_eval shell deactivate nu
 }
 
 def --env __tg_shell_update [] {

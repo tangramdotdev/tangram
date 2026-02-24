@@ -120,39 +120,38 @@ impl Cli {
 			let view_task = {
 				let handle = handle.clone();
 				let root = process.clone().map(crate::viewer::Item::Process);
-				let task = Task::spawn_blocking(move |stop| {
+				let task = Task::spawn_blocking(move |stop| -> tg::Result<()> {
 					let local_set = tokio::task::LocalSet::new();
 					let runtime = tokio::runtime::Builder::new_current_thread()
 						.enable_all()
 						.build()
-						.unwrap();
-					local_set
-						.block_on(&runtime, async move {
-							let viewer_options = crate::viewer::Options {
-								collapse_process_children: true,
-								depth: None,
-								expand_objects: false,
-								expand_packages: false,
-								expand_processes: true,
-								expand_metadata: false,
-								expand_tags: false,
-								expand_values: false,
-								show_process_commands: false,
-							};
-							let mut viewer =
-								crate::viewer::Viewer::new(&handle, root, viewer_options);
-							match options.view {
-								View::None => (),
-								View::Inline => {
-									viewer.run_inline(stop, false).await?;
-								},
-								View::Fullscreen => {
-									viewer.run_fullscreen(stop).await?;
-								},
-							}
-							Ok::<_, tg::Error>(())
-						})
-						.unwrap();
+						.map_err(|source| {
+							tg::error!(!source, "failed to create the tokio runtime")
+						})?;
+					local_set.block_on(&runtime, async move {
+						let viewer_options = crate::viewer::Options {
+							collapse_process_children: true,
+							depth: None,
+							expand_objects: false,
+							expand_packages: false,
+							expand_processes: true,
+							expand_metadata: false,
+							expand_tags: false,
+							expand_values: false,
+							show_process_commands: false,
+						};
+						let mut viewer = crate::viewer::Viewer::new(&handle, root, viewer_options);
+						match options.view {
+							View::None => (),
+							View::Inline => {
+								viewer.run_inline(stop, false).await?;
+							},
+							View::Fullscreen => {
+								viewer.run_fullscreen(stop).await?;
+							},
+						}
+						Ok::<_, tg::Error>(())
+					})
 				});
 				Some(task)
 			};
@@ -191,7 +190,17 @@ impl Cli {
 			// Stop and await the view task.
 			if let Some(view_task) = view_task {
 				view_task.stop();
-				view_task.wait().await.unwrap();
+				match view_task.wait().await {
+					Ok(Ok(())) => {},
+					Ok(Err(error)) => {
+						tracing::warn!(?error, "failed to render the process viewer");
+						Self::print_warning_message("failed to render the process viewer");
+					},
+					Err(error) => {
+						tracing::warn!(?error, "failed to join the process viewer task");
+						Self::print_warning_message("failed to render the process viewer");
+					},
+				}
 			}
 
 			result?

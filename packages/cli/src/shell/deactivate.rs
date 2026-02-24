@@ -38,7 +38,7 @@ impl Cli {
 			}
 			return Ok(());
 		};
-		if state.directory.is_some() {
+		if state.directory {
 			let error = tg::error!("cannot deactivate the current directory's shell environment");
 			return Err(error);
 		}
@@ -58,6 +58,7 @@ impl Cli {
 		output.push_str(&code);
 		print!("{output}");
 
+		Self::print_info_message(&format!("deactivated {}", deactivate_output.reference));
 		Self::print_shell_preserved_variable_messages(&deactivate_output.preserved);
 
 		Ok(())
