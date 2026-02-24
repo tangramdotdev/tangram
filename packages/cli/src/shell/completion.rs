@@ -18,7 +18,7 @@ enum Shell {
 }
 
 impl Cli {
-	pub async fn command_completion(&mut self, args: Args) -> tg::Result<()> {
+	pub async fn command_shell_completion(&mut self, args: Args) -> tg::Result<()> {
 		let mut command = crate::Args::command();
 		let mut stdout = std::io::stdout();
 

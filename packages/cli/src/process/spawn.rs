@@ -345,21 +345,47 @@ impl Cli {
 		while let Some((_, matches_)) = matches.subcommand() {
 			matches = matches_;
 		}
-		let arg_string_indices = matches.indices_of("arg_strings").unwrap_or_default();
-		let arg_value_indices = matches.indices_of("arg_values").unwrap_or_default();
-		let mut indexed: Vec<(usize, tg::Value)> = Vec::new();
-		for (index, value) in arg_string_indices.zip(options.arg_strings) {
-			let value = tg::Value::String(value);
-			indexed.push((index, value));
+		let arg_string_indices = if matches.try_contains_id("arg_strings").unwrap_or(false) {
+			matches
+				.indices_of("arg_strings")
+				.map(std::iter::Iterator::collect)
+				.unwrap_or_default()
+		} else {
+			Vec::new()
+		};
+		let arg_value_indices = if matches.try_contains_id("arg_values").unwrap_or(false) {
+			matches
+				.indices_of("arg_values")
+				.map(std::iter::Iterator::collect)
+				.unwrap_or_default()
+		} else {
+			Vec::new()
+		};
+		if arg_string_indices.is_empty() && arg_value_indices.is_empty() {
+			for value in options.arg_strings {
+				args_.push(tg::Value::String(value));
+			}
+			for value in options.arg_values {
+				let value = value
+					.parse()
+					.map_err(|error| tg::error!(!error, "failed to parse the arg"))?;
+				args_.push(value);
+			}
+		} else {
+			let mut indexed: Vec<(usize, tg::Value)> = Vec::new();
+			for (index, value) in arg_string_indices.into_iter().zip(options.arg_strings) {
+				let value = tg::Value::String(value);
+				indexed.push((index, value));
+			}
+			for (index, value) in arg_value_indices.into_iter().zip(options.arg_values) {
+				let value = value
+					.parse()
+					.map_err(|error| tg::error!(!error, "failed to parse the arg"))?;
+				indexed.push((index, value));
+			}
+			indexed.sort_by_key(|&(index, _)| index);
+			args_.extend(indexed.into_iter().map(|(_, value)| value));
 		}
-		for (index, value) in arg_value_indices.zip(options.arg_values) {
-			let value = value
-				.parse()
-				.map_err(|error| tg::error!(!error, "failed to parse the arg"))?;
-			indexed.push((index, value));
-		}
-		indexed.sort_by_key(|&(index, _)| index);
-		args_.extend(indexed.into_iter().map(|(_, value)| value));
 		for arg in trailing {
 			args_.push(tg::Value::String(arg));
 		}

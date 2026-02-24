@@ -42,7 +42,7 @@ pub enum Body {
 	Blake3([u8; 32]),
 }
 
-const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
+pub const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
 	symbols: "0123456789abcdefghjkmnpqrstvwxyz",
 };
 

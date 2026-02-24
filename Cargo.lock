@@ -6357,6 +6357,7 @@ dependencies = [
  "owo-colors",
  "petgraph",
  "radix_trie",
+ "rand 0.10.0",
  "ratatui",
  "serde",
  "serde_json",

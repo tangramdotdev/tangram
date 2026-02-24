@@ -348,7 +348,7 @@ macro_rules! file {
 		let contents = $contents.into();
 		let mut executable = false;
 		#[allow(unused_mut)]
-		let mut xattrs = std::collections::BTreeMap::new();
+		let mut xattrs = ::std::collections::BTreeMap::new();
 		$crate::file!(@executable $($($arg)*)?);
 		$crate::artifact::File { contents, executable, xattrs }
 	}};

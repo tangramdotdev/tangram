@@ -21,7 +21,6 @@ mod checkout;
 mod checksum;
 mod children;
 mod clean;
-mod completion;
 mod compress;
 mod decompress;
 mod document;
@@ -54,6 +53,7 @@ mod run;
 mod sandbox;
 mod server;
 mod session;
+mod shell;
 mod tag;
 mod tangram;
 mod telemetry;
@@ -182,8 +182,6 @@ enum Command {
 
 	Clean(self::clean::Args),
 
-	Completion(self::completion::Args),
-
 	Compress(self::compress::Args),
 
 	Decompress(self::decompress::Args),
@@ -256,6 +254,8 @@ enum Command {
 
 	#[command(name = "self")]
 	Self_(self::tangram::Args),
+
+	Shell(self::shell::Args),
 
 	Serve(self::server::run::Args),
 
@@ -343,7 +343,7 @@ fn main() -> std::process::ExitCode {
 	}
 
 	// Read the config.
-	let config = match Cli::read_config(args.config.clone()) {
+	let config = match Cli::read_cli_config(args.config.clone()) {
 		Ok(config) => config,
 		Err(error) => {
 			Cli::print_error_message("an error occurred");
@@ -959,7 +959,6 @@ impl Cli {
 			Command::Checksum(args) => self.command_checksum(args).boxed(),
 			Command::Children(args) => self.command_children(args).boxed(),
 			Command::Clean(args) => self.command_clean(args).boxed(),
-			Command::Completion(args) => self.command_completion(args).boxed(),
 			Command::Compress(args) => self.command_compress(args).boxed(),
 			Command::Decompress(args) => self.command_decompress(args).boxed(),
 			Command::Document(args) => self.command_document(args).boxed(),
@@ -989,6 +988,7 @@ impl Cli {
 			Command::Remote(args) => self.command_remote(args).boxed(),
 			Command::Run(args) => self.command_run(args).boxed(),
 			Command::Self_(args) => self.command_tangram(args).boxed(),
+			Command::Shell(args) => self.command_shell(args).boxed(),
 			Command::Serve(args) => self.command_server_run(args).boxed(),
 			Command::Server(args) => self.command_server(args).boxed(),
 			Command::Signal(args) => self.command_process_signal(args).boxed(),
@@ -1022,7 +1022,7 @@ impl Cli {
 			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"))
 	}
 
-	fn read_config(directory: Option<PathBuf>) -> tg::Result<Option<Config>> {
+	fn read_cli_config(directory: Option<PathBuf>) -> tg::Result<Option<Config>> {
 		let directory = directory.unwrap_or_else(|| {
 			PathBuf::from(std::env::var("HOME").unwrap()).join(".config/tangram/config.json")
 		});
@@ -1043,11 +1043,35 @@ impl Cli {
 		Ok(Some(config))
 	}
 
-	#[expect(dead_code)]
+	fn read_config(&self) -> tg::Result<Config> {
+		let path = self.config_path();
+		let config = match std::fs::read_to_string(&path) {
+			Ok(config) => config,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+				return Ok(Config::default());
+			},
+			Err(source) => {
+				return Err(tg::error!(
+					!source,
+					path = %path.display(),
+					"failed to read the config file"
+				));
+			},
+		};
+		serde_json::from_str(&config).map_err(
+			|source| tg::error!(!source, path = %path.display(), "failed to deserialize the config"),
+		)
+	}
+
 	fn write_config(&self, config: &Config) -> tg::Result<()> {
-		let config = serde_json::to_string_pretty(&config)
+		let path = self.config_path();
+		let config = serde_json::to_string_pretty(config)
 			.map_err(|source| tg::error!(!source, "failed to serialize the config"))?;
-		std::fs::write(self.config_path(), config)
+		if let Some(parent) = path.parent() {
+			std::fs::create_dir_all(parent)
+				.map_err(|source| tg::error!(!source, "failed to create the config directory"))?;
+		}
+		std::fs::write(path, config)
 			.map_err(|source| tg::error!(!source, "failed to save the config"))?;
 		Ok(())
 	}

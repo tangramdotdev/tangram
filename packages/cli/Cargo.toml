@@ -59,6 +59,7 @@ num = { workspace = true }
 owo-colors = { workspace = true }
 petgraph = { workspace = true }
 radix_trie = { workspace = true }
+rand = { workspace = true }
 ratatui = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

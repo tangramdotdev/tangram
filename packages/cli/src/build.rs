@@ -41,12 +41,12 @@ pub struct Options {
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
+	#[command(flatten)]
+	pub spawn: crate::process::spawn::Options,
+
 	/// Print the full spawn output instead of just the process ID.
 	#[arg(long, short)]
 	pub verbose: bool,
-
-	#[command(flatten)]
-	pub spawn: crate::process::spawn::Options,
 
 	/// The view to display if the process's stdio is not attached.
 	#[arg(default_value = "inline", long)]
