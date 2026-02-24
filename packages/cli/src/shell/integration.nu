@@ -62,7 +62,7 @@ def --env --wrapped tangram [...argv] {
 	__tg_shell_dispatch ...$argv
 }
 
-def --env __tg_shell_reconcile [] {
+def --env __tg_shell_update [] {
 	__tg_shell_eval shell directory update nu
 }
 
@@ -94,7 +94,7 @@ def --env __tg_shell_install_pwd_hook [] {
 		| where {|hook| $hook != null }
 	)
 	let hooks = $existing
-	let hook = { code: {|before, after| __tg_shell_reconcile } }
+	let hook = { code: {|before, after| __tg_shell_update } }
 	$env.config = (
 		$env.config
 		| upsert hooks.env_change.PWD ($hooks | append $hook)
@@ -103,4 +103,4 @@ def --env __tg_shell_install_pwd_hook [] {
 }
 
 __tg_shell_install_pwd_hook
-__tg_shell_reconcile
+__tg_shell_update

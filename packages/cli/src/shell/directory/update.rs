@@ -20,104 +20,84 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_shell_directory_update(&mut self, args: Args) -> tg::Result<()> {
-		let directory = self.get_current_shell_directory()?;
-		let state = Self::load_shell_state()?;
+		let path = std::env::current_dir()
+			.map_err(|source| tg::error!(!source, "failed to get the current directory"))?;
+		let path = std::fs::canonicalize(path).map_err(|source| {
+			tg::error!(!source, "failed to canonicalize the current directory")
+		})?;
+		let directory = self.get_shell_directory(&path)?;
+		let shell_state_path = std::env::var("TANGRAM_SHELL_STATE").ok();
+		let state = shell_state_path
+			.as_deref()
+			.map(Self::load_shell_state)
+			.transpose()?
+			.flatten();
 		let mut current = std::env::vars().collect::<BTreeMap<_, _>>();
 		let mut output = String::new();
 
-		match (directory, state) {
-			(None, Some((_, state))) if state.directory.is_some() => {
-				let (mutations, preserved, _) = Self::deactivate_shell()?;
-				let code = Self::create_shell_code(args.shell, &mutations);
+		let Some((directory_path, desired)) = directory else {
+			if state
+				.as_ref()
+				.is_some_and(|state| state.directory.is_some())
+			{
+				let deactivate = Self::deactivate_shell()?
+					.ok_or_else(|| tg::error!("expected an active shell environment"))?;
+				let code = Self::create_shell_code(args.shell, &deactivate.mutations);
 				output.push_str(&code);
 				let code = Self::create_shell_state_code(args.shell, None);
 				output.push_str(&code);
 				print!("{output}");
-				Self::print_info_message("deactivated the directory environment.");
-				Self::print_shell_preserved_environment_messages(&preserved);
-			},
+				Self::print_info_message("deactivated the environment");
+				Self::print_shell_preserved_variable_messages(&deactivate.preserved);
+			}
+			return Ok(());
+		};
 
-			(Some((directory, desired)), Some((_, state))) => {
-				let directory_path = directory;
-				let directory = directory_path
-					.to_str()
-					.ok_or_else(|| tg::error!("the directory path is not valid UTF-8"))?
-					.to_owned();
-				let reference = format!("{directory}#{}", desired.export)
-					.parse::<tg::Reference>()
-					.map_err(|source| {
-						tg::error!(!source, "failed to parse the shell directory reference")
-					})?;
-				if state.directory.as_ref().is_some_and(|state| {
-					state.export == desired.export && state.path == directory_path
-				}) {
-					return Ok(());
-				}
-				Self::print_warning_message(
-					"replacing the active shell environment with the directory environment.",
-				);
-				let (mutations, preserved, _) = Self::deactivate_shell()?;
-				let code = Self::create_shell_code(args.shell, &mutations);
-				output.push_str(&code);
-				Self::apply_shell_environment_mutations(&mut current, &mutations);
-				Self::print_shell_preserved_environment_messages(&preserved);
-
-				let target = self.resolve_shell_environment(&reference).await?;
-				let (activate, previous, current) = Self::create_shell_mutations(&current, &target);
-				let code = Self::create_shell_code(args.shell, &activate);
-				output.push_str(&code);
-
-				let path = Self::shell_state_path()?;
-				let state = State {
-					current,
-					directory: Some(Directory {
-						export: desired.export.clone(),
-						path: directory_path,
-					}),
-					previous,
-				};
-				Self::write_shell_state(&path, &state)?;
-				output.push_str(&Self::create_shell_state_code(args.shell, Some(&path)));
-				print!("{output}");
-
-				Self::print_info_message(&format!(
-					"activated the directory environment for {directory}."
-				));
-			},
-
-			(Some((path, config)), None) => {
-				let directory = path
-					.to_str()
-					.ok_or_else(|| tg::error!("the directory path is not valid UTF-8"))?
-					.to_owned();
-				let reference = format!("{directory}#{}", config.export)
-					.parse::<tg::Reference>()
-					.map_err(|source| {
-						tg::error!(!source, "failed to parse the shell directory reference")
-					})?;
-				let target = self.resolve_shell_environment(&reference).await?;
-				let (activate, previous, current) = Self::create_shell_mutations(&current, &target);
-				output.push_str(&Self::create_shell_code(args.shell, &activate));
-				let state_path = Self::shell_state_path()?;
-				let state = State {
-					current,
-					directory: Some(Directory {
-						export: config.export.clone(),
-						path,
-					}),
-					previous,
-				};
-				Self::write_shell_state(&state_path, &state)?;
-				let code = Self::create_shell_state_code(args.shell, Some(&state_path));
-				output.push_str(&code);
-				print!("{output}");
-				Self::print_info_message(&format!(
-					"activated the directory environment for {directory}."
-				));
-			},
-
-			(None, None | Some(_)) => (),
+		if state
+			.as_ref()
+			.and_then(|state| state.directory.as_ref())
+			.is_some_and(|state| state.export == desired.export && state.path == directory_path)
+		{
+			return Ok(());
 		}
+
+		if state.is_some() {
+			let deactivate = Self::deactivate_shell()?
+				.ok_or_else(|| tg::error!("expected an active shell environment"))?;
+			let code = Self::create_shell_code(args.shell, &deactivate.mutations);
+			output.push_str(&code);
+			Self::apply_shell_mutations(&mut current, &deactivate.mutations);
+			Self::print_shell_preserved_variable_messages(&deactivate.preserved);
+		}
+
+		let directory = directory_path
+			.to_str()
+			.ok_or_else(|| tg::error!("the directory path is not valid UTF-8"))?
+			.to_owned();
+		let reference = format!("{directory}#{}", desired.export)
+			.parse::<tg::Reference>()
+			.map_err(|source| {
+				tg::error!(!source, "failed to parse the shell directory reference")
+			})?;
+		let path = self.build_shell_executable(&reference).await?;
+		let env = self.run_shell_executable(&path).await?;
+		let (activate, previous, current) = Self::create_shell_mutations(&current, &env);
+		let code = Self::create_shell_code(args.shell, &activate);
+		output.push_str(&code);
+		let state_path = Self::shell_state_path()?;
+		let state = State {
+			current,
+			directory: Some(Directory {
+				export: desired.export.clone(),
+				path: directory_path,
+			}),
+			previous,
+		};
+		Self::write_shell_state(&state_path, &state)?;
+		let code = Self::create_shell_state_code(args.shell, Some(&state_path));
+		output.push_str(&code);
+		print!("{output}");
+		Self::print_info_message(&format!("activated {directory}"));
 
 		Ok(())
 	}

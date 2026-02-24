@@ -408,11 +408,7 @@ impl Provider {
 			let name = None
 				.or_else(|| name.strip_suffix(".tg.ts"))
 				.or_else(|| name.strip_suffix(".tg.js"))
-				.or_else(|| {
-					std::path::Path::new(name)
-						.file_stem()
-						.and_then(|s| s.to_str())
-				})
+				.or_else(|| Path::new(name).file_stem().and_then(|s| s.to_str()))
 				.unwrap_or(name);
 			let Ok(artifact) = name.parse() else {
 				return Ok(None);
@@ -482,11 +478,7 @@ impl Provider {
 			let name = None
 				.or_else(|| name.strip_suffix(".tg.ts"))
 				.or_else(|| name.strip_suffix(".tg.js"))
-				.or_else(|| {
-					std::path::Path::new(name)
-						.file_stem()
-						.and_then(|s| s.to_str())
-				})
+				.or_else(|| Path::new(name).file_stem().and_then(|s| s.to_str()))
 				.unwrap_or(name);
 			let Ok(artifact) = name.parse() else {
 				return Ok(None);

@@ -28,7 +28,7 @@ _tg_shell_deactivate() {
 	esac
 }
 
-_tg_shell_reconcile() {
+_tg_shell_update() {
 	_tg_shell_eval shell directory update zsh
 }
 
@@ -56,11 +56,11 @@ tangram() {
 typeset -ga chpwd_functions
 typeset -ga precmd_functions
 
-if ! (( ${chpwd_functions[(I)_tg_shell_reconcile]} )); then
-	chpwd_functions+=(_tg_shell_reconcile)
+if ! (( ${chpwd_functions[(I)_tg_shell_update]} )); then
+	chpwd_functions+=(_tg_shell_update)
 fi
-if ! (( ${precmd_functions[(I)_tg_shell_reconcile]} )); then
-	precmd_functions+=(_tg_shell_reconcile)
+if ! (( ${precmd_functions[(I)_tg_shell_update]} )); then
+	precmd_functions+=(_tg_shell_update)
 fi
 
-_tg_shell_reconcile
+_tg_shell_update

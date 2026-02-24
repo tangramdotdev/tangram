@@ -37,15 +37,17 @@ pub enum Mutation {
 	Unset { key: String },
 }
 
+#[derive(Clone, Debug)]
+pub struct DeactivateShellOutput {
+	pub mutations: Vec<Mutation>,
+	pub preserved: Vec<String>,
+}
+
 impl Cli {
-	pub(super) fn get_current_shell_directory(
+	pub(super) fn get_shell_directory(
 		&self,
+		path: &Path,
 	) -> tg::Result<Option<(PathBuf, crate::config::ShellDirectory)>> {
-		let path = std::env::current_dir()
-			.map_err(|source| tg::error!(!source, "failed to get the current directory"))?;
-		let path = std::fs::canonicalize(path).map_err(|source| {
-			tg::error!(!source, "failed to canonicalize the current directory")
-		})?;
 		let config = self.read_config()?;
 		let Some(shell) = config.shell else {
 			return Ok(None);
@@ -58,7 +60,7 @@ impl Cli {
 			.iter()
 			.map(|(directory, value)| (PathBuf::from(directory), value))
 			.collect::<Vec<_>>();
-		directories.sort_unstable_by(|lhs, rhs| lhs.0.cmp(&rhs.0));
+		directories.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
 		let directory = directories
 			.into_iter()
 			.rev()
@@ -70,9 +72,64 @@ impl Cli {
 		Ok(Some((directory, directory_value)))
 	}
 
-	pub(super) fn deactivate_shell() -> tg::Result<(Vec<Mutation>, Vec<String>, Option<PathBuf>)> {
-		let Some((path, state)) = Self::load_shell_state()? else {
-			return Ok((Vec::new(), Vec::new(), None));
+	pub(super) fn shell_state_path() -> tg::Result<PathBuf> {
+		let path = std::env::var("XDG_STATE_HOME")
+			.map(PathBuf::from)
+			.or_else(|_| {
+				Ok::<_, tg::Error>(
+					PathBuf::from(std::env::var("HOME").unwrap()).join(".local/state"),
+				)
+			})
+			.map_err(|source| tg::error!(!source, "failed to get the state directory"))?
+			.join("tangram/shell/state");
+		std::fs::create_dir_all(&path)
+			.map_err(|source| tg::error!(!source, "failed to create the state directory"))?;
+		let bytes = rand::random::<[u8; 10]>();
+		let bytes = tg::id::ENCODING.encode(&bytes);
+		let name = format!("{bytes}.json");
+		let path = path.join(name);
+		Ok(path)
+	}
+
+	pub(super) fn load_shell_state(path: impl AsRef<Path>) -> tg::Result<Option<State>> {
+		let path = path.as_ref();
+		let state = match std::fs::read_to_string(path) {
+			Ok(state) => state,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+				return Ok(None);
+			},
+			Err(source) => {
+				return Err(tg::error!(
+					!source,
+					path = %path.display(),
+					"failed to read the shell state file"
+				));
+			},
+		};
+		let state = serde_json::from_str(&state).map_err(
+			|source| tg::error!(!source, path = %path.display(), "failed to deserialize the shell state"),
+		)?;
+		Ok(Some(state))
+	}
+
+	pub(super) fn write_shell_state(path: &Path, state: &State) -> tg::Result<()> {
+		let json = serde_json::to_vec_pretty(state)
+			.map_err(|source| tg::error!(!source, "failed to serialize the shell state"))?;
+		let temporary = path.with_extension("json.tmp");
+		std::fs::write(&temporary, json)
+			.map_err(|source| tg::error!(!source, "failed to write the shell state file"))?;
+		std::fs::rename(&temporary, path)
+			.map_err(|source| tg::error!(!source, "failed to commit the shell state file"))?;
+		Ok(())
+	}
+
+	pub(super) fn deactivate_shell() -> tg::Result<Option<DeactivateShellOutput>> {
+		let shell_state_path = std::env::var("TANGRAM_SHELL_STATE").ok();
+		let Some(path) = shell_state_path.as_deref() else {
+			return Ok(None);
+		};
+		let Some(state) = Self::load_shell_state(path)? else {
+			return Ok(None);
 		};
 		let current = std::env::vars().collect::<BTreeMap<_, _>>();
 		let mut mutations = Vec::new();
@@ -99,7 +156,21 @@ impl Cli {
 				},
 			}
 		}
-		Ok((mutations, preserved, Some(path)))
+		let deactivate = DeactivateShellOutput {
+			mutations,
+			preserved,
+		};
+		Ok(Some(deactivate))
+	}
+
+	pub(super) fn print_shell_preserved_variable_messages(keys: &[String]) {
+		if keys.is_empty() {
+			return;
+		}
+		Self::print_warning_message(&format!(
+			"preserved environment variables: {}.",
+			keys.join(", ")
+		));
 	}
 
 	pub(super) fn create_shell_mutations(
@@ -203,108 +274,23 @@ impl Cli {
 		}
 	}
 
-	pub(super) fn apply_shell_environment_mutations(
-		environment: &mut BTreeMap<String, String>,
+	pub(super) fn apply_shell_mutations(
+		env: &mut BTreeMap<String, String>,
 		mutations: &[Mutation],
 	) {
 		for mutation in mutations {
 			match mutation {
 				Mutation::Set { key, value } => {
-					environment.insert(key.clone(), value.clone());
+					env.insert(key.clone(), value.clone());
 				},
 				Mutation::Unset { key } => {
-					environment.remove(key);
+					env.remove(key);
 				},
 			}
 		}
 	}
 
-	pub(super) fn load_shell_state() -> tg::Result<Option<(PathBuf, State)>> {
-		let Some(path) = std::env::var_os("TANGRAM_SHELL_STATE") else {
-			return Ok(None);
-		};
-		let path = PathBuf::from(path);
-		let state = match std::fs::read_to_string(&path) {
-			Ok(state) => state,
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-				return Ok(None);
-			},
-			Err(source) => {
-				return Err(tg::error!(
-					!source,
-					path = %path.display(),
-					"failed to read the shell state file"
-				));
-			},
-		};
-		let state = serde_json::from_str(&state).map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to deserialize the shell state"),
-		)?;
-		Ok(Some((path, state)))
-	}
-
-	pub(super) fn print_shell_preserved_environment_messages(keys: &[String]) {
-		if keys.is_empty() {
-			return;
-		}
-		Self::print_warning_message(&format!(
-			"preserved environment variables: {}.",
-			keys.join(", ")
-		));
-	}
-
-	pub(super) async fn resolve_shell_environment(
-		&mut self,
-		reference: &tg::Reference,
-	) -> tg::Result<BTreeMap<String, String>> {
-		let path = self.build_shell_environment_executable(reference).await?;
-		let output = tokio::process::Command::new(&path)
-			.arg("-0")
-			.current_dir("/")
-			.stdin(Stdio::null())
-			.stdout(Stdio::piped())
-			.stderr(Stdio::inherit())
-			.output()
-			.await
-			.map_err(|source| {
-				tg::error!(
-					!source,
-					path = %path.display(),
-					"failed to spawn the shell environment process"
-				)
-			})?;
-		if !output.status.success() {
-			let status = output.status;
-			let code = status
-				.code()
-				.map_or_else(|| "<none>".to_owned(), |code| code.to_string());
-			return Err(tg::error!(
-				%code,
-				path = %path.display(),
-				"the shell environment process exited unsuccessfully"
-			));
-		}
-		let mut env = BTreeMap::new();
-		for record in output.stdout.split(|byte| *byte == 0) {
-			if record.is_empty() {
-				continue;
-			}
-			let Some(index) = record.iter().position(|byte| *byte == b'=') else {
-				continue;
-			};
-			let key = std::str::from_utf8(&record[..index])
-				.map_err(|source| tg::error!(!source, "failed to parse an env key"))?;
-			let value = std::str::from_utf8(&record[index + 1..])
-				.map_err(|source| tg::error!(!source, "failed to parse an env value"))?;
-			if ignored(key) {
-				continue;
-			}
-			env.insert(key.to_owned(), value.to_owned());
-		}
-		Ok(env)
-	}
-
-	async fn build_shell_environment_executable(
+	pub(super) async fn build_shell_executable(
 		&mut self,
 		reference: &tg::Reference,
 	) -> tg::Result<PathBuf> {
@@ -447,34 +433,53 @@ impl Cli {
 		Ok(path)
 	}
 
-	pub(super) fn shell_state_path() -> tg::Result<PathBuf> {
-		let path = std::env::var("XDG_STATE_HOME")
-			.map(PathBuf::from)
-			.or_else(|_| {
-				Ok::<_, tg::Error>(
-					PathBuf::from(std::env::var("HOME").unwrap()).join(".local/state"),
+	pub(super) async fn run_shell_executable(
+		&mut self,
+		path: &Path,
+	) -> tg::Result<BTreeMap<String, String>> {
+		let output = tokio::process::Command::new(path)
+			.arg("-0")
+			.stdin(Stdio::null())
+			.stdout(Stdio::piped())
+			.stderr(Stdio::inherit())
+			.output()
+			.await
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					path = %path.display(),
+					"failed to spawn the process"
 				)
-			})
-			.map_err(|source| tg::error!(!source, "failed to get the state directory"))?
-			.join("tangram/shell/state");
-		std::fs::create_dir_all(&path)
-			.map_err(|source| tg::error!(!source, "failed to create the state directory"))?;
-		let bytes = rand::random::<[u8; 10]>();
-		let bytes = tg::id::ENCODING.encode(&bytes);
-		let name = format!("{bytes}.json");
-		let path = path.join(name);
-		Ok(path)
-	}
-
-	pub(super) fn write_shell_state(path: &Path, state: &State) -> tg::Result<()> {
-		let json = serde_json::to_vec_pretty(state)
-			.map_err(|source| tg::error!(!source, "failed to serialize the shell state"))?;
-		let temporary = path.with_extension("json.tmp");
-		std::fs::write(&temporary, json)
-			.map_err(|source| tg::error!(!source, "failed to write the shell state file"))?;
-		std::fs::rename(&temporary, path)
-			.map_err(|source| tg::error!(!source, "failed to commit the shell state file"))?;
-		Ok(())
+			})?;
+		if !output.status.success() {
+			let status = output.status;
+			let code = status
+				.code()
+				.map_or_else(|| "<none>".to_owned(), |code| code.to_string());
+			return Err(tg::error!(
+				%code,
+				path = %path.display(),
+				"the shell environment process exited unsuccessfully"
+			));
+		}
+		let mut env = BTreeMap::new();
+		for record in output.stdout.split(|byte| *byte == 0) {
+			if record.is_empty() {
+				continue;
+			}
+			let Some(index) = record.iter().position(|byte| *byte == b'=') else {
+				continue;
+			};
+			let key = std::str::from_utf8(&record[..index])
+				.map_err(|source| tg::error!(!source, "failed to parse an env key"))?;
+			let value = std::str::from_utf8(&record[index + 1..])
+				.map_err(|source| tg::error!(!source, "failed to parse an env value"))?;
+			if ignored(key) {
+				continue;
+			}
+			env.insert(key.to_owned(), value.to_owned());
+		}
+		Ok(env)
 	}
 }
 

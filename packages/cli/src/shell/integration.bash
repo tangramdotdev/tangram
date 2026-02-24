@@ -28,7 +28,7 @@ _tg_shell_deactivate() {
 	esac
 }
 
-_tg_shell_reconcile() {
+_tg_shell_update() {
 	_tg_shell_eval shell directory update bash
 }
 
@@ -55,14 +55,14 @@ tangram() {
 
 if [[ -n "${PROMPT_COMMAND:-}" ]]; then
 	case ";$PROMPT_COMMAND;" in
-		*";_tg_shell_reconcile;"*)
+		*";_tg_shell_update;"*)
 			;;
 		*)
-			PROMPT_COMMAND="_tg_shell_reconcile;$PROMPT_COMMAND"
+			PROMPT_COMMAND="_tg_shell_update;$PROMPT_COMMAND"
 			;;
 	esac
 else
-	PROMPT_COMMAND="_tg_shell_reconcile"
+	PROMPT_COMMAND="_tg_shell_update"
 fi
 
-_tg_shell_reconcile
+_tg_shell_update

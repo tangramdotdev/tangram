@@ -5,7 +5,6 @@ pub mod common;
 pub mod completion;
 pub mod deactivate;
 pub mod directory;
-pub mod env;
 pub mod integration;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, clap::ValueEnum)]
@@ -16,7 +15,7 @@ pub enum Kind {
 	Zsh,
 }
 
-/// Manage shell features.
+/// Manage shell integration.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -30,7 +29,6 @@ pub enum Command {
 	Completion(self::completion::Args),
 	Deactivate(self::deactivate::Args),
 	Directory(self::directory::Args),
-	Env(self::env::Args),
 	Integration(self::integration::Args),
 }
 
@@ -48,9 +46,6 @@ impl Cli {
 			},
 			Command::Directory(args) => {
 				self.command_shell_directory(args).await?;
-			},
-			Command::Env(args) => {
-				self.command_shell_env(args).await?;
 			},
 			Command::Integration(args) => {
 				self.command_shell_integration(args).await?;

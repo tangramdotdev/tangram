@@ -31,11 +31,11 @@ function __tg_shell_deactivate
 	__tg_shell_eval shell deactivate fish
 end
 
-if functions -q __tg_shell_reconcile
-	functions --erase __tg_shell_reconcile
+if functions -q __tg_shell_update
+	functions --erase __tg_shell_update
 end
 
-function __tg_shell_reconcile --on-variable PWD
+function __tg_shell_update --on-variable PWD
 	__tg_shell_eval shell directory update fish
 end
 
@@ -61,4 +61,4 @@ function tangram
 	__tg_shell_dispatch $argv
 end
 
-__tg_shell_reconcile
+__tg_shell_update

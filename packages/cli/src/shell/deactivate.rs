@@ -13,16 +13,25 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_shell_deactivate(&mut self, args: Args) -> tg::Result<()> {
-		let directory = self.get_current_shell_directory()?;
+		let path = std::env::current_dir()
+			.map_err(|source| tg::error!(!source, "failed to get the current directory"))?;
+		let path = std::fs::canonicalize(path).map_err(|source| {
+			tg::error!(!source, "failed to canonicalize the current directory")
+		})?;
+		let directory = self.get_shell_directory(&path)?;
 		if directory.is_some() {
-			return Err(tg::error!(
-				"cannot deactivate while the current directory is configured for an automatic shell environment"
-			));
+			let error = tg::error!("cannot deactivate the current directory's shell environment");
+			return Err(error);
 		}
 
-		let has_state_env = std::env::var_os("TANGRAM_SHELL_STATE").is_some();
-		let state = Self::load_shell_state()?;
-		let Some((_, state)) = state else {
+		let shell_state_path = std::env::var("TANGRAM_SHELL_STATE").ok();
+		let has_state_env = shell_state_path.is_some();
+		let state = shell_state_path
+			.as_deref()
+			.map(Self::load_shell_state)
+			.transpose()?
+			.flatten();
+		let Some(state) = state else {
 			if has_state_env {
 				let code = Self::create_shell_state_code(args.shell, None);
 				print!("{code}");
@@ -30,17 +39,26 @@ impl Cli {
 			return Ok(());
 		};
 		if state.directory.is_some() {
-			return Err(tg::error!(
-				"cannot deactivate a directory shell environment; remove the directory configuration or change directories"
-			));
+			let error = tg::error!("cannot deactivate the current directory's shell environment");
+			return Err(error);
 		}
 
-		let (mutations, preserved, _) = Self::deactivate_shell()?;
-		let mut output = Self::create_shell_code(args.shell, &mutations);
-		output.push_str(&Self::create_shell_state_code(args.shell, None));
+		let deactivate_output = Self::deactivate_shell()?;
+		let Some(deactivate_output) = deactivate_output else {
+			if has_state_env {
+				let code = Self::create_shell_state_code(args.shell, None);
+				print!("{code}");
+			}
+			return Ok(());
+		};
+		let mut output = String::new();
+		let code = Self::create_shell_code(args.shell, &deactivate_output.mutations);
+		output.push_str(&code);
+		let code = Self::create_shell_state_code(args.shell, None);
+		output.push_str(&code);
 		print!("{output}");
 
-		Self::print_shell_preserved_environment_messages(&preserved);
+		Self::print_shell_preserved_variable_messages(&deactivate_output.preserved);
 
 		Ok(())
 	}
