@@ -1,15 +1,15 @@
 function __tg_shell_eval
 	set -l output_path (command mktemp)
-	command tangram $argv > $output_path
+	command tangram $argv >$output_path
 	set -l status_code $status
 	if test $status_code -ne 0
-		rm --force $output_path
+		rm -f $output_path
 		return $status_code
 	end
 	if test -s $output_path
 		source $output_path
 	end
-	rm --force $output_path
+	rm -f $output_path
 end
 
 function __tg_shell_activate
@@ -44,11 +44,11 @@ end
 
 function __tg_shell_dispatch
 	if test (count $argv) -ge 2
-		if test "$argv[1]" = "shell"; and test "$argv[2]" = "activate"
+		if test "$argv[1]" = shell; and test "$argv[2]" = activate
 			__tg_shell_activate $argv[3..-1]
 			return $status
 		end
-		if test "$argv[1]" = "shell"; and test "$argv[2]" = "deactivate"
+		if test "$argv[1]" = shell; and test "$argv[2]" = deactivate
 			__tg_shell_deactivate
 			return $status
 		end
