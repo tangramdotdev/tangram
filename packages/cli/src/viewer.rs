@@ -6,10 +6,11 @@ use {
 	num::ToPrimitive as _,
 	ratatui::{self as tui, prelude::*},
 	std::{
+		fs::OpenOptions,
 		io::{IsTerminal as _, Write as _},
 		os::fd::AsRawFd,
 		pin::pin,
-		time::Duration,
+		time::{Duration, Instant},
 	},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
@@ -333,12 +334,20 @@ where
 	}
 
 	pub async fn run_inline(&mut self, stop: Stop, print: bool) -> tg::Result<()> {
-		let mut tty: Option<std::io::Stderr> =
-			if std::io::stderr().is_terminal() && std::io::stdout().is_terminal() {
-				Some(std::io::stderr())
-			} else {
-				None
-			};
+		let mut tty: Option<std::io::Stderr> = if std::io::stderr().is_terminal() {
+			Some(std::io::stderr())
+		} else {
+			None
+		};
+		let tty_file = if tty.is_some() {
+			OpenOptions::new()
+				.read(true)
+				.write(true)
+				.open("/dev/tty")
+				.ok()
+		} else {
+			None
+		};
 
 		// Hide the cursor if necessary.
 		if self.tree.has_process()
@@ -356,10 +365,10 @@ where
 			// If we are finished rendering, then clear the screen and show the cursor.
 			if stop.stopped() || self.tree.is_finished() {
 				if self.tree.has_process()
-					&& let Some(tty) = tty.as_mut()
+					&& let Some(tty_handle) = tty.as_mut()
 				{
 					ct::queue!(
-						tty,
+						tty_handle,
 						ct::terminal::Clear(ct::terminal::ClearType::FromCursorDown),
 						ct::cursor::Show,
 					)
@@ -369,22 +378,28 @@ where
 				break;
 			}
 
-			// If live and stdout is a terminal, render the tree. Otherwise, clear guards.
+			// If live and stderr is a terminal, render the tree. Otherwise, clear guards.
 			if self.tree.has_process()
 				&& let Some(tty) = tty.as_mut()
 			{
 				// Render the tree.
 				let tree = self.tree.display().to_string();
+				let tty_fd = tty_file.as_ref().map(AsRawFd::as_raw_fd);
 
 				// Get the terminal size.
-				let (columns, rows) = ct::terminal::size()
-					.map(|(columns, rows)| (columns.to_usize().unwrap(), rows.to_usize().unwrap()))
-					.map_err(|error| tg::error!(!error, "failed to get the terminal size"))?;
+				let (columns, rows) =
+					if let Ok((columns, rows)) = terminal_size_from_terminal(tty_fd) {
+						(columns.to_usize().unwrap(), rows.to_usize().unwrap())
+					} else {
+						self.tree.clear_guards();
+						continue;
+					};
 
-				// Get the cursor position.
-				let (_column, row) = ct::cursor::position()
-					.map(|(column, row)| (column.to_usize().unwrap(), row.to_usize().unwrap()))
-					.map_err(|error| tg::error!(!error, "failed to get the cursor position"))?;
+				// Get the cursor position. If this fails (for example because stdout is redirected),
+				// still render by assuming row zero.
+				let row = cursor_position_from_terminal(tty_fd)
+					.map(|(_column, row)| row.to_usize().unwrap())
+					.unwrap_or(0);
 
 				// Clear the screen and save the cursor position.
 				ct::queue!(
@@ -471,4 +486,151 @@ pub fn clip(string: &str, max_width: usize) -> &str {
 		current_width += grapheme_width;
 	}
 	string
+}
+
+#[cfg(unix)]
+fn cursor_position_from_terminal(
+	tty_fd: Option<std::os::fd::RawFd>,
+) -> std::io::Result<(u16, u16)> {
+	let Some(fd) = tty_fd else {
+		return ct::cursor::position();
+	};
+	query_cursor_position(fd)
+}
+
+#[cfg(not(unix))]
+fn cursor_position_from_terminal(
+	_tty_fd: Option<std::os::fd::RawFd>,
+) -> std::io::Result<(u16, u16)> {
+	ct::cursor::position()
+}
+
+#[cfg(unix)]
+fn terminal_size_from_terminal(tty_fd: Option<std::os::fd::RawFd>) -> std::io::Result<(u16, u16)> {
+	let Some(fd) = tty_fd else {
+		return ct::terminal::size();
+	};
+	let mut size = unsafe { std::mem::zeroed::<libc::winsize>() };
+	if unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, &mut size) } < 0 {
+		return Err(std::io::Error::last_os_error());
+	}
+	if size.ws_col == 0 || size.ws_row == 0 {
+		return Err(std::io::Error::other("invalid terminal size"));
+	}
+	Ok((size.ws_col, size.ws_row))
+}
+
+#[cfg(not(unix))]
+fn terminal_size_from_terminal(_tty_fd: Option<std::os::fd::RawFd>) -> std::io::Result<(u16, u16)> {
+	ct::terminal::size()
+}
+
+#[cfg(unix)]
+struct TermiosGuard {
+	fd: std::os::fd::RawFd,
+	original: libc::termios,
+}
+
+#[cfg(unix)]
+impl Drop for TermiosGuard {
+	fn drop(&mut self) {
+		unsafe {
+			libc::tcsetattr(self.fd, libc::TCSAFLUSH, std::ptr::addr_of!(self.original));
+		}
+	}
+}
+
+#[cfg(unix)]
+fn query_cursor_position(fd: std::os::fd::RawFd) -> std::io::Result<(u16, u16)> {
+	let mut original = std::mem::MaybeUninit::<libc::termios>::uninit();
+	if unsafe { libc::tcgetattr(fd, original.as_mut_ptr()) } != 0 {
+		return Err(std::io::Error::last_os_error());
+	}
+	let original = unsafe { original.assume_init() };
+	let mut raw = original;
+	unsafe {
+		libc::cfmakeraw(std::ptr::addr_of_mut!(raw));
+	}
+	if unsafe { libc::tcsetattr(fd, libc::TCSAFLUSH, std::ptr::addr_of!(raw)) } != 0 {
+		return Err(std::io::Error::last_os_error());
+	}
+	let _guard = TermiosGuard { fd, original };
+
+	let query = b"\x1b[6n";
+	let written = unsafe { libc::write(fd, query.as_ptr().cast(), query.len()) };
+	if written < 0 {
+		return Err(std::io::Error::last_os_error());
+	}
+
+	let deadline = Instant::now() + Duration::from_millis(2000);
+	let mut buffer = Vec::new();
+	let mut pollfd = libc::pollfd {
+		fd,
+		events: libc::POLLIN,
+		revents: 0,
+	};
+	loop {
+		let now = Instant::now();
+		if now >= deadline {
+			return Err(std::io::Error::other(
+				"The cursor position could not be read within a normal duration",
+			));
+		}
+		let timeout_millis = (deadline - now).as_millis();
+		let timeout = i32::try_from(timeout_millis).unwrap_or(i32::MAX);
+		let ready = unsafe { libc::poll(std::ptr::addr_of_mut!(pollfd), 1, timeout) };
+		if ready < 0 {
+			let error = std::io::Error::last_os_error();
+			if error.kind() == std::io::ErrorKind::Interrupted {
+				continue;
+			}
+			return Err(error);
+		}
+		if ready == 0 {
+			return Err(std::io::Error::other(
+				"The cursor position could not be read within a normal duration",
+			));
+		}
+		let mut chunk = [0; 64];
+		let read = unsafe { libc::read(fd, chunk.as_mut_ptr().cast(), chunk.len()) };
+		if read < 0 {
+			let error = std::io::Error::last_os_error();
+			if error.kind() == std::io::ErrorKind::Interrupted {
+				continue;
+			}
+			return Err(error);
+		}
+		if read == 0 {
+			continue;
+		}
+		let read = read.cast_unsigned();
+		buffer.extend_from_slice(&chunk[..read]);
+		if let Some(position) = parse_cursor_position_response(&buffer) {
+			return Ok(position);
+		}
+		if buffer.len() > 4096 {
+			buffer.drain(..buffer.len() - 1024);
+		}
+	}
+}
+
+#[cfg(unix)]
+fn parse_cursor_position_response(bytes: &[u8]) -> Option<(u16, u16)> {
+	let mut index = bytes.len();
+	while let Some(escape) = bytes[..index].iter().rposition(|byte| *byte == b'\x1b') {
+		let sequence = bytes.get(escape + 1..)?;
+		let Some(sequence) = sequence.strip_prefix(b"[") else {
+			index = escape;
+			continue;
+		};
+		let end = sequence.iter().position(|byte| *byte == b'R')?;
+		let sequence = std::str::from_utf8(&sequence[..end]).ok()?;
+		let (row, column) = sequence.split_once(';')?;
+		let row = row.parse::<u16>().ok()?;
+		let column = column.parse::<u16>().ok()?;
+		let row = row.checked_sub(1)?;
+		let column = column.checked_sub(1)?;
+		return Some((column, row));
+	}
+	None
 }

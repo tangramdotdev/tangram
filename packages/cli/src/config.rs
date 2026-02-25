@@ -1,5 +1,6 @@
 use {
 	serde_with::serde_as,
+	std::collections::BTreeMap,
 	tangram_server::config as server,
 	tangram_util::serde::{BoolOptionDefault, is_false},
 };
@@ -15,6 +16,10 @@ pub struct Config {
 	/// Configure the server.
 	#[serde(flatten)]
 	pub server: tangram_server::Config,
+
+	/// Configure shell behavior.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub shell: Option<Shell>,
 
 	/// Enable tokio console.
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -36,6 +41,22 @@ pub struct Config {
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default = "default_tracing")]
 	pub tracing: Option<Tracing>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct Shell {
+	/// Configure automatic shell directories.
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	pub directories: BTreeMap<String, ShellDirectory>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShellDirectory {
+	/// The export to run.
+	#[serde(default = "default_export", skip_serializing_if = "is_default_export")]
+	pub export: String,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -101,7 +122,15 @@ fn default_service_name() -> String {
 	"tangram".to_owned()
 }
 
+fn default_export() -> String {
+	"default".to_owned()
+}
+
 #[expect(clippy::unnecessary_wraps)]
 fn default_tracing() -> Option<Tracing> {
 	Some(Tracing::default())
+}
+
+fn is_default_export(export: &String) -> bool {
+	export == "default"
 }
