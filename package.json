@@ -9,7 +9,7 @@
 	"scripts": {
 		"canary": "bun scripts/canary.ts",
 		"check": "cargo clippy --all-features --all-targets --workspace && bun run --parallel --filter \"*\" check",
-		"clean": "rm -rf node_modules target",
+		"clean": "rm -rf .tangram node_modules target",
 		"cloud:up": "nu scripts/cloud/up.nu",
 		"cloud:down": "nu scripts/cloud/down.nu",
 		"cloud:init": "nu scripts/cloud/init.nu",
