@@ -1,6 +1,7 @@
 use {
 	crate::temp::Temp,
 	std::{path::PathBuf, sync::Arc},
+	tangram_futures::task::Task,
 	tangram_sandbox as sandbox,
 };
 
@@ -17,5 +18,6 @@ pub struct Sandbox {
 	pub process: tokio::process::Child,
 	pub client: Arc<sandbox::client::Client>,
 	pub root: PathBuf,
+	pub serve_task: Task<()>,
 	pub _temp: Temp,
 }

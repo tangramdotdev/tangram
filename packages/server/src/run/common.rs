@@ -86,10 +86,10 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 	};
 
 	// Get the output path.
-	let path = temp.path().join("output/output");
+	let path = temp.path().join("output");
 	let exists = tokio::fs::try_exists(&path)
 		.await
-		.map_err(|source| tg::error!(!source, "failed to determine if the output path exists"))?;
+		.map_err(|source| tg::error!(!source, path = %path.display(), "failed to determine if the output path exists"))?;
 
 	// Try to read the user.tangram.output xattr.
 	if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.output") {
@@ -112,8 +112,8 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 
 	// Check in the output.
 	if output.output.is_none() && exists {
-		let path = if let Some(process) = &context.process {
-			process
+		let path = if let Some(sandbox) = &context.sandbox {
+			sandbox
 				.guest_path_for_host_path(path.clone())
 				.map_err(|source| tg::error!(!source, "failed to map the output path"))?
 		} else {

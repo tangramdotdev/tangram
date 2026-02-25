@@ -94,7 +94,10 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 	);
 
 	let checksum = arg.checksum;
-	let sandbox = "sandbox" in arg ? arg.sandbox : undefined;
+	let host = arg.host;
+	tg.assert(host !== undefined, "expected the host to be set");
+	let sandbox: tg.Process.Sandbox | undefined =
+		"sandbox" in arg ? arg.sandbox : { host };
 	let commandId = await command.store();
 	let commandReferent = {
 		item: commandId,

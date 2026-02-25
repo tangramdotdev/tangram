@@ -110,6 +110,16 @@ where
 	let stdout = arg
 		.stdout
 		.unwrap_or_else(|| state.as_ref().and_then(|state| state.stdout.clone()));
+	// Read the current sandbox ID from the environment.
+	let sandbox = std::env::var("TANGRAM_SANDBOX")
+		.ok()
+		.map(|id| {
+			id.parse()
+				.map(tg::Either::Right)
+				.map_err(|source| tg::error!(!source, "failed to parse the sandbox id"))
+		})
+		.transpose()?;
+
 	let progress = arg.progress;
 	let arg = tg::process::spawn::Arg {
 		cached: arg.cached,
@@ -119,7 +129,7 @@ where
 		parent: arg.parent,
 		remotes: arg.remote.map(|r| vec![r]),
 		retry: arg.retry,
-		sandbox: None,
+		sandbox,
 		stderr,
 		stdin,
 		stdout,

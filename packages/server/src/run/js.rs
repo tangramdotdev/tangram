@@ -61,15 +61,17 @@ impl Server {
 			let server = self.clone();
 			let process = process.clone();
 			move || async move {
-				let process = crate::context::Process {
-					id: process.id().clone(),
+				let sandbox = crate::context::Sandbox {
+					id: state
+						.sandbox
+						.clone()
+						.ok_or_else(|| tg::error!("expected a sandbox"))?,
 					paths: None,
 					remote: process.remote().cloned(),
 					retry: *process.retry(&server).await?,
-					sandbox: state.sandbox.clone(),
 				};
 				let context = Context {
-					process: Some(Arc::new(process)),
+					sandbox: Some(Arc::new(sandbox)),
 					..Default::default()
 				};
 				let handle = ServerWithContext(server, context);

@@ -10,7 +10,7 @@ impl Server {
 		context: &Context,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<()> {
-		if context.process.is_some() {
+		if context.sandbox.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -19,6 +19,10 @@ impl Server {
 			.sandboxes
 			.remove(id)
 			.ok_or_else(|| tg::error!("the sandbox was not found"))?;
+
+		// Stop the proxy serve task.
+		sandbox.serve_task.stop();
+		sandbox.serve_task.wait().await.ok();
 
 		// Kill and wait for the sandbox process.
 		sandbox

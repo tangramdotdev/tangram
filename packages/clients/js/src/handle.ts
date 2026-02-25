@@ -83,15 +83,9 @@ export namespace Handle {
 
 		deleteSandbox(id: string): Promise<void>;
 
-		sandboxSpawn(
-			id: string,
-			arg: SandboxSpawnArg,
-		): Promise<SandboxSpawnOutput>;
+		sandboxSpawn(id: string, arg: SandboxSpawnArg): Promise<SandboxSpawnOutput>;
 
-		sandboxWait(
-			id: string,
-			arg: SandboxWaitArg,
-		): Promise<SandboxWaitOutput>;
+		sandboxWait(id: string, arg: SandboxWaitArg): Promise<SandboxWaitOutput>;
 	};
 
 	export type SandboxCreateArg = {

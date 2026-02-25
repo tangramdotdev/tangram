@@ -1,9 +1,6 @@
 use {
 	crate::{Context, Server},
-	std::{
-		os::fd::{AsFd as _, AsRawFd as _},
-		path::PathBuf,
-	},
+	std::os::fd::{AsFd as _, AsRawFd as _},
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_sandbox as sandbox,
@@ -16,7 +13,7 @@ impl Server {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::spawn::Arg,
 	) -> tg::Result<tg::sandbox::spawn::Output> {
-		if context.process.is_some() {
+		if context.sandbox.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 		let sandbox = self

@@ -744,7 +744,6 @@ declare namespace tg {
 				path: string;
 			};
 		}
-
 	}
 
 	export namespace path {
@@ -1422,9 +1421,7 @@ declare namespace tg {
 		};
 
 		/** A sandbox configuration, either an inline create arg or a sandbox ID. */
-		export type Sandbox =
-			| tg.Process.Sandbox.Create
-			| string;
+		export type Sandbox = tg.Process.Sandbox.Create | string;
 
 		export namespace Sandbox {
 			export type Create = {

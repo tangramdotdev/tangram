@@ -31,13 +31,12 @@ impl Server {
 	) -> tg::Result<
 		BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>,
 	> {
-		// If the process context is set, update the parent, remotes, and retry.
-		if let Some(process) = &context.process {
-			arg.parent = Some(process.id.clone());
-			if let Some(remote) = &process.remote {
+		// If the sandbox context is set, update the remotes and retry.
+		if let Some(sandbox) = &context.sandbox {
+			if let Some(remote) = &sandbox.remote {
 				arg.remotes = Some(vec![remote.clone()]);
 			}
-			arg.retry = process.retry;
+			arg.retry = sandbox.retry;
 		}
 
 		// Create the progress.
@@ -696,13 +695,10 @@ impl Server {
 			host,
 			output.clone().map(db::value::Json),
 			arg.retry,
-			arg.sandbox
-				.as_ref()
-				.map(|s| match s {
+			arg.sandbox.as_ref().and_then(|s| match s {
 					tg::Either::Left(_) => None,
 					tg::Either::Right(id) => Some(id.to_string()),
-				})
-				.flatten(),
+				}),
 			status.to_string(),
 			0,
 			now,
@@ -738,10 +734,10 @@ impl Server {
 		// Get or create a sandbox.
 		let sandbox = match &arg.sandbox {
 			Some(tg::Either::Left(arg)) => {
-				let id = self.create_sandbox(arg.clone()).await?.id;
+				let id = dbg!(self.create_sandbox(arg.clone()).await)?.id;
 				Some(id)
 			},
-			Some(tg::Either::Right(id)) => Some(id.clone()),
+			Some(tg::Either::Right(id)) => dbg!(Some(id.clone())),
 			None => parent_sandbox.cloned(),
 		};
 

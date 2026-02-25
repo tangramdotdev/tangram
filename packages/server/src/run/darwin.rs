@@ -138,15 +138,17 @@ impl Server {
 		// Serve.
 		let server = self.clone();
 		let context = Context {
-			process: Some(Arc::new(crate::context::Process {
-				id: process.id().clone(),
+			sandbox: Some(Arc::new(crate::context::Sandbox {
+				id: state
+					.sandbox
+					.clone()
+					.ok_or_else(|| tg::error!("expected a sandbox"))?,
 				paths: None,
 				remote: remote.cloned(),
 				retry: *process
 					.retry(self)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get the process retry"))?,
-				sandbox: state.sandbox.clone(),
 			})),
 			..Default::default()
 		};
@@ -167,6 +169,11 @@ impl Server {
 
 		// Set `$TANGRAM_PROCESS`.
 		env.insert("TANGRAM_PROCESS".to_owned(), id.to_string());
+
+		// Set `$TANGRAM_SANDBOX`.
+		if let Some(sandbox_id) = &state.sandbox {
+			env.insert("TANGRAM_SANDBOX".to_owned(), sandbox_id.to_string());
+		}
 
 		// Set `$TANGRAM_URL`.
 		let url = serve_task.as_ref().map(|(_, url)| url.to_string()).unwrap();
@@ -350,18 +357,13 @@ impl Server {
 
 		// Create the sandbox command.
 		let sandbox_command = sandbox::Command {
-			chroot: None,
 			cwd: Some(cwd),
 			env: env.into_iter().collect(),
 			executable,
-			hostname: None,
-			mounts: Vec::new(),
-			network: false,
 			stdin,
 			stdout,
 			stderr,
 			trailing: args,
-			user: None,
 		};
 
 		// Spawn the command in the sandbox.
@@ -423,10 +425,10 @@ impl Server {
 		// Check in the output.
 		if output.output.is_none() && exists {
 			let guest_path = context
-				.process
+				.sandbox
 				.as_ref()
-				.map(|process| {
-					process
+				.map(|sandbox| {
+					sandbox
 						.guest_path_for_host_path(path.clone())
 						.map_err(|source| tg::error!(!source, "failed to map the output path"))
 				})

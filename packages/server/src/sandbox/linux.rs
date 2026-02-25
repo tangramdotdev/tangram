@@ -32,7 +32,7 @@ impl Server {
 			match &mount.source {
 				tg::Either::Left(source) => {
 					args.push("--mount".to_owned());
-					args.push(bind(&source, &mount.target, mount.readonly));
+					args.push(bind(source, &mount.target, mount.readonly));
 				},
 				tg::Either::Right(id) => {
 					// Create the overlay state if it does not exist. Since we use async here, we can't use the .entry() api.

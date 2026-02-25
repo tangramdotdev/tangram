@@ -238,9 +238,7 @@ export namespace Process {
 		};
 	}
 
-	export type Sandbox =
-		| tg.Process.Sandbox.Create
-		| string;
+	export type Sandbox = tg.Process.Sandbox.Create | string;
 
 	export namespace Sandbox {
 		export type Create = {

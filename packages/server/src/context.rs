@@ -2,18 +2,17 @@ use {std::path::PathBuf, std::sync::Arc, tangram_client::prelude::*};
 
 #[derive(Clone, Debug, Default)]
 pub struct Context {
-	pub process: Option<Arc<Process>>,
+	pub sandbox: Option<Arc<Sandbox>>,
 	pub token: Option<String>,
 	pub untrusted: bool,
 }
 
 #[derive(Clone, Debug)]
-pub struct Process {
-	pub id: tg::process::Id,
+pub struct Sandbox {
+	pub id: tg::sandbox::Id,
 	pub paths: Option<Paths>,
 	pub remote: Option<String>,
 	pub retry: bool,
-	pub sandbox: Option<tg::sandbox::Id>,
 }
 
 #[derive(Clone, Debug)]
@@ -24,7 +23,7 @@ pub struct Paths {
 	pub root_host: PathBuf,
 }
 
-impl Process {
+impl Sandbox {
 	pub fn host_path_for_guest_path(&self, path: PathBuf) -> PathBuf {
 		let Some(path_map) = &self.paths else {
 			return path;

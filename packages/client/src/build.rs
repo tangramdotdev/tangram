@@ -31,7 +31,7 @@ where
 	let executable = arg
 		.executable
 		.ok_or_else(|| tg::error!("expected the executable to be set"))?;
-	let mut builder = tg::Command::builder(host, executable);
+	let mut builder = tg::Command::builder(host.clone(), executable);
 	builder = builder.args(arg.args);
 	builder = builder.cwd(arg.cwd);
 	builder = builder.env(arg.env);
@@ -43,6 +43,12 @@ where
 	if let Some(name) = arg.name {
 		command.options.name.replace(name);
 	}
+	// Create a new sandbox for the build.
+	let sandbox = Some(tg::Either::Left(tg::sandbox::create::Arg {
+		host: host.clone(),
+		..Default::default()
+	}));
+
 	let progress = arg.progress;
 	let arg = tg::process::spawn::Arg {
 		cached: arg.cached,
@@ -52,7 +58,7 @@ where
 		parent: arg.parent,
 		remotes: arg.remote.map(|r| vec![r]),
 		retry: arg.retry,
-		sandbox: None,
+		sandbox,
 		stderr: None,
 		stdin: None,
 		stdout: None,

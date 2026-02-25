@@ -13,7 +13,7 @@ impl Server {
 		context: &Context,
 		arg: tg::health::Arg,
 	) -> tg::Result<tg::Health> {
-		if context.process.is_some() {
+		if context.sandbox.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 

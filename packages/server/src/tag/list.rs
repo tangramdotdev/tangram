@@ -25,7 +25,7 @@ impl Server {
 		context: &Context,
 		arg: tg::tag::list::Arg,
 	) -> tg::Result<tg::tag::list::Output> {
-		if context.process.is_some() {
+		if context.sandbox.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 

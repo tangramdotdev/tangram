@@ -2,22 +2,32 @@ use {
 	crate::{Context, Server, temp::Temp},
 	byteorder::ReadBytesExt as _,
 	std::{
+		future::Future,
 		os::{fd::AsRawFd as _, unix::process::ExitStatusExt as _},
 		sync::Arc,
 		time::Duration,
 	},
 	tangram_client::prelude::*,
+	tangram_futures::task::Task,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_sandbox as sandbox,
 };
 
 impl Server {
-	pub(crate) async fn create_sandbox_with_context(
-		&self,
-		context: &Context,
+	pub(crate) fn create_sandbox_with_context<'a>(
+		&'a self,
+		context: &'a Context,
+		arg: tg::sandbox::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::sandbox::create::Output>> + Send + 'a {
+		self.create_sandbox_with_context_inner(context, arg)
+	}
+
+	async fn create_sandbox_with_context_inner<'a>(
+		&'a self,
+		context: &'a Context,
 		arg: tg::sandbox::create::Arg,
 	) -> tg::Result<tg::sandbox::create::Output> {
-		if context.process.is_some() {
+		if context.sandbox.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -131,13 +141,48 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to connect to the sandbox"))?;
 
+		// Create the proxy server for this sandbox.
+		let host_socket = temp.path().join(".tangram/socket");
+		tokio::fs::create_dir_all(host_socket.parent().unwrap())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the proxy socket directory"))?;
+		let host_socket = host_socket
+			.to_str()
+			.ok_or_else(|| tg::error!("the proxy socket path is not valid UTF-8"))?;
+		let host_uri = tangram_uri::Uri::builder()
+			.scheme("http+unix")
+			.authority(host_socket)
+			.path("")
+			.build()
+			.unwrap();
+		let listener = Server::listen(&host_uri)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to listen on the proxy socket"))?;
+		let context = Context {
+			sandbox: Some(Arc::new(crate::context::Sandbox {
+				id: id.clone(),
+				paths: None,
+				remote: None,
+				retry: false,
+			})),
+			..Default::default()
+		};
+		let serve_task = {
+			let server = self.clone();
+			let context = context.clone();
+			Task::spawn(|stop| async move {
+				server.serve(listener, context, stop).await;
+			})
+		};
+
 		// Store the sandbox.
 		self.sandboxes.insert(
-			id.clone(),
+			dbg!(id.clone()),
 			super::Sandbox {
 				process,
 				client: Arc::new(client),
 				root,
+				serve_task,
 				_temp: temp,
 			},
 		);

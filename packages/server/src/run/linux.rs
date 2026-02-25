@@ -7,7 +7,7 @@ use {
 		sync::Arc,
 	},
 	tangram_client::prelude::*,
-	tangram_futures::{stream::TryExt as _, task::Task},
+	tangram_futures::stream::TryExt as _,
 	tangram_sandbox as sandbox,
 };
 
@@ -112,77 +112,33 @@ impl Server {
 		// Set `$TANGRAM_PROCESS`.
 		env.insert("TANGRAM_PROCESS".to_owned(), id.to_string());
 
-		// Create the guest uri.
-		let guest_socket = if state.sandbox.is_none() {
+		// Set `$TANGRAM_SANDBOX`.
+		if let Some(sandbox_id) = &state.sandbox {
+			env.insert("TANGRAM_SANDBOX".to_owned(), sandbox_id.to_string());
+		}
+
+		// Set `$TANGRAM_URL`.
+		let socket = if state.sandbox.is_none() {
 			self.path.join("socket")
 		} else {
 			Path::new("/.tangram/socket").to_owned()
 		};
-		let guest_socket = guest_socket.to_str().unwrap();
-		let guest_uri = tangram_uri::Uri::builder()
+		let url = tangram_uri::Uri::builder()
 			.scheme("http+unix")
-			.authority(guest_socket)
+			.authority(socket.to_str().unwrap())
 			.path("")
 			.build()
 			.unwrap();
-
-		// Set `$TANGRAM_URL`.
-		env.insert("TANGRAM_URL".to_owned(), guest_uri.to_string());
-
-		// Create the paths for sandboxed processes.
-		let paths = None;
-
-		// Create the host uri.
-		let host_socket = temp.path().join(".tangram/socket");
-		tokio::fs::create_dir_all(host_socket.parent().unwrap())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
-		let host_socket = host_socket
-			.to_str()
-			.ok_or_else(|| tg::error!(path = %host_socket.display(), "invalid path"))?;
-		let host_uri = tangram_uri::Uri::builder()
-			.scheme("http+unix")
-			.authority(host_socket)
-			.path("")
-			.build()
-			.unwrap();
-
-		// Listen.
-		let listener = Server::listen(&host_uri)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to listen"))?;
-
-		// Serve.
-		let server = self.clone();
-		let context = Context {
-			process: Some(Arc::new(crate::context::Process {
-				id: process.id().clone(),
-				paths,
-				remote: remote.cloned(),
-				retry: *process
-					.retry(self)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the process retry"))?,
-				sandbox: state.sandbox.clone(),
-			})),
-			..Default::default()
-		};
-		let task = Task::spawn({
-			let context = context.clone();
-			|stop| async move {
-				server.serve(listener, context, stop).await;
-			}
-		});
-
-		let serve_task = Some((task, guest_uri));
+		env.insert("TANGRAM_URL".to_owned(), url.to_string());
 
 		// Run the process.
 		let output = if let Some(sandbox_id) = &state.sandbox {
 			self.run_linux_sandboxed(
-				state, &context, serve_task, &temp, sandbox_id, executable, args, env, cwd,
+				state, &temp, sandbox_id, executable, args, env, cwd,
 			)
 			.await?
 		} else {
+			let context = Context::default();
 			let arg = crate::run::common::Arg {
 				args,
 				command,
@@ -192,7 +148,7 @@ impl Server {
 				executable,
 				id,
 				remote,
-				serve_task,
+				serve_task: None,
 				server: self,
 				state,
 				temp: &temp,
@@ -205,11 +161,10 @@ impl Server {
 		Ok(output)
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	async fn run_linux_sandboxed(
 		&self,
 		state: &tg::process::State,
-		context: &Context,
-		serve_task: Option<(Task<()>, tangram_uri::Uri)>,
 		temp: &Temp,
 		sandbox_id: &tg::sandbox::Id,
 		executable: std::path::PathBuf,
@@ -377,14 +332,6 @@ impl Server {
 			tg::error!(!source, "failed to wait for the process in the sandbox")
 		})?;
 
-		// Stop and await the serve task.
-		if let Some((task, _)) = serve_task {
-			task.stop();
-			task.wait()
-				.await
-				.map_err(|source| tg::error!(!source, "the serve task panicked"))?;
-		}
-
 		// Create the output.
 		let exit = u8::try_from(status).unwrap_or(1);
 		let mut output = super::Output {
@@ -421,16 +368,6 @@ impl Server {
 
 		// Check in the output.
 		if output.output.is_none() && exists {
-			let guest_path = context
-				.process
-				.as_ref()
-				.map(|process| {
-					process
-						.guest_path_for_host_path(path.clone())
-						.map_err(|source| tg::error!(!source, "failed to map the output path"))
-				})
-				.transpose()?
-				.unwrap_or_else(|| path.clone());
 			let arg = tg::checkin::Arg {
 				options: tg::checkin::Options {
 					destructive: true,
@@ -441,11 +378,11 @@ impl Server {
 					root: true,
 					..Default::default()
 				},
-				path: guest_path,
+				path: path.clone(),
 				updates: Vec::new(),
 			};
 			let checkin_output = self
-				.checkin_with_context(context, arg)
+				.checkin(arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to check in the output"))?
 				.try_last()

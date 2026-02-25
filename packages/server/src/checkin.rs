@@ -63,8 +63,8 @@ impl Server {
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>> + Send + use<>,
 	> {
 		// Handle host path conversion.
-		if let Some(process) = &context.process {
-			arg.path = process.host_path_for_guest_path(arg.path.clone());
+		if let Some(sandbox) = &context.sandbox {
+			arg.path = sandbox.host_path_for_guest_path(arg.path.clone());
 		}
 
 		// Guard against concurrent cleans.

@@ -46,11 +46,11 @@ impl Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + use<>,
 	> {
-		// If there is a process in the context, then replace the path with the host path.
-		if let Some(process) = &context.process
+		// If there is a sandbox in the context, then replace the path with the host path.
+		if let Some(sandbox) = &context.sandbox
 			&& let Some(path) = &mut arg.path
 		{
-			*path = process.host_path_for_guest_path(path.clone());
+			*path = sandbox.host_path_for_guest_path(path.clone());
 		}
 
 		// If the path is not provided, then cache.
@@ -88,8 +88,8 @@ impl Server {
 									};
 
 									// Map the path if necessary.
-									let path = if let Some(process) = &context.process {
-										process.guest_path_for_host_path(path)?
+									let path = if let Some(sandbox) = &context.sandbox {
+										sandbox.guest_path_for_host_path(path)?
 									} else {
 										path
 									};
@@ -114,8 +114,8 @@ impl Server {
 				path
 			};
 
-			let path = if let Some(process) = &context.process {
-				process.guest_path_for_host_path(path.clone())?
+			let path = if let Some(sandbox) = &context.sandbox {
+				sandbox.guest_path_for_host_path(path.clone())?
 			} else {
 				path
 			};
@@ -195,8 +195,8 @@ impl Server {
 			.stream()
 			.map_ok(move |event| {
 				if let tg::progress::Event::Output(mut output) = event {
-					if let Some(process) = &context.process {
-						output.path = process.host_path_for_guest_path(output.path.clone());
+					if let Some(sandbox) = &context.sandbox {
+						output.path = sandbox.host_path_for_guest_path(output.path.clone());
 					}
 					tg::progress::Event::Output(output)
 				} else {

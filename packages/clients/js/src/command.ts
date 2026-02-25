@@ -509,7 +509,6 @@ export namespace Command {
 				path: string;
 			};
 		}
-
 	}
 }
 

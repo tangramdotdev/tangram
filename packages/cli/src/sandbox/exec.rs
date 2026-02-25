@@ -6,6 +6,7 @@ use {
 /// Execute a command in a sandbox.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
+#[allow(clippy::struct_field_names)]
 pub struct Args {
 	/// The sandbox ID.
 	#[arg(index = 1)]

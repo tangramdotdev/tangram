@@ -22,7 +22,7 @@ impl Server {
 			impl Future<Output = tg::Result<Option<tg::sandbox::wait::Output>>> + Send + 'static + use<>,
 		>,
 	> {
-		if context.process.is_some() {
+		if context.sandbox.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 		let Some(sandbox) = self.sandboxes.get(id) else {

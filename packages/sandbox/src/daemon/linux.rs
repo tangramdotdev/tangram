@@ -71,7 +71,7 @@ pub fn enter(options: &Options) -> std::io::Result<()> {
 	Ok(())
 }
 
-pub fn spawn(command: Command) -> std::io::Result<i32> {
+pub fn spawn(command: &Command) -> std::io::Result<i32> {
 	// Create argv, cwd, and envp strings.
 	let argv = std::iter::once(cstring(&command.executable))
 		.chain(command.trailing.iter().map(cstring))
@@ -138,7 +138,7 @@ pub fn spawn(command: Command) -> std::io::Result<i32> {
 		}
 	}
 
-	Ok(pid as _)
+	Ok(pid.to_i32().unwrap())
 }
 
 fn mount(mount: &crate::Mount, chroot: Option<&PathBuf>) -> std::io::Result<()> {
@@ -164,8 +164,9 @@ fn mount(mount: &crate::Mount, chroot: Option<&PathBuf>) -> std::io::Result<()> 
 	let data = mount
 		.data
 		.as_ref()
-		.map(|bytes| bytes.as_ptr().cast())
-		.unwrap_or(std::ptr::null_mut());
+		.map_or(std::ptr::null_mut(), |bytes| {
+			bytes.as_ptr().cast::<std::ffi::c_void>().cast_mut()
+		});
 	unsafe {
 		// Create the mount point.
 		if let (Some(source), Some(target)) = (&source, &mut target) {
@@ -173,18 +174,9 @@ fn mount(mount: &crate::Mount, chroot: Option<&PathBuf>) -> std::io::Result<()> 
 		}
 
 		let result = libc::mount(
-			source
-				.as_ref()
-				.map(|c| c.as_ptr())
-				.unwrap_or(std::ptr::null()),
-			target
-				.as_ref()
-				.map(|c| c.as_ptr())
-				.unwrap_or(std::ptr::null()),
-			fstype
-				.as_ref()
-				.map(|c| c.as_ptr())
-				.unwrap_or(std::ptr::null()),
+			source.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
+			target.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
+			fstype.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
 			flags,
 			data,
 		);

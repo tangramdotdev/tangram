@@ -90,20 +90,14 @@ impl Server {
 				let result;
 				#[cfg(target_os = "linux")]
 				{
-					result = crate::daemon::linux::spawn(spawn.command);
+					result = crate::daemon::linux::spawn(&spawn.command);
 				}
 				#[cfg(target_os = "macos")]
 				{
 					result = crate::daemon::darwin::spawn(spawn.command);
 				}
-				let kind = result
-					.map(|pid| {
-						ResponseKind::Spawn(SpawnResponse {
-							pid: Some(pid),
-							error: None,
-						})
-					})
-					.unwrap_or_else(|error| {
+				let kind = result.map_or_else(
+					|error| {
 						ResponseKind::Spawn(SpawnResponse {
 							pid: None,
 							error: Some(tg::error::Data {
@@ -111,7 +105,14 @@ impl Server {
 								..tg::error::Data::default()
 							}),
 						})
-					});
+					},
+					|pid| {
+						ResponseKind::Spawn(SpawnResponse {
+							pid: Some(pid),
+							error: None,
+						})
+					},
+				);
 				let response = Response {
 					id: request.id,
 					kind,
@@ -184,7 +185,7 @@ impl Server {
 	// Enter the sandbox. This is irreversible for the current process.
 	pub unsafe fn enter(options: &Options) -> tg::Result<()> {
 		#[cfg(target_os = "linux")]
-		crate::daemon::linux::enter(&options)
+		crate::daemon::linux::enter(options)
 			.map_err(|source| tg::error!(!source, "failed to enter the sandbox"))?;
 
 		#[cfg(target_os = "macos")]
@@ -253,7 +254,7 @@ impl Server {
 							iov_base: buffer.as_mut_ptr().cast(),
 							iov_len: 1,
 						};
-						let length = libc::CMSG_SPACE((3 * std::mem::size_of::<RawFd>()) as _);
+						let length = libc::CMSG_SPACE((3 * std::mem::size_of::<RawFd>()).to_u32().unwrap());
 						let mut cmsg_buffer = vec![0u8; length as _];
 						let mut msg: libc::msghdr = std::mem::zeroed();
 						msg.msg_iov = (&raw const iov).cast_mut();
