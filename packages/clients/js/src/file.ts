@@ -113,7 +113,8 @@ export class File {
 		);
 		let executable = arg.executable ?? false;
 		let module = arg.module;
-		let object = { contents, dependencies, executable, module };
+		let size = arg.size ?? undefined;
+		let object = { contents, dependencies, executable, module, size };
 		return tg.File.withObject(object);
 	}
 
