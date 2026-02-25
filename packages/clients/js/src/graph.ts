@@ -588,6 +588,9 @@ export namespace Graph {
 			if (object.executable !== false) {
 				data.executable = object.executable;
 			}
+			if (object.module !== undefined) {
+				data.module = object.module;
+			}
 			if (object.size !== undefined) {
 				data.size = object.size;
 			}

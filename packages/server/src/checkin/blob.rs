@@ -143,6 +143,7 @@ impl Server {
 				.unwrap()
 				.variant
 				.unwrap_file_mut();
+			file.size = Some(output.length);
 			file.contents = Some(Contents::Write(Box::new(output)));
 		}
 
