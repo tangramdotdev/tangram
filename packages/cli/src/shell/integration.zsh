@@ -1,11 +1,11 @@
 _tg_shell_eval() {
-	local output_path status
+	local output_path exit_code
 	output_path="$(mktemp)" || return $?
 	command tangram "$@" >"$output_path"
-	status="$?"
-	if [[ "$status" -ne 0 ]]; then
+	exit_code="$?"
+	if [[ "$exit_code" -ne 0 ]]; then
 		rm -f "$output_path"
-		return "$status"
+		return "$exit_code"
 	fi
 	if [[ -s "$output_path" ]]; then
 		source "$output_path"
@@ -63,11 +63,10 @@ tangram() {
 typeset -ga chpwd_functions
 typeset -ga precmd_functions
 
-if ! (( ${chpwd_functions[(I)_tg_shell_update]} )); then
-	chpwd_functions+=(_tg_shell_update)
-fi
-if ! (( ${precmd_functions[(I)_tg_shell_update]} )); then
-	precmd_functions+=(_tg_shell_update)
-fi
+autoload -Uz add-zsh-hook
+add-zsh-hook -D chpwd _tg_shell_update >/dev/null 2>&1
+add-zsh-hook -D precmd _tg_shell_update >/dev/null 2>&1
+add-zsh-hook chpwd _tg_shell_update
+add-zsh-hook precmd _tg_shell_update
 
 _tg_shell_update
