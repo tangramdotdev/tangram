@@ -177,7 +177,7 @@ impl Server {
 
 		// Store the sandbox.
 		self.sandboxes.insert(
-			dbg!(id.clone()),
+			id.clone(),
 			super::Sandbox {
 				process,
 				client: Arc::new(client),

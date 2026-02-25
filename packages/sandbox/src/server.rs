@@ -8,7 +8,7 @@ use {
 	std::{
 		collections::BTreeMap,
 		os::fd::{AsRawFd, RawFd},
-		path::{Path, PathBuf},
+		path::Path,
 		pin::pin,
 		sync::{Arc, Mutex},
 	},
@@ -25,6 +25,7 @@ pub struct Server {
 	inner: Arc<Mutex<Inner>>,
 	sender: tokio::sync::mpsc::Sender<(Request, oneshot::Sender<tg::Result<Response>>)>,
 }
+
 struct Inner {
 	task: Option<tokio::task::JoinHandle<()>>,
 	waits: Waits,
@@ -57,7 +58,6 @@ impl Server {
 					tracing::error!("failed to create a ready signal");
 					return;
 				};
-
 				loop {
 					let signal = signal.recv();
 					let request = receiver.recv();
@@ -195,20 +195,18 @@ impl Server {
 		Ok(())
 	}
 
-	pub async fn run(&self, path: PathBuf) -> tg::Result<()> {
-		let listener = Self::bind(&path)?;
-		self.serve(listener).await
-	}
-
-	pub fn bind(path: &Path) -> tg::Result<tokio::net::UnixListener> {
+	pub fn bind(path: &Path) -> tg::Result<std::os::unix::net::UnixListener> {
 		// Bind the Unix listener to the specified path.
-		let listener = tokio::net::UnixListener::bind(path)
+		let listener = std::os::unix::net::UnixListener::bind(path)
 			.map_err(|source| tg::error!(!source, "failed to bind the listener"))?;
+		listener
+			.set_nonblocking(true)
+			.map_err(|source| tg::error!(!source, "failed to set the listener as non blocking"))?;
 		Ok(listener)
 	}
 
 	pub async fn serve(&self, listener: tokio::net::UnixListener) -> tg::Result<()> {
-		// Accept connections in a loop.
+		// Acc	t connections in a loop.
 		loop {
 			let (stream, _addr) = listener
 				.accept()
@@ -254,7 +252,8 @@ impl Server {
 							iov_base: buffer.as_mut_ptr().cast(),
 							iov_len: 1,
 						};
-						let length = libc::CMSG_SPACE((3 * std::mem::size_of::<RawFd>()).to_u32().unwrap());
+						let length =
+							libc::CMSG_SPACE((3 * std::mem::size_of::<RawFd>()).to_u32().unwrap());
 						let mut cmsg_buffer = vec![0u8; length as _];
 						let mut msg: libc::msghdr = std::mem::zeroed();
 						msg.msg_iov = (&raw const iov).cast_mut();

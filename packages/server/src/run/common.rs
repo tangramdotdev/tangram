@@ -571,7 +571,7 @@ async fn run_inner(arg: Arg<'_>) -> tg::Result<u8> {
 	Ok(exit)
 }
 
-async fn stdio_task<I, O, E>(
+pub(super) async fn stdio_task<I, O, E>(
 	server: &Server,
 	id: &tg::process::Id,
 	remote: Option<&String>,
@@ -663,7 +663,7 @@ where
 	Ok::<_, tg::Error>(())
 }
 
-async fn stdio_task_inner(
+pub(super) async fn stdio_task_inner(
 	server: &Server,
 	id: &tg::process::Id,
 	remote: Option<&String>,

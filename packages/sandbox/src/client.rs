@@ -52,7 +52,7 @@ pub enum ResponseKind {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct SpawnRequest {
 	pub command: crate::Command,
-	#[serde(skip_serializing_if = "Vec::is_empty")]
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub fds: Vec<RawFd>,
 }
 
@@ -177,7 +177,8 @@ impl Client {
 					iov_base: buffer.as_ptr() as *mut _,
 					iov_len: 1,
 				};
-				let cmsg_space = libc::CMSG_SPACE(std::mem::size_of_val(fds.as_slice()).to_u32().unwrap());
+				let cmsg_space =
+					libc::CMSG_SPACE(std::mem::size_of_val(fds.as_slice()).to_u32().unwrap());
 				let mut cmsg_buffer = vec![0u8; cmsg_space as _];
 				let mut msg: libc::msghdr = std::mem::zeroed();
 				msg.msg_iov = (&raw const iov).cast_mut();
@@ -191,7 +192,8 @@ impl Client {
 				}
 				(*cmsg).cmsg_level = libc::SOL_SOCKET;
 				(*cmsg).cmsg_type = libc::SCM_RIGHTS;
-				(*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of_val(fds.as_slice()).to_u32().unwrap()) as _;
+				(*cmsg).cmsg_len =
+					libc::CMSG_LEN(std::mem::size_of_val(fds.as_slice()).to_u32().unwrap()) as _;
 				let data = libc::CMSG_DATA(cmsg);
 				std::ptr::copy_nonoverlapping(fds.as_ptr(), data.cast(), fds.len());
 				let ret = libc::sendmsg(fd, &raw const msg, 0);
@@ -200,7 +202,8 @@ impl Client {
 				}
 				Ok(())
 			})
-			.await
+			.await?;
+		Ok(())
 	}
 
 	async fn try_receive(
@@ -235,6 +238,7 @@ impl Client {
 			fds.push(fd);
 			index
 		});
+		dbg!(&fds);
 		let response = self
 			.send_request(RequestKind::Spawn(SpawnRequest { command, fds }))
 			.await?;

@@ -57,9 +57,10 @@ pub fn enter(options: &Options) -> std::io::Result<()> {
 			}
 		}
 	}
+
 	// Sort the mounts by target path component count so that parent mounts (like overlays at /) are mounted before child mounts (like bind mounts at /dev).
 	let mut mounts = options.mounts.clone();
-	mounts.sort_by_key(|mount| {
+	mounts.sort_unstable_by_key(|mount| {
 		mount
 			.target
 			.as_ref()
@@ -68,6 +69,18 @@ pub fn enter(options: &Options) -> std::io::Result<()> {
 	for m in &mounts {
 		mount(m, options.chroot.as_ref())?;
 	}
+
+	// chroot
+	if let Some(chroot) = &options.chroot {
+		unsafe {
+			let name = cstring(chroot);
+			if libc::chroot(name.as_ptr()) != 0 {
+				eprintln!("chroot failed");
+				return Err(std::io::Error::last_os_error());
+			}
+		}
+	}
+
 	Ok(())
 }
 
@@ -134,7 +147,7 @@ pub fn spawn(command: &Command) -> std::io::Result<i32> {
 				argv.as_ptr().cast(),
 				envp.as_ptr().cast(),
 			);
-			abort_errno!("execvpe failed");
+			abort_errno!("execvpe failed {}", command.executable.display());
 		}
 	}
 
@@ -161,18 +174,14 @@ fn mount(mount: &crate::Mount, chroot: Option<&PathBuf>) -> std::io::Result<()> 
 	};
 	let mut target = target.map(cstring);
 	let fstype = mount.fstype.as_ref().map(cstring);
-	let data = mount
-		.data
-		.as_ref()
-		.map_or(std::ptr::null_mut(), |bytes| {
-			bytes.as_ptr().cast::<std::ffi::c_void>().cast_mut()
-		});
+	let data = mount.data.as_ref().map_or(std::ptr::null_mut(), |bytes| {
+		bytes.as_ptr().cast::<std::ffi::c_void>().cast_mut()
+	});
 	unsafe {
 		// Create the mount point.
 		if let (Some(source), Some(target)) = (&source, &mut target) {
 			create_mountpoint_if_not_exists(source, target);
 		}
-
 		let result = libc::mount(
 			source.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
 			target.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),

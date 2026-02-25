@@ -7,7 +7,7 @@ use {
 		sync::Arc,
 	},
 	tangram_client::prelude::*,
-	tangram_futures::{stream::TryExt as _, task::Task},
+	tangram_futures::{read::Ext as _, stream::TryExt as _, task::Task, write::Ext as _},
 	tangram_sandbox as sandbox,
 	tangram_uri::Uri,
 };
@@ -40,19 +40,25 @@ impl Server {
 		// Get the artifacts path.
 		let artifacts_path = self.artifacts_path();
 
-		// Create the temp.
-		let temp = Temp::new(self);
-		tokio::fs::create_dir_all(&temp)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
-
-		// Create the output directory.
-		tokio::fs::create_dir_all(temp.path().join("output"))
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
-
 		// Get the output path.
-		let output_path = temp.path().join("output/output");
+		let temp = Temp::new(self);
+		let output_path = if state.sandbox.is_none() {
+			tokio::fs::create_dir_all(&temp)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
+			tokio::fs::create_dir_all(temp.path().join("output"))
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
+			temp.path().join("output/output")
+		} else {
+			let sandbox = self
+				.sandboxes
+				.get(state.sandbox.as_ref().unwrap())
+				.ok_or_else(|| tg::error!("failed to find the sandbox"))?;
+			let path = sandbox._temp.path().join("output/output");
+			drop(sandbox);
+			path
+		};
 
 		// Render the args.
 		let mut args = match command.host.as_str() {
@@ -61,10 +67,13 @@ impl Server {
 		};
 
 		// Create the working directory.
-		let cwd = command
-			.cwd
-			.clone()
-			.unwrap_or_else(|| temp.path().join("work"));
+		let cwd = if let Some(cwd) = &command.cwd {
+			cwd.clone()
+		} else if state.sandbox.is_none() {
+			temp.path().join("work")
+		} else {
+			"/".into()
+		};
 		tokio::fs::create_dir_all(&cwd)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the working directory"))?;
@@ -107,60 +116,6 @@ impl Server {
 			},
 		};
 
-		let path = temp.path().join(".tangram");
-		tokio::fs::create_dir_all(&path).await.map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to create the directory"),
-		)?;
-
-		// Listen.
-		let socket_path = path.join("socket").display().to_string();
-		let mut url = if socket_path.len() <= MAX_URL_LEN {
-			tangram_uri::Uri::builder()
-				.scheme("http+unix")
-				.authority(&socket_path)
-				.path("")
-				.build()
-				.unwrap()
-		} else {
-			"http://localhost:0".to_owned().parse::<Uri>().unwrap()
-		};
-		let listener = Server::listen(&url)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to listen"))?;
-		let listener_addr = listener
-			.local_addr()
-			.map_err(|source| tg::error!(!source, "failed to get listener address"))?;
-		if let tokio_util::either::Either::Right(listener) = listener_addr {
-			let port = listener.port();
-			url = format!("http://localhost:{port}").parse::<Uri>().unwrap();
-		}
-
-		// Serve.
-		let server = self.clone();
-		let context = Context {
-			sandbox: Some(Arc::new(crate::context::Sandbox {
-				id: state
-					.sandbox
-					.clone()
-					.ok_or_else(|| tg::error!("expected a sandbox"))?,
-				paths: None,
-				remote: remote.cloned(),
-				retry: *process
-					.retry(self)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the process retry"))?,
-			})),
-			..Default::default()
-		};
-		let task = Task::spawn({
-			let context = context.clone();
-			|stop| async move {
-				server.serve(listener, context, stop).await;
-			}
-		});
-
-		let serve_task = Some((task, url));
-
 		// Set `$TANGRAM_OUTPUT`.
 		env.insert(
 			"TANGRAM_OUTPUT".to_owned(),
@@ -175,17 +130,73 @@ impl Server {
 			env.insert("TANGRAM_SANDBOX".to_owned(), sandbox_id.to_string());
 		}
 
-		// Set `$TANGRAM_URL`.
-		let url = serve_task.as_ref().map(|(_, url)| url.to_string()).unwrap();
-		env.insert("TANGRAM_URL".to_owned(), url);
-
 		// Run the process.
 		let output = if let Some(sandbox_id) = &state.sandbox {
+			// Set `$TANGRAM_URL` from the sandbox's socket.
+			let sandbox = self
+				.sandboxes
+				.get(sandbox_id)
+				.ok_or_else(|| tg::error!("failed to find the sandbox"))?;
+			let socket_path = sandbox._temp.path().join(".tangram/socket");
+			drop(sandbox);
+			let url = tangram_uri::Uri::builder()
+				.scheme("http+unix")
+				.authority(socket_path.to_str().unwrap())
+				.path("")
+				.build()
+				.unwrap();
+			env.insert("TANGRAM_URL".to_owned(), url.to_string());
+
+			drop(temp);
 			self.run_darwin_sandboxed(
-				state, &context, serve_task, &temp, sandbox_id, executable, args, env, cwd,
+				state, command, id, remote, sandbox_id, executable, args, env, cwd,
 			)
 			.await?
 		} else {
+			// Set up the serve task.
+			let path = temp.path().join(".tangram");
+			tokio::fs::create_dir_all(&path).await.map_err(
+				|source| tg::error!(!source, path = %path.display(), "failed to create the directory"),
+			)?;
+
+			// Listen.
+			let socket_path = path.join("socket").display().to_string();
+			let mut url = if socket_path.len() <= MAX_URL_LEN {
+				tangram_uri::Uri::builder()
+					.scheme("http+unix")
+					.authority(&socket_path)
+					.path("")
+					.build()
+					.unwrap()
+			} else {
+				"http://localhost:0".to_owned().parse::<Uri>().unwrap()
+			};
+			let listener = Server::listen(&url)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to listen"))?;
+			let listener_addr = listener
+				.local_addr()
+				.map_err(|source| tg::error!(!source, "failed to get listener address"))?;
+			if let tokio_util::either::Either::Right(listener) = listener_addr {
+				let port = listener.port();
+				url = format!("http://localhost:{port}").parse::<Uri>().unwrap();
+			}
+
+			// Serve.
+			let server = self.clone();
+			let context = Context::default();
+			let task = Task::spawn({
+				let context = context.clone();
+				|stop| async move {
+					server.serve(listener, context, stop).await;
+				}
+			});
+
+			let serve_task = Some((task, url.clone()));
+
+			// Set `$TANGRAM_URL`.
+			env.insert("TANGRAM_URL".to_owned(), url.to_string());
+
 			let arg = crate::run::common::Arg {
 				args,
 				command,
@@ -208,71 +219,85 @@ impl Server {
 		Ok(output)
 	}
 
+	#[allow(clippy::too_many_arguments)]
 	async fn run_darwin_sandboxed(
 		&self,
 		state: &tg::process::State,
-		context: &Context,
-		serve_task: Option<(Task<()>, Uri)>,
-		temp: &Temp,
+		command: &tg::command::Data,
+		id: &tg::process::Id,
+		remote: Option<&String>,
 		sandbox_id: &tg::sandbox::Id,
 		executable: PathBuf,
 		args: Vec<String>,
 		env: std::collections::BTreeMap<String, String>,
 		cwd: PathBuf,
 	) -> tg::Result<super::Output> {
-		// Get the sandbox client.
+		// Get the sandbox client and the host output path.
 		let sandbox = self
 			.sandboxes
 			.get(sandbox_id)
 			.ok_or_else(|| tg::error!("failed to find the sandbox"))?;
 		let client = Arc::clone(&sandbox.client);
+		let output_path = sandbox._temp.path().join("output/output");
 		drop(sandbox);
 
 		// Collect FDs that need to be kept alive until after the spawn call.
 		let mut fds = Vec::new();
 
 		// Handle stdin.
-		let stdin = match state.stdin.as_ref() {
-			Some(tg::process::Stdio::Pipe(pipe_id)) => {
-				let pipe = self
-					.pipes
-					.get(pipe_id)
-					.ok_or_else(|| tg::error!("failed to find the pipe"))?;
-				let fd = pipe
-					.receiver
-					.as_fd()
-					.try_clone_to_owned()
-					.map_err(|source| tg::error!(!source, "failed to clone the receiver"))?;
-				let receiver = tokio::net::unix::pipe::Receiver::from_owned_fd_unchecked(fd)
-					.map_err(|source| tg::error!(!source, "io error"))?;
-				let fd = receiver
-					.into_blocking_fd()
-					.map_err(|source| tg::error!(!source, "failed to get the fd from the pipe"))?;
-				let raw_fd = fd.as_raw_fd();
-				fds.push(fd);
-				Some(raw_fd)
-			},
-			Some(tg::process::Stdio::Pty(pty_id)) => {
-				let pty = self
-					.ptys
-					.get(pty_id)
-					.ok_or_else(|| tg::error!("failed to find the pty"))?;
-				let slave = pty
-					.slave
-					.as_ref()
-					.ok_or_else(|| tg::error!("the pty slave is closed"))?;
-				let fd = slave
-					.try_clone()
-					.map_err(|source| tg::error!(!source, "failed to clone the pty slave"))?;
-				let raw_fd = fd.as_raw_fd();
-				fds.push(fd);
-				Some(raw_fd)
-			},
-			None => None,
+		let (stdin, stdin_writer) = if command.stdin.is_some() {
+			let (sender, receiver) = tokio::net::unix::pipe::pipe()
+				.map_err(|source| tg::error!(!source, "failed to create a pipe for stdin"))?;
+			let sender = sender.boxed();
+			let fd = receiver
+				.into_blocking_fd()
+				.map_err(|source| tg::error!(!source, "failed to get the fd from the pipe"))?;
+			let raw_fd = fd.as_raw_fd();
+			fds.push(fd);
+			(Some(raw_fd), Some(sender))
+		} else {
+			match state.stdin.as_ref() {
+				Some(tg::process::Stdio::Pipe(pipe_id)) => {
+					let pipe = self
+						.pipes
+						.get(pipe_id)
+						.ok_or_else(|| tg::error!("failed to find the pipe"))?;
+					let fd = pipe
+						.receiver
+						.as_fd()
+						.try_clone_to_owned()
+						.map_err(|source| tg::error!(!source, "failed to clone the receiver"))?;
+					let receiver = tokio::net::unix::pipe::Receiver::from_owned_fd_unchecked(fd)
+						.map_err(|source| tg::error!(!source, "io error"))?;
+					let fd = receiver.into_blocking_fd().map_err(|source| {
+						tg::error!(!source, "failed to get the fd from the pipe")
+					})?;
+					let raw_fd = fd.as_raw_fd();
+					fds.push(fd);
+					(Some(raw_fd), None)
+				},
+				Some(tg::process::Stdio::Pty(pty_id)) => {
+					let pty = self
+						.ptys
+						.get(pty_id)
+						.ok_or_else(|| tg::error!("failed to find the pty"))?;
+					let slave = pty
+						.slave
+						.as_ref()
+						.ok_or_else(|| tg::error!("the pty slave is closed"))?;
+					let fd = slave
+						.try_clone()
+						.map_err(|source| tg::error!(!source, "failed to clone the pty slave"))?;
+					let raw_fd = fd.as_raw_fd();
+					fds.push(fd);
+					(Some(raw_fd), None)
+				},
+				None => (None, None),
+			}
 		};
 
 		// Handle stdout.
-		let stdout = match state.stdout.as_ref() {
+		let (stdout, stdout_reader) = match state.stdout.as_ref() {
 			Some(tg::process::Stdio::Pipe(pipe_id)) => {
 				let pipe = self
 					.pipes
@@ -292,7 +317,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to get the fd from the pipe"))?;
 				let raw_fd = fd.as_raw_fd();
 				fds.push(fd);
-				Some(raw_fd)
+				(Some(raw_fd), None)
 			},
 			Some(tg::process::Stdio::Pty(pty_id)) => {
 				let pty = self
@@ -308,13 +333,23 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to clone the pty slave"))?;
 				let raw_fd = fd.as_raw_fd();
 				fds.push(fd);
-				Some(raw_fd)
+				(Some(raw_fd), None)
 			},
-			None => None,
+			None => {
+				let (sender, receiver) = tokio::net::unix::pipe::pipe()
+					.map_err(|source| tg::error!(!source, "failed to create a pipe for stdout"))?;
+				let fd = sender
+					.into_blocking_fd()
+					.map_err(|source| tg::error!(!source, "failed to get the fd from the pipe"))?;
+				let raw_fd = fd.as_raw_fd();
+				fds.push(fd);
+				let receiver = receiver.boxed();
+				(Some(raw_fd), Some(receiver))
+			},
 		};
 
 		// Handle stderr.
-		let stderr = match state.stderr.as_ref() {
+		let (stderr, stderr_reader) = match state.stderr.as_ref() {
 			Some(tg::process::Stdio::Pipe(pipe_id)) => {
 				let pipe = self
 					.pipes
@@ -334,7 +369,7 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to get the fd from the pipe"))?;
 				let raw_fd = fd.as_raw_fd();
 				fds.push(fd);
-				Some(raw_fd)
+				(Some(raw_fd), None)
 			},
 			Some(tg::process::Stdio::Pty(pty_id)) => {
 				let pty = self
@@ -350,9 +385,19 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to clone the pty slave"))?;
 				let raw_fd = fd.as_raw_fd();
 				fds.push(fd);
-				Some(raw_fd)
+				(Some(raw_fd), None)
 			},
-			None => None,
+			None => {
+				let (sender, receiver) = tokio::net::unix::pipe::pipe()
+					.map_err(|source| tg::error!(!source, "failed to create a pipe for stderr"))?;
+				let fd = sender
+					.into_blocking_fd()
+					.map_err(|source| tg::error!(!source, "failed to get the fd from the pipe"))?;
+				let raw_fd = fd.as_raw_fd();
+				fds.push(fd);
+				let receiver = receiver.boxed();
+				(Some(raw_fd), Some(receiver))
+			},
 		};
 
 		// Create the sandbox command.
@@ -375,18 +420,36 @@ impl Server {
 		// Drop the FDs now that the spawn has completed.
 		drop(fds);
 
+		// Spawn the stdio task.
+		let stdio_task = tokio::spawn({
+			let server = self.clone();
+			let id = id.clone();
+			let remote = remote.cloned();
+			let stdin_blob = command.stdin.clone().map(tg::Blob::with_id);
+			async move {
+				super::common::stdio_task(
+					&server,
+					&id,
+					remote.as_ref(),
+					stdin_blob,
+					stdin_writer,
+					stdout_reader,
+					stderr_reader,
+				)
+				.await?;
+				Ok::<_, tg::Error>(())
+			}
+		});
+
 		// Wait for the process in the sandbox.
 		let status = client.wait(pid).await.map_err(|source| {
 			tg::error!(!source, "failed to wait for the process in the sandbox")
 		})?;
 
-		// Stop and await the serve task.
-		if let Some((task, _)) = serve_task {
-			task.stop();
-			task.wait()
-				.await
-				.map_err(|source| tg::error!(!source, "the serve task panicked"))?;
-		}
+		// Await the stdio task.
+		stdio_task
+			.await
+			.map_err(|source| tg::error!(!source, "the stdio task panicked"))??;
 
 		// Create the output.
 		let exit = u8::try_from(status).unwrap_or(1);
@@ -398,13 +461,14 @@ impl Server {
 		};
 
 		// Get the output path on the host.
-		let path = temp.path().join("output/output");
-		let exists = tokio::fs::try_exists(&path).await.map_err(|source| {
-			tg::error!(!source, "failed to determine if the output path exists")
-		})?;
+		let exists = tokio::fs::try_exists(&output_path)
+			.await
+			.map_err(|source| {
+				tg::error!(!source, "failed to determine if the output path exists")
+			})?;
 
 		// Try to read the user.tangram.output xattr.
-		if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.output") {
+		if let Ok(Some(bytes)) = xattr::get(&output_path, "user.tangram.output") {
 			let tgon = String::from_utf8(bytes)
 				.map_err(|source| tg::error!(!source, "failed to decode the output xattr"))?;
 			output.output = Some(
@@ -414,7 +478,7 @@ impl Server {
 		}
 
 		// Try to read the user.tangram.error xattr.
-		if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.error") {
+		if let Ok(Some(bytes)) = xattr::get(&output_path, "user.tangram.error") {
 			let error = serde_json::from_slice::<tg::error::Data>(&bytes)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the error xattr"))?;
 			let error = tg::Error::try_from(error)
@@ -424,16 +488,6 @@ impl Server {
 
 		// Check in the output.
 		if output.output.is_none() && exists {
-			let guest_path = context
-				.sandbox
-				.as_ref()
-				.map(|sandbox| {
-					sandbox
-						.guest_path_for_host_path(path.clone())
-						.map_err(|source| tg::error!(!source, "failed to map the output path"))
-				})
-				.transpose()?
-				.unwrap_or_else(|| path.clone());
 			let arg = tg::checkin::Arg {
 				options: tg::checkin::Options {
 					destructive: true,
@@ -444,11 +498,11 @@ impl Server {
 					root: true,
 					..Default::default()
 				},
-				path: guest_path,
+				path: output_path.clone(),
 				updates: Vec::new(),
 			};
 			let checkin_output = self
-				.checkin_with_context(context, arg)
+				.checkin(arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to check in the output"))?
 				.try_last()

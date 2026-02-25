@@ -27,6 +27,9 @@ impl Server {
 
 		let mut args = Vec::new();
 		let root = temp.path().join("root");
+		tokio::fs::create_dir_all(&root)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the root directory"))?;
 		let mut overlays = HashMap::new();
 		for mount in &arg.mounts {
 			match &mount.source {

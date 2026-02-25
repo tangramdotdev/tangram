@@ -71,6 +71,9 @@ impl Cli {
 			user: args.options.user,
 		};
 
+		// Bind the listener before entering the sandbox, since the socket path is on the host filesystem.
+		let listener = sandbox::server::Server::bind(&args.socket)?;
+
 		// Enter the sandbox.
 		unsafe { sandbox::server::Server::enter(&options)? };
 
@@ -80,11 +83,10 @@ impl Cli {
 			.build()
 			.map_err(|source| tg::error!(!source, "failed to start tokio runtime"))?;
 
-		// Run the server
+		// Run the server.
 		runtime.block_on(async move {
 			let server = sandbox::server::Server::new()
 				.map_err(|source| tg::error!(!source, "failed to start the server"))?;
-			let listener = sandbox::server::Server::bind(&args.socket)?;
 			if let Some(fd) = args.ready_fd {
 				let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
 				file.write_all(&[0x00])
@@ -93,6 +95,9 @@ impl Cli {
 			}
 
 			// Serve.
+			let listener = tokio::net::UnixListener::from_std(listener)
+				.inspect_err(|error| eprintln!("failed to convert the listener: {error}"))
+				.map_err(|source| tg::error!(!source, "failed to convert the listener"))?;
 			server
 				.serve(listener)
 				.await

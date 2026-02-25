@@ -44,9 +44,12 @@ impl Server {
 
 		// Spawn the task.
 		let task = Task::spawn({
+			let context = context.clone();
 			let server = self.clone();
 			let progress = progress.clone();
-			async move |_| match Box::pin(server.try_spawn_process_task(arg, &progress)).await {
+			async move |_| match Box::pin(server.try_spawn_process_task(arg, &context, &progress))
+				.await
+			{
 				Ok(output) => {
 					progress.output(output);
 				},
@@ -63,6 +66,7 @@ impl Server {
 	async fn try_spawn_process_task(
 		&self,
 		arg: tg::process::spawn::Arg,
+		context: &Context,
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		// Forward to remote if requested.
@@ -131,29 +135,27 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
-		// Look up the parent's sandbox if there is a parent.
-		let parent_sandbox = if let Some(parent) = &arg.parent {
-			let p = transaction.p();
-			let statement = formatdoc!("select sandbox from processes where id = {p}1;");
-			let params = db::params![parent.to_string()];
-			let sandbox: Option<String> = transaction
-				.query_optional_value_into(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to query the parent's sandbox"))?;
-			sandbox
-				.map(|s| s.parse::<tg::sandbox::Id>())
-				.transpose()
-				.map_err(|source| tg::error!(!source, "failed to parse the parent's sandbox id"))?
-		} else {
-			None
-		};
-
-		// Determine if the process is sandboxed by checking if a sandbox arg was provided or if the parent process has a sandbox.
-		let sandboxed = parent_sandbox.is_some() || arg.sandbox.is_some();
-
 		// Determine if the process is cacheable.
+		let reproducible_sandbox = arg.sandbox.as_ref().is_some_and(|sbx| {
+			sbx.as_ref().left().is_some_and(|sandbox| {
+				!sandbox.network && sandbox.mounts.iter().all(|mount| mount.source.is_right())
+			})
+		});
+		let reproducible_stdin = arg.stdin.is_none();
+		let reproducible_stdout = arg
+			.stdout
+			.as_ref()
+			.is_none_or(|stdio| matches!(stdio, tg::process::Stdio::Pipe(_)));
+		let reproducible_stderr = arg
+			.stderr
+			.as_ref()
+			.is_none_or(|stdio| matches!(stdio, tg::process::Stdio::Pipe(_)));
+
 		let cacheable = arg.checksum.is_some()
-			|| (arg.stdin.is_none() && arg.stdout.is_none() && arg.stderr.is_none() && sandboxed);
+			|| (reproducible_sandbox
+				&& reproducible_stdin
+				&& reproducible_stdout
+				&& reproducible_stderr);
 
 		// Get or create a local process.
 		let mut output = if cacheable
@@ -182,13 +184,7 @@ impl Server {
 		} else if matches!(arg.cached, None | Some(false)) {
 			let host = host.ok_or_else(|| tg::error!("expected the host to be set"))?;
 			let output = self
-				.create_local_process(
-					&transaction,
-					&arg,
-					cacheable,
-					&host,
-					parent_sandbox.as_ref(),
-				)
+				.create_local_process(&transaction, &arg, cacheable, &host, context)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create a local process"))?;
 			tracing::trace!(?output, "created local process");
@@ -696,9 +692,9 @@ impl Server {
 			output.clone().map(db::value::Json),
 			arg.retry,
 			arg.sandbox.as_ref().and_then(|s| match s {
-					tg::Either::Left(_) => None,
-					tg::Either::Right(id) => Some(id.to_string()),
-				}),
+				tg::Either::Left(_) => None,
+				tg::Either::Right(id) => Some(id.to_string()),
+			}),
 			status.to_string(),
 			0,
 			now,
@@ -727,18 +723,18 @@ impl Server {
 		arg: &tg::process::spawn::Arg,
 		cacheable: bool,
 		host: &str,
-		parent_sandbox: Option<&tg::sandbox::Id>,
+		context: &crate::Context,
 	) -> tg::Result<LocalOutput> {
 		let p = transaction.p();
 
 		// Get or create a sandbox.
 		let sandbox = match &arg.sandbox {
 			Some(tg::Either::Left(arg)) => {
-				let id = dbg!(self.create_sandbox(arg.clone()).await)?.id;
+				let id = self.create_sandbox(arg.clone()).await?.id;
 				Some(id)
 			},
-			Some(tg::Either::Right(id)) => dbg!(Some(id.clone())),
-			None => parent_sandbox.cloned(),
+			Some(tg::Either::Right(id)) => Some(id.clone()),
+			None => context.sandbox.as_ref().map(|sbx| sbx.id.clone()),
 		};
 
 		// Create an ID.

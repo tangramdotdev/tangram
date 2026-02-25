@@ -21,7 +21,15 @@ impl Server {
 			.get(id)
 			.ok_or_else(|| tg::error!("sandbox not found"))?;
 		let client = sandbox.client.clone();
-		let cwd = Some(sandbox.root.clone());
+		let cwd;
+		#[cfg(target_os = "linux")]
+		{
+			cwd = Some("/".into());
+		}
+		#[cfg(target_os = "macos")]
+		{
+			cwd = Some(sandbox.root.clone());
+		}
 		drop(sandbox);
 
 		// Collect FDs that need to be kept alive until after the spawn call.
