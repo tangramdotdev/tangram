@@ -10,7 +10,7 @@ impl Server {
 		context: &Context,
 		mut arg: tg::watch::delete::Arg,
 	) -> tg::Result<()> {
-		if context.process.is_some() {
+		if context.sandbox.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 

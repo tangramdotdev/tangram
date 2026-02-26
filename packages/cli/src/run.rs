@@ -7,7 +7,7 @@ use {
 };
 
 mod signal;
-mod stdio;
+pub(crate) mod stdio;
 
 /// Spawn and await an unsandboxed process.
 #[derive(Clone, Debug, clap::Args)]
@@ -281,9 +281,20 @@ impl Cli {
 			.and_then(|remotes| remotes.into_iter().next());
 
 		// Create the stdio.
-		let stdio = stdio::Stdio::new(&handle, remote.clone(), &options)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create stdio"))?;
+		let tty_enabled = options.spawn.tty.get();
+		let stdio = if options.detach {
+			stdio::Stdio {
+				tty: None,
+				remote: remote.clone(),
+				stdin: None,
+				stdout: None,
+				stderr: None,
+			}
+		} else {
+			stdio::Stdio::new(&handle, remote.clone(), tty_enabled)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create stdio"))?
+		};
 
 		let local = options.spawn.local.local;
 		let remotes = options.spawn.remotes.remotes.clone();

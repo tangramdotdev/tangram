@@ -668,7 +668,6 @@ fn command_inner(input: &mut Input) -> ModalResult<tg::Object> {
 		let mut env = BTreeMap::new();
 		let mut executable = None;
 		let mut host = String::from("builtin");
-		let mut mounts = Vec::new();
 		for (key, value) in entries {
 			match key.as_str() {
 				"args" => {
@@ -698,18 +697,6 @@ fn command_inner(input: &mut Input) -> ModalResult<tg::Object> {
 						.map_err(|_| tg::error!("expected string for host"))?;
 					host = value.clone();
 				},
-				"mounts" => {
-					let value = value
-						.try_unwrap_array_ref()
-						.map_err(|_| tg::error!("expected array for mounts"))?;
-					for item in value {
-						let value = item
-							.try_unwrap_map_ref()
-							.map_err(|_| tg::error!("expected object for mount in mounts array"))?;
-						let mount = parse_mount(value)?;
-						mounts.push(mount);
-					}
-				},
 				_ => {
 					return Err(tg::error!("unexpected field in command: {}", key));
 				},
@@ -722,7 +709,6 @@ fn command_inner(input: &mut Input) -> ModalResult<tg::Object> {
 			env,
 			executable,
 			host,
-			mounts,
 			stdin: None,
 			user: None,
 		};
@@ -1351,35 +1337,6 @@ fn parse_module_referent(map: &tg::value::Map) -> tg::Result<tg::Referent<tg::mo
 	}
 	let item = item.ok_or_else(|| tg::error!("missing item field"))?;
 	Ok(tg::Referent { item, options })
-}
-
-fn parse_mount(map: &tg::value::Map) -> tg::Result<tg::command::Mount> {
-	let mut source = None;
-	let mut target = None;
-	for (key, value) in map {
-		match key.as_str() {
-			"source" => {
-				let value = value
-					.try_unwrap_object_ref()
-					.map_err(|_| tg::error!("expected object for source"))?;
-				let artifact = tg::Artifact::try_from(value.clone())
-					.map_err(|error| tg::error!(!error, "expected artifact object for source"))?;
-				source = Some(artifact);
-			},
-			"target" => {
-				let value = value
-					.try_unwrap_string_ref()
-					.map_err(|_| tg::error!("expected string for target"))?;
-				target = Some(PathBuf::from(value));
-			},
-			_ => {
-				return Err(tg::error!("unexpected field in mount: {}", key));
-			},
-		}
-	}
-	let source = source.ok_or_else(|| tg::error!("missing source field"))?;
-	let target = target.ok_or_else(|| tg::error!("missing target field"))?;
-	Ok(tg::command::Mount { source, target })
 }
 
 fn whitespace(input: &mut Input) -> ModalResult<()> {

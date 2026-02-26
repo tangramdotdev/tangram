@@ -1,9 +1,4 @@
-use {
-	crate::prelude::*,
-	serde::Deserialize as _,
-	std::path::PathBuf,
-	tangram_util::serde::{is_false, is_true, return_true},
-};
+use {crate::prelude::*, serde::Deserialize as _, tangram_util::serde::is_false};
 
 #[derive(
 	Clone,
@@ -63,13 +58,13 @@ pub struct Data {
 	#[tangram_serialize(id = 12, default, skip_serializing_if = "Option::is_none")]
 	pub log: Option<tg::blob::Id>,
 
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	#[tangram_serialize(id = 13, default, skip_serializing_if = "Vec::is_empty")]
-	pub mounts: Vec<tg::process::data::Mount>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 13, default, skip_serializing_if = "Option::is_none")]
+	pub sandbox: Option<tg::sandbox::Id>,
 
-	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(id = 14, default, skip_serializing_if = "is_false")]
-	pub network: bool,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 14, default, skip_serializing_if = "Option::is_none")]
+	pub pid: Option<i32>,
 
 	#[serde(
 		default,
@@ -101,26 +96,6 @@ pub struct Data {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 21, default, skip_serializing_if = "Option::is_none")]
 	pub stdout: Option<tg::process::Stdio>,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct Mount {
-	#[tangram_serialize(id = 0)]
-	pub source: PathBuf,
-
-	#[tangram_serialize(id = 1)]
-	pub target: PathBuf,
-
-	#[serde(default = "return_true", skip_serializing_if = "is_true")]
-	#[tangram_serialize(id = 2, default = "return_true", skip_serializing_if = "is_true")]
-	pub readonly: bool,
 }
 
 fn deserialize_output<'de, D>(deserializer: D) -> Result<Option<tg::value::Data>, D::Error>

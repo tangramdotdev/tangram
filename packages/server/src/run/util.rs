@@ -201,19 +201,3 @@ pub fn render_value_string(
 		_ => Ok(tg::Value::try_from_data(value.clone()).unwrap().to_string()),
 	}
 }
-
-pub fn whoami() -> tg::Result<String> {
-	unsafe {
-		let uid = libc::getuid();
-		let pwd = libc::getpwuid(uid);
-		if pwd.is_null() {
-			let source = std::io::Error::last_os_error();
-			return Err(tg::error!(!source, "failed to get username"));
-		}
-		let username = std::ffi::CStr::from_ptr((*pwd).pw_name)
-			.to_str()
-			.map_err(|source| tg::error!(!source, "non-utf8 username"))?
-			.to_owned();
-		Ok(username)
-	}
-}

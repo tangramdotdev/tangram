@@ -2,7 +2,7 @@ use {
 	crate::{Context, Server},
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
-	tangram_client::prelude::*,
+	tangram_client::{handle::Sandbox, prelude::*},
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_messenger::prelude::*,
@@ -36,7 +36,7 @@ impl Server {
 			return Ok(());
 		}
 
-		if context.process.is_some() {
+		if context.sandbox.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -64,6 +64,25 @@ impl Server {
 		else {
 			return Err(tg::error!("failed to find the process"));
 		};
+
+		// Kill by pid if it exists.
+		if let Some(pid) = data.pid {
+			unsafe { libc::kill(pid, libc::SIGKILL) };
+		}
+
+		// Decrement the sandbox refcount and kill it if necessary.
+		if let Some(id) = &data.sandbox
+			&& let Some(mut sandbox) = self.sandboxes.get_mut(id)
+		{
+			sandbox.refcount = sandbox.refcount.saturating_sub(1);
+			if sandbox.refcount == 0 {
+				drop(sandbox);
+				self.delete_sandbox(id)
+					.await
+					.inspect_err(|error| tracing::warn!(?error, "failed to delete the sandbox"))
+					.ok();
+			}
+		}
 
 		// Get the process's children.
 		let connection = self
@@ -165,6 +184,7 @@ impl Server {
 					finished_at = {p}4,
 					heartbeat_at = null,
 					output = {p}5,
+					pid = null,
 					exit = {p}6,
 					status = {p}7,
 					touched_at = {p}8

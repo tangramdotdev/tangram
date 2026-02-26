@@ -214,7 +214,7 @@ impl Server {
 		&self,
 		context: &Context,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + use<>> {
-		if context.process.is_some() {
+		if context.sandbox.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 		if !self.config.advanced.single_process {

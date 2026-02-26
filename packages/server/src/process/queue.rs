@@ -30,7 +30,7 @@ impl Server {
 		context: &Context,
 		_arg: tg::process::queue::Arg,
 	) -> tg::Result<Option<tg::process::queue::Output>> {
-		if context.process.is_some() {
+		if context.sandbox.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 

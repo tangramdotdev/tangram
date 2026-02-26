@@ -41,7 +41,10 @@ impl Mutation {
 				values.iter().flat_map(tg::Value::objects).collect()
 			},
 			Self::Prefix { template, .. } | Self::Suffix { template, .. } => template.objects(),
-			Self::Merge { value } => value.iter().flat_map(|(_key, val)| val.objects()).collect(),
+			Self::Merge { value } => value
+				.values()
+				.flat_map(super::value::Value::objects)
+				.collect(),
 		}
 	}
 

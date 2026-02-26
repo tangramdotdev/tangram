@@ -1,7 +1,7 @@
 use {
 	crate::{
-		Command,
-		common::{CStringVec, abort_errno, cstring},
+		Command, Options, abort_errno,
+		common::{CStringVec, cstring, which},
 	},
 	indoc::writedoc,
 	num::ToPrimitive as _,
@@ -13,30 +13,44 @@ use {
 	},
 };
 
-struct Context {
-	argv: CStringVec,
-	cwd: CString,
-	executable: CString,
-	profile: CString,
+pub fn enter(options: &Options) -> std::io::Result<()> {
+	let profile = create_sandbox_profile(&options);
+	unsafe {
+		let mut error = std::ptr::null::<std::ffi::c_char>();
+		let ret = sandbox_init(profile.as_ptr(), 0, std::ptr::addr_of_mut!(error));
+		if ret != 0 {
+			let error = error;
+			let message = CStr::from_ptr(error);
+			let result = std::io::Error::other(format!(
+				"failed to enter sandbox: {}",
+				message.to_string_lossy()
+			));
+			sandbox_free_error(error);
+			return Err(result);
+		}
+	}
+	Ok(())
 }
 
-#[expect(clippy::needless_pass_by_value)]
-pub fn spawn(command: Command) -> std::io::Result<std::process::ExitCode> {
+pub fn spawn(command: Command) -> std::io::Result<i32> {
 	// Create the argv.
 	let argv = std::iter::once(cstring(&command.executable))
 		.chain(command.trailing.iter().map(cstring))
 		.collect::<CStringVec>();
 
 	// Create the cwd.
-	let cwd = command
-		.cwd
-		.clone()
-		.map_or_else(std::env::current_dir, Ok::<_, std::io::Error>)
-		.inspect_err(|_| eprintln!("failed to get cwd"))
-		.map(cstring)?;
+	let cwd = command.cwd.clone().map(cstring);
 
 	// Create the executable.
-	let executable = cstring(&command.executable);
+	let executable = command
+		.env
+		.iter()
+		.find_map(|(key, value)| {
+			(key == "PATH")
+				.then_some(value)
+				.and_then(|path| which(path.as_ref(), &command.executable).map(cstring))
+		})
+		.unwrap_or_else(|| cstring(&command.executable));
 
 	if command.chroot.is_some() {
 		return Err(std::io::Error::other("chroot is not allowed on darwin"));
@@ -46,80 +60,52 @@ pub fn spawn(command: Command) -> std::io::Result<std::process::ExitCode> {
 		return Err(std::io::Error::other("uid/gid is not allowed on darwin"));
 	}
 
-	// Set the environment.
-	unsafe {
-		for (key, _) in std::env::vars_os() {
-			std::env::remove_var(key);
-		}
-		for (key, value) in &command.env {
-			std::env::set_var(key, value);
-		}
-	}
-
-	// Create the sandbox profile.
-	let profile = create_sandbox_profile(&command);
-
-	// Create the context.
-	let context = Context {
-		argv,
-		cwd,
-		executable,
-		profile,
-	};
-
 	// Fork.
 	let pid = unsafe { libc::fork() };
 	if pid < 0 {
 		return Err(std::io::Error::last_os_error());
 	}
+
+	// Run the child process.
 	if pid == 0 {
-		// Initialize the sandbox.
 		unsafe {
-			let error = std::ptr::null_mut::<*const libc::c_char>();
-			let ret = sandbox_init(context.profile.as_ptr(), 0, error);
-
-			// Handle an error from `sandbox_init`.
-			if ret != 0 {
-				let error = *error;
-				let message = CStr::from_ptr(error);
-				sandbox_free_error(error);
-				abort_errno!("failed to setup the sandbox: {}", message.to_string_lossy());
+			// Redirect stdio file descriptors.
+			if let Some(fd) = command.stdin {
+				libc::dup2(fd, libc::STDIN_FILENO);
 			}
-		}
+			if let Some(fd) = command.stdout {
+				libc::dup2(fd, libc::STDOUT_FILENO);
+			}
+			if let Some(fd) = command.stderr {
+				libc::dup2(fd, libc::STDERR_FILENO);
+			}
 
-		// Change directories if necessary.
-		if unsafe { libc::chdir(context.cwd.as_ptr()) } != 0 {
-			abort_errno!("failed to change working directory");
-		}
+			// Change the working directory.
+			if let Some(cwd) = &cwd {
+				let ret = libc::chdir(cwd.as_ptr());
+				if ret == -1 {
+					abort_errno!("failed to set the working directory {:?}", command.cwd);
+				}
+			}
 
-		// Exec.
-		unsafe {
-			libc::execvp(context.executable.as_ptr(), context.argv.as_ptr());
-			abort_errno!("failed to exec");
+			// Set the environment.
+			for (key, _) in std::env::vars_os() {
+				std::env::remove_var(key);
+			}
+			for (key, value) in &command.env {
+				std::env::set_var(key, value);
+			}
+
+			// Exec.
+			libc::execvp(executable.as_ptr(), argv.as_ptr().cast());
+			abort_errno!("execvp failed");
 		}
 	}
 
-	// Wait for the child process to exit.
-	let mut status = 0;
-	unsafe {
-		libc::waitpid(pid, std::ptr::addr_of_mut!(status), 0);
-	}
-
-	// Reap its children.
-	kill_process_tree(pid);
-
-	let status = if libc::WIFEXITED(status) {
-		libc::WEXITSTATUS(status).to_u8().unwrap().into()
-	} else if libc::WIFSIGNALED(status) {
-		(128 + libc::WTERMSIG(status).to_u8().unwrap()).into()
-	} else {
-		return Err(std::io::Error::other("unknown process termination"));
-	};
-
-	Ok(status)
+	Ok(pid as _)
 }
 
-fn create_sandbox_profile(command: &Command) -> CString {
+fn create_sandbox_profile(options: &Options) -> CString {
 	let mut profile = String::new();
 	writedoc!(
 		profile,
@@ -129,7 +115,7 @@ fn create_sandbox_profile(command: &Command) -> CString {
 	)
 	.unwrap();
 
-	let root_mount = command.mounts.iter().any(|mount| {
+	let root_mount = options.mounts.iter().any(|mount| {
 		mount.source == mount.target
 			&& mount
 				.target
@@ -251,7 +237,7 @@ fn create_sandbox_profile(command: &Command) -> CString {
 	}
 
 	// Write the network profile.
-	if command.network {
+	if options.network {
 		writedoc!(
 			profile,
 			r#"
@@ -283,7 +269,7 @@ fn create_sandbox_profile(command: &Command) -> CString {
 		.unwrap();
 	}
 
-	for mount in &command.mounts {
+	for mount in &options.mounts {
 		if !root_mount {
 			let path = mount.source.as_ref().unwrap();
 			if (mount.flags & libc::MNT_RDONLY.to_u64().unwrap()) != 0 {
@@ -334,6 +320,7 @@ fn create_sandbox_profile(command: &Command) -> CString {
 	CString::new(profile).unwrap()
 }
 
+#[allow(dead_code)]
 fn kill_process_tree(pid: i32) {
 	let mut pids = vec![pid];
 	let mut i = 0;

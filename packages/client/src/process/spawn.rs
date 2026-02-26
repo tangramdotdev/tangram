@@ -20,12 +20,6 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub local: Option<bool>,
 
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub mounts: Vec<tg::process::data::Mount>,
-
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub network: bool,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::process::Id>,
 
@@ -35,6 +29,9 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub retry: bool,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sandbox: Option<tg::Either<tg::sandbox::create::Arg, tg::sandbox::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub stderr: Option<tg::process::Stdio>,
@@ -118,11 +115,10 @@ impl Arg {
 			checksum: None,
 			command,
 			local: None,
-			mounts: Vec::new(),
-			network: false,
 			parent: None,
 			remotes: None,
 			retry: false,
+			sandbox: None,
 			stderr: None,
 			stdin: None,
 			stdout: None,
@@ -139,11 +135,10 @@ impl Arg {
 			checksum,
 			command,
 			local: None,
-			mounts: Vec::new(),
-			network: false,
 			parent: None,
 			remotes: None,
 			retry: false,
+			sandbox: None,
 			stderr: None,
 			stdin: None,
 			stdout: None,

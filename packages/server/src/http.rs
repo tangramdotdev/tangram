@@ -87,7 +87,7 @@ impl Server {
 			.layer(tangram_http::layer::tracing::TracingLayer::new())
 			.layer(tower_http::timeout::TimeoutLayer::with_status_code(
 				http::StatusCode::REQUEST_TIMEOUT,
-				Duration::from_secs(60),
+				Duration::from_mins(1),
 			))
 			.add_extension(stop.clone())
 			.layer(tangram_http::layer::compression::RequestDecompressionLayer)
@@ -505,6 +505,20 @@ impl Server {
 				.boxed(),
 			(http::Method::POST, ["ptys", pty, "write"]) => server
 				.handle_write_pty_request(request, &context, pty)
+				.boxed(),
+
+			// Sandboxes.
+			(http::Method::POST, ["sandbox", "create"]) => server
+				.handle_create_sandbox_request(request, &context)
+				.boxed(),
+			(http::Method::DELETE, ["sandbox", sandbox]) => server
+				.handle_delete_sandbox_request(request, &context, sandbox)
+				.boxed(),
+			(http::Method::POST, ["sandbox", sandbox, "spawn"]) => server
+				.handle_sandbox_spawn_request(request, &context, sandbox)
+				.boxed(),
+			(http::Method::POST, ["sandbox", sandbox, "wait"]) => server
+				.handle_sandbox_wait_request(request, &context, sandbox)
 				.boxed(),
 
 			// Remotes.

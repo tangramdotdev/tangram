@@ -6649,9 +6649,19 @@ name = "tangram_sandbox"
 version = "0.0.0"
 dependencies = [
  "bytes",
+ "futures",
  "indoc",
  "libc",
  "num",
+ "rustix 1.1.4",
+ "serde",
+ "serde-untagged",
+ "serde_json",
+ "tangram_client",
+ "tangram_futures",
+ "time",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -6734,6 +6744,7 @@ dependencies = [
  "tangram_index",
  "tangram_js",
  "tangram_messenger",
+ "tangram_sandbox",
  "tangram_serialize",
  "tangram_session",
  "tangram_store",

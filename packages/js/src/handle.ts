@@ -35,6 +35,28 @@ export let handle: tg.Handle = {
 		return syscall("process_wait", id, arg);
 	},
 
+	createSandbox(arg: tg.Handle.SandboxCreateArg): Promise<tg.Handle.SandboxCreateOutput> {
+		return syscall("sandbox_create", arg);
+	},
+
+	deleteSandbox(id: string): Promise<void> {
+		return syscall("sandbox_delete", id);
+	},
+
+	sandboxSpawn(
+		id: string,
+		arg: tg.Handle.SandboxSpawnArg,
+	): Promise<tg.Handle.SandboxSpawnOutput> {
+		return syscall("sandbox_spawn", id, arg);
+	},
+
+	sandboxWait(
+		id: string,
+		arg: tg.Handle.SandboxWaitArg,
+	): Promise<tg.Handle.SandboxWaitOutput> {
+		return syscall("sandbox_wait", id, arg);
+	},
+
 	checksum(
 		input: string | Uint8Array,
 		algorithm: tg.Checksum.Algorithm,

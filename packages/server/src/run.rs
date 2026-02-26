@@ -1,8 +1,9 @@
 use {
 	crate::{ProcessPermit, Server},
 	futures::{FutureExt as _, TryFutureExt as _, future},
-	std::{collections::BTreeSet, path::Path, sync::Arc, time::Duration},
+	std::{collections::BTreeSet, sync::Arc, time::Duration},
 	tangram_client::prelude::*,
+	tangram_database::{self as db, prelude::*},
 };
 
 mod common;
@@ -242,30 +243,8 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the host"))?;
 
-		// Determine if the root is mounted.
-		let root_mounted = state
-			.mounts
-			.iter()
-			.any(|mount| mount.source == mount.target && mount.target == Path::new("/"));
-
-		// Get the server's user.
-		let whoami =
-			util::whoami().map_err(|error| tg::error!(!error, "failed to get username"))?;
-
-		// Determine if the process is unsandboxed.
-		let mounts = command
-			.mounts(self)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the mounts"))?;
-		let user = command
-			.user(self)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the user"))?;
-		let unsandboxed = root_mounted
-			&& (mounts.is_empty() && state.mounts.len() == 1)
-			&& state.network
-			&& user.as_ref().is_none_or(|user| user == &whoami);
-		let sandboxed = !unsandboxed;
+		// Determine if the process is sandboxed.
+		let sandboxed = state.sandbox.is_some();
 
 		let result = {
 			match host.as_str() {
@@ -325,6 +304,33 @@ impl Server {
 		}
 
 		Ok(output)
+	}
+
+	pub(crate) async fn update_process_pid(
+		&self,
+		id: &tg::process::Id,
+		pid: i32,
+	) -> tg::Result<()> {
+		let connection = self
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = format!(
+			"
+				update processes
+				set pid = {p}1
+				where id = {p}2;
+			"
+		);
+		let params = db::params![pid, id.to_string()];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to update the process pid"))?;
+		drop(connection);
+		Ok(())
 	}
 
 	async fn compute_checksum(

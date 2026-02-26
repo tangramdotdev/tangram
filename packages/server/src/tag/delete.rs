@@ -35,7 +35,7 @@ impl Server {
 			return Ok(output);
 		}
 
-		if context.process.is_some() {
+		if context.sandbox.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 

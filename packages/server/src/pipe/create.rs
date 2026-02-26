@@ -26,7 +26,7 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to create the pipe on the remote"));
 		}
 
-		if context.process.is_some() {
+		if context.sandbox.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
