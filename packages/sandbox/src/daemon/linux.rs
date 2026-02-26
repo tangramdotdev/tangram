@@ -188,29 +188,20 @@ fn mount(mount: &crate::Mount, chroot: Option<&PathBuf>) -> std::io::Result<()> 
 		bytes.as_ptr().cast::<std::ffi::c_void>().cast_mut()
 	});
 	unsafe {
-		// Create the mount point.
 		if let (Some(source), Some(target)) = (&source, &mut target) {
 			create_mountpoint_if_not_exists(source, target);
 		}
-		let result = libc::mount(
-			source.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
-			target.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
-			fstype.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
-			flags,
-			data,
-		);
+		let source = source.as_ref().map_or(std::ptr::null(), |c| c.as_ptr());
+		let target = target.as_ref().map_or(std::ptr::null(), |c| c.as_ptr());
+		let fstype = fstype.as_ref().map_or(std::ptr::null(), |c| c.as_ptr());
+		let result = libc::mount(source, target, fstype, flags, data);
 		if result < 0 {
 			eprintln!("failed to mount {source:?}:{target:?}");
 			return Err(std::io::Error::last_os_error());
 		}
 		if (flags & libc::MS_BIND != 0) && (flags & libc::MS_RDONLY != 0) {
-			let result = libc::mount(
-				std::ptr::null(),
-				target.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
-				std::ptr::null(),
-				libc::MS_BIND | libc::MS_REMOUNT | libc::MS_RDONLY,
-				std::ptr::null_mut(),
-			);
+			let flags = flags | libc::MS_REMOUNT;
+			let result = libc::mount(source, target, fstype, flags, data);
 			if result < 0 {
 				eprintln!("failed to remount {target:?} as read-only");
 				return Err(std::io::Error::last_os_error());

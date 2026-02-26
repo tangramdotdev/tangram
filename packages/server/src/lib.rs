@@ -1149,11 +1149,6 @@ impl Server {
 	}
 
 	#[must_use]
-	pub fn sandboxes_path(&self) -> PathBuf {
-		self.path.join("sandboxes")
-	}
-
-	#[must_use]
 	pub fn tags_path(&self) -> PathBuf {
 		self.path.join("tags")
 	}
