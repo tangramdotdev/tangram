@@ -249,7 +249,7 @@ type PredicateType = {
 
 type ReferenceType = {
 	location: Location;
-	isExported: boolean;
+	linkable: boolean;
 	name: string;
 	fullyQualifiedName: string;
 	typeArguments: Array<Type>;
@@ -1827,7 +1827,7 @@ let convertTypeReferenceType = (
 			location: convertLocation(declaration),
 			typeArguments: typeArguments ?? [],
 			isTypeParameter,
-			isExported: isExported(
+			linkable: isLinkable(
 				typeChecker,
 				packageExports,
 				thisModule,
@@ -1863,7 +1863,7 @@ let convertTypeReferenceType = (
 			location: convertLocation(declaration),
 			typeArguments: typeArguments ?? [],
 			isTypeParameter,
-			isExported: isExported(
+			linkable: isLinkable(
 				typeChecker,
 				packageExports,
 				thisModule,
@@ -2427,7 +2427,7 @@ let convertTypeReferenceTypeNode = (
 		fullyQualifiedName,
 		typeArguments: typeArguments ?? [],
 		isTypeParameter,
-		isExported: isExported(
+		linkable: isLinkable(
 			typeChecker,
 			packageExports,
 			thisModule,
@@ -2465,35 +2465,46 @@ let convertLocation = (node: ts.Node): Location => {
 	};
 };
 
-function isExported(
+function isLinkable(
 	typeChecker: ts.TypeChecker,
 	packageExports: Array<ts.Symbol>,
 	thisModule: Module,
 	symbol: ts.Symbol,
 	node: ts.Node,
 ) {
-	// If the symbol is from a different package, consider it exported so the
-	// renderer generates a cross-package link.
 	let module_ = typescript.moduleFromFileName(node.getSourceFile().fileName);
+
+	// If the symbol is from a different package, it's linkable as a
+	// cross-package link.
 	let thisTag = thisModule.referent.options?.tag;
 	let moduleTag = module_.referent.options?.tag;
 	if (thisTag && moduleTag && thisTag !== moduleTag) {
 		return true;
 	}
 
-	// Go through all globalExports to see if our symbol is there.
+	// If the symbol is from the Tangram runtime (tangram.d.ts), it's linkable
+	// to the runtime reference.
+	if (
+		module_.kind === "dts" &&
+		module_.referent.item === "./tangram.d.ts"
+	) {
+		return true;
+	}
+
+	// If the symbol is in this package's exports, it's linkable as an
+	// intra-package link.
 	return packageExports.some((export_) => {
-		let isExported = false;
+		let matched = false;
 		// If the export_ is an alias.
 		if ((export_.flags & ts.SymbolFlags.Alias) !== 0) {
-			isExported = typeChecker.getAliasedSymbol(export_) === symbol;
+			matched = typeChecker.getAliasedSymbol(export_) === symbol;
 		}
 		// If the symbol is an alias.
 		if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
-			isExported =
-				isExported || typeChecker.getAliasedSymbol(symbol) === export_;
+			matched =
+				matched || typeChecker.getAliasedSymbol(symbol) === export_;
 		}
-		return isExported || export_ === symbol;
+		return matched || export_ === symbol;
 	});
 }
 
@@ -2547,10 +2558,16 @@ let getFullyQualifiedName = (
 	declaration: ts.Node,
 	symbol: ts.Symbol,
 ) => {
+	let sourceFile = declaration.getSourceFile();
+	let prefix = fileToPrefix.get(sourceFile.fileName);
+
 	let parent = declaration.parent;
 	let fqn = [];
 	while (parent) {
-		if ((parent as ts.NamedDeclaration).name) {
+		// When the file has a prefix, skip top-level declaration names — the
+		// prefix already represents the namespace created by `export * as X`.
+		let isTopLevel = parent.parent === sourceFile;
+		if ((parent as ts.NamedDeclaration).name && !(prefix && isTopLevel)) {
 			fqn.push((parent as ts.NamedDeclaration).name?.getText());
 		}
 		parent = parent.parent;
@@ -2560,8 +2577,6 @@ let getFullyQualifiedName = (
 	let name = fqn.join(".");
 
 	// Prepend the namespace prefix for re-exported submodules.
-	let sourceFileName = declaration.getSourceFile().fileName;
-	let prefix = fileToPrefix.get(sourceFileName);
 	if (prefix) {
 		name = `${prefix}.${name}`;
 	}
