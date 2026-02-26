@@ -273,9 +273,8 @@ where
 			sqpoll_ring = Some(ring);
 
 			// Create threads.
-			let preferred_thread_count = std::thread::available_parallelism()
-				.map(std::num::NonZero::get)
-				.unwrap_or(1);
+			let preferred_thread_count =
+				std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
 			let mut thread_count = preferred_thread_count;
 			let mut first_cloned_fd = None;
 			if preferred_thread_count > 1 {

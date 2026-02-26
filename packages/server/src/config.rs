@@ -646,7 +646,7 @@ impl Default for Cleaner {
 			concurrency: 1,
 			partition_count: 256,
 			partition_start: 0,
-			ttl: Duration::from_secs(86400),
+			ttl: Duration::from_hours(24),
 		}
 	}
 }
@@ -853,7 +853,7 @@ impl Default for SyncPutStore {
 impl Default for Tag {
 	fn default() -> Self {
 		Self {
-			cache_ttl: Duration::from_secs(600),
+			cache_ttl: Duration::from_mins(10),
 		}
 	}
 }
@@ -862,7 +862,7 @@ impl Default for Vfs {
 	fn default() -> Self {
 		Self {
 			cache_size: 4096,
-			cache_ttl: Duration::from_secs(3600),
+			cache_ttl: Duration::from_hours(1),
 			database_connections: 4,
 			io: VfsIo::Auto,
 			passthrough: VfsPassthrough::Auto,
@@ -873,7 +873,7 @@ impl Default for Vfs {
 impl Default for Watch {
 	fn default() -> Self {
 		Self {
-			ttl: Duration::from_secs(3600),
+			ttl: Duration::from_hours(1),
 		}
 	}
 }
@@ -884,7 +884,7 @@ impl Default for Watchdog {
 			batch_size: 100,
 			interval: Duration::from_secs(1),
 			max_depth: 1024,
-			ttl: Duration::from_secs(60),
+			ttl: Duration::from_mins(1),
 		}
 	}
 }

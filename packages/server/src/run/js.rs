@@ -49,9 +49,8 @@ impl Server {
 
 		// Spawn the task.
 		let local_pool_handle = self.local_pool_handle.get_or_init(|| {
-			let parallelism = std::thread::available_parallelism()
-				.map(std::num::NonZeroUsize::get)
-				.unwrap_or(1);
+			let parallelism =
+				std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
 			let concurrency = self.config.runner.as_ref().map_or(parallelism, |config| {
 				config.concurrency.unwrap_or(parallelism)
 			});

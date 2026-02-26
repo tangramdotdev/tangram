@@ -85,11 +85,10 @@ impl std::fmt::Display for Indicator {
 		const LENGTH: u64 = 20;
 		if let (Some(current), Some(total)) = (self.current, self.total) {
 			write!(f, "[")?;
-			let n = if total > 0 {
-				(current * LENGTH / total).min(LENGTH)
-			} else {
-				LENGTH
-			};
+			let n = (current * LENGTH)
+				.checked_div(total)
+				.map_or(LENGTH, |n| n.min(LENGTH));
+
 			for _ in 0..n {
 				write!(f, "=")?;
 			}

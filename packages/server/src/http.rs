@@ -87,7 +87,7 @@ impl Server {
 			.layer(tangram_http::layer::tracing::TracingLayer::new())
 			.layer(tower_http::timeout::TimeoutLayer::with_status_code(
 				http::StatusCode::REQUEST_TIMEOUT,
-				Duration::from_secs(60),
+				Duration::from_mins(1),
 			))
 			.add_extension(stop.clone())
 			.layer(tangram_http::layer::compression::RequestDecompressionLayer)

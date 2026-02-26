@@ -419,11 +419,7 @@ impl Directory {
 		let mut parents: Vec<tg::Directory> = vec![];
 
 		// Handle each path component.
-		loop {
-			// Handle the first path component.
-			let Some(component) = path.components().next() else {
-				break;
-			};
+		while let Some(component) = path.components().next() {
 			let name = match component {
 				// Prefix and root components are not allowed.
 				std::path::Component::Prefix(_) | std::path::Component::RootDir => {

@@ -116,15 +116,15 @@ where
 		}
 		if let ct::event::Event::Mouse(event) = event {
 			match event.kind {
-				ct::event::MouseEventKind::ScrollLeft => {
-					if self.data.hit_test(event.column, event.row) {
-						self.data.left();
-					}
+				ct::event::MouseEventKind::ScrollLeft
+					if self.data.hit_test(event.column, event.row) =>
+				{
+					self.data.left();
 				},
-				ct::event::MouseEventKind::ScrollRight => {
-					if self.data.hit_test(event.column, event.row) {
-						self.data.right();
-					}
+				ct::event::MouseEventKind::ScrollRight
+					if self.data.hit_test(event.column, event.row) =>
+				{
+					self.data.right();
 				},
 				ct::event::MouseEventKind::ScrollUp => {
 					if self.data.hit_test(event.column, event.row) {
@@ -398,8 +398,7 @@ where
 				// Get the cursor position. If this fails (for example because stdout is redirected),
 				// still render by assuming row zero.
 				let row = cursor_position_from_terminal(tty_fd)
-					.map(|(_column, row)| row.to_usize().unwrap())
-					.unwrap_or(0);
+					.map_or(0, |(_column, row)| row.to_usize().unwrap());
 
 				// Clear the screen and save the cursor position.
 				ct::queue!(
@@ -562,7 +561,7 @@ fn query_cursor_position(fd: std::os::fd::RawFd) -> std::io::Result<(u16, u16)> 
 		return Err(std::io::Error::last_os_error());
 	}
 
-	let deadline = Instant::now() + Duration::from_millis(2000);
+	let deadline = Instant::now() + Duration::from_secs(2);
 	let mut buffer = Vec::new();
 	let mut pollfd = libc::pollfd {
 		fd,

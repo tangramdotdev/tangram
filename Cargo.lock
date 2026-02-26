@@ -6653,7 +6653,7 @@ dependencies = [
  "indoc",
  "libc",
  "num",
- "rustix 1.1.3",
+ "rustix 1.1.4",
  "serde",
  "serde-untagged",
  "serde_json",

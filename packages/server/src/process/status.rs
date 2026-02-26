@@ -73,7 +73,7 @@ impl Server {
 
 		// Create the interval.
 		let interval =
-			IntervalStream::new(tokio::time::interval(Duration::from_secs(60))).map(|_| ());
+			IntervalStream::new(tokio::time::interval(Duration::from_mins(1))).map(|_| ());
 
 		// Create the stream.
 		let server = self.clone();
