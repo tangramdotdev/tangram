@@ -106,7 +106,6 @@ pub struct State {
 	remote_get_object_tasks: RemoteGetObjectTasks,
 	remote_list_tags_tasks: RemoteListTagsTasks,
 	sandboxes: Sandboxes,
-	sandbox_ttl_tasks: SandboxTtlTasks,
 	store: Store,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
@@ -167,8 +166,6 @@ type RemoteListTagsTasks = tangram_futures::task::Map<
 >;
 
 type Sandboxes = DashMap<tg::sandbox::Id, crate::sandbox::Sandbox>;
-
-type SandboxTtlTasks = DashMap<tg::sandbox::Id, tokio::task::JoinHandle<()>>;
 
 impl Owned {
 	pub fn stop(&self) {
@@ -550,7 +547,6 @@ impl Server {
 
 		// Create the sandboxes.
 		let sandboxes = DashMap::default();
-		let sandbox_ttl_tasks = DashMap::default();
 
 		// Create the temp paths.
 		let temps = DashSet::default();
@@ -593,7 +589,6 @@ impl Server {
 			remote_get_object_tasks,
 			remote_list_tags_tasks,
 			sandboxes,
-			sandbox_ttl_tasks,
 			store,
 			temps,
 			version,
@@ -1023,6 +1018,7 @@ impl Server {
 					.collect::<Vec<_>>();
 				for id in sandbox_ids {
 					if let Some((_, mut sandbox)) = server.sandboxes.remove(&id) {
+						sandbox.serve_task.abort();
 						sandbox.process.kill().await.ok();
 					}
 				}

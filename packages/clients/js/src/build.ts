@@ -94,8 +94,9 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 	);
 
 	let checksum = arg.checksum;
-	let host = arg.host;
+	let host = arg.host ?? tg.process.env.TANGRAM_HOST;
 	tg.assert(host !== undefined, "expected the host to be set");
+	tg.assert(typeof host === "string");
 	let sandbox: tg.Process.Sandbox | undefined =
 		"sandbox" in arg ? arg.sandbox : { host };
 	let commandId = await command.store();
@@ -107,7 +108,7 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 		checksum,
 		command: commandReferent,
 		create: false,
-		parent: undefined,
+		parent: tg.Process.current?.id,
 		remote: undefined,
 		retry: false,
 		sandbox,

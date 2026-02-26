@@ -73,7 +73,7 @@ impl Server {
 			.process_group(0)
 			.stdin(std::process::Stdio::null())
 			.stdout(std::process::Stdio::null())
-			.stderr(std::process::Stdio::inherit())
+			.stderr(std::process::Stdio::piped())
 			.arg("sandbox")
 			.arg("serve")
 			.arg("--socket")
@@ -175,14 +175,19 @@ impl Server {
 			})
 		};
 
+		// Take the stderr handle from the child process.
+		let stderr = process.stderr.take();
+
 		// Store the sandbox.
 		self.sandboxes.insert(
 			id.clone(),
 			super::Sandbox {
 				process,
 				client: Arc::new(client),
+				refcount: Arc::new(tokio::sync::Mutex::new(0)),
 				root,
 				serve_task,
+				stderr,
 				_temp: temp,
 			},
 		);

@@ -321,8 +321,6 @@ pub struct Runner {
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub heartbeat_interval: Duration,
 	pub remotes: Vec<String>,
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub sandbox_ttl: Duration,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -742,7 +740,6 @@ impl Default for Runner {
 			concurrency: None,
 			heartbeat_interval: Duration::from_secs(1),
 			remotes: Vec::new(),
-			sandbox_ttl: Duration::from_secs(120),
 		}
 	}
 }

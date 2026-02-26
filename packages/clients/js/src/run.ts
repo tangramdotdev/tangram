@@ -94,11 +94,12 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 
 	let checksum = arg.checksum;
 	let currentSandbox = tg.process.env.TANGRAM_SANDBOX;
-	let sandbox: tg.Process.Sandbox | undefined = "sandbox" in arg
-		? arg.sandbox
-		: typeof currentSandbox === "string"
-			? currentSandbox
-			: undefined;
+	let sandbox: tg.Process.Sandbox | undefined =
+		"sandbox" in arg
+			? arg.sandbox
+			: typeof currentSandbox === "string"
+				? currentSandbox
+				: undefined;
 	let processStdin = tg.Process.current?.state?.stdin;
 	let commandStdin: tg.Blob.Arg | undefined;
 	if ("stdin" in arg) {
@@ -136,7 +137,7 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		checksum,
 		command: commandReferent,
 		create: false,
-		parent: undefined,
+		parent: tg.Process.current?.id,
 		remote: undefined,
 		retry: false,
 		sandbox,

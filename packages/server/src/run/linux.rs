@@ -109,6 +109,14 @@ impl Server {
 			output_path.to_str().unwrap().to_owned(),
 		);
 
+		// Set `$TANGRAM_PROCESS`.
+		env.insert("TANGRAM_PROCESS".to_owned(), id.to_string());
+
+		// Set `$TANGRAM_SANDBOX`.
+		if let Some(sandbox_id) = &state.sandbox {
+			env.insert("TANGRAM_SANDBOX".to_owned(), sandbox_id.to_string());
+		}
+
 		// Set `$TANGRAM_URL`.
 		let socket = if state.sandbox.is_none() {
 			self.path.join("socket")

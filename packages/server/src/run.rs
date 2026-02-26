@@ -280,9 +280,20 @@ impl Server {
 			}
 		};
 
-		// Schedule the sandbox TTL task if the process was sandboxed.
-		if let Some(sandbox_id) = &state.sandbox {
-			self.schedule_sandbox_ttl(sandbox_id);
+		// Decrement the sandbox refcount and delete the sandbox if it reaches zero.
+		if let Some(sandbox_id) = &state.sandbox
+			&& let Some(sandbox) = self.sandboxes.get(sandbox_id)
+		{
+			let mut refcount = sandbox.refcount.lock().await;
+			*refcount -= 1;
+			if *refcount == 0 {
+				drop(refcount);
+				drop(sandbox);
+				let context = crate::Context::default();
+				self.delete_sandbox_with_context(&context, sandbox_id)
+					.await
+					.ok();
+			}
 		}
 
 		let mut output = match result {
@@ -308,29 +319,6 @@ impl Server {
 		}
 
 		Ok(output)
-	}
-
-	fn schedule_sandbox_ttl(&self, sandbox_id: &tg::sandbox::Id) {
-		let ttl = self
-			.config
-			.runner
-			.as_ref()
-			.map_or(Duration::from_secs(120), |r| r.sandbox_ttl);
-
-		// Cancel any existing TTL task for this sandbox.
-		if let Some((_, handle)) = self.sandbox_ttl_tasks.remove(sandbox_id) {
-			handle.abort();
-		}
-
-		let server = self.clone();
-		let id = sandbox_id.clone();
-		let handle = tokio::spawn(async move {
-			tokio::time::sleep(ttl).await;
-			let context = crate::Context::default();
-			server.delete_sandbox_with_context(&context, &id).await.ok();
-			server.sandbox_ttl_tasks.remove(&id);
-		});
-		self.sandbox_ttl_tasks.insert(sandbox_id.clone(), handle);
 	}
 
 	async fn compute_checksum(

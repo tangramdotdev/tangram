@@ -737,6 +737,13 @@ impl Server {
 			None => context.sandbox.as_ref().map(|sbx| sbx.id.clone()),
 		};
 
+		// Increment the sandbox refcount.
+		if let Some(sandbox_id) = &sandbox
+			&& let Some(sandbox) = self.sandboxes.get(sandbox_id)
+		{
+			*sandbox.refcount.lock().await += 1;
+		}
+
 		// Create an ID.
 		let id = tg::process::Id::new();
 

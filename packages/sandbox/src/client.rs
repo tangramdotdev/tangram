@@ -238,7 +238,6 @@ impl Client {
 			fds.push(fd);
 			index
 		});
-		dbg!(&fds);
 		let response = self
 			.send_request(RequestKind::Spawn(SpawnRequest { command, fds }))
 			.await?;
