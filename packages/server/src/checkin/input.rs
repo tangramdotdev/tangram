@@ -862,17 +862,21 @@ impl Server {
 			return if lock.nodes.is_empty() { None } else { Some(0) };
 		};
 		let parent_index = state.graph.nodes.get(&parent.index).unwrap().lock_node?;
-		let parent_node = &lock.nodes[parent_index];
+		let parent_node = lock.nodes.get(parent_index)?;
 		match &parent.variant {
 			ParentVariant::DirectoryEntry(name) => {
 				let directory = parent_node.try_unwrap_directory_ref().ok()?;
 				let leaf = directory
 					.try_unwrap_leaf_ref()
 					.expect("lock directories must be leaves");
-				Some(leaf.entries.get(name)?.try_unwrap_pointer_ref().ok()?.index)
+				let pointer = leaf.entries.get(name)?.try_unwrap_pointer_ref().ok()?;
+				if pointer.graph.is_some() {
+					return None;
+				}
+				Some(pointer.index)
 			},
-			ParentVariant::FileDependency(reference) => Some(
-				parent_node
+			ParentVariant::FileDependency(reference) => {
+				let pointer = parent_node
 					.try_unwrap_file_ref()
 					.ok()?
 					.dependencies
@@ -881,19 +885,25 @@ impl Server {
 					.item()
 					.as_ref()?
 					.try_unwrap_pointer_ref()
-					.ok()?
-					.index,
-			),
-			ParentVariant::SymlinkArtifact => Some(
-				parent_node
+					.ok()?;
+				if pointer.graph.is_some() {
+					return None;
+				}
+				Some(pointer.index)
+			},
+			ParentVariant::SymlinkArtifact => {
+				let pointer = parent_node
 					.try_unwrap_symlink_ref()
 					.ok()?
 					.artifact
 					.as_ref()?
 					.try_unwrap_pointer_ref()
-					.ok()?
-					.index,
-			),
+					.ok()?;
+				if pointer.graph.is_some() {
+					return None;
+				}
+				Some(pointer.index)
+			},
 		}
 	}
 

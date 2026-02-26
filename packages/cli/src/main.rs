@@ -1181,13 +1181,16 @@ impl Cli {
 			},
 
 			tg::Object::File(file) => {
-				let path = referent
-					.path()
-					.ok_or_else(|| tg::error!("expected a path"))?;
-				if !tg::module::is_module_path(path) {
-					return Err(tg::error!("expected a module path"));
-				}
-				let kind = tg::module::module_kind_for_path(path).unwrap();
+				let kind = if let Some(path) = referent.path() {
+					if !tg::module::is_module_path(path) {
+						return Err(tg::error!("expected a module path"));
+					}
+					tg::module::module_kind_for_path(path).unwrap()
+				} else {
+					file.module(&handle)
+						.await?
+						.ok_or_else(|| tg::error!("could not determine the module kind"))?
+				};
 				let item = file.clone().into();
 				let item = tg::graph::Edge::Object(item);
 				let item = tg::module::Item::Edge(item);

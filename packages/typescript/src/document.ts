@@ -5,6 +5,9 @@ import type { Range } from "./range.ts";
 import * as typescript from "./typescript.ts";
 import { compilerOptions, host } from "./typescript.ts";
 
+let fileToPrefix: Map<string, string> = new Map();
+let tagToAlias: Map<string, string> = new Map();
+
 declare module "typescript" {
 	interface TypeChecker {
 		// https://github.com/microsoft/TypeScript/blob/v4.7.2/src/compiler/types.ts#L4188
@@ -321,6 +324,81 @@ export let handle = (request: Request): Response => {
 	}
 
 	let thisModule = typescript.moduleFromFileName(sourceFile.fileName);
+
+	// Build a map from source file name to namespace prefix. For namespace
+	// re-exports like `export * as build from "./build.tg.ts"`, this maps
+	// `build.tg.ts`'s file name to `"build"`. Used to produce
+	// package-relative fullyQualifiedName values.
+	fileToPrefix = new Map<string, string>();
+	let buildFileToPrefix = (
+		exports: Array<ts.Symbol>,
+		prefix: string,
+	) => {
+		for (let export_ of exports) {
+			let flags = export_.getFlags();
+			let resolved = (flags & ts.SymbolFlags.Alias)
+				? getAliasedSymbolIfAliased(typeChecker, export_)
+				: export_;
+			let resolvedFlags = resolved.getFlags();
+			if (
+				resolvedFlags & ts.SymbolFlags.NamespaceModule ||
+				resolvedFlags & ts.SymbolFlags.ValueModule
+			) {
+				let decls = resolved.getDeclarations();
+				if (decls) {
+					for (let decl of decls) {
+						let declFile = decl.getSourceFile().fileName;
+						if (declFile !== sourceFile.fileName) {
+							let name = prefix
+								? `${prefix}.${export_.getName()}`
+								: export_.getName();
+							fileToPrefix.set(declFile, name);
+						}
+					}
+				}
+				let subExports = typeChecker.getExportsOfModule(resolved);
+				let subPrefix = prefix
+					? `${prefix}.${export_.getName()}`
+					: export_.getName();
+				buildFileToPrefix(subExports, subPrefix);
+			}
+		}
+	};
+	buildFileToPrefix(exports_, "");
+
+	// Build a map from cross-package tags to import aliases. For namespace
+	// imports like `import * as std from "std"`, this maps the resolved
+	// module's tag (e.g., "std/0.0.0") to the alias "std". Used to qualify
+	// cross-package type names (e.g., "std.Args" instead of "Args").
+	let thisTag = thisModule.referent.options?.tag;
+	tagToAlias = new Map<string, string>();
+	for (let statement of sourceFile.statements) {
+		if (
+			ts.isImportDeclaration(statement) &&
+			statement.importClause?.namedBindings &&
+			ts.isNamespaceImport(statement.importClause.namedBindings)
+		) {
+			let alias = statement.importClause.namedBindings.name.text;
+			let sym = typeChecker.getSymbolAtLocation(
+				statement.importClause.namedBindings.name,
+			);
+			if (sym) {
+				let resolved = getAliasedSymbolIfAliased(typeChecker, sym);
+				let decls = resolved.getDeclarations();
+				if (decls) {
+					for (let decl of decls) {
+						let mod_ = typescript.moduleFromFileName(
+							decl.getSourceFile().fileName,
+						);
+						let tag = mod_.referent.options?.tag;
+						if (tag && tag !== thisTag) {
+							tagToAlias.set(tag, alias);
+						}
+					}
+				}
+			}
+		}
+	}
 
 	// Convert the exports.
 	let exports: { [key: string]: Symbol } = {};
@@ -1744,7 +1822,7 @@ let convertTypeReferenceType = (
 			aliasSymbol,
 		);
 		return {
-			name: aliasSymbol.getName(),
+			name: qualifyWithImportAlias(aliasSymbol.getName(), declaration),
 			fullyQualifiedName,
 			location: convertLocation(declaration),
 			typeArguments: typeArguments ?? [],
@@ -1770,7 +1848,10 @@ let convertTypeReferenceType = (
 			});
 		let symbol = type.symbol;
 		let declaration = symbol.declarations![0]!;
-		let name = getAliasedSymbolIfAliased(typeChecker, symbol).getName();
+		let name = qualifyWithImportAlias(
+			getAliasedSymbolIfAliased(typeChecker, symbol).getName(),
+			declaration,
+		);
 		let fullyQualifiedName = getFullyQualifiedName(
 			typeChecker,
 			declaration,
@@ -2387,15 +2468,18 @@ let convertLocation = (node: ts.Node): Location => {
 function isExported(
 	typeChecker: ts.TypeChecker,
 	packageExports: Array<ts.Symbol>,
-	_thisModule: Module,
+	thisModule: Module,
 	symbol: ts.Symbol,
-	_node: ts.Node,
+	node: ts.Node,
 ) {
-	// TODO If the symbol is from a different module, then it is exported.
-	// let module_ = typescript.moduleFromFileName(node.getSourceFile().fileName);
-	// if (module_ !== thisModule) {
-	// 	return true;
-	// }
+	// If the symbol is from a different package, consider it exported so the
+	// renderer generates a cross-package link.
+	let module_ = typescript.moduleFromFileName(node.getSourceFile().fileName);
+	let thisTag = thisModule.referent.options?.tag;
+	let moduleTag = module_.referent.options?.tag;
+	if (thisTag && moduleTag && thisTag !== moduleTag) {
+		return true;
+	}
 
 	// Go through all globalExports to see if our symbol is there.
 	return packageExports.some((export_) => {
@@ -2412,6 +2496,22 @@ function isExported(
 		return isExported || export_ === symbol;
 	});
 }
+
+// Qualify a type name with the cross-package import alias if the declaration
+// is from a different package (e.g., "Args" → "std.Args").
+let qualifyWithImportAlias = (name: string, declaration: ts.Node): string => {
+	let mod_ = typescript.moduleFromFileName(
+		declaration.getSourceFile().fileName,
+	);
+	let tag = mod_.referent.options?.tag;
+	if (tag) {
+		let alias = tagToAlias.get(tag);
+		if (alias) {
+			return `${alias}.${name}`;
+		}
+	}
+	return name;
+};
 
 function getAliasedSymbolIfAliased(
 	typeChecker: ts.TypeChecker,
@@ -2457,5 +2557,14 @@ let getFullyQualifiedName = (
 	}
 	fqn.reverse();
 	fqn.push(symbol.getName());
-	return fqn.join(".");
+	let name = fqn.join(".");
+
+	// Prepend the namespace prefix for re-exported submodules.
+	let sourceFileName = declaration.getSourceFile().fileName;
+	let prefix = fileToPrefix.get(sourceFileName);
+	if (prefix) {
+		name = `${prefix}.${name}`;
+	}
+
+	return name;
 };
