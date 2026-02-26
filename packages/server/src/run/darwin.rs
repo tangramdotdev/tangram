@@ -42,7 +42,15 @@ impl Server {
 
 		// Get the output path.
 		let temp = Temp::new(self);
-		let output_path = if state.sandbox.is_none() {
+		let output_path = if let Some(id)=&state.sandbox {
+			let sandbox = self
+				.sandboxes
+				.get(id)
+				.ok_or_else(|| tg::error!("failed to find the sandbox"))?;
+			let path = sandbox.temp.path().join("output/output");
+			drop(sandbox);
+			path
+		} else {
 			tokio::fs::create_dir_all(&temp)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
@@ -50,14 +58,6 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
 			temp.path().join("output/output")
-		} else {
-			let sandbox = self
-				.sandboxes
-				.get(state.sandbox.as_ref().unwrap())
-				.ok_or_else(|| tg::error!("failed to find the sandbox"))?;
-			let path = sandbox.temp.path().join("output/output");
-			drop(sandbox);
-			path
 		};
 
 		// Render the args.
@@ -137,14 +137,18 @@ impl Server {
 				.sandboxes
 				.get(sandbox_id)
 				.ok_or_else(|| tg::error!("failed to find the sandbox"))?;
-			let socket_path = sandbox.temp.path().join(".tangram/socket");
+			let url = if let Some(url) = &sandbox.proxy_url {
+				url.clone()
+			} else {
+				let socket_path = sandbox.temp.path().join(".tangram/socket");
+				tangram_uri::Uri::builder()
+					.scheme("http+unix")
+					.authority(socket_path.to_str().unwrap())
+					.path("")
+					.build()
+					.unwrap()
+			};
 			drop(sandbox);
-			let url = tangram_uri::Uri::builder()
-				.scheme("http+unix")
-				.authority(socket_path.to_str().unwrap())
-				.path("")
-				.build()
-				.unwrap();
 			env.insert("TANGRAM_URL".to_owned(), url.to_string());
 
 			drop(temp);

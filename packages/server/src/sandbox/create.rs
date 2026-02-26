@@ -11,7 +11,10 @@ use {
 	tangram_futures::task::Task,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_sandbox as sandbox,
+	tangram_uri::Uri,
 };
+
+const MAX_URL_LEN: usize = 100;
 
 impl Server {
 	pub(crate) fn create_sandbox_with_context<'a>(
@@ -43,7 +46,15 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
 
-		let path = temp.path().join("socket");
+		let path;
+		#[cfg(target_os = "linux")]
+		{
+			path = temp.path().join("socket");
+		}
+		#[cfg(target_os = "macos")]
+		{
+			path = std::path::Path::new("/tmp").join(format!("{id}.socket"));
+		}
 		let (root, args) = self.get_sandbox_args(&id, &arg, &temp).await?;
 
 		// Set up a pipe to notify the server once the child process has bound its server.
@@ -73,7 +84,7 @@ impl Server {
 			.process_group(0)
 			.stdin(std::process::Stdio::null())
 			.stdout(std::process::Stdio::null())
-			.stderr(std::process::Stdio::piped())
+			.stderr(std::process::Stdio::inherit())
 			.arg("sandbox")
 			.arg("serve")
 			.arg("--socket")
@@ -142,22 +153,36 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to connect to the sandbox"))?;
 
 		// Create the proxy server for this sandbox.
-		let host_socket = temp.path().join(".tangram/socket");
-		tokio::fs::create_dir_all(host_socket.parent().unwrap())
+		let socket_path = temp.path().join(".tangram/socket");
+		tokio::fs::create_dir_all(socket_path.parent().unwrap())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the proxy socket directory"))?;
-		let host_socket = host_socket
+		let host_socket = socket_path
 			.to_str()
 			.ok_or_else(|| tg::error!("the proxy socket path is not valid UTF-8"))?;
-		let host_uri = tangram_uri::Uri::builder()
-			.scheme("http+unix")
-			.authority(host_socket)
-			.path("")
-			.build()
-			.unwrap();
-		let listener = Server::listen(&host_uri)
+		let url = if cfg!(target_os = "linux") || host_socket.len() <= MAX_URL_LEN {
+			tangram_uri::Uri::builder()
+				.scheme("http+unix")
+				.authority(host_socket)
+				.path("")
+				.build()
+				.unwrap()
+		} else {
+			"http://localhost:0".to_owned().parse::<Uri>().unwrap()
+		};
+		let listener = Server::listen(&url)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to listen on the proxy socket"))?;
+		let listener_addr = listener
+			.local_addr()
+			.map_err(|source| tg::error!(!source, "failed to get listener address"))?;
+
+		let proxy_url = if let tokio_util::either::Either::Right(listener) = listener_addr {
+			let port = listener.port();
+			Some(format!("http://localhost:{port}").parse::<Uri>().unwrap())
+		} else {
+			None
+		};
 		let paths = if cfg!(target_os = "linux") {
 			Some(crate::context::Paths {
 				server_host: self.path.clone(),
@@ -200,6 +225,7 @@ impl Server {
 				serve_task,
 				stderr,
 				temp,
+				proxy_url,
 			},
 		);
 

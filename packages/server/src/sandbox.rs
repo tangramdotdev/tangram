@@ -3,6 +3,7 @@ use {
 	std::{path::PathBuf, sync::Arc},
 	tangram_futures::task::Task,
 	tangram_sandbox as sandbox,
+	tangram_uri::Uri,
 };
 
 pub mod create;
@@ -25,4 +26,5 @@ pub struct Sandbox {
 	#[allow(dead_code, reason = "owns the piped stderr fd for the sandbox daemon")]
 	pub stderr: Option<tokio::process::ChildStderr>,
 	pub temp: Temp,
+	pub proxy_url: Option<Uri>,
 }
