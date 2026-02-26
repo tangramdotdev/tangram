@@ -14,9 +14,10 @@ impl Server {
 		// Determine if the root is mounted.
 		let root_mounted = arg.mounts.iter().any(|mount| {
 			mount
+				.source
 				.as_ref()
 				.left()
-				.is_some_and(|mount| mount.source == mount.target && mount.target == Path::new("/"))
+				.is_some_and(|source| source == &mount.target && mount.target == Path::new("/"))
 		});
 
 		let mut args = Vec::new();
@@ -24,7 +25,7 @@ impl Server {
 
 		// Add bind mounts.
 		for mount in &arg.mounts {
-			match mount.source {
+			match &mount.source {
 				tg::Either::Left(path) => {
 					let mount_arg = if mount.readonly {
 						format!("source={},ro", path.display())
