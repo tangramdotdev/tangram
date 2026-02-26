@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Command, Options, abort_errno,
-		common::{CStringVec, cstring, envstring},
+		common::{CStringVec, cstring, envstring, which},
 	},
 	num::ToPrimitive as _,
 	std::{
@@ -95,7 +95,17 @@ pub fn spawn(command: &Command) -> std::io::Result<i32> {
 		.iter()
 		.map(|(key, value)| envstring(key, value))
 		.collect::<CStringVec>();
-	let executable = cstring(&command.executable);
+
+	let executable = command
+		.env
+		.iter()
+		.find_map(|(key, value)| {
+			(key == "PATH")
+				.then_some(value)
+				.and_then(|path| which(path.as_ref(), &command.executable).map(cstring))
+		})
+		.unwrap_or_else(|| cstring(&command.executable));
+
 	let mut clone_args: libc::clone_args = libc::clone_args {
 		flags: 0,
 		stack: 0,

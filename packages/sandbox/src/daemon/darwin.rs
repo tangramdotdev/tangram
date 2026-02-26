@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Command, Options, abort_errno,
-		common::{CStringVec, cstring},
+		common::{CStringVec, cstring, which},
 	},
 	indoc::writedoc,
 	num::ToPrimitive as _,
@@ -42,7 +42,15 @@ pub fn spawn(command: Command) -> std::io::Result<i32> {
 	let cwd = command.cwd.clone().map(cstring);
 
 	// Create the executable.
-	let executable = cstring(&command.executable);
+	let executable = command
+		.env
+		.iter()
+		.find_map(|(key, value)| {
+			(key == "PATH")
+				.then_some(value)
+				.and_then(|path| which(path.as_ref(), &command.executable).map(cstring))
+		})
+		.unwrap_or_else(|| cstring(&command.executable));
 
 	if command.chroot.is_some() {
 		return Err(std::io::Error::other("chroot is not allowed on darwin"));
