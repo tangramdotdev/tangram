@@ -184,7 +184,7 @@ impl Server {
 			.get(sandbox_id)
 			.ok_or_else(|| tg::error!("failed to find the sandbox"))?;
 		let client = Arc::clone(&sandbox.client);
-		let output_path = sandbox._temp.path().join("output/output");
+		let output_path = sandbox.temp.path().join("output/output");
 		drop(sandbox);
 
 		// Collect FDs that need to be kept alive until after the spawn call.
@@ -362,6 +362,11 @@ impl Server {
 			.spawn(sandbox_command)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to spawn the process in the sandbox"))?;
+
+		// Update the process pid in the database.
+		self.update_process_pid(id, pid)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to update the process pid"))?;
 
 		// Drop the FDs now that the spawn has completed.
 		drop(fds);

@@ -16,6 +16,7 @@ create table processes (
 	id text primary key,
 	log text,
 	output text,
+	pid integer,
 	sandbox text,
 	retry integer not null,
 	started_at integer,

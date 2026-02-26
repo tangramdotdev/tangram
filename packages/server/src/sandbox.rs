@@ -18,11 +18,11 @@ pub struct Sandbox {
 	pub process: tokio::process::Child,
 	pub client: Arc<sandbox::client::Client>,
 	pub context: crate::Context,
-	pub refcount: Arc<tokio::sync::Mutex<usize>>,
+	pub refcount: usize,
 	#[allow(dead_code, reason = "required by darwin")]
 	pub root: PathBuf,
 	pub serve_task: Task<()>,
 	#[allow(dead_code, reason = "owns the piped stderr fd for the sandbox daemon")]
 	pub stderr: Option<tokio::process::ChildStderr>,
-	pub _temp: Temp,
+	pub temp: Temp,
 }

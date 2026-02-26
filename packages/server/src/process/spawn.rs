@@ -739,9 +739,9 @@ impl Server {
 
 		// Increment the sandbox refcount.
 		if let Some(sandbox_id) = &sandbox
-			&& let Some(sandbox) = self.sandboxes.get(sandbox_id)
+			&& let Some(mut sandbox) = self.sandboxes.get_mut(sandbox_id)
 		{
-			*sandbox.refcount.lock().await += 1;
+			sandbox.refcount += 1;
 		}
 
 		// Create an ID.

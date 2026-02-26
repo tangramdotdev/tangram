@@ -319,6 +319,12 @@ async fn run_session(arg: Arg<'_>, pty: &tg::pty::Id) -> tg::Result<u8> {
 		.to_i32()
 		.unwrap();
 
+	// Update the process pid in the database.
+	server
+		.update_process_pid(id, pid)
+		.await
+		.map_err(|source| tg::error!(!source, %id, "failed to update the process pid"))?;
+
 	// Drop the FDs.
 	drop(fds);
 
@@ -514,6 +520,12 @@ async fn run_inner(arg: Arg<'_>) -> tg::Result<u8> {
 		.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
 	drop(cmd);
 	let pid = child.id().unwrap().to_i32().unwrap();
+
+	// Update the process pid in the database.
+	server
+		.update_process_pid(id, pid)
+		.await
+		.map_err(|source| tg::error!(!source, %id, "failed to update the process pid"))?;
 
 	// Spawn the stdio task.
 	let stdio_task = tokio::spawn({

@@ -195,11 +195,11 @@ impl Server {
 				process,
 				client: Arc::new(client),
 				context,
-				refcount: Arc::new(tokio::sync::Mutex::new(0)),
+				refcount: 0,
 				root,
 				serve_task,
 				stderr,
-				_temp: temp,
+				temp,
 			},
 		);
 

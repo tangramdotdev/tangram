@@ -3,6 +3,7 @@ use {
 	futures::{FutureExt as _, TryFutureExt as _, future},
 	std::{collections::BTreeSet, sync::Arc, time::Duration},
 	tangram_client::prelude::*,
+	tangram_database::{self as db, prelude::*},
 };
 
 mod common;
@@ -280,22 +281,6 @@ impl Server {
 			}
 		};
 
-		// Decrement the sandbox refcount and delete the sandbox if it reaches zero.
-		if let Some(sandbox_id) = &state.sandbox
-			&& let Some(sandbox) = self.sandboxes.get(sandbox_id)
-		{
-			let mut refcount = sandbox.refcount.lock().await;
-			*refcount -= 1;
-			if *refcount == 0 {
-				drop(refcount);
-				drop(sandbox);
-				let context = crate::Context::default();
-				self.delete_sandbox_with_context(&context, sandbox_id)
-					.await
-					.ok();
-			}
-		}
-
 		let mut output = match result {
 			Ok(output) => output,
 			Err(error) => Output {
@@ -319,6 +304,33 @@ impl Server {
 		}
 
 		Ok(output)
+	}
+
+	pub(crate) async fn update_process_pid(
+		&self,
+		id: &tg::process::Id,
+		pid: i32,
+	) -> tg::Result<()> {
+		let connection = self
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = format!(
+			"
+				update processes
+				set pid = {p}1
+				where id = {p}2;
+			"
+		);
+		let params = db::params![pid, id.to_string()];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to update the process pid"))?;
+		drop(connection);
+		Ok(())
 	}
 
 	async fn compute_checksum(
