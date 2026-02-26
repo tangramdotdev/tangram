@@ -17,6 +17,7 @@ pub mod wait;
 pub struct Sandbox {
 	pub process: tokio::process::Child,
 	pub client: Arc<sandbox::client::Client>,
+	pub context: crate::Context,
 	pub refcount: Arc<tokio::sync::Mutex<usize>>,
 	#[allow(dead_code, reason = "required by darwin")]
 	pub root: PathBuf,

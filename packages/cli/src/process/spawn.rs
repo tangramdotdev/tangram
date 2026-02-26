@@ -456,7 +456,7 @@ impl Cli {
 		} else {
 			Some(tg::Either::Left(tg::sandbox::create::Arg {
 				host,
-				network: true,
+				network: false,
 				hostname: None,
 				mounts: Vec::new(),
 				user: None,

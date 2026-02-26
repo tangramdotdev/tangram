@@ -434,6 +434,18 @@ impl Server {
 
 		// Check in the output.
 		if output.output.is_none() && exists {
+			let context = self
+				.sandboxes
+				.get(sandbox_id)
+				.map(|sandbox| sandbox.context.clone())
+				.unwrap_or_default();
+			let checkin_path = if let Some(sandbox) = &context.sandbox {
+				sandbox
+					.guest_path_for_host_path(output_path.clone())
+					.map_err(|source| tg::error!(!source, "failed to map the output path"))?
+			} else {
+				output_path.clone()
+			};
 			let arg = tg::checkin::Arg {
 				options: tg::checkin::Options {
 					destructive: true,
@@ -444,11 +456,11 @@ impl Server {
 					root: true,
 					..Default::default()
 				},
-				path: output_path.clone(),
+				path: checkin_path,
 				updates: Vec::new(),
 			};
 			let checkin_output = self
-				.checkin(arg)
+				.checkin_with_context(&context, arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to check in the output"))?
 				.try_last()

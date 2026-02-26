@@ -488,6 +488,11 @@ impl Server {
 
 		// Check in the output.
 		if output.output.is_none() && exists {
+			let context = self
+				.sandboxes
+				.get(sandbox_id)
+				.map(|sandbox| sandbox.context.clone())
+				.unwrap_or_default();
 			let arg = tg::checkin::Arg {
 				options: tg::checkin::Options {
 					destructive: true,
@@ -502,7 +507,7 @@ impl Server {
 				updates: Vec::new(),
 			};
 			let checkin_output = self
-				.checkin(arg)
+				.checkin_with_context(&context, arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to check in the output"))?
 				.try_last()

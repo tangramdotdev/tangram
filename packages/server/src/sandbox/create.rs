@@ -158,10 +158,20 @@ impl Server {
 		let listener = Server::listen(&host_uri)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to listen on the proxy socket"))?;
+		let paths = if cfg!(target_os = "linux") {
+			Some(crate::context::Paths {
+				server_host: self.path.clone(),
+				output_host: temp.path().join("output"),
+				output_guest: "/output".into(),
+				root_host: root.clone(),
+			})
+		} else {
+			None
+		};
 		let context = Context {
 			sandbox: Some(Arc::new(crate::context::Sandbox {
 				id: id.clone(),
-				paths: None,
+				paths,
 				remote: None,
 				retry: false,
 			})),
@@ -184,6 +194,7 @@ impl Server {
 			super::Sandbox {
 				process,
 				client: Arc::new(client),
+				context,
 				refcount: Arc::new(tokio::sync::Mutex::new(0)),
 				root,
 				serve_task,

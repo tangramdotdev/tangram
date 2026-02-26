@@ -203,6 +203,19 @@ fn mount(mount: &crate::Mount, chroot: Option<&PathBuf>) -> std::io::Result<()> 
 			eprintln!("failed to mount {source:?}:{target:?}");
 			return Err(std::io::Error::last_os_error());
 		}
+		if (flags & libc::MS_BIND != 0) && (flags & libc::MS_RDONLY != 0) {
+			let result = libc::mount(
+				std::ptr::null(),
+				target.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
+				std::ptr::null(),
+				libc::MS_BIND | libc::MS_REMOUNT | libc::MS_RDONLY,
+				std::ptr::null_mut(),
+			);
+			if result < 0 {
+				eprintln!("failed to remount {target:?} as read-only");
+				return Err(std::io::Error::last_os_error());
+			}
+		}
 	}
 	Ok(())
 }
