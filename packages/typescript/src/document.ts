@@ -5,7 +5,6 @@ import type { Range } from "./range.ts";
 import * as typescript from "./typescript.ts";
 import { compilerOptions, host } from "./typescript.ts";
 
-let fileToPrefix: Map<string, string> = new Map();
 let tagToAlias: Map<string, string> = new Map();
 
 declare module "typescript" {
@@ -20,7 +19,7 @@ export type Request = {
 };
 
 export type Response = {
-	exports: SymbolKindDeclarationIndex;
+	modules: { [path: string]: SymbolKindDeclarationIndex };
 };
 
 type SymbolKindDeclarationIndex = { [symbolName: string]: DeclarationsByKind };
@@ -325,47 +324,6 @@ export let handle = (request: Request): Response => {
 
 	let thisModule = typescript.moduleFromFileName(sourceFile.fileName);
 
-	// Build a map from source file name to namespace prefix. For namespace
-	// re-exports like `export * as build from "./build.tg.ts"`, this maps
-	// `build.tg.ts`'s file name to `"build"`. Used to produce
-	// package-relative fullyQualifiedName values.
-	fileToPrefix = new Map<string, string>();
-	let buildFileToPrefix = (
-		exports: Array<ts.Symbol>,
-		prefix: string,
-	) => {
-		for (let export_ of exports) {
-			let flags = export_.getFlags();
-			let resolved = (flags & ts.SymbolFlags.Alias)
-				? getAliasedSymbolIfAliased(typeChecker, export_)
-				: export_;
-			let resolvedFlags = resolved.getFlags();
-			if (
-				resolvedFlags & ts.SymbolFlags.NamespaceModule ||
-				resolvedFlags & ts.SymbolFlags.ValueModule
-			) {
-				let decls = resolved.getDeclarations();
-				if (decls) {
-					for (let decl of decls) {
-						let declFile = decl.getSourceFile().fileName;
-						if (declFile !== sourceFile.fileName) {
-							let name = prefix
-								? `${prefix}.${export_.getName()}`
-								: export_.getName();
-							fileToPrefix.set(declFile, name);
-						}
-					}
-				}
-				let subExports = typeChecker.getExportsOfModule(resolved);
-				let subPrefix = prefix
-					? `${prefix}.${export_.getName()}`
-					: export_.getName();
-				buildFileToPrefix(subExports, subPrefix);
-			}
-		}
-	};
-	buildFileToPrefix(exports_, "");
-
 	// Build a map from cross-package tags to import aliases. For namespace
 	// imports like `import * as std from "std"`, this maps the resolved
 	// module's tag (e.g., "std/0.0.0") to the alias "std". Used to qualify
@@ -400,20 +358,43 @@ export let handle = (request: Request): Response => {
 		}
 	}
 
-	// Convert the exports.
-	let exports: { [key: string]: Symbol } = {};
-	for (let export_ of exports_) {
-		exports[export_.getName()] = convertSymbol(
-			typeChecker,
-			packageExports,
-			thisModule,
-			export_,
-		);
+	// Iterate over all source files in this package and convert their exports.
+	let modules: { [path: string]: SymbolKindDeclarationIndex } = {};
+
+	for (let file of program.getSourceFiles()) {
+		let module_ = typescript.moduleFromFileName(file.fileName);
+		if (module_.kind === "dts" && file !== sourceFile) continue;
+		let tag = module_.referent.options?.tag;
+		if (tag !== thisTag) continue;
+
+		// For the entry point, reuse the exports already computed above.
+		// For other files, get exports from the file's module symbol.
+		let fileExportSymbols: Array<ts.Symbol>;
+		if (file === sourceFile) {
+			fileExportSymbols = exports_;
+		} else {
+			let fileSymbol = typeChecker.getSymbolAtLocation(file);
+			if (!fileSymbol) continue;
+			fileExportSymbols = typeChecker.getExportsOfModule(fileSymbol);
+		}
+
+		let fileExports: { [key: string]: Symbol } = {};
+		for (let export_ of fileExportSymbols) {
+			if (export_.getName() === "default") continue;
+			fileExports[export_.getName()] = convertSymbol(
+				typeChecker,
+				packageExports,
+				thisModule,
+				export_,
+			);
+		}
+
+		if (Object.keys(fileExports).length === 0) continue;
+		let filePath = module_.referent.options?.path ?? "tangram.ts";
+		modules[filePath] = groupByKind(fileExports);
 	}
 
-	return {
-		exports: groupByKind(exports),
-	};
+	return { modules };
 };
 
 function groupByKind(input: {
@@ -2559,27 +2540,15 @@ let getFullyQualifiedName = (
 	symbol: ts.Symbol,
 ) => {
 	let sourceFile = declaration.getSourceFile();
-	let prefix = fileToPrefix.get(sourceFile.fileName);
-
 	let parent = declaration.parent;
 	let fqn = [];
-	while (parent) {
-		// When the file has a prefix, skip top-level declaration names — the
-		// prefix already represents the namespace created by `export * as X`.
-		let isTopLevel = parent.parent === sourceFile;
-		if ((parent as ts.NamedDeclaration).name && !(prefix && isTopLevel)) {
+	while (parent && parent !== sourceFile) {
+		if ((parent as ts.NamedDeclaration).name) {
 			fqn.push((parent as ts.NamedDeclaration).name?.getText());
 		}
 		parent = parent.parent;
 	}
 	fqn.reverse();
 	fqn.push(symbol.getName());
-	let name = fqn.join(".");
-
-	// Prepend the namespace prefix for re-exported submodules.
-	if (prefix) {
-		name = `${prefix}.${name}`;
-	}
-
-	return name;
+	return fqn.join(".");
 };
