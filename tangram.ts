@@ -19,6 +19,75 @@ export type Arg = cargo.Arg & {
 	scylla?: boolean;
 };
 
+// Developer workflow targets.
+
+export const check = async () => {
+	await tg.run`cargo clippy --all-features --all-targets --workspace`;
+	await tg.run`cd packages/clients/js && bunx tsgo && bunx oxlint src`;
+	await tg.run`cd packages/js && bunx tsgo && bunx oxlint ./src/main.ts`;
+	await tg.run`cd packages/typescript && bunx tsgo && bunx oxlint src`;
+	await tg.run`cd packages/vscode && bunx tsgo && bunx oxlint extension.ts`;
+};
+
+export const format = async () => {
+	await tg.run`cargo fmt --all`;
+	await tg.run`bunx oxfmt --write packages/clients/js/src packages/js/src/tangram.d.ts packages/js/src/main.ts packages/typescript/src packages/vscode/extension.ts`;
+};
+
+export const run = async (...args: std.Args<Arg>) => {
+	const merged = await std.args.apply<Arg, Arg>({
+		args,
+		map: async (arg) => arg,
+		reduce: {
+			env: (a, b) => std.env.arg(a, b),
+			features: "append",
+			sdk: (a, b) => std.sdk.arg(a, b),
+		},
+	});
+	const {
+		env: env_,
+		foundationdb: useFoundationdb = false,
+		host: host_,
+		nats = false,
+		postgres = false,
+		proxy = true,
+		scylla = false,
+		source: source_ = source,
+	} = merged;
+	const host = host_ ?? std.triple.host();
+
+	// Configure features.
+	const features = [];
+	if (nats) {
+		features.push("nats");
+	}
+	if (postgres) {
+		features.push("postgres");
+	} else {
+		features.push("sqlite");
+	}
+	if (scylla) {
+		features.push("scylla");
+	}
+	if (!useFoundationdb) {
+		features.push("lmdb");
+	}
+	if (useFoundationdb) {
+		features.push("foundationdb");
+	}
+
+	// Call cargo.run() with the source, features, and env.
+	return cargo.run({
+		env: env_,
+		features,
+		host,
+		proxy,
+		source: source_,
+	});
+};
+
+// Build targets.
+
 export const build = async (...args: std.Args<Arg>) => {
 	const merged = await std.args.apply<Arg, Arg>({
 		args,
@@ -139,7 +208,7 @@ export const build = async (...args: std.Args<Arg>) => {
 	});
 };
 
-export default build;
+export default run;
 
 export const cloud = async (...args: std.Args<Arg>) => {
 	const merged = await std.args.apply<Arg, Arg>({
@@ -167,7 +236,144 @@ export const cloud = async (...args: std.Args<Arg>) => {
 	);
 };
 
-export const nodeModules = async (hostArg?: string) => {
+export const release = async () => {
+	const targets = [
+		"aarch64-apple-darwin",
+		"aarch64-unknown-linux-gnu",
+		"x86_64-apple-darwin",
+		"x86_64-unknown-linux-gnu",
+	];
+	const archives: Record<string, tg.File> = {};
+	for (const target of targets) {
+		// Build tangram for this target.
+		const output = await build({ host: target });
+
+		// Determine the archive name.
+		const arch = std.triple.arch(target);
+		let os: string;
+		if (std.triple.os(target) === "darwin") {
+			os = "darwin";
+		} else {
+			os = "linux";
+		}
+		const archiveName = `tangram_${arch}-${os}.tar.gz`;
+
+		// Add a tgx wrapper script alongside the tangram binary.
+		const tgx = tg.file("#!/bin/sh\ntg run -b $@", { executable: true });
+		const releaseDir = await tg.directory(output, {
+			["bin/tgx"]: tgx,
+		});
+
+		// Create a tar.gz archive.
+		const archive = await $`
+			mkdir -p $OUTPUT
+			tar -czf $OUTPUT/${archiveName} -C ${releaseDir}/bin tangram tg tgx
+		`
+			.env(dash({ build: std.triple.host() }))
+			.then(tg.Directory.expect)
+			.then((d) => d.get(archiveName))
+			.then(tg.File.expect);
+
+		archives[archiveName] = archive;
+	}
+	return tg.directory(archives);
+};
+
+// Test targets.
+
+export const test = async () => {
+	const output = await $`tg --help > ${tg.output}`
+		.env(build())
+		.then(tg.File.expect)
+		.then((f) => f.text);
+	tg.assert(output.includes("Usage:"));
+};
+
+export const testCloud = async () => {
+	const output = await $`tg --help > ${tg.output}`
+		.env(cloud())
+		.then(tg.File.expect)
+		.then((f) => f.text);
+	tg.assert(output.includes("Usage:"));
+};
+
+export const testProxy = async () => {
+	const output = await $`tg --help > ${tg.output}`
+		.env(build({ proxy: true, profile: "dev" }))
+		.then(tg.File.expect)
+		.then((f) => f.text);
+	tg.assert(output.includes("Usage:"));
+};
+
+/** Test that the proxy correctly caches unchanged crates when only tangram_cli is modified. */
+export const testProxyCacheHit = async () => {
+	const tracingEnv = { TGRUSTC_TRACING: "tgrustc=info" };
+
+	// First build: populate the cache.
+	console.log("=== First build (populating cache) ===");
+	await build({
+		profile: "dev",
+		proxy: true,
+		captureStderr: true,
+		env: tracingEnv,
+	});
+
+	// Modify only tangram_cli by adding a unique comment to main.rs.
+	const mainRs = await source
+		.get("packages/cli/src/main.rs")
+		.then(tg.File.expect)
+		.then((f: tg.File) => f.text);
+	const modifiedSource = await tg.directory(source, {
+		"packages/cli/src/main.rs": tg.file(
+			`${mainRs}\n// Modified for cache test at ${Date.now()}\n`,
+		),
+	});
+
+	// Second build: should cache hit for all crates except tangram.
+	console.log("=== Second build (testing cache hits) ===");
+	const secondResult = await build({
+		profile: "dev",
+		proxy: true,
+		captureStderr: true,
+		env: tracingEnv,
+		source: modifiedSource,
+	});
+	const stats = await parseStats(secondResult);
+	if (!stats) {
+		throw new Error("Second build should have stats.");
+	}
+	const proxyStats = stats.filter((s) => s.kind === "proxy");
+	const runnerStats = stats.filter((s) => s.kind === "runner");
+
+	// The modified crate must be a cache miss.
+	const tangramStats = proxyStats.find((s) => s.crate_name === "tangram");
+	tg.assert(
+		tangramStats !== undefined && tangramStats.cached === false,
+		"The tangram crate should be a cache miss.",
+	);
+
+	// All other compilations must be cache hits.
+	const proxyMisses = proxyStats.filter(
+		(s) => !s.cached && s.crate_name !== "tangram",
+	);
+	tg.assert(
+		proxyMisses.length === 0,
+		`Expected all unchanged compilations to be cache hits, but these were misses: ${proxyMisses.map((s) => s.crate_name).join(", ")}`,
+	);
+
+	// All build script runners must be cache hits.
+	const runnerMisses = runnerStats.filter((s) => !s.cached);
+	tg.assert(
+		runnerMisses.length === 0,
+		`Expected all runners to be cache hits, but these were misses: ${runnerMisses.map((s) => s.crate_name).join(", ")}`,
+	);
+
+	return stats;
+};
+
+// Internal helpers.
+
+const nodeModules = async (hostArg?: string) => {
 	const host = hostArg ?? std.triple.host();
 
 	// Create subset of source relevant for bun install.
@@ -304,10 +510,7 @@ const bunEnvArg = async (hostArg?: string) => {
 	);
 };
 
-export const librustyv8 = async (
-	lockfile: tg.File,
-	...hosts: Array<string>
-) => {
+const librustyv8 = async (lockfile: tg.File, ...hosts: Array<string>) => {
 	const hostList = hosts.length > 0 ? hosts : [std.triple.host()];
 	const version = await getRustyV8Version(lockfile);
 
@@ -366,30 +569,6 @@ type CargoLock = {
 	package: Array<{ name: string; version: string }>;
 };
 
-export const test = async () => {
-	const output = await $`tg --help > ${tg.output}`
-		.env(build())
-		.then(tg.File.expect)
-		.then((f) => f.text);
-	tg.assert(output.includes("Usage:"));
-};
-
-export const testCloud = async () => {
-	const output = await $`tg --help > ${tg.output}`
-		.env(cloud())
-		.then(tg.File.expect)
-		.then((f) => f.text);
-	tg.assert(output.includes("Usage:"));
-};
-
-export const testProxy = async () => {
-	const output = await $`tg --help > ${tg.output}`
-		.env(build({ proxy: true, profile: "dev" }))
-		.then(tg.File.expect)
-		.then((f) => f.text);
-	tg.assert(output.includes("Usage:"));
-};
-
 /** Stats parsed from tgrustc tracing output in cargo-stderr.log. */
 type ProxyStats = {
 	kind: "proxy" | "runner";
@@ -441,70 +620,4 @@ const parseStats = async (
 	}
 
 	return stats.length > 0 ? stats : undefined;
-};
-
-/** Test that the proxy correctly caches unchanged crates when only tangram_cli is modified. */
-export const testProxyCacheHit = async () => {
-	const tracingEnv = { TGRUSTC_TRACING: "tgrustc=info" };
-
-	// First build: populate the cache.
-	console.log("=== First build (populating cache) ===");
-	await build({
-		profile: "dev",
-		proxy: true,
-		captureStderr: true,
-		env: tracingEnv,
-	});
-
-	// Modify only tangram_cli by adding a unique comment to main.rs.
-	const mainRs = await source
-		.get("packages/cli/src/main.rs")
-		.then(tg.File.expect)
-		.then((f: tg.File) => f.text);
-	const modifiedSource = await tg.directory(source, {
-		"packages/cli/src/main.rs": tg.file(
-			`${mainRs}\n// Modified for cache test at ${Date.now()}\n`,
-		),
-	});
-
-	// Second build: should cache hit for all crates except tangram.
-	console.log("=== Second build (testing cache hits) ===");
-	const secondResult = await build({
-		profile: "dev",
-		proxy: true,
-		captureStderr: true,
-		env: tracingEnv,
-		source: modifiedSource,
-	});
-	const stats = await parseStats(secondResult);
-	if (!stats) {
-		throw new Error("Second build should have stats.");
-	}
-	const proxyStats = stats.filter((s) => s.kind === "proxy");
-	const runnerStats = stats.filter((s) => s.kind === "runner");
-
-	// The modified crate must be a cache miss.
-	const tangramStats = proxyStats.find((s) => s.crate_name === "tangram");
-	tg.assert(
-		tangramStats !== undefined && tangramStats.cached === false,
-		"The tangram crate should be a cache miss.",
-	);
-
-	// All other compilations must be cache hits.
-	const proxyMisses = proxyStats.filter(
-		(s) => !s.cached && s.crate_name !== "tangram",
-	);
-	tg.assert(
-		proxyMisses.length === 0,
-		`Expected all unchanged compilations to be cache hits, but these were misses: ${proxyMisses.map((s) => s.crate_name).join(", ")}`,
-	);
-
-	// All build script runners must be cache hits.
-	const runnerMisses = runnerStats.filter((s) => !s.cached);
-	tg.assert(
-		runnerMisses.length === 0,
-		`Expected all runners to be cache hits, but these were misses: ${runnerMisses.map((s) => s.crate_name).join(", ")}`,
-	);
-
-	return stats;
 };
