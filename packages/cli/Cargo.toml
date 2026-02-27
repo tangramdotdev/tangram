@@ -64,6 +64,7 @@ ratatui = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true }
+tempfile = { workspace = true }
 tangram_builtin = { workspace = true }
 tangram_client = { workspace = true }
 tangram_compiler = { workspace = true }

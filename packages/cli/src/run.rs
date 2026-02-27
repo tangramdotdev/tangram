@@ -1,10 +1,92 @@
 use {
 	crate::Cli,
 	futures::prelude::*,
-	std::{fmt::Write as _, path::PathBuf},
+	num::ToPrimitive as _,
+	std::{
+		collections::BTreeMap,
+		fmt::Write as _,
+		os::unix::process::ExitStatusExt as _,
+		path::{Path, PathBuf},
+	},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 };
+
+fn render_value_string(
+	value: &tg::value::Data,
+	artifacts_path: &Path,
+	output_path: &Path,
+) -> tg::Result<String> {
+	match value {
+		tg::value::Data::String(string) => Ok(string.clone()),
+		tg::value::Data::Template(template) => template.try_render(|component| match component {
+			tg::template::data::Component::String(string) => Ok(string.clone().into()),
+			tg::template::data::Component::Artifact(artifact) => Ok(artifacts_path
+				.join(artifact.to_string())
+				.to_str()
+				.unwrap()
+				.to_owned()
+				.into()),
+			tg::template::data::Component::Placeholder(placeholder) => {
+				if placeholder.name == "output" {
+					Ok(output_path.to_str().unwrap().to_owned().into())
+				} else {
+					Err(tg::error!(
+						name = %placeholder.name,
+						"invalid placeholder"
+					))
+				}
+			},
+		}),
+		tg::value::Data::Placeholder(placeholder) => {
+			if placeholder.name == "output" {
+				Ok(output_path.to_str().unwrap().to_owned())
+			} else {
+				Err(tg::error!(
+					name = %placeholder.name,
+					"invalid placeholder"
+				))
+			}
+		},
+		_ => Ok(tg::Value::try_from_data(value.clone()).unwrap().to_string()),
+	}
+}
+
+fn render_args_string(
+	args: &[tg::value::Data],
+	artifacts_path: &Path,
+	output_path: &Path,
+) -> tg::Result<Vec<String>> {
+	args.iter()
+		.map(|value| render_value_string(value, artifacts_path, output_path))
+		.collect::<tg::Result<Vec<_>>>()
+}
+
+fn render_env(
+	env: &tg::value::data::Map,
+	artifacts_path: &Path,
+	output_path: &Path,
+) -> tg::Result<BTreeMap<String, String>> {
+	let mut output = tg::value::data::Map::new();
+	for (key, value) in env {
+		let mutation = match value {
+			tg::value::Data::Mutation(value) => value.clone(),
+			value => tg::mutation::Data::Set {
+				value: Box::new(value.clone()),
+			},
+		};
+		mutation.apply(&mut output, key)?;
+	}
+	let output = output
+		.iter()
+		.map(|(key, value)| {
+			let key = key.clone();
+			let value = render_value_string(value, artifacts_path, output_path)?;
+			Ok::<_, tg::Error>((key, value))
+		})
+		.collect::<tg::Result<_>>()?;
+	Ok(output)
+}
 
 mod signal;
 mod stdio;
@@ -67,203 +149,6 @@ pub struct Options {
 impl Cli {
 	pub async fn command_run(&mut self, args: Args) -> tg::Result<()> {
 		let Args {
-			options,
-			reference,
-			trailing,
-		} = args;
-
-		// If the build flag is set, then build and run the output.
-		if options.build {
-			return self.command_run_build(options, reference, trailing).await;
-		}
-
-		self.command_run_inner(options, reference, trailing).await
-	}
-
-	async fn command_run_build(
-		&mut self,
-		options: Options,
-		reference: tg::Reference,
-		trailing: Vec<String>,
-	) -> tg::Result<()> {
-		let handle = self.handle().await?;
-
-		// Spawn the process.
-		let spawn = crate::process::spawn::Options {
-			sandbox: crate::process::spawn::Sandbox::new(Some(true)),
-			local: options.spawn.local.clone(),
-			remotes: options.spawn.remotes.clone(),
-			..Default::default()
-		};
-		let crate::process::spawn::Output { process, output } = self
-			.spawn(spawn, reference, vec![], None, None, None)
-			.boxed()
-			.await?;
-
-		// Print the process.
-		if !self.args.quiet {
-			let mut message = process.item().id().to_string();
-			if let Some(token) = process.item().token() {
-				write!(message, " {token}").unwrap();
-			}
-			Self::print_info_message(&message);
-		}
-
-		// If the spawn output includes a wait output, then use it.
-		let wait = output
-			.wait
-			.map(TryInto::try_into)
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the wait output"))?;
-
-		// If the process is not finished, then wait for it to finish while showing the viewer if enabled.
-		let wait = if let Some(wait) = wait {
-			wait
-		} else {
-			// Spawn the view task.
-			let view_task = {
-				let handle = handle.clone();
-				let root = process.clone().map(crate::viewer::Item::Process);
-				let task = Task::spawn_blocking(move |stop| -> tg::Result<()> {
-					let local_set = tokio::task::LocalSet::new();
-					let runtime = tokio::runtime::Builder::new_current_thread()
-						.enable_all()
-						.build()
-						.map_err(|source| {
-							tg::error!(!source, "failed to create the tokio runtime")
-						})?;
-					local_set.block_on(&runtime, async move {
-						let viewer_options = crate::viewer::Options {
-							collapse_process_children: true,
-							depth: None,
-							expand_objects: false,
-							expand_packages: false,
-							expand_processes: true,
-							expand_metadata: false,
-							expand_tags: false,
-							expand_values: false,
-							show_process_commands: false,
-						};
-						let mut viewer = crate::viewer::Viewer::new(&handle, root, viewer_options);
-						match options.build_view {
-							crate::build::View::None => (),
-							crate::build::View::Inline => {
-								viewer.run_inline(stop, false).await?;
-							},
-							crate::build::View::Fullscreen => {
-								viewer.run_fullscreen(stop).await?;
-							},
-						}
-						Ok::<_, tg::Error>(())
-					})
-				});
-				Some(task)
-			};
-
-			// Spawn a task to attempt to cancel the process on the first interrupt signal and exit the process on the second.
-			let cancel_task = tokio::spawn({
-				let handle = handle.clone();
-				let process = process.clone();
-				async move {
-					tokio::signal::ctrl_c().await.unwrap();
-					tokio::spawn(async move {
-						process
-							.item()
-							.cancel(&handle)
-							.await
-							.inspect_err(|error| {
-								tracing::error!(?error, "failed to cancel the process");
-							})
-							.ok();
-					});
-					tokio::signal::ctrl_c().await.unwrap();
-					std::process::exit(130);
-				}
-			});
-
-			// Await the process.
-			let arg = tg::process::wait::Arg {
-				token: process.item().token().cloned(),
-				..tg::process::wait::Arg::default()
-			};
-			let result = process.item().wait(&handle, arg).await;
-
-			// Abort the cancel task.
-			cancel_task.abort();
-
-			// Stop and await the view task.
-			if let Some(view_task) = view_task {
-				view_task.stop();
-				match view_task.wait().await {
-					Ok(Ok(())) => {},
-					Ok(Err(error)) => {
-						tracing::warn!(?error, "failed to render the process viewer");
-						Self::print_warning_message("failed to render the process viewer");
-					},
-					Err(error) => {
-						tracing::warn!(?error, "failed to join the process viewer task");
-						Self::print_warning_message("failed to render the process viewer");
-					},
-				}
-			}
-
-			result?
-		};
-
-		// Set the exit.
-		if wait.exit != 0 {
-			self.exit.replace(wait.exit);
-		}
-
-		// Handle an error.
-		if let Some(error) = wait.error {
-			let error = error
-				.to_data_or_id()
-				.map_left(|data| {
-					Box::new(tg::error::Object::try_from_data(data).unwrap_or_else(|_| {
-						tg::error::Object {
-							message: Some("invalid error".to_owned()),
-							..Default::default()
-						}
-					}))
-				})
-				.map_right(|id| Box::new(tg::Error::with_id(id)));
-			let error = tg::Error::with_object(tg::error::Object {
-				message: Some("the process failed".to_owned()),
-				source: Some(process.clone().map(|_| error)),
-				values: [("id".to_owned(), process.item().id().to_string())].into(),
-				..Default::default()
-			});
-			return Err(error);
-		}
-
-		// Handle non-zero exit.
-		if wait.exit > 1 && wait.exit < 128 {
-			return Err(tg::error!("the process exited with code {}", wait.exit));
-		}
-		if wait.exit >= 128 {
-			return Err(tg::error!(
-				"the process exited with signal {}",
-				wait.exit - 128
-			));
-		}
-
-		// Get the output.
-		let output = wait.output.unwrap_or(tg::Value::Null);
-
-		let object = output
-			.try_unwrap_object()
-			.ok()
-			.ok_or_else(|| tg::error!("expected the build to output an object"))?;
-		let id = object.id();
-		let reference = tg::Reference::with_object(id);
-
-		// Run the built output.
-		self.command_run_inner(options, reference, trailing).await
-	}
-
-	async fn command_run2(&mut self, args: Args) -> tg::Result<()> {
-		let Args {
 			reference,
 			mut options,
 			trailing,
@@ -271,6 +156,19 @@ impl Cli {
 
 		// Spawn a sandboxed run for builds.
 		let reference = if options.build {
+			// Get the reference.
+			let arg = tg::get::Arg {
+				checkin: options.spawn.checkin.to_options(),
+				..Default::default()
+			};
+			let referent = self.get_reference_with_arg(&reference, arg, true).await?;
+			let item = referent
+				.item
+				.clone()
+				.left()
+				.ok_or_else(|| tg::error!("expected an object"))?;
+			let referent = referent.map(|_| item);
+
 			let options = Options {
 				checkout_force: false,
 				checkout: None,
@@ -279,7 +177,7 @@ impl Cli {
 				..options.clone()
 			};
 			let output = self
-				.run_sandboxed(&options, reference.clone(), Vec::new())
+				.run_sandboxed(&options, &reference, &referent, Vec::new())
 				.await
 				.map_err(|source| tg::error!(!source, %reference, "failed to build"))?
 				.ok_or_else(|| tg::error!("expected an output"))?;
@@ -294,12 +192,26 @@ impl Cli {
 		};
 		options.build = false;
 
-		// Determine if the process should be sandboxed.
-		let sandboxed = true;
-		let output = if sandboxed {
-			self.run_sandboxed(&options, reference, trailing).await?
+		// Get the reference.
+		let arg = tg::get::Arg {
+			checkin: options.spawn.checkin.to_options(),
+			..Default::default()
+		};
+		let referent = self.get_reference_with_arg(&reference, arg, true).await?;
+		let item = referent
+			.item
+			.clone()
+			.left()
+			.ok_or_else(|| tg::error!("expected an object"))?;
+		let referent = referent.map(|_| item);
+
+		// Run the process.
+		let output = if self.needs_sandbox(&options) {
+			self.run_sandboxed(&options, &reference, &referent, trailing)
+				.await?
 		} else {
-			self.run_unsandboxed(&options, reference, trailing).await?
+			self.run_unsandboxed(&options, &reference, &referent, trailing)
+				.await?
 		};
 
 		// Check out the output if requested.
@@ -364,29 +276,292 @@ impl Cli {
 
 	async fn run_unsandboxed(
 		&mut self,
-		options: &Options,
-		reference: tg::Reference,
+		_options: &Options,
+		_reference: &tg::Reference,
+		referent: &tg::Referent<tg::Object>,
 		trailing: Vec<String>,
 	) -> tg::Result<Option<tg::Value>> {
-		todo!("implement the unsandboxed run")
+		let handle = self.handle().await?;
+
+		// Create a temp directory for the output.
+		let temp = tempfile::tempdir()
+			.map_err(|source| tg::error!(!source, "failed to create a temp directory"))?;
+		let output_path = temp.path().join("output");
+		tokio::fs::create_dir_all(&output_path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
+		let output_path = output_path.join("output");
+
+		// Get the artifacts path.
+		let artifacts_path = self.directory_path().join("artifacts");
+
+		// Inherit the process env.
+		let mut env: BTreeMap<String, String> = std::env::vars().collect();
+		env.remove("TANGRAM_OUTPUT");
+		env.remove("TANGRAM_PROCESS");
+		env.remove("TANGRAM_URL");
+
+		// Get the server URL.
+		let url = match &handle {
+			tg::Either::Left(client) => client.url().to_string(),
+			tg::Either::Right(server) => server
+				.url()
+				.ok_or_else(|| tg::error!("the server does not have a URL"))?
+				.to_string(),
+		};
+
+		// Create the command based on the referent item type.
+		let (executable, args, command_env, cwd) = match referent.item().clone() {
+			tg::Object::Command(command) => {
+				let data = command
+					.data(&handle)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the command data"))?;
+
+				// Cache the command's artifact children.
+				let artifacts: Vec<tg::artifact::Id> = command
+					.children(&handle)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the command's children"))?
+					.into_iter()
+					.filter_map(|object| object.id().try_into().ok())
+					.collect();
+				if !artifacts.is_empty() {
+					let arg = tg::cache::Arg { artifacts };
+					let stream = handle
+						.cache(arg)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to cache the artifacts"))?;
+					self.render_progress_stream(stream).await?;
+				}
+
+				// Determine if this is a JS or builtin command.
+				let is_js = matches!(data.host.as_str(), "js" | "builtin");
+
+				// Resolve the executable and render the args.
+				let (executable, mut args) = if is_js {
+					let executable = tangram_util::env::current_exe().map_err(
+						|source| tg::error!(!source, "failed to get the current executable"),
+					)?;
+					let subcommand = if data.host == "builtin" {
+						"builtin"
+					} else {
+						"js"
+					};
+					let args = vec![
+						subcommand.to_owned(),
+						data.executable.to_string(),
+					];
+					(executable, args)
+				} else {
+					let executable = match &data.executable {
+						tg::command::data::Executable::Artifact(exe) => {
+							let mut path =
+								artifacts_path.join(exe.artifact.to_string());
+							if let Some(subpath) = &exe.path {
+								path.push(subpath);
+							}
+							path
+						},
+						tg::command::data::Executable::Module(_) => {
+							return Err(tg::error!("invalid executable"));
+						},
+						tg::command::data::Executable::Path(exe) => exe.path.clone(),
+					};
+					let args = render_args_string(
+						&data.args,
+						&artifacts_path,
+						&output_path,
+					)?;
+					(executable, args)
+				};
+
+				// Render the command env.
+				let command_env =
+					render_env(&data.env, &artifacts_path, &output_path)?;
+
+				// Append trailing args.
+				args.extend(trailing);
+
+				(executable, args, Some(command_env), data.cwd.clone())
+			},
+
+			tg::Object::Directory(directory) => {
+				let executable = tangram_util::env::current_exe().map_err(
+					|source| tg::error!(!source, "failed to get the current executable"),
+				)?;
+				let id = directory.id();
+				let mut args = vec!["js".to_owned(), id.to_string()];
+				args.extend(trailing);
+				(executable, args, None, None)
+			},
+
+			tg::Object::File(file) => {
+				let kind = file
+					.module(&handle)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the module kind"))?;
+				if kind.is_some() {
+					let tg_exe = tangram_util::env::current_exe().map_err(
+						|source| tg::error!(!source, "failed to get the current executable"),
+					)?;
+					let id = file.id();
+					let mut args = vec!["js".to_owned(), id.to_string()];
+					args.extend(trailing);
+					(tg_exe, args, None, None)
+				} else {
+					// Cache the file.
+					let artifact_id = file.id();
+					let arg = tg::cache::Arg {
+						artifacts: vec![artifact_id.clone().into()],
+					};
+					let stream = handle
+						.cache(arg)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to cache the artifact"))?;
+					self.render_progress_stream(stream).await?;
+					let executable = artifacts_path.join(artifact_id.to_string());
+					(executable, trailing, None, None)
+				}
+			},
+
+			tg::Object::Symlink(_) => {
+				return Err(tg::error!("unimplemented"));
+			},
+
+			_ => {
+				return Err(tg::error!("expected a command or an artifact"));
+			},
+		};
+
+		// Merge the command env on top of the process env.
+		if let Some(command_env) = command_env {
+			env.extend(command_env);
+		}
+
+		// Create the tokio process command.
+		let mut cmd = tokio::process::Command::new(&executable);
+		cmd.args(&args)
+			.env_clear()
+			.envs(&env)
+			.env("TANGRAM_URL", &url)
+			.env("TANGRAM_OUTPUT", output_path.to_str().unwrap())
+			.stdin(std::process::Stdio::inherit())
+			.stdout(std::process::Stdio::inherit())
+			.stderr(std::process::Stdio::inherit());
+		if let Some(cwd) = cwd {
+			cmd.current_dir(cwd);
+		}
+
+		// Spawn the process.
+		let mut child = cmd
+			.spawn()
+			.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
+
+		// Wait for the process to exit.
+		let status = child
+			.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to wait for the process"))?;
+		let exit = None
+			.or(status.code())
+			.or(status.signal().map(|signal| 128 + signal))
+			.unwrap()
+			.to_u8()
+			.unwrap();
+
+		// Check for output.
+		let mut output = None;
+		let mut error = None;
+
+		// Try to read the user.tangram.output xattr.
+		if let Ok(Some(bytes)) = xattr::get(&output_path, "user.tangram.output") {
+			let tgon = String::from_utf8(bytes)
+				.map_err(|source| tg::error!(!source, "failed to decode the output xattr"))?;
+			output = Some(
+				tgon.parse::<tg::Value>()
+					.map_err(|source| tg::error!(!source, "failed to parse the output xattr"))?,
+			);
+		}
+
+		// Try to read the user.tangram.error xattr.
+		if let Ok(Some(bytes)) = xattr::get(&output_path, "user.tangram.error") {
+			let data = serde_json::from_slice::<tg::error::Data>(&bytes).map_err(
+				|source| tg::error!(!source, "failed to deserialize the error xattr"),
+			)?;
+			error = Some(
+				tg::Error::try_from(data)
+					.map_err(|source| tg::error!(!source, "failed to convert the error data"))?,
+			);
+		}
+
+		// If no xattr output was set but the output path exists, check it in destructively.
+		let exists = tokio::fs::try_exists(&output_path).await.map_err(
+			|source| tg::error!(!source, "failed to check if the output path exists"),
+		)?;
+		if output.is_none() && exists {
+			let arg = tg::checkin::Arg {
+				options: tg::checkin::Options {
+					destructive: true,
+					deterministic: true,
+					ignore: false,
+					lock: None,
+					locked: true,
+					root: true,
+					..Default::default()
+				},
+				path: output_path.clone(),
+				updates: Vec::new(),
+			};
+			let stream = handle
+				.checkin(arg)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to check in the output"))?;
+			let checkin_output = self
+				.render_progress_stream(stream)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to check in the output"))?;
+			output = Some(tg::Artifact::with_id(checkin_output.artifact.item).into());
+		}
+
+		// Set the exit.
+		if exit != 0 {
+			self.exit.replace(exit);
+		}
+
+		// Handle an error.
+		if let Some(error) = error {
+			return Err(tg::error!(source = error, "the process failed"));
+		}
+
+		// Handle non-zero exit.
+		if exit > 1 && exit < 128 {
+			return Err(tg::error!("the process exited with code {}", exit));
+		}
+		if exit >= 128 {
+			return Err(tg::error!(
+				"the process exited with signal {}",
+				exit - 128
+			));
+		}
+
+		Ok(output)
 	}
 
 	async fn run_sandboxed(
 		&mut self,
 		options: &Options,
-		reference: tg::Reference,
+		reference: &tg::Reference,
+		referent: &tg::Referent<tg::Object>,
 		trailing: Vec<String>,
 	) -> tg::Result<Option<tg::Value>> {
 		let handle = self.handle().await?;
 
 		// Handle the executable path.
-		let reference = if let Some(path) = &options.executable_path {
-			let referent = self.get_reference(&reference).await?;
+		let referent = if let Some(path) = &options.executable_path {
 			let directory = referent
-				.item
-				.left()
-				.ok_or_else(|| tg::error!("expected an object"))?
-				.try_unwrap_directory()
+				.item()
+				.try_unwrap_directory_ref()
 				.ok()
 				.ok_or_else(|| tg::error!("expected a directory"))?;
 			let artifact = directory.get(&handle, path).await.map_err(
@@ -396,9 +571,9 @@ impl Cli {
 				.store(&handle)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to store the artifact"))?;
-			tg::Reference::with_object(id.into())
+			referent.clone().map(|_| tg::Object::with_id(id.into()))
 		} else {
-			reference
+			referent.clone()
 		};
 
 		// Get the remote
@@ -430,7 +605,15 @@ impl Cli {
 		let stdout = stdio.as_ref().and_then(|stdio| stdio.stdout.clone());
 		let stderr = stdio.as_ref().and_then(|stdio| stdio.stderr.clone());
 		let crate::process::spawn::Output { process, output } = self
-			.spawn(spawn, reference, trailing, stdin, stdout, stderr)
+			.spawn(
+				spawn,
+				reference.clone(),
+				referent,
+				trailing,
+				stdin,
+				stdout,
+				stderr,
+			)
 			.boxed()
 			.await?;
 
@@ -661,247 +844,47 @@ impl Cli {
 		Ok(wait.output)
 	}
 
-	async fn command_run_inner(
-		&mut self,
-		options: Options,
-		reference: tg::Reference,
-		trailing: Vec<String>,
-	) -> tg::Result<()> {
-		let handle = self.handle().await?;
+	fn needs_sandbox(&mut self, options: &Options) -> bool {
+		// Sandbox if explicitly requested.
+		if options.spawn.sandbox.get().is_some_and(|sbx| sbx) {
+			return true;
+		}
 
-		// Handle the executable path.
-		let reference = if let Some(path) = &options.executable_path {
-			let referent = self.get_reference(&reference).await?;
-			let directory = referent
-				.item
-				.left()
-				.ok_or_else(|| tg::error!("expected an object"))?
-				.try_unwrap_directory()
-				.ok()
-				.ok_or_else(|| tg::error!("expected a directory"))?;
-			let artifact = directory.get(&handle, path).await.map_err(
-				|source| tg::error!(!source, path = %path.display(), "failed to get the artifact"),
-			)?;
-			let id = artifact
-				.store(&handle)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to store the artifact"))?;
-			tg::Reference::with_object(id.into())
-		} else {
-			reference
-		};
-
-		// Get the remote.
-		let remote = options
+		// Remote processes imply sandboxing.
+		if options
 			.spawn
 			.remotes
 			.remotes
-			.clone()
-			.and_then(|remotes| remotes.into_iter().next());
-
-		// Create the stdio.
-		let stdio = stdio::Stdio::new(&handle, remote.clone(), &options)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create stdio"))?;
-
-		let local = options.spawn.local.local;
-		let remotes = options.spawn.remotes.remotes.clone();
-
-		// Spawn the process.
-		let crate::process::spawn::Output { process, output } = self
-			.spawn(
-				options.spawn,
-				reference,
-				trailing,
-				stdio.stdin.clone(),
-				stdio.stdout.clone(),
-				stdio.stderr.clone(),
-			)
-			.boxed()
-			.await?;
-
-		// If the detach flag is set, then print the process ID and return.
-		if options.detach {
-			if options.verbose {
-				self.print_serde(output, options.print).await?;
-			} else {
-				Self::print_display(&output.process);
-			}
-			return Ok(());
-		}
-
-		// Print the process.
-		if !self.args.quiet {
-			let mut message = process.item().id().to_string();
-			if let Some(token) = process.item().token() {
-				write!(message, " {token}").unwrap();
-			}
-			Self::print_info_message(&message);
-		}
-
-		// Enable raw mode if necessary.
-		if let Some(tty) = &stdio.tty {
-			tty.enable_raw_mode()?;
-		}
-
-		// Spawn the stdio task.
-		let stdio_task = Task::spawn({
-			let handle = handle.clone();
-			let stdio = stdio.clone();
-			|stop| async move { self::stdio::task(&handle, stop, stdio).boxed().await }
-		});
-
-		// Spawn signal task.
-		let signal_task = tokio::spawn({
-			let handle = handle.clone();
-			let process = process.item().id().clone();
-			let remote = remote.clone();
-			async move {
-				self::signal::task(&handle, &process, remote).await.ok();
-			}
-		});
-
-		// Await the process unless the spawn output already includes the wait output.
-		let result = if let Some(wait) = output
-			.wait
-			.map(TryInto::try_into)
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the wait output"))?
+			.as_ref()
+			.is_some_and(|remotes| !remotes.is_empty())
 		{
-			Ok(wait)
-		} else {
-			let arg = tg::process::wait::Arg {
-				token: process.item().token().cloned(),
-				..tg::process::wait::Arg::default()
-			};
-			process
-				.item()
-				.wait(&handle, arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to await the process"))
-		};
-
-		// Close stdout and stderr.
-		stdio.close(&handle).await?;
-
-		// Stop and await the stdio task.
-		stdio_task.stop();
-
-		// Await the stdio task.
-		stdio_task.wait().await.unwrap()?;
-
-		// Delete stdio.
-		stdio.delete(&handle).await?;
-
-		// Abort the signal task.
-		signal_task.abort();
-
-		// Handle the result.
-		let wait = result.map_err(|source| tg::error!(!source, "failed to await the process"))?;
-
-		// Print verbose output if requested.
-		if options.verbose {
-			let output = tg::process::wait::Output {
-				error: wait.error.as_ref().map(tg::Error::to_data_or_id),
-				exit: wait.exit,
-				output: wait.output.as_ref().map(tg::Value::to_data),
-			};
-			self.print_serde(output, options.print.clone()).await?;
-			return Ok(());
+			return true;
 		}
 
-		// Set the exit.
-		if wait.exit != 0 {
-			self.exit.replace(wait.exit);
+		// Detached processes are currently sandboxed. This could change?
+		if options.detach {
+			return true;
 		}
 
-		// Handle an error.
-		if let Some(error) = wait.error {
-			let error = error
-				.to_data_or_id()
-				.map_left(|data| {
-					Box::new(tg::error::Object::try_from_data(data).unwrap_or_else(|_| {
-						tg::error::Object {
-							message: Some("invalid error".to_owned()),
-							..Default::default()
-						}
-					}))
-				})
-				.map_right(|id| Box::new(tg::Error::with_id(id)));
-			let error = tg::Error::with_object(tg::error::Object {
-				message: Some("the process failed".to_owned()),
-				source: Some(process.clone().map(|_| error)),
-				values: [("id".to_owned(), process.item().id().to_string())].into(),
-				..Default::default()
-			});
-			return Err(error);
-		}
-		// Handle non-zero exit.
-		if wait.exit > 1 && wait.exit < 128 {
-			return Err(tg::error!("the process exited with code {}", wait.exit));
-		}
-		if wait.exit >= 128 {
-			return Err(tg::error!(
-				"the process exited with signal {}",
-				wait.exit - 128
-			));
+		// Cached processes must have been sandboxed.
+		if options.spawn.cached.is_some_and(|cached| cached) {
+			return true;
 		}
 
-		// Get the output.
-		let output = wait.output.unwrap_or(tg::Value::Null);
-
-		// Check out the output if requested.
-		if let Some(path) = options.checkout {
-			// Get the artifact.
-			let artifact: tg::Artifact = output
-				.clone()
-				.try_into()
-				.map_err(|_| tg::error!("expected an artifact"))?;
-
-			// Get the path.
-			let path = if let Some(path) = path {
-				let path = tangram_util::fs::canonicalize_parent(path)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
-				Some(path)
-			} else {
-				None
-			};
-
-			// Check out the artifact.
-			let artifact = artifact.id();
-			let arg = tg::checkout::Arg {
-				artifact: artifact.clone(),
-				dependencies: path.is_some(),
-				extension: None,
-				force: options.checkout_force,
-				lock: None,
-				path,
-			};
-			let stream = handle.checkout(arg).await.map_err(
-				|source| tg::error!(!source, %artifact, "failed to check out the artifact"),
-			)?;
-			let tg::checkout::Output { path, .. } =
-				self.render_progress_stream(stream).await.map_err(
-					|source| tg::error!(!source, %artifact, "failed to check out the artifact"),
-				)?;
-
-			// Print the path.
-			self.print_serde(path, options.print).await?;
-
-			return Ok(());
+		// Processes with a checksum should also run in a sandbox, to ensure cache hits.
+		if options.spawn.checksum.is_some() {
+			return true;
 		}
 
-		// Print the output.
-		if !options.verbose && !output.is_null() {
-			let arg = tg::object::get::Arg {
-				local,
-				metadata: false,
-				remotes,
-			};
-			self.print_value(&output, options.print, arg).await?;
+		// You need a sandbox to deny network access.
+		if options.spawn.network.is_none_or(|network| !network) {
+			return true;
 		}
 
-		Ok(())
+		if !options.spawn.mounts.is_empty() {
+			return true;
+		}
+
+		false
 	}
 }
