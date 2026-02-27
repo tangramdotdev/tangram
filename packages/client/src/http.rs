@@ -82,7 +82,7 @@ impl tg::Client {
 				tower::service_fn(move |request| {
 					let future = service.clone().call(request);
 					async move {
-						match tokio::time::timeout(Duration::from_secs(60), future).await {
+						match tokio::time::timeout(Duration::from_mins(1), future).await {
 							Ok(result) => result,
 							Err(_) => Err(Error::Other(tg::error!("request timed out"))),
 						}

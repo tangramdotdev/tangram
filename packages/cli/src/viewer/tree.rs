@@ -216,15 +216,12 @@ where
 			Some(Item::Tag(pattern)) if options.expand_tags => expanded_nodes
 				.borrow_mut()
 				.insert(NodeID::Tag(pattern.to_string())),
-			Some(Item::Value(tg::Value::Object(object))) => {
-				if options.expand_objects {
-					expanded_nodes
-						.borrow_mut()
-						.insert(NodeID::Object(object.id()))
-				} else {
-					false
-				}
+			Some(Item::Value(tg::Value::Object(object))) if options.expand_objects => {
+				expanded_nodes
+					.borrow_mut()
+					.insert(NodeID::Object(object.id()))
 			},
+			Some(Item::Value(tg::Value::Object(_))) => false,
 			Some(Item::Value(_)) => options.expand_values,
 			_ => false,
 		};

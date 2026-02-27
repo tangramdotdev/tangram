@@ -268,9 +268,8 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create the tags directory"))?;
 
 		// Get the available parallelism.
-		let parallelism = std::thread::available_parallelism()
-			.map(std::num::NonZeroUsize::get)
-			.unwrap_or(1);
+		let parallelism =
+			std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
 
 		// Remove an existing socket file.
 		let socket_path = path.join("socket");
