@@ -56,7 +56,7 @@ def main [
 	}
 
 	# Add the debug build to the path.
-	cargo build --all-features
+	tg run -b . -- build --all-features
 	ln -sf tangram target/debug/tg
 	path add ($repository_path | path join 'target/debug')
 

@@ -7,8 +7,9 @@
 		"packages/vscode"
 	],
 	"scripts": {
-		"canary": "bun scripts/canary.ts",
-		"check": "cargo clippy --all-features --all-targets --workspace && bun run --parallel --filter \"*\" check",
+		"build": "tg run -b . -- build",
+		"build:all": "tg run -b . -- build --all-features",
+		"canary": "tg build .#release && gh release upload canary .tangram/release/* --clobber && git tag canary -f && git push origin tag canary -f",
 		"clean": "rm -rf .tangram node_modules target",
 		"cloud:up": "nu scripts/cloud/up.nu",
 		"cloud:down": "nu scripts/cloud/down.nu",
@@ -16,16 +17,15 @@
 		"cloud:deinit": "nu scripts/cloud/deinit.nu",
 		"cloud:server": "nu scripts/cloud/server.nu",
 		"cloud:runner": "nu scripts/cloud/runner.nu",
-		"format": "cargo fmt --all && bun run --parallel --filter \"*\" format",
-		"test": "nu packages/cli/test.nu $@ && cargo nextest run --no-fail-fast --workspace && bun run --parallel --filter \"*\" test",
-		"tg": "cargo run --all-features -- -c .config/tangram/config.json -d .tangram -m client",
-		"tgr": "cargo run --release -- -c .config/tangram/config.json -d .tangram -m client",
-		"tgrs": "cargo run --release -- -c .config/tangram/config.json -d .tangram -m server",
-		"tgrsx": "cargo run --release -- -c .config/tangram/config.json -d .tangram -m server run -b",
-		"tgrx": "cargo run -- -c .config/tangram/config.json -d .tangram -m client run -b",
-		"tgs": "cargo run -- -c .config/tangram/config.json -d .tangram -m server",
-		"tgsx": "cargo run -- -c .config/tangram/config.json -d .tangram -m server run -b",
-		"tgx": "cargo run -- -c .config/tangram/config.json -d .tangram -m client run -b"
+		"test": "nu packages/cli/test.nu $@ && cargo nextest run --no-fail-fast --workspace",
+		"tg": "tg run -b . -- run --all-features -c .config/tangram/config.json -d .tangram -m client",
+		"tgr": "tg run -b . -- run --release -c .config/tangram/config.json -d .tangram -m client",
+		"tgrs": "tg run -b . -- run --release -c .config/tangram/config.json -d .tangram -m server",
+		"tgrsx": "tg run -b . -- run --release -c .config/tangram/config.json -d .tangram -m server run -b",
+		"tgrx": "tg run -b . -- run -c .config/tangram/config.json -d .tangram -m client run -b",
+		"tgs": "tg run -b . -- run -c .config/tangram/config.json -d .tangram -m server",
+		"tgsx": "tg run -b . -- run -c .config/tangram/config.json -d .tangram -m server run -b",
+		"tgx": "tg run -b . -- run -c .config/tangram/config.json -d .tangram -m client run -b"
 	},
 	"dependencies": {
 		"@types/bun": "^1.3.9",
