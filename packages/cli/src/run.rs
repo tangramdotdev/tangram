@@ -340,24 +340,20 @@ impl Cli {
 
 				// Resolve the executable and render the args.
 				let (executable, mut args) = if is_js {
-					let executable = tangram_util::env::current_exe().map_err(
-						|source| tg::error!(!source, "failed to get the current executable"),
-					)?;
+					let executable = tangram_util::env::current_exe().map_err(|source| {
+						tg::error!(!source, "failed to get the current executable")
+					})?;
 					let subcommand = if data.host == "builtin" {
 						"builtin"
 					} else {
 						"js"
 					};
-					let args = vec![
-						subcommand.to_owned(),
-						data.executable.to_string(),
-					];
+					let args = vec![subcommand.to_owned(), data.executable.to_string()];
 					(executable, args)
 				} else {
 					let executable = match &data.executable {
 						tg::command::data::Executable::Artifact(exe) => {
-							let mut path =
-								artifacts_path.join(exe.artifact.to_string());
+							let mut path = artifacts_path.join(exe.artifact.to_string());
 							if let Some(subpath) = &exe.path {
 								path.push(subpath);
 							}
@@ -368,17 +364,12 @@ impl Cli {
 						},
 						tg::command::data::Executable::Path(exe) => exe.path.clone(),
 					};
-					let args = render_args_string(
-						&data.args,
-						&artifacts_path,
-						&output_path,
-					)?;
+					let args = render_args_string(&data.args, &artifacts_path, &output_path)?;
 					(executable, args)
 				};
 
 				// Render the command env.
-				let command_env =
-					render_env(&data.env, &artifacts_path, &output_path)?;
+				let command_env = render_env(&data.env, &artifacts_path, &output_path)?;
 
 				// Append trailing args.
 				args.extend(trailing);
@@ -387,9 +378,9 @@ impl Cli {
 			},
 
 			tg::Object::Directory(directory) => {
-				let executable = tangram_util::env::current_exe().map_err(
-					|source| tg::error!(!source, "failed to get the current executable"),
-				)?;
+				let executable = tangram_util::env::current_exe().map_err(|source| {
+					tg::error!(!source, "failed to get the current executable")
+				})?;
 				let id = directory.id();
 				let mut args = vec!["js".to_owned(), id.to_string()];
 				args.extend(trailing);
@@ -402,9 +393,9 @@ impl Cli {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get the module kind"))?;
 				if kind.is_some() {
-					let tg_exe = tangram_util::env::current_exe().map_err(
-						|source| tg::error!(!source, "failed to get the current executable"),
-					)?;
+					let tg_exe = tangram_util::env::current_exe().map_err(|source| {
+						tg::error!(!source, "failed to get the current executable")
+					})?;
 					let id = file.id();
 					let mut args = vec!["js".to_owned(), id.to_string()];
 					args.extend(trailing);
@@ -486,9 +477,8 @@ impl Cli {
 
 		// Try to read the user.tangram.error xattr.
 		if let Ok(Some(bytes)) = xattr::get(&output_path, "user.tangram.error") {
-			let data = serde_json::from_slice::<tg::error::Data>(&bytes).map_err(
-				|source| tg::error!(!source, "failed to deserialize the error xattr"),
-			)?;
+			let data = serde_json::from_slice::<tg::error::Data>(&bytes)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the error xattr"))?;
 			error = Some(
 				tg::Error::try_from(data)
 					.map_err(|source| tg::error!(!source, "failed to convert the error data"))?,
@@ -496,9 +486,9 @@ impl Cli {
 		}
 
 		// If no xattr output was set but the output path exists, check it in destructively.
-		let exists = tokio::fs::try_exists(&output_path).await.map_err(
-			|source| tg::error!(!source, "failed to check if the output path exists"),
-		)?;
+		let exists = tokio::fs::try_exists(&output_path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to check if the output path exists"))?;
 		if output.is_none() && exists {
 			let arg = tg::checkin::Arg {
 				options: tg::checkin::Options {
@@ -539,10 +529,7 @@ impl Cli {
 			return Err(tg::error!("the process exited with code {}", exit));
 		}
 		if exit >= 128 {
-			return Err(tg::error!(
-				"the process exited with signal {}",
-				exit - 128
-			));
+			return Err(tg::error!("the process exited with signal {}", exit - 128));
 		}
 
 		Ok(output)

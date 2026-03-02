@@ -12,7 +12,10 @@ use {
 		stream::FuturesUnordered,
 	},
 	sourcemap::SourceMap,
-	std::{cell::RefCell, future::poll_fn, path::PathBuf, pin::pin, rc::Rc, task::Poll},
+	std::{
+		cell::RefCell, collections::BTreeMap, future::poll_fn, path::PathBuf, pin::pin, rc::Rc,
+		task::Poll,
+	},
 	tangram_client::prelude::*,
 	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 };
@@ -26,6 +29,7 @@ const SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.heapsnaps
 const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.js.map"));
 
 struct State {
+	children: RefCell<BTreeMap<i32, self::syscall::process::ChildProcess>>,
 	promises: RefCell<FuturesUnordered<LocalBoxFuture<'static, PromiseOutput>>>,
 	global_source_map: Option<SourceMap>,
 	logger: Logger,
@@ -90,6 +94,7 @@ where
 	// Create the state.
 	let (rejection, _) = tokio::sync::watch::channel(None);
 	let state = Rc::new(State {
+		children: RefCell::new(BTreeMap::new()),
 		promises: RefCell::new(FuturesUnordered::new()),
 		global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
 		logger,

@@ -11,16 +11,20 @@ export let setProcess = (newProcess: typeof process) => {
 	Object.assign(process, newProcess);
 };
 
+export let waitpid: (pid: number) => Promise<tg.Process.Wait.Data>;
+
 export class Process {
 	static current: tg.Process | undefined;
 
-	#id: tg.Process.Id;
+	#id: tg.Process.Id | undefined;
+	#pid: number | undefined;
 	#remote: string | undefined;
 	#token: string | undefined;
 	#state: tg.Process.State | undefined;
 
 	constructor(arg: tg.Process.ConstructorArg) {
 		this.#id = arg.id;
+		this.#pid = arg.pid;
 		this.#remote = arg.remote;
 		this.#state = arg.state;
 	}
@@ -30,18 +34,26 @@ export class Process {
 	}
 
 	async wait(): Promise<tg.Process.Wait> {
-		let remotes = undefined;
-		if (this.#remote) {
-			remotes = [this.#remote];
+		if (this.#id) {
+			let remotes = undefined;
+			if (this.#remote) {
+				remotes = [this.#remote];
+			}
+			let arg = {
+				local: undefined,
+				remotes,
+				token: this.#token,
+			};
+			let data = await tg.handle.waitProcess(this.#id, arg);
+			let output = tg.Process.Wait.fromData(data);
+			return output;
+		} 
+		if (this.#pid) {
+			let data = await tg.waitpid(this.#pid);
+			let output = tg.Process.Wait.fromData(data);
+			return output;
 		}
-		let arg = {
-			local: undefined,
-			remotes,
-			token: this.#token,
-		};
-		let data = await tg.handle.waitProcess(this.#id, arg);
-		let output = tg.Process.Wait.fromData(data);
-		return output;
+		throw new Error("expected a process id or pid");
 	}
 
 	static expect(value: unknown): tg.Process {
@@ -54,6 +66,9 @@ export class Process {
 	}
 
 	async load(): Promise<void> {
+		if (!this.#id) {
+			throw new Error("expected the process id to be set");
+		}
 		let data = await tg.handle.getProcess(this.#id, this.#remote);
 		this.#state = tg.Process.State.fromData(data);
 	}
@@ -62,8 +77,12 @@ export class Process {
 		await this.load();
 	}
 
-	get id(): tg.Process.Id {
+	get id(): tg.Process.Id | undefined {
 		return this.#id;
+	}
+
+	get pid(): number | undefined {
+		return this.#pid;
 	}
 
 	get command(): Promise<tg.Command> {
@@ -138,7 +157,8 @@ export namespace Process {
 	export type Id = string;
 
 	export type ConstructorArg = {
-		id: tg.Process.Id;
+		id?: tg.Process.Id | undefined;
+		pid?: number | undefined;
 		remote?: string | undefined;
 		state?: State | undefined;
 		token?: string | undefined;

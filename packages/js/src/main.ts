@@ -22,3 +22,11 @@ Object.defineProperties(globalThis, {
 Object.defineProperty(globalThis, "start", { value: start });
 
 tg.setHandle(handle);
+
+export const waitpid = async (process: number) => {
+	return syscall("process_wait", process, {
+		local: undefined,
+		remotes: undefined,
+		token: undefined,
+	});
+};

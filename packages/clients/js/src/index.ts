@@ -28,7 +28,7 @@ import { Mutation, mutation } from "./mutation.ts";
 import { Object } from "./object.ts";
 import { path } from "./path.ts";
 import { output, Placeholder, placeholder } from "./placeholder.ts";
-import { Process, process, setProcess } from "./process.ts";
+import { Process, process, setProcess, waitpid } from "./process.ts";
 import type { Range } from "./range.ts";
 import type { Reference } from "./reference.ts";
 import { Referent } from "./referent.ts";
@@ -132,4 +132,5 @@ export {
 	todo,
 	unimplemented,
 	unreachable,
+	waitpid,
 };

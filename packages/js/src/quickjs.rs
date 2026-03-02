@@ -7,7 +7,7 @@ use {
 	crate::{Logger, Output},
 	rquickjs::{self as qjs, CatchResultExt as _},
 	sourcemap::SourceMap,
-	std::{cell::RefCell, path::PathBuf, rc::Rc},
+	std::{cell::RefCell, collections::BTreeMap, path::PathBuf, rc::Rc},
 	tangram_client::prelude::*,
 };
 
@@ -22,6 +22,7 @@ const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.bytecode"
 const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.js.map"));
 
 struct State {
+	children: RefCell<BTreeMap<i32, self::syscall::process::ChildProcess>>,
 	global_source_map: Option<SourceMap>,
 	logger: Logger,
 	main_runtime_handle: tokio::runtime::Handle,
@@ -110,6 +111,7 @@ where
 
 	// Create the state.
 	let state = Rc::new(State {
+		children: RefCell::new(BTreeMap::new()),
 		global_source_map: SourceMap::from_slice(SOURCE_MAP).ok(),
 		logger,
 		main_runtime_handle,

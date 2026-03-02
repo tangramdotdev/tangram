@@ -121,8 +121,13 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 		stdin: undefined,
 		stdout: undefined,
 	});
+	let id =
+		typeof spawnOutput.process === "string" ? spawnOutput.process : undefined;
+	let pid =
+		typeof spawnOutput.process === "number" ? spawnOutput.process : undefined;
 	let process = new tg.Process({
-		id: spawnOutput.process,
+		id,
+		pid,
 		remote: spawnOutput.remote,
 		state: undefined,
 		token: spawnOutput.token,
@@ -139,9 +144,13 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 			item: error,
 			options: sourceOptions,
 		};
-		const values: { [key: string]: string } = {
-			id: process.id,
-		};
+		const values: { [key: string]: string } = {};
+		if (process.id !== undefined) {
+			values.id = process.id;
+		}
+		if (process.pid !== undefined) {
+			values.pid = process.pid.toString();
+		}
 		if (sourceOptions.name !== undefined) {
 			values.name = sourceOptions.name;
 		}
@@ -156,9 +165,13 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 			item: error,
 			options: sourceOptions,
 		};
-		const values: { [key: string]: string } = {
-			id: process.id,
-		};
+		const values: { [key: string]: string } = {};
+		if (process.id !== undefined) {
+			values.id = process.id;
+		}
+		if (process.pid !== undefined) {
+			values.pid = process.pid.toString();
+		}
 		if (sourceOptions.name !== undefined) {
 			values.name = sourceOptions.name;
 		}
@@ -173,9 +186,13 @@ async function inner(...args: tg.Args<tg.Process.BuildArg>): Promise<tg.Value> {
 			item: error,
 			options: sourceOptions,
 		};
-		const values: { [key: string]: string } = {
-			id: process.id,
-		};
+		const values: { [key: string]: string } = {};
+		if (process.id !== undefined) {
+			values.id = process.id;
+		}
+		if (process.pid !== undefined) {
+			values.pid = process.pid.toString();
+		}
 		if (sourceOptions.name !== undefined) {
 			values.name = sourceOptions.name;
 		}

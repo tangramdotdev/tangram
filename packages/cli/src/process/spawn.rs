@@ -209,7 +209,15 @@ impl Cli {
 			.ok_or_else(|| tg::error!("expected an object"))?;
 		let referent = referent.map(|_| item);
 		let Output { output, .. } = self
-			.spawn(args.options, args.reference, referent, args.trailing, None, None, None)
+			.spawn(
+				args.options,
+				args.reference,
+				referent,
+				args.trailing,
+				None,
+				None,
+				None,
+			)
 			.boxed()
 			.await?;
 		if args.verbose {
