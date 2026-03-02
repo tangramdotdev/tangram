@@ -339,7 +339,7 @@ fn get_location(
 			let module = modules.get(id - 1)?;
 
 			// Get the source.
-			let source = tg::error::data::File::Module(module.module.clone());
+			let source = tg::error::data::File::Module(module.data.clone());
 
 			// Get the line and column and apply a source map if one is available.
 			let mut start_line = line?;

@@ -46,7 +46,7 @@ pub struct Object {
 	read: Option<SyncWrapper<ReadFuture>>,
 	server: Server,
 	length: u64,
-	file: Option<crate::object::get::File>,
+	cache_file: Option<crate::object::get::CacheFile>,
 }
 
 type ReadFuture = BoxFuture<'static, tg::Result<Option<Cursor<Bytes>>>>;
@@ -595,7 +595,7 @@ impl Object {
 			read,
 			server,
 			length: size,
-			file: None,
+			cache_file: None,
 		})
 	}
 
@@ -611,7 +611,7 @@ impl Object {
 			read,
 			server,
 			length,
-			file: None,
+			cache_file: None,
 		}
 	}
 }
@@ -773,8 +773,13 @@ impl Read for Object {
 	fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
 		// Create the cursor if necessary.
 		if self.cursor.is_none() && self.read.is_none() {
-			let cursor = read_inner_sync(&self.server, &self.blob, self.position, &mut self.file)
-				.map_err(std::io::Error::other)?;
+			let cursor = read_inner_sync(
+				&self.server,
+				&self.blob,
+				self.position,
+				&mut self.cache_file,
+			)
+			.map_err(std::io::Error::other)?;
 			if let Some(cursor) = cursor {
 				self.cursor.replace(cursor);
 			} else {
@@ -806,8 +811,13 @@ impl BufRead for Object {
 	fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
 		// Create the cursor if necessary.
 		if self.cursor.is_none() && self.read.is_none() {
-			let cursor = read_inner_sync(&self.server, &self.blob, self.position, &mut self.file)
-				.map_err(std::io::Error::other)?;
+			let cursor = read_inner_sync(
+				&self.server,
+				&self.blob,
+				self.position,
+				&mut self.cache_file,
+			)
+			.map_err(std::io::Error::other)?;
 			if let Some(cursor) = cursor {
 				self.cursor.replace(cursor);
 			} else {
@@ -925,7 +935,7 @@ fn read_inner_sync(
 	server: &Server,
 	blob: &tg::Blob,
 	position: u64,
-	file: &mut Option<crate::object::get::File>,
+	cache_file: &mut Option<crate::object::get::CacheFile>,
 ) -> tg::Result<Option<Cursor<Bytes>>> {
 	let mut current_blob = blob.clone();
 	let mut current_blob_position = 0;
@@ -939,7 +949,7 @@ fn read_inner_sync(
 			object
 		} else {
 			let Some(output) = server
-				.try_get_object_sync(&id.unwrap(), file)
+				.try_get_object_sync(&id.unwrap(), cache_file)
 				.map_err(|source| tg::error!(!source, "failed to get the object"))?
 			else {
 				return Err(tg::error!("failed to get the blob object"));

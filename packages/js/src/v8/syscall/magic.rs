@@ -27,7 +27,7 @@ pub fn magic<'s>(
 		if let Some(v8_module) = &module_.v8 {
 			let v8_module = v8::Local::new(scope, v8_module);
 			if v8_module.script_id() == Some(function.get_script_origin().script_id()) {
-				module = Some(module_.module.clone());
+				module = Some(module_.data.clone());
 			}
 		}
 	}

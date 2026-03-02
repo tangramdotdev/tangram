@@ -231,8 +231,8 @@ impl Server {
 		lock: &tangram_client::graph::Data,
 	) -> bool {
 		graph.nodes.range(next..).any(|(_, node)| {
-			if let Some(lock_node) = node.lock_node {
-				let lock_node = lock.nodes.get(lock_node).unwrap();
+			if let Some(lock_index) = node.lock_index {
+				let lock_node = lock.nodes.get(lock_index).unwrap();
 				match (lock_node, &node.variant) {
 					// If a directory removed an entry that was present in the lock, then the lock changed.
 					(tg::graph::data::Node::Directory(lock), Variant::Directory(node)) => {

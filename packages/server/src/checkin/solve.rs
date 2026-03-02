@@ -70,9 +70,8 @@ enum ItemVariant {
 }
 
 #[derive(Clone, Default)]
-#[expect(clippy::struct_field_names)]
 pub struct Solutions {
-	solutions: im::HashMap<tg::tag::Pattern, Solution, fnv::FnvBuildHasher>,
+	map: im::HashMap<tg::tag::Pattern, Solution, fnv::FnvBuildHasher>,
 	referents:
 		im::HashMap<usize, im::HashSet<tg::tag::Pattern, fnv::FnvBuildHasher>, fnv::FnvBuildHasher>,
 	referrers:
@@ -575,7 +574,7 @@ impl Server {
 			.nodes
 			.get(&item.referent.item)
 			.unwrap()
-			.lock_node?;
+			.lock_index?;
 		let candidate = Self::checkin_solve_get_lock_candidate_inner(checkpoint, item, lock_index)?;
 		if state
 			.arg
@@ -907,13 +906,13 @@ impl Server {
 				})
 			},
 		};
-		let lock_node = Self::checkin_solve_get_lock_node(checkpoint, item);
+		let lock_index = Self::checkin_solve_get_lock_index(checkpoint, item);
 
 		let node = Node {
 			artifact: None,
 			edge: None,
 			id: None,
-			lock_node,
+			lock_index,
 			metadata: None,
 			path: None,
 			path_metadata: None,
@@ -1089,13 +1088,13 @@ impl Server {
 				})
 			},
 		};
-		let lock_node = Self::checkin_solve_get_lock_node(checkpoint, item);
+		let lock_index = Self::checkin_solve_get_lock_index(checkpoint, item);
 
 		let node = Node {
 			artifact: None,
 			edge: None,
 			id: None,
-			lock_node,
+			lock_index,
 			metadata: None,
 			path: None,
 			path_metadata: None,
@@ -1124,17 +1123,17 @@ impl Server {
 		Ok(pointer)
 	}
 
-	fn checkin_solve_get_lock_node(checkpoint: &Checkpoint, item: &Item) -> Option<usize> {
+	fn checkin_solve_get_lock_index(checkpoint: &Checkpoint, item: &Item) -> Option<usize> {
 		let Some(lock) = &checkpoint.lock else {
 			return None;
 		};
-		let parent_index = checkpoint
+		let parent_lock_index = checkpoint
 			.graph
 			.nodes
 			.get(&item.referent.item)
 			.unwrap()
-			.lock_node?;
-		let parent_node = lock.nodes.get(parent_index).unwrap();
+			.lock_index?;
+		let parent_node = lock.nodes.get(parent_lock_index).unwrap();
 		match &item.variant {
 			ItemVariant::DirectoryEntry(name) => Some(
 				parent_node
@@ -1381,19 +1380,19 @@ impl Server {
 
 impl Solutions {
 	pub fn is_empty(&self) -> bool {
-		self.solutions.is_empty()
+		self.map.is_empty()
 	}
 
 	pub fn get(&self, key: &tg::tag::Pattern) -> Option<&Solution> {
-		self.solutions.get(key)
+		self.map.get(key)
 	}
 
 	pub fn contains_key(&self, key: &tg::tag::Pattern) -> bool {
-		self.solutions.contains_key(key)
+		self.map.contains_key(key)
 	}
 
 	pub fn insert(&mut self, key: tg::tag::Pattern, solution: Solution) {
-		if let Some(existing) = self.solutions.get(&key)
+		if let Some(existing) = self.map.get(&key)
 			&& let Some(referent) = &existing.referent
 			&& let Some(pointer) = referent.item().try_unwrap_pointer_ref().ok()
 			&& pointer.graph.is_none()
@@ -1413,11 +1412,11 @@ impl Solutions {
 				.or_default()
 				.insert(key.clone());
 		}
-		self.solutions.insert(key, solution);
+		self.map.insert(key, solution);
 	}
 
 	pub fn remove(&mut self, key: &tg::tag::Pattern) -> Option<Solution> {
-		let solution = self.solutions.remove(key)?;
+		let solution = self.map.remove(key)?;
 		let Some(referent) = &solution.referent else {
 			return Some(solution);
 		};
@@ -1445,7 +1444,7 @@ impl Solutions {
 	}
 
 	pub fn clear(&mut self) {
-		self.solutions.clear();
+		self.map.clear();
 		self.referents.clear();
 		self.referrers.clear();
 	}
@@ -1453,7 +1452,7 @@ impl Solutions {
 	pub fn remove_by_node(&mut self, node: usize) {
 		if let Some(patterns) = self.referents.remove(&node) {
 			for pattern in &patterns {
-				if let Some(solution) = self.solutions.remove(pattern) {
+				if let Some(solution) = self.map.remove(pattern) {
 					for referrer in solution.referrers {
 						if let Some(referrer_patterns) = self.referrers.get_mut(&referrer.index) {
 							referrer_patterns.remove(pattern);
@@ -1469,7 +1468,7 @@ impl Solutions {
 		if let Some(patterns) = self.referrers.remove(&node) {
 			let mut to_remove = Vec::new();
 			for pattern in patterns {
-				if let Some(solution) = self.solutions.get_mut(&pattern) {
+				if let Some(solution) = self.map.get_mut(&pattern) {
 					solution.referrers.retain(|r| r.index != node);
 					if solution.referrers.is_empty() {
 						to_remove.push(pattern);
@@ -1477,7 +1476,7 @@ impl Solutions {
 				}
 			}
 			for pattern in to_remove {
-				if let Some(solution) = self.solutions.remove(&pattern)
+				if let Some(solution) = self.map.remove(&pattern)
 					&& let Some(referent) = &solution.referent
 					&& let Some(pointer) = referent.item().try_unwrap_pointer_ref().ok()
 					&& pointer.graph.is_none()
@@ -1493,7 +1492,7 @@ impl Solutions {
 	}
 
 	pub fn clear_referent(&mut self, key: &tg::tag::Pattern) {
-		if let Some(solution) = self.solutions.get_mut(key)
+		if let Some(solution) = self.map.get_mut(key)
 			&& let Some(referent) = solution.referent.take()
 			&& let Some(pointer) = referent.item().try_unwrap_pointer_ref().ok()
 			&& pointer.graph.is_none()
@@ -1511,7 +1510,7 @@ impl Solutions {
 			.entry(referrer.index)
 			.or_default()
 			.insert(key.clone());
-		if let Some(solution) = self.solutions.get_mut(key) {
+		if let Some(solution) = self.map.get_mut(key) {
 			solution.referrers.push(referrer);
 		}
 	}

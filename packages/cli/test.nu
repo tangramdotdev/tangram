@@ -603,7 +603,7 @@ def --env snapshot_inline [
 
 def --env snapshot_file [
 	--name (-n): string
-	--path (-p): string
+	--path (-p)
 	value: any
 ] {
 	let new_value = if $path {

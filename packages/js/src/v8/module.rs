@@ -41,7 +41,7 @@ pub fn host_import_module_dynamically_callback<'s>(
 			.unwrap();
 
 		// Get the referrer.
-		let referrer = state.modules.borrow().get(id - 1).unwrap().module.clone();
+		let referrer = state.modules.borrow().get(id - 1).unwrap().data.clone();
 
 		// Parse the import.
 		let import = parse_import(scope, specifier, attributes, ImportKind::Dynamic)?;
@@ -83,11 +83,7 @@ pub fn host_import_module_dynamically_callback<'s>(
 			let Serde(module) = Serde::<tg::module::Data>::deserialize(scope, value).unwrap();
 
 			// Check if the module already exists.
-			let index = state
-				.modules
-				.borrow()
-				.iter()
-				.position(|m| m.module == module);
+			let index = state.modules.borrow().iter().position(|m| m.data == module);
 
 			if let Some(index) = index {
 				let index = v8::Integer::new(scope, index.to_i32().unwrap());
@@ -215,7 +211,7 @@ fn resolve_module_callback<'s>(
 		.iter()
 		.find(|module| module.v8.as_ref().unwrap() == &referrer)
 		.cloned()
-		.map(|module| module.module)
+		.map(|module| module.data)
 		.ok_or_else(|| tg::error!("unable to find the module"));
 	let module = match result {
 		Ok(module) => module,
@@ -237,7 +233,7 @@ fn resolve_module_callback<'s>(
 		.modules
 		.borrow()
 		.iter()
-		.find(|m| m.module == module)
+		.find(|m| m.data == module)
 		.cloned();
 	let module = if let Some(module) = option {
 		let module = v8::Local::new(scope, module.v8.as_ref().unwrap());
@@ -358,7 +354,7 @@ fn compile_module<'s>(
 	let id = {
 		let mut modules = state.modules.borrow_mut();
 		modules.push(Module {
-			module: module.clone(),
+			data: module.clone(),
 			source_map: Some(source_map),
 			v8: None,
 		});
@@ -487,7 +483,7 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
 		.iter()
 		.find(|m| m.v8.as_ref().unwrap() == &module)
 		.unwrap()
-		.module
+		.data
 		.clone();
 
 	// Get the Tangram global.

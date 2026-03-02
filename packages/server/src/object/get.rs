@@ -18,10 +18,9 @@ use {
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
 };
 
-pub struct File {
+pub struct CacheFile {
 	pub artifact: tg::artifact::Id,
 	pub path: Option<PathBuf>,
-	#[expect(clippy::struct_field_names)]
 	pub file: std::fs::File,
 }
 
@@ -114,7 +113,7 @@ impl Server {
 	pub(crate) fn try_get_object_sync(
 		&self,
 		id: &tg::object::Id,
-		file: &mut Option<File>,
+		cache_file: &mut Option<CacheFile>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let object = self.store.try_get_object_sync(id)?;
 		let Some(object) = object else {
@@ -123,7 +122,7 @@ impl Server {
 		let bytes = if let Some(bytes) = object.bytes {
 			bytes.into_owned().into()
 		} else if let Some(cache_pointer) = object.cache_pointer {
-			let Some(bytes) = self.try_read_cache_pointer_sync(&cache_pointer, file)? else {
+			let Some(bytes) = self.try_read_cache_pointer_sync(&cache_pointer, cache_file)? else {
 				return Ok(None);
 			};
 			bytes
@@ -344,14 +343,14 @@ impl Server {
 	fn try_read_cache_pointer_sync(
 		&self,
 		cache_pointer: &tangram_store::CachePointer,
-		file: &mut Option<File>,
+		cache_file: &mut Option<CacheFile>,
 	) -> tg::Result<Option<Bytes>> {
 		// Replace the file if necessary.
-		match file {
-			Some(File { artifact, path, .. })
+		match cache_file {
+			Some(CacheFile { artifact, path, .. })
 				if artifact == &cache_pointer.artifact && path == &cache_pointer.path => {},
 			_ => {
-				drop(file.take());
+				drop(cache_file.take());
 				let mut path = self.cache_path().join(cache_pointer.artifact.to_string());
 				if let Some(path_) = &cache_pointer.path {
 					path = path.join(path_);
@@ -359,7 +358,7 @@ impl Server {
 				let file_ = std::fs::File::open(&path).map_err(
 					|source| tg::error!(!source, path = %path.display(), "failed to open the file"),
 				)?;
-				file.replace(File {
+				cache_file.replace(CacheFile {
 					artifact: cache_pointer.artifact.clone(),
 					path: cache_pointer.path.clone(),
 					file: file_,
@@ -368,7 +367,7 @@ impl Server {
 		}
 
 		// Seek.
-		let file_handle = &mut file.as_mut().unwrap().file;
+		let file_handle = &mut cache_file.as_mut().unwrap().file;
 		file_handle
 			.seek(std::io::SeekFrom::Start(cache_pointer.position))
 			.map_err(|source| tg::error!(!source, "failed to seek the cache file"))?;

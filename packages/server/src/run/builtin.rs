@@ -33,15 +33,15 @@ impl Server {
 		});
 
 		let temp_path = self.temp_path();
-		let output =
+		let result =
 			tangram_builtin::run(self, args, cwd, env, executable, logger, Some(&temp_path))
 				.await
 				.map_err(|source| tg::error!(!source, "failed to run the builtin"))?;
 		let output = super::Output {
-			checksum: output.checksum,
-			error: output.error,
-			exit: output.exit,
-			output: output.output,
+			checksum: result.checksum,
+			error: result.error,
+			exit: result.exit,
+			value: result.output,
 		};
 
 		Ok(output)

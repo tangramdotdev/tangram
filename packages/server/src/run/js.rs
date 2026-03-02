@@ -99,17 +99,17 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "the task panicked"))?
 		{
-			Ok(output) => super::Output {
-				checksum: output.checksum,
-				error: output.error,
-				exit: output.exit,
-				output: output.output,
+			Ok(result) => super::Output {
+				checksum: result.checksum,
+				error: result.error,
+				exit: result.exit,
+				value: result.output,
 			},
 			Err(error) => super::Output {
 				checksum: None,
 				error: Some(error),
 				exit: 1,
-				output: None,
+				value: None,
 			},
 		};
 

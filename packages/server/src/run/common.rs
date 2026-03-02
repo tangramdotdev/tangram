@@ -82,7 +82,7 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 		checksum: None,
 		error: None,
 		exit,
-		output: None,
+		value: None,
 	};
 
 	// Get the output path.
@@ -95,7 +95,7 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 	if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.output") {
 		let tgon = String::from_utf8(bytes)
 			.map_err(|source| tg::error!(!source, "failed to decode the output xattr"))?;
-		output.output = Some(
+		output.value = Some(
 			tgon.parse::<tg::Value>()
 				.map_err(|source| tg::error!(!source, "failed to parse the output xattr"))?,
 		);
@@ -111,7 +111,7 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 	}
 
 	// Check in the output.
-	if output.output.is_none() && exists {
+	if output.value.is_none() && exists {
 		let path = if let Some(process) = &context.process {
 			process
 				.guest_path_for_host_path(path.clone())
@@ -141,7 +141,7 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 			.and_then(|event| event.try_unwrap_output().ok())
 			.ok_or_else(|| tg::error!("stream ended without output"))?;
 		let value = tg::Artifact::with_id(checkin_output.artifact.item).into();
-		output.output = Some(value);
+		output.value = Some(value);
 	}
 
 	Ok(output)

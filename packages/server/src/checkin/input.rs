@@ -247,15 +247,15 @@ impl Server {
 		// Update the path.
 		state.graph.paths.insert(&item.path, index);
 
-		// Get the lock node.
-		let lock_node = Self::checkin_input_get_lock_node(state, item.parent.as_ref());
+		// Get the lock index.
+		let lock_index = Self::checkin_input_get_lock_index(state, item.parent.as_ref());
 
 		// Create the node.
 		let node = Node {
 			artifact: None,
 			edge: None,
 			id: None,
-			lock_node,
+			lock_index,
 			metadata: None,
 			path: Some(item.path),
 			path_metadata: Some(metadata.clone()),
@@ -854,15 +854,15 @@ impl Server {
 		Ok(())
 	}
 
-	fn checkin_input_get_lock_node(state: &State, parent: Option<&Parent>) -> Option<usize> {
+	fn checkin_input_get_lock_index(state: &State, parent: Option<&Parent>) -> Option<usize> {
 		let Some(lock) = &state.lock else {
 			return None;
 		};
 		let Some(parent) = parent else {
 			return if lock.nodes.is_empty() { None } else { Some(0) };
 		};
-		let parent_index = state.graph.nodes.get(&parent.index).unwrap().lock_node?;
-		let parent_node = &lock.nodes[parent_index];
+		let parent_lock_index = state.graph.nodes.get(&parent.index).unwrap().lock_index?;
+		let parent_node = &lock.nodes[parent_lock_index];
 		match &parent.variant {
 			ParentVariant::DirectoryEntry(name) => {
 				let directory = parent_node.try_unwrap_directory_ref().ok()?;

@@ -42,9 +42,8 @@ struct PromiseOutput {
 }
 
 #[derive(Clone, Debug)]
-#[expect(clippy::struct_field_names)]
 struct Module {
-	module: tg::module::Data,
+	data: tg::module::Data,
 	source_map: Option<SourceMap>,
 	v8: Option<v8::Global<v8::Module>>,
 }

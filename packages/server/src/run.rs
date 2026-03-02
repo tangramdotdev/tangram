@@ -22,8 +22,7 @@ pub struct Output {
 	pub checksum: Option<tg::Checksum>,
 	pub error: Option<tg::Error>,
 	pub exit: u8,
-	#[expect(clippy::struct_field_names)]
-	pub output: Option<tg::Value>,
+	pub value: Option<tg::Value>,
 }
 
 impl Server {
@@ -143,12 +142,12 @@ impl Server {
 		)?;
 
 		// Store the output.
-		let output = if let Some(output) = &wait.output {
-			output
+		let value = if let Some(value) = &wait.value {
+			value
 				.store(self)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to store the output"))?;
-			let data = output.to_data();
+			let data = value.to_data();
 			Some(data)
 		} else {
 			None
@@ -173,10 +172,10 @@ impl Server {
 
 		// If the process is remote, then push the output.
 		if let Some(remote) = process.remote()
-			&& let Some(output) = &output
+			&& let Some(value) = &value
 		{
 			let mut objects = BTreeSet::new();
-			output.children(&mut objects);
+			value.children(&mut objects);
 			let arg = tg::push::Arg {
 				items: objects.into_iter().map(tg::Either::Left).collect(),
 				remote: Some(remote.to_owned()),
@@ -197,7 +196,7 @@ impl Server {
 			error,
 			exit: wait.exit,
 			local: None,
-			output,
+			output: value,
 			remotes: process.remote().cloned().map(|r| vec![r]),
 		};
 		self.finish_process(process.id(), arg).await.map_err(
@@ -308,13 +307,13 @@ impl Server {
 				checksum: None,
 				error: Some(error),
 				exit: 1,
-				output: None,
+				value: None,
 			},
 		};
 
 		// Compute the checksum if necessary.
 		if let (Some(checksum), None, Some(value)) =
-			(&state.expected_checksum, &output.checksum, &output.output)
+			(&state.expected_checksum, &output.checksum, &output.value)
 		{
 			let algorithm = checksum.algorithm();
 			let checksum = self

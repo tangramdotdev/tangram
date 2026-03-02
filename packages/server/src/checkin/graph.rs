@@ -17,13 +17,12 @@ pub struct Graph {
 	pub paths: PathTrie<usize>,
 }
 
-#[expect(clippy::struct_field_names)]
 #[derive(Clone, Debug)]
 pub struct Node {
 	pub artifact: Option<tg::artifact::Id>,
 	pub edge: Option<tg::graph::data::Edge<tg::object::Id>>,
 	pub id: Option<tg::object::Id>,
-	pub lock_node: Option<usize>,
+	pub lock_index: Option<usize>,
 	pub metadata: Option<tg::object::Metadata>,
 	pub path: Option<PathBuf>,
 	pub path_metadata: Option<std::fs::Metadata>,
