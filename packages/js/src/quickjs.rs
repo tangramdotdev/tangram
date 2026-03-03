@@ -22,7 +22,7 @@ const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.bytecode"
 const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.js.map"));
 
 struct State {
-	children: RefCell<BTreeMap<i32, self::syscall::process::ChildProcess>>,
+	children: RefCell<BTreeMap<i32, crate::process::ChildProcess>>,
 	global_source_map: Option<SourceMap>,
 	logger: Logger,
 	main_runtime_handle: tokio::runtime::Handle,

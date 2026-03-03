@@ -11,7 +11,19 @@ export let setProcess = (newProcess: typeof process) => {
 	Object.assign(process, newProcess);
 };
 
-export let waitpid: (pid: number) => Promise<tg.Process.Wait.Data>;
+export let spawnUnsandboxed: (arg: tg.Handle.SpawnArg) => Promise<number>;
+
+export let setSpawnUnsandboxed = (f: typeof spawnUnsandboxed) => {
+	spawnUnsandboxed = f;
+};
+
+export let waitUnsandboxed: (
+	pid: number,
+) => Promise<tg.Process.WaitUnsandboxedOutput.Data>;
+
+export let setWaitUnsandboxed = (f: typeof waitUnsandboxed) => {
+	waitUnsandboxed = f;
+};
 
 export class Process {
 	static current: tg.Process | undefined;
@@ -47,11 +59,10 @@ export class Process {
 			let data = await tg.handle.waitProcess(this.#id, arg);
 			let output = tg.Process.Wait.fromData(data);
 			return output;
-		} 
+		}
 		if (this.#pid) {
-			let data = await tg.waitpid(this.#pid);
-			let output = tg.Process.Wait.fromData(data);
-			return output;
+			let data = await tg.waitUnsandboxed(this.#pid);
+			return tg.Process.Wait.fromData(data);
 		}
 		throw new Error("expected a process id or pid");
 	}
@@ -344,6 +355,48 @@ export namespace Process {
 			}
 			if ("output" in value) {
 				output.output = tg.Value.toData(value.output);
+			}
+			return output;
+		};
+	}
+
+	export type WaitUnsandboxedOutput = {
+		error: tg.Error | undefined;
+		exit: number;
+		output?: tg.Value;
+		stdout?: Uint8Array;
+		stderr?: Uint8Array;
+	};
+
+	export namespace WaitUnsandboxedOutput {
+		export type Data = {
+			error?: tg.Error.Data | tg.Error.Id;
+			exit: number;
+			output?: tg.Value.Data;
+			stdout?: Uint8Array;
+			stderr?: Uint8Array;
+		};
+
+		export let fromData = (
+			data: tg.Process.WaitUnsandboxedOutput.Data,
+		): tg.Process.WaitUnsandboxedOutput => {
+			let output: WaitUnsandboxedOutput = {
+				error:
+					data.error !== undefined
+						? typeof data.error === "string"
+							? tg.Error.withId(data.error)
+							: tg.Error.fromData(data.error)
+						: undefined,
+				exit: data.exit,
+			};
+			if ("output" in data) {
+				output.output = tg.Value.fromData(data.output);
+			}
+			if (data.stdout !== undefined) {
+				output.stdout = data.stdout;
+			}
+			if (data.stderr !== undefined) {
+				output.stderr = data.stderr;
 			}
 			return output;
 		};

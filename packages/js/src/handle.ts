@@ -25,14 +25,14 @@ export let handle: tg.Handle = {
 	},
 
 	spawnProcess(arg: tg.Handle.SpawnArg): Promise<tg.Handle.SpawnOutput> {
-		return syscall("process_spawn", arg);
+		return syscall("process_spawn_sandboxed", arg);
 	},
 
 	waitProcess(
 		id: tg.Process.Id,
 		arg: tg.Handle.WaitArg,
 	): Promise<tg.Process.Wait.Data> {
-		return syscall("process_wait", id, arg);
+		return syscall("process_wait_sandboxed", id, arg);
 	},
 
 	checksum(

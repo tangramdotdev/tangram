@@ -29,7 +29,7 @@ const SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.heapsnaps
 const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.js.map"));
 
 struct State {
-	children: RefCell<BTreeMap<i32, self::syscall::process::ChildProcess>>,
+	children: RefCell<BTreeMap<i32, crate::process::ChildProcess>>,
 	promises: RefCell<FuturesUnordered<LocalBoxFuture<'static, PromiseOutput>>>,
 	global_source_map: Option<SourceMap>,
 	logger: Logger,

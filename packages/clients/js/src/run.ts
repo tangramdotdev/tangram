@@ -143,12 +143,13 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		"network" in arg
 			? (arg.network ?? false)
 			: (tg.Process.current?.state?.network ?? false);
+	let user = "user" in arg ? arg.user : undefined;
 	let commandId = await command.store();
 	let commandReferent = {
 		item: commandId,
 		options: sourceOptions,
 	};
-	let spawnOutput = await tg.handle.spawnProcess({
+	let spawnArg = {
 		checksum,
 		command: commandReferent,
 		create: false,
@@ -160,23 +161,36 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		stderr,
 		stdin: processStdin,
 		stdout,
-	});
-	let id =
-		typeof spawnOutput.process === "string" ? spawnOutput.process : undefined;
-	let pid =
-		typeof spawnOutput.process === "number" ? spawnOutput.process : undefined;
-	let process = new tg.Process({
-		id,
-		pid,
-		remote: spawnOutput.remote,
-		state: undefined,
-		token: spawnOutput.token,
+	};
+	let sandboxed = needsSandbox({
+		checksum,
+		mounts: processMounts,
+		network,
+		stdout,
+		stderr,
+		user,
 	});
 
-	let wait =
-		spawnOutput.wait !== undefined
-			? tg.Process.Wait.fromData(spawnOutput.wait)
-			: await process.wait();
+	let process: tg.Process;
+	let wait: tg.Process.Wait;
+	if (sandboxed) {
+		let spawnOutput = await tg.handle.spawnProcess(spawnArg);
+		process = new tg.Process({
+			id: spawnOutput.process,
+			remote: spawnOutput.remote,
+			state: undefined,
+			token: spawnOutput.token,
+		});
+		wait =
+			spawnOutput.wait !== undefined
+				? tg.Process.Wait.fromData(spawnOutput.wait)
+				: await process.wait();
+	} else {
+		let pid = await tg.spawnUnsandboxed(spawnArg);
+		process = new tg.Process({ pid });
+		let spawnOutput = await tg.waitUnsandboxed(pid);
+		wait = tg.Process.Wait.fromData(spawnOutput);
+	}
 
 	if (wait.error !== undefined) {
 		let error = wait.error;
@@ -411,4 +425,33 @@ export class RunBuilder<
 			.then((output) => output as R)
 			.then(onfulfilled, onrejected);
 	}
+}
+
+function needsSandbox(arg: {
+	checksum: tg.Checksum | undefined;
+	mounts: Array<tg.Process.Mount>;
+	network: boolean;
+	stdout: string | undefined;
+	stderr: string | undefined;
+	user: string | undefined;
+}): boolean {
+	if (arg.checksum !== undefined) {
+		return true;
+	}
+	if (arg.mounts.length > 0) {
+		return true;
+	}
+	if (arg.network) {
+		return true;
+	}
+	if (arg.stdout !== undefined) {
+		return true;
+	}
+	if (arg.stderr !== undefined) {
+		return true;
+	}
+	if (arg.user !== undefined) {
+		return true;
+	}
+	return false;
 }

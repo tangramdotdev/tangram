@@ -67,15 +67,25 @@ declare global {
 	): Promise<tg.Process.Data>;
 
 	function syscall(
-		syscall: "process_spawn",
+		syscall: "process_spawn_sandboxed",
 		arg: tg.Handle.SpawnArg,
 	): Promise<tg.Handle.SpawnOutput>;
 
 	function syscall(
-		syscall: "process_wait",
-		id: tg.Process.Id | number,
+		syscall: "process_spawn_unsandboxed",
+		arg: tg.Handle.SpawnArg,
+	): Promise<number>;
+
+	function syscall(
+		syscall: "process_wait_sandboxed",
+		id: tg.Process.Id,
 		arg: tg.Handle.WaitArg,
 	): Promise<tg.Process.Wait.Data>;
+
+	function syscall(
+		syscall: "process_wait_unsandboxed",
+		pid: number,
+	): Promise<tg.Process.WaitUnsandboxedOutput.Data>;
 
 	function syscall(
 		syscall: "read",

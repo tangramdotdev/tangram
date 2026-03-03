@@ -4,7 +4,7 @@ use {
 		collections::BTreeMap,
 		io::IsTerminal as _,
 		path::{Path, PathBuf},
-		sync::LazyLock,
+		sync::{LazyLock, Mutex},
 	},
 };
 
@@ -351,9 +351,9 @@ async fn run_unsandboxed<H>(handle: &H, host: String, arg: Arg) -> tg::Result<tg
 where
 	H: tg::Handle,
 {
-	// Create the output
+	// Create the output directory.
 	let temp = tempfile::TempDir::new()
-		.map_err(|source| tg::error!(!source, "failed to get a temp directory"))?;
+		.map_err(|source| tg::error!(!source, "failed to create the temporary directory"))?;
 	tokio::fs::create_dir_all(temp.path())
 		.await
 		.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
@@ -375,26 +375,29 @@ where
 	// Render the executable.
 	let executable = match host.as_str() {
 		"builtin" => {
-			// TODO: don't assume the executable path.
-			let tg = tangram_util::env::current_exe()
-				.map_err(|source| tg::error!(!source, "failed to get the current executable"))?;
+			let exe = tangram_executable_path();
 			args.insert(0, "builtin".to_owned());
 			args.insert(1, executable.to_string());
-			tg
+			exe
 		},
 
 		"js" => {
-			// TODO: don't assume the executable path.
-			let tg = tangram_util::env::current_exe()
-				.map_err(|source| tg::error!(!source, "failed to get the current executable"))?;
+			let exe = tangram_executable_path();
 			args.insert(0, "js".to_owned());
 			args.insert(1, executable.to_string());
-			tg
+			exe
 		},
 
 		_ => match executable {
 			tg::command::data::Executable::Artifact(executable) => {
-				let mut path = CLOSEST_ARTIFACT_PATH.join(executable.artifact.to_string());
+				let mut path = tg::checkout(handle, tg::checkout::Arg {
+					artifact: executable.artifact.clone(),
+					dependencies: true,
+					extension: None,
+					force: false,
+					lock: None,
+					path: None,
+				}).await.map_err(|source| tg::error!(!source, executable = %executable.artifact, "failed to check out the artifact"))?;
 				if let Some(executable_path) = &executable.path {
 					path.push(executable_path);
 				}
@@ -407,7 +410,7 @@ where
 		},
 	};
 
-	// Render the args.
+	// Render the args and env.
 	args.extend(render_args(&arg.args, &output_path)?);
 	env.extend(render_env(&arg.env, &output_path)?);
 
@@ -415,6 +418,7 @@ where
 	let result = tokio::process::Command::new(executable)
 		.args(args)
 		.envs(env)
+		.env("TANGRAM_OUTPUT", &output_path)
 		.stdin(std::process::Stdio::inherit())
 		.stdout(std::process::Stdio::inherit())
 		.stderr(std::process::Stdio::inherit())
@@ -504,7 +508,7 @@ pub fn render_env(
 }
 
 pub fn render_value(value: &tg::Value, output_path: &Path) -> tg::Result<String> {
-	let artifacts_path = CLOSEST_ARTIFACT_PATH.clone();
+	let artifacts_path = artifacts_path();
 	match value {
 		tg::Value::String(string) => Ok(string.clone()),
 		tg::Value::Template(template) => template.try_render_sync(|component| match component {
@@ -561,3 +565,36 @@ pub static CLOSEST_ARTIFACT_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
 	}
 	closest_artifact_path.expect("Failed to find the closest artifact path")
 });
+
+pub static TANGRAM_EXECUTABLE_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
+pub static TANGRAM_ARTIFACTS_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+pub fn set_artifacts_path(p: impl AsRef<PathBuf>) {
+	TANGRAM_ARTIFACTS_PATH
+		.lock()
+		.unwrap()
+		.replace(p.as_ref().to_owned());
+}
+
+pub fn artifacts_path() -> PathBuf {
+	TANGRAM_ARTIFACTS_PATH
+		.lock()
+		.unwrap()
+		.clone()
+		.unwrap_or_else(|| CLOSEST_ARTIFACT_PATH.clone())
+}
+
+pub fn set_tangram_executable_path(p: impl AsRef<Path>) {
+	TANGRAM_EXECUTABLE_PATH
+		.lock()
+		.unwrap()
+		.replace(p.as_ref().to_owned());
+}
+
+pub fn tangram_executable_path() -> PathBuf {
+	TANGRAM_EXECUTABLE_PATH
+		.lock()
+		.unwrap()
+		.clone()
+		.unwrap_or_else(|| "tangram".into())
+}

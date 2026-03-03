@@ -40,7 +40,7 @@ export namespace Handle {
 	};
 
 	export type SpawnOutput = {
-		process: tg.Process.Id | number;
+		process: tg.Process.Id;
 		remote: string | undefined;
 		token: string | undefined;
 		wait: tg.Process.Wait.Data | undefined;
