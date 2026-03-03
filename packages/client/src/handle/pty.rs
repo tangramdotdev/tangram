@@ -18,12 +18,6 @@ pub trait Pty: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::pty::delete::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn get_pty_size(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::size::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::pty::Size>>> + Send;
-
 	fn put_pty_size(
 		&self,
 		id: &tg::pty::Id,
@@ -69,14 +63,6 @@ impl tg::handle::Pty for tg::Client {
 		arg: tg::pty::delete::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.delete_pty(id, arg)
-	}
-
-	fn get_pty_size(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::size::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::pty::Size>>> {
-		self.get_pty_size(id, arg)
 	}
 
 	fn put_pty_size(

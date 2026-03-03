@@ -18,14 +18,6 @@ impl tg::handle::Pty for Shared {
 		self.0.delete_pty(id, arg).await
 	}
 
-	async fn get_pty_size(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::size::get::Arg,
-	) -> tg::Result<Option<tg::pty::Size>> {
-		self.0.get_pty_size(id, arg).await
-	}
-
 	async fn put_pty_size(&self, id: &tg::pty::Id, arg: tg::pty::size::put::Arg) -> tg::Result<()> {
 		self.0.put_pty_size(id, arg).await
 	}
@@ -55,15 +47,6 @@ impl tg::handle::Pty for Server {
 
 	async fn delete_pty(&self, id: &tg::pty::Id, arg: tg::pty::delete::Arg) -> tg::Result<()> {
 		self.delete_pty_with_context(&Context::default(), id, arg)
-			.await
-	}
-
-	async fn get_pty_size(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::size::get::Arg,
-	) -> tg::Result<Option<tg::pty::Size>> {
-		self.try_get_pty_size_with_context(&Context::default(), id, arg)
 			.await
 	}
 
@@ -98,14 +81,6 @@ impl tg::handle::Pty for ServerWithContext {
 
 	async fn delete_pty(&self, id: &tg::pty::Id, arg: tg::pty::delete::Arg) -> tg::Result<()> {
 		self.0.delete_pty_with_context(&self.1, id, arg).await
-	}
-
-	async fn get_pty_size(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::size::get::Arg,
-	) -> tg::Result<Option<tg::pty::Size>> {
-		self.0.try_get_pty_size_with_context(&self.1, id, arg).await
 	}
 
 	async fn put_pty_size(&self, id: &tg::pty::Id, arg: tg::pty::size::put::Arg) -> tg::Result<()> {

@@ -21,12 +21,6 @@ pub trait Pty: Send + Sync + 'static {
 		arg: tg::pty::delete::Arg,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
-	fn get_pty_size<'a>(
-		&'a self,
-		id: &'a tg::pty::Id,
-		arg: tg::pty::size::get::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::pty::Size>>>;
-
 	fn put_pty_size<'a>(
 		&'a self,
 		id: &'a tg::pty::Id,
@@ -71,14 +65,6 @@ where
 		arg: tg::pty::delete::Arg,
 	) -> BoxFuture<'a, tg::Result<()>> {
 		self.delete_pty(id, arg).boxed()
-	}
-
-	fn get_pty_size<'a>(
-		&'a self,
-		id: &'a tg::pty::Id,
-		arg: tg::pty::size::get::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::pty::Size>>> {
-		self.get_pty_size(id, arg).boxed()
 	}
 
 	fn put_pty_size<'a>(

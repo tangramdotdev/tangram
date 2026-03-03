@@ -40,17 +40,6 @@ where
 		}
 	}
 
-	fn get_pty_size(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::size::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::pty::Size>>> {
-		match self {
-			tg::Either::Left(s) => s.get_pty_size(id, arg).left_future(),
-			tg::Either::Right(s) => s.get_pty_size(id, arg).right_future(),
-		}
-	}
-
 	fn put_pty_size(
 		&self,
 		id: &tg::pty::Id,

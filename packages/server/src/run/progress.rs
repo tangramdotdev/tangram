@@ -12,8 +12,6 @@ use {
 };
 
 struct State {
-	server: Server,
-	pty: tg::pty::Id,
 	indicators: IndexMap<String, tg::progress::Indicator>,
 	lines: Option<u16>,
 	sender: async_channel::Sender<tg::Result<Bytes>>,
@@ -72,8 +70,6 @@ impl Server {
 	) -> tg::Result<()> {
 		let (sender, receiver) = async_channel::bounded(1024);
 		let mut state = State {
-			server: self.clone(),
-			pty: pty.clone(),
 			indicators: IndexMap::new(),
 			lines: None,
 			sender,
@@ -178,12 +174,7 @@ impl State {
 	}
 
 	async fn print(&mut self) -> tg::Result<()> {
-		// Get the size of the tty.
-		let size = self
-			.server
-			.get_pty_size(&self.pty, tg::pty::size::get::Arg::default())
-			.await?
-			.map_or((64, 64), |size| (size.cols, size.rows));
+		let size = (64usize, 64usize);
 
 		// Render the indicators.
 		let title_length = self
@@ -211,7 +202,7 @@ impl State {
 			)
 			.unwrap();
 			write!(line, " {indicator}").unwrap();
-			buffer.extend_from_slice(clip(&line, size.0.into()).as_bytes());
+			buffer.extend_from_slice(clip(&line, size.0).as_bytes());
 			buffer.extend_from_slice(b"\r\n");
 		}
 
