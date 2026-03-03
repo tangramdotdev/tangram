@@ -11,7 +11,7 @@ use {
 		ops::Deref,
 		os::fd::AsRawFd as _,
 		path::PathBuf,
-		sync::{Arc, Mutex, OnceLock},
+		sync::{Arc, Mutex},
 	},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -91,8 +91,6 @@ pub struct State {
 	index: Index,
 	index_tasks: tangram_futures::task::Set<()>,
 	library: Mutex<Option<Arc<Temp>>>,
-	#[cfg_attr(not(feature = "js"), expect(dead_code))]
-	local_pool_handle: OnceLock<tokio_util::task::LocalPoolHandle>,
 	lock: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	path: PathBuf,
@@ -412,9 +410,6 @@ impl Server {
 		// Create the library.
 		let library = Mutex::new(None);
 
-		// Create the local pool handle lazily.
-		let local_pool_handle = OnceLock::new();
-
 		// Create the messenger.
 		let messenger = match &config.messenger {
 			self::config::Messenger::Memory => {
@@ -568,7 +563,6 @@ impl Server {
 			index,
 			index_tasks,
 			library,
-			local_pool_handle,
 			lock,
 			messenger,
 			path,

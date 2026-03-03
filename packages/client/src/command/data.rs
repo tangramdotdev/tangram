@@ -321,3 +321,38 @@ impl std::str::FromStr for Executable {
 		Ok(executable)
 	}
 }
+
+impl std::fmt::Display for Mount {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}:{}", self.source, self.target.display())
+	}
+}
+
+impl std::str::FromStr for Mount {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		let s = if let Some((s, ro)) = s.split_once(',') {
+			if ro == "ro" {
+				s
+			} else if ro == "rw" {
+				return Err(tg::error!("cannot mount artifacts read-write"));
+			} else {
+				return Err(tg::error!("unknown option: {ro:#?}"));
+			}
+		} else {
+			s
+		};
+		let (source, target) = s
+			.split_once(':')
+			.ok_or_else(|| tg::error!("expected a target path"))?;
+		let target = PathBuf::from(target);
+		if !target.is_absolute() {
+			return Err(tg::error!(target = %target.display(), "expected an absolute path"));
+		}
+		let source = source
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the artifact id"))?;
+		Ok(Self { source, target })
+	}
+}

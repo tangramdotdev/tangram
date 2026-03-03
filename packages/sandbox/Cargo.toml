@@ -14,6 +14,24 @@ workspace = true
 
 [dependencies]
 bytes = { workspace = true }
+derive_more = { workspace = true }
+futures = { workspace = true }
+http = { workspace = true }
+http-body = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
 indoc = { workspace = true }
 libc = { workspace = true }
+mime = { workspace = true }
 num = { workspace = true }
+rustix = { workspace = true }
+serde = { workspace = true }
+serde-untagged = { workspace = true }
+serde_json = { workspace = true }
+tangram_client = { workspace = true }
+tangram_futures = { workspace = true }
+tangram_http = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+tracing = { workspace = true }
