@@ -573,7 +573,9 @@ impl Server {
 		if target.is_absolute()
 			&& let Some(process) = &state.context.process
 		{
-			target = process.host_path_for_guest_path(target);
+			target = process.host_path_for_guest_path(&target).ok_or_else(
+				|| tg::error!(target = %target.display(), "no host path for guest path"),
+			)?;
 		}
 
 		// Canonicalize the target.

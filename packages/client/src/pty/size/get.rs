@@ -37,11 +37,13 @@ impl tg::Client {
 			.json(arg)
 			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
 			.unwrap();
-		self.send_with_retry(request)
+		let output = self
+			.send_with_retry(request)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the response"))?
 			.json()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))
+			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
+		Ok(output)
 	}
 }

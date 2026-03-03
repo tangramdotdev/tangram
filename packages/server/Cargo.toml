@@ -81,8 +81,8 @@ tangram_ignore = { workspace = true }
 tangram_index = { workspace = true }
 tangram_js = { workspace = true, optional = true }
 tangram_messenger = { workspace = true }
+tangram_sandbox = { workspace = true }
 tangram_serialize = { workspace = true }
-tangram_session = { workspace = true }
 tangram_store = { workspace = true }
 tangram_uri = { workspace = true }
 tangram_util = { workspace = true }

@@ -1,4 +1,8 @@
-use {std::path::PathBuf, std::sync::Arc, tangram_client::prelude::*};
+use {
+	std::path::{Path, PathBuf},
+	std::sync::Arc,
+	tangram_client::prelude::*,
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct Context {
@@ -10,51 +14,54 @@ pub struct Context {
 #[derive(Clone, Debug)]
 pub struct Process {
 	pub id: tg::process::Id,
-	pub paths: Option<Paths>,
+	pub path_maps: Option<Vec<PathMap>>,
 	pub remote: Option<String>,
 	pub retry: bool,
 }
 
 #[derive(Clone, Debug)]
-pub struct Paths {
-	pub server_host: PathBuf,
-	pub output_guest: PathBuf,
-	pub output_host: PathBuf,
-	pub root_host: PathBuf,
+pub struct PathMap {
+	pub host: PathBuf,
+	pub guest: PathBuf,
 }
 
 impl Process {
-	pub fn host_path_for_guest_path(&self, path: PathBuf) -> PathBuf {
-		let Some(path_map) = &self.paths else {
-			return path;
+	pub fn host_path_for_guest_path(&self, path: &Path) -> Option<PathBuf> {
+		let Some(path_maps) = &self.path_maps else {
+			return Some(path.to_owned());
 		};
-		if let Ok(path) = path.strip_prefix("/.tangram") {
-			path_map.server_host.join(path)
-		} else if let Ok(path) = path.strip_prefix(&path_map.output_guest) {
-			path_map.output_host.join(path)
-		} else {
-			path_map
-				.root_host
-				.join(path.strip_prefix("/").unwrap_or(path.as_ref()))
-		}
+		let path_maps = path_maps
+			.iter()
+			.map(|path_map| (path_map.guest.as_path(), path_map.host.as_path()));
+		Self::map_path(path, path_maps)
 	}
 
-	pub fn guest_path_for_host_path(&self, path: PathBuf) -> tg::Result<PathBuf> {
-		let Some(paths) = &self.paths else {
-			return Ok(path);
+	pub fn guest_path_for_host_path(&self, path: &Path) -> Option<PathBuf> {
+		let Some(path_maps) = &self.path_maps else {
+			return Some(path.to_owned());
 		};
-		let path = if path.starts_with(&paths.output_host) {
-			let suffix = path.strip_prefix(&paths.output_host).unwrap();
-			paths.output_guest.join(suffix)
-		} else if path.starts_with(&paths.server_host) {
-			let suffix = path.strip_prefix(&paths.server_host).unwrap();
-			PathBuf::from("/.tangram").join(suffix)
-		} else {
-			let suffix = path.strip_prefix(&paths.root_host).map_err(|error| {
-				tg::error!(source = error, "cannot map path outside of host root")
-			})?;
-			PathBuf::from("/").join(suffix)
-		};
-		Ok(path)
+		let path_maps = path_maps
+			.iter()
+			.map(|path_map| (path_map.host.as_path(), path_map.guest.as_path()));
+		Self::map_path(path, path_maps)
+	}
+
+	fn map_path<'a>(
+		path: &Path,
+		path_maps: impl Iterator<Item = (&'a Path, &'a Path)>,
+	) -> Option<PathBuf> {
+		let mut best: Option<(&Path, &Path, usize)> = None;
+		for (from, to) in path_maps {
+			if !path.starts_with(from) {
+				continue;
+			}
+			let len = from.components().count();
+			if best.is_none_or(|(_, _, best_len)| len > best_len) {
+				best = Some((from, to, len));
+			}
+		}
+		let (from, to, _) = best?;
+		let suffix = path.strip_prefix(from).unwrap();
+		Some(to.join(suffix))
 	}
 }

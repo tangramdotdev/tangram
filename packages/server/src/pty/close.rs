@@ -39,7 +39,6 @@ impl Server {
 		if arg.master {
 			pty.master.take();
 		} else {
-			pty.session.take();
 			pty.slave.take();
 		}
 		drop(pty);

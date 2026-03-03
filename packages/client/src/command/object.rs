@@ -37,7 +37,7 @@ pub struct PathExecutable {
 	pub path: PathBuf,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 pub struct Mount {
 	pub source: tg::Artifact,
 	pub target: PathBuf,

@@ -52,7 +52,6 @@ mod remote;
 mod run;
 mod sandbox;
 mod server;
-mod session;
 mod shell;
 mod tag;
 mod tangram;
@@ -261,9 +260,6 @@ enum Command {
 
 	Server(self::server::Args),
 
-	#[command(hide = true)]
-	Session(self::session::Args),
-
 	#[command(alias = "kill")]
 	Signal(self::process::signal::Args),
 
@@ -303,11 +299,11 @@ fn main() -> std::process::ExitCode {
 			Cli::initialize_v8(0);
 			return Cli::command_js(&matches, args);
 		},
-		Command::Sandbox(args) => {
-			return Cli::command_sandbox(args);
-		},
-		Command::Session(args) => {
-			return Cli::command_session(args);
+		Command::Sandbox(self::sandbox::Args {
+			command: self::sandbox::Command::Run(args),
+			..
+		}) => {
+			return Cli::command_sandbox_run(args);
 		},
 		_ => (),
 	}
@@ -945,7 +941,7 @@ impl Cli {
 			Command::Js(_) => {
 				unreachable!()
 			},
-			Command::Builtin(_) | Command::Sandbox(_) | Command::Session(_) => {
+			Command::Builtin(_) | Command::Sandbox(_) => {
 				unreachable!()
 			},
 			Command::Archive(args) => self.command_archive(args).boxed(),

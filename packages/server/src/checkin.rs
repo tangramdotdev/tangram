@@ -64,7 +64,9 @@ impl Server {
 	> {
 		// Handle host path conversion.
 		if let Some(process) = &context.process {
-			arg.path = process.host_path_for_guest_path(arg.path.clone());
+			arg.path = process.host_path_for_guest_path(&arg.path).ok_or_else(
+				|| tg::error!(path= %arg.path.display(), "no host path for guest path"),
+			)?;
 		}
 
 		// Guard against concurrent cleans.

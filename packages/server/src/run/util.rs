@@ -1,8 +1,12 @@
 use {
 	crate::Server,
-	bytes::Bytes,
-	std::{collections::BTreeMap, path::Path},
+	futures::{TryFutureExt as _, TryStreamExt as _, future},
+	num::ToPrimitive as _,
+	std::{collections::BTreeMap, path::Path, pin::pin},
 	tangram_client::prelude::*,
+	tangram_futures::task::Task,
+	tokio::io::{AsyncRead, AsyncWrite},
+	tokio_util::io::ReaderStream,
 };
 
 pub async fn cache_children(server: &Server, process: &tg::Process) -> tg::Result<()> {
@@ -36,84 +40,6 @@ pub async fn cache_children(server: &Server, process: &tg::Process) -> tg::Resul
 		.await
 		.map_err(|source| tg::error!(!source, "failed to log the progress stream"))?;
 
-	Ok(())
-}
-
-pub async fn log(
-	server: &Server,
-	process: &tg::Process,
-	stream: tg::process::log::Stream,
-	message: Vec<u8>,
-) -> tg::Result<()> {
-	if message.is_empty() {
-		return Ok(());
-	}
-	let state = process
-		.load(server)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to load the process"))?;
-	let stdout = state.stdout.as_ref();
-	let stderr = state.stderr.as_ref();
-	if let (tg::process::log::Stream::Stdout, Some(stdout)) = (stream, stdout) {
-		log_inner(server, stdout, message, process.remote())
-			.await
-			.ok();
-	} else if let (tg::process::log::Stream::Stderr, Some(stderr)) = (stream, stderr) {
-		log_inner(server, stderr, message, process.remote())
-			.await
-			.ok();
-	} else {
-		let arg = tg::process::log::post::Arg {
-			bytes: message.into(),
-			local: None,
-			remotes: process.remote().cloned().map(|r| vec![r]),
-			stream,
-		};
-		server
-			.post_process_log(process.id(), arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to post the process log"))?;
-	}
-	Ok(())
-}
-
-async fn log_inner(
-	server: &Server,
-	stdio: &tg::process::Stdio,
-	message: Vec<u8>,
-	remote: Option<&String>,
-) -> tg::Result<()> {
-	match stdio {
-		tg::process::Stdio::Pipe(id) => {
-			let bytes = Bytes::from(message);
-			let arg = tg::pipe::write::Arg {
-				bytes,
-				local: None,
-				remotes: remote.cloned().map(|r| vec![r]),
-			};
-			server
-				.write_pipe(id, arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to write to the pipe"))?;
-		},
-		tg::process::Stdio::Pty(id) => {
-			let bytes = if let Ok(string) = std::str::from_utf8(&message) {
-				Bytes::from(string.replace('\n', "\r\n"))
-			} else {
-				Bytes::from(message)
-			};
-			let arg = tg::pty::write::Arg {
-				bytes,
-				local: None,
-				master: false,
-				remotes: remote.cloned().map(|r| vec![r]),
-			};
-			server
-				.write_pty(id, arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to write to the pty"))?;
-		},
-	}
 	Ok(())
 }
 
@@ -202,18 +128,181 @@ pub fn render_value_string(
 	}
 }
 
-pub fn whoami() -> tg::Result<String> {
-	unsafe {
-		let uid = libc::getuid();
-		let pwd = libc::getpwuid(uid);
-		if pwd.is_null() {
-			let source = std::io::Error::last_os_error();
-			return Err(tg::error!(!source, "failed to get username"));
+pub async fn stdio_task<I, O, E>(
+	server: &Server,
+	id: &tg::process::Id,
+	remote: Option<&String>,
+	stdin_blob: Option<tg::Blob>,
+	stdin: Option<I>,
+	stdout: Option<O>,
+	stderr: Option<E>,
+) -> tg::Result<()>
+where
+	I: AsyncWrite + Unpin + Send + 'static,
+	O: AsyncRead + Unpin + Send + 'static,
+	E: AsyncRead + Unpin + Send + 'static,
+{
+	// Write the stdin blob to stdin if necessary.
+	let stdin = Task::spawn({
+		let server = server.clone();
+		|_| {
+			async move {
+				let Some(mut stdin) = stdin else {
+					return Ok(());
+				};
+				let Some(blob) = stdin_blob else {
+					return Ok(());
+				};
+				let mut reader = blob.read(&server, tg::read::Options::default()).await?;
+				tokio::io::copy(&mut reader, &mut stdin)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to write the blob to stdin"))?;
+				Ok::<_, tg::Error>(())
+			}
+			.inspect_err(|error| {
+				tracing::error!(error = %error.trace());
+			})
 		}
-		let username = std::ffi::CStr::from_ptr((*pwd).pw_name)
-			.to_str()
-			.map_err(|source| tg::error!(!source, "non-utf8 username"))?
-			.to_owned();
-		Ok(username)
+	});
+
+	let stdout = Task::spawn({
+		let server = server.clone();
+		let id = id.clone();
+		let remote = remote.cloned();
+		|_| async move {
+			let Some(stdout) = stdout else {
+				return Ok(());
+			};
+			stdio_task_inner(
+				&server,
+				&id,
+				remote.as_ref(),
+				tg::process::log::Stream::Stdout,
+				stdout,
+			)
+			.await?;
+			Ok::<_, tg::Error>(())
+		}
+	});
+
+	let stderr = Task::spawn({
+		let server = server.clone();
+		let id = id.clone();
+		let remote = remote.cloned();
+		|_| async move {
+			let Some(stderr) = stderr else {
+				return Ok(());
+			};
+			stdio_task_inner(
+				&server,
+				&id,
+				remote.as_ref(),
+				tg::process::log::Stream::Stderr,
+				stderr,
+			)
+			.await?;
+			Ok::<_, tg::Error>(())
+		}
+	});
+
+	// Join the tasks.
+	let (stdout, stderr) = future::join(stdout.wait(), stderr.wait()).await;
+	stdout
+		.map_err(|source| tg::error!(!source, "the stdout task panicked"))?
+		.map_err(|source| tg::error!(!source, "failed to read stdout from pipe"))?;
+	stderr
+		.map_err(|source| tg::error!(!source, "the stderr task panicked"))?
+		.map_err(|source| tg::error!(!source, "failed to read stderr from pipe"))?;
+
+	// Abort the stdin task.
+	stdin.abort();
+
+	Ok::<_, tg::Error>(())
+}
+
+pub async fn stdio_task_inner(
+	server: &Server,
+	id: &tg::process::Id,
+	remote: Option<&String>,
+	stream: tg::process::log::Stream,
+	reader: impl AsyncRead + Unpin + Send + 'static,
+) -> tg::Result<()> {
+	let stream_ = ReaderStream::new(reader)
+		.map_err(|source| tg::error!(!source, "failed to read from the reader"));
+	let mut stream_ = pin!(stream_);
+	while let Some(bytes) = stream_
+		.try_next()
+		.await
+		.map_err(|source| tg::error!(!source, %id, "failed to read from the stream"))?
+	{
+		let arg = tg::process::log::post::Arg {
+			bytes,
+			local: None,
+			remotes: remote.cloned().map(|r| vec![r]),
+			stream,
+		};
+		server
+			.post_process_log(id, arg)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to post the process log"))?;
+	}
+	Ok(())
+}
+
+pub async fn signal_task(
+	server: &Server,
+	sandbox: &tangram_sandbox::Sandbox,
+	sandbox_process: &tangram_sandbox::Process,
+	id: &tg::process::Id,
+	remote: Option<&String>,
+) -> tg::Result<()> {
+	// Get the signal stream for the process.
+	let arg = tg::process::signal::get::Arg {
+		local: None,
+		remotes: remote.map(|r| vec![r.clone()]),
+	};
+	let mut stream = server
+		.try_get_process_signal_stream(id, arg)
+		.await
+		.map_err(
+			|source| tg::error!(!source, process = %id, "failed to get the process's signal stream"),
+		)?
+		.ok_or_else(
+			|| tg::error!(process = %id, "expected the process's signal stream to exist"),
+		)?;
+
+	// Handle the events.
+	while let Some(event) = stream.try_next().await.map_err(
+		|source| tg::error!(!source, process = %id, "failed to get the next signal event"),
+	)? {
+		match event {
+			tg::process::signal::get::Event::Signal(signal) => {
+				sandbox
+					.kill(sandbox_process, signal_number(signal).to_u8().unwrap())
+					.await
+					.map_err(|source| tg::error!(!source, "failed to signal the process"))?;
+			},
+			tg::process::signal::get::Event::End => break,
+		}
+	}
+
+	Ok(())
+}
+
+fn signal_number(signal: tg::process::Signal) -> libc::c_int {
+	match signal {
+		tg::process::Signal::SIGABRT => libc::SIGABRT,
+		tg::process::Signal::SIGFPE => libc::SIGFPE,
+		tg::process::Signal::SIGILL => libc::SIGILL,
+		tg::process::Signal::SIGALRM => libc::SIGALRM,
+		tg::process::Signal::SIGHUP => libc::SIGHUP,
+		tg::process::Signal::SIGINT => libc::SIGINT,
+		tg::process::Signal::SIGKILL => libc::SIGKILL,
+		tg::process::Signal::SIGPIPE => libc::SIGPIPE,
+		tg::process::Signal::SIGQUIT => libc::SIGQUIT,
+		tg::process::Signal::SIGSEGV => libc::SIGSEGV,
+		tg::process::Signal::SIGTERM => libc::SIGTERM,
+		tg::process::Signal::SIGUSR1 => libc::SIGUSR1,
+		tg::process::Signal::SIGUSR2 => libc::SIGUSR2,
 	}
 }
