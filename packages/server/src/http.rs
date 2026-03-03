@@ -486,9 +486,6 @@ impl Server {
 			(http::Method::POST, ["ptys", pty, "close"]) => self
 				.handle_close_pty_request(request, &context, pty)
 				.boxed(),
-			(http::Method::GET, ["ptys", pty, "size"]) => self
-				.handle_get_pty_size_request(request, &context, pty)
-				.boxed(),
 			(http::Method::PUT, ["ptys", pty, "size"]) => self
 				.handle_put_pty_size_request(request, &context, pty)
 				.boxed(),

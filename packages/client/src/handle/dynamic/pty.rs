@@ -28,14 +28,6 @@ impl tg::handle::Pty for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.delete_pty(id, arg)) }
 	}
 
-	fn get_pty_size(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::size::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::pty::Size>>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.get_pty_size(id, arg)) }
-	}
-
 	fn put_pty_size(
 		&self,
 		id: &tg::pty::Id,

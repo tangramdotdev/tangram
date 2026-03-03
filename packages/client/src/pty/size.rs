@@ -1,4 +1,3 @@
-pub mod get;
 pub mod put;
 
 #[derive(Copy, Clone, Debug, serde::Deserialize, serde::Serialize)]

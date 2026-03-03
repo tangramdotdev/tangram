@@ -7,39 +7,6 @@ use {
 };
 
 impl Server {
-	pub async fn try_get_pty_size_with_context(
-		&self,
-		_context: &Context,
-		id: &tg::pty::Id,
-		arg: tg::pty::size::get::Arg,
-	) -> tg::Result<Option<tg::pty::Size>> {
-		// Try local first if requested.
-		if Self::local(arg.local, arg.remotes.as_ref())
-			&& let Some(size) = self
-				.try_get_pty_size_local(id)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the pty size"))?
-		{
-			return Ok(Some(size));
-		}
-
-		// Try remotes.
-		let remotes = self
-			.remotes(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
-		if let Some(size) = self
-			.try_get_pty_size_remote(id, arg.clone(), &remotes)
-			.await
-			.map_err(
-				|source| tg::error!(!source, %id, "failed to get the pty size from the remote"),
-			)? {
-			return Ok(Some(size));
-		}
-
-		Ok(None)
-	}
-
 	pub async fn try_put_pty_size_with_context(
 		&self,
 		_context: &Context,
@@ -62,35 +29,6 @@ impl Server {
 		self.try_put_pty_size_remote(id, arg, &remotes)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to put the pty size on the remote"))
-	}
-
-	async fn try_get_pty_size_local(&self, id: &tg::pty::Id) -> tg::Result<Option<tg::pty::Size>> {
-		let Some(pty) = self.ptys.get(id) else {
-			return Ok(None);
-		};
-		let Some(fd) = pty.master.as_ref() else {
-			return Ok(None);
-		};
-		let fd = fd.as_raw_fd();
-		let size = tokio::task::spawn_blocking(move || unsafe {
-			let mut winsize = std::mem::zeroed::<libc::winsize>();
-			let ret = libc::ioctl(fd, libc::TIOCGWINSZ, std::ptr::addr_of_mut!(winsize));
-			if ret != 0 {
-				let error = std::io::Error::last_os_error();
-				if !matches!(error.raw_os_error(), Some(libc::EBADF)) {
-					return Err(error);
-				}
-			}
-			let size = tg::pty::Size {
-				rows: winsize.ws_row,
-				cols: winsize.ws_col,
-			};
-			Ok(size)
-		})
-		.await
-		.map_err(|source| tg::error!(!source, "the task panicked"))?
-		.map_err(|source| tg::error!(!source, "failed to set the pty size"))?;
-		Ok(Some(size))
 	}
 
 	async fn try_put_pty_size_local(
@@ -136,40 +74,6 @@ impl Server {
 		Ok(())
 	}
 
-	async fn try_get_pty_size_remote(
-		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::size::get::Arg,
-		remotes: &[String],
-	) -> tg::Result<Option<tg::pty::Size>> {
-		if remotes.is_empty() {
-			return Ok(None);
-		}
-		let arg = tg::pty::size::get::Arg {
-			local: None,
-			remotes: None,
-			..arg
-		};
-		let futures = remotes.iter().map(|remote| {
-			let remote = remote.clone();
-			let arg = arg.clone();
-			async move {
-				let client = self.get_remote_client(remote.clone()).await.map_err(
-					|source| tg::error!(!source, %remote, "failed to get the remote client"),
-				)?;
-				client
-					.get_pty_size(id, arg)
-					.await
-					.map_err(|source| tg::error!(!source, %remote, "failed to get the pty size"))
-			}
-			.boxed()
-		});
-		let Ok((size, _)) = future::select_ok(futures).await else {
-			return Ok(None);
-		};
-		Ok(size)
-	}
-
 	async fn try_put_pty_size_remote(
 		&self,
 		id: &tg::pty::Id,
@@ -200,58 +104,6 @@ impl Server {
 		});
 		future::select_ok(futures).await?;
 		Ok(())
-	}
-
-	pub(crate) async fn handle_get_pty_size_request(
-		&self,
-		request: http::Request<BoxBody>,
-		context: &Context,
-		id: &str,
-	) -> tg::Result<http::Response<BoxBody>> {
-		// Get the accept header.
-		let accept = request
-			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
-
-		// Parse the ID.
-		let id = id
-			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the pty id"))?;
-
-		// Get the arg.
-		let arg = request
-			.json()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to parse the body"))?;
-
-		// Get the pty size.
-		let output = self
-			.try_get_pty_size_with_context(context, &id, arg)
-			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the pty size"))?;
-
-		// Create the response.
-		let (content_type, body) = match accept
-			.as_ref()
-			.map(|accept| (accept.type_(), accept.subtype()))
-		{
-			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => {
-				let content_type = mime::APPLICATION_JSON;
-				let body = serde_json::to_vec(&output).unwrap();
-				(Some(content_type), BoxBody::with_bytes(body))
-			},
-			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
-			},
-		};
-
-		let mut response = http::Response::builder();
-		if let Some(content_type) = content_type {
-			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
-		}
-		let response = response.body(body).unwrap();
-		Ok(response)
 	}
 
 	pub(crate) async fn handle_put_pty_size_request(
