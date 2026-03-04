@@ -11,9 +11,9 @@ use {
 pub(crate) struct SpawnContext {
 	pub(crate) id: tg::process::Id,
 	pub(crate) command: Command,
-	pub(crate) stdin: OwnedFd,
-	pub(crate) stdout: OwnedFd,
-	pub(crate) stderr: OwnedFd,
+	pub(crate) stdin: Option<OwnedFd>,
+	pub(crate) stdout: Option<OwnedFd>,
+	pub(crate) stderr: Option<OwnedFd>,
 	pub(crate) pty: Option<CString>,
 }
 
@@ -107,10 +107,10 @@ macro_rules! abort_errno {
 	}};
 }
 
-pub(crate) fn start_session(pty: &CString) {
+pub(crate) fn start_session(pty: &CString, stdin: bool, stdout: bool, stderr: bool) {
 	unsafe {
 		let tty = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
-		if tty > 0 {
+		if tty >= 0 {
 			#[cfg_attr(target_os = "linux", expect(clippy::useless_conversion))]
 			libc::ioctl(tty, libc::TIOCNOTTY.into(), std::ptr::null_mut::<()>());
 			libc::close(tty);
@@ -122,7 +122,7 @@ pub(crate) fn start_session(pty: &CString) {
 			abort_errno!("setsid() failed");
 		}
 
-		// Open the pty.
+		// Open the pty slave.
 		let fd = libc::open(pty.as_ptr(), libc::O_RDWR);
 		if fd < 0 {
 			abort_errno!("failed to open {}", pty.to_string_lossy());
@@ -133,6 +133,22 @@ pub(crate) fn start_session(pty: &CString) {
 		let ret = libc::ioctl(fd, libc::TIOCSCTTY.into(), 0);
 		if ret < 0 {
 			abort_errno!("failed to set the controlling terminal");
+		}
+
+		// Dup the pty slave fd to stdin, stdout, and stderr as needed.
+		if stdin {
+			libc::dup2(fd, libc::STDIN_FILENO);
+		}
+		if stdout {
+			libc::dup2(fd, libc::STDOUT_FILENO);
+		}
+		if stderr {
+			libc::dup2(fd, libc::STDERR_FILENO);
+		}
+
+		// Close the pty slave fd if it is not one of the standard fds.
+		if fd > libc::STDERR_FILENO {
+			libc::close(fd);
 		}
 	}
 }
