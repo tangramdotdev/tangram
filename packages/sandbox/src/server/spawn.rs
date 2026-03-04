@@ -1,11 +1,17 @@
 use {
-	crate::server::Server,
+	crate::{
+		Stdio,
+		common::{InputStream, OutputStream, Pty, SpawnContext},
+		server::{ChildProcess, ChildStdio, Server},
+	},
+	std::{fs::File, os::fd::OwnedFd},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody,
 		request::Ext as _,
 		response::{Ext, builder::Ext as _},
 	},
+	tokio::sync::Mutex,
 };
 
 impl Server {
@@ -13,7 +19,143 @@ impl Server {
 		&self,
 		arg: crate::client::spawn::Arg,
 	) -> tg::Result<crate::client::spawn::Output> {
-		todo!()
+		// Create a PTY if asked.
+		let pty = arg.pty.map(Pty::new).transpose()?;
+		let (host_stdin, guest_stdin): (InputStream, OwnedFd) = match arg.command.stdin {
+			Stdio::Null => {
+				let fd = File::options()
+					.read(true)
+					.open("/dev/null")
+					.map_err(|source| tg::error!(!source, "failed to open /dev/null"))?
+					.into();
+				(InputStream::Null, fd)
+			},
+			Stdio::Pipe => {
+				let (reader, writer) = std::io::pipe()
+					.map_err(|source| tg::error!(!source, "failed to open a pipe"))?;
+				let writer = tokio::net::unix::pipe::Sender::from_owned_fd(writer.into())
+					.map_err(|source| tg::error!(!source, "failed to convert the pipe fd"))?;
+				(InputStream::Pipe(writer), reader.into())
+			},
+			Stdio::Pty => {
+				let pty = pty
+					.as_ref()
+					.ok_or_else(|| tg::error!("expected a pty arg"))?;
+				let master = pty
+					.master
+					.try_clone()
+					.map_err(|source| tg::error!(!source, "failed to clone the master fd"))?;
+				let slave = pty
+					.slave
+					.try_clone()
+					.map_err(|source| tg::error!(!source, "failed to clone the master fd"))?;
+				(InputStream::Pty(master), slave)
+			},
+		};
+
+		let (host_stdout, guest_stdout): (OutputStream, OwnedFd) = match arg.command.stdin {
+			Stdio::Null => {
+				let fd = File::options()
+					.write(true)
+					.open("/dev/null")
+					.map_err(|source| tg::error!(!source, "failed to open /dev/null"))?
+					.into();
+				(OutputStream::Null, fd)
+			},
+			Stdio::Pipe => {
+				let (reader, writer) = std::io::pipe()
+					.map_err(|source| tg::error!(!source, "failed to open a pipe"))?;
+				let reader = tokio::net::unix::pipe::Receiver::from_owned_fd(reader.into())
+					.map_err(|source| tg::error!(!source, "failed to convert the pipe fd"))?;
+				(OutputStream::Pipe(reader), writer.into())
+			},
+			Stdio::Pty => {
+				let pty = pty
+					.as_ref()
+					.ok_or_else(|| tg::error!("expected a pty arg"))?;
+				let master = pty
+					.master
+					.try_clone()
+					.map_err(|source| tg::error!(!source, "failed to clone the master fd"))?;
+				let slave = pty
+					.slave
+					.try_clone()
+					.map_err(|source| tg::error!(!source, "failed to clone the master fd"))?;
+				(OutputStream::Pty(master), slave)
+			},
+		};
+
+		let (host_stderr, guest_stderr): (OutputStream, OwnedFd) = match arg.command.stdin {
+			Stdio::Null => {
+				let fd = File::options()
+					.write(true)
+					.open("/dev/null")
+					.map_err(|source| tg::error!(!source, "failed to open /dev/null"))?
+					.into();
+				(OutputStream::Null, fd)
+			},
+			Stdio::Pipe => {
+				let (reader, writer) = std::io::pipe()
+					.map_err(|source| tg::error!(!source, "failed to open a pipe"))?;
+				let reader = tokio::net::unix::pipe::Receiver::from_owned_fd(reader.into())
+					.map_err(|source| tg::error!(!source, "failed to convert the pipe fd"))?;
+				(OutputStream::Pipe(reader), writer.into())
+			},
+			Stdio::Pty => {
+				let pty = pty
+					.as_ref()
+					.ok_or_else(|| tg::error!("expected a pty arg"))?;
+				let master = pty
+					.master
+					.try_clone()
+					.map_err(|source| tg::error!(!source, "failed to clone the master fd"))?;
+				let slave = pty
+					.slave
+					.try_clone()
+					.map_err(|source| tg::error!(!source, "failed to clone the master fd"))?;
+				(OutputStream::Pty(master), slave)
+			},
+		};
+
+		let id = tg::process::Id::new();
+		let context = SpawnContext {
+			id: id.clone(),
+			command: arg.command,
+			stdin: guest_stdin,
+			stdout: guest_stdout,
+			stderr: guest_stderr,
+			pty: pty.as_ref().map(|pty| pty.name.clone()),
+		};
+
+		#[cfg(target_os = "linux")]
+		let pid = crate::linux::spawn(context)?;
+
+		#[cfg(target_os = "linux")]
+		self.pids.insert(pid, id.clone());
+
+		#[cfg(target_os = "macos")]
+		let child = crate::darwin::spawn(context)?;
+
+		let child_process = ChildProcess {
+			#[cfg(target_os = "linux")]
+			pid,
+			#[cfg(target_os = "macos")]
+			child,
+			status: None,
+			#[cfg(target_os = "linux")]
+			notify: std::sync::Arc::new(tokio::sync::Notify::new()),
+		};
+
+		let child_stdio = ChildStdio {
+			stdin: Mutex::new(host_stdin),
+			stdout: Mutex::new(host_stdout),
+			stderr: Mutex::new(host_stderr),
+			pty: pty.map(Mutex::new),
+		};
+		self.stdio.insert(id.clone(), child_stdio);
+		self.processes.insert(id.clone(), child_process);
+
+		Ok(crate::client::spawn::Output { id })
 	}
 
 	pub(crate) async fn handle_spawn(

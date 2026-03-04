@@ -1,7 +1,6 @@
 use {
 	crate::Server,
 	futures::{TryFutureExt as _, TryStreamExt as _, future},
-	num::ToPrimitive as _,
 	std::{collections::BTreeMap, path::Path, pin::pin},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
@@ -278,7 +277,7 @@ pub async fn signal_task(
 		match event {
 			tg::process::signal::get::Event::Signal(signal) => {
 				sandbox
-					.kill(sandbox_process, signal_number(signal).to_u8().unwrap())
+					.kill(sandbox_process, signal)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to signal the process"))?;
 			},
@@ -287,22 +286,4 @@ pub async fn signal_task(
 	}
 
 	Ok(())
-}
-
-fn signal_number(signal: tg::process::Signal) -> libc::c_int {
-	match signal {
-		tg::process::Signal::SIGABRT => libc::SIGABRT,
-		tg::process::Signal::SIGFPE => libc::SIGFPE,
-		tg::process::Signal::SIGILL => libc::SIGILL,
-		tg::process::Signal::SIGALRM => libc::SIGALRM,
-		tg::process::Signal::SIGHUP => libc::SIGHUP,
-		tg::process::Signal::SIGINT => libc::SIGINT,
-		tg::process::Signal::SIGKILL => libc::SIGKILL,
-		tg::process::Signal::SIGPIPE => libc::SIGPIPE,
-		tg::process::Signal::SIGQUIT => libc::SIGQUIT,
-		tg::process::Signal::SIGSEGV => libc::SIGSEGV,
-		tg::process::Signal::SIGTERM => libc::SIGTERM,
-		tg::process::Signal::SIGUSR1 => libc::SIGUSR1,
-		tg::process::Signal::SIGUSR2 => libc::SIGUSR2,
-	}
 }

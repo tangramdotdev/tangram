@@ -74,7 +74,7 @@ impl Cli {
 			// Command::Delete(args) => {
 			// 	self.command_sandbox_delete(args).await?;
 			// },
-			Command::Run(_) => {
+			Command::Run(args) => {
 				unreachable!()
 			},
 		}

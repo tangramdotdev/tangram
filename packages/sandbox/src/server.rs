@@ -1,4 +1,6 @@
 use {
+	crate::common,
+	dashmap::DashMap,
 	futures::{FutureExt as _, future},
 	std::{convert::Infallible, ops::Deref, path::Path, sync::Arc},
 	tangram_client::prelude::*,
@@ -7,6 +9,7 @@ use {
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
+	tokio::sync::Mutex,
 };
 
 mod kill;
@@ -18,11 +21,55 @@ mod wait;
 #[derive(Clone)]
 pub struct Server(Arc<State>);
 
-pub struct State {}
+pub struct State {
+	pub(crate) processes: DashMap<tg::process::Id, ChildProcess>,
+	#[cfg(target_os = "linux")]
+	pub(crate) pids: DashMap<libc::pid_t, tg::process::Id>,
+	pub(crate) stdio: DashMap<tg::process::Id, ChildStdio>,
+}
+
+pub(crate) struct ChildProcess {
+	#[cfg(target_os = "linux")]
+	pub(crate) pid: libc::pid_t,
+	#[cfg(target_os = "macos")]
+	pub(crate) child: tokio::process::Child,
+	pub(crate) status: Option<u8>,
+	#[cfg(target_os = "linux")]
+	pub(crate) notify: Arc<tokio::sync::Notify>,
+}
+
+pub(crate) struct ChildStdio {
+	pub(crate) stdin: Mutex<common::InputStream>,
+	pub(crate) stdout: Mutex<common::OutputStream>,
+	pub(crate) stderr: Mutex<common::OutputStream>,
+	pub(crate) pty: Option<Mutex<common::Pty>>,
+}
 
 impl Server {
 	pub fn new() -> Self {
-		Self(Arc::new(State {}))
+		// Create teh server.
+		let server = Self(Arc::new(State {
+			processes: DashMap::default(),
+			#[cfg(target_os = "linux")]
+			pids: DashMap::default(),
+			stdio: DashMap::default(),
+		}));
+
+		// Spawn a task to reap children. Because we unconditionally kill the sandbox later it's fine for this to leak?
+		#[cfg(target_os = "linux")]
+		{
+			tokio::spawn({
+				let server = server.clone();
+				async move {
+					server
+						.reaper_task()
+						.await
+						.inspect_err(|error| tracing::error!(?error, "failed to reap children"))
+						.ok();
+				}
+			});
+		}
+		server
 	}
 
 	pub(crate) fn listen(path: &Path) -> tg::Result<tokio::net::UnixListener> {

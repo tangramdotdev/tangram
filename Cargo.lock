@@ -6665,6 +6665,7 @@ name = "tangram_sandbox"
 version = "0.0.0"
 dependencies = [
  "bytes",
+ "dashmap",
  "derive_more",
  "futures",
  "http",
@@ -6676,6 +6677,7 @@ dependencies = [
  "mime",
  "num",
  "rustix 1.1.4",
+ "scopeguard",
  "serde",
  "serde-untagged",
  "serde_json",
@@ -6684,6 +6686,8 @@ dependencies = [
  "tangram_http",
  "time",
  "tokio",
+ "tokio-stream",
+ "tokio-util",
  "tower",
  "tracing",
 ]
