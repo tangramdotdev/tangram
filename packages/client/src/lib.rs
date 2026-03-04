@@ -71,12 +71,10 @@ pub mod location;
 pub mod module;
 pub mod mutation;
 pub mod object;
-pub mod pipe;
 pub mod placeholder;
 pub mod position;
 pub mod process;
 pub mod progress;
-pub mod pty;
 pub mod pull;
 pub mod push;
 pub mod range;
@@ -97,8 +95,8 @@ pub mod write;
 pub mod prelude {
 	pub use {
 		super::handle::{
-			Ext as _, Handle as _, Module as _, Object as _, Pipe as _, Process as _, Pty as _,
-			Remote as _, Tag as _, User as _, Watch as _,
+			Ext as _, Handle as _, Module as _, Object as _, Process as _, Remote as _, Tag as _,
+			User as _, Watch as _,
 		},
 		crate as tg,
 	};

@@ -3,6 +3,7 @@ use {
 	crate::{Context, Server, Shared},
 	futures::Stream,
 	tangram_client::prelude::*,
+	tokio::io::AsyncRead,
 };
 
 impl tg::handle::Process for Shared {
@@ -163,6 +164,72 @@ impl tg::handle::Process for Shared {
 		arg: tg::process::touch::Arg,
 	) -> tg::Result<()> {
 		self.0.touch_process(id, arg).await
+	}
+
+	async fn try_read_process_stdin(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> tg::Result<Option<impl AsyncRead + Send + 'static>> {
+		let context = Context::default();
+		self.0
+			.try_read_process_stdin_with_context(&context, id, arg)
+			.await
+	}
+
+	async fn write_process_stdin(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> tg::Result<()> {
+		self.0
+			.write_process_stdin_with_context(&Context::default(), id, arg, reader)
+			.await
+	}
+
+	async fn try_read_process_stdout(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> tg::Result<Option<impl AsyncRead + Send + 'static>> {
+		let context = Context::default();
+		self.0
+			.try_read_process_stdout_with_context(&context, id, arg)
+			.await
+	}
+
+	async fn write_process_stdout(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> tg::Result<()> {
+		self.0
+			.write_process_stdout_with_context(&Context::default(), id, arg, reader)
+			.await
+	}
+
+	async fn try_read_process_stderr(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> tg::Result<Option<impl AsyncRead + Send + 'static>> {
+		let context = Context::default();
+		self.0
+			.try_read_process_stderr_with_context(&context, id, arg)
+			.await
+	}
+
+	async fn write_process_stderr(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> tg::Result<()> {
+		self.0
+			.write_process_stderr_with_context(&Context::default(), id, arg, reader)
+			.await
 	}
 }
 
@@ -341,6 +408,66 @@ impl tg::handle::Process for Server {
 		self.touch_process_with_context(&Context::default(), id, arg)
 			.await
 	}
+
+	async fn try_read_process_stdin(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> tg::Result<Option<impl AsyncRead + Send + 'static>> {
+		let context = Context::default();
+		self.try_read_process_stdin_with_context(&context, id, arg)
+			.await
+	}
+
+	async fn write_process_stdin(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> tg::Result<()> {
+		self.write_process_stdin_with_context(&Context::default(), id, arg, reader)
+			.await
+	}
+
+	async fn try_read_process_stdout(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> tg::Result<Option<impl AsyncRead + Send + 'static>> {
+		let context = Context::default();
+		self.try_read_process_stdout_with_context(&context, id, arg)
+			.await
+	}
+
+	async fn write_process_stdout(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> tg::Result<()> {
+		self.write_process_stdout_with_context(&Context::default(), id, arg, reader)
+			.await
+	}
+
+	async fn try_read_process_stderr(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> tg::Result<Option<impl AsyncRead + Send + 'static>> {
+		let context = Context::default();
+		self.try_read_process_stderr_with_context(&context, id, arg)
+			.await
+	}
+
+	async fn write_process_stderr(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> tg::Result<()> {
+		self.write_process_stderr_with_context(&Context::default(), id, arg, reader)
+			.await
+	}
 }
 
 impl tg::handle::Process for ServerWithContext {
@@ -515,5 +642,68 @@ impl tg::handle::Process for ServerWithContext {
 		arg: tg::process::touch::Arg,
 	) -> tg::Result<()> {
 		self.0.touch_process_with_context(&self.1, id, arg).await
+	}
+
+	async fn try_read_process_stdin(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> tg::Result<Option<impl AsyncRead + Send + 'static>> {
+		self.0
+			.try_read_process_stdin_with_context(&self.1, id, arg)
+			.await
+	}
+
+	async fn write_process_stdin(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> tg::Result<()> {
+		self.0
+			.write_process_stdin_with_context(&self.1, id, arg, reader)
+			.await
+	}
+
+	async fn try_read_process_stdout(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> tg::Result<Option<impl AsyncRead + Send + 'static>> {
+		self.0
+			.try_read_process_stdout_with_context(&self.1, id, arg)
+			.await
+	}
+
+	async fn write_process_stdout(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> tg::Result<()> {
+		self.0
+			.write_process_stdout_with_context(&self.1, id, arg, reader)
+			.await
+	}
+
+	async fn try_read_process_stderr(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> tg::Result<Option<impl AsyncRead + Send + 'static>> {
+		self.0
+			.try_read_process_stderr_with_context(&self.1, id, arg)
+			.await
+	}
+
+	async fn write_process_stderr(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> tg::Result<()> {
+		self.0
+			.write_process_stderr_with_context(&self.1, id, arg, reader)
+			.await
 	}
 }

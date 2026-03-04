@@ -8,37 +8,22 @@ mod either;
 mod ext;
 mod module;
 mod object;
-mod pipe;
 mod process;
-mod pty;
 mod remote;
 mod tag;
 mod user;
 mod watch;
 
 pub use self::{
-	ext::Ext, module::Module, object::Object, pipe::Pipe, process::Process, pty::Pty,
-	remote::Remote, tag::Tag, user::User, watch::Watch,
+	ext::Ext, module::Module, object::Object, process::Process, remote::Remote, tag::Tag,
+	user::User, watch::Watch,
 };
 
 pub mod dynamic;
 pub mod erased;
 
 pub trait Handle:
-	Module
-	+ Object
-	+ Process
-	+ Pipe
-	+ Pty
-	+ Remote
-	+ Tag
-	+ User
-	+ Watch
-	+ Clone
-	+ Unpin
-	+ Send
-	+ Sync
-	+ 'static
+	Module + Object + Process + Remote + Tag + User + Watch + Clone + Unpin + Send + Sync + 'static
 {
 	fn cache(
 		&self,

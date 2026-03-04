@@ -117,10 +117,7 @@ impl Server {
 					.map(tg::Diagnostic::to_data)
 					.collect()
 			}),
-			pipes: include_pipes
-				.then(|| self.pipes.iter().map(|entry| entry.key().clone()).collect()),
 			processes,
-			ptys: include_ptys.then(|| self.ptys.iter().map(|entry| entry.key().clone()).collect()),
 			version: include_version.then(|| self.version.clone()),
 		};
 

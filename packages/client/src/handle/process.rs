@@ -1,4 +1,4 @@
-use {crate::prelude::*, futures::Stream};
+use {crate::prelude::*, futures::Stream, tokio::io::AsyncRead};
 
 pub trait Process: Clone + Unpin + Send + Sync + 'static {
 	fn list_processes(
@@ -124,6 +124,45 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::touch::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn try_read_process_stdin(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> impl Future<Output = tg::Result<Option<impl AsyncRead + Send + 'static>>> + Send;
+
+	fn write_process_stdin(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn try_read_process_stdout(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> impl Future<Output = tg::Result<Option<impl AsyncRead + Send + 'static>>> + Send;
+
+	fn write_process_stdout(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn try_read_process_stderr(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> impl Future<Output = tg::Result<Option<impl AsyncRead + Send + 'static>>> + Send;
+
+	fn write_process_stderr(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn try_wait_process_future(
@@ -311,5 +350,56 @@ impl tg::handle::Process for tg::Client {
 		arg: tg::process::touch::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.touch_process(id, arg)
+	}
+
+	fn try_read_process_stdin(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> impl Future<Output = tg::Result<Option<impl AsyncRead + Send + 'static>>> {
+		self.try_read_process_stdin(id, arg)
+	}
+
+	fn write_process_stdin(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.write_process_stdin(id, arg, reader)
+	}
+
+	fn try_read_process_stdout(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> impl Future<Output = tg::Result<Option<impl AsyncRead + Send + 'static>>> {
+		self.try_read_process_stdout(id, arg)
+	}
+
+	fn write_process_stdout(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.write_process_stdout(id, arg, reader)
+	}
+
+	fn try_read_process_stderr(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> impl Future<Output = tg::Result<Option<impl AsyncRead + Send + 'static>>> {
+		self.try_read_process_stderr(id, arg)
+	}
+
+	fn write_process_stderr(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.write_process_stderr(id, arg, reader)
 	}
 }

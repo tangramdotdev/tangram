@@ -1,12 +1,12 @@
 use {
 	crate::{
-		Acker, BatchConfig, ConsumerConfig, ConsumerInfo, DeliverPolicy, DiscardPolicy, Error,
-		Message, Payload, RetentionPolicy, StreamConfig, StreamInfo,
+		AckPolicy, Acker, BatchConfig, ConsumerConfig, ConsumerInfo, DeliverPolicy, DiscardPolicy,
+		Error, Message, Payload, RetentionPolicy, StreamConfig, StreamInfo,
 	},
 	async_nats as nats,
 	futures::{FutureExt as _, TryFutureExt as _, prelude::*, stream::FuturesOrdered},
 	num::ToPrimitive as _,
-	std::future::IntoFuture,
+	std::{error::Error as _, future::IntoFuture},
 };
 
 #[derive(Clone)]
@@ -182,42 +182,44 @@ impl Messenger {
 
 	async fn stream_publish<T>(
 		&self,
-		name: String,
+		_stream: String,
+		subject: String,
 		payload: T,
 	) -> Result<impl Future<Output = Result<u64, Error>>, Error>
 	where
 		T: Payload,
 	{
-		let name = self.subject_name(name);
+		let subject = self.subject_name(subject);
 		let bytes = payload.serialize()?;
 		let future = self
 			.jetstream
-			.publish(name, bytes)
+			.publish(subject, bytes)
 			.await
-			.map_err(Error::other)?
+			.map_err(Self::map_publish_error)?
 			.into_future()
 			.map_ok(|ack| ack.sequence)
-			.map_err(Error::other);
+			.map_err(Self::map_publish_error);
 		Ok(future)
 	}
 
 	async fn stream_batch_publish<T>(
 		&self,
-		name: String,
+		_stream: String,
+		subject: String,
 		payloads: Vec<T>,
 	) -> Result<impl Future<Output = Result<Vec<u64>, Error>>, Error>
 	where
 		T: Payload,
 	{
-		let name = self.subject_name(name);
+		let subject = self.subject_name(subject);
 		let mut futures = Vec::new();
 		for payload in payloads {
 			let bytes = payload.serialize()?;
 			let future = self
 				.jetstream
-				.publish(name.clone(), bytes)
+				.publish(subject.clone(), bytes)
 				.await
-				.map_err(Error::other)?;
+				.map_err(Self::map_publish_error)?;
 			futures.push(future);
 		}
 		Ok(futures
@@ -225,8 +227,35 @@ impl Messenger {
 			.map(IntoFuture::into_future)
 			.collect::<FuturesOrdered<_>>()
 			.map_ok(|ack| ack.sequence)
-			.map_err(Error::other)
+			.map_err(Self::map_publish_error)
 			.try_collect::<Vec<_>>())
+	}
+
+	fn map_publish_error(error: nats::jetstream::context::PublishError) -> Error {
+		if let Some(error) = error
+			.source()
+			.and_then(|source| source.downcast_ref::<nats::jetstream::Error>())
+		{
+			match error.error_code() {
+				nats::jetstream::ErrorCode::STREAM_LIMITS => {
+					let description = error.to_string().to_ascii_lowercase();
+					if description.contains("max message")
+						|| description.contains("maximum messages")
+					{
+						return Error::MaxMessages;
+					}
+					if description.contains("max byte") || description.contains("maximum bytes") {
+						return Error::MaxBytes;
+					}
+					return Error::PublishFailed;
+				},
+				nats::jetstream::ErrorCode::STREAM_MESSAGE_EXCEEDS_MAXIMUM => {
+					return Error::MaxBytes;
+				},
+				_ => (),
+			}
+		}
+		Error::other(error)
 	}
 
 	fn subject_name(&self, name: String) -> String {
@@ -270,7 +299,7 @@ impl Stream {
 
 	async fn create_consumer(
 		&self,
-		name: String,
+		name: Option<String>,
 		config: ConsumerConfig,
 	) -> Result<Consumer, Error> {
 		let config = Self::consumer_config(name, &config);
@@ -285,10 +314,13 @@ impl Stream {
 
 	async fn get_or_create_consumer(
 		&self,
-		name: String,
+		name: Option<String>,
 		config: ConsumerConfig,
 	) -> Result<Consumer, Error> {
-		let config = Self::consumer_config(name.clone(), &config);
+		let name = name
+			.or_else(|| config.durable_name.clone())
+			.ok_or_else(|| Error::other("expected a durable consumer name"))?;
+		let config = Self::consumer_config(Some(name.clone()), &config);
 		let consumer = self
 			.stream
 			.get_or_create_consumer(&name, config)
@@ -299,16 +331,22 @@ impl Stream {
 	}
 
 	fn consumer_config(
-		name: String,
+		name: Option<String>,
 		config: &ConsumerConfig,
 	) -> async_nats::jetstream::consumer::pull::Config {
-		let deliver_policy = match config.deliver {
+		let deliver_policy = match config.deliver_policy {
 			DeliverPolicy::All => nats::jetstream::consumer::DeliverPolicy::All,
 			DeliverPolicy::New => nats::jetstream::consumer::DeliverPolicy::New,
 		};
+		let ack_policy = match config.ack_policy {
+			AckPolicy::Explicit => nats::jetstream::consumer::AckPolicy::Explicit,
+			AckPolicy::None => nats::jetstream::consumer::AckPolicy::None,
+		};
 		nats::jetstream::consumer::pull::Config {
+			ack_policy,
 			deliver_policy,
-			durable_name: Some(name),
+			durable_name: config.durable_name.clone().or(name),
+			filter_subject: config.filter_subject.clone().unwrap_or_default(),
 			..Default::default()
 		}
 	}
@@ -471,24 +509,26 @@ impl crate::Messenger for Messenger {
 
 	async fn stream_publish<T>(
 		&self,
-		name: String,
+		stream: String,
+		subject: String,
 		payload: T,
 	) -> Result<impl Future<Output = Result<u64, Error>>, Error>
 	where
 		T: Payload,
 	{
-		self.stream_publish(name, payload).await
+		self.stream_publish(stream, subject, payload).await
 	}
 
 	async fn stream_batch_publish<T>(
 		&self,
-		name: String,
+		stream: String,
+		subject: String,
 		payloads: Vec<T>,
 	) -> Result<impl Future<Output = Result<Vec<u64>, Error>>, Error>
 	where
 		T: Payload,
 	{
-		self.stream_batch_publish(name, payloads).await
+		self.stream_batch_publish(stream, subject, payloads).await
 	}
 }
 
@@ -505,7 +545,7 @@ impl crate::Stream for Stream {
 
 	async fn create_consumer(
 		&self,
-		name: String,
+		name: Option<String>,
 		config: ConsumerConfig,
 	) -> Result<Self::Consumer, Error> {
 		self.create_consumer(name, config).await
@@ -513,7 +553,7 @@ impl crate::Stream for Stream {
 
 	async fn get_or_create_consumer(
 		&self,
-		name: String,
+		name: Option<String>,
 		config: ConsumerConfig,
 	) -> Result<Self::Consumer, Error> {
 		self.get_or_create_consumer(name, config).await

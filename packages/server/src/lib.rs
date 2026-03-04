@@ -1,7 +1,6 @@
 use {
 	self::{
-		context::Context, database::Database, index::Index, messenger::Messenger, pipe::Pipe,
-		pty::Pty, store::Store,
+		context::Context, database::Database, index::Index, messenger::Messenger, store::Store,
 	},
 	crate::{temp::Temp, watch::Watch},
 	dashmap::{DashMap, DashSet},
@@ -43,9 +42,7 @@ mod lsp;
 mod messenger;
 mod module;
 mod object;
-mod pipe;
 mod process;
-mod pty;
 mod pull;
 mod push;
 mod read;
@@ -94,11 +91,9 @@ pub struct State {
 	lock: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	path: PathBuf,
-	pipes: DashMap<tg::pipe::Id, Pipe, tg::id::BuildHasher>,
 	process_permits: ProcessPermits,
 	process_semaphore: Arc<tokio::sync::Semaphore>,
 	process_tasks: ProcessTasks,
-	ptys: DashMap<tg::pty::Id, Pty, tg::id::BuildHasher>,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	remote_get_object_tasks: RemoteGetObjectTasks,
 	remote_list_tags_tasks: RemoteListTagsTasks,
@@ -457,10 +452,13 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the finalize stream"))?;
 			let consumer_config = tangram_messenger::ConsumerConfig {
-				deliver: tangram_messenger::DeliverPolicy::All,
+				deliver_policy: tangram_messenger::DeliverPolicy::All,
+				ack_policy: tangram_messenger::AckPolicy::Explicit,
+				durable_name: None,
+				filter_subject: None,
 			};
 			stream
-				.create_consumer("finalize".to_owned(), consumer_config)
+				.create_consumer(Some("finalize".to_owned()), consumer_config)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the finalize consumer"))?;
 		}
@@ -478,17 +476,16 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the queue stream"))?;
 			let consumer_config = tangram_messenger::ConsumerConfig {
-				deliver: tangram_messenger::DeliverPolicy::All,
+				deliver_policy: tangram_messenger::DeliverPolicy::All,
+				ack_policy: tangram_messenger::AckPolicy::Explicit,
+				durable_name: None,
+				filter_subject: None,
 			};
 			stream
-				.create_consumer("queue".to_owned(), consumer_config)
+				.create_consumer(Some("queue".to_owned()), consumer_config)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the queue consumer"))?;
 		}
-
-		// Create the pipes and ptys.
-		let pipes = DashMap::default();
-		let ptys = DashMap::default();
 
 		// Create the remotes.
 		let remotes = DashMap::default();
@@ -566,11 +563,9 @@ impl Server {
 			lock,
 			messenger,
 			path,
-			pipes,
 			process_permits,
 			process_semaphore,
 			process_tasks,
-			ptys,
 			remotes,
 			remote_get_object_tasks,
 			remote_list_tags_tasks,
@@ -840,20 +835,6 @@ impl Server {
 					}
 				}
 				tracing::trace!("process tasks");
-
-				// Close all PTYs.
-				let pty_ids = server
-					.ptys
-					.iter()
-					.map(|r| r.key().clone())
-					.collect::<Vec<_>>();
-				for pty in pty_ids {
-					server
-						.close_pty(&pty, tg::pty::close::Arg::default())
-						.await
-						.ok();
-				}
-				tracing::trace!("close ptys");
 
 				// Stop the HTTP task.
 				if let Some(task) = http_task {

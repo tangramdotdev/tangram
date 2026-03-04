@@ -2,26 +2,23 @@ use {
 	crate::{
 		ProcessPermit, Server,
 		context::{Context, PathMap},
-		run::util::{
-			cache_children, render_args_dash_a, render_args_string, render_env, signal_task,
-			stdio_task,
-		},
 		temp::Temp,
 	},
-	futures::{FutureExt as _, TryFutureExt as _, future},
+	futures::{FutureExt as _, TryFutureExt as _, TryStreamExt as _, future},
+	num::ToPrimitive as _,
 	std::{
-		collections::BTreeSet,
-		os::fd::{AsFd as _, AsRawFd as _},
-		path::PathBuf,
+		collections::{BTreeMap, BTreeSet},
+		path::{Path, PathBuf},
 		sync::Arc,
 		time::Duration,
 	},
 	tangram_client::prelude::*,
-	tangram_futures::{read::Ext as _, stream::TryExt as _, task::Task, write::Ext as _},
+	tangram_futures::{read::Ext as _, stream::TryExt as _, task::Task},
+	tokio::io::AsyncReadExt as _,
+	tokio_util::io::ReaderStream,
 };
 
 mod progress;
-mod util;
 
 #[derive(Clone, Debug)]
 pub struct Output {
@@ -191,7 +188,7 @@ impl Server {
 				.push(arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to push the output"))?;
-			self.log_progress_stream(process, stream)
+			self.write_progress_stream(process, stream)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to log the progress stream"))?;
 		}
@@ -281,7 +278,7 @@ impl Server {
 		}
 
 		// Cache the process's children.
-		cache_children(self, process)
+		self.cache_children(process)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to cache the children"))?;
 
@@ -455,143 +452,28 @@ impl Server {
 		});
 		let serve_task = Some((serve_task, guest_uri));
 
-		let pty = None
-			.or_else(|| {
-				state.stdin.as_ref().and_then(|stdio| match stdio {
-					tg::process::Stdio::Pty(id) => Some(id),
-					tg::process::Stdio::Pipe(_) => None,
-				})
-			})
-			.or_else(|| {
-				state.stdout.as_ref().and_then(|stdio| match stdio {
-					tg::process::Stdio::Pty(id) => Some(id),
-					tg::process::Stdio::Pipe(_) => None,
-				})
-			})
-			.or_else(|| {
-				state.stderr.as_ref().and_then(|stdio| match stdio {
-					tg::process::Stdio::Pty(id) => Some(id),
-					tg::process::Stdio::Pipe(_) => None,
-				})
-			});
+		let stdin_mode = state.stdin.unwrap_or(tg::process::Stdio::Null);
+		if matches!(stdin_mode, tg::process::Stdio::Log) {
+			return Err(tg::error!("invalid stdin stdio mode"));
+		}
+		let stdout_mode = state.stdout.unwrap_or(tg::process::Stdio::Null);
+		let stderr_mode = state.stderr.unwrap_or(tg::process::Stdio::Null);
 
-		let mut fds = Vec::new();
-
-		// Handle stdin.
-		let (stdin, stdin_writer) = if command.stdin.is_some() {
-			let (sender, receiver) = tokio::net::unix::pipe::pipe()
-				.map_err(|source| tg::error!(!source, "failed to create a pipe for stdin"))?;
-			let sender = sender.boxed();
-			let fd = receiver
-				.into_blocking_fd()
-				.map_err(|source| tg::error!(!source, "failed to get the fd from the pipe"))?;
-			let stdin = Some(fd.as_raw_fd());
-			fds.push(fd);
-			(stdin, Some(sender))
-		} else {
-			match state.stdin.as_ref() {
-				Some(tg::process::Stdio::Pipe(pipe)) => {
-					let pipe = self
-						.pipes
-						.get(pipe)
-						.ok_or_else(|| tg::error!("failed to find the pipe"))?;
-					let fd = pipe
-						.receiver
-						.as_fd()
-						.try_clone_to_owned()
-						.map_err(|source| tg::error!(!source, "failed to clone the receiver"))?;
-					let receiver = tokio::net::unix::pipe::Receiver::from_owned_fd_unchecked(fd)
-						.map_err(|source| tg::error!(!source, "io error"))?;
-					let fd = receiver.into_blocking_fd().map_err(|source| {
-						tg::error!(!source, "failed to get the fd from the pipe")
-					})?;
-					let stdin = Some(fd.as_raw_fd());
-					fds.push(fd);
-					(stdin, None)
-				},
-				Some(tg::process::Stdio::Pty(pty)) => {
-					todo!()
-				},
-				None => (None, None),
-			}
+		let stdin = match stdin_mode {
+			tg::process::Stdio::Null => tangram_sandbox::Stdio::Null,
+			tg::process::Stdio::Pipe => tangram_sandbox::Stdio::Pipe,
+			tg::process::Stdio::Pty => tangram_sandbox::Stdio::Pty,
+			tg::process::Stdio::Log => unreachable!(),
 		};
-
-		// Handle stdout.
-		let (stdout, stdout_reader) = match state.stdout.as_ref() {
-			Some(tg::process::Stdio::Pipe(pipe)) => {
-				let pipe = self
-					.pipes
-					.get(pipe)
-					.ok_or_else(|| tg::error!("failed to find the pipe"))?;
-				let fd = pipe
-					.sender
-					.as_ref()
-					.ok_or_else(|| tg::error!("the pipe is closed"))?
-					.as_fd()
-					.try_clone_to_owned()
-					.map_err(|source| tg::error!(!source, "failed to clone the sender"))?;
-				let sender = tokio::net::unix::pipe::Sender::from_owned_fd_unchecked(fd)
-					.map_err(|source| tg::error!(!source, "io error"))?;
-				let fd = sender
-					.into_blocking_fd()
-					.map_err(|source| tg::error!(!source, "failed to get the fd from the pipe"))?;
-				let stdout = fd.as_raw_fd();
-				fds.push(fd);
-				(stdout, None)
-			},
-			Some(tg::process::Stdio::Pty(_)) => {
-				todo!()
-			},
-			None => {
-				let (sender, receiver) = tokio::net::unix::pipe::pipe()
-					.map_err(|source| tg::error!(!source, "failed to create a pipe for stdout"))?;
-				let fd = sender
-					.into_blocking_fd()
-					.map_err(|source| tg::error!(!source, "failed to get the fd from the pipe"))?;
-				let stdout = fd.as_raw_fd();
-				fds.push(fd);
-				let receiver = receiver.boxed();
-				(stdout, Some(receiver))
-			},
+		let stdout = match stdout_mode {
+			tg::process::Stdio::Null => tangram_sandbox::Stdio::Null,
+			tg::process::Stdio::Log | tg::process::Stdio::Pipe => tangram_sandbox::Stdio::Pipe,
+			tg::process::Stdio::Pty => tangram_sandbox::Stdio::Pty,
 		};
-
-		// Handle stderr.
-		let (stderr, stderr_reader) = match state.stderr.as_ref() {
-			Some(tg::process::Stdio::Pipe(pipe)) => {
-				let pipe = self
-					.pipes
-					.get(pipe)
-					.ok_or_else(|| tg::error!("failed to find the pipe"))?;
-				let fd = pipe
-					.sender
-					.as_ref()
-					.ok_or_else(|| tg::error!("the pipe is closed"))?
-					.as_fd()
-					.try_clone_to_owned()
-					.map_err(|source| tg::error!(!source, "failed to clone the sender"))?;
-				let sender = tokio::net::unix::pipe::Sender::from_owned_fd_unchecked(fd)
-					.map_err(|source| tg::error!(!source, "io error"))?;
-				let fd = sender
-					.into_blocking_fd()
-					.map_err(|source| tg::error!(!source, "failed to get the fd from the pipe"))?;
-				let stderr = fd.as_raw_fd();
-				fds.push(fd);
-				(stderr, None)
-			},
-			Some(tg::process::Stdio::Pty(_)) => {
-				todo!()
-			},
-			None => {
-				let (sender, receiver) = tokio::net::unix::pipe::pipe()
-					.map_err(|source| tg::error!(!source, "failed to create a pipe for stderr"))?;
-				let fd = sender
-					.into_blocking_fd()
-					.map_err(|source| tg::error!(!source, "failed to get the fd from the pipe"))?;
-				let stderr = fd.as_raw_fd();
-				fds.push(fd);
-				let receiver = receiver.boxed();
-				(stderr, Some(receiver))
-			},
+		let stderr = match stderr_mode {
+			tg::process::Stdio::Null => tangram_sandbox::Stdio::Null,
+			tg::process::Stdio::Log | tg::process::Stdio::Pipe => tangram_sandbox::Stdio::Pipe,
+			tg::process::Stdio::Pty => tangram_sandbox::Stdio::Pty,
 		};
 
 		// Create the sandbox.
@@ -618,42 +500,75 @@ impl Server {
 			cwd,
 			env,
 			executable,
-			stdin: if stdin.is_some() {
-				tangram_sandbox::Stdio::Pipe
-			} else {
-				tangram_sandbox::Stdio::Null
-			},
-			stdout: tangram_sandbox::Stdio::Pipe,
-			stderr: tangram_sandbox::Stdio::Pipe,
+			stdin,
+			stdout,
+			stderr,
 		};
 		let sandbox_process = sandbox.spawn(sandbox_command, None).await.map_err(
 			|source| tg::error!(!source, %id, "failed to spawn the process in the sandbox"),
 		)?;
 		let sandbox_process = Arc::new(sandbox_process);
 
-		// Drop the FDs.
-		drop(fds);
-
-		// Spawn the stdio task.
-		let stdio_task = tokio::spawn({
+		let _stdin_task = Task::spawn({
 			let server = self.clone();
+			let sandbox = sandbox.clone();
+			let sandbox_process = sandbox_process.clone();
 			let id = id.clone();
-			let remote = remote.cloned();
 			let stdin_blob = command.stdin.clone().map(tg::Blob::with_id);
-			async move {
-				stdio_task(
-					&server,
-					&id,
-					remote.as_ref(),
-					stdin_blob,
-					stdin_writer,
-					stdout_reader,
-					stderr_reader,
-				)
-				.await?;
-				Ok::<_, tg::Error>(())
+			|_| async move {
+				server
+					.stdin_task(&sandbox, &sandbox_process, &id, stdin_mode, stdin_blob)
+					.await
 			}
 		});
+
+		let stdout_task = if matches!(stdout_mode, tg::process::Stdio::Null) {
+			None
+		} else {
+			Some(Task::spawn({
+				let server = self.clone();
+				let sandbox = sandbox.clone();
+				let sandbox_process = sandbox_process.clone();
+				let id = id.clone();
+				let remote = remote.cloned();
+				|_| async move {
+					server
+						.stdout_stderr_task(
+							&sandbox,
+							&sandbox_process,
+							&id,
+							remote,
+							stdout_mode,
+							tg::process::stdio::Stream::Stdout,
+						)
+						.await
+				}
+			}))
+		};
+
+		let stderr_task = if matches!(stderr_mode, tg::process::Stdio::Null) {
+			None
+		} else {
+			Some(Task::spawn({
+				let server = self.clone();
+				let sandbox = sandbox.clone();
+				let sandbox_process = sandbox_process.clone();
+				let id = id.clone();
+				let remote = remote.cloned();
+				|_| async move {
+					server
+						.stdout_stderr_task(
+							&sandbox,
+							&sandbox_process,
+							&id,
+							remote,
+							stderr_mode,
+							tg::process::stdio::Stream::Stderr,
+						)
+						.await
+				}
+			}))
+		};
 
 		// Spawn the signal task.
 		let signal_task = tokio::spawn({
@@ -663,7 +578,8 @@ impl Server {
 			let id = id.clone();
 			let remote = remote.cloned();
 			async move {
-				signal_task(&server, &sandbox, &sandbox_process, &id, remote.as_ref())
+				server
+					.signal_task(&sandbox, &sandbox_process, &id, remote.as_ref())
 					.await
 					.inspect_err(|source| tracing::error!(?source, "the signal task failed"))
 					.ok();
@@ -679,10 +595,21 @@ impl Server {
 		// Abort the signal task.
 		signal_task.abort();
 
-		// Await the stdio task.
-		stdio_task
-			.await
-			.map_err(|source| tg::error!(!source, "the stdio task panicked"))??;
+		// Await the stdout and stderr tasks.
+		if let Some(stdout_task) = stdout_task {
+			stdout_task
+				.wait()
+				.await
+				.map_err(|source| tg::error!(!source, "the stdout task panicked"))?
+				.map_err(|source| tg::error!(!source, "failed to send stdout"))?;
+		}
+		if let Some(stderr_task) = stderr_task {
+			stderr_task
+				.wait()
+				.await
+				.map_err(|source| tg::error!(!source, "the stderr task panicked"))?
+				.map_err(|source| tg::error!(!source, "failed to send stderr"))?;
+		}
 
 		// Stop and await the serve task.
 		if let Some((task, _)) = serve_task {
@@ -788,5 +715,302 @@ impl Server {
 				"cannot checksum a value that is not a blob or an artifact"
 			))
 		}
+	}
+}
+
+impl Server {
+	async fn cache_children(&self, process: &tg::Process) -> tg::Result<()> {
+		// Do nothing if the VFS is enabled.
+		if self.vfs.lock().unwrap().is_some() {
+			return Ok(());
+		}
+
+		// Get the process's command's children that are artifacts.
+		let artifacts: Vec<tg::artifact::Id> = process
+			.command(self)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the command"))?
+			.children(self)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the command's children"))?
+			.into_iter()
+			.filter_map(|object| object.id().try_into().ok())
+			.collect::<Vec<_>>();
+
+		// Check out the artifacts.
+		let arg = tg::cache::Arg { artifacts };
+		let stream = self
+			.cache(arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to cache the artifacts"))?;
+
+		// Write progress.
+		self.write_progress_stream(process, stream)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to log the progress stream"))?;
+
+		Ok(())
+	}
+
+	async fn signal_task(
+		&self,
+		sandbox: &tangram_sandbox::Sandbox,
+		sandbox_process: &tangram_sandbox::Process,
+		id: &tg::process::Id,
+		remote: Option<&String>,
+	) -> tg::Result<()> {
+		// Get the signal stream for the process.
+		let arg = tg::process::signal::get::Arg {
+			local: None,
+			remotes: remote.map(|r| vec![r.clone()]),
+		};
+		let mut stream = self
+			.try_get_process_signal_stream(id, arg)
+			.await
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					process = %id,
+					"failed to get the process's signal stream"
+				)
+			})?
+			.ok_or_else(
+				|| tg::error!(process = %id, "expected the process's signal stream to exist"),
+			)?;
+
+		// Handle the events.
+		while let Some(event) = stream.try_next().await.map_err(
+			|source| tg::error!(!source, process = %id, "failed to get the next signal event"),
+		)? {
+			match event {
+				tg::process::signal::get::Event::Signal(signal) => {
+					sandbox
+						.kill(sandbox_process, signal)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to signal the process"))?;
+				},
+				tg::process::signal::get::Event::End => break,
+			}
+		}
+
+		Ok(())
+	}
+
+	async fn stdout_stderr_task(
+		&self,
+		sandbox: &tangram_sandbox::Sandbox,
+		sandbox_process: &tangram_sandbox::Process,
+		id: &tg::process::Id,
+		remote: Option<String>,
+		stdio_mode: tg::process::Stdio,
+		stdio_stream: tg::process::stdio::Stream,
+	) -> tg::Result<()> {
+		let reader = match stdio_stream {
+			tg::process::stdio::Stream::Stdout => sandbox.stdout(sandbox_process).await,
+			tg::process::stdio::Stream::Stderr => sandbox.stderr(sandbox_process).await,
+			tg::process::stdio::Stream::Stdin => unreachable!(),
+		}
+		.map_err(|source| {
+			tg::error!(
+				!source,
+				%stdio_stream,
+				"failed to read process stdio from sandbox"
+			)
+		})?;
+		match stdio_mode {
+			tg::process::Stdio::Null => (),
+			tg::process::Stdio::Log => {
+				let log_stream = match stdio_stream {
+					tg::process::stdio::Stream::Stdout => tg::process::log::Stream::Stdout,
+					tg::process::stdio::Stream::Stderr => tg::process::log::Stream::Stderr,
+					tg::process::stdio::Stream::Stdin => unreachable!(),
+				};
+				let stream = ReaderStream::new(reader).map_err(
+					|source| tg::error!(!source, %stdio_stream, "failed to read process stdio"),
+				);
+				let mut stream = std::pin::pin!(stream);
+				while let Some(bytes) = stream.try_next().await.map_err(
+					|source| tg::error!(!source, %stdio_stream, "failed to read process stdio stream"),
+				)? {
+					let arg = tg::process::log::post::Arg {
+						bytes,
+						local: None,
+						remotes: remote.clone().map(|remote| vec![remote]),
+						stream: log_stream,
+					};
+					self.post_process_log(id, arg).await.map_err(
+						|source| tg::error!(!source, %stdio_stream, "failed to post process stdio log"),
+					)?;
+				}
+			},
+			tg::process::Stdio::Pipe | tg::process::Stdio::Pty => {
+				let arg = tg::process::stdio::Arg {
+					local: None,
+					remotes: remote.clone().map(|remote| vec![remote]),
+				};
+				match stdio_stream {
+					tg::process::stdio::Stream::Stdout => {
+						self.write_process_stdout(id, arg, reader).await
+					},
+					tg::process::stdio::Stream::Stderr => {
+						self.write_process_stderr(id, arg, reader).await
+					},
+					tg::process::stdio::Stream::Stdin => unreachable!(),
+				}
+				.map_err(
+					|source| tg::error!(!source, %stdio_stream, "failed to forward process stdio"),
+				)?;
+			},
+		}
+		Ok(())
+	}
+
+	async fn stdin_task(
+		&self,
+		sandbox: &tangram_sandbox::Sandbox,
+		sandbox_process: &tangram_sandbox::Process,
+		id: &tg::process::Id,
+		stdin_mode: tg::process::Stdio,
+		stdin_blob: Option<tg::Blob>,
+	) -> tg::Result<()> {
+		let blob_reader = if let Some(blob) = stdin_blob {
+			Some(
+				blob.read(self, tg::read::Options::default())
+					.await
+					.map(|reader| Box::pin(reader) as tangram_futures::BoxAsyncRead<'static>)
+					.map_err(|source| tg::error!(!source, "failed to read process stdin blob"))?,
+			)
+		} else {
+			None
+		};
+		let stdin_reader = if matches!(
+			stdin_mode,
+			tg::process::Stdio::Pipe | tg::process::Stdio::Pty
+		) {
+			self.try_read_process_stdin(id, tg::process::stdio::Arg::default())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to read process stdin stream"))?
+				.map(|reader| Box::pin(reader) as tangram_futures::BoxAsyncRead<'static>)
+		} else {
+			None
+		};
+		let reader = match (blob_reader, stdin_reader) {
+			(Some(blob_reader), Some(stdin_reader)) => {
+				Some(blob_reader.chain(stdin_reader).boxed())
+			},
+			(Some(blob_reader), None) => Some(blob_reader),
+			(None, Some(stdin_reader)) => Some(stdin_reader),
+			(None, None) => None,
+		};
+		if let Some(reader) = reader {
+			sandbox
+				.stdin(sandbox_process, reader)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to forward process stdin"))?;
+		}
+		Ok(())
+	}
+}
+
+fn render_args_string(
+	args: &[tg::value::Data],
+	artifacts_path: &Path,
+	output_path: &Path,
+) -> tg::Result<Vec<String>> {
+	args.iter()
+		.map(|value| render_value_string(value, artifacts_path, output_path))
+		.collect::<tg::Result<Vec<_>>>()
+}
+
+fn render_args_dash_a(args: &[tg::value::Data]) -> Vec<String> {
+	args.iter()
+		.flat_map(|value| {
+			let value = tg::Value::try_from_data(value.clone()).unwrap().to_string();
+			["-A".to_owned(), value]
+		})
+		.collect::<Vec<_>>()
+}
+
+fn render_env(
+	env: &tg::value::data::Map,
+	artifacts_path: &Path,
+	output_path: &Path,
+) -> tg::Result<BTreeMap<String, String>> {
+	let mut output = BTreeMap::new();
+	for (key, value) in env {
+		let mutation = match value {
+			tg::value::Data::Mutation(value) => value.clone(),
+			value => tg::mutation::Data::Set {
+				value: Box::new(value.clone()),
+			},
+		};
+		mutation.apply(&mut output, key)?;
+	}
+	let output = output
+		.iter()
+		.map(|(key, value)| {
+			let key = key.clone();
+			let value = render_value_string(value, artifacts_path, output_path)?;
+			Ok::<_, tg::Error>((key, value))
+		})
+		.collect::<tg::Result<_>>()?;
+	Ok(output)
+}
+
+fn render_value_string(
+	value: &tg::value::Data,
+	artifacts_path: &Path,
+	output_path: &Path,
+) -> tg::Result<String> {
+	match value {
+		tg::value::Data::String(string) => Ok(string.clone()),
+		tg::value::Data::Template(template) => template.try_render(|component| match component {
+			tg::template::data::Component::String(string) => Ok(string.clone().into()),
+			tg::template::data::Component::Artifact(artifact) => Ok(artifacts_path
+				.join(artifact.to_string())
+				.to_str()
+				.unwrap()
+				.to_owned()
+				.into()),
+			tg::template::data::Component::Placeholder(placeholder) => {
+				if placeholder.name == "output" {
+					Ok(output_path.to_str().unwrap().to_owned().into())
+				} else {
+					Err(tg::error!(
+						name = %placeholder.name,
+						"invalid placeholder"
+					))
+				}
+			},
+		}),
+		tg::value::Data::Placeholder(placeholder) => {
+			if placeholder.name == "output" {
+				Ok(output_path.to_str().unwrap().to_owned())
+			} else {
+				Err(tg::error!(
+					name = %placeholder.name,
+					"invalid placeholder"
+				))
+			}
+		},
+		_ => Ok(tg::Value::try_from_data(value.clone()).unwrap().to_string()),
+	}
+}
+
+fn signal_number(signal: tg::process::Signal) -> libc::c_int {
+	match signal {
+		tg::process::Signal::SIGABRT => libc::SIGABRT,
+		tg::process::Signal::SIGFPE => libc::SIGFPE,
+		tg::process::Signal::SIGILL => libc::SIGILL,
+		tg::process::Signal::SIGALRM => libc::SIGALRM,
+		tg::process::Signal::SIGHUP => libc::SIGHUP,
+		tg::process::Signal::SIGINT => libc::SIGINT,
+		tg::process::Signal::SIGKILL => libc::SIGKILL,
+		tg::process::Signal::SIGPIPE => libc::SIGPIPE,
+		tg::process::Signal::SIGQUIT => libc::SIGQUIT,
+		tg::process::Signal::SIGSEGV => libc::SIGSEGV,
+		tg::process::Signal::SIGTERM => libc::SIGTERM,
+		tg::process::Signal::SIGUSR1 => libc::SIGUSR1,
+		tg::process::Signal::SIGUSR2 => libc::SIGUSR2,
 	}
 }

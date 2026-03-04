@@ -38,7 +38,7 @@ pub struct Command {
 	pub stderr: Stdio,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Stdio {
 	Null,
 	Inherit,

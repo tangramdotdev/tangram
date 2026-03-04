@@ -196,7 +196,7 @@ impl Server {
 					id: output.id.clone(),
 				};
 				self.messenger
-					.stream_publish("queue".into(), payload)
+					.stream_publish("queue".into(), "queue".into(), payload)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to enqueue the process"))?
 					.await

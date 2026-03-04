@@ -22,13 +22,7 @@ pub struct Health {
 	pub diagnostics: Option<Vec<tg::diagnostic::Data>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub pipes: Option<Vec<tg::pipe::Id>>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub processes: Option<Processes>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub ptys: Option<Vec<tg::pty::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub version: Option<String>,
