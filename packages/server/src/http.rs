@@ -426,7 +426,7 @@ impl Server {
 				.handle_get_process_pty_size_request(request, &context, process)
 				.boxed(),
 			(http::Method::PUT, ["processes", process, "pty", "size"]) => self
-				.handle_put_process_pty_size_request(request, &context, process)
+				.handle_set_process_pty_size_request(request, &context, process)
 				.boxed(),
 			(http::Method::POST, ["processes", "dequeue"]) => self
 				.handle_dequeue_process_request(request, &context)

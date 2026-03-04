@@ -76,7 +76,7 @@ pub trait Process: Send + Sync + 'static {
 		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::pty::size::get::Event>>>>,
 	>;
 
-	fn put_process_pty_size<'a>(
+	fn set_process_pty_size<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::pty::size::put::Arg,
@@ -288,12 +288,12 @@ where
 			.boxed()
 	}
 
-	fn put_process_pty_size<'a>(
+	fn set_process_pty_size<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::pty::size::put::Arg,
 	) -> BoxFuture<'a, tg::Result<()>> {
-		self.put_process_pty_size(id, arg).boxed()
+		self.set_process_pty_size(id, arg).boxed()
 	}
 
 	fn try_dequeue_process(

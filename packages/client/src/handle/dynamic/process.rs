@@ -133,12 +133,12 @@ impl tg::handle::Process for Handle {
 		}
 	}
 
-	fn put_process_pty_size(
+	fn set_process_pty_size(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::pty::size::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.put_process_pty_size(id, arg)) }
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.set_process_pty_size(id, arg)) }
 	}
 
 	fn try_dequeue_process(

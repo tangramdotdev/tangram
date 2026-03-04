@@ -80,13 +80,13 @@ impl tg::handle::Process for Shared {
 			.await
 	}
 
-	async fn put_process_pty_size(
+	async fn set_process_pty_size(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::pty::size::put::Arg,
 	) -> tg::Result<()> {
 		self.0
-			.try_put_process_pty_size_with_context(&Context::default(), id, arg)
+			.try_set_process_pty_size_with_context(&Context::default(), id, arg)
 			.await
 	}
 
@@ -335,12 +335,12 @@ impl tg::handle::Process for Server {
 			.await
 	}
 
-	async fn put_process_pty_size(
+	async fn set_process_pty_size(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::pty::size::put::Arg,
 	) -> tg::Result<()> {
-		self.try_put_process_pty_size_with_context(&Context::default(), id, arg)
+		self.try_set_process_pty_size_with_context(&Context::default(), id, arg)
 			.await
 	}
 
