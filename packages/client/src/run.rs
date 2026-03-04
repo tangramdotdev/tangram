@@ -148,6 +148,7 @@ where
 		mounts: process_mounts,
 		network,
 		parent: arg.parent,
+		pty: None,
 		remotes: arg.remote.map(|r| vec![r]),
 		retry: arg.retry,
 		stderr,

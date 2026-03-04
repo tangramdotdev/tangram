@@ -84,7 +84,7 @@ impl Cli {
 				..Default::default()
 			};
 			let crate::process::spawn::Output { process, output } = self
-				.spawn(spawn, reference, vec![], None, None, None)
+				.spawn(spawn, reference, vec![], None, None, None, None)
 				.boxed()
 				.await?;
 
@@ -281,9 +281,18 @@ impl Cli {
 			.and_then(|remotes| remotes.into_iter().next());
 
 		// Create the stdio.
-		let stdio = stdio::Stdio::new(&handle, remote.clone(), &options)
+		let stdio = stdio::Stdio::new(remote.clone(), &options)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create stdio"))?;
+		let pty = stdio
+			.tty
+			.as_ref()
+			.map(|tty| {
+				let size = tty.get_size()?;
+				let pty = tg::process::pty::Pty { size };
+				Ok::<_, tg::Error>(pty)
+			})
+			.transpose()?;
 
 		let local = options.spawn.local.local;
 		let remotes = options.spawn.remotes.remotes.clone();
@@ -294,6 +303,7 @@ impl Cli {
 				options.spawn,
 				reference,
 				trailing,
+				pty,
 				stdio.stdin.clone(),
 				stdio.stdout.clone(),
 				stdio.stderr.clone(),
@@ -328,8 +338,13 @@ impl Cli {
 		// Spawn the stdio task.
 		let stdio_task = Task::spawn({
 			let handle = handle.clone();
+			let process = process.item().id().clone();
 			let stdio = stdio.clone();
-			|stop| async move { self::stdio::task(&handle, stop, stdio).boxed().await }
+			|stop| async move {
+				self::stdio::task(&handle, stop, process, stdio)
+					.boxed()
+					.await
+			}
 		});
 
 		// Spawn signal task.
@@ -362,17 +377,11 @@ impl Cli {
 				.map_err(|source| tg::error!(!source, "failed to await the process"))
 		};
 
-		// Close stdout and stderr.
-		stdio.close(&handle).await?;
-
 		// Stop and await the stdio task.
 		stdio_task.stop();
 
 		// Await the stdio task.
 		stdio_task.wait().await.unwrap()?;
-
-		// Delete stdio.
-		stdio.delete(&handle).await?;
 
 		// Abort the signal task.
 		signal_task.abort();

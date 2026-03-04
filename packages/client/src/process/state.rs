@@ -17,6 +17,7 @@ pub struct State {
 	pub mounts: Vec<tg::process::Mount>,
 	pub network: bool,
 	pub output: Option<tg::Value>,
+	pub pty: Option<tg::process::Pty>,
 	pub retry: bool,
 	pub started_at: Option<i64>,
 	pub status: tg::process::Status,
@@ -60,6 +61,7 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 		let output = value.output.map(tg::Value::try_from).transpose()?;
 		let retry = value.retry;
 		let started_at = value.started_at;
+		let pty = value.pty;
 		let status = value.status;
 		let stderr = value.stderr;
 		let stdin = value.stdin;
@@ -80,6 +82,7 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 			mounts,
 			network,
 			output,
+			pty,
 			retry,
 			started_at,
 			status,

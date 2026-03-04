@@ -10,7 +10,7 @@ use {
 };
 
 pub use self::{
-	data::Data, id::Id, metadata::Metadata, mount::Mount, signal::Signal, state::State,
+	data::Data, id::Id, metadata::Metadata, mount::Mount, pty::Pty, signal::Signal, state::State,
 	status::Status, stdio::Stdio, wait::Wait,
 };
 

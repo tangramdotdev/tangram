@@ -67,6 +67,21 @@ pub trait Process: Send + Sync + 'static {
 		arg: tg::process::cancel::Arg,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
+	fn try_get_process_pty_stream<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::pty::get::Arg,
+	) -> BoxFuture<
+		'a,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::pty::get::Event>>>>,
+	>;
+
+	fn put_process_pty<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::pty::put::Arg,
+	) -> BoxFuture<'a, tg::Result<()>>;
+
 	fn try_dequeue_process(
 		&self,
 		arg: tg::process::queue::Arg,
@@ -258,6 +273,27 @@ where
 		arg: tg::process::cancel::Arg,
 	) -> BoxFuture<'a, tg::Result<()>> {
 		self.cancel_process(id, arg).boxed()
+	}
+
+	fn try_get_process_pty_stream<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::pty::get::Arg,
+	) -> BoxFuture<
+		'a,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::pty::get::Event>>>>,
+	> {
+		self.try_get_process_pty_stream(id, arg)
+			.map_ok(|option| option.map(futures::StreamExt::boxed))
+			.boxed()
+	}
+
+	fn put_process_pty<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::pty::put::Arg,
+	) -> BoxFuture<'a, tg::Result<()>> {
+		self.put_process_pty(id, arg).boxed()
 	}
 
 	fn try_dequeue_process(

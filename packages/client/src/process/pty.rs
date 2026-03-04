@@ -1,5 +1,8 @@
 use crate as tg;
 
+pub mod get;
+pub mod put;
+
 #[derive(
 	Copy,
 	Clone,

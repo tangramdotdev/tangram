@@ -151,6 +151,40 @@ where
 		}
 	}
 
+	fn try_get_process_pty_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::pty::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::pty::get::Event>> + Send + 'static,
+			>,
+		>,
+	> {
+		match self {
+			tg::Either::Left(s) => s
+				.try_get_process_pty_stream(id, arg)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
+				.left_future(),
+			tg::Either::Right(s) => s
+				.try_get_process_pty_stream(id, arg)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
+				.right_future(),
+		}
+	}
+
+	fn put_process_pty(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::pty::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			tg::Either::Left(s) => s.put_process_pty(id, arg).left_future(),
+			tg::Either::Right(s) => s.put_process_pty(id, arg).right_future(),
+		}
+	}
+
 	fn try_dequeue_process(
 		&self,
 		arg: tg::process::queue::Arg,

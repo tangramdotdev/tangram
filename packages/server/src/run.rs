@@ -503,7 +503,7 @@ impl Server {
 			stdout,
 			stderr,
 		};
-		let sandbox_process = sandbox.spawn(sandbox_command, None).await.map_err(
+		let sandbox_process = sandbox.spawn(sandbox_command, state.pty).await.map_err(
 			|source| tg::error!(!source, %id, "failed to spawn the process in the sandbox"),
 		)?;
 		let sandbox_process = Arc::new(sandbox_process);
@@ -569,6 +569,26 @@ impl Server {
 			}))
 		};
 
+		// Spawn the pty task.
+		let pty_task = if state.pty.is_some() {
+			Some(tokio::spawn({
+				let server = self.clone();
+				let sandbox = sandbox.clone();
+				let sandbox_process = sandbox_process.clone();
+				let id = id.clone();
+				let remote = remote.cloned();
+				async move {
+					server
+						.pty_task(&sandbox, &sandbox_process, &id, remote.as_ref())
+						.await
+						.inspect_err(|source| tracing::error!(?source, "the pty task failed"))
+						.ok();
+				}
+			}))
+		} else {
+			None
+		};
+
 		// Spawn the signal task.
 		let signal_task = tokio::spawn({
 			let server = self.clone();
@@ -590,6 +610,11 @@ impl Server {
 			.wait(&sandbox_process)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to wait for the process"))?;
+
+		// Abort the pty task.
+		if let Some(pty_task) = pty_task {
+			pty_task.abort();
+		}
 
 		// Abort the signal task.
 		signal_task.abort();
@@ -747,6 +772,50 @@ impl Server {
 		self.write_progress_stream(process, stream)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to log the progress stream"))?;
+
+		Ok(())
+	}
+
+	async fn pty_task(
+		&self,
+		sandbox: &tangram_sandbox::Sandbox,
+		sandbox_process: &tangram_sandbox::Process,
+		id: &tg::process::Id,
+		remote: Option<&String>,
+	) -> tg::Result<()> {
+		// Get the signal stream for the process.
+		let arg = tg::process::pty::get::Arg {
+			local: None,
+			remotes: remote.map(|r| vec![r.clone()]),
+		};
+		let mut stream = self
+			.try_get_process_pty_stream(id, arg)
+			.await
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					process = %id,
+					"failed to get the process's pty stream"
+				)
+			})?
+			.ok_or_else(
+				|| tg::error!(process = %id, "expected the process's pty stream to exist"),
+			)?;
+
+		// Handle the events.
+		while let Some(event) = stream.try_next().await.map_err(
+			|source| tg::error!(!source, process = %id, "failed to get the next pty event"),
+		)? {
+			match event {
+				tg::process::pty::get::Event::Pty(pty) => {
+					sandbox
+						.set_pty_size(sandbox_process, pty.size)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to set the pty size"))?;
+				},
+				tg::process::pty::get::Event::End => break,
+			}
+		}
 
 		Ok(())
 	}

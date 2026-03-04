@@ -56,6 +56,7 @@ impl Server {
 		let mut mounts: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut networks: Vec<bool> = Vec::with_capacity(items.len());
 		let mut outputs: Vec<Option<String>> = Vec::with_capacity(items.len());
+		let mut ptys: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut retries: Vec<bool> = Vec::with_capacity(items.len());
 		let mut started_ats: Vec<Option<i64>> = Vec::with_capacity(items.len());
 		let mut statuses = Vec::with_capacity(items.len());
@@ -101,6 +102,11 @@ impl Server {
 					.as_ref()
 					.map(|output| serde_json::to_string(output).unwrap()),
 			);
+			ptys.push(
+				data.pty
+					.as_ref()
+					.map(|pty| serde_json::to_string(pty).unwrap()),
+			);
 			retries.push(data.retry);
 			started_ats.push(data.started_at);
 			statuses.push(data.status.to_string());
@@ -132,6 +138,7 @@ impl Server {
 					mounts,
 					network,
 					output,
+					pty,
 					retry,
 					started_at,
 					status,
@@ -159,14 +166,15 @@ impl Server {
 					unnest($15::text[]),
 					unnest($16::bool[]),
 					unnest($17::text[]),
-					unnest($18::bool[]),
-					unnest($19::int8[]),
-					unnest($20::text[]),
+					unnest($18::text[]),
+					unnest($19::bool[]),
+					unnest($20::int8[]),
 					unnest($21::text[]),
 					unnest($22::text[]),
 					unnest($23::text[]),
-					unnest($24::int8[]),
-					unnest($25::int8[])
+					unnest($24::text[]),
+					unnest($25::int8[]),
+					unnest($26::int8[])
 				on conflict (id) do update set
 					actual_checksum = excluded.actual_checksum,
 					cacheable = excluded.cacheable,
@@ -184,6 +192,7 @@ impl Server {
 					mounts = excluded.mounts,
 					network = excluded.network,
 					output = excluded.output,
+					pty = excluded.pty,
 					retry = excluded.retry,
 					started_at = excluded.started_at,
 					status = excluded.status,
@@ -215,6 +224,7 @@ impl Server {
 					&mounts,
 					&networks,
 					&outputs,
+					&ptys,
 					&retries,
 					&started_ats,
 					&statuses,

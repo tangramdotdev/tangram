@@ -202,6 +202,7 @@ impl Cli {
 				None,
 				None,
 				None,
+				None,
 			)
 			.boxed()
 			.await?;
@@ -218,6 +219,7 @@ impl Cli {
 		options: Options,
 		reference: tg::Reference,
 		trailing: Vec<String>,
+		pty: Option<tg::process::Pty>,
 		stdin: Option<tg::process::Stdio>,
 		stdout: Option<tg::process::Stdio>,
 		stderr: Option<tg::process::Stdio>,
@@ -503,6 +505,7 @@ impl Cli {
 			mounts,
 			network,
 			parent: None,
+			pty,
 			remotes: options.remotes.remotes.clone(),
 			retry,
 			stderr,

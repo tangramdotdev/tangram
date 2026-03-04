@@ -68,16 +68,9 @@ impl Network {
 impl Cli {
 	pub async fn command_sandbox(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
-			// Command::Create(args) => {
-			// 	self.command_sandbox_create(args).await?;
-			// },
-			// Command::Delete(args) => {
-			// 	self.command_sandbox_delete(args).await?;
-			// },
-			Command::Run(args) => {
+			Command::Run(_) => {
 				unreachable!()
 			},
 		}
-		Ok(())
 	}
 }

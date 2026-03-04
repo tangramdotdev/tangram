@@ -30,6 +30,9 @@ pub struct Arg {
 	pub parent: Option<tg::process::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub pty: Option<tg::process::Pty>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<CommaSeparatedString>")]
 	pub remotes: Option<Vec<String>>,
 
@@ -121,6 +124,7 @@ impl Arg {
 			mounts: Vec::new(),
 			network: false,
 			parent: None,
+			pty: None,
 			remotes: None,
 			retry: false,
 			stderr: None,
@@ -142,6 +146,7 @@ impl Arg {
 			mounts: Vec::new(),
 			network: false,
 			parent: None,
+			pty: None,
 			remotes: None,
 			retry: false,
 			stderr: None,

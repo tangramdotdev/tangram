@@ -296,7 +296,15 @@ impl Cli {
 			..Default::default()
 		};
 		let crate::process::spawn::Output { process, output } = self
-			.spawn(options, reference.clone(), Vec::new(), None, None, None)
+			.spawn(
+				options,
+				reference.clone(),
+				Vec::new(),
+				None,
+				None,
+				None,
+				None,
+			)
 			.boxed()
 			.await?;
 

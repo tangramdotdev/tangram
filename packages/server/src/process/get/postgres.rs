@@ -47,6 +47,8 @@ impl Server {
 			network: Option<bool>,
 			#[tangram_database(as = "Option<db::value::Json<tg::value::Data>>")]
 			output: Option<tg::value::Data>,
+			#[tangram_database(as = "Option<db::value::Json<tg::process::Pty>>")]
+			pty: Option<tg::process::Pty>,
 			retry: Option<bool>,
 			started_at: Option<i64>,
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
@@ -76,6 +78,7 @@ impl Server {
 					host,
 					log,
 					output,
+					pty,
 					retry,
 					mounts,
 					network,
@@ -163,6 +166,7 @@ impl Server {
 					host,
 					log: row.log,
 					output: row.output,
+					pty: row.pty,
 					retry,
 					mounts: row.mounts.unwrap_or_default(),
 					network,
