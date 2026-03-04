@@ -79,6 +79,7 @@ impl Server {
 					mounts,
 					network,
 					output,
+					pty,
 					retry,
 					started_at,
 					status,
@@ -113,7 +114,8 @@ impl Server {
 					?22,
 					?23,
 					?24,
-					?25
+					?25,
+					?26
 				)
 				on conflict (id) do update set
 					actual_checksum = ?2,
@@ -132,14 +134,15 @@ impl Server {
 					mounts = ?15,
 					network = ?16,
 					output = ?17,
-					retry = ?18,
-					started_at = ?19,
-					status = ?20,
-					stderr = ?21,
-					stdin = ?22,
-					stdout = ?23,
-					token_count = ?24,
-					touched_at = ?25
+					pty = ?18,
+					retry = ?19,
+					started_at = ?20,
+					status = ?21,
+					stderr = ?22,
+					stdin = ?23,
+					stdout = ?24,
+					token_count = ?25,
+					touched_at = ?26
 			"
 		);
 		let mut process_stmt = cache
@@ -174,6 +177,10 @@ impl Server {
 				.output
 				.as_ref()
 				.map(|output| serde_json::to_string(output).unwrap());
+			let pty_json = data
+				.pty
+				.as_ref()
+				.map(|pty| serde_json::to_string(pty).unwrap());
 
 			let params = sqlite::params![
 				id.to_string(),
@@ -193,6 +200,7 @@ impl Server {
 				mounts_json,
 				data.network,
 				output_json,
+				pty_json,
 				data.retry,
 				data.started_at,
 				data.status.to_string(),

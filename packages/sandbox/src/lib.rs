@@ -62,12 +62,6 @@ pub struct Command {
 	pub stdout: Stdio,
 }
 
-#[derive(Debug, Copy, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct PtySize {
-	pub rows: u16,
-	pub cols: u16,
-}
-
 #[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 pub enum Stdio {
 	#[default]
@@ -195,7 +189,11 @@ impl Sandbox {
 		Ok(sandbox)
 	}
 
-	pub async fn spawn(&self, command: Command, pty: Option<PtySize>) -> tg::Result<Process> {
+	pub async fn spawn(
+		&self,
+		command: Command,
+		pty: Option<tg::process::Pty>,
+	) -> tg::Result<Process> {
 		let arg = crate::client::spawn::Arg {
 			command: command.clone(),
 			pty,

@@ -1,29 +1,30 @@
 use {
-	super::Client,
-	crate::Command,
-	tangram_client::prelude::*,
+	crate::prelude::*,
+	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_util::serde::CommaSeparatedString,
 };
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde_as]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Arg {
-	pub command: Command,
-	pub pty: Option<tg::process::Pty>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub local: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<CommaSeparatedString>")]
+	pub remotes: Option<Vec<String>>,
+
+	pub size: tg::process::pty::Size,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Output {
-	pub id: tg::process::Id,
-}
-
-impl Client {
-	pub async fn spawn(&self, arg: Arg) -> tg::Result<Output> {
+impl tg::Client {
+	pub async fn put_process_pty(&self, id: &tg::process::Id, arg: Arg) -> tg::Result<()> {
 		let method = http::Method::POST;
-		let uri = "/spawn";
+		let uri = format!("/processes/{id}/pty");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
 			.header(
 				http::header::CONTENT_TYPE,
 				mime::APPLICATION_JSON.to_string(),
@@ -32,7 +33,7 @@ impl Client {
 			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
 			.unwrap();
 		let response = self
-			.send(request)
+			.send_with_retry(request)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
 		if !response.status().is_success() {
@@ -41,10 +42,6 @@ impl Client {
 			})?;
 			return Err(error);
 		}
-		let output = response
-			.json()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
-		Ok(output)
+		Ok(())
 	}
 }

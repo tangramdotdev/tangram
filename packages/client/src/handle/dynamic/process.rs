@@ -115,6 +115,32 @@ impl tg::handle::Process for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.cancel_process(id, arg)) }
 	}
 
+	fn try_get_process_pty_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::pty::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::pty::get::Event>> + Send + 'static,
+			>,
+		>,
+	> {
+		unsafe {
+			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
+				self.0.try_get_process_pty_stream(id, arg),
+			)
+		}
+	}
+
+	fn put_process_pty(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::pty::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.put_process_pty(id, arg)) }
+	}
+
 	fn try_dequeue_process(
 		&self,
 		arg: tg::process::queue::Arg,
@@ -203,9 +229,11 @@ impl tg::handle::Process for Handle {
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<()>> {
 		unsafe {
-			std::mem::transmute::<_, BoxFuture<'_, tg::Result<()>>>(
-				self.0.write_process_stdin(id, arg, Box::pin(reader)),
-			)
+			std::mem::transmute::<_, BoxFuture<'_, tg::Result<()>>>(self.0.write_process_stdin(
+				id,
+				arg,
+				Box::pin(reader),
+			))
 		}
 	}
 
@@ -229,9 +257,11 @@ impl tg::handle::Process for Handle {
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<()>> {
 		unsafe {
-			std::mem::transmute::<_, BoxFuture<'_, tg::Result<()>>>(
-				self.0.write_process_stdout(id, arg, Box::pin(reader)),
-			)
+			std::mem::transmute::<_, BoxFuture<'_, tg::Result<()>>>(self.0.write_process_stdout(
+				id,
+				arg,
+				Box::pin(reader),
+			))
 		}
 	}
 
@@ -255,9 +285,11 @@ impl tg::handle::Process for Handle {
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<()>> {
 		unsafe {
-			std::mem::transmute::<_, BoxFuture<'_, tg::Result<()>>>(
-				self.0.write_process_stderr(id, arg, Box::pin(reader)),
-			)
+			std::mem::transmute::<_, BoxFuture<'_, tg::Result<()>>>(self.0.write_process_stderr(
+				id,
+				arg,
+				Box::pin(reader),
+			))
 		}
 	}
 

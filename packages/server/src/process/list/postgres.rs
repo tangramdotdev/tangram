@@ -40,6 +40,8 @@ impl Server {
 			log: Option<tg::blob::Id>,
 			#[tangram_database(as = "Option<db::value::Json<tg::value::Data>>")]
 			output: Option<tg::value::Data>,
+			#[tangram_database(as = "Option<db::value::Json<tg::process::Pty>>")]
+			pty: Option<tg::process::Pty>,
 			retry: bool,
 			#[tangram_database(as = "Option<db::value::Json<Vec<tg::process::data::Mount>>>")]
 			mounts: Option<Vec<tg::process::data::Mount>>,
@@ -72,6 +74,7 @@ impl Server {
 					host,
 					log,
 					output,
+					pty,
 					retry,
 					mounts,
 					network,
@@ -127,6 +130,7 @@ impl Server {
 					host: row.host,
 					log: row.log,
 					output: row.output,
+					pty: row.pty,
 					retry: row.retry,
 					mounts: row.mounts.unwrap_or_default(),
 					network: row.network,

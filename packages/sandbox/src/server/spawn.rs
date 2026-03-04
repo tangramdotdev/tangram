@@ -49,67 +49,63 @@ impl Server {
 			},
 		};
 
-		let (host_stdout, guest_stdout): (OutputStream, Option<OwnedFd>) =
-			match arg.command.stdout {
-				Stdio::Null => {
-					let fd = File::options()
-						.write(true)
-						.open("/dev/null")
-						.map_err(|source| tg::error!(!source, "failed to open /dev/null"))?
-						.into();
-					(OutputStream::Null, Some(fd))
-				},
-				Stdio::Pipe => {
-					let (reader, writer) = std::io::pipe()
-						.map_err(|source| tg::error!(!source, "failed to open a pipe"))?;
-					let reader =
-						tokio::net::unix::pipe::Receiver::from_owned_fd(reader.into()).map_err(
-							|source| tg::error!(!source, "failed to convert the pipe fd"),
-						)?;
-					(OutputStream::Pipe(reader), Some(writer.into()))
-				},
-				Stdio::Pty => {
-					let pty = pty
-						.as_ref()
-						.ok_or_else(|| tg::error!("expected a pty arg"))?;
-					let master = pty
-						.master
-						.try_clone()
-						.map_err(|source| tg::error!(!source, "failed to clone the master fd"))?;
-					(OutputStream::Pty(master), None)
-				},
-			};
+		let (host_stdout, guest_stdout): (OutputStream, Option<OwnedFd>) = match arg.command.stdout
+		{
+			Stdio::Null => {
+				let fd = File::options()
+					.write(true)
+					.open("/dev/null")
+					.map_err(|source| tg::error!(!source, "failed to open /dev/null"))?
+					.into();
+				(OutputStream::Null, Some(fd))
+			},
+			Stdio::Pipe => {
+				let (reader, writer) = std::io::pipe()
+					.map_err(|source| tg::error!(!source, "failed to open a pipe"))?;
+				let reader = tokio::net::unix::pipe::Receiver::from_owned_fd(reader.into())
+					.map_err(|source| tg::error!(!source, "failed to convert the pipe fd"))?;
+				(OutputStream::Pipe(reader), Some(writer.into()))
+			},
+			Stdio::Pty => {
+				let pty = pty
+					.as_ref()
+					.ok_or_else(|| tg::error!("expected a pty arg"))?;
+				let master = pty
+					.master
+					.try_clone()
+					.map_err(|source| tg::error!(!source, "failed to clone the master fd"))?;
+				(OutputStream::Pty(master), None)
+			},
+		};
 
-		let (host_stderr, guest_stderr): (OutputStream, Option<OwnedFd>) =
-			match arg.command.stderr {
-				Stdio::Null => {
-					let fd = File::options()
-						.write(true)
-						.open("/dev/null")
-						.map_err(|source| tg::error!(!source, "failed to open /dev/null"))?
-						.into();
-					(OutputStream::Null, Some(fd))
-				},
-				Stdio::Pipe => {
-					let (reader, writer) = std::io::pipe()
-						.map_err(|source| tg::error!(!source, "failed to open a pipe"))?;
-					let reader =
-						tokio::net::unix::pipe::Receiver::from_owned_fd(reader.into()).map_err(
-							|source| tg::error!(!source, "failed to convert the pipe fd"),
-						)?;
-					(OutputStream::Pipe(reader), Some(writer.into()))
-				},
-				Stdio::Pty => {
-					let pty = pty
-						.as_ref()
-						.ok_or_else(|| tg::error!("expected a pty arg"))?;
-					let master = pty
-						.master
-						.try_clone()
-						.map_err(|source| tg::error!(!source, "failed to clone the master fd"))?;
-					(OutputStream::Pty(master), None)
-				},
-			};
+		let (host_stderr, guest_stderr): (OutputStream, Option<OwnedFd>) = match arg.command.stderr
+		{
+			Stdio::Null => {
+				let fd = File::options()
+					.write(true)
+					.open("/dev/null")
+					.map_err(|source| tg::error!(!source, "failed to open /dev/null"))?
+					.into();
+				(OutputStream::Null, Some(fd))
+			},
+			Stdio::Pipe => {
+				let (reader, writer) = std::io::pipe()
+					.map_err(|source| tg::error!(!source, "failed to open a pipe"))?;
+				let reader = tokio::net::unix::pipe::Receiver::from_owned_fd(reader.into())
+					.map_err(|source| tg::error!(!source, "failed to convert the pipe fd"))?;
+				(OutputStream::Pipe(reader), Some(writer.into()))
+			},
+			Stdio::Pty => {
+				let pty = pty
+					.as_ref()
+					.ok_or_else(|| tg::error!("expected a pty arg"))?;
+				let master = pty
+					.master
+					.try_clone()
+					.map_err(|source| tg::error!(!source, "failed to clone the master fd"))?;
+				(OutputStream::Pty(master), None)
+			},
+		};
 
 		let id = tg::process::Id::new();
 		let context = SpawnContext {

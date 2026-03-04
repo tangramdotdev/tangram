@@ -60,6 +60,7 @@ where
 		mounts: vec![],
 		network: arg.network,
 		parent: arg.parent,
+		pty: None,
 		remotes: arg.remote.map(|r| vec![r]),
 		retry: arg.retry,
 		stderr: None,

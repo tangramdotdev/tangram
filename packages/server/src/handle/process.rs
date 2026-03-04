@@ -68,6 +68,28 @@ impl tg::handle::Process for Shared {
 		self.0.cancel_process(id, arg).await
 	}
 
+	async fn try_get_process_pty_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::pty::get::Arg,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::process::pty::get::Event>> + Send + 'static>,
+	> {
+		self.0
+			.try_get_process_pty_stream_with_context(&Context::default(), id, arg)
+			.await
+	}
+
+	async fn put_process_pty(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::pty::put::Arg,
+	) -> tg::Result<()> {
+		self.0
+			.try_put_process_pty_with_context(&Context::default(), id, arg)
+			.await
+	}
+
 	async fn try_dequeue_process(
 		&self,
 		arg: tg::process::queue::Arg,
@@ -299,6 +321,26 @@ impl tg::handle::Process for Server {
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<()> {
 		self.cancel_process_with_context(&Context::default(), id, arg)
+			.await
+	}
+
+	async fn try_get_process_pty_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::pty::get::Arg,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::process::pty::get::Event>> + Send + 'static>,
+	> {
+		self.try_get_process_pty_stream_with_context(&Context::default(), id, arg)
+			.await
+	}
+
+	async fn put_process_pty(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::pty::put::Arg,
+	) -> tg::Result<()> {
+		self.try_put_process_pty_with_context(&Context::default(), id, arg)
 			.await
 	}
 

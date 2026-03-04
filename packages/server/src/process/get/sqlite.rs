@@ -63,6 +63,7 @@ impl Server {
 			host: String,
 			log: Option<String>,
 			output: Option<String>,
+			pty: Option<String>,
 			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			retry: u64,
 			mounts: Option<String>,
@@ -90,6 +91,7 @@ impl Server {
 					host,
 					log,
 					output,
+					pty,
 					retry,
 					mounts,
 					network,
@@ -156,6 +158,11 @@ impl Server {
 			.map(|s| serde_json::from_str(&s))
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to deserialize"))?;
+		let pty = row
+			.pty
+			.map(|s| serde_json::from_str(&s))
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to deserialize the pty"))?;
 		let retry = row.retry != 0;
 		let mounts = row
 			.mounts
@@ -234,6 +241,7 @@ impl Server {
 			host: row.host,
 			log,
 			output,
+			pty,
 			retry,
 			mounts,
 			network,

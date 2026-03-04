@@ -607,6 +607,7 @@ impl Server {
 					mounts,
 					network,
 					output,
+					pty,
 					retry,
 					status,
 					token_count,
@@ -630,7 +631,8 @@ impl Server {
 					{p}15,
 					{p}16,
 					{p}17,
-					{p}18
+					{p}18,
+					{p}19
 				)
 				on conflict (id) do update set
 					actual_checksum = {p}2,
@@ -646,10 +648,11 @@ impl Server {
 					mounts = {p}12,
 					network = {p}13,
 					output = {p}14,
-					retry = {p}15,
-					status = {p}16,
-					token_count = {p}17,
-					touched_at = {p}18;
+					pty = {p}15,
+					retry = {p}16,
+					status = {p}17,
+					token_count = {p}18,
+					touched_at = {p}19;
 			"
 		);
 		let now: i64 = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -678,6 +681,7 @@ impl Server {
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
 			arg.network,
 			output.clone().map(db::value::Json),
+			arg.pty.map(db::value::Json),
 			arg.retry,
 			status.to_string(),
 			0,
@@ -754,6 +758,7 @@ impl Server {
 					host,
 					mounts,
 					network,
+					pty,
 					retry,
 					started_at,
 					status,
@@ -782,7 +787,8 @@ impl Server {
 					{p}16,
 					{p}17,
 					{p}18,
-					{p}19
+					{p}19,
+					{p}20
 				)
 				on conflict (id) do update set
 					cacheable = {p}2,
@@ -795,14 +801,15 @@ impl Server {
 					host = {p}9,
 					mounts = {p}10,
 					network = {p}11,
-					retry = {p}12,
-					started_at = {p}13,
-					status = {p}14,
-					stderr = {p}15,
-					stdin = {p}16,
-					stdout = {p}17,
-					token_count = {p}18,
-					touched_at = {p}19;
+					pty = {p}12,
+					retry = {p}13,
+					started_at = {p}14,
+					status = {p}15,
+					stderr = {p}16,
+					stdin = {p}17,
+					stdout = {p}18,
+					token_count = {p}19,
+					touched_at = {p}20;
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -820,6 +827,7 @@ impl Server {
 			host,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
 			arg.network,
+			arg.pty.map(db::value::Json),
 			arg.retry,
 			started_at,
 			status.to_string(),

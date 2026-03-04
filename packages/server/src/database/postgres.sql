@@ -18,6 +18,7 @@ create table processes (
 	mounts text,
 	network boolean not null,
 	output text,
+	pty text,
 	retry boolean not null,
 	started_at int8,
 	status text not null,

@@ -1,5 +1,5 @@
 use {
-	crate::{Command, PtySize},
+	crate::Command,
 	std::{
 		ffi::{CStr, CString},
 		os::fd::{FromRawFd as _, OwnedFd},
@@ -31,6 +31,7 @@ pub enum OutputStream {
 
 pub struct Pty {
 	pub master: OwnedFd,
+	#[allow(dead_code)]
 	pub slave: OwnedFd,
 	pub name: CString,
 }
@@ -50,11 +51,11 @@ pub fn which(path: &Path, executable: &std::path::Path) -> Option<std::path::Pat
 }
 
 impl Pty {
-	pub fn new(size: PtySize) -> tg::Result<Self> {
+	pub fn new(pty: tg::process::Pty) -> tg::Result<Self> {
 		unsafe {
 			let mut win_size = libc::winsize {
-				ws_col: size.cols,
-				ws_row: size.rows,
+				ws_col: pty.size.cols,
+				ws_row: pty.size.rows,
 				ws_xpixel: 0,
 				ws_ypixel: 0,
 			};
