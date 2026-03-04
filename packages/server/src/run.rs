@@ -390,7 +390,7 @@ impl Server {
 			.chain(state.mounts.iter().cloned().map(tg::Either::Right))
 			.collect::<Vec<_>>();
 
-		// Set `$ThANGRAM_OUTPUT`.
+		// Set `$TANGRAM_OUTPUT`.
 		env.insert(
 			"TANGRAM_OUTPUT".to_owned(),
 			output_path
@@ -626,7 +626,7 @@ impl Server {
 			stdout: tangram_sandbox::Stdio::Pipe,
 			stderr: tangram_sandbox::Stdio::Pipe,
 		};
-		let sandbox_process = sandbox.spawn(sandbox_command).await.map_err(
+		let sandbox_process = sandbox.spawn(sandbox_command, None).await.map_err(
 			|source| tg::error!(!source, %id, "failed to spawn the process in the sandbox"),
 		)?;
 		let sandbox_process = Arc::new(sandbox_process);

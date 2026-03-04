@@ -7,7 +7,7 @@ use {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub id: tg::process::Id,
-	pub signal: u8,
+	pub signal: tg::process::Signal,
 }
 
 impl Client {

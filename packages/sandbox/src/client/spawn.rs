@@ -1,6 +1,6 @@
 use {
 	super::Client,
-	crate::Command,
+	crate::{Command, PtySize},
 	tangram_client::prelude::*,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
@@ -8,6 +8,7 @@ use {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub command: Command,
+	pub pty: Option<PtySize>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

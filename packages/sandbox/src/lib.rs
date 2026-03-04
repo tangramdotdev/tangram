@@ -24,12 +24,14 @@ mod server;
 
 pub struct Sandbox(Arc<State>);
 
+#[allow(dead_code)]
 pub struct State {
 	client: Client,
 	config: Config,
 	process: tokio::process::Child,
 }
 
+#[allow(dead_code)]
 pub struct Process {
 	command: Command,
 	id: tg::process::Id,
@@ -60,7 +62,13 @@ pub struct Command {
 	pub stdout: Stdio,
 }
 
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Copy, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct PtySize {
+	pub rows: u16,
+	pub cols: u16,
+}
+
+#[derive(Debug, Copy, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub enum Stdio {
 	#[default]
 	Null,
@@ -187,9 +195,10 @@ impl Sandbox {
 		Ok(sandbox)
 	}
 
-	pub async fn spawn(&self, command: Command) -> tg::Result<Process> {
+	pub async fn spawn(&self, command: Command, pty: Option<PtySize>) -> tg::Result<Process> {
 		let arg = crate::client::spawn::Arg {
 			command: command.clone(),
+			pty,
 		};
 		let output = self.client.spawn(arg).await?;
 		let process = Process {
@@ -232,7 +241,7 @@ impl Sandbox {
 		Ok(stderr)
 	}
 
-	pub async fn kill(&self, process: &Process, signal: u8) -> tg::Result<()> {
+	pub async fn kill(&self, process: &Process, signal: tg::process::Signal) -> tg::Result<()> {
 		let arg = crate::client::kill::Arg {
 			id: process.id.clone(),
 			signal,
@@ -299,7 +308,7 @@ impl std::fmt::Display for Stdio {
 		match self {
 			Self::Null => write!(f, "null"),
 			Self::Pipe => write!(f, "pipe"),
-			Self::Pty => write!(f, "pty"),
+			Self::Pty => write!(f, "pipe"),
 		}
 	}
 }
