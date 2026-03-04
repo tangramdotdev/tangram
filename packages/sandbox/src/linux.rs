@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Config, abort_errno,
-		common::{SpawnContext, which, start_session},
+		common::{SpawnContext, start_session, which},
 		server::Server,
 	},
 	indoc::indoc,
@@ -211,7 +211,7 @@ pub fn enter(config: &Config) -> tg::Result<()> {
 
 	// Perform the mounts.
 	for m in &mounts {
-		mount(&m, &config.root_path)?;
+		mount(m, &config.root_path)?;
 	}
 
 	// chroot

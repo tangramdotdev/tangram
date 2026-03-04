@@ -33,9 +33,9 @@ impl Server {
 		};
 		let include_database = include_field("database");
 		let include_diagnostics = include_field("diagnostics");
-		let include_pipes = include_field("pipes");
+		let _include_pipes = include_field("pipes");
 		let include_processes = include_field("processes");
-		let include_ptys = include_field("ptys");
+		let _include_ptys = include_field("ptys");
 		let include_version = include_field("version");
 
 		let processes = if include_processes {

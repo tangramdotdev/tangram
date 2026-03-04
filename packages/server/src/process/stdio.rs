@@ -308,16 +308,11 @@ impl Server {
 					.await;
 				match publish {
 					Ok(_) => break,
-					Err(error)
-						if matches!(
-							error,
-							tangram_messenger::Error::MaxMessages
-								| tangram_messenger::Error::MaxBytes
-								| tangram_messenger::Error::PublishFailed
-						) =>
-					{
-						continue;
-					},
+					Err(
+						tangram_messenger::Error::MaxMessages
+						| tangram_messenger::Error::MaxBytes
+						| tangram_messenger::Error::PublishFailed,
+					) => (),
 					Err(source) => {
 						return Err(tg::error!(!source, "failed to publish stdio"));
 					},

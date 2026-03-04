@@ -5,7 +5,6 @@ use {
 		temp::Temp,
 	},
 	futures::{FutureExt as _, TryFutureExt as _, TryStreamExt as _, future},
-	num::ToPrimitive as _,
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		path::{Path, PathBuf},
@@ -994,23 +993,5 @@ fn render_value_string(
 			}
 		},
 		_ => Ok(tg::Value::try_from_data(value.clone()).unwrap().to_string()),
-	}
-}
-
-fn signal_number(signal: tg::process::Signal) -> libc::c_int {
-	match signal {
-		tg::process::Signal::SIGABRT => libc::SIGABRT,
-		tg::process::Signal::SIGFPE => libc::SIGFPE,
-		tg::process::Signal::SIGILL => libc::SIGILL,
-		tg::process::Signal::SIGALRM => libc::SIGALRM,
-		tg::process::Signal::SIGHUP => libc::SIGHUP,
-		tg::process::Signal::SIGINT => libc::SIGINT,
-		tg::process::Signal::SIGKILL => libc::SIGKILL,
-		tg::process::Signal::SIGPIPE => libc::SIGPIPE,
-		tg::process::Signal::SIGQUIT => libc::SIGQUIT,
-		tg::process::Signal::SIGSEGV => libc::SIGSEGV,
-		tg::process::Signal::SIGTERM => libc::SIGTERM,
-		tg::process::Signal::SIGUSR1 => libc::SIGUSR1,
-		tg::process::Signal::SIGUSR2 => libc::SIGUSR2,
 	}
 }
