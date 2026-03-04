@@ -295,7 +295,7 @@ impl Cli {
 			sandbox: crate::process::spawn::Sandbox::new(Some(true)),
 			..Default::default()
 		};
-		let referent = self.get_reference(&reference).await?;
+		let referent = self.get_reference(reference).await?;
 		let item = referent
 			.item
 			.clone()
@@ -308,9 +308,7 @@ impl Cli {
 				reference.clone(),
 				referent,
 				Vec::new(),
-				None,
-				None,
-				None,
+				crate::process::spawn::Stdio::default(),
 			)
 			.boxed()
 			.await?;

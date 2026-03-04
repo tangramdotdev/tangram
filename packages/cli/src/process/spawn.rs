@@ -192,6 +192,13 @@ pub struct Output {
 	pub output: tg::process::spawn::Output,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Stdio {
+	pub stdin: Option<tg::process::Stdio>,
+	pub stdout: Option<tg::process::Stdio>,
+	pub stderr: Option<tg::process::Stdio>,
+}
+
 impl Cli {
 	pub async fn command_process_spawn(&mut self, args: Args) -> tg::Result<()> {
 		// Get the reference.
@@ -214,9 +221,7 @@ impl Cli {
 				args.reference,
 				referent,
 				args.trailing,
-				None,
-				None,
-				None,
+				Stdio::default(),
 			)
 			.boxed()
 			.await?;
@@ -234,10 +239,13 @@ impl Cli {
 		reference: tg::Reference,
 		mut referent: tg::Referent<tg::Object>,
 		trailing: Vec<String>,
-		stdin: Option<tg::process::Stdio>,
-		stdout: Option<tg::process::Stdio>,
-		stderr: Option<tg::process::Stdio>,
+		stdio: Stdio,
 	) -> tg::Result<Output> {
+		let Stdio {
+			stdin,
+			stdout,
+			stderr,
+		} = stdio;
 		let handle = self.handle().await?;
 
 		// Determine if the process is sandboxed.

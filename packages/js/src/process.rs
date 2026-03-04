@@ -23,7 +23,8 @@ pub(crate) struct WaitOutput {
 
 pub(crate) struct ChildProcess {
 	pub(crate) child: tokio::process::Child,
-	temp: TempDir,
+	output_path: std::path::PathBuf,
+	_temp: TempDir,
 }
 
 pub(crate) async fn spawn_unsandboxed<H>(
@@ -35,7 +36,7 @@ where
 {
 	// Get the command data.
 	let command_id = arg.command.item.clone();
-	let command = tg::Command::with_id(command_id);
+	let command = tg::Command::with_id(command_id.clone());
 	let command = command
 		.data(handle)
 		.await
@@ -86,10 +87,11 @@ where
 	// Create a temp for the output.
 	let temp = tempfile::tempdir()
 		.map_err(|source| tg::error!(!source, "failed to create the temporary directory"))?;
-	tokio::fs::create_dir_all(temp.path())
+	let output_dir = temp.path().join("output");
+	tokio::fs::create_dir_all(&output_dir)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
-	let output_path = temp.path().join("output");
+	let output_path = output_dir.join(command_id.to_string());
 
 	// Convert data.
 	let args_: Vec<tg::Value> = command
@@ -118,7 +120,11 @@ where
 		.spawn()
 		.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
 
-	Ok(ChildProcess { child, temp })
+	Ok(ChildProcess {
+		child,
+		output_path,
+		_temp: temp,
+	})
 }
 
 pub(crate) async fn wait_unsandboxed<H>(handle: &H, child: ChildProcess) -> tg::Result<WaitOutput>
@@ -139,10 +145,29 @@ where
 		.unwrap();
 	let stdout = output.stdout;
 	let stderr = output.stderr;
-	let output_path = child.temp.path().join("output");
+	let output_path = child.output_path;
 	let mut error = None;
 	let mut output = None;
-	if matches!(tokio::fs::try_exists(&output_path).await, Ok(true)) {
+
+	// Try to read the user.tangram.output xattr.
+	if let Ok(Some(bytes)) = xattr::get(&output_path, "user.tangram.output") {
+		let tgon = String::from_utf8(bytes)
+			.map_err(|source| tg::error!(!source, "failed to decode the output xattr"))?;
+		let value: tg::Value = tgon
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the output xattr"))?;
+		output.replace(value.to_data());
+	}
+
+	// Try to read the user.tangram.error xattr.
+	if let Ok(Some(bytes)) = xattr::get(&output_path, "user.tangram.error") {
+		let data = serde_json::from_slice::<tg::error::Data>(&bytes)
+			.map_err(|source| tg::error!(!source, "failed to deserialize the error xattr"))?;
+		error.replace(tg::Either::Left(data));
+	}
+
+	// If no xattr output was set but the output path exists, check it in destructively.
+	if output.is_none() && matches!(tokio::fs::try_exists(&output_path).await, Ok(true)) {
 		let result = tg::checkin(
 			handle,
 			tg::checkin::Arg {

@@ -30,149 +30,7 @@ pub struct Arg {
 	pub user: Option<String>,
 }
 
-pub async fn run<H>(handle: &H, arg: tg::run::Arg) -> tg::Result<tg::Value>
-where
-	H: tg::Handle,
-{
-	let state = if let Some(process) = tg::Process::current()? {
-		Some(process.load(handle).await?)
-	} else {
-		None
-	};
-	let command = if let Some(state) = &state {
-		Some(state.command.object(handle).await?)
-	} else {
-		None
-	};
-	let host = arg
-		.host
-		.ok_or_else(|| tg::error!("expected the host to be set"))?;
-	let executable = arg
-		.executable
-		.ok_or_else(|| tg::error!("expected the executable to be set"))?;
-	let mut builder = tg::Command::builder(host, executable);
-	builder = builder.args(arg.args);
-	let cwd = if let Some(command) = &command {
-		if command.cwd.is_some() {
-			let cwd = std::env::current_dir()
-				.map_err(|source| tg::error!(!source, "failed to get the current directory"))?;
-			Some(cwd)
-		} else {
-			None
-		}
-	} else {
-		let cwd = std::env::current_dir()
-			.map_err(|source| tg::error!(!source, "failed to get the current directory"))?;
-		Some(cwd)
-	};
-	let cwd = arg.cwd.or(cwd);
-	builder = builder.cwd(cwd);
-	let mut env = if let Some(command) = &command {
-		command.env.clone()
-	} else {
-		std::env::vars()
-			.map(|(key, value)| (key, value.into()))
-			.collect()
-	};
-	env.remove("TANGRAM_OUTPUT");
-	env.remove("TANGRAM_PROCESS");
-	env.remove("TANGRAM_URL");
-	builder = builder.env(env);
-	let mut command_mounts = vec![];
-	let mut process_mounts = vec![];
-	if let Some(mounts) = arg.mounts {
-		for mount in mounts {
-			match mount {
-				tg::Either::Left(mount) => process_mounts.push(mount.to_data()),
-				tg::Either::Right(mount) => command_mounts.push(mount),
-			}
-		}
-	} else {
-		if let Some(mounts) = command.as_ref().map(|command| command.mounts.clone()) {
-			command_mounts = mounts;
-		}
-		if let Some(mounts) = state.as_ref().map(|state| state.mounts.clone()) {
-			process_mounts = mounts.iter().map(tg::process::Mount::to_data).collect();
-		}
-	}
-	builder = builder.mounts(command_mounts);
-	let stdin = if arg.stdin.is_none() {
-		command
-			.as_ref()
-			.map(|command| command.stdin.clone())
-			.unwrap_or_default()
-	} else if let Some(Some(tg::Either::Right(blob))) = &arg.stdin {
-		Some(blob.clone())
-	} else {
-		None
-	};
-	builder = builder.stdin(stdin);
-	if let Some(Some(user)) = command.as_ref().map(|command| command.user.clone()) {
-		builder = builder.user(user);
-	}
-	let command = builder.build();
-	let command_id = command.store(handle).await?;
-	let mut command = tg::Referent::with_item(command_id);
-	if let Some(name) = arg.name {
-		command.options.name.replace(name);
-	}
-	let checksum = arg.checksum;
-	let network = arg
-		.network
-		.or(state.as_ref().map(|state| state.network))
-		.unwrap_or_default();
-	let stderr = arg
-		.stderr
-		.unwrap_or_else(|| state.as_ref().and_then(|state| state.stderr.clone()));
-	let stdin = arg.stdin.unwrap_or_else(|| {
-		state
-			.as_ref()
-			.and_then(|state| state.stdin.clone().map(tg::Either::Left))
-	});
-	let stdin = match stdin {
-		None => None,
-		Some(tg::Either::Left(stdio)) => Some(stdio),
-		Some(tg::Either::Right(_)) => {
-			return Err(tg::error!("expected stdio"));
-		},
-	};
-	let stdout = arg
-		.stdout
-		.unwrap_or_else(|| state.as_ref().and_then(|state| state.stdout.clone()));
-	if network && checksum.is_none() {
-		return Err(tg::error!(
-			"a checksum is required to build with network enabled"
-		));
-	}
-	let progress = arg.progress;
-	let arg = tg::process::spawn::Arg {
-		cached: arg.cached,
-		checksum,
-		command,
-		local: None,
-		mounts: process_mounts,
-		network,
-		parent: arg.parent,
-		remotes: arg.remote.map(|r| vec![r]),
-		retry: arg.retry,
-		stderr,
-		stdin,
-		stdout,
-	};
-	let stream = tg::Process::spawn(handle, arg).await?;
-	let writer = std::io::stderr();
-	let is_tty = progress && writer.is_terminal();
-	let process = tg::progress::write_progress_stream(handle, stream, writer, is_tty)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
-	let output = process
-		.output(handle)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to get the process output"))?;
-	Ok(output)
-}
-
-pub async fn run2<H>(handle: &H, arg: Arg) -> tg::Result<tg::Value>
+pub async fn run<H>(handle: &H, arg: Arg) -> tg::Result<tg::Value>
 where
 	H: tg::Handle,
 {
@@ -354,10 +212,11 @@ where
 	// Create the output directory.
 	let temp = tempfile::TempDir::new()
 		.map_err(|source| tg::error!(!source, "failed to create the temporary directory"))?;
-	tokio::fs::create_dir_all(temp.path())
+	let output_dir = temp.path().join("output");
+	tokio::fs::create_dir_all(&output_dir)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
-	let output_path = temp.path().join("output");
+	let output_path = output_dir.join(std::process::id().to_string());
 
 	// Get the executable.
 	let executable = arg
@@ -569,7 +428,7 @@ pub static CLOSEST_ARTIFACT_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
 pub static TANGRAM_EXECUTABLE_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
 pub static TANGRAM_ARTIFACTS_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
 
-pub fn set_artifacts_path(p: impl AsRef<PathBuf>) {
+pub fn set_artifacts_path(p: impl AsRef<Path>) {
 	TANGRAM_ARTIFACTS_PATH
 		.lock()
 		.unwrap()

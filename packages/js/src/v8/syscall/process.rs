@@ -66,7 +66,7 @@ pub async fn spawn_unsandboxed(
 		.main_runtime_handle
 		.spawn(async move { crate::process::spawn_unsandboxed(&handle, arg).await })
 		.await
-		.unwrap()
+		.map_err(|source| tg::error!(!source, "the task panicked"))?
 		.map_err(|source| tg::error!(!source, "failed to spawn the unsandboxed process"))?;
 
 	// Get the PID.
@@ -119,7 +119,7 @@ pub async fn wait_unsandboxed(
 		.main_runtime_handle
 		.spawn(async move { crate::process::wait_unsandboxed(&handle, child_process).await })
 		.await
-		.unwrap()
+		.map_err(|source| tg::error!(!source, "the task panicked"))?
 		.map_err(|source| tg::error!(!source, "failed to wait for the unsandboxed process"))?;
 
 	Ok(Serde(output))

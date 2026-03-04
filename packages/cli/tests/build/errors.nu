@@ -5,7 +5,7 @@ let server = spawn
 let path = artifact {
 	tangram.ts: r#'
 		export default async function () {
-			await tg.run(x);
+			await tg.build(x);
 		};
 
 		export function x() {

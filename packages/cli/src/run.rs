@@ -3,90 +3,12 @@ use {
 	futures::prelude::*,
 	num::ToPrimitive as _,
 	std::{
-		collections::BTreeMap,
-		fmt::Write as _,
-		os::unix::process::ExitStatusExt as _,
-		path::{Path, PathBuf},
+		collections::BTreeMap, fmt::Write as _, os::unix::process::ExitStatusExt as _,
+		path::PathBuf,
 	},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 };
-
-fn render_value_string(
-	value: &tg::value::Data,
-	artifacts_path: &Path,
-	output_path: &Path,
-) -> tg::Result<String> {
-	match value {
-		tg::value::Data::String(string) => Ok(string.clone()),
-		tg::value::Data::Template(template) => template.try_render(|component| match component {
-			tg::template::data::Component::String(string) => Ok(string.clone().into()),
-			tg::template::data::Component::Artifact(artifact) => Ok(artifacts_path
-				.join(artifact.to_string())
-				.to_str()
-				.unwrap()
-				.to_owned()
-				.into()),
-			tg::template::data::Component::Placeholder(placeholder) => {
-				if placeholder.name == "output" {
-					Ok(output_path.to_str().unwrap().to_owned().into())
-				} else {
-					Err(tg::error!(
-						name = %placeholder.name,
-						"invalid placeholder"
-					))
-				}
-			},
-		}),
-		tg::value::Data::Placeholder(placeholder) => {
-			if placeholder.name == "output" {
-				Ok(output_path.to_str().unwrap().to_owned())
-			} else {
-				Err(tg::error!(
-					name = %placeholder.name,
-					"invalid placeholder"
-				))
-			}
-		},
-		_ => Ok(tg::Value::try_from_data(value.clone()).unwrap().to_string()),
-	}
-}
-
-fn render_args_string(
-	args: &[tg::value::Data],
-	artifacts_path: &Path,
-	output_path: &Path,
-) -> tg::Result<Vec<String>> {
-	args.iter()
-		.map(|value| render_value_string(value, artifacts_path, output_path))
-		.collect::<tg::Result<Vec<_>>>()
-}
-
-fn render_env(
-	env: &tg::value::data::Map,
-	artifacts_path: &Path,
-	output_path: &Path,
-) -> tg::Result<BTreeMap<String, String>> {
-	let mut output = tg::value::data::Map::new();
-	for (key, value) in env {
-		let mutation = match value {
-			tg::value::Data::Mutation(value) => value.clone(),
-			value => tg::mutation::Data::Set {
-				value: Box::new(value.clone()),
-			},
-		};
-		mutation.apply(&mut output, key)?;
-	}
-	let output = output
-		.iter()
-		.map(|(key, value)| {
-			let key = key.clone();
-			let value = render_value_string(value, artifacts_path, output_path)?;
-			Ok::<_, tg::Error>((key, value))
-		})
-		.collect::<tg::Result<_>>()?;
-	Ok(output)
-}
 
 mod signal;
 mod stdio;
@@ -206,7 +128,7 @@ impl Cli {
 		let referent = referent.map(|_| item);
 
 		// Run the process.
-		let output = if self.needs_sandbox(&options) {
+		let output = if Self::needs_sandbox(&options) {
 			self.run_sandboxed(&options, &reference, &referent, trailing)
 				.await?
 		} else {
@@ -217,7 +139,9 @@ impl Cli {
 		// Check out the output if requested.
 		if let Some(path) = options.checkout {
 			let handle = self.handle().await?;
-			let output = output.ok_or_else(|| tg::error!("expected an output"))?;
+			let output = output
+				.filter(|v| !v.is_null())
+				.ok_or_else(|| tg::error!("expected an output"))?;
 
 			// Get the artifact.
 			let artifact: tg::Artifact = output
@@ -254,7 +178,7 @@ impl Cli {
 				)?;
 
 			// Print the path.
-			self.print_serde(path, options.print).await?;
+			Self::print_display(path.display());
 
 			return Ok(());
 		}
@@ -286,14 +210,16 @@ impl Cli {
 		// Create a temp directory for the output.
 		let temp = tempfile::tempdir()
 			.map_err(|source| tg::error!(!source, "failed to create a temp directory"))?;
-		let output_path = temp.path().join("output");
-		tokio::fs::create_dir_all(&output_path)
+		let output_dir = temp.path().join("output");
+		tokio::fs::create_dir_all(&output_dir)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
-		let output_path = output_path.join("output");
+		let process_id = referent.item().id().to_string();
+		let output_path = output_dir.join(&process_id);
 
-		// Get the artifacts path.
+		// Set the artifacts path for rendering.
 		let artifacts_path = self.directory_path().join("artifacts");
+		tg::run::set_artifacts_path(&artifacts_path);
 
 		// Inherit the process env.
 		let mut env: BTreeMap<String, String> = std::env::vars().collect();
@@ -364,12 +290,25 @@ impl Cli {
 						},
 						tg::command::data::Executable::Path(exe) => exe.path.clone(),
 					};
-					let args = render_args_string(&data.args, &artifacts_path, &output_path)?;
+					let args_values: Vec<tg::Value> = data
+						.args
+						.iter()
+						.cloned()
+						.map(tg::Value::try_from_data)
+						.collect::<tg::Result<_>>()?;
+					let args = tg::run::render_args(&args_values, &output_path)?;
 					(executable, args)
 				};
 
 				// Render the command env.
-				let command_env = render_env(&data.env, &artifacts_path, &output_path)?;
+				let env_values: tg::value::Map = data
+					.env
+					.iter()
+					.map(|(k, v)| {
+						Ok::<_, tg::Error>((k.clone(), tg::Value::try_from_data(v.clone())?))
+					})
+					.collect::<tg::Result<_>>()?;
+				let command_env = tg::run::render_env(&env_values, &output_path)?;
 
 				// Append trailing args.
 				args.extend(trailing);
@@ -545,20 +484,22 @@ impl Cli {
 		let handle = self.handle().await?;
 
 		// Handle the executable path.
-		let referent = if let Some(path) = &options.executable_path {
+		let referent = if let Some(executable_path) = &options.executable_path {
 			let directory = referent
 				.item()
 				.try_unwrap_directory_ref()
 				.ok()
 				.ok_or_else(|| tg::error!("expected a directory"))?;
-			let artifact = directory.get(&handle, path).await.map_err(
-				|source| tg::error!(!source, path = %path.display(), "failed to get the artifact"),
+			let artifact = directory.get(&handle, executable_path).await.map_err(
+				|source| tg::error!(!source, path = %executable_path.display(), "failed to get the artifact"),
 			)?;
 			let id = artifact
 				.store(&handle)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to store the artifact"))?;
-			referent.clone().map(|_| tg::Object::with_id(id.into()))
+			let mut referent = referent.clone().map(|_| tg::Object::with_id(id.into()));
+			referent.options.path = Some(executable_path.clone());
+			referent
 		} else {
 			referent.clone()
 		};
@@ -575,7 +516,7 @@ impl Cli {
 		let stdio = if options.build {
 			None
 		} else {
-			let stdio = stdio::Stdio::new(&handle, remote.clone(), &options)
+			let stdio = stdio::Stdio::new(&handle, remote.clone(), options)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create stdio"))?;
 			Some(stdio)
@@ -588,19 +529,16 @@ impl Cli {
 			remotes: options.spawn.remotes.clone(),
 			..Default::default()
 		};
-		let stdin = stdio.as_ref().and_then(|stdio| stdio.stdin.clone());
-		let stdout = stdio.as_ref().and_then(|stdio| stdio.stdout.clone());
-		let stderr = stdio.as_ref().and_then(|stdio| stdio.stderr.clone());
+		let process_stdio = stdio
+			.as_ref()
+			.map(|stdio| crate::process::spawn::Stdio {
+				stdin: stdio.stdin.clone(),
+				stdout: stdio.stdout.clone(),
+				stderr: stdio.stderr.clone(),
+			})
+			.unwrap_or_default();
 		let crate::process::spawn::Output { process, output } = self
-			.spawn(
-				spawn,
-				reference.clone(),
-				referent,
-				trailing,
-				stdin,
-				stdout,
-				stderr,
-			)
+			.spawn(spawn, reference.clone(), referent, trailing, process_stdio)
 			.boxed()
 			.await?;
 
@@ -642,14 +580,12 @@ impl Cli {
 			wait
 		} else {
 			// Spawn the stdio task.
-			let stdio_task = if let Some(stdio) = stdio.clone() {
-				Some(Task::spawn({
+			let stdio_task = stdio.clone().map(|stdio| {
+				Task::spawn({
 					let handle = handle.clone();
 					|stop| async move { self::stdio::task(&handle, stop, stdio).boxed().await }
-				}))
-			} else {
-				None
-			};
+				})
+			});
 
 			// Spawn signal task. This will be handled by the cancellation tasks for builds.
 			let signal_task = if options.build {
@@ -831,7 +767,7 @@ impl Cli {
 		Ok(wait.output)
 	}
 
-	fn needs_sandbox(&mut self, options: &Options) -> bool {
+	fn needs_sandbox(options: &Options) -> bool {
 		// Sandbox if explicitly requested.
 		if options.spawn.sandbox.get().is_some_and(|sbx| sbx) {
 			return true;

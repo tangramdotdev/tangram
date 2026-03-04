@@ -97,7 +97,13 @@ impl Cli {
 
 		// Spawn the process.
 		let crate::process::spawn::Output { process, output } = self
-			.spawn(spawn, reference, referent, trailing, None, None, None)
+			.spawn(
+				spawn,
+				reference,
+				referent,
+				trailing,
+				crate::process::spawn::Stdio::default(),
+			)
 			.boxed()
 			.await?;
 

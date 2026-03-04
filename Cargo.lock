@@ -6629,6 +6629,7 @@ dependencies = [
  "tokio-util",
  "toml",
  "v8",
+ "xattr",
 ]
 
 [[package]]

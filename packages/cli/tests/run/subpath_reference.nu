@@ -12,8 +12,8 @@ let path = artifact {
 let id = tg checkin $path
 tg index
 
-let sandbox_output = tg run ($id + "#sub.tg.ts") --sandbox
+let sandbox_output = tg run ($id + "?path=sub.tg.ts") --sandbox
 snapshot $sandbox_output '"from sub"'
 
-let output = tg run ($id + "#sub.tg.ts")
+let output = tg run ($id + "?path=sub.tg.ts")
 assert equal $output $sandbox_output
