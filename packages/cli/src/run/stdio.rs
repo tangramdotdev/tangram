@@ -180,7 +180,7 @@ where
 			size,
 		};
 		handle
-			.put_process_pty_size(&process, arg)
+			.set_process_pty_size(&process, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the pty"))?;
 	}

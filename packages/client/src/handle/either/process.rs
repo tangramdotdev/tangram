@@ -174,14 +174,14 @@ where
 		}
 	}
 
-	fn put_process_pty_size(
+	fn set_process_pty_size(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::pty::size::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			tg::Either::Left(s) => s.put_process_pty_size(id, arg).left_future(),
-			tg::Either::Right(s) => s.put_process_pty_size(id, arg).right_future(),
+			tg::Either::Left(s) => s.set_process_pty_size(id, arg).left_future(),
+			tg::Either::Right(s) => s.set_process_pty_size(id, arg).right_future(),
 		}
 	}
 

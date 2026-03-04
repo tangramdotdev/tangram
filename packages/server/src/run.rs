@@ -570,7 +570,7 @@ impl Server {
 		};
 
 		// Spawn the pty task.
-		let pty_task = if state.pty.is_some() {
+		let pty_size_task = if state.pty.is_some() {
 			Some(tokio::spawn({
 				let server = self.clone();
 				let sandbox = sandbox.clone();
@@ -579,7 +579,7 @@ impl Server {
 				let remote = remote.cloned();
 				async move {
 					server
-						.pty_task(&sandbox, &sandbox_process, &id, remote.as_ref())
+						.pty_size_task(&sandbox, &sandbox_process, &id, remote.as_ref())
 						.await
 						.inspect_err(|source| tracing::error!(?source, "the pty task failed"))
 						.ok();
@@ -612,8 +612,8 @@ impl Server {
 			.map_err(|source| tg::error!(!source, %id, "failed to wait for the process"))?;
 
 		// Abort the pty task.
-		if let Some(pty_task) = pty_task {
-			pty_task.abort();
+		if let Some(pty_size_task) = pty_size_task {
+			pty_size_task.abort();
 		}
 
 		// Abort the signal task.
@@ -776,7 +776,7 @@ impl Server {
 		Ok(())
 	}
 
-	async fn pty_task(
+	async fn pty_size_task(
 		&self,
 		sandbox: &tangram_sandbox::Sandbox,
 		sandbox_process: &tangram_sandbox::Process,

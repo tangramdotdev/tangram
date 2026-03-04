@@ -86,7 +86,7 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		>,
 	> + Send;
 
-	fn put_process_pty_size(
+	fn set_process_pty_size(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::pty::size::put::Arg,
@@ -277,12 +277,12 @@ impl tg::handle::Process for tg::Client {
 		self.try_get_process_pty_size_stream(id, arg)
 	}
 
-	fn put_process_pty_size(
+	fn set_process_pty_size(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::pty::size::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.put_process_pty_size(id, arg)
+		self.set_process_pty_size(id, arg)
 	}
 
 	fn try_dequeue_process(
