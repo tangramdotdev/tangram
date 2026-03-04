@@ -107,7 +107,8 @@ impl messenger::Messenger for Messenger {
 
 	async fn stream_publish<T>(
 		&self,
-		name: String,
+		stream: String,
+		subject: String,
 		payload: T,
 	) -> Result<impl Future<Output = Result<u64, messenger::Error>>, messenger::Error>
 	where
@@ -115,12 +116,12 @@ impl messenger::Messenger for Messenger {
 	{
 		match self {
 			Self::Memory(s) => s
-				.stream_publish(name, payload)
+				.stream_publish(stream, subject, payload)
 				.await
 				.map(futures::FutureExt::boxed),
 			#[cfg(feature = "nats")]
 			Self::Nats(s) => s
-				.stream_publish(name, payload)
+				.stream_publish(stream, subject, payload)
 				.await
 				.map(futures::FutureExt::boxed),
 		}
@@ -128,7 +129,8 @@ impl messenger::Messenger for Messenger {
 
 	async fn stream_batch_publish<T>(
 		&self,
-		name: String,
+		stream: String,
+		subject: String,
 		payloads: Vec<T>,
 	) -> Result<impl Future<Output = Result<Vec<u64>, messenger::Error>> + Send, messenger::Error>
 	where
@@ -136,12 +138,12 @@ impl messenger::Messenger for Messenger {
 	{
 		match self {
 			Self::Memory(s) => s
-				.stream_batch_publish(name, payloads)
+				.stream_batch_publish(stream, subject, payloads)
 				.await
 				.map(futures::FutureExt::boxed),
 			#[cfg(feature = "nats")]
 			Self::Nats(s) => s
-				.stream_batch_publish(name, payloads)
+				.stream_batch_publish(stream, subject, payloads)
 				.await
 				.map(futures::FutureExt::boxed),
 		}
@@ -169,7 +171,7 @@ impl messenger::Stream for Stream {
 
 	async fn create_consumer(
 		&self,
-		name: String,
+		name: Option<String>,
 		config: messenger::ConsumerConfig,
 	) -> Result<Self::Consumer, messenger::Error> {
 		match self {
@@ -181,7 +183,7 @@ impl messenger::Stream for Stream {
 
 	async fn get_or_create_consumer(
 		&self,
-		name: String,
+		name: Option<String>,
 		config: messenger::ConsumerConfig,
 	) -> Result<Self::Consumer, messenger::Error> {
 		match self {

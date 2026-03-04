@@ -68,7 +68,7 @@ pub struct PtySize {
 	pub cols: u16,
 }
 
-#[derive(Debug, Copy, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 pub enum Stdio {
 	#[default]
 	Null,
@@ -208,7 +208,11 @@ impl Sandbox {
 		Ok(process)
 	}
 
-	pub async fn set_pty_size(&self, process: &Process, size: tg::pty::Size) -> tg::Result<()> {
+	pub async fn set_pty_size(
+		&self,
+		process: &Process,
+		size: tg::process::pty::Size,
+	) -> tg::Result<()> {
 		let arg = crate::client::pty::SizeArg {
 			id: process.id.clone(),
 			size,
@@ -308,7 +312,7 @@ impl std::fmt::Display for Stdio {
 		match self {
 			Self::Null => write!(f, "null"),
 			Self::Pipe => write!(f, "pipe"),
-			Self::Pty => write!(f, "pipe"),
+			Self::Pty => write!(f, "pty"),
 		}
 	}
 }

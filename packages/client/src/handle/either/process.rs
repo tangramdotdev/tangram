@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{FutureExt as _, Stream, TryFutureExt as _},
+	tokio::io::AsyncRead,
 };
 
 impl<L, R> tg::handle::Process for tg::Either<L, R>
@@ -245,6 +246,93 @@ where
 		match self {
 			tg::Either::Left(s) => s.touch_process(id, arg).left_future(),
 			tg::Either::Right(s) => s.touch_process(id, arg).right_future(),
+		}
+	}
+
+	fn try_read_process_stdin(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> impl Future<Output = tg::Result<Option<impl AsyncRead + Send + 'static>>> {
+		match self {
+			tg::Either::Left(s) => s
+				.try_read_process_stdin(id, arg)
+				.map_ok(|option| option.map(tangram_futures::either::Either::Left))
+				.left_future(),
+			tg::Either::Right(s) => s
+				.try_read_process_stdin(id, arg)
+				.map_ok(|option| option.map(tangram_futures::either::Either::Right))
+				.right_future(),
+		}
+	}
+
+	fn write_process_stdin(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			tg::Either::Left(s) => s.write_process_stdin(id, arg, reader).left_future(),
+			tg::Either::Right(s) => s.write_process_stdin(id, arg, reader).right_future(),
+		}
+	}
+
+	fn try_read_process_stdout(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> impl Future<Output = tg::Result<Option<impl AsyncRead + Send + 'static>>> {
+		match self {
+			tg::Either::Left(s) => s
+				.try_read_process_stdout(id, arg)
+				.map_ok(|option| option.map(tangram_futures::either::Either::Left))
+				.left_future(),
+			tg::Either::Right(s) => s
+				.try_read_process_stdout(id, arg)
+				.map_ok(|option| option.map(tangram_futures::either::Either::Right))
+				.right_future(),
+		}
+	}
+
+	fn write_process_stdout(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			tg::Either::Left(s) => s.write_process_stdout(id, arg, reader).left_future(),
+			tg::Either::Right(s) => s.write_process_stdout(id, arg, reader).right_future(),
+		}
+	}
+
+	fn try_read_process_stderr(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> impl Future<Output = tg::Result<Option<impl AsyncRead + Send + 'static>>> {
+		match self {
+			tg::Either::Left(s) => s
+				.try_read_process_stderr(id, arg)
+				.map_ok(|option| option.map(tangram_futures::either::Either::Left))
+				.left_future(),
+			tg::Either::Right(s) => s
+				.try_read_process_stderr(id, arg)
+				.map_ok(|option| option.map(tangram_futures::either::Either::Right))
+				.right_future(),
+		}
+	}
+
+	fn write_process_stderr(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			tg::Either::Left(s) => s.write_process_stderr(id, arg, reader).left_future(),
+			tg::Either::Right(s) => s.write_process_stderr(id, arg, reader).right_future(),
 		}
 	}
 

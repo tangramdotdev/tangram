@@ -2,6 +2,7 @@ use {
 	super::Handle,
 	crate::prelude::*,
 	futures::{Stream, future::BoxFuture, stream::BoxStream},
+	tokio::io::AsyncRead,
 };
 
 impl tg::handle::Process for Handle {
@@ -180,6 +181,84 @@ impl tg::handle::Process for Handle {
 		arg: tg::process::touch::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.touch_process(id, arg)) }
+	}
+
+	fn try_read_process_stdin(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> impl Future<Output = tg::Result<Option<impl AsyncRead + Send + 'static>>> {
+		unsafe {
+			std::mem::transmute::<
+				_,
+				BoxFuture<'_, tg::Result<Option<tangram_futures::BoxAsyncRead<'static>>>>,
+			>(self.0.try_read_process_stdin(id, arg))
+		}
+	}
+
+	fn write_process_stdin(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> impl Future<Output = tg::Result<()>> {
+		unsafe {
+			std::mem::transmute::<_, BoxFuture<'_, tg::Result<()>>>(
+				self.0.write_process_stdin(id, arg, Box::pin(reader)),
+			)
+		}
+	}
+
+	fn try_read_process_stdout(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> impl Future<Output = tg::Result<Option<impl AsyncRead + Send + 'static>>> {
+		unsafe {
+			std::mem::transmute::<
+				_,
+				BoxFuture<'_, tg::Result<Option<tangram_futures::BoxAsyncRead<'static>>>>,
+			>(self.0.try_read_process_stdout(id, arg))
+		}
+	}
+
+	fn write_process_stdout(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> impl Future<Output = tg::Result<()>> {
+		unsafe {
+			std::mem::transmute::<_, BoxFuture<'_, tg::Result<()>>>(
+				self.0.write_process_stdout(id, arg, Box::pin(reader)),
+			)
+		}
+	}
+
+	fn try_read_process_stderr(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> impl Future<Output = tg::Result<Option<impl AsyncRead + Send + 'static>>> {
+		unsafe {
+			std::mem::transmute::<
+				_,
+				BoxFuture<'_, tg::Result<Option<tangram_futures::BoxAsyncRead<'static>>>>,
+			>(self.0.try_read_process_stderr(id, arg))
+		}
+	}
+
+	fn write_process_stderr(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: impl AsyncRead + Send + 'static,
+	) -> impl Future<Output = tg::Result<()>> {
+		unsafe {
+			std::mem::transmute::<_, BoxFuture<'_, tg::Result<()>>>(
+				self.0.write_process_stderr(id, arg, Box::pin(reader)),
+			)
+		}
 	}
 
 	fn try_wait_process_future(

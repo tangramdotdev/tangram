@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{future::BoxFuture, prelude::*, stream::BoxStream},
+	tangram_futures::BoxAsyncRead,
 };
 
 pub trait Process: Send + Sync + 'static {
@@ -115,6 +116,45 @@ pub trait Process: Send + Sync + 'static {
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::touch::Arg,
+	) -> BoxFuture<'a, tg::Result<()>>;
+
+	fn try_read_process_stdin<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<BoxAsyncRead<'static>>>>;
+
+	fn write_process_stdin<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: BoxAsyncRead<'static>,
+	) -> BoxFuture<'a, tg::Result<()>>;
+
+	fn try_read_process_stdout<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<BoxAsyncRead<'static>>>>;
+
+	fn write_process_stdout<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: BoxAsyncRead<'static>,
+	) -> BoxFuture<'a, tg::Result<()>>;
+
+	fn try_read_process_stderr<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<BoxAsyncRead<'static>>>>;
+
+	fn write_process_stderr<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: BoxAsyncRead<'static>,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
 	fn try_wait_process_future<'a>(
@@ -287,6 +327,63 @@ where
 		arg: tg::process::touch::Arg,
 	) -> BoxFuture<'a, tg::Result<()>> {
 		self.touch_process(id, arg).boxed()
+	}
+
+	fn try_read_process_stdin<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<BoxAsyncRead<'static>>>> {
+		self.try_read_process_stdin(id, arg)
+			.map_ok(|option| option.map(|reader| Box::pin(reader) as BoxAsyncRead<'static>))
+			.boxed()
+	}
+
+	fn write_process_stdin<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: BoxAsyncRead<'static>,
+	) -> BoxFuture<'a, tg::Result<()>> {
+		self.write_process_stdin(id, arg, reader).boxed()
+	}
+
+	fn try_read_process_stdout<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<BoxAsyncRead<'static>>>> {
+		self.try_read_process_stdout(id, arg)
+			.map_ok(|option| option.map(|reader| Box::pin(reader) as BoxAsyncRead<'static>))
+			.boxed()
+	}
+
+	fn write_process_stdout<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: BoxAsyncRead<'static>,
+	) -> BoxFuture<'a, tg::Result<()>> {
+		self.write_process_stdout(id, arg, reader).boxed()
+	}
+
+	fn try_read_process_stderr<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<BoxAsyncRead<'static>>>> {
+		self.try_read_process_stderr(id, arg)
+			.map_ok(|option| option.map(|reader| Box::pin(reader) as BoxAsyncRead<'static>))
+			.boxed()
+	}
+
+	fn write_process_stderr<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		reader: BoxAsyncRead<'static>,
+	) -> BoxFuture<'a, tg::Result<()>> {
+		self.write_process_stderr(id, arg, reader).boxed()
 	}
 
 	fn try_wait_process_future<'a>(

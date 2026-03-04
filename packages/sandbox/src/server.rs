@@ -22,20 +22,20 @@ mod wait;
 pub struct Server(Arc<State>);
 
 pub struct State {
-	pub(crate) processes: DashMap<tg::process::Id, ChildProcess>,
 	#[cfg(target_os = "linux")]
 	pub(crate) pids: DashMap<libc::pid_t, tg::process::Id>,
+	pub(crate) processes: DashMap<tg::process::Id, ChildProcess>,
 	pub(crate) stdio: DashMap<tg::process::Id, ChildStdio>,
 }
 
 pub(crate) struct ChildProcess {
-	#[cfg(target_os = "linux")]
-	pub(crate) pid: libc::pid_t,
 	#[cfg(target_os = "macos")]
 	pub(crate) child: tokio::process::Child,
-	pub(crate) status: Option<u8>,
 	#[cfg(target_os = "linux")]
 	pub(crate) notify: Arc<tokio::sync::Notify>,
+	#[cfg(target_os = "linux")]
+	pub(crate) pid: libc::pid_t,
+	pub(crate) status: Option<u8>,
 }
 
 pub(crate) struct ChildStdio {
@@ -47,15 +47,13 @@ pub(crate) struct ChildStdio {
 
 impl Server {
 	pub fn new() -> Self {
-		// Create teh server.
 		let server = Self(Arc::new(State {
-			processes: DashMap::default(),
 			#[cfg(target_os = "linux")]
 			pids: DashMap::default(),
+			processes: DashMap::default(),
 			stdio: DashMap::default(),
 		}));
 
-		// Spawn a task to reap children. Because we unconditionally kill the sandbox later it's fine for this to leak?
 		#[cfg(target_os = "linux")]
 		{
 			tokio::spawn({
@@ -69,6 +67,7 @@ impl Server {
 				}
 			});
 		}
+
 		server
 	}
 

@@ -118,11 +118,11 @@ where
 		.unwrap_or_default();
 	let stderr = arg
 		.stderr
-		.unwrap_or_else(|| state.as_ref().and_then(|state| state.stderr.clone()));
+		.unwrap_or_else(|| state.as_ref().and_then(|state| state.stderr));
 	let stdin = arg.stdin.unwrap_or_else(|| {
 		state
 			.as_ref()
-			.and_then(|state| state.stdin.clone().map(tg::Either::Left))
+			.and_then(|state| state.stdin.map(tg::Either::Left))
 	});
 	let stdin = match stdin {
 		None => None,
@@ -133,7 +133,7 @@ where
 	};
 	let stdout = arg
 		.stdout
-		.unwrap_or_else(|| state.as_ref().and_then(|state| state.stdout.clone()));
+		.unwrap_or_else(|| state.as_ref().and_then(|state| state.stdout));
 	if network && checksum.is_none() {
 		return Err(tg::error!(
 			"a checksum is required to build with network enabled"

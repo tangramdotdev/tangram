@@ -3,7 +3,7 @@ use {
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
 
-pub use self::retry::retry;
+pub use self::retry::{retry, stream as retry_stream};
 
 pub mod attach;
 pub mod either;

@@ -1,7 +1,7 @@
 use {
 	crate::{
-		Acker, BatchConfig, ConsumerConfig, ConsumerInfo, Error, Message, Payload, StreamConfig,
-		StreamInfo,
+		AckPolicy, Acker, BatchConfig, ConsumerConfig, ConsumerInfo, Error, Message, Payload,
+		StreamConfig, StreamInfo,
 	},
 	async_broadcast as broadcast,
 	futures::{StreamExt as _, TryFutureExt as _, TryStreamExt as _, future, stream},
@@ -36,7 +36,6 @@ pub struct Stream {
 }
 
 pub struct StreamInner {
-	name: String,
 	state: RwLock<StreamState>,
 	notify: Arc<tokio::sync::Notify>,
 }
@@ -45,13 +44,20 @@ struct StreamState {
 	closed: bool,
 	config: StreamConfig,
 	consumers: HashMap<String, (Consumer, ConsumerState)>,
-	messages: BTreeMap<u64, Arc<dyn Payload>>,
+	messages: BTreeMap<u64, StreamMessage>,
+	bytes: u64,
 	sequence: u64,
+}
+
+#[derive(Clone)]
+struct StreamMessage {
+	subject: String,
+	payload: Arc<dyn Payload>,
+	bytes: u64,
 }
 
 #[derive(Debug)]
 struct ConsumerState {
-	#[expect(dead_code)]
 	config: ConsumerConfig,
 	sequence: u64,
 }
@@ -134,18 +140,19 @@ impl Messenger {
 		if let Some(stream) = stream {
 			stream.close();
 		}
-		let stream = Stream::new(name.clone(), config);
+		let stream = Stream::new(config);
 		state.streams.insert(name, stream.clone());
 		stream
 	}
 
+	#[expect(clippy::needless_pass_by_value, reason = "matches trait signature")]
 	fn get_or_create_stream(&self, name: String, config: StreamConfig) -> Stream {
 		self.state
 			.write()
 			.unwrap()
 			.streams
 			.entry(name.clone())
-			.or_insert_with(|| Stream::new(name, config))
+			.or_insert_with(|| Stream::new(config))
 			.clone()
 	}
 
@@ -158,7 +165,8 @@ impl Messenger {
 
 	async fn stream_publish<T>(
 		&self,
-		name: String,
+		stream: String,
+		subject: String,
 		payload: T,
 	) -> Result<impl Future<Output = Result<u64, Error>>, Error>
 	where
@@ -169,10 +177,10 @@ impl Messenger {
 			.read()
 			.unwrap()
 			.streams
-			.get(&name)
+			.get(&stream)
 			.ok_or(Error::NotFound)?
 			.clone();
-		let future = tokio::spawn(async move { stream.publish(payload).await })
+		let future = tokio::spawn(async move { stream.publish(subject, payload).await })
 			.map_err(Error::other)
 			.and_then(future::ready);
 		Ok(future)
@@ -180,7 +188,8 @@ impl Messenger {
 
 	async fn stream_batch_publish<T>(
 		&self,
-		name: String,
+		stream: String,
+		subject: String,
 		payloads: Vec<T>,
 	) -> Result<impl Future<Output = Result<Vec<u64>, Error>>, Error>
 	where
@@ -191,10 +200,10 @@ impl Messenger {
 			.read()
 			.unwrap()
 			.streams
-			.get(&name)
+			.get(&stream)
 			.ok_or(Error::NotFound)?
 			.clone();
-		let future = tokio::spawn(async move { stream.batch_publish(payloads).await })
+		let future = tokio::spawn(async move { stream.batch_publish(subject, payloads).await })
 			.map_err(Error::other)
 			.and_then(future::ready);
 		Ok(future)
@@ -202,16 +211,16 @@ impl Messenger {
 }
 
 impl Stream {
-	fn new(name: String, config: StreamConfig) -> Self {
+	fn new(config: StreamConfig) -> Self {
 		let state = StreamState {
 			closed: false,
 			config,
 			consumers: HashMap::default(),
 			messages: BTreeMap::new(),
+			bytes: 0,
 			sequence: 0,
 		};
 		let inner = Arc::new(StreamInner {
-			name,
 			state: RwLock::new(state),
 			notify: Arc::new(tokio::sync::Notify::new()),
 		});
@@ -257,8 +266,9 @@ impl Stream {
 			.clone())
 	}
 
-	fn create_consumer(&self, name: String, config: ConsumerConfig) -> Consumer {
+	fn create_consumer(&self, name: Option<String>, config: ConsumerConfig) -> Consumer {
 		let mut state = self.state.write().unwrap();
+		let (name, config) = Self::normalize_consumer(&state, name, config);
 		state.consumers.remove(&name);
 		let sequence = state
 			.messages
@@ -273,8 +283,9 @@ impl Stream {
 		consumer
 	}
 
-	fn get_or_create_consumer(&self, name: String, config: ConsumerConfig) -> Consumer {
+	fn get_or_create_consumer(&self, name: Option<String>, config: ConsumerConfig) -> Consumer {
 		let mut state = self.state.write().unwrap();
+		let (name, config) = Self::normalize_consumer(&state, name, config);
 		if let Some((consumer, _)) = state.consumers.get(&name) {
 			return consumer.clone();
 		}
@@ -291,21 +302,76 @@ impl Stream {
 		consumer
 	}
 
+	fn normalize_consumer(
+		state: &StreamState,
+		name: Option<String>,
+		mut config: ConsumerConfig,
+	) -> (String, ConsumerConfig) {
+		let explicit_name = name.or_else(|| config.durable_name.clone());
+		let name = explicit_name
+			.clone()
+			.unwrap_or_else(|| Self::ephemeral_consumer_name(state));
+		if explicit_name.is_some() {
+			config.durable_name = Some(name.clone());
+		} else {
+			config.durable_name = None;
+		}
+		(name, config)
+	}
+
+	fn ephemeral_consumer_name(state: &StreamState) -> String {
+		let mut n = state.sequence.saturating_add(1);
+		loop {
+			let candidate = format!("ephemeral-{n}");
+			if !state.consumers.contains_key(&candidate) {
+				return candidate;
+			}
+			n = n.saturating_add(1);
+		}
+	}
+
 	fn delete_consumer(&self, name: &str) {
 		let mut state = self.state.write().unwrap();
 		state.consumers.remove(name);
 	}
 
-	async fn publish<T>(&self, payload: T) -> Result<u64, Error>
+	async fn publish<T>(&self, subject: String, payload: T) -> Result<u64, Error>
 	where
 		T: Payload,
 	{
-		let mut sequences = self.batch_publish(vec![payload]).await?;
-		let sequence = sequences.pop().ok_or_else(|| Error::MaxMessages)?;
+		let mut state = self.state.write().unwrap();
+		if let Some(max_messages) = state.config.max_messages
+			&& state.messages.len().to_u64().unwrap() + 1 > max_messages
+		{
+			return Err(Error::MaxMessages);
+		}
+		let bytes = payload
+			.serialize()
+			.map_err(Error::other)?
+			.len()
+			.to_u64()
+			.unwrap();
+		if let Some(max_bytes) = state.config.max_bytes
+			&& state.bytes + bytes > max_bytes
+		{
+			return Err(Error::MaxBytes);
+		}
+		state.sequence += 1;
+		let sequence = state.sequence;
+		let payload: Arc<dyn Payload> = Arc::new(payload);
+		let message = StreamMessage {
+			subject,
+			payload,
+			bytes,
+		};
+		state.messages.insert(sequence, message);
+		state.bytes += bytes;
+		drop(state);
+		self.notify.notify_waiters();
 		Ok(sequence)
 	}
 
-	async fn batch_publish<T>(&self, payloads: Vec<T>) -> Result<Vec<u64>, Error>
+	async fn batch_publish<T>(&self, subject: String, payloads: Vec<T>) -> Result<Vec<u64>, Error>
 	where
 		T: Payload,
 	{
@@ -321,10 +387,28 @@ impl Stream {
 				tracing::warn!("max messages reached");
 				break;
 			}
+			let bytes = payload
+				.serialize()
+				.map_err(Error::other)?
+				.len()
+				.to_u64()
+				.unwrap();
+			if let Some(max_bytes) = state.config.max_bytes
+				&& state.bytes + bytes > max_bytes
+			{
+				tracing::warn!("max bytes reached");
+				break;
+			}
 			state.sequence += 1;
 			let sequence = state.sequence;
 			let payload: Arc<dyn Payload> = Arc::new(payload);
-			state.messages.insert(sequence, payload);
+			let message = StreamMessage {
+				subject: subject.clone(),
+				payload,
+				bytes,
+			};
+			state.messages.insert(sequence, message);
+			state.bytes += bytes;
 			sequences.push(sequence);
 		}
 
@@ -384,7 +468,6 @@ impl Consumer {
 		struct State {
 			consumer: Consumer,
 			stream: Weak<StreamInner>,
-			name: String,
 			notify: Arc<Notify>,
 		}
 
@@ -394,7 +477,6 @@ impl Consumer {
 			.upgrade()
 			.ok_or_else(|| Error::Other("stream closed".into()))?;
 
-		let name = stream.name.clone();
 		let notify = stream.notify.clone();
 
 		// Compute the max number of messages.
@@ -404,7 +486,6 @@ impl Consumer {
 		let state = State {
 			consumer: self.clone(),
 			stream: Arc::downgrade(&stream),
-			name,
 			notify,
 		};
 
@@ -417,8 +498,16 @@ impl Consumer {
 					.upgrade()
 					.and_then(|stream| {
 						let stream = stream.state.read().unwrap();
-						let (_, consumer) = stream.consumers.get(&state.consumer.name)?;
-						Some(consumer.sequence == stream.sequence)
+						let (_, consumer_state) = stream.consumers.get(&state.consumer.name)?;
+						let has_pending = stream.messages.iter().any(|(sequence, message)| {
+							*sequence > consumer_state.sequence
+								&& consumer_state
+									.config
+									.filter_subject
+									.as_ref()
+									.is_none_or(|filter| filter == &message.subject)
+						});
+						Some(!has_pending)
 					})
 					.unwrap_or_default();
 				if is_empty {
@@ -441,22 +530,36 @@ impl Consumer {
 
 			// Get the messages.
 			let max_messages = max_messages.unwrap_or(stream_state.messages.len());
-			let consumer_sequence = stream_state
+			let consumer_state = &stream_state
 				.consumers
 				.get(&state.consumer.name)
 				.ok_or_else(|| Error::NotFound)?
-				.1
-				.sequence;
+				.1;
+			let consumer_sequence = consumer_state.sequence;
+			let ack_policy = consumer_state.config.ack_policy.clone();
+			let filter_subject = consumer_state.config.filter_subject.clone();
 			let messages = stream_state
 				.messages
 				.iter()
 				.skip_while(|(sequence, _)| **sequence <= consumer_sequence)
+				.filter(|(_, message)| {
+					filter_subject
+						.as_ref()
+						.is_none_or(|filter| filter == &message.subject)
+				})
 				.take(max_messages)
-				.map(|(sequence, payload)| (*sequence, payload.clone()))
+				.map(|(sequence, message)| {
+					(
+						*sequence,
+						message.subject.clone(),
+						message.payload.clone(),
+						message.bytes,
+					)
+				})
 				.collect::<Vec<_>>();
 
 			// Set the consumer's sequence number.
-			if let Some((sequence, _)) = messages.last() {
+			if let Some((sequence, _, _, _)) = messages.last() {
 				stream_state
 					.consumers
 					.get_mut(&state.consumer.name)
@@ -465,28 +568,41 @@ impl Consumer {
 					.sequence = *sequence;
 			}
 
+			// Auto-ack messages on delivery when requested.
+			if matches!(ack_policy, AckPolicy::None) {
+				for (sequence, _, _, bytes) in &messages {
+					if stream_state.messages.remove(sequence).is_some() {
+						stream_state.bytes = stream_state.bytes.saturating_sub(*bytes);
+					}
+				}
+			}
+
 			// Drop the state.
 			drop(stream_state);
 
 			// Create the messages.
 			let messages = messages
 				.into_iter()
-				.filter_map(|(sequence, payload)| {
+				.filter_map(|(sequence, subject, payload, _)| {
 					let payload = payload as Arc<dyn Any + Send + Sync>;
 					let payload = payload.downcast::<T>().ok()?;
 					let payload = Arc::unwrap_or_clone(payload);
-					let inner = Arc::downgrade(&state.consumer.inner);
-					let acker = Acker::new(async move {
-						if let Some(inner) = inner.upgrade() {
-							let consumer = Consumer { inner };
-							consumer.ack(sequence).await?;
-						}
-						Ok::<_, Error>(())
-					});
+					let acker = if matches!(ack_policy, AckPolicy::None) {
+						Acker::default()
+					} else {
+						let inner = Arc::downgrade(&state.consumer.inner);
+						Acker::new(async move {
+							if let Some(inner) = inner.upgrade() {
+								let consumer = Consumer { inner };
+								consumer.ack(sequence).await?;
+							}
+							Ok::<_, Error>(())
+						})
+					};
 					let message = Message {
-						acker,
+						subject,
 						payload,
-						subject: state.name.clone(),
+						acker,
 					};
 					Some(Ok(message))
 				})
@@ -506,7 +622,9 @@ impl Consumer {
 			.upgrade()
 			.ok_or_else(|| Error::other("the stream was destroyed"))?;
 		let mut state = stream.state.write().unwrap();
-		state.messages.remove(&sequence);
+		if let Some(message) = state.messages.remove(&sequence) {
+			state.bytes = state.bytes.saturating_sub(message.bytes);
+		}
 		Ok(())
 	}
 }
@@ -590,24 +708,26 @@ impl crate::Messenger for Messenger {
 
 	async fn stream_publish<T>(
 		&self,
-		name: String,
+		stream: String,
+		subject: String,
 		payload: T,
 	) -> Result<impl Future<Output = Result<u64, Error>>, Error>
 	where
 		T: Payload,
 	{
-		self.stream_publish(name, payload).await
+		self.stream_publish(stream, subject, payload).await
 	}
 
 	async fn stream_batch_publish<T>(
 		&self,
-		name: String,
+		stream: String,
+		subject: String,
 		payloads: Vec<T>,
 	) -> Result<impl Future<Output = Result<Vec<u64>, Error>>, Error>
 	where
 		T: Payload,
 	{
-		self.stream_batch_publish(name, payloads).await
+		self.stream_batch_publish(stream, subject, payloads).await
 	}
 }
 
@@ -624,7 +744,7 @@ impl crate::Stream for Stream {
 
 	async fn create_consumer(
 		&self,
-		name: String,
+		name: Option<String>,
 		config: ConsumerConfig,
 	) -> Result<Self::Consumer, Error> {
 		Ok(self.create_consumer(name, config))
@@ -632,7 +752,7 @@ impl crate::Stream for Stream {
 
 	async fn get_or_create_consumer(
 		&self,
-		name: String,
+		name: Option<String>,
 		config: ConsumerConfig,
 	) -> Result<Self::Consumer, Error> {
 		Ok(self.get_or_create_consumer(name, config))
@@ -673,5 +793,21 @@ impl Drop for StreamInner {
 	fn drop(&mut self) {
 		// Notify consumers if the stream was dropped.
 		self.notify.notify_waiters();
+	}
+}
+
+impl Drop for ConsumerInner {
+	fn drop(&mut self) {
+		let Some(stream) = self.stream.upgrade() else {
+			return;
+		};
+		let mut state = stream.state.write().unwrap();
+		let remove = state
+			.consumers
+			.get(&self.name)
+			.is_some_and(|(_, state_)| state_.config.durable_name.is_none());
+		if remove {
+			state.consumers.remove(&self.name);
+		}
 	}
 }

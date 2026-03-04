@@ -25,6 +25,7 @@ pub mod list;
 pub mod log;
 pub mod metadata;
 pub mod mount;
+pub mod pty;
 pub mod put;
 pub mod queue;
 pub mod signal;

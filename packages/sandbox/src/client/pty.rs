@@ -7,7 +7,7 @@ use {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct SizeArg {
 	pub id: tg::process::Id,
-	pub size: tg::pty::Size,
+	pub size: tg::process::pty::Size,
 }
 
 impl Client {

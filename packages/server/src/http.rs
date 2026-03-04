@@ -452,48 +452,29 @@ impl Server {
 			(http::Method::POST, ["processes", process, "touch"]) => self
 				.handle_touch_process_request(request, &context, process)
 				.boxed(),
+			(http::Method::POST, ["processes", process, "stdin", "read"]) => self
+				.handle_post_process_stdin_read_request(request, &context, process)
+				.boxed(),
+			(http::Method::POST, ["processes", process, "stdin", "write"]) => self
+				.handle_post_process_stdin_write_request(request, &context, process)
+				.boxed(),
+			(http::Method::POST, ["processes", process, "stdout", "read"]) => self
+				.handle_post_process_stdout_read_request(request, &context, process)
+				.boxed(),
+			(http::Method::POST, ["processes", process, "stdout", "write"]) => self
+				.handle_post_process_stdout_write_request(request, &context, process)
+				.boxed(),
+			(http::Method::POST, ["processes", process, "stderr", "read"]) => self
+				.handle_post_process_stderr_read_request(request, &context, process)
+				.boxed(),
+			(http::Method::POST, ["processes", process, "stderr", "write"]) => self
+				.handle_post_process_stderr_write_request(request, &context, process)
+				.boxed(),
 			(http::Method::POST, ["processes", process, "heartbeat"]) => self
 				.handle_heartbeat_process_request(request, &context, process)
 				.boxed(),
 			(http::Method::POST, ["processes", process, "wait"]) => self
 				.handle_post_process_wait_request(request, &context, process)
-				.boxed(),
-
-			// Pipes.
-			(http::Method::POST, ["pipes"]) => {
-				self.handle_create_pipe_request(request, &context).boxed()
-			},
-			(http::Method::DELETE, ["pipes", pipe]) => self
-				.handle_delete_pipe_request(request, &context, pipe)
-				.boxed(),
-			(http::Method::POST, ["pipes", pipe, "close"]) => self
-				.handle_close_pipe_request(request, &context, pipe)
-				.boxed(),
-			(http::Method::GET, ["pipes", pipe, "read"]) => self
-				.handle_read_pipe_request(request, &context, pipe)
-				.boxed(),
-			(http::Method::POST, ["pipes", pipe, "write"]) => self
-				.handle_write_pipe_request(request, &context, pipe)
-				.boxed(),
-
-			// Ptys.
-			(http::Method::POST, ["ptys"]) => {
-				self.handle_create_pty_request(request, &context).boxed()
-			},
-			(http::Method::DELETE, ["ptys", pty]) => self
-				.handle_delete_pty_request(request, &context, pty)
-				.boxed(),
-			(http::Method::POST, ["ptys", pty, "close"]) => self
-				.handle_close_pty_request(request, &context, pty)
-				.boxed(),
-			(http::Method::PUT, ["ptys", pty, "size"]) => self
-				.handle_put_pty_size_request(request, &context, pty)
-				.boxed(),
-			(http::Method::GET, ["ptys", pty, "read"]) => {
-				self.handle_read_pty_request(request, &context, pty).boxed()
-			},
-			(http::Method::POST, ["ptys", pty, "write"]) => self
-				.handle_write_pty_request(request, &context, pty)
 				.boxed(),
 
 			// Remotes.
