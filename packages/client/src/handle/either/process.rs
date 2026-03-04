@@ -151,37 +151,37 @@ where
 		}
 	}
 
-	fn try_get_process_pty_stream(
+	fn try_get_process_pty_size_stream(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::pty::get::Arg,
+		arg: tg::process::pty::size::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
-				impl Stream<Item = tg::Result<tg::process::pty::get::Event>> + Send + 'static,
+				impl Stream<Item = tg::Result<tg::process::pty::size::get::Event>> + Send + 'static,
 			>,
 		>,
 	> {
 		match self {
 			tg::Either::Left(s) => s
-				.try_get_process_pty_stream(id, arg)
+				.try_get_process_pty_size_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
 				.left_future(),
 			tg::Either::Right(s) => s
-				.try_get_process_pty_stream(id, arg)
+				.try_get_process_pty_size_stream(id, arg)
 				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
 				.right_future(),
 		}
 	}
 
-	fn put_process_pty(
+	fn put_process_pty_size(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::pty::put::Arg,
+		arg: tg::process::pty::size::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			tg::Either::Left(s) => s.put_process_pty(id, arg).left_future(),
-			tg::Either::Right(s) => s.put_process_pty(id, arg).right_future(),
+			tg::Either::Left(s) => s.put_process_pty_size(id, arg).left_future(),
+			tg::Either::Right(s) => s.put_process_pty_size(id, arg).right_future(),
 		}
 	}
 

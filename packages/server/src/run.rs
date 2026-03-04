@@ -784,12 +784,12 @@ impl Server {
 		remote: Option<&String>,
 	) -> tg::Result<()> {
 		// Get the signal stream for the process.
-		let arg = tg::process::pty::get::Arg {
+		let arg = tg::process::pty::size::get::Arg {
 			local: None,
 			remotes: remote.map(|r| vec![r.clone()]),
 		};
 		let mut stream = self
-			.try_get_process_pty_stream(id, arg)
+			.try_get_process_pty_size_stream(id, arg)
 			.await
 			.map_err(|source| {
 				tg::error!(
@@ -807,13 +807,13 @@ impl Server {
 			|source| tg::error!(!source, process = %id, "failed to get the next pty event"),
 		)? {
 			match event {
-				tg::process::pty::get::Event::Pty(pty) => {
+				tg::process::pty::size::get::Event::Pty(pty) => {
 					sandbox
 						.set_pty_size(sandbox_process, pty.size)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to set the pty size"))?;
 				},
-				tg::process::pty::get::Event::End => break,
+				tg::process::pty::size::get::Event::End => break,
 			}
 		}
 

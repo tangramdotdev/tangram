@@ -174,13 +174,13 @@ where
 	// Wait for the next signal.
 	while let Some(()) = signal.recv().await {
 		let size = tty.get_size()?;
-		let arg = tg::process::pty::put::Arg {
+		let arg = tg::process::pty::size::put::Arg {
 			local: None,
 			remotes: remote.clone().map(|remote| vec![remote]),
 			size,
 		};
 		handle
-			.put_process_pty(&process, arg)
+			.put_process_pty_size(&process, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the pty"))?;
 	}

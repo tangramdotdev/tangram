@@ -68,25 +68,25 @@ impl tg::handle::Process for Shared {
 		self.0.cancel_process(id, arg).await
 	}
 
-	async fn try_get_process_pty_stream(
+	async fn try_get_process_pty_size_stream(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::pty::get::Arg,
+		arg: tg::process::pty::size::get::Arg,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::pty::get::Event>> + Send + 'static>,
+		Option<impl Stream<Item = tg::Result<tg::process::pty::size::get::Event>> + Send + 'static>,
 	> {
 		self.0
-			.try_get_process_pty_stream_with_context(&Context::default(), id, arg)
+			.try_get_process_pty_size_stream_with_context(&Context::default(), id, arg)
 			.await
 	}
 
-	async fn put_process_pty(
+	async fn put_process_pty_size(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::pty::put::Arg,
+		arg: tg::process::pty::size::put::Arg,
 	) -> tg::Result<()> {
 		self.0
-			.try_put_process_pty_with_context(&Context::default(), id, arg)
+			.try_put_process_pty_size_with_context(&Context::default(), id, arg)
 			.await
 	}
 
@@ -324,23 +324,23 @@ impl tg::handle::Process for Server {
 			.await
 	}
 
-	async fn try_get_process_pty_stream(
+	async fn try_get_process_pty_size_stream(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::pty::get::Arg,
+		arg: tg::process::pty::size::get::Arg,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::pty::get::Event>> + Send + 'static>,
+		Option<impl Stream<Item = tg::Result<tg::process::pty::size::get::Event>> + Send + 'static>,
 	> {
-		self.try_get_process_pty_stream_with_context(&Context::default(), id, arg)
+		self.try_get_process_pty_size_stream_with_context(&Context::default(), id, arg)
 			.await
 	}
 
-	async fn put_process_pty(
+	async fn put_process_pty_size(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::pty::put::Arg,
+		arg: tg::process::pty::size::put::Arg,
 	) -> tg::Result<()> {
-		self.try_put_process_pty_with_context(&Context::default(), id, arg)
+		self.try_put_process_pty_size_with_context(&Context::default(), id, arg)
 			.await
 	}
 

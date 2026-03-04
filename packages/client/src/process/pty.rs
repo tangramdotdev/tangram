@@ -1,7 +1,6 @@
 use crate as tg;
 
-pub mod get;
-pub mod put;
+pub mod size;
 
 #[derive(
 	Copy,
