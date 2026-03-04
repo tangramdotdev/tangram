@@ -295,8 +295,21 @@ impl Cli {
 			sandbox: crate::process::spawn::Sandbox::new(Some(true)),
 			..Default::default()
 		};
+		let referent = self.get_reference(reference).await?;
+		let item = referent
+			.item
+			.clone()
+			.left()
+			.ok_or_else(|| tg::error!(%reference, "expected an object"))?;
+		let referent = referent.map(|_| item);
 		let crate::process::spawn::Output { process, output } = self
-			.spawn(options, reference.clone(), Vec::new(), None, None, None)
+			.spawn(
+				options,
+				reference.clone(),
+				referent,
+				Vec::new(),
+				crate::process::spawn::Stdio::default(),
+			)
 			.boxed()
 			.await?;
 

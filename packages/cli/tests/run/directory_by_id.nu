@@ -3,10 +3,10 @@ use ../../test.nu *
 let server = spawn
 
 let path = artifact {
-    file.tg.ts: r#'export default () => "hello, world!"'#
-};
+	tangram.ts: 'export default () => "hello, world!";'
+}
 
-let id = tg checkin ($path + '/file.tg.ts')
+let id = tg checkin $path
 tg index
 
 let sandbox_output = tg run $id --sandbox

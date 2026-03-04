@@ -192,16 +192,36 @@ pub struct Output {
 	pub output: tg::process::spawn::Output,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Stdio {
+	pub stdin: Option<tg::process::Stdio>,
+	pub stdout: Option<tg::process::Stdio>,
+	pub stderr: Option<tg::process::Stdio>,
+}
+
 impl Cli {
 	pub async fn command_process_spawn(&mut self, args: Args) -> tg::Result<()> {
+		// Get the reference.
+		let arg = tg::get::Arg {
+			checkin: args.options.checkin.to_options(),
+			..Default::default()
+		};
+		let referent = self
+			.get_reference_with_arg(&args.reference, arg, true)
+			.await?;
+		let item = referent
+			.item
+			.clone()
+			.left()
+			.ok_or_else(|| tg::error!("expected an object"))?;
+		let referent = referent.map(|_| item);
 		let Output { output, .. } = self
 			.spawn(
 				args.options,
 				args.reference,
+				referent,
 				args.trailing,
-				None,
-				None,
-				None,
+				Stdio::default(),
 			)
 			.boxed()
 			.await?;
@@ -217,29 +237,20 @@ impl Cli {
 		&mut self,
 		options: Options,
 		reference: tg::Reference,
+		mut referent: tg::Referent<tg::Object>,
 		trailing: Vec<String>,
-		stdin: Option<tg::process::Stdio>,
-		stdout: Option<tg::process::Stdio>,
-		stderr: Option<tg::process::Stdio>,
+		stdio: Stdio,
 	) -> tg::Result<Output> {
+		let Stdio {
+			stdin,
+			stdout,
+			stderr,
+		} = stdio;
 		let handle = self.handle().await?;
 
 		// Determine if the process is sandboxed.
 		let sandbox =
 			options.sandbox.get().unwrap_or_default() || options.remotes.remotes.is_some();
-
-		// Get the reference.
-		let arg = tg::get::Arg {
-			checkin: options.checkin.to_options(),
-			..Default::default()
-		};
-		let referent = self.get_reference_with_arg(&reference, arg, true).await?;
-		let item = referent
-			.item
-			.clone()
-			.left()
-			.ok_or_else(|| tg::error!("expected an object"))?;
-		let mut referent = referent.map(|_| item);
 
 		// Create the command builder.
 		let mut command_env = None;

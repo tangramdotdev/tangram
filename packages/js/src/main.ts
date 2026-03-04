@@ -22,3 +22,13 @@ Object.defineProperties(globalThis, {
 Object.defineProperty(globalThis, "start", { value: start });
 
 tg.setHandle(handle);
+
+tg.setSpawnUnsandboxed(async (arg: tg.Handle.SpawnArg): Promise<number> => {
+	return syscall("process_spawn_unsandboxed", arg);
+});
+
+tg.setWaitUnsandboxed(
+	async (pid: number): Promise<tg.Process.WaitUnsandboxedOutput.Data> => {
+		return syscall("process_wait_unsandboxed", pid);
+	},
+);

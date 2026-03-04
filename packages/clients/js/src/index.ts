@@ -28,7 +28,15 @@ import { Mutation, mutation } from "./mutation.ts";
 import { Object } from "./object.ts";
 import { path } from "./path.ts";
 import { output, Placeholder, placeholder } from "./placeholder.ts";
-import { Process, process, setProcess } from "./process.ts";
+import {
+	Process,
+	process,
+	setProcess,
+	setSpawnUnsandboxed,
+	setWaitUnsandboxed,
+	spawnUnsandboxed,
+	waitUnsandboxed,
+} from "./process.ts";
 import type { Range } from "./range.ts";
 import type { Reference } from "./reference.ts";
 import { Referent } from "./referent.ts";
@@ -126,10 +134,14 @@ export {
 	run,
 	setHandle,
 	setProcess,
+	setSpawnUnsandboxed,
+	setWaitUnsandboxed,
 	sleep,
+	spawnUnsandboxed,
 	symlink,
 	template,
 	todo,
 	unimplemented,
 	unreachable,
+	waitUnsandboxed,
 };

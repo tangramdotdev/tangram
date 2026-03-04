@@ -11,16 +11,32 @@ export let setProcess = (newProcess: typeof process) => {
 	Object.assign(process, newProcess);
 };
 
+export let spawnUnsandboxed: (arg: tg.Handle.SpawnArg) => Promise<number>;
+
+export let setSpawnUnsandboxed = (f: typeof spawnUnsandboxed) => {
+	spawnUnsandboxed = f;
+};
+
+export let waitUnsandboxed: (
+	pid: number,
+) => Promise<tg.Process.WaitUnsandboxedOutput.Data>;
+
+export let setWaitUnsandboxed = (f: typeof waitUnsandboxed) => {
+	waitUnsandboxed = f;
+};
+
 export class Process {
 	static current: tg.Process | undefined;
 
-	#id: tg.Process.Id;
+	#id: tg.Process.Id | undefined;
+	#pid: number | undefined;
 	#remote: string | undefined;
 	#token: string | undefined;
 	#state: tg.Process.State | undefined;
 
 	constructor(arg: tg.Process.ConstructorArg) {
 		this.#id = arg.id;
+		this.#pid = arg.pid;
 		this.#remote = arg.remote;
 		this.#state = arg.state;
 	}
@@ -30,18 +46,25 @@ export class Process {
 	}
 
 	async wait(): Promise<tg.Process.Wait> {
-		let remotes = undefined;
-		if (this.#remote) {
-			remotes = [this.#remote];
+		if (this.#id) {
+			let remotes = undefined;
+			if (this.#remote) {
+				remotes = [this.#remote];
+			}
+			let arg = {
+				local: undefined,
+				remotes,
+				token: this.#token,
+			};
+			let data = await tg.handle.waitProcess(this.#id, arg);
+			let output = tg.Process.Wait.fromData(data);
+			return output;
 		}
-		let arg = {
-			local: undefined,
-			remotes,
-			token: this.#token,
-		};
-		let data = await tg.handle.waitProcess(this.#id, arg);
-		let output = tg.Process.Wait.fromData(data);
-		return output;
+		if (this.#pid) {
+			let data = await tg.waitUnsandboxed(this.#pid);
+			return tg.Process.Wait.fromData(data);
+		}
+		throw new Error("expected a process id or pid");
 	}
 
 	static expect(value: unknown): tg.Process {
@@ -54,6 +77,9 @@ export class Process {
 	}
 
 	async load(): Promise<void> {
+		if (!this.#id) {
+			throw new Error("expected the process id to be set");
+		}
 		let data = await tg.handle.getProcess(this.#id, this.#remote);
 		this.#state = tg.Process.State.fromData(data);
 	}
@@ -62,8 +88,12 @@ export class Process {
 		await this.load();
 	}
 
-	get id(): tg.Process.Id {
+	get id(): tg.Process.Id | undefined {
 		return this.#id;
+	}
+
+	get pid(): number | undefined {
+		return this.#pid;
 	}
 
 	get command(): Promise<tg.Command> {
@@ -138,7 +168,8 @@ export namespace Process {
 	export type Id = string;
 
 	export type ConstructorArg = {
-		id: tg.Process.Id;
+		id?: tg.Process.Id | undefined;
+		pid?: number | undefined;
 		remote?: string | undefined;
 		state?: State | undefined;
 		token?: string | undefined;
@@ -324,6 +355,48 @@ export namespace Process {
 			}
 			if ("output" in value) {
 				output.output = tg.Value.toData(value.output);
+			}
+			return output;
+		};
+	}
+
+	export type WaitUnsandboxedOutput = {
+		error: tg.Error | undefined;
+		exit: number;
+		output?: tg.Value;
+		stdout?: Uint8Array;
+		stderr?: Uint8Array;
+	};
+
+	export namespace WaitUnsandboxedOutput {
+		export type Data = {
+			error?: tg.Error.Data | tg.Error.Id;
+			exit: number;
+			output?: tg.Value.Data;
+			stdout?: Uint8Array;
+			stderr?: Uint8Array;
+		};
+
+		export let fromData = (
+			data: tg.Process.WaitUnsandboxedOutput.Data,
+		): tg.Process.WaitUnsandboxedOutput => {
+			let output: WaitUnsandboxedOutput = {
+				error:
+					data.error !== undefined
+						? typeof data.error === "string"
+							? tg.Error.withId(data.error)
+							: tg.Error.fromData(data.error)
+						: undefined,
+				exit: data.exit,
+			};
+			if ("output" in data) {
+				output.output = tg.Value.fromData(data.output);
+			}
+			if (data.stdout !== undefined) {
+				output.stdout = data.stdout;
+			}
+			if (data.stderr !== undefined) {
+				output.stderr = data.stderr;
 			}
 			return output;
 		};

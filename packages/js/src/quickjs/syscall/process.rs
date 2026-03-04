@@ -6,7 +6,7 @@ use {
 	tangram_client::prelude::*,
 };
 
-pub async fn get(
+pub(super) async fn get(
 	ctx: qjs::Ctx<'_>,
 	id: Serde<tg::process::Id>,
 ) -> Result<Serde<tg::process::Data>> {
@@ -32,7 +32,7 @@ pub async fn get(
 	Result(result.map(Serde))
 }
 
-pub async fn spawn(
+pub(super) async fn spawn_sandboxed(
 	ctx: qjs::Ctx<'_>,
 	arg: Serde<tg::process::spawn::Arg>,
 ) -> Result<Serde<tg::process::spawn::Output>> {
@@ -70,7 +70,39 @@ pub async fn spawn(
 	Result(result.map(Serde))
 }
 
-pub async fn wait(
+pub(super) async fn spawn_unsandboxed(
+	ctx: qjs::Ctx<'_>,
+	arg: Serde<tg::process::spawn::Arg>,
+) -> Result<Serde<i32>> {
+	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	let Serde(arg) = arg;
+	let result = async {
+		let handle = state.handle.clone();
+		let child_process = state
+			.main_runtime_handle
+			.spawn(async move { crate::process::spawn_unsandboxed(&handle, arg).await })
+			.await
+			.map_err(|source| tg::error!(!source, "the task panicked"))?
+			.map_err(|source| tg::error!(!source, "failed to spawn the unsandboxed process"))?;
+
+		// Get the PID.
+		#[allow(clippy::cast_possible_wrap)]
+		let pid = child_process
+			.child
+			.id()
+			.ok_or_else(|| tg::error!("failed to get the child process ID"))?
+			.cast_signed();
+
+		// Store the child process in state.
+		state.children.borrow_mut().insert(pid, child_process);
+
+		Ok(pid)
+	}
+	.await;
+	Result(result.map(Serde))
+}
+
+pub(super) async fn wait_sandboxed(
 	ctx: qjs::Ctx<'_>,
 	id: Serde<tg::process::Id>,
 	arg: Serde<tg::process::wait::Arg>,
@@ -90,6 +122,35 @@ pub async fn wait(
 			})
 			.await
 			.map_err(|source| tg::error!(!source, "the task panicked"))??;
+		Ok(output)
+	}
+	.await;
+	Result(result.map(Serde))
+}
+
+pub(super) async fn wait_unsandboxed(
+	ctx: qjs::Ctx<'_>,
+	pid: Serde<i32>,
+) -> Result<Serde<crate::process::WaitOutput>> {
+	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	let Serde(pid) = pid;
+	let result = async {
+		// Remove the child process from state.
+		let child_process = state
+			.children
+			.borrow_mut()
+			.remove(&pid)
+			.ok_or_else(|| tg::error!(%pid, "unknown child process"))?;
+
+		// Wait for the child process to complete.
+		let handle = state.handle.clone();
+		let output = state
+			.main_runtime_handle
+			.spawn(async move { crate::process::wait_unsandboxed(&handle, child_process).await })
+			.await
+			.map_err(|source| tg::error!(!source, "the task panicked"))?
+			.map_err(|source| tg::error!(!source, "failed to wait for the unsandboxed process"))?;
+
 		Ok(output)
 	}
 	.await;

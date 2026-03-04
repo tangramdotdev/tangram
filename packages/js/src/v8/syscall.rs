@@ -8,7 +8,7 @@ mod checksum;
 mod encoding;
 mod magic;
 mod object;
-mod process;
+pub(crate) mod process;
 mod sleep;
 
 pub mod log;
@@ -42,8 +42,10 @@ pub fn syscall<'s>(
 		"object_get" => async_(scope, &args, self::object::get),
 		"object_id" => sync(scope, &args, self::object::id),
 		"process_get" => async_(scope, &args, self::process::get),
-		"process_spawn" => async_(scope, &args, self::process::spawn),
-		"process_wait" => async_(scope, &args, self::process::wait),
+		"process_spawn_sandboxed" => async_(scope, &args, self::process::spawn_sandboxed),
+		"process_wait_sandboxed" => async_(scope, &args, self::process::wait_sandboxed),
+		"process_spawn_unsandboxed" => async_(scope, &args, self::process::spawn_unsandboxed),
+		"process_wait_unsandboxed" => async_(scope, &args, self::process::wait_unsandboxed),
 		"read" => async_(scope, &args, self::blob::read),
 		"sleep" => async_(scope, &args, self::sleep::sleep),
 		"write" => async_(scope, &args, self::blob::write),

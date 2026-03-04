@@ -81,8 +81,29 @@ impl Cli {
 			sandbox,
 			..options.spawn
 		};
+
+		// Get the reference.
+		let arg = tg::get::Arg {
+			checkin: spawn.checkin.clone().to_options(),
+			..Default::default()
+		};
+		let referent = self.get_reference_with_arg(&reference, arg, true).await?;
+		let item = referent
+			.item
+			.clone()
+			.left()
+			.ok_or_else(|| tg::error!("expected an object"))?;
+		let referent = referent.map(|_| item);
+
+		// Spawn the process.
 		let crate::process::spawn::Output { process, output } = self
-			.spawn(spawn, reference, trailing, None, None, None)
+			.spawn(
+				spawn,
+				reference,
+				referent,
+				trailing,
+				crate::process::spawn::Stdio::default(),
+			)
 			.boxed()
 			.await?;
 

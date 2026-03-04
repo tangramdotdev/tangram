@@ -24,7 +24,7 @@ pub async fn get(
 	Ok(Serde(data))
 }
 
-pub async fn spawn(
+pub async fn spawn_sandboxed(
 	state: Rc<State>,
 	args: (Serde<tg::process::spawn::Arg>,),
 ) -> tg::Result<Serde<tg::process::spawn::Output>> {
@@ -56,7 +56,34 @@ pub async fn spawn(
 	Ok(Serde(output))
 }
 
-pub async fn wait(
+pub async fn spawn_unsandboxed(
+	state: Rc<State>,
+	args: (Serde<tg::process::spawn::Arg>,),
+) -> tg::Result<Serde<i32>> {
+	let (Serde(arg),) = args;
+	let handle = state.handle.clone();
+	let child_process = state
+		.main_runtime_handle
+		.spawn(async move { crate::process::spawn_unsandboxed(&handle, arg).await })
+		.await
+		.map_err(|source| tg::error!(!source, "the task panicked"))?
+		.map_err(|source| tg::error!(!source, "failed to spawn the unsandboxed process"))?;
+
+	// Get the PID.
+	#[allow(clippy::cast_possible_wrap)]
+	let pid = child_process
+		.child
+		.id()
+		.ok_or_else(|| tg::error!("failed to get the child process ID"))?
+		.cast_signed();
+
+	// Store the child process in state.
+	state.children.borrow_mut().insert(pid, child_process);
+
+	Ok(Serde(pid))
+}
+
+pub async fn wait_sandboxed(
 	state: Rc<State>,
 	args: (Serde<tg::process::Id>, Serde<tg::process::wait::Arg>),
 ) -> tg::Result<Serde<tg::process::wait::Output>> {
@@ -70,5 +97,30 @@ pub async fn wait(
 		})
 		.await
 		.unwrap()?;
+	Ok(Serde(output))
+}
+
+pub async fn wait_unsandboxed(
+	state: Rc<State>,
+	args: (Serde<i32>,),
+) -> tg::Result<Serde<crate::process::WaitOutput>> {
+	let (Serde(pid),) = args;
+
+	// Remove the child process from state.
+	let child_process = state
+		.children
+		.borrow_mut()
+		.remove(&pid)
+		.ok_or_else(|| tg::error!(%pid, "unknown child process"))?;
+
+	// Wait for the child process to complete.
+	let handle = state.handle.clone();
+	let output = state
+		.main_runtime_handle
+		.spawn(async move { crate::process::wait_unsandboxed(&handle, child_process).await })
+		.await
+		.map_err(|source| tg::error!(!source, "the task panicked"))?
+		.map_err(|source| tg::error!(!source, "failed to wait for the unsandboxed process"))?;
+
 	Ok(Serde(output))
 }

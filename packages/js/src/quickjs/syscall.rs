@@ -12,7 +12,7 @@ mod encoding;
 mod log;
 mod magic;
 mod object;
-mod process;
+pub(crate) mod process;
 mod sleep;
 
 struct Result<T>(tg::Result<T>);
@@ -52,8 +52,16 @@ pub fn syscall<'js>(
 		"object_get" => qjs::Function::new(ctx.clone(), Async(object::get)),
 		"object_id" => qjs::Function::new(ctx.clone(), object::id),
 		"process_get" => qjs::Function::new(ctx.clone(), Async(process::get)),
-		"process_spawn" => qjs::Function::new(ctx.clone(), Async(process::spawn)),
-		"process_wait" => qjs::Function::new(ctx.clone(), Async(process::wait)),
+		"process_spawn_sandboxed" => {
+			qjs::Function::new(ctx.clone(), Async(process::spawn_sandboxed))
+		},
+		"process_wait_sandboxed" => qjs::Function::new(ctx.clone(), Async(process::wait_sandboxed)),
+		"process_spawn_unsandboxed" => {
+			qjs::Function::new(ctx.clone(), Async(process::spawn_unsandboxed))
+		},
+		"process_wait_unsandboxed" => {
+			qjs::Function::new(ctx.clone(), Async(process::wait_unsandboxed))
+		},
 		"read" => qjs::Function::new(ctx.clone(), Async(blob::read)),
 		"sleep" => qjs::Function::new(ctx.clone(), Async(sleep::sleep)),
 		"write" => qjs::Function::new(ctx.clone(), Async(blob::write)),

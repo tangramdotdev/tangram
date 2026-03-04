@@ -5,6 +5,8 @@ pub mod quickjs;
 #[cfg(feature = "v8")]
 pub mod v8;
 
+pub mod process;
+
 #[cfg(all(feature = "quickjs", not(feature = "v8")))]
 pub use self::quickjs::{Abort, run};
 #[cfg(feature = "v8")]
