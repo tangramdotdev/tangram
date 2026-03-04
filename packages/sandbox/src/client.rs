@@ -137,7 +137,9 @@ impl Client {
 
 	pub(crate) async fn connect(&self) -> tg::Result<()> {
 		let mut guard = self.sender.lock().await;
-		if guard.as_ref().is_some_and(|sender| sender.is_ready()) {
+		if let Some(sender) = guard.as_ref()
+			&& sender.is_ready()
+		{
 			return Ok(());
 		}
 		let sender = Self::connect_unix_h2(&self.path)
