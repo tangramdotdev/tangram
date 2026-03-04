@@ -74,22 +74,22 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::process::cancel::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn try_get_process_pty_stream(
+	fn try_get_process_pty_size_stream(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::pty::get::Arg,
+		arg: tg::process::pty::size::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
-				impl Stream<Item = tg::Result<tg::process::pty::get::Event>> + Send + 'static,
+				impl Stream<Item = tg::Result<tg::process::pty::size::get::Event>> + Send + 'static,
 			>,
 		>,
 	> + Send;
 
-	fn put_process_pty(
+	fn put_process_pty_size(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::pty::put::Arg,
+		arg: tg::process::pty::size::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn try_dequeue_process(
@@ -263,26 +263,26 @@ impl tg::handle::Process for tg::Client {
 		self.cancel_process(id, arg)
 	}
 
-	fn try_get_process_pty_stream(
+	fn try_get_process_pty_size_stream(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::pty::get::Arg,
+		arg: tg::process::pty::size::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
-				impl Stream<Item = tg::Result<tg::process::pty::get::Event>> + Send + 'static,
+				impl Stream<Item = tg::Result<tg::process::pty::size::get::Event>> + Send + 'static,
 			>,
 		>,
 	> {
-		self.try_get_process_pty_stream(id, arg)
+		self.try_get_process_pty_size_stream(id, arg)
 	}
 
-	fn put_process_pty(
+	fn put_process_pty_size(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::pty::put::Arg,
+		arg: tg::process::pty::size::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.put_process_pty(id, arg)
+		self.put_process_pty_size(id, arg)
 	}
 
 	fn try_dequeue_process(

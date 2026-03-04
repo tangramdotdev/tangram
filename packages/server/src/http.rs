@@ -422,11 +422,11 @@ impl Server {
 			(http::Method::POST, ["processes", process, "cancel"]) => self
 				.handle_cancel_process_request(request, &context, process)
 				.boxed(),
-			(http::Method::GET, ["processes", process, "pty"]) => self
-				.handle_get_process_pty_request(request, &context, process)
+			(http::Method::GET, ["processes", process, "pty", "size"]) => self
+				.handle_get_process_pty_size_request(request, &context, process)
 				.boxed(),
-			(http::Method::POST, ["processes", process, "pty"]) => self
-				.handle_put_process_pty_request(request, &context, process)
+			(http::Method::PUT, ["processes", process, "pty", "size"]) => self
+				.handle_put_process_pty_size_request(request, &context, process)
 				.boxed(),
 			(http::Method::POST, ["processes", "dequeue"]) => self
 				.handle_dequeue_process_request(request, &context)
