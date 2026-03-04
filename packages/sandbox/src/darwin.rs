@@ -44,19 +44,30 @@ pub fn spawn(context: SpawnContext) -> tg::Result<tokio::process::Child> {
 				.and_then(|path| which(path.as_ref(), &context.command.executable))
 		})
 		.unwrap_or_else(|| context.command.executable.clone());
+	let stdin = context.stdin.is_none();
+	let stdout = context.stdout.is_none();
+	let stderr = context.stderr.is_none();
+	let mut command = tokio::process::Command::new(executable);
+	command
+		.env_clear()
+		.args(context.command.args)
+		.envs(context.command.env)
+		.env("TANGRAM_PROCESS", context.id.to_string())
+		.current_dir(context.command.cwd);
+	if let Some(fd) = context.stdin {
+		command.stdin(fd);
+	}
+	if let Some(fd) = context.stdout {
+		command.stdout(fd);
+	}
+	if let Some(fd) = context.stderr {
+		command.stderr(fd);
+	}
 	unsafe {
-		tokio::process::Command::new(executable)
-			.env_clear()
-			.args(context.command.args)
-			.envs(context.command.env)
-			.env("TANGRAM_PROCESS", context.id.to_string())
-			.current_dir(context.command.cwd)
-			.stdin(context.stdin)
-			.stdout(context.stdout)
-			.stderr(context.stderr)
+		command
 			.pre_exec(move || {
 				if let Some(pty) = &context.pty {
-					start_session(pty);
+					start_session(pty, stdin, stdout, stderr);
 				}
 				Ok(())
 			})

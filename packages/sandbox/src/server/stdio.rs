@@ -114,7 +114,7 @@ impl Server {
 					};
 					let mut stdout = stdio.stdout.lock().await;
 					match &mut *stdout {
-						OutputStream::Null => (),
+						OutputStream::Null => break,
 						OutputStream::Pipe(pipe) => {
 							let mut buf = vec![0u8; 1 << 14];
 							match pipe.read(&mut buf).await {
@@ -214,7 +214,7 @@ impl Server {
 					};
 					let mut stderr = stdio.stderr.lock().await;
 					match &mut *stderr {
-						OutputStream::Null => (),
+						OutputStream::Null => break,
 						OutputStream::Pipe(pipe) => {
 							let mut buf = vec![0u8; 1 << 14];
 							match pipe.read(&mut buf).await {

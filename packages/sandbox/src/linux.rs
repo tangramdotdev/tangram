@@ -285,12 +285,18 @@ pub fn spawn(context: SpawnContext) -> tg::Result<libc::pid_t> {
 	// Run the process.
 	if pid == 0 {
 		if let Some(pty) = pty {
-			start_session(&pty);
+			start_session(&pty, stdin.is_none(), stdout.is_none(), stderr.is_none());
 		}
 		unsafe {
-			libc::dup2(stdin.as_raw_fd(), libc::STDIN_FILENO);
-			libc::dup2(stdout.as_raw_fd(), libc::STDOUT_FILENO);
-			libc::dup2(stderr.as_raw_fd(), libc::STDERR_FILENO);
+			if let Some(fd) = &stdin {
+				libc::dup2(fd.as_raw_fd(), libc::STDIN_FILENO);
+			}
+			if let Some(fd) = &stdout {
+				libc::dup2(fd.as_raw_fd(), libc::STDOUT_FILENO);
+			}
+			if let Some(fd) = &stderr {
+				libc::dup2(fd.as_raw_fd(), libc::STDERR_FILENO);
+			}
 			let ret = libc::chdir(cwd.as_ptr());
 			if ret == -1 {
 				abort_errno!("failed to set the working directory {:?}", command.cwd);
