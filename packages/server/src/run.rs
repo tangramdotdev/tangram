@@ -387,9 +387,14 @@ impl Server {
 			.collect::<Vec<_>>();
 
 		// Set `$TANGRAM_OUTPUT`.
+		let guest_output_path = if chroot {
+			Path::new("/.tangram/output")
+		} else {
+			&output_path
+		};
 		env.insert(
 			"TANGRAM_OUTPUT".to_owned(),
-			output_path
+			guest_output_path
 				.join(id.to_string())
 				.to_str()
 				.unwrap()
