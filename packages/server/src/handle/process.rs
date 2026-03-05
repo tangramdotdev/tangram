@@ -24,18 +24,6 @@ impl tg::handle::Process for Shared {
 		self.0.try_spawn_process(arg).await
 	}
 
-	async fn try_wait_process_future(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::wait::Arg,
-	) -> tg::Result<
-		Option<
-			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
-		>,
-	> {
-		self.0.try_wait_process_future(id, arg).await
-	}
-
 	async fn try_get_process_metadata(
 		&self,
 		id: &tg::process::Id,
@@ -68,28 +56,6 @@ impl tg::handle::Process for Shared {
 		self.0.cancel_process(id, arg).await
 	}
 
-	async fn try_get_process_pty_size_stream(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::pty::size::get::Arg,
-	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::pty::size::get::Event>> + Send + 'static>,
-	> {
-		self.0
-			.try_get_process_pty_size_stream_with_context(&Context::default(), id, arg)
-			.await
-	}
-
-	async fn set_process_pty_size(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::pty::size::put::Arg,
-	) -> tg::Result<()> {
-		self.0
-			.try_set_process_pty_size_with_context(&Context::default(), id, arg)
-			.await
-	}
-
 	async fn try_dequeue_process(
 		&self,
 		arg: tg::process::queue::Arg,
@@ -103,14 +69,6 @@ impl tg::handle::Process for Shared {
 		arg: tg::process::start::Arg,
 	) -> tg::Result<()> {
 		self.0.start_process(id, arg).await
-	}
-
-	async fn heartbeat_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::heartbeat::Arg,
-	) -> tg::Result<tg::process::heartbeat::Output> {
-		self.0.heartbeat_process(id, arg).await
 	}
 
 	async fn signal_process(
@@ -171,20 +129,26 @@ impl tg::handle::Process for Shared {
 		self.0.post_process_log(id, arg).await
 	}
 
-	async fn finish_process(
+	async fn try_get_process_pty_size_stream(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::finish::Arg,
-	) -> tg::Result<()> {
-		self.0.finish_process(id, arg).await
+		arg: tg::process::pty::size::get::Arg,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::process::pty::size::get::Event>> + Send + 'static>,
+	> {
+		self.0
+			.try_get_process_pty_size_stream_with_context(&Context::default(), id, arg)
+			.await
 	}
 
-	async fn touch_process(
+	async fn set_process_pty_size(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::touch::Arg,
+		arg: tg::process::pty::size::put::Arg,
 	) -> tg::Result<()> {
-		self.0.touch_process(id, arg).await
+		self.0
+			.try_set_process_pty_size_with_context(&Context::default(), id, arg)
+			.await
 	}
 
 	async fn try_read_process_stdin(
@@ -252,6 +216,42 @@ impl tg::handle::Process for Shared {
 			.write_process_stderr_with_context(&Context::default(), id, arg, reader)
 			.await
 	}
+
+	async fn heartbeat_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::heartbeat::Arg,
+	) -> tg::Result<tg::process::heartbeat::Output> {
+		self.0.heartbeat_process(id, arg).await
+	}
+
+	async fn touch_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::touch::Arg,
+	) -> tg::Result<()> {
+		self.0.touch_process(id, arg).await
+	}
+
+	async fn finish_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::finish::Arg,
+	) -> tg::Result<()> {
+		self.0.finish_process(id, arg).await
+	}
+
+	async fn try_wait_process_future(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::wait::Arg,
+	) -> tg::Result<
+		Option<
+			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+		>,
+	> {
+		self.0.try_wait_process_future(id, arg).await
+	}
 }
 
 impl tg::handle::Process for Server {
@@ -272,19 +272,6 @@ impl tg::handle::Process for Server {
 		+ 'static,
 	> {
 		self.try_spawn_process_with_context(&Context::default(), arg)
-			.await
-	}
-
-	async fn try_wait_process_future(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::wait::Arg,
-	) -> tg::Result<
-		Option<
-			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
-		>,
-	> {
-		self.try_wait_process_future_with_context(&Context::default(), id, arg)
 			.await
 	}
 
@@ -324,26 +311,6 @@ impl tg::handle::Process for Server {
 			.await
 	}
 
-	async fn try_get_process_pty_size_stream(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::pty::size::get::Arg,
-	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::pty::size::get::Event>> + Send + 'static>,
-	> {
-		self.try_get_process_pty_size_stream_with_context(&Context::default(), id, arg)
-			.await
-	}
-
-	async fn set_process_pty_size(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::pty::size::put::Arg,
-	) -> tg::Result<()> {
-		self.try_set_process_pty_size_with_context(&Context::default(), id, arg)
-			.await
-	}
-
 	async fn try_dequeue_process(
 		&self,
 		arg: tg::process::queue::Arg,
@@ -358,15 +325,6 @@ impl tg::handle::Process for Server {
 		arg: tg::process::start::Arg,
 	) -> tg::Result<()> {
 		self.start_process_with_context(&Context::default(), id, arg)
-			.await
-	}
-
-	async fn heartbeat_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::heartbeat::Arg,
-	) -> tg::Result<tg::process::heartbeat::Output> {
-		self.heartbeat_process_with_context(&Context::default(), id, arg)
 			.await
 	}
 
@@ -432,21 +390,23 @@ impl tg::handle::Process for Server {
 			.await
 	}
 
-	async fn finish_process(
+	async fn try_get_process_pty_size_stream(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::finish::Arg,
-	) -> tg::Result<()> {
-		self.finish_process_with_context(&Context::default(), id, arg)
+		arg: tg::process::pty::size::get::Arg,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::process::pty::size::get::Event>> + Send + 'static>,
+	> {
+		self.try_get_process_pty_size_stream_with_context(&Context::default(), id, arg)
 			.await
 	}
 
-	async fn touch_process(
+	async fn set_process_pty_size(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::touch::Arg,
+		arg: tg::process::pty::size::put::Arg,
 	) -> tg::Result<()> {
-		self.touch_process_with_context(&Context::default(), id, arg)
+		self.try_set_process_pty_size_with_context(&Context::default(), id, arg)
 			.await
 	}
 
@@ -507,6 +467,46 @@ impl tg::handle::Process for Server {
 		reader: impl AsyncRead + Send + 'static,
 	) -> tg::Result<()> {
 		self.write_process_stderr_with_context(&Context::default(), id, arg, reader)
+			.await
+	}
+
+	async fn heartbeat_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::heartbeat::Arg,
+	) -> tg::Result<tg::process::heartbeat::Output> {
+		self.heartbeat_process_with_context(&Context::default(), id, arg)
+			.await
+	}
+
+	async fn touch_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::touch::Arg,
+	) -> tg::Result<()> {
+		self.touch_process_with_context(&Context::default(), id, arg)
+			.await
+	}
+
+	async fn finish_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::finish::Arg,
+	) -> tg::Result<()> {
+		self.finish_process_with_context(&Context::default(), id, arg)
+			.await
+	}
+
+	async fn try_wait_process_future(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::wait::Arg,
+	) -> tg::Result<
+		Option<
+			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+		>,
+	> {
+		self.try_wait_process_future_with_context(&Context::default(), id, arg)
 			.await
 	}
 }
