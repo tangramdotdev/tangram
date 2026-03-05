@@ -19,6 +19,28 @@ where
 		}
 	}
 
+	fn try_spawn_process(
+		&self,
+		arg: tg::process::spawn::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>
+			+ Send
+			+ 'static,
+		>,
+	> + Send {
+		match self {
+			tg::Either::Left(s) => s
+				.try_spawn_process(arg)
+				.map(|result| result.map(futures::StreamExt::left_stream))
+				.left_future(),
+			tg::Either::Right(s) => s
+				.try_spawn_process(arg)
+				.map(|result| result.map(futures::StreamExt::right_stream))
+				.right_future(),
+		}
+	}
+
 	fn try_get_process_metadata(
 		&self,
 		id: &tg::process::Id,
@@ -52,47 +74,46 @@ where
 		}
 	}
 
-	fn try_get_process_children_stream(
+	fn cancel_process(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::children::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<
-				impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static,
-			>,
-		>,
-	> {
+		arg: tg::process::cancel::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			tg::Either::Left(s) => s
-				.try_get_process_children_stream(id, arg)
-				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
-				.left_future(),
-			tg::Either::Right(s) => s
-				.try_get_process_children_stream(id, arg)
-				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
-				.right_future(),
+			tg::Either::Left(s) => s.cancel_process(id, arg).left_future(),
+			tg::Either::Right(s) => s.cancel_process(id, arg).right_future(),
 		}
 	}
 
-	fn try_get_process_log_stream(
+	fn try_dequeue_process(
+		&self,
+		arg: tg::process::queue::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::queue::Output>>> {
+		match self {
+			tg::Either::Left(s) => s.try_dequeue_process(arg).left_future(),
+			tg::Either::Right(s) => s.try_dequeue_process(arg).right_future(),
+		}
+	}
+
+	fn start_process(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::log::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::process::log::get::Event>> + Send + 'static>,
-		>,
-	> {
+		arg: tg::process::start::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			tg::Either::Left(s) => s
-				.try_get_process_log_stream(id, arg)
-				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
-				.left_future(),
-			tg::Either::Right(s) => s
-				.try_get_process_log_stream(id, arg)
-				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
-				.right_future(),
+			tg::Either::Left(s) => s.start_process(id, arg).left_future(),
+			tg::Either::Right(s) => s.start_process(id, arg).right_future(),
+		}
+	}
+
+	fn signal_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::signal::post::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			tg::Either::Left(s) => s.signal_process(id, arg).left_future(),
+			tg::Either::Right(s) => s.signal_process(id, arg).right_future(),
 		}
 	}
 
@@ -140,14 +161,58 @@ where
 		}
 	}
 
-	fn cancel_process(
+	fn try_get_process_children_stream(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::cancel::Arg,
+		arg: tg::process::children::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static,
+			>,
+		>,
+	> {
+		match self {
+			tg::Either::Left(s) => s
+				.try_get_process_children_stream(id, arg)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
+				.left_future(),
+			tg::Either::Right(s) => s
+				.try_get_process_children_stream(id, arg)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
+				.right_future(),
+		}
+	}
+
+	fn try_get_process_log_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::log::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::process::log::get::Event>> + Send + 'static>,
+		>,
+	> {
+		match self {
+			tg::Either::Left(s) => s
+				.try_get_process_log_stream(id, arg)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::left_stream)))
+				.left_future(),
+			tg::Either::Right(s) => s
+				.try_get_process_log_stream(id, arg)
+				.map(|result| result.map(|option| option.map(futures::StreamExt::right_stream)))
+				.right_future(),
+		}
+	}
+
+	fn post_process_log(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::log::post::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			tg::Either::Left(s) => s.cancel_process(id, arg).left_future(),
-			tg::Either::Right(s) => s.cancel_process(id, arg).right_future(),
+			tg::Either::Left(s) => s.post_process_log(id, arg).left_future(),
+			tg::Either::Right(s) => s.post_process_log(id, arg).right_future(),
 		}
 	}
 
@@ -182,104 +247,6 @@ where
 		match self {
 			tg::Either::Left(s) => s.set_process_pty_size(id, arg).left_future(),
 			tg::Either::Right(s) => s.set_process_pty_size(id, arg).right_future(),
-		}
-	}
-
-	fn try_dequeue_process(
-		&self,
-		arg: tg::process::queue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::process::queue::Output>>> {
-		match self {
-			tg::Either::Left(s) => s.try_dequeue_process(arg).left_future(),
-			tg::Either::Right(s) => s.try_dequeue_process(arg).right_future(),
-		}
-	}
-
-	fn finish_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::finish::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		match self {
-			tg::Either::Left(s) => s.finish_process(id, arg).left_future(),
-			tg::Either::Right(s) => s.finish_process(id, arg).right_future(),
-		}
-	}
-
-	fn heartbeat_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::heartbeat::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> {
-		match self {
-			tg::Either::Left(s) => s.heartbeat_process(id, arg).left_future(),
-			tg::Either::Right(s) => s.heartbeat_process(id, arg).right_future(),
-		}
-	}
-
-	fn post_process_log(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::log::post::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		match self {
-			tg::Either::Left(s) => s.post_process_log(id, arg).left_future(),
-			tg::Either::Right(s) => s.post_process_log(id, arg).right_future(),
-		}
-	}
-
-	fn signal_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::signal::post::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		match self {
-			tg::Either::Left(s) => s.signal_process(id, arg).left_future(),
-			tg::Either::Right(s) => s.signal_process(id, arg).right_future(),
-		}
-	}
-
-	fn try_spawn_process(
-		&self,
-		arg: tg::process::spawn::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>
-			+ Send
-			+ 'static,
-		>,
-	> + Send {
-		match self {
-			tg::Either::Left(s) => s
-				.try_spawn_process(arg)
-				.map(|result| result.map(futures::StreamExt::left_stream))
-				.left_future(),
-			tg::Either::Right(s) => s
-				.try_spawn_process(arg)
-				.map(|result| result.map(futures::StreamExt::right_stream))
-				.right_future(),
-		}
-	}
-
-	fn start_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::start::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		match self {
-			tg::Either::Left(s) => s.start_process(id, arg).left_future(),
-			tg::Either::Right(s) => s.start_process(id, arg).right_future(),
-		}
-	}
-
-	fn touch_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::touch::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		match self {
-			tg::Either::Left(s) => s.touch_process(id, arg).left_future(),
-			tg::Either::Right(s) => s.touch_process(id, arg).right_future(),
 		}
 	}
 
@@ -367,6 +334,39 @@ where
 		match self {
 			tg::Either::Left(s) => s.write_process_stderr(id, arg, reader).left_future(),
 			tg::Either::Right(s) => s.write_process_stderr(id, arg, reader).right_future(),
+		}
+	}
+
+	fn heartbeat_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::heartbeat::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> {
+		match self {
+			tg::Either::Left(s) => s.heartbeat_process(id, arg).left_future(),
+			tg::Either::Right(s) => s.heartbeat_process(id, arg).right_future(),
+		}
+	}
+
+	fn touch_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::touch::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			tg::Either::Left(s) => s.touch_process(id, arg).left_future(),
+			tg::Either::Right(s) => s.touch_process(id, arg).right_future(),
+		}
+	}
+
+	fn finish_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::finish::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		match self {
+			tg::Either::Left(s) => s.finish_process(id, arg).left_future(),
+			tg::Either::Right(s) => s.finish_process(id, arg).right_future(),
 		}
 	}
 

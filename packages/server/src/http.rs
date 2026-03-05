@@ -422,12 +422,6 @@ impl Server {
 			(http::Method::POST, ["processes", process, "cancel"]) => self
 				.handle_cancel_process_request(request, &context, process)
 				.boxed(),
-			(http::Method::GET, ["processes", process, "pty", "size"]) => self
-				.handle_get_process_pty_size_request(request, &context, process)
-				.boxed(),
-			(http::Method::PUT, ["processes", process, "pty", "size"]) => self
-				.handle_set_process_pty_size_request(request, &context, process)
-				.boxed(),
 			(http::Method::POST, ["processes", "dequeue"]) => self
 				.handle_dequeue_process_request(request, &context)
 				.boxed(),
@@ -452,11 +446,11 @@ impl Server {
 			(http::Method::POST, ["processes", process, "log"]) => self
 				.handle_post_process_log_request(request, &context, process)
 				.boxed(),
-			(http::Method::POST, ["processes", process, "finish"]) => self
-				.handle_finish_process_request(request, &context, process)
+			(http::Method::GET, ["processes", process, "pty", "size"]) => self
+				.handle_get_process_pty_size_request(request, &context, process)
 				.boxed(),
-			(http::Method::POST, ["processes", process, "touch"]) => self
-				.handle_touch_process_request(request, &context, process)
+			(http::Method::PUT, ["processes", process, "pty", "size"]) => self
+				.handle_set_process_pty_size_request(request, &context, process)
 				.boxed(),
 			(http::Method::POST, ["processes", process, "stdin", "read"]) => self
 				.handle_post_process_stdin_read_request(request, &context, process)
@@ -478,6 +472,12 @@ impl Server {
 				.boxed(),
 			(http::Method::POST, ["processes", process, "heartbeat"]) => self
 				.handle_heartbeat_process_request(request, &context, process)
+				.boxed(),
+			(http::Method::POST, ["processes", process, "touch"]) => self
+				.handle_touch_process_request(request, &context, process)
+				.boxed(),
+			(http::Method::POST, ["processes", process, "finish"]) => self
+				.handle_finish_process_request(request, &context, process)
 				.boxed(),
 			(http::Method::POST, ["processes", process, "wait"]) => self
 				.handle_post_process_wait_request(request, &context, process)
