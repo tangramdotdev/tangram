@@ -214,6 +214,7 @@ impl Cli {
 		Ok(())
 	}
 
+	#[expect(clippy::too_many_arguments)]
 	pub(crate) async fn spawn(
 		&mut self,
 		options: Options,

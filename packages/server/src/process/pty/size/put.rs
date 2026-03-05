@@ -1,7 +1,8 @@
 use {
 	crate::{Context, Server},
 	tangram_client::prelude::*,
-	tangram_http::{body::Boxed as BoxBody, request::Ext as _}, tangram_messenger::Messenger,
+	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_messenger::Messenger,
 };
 
 impl Server {
@@ -38,13 +39,12 @@ impl Server {
 
 		// Publish the message.
 		let event = tg::process::pty::size::get::Event::Pty(tg::process::Pty { size: arg.size });
-		let payload =
-			tangram_messenger::payload::Json(event);
+		let payload = tangram_messenger::payload::Json(event);
 		self.messenger
 			.publish(format!("processes.{id}.pty"), payload)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to update the pty size"))?;
-		
+
 		Ok(())
 	}
 

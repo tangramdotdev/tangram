@@ -304,9 +304,9 @@ impl Cli {
 				reference,
 				trailing,
 				pty,
-				stdio.stdin.clone(),
-				stdio.stdout.clone(),
-				stdio.stderr.clone(),
+				stdio.stdin,
+				stdio.stdout,
+				stdio.stderr,
 			)
 			.boxed()
 			.await?;
