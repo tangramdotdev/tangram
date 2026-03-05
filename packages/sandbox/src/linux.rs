@@ -4,6 +4,7 @@ use {
 		common::{SpawnContext, start_session, which},
 		server::Server,
 	},
+	bytes::Bytes,
 	indoc::indoc,
 	num::ToPrimitive,
 	std::{
@@ -27,120 +28,126 @@ struct Mount {
 	target: Option<PathBuf>,
 	fstype: Option<CString>,
 	flags: u64,
-	data: Option<Vec<u8>>,
+	data: Option<Bytes>,
 }
 
 pub fn enter(config: &Config) -> tg::Result<()> {
-	std::fs::create_dir_all(&config.root_path)
-		.map_err(|source| tg::error!(!source, "failed to create the root path"))?;
-	let mut overlays = HashMap::new();
-	let mut mounts = Vec::new();
-	for mount in &config.mounts {
-		match mount {
-			tg::Either::Left(mount) => {
-				if !overlays.contains_key(&mount.target) {
-					let lowerdirs = Vec::new();
-					let upperdir = config
-						.scratch_path
-						.join("upper")
-						.join(overlays.len().to_string());
-					let workdir = config
-						.scratch_path
-						.join("work")
-						.join(overlays.len().to_string());
-					std::fs::create_dir_all(&upperdir).ok();
-					std::fs::create_dir_all(&workdir).ok();
-					overlays.insert(mount.target.clone(), (lowerdirs, upperdir, workdir));
-				}
-				let path = config.artifacts_path.join(mount.source.to_string());
-				let (lower_dirs, _, _) = overlays.get_mut(&mount.target).unwrap();
-				lower_dirs.push(path);
-			},
-			tg::Either::Right(mount) => {
-				let mount = bind(&mount.source, &mount.target, mount.readonly);
-				mounts.push(mount);
-			},
-		}
+	// Scan the mounts. We need to treat mounts to the same target as overlays, otherwise they are considered bind mounts.
+	let iter = config.mounts.iter().map(|mount| match mount {
+		tg::Either::Left(mount) => {
+			let source = config.artifacts_path.join(mount.source.to_string());
+			(source, mount.target.clone(), true)
+		},
+		tg::Either::Right(mount) => (mount.source.clone(), mount.target.clone(), mount.readonly),
+	});
+	let mut mounts = HashMap::new();
+	for (source, target, readonly) in iter {
+		mounts
+			.entry(target)
+			.or_insert(Vec::new())
+			.push((source, readonly));
 	}
-	// Create the .tangram directory.
-	let path = config.scratch_path.join(".tangram");
-	std::fs::create_dir_all(&path).map_err(
-		|source| tg::error!(!source, path = %path.display(), "failed to create the data directory"),
-	)?;
 
-	// Create /etc.
-	std::fs::create_dir_all(config.scratch_path.join("lower/etc")).ok();
+	// Edge case: the host root is mounted to the guest root.
+	let root_mounted = mounts
+		.get(Path::new("/"))
+		.is_some_and(|sources| sources.iter().any(|(source, _)| source == Path::new("/")));
 
-	// Create /tmp.
-	std::fs::create_dir_all(config.scratch_path.join("lower/tmp")).ok();
+	// Set up /.tangram, /etc, /tmp, /dev, /proc if the host root is not mounted.
+	if !root_mounted {
+		let root = config.scratch_path.join("guest_root");
+		std::fs::create_dir_all(root.join(".tangram")).ok();
+		std::fs::create_dir_all(root.join("etc")).ok();
+		std::fs::create_dir_all(root.join("tmp")).ok();
 
-	// Create nsswitch.conf.
-	std::fs::write(
-		config.scratch_path.join("lower/etc/nsswitch.conf"),
-		indoc!(
-			"
+		// Setup /etc.
+		std::fs::write(
+			root.join("etc/nsswitch.conf"),
+			indoc!(
+				"
 				passwd: files compat
 				shadow: files compat
 				hosts: files dns compat
 			"
-		),
-	)
-	.map_err(|source| tg::error!(!source, "failed to create /etc/nsswitch.conf"))?;
-
-	// Create /etc/passwd.
-	std::fs::write(
-		config.scratch_path.join("lower/etc/passwd"),
-		indoc!(
-			"
+			),
+		)
+		.map_err(|source| tg::error!(!source, "failed to create /etc/nsswitch.conf"))?;
+		std::fs::write(
+			root.join("etc/passwd"),
+			indoc!(
+				"
 				root:!:0:0:root:/nonexistent:/bin/false
 				nobody:!:65534:65534:nobody:/nonexistent:/bin/false
 			"
-		),
-	)
-	.map_err(|source| tg::error!(!source, "failed to create /etc/passwd"))?;
-
-	// Copy resolv.conf.
-	if config.network {
-		std::fs::copy(
-			"/etc/resolv.conf",
-			config.scratch_path.join("lower/etc/resolv.conf"),
+			),
 		)
-		.map_err(|source| tg::error!(!source, "failed to copy /etc/resolv.conf to the sandbox"))?;
+		.map_err(|source| tg::error!(!source, "failed to create /etc/passwd"))?;
+		if config.network {
+			std::fs::copy("/etc/resolv.conf", root.join("etc/resolv.conf")).map_err(|source| {
+				tg::error!(!source, "failed to copy /etc/resolv.conf to the sandbox")
+			})?;
+		}
+
+		// Add the root overlay, /dev, and /proc.
+		mounts.entry("/".into()).or_default().push((root, false));
+		mounts
+			.entry("/dev".into())
+			.or_default()
+			.push(("/dev".into(), false));
+		mounts
+			.entry("/proc".into())
+			.or_default()
+			.push(("/proc".into(), false));
 	}
 
-	// Get or create the root overlay.
-	if !overlays.contains_key(Path::new("/")) {
-		let lowerdirs = Vec::new();
-		let upperdir = config
-			.scratch_path
-			.join("upper")
-			.join(overlays.len().to_string());
-		let workdir = config
-			.scratch_path
-			.join("work")
-			.join(overlays.len().to_string());
-		std::fs::create_dir_all(&upperdir).ok();
-		std::fs::create_dir_all(&workdir).ok();
-		overlays.insert("/".into(), (lowerdirs, upperdir, workdir));
-	}
-	let (lowerdirs, _, _) = overlays.get_mut(Path::new("/")).unwrap();
-	lowerdirs.push(config.scratch_path.join("lower"));
+	// If the host root is mounted to /, we cannot use it as the lowerdir in an overlay. As a workaround, we mount the children of each mount to /.
+	let root_mounts = if root_mounted {
+		mounts.remove(Path::new("/")).unwrap_or_default()
+	} else {
+		Vec::new()
+	};
 
-	// Mount /dev, /proc, /tmp, /.tangram/artifacts, /output
-	mounts.push(bind("/dev", "/dev", false));
-	mounts.push(bind("/proc", "/proc", false));
-	mounts.push(bind(
-		config.scratch_path.join(".tangram"),
-		"/.tangram",
-		false,
-	));
-	mounts.push(bind(&config.artifacts_path, "/.tangram/artifacts", true));
-	mounts.push(bind(&config.output_path, "/output", false));
+	// Add /.tangram/artifacts, /.tangram/bin/tg, /.tangram/socket, and /output.
+	std::fs::create_dir_all(&config.output_path).ok();
+	mounts
+		.entry("/.tangram/artifacts".into())
+		.or_default()
+		.push((config.artifacts_path.clone(), true));
+	mounts
+		.entry("/.tangram/bin/tg".into())
+		.or_default()
+		.push((config.tangram_path.clone(), true));
+	mounts
+		.entry("/.tangram/socket".into())
+		.or_default()
+		.push((config.socket_path.clone(), false));
+	mounts
+		.entry("/output".into())
+		.or_default()
+		.push((config.output_path.clone(), true));
 
-	// Add the overlay mounts.
-	for (merged, (lowerdirs, upperdir, workdir)) in &overlays {
-		mounts.push(overlay(lowerdirs, upperdir, workdir, merged));
-	}
+	// Convert the mounts.
+	let mut num_overlays = 0;
+	let mut mounts = mounts
+		.into_iter()
+		.map(|(target, sources)| {
+			if sources.len() == 1 && target != Path::new("/") {
+				let (source, readonly) = &sources[0];
+				bind(source, target, *readonly)
+			} else {
+				let lowerdirs = sources
+					.iter()
+					.map(|(source, _)| source.clone())
+					.collect::<Vec<_>>();
+				let upperdir = config.scratch_path.join(format!("upper/{num_overlays}"));
+				let workdir = config.scratch_path.join(format!("work/{num_overlays}"));
+				num_overlays += 1;
+				std::fs::create_dir_all(&upperdir).ok();
+				std::fs::create_dir_all(&workdir).ok();
+				overlay(&lowerdirs, &upperdir, &workdir, &target)
+			}
+		})
+		.collect::<Vec<_>>();
 
 	// Sort mounts.
 	mounts.sort_unstable_by_key(|mount| mount.target.clone());
@@ -207,6 +214,80 @@ pub fn enter(config: &Config) -> tg::Result<()> {
 				return Err(tg::error!(!source, "failed to set hostname"));
 			}
 		}
+	}
+
+	// Handle mounts to /.
+	if root_mounted {
+		std::fs::create_dir(&config.root_path).ok();
+		mount(
+			&Mount {
+				source: Some("tmpfs".into()),
+				target: Some(config.root_path.clone()),
+				fstype: Some(c"tmpfs".to_owned()),
+				flags: 0,
+				data: None,
+			},
+			Path::new("/"),
+		)?;
+
+		// Collect children from all root mount sources, grouped by name.
+		let mut children: HashMap<std::ffi::OsString, Vec<(PathBuf, bool)>> = HashMap::new();
+		for (source, readonly) in &root_mounts {
+			let entries = std::fs::read_dir(source).map_err(|source| {
+				tg::error!(!source, "failed to read a root mount source directory")
+			})?;
+			for entry in entries {
+				let entry = entry
+					.map_err(|source| tg::error!(!source, "failed to read a directory entry"))?;
+				let name = entry.file_name();
+				let source_child = source.join(&name);
+				let file_type = entry.file_type().map_err(|source| {
+					tg::error!(!source, "failed to get the file type of a directory entry")
+				})?;
+				if file_type.is_symlink() {
+					let target = config.root_path.join(&name);
+					if let Ok(link_target) = std::fs::read_link(&source_child) {
+						std::os::unix::fs::symlink(&link_target, &target).ok();
+					}
+				} else {
+					children
+						.entry(name)
+						.or_default()
+						.push((source_child, *readonly));
+				}
+			}
+		}
+
+		// Since we cannot use the source directly, we create bind or overlay for each child of each source.
+		for (name, sources) in &children {
+			let target = config.root_path.join(name);
+			let m = if sources.len() == 1 {
+				let (source, readonly) = &sources[0];
+				if source.is_dir() {
+					std::fs::create_dir_all(&target).ok();
+				} else {
+					std::fs::File::create_new(&target).ok();
+				}
+				bind(source, &target, *readonly)
+			} else {
+				std::fs::create_dir_all(&target).ok();
+				let lowerdirs = sources
+					.iter()
+					.map(|(source, _)| source.clone())
+					.collect::<Vec<_>>();
+				let upperdir = config.scratch_path.join(format!("upper/{num_overlays}"));
+				let workdir = config.scratch_path.join(format!("work/{num_overlays}"));
+				num_overlays += 1;
+				std::fs::create_dir_all(&upperdir).ok();
+				std::fs::create_dir_all(&workdir).ok();
+				overlay(&lowerdirs, &upperdir, &workdir, &target)
+			};
+			mount(&m, Path::new("/"))?;
+		}
+
+		// Create writable directories on the tmpfs.
+		std::fs::create_dir_all(config.root_path.join(".tangram")).ok();
+		std::fs::create_dir_all(config.root_path.join("output")).ok();
 	}
 
 	// Perform the mounts.
@@ -341,7 +422,7 @@ fn overlay(lowerdirs: &[PathBuf], upperdir: &Path, workdir: &Path, merged: &Path
 	let fstype = Some(c"overlay".to_owned());
 
 	let mut data = Vec::new();
-	data.extend_from_slice(b"userxattr,lowerdir=");
+	data.extend_from_slice(b"xino=off,userxattr,lowerdir=");
 	for (n, dir) in lowerdirs.iter().enumerate() {
 		escape(&mut data, dir.as_os_str().as_bytes());
 		if n != lowerdirs.len() - 1 {
@@ -352,13 +433,14 @@ fn overlay(lowerdirs: &[PathBuf], upperdir: &Path, workdir: &Path, merged: &Path
 	data.extend_from_slice(upperdir.as_os_str().as_bytes());
 	data.extend_from_slice(b",workdir=");
 	data.extend_from_slice(workdir.as_os_str().as_bytes());
+	data.push(0);
 
 	Mount {
 		source,
 		target,
 		fstype,
 		flags: 0,
-		data: Some(data),
+		data: Some(data.into()),
 	}
 }
 
@@ -382,27 +464,27 @@ fn get_user(name: Option<impl AsRef<OsStr>>) -> std::io::Result<(libc::uid_t, li
 }
 
 fn get_existing_mount_flags(path: &CString) -> std::io::Result<libc::c_ulong> {
+	const ST_RELATIME: u64 = 0x400; // This flag is missing on musl.
 	const FLAGS: [(u64, u64); 7] = [
 		(libc::MS_RDONLY, libc::ST_RDONLY),
 		(libc::MS_NODEV, libc::ST_NODEV),
 		(libc::MS_NOEXEC, libc::ST_NOEXEC),
 		(libc::MS_NOSUID, libc::ST_NOSUID),
 		(libc::MS_NOATIME, libc::ST_NOATIME),
-		(libc::MS_RELATIME, libc::ST_RELATIME),
+		(libc::MS_RELATIME, ST_RELATIME),
 		(libc::MS_NODIRATIME, libc::ST_NODIRATIME),
 	];
 	let statfs = unsafe {
 		let mut statfs = std::mem::MaybeUninit::zeroed();
 		let ret = libc::statfs64(path.as_ptr(), statfs.as_mut_ptr());
 		if ret != 0 {
-			eprintln!("failed to statfs {}", path.to_string_lossy());
 			return Err(std::io::Error::last_os_error());
 		}
 		statfs.assume_init()
 	};
 	let mut flags = 0;
 	for (mount_flag, stat_flag) in FLAGS {
-		if (statfs.f_flags.abs().to_u64().unwrap() & stat_flag) != 0 {
+		if (statfs.f_flags.to_u64().unwrap() & stat_flag) != 0 {
 			flags |= mount_flag;
 		}
 	}
@@ -432,8 +514,7 @@ fn mount(mount: &Mount, root: &Path) -> tg::Result<()> {
 	let flags = if let Some(source) = &source
 		&& mount.fstype.is_none()
 	{
-		let existing = get_existing_mount_flags(source)
-			.map_err(|source| tg::error!(!source, "failed to get existing mount flags"))?;
+		let existing = get_existing_mount_flags(source).unwrap_or(0);
 		existing | mount.flags
 	} else {
 		mount.flags
@@ -518,7 +599,7 @@ impl Server {
 					tracing::error!(?error, "error waiting for children");
 					break;
 				}
-				let status = status.max(255).to_u8().unwrap();
+				let status = status.min(255).to_u8().unwrap();
 				if let Some(mut process) = self
 					.pids
 					.get(&pid)

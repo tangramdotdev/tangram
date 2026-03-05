@@ -485,6 +485,16 @@ impl Server {
 				.create_consumer(Some("queue".to_owned()), consumer_config)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the queue consumer"))?;
+			let stream_config = tangram_messenger::StreamConfig {
+				discard: tangram_messenger::DiscardPolicy::New,
+				max_bytes: None,
+				max_messages: None,
+				retention: tangram_messenger::RetentionPolicy::WorkQueue,
+			};
+			messenger
+				.create_stream("stdio".to_owned(), stream_config)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create stdio stream"))?;
 		}
 
 		// Create the remotes.
