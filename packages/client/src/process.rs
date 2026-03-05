@@ -2,10 +2,12 @@ use {
 	crate::prelude::*,
 	futures::{Stream, TryStreamExt as _},
 	std::{
+		future::Future,
 		ops::Deref,
-		pin::pin,
+		pin::Pin,
 		sync::{Arc, Mutex, RwLock},
 	},
+	tangram_futures::stream::TryExt as _,
 	tangram_util::arc::Ext as _,
 };
 
@@ -49,6 +51,7 @@ pub struct Inner {
 	remote: Option<String>,
 	state: RwLock<Option<Arc<State>>>,
 	token: Option<String>,
+	wait: Mutex<Option<Wait>>,
 }
 
 impl Process {
@@ -68,6 +71,7 @@ impl Process {
 			remote,
 			state,
 			token,
+			wait: Mutex::new(None),
 		}))
 	}
 
@@ -164,19 +168,65 @@ impl Process {
 		Ok(self.load(handle).await?.map(|state| &state.retry))
 	}
 
-	pub async fn spawn<H>(
-		handle: &H,
-		arg: tg::process::spawn::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<tg::Process>>> + Send>
+	pub async fn spawn<H>(handle: &H, arg: tg::process::spawn::Arg) -> tg::Result<tg::Process>
 	where
 		H: tg::Handle,
 	{
-		let stream = handle.spawn_process(arg).await?.map_ok(|event| {
-			event.map_output(|output| {
-				tg::Process::new(output.process, None, output.remote, None, output.token)
-			})
-		});
-		Ok(stream)
+		Self::spawn_with_progress(handle, arg, |stream| async move {
+			stream
+				.try_last()
+				.await?
+				.and_then(|event| event.try_unwrap_output().ok())
+				.ok_or_else(|| tg::error!("expected the stream to contain an output event"))
+		})
+		.await
+	}
+
+	pub async fn spawn_with_progress<H, F, Fut>(
+		handle: &H,
+		arg: tg::process::spawn::Arg,
+		progress: F,
+	) -> tg::Result<tg::Process>
+	where
+		H: tg::Handle,
+		F: FnOnce(
+			Pin<Box<dyn Stream<Item = tg::Result<tg::progress::Event<tg::Process>>> + Send>>,
+		) -> Fut,
+		Fut: Future<Output = tg::Result<tg::Process>>,
+	{
+		let stream = handle
+			.spawn_process(arg)
+			.await?
+			.and_then(|event| async move {
+				let event = match event {
+					tg::progress::Event::Output(output) => {
+						let wait = output
+							.wait
+							.map(tg::process::Wait::try_from_data)
+							.transpose()?;
+						let process = tg::Process::new(
+							output.process,
+							None,
+							output.remote,
+							None,
+							output.token,
+						);
+						if let Some(wait) = wait {
+							process.wait.lock().unwrap().replace(wait);
+						}
+						tg::progress::Event::Output(process)
+					},
+					tg::progress::Event::Log(log) => tg::progress::Event::Log(log),
+					tg::progress::Event::Diagnostic(diagnostic) => {
+						tg::progress::Event::Diagnostic(diagnostic)
+					},
+					tg::progress::Event::Indicators(indicators) => {
+						tg::progress::Event::Indicators(indicators)
+					},
+				};
+				Ok(event)
+			});
+		progress(Box::pin(stream)).await
 	}
 
 	pub async fn wait<H>(
@@ -187,6 +237,9 @@ impl Process {
 	where
 		H: tg::Handle,
 	{
+		if let Some(wait) = self.wait.lock().unwrap().take() {
+			return Ok(wait);
+		}
 		handle.wait_process(&self.id, arg).await?.try_into()
 	}
 
@@ -197,17 +250,6 @@ impl Process {
 		let wait = self.wait(handle, tg::process::wait::Arg::default()).await?;
 		let output = wait.into_output()?;
 		Ok(output)
-	}
-
-	pub async fn current_status<H>(&self, handle: &H) -> tg::Result<tg::process::Status>
-	where
-		H: tg::Handle,
-	{
-		let stream = self.status(handle).await?;
-		pin!(stream)
-			.try_next()
-			.await?
-			.ok_or_else(|| tg::error!("expected a status"))
 	}
 }
 

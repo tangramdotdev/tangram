@@ -451,12 +451,12 @@ impl Server {
 		});
 		let serve_task = Some((serve_task, guest_uri));
 
-		let stdin_mode = state.stdin.unwrap_or(tg::process::Stdio::Null);
+		let stdin_mode = state.stdin;
 		if matches!(stdin_mode, tg::process::Stdio::Log) {
 			return Err(tg::error!("invalid stdin stdio mode"));
 		}
-		let stdout_mode = state.stdout.unwrap_or(tg::process::Stdio::Null);
-		let stderr_mode = state.stderr.unwrap_or(tg::process::Stdio::Null);
+		let stdout_mode = state.stdout;
+		let stderr_mode = state.stderr;
 
 		let stdin = match stdin_mode {
 			tg::process::Stdio::Null => tangram_sandbox::Stdio::Null,
@@ -521,7 +521,7 @@ impl Server {
 			}
 		});
 
-		let stdout_task = if matches!(stdout_mode, tg::process::Stdio::Null) {
+		let stdout_task = if stdout_mode.is_null() {
 			None
 		} else {
 			Some(Task::spawn({
@@ -545,7 +545,7 @@ impl Server {
 			}))
 		};
 
-		let stderr_task = if matches!(stderr_mode, tg::process::Stdio::Null) {
+		let stderr_task = if stderr_mode.is_null() {
 			None
 		} else {
 			Some(Task::spawn({

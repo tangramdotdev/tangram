@@ -19,25 +19,43 @@ pub struct Arg {
 	pub progress: bool,
 	pub remote: Option<String>,
 	pub retry: bool,
+	pub sandbox: Option<bool>,
 	pub stderr: Option<Option<tg::process::Stdio>>,
 	pub stdin: Option<Option<tg::Either<tg::process::Stdio, tg::Blob>>>,
 	pub stdout: Option<Option<tg::process::Stdio>>,
 	pub user: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Stdio {
+	#[default]
+	Inherit,
+	Log,
+	Null,
+	Pipe,
+	Pty,
+}
+
 pub async fn run<H>(handle: &H, arg: tg::run::Arg) -> tg::Result<tg::Value>
 where
 	H: tg::Handle,
 {
-	let state = if let Some(process) = tg::Process::current()? {
-		Some(process.load(handle).await?)
+	let sandbox = arg.sandbox.unwrap_or(false);
+	let inherit = !sandbox;
+	let (state, command) = if inherit {
+		let state = if let Some(process) = tg::Process::current()? {
+			Some(process.load(handle).await?)
+		} else {
+			None
+		};
+		let command = if let Some(state) = &state {
+			Some(state.command.object(handle).await?)
+		} else {
+			None
+		};
+		(state, command)
 	} else {
-		None
-	};
-	let command = if let Some(state) = &state {
-		Some(state.command.object(handle).await?)
-	} else {
-		None
+		(None, None)
 	};
 	let host = arg
 		.host
@@ -47,31 +65,40 @@ where
 		.ok_or_else(|| tg::error!("expected the executable to be set"))?;
 	let mut builder = tg::Command::builder(host, executable);
 	builder = builder.args(arg.args);
-	let cwd = if let Some(command) = &command {
-		if command.cwd.is_some() {
+	let cwd = if inherit {
+		if let Some(command) = &command {
+			if command.cwd.is_some() {
+				let cwd = std::env::current_dir()
+					.map_err(|source| tg::error!(!source, "failed to get the current directory"))?;
+				Some(cwd)
+			} else {
+				None
+			}
+		} else {
 			let cwd = std::env::current_dir()
 				.map_err(|source| tg::error!(!source, "failed to get the current directory"))?;
 			Some(cwd)
-		} else {
-			None
 		}
 	} else {
-		let cwd = std::env::current_dir()
-			.map_err(|source| tg::error!(!source, "failed to get the current directory"))?;
-		Some(cwd)
+		None
 	};
 	let cwd = arg.cwd.or(cwd);
 	builder = builder.cwd(cwd);
-	let mut env = if let Some(command) = &command {
-		command.env.clone()
+	let env = if inherit {
+		let mut env = if let Some(command) = &command {
+			command.env.clone()
+		} else {
+			std::env::vars()
+				.map(|(key, value)| (key, value.into()))
+				.collect()
+		};
+		env.remove("TANGRAM_OUTPUT");
+		env.remove("TANGRAM_PROCESS");
+		env.remove("TANGRAM_URL");
+		env
 	} else {
-		std::env::vars()
-			.map(|(key, value)| (key, value.into()))
-			.collect()
+		arg.env
 	};
-	env.remove("TANGRAM_OUTPUT");
-	env.remove("TANGRAM_PROCESS");
-	env.remove("TANGRAM_URL");
 	builder = builder.env(env);
 	let mut command_mounts = vec![];
 	let mut process_mounts = vec![];
@@ -82,7 +109,7 @@ where
 				tg::Either::Right(mount) => command_mounts.push(mount),
 			}
 		}
-	} else {
+	} else if inherit {
 		if let Some(mounts) = command.as_ref().map(|command| command.mounts.clone()) {
 			command_mounts = mounts;
 		}
@@ -91,19 +118,29 @@ where
 		}
 	}
 	builder = builder.mounts(command_mounts);
-	let stdin = if arg.stdin.is_none() {
-		command
-			.as_ref()
-			.map(|command| command.stdin.clone())
-			.unwrap_or_default()
+	let stdin = if inherit {
+		if arg.stdin.is_none() {
+			command
+				.as_ref()
+				.map(|command| command.stdin.clone())
+				.unwrap_or_default()
+		} else if let Some(Some(tg::Either::Right(blob))) = &arg.stdin {
+			Some(blob.clone())
+		} else {
+			None
+		}
 	} else if let Some(Some(tg::Either::Right(blob))) = &arg.stdin {
 		Some(blob.clone())
 	} else {
 		None
 	};
 	builder = builder.stdin(stdin);
-	if let Some(Some(user)) = command.as_ref().map(|command| command.user.clone()) {
-		builder = builder.user(user);
+	if inherit {
+		if let Some(Some(user)) = command.as_ref().map(|command| command.user.clone()) {
+			builder = builder.user(user);
+		}
+	} else if let Some(user) = arg.user {
+		builder = builder.user(Some(user));
 	}
 	let command = builder.build();
 	let command_id = command.store(handle).await?;
@@ -112,28 +149,45 @@ where
 		command.options.name.replace(name);
 	}
 	let checksum = arg.checksum;
-	let network = arg
-		.network
-		.or(state.as_ref().map(|state| state.network))
-		.unwrap_or_default();
-	let stderr = arg
-		.stderr
-		.unwrap_or_else(|| state.as_ref().and_then(|state| state.stderr));
-	let stdin = arg.stdin.unwrap_or_else(|| {
-		state
-			.as_ref()
-			.and_then(|state| state.stdin.map(tg::Either::Left))
-	});
-	let stdin = match stdin {
-		None => None,
-		Some(tg::Either::Left(stdio)) => Some(stdio),
-		Some(tg::Either::Right(_)) => {
-			return Err(tg::error!("expected stdio"));
-		},
+	let network = if inherit {
+		arg.network
+			.or(state.as_ref().map(|state| state.network))
+			.unwrap_or_default()
+	} else {
+		arg.network.unwrap_or_default()
 	};
-	let stdout = arg
-		.stdout
-		.unwrap_or_else(|| state.as_ref().and_then(|state| state.stdout));
+	let stderr = if inherit {
+		arg.stderr
+			.unwrap_or_else(|| state.as_ref().map(|state| state.stderr))
+	} else {
+		arg.stderr.unwrap_or(None)
+	};
+	let stdin = if inherit {
+		let stdin = arg
+			.stdin
+			.unwrap_or_else(|| state.as_ref().map(|state| tg::Either::Left(state.stdin)));
+		match stdin {
+			None => None,
+			Some(tg::Either::Left(stdio)) => Some(stdio),
+			Some(tg::Either::Right(_)) => {
+				return Err(tg::error!("expected stdio"));
+			},
+		}
+	} else {
+		match arg.stdin {
+			None | Some(None) => None,
+			Some(Some(tg::Either::Left(stdio))) => Some(stdio),
+			Some(Some(tg::Either::Right(_))) => {
+				return Err(tg::error!("expected stdio"));
+			},
+		}
+	};
+	let stdout = if inherit {
+		arg.stdout
+			.unwrap_or_else(|| state.as_ref().map(|state| state.stdout))
+	} else {
+		arg.stdout.unwrap_or(None)
+	};
 	if network && checksum.is_none() {
 		return Err(tg::error!(
 			"a checksum is required to build with network enabled"
@@ -151,19 +205,60 @@ where
 		pty: None,
 		remotes: arg.remote.map(|r| vec![r]),
 		retry: arg.retry,
-		stderr,
-		stdin,
-		stdout,
+		stderr: stderr.unwrap_or_default(),
+		stdin: stdin.unwrap_or_default(),
+		stdout: stdout.unwrap_or_default(),
 	};
-	let stream = tg::Process::spawn(handle, arg).await?;
-	let writer = std::io::stderr();
-	let is_tty = progress && writer.is_terminal();
-	let process = tg::progress::write_progress_stream(handle, stream, writer, is_tty)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
+	let process = tg::Process::spawn_with_progress(handle, arg, |stream| {
+		let writer = std::io::stderr();
+		let is_tty = progress && writer.is_terminal();
+		tg::progress::write_progress_stream(handle, stream, writer, is_tty)
+	})
+	.await
+	.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
 	let output = process
 		.output(handle)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to get the process output"))?;
 	Ok(output)
+}
+
+impl Stdio {
+	#[must_use]
+	pub fn into_process_stdio(self) -> Option<tg::process::Stdio> {
+		match self {
+			Self::Inherit => None,
+			Self::Log => Some(tg::process::Stdio::Log),
+			Self::Null => Some(tg::process::Stdio::Null),
+			Self::Pipe => Some(tg::process::Stdio::Pipe),
+			Self::Pty => Some(tg::process::Stdio::Pty),
+		}
+	}
+}
+
+impl std::fmt::Display for Stdio {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Inherit => write!(f, "inherit"),
+			Self::Log => write!(f, "log"),
+			Self::Null => write!(f, "null"),
+			Self::Pipe => write!(f, "pipe"),
+			Self::Pty => write!(f, "pty"),
+		}
+	}
+}
+
+impl std::str::FromStr for Stdio {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		match s {
+			"inherit" => Ok(Self::Inherit),
+			"log" => Ok(Self::Log),
+			"null" => Ok(Self::Null),
+			"pipe" => Ok(Self::Pipe),
+			"pty" => Ok(Self::Pty),
+			_ => Err(tg::error!("invalid stdio")),
+		}
+	}
 }

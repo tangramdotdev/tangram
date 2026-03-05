@@ -21,9 +21,9 @@ pub struct State {
 	pub retry: bool,
 	pub started_at: Option<i64>,
 	pub status: tg::process::Status,
-	pub stderr: Option<tg::process::Stdio>,
-	pub stdin: Option<tg::process::Stdio>,
-	pub stdout: Option<tg::process::Stdio>,
+	pub stderr: tg::process::Stdio,
+	pub stdin: tg::process::Stdio,
+	pub stdout: tg::process::Stdio,
 }
 
 impl TryFrom<tg::process::Data> for tg::process::State {

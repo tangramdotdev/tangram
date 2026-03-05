@@ -26,17 +26,13 @@ impl Server {
 	) -> tg::Result<T> {
 		let stderr = process.load(self).await?.stderr;
 		match stderr {
-			Some(tg::process::Stdio::Log) => {
-				self.write_progress_stream_to_log(process, stream).await
-			},
-			Some(tg::process::Stdio::Pipe | tg::process::Stdio::Pty) => {
+			tg::process::Stdio::Log => self.write_progress_stream_to_log(process, stream).await,
+			tg::process::Stdio::Pipe | tg::process::Stdio::Pty => {
 				let remote = process.remote().cloned();
 				self.write_progress_stream_to_pty(process.id(), remote, stream)
 					.await
 			},
-			Some(tg::process::Stdio::Null) | None => {
-				self.write_progress_stream_to_null(stream).await
-			},
+			tg::process::Stdio::Null => self.write_progress_stream_to_null(stream).await,
 		}
 	}
 

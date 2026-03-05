@@ -247,9 +247,9 @@ impl Server {
 			network,
 			started_at: row.started_at,
 			status,
-			stderr,
-			stdin,
-			stdout,
+			stderr: stderr.unwrap_or_default(),
+			stdin: stdin.unwrap_or_default(),
+			stdout: stdout.unwrap_or_default(),
 		};
 
 		let output = tg::process::get::Output {

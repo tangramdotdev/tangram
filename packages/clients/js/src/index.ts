@@ -2,7 +2,7 @@ import { Args } from "./args.ts";
 import { Artifact } from "./artifact.ts";
 import { assert, todo, unimplemented, unreachable } from "./assert.ts";
 import { Blob, blob } from "./blob.ts";
-import { BuildBuilder, build } from "./build.ts";
+import { build } from "./build.ts";
 import {
 	type ArchiveFormat,
 	archive,
@@ -80,7 +80,6 @@ export {
 	Args,
 	Artifact,
 	Blob,
-	BuildBuilder,
 	Checksum,
 	Command,
 	CommandBuilder,

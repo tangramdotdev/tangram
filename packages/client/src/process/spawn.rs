@@ -3,7 +3,7 @@ use {
 	futures::{Stream, TryStreamExt as _, future},
 	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
-	tangram_util::serde::{CommaSeparatedString, is_false},
+	tangram_util::serde::{CommaSeparatedString, is_default, is_false},
 };
 
 #[serde_as]
@@ -39,14 +39,14 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub retry: bool,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stderr: Option<tg::process::Stdio>,
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub stderr: tg::process::Stdio,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stdin: Option<tg::process::Stdio>,
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub stdin: tg::process::Stdio,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stdout: Option<tg::process::Stdio>,
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub stdout: tg::process::Stdio,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -127,9 +127,9 @@ impl Arg {
 			pty: None,
 			remotes: None,
 			retry: false,
-			stderr: None,
-			stdin: None,
-			stdout: None,
+			stderr: tg::process::Stdio::default(),
+			stdin: tg::process::Stdio::default(),
+			stdout: tg::process::Stdio::default(),
 		}
 	}
 
@@ -149,9 +149,9 @@ impl Arg {
 			pty: None,
 			remotes: None,
 			retry: false,
-			stderr: None,
-			stdin: None,
-			stdout: None,
+			stderr: tg::process::Stdio::default(),
+			stdin: tg::process::Stdio::default(),
+			stdout: tg::process::Stdio::default(),
 		}
 	}
 }

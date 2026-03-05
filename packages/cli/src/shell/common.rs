@@ -295,7 +295,7 @@ impl Cli {
 			sandbox: crate::process::spawn::Sandbox::new(Some(true)),
 			..Default::default()
 		};
-		let crate::process::spawn::Output { process, output } = self
+		let process = self
 			.spawn(
 				options,
 				reference.clone(),
@@ -308,15 +308,8 @@ impl Cli {
 			.boxed()
 			.await?;
 
-		let wait = output
-			.wait
-			.map(TryInto::try_into)
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the wait output"))?;
-
-		let wait = if let Some(wait) = wait {
-			wait
-		} else {
+		// Wait for the process to finish while showing the viewer if enabled.
+		let wait = {
 			let view_task = {
 				let handle = handle.clone();
 				let root = process.clone().map(crate::viewer::Item::Process);

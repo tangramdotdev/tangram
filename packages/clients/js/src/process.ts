@@ -18,6 +18,7 @@ export class Process {
 	#remote: string | undefined;
 	#token: string | undefined;
 	#state: tg.Process.State | undefined;
+	#wait: tg.Process.Wait | undefined;
 
 	constructor(arg: tg.Process.ConstructorArg) {
 		this.#id = arg.id;
@@ -29,7 +30,24 @@ export class Process {
 		return this.#state;
 	}
 
+	static async spawn(arg: tg.Handle.SpawnArg): Promise<tg.Process> {
+		let output = await tg.handle.spawnProcess(arg);
+		let process = new tg.Process({
+			id: output.process,
+			remote: output.remote,
+			state: undefined,
+			token: output.token,
+		});
+		if (output.wait !== undefined) {
+			process.#wait = tg.Process.Wait.fromData(output.wait);
+		}
+		return process;
+	}
+
 	async wait(): Promise<tg.Process.Wait> {
+		if (this.#wait !== undefined) {
+			return this.#wait;
+		}
 		let remotes = undefined;
 		if (this.#remote) {
 			remotes = [this.#remote];
@@ -40,8 +58,9 @@ export class Process {
 			token: this.#token,
 		};
 		let data = await tg.handle.waitProcess(this.#id, arg);
-		let output = tg.Process.Wait.fromData(data);
-		return output;
+		let wait = tg.Process.Wait.fromData(data);
+		this.#wait = wait;
+		return wait;
 	}
 
 	static expect(value: unknown): tg.Process {
@@ -144,28 +163,6 @@ export namespace Process {
 		token?: string | undefined;
 	};
 
-	export type BuildArg =
-		| undefined
-		| string
-		| tg.Artifact
-		| tg.Template
-		| tg.Command
-		| BuildArgObject;
-
-	export type BuildArgObject = {
-		args?: Array<tg.Value> | undefined;
-		checksum?: tg.Checksum | undefined;
-		cwd?: string | undefined;
-		env?: tg.MaybeMutationMap | undefined;
-		executable?: tg.Command.Arg.Executable | undefined;
-		host?: string | undefined;
-		mounts?: Array<tg.Command.Mount> | undefined;
-		name?: string | undefined;
-		network?: boolean | undefined;
-		stdin?: tg.Blob.Arg | undefined;
-		user?: string | undefined;
-	};
-
 	export type RunArg =
 		| undefined
 		| string
@@ -184,6 +181,7 @@ export namespace Process {
 		mounts?: Array<tg.Command.Mount | tg.Process.Mount> | undefined;
 		name?: string | undefined;
 		network?: boolean | undefined;
+		sandbox?: boolean | undefined;
 		stderr?: undefined;
 		stdin?: tg.Blob.Arg | undefined;
 		stdout?: undefined;

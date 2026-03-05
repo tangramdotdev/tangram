@@ -40,28 +40,28 @@ export function run(...args: any): any {
 }
 
 async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
-	let cwd =
-		tg.Process.current !== undefined
-			? (await tg.Process.current.cwd) !== undefined
-				? tg.process.cwd
-				: undefined
-			: tg.process.cwd;
-	let env =
-		tg.Process.current !== undefined
-			? await tg.Process.current.env()
-			: { ...tg.process.env };
-	delete env.TANGRAM_OUTPUT;
-	delete env.TANGRAM_PROCESS;
-	delete env.TANGRAM_URL;
-	let arg = await arg_(
-		{
-			cwd,
-			env,
-		},
-		...args,
-	);
+	let arg = await arg_(...args);
+	let sandbox = arg.sandbox ?? false;
+	let inherit = !sandbox;
 
-	let currentCommand = await tg.Process.current?.command;
+	if (inherit) {
+		let cwd =
+			tg.Process.current !== undefined
+				? (await tg.Process.current.cwd) !== undefined
+					? tg.process.cwd
+					: undefined
+				: tg.process.cwd;
+		let env =
+			tg.Process.current !== undefined
+				? await tg.Process.current.env()
+				: { ...tg.process.env };
+		delete env.TANGRAM_OUTPUT;
+		delete env.TANGRAM_PROCESS;
+		delete env.TANGRAM_URL;
+		arg = await arg_({ cwd, env }, arg);
+	}
+
+	let currentCommand = inherit ? await tg.Process.current?.command : undefined;
 	let sourceOptions: tg.Referent.Options = {};
 	if ("name" in arg) {
 		sourceOptions.name = arg.name;
@@ -106,28 +106,41 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 				processMounts.push(mount as tg.Process.Mount);
 			}
 		}
-	} else {
+	} else if (inherit) {
 		commandMounts = await currentCommand?.mounts;
 		processMounts = tg.Process.current?.state?.mounts ?? [];
 	}
-	let processStdin = tg.Process.current?.state?.stdin;
+	let processStdin: string | undefined;
 	let commandStdin: tg.Blob.Arg | undefined;
 	if ("stdin" in arg) {
 		processStdin = undefined;
 		if (arg.stdin !== undefined) {
 			commandStdin = arg.stdin;
 		}
-	} else {
+	} else if (inherit) {
+		processStdin = tg.Process.current?.state?.stdin;
 		commandStdin = await currentCommand?.stdin;
 	}
-	let stdout = tg.Process.current?.state?.stdout;
+	let stdout: string | undefined;
 	if ("stdout" in arg) {
 		stdout = arg.stdout;
+	} else if (inherit) {
+		stdout = tg.Process.current?.state?.stdout;
 	}
-	let stderr = tg.Process.current?.state?.stderr;
+	let stderr: string | undefined;
 	if ("stderr" in arg) {
 		stderr = arg.stderr;
+	} else if (inherit) {
+		stderr = tg.Process.current?.state?.stderr;
 	}
+
+	let network =
+		"network" in arg
+			? (arg.network ?? false)
+			: inherit
+				? (tg.Process.current?.state?.network ?? false)
+				: false;
+
 	let command = await tg.command(
 		"args" in arg ? { args: arg.args } : undefined,
 		"cwd" in arg ? { cwd: arg.cwd } : undefined,
@@ -139,16 +152,13 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		commandStdin !== undefined ? { stdin: commandStdin } : undefined,
 	);
 
-	let network =
-		"network" in arg
-			? (arg.network ?? false)
-			: (tg.Process.current?.state?.network ?? false);
 	let commandId = await command.store();
 	let commandReferent = {
 		item: commandId,
 		options: sourceOptions,
 	};
-	let spawnOutput = await tg.handle.spawnProcess({
+
+	let process = await tg.Process.spawn({
 		checksum,
 		command: commandReferent,
 		create: false,
@@ -161,17 +171,8 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		stdin: processStdin,
 		stdout,
 	});
-	let process = new tg.Process({
-		id: spawnOutput.process,
-		remote: spawnOutput.remote,
-		state: undefined,
-		token: spawnOutput.token,
-	});
 
-	let wait =
-		spawnOutput.wait !== undefined
-			? tg.Process.Wait.fromData(spawnOutput.wait)
-			: await process.wait();
+	let wait = await process.wait();
 
 	if (wait.error !== undefined) {
 		let error = wait.error;

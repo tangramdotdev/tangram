@@ -652,7 +652,7 @@ declare namespace tg {
 		get user(): Promise<string | undefined>;
 
 		/** Build this command and return the process's output. */
-		build(...args: tg.UnresolvedArgs<A>): tg.BuildBuilder<[], R>;
+		build(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R>;
 
 		/** Run this command and return the process's output. */
 		run(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R>;
@@ -1259,21 +1259,19 @@ declare namespace tg {
 	export function build<
 		A extends tg.UnresolvedArgs<Array<tg.Value>>,
 		R extends tg.ReturnValue,
-	>(
-		function_: (...args: A) => R,
-	): tg.BuildBuilder<[], tg.ResolvedReturnValue<R>>;
+	>(function_: (...args: A) => R): tg.RunBuilder<[], tg.ResolvedReturnValue<R>>;
 	export function build<
 		A extends tg.UnresolvedArgs<Array<tg.Value>>,
 		R extends tg.ReturnValue,
 	>(
 		function_: (...args: A) => R,
 		...args: tg.UnresolvedArgs<tg.ResolvedArgs<A>>
-	): tg.BuildBuilder<[], tg.ResolvedReturnValue<R>>;
+	): tg.RunBuilder<[], tg.ResolvedReturnValue<R>>;
 	export function build(
 		strings: TemplateStringsArray,
 		...placeholders: tg.Args<tg.Template.Arg>
-	): tg.BuildBuilder;
-	export function build(...args: tg.Args<tg.Process.BuildArg>): tg.BuildBuilder;
+	): tg.RunBuilder;
+	export function build(...args: tg.Args<tg.Process.RunArg>): tg.RunBuilder;
 
 	export function run<
 		A extends tg.UnresolvedArgs<Array<tg.Value>>,
@@ -1308,12 +1306,7 @@ declare namespace tg {
 		/** Assert that a value is a `tg.Process`. */
 		static assert(value: unknown): asserts value is tg.Process;
 
-		/** Combine a set of build args into a single build arg object. */
-		static buildArg(
-			...args: tg.Args<tg.Process.BuildArg>
-		): Promise<tg.Process.BuildArgObject>;
-
-		/** Combine a set of run args into a single build arg object. */
+		/** Combine a set of run args into a single run arg object. */
 		static runArg(
 			...args: tg.Args<tg.Process.RunArg>
 		): Promise<tg.Process.RunArgObject>;
@@ -1359,46 +1352,6 @@ declare namespace tg {
 	export namespace Process {
 		export type Id = string;
 
-		export type BuildArg =
-			| undefined
-			| string
-			| tg.Artifact
-			| tg.Template
-			| tg.Command
-			| BuildArgObject;
-
-		type BuildArgObject = {
-			/** The command's arguments. */
-			args?: Array<tg.Value> | undefined;
-
-			/** If a checksum of the process's output is provided, then the process can be cached even if it is not sandboxed. */
-			checksum?: tg.Checksum | undefined;
-
-			/** The command's working directory. **/
-			cwd?: string | undefined;
-
-			/** The command's environment. */
-			env?: tg.MaybeMutationMap | undefined;
-
-			/** The command's executable. */
-			executable?: tg.Command.Arg.Executable | undefined;
-
-			/** The command's host. */
-			host?: string | undefined;
-
-			/** The command's mounts. */
-			mounts?: Array<tg.Command.Mount> | undefined;
-
-			/** Configure whether the process has access to the network. **/
-			network?: boolean | undefined;
-
-			/** Ignore stdin, or set it to a blob. */
-			stdin?: tg.Blob.Arg | undefined;
-
-			/** The command's user. */
-			user?: string | undefined;
-		};
-
 		export type RunArg =
 			| undefined
 			| string
@@ -1432,6 +1385,9 @@ declare namespace tg {
 			/** Configure whether the process has access to the network. **/
 			network?: boolean | undefined;
 
+			/** Whether to sandbox the process by not inheriting env, cwd, mounts, stdin, stdout, and stderr from the current process. Defaults to false. */
+			sandbox?: boolean | undefined;
+
 			/** Suppress stderr. */
 			stderr?: undefined;
 
@@ -1451,62 +1407,6 @@ declare namespace tg {
 			target: string;
 			readonly: boolean;
 		};
-	}
-
-	export interface BuildBuilder<
-		A extends Array<tg.Value> = Array<tg.Value>,
-		R extends tg.Value = tg.Value,
-	> {
-		(...args: tg.UnresolvedArgs<A>): tg.BuildBuilder<[], R>;
-	}
-
-	export class BuildBuilder<
-		A extends Array<tg.Value> = Array<tg.Value>,
-		R extends tg.Value = tg.Value,
-	> extends Function {
-		#__brand;
-
-		constructor(...args: tg.Args<tg.Process.BuildArgObject>);
-
-		arg(...args: Array<tg.Unresolved<tg.Value>>): this;
-
-		args(
-			...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>>
-		): this;
-
-		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
-
-		env(
-			...envs: Array<tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>>
-		): this;
-
-		executable(
-			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.Arg.Executable>>,
-		): this;
-
-		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
-
-		mount(...mounts: Array<tg.Unresolved<tg.Command.Mount>>): this;
-
-		mounts(
-			...mounts: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Command.Mount>>>>
-		): this;
-
-		named(name: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
-
-		network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
-
-		then<TResult1 = R, TResult2 = never>(
-			this: tg.BuildBuilder<[], R>,
-			onfulfilled?:
-				| ((value: R) => TResult1 | PromiseLike<TResult1>)
-				| undefined
-				| null,
-			onrejected?:
-				| ((reason: any) => TResult2 | PromiseLike<TResult2>)
-				| undefined
-				| null,
-		): PromiseLike<TResult1 | TResult2>;
 	}
 
 	export interface CommandBuilder<
@@ -1549,7 +1449,7 @@ declare namespace tg {
 		): this;
 
 		/** Build this command and return the process's output. */
-		build(...args: tg.UnresolvedArgs<A>): tg.BuildBuilder<[], R>;
+		build(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R>;
 
 		/** Run this command and return the process's output. */
 		run(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R>;

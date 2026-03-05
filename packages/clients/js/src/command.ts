@@ -264,8 +264,8 @@ export class Command<
 		})();
 	}
 
-	build(...args: tg.UnresolvedArgs<A>): tg.BuildBuilder<[], R> {
-		return tg.build(this, { args }) as tg.BuildBuilder<[], R>;
+	build(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R> {
+		return tg.build(this, { args }) as tg.RunBuilder<[], R>;
 	}
 
 	run(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R> {
@@ -650,8 +650,8 @@ export class CommandBuilder<
 			.then(onfulfilled, onrejected);
 	}
 
-	build(...args: tg.UnresolvedArgs<A>): tg.BuildBuilder<[], R> {
-		return new tg.BuildBuilder(...this.#args, { args });
+	build(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R> {
+		return tg.build(...this.#args, { args }) as tg.RunBuilder<[], R>;
 	}
 
 	run(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R> {
