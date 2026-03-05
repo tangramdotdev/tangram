@@ -43,7 +43,7 @@ where
 			let handle = handle.clone();
 			let process = process.clone();
 			let remote = stdio.remote.clone();
-			let tty = Arc::clone(&tty);
+			let tty = Arc::clone(tty);
 			|_stop| async move {
 				sigwinch_task(&handle, tty, process, remote)
 					.await
@@ -60,7 +60,7 @@ where
 		let handle = handle.clone();
 		let process = process.clone();
 		let remote = stdio.remote.clone();
-		let stdin = stdio.stdin.clone();
+		let stdin = stdio.stdin;
 		async move {
 			if stdin.is_none() {
 				return Ok(());
@@ -93,11 +93,11 @@ where
 		let process = process.clone();
 		let handle = handle.clone();
 		let remote = stdio.remote.clone();
-		let stdout = stdio.stdout.clone();
+		let stdout = stdio.stdout;
 		async move {
 			if stdout.is_none() {
 				return Ok(());
-			};
+			}
 			let arg = tg::process::stdio::Arg {
 				remotes: remote.map(|remote| vec![remote]),
 				..tg::process::stdio::Arg::default()
@@ -119,8 +119,8 @@ where
 		let process = process.clone();
 		let handle = handle.clone();
 		let remote = stdio.remote.clone();
-		let stdout = stdio.stdout.clone();
-		let stderr = stdio.stderr.clone();
+		let stdout = stdio.stdout;
+		let stderr = stdio.stderr;
 		async move {
 			if matches!(stderr, Some(tg::process::Stdio::Pty))
 				&& matches!(stdout, Some(tg::process::Stdio::Pty))
