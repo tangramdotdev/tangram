@@ -7,6 +7,9 @@ pub struct Args {
 	#[arg(long)]
 	pub artifacts_path: PathBuf,
 
+	#[arg(long)]
+	pub listen_path: PathBuf,
+
 	#[command(flatten)]
 	pub options: super::Options,
 
@@ -41,6 +44,7 @@ impl Cli {
 		let config = tangram_sandbox::Config {
 			artifacts_path: args.artifacts_path,
 			hostname: args.options.hostname,
+			listen_path: args.listen_path,
 			mounts: args.options.mounts,
 			network: args.options.network.get(),
 			output_path: args.output_path,

@@ -291,11 +291,11 @@ impl Server {
 		let chroot = cfg!(target_os = "linux");
 
 		let mut path_maps = Vec::new();
-
+		let listen_path = temp.path().join("sandbox.socket");
 		let output_path = temp.path().join("output");
 		let root_path = temp.path().join("root");
 		let scratch_path = temp.path().join("scratch");
-		let socket_path = temp.path().join("socket");
+		let socket_path = temp.path().join("server.socket");
 		let tangram_path = tangram_util::env::current_exe().map_err(|source| {
 			tg::error!(!source, "failed to get the path to the tangram executable")
 		})?;
@@ -305,10 +305,10 @@ impl Server {
 			let host = self.artifacts_path();
 			let guest = PathBuf::from("/.tangram/artifacts");
 			path_maps.push(PathMap {
-				host,
-				guest: guest.clone(),
+				host: host.clone(),
+				guest,
 			});
-			guest
+			host
 		} else {
 			self.artifacts_path()
 		};
@@ -318,10 +318,10 @@ impl Server {
 			let host = output_path.clone();
 			let guest = PathBuf::from("/.tangram/output");
 			path_maps.push(PathMap {
-				host,
-				guest: guest.clone(),
+				host: host.clone(),
+				guest,
 			});
-			guest
+			host
 		} else {
 			output_path.clone()
 		};
@@ -479,6 +479,7 @@ impl Server {
 		let sandbox_config = tangram_sandbox::Config {
 			artifacts_path,
 			hostname: None,
+			listen_path,
 			mounts,
 			network: state.network,
 			output_path: output_path.clone(),

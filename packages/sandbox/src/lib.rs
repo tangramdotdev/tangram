@@ -41,6 +41,7 @@ pub struct Process {
 pub struct Config {
 	pub artifacts_path: PathBuf,
 	pub hostname: Option<String>,
+	pub listen_path: PathBuf,
 	pub mounts: Vec<tg::Either<tg::command::data::Mount, tg::process::Mount>>,
 	pub network: bool,
 	pub output_path: PathBuf,
@@ -96,12 +97,14 @@ impl Sandbox {
 			));
 		}
 		let ready_fd = ready_writer.as_raw_fd();
-
 		let mut command = tokio::process::Command::new(&config.tangram_path);
+		tokio::fs::create_dir_all(&config.scratch_path).await.ok();
 		command.arg("sandbox").arg("run");
 		command
 			.arg("--artifacts-path")
 			.arg(&config.artifacts_path)
+			.arg("--listen-path")
+			.arg(&config.listen_path)
 			.arg("--output-path")
 			.arg(&config.output_path)
 			.arg("--path")
@@ -172,7 +175,7 @@ impl Sandbox {
 		}
 
 		// Connect the client.
-		let client = Client::new(config.socket_path.clone());
+		let client = Client::new(config.listen_path.clone());
 		client
 			.connect()
 			.await
@@ -271,18 +274,10 @@ pub fn run(config: &Config, ready_fd: Option<RawFd>) -> tg::Result<()> {
 	// Bind the listener.
 	let listener = {
 		let guard = runtime.enter();
-		let listener = Server::listen(&config.socket_path)?;
+		let listener = Server::listen(&config.listen_path)?;
 		drop(guard);
 		listener
 	};
-
-	// Signal the ready f.
-	if let Some(fd) = ready_fd {
-		let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
-		let bytes = &[0u8];
-		file.write_all(bytes)
-			.map_err(|source| tg::error!(!source, "failed to write the ready signal"))?;
-	}
 
 	// Enter the sandbox.
 	#[cfg(target_os = "macos")]
@@ -296,11 +291,19 @@ pub fn run(config: &Config, ready_fd: Option<RawFd>) -> tg::Result<()> {
 			.map_err(|source| tg::error!(!source, "failed to enter the sandbox"))?;
 	}
 
-	// Create the server.
-	let server = Server::new();
+	// Signal the ready f.
+	if let Some(fd) = ready_fd {
+		let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+		let bytes = &[0u8];
+		file.write_all(bytes)
+			.map_err(|source| tg::error!(!source, "failed to write the ready signal"))?;
+	}
 
 	// Run the server.
-	runtime.block_on(server.serve(listener));
+	runtime.block_on(async move {
+		let server = Server::new();
+		server.serve(listener).await
+	});
 
 	Ok(())
 }

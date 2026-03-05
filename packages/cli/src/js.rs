@@ -1,5 +1,6 @@
 use {
-	crate::Cli, futures::FutureExt as _, tangram_client::prelude::*, tokio::io::AsyncWriteExt as _,
+	crate::Cli, futures::FutureExt as _, std::path::Path, tangram_client::prelude::*,
+	tokio::io::AsyncWriteExt as _,
 };
 
 #[derive(Clone, Debug, clap::Args)]
@@ -168,7 +169,10 @@ impl Cli {
 		if let Ok(output_path) = std::env::var("TANGRAM_OUTPUT")
 			&& (output.is_some() || error.is_some())
 		{
-			std::fs::write(&output_path, "")
+			let path = Path::new(&output_path);
+			std::fs::create_dir_all(path.parent().unwrap())
+				.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
+			std::fs::write(&path, "")
 				.map_err(|source| tg::error!(!source, "failed to write the output"))?;
 			if let Some(output) = &output {
 				let tgon = output.to_string();

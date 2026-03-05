@@ -1,12 +1,16 @@
 use {
 	crate::{Context, Server},
 	bytes::Bytes,
-	futures::{FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future},
+	futures::{
+		FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future, stream,
+	},
 	std::pin::pin,
 	tangram_client::prelude::*,
 	tangram_futures::{BoxAsyncRead, stream::Ext as _, task::Task},
 	tangram_http::{
-		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+		body::Boxed as BoxBody,
+		request::Ext as _,
+		response::{Ext as _, builder::Ext as _},
 	},
 	tangram_messenger::prelude::*,
 	tokio::io::AsyncRead,
@@ -188,7 +192,10 @@ impl Server {
 			}
 			Ok::<_, tg::Error>(())
 		});
-		let stream = receiver.attach(task).map_err(std::io::Error::other);
+		let stream = receiver
+			.take_while(|result| future::ready(!result.as_ref().is_ok_and(Bytes::is_empty)))
+			.attach(task)
+			.map_err(std::io::Error::other);
 		let reader = StreamReader::new(stream);
 		Ok(Some(Box::pin(reader)))
 	}
@@ -290,6 +297,7 @@ impl Server {
 			..Default::default()
 		};
 		let stream_ = ReaderStream::new(reader)
+			.chain(stream::once(future::ok(Bytes::new())))
 			.map_err(|source| tg::error!(!source, "failed to read from stdio"));
 		let mut stream_ = pin!(stream_);
 		let subject = format!("processes.{id}.{stream}");
