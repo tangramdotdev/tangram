@@ -5,6 +5,9 @@ import foundationdb from "foundationdb" with {
 };
 import { libclang } from "llvm" with { local: "../packages/packages/llvm" };
 import { cargo } from "rust" with { local: "../packages/packages/rust" };
+import * as rustyv8 from "rusty_v8" with {
+	local: "../packages/packages/rusty_v8",
+};
 import xz from "xz" with { local: "../packages/packages/xz.tg.ts" };
 import zlib from "zlib-ng" with { local: "../packages/packages/zlib-ng.tg.ts" };
 import * as std from "std" with { local: "../packages/packages/std" };
@@ -305,13 +308,12 @@ const bunEnvArg = async (hostArg?: string) => {
 };
 
 export const librustyv8 = async (
-	lockfile: tg.File,
+	_lockfile: tg.File,
 	...hosts: Array<string>
 ) => {
 	const hostList = hosts.length > 0 ? hosts : [std.triple.host()];
-	const version = await getRustyV8Version(lockfile);
 
-	const downloads = await Promise.all(
+	const builds = await Promise.all(
 		hostList.map(async (host) => {
 			let os;
 			if (std.triple.os(host) === "darwin") {
@@ -321,18 +323,8 @@ export const librustyv8 = async (
 			} else {
 				throw new Error(`unsupported host ${host}`);
 			}
-			const checksum = "sha256:any";
 			const triple = `${std.triple.arch(host)}-${os}`;
-			const file = `librusty_v8_release_${triple}.a.gz`;
-			const lib = await std
-				.download({
-					checksum,
-					url: `https://github.com/denoland/rusty_v8/releases/download/v${version}/${file}`,
-				})
-				.then((b) => {
-					tg.assert(b instanceof tg.Blob);
-					return tg.file(b);
-				});
+			const lib = await rustyv8.build({ host });
 			const envVarSuffix = triple.replace(/-/g, "_");
 			const key =
 				hostList.length === 1
@@ -343,27 +335,11 @@ export const librustyv8 = async (
 	);
 
 	const result: Record<string, tg.File> = {};
-	for (const { key, value } of downloads) {
+	for (const { key, value } of builds) {
 		result[key] = value;
 	}
 
 	return result;
-};
-
-const getRustyV8Version = async (lockfile: tg.File) => {
-	const v8 = await lockfile.text
-		.then((t) => tg.encoding.toml.decode(t))
-		.then((toml) =>
-			(toml as CargoLock).package.find((pkg) => pkg.name === "v8"),
-		);
-	if (v8 === undefined) {
-		throw new Error("Could not find v8 dependency in lockfile");
-	}
-	return v8.version;
-};
-
-type CargoLock = {
-	package: Array<{ name: string; version: string }>;
 };
 
 export const test = async () => {
