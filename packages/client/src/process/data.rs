@@ -2,7 +2,7 @@ use {
 	crate::prelude::*,
 	serde::Deserialize as _,
 	std::path::PathBuf,
-	tangram_util::serde::{is_false, is_true, return_true},
+	tangram_util::serde::{is_default, is_false, is_true, return_true},
 };
 
 #[derive(
@@ -94,17 +94,17 @@ pub struct Data {
 	#[tangram_serialize(id = 19)]
 	pub status: tg::process::Status,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 20, default, skip_serializing_if = "Option::is_none")]
-	pub stderr: Option<tg::process::Stdio>,
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 20, default, skip_serializing_if = "is_default")]
+	pub stderr: tg::process::Stdio,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 21, default, skip_serializing_if = "Option::is_none")]
-	pub stdin: Option<tg::process::Stdio>,
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 21, default, skip_serializing_if = "is_default")]
+	pub stdin: tg::process::Stdio,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 22, default, skip_serializing_if = "Option::is_none")]
-	pub stdout: Option<tg::process::Stdio>,
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(id = 22, default, skip_serializing_if = "is_default")]
+	pub stdout: tg::process::Stdio,
 }
 
 #[derive(

@@ -204,9 +204,9 @@ impl Server {
 				data.retry,
 				data.started_at,
 				data.status.to_string(),
-				data.stderr.as_ref().map(ToString::to_string),
-				data.stdin.as_ref().map(ToString::to_string),
-				data.stdout.as_ref().map(ToString::to_string),
+				(!data.stderr.is_null()).then(|| data.stderr.to_string()),
+				(!data.stdin.is_null()).then(|| data.stdin.to_string()),
+				(!data.stdout.is_null()).then(|| data.stdout.to_string()),
 				0,
 				touched_at
 			];

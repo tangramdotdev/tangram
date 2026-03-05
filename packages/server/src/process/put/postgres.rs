@@ -110,9 +110,9 @@ impl Server {
 			retries.push(data.retry);
 			started_ats.push(data.started_at);
 			statuses.push(data.status.to_string());
-			stderrs.push(data.stderr.as_ref().map(ToString::to_string));
-			stdins.push(data.stdin.as_ref().map(ToString::to_string));
-			stdouts.push(data.stdout.as_ref().map(ToString::to_string));
+			stderrs.push((!data.stderr.is_null()).then(|| data.stderr.to_string()));
+			stdins.push((!data.stdin.is_null()).then(|| data.stdin.to_string()));
+			stdouts.push((!data.stdout.is_null()).then(|| data.stdout.to_string()));
 			token_counts.push(0i64);
 			touched_ats.push(touched_at);
 		}

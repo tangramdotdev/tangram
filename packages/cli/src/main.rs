@@ -155,8 +155,9 @@ enum Mode {
 enum Command {
 	Archive(self::archive::Args),
 
+	/// Spawn and await a sandboxed process.
 	#[command(alias = "b")]
-	Build(self::build::Args),
+	Build(self::run::Args),
 
 	#[command(hide = true)]
 	Builtin(self::builtin::Args),

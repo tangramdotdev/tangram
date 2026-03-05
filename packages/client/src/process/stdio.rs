@@ -20,15 +20,18 @@ pub struct Arg {
 #[derive(
 	Clone,
 	Copy,
+	Default,
 	Debug,
 	PartialEq,
 	Eq,
+	derive_more::IsVariant,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
 pub enum Stdio {
+	#[default]
 	#[tangram_serialize(id = 0)]
 	Null,
 	#[tangram_serialize(id = 1)]

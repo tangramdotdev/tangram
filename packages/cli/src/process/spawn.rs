@@ -52,6 +52,9 @@ pub struct Options {
 	)]
 	pub cached: Option<bool>,
 
+	#[command(flatten)]
+	pub checkin: crate::checkin::Options,
+
 	/// The output's expected checksum.
 	#[arg(long)]
 	pub checksum: Option<tg::Checksum>,
@@ -83,7 +86,7 @@ pub struct Options {
 	pub host: Option<String>,
 
 	#[command(flatten)]
-	pub checkin: crate::checkin::Options,
+	pub local: crate::util::args::Local,
 
 	/// Configure mounts.
 	#[arg(
@@ -93,9 +96,6 @@ pub struct Options {
 		short,
 	)]
 	pub mounts: Vec<tg::Either<tg::process::Mount, tg::command::Mount>>,
-
-	#[command(flatten)]
-	pub local: crate::util::args::Local,
 
 	/// Enable network access.
 	#[arg(
@@ -115,6 +115,18 @@ pub struct Options {
 
 	#[command(flatten)]
 	pub sandbox: Sandbox,
+
+	/// Set the stderr mode.
+	#[arg(long)]
+	pub stderr: Option<tg::run::Stdio>,
+
+	/// Set the stdin mode.
+	#[arg(long)]
+	pub stdin: Option<tg::run::Stdio>,
+
+	/// Set the stdout mode.
+	#[arg(long)]
+	pub stdout: Option<tg::run::Stdio>,
 
 	/// Tag the process.
 	#[arg(long)]
@@ -187,14 +199,9 @@ impl Tty {
 	}
 }
 
-pub struct Output {
-	pub process: tg::Referent<tg::Process>,
-	pub output: tg::process::spawn::Output,
-}
-
 impl Cli {
 	pub async fn command_process_spawn(&mut self, args: Args) -> tg::Result<()> {
-		let Output { output, .. } = self
+		let process = self
 			.spawn(
 				args.options,
 				args.reference,
@@ -207,9 +214,15 @@ impl Cli {
 			.boxed()
 			.await?;
 		if args.verbose {
+			let output = tg::process::spawn::Output {
+				process: process.item().id().clone(),
+				remote: process.item().remote().cloned(),
+				token: process.item().token().cloned(),
+				wait: None,
+			};
 			self.print_serde(output, args.print).await?;
 		} else {
-			Self::print_display(&output.process);
+			Self::print_display(process.item().id());
 		}
 		Ok(())
 	}
@@ -224,12 +237,15 @@ impl Cli {
 		stdin: Option<tg::process::Stdio>,
 		stdout: Option<tg::process::Stdio>,
 		stderr: Option<tg::process::Stdio>,
-	) -> tg::Result<Output> {
+	) -> tg::Result<tg::Referent<tg::Process>> {
 		let handle = self.handle().await?;
 
 		// Determine if the process is sandboxed.
 		let sandbox =
 			options.sandbox.get().unwrap_or_default() || options.remotes.remotes.is_some();
+		let stdin = stdin.or(options.stdin.and_then(tg::run::Stdio::into_process_stdio));
+		let stdout = stdout.or(options.stdout.and_then(tg::run::Stdio::into_process_stdio));
+		let stderr = stderr.or(options.stderr.and_then(tg::run::Stdio::into_process_stdio));
 
 		// Get the reference.
 		let arg = tg::get::Arg {
@@ -509,19 +525,19 @@ impl Cli {
 			pty,
 			remotes: options.remotes.remotes.clone(),
 			retry,
-			stderr,
-			stdin,
-			stdout,
+			stderr: stderr.unwrap_or_default(),
+			stdin: stdin.unwrap_or_default(),
+			stdout: stdout.unwrap_or_default(),
 		};
-		let stream = handle
-			.spawn_process(arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
-		let output = self.render_progress_stream(stream).await?;
+		let process = tg::Process::spawn_with_progress(&handle, arg, |stream| {
+			self.render_progress_stream(stream)
+		})
+		.await
+		.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
 
 		// Tag the process if requested.
 		if let Some(tag) = options.tag {
-			let item = tg::Either::Right(output.process.clone());
+			let item = tg::Either::Right(process.id().clone());
 			let arg = tg::tag::put::Arg {
 				force: false,
 				item,
@@ -534,13 +550,8 @@ impl Cli {
 				.map_err(|source| tg::error!(!source, %tag, "failed to tag the process"))?;
 		}
 
-		let id = output.process.clone();
-		let remote = output.remote.clone();
-		let token = output.token.clone();
-		let process = tg::Process::new(id, None, remote, None, token);
 		let process = referent.replace(process).0;
-		let output = Output { process, output };
 
-		Ok(output)
+		Ok(process)
 	}
 }

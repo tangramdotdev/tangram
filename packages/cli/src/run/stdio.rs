@@ -62,11 +62,13 @@ where
 		let remote = stdio.remote.clone();
 		let stdin = stdio.stdin;
 		async move {
-			if stdin.is_none() {
+			if !matches!(
+				stdin,
+				Some(tg::process::Stdio::Pipe | tg::process::Stdio::Pty)
+			) {
 				return Ok(());
 			}
 			let stream = crate::util::stdio::stdin_stream().take_until(stop.wait());
-			// Write to stdin until it is finished or the task is stopped.
 			let future = async {
 				let arg = tg::process::stdio::Arg {
 					remotes: remote.map(|remote| vec![remote]),
@@ -95,7 +97,10 @@ where
 		let remote = stdio.remote.clone();
 		let stdout = stdio.stdout;
 		async move {
-			if stdout.is_none() {
+			if !matches!(
+				stdout,
+				Some(tg::process::Stdio::Pipe | tg::process::Stdio::Pty)
+			) {
 				return Ok(());
 			}
 			let arg = tg::process::stdio::Arg {
@@ -127,7 +132,10 @@ where
 			{
 				return Ok(());
 			}
-			if stderr.is_none() {
+			if !matches!(
+				stderr,
+				Some(tg::process::Stdio::Pipe | tg::process::Stdio::Pty)
+			) {
 				return Ok(());
 			}
 			let arg = tg::process::stdio::Arg {
@@ -209,23 +217,28 @@ impl Stdio {
 			let stdin = tg::process::Stdio::Pipe;
 			(None, Some(stdin))
 		};
+
 		let stdout = if tty.is_some() && std::io::stdout().is_terminal() {
 			Some(tg::process::Stdio::Pty)
 		} else {
 			Some(tg::process::Stdio::Pipe)
 		};
+
 		let stderr = if tty.is_some() && std::io::stderr().is_terminal() {
 			Some(tg::process::Stdio::Pty)
 		} else {
 			Some(tg::process::Stdio::Pipe)
 		};
-		Ok(Self {
+
+		let stdio = Self {
 			tty,
 			remote,
 			stdin,
 			stdout,
 			stderr,
-		})
+		};
+
+		Ok(stdio)
 	}
 }
 

@@ -44,7 +44,7 @@ where
 {
 	let output = tg::build::build(
 		handle,
-		tg::build::Arg {
+		tg::run::Arg {
 			host: Some("builtin".into()),
 			args: vec![
 				artifact.clone().into(),
@@ -56,7 +56,7 @@ where
 			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
 				path: "archive".into(),
 			})),
-			..tg::build::Arg::default()
+			..Default::default()
 		},
 	)
 	.await?;
@@ -90,13 +90,13 @@ where
 {
 	let output = tg::build::build(
 		handle,
-		tg::build::Arg {
+		tg::run::Arg {
 			host: Some("builtin".into()),
 			args: vec![artifact.clone().into()],
 			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
 				path: "bundle".into(),
 			})),
-			..tg::build::Arg::default()
+			..Default::default()
 		},
 	)
 	.await?;
@@ -124,13 +124,13 @@ where
 {
 	let output = tg::build::build(
 		handle,
-		tg::build::Arg {
+		tg::run::Arg {
 			host: Some("builtin".into()),
 			args: vec![input.cloned().into(), algorithm.to_string().into()],
 			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
 				path: "checksum".into(),
 			})),
-			..tg::build::Arg::default()
+			..Default::default()
 		},
 	)
 	.await?;
@@ -166,13 +166,13 @@ where
 {
 	let output = tg::build::build(
 		handle,
-		tg::build::Arg {
+		tg::run::Arg {
 			host: Some("builtin".into()),
 			args: vec![input.clone().into(), format.to_string().into()],
 			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
 				path: "compress".into(),
 			})),
-			..tg::build::Arg::default()
+			..Default::default()
 		},
 	)
 	.await?;
@@ -196,13 +196,13 @@ where
 {
 	let output = tg::build::build(
 		handle,
-		tg::build::Arg {
+		tg::run::Arg {
 			host: Some("builtin".into()),
 			args: vec![input.clone().into()],
 			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
 				path: "decompress".into(),
 			})),
-			..tg::build::Arg::default()
+			..Default::default()
 		},
 	)
 	.await?;
@@ -231,7 +231,7 @@ where
 {
 	let output = tg::build::build(
 		handle,
-		tg::build::Arg {
+		tg::run::Arg {
 			host: Some("builtin".into()),
 			args: std::iter::once(url.to_string().into())
 				.chain(options.map(tg::Value::from))
@@ -240,7 +240,7 @@ where
 			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
 				path: "download".into(),
 			})),
-			..tg::build::Arg::default()
+			..Default::default()
 		},
 	)
 	.await?;
@@ -273,13 +273,13 @@ where
 {
 	let output = tg::build::build(
 		handle,
-		tg::build::Arg {
+		tg::run::Arg {
 			host: Some("builtin".into()),
 			args: vec![input.clone().into()],
 			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
 				path: "extract".into(),
 			})),
-			..tg::build::Arg::default()
+			..Default::default()
 		},
 	)
 	.await?;
