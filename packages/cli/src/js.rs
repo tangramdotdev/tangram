@@ -1,5 +1,5 @@
 use {
-	crate::Cli, futures::FutureExt as _, std::path::Path, tangram_client::prelude::*,
+	crate::Cli, futures::FutureExt as _, tangram_client::prelude::*,
 	tokio::io::AsyncWriteExt as _,
 };
 
@@ -169,8 +169,9 @@ impl Cli {
 		if let Ok(output_path) = std::env::var("TANGRAM_OUTPUT")
 			&& (output.is_some() || error.is_some())
 		{
-			std::fs::write(&output_path, "")
-				.map_err(|source| tg::error!(!source, "failed to write the output"))?;
+			std::fs::write(&output_path, "").map_err(
+				|source| tg::error!(!source, path = %output_path, "failed to write the output"),
+			)?;
 			if let Some(output) = &output {
 				let tgon = output.to_string();
 				xattr::set(&output_path, "user.tangram.output", tgon.as_bytes())

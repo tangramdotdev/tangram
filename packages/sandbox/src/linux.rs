@@ -139,9 +139,9 @@ pub fn enter(config: &Config) -> tg::Result<()> {
 		.or_default()
 		.push((config.socket_path.clone(), false));
 	mounts
-		.entry("/output".into())
+		.entry("/.tangram/output".into())
 		.or_default()
-		.push((config.output_path.clone(), true));
+		.push((config.output_path.clone(), false));
 
 	// Convert the mounts.
 	let mut num_overlays = 0;
