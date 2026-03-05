@@ -98,6 +98,23 @@ pub fn enter(config: &Config) -> tg::Result<()> {
 			.entry("/proc".into())
 			.or_default()
 			.push(("/proc".into(), false));
+
+		// Total hack.
+		let libraries = [
+			"libc.so",
+			"libm.so",
+			"libgcc_s.so",
+			"libfdb.so",
+			"ld-linux",
+			"libm.so.6",
+			"libmvec.so.1",
+			"libc.so.6",
+		];
+		for lib in libraries {
+			if let Some(path) = find_library(lib) {
+				mounts.entry(path.clone()).or_default().push((path, true));
+			}
+		}
 	}
 
 	// If the host root is mounted to /, we cannot use it as the lowerdir in an overlay. As a workaround, we mount the children of each mount to /.
@@ -259,7 +276,9 @@ pub fn enter(config: &Config) -> tg::Result<()> {
 		}
 
 		// Since we cannot use the source directly, we create bind or overlay for each child of each source.
-		for (name, sources) in &children {
+		for (name, sources) in &mut children {
+			// Deduplicate sources that resolve to the same path.
+			sources.dedup_by_key(|(source, _)| source.clone());
 			let target = config.root_path.join(name);
 			let m = if sources.len() == 1 {
 				let (source, readonly) = &sources[0];
@@ -442,6 +461,29 @@ fn overlay(lowerdirs: &[PathBuf], upperdir: &Path, workdir: &Path, merged: &Path
 		flags: 0,
 		data: Some(data.into()),
 	}
+}
+
+/// Find a shared library by prefix on the host filesystem.
+fn find_library(prefix: &str) -> Option<PathBuf> {
+	let candidates = [
+		"/lib64",
+		"/lib",
+		"/lib/x86_64-linux-gnu",
+		"/lib/aarch64-linux-gnu",
+	];
+	for dir in candidates {
+		let Ok(entries) = std::fs::read_dir(dir) else {
+			continue;
+		};
+		for entry in entries.flatten() {
+			let name = entry.file_name();
+			let name = name.to_string_lossy();
+			if name.starts_with(prefix) {
+				return Some(entry.path());
+			}
+		}
+	}
+	None
 }
 
 fn get_user(name: Option<impl AsRef<OsStr>>) -> std::io::Result<(libc::uid_t, libc::gid_t)> {

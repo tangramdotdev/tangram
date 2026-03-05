@@ -169,10 +169,7 @@ impl Cli {
 		if let Ok(output_path) = std::env::var("TANGRAM_OUTPUT")
 			&& (output.is_some() || error.is_some())
 		{
-			let path = Path::new(&output_path);
-			std::fs::create_dir_all(path.parent().unwrap())
-				.map_err(|source| tg::error!(!source, "failed to create the output directory"))?;
-			std::fs::write(&path, "")
+			std::fs::write(&output_path, "")
 				.map_err(|source| tg::error!(!source, "failed to write the output"))?;
 			if let Some(output) = &output {
 				let tgon = output.to_string();
