@@ -910,6 +910,18 @@ impl Server {
 				)?;
 			},
 		}
+
+		// Close the stream.
+		let arg = tg::process::stdio::Arg {
+			local: None,
+			remotes: remote.map(|remote| vec![remote]),
+		};
+		self.close_process_stdio_with_context(&Context::default(), id, arg, stdio_stream)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %stdio_stream, "failed to close process stdio"),
+			)?;
+
 		Ok(())
 	}
 

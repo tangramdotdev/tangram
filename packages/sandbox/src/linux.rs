@@ -193,6 +193,7 @@ pub fn enter(config: &Config) -> tg::Result<()> {
 		// Update the gid map.
 		std::fs::write("/proc/self/gid_map", format!("{gid} {proc_gid} 1\n"))
 			.expect("failed to write the gid map");
+
 		// Enter a new PID and mount namespace. The first child process will have pid 1. Mounts performed here will not be visible outside the sandbox.
 		let result = libc::unshare(libc::CLONE_NEWPID | libc::CLONE_NEWNS);
 		if result < 0 {

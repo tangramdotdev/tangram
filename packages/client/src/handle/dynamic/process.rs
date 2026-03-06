@@ -261,6 +261,30 @@ impl tg::handle::Process for Handle {
 		}
 	}
 
+	fn close_process_stdin(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.close_process_stdin(id, arg)) }
+	}
+
+	fn close_process_stdout(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.close_process_stdout(id, arg)) }
+	}
+
+	fn close_process_stderr(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.close_process_stderr(id, arg)) }
+	}
+
 	fn heartbeat_process(
 		&self,
 		id: &tg::process::Id,

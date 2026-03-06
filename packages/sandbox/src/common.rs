@@ -2,10 +2,13 @@ use {
 	crate::Command,
 	std::{
 		ffi::{CStr, CString},
-		os::fd::{FromRawFd as _, OwnedFd},
+		os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
 		path::Path,
+		pin::Pin,
+		task::{Context, Poll, ready},
 	},
 	tangram_client as tg,
+	tokio::io::{AsyncRead, AsyncWrite, ReadBuf, unix::AsyncFd},
 };
 
 pub(crate) struct SpawnContext {
@@ -20,19 +23,20 @@ pub(crate) struct SpawnContext {
 pub enum InputStream {
 	Null,
 	Pipe(tokio::net::unix::pipe::Sender),
-	Pty(OwnedFd),
+	Pty(AsyncPtyFd),
 }
 
 pub enum OutputStream {
 	Null,
 	Pipe(tokio::net::unix::pipe::Receiver),
-	Pty(OwnedFd),
+	Pty(AsyncPtyFd),
 }
+
+pub struct AsyncPtyFd(AsyncFd<OwnedFd>);
 
 pub struct Pty {
 	pub master: OwnedFd,
-	#[allow(dead_code)]
-	pub slave: OwnedFd,
+	pub slave: Option<OwnedFd>,
 	pub name: CString,
 }
 
@@ -75,7 +79,7 @@ impl Pty {
 				return Err(error);
 			}
 			let master = OwnedFd::from_raw_fd(master);
-			let slave = OwnedFd::from_raw_fd(slave);
+			let slave = Some(OwnedFd::from_raw_fd(slave));
 			let name = CStr::from_ptr(name.as_ptr().cast()).to_owned();
 			Ok(Self {
 				master,
@@ -83,6 +87,82 @@ impl Pty {
 				name,
 			})
 		}
+	}
+}
+
+impl AsyncPtyFd {
+	pub fn new(fd: OwnedFd) -> std::io::Result<Self> {
+		// Set non-blocking mode.
+		unsafe {
+			let flags = libc::fcntl(fd.as_raw_fd(), libc::F_GETFL);
+			if flags < 0 {
+				return Err(std::io::Error::last_os_error());
+			}
+			if libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) < 0 {
+				return Err(std::io::Error::last_os_error());
+			}
+		}
+		Ok(Self(AsyncFd::new(fd)?))
+	}
+}
+
+impl AsyncRead for AsyncPtyFd {
+	fn poll_read(
+		self: Pin<&mut Self>,
+		cx: &mut Context<'_>,
+		buf: &mut ReadBuf<'_>,
+	) -> Poll<std::io::Result<()>> {
+		loop {
+			let mut guard = ready!(self.0.poll_read_ready(cx))?;
+			let fd = self.0.as_raw_fd();
+			let unfilled = unsafe { buf.unfilled_mut() };
+			let result = unsafe { libc::read(fd, unfilled.as_mut_ptr().cast(), unfilled.len()) };
+			if result < 0 {
+				let error = std::io::Error::last_os_error();
+				if error.kind() == std::io::ErrorKind::WouldBlock {
+					guard.clear_ready();
+					continue;
+				}
+				return Poll::Ready(Err(error));
+			}
+			let n = result as usize;
+			unsafe {
+				buf.assume_init(n);
+			}
+			buf.advance(n);
+			return Poll::Ready(Ok(()));
+		}
+	}
+}
+
+impl AsyncWrite for AsyncPtyFd {
+	fn poll_write(
+		self: Pin<&mut Self>,
+		cx: &mut Context<'_>,
+		buf: &[u8],
+	) -> Poll<std::io::Result<usize>> {
+		loop {
+			let mut guard = ready!(self.0.poll_write_ready(cx))?;
+			let fd = self.0.as_raw_fd();
+			let result = unsafe { libc::write(fd, buf.as_ptr().cast(), buf.len()) };
+			if result < 0 {
+				let error = std::io::Error::last_os_error();
+				if error.kind() == std::io::ErrorKind::WouldBlock {
+					guard.clear_ready();
+					continue;
+				}
+				return Poll::Ready(Err(error));
+			}
+			return Poll::Ready(Ok(result as usize));
+		}
+	}
+
+	fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+		Poll::Ready(Ok(()))
+	}
+
+	fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+		Poll::Ready(Ok(()))
 	}
 }
 

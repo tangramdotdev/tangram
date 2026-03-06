@@ -49,12 +49,17 @@ struct StreamState {
 	sequence: u64,
 }
 
-#[derive(Clone)]
 struct StreamMessage {
-	ack_count: Option<usize>,
-	subject: String,
-	payload: Arc<dyn Payload>,
 	bytes: u64,
+	payload: Arc<dyn Payload>,
+	retention: MessageRetention,
+	subject: String,
+}
+
+enum MessageRetention {
+	Interest(usize),
+	Limits,
+	WorkQueue(bool),
 }
 
 #[derive(Debug)]
@@ -295,7 +300,8 @@ impl Stream {
 			.messages
 			.iter()
 			.next()
-			.map_or(state.sequence, |(sequence, _)| *sequence);
+			.map_or(state.sequence, |(sequence, _)| *sequence)
+			.saturating_sub(1);
 		let consumer = Consumer::new(name.clone(), Arc::downgrade(&self.inner));
 		let consumer_state = ConsumerState { config, sequence };
 		state
@@ -334,7 +340,25 @@ impl Stream {
 
 	fn delete_consumer(&self, name: &str) {
 		let mut state = self.state.write().unwrap();
-		state.consumers.remove(name);
+		let Some((_, consumer_state)) = state.consumers.remove(name) else {
+			return;
+		};
+		// Ack all unacknowledged messages that this consumer was responsible for.
+		let sequences = state
+			.messages
+			.range(..=consumer_state.sequence)
+			.filter(|(_, message)| {
+				consumer_state
+					.config
+					.filter_subject
+					.as_ref()
+					.is_none_or(|filter| filter == &message.subject)
+			})
+			.map(|(sequence, _)| *sequence)
+			.collect::<Vec<_>>();
+		for sequence in sequences {
+			Self::ack_inner(&mut state, sequence);
+		}
 	}
 
 	async fn publish<T>(&self, subject: String, payload: T) -> Result<u64, Error>
@@ -358,7 +382,7 @@ impl Stream {
 		// Publish as many messages as possible.
 		let mut sequences = Vec::new();
 		for payload in payloads {
-			let sequence = Self::try_publish_inner(&mut *state, subject.clone(), payload)?;
+			let sequence = Self::try_publish_inner(&mut state, subject.clone(), payload)?;
 			sequences.push(sequence);
 		}
 
@@ -399,13 +423,13 @@ impl Stream {
 		if state
 			.config
 			.max_bytes
-			.is_some_and(|max| state.bytes + bytes >= max)
+			.is_some_and(|max| state.bytes + bytes > max)
 		{
 			if matches!(state.config.retention, RetentionPolicy::Limits) {
 				while state
 					.config
 					.max_bytes
-					.is_some_and(|max| state.bytes + bytes >= max)
+					.is_some_and(|max| state.bytes + bytes > max)
 				{
 					let Some((_, message)) = state.messages.pop_first() else {
 						return Err(Error::MaxBytes);
@@ -421,9 +445,9 @@ impl Stream {
 		state.sequence += 1;
 
 		// Create the message state.
-		let ack_count = match state.config.retention {
-			RetentionPolicy::Interest => Some(
-				state
+		let retention = match state.config.retention {
+			RetentionPolicy::Interest => {
+				let count = state
 					.consumers
 					.values()
 					.filter(|(_, state)| {
@@ -433,18 +457,19 @@ impl Stream {
 							.as_ref()
 							.is_none_or(|filter| filter == &subject)
 					})
-					.count(),
-			),
-			RetentionPolicy::Limits => None,
-			RetentionPolicy::WorkQueue => Some(1),
+					.count();
+				MessageRetention::Interest(count)
+			},
+			RetentionPolicy::Limits => MessageRetention::Limits,
+			RetentionPolicy::WorkQueue => MessageRetention::WorkQueue(false),
 		};
 		let payload: Arc<dyn Payload> = Arc::new(payload);
 		let sequence = state.sequence;
 		let message = StreamMessage {
-			ack_count,
-			subject,
-			payload,
 			bytes,
+			payload,
+			retention,
+			subject,
 		};
 		state.messages.insert(sequence, message);
 		state.bytes += bytes;
@@ -456,12 +481,17 @@ impl Stream {
 		let Some(message) = state.messages.get_mut(&sequence) else {
 			return;
 		};
-		let Some(ack_count) = &mut message.ack_count else {
-			return;
-		};
-		*ack_count -= 1;
-		if *ack_count == 0 {
-			state.messages.remove(&sequence);
+		match &mut message.retention {
+			MessageRetention::Limits => (),
+			MessageRetention::Interest(count) => {
+				*count = count.saturating_sub(1);
+				if *count == 0 {
+					state.messages.remove(&sequence);
+				}
+			},
+			MessageRetention::WorkQueue(_) => {
+				state.messages.remove(&sequence);
+			},
 		}
 	}
 }
@@ -537,6 +567,7 @@ impl Consumer {
 		let stream = stream::try_unfold(state, move |state| async move {
 			// Wait for a notification if the queue is empty.
 			{
+				let notified = state.notify.notified();
 				let is_empty = state
 					.stream
 					.upgrade()
@@ -545,15 +576,18 @@ impl Consumer {
 						let (_, consumer_state) = stream.consumers.get(&state.consumer.name)?;
 						let has_pending = stream.messages.iter().any(|(sequence, message)| {
 							*sequence > consumer_state.sequence
-								&& consumer_state.config.filter_subject.as_ref().is_none_or(
-									|filter| filter == &message.subject,
-								)
+								&& !matches!(message.retention, MessageRetention::WorkQueue(true))
+								&& consumer_state
+									.config
+									.filter_subject
+									.as_ref()
+									.is_none_or(|filter| filter == &message.subject)
 						});
 						Some(!has_pending)
 					})
 					.unwrap_or_default();
 				if is_empty {
-					state.notify.notified().await;
+					notified.await;
 				}
 			}
 
@@ -582,15 +616,19 @@ impl Consumer {
 			let filter_subject = consumer_state.config.filter_subject.clone();
 			let messages = stream_state
 				.messages
-				.iter()
+				.iter_mut()
 				.skip_while(|(sequence, _)| **sequence <= consumer_sequence)
 				.filter(|(_, message)| {
-					filter_subject
-						.as_ref()
-						.is_none_or(|filter| filter == &message.subject)
+					!matches!(message.retention, MessageRetention::WorkQueue(true))
+						&& filter_subject
+							.as_ref()
+							.is_none_or(|filter| filter == &message.subject)
 				})
 				.take(max_messages)
 				.map(|(sequence, message)| {
+					if let MessageRetention::WorkQueue(delivered) = &mut message.retention {
+						*delivered = true;
+					}
 					(
 						*sequence,
 						message.subject.clone(),
@@ -613,7 +651,7 @@ impl Consumer {
 			// Auto-ack messages on delivery when requested.
 			if matches!(ack_policy, AckPolicy::None) {
 				for (sequence, _, _, _) in &messages {
-					Stream::ack_inner(&mut *stream_state, *sequence);
+					Stream::ack_inner(&mut stream_state, *sequence);
 				}
 			}
 
@@ -639,7 +677,7 @@ impl Consumer {
 								return Ok(());
 							};
 							let mut state = stream.state.write().unwrap();
-							Stream::ack_inner(&mut *state, sequence);
+							Stream::ack_inner(&mut state, sequence);
 							Ok::<_, Error>(())
 						})
 					};
@@ -838,17 +876,35 @@ impl Drop for ConsumerInner {
 			.consumers
 			.get(&self.name)
 			.is_some_and(|(_, state_)| state_.config.durable_name.is_none());
-		if remove {
-			state.consumers.remove(&self.name);
+		if !remove {
+			return;
+		}
+		let Some((_, consumer_state)) = state.consumers.remove(&self.name) else {
+			return;
+		};
+		// Ack all unacknowledged messages that this consumer was responsible for.
+		let sequences = state
+			.messages
+			.range(..=consumer_state.sequence)
+			.filter(|(_, message)| {
+				consumer_state
+					.config
+					.filter_subject
+					.as_ref()
+					.is_none_or(|filter| filter == &message.subject)
+			})
+			.map(|(sequence, _)| *sequence)
+			.collect::<Vec<_>>();
+		for sequence in sequences {
+			Stream::ack_inner(&mut state, sequence);
 		}
 	}
 }
 
 #[cfg(test)]
 mod tests {
-	use bytes::Bytes;
+	use {super::*, bytes::Bytes};
 
-	use super::*;
 	#[tokio::test]
 	async fn workqueue_retention() {
 		let messenger = Messenger::new();

@@ -159,6 +159,24 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
+	fn close_process_stdin(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn close_process_stdout(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn close_process_stderr(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
 	fn heartbeat_process(
 		&self,
 		id: &tg::process::Id,
@@ -389,6 +407,30 @@ impl tg::handle::Process for tg::Client {
 		reader: impl AsyncRead + Send + 'static,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.write_process_stderr(id, arg, reader)
+	}
+
+	fn close_process_stdin(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.close_process_stdin(id, arg)
+	}
+
+	fn close_process_stdout(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.close_process_stdout(id, arg)
+	}
+
+	fn close_process_stderr(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.close_process_stderr(id, arg)
 	}
 
 	fn heartbeat_process(

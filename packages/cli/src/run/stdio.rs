@@ -65,10 +65,11 @@ where
 			if !matches!(stdin, tg::process::Stdio::Pipe | tg::process::Stdio::Pty) {
 				return Ok(());
 			}
+			let remote_ = remote.clone();
 			let stream = crate::util::stdio::stdin_stream().take_until(stop.wait());
 			let future = async {
 				let arg = tg::process::stdio::Arg {
-					remotes: remote.map(|remote| vec![remote]),
+					remotes: remote_.map(|remote| vec![remote]),
 					..tg::process::stdio::Arg::default()
 				};
 				handle
@@ -83,6 +84,14 @@ where
 			if let future::Either::Left((Err(error), _)) = either {
 				return Err(error);
 			}
+
+			// Close stdin.
+			let arg = tg::process::stdio::Arg {
+				remotes: remote.map(|remote| vec![remote]),
+				..tg::process::stdio::Arg::default()
+			};
+			handle.close_process_stdin(&process, arg).await.ok();
+
 			Ok(())
 		}
 	};
@@ -118,14 +127,8 @@ where
 		let process = process.clone();
 		let handle = handle.clone();
 		let remote = stdio.remote.clone();
-		let stdout = stdio.stdout;
 		let stderr = stdio.stderr;
 		async move {
-			if matches!(stderr, tg::process::Stdio::Pty)
-				&& matches!(stdout, tg::process::Stdio::Pty)
-			{
-				return Ok(());
-			}
 			if !matches!(stderr, tg::process::Stdio::Pipe | tg::process::Stdio::Pty) {
 				return Ok(());
 			}
