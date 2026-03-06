@@ -425,9 +425,6 @@ impl Server {
 			(http::Method::POST, ["processes", "dequeue"]) => self
 				.handle_dequeue_process_request(request, &context)
 				.boxed(),
-			(http::Method::POST, ["processes", process, "start"]) => self
-				.handle_start_process_request(request, &context, process)
-				.boxed(),
 			(http::Method::POST, ["processes", process, "signal"]) => self
 				.handle_post_process_signal_request(request, &context, process)
 				.boxed(),

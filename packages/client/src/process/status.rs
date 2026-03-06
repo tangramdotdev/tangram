@@ -23,8 +23,6 @@ use {
 #[tangram_serialize(display, from_str)]
 pub enum Status {
 	Created,
-	Enqueued,
-	Dequeued,
 	Started,
 	Finished,
 }
@@ -137,8 +135,6 @@ impl std::fmt::Display for Status {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Self::Created => write!(f, "created"),
-			Self::Enqueued => write!(f, "enqueued"),
-			Self::Dequeued => write!(f, "dequeued"),
 			Self::Started => write!(f, "started"),
 			Self::Finished => write!(f, "finished"),
 		}
@@ -151,8 +147,6 @@ impl std::str::FromStr for Status {
 	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
 		match s {
 			"created" => Ok(Self::Created),
-			"enqueued" => Ok(Self::Enqueued),
-			"dequeued" => Ok(Self::Dequeued),
 			"started" => Ok(Self::Started),
 			"finished" => Ok(Self::Finished),
 			status => Err(tg::error!(%status, "invalid value")),

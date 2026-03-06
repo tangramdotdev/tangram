@@ -95,17 +95,6 @@ where
 		}
 	}
 
-	fn start_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::start::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		match self {
-			tg::Either::Left(s) => s.start_process(id, arg).left_future(),
-			tg::Either::Right(s) => s.start_process(id, arg).right_future(),
-		}
-	}
-
 	fn signal_process(
 		&self,
 		id: &tg::process::Id,

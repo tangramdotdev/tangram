@@ -7,8 +7,6 @@ pub struct State {
 	pub children: Option<Vec<tg::Referent<tg::Process>>>,
 	pub command: tg::Command,
 	pub created_at: i64,
-	pub dequeued_at: Option<i64>,
-	pub enqueued_at: Option<i64>,
 	pub error: Option<tg::Error>,
 	pub exit: Option<u8>,
 	pub expected_checksum: Option<tg::Checksum>,
@@ -40,8 +38,6 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 		});
 		let command = tg::Command::with_id(value.command);
 		let created_at = value.created_at;
-		let dequeued_at = value.dequeued_at;
-		let enqueued_at = value.enqueued_at;
 		let error = value
 			.error
 			.map(|either| match either {
@@ -72,8 +68,6 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 			children,
 			command,
 			created_at,
-			dequeued_at,
-			enqueued_at,
 			error,
 			exit,
 			expected_checksum,

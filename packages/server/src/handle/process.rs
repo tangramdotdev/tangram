@@ -63,14 +63,6 @@ impl tg::handle::Process for Shared {
 		self.0.try_dequeue_process(arg).await
 	}
 
-	async fn start_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::start::Arg,
-	) -> tg::Result<()> {
-		self.0.start_process(id, arg).await
-	}
-
 	async fn signal_process(
 		&self,
 		id: &tg::process::Id,
@@ -316,15 +308,6 @@ impl tg::handle::Process for Server {
 		arg: tg::process::queue::Arg,
 	) -> tg::Result<Option<tg::process::queue::Output>> {
 		self.try_dequeue_process_with_context(&Context::default(), arg)
-			.await
-	}
-
-	async fn start_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::start::Arg,
-	) -> tg::Result<()> {
-		self.start_process_with_context(&Context::default(), id, arg)
 			.await
 	}
 

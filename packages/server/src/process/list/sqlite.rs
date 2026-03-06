@@ -37,8 +37,6 @@ impl Server {
 			#[tangram_database(as = "db::sqlite::value::FromStr")]
 			command: tg::command::Id,
 			created_at: i64,
-			dequeued_at: Option<i64>,
-			enqueued_at: Option<i64>,
 			error: Option<String>,
 			exit: Option<u8>,
 			#[tangram_database(as = "Option<db::sqlite::value::FromStr>")]
@@ -73,8 +71,6 @@ impl Server {
 					cacheable,
 					command,
 					created_at,
-					dequeued_at,
-					enqueued_at,
 					error,
 					exit,
 					expected_checksum,
@@ -166,8 +162,6 @@ impl Server {
 				children: Some(children),
 				command: row.command,
 				created_at: row.created_at,
-				dequeued_at: row.dequeued_at,
-				enqueued_at: row.enqueued_at,
 				error,
 				exit: row.exit,
 				expected_checksum: row.expected_checksum,

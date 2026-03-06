@@ -49,12 +49,6 @@ pub trait Process: Send + Sync + 'static {
 		arg: tg::process::queue::Arg,
 	) -> BoxFuture<'_, tg::Result<Option<tg::process::queue::Output>>>;
 
-	fn start_process<'a>(
-		&'a self,
-		id: &'a tg::process::Id,
-		arg: tg::process::start::Arg,
-	) -> BoxFuture<'a, tg::Result<()>>;
-
 	fn signal_process<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
@@ -244,14 +238,6 @@ where
 		arg: tg::process::queue::Arg,
 	) -> BoxFuture<'_, tg::Result<Option<tg::process::queue::Output>>> {
 		self.try_dequeue_process(arg).boxed()
-	}
-
-	fn start_process<'a>(
-		&'a self,
-		id: &'a tg::process::Id,
-		arg: tg::process::start::Arg,
-	) -> BoxFuture<'a, tg::Result<()>> {
-		self.start_process(id, arg).boxed()
 	}
 
 	fn signal_process<'a>(

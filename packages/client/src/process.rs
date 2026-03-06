@@ -32,7 +32,6 @@ pub mod put;
 pub mod queue;
 pub mod signal;
 pub mod spawn;
-pub mod start;
 pub mod state;
 pub mod status;
 pub mod stdio;
