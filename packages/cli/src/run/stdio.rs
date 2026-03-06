@@ -15,11 +15,11 @@ use {
 
 #[derive(Clone, Debug)]
 pub struct Stdio {
-	pub tty: Option<Arc<Tty>>,
 	pub remote: Option<String>,
-	pub stdin: Option<tg::process::Stdio>,
-	pub stdout: Option<tg::process::Stdio>,
-	pub stderr: Option<tg::process::Stdio>,
+	pub stderr: tg::process::Stdio,
+	pub stdin: tg::process::Stdio,
+	pub stdout: tg::process::Stdio,
+	pub tty: Option<Arc<Tty>>,
 }
 
 #[derive(Clone, Debug)]
@@ -62,10 +62,7 @@ where
 		let remote = stdio.remote.clone();
 		let stdin = stdio.stdin;
 		async move {
-			if !matches!(
-				stdin,
-				Some(tg::process::Stdio::Pipe | tg::process::Stdio::Pty)
-			) {
+			if !matches!(stdin, tg::process::Stdio::Pipe | tg::process::Stdio::Pty) {
 				return Ok(());
 			}
 			let stream = crate::util::stdio::stdin_stream().take_until(stop.wait());
@@ -97,10 +94,7 @@ where
 		let remote = stdio.remote.clone();
 		let stdout = stdio.stdout;
 		async move {
-			if !matches!(
-				stdout,
-				Some(tg::process::Stdio::Pipe | tg::process::Stdio::Pty)
-			) {
+			if !matches!(stdout, tg::process::Stdio::Pipe | tg::process::Stdio::Pty) {
 				return Ok(());
 			}
 			let arg = tg::process::stdio::Arg {
@@ -127,15 +121,12 @@ where
 		let stdout = stdio.stdout;
 		let stderr = stdio.stderr;
 		async move {
-			if matches!(stderr, Some(tg::process::Stdio::Pty))
-				&& matches!(stdout, Some(tg::process::Stdio::Pty))
+			if matches!(stderr, tg::process::Stdio::Pty)
+				&& matches!(stdout, tg::process::Stdio::Pty)
 			{
 				return Ok(());
 			}
-			if !matches!(
-				stderr,
-				Some(tg::process::Stdio::Pipe | tg::process::Stdio::Pty)
-			) {
+			if !matches!(stderr, tg::process::Stdio::Pipe | tg::process::Stdio::Pty) {
 				return Ok(());
 			}
 			let arg = tg::process::stdio::Arg {
@@ -202,9 +193,9 @@ impl Stdio {
 			return Ok(Self {
 				tty: None,
 				remote,
-				stdin: None,
-				stdout: None,
-				stderr: None,
+				stdin: tg::process::Stdio::Null,
+				stdout: tg::process::Stdio::Null,
+				stderr: tg::process::Stdio::Null,
 			});
 		}
 
@@ -212,30 +203,30 @@ impl Stdio {
 		let (tty, stdin) = if options.spawn.tty.get() && std::io::stdin().is_terminal() {
 			let tty = Tty::new()?;
 			let stdin = tg::process::Stdio::Pty;
-			(Some(Arc::new(tty)), Some(stdin))
+			(Some(Arc::new(tty)), stdin)
 		} else {
 			let stdin = tg::process::Stdio::Pipe;
-			(None, Some(stdin))
+			(None, stdin)
 		};
 
 		let stdout = if tty.is_some() && std::io::stdout().is_terminal() {
-			Some(tg::process::Stdio::Pty)
+			tg::process::Stdio::Pty
 		} else {
-			Some(tg::process::Stdio::Pipe)
+			tg::process::Stdio::Pipe
 		};
 
 		let stderr = if tty.is_some() && std::io::stderr().is_terminal() {
-			Some(tg::process::Stdio::Pty)
+			tg::process::Stdio::Pty
 		} else {
-			Some(tg::process::Stdio::Pipe)
+			tg::process::Stdio::Pipe
 		};
 
 		let stdio = Self {
-			tty,
 			remote,
+			stderr,
 			stdin,
 			stdout,
-			stderr,
+			tty,
 		};
 
 		Ok(stdio)

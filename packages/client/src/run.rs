@@ -20,14 +20,15 @@ pub struct Arg {
 	pub remote: Option<String>,
 	pub retry: bool,
 	pub sandbox: Option<bool>,
-	pub stderr: Option<Option<tg::process::Stdio>>,
-	pub stdin: Option<Option<tg::Either<tg::process::Stdio, tg::Blob>>>,
-	pub stdout: Option<Option<tg::process::Stdio>>,
+	pub stderr: tg::run::Stdio,
+	pub stdin: tg::run::Stdio,
+	pub stdout: tg::run::Stdio,
 	pub user: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub enum Stdio {
+	Blob(tg::Blob),
 	#[default]
 	Inherit,
 	Log,
@@ -118,23 +119,22 @@ where
 		}
 	}
 	builder = builder.mounts(command_mounts);
-	let stdin = if inherit {
-		if arg.stdin.is_none() {
-			command
+	let stdin_blob = if inherit {
+		match &arg.stdin {
+			tg::run::Stdio::Inherit => command
 				.as_ref()
 				.map(|command| command.stdin.clone())
-				.unwrap_or_default()
-		} else if let Some(Some(tg::Either::Right(blob))) = &arg.stdin {
-			Some(blob.clone())
-		} else {
-			None
+				.unwrap_or_default(),
+			tg::run::Stdio::Blob(blob) => Some(blob.clone()),
+			_ => None,
 		}
-	} else if let Some(Some(tg::Either::Right(blob))) = &arg.stdin {
-		Some(blob.clone())
 	} else {
-		None
+		match &arg.stdin {
+			tg::run::Stdio::Blob(blob) => Some(blob.clone()),
+			_ => None,
+		}
 	};
-	builder = builder.stdin(stdin);
+	builder = builder.stdin(stdin_blob);
 	if inherit {
 		if let Some(Some(user)) = command.as_ref().map(|command| command.user.clone()) {
 			builder = builder.user(user);
@@ -157,36 +157,50 @@ where
 		arg.network.unwrap_or_default()
 	};
 	let stderr = if inherit {
-		arg.stderr
-			.unwrap_or_else(|| state.as_ref().map(|state| state.stderr))
+		match arg.stderr {
+			tg::run::Stdio::Inherit => state.as_ref().map(|state| state.stderr),
+			stderr => stderr
+				.into_process_stdio()
+				.map_err(|source| tg::error!(!source, "invalid stderr stdio"))?,
+		}
 	} else {
-		arg.stderr.unwrap_or(None)
+		match arg.stderr {
+			tg::run::Stdio::Inherit => None,
+			stderr => stderr
+				.into_process_stdio()
+				.map_err(|source| tg::error!(!source, "invalid stderr stdio"))?,
+		}
 	};
 	let stdin = if inherit {
-		let stdin = arg
-			.stdin
-			.unwrap_or_else(|| state.as_ref().map(|state| tg::Either::Left(state.stdin)));
-		match stdin {
-			None => None,
-			Some(tg::Either::Left(stdio)) => Some(stdio),
-			Some(tg::Either::Right(_)) => {
-				return Err(tg::error!("expected stdio"));
-			},
+		match arg.stdin {
+			tg::run::Stdio::Inherit => state.as_ref().map(|state| state.stdin),
+			tg::run::Stdio::Blob(_) => None,
+			stdin => stdin
+				.into_process_stdio()
+				.map_err(|source| tg::error!(!source, "invalid stdin stdio"))?,
 		}
 	} else {
 		match arg.stdin {
-			None | Some(None) => None,
-			Some(Some(tg::Either::Left(stdio))) => Some(stdio),
-			Some(Some(tg::Either::Right(_))) => {
-				return Err(tg::error!("expected stdio"));
-			},
+			tg::run::Stdio::Blob(_) | tg::run::Stdio::Inherit => None,
+			stdin => stdin
+				.into_process_stdio()
+				.map_err(|source| tg::error!(!source, "invalid stdin stdio"))?,
 		}
 	};
 	let stdout = if inherit {
-		arg.stdout
-			.unwrap_or_else(|| state.as_ref().map(|state| state.stdout))
+		match arg.stdout {
+			tg::run::Stdio::Inherit => state.as_ref().map(|state| state.stdout),
+			stdout => stdout
+				.into_process_stdio()
+				.map_err(|source| tg::error!(!source, "invalid stdout stdio"))?,
+		}
 	} else {
-		arg.stdout.unwrap_or(None)
+		match arg.stdout {
+			tg::run::Stdio::Inherit => None,
+			stdout => stdout
+				.into_process_stdio()
+				.map_err(|source| tg::error!(!source, "invalid stdout stdio"))?,
+		}
 	};
 	if network && checksum.is_none() {
 		return Err(tg::error!(
@@ -224,14 +238,26 @@ where
 }
 
 impl Stdio {
-	#[must_use]
-	pub fn into_process_stdio(self) -> Option<tg::process::Stdio> {
+	pub fn into_process_stdio(self) -> tg::Result<Option<tg::process::Stdio>> {
 		match self {
-			Self::Inherit => None,
-			Self::Log => Some(tg::process::Stdio::Log),
-			Self::Null => Some(tg::process::Stdio::Null),
-			Self::Pipe => Some(tg::process::Stdio::Pipe),
-			Self::Pty => Some(tg::process::Stdio::Pty),
+			Self::Blob(_) => Err(tg::error!("expected a stdio mode")),
+			Self::Inherit => Ok(None),
+			Self::Log => Ok(Some(tg::process::Stdio::Log)),
+			Self::Null => Ok(Some(tg::process::Stdio::Null)),
+			Self::Pipe => Ok(Some(tg::process::Stdio::Pipe)),
+			Self::Pty => Ok(Some(tg::process::Stdio::Pty)),
+		}
+	}
+
+	#[must_use]
+	pub fn into_stdin(self) -> (Option<tg::process::Stdio>, Option<tg::Blob>) {
+		match self {
+			Self::Blob(blob) => (None, Some(blob)),
+			Self::Inherit => (None, None),
+			Self::Log => (Some(tg::process::Stdio::Log), None),
+			Self::Null => (Some(tg::process::Stdio::Null), None),
+			Self::Pipe => (Some(tg::process::Stdio::Pipe), None),
+			Self::Pty => (Some(tg::process::Stdio::Pty), None),
 		}
 	}
 }
@@ -239,6 +265,7 @@ impl Stdio {
 impl std::fmt::Display for Stdio {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
+			Self::Blob(blob) => write!(f, "{}", blob.id()),
 			Self::Inherit => write!(f, "inherit"),
 			Self::Log => write!(f, "log"),
 			Self::Null => write!(f, "null"),
@@ -258,7 +285,11 @@ impl std::str::FromStr for Stdio {
 			"null" => Ok(Self::Null),
 			"pipe" => Ok(Self::Pipe),
 			"pty" => Ok(Self::Pty),
-			_ => Err(tg::error!("invalid stdio")),
+			_ => s
+				.parse::<tg::blob::Id>()
+				.map(tg::Blob::with_id)
+				.map(Self::Blob)
+				.map_err(|_| tg::error!("invalid stdio")),
 		}
 	}
 }
