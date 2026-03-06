@@ -10,7 +10,6 @@ use {
 	std::{
 		collections::HashMap,
 		ffi::{CString, OsStr},
-		iter,
 		os::{fd::AsRawFd, unix::ffi::OsStrExt},
 		path::{Path, PathBuf},
 	},
@@ -328,7 +327,6 @@ pub fn enter(config: &Config) -> tg::Result<()> {
 
 pub fn spawn(context: SpawnContext) -> tg::Result<libc::pid_t> {
 	let SpawnContext {
-		id,
 		command,
 		stdin,
 		stdout,
@@ -345,7 +343,6 @@ pub fn spawn(context: SpawnContext) -> tg::Result<libc::pid_t> {
 		.env
 		.iter()
 		.map(|(key, value)| envstring(key, value))
-		.chain(iter::once(envstring("TANGRAM_PROCESS", id.to_string())))
 		.collect::<CStringVec>();
 	let executable = command
 		.env

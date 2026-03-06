@@ -60,7 +60,6 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		delete env.TANGRAM_URL;
 		arg = await arg_({ cwd, env }, arg);
 	}
-
 	let currentCommand = inherit ? await tg.Process.current?.command : undefined;
 	let sourceOptions: tg.Referent.Options = {};
 	if ("name" in arg) {

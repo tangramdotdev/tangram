@@ -113,9 +113,8 @@ impl Server {
 			},
 		};
 
-		let id = tg::process::Id::new();
+		let id = arg.id.clone();
 		let context = SpawnContext {
-			id: id.clone(),
 			command: arg.command,
 			stdin: guest_stdin,
 			stdout: guest_stdout,

@@ -52,7 +52,6 @@ pub fn spawn(context: SpawnContext) -> tg::Result<tokio::process::Child> {
 		.env_clear()
 		.args(context.command.args)
 		.envs(context.command.env)
-		.env("TANGRAM_PROCESS", context.id.to_string())
 		.current_dir(context.command.cwd);
 	if let Some(fd) = context.stdin {
 		command.stdin(fd);

@@ -194,10 +194,12 @@ impl Sandbox {
 
 	pub async fn spawn(
 		&self,
+		id: tg::process::Id,
 		command: Command,
 		pty: Option<tg::process::Pty>,
 	) -> tg::Result<Process> {
 		let arg = crate::client::spawn::Arg {
+			id,
 			command: command.clone(),
 			pty,
 		};

@@ -12,7 +12,6 @@ use {
 };
 
 pub(crate) struct SpawnContext {
-	pub(crate) id: tg::process::Id,
 	pub(crate) command: Command,
 	pub(crate) stdin: Option<OwnedFd>,
 	pub(crate) stdout: Option<OwnedFd>,
