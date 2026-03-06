@@ -301,9 +301,9 @@ impl Cli {
 				reference.clone(),
 				Vec::new(),
 				None,
-				None,
-				None,
-				None,
+				tg::process::Stdio::default(),
+				tg::process::Stdio::default(),
+				tg::process::Stdio::default(),
 			)
 			.boxed()
 			.await?;
@@ -313,7 +313,7 @@ impl Cli {
 			let view_task = {
 				let handle = handle.clone();
 				let root = process.clone().map(crate::viewer::Item::Process);
-				let task = Task::spawn_blocking(move |stop| -> tg::Result<()> {
+				let task = Task::spawn_blocking(move |stop| {
 					let local_set = tokio::task::LocalSet::new();
 					let runtime = tokio::runtime::Builder::new_current_thread()
 						.enable_all()

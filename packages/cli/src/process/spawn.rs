@@ -207,9 +207,9 @@ impl Cli {
 				args.reference,
 				args.trailing,
 				None,
-				None,
-				None,
-				None,
+				tg::process::Stdio::default(),
+				tg::process::Stdio::default(),
+				tg::process::Stdio::default(),
 			)
 			.boxed()
 			.await?;
@@ -234,18 +234,45 @@ impl Cli {
 		reference: tg::Reference,
 		trailing: Vec<String>,
 		pty: Option<tg::process::Pty>,
-		stdin: Option<tg::process::Stdio>,
-		stdout: Option<tg::process::Stdio>,
-		stderr: Option<tg::process::Stdio>,
+		stdin: tg::process::Stdio,
+		stdout: tg::process::Stdio,
+		stderr: tg::process::Stdio,
 	) -> tg::Result<tg::Referent<tg::Process>> {
 		let handle = self.handle().await?;
 
 		// Determine if the process is sandboxed.
 		let sandbox =
 			options.sandbox.get().unwrap_or_default() || options.remotes.remotes.is_some();
-		let stdin = stdin.or(options.stdin.and_then(tg::run::Stdio::into_process_stdio));
-		let stdout = stdout.or(options.stdout.and_then(tg::run::Stdio::into_process_stdio));
-		let stderr = stderr.or(options.stderr.and_then(tg::run::Stdio::into_process_stdio));
+		let stderr_option = options.stderr.clone();
+		let stdin_option = options.stdin.clone();
+		let stdout_option = options.stdout.clone();
+		let (stdin_mode_from_option, stdin_blob_from_option) =
+			stdin_option.map_or((None, None), tg::run::Stdio::into_stdin);
+		let stdin = stdin_mode_from_option.unwrap_or(stdin);
+		let stdout = if let Some(stdout_mode) = stdout_option {
+			if let Some(stdout_mode) = stdout_mode
+				.into_process_stdio()
+				.map_err(|source| tg::error!(!source, "invalid stdout stdio"))?
+			{
+				stdout_mode
+			} else {
+				stdout
+			}
+		} else {
+			stdout
+		};
+		let stderr = if let Some(stderr_mode) = stderr_option {
+			if let Some(stderr_mode) = stderr_mode
+				.into_process_stdio()
+				.map_err(|source| tg::error!(!source, "invalid stderr stdio"))?
+			{
+				stderr_mode
+			} else {
+				stderr
+			}
+		} else {
+			stderr
+		};
 
 		// Get the reference.
 		let arg = tg::get::Arg {
@@ -357,6 +384,9 @@ impl Cli {
 				return Err(tg::error!("expected a command or an artifact"));
 			},
 		};
+		if let Some(stdin_blob) = stdin_blob_from_option {
+			command = command.stdin(Some(stdin_blob));
+		}
 
 		// Set the args.
 		let mut args_: Vec<tg::Value> = Vec::new();
@@ -525,9 +555,9 @@ impl Cli {
 			pty,
 			remotes: options.remotes.remotes.clone(),
 			retry,
-			stderr: stderr.unwrap_or_default(),
-			stdin: stdin.unwrap_or_default(),
-			stdout: stdout.unwrap_or_default(),
+			stderr,
+			stdin,
+			stdout,
 		};
 		let process = tg::Process::spawn_with_progress(&handle, arg, |stream| {
 			self.render_progress_stream(stream)

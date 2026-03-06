@@ -456,25 +456,20 @@ impl Server {
 		});
 		let serve_task = Some((serve_task, guest_uri));
 
-		let stdin_mode = state.stdin;
-		if matches!(stdin_mode, tg::process::Stdio::Log) {
-			return Err(tg::error!("invalid stdin stdio mode"));
-		}
-		let stdout_mode = state.stdout;
-		let stderr_mode = state.stderr;
-
-		let stdin = match stdin_mode {
+		let sandbox_stdin = match state.stdin {
 			tg::process::Stdio::Null => tangram_sandbox::Stdio::Null,
 			tg::process::Stdio::Pipe => tangram_sandbox::Stdio::Pipe,
 			tg::process::Stdio::Pty => tangram_sandbox::Stdio::Pty,
-			tg::process::Stdio::Log => unreachable!(),
+			tg::process::Stdio::Log => {
+				return Err(tg::error!("invalid stdin stdio mode"));
+			},
 		};
-		let stdout = match stdout_mode {
+		let sandbox_stdout = match state.stdout {
 			tg::process::Stdio::Null => tangram_sandbox::Stdio::Null,
 			tg::process::Stdio::Log | tg::process::Stdio::Pipe => tangram_sandbox::Stdio::Pipe,
 			tg::process::Stdio::Pty => tangram_sandbox::Stdio::Pty,
 		};
-		let stderr = match stderr_mode {
+		let sandbox_stderr = match state.stderr {
 			tg::process::Stdio::Null => tangram_sandbox::Stdio::Null,
 			tg::process::Stdio::Log | tg::process::Stdio::Pipe => tangram_sandbox::Stdio::Pipe,
 			tg::process::Stdio::Pty => tangram_sandbox::Stdio::Pty,
@@ -505,14 +500,17 @@ impl Server {
 			cwd,
 			env,
 			executable,
-			stdin,
-			stdout,
-			stderr,
+			stdin: sandbox_stdin,
+			stdout: sandbox_stdout,
+			stderr: sandbox_stderr,
 		};
 		let sandbox_process = sandbox.spawn(sandbox_command, state.pty).await.map_err(
 			|source| tg::error!(!source, %id, "failed to spawn the process in the sandbox"),
 		)?;
 		let sandbox_process = Arc::new(sandbox_process);
+		let stdin = state.stdin;
+		let stdout = state.stdout;
+		let stderr = state.stderr;
 
 		let _stdin_task = Task::spawn({
 			let server = self.clone();
@@ -522,12 +520,12 @@ impl Server {
 			let stdin_blob = command.stdin.clone().map(tg::Blob::with_id);
 			|_| async move {
 				server
-					.stdin_task(&sandbox, &sandbox_process, &id, stdin_mode, stdin_blob)
+					.stdin_task(&sandbox, &sandbox_process, &id, stdin, stdin_blob)
 					.await
 			}
 		});
 
-		let stdout_task = if stdout_mode.is_null() {
+		let stdout_task = if stdout.is_null() {
 			None
 		} else {
 			Some(Task::spawn({
@@ -543,7 +541,7 @@ impl Server {
 							&sandbox_process,
 							&id,
 							remote,
-							stdout_mode,
+							stdout,
 							tg::process::stdio::Stream::Stdout,
 						)
 						.await
@@ -551,7 +549,7 @@ impl Server {
 			}))
 		};
 
-		let stderr_task = if stderr_mode.is_null() {
+		let stderr_task = if stderr.is_null() {
 			None
 		} else {
 			Some(Task::spawn({
@@ -567,7 +565,7 @@ impl Server {
 							&sandbox_process,
 							&id,
 							remote,
-							stderr_mode,
+							stderr,
 							tg::process::stdio::Stream::Stderr,
 						)
 						.await

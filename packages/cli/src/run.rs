@@ -166,9 +166,6 @@ impl Cli {
 			reference
 		};
 
-		// Determine if the process is sandboxed.
-		let sandbox = options.spawn.sandbox.get().unwrap_or(false);
-
 		// Get the remote.
 		let remote = options
 			.spawn
@@ -177,65 +174,61 @@ impl Cli {
 			.clone()
 			.and_then(|remotes| remotes.into_iter().next());
 
-		// Extract fields needed after spawn consumes options.
-		let checkout = options.checkout.clone();
-		let checkout_force = options.checkout_force;
-		let detach = options.detach;
-		let stderr_flag = options.spawn.stderr;
-		let stdin_flag = options.spawn.stdin;
-		let stdout_flag = options.spawn.stdout;
-		let verbose = options.verbose;
-		let view = options.view;
-
-		// Set up stdio if the process is not sandboxed.
-		let stdio = if sandbox {
-			None
-		} else {
-			Some(
-				stdio::Stdio::new(remote.clone(), &options)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to create stdio"))?,
-			)
-		};
-		let stdio = stdio.map(|mut stdio| {
-			if let Some(stderr_mode) = stderr_flag.and_then(tg::run::Stdio::into_process_stdio) {
-				stdio.stderr = Some(stderr_mode);
+		// Set up stdio.
+		let mut stdio = stdio::Stdio::new(remote.clone(), &options)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create stdio"))?;
+		{
+			if let Some(stdin) = options.spawn.stdin.clone() {
+				let (stdin, stdin_blob) = stdin.into_stdin();
+				if stdin_blob.is_some() {
+					stdio.stdin = tg::process::Stdio::Null;
+				}
+				if let Some(stdin) = stdin {
+					stdio.stdin = stdin;
+				}
 			}
-			if let Some(stdin_mode) = stdin_flag.and_then(tg::run::Stdio::into_process_stdio) {
-				stdio.stdin = Some(stdin_mode);
+			if let Some(stdout) = options.spawn.stdout.clone()
+				&& let Some(stdout) = stdout
+					.into_process_stdio()
+					.map_err(|source| tg::error!(!source, "invalid stdout stdio"))?
+			{
+				stdio.stdout = stdout;
 			}
-			if let Some(stdout_mode) = stdout_flag.and_then(tg::run::Stdio::into_process_stdio) {
-				stdio.stdout = Some(stdout_mode);
+			if let Some(stderr) = options.spawn.stderr.clone()
+				&& let Some(stderr) = stderr
+					.into_process_stdio()
+					.map_err(|source| tg::error!(!source, "invalid stderr stdio"))?
+			{
+				stdio.stderr = stderr;
 			}
-			stdio
-		});
+		}
 		let pty = stdio
+			.tty
 			.as_ref()
-			.and_then(|stdio| {
-				stdio.tty.as_ref().map(|tty| {
-					let size = tty.get_size()?;
-					let pty = tg::process::pty::Pty { size };
-					Ok::<_, tg::Error>(pty)
-				})
+			.map(|tty| {
+				let size = tty.get_size()?;
+				let pty = tg::process::pty::Pty { size };
+				Ok::<_, tg::Error>(pty)
 			})
 			.transpose()?;
 
 		// Spawn the process.
 		let process = self
 			.spawn(
-				options.spawn,
+				options.spawn.clone(),
 				reference,
 				trailing,
 				pty,
-				stdio.as_ref().and_then(|s| s.stdin),
-				stdio.as_ref().and_then(|s| s.stdout),
-				stdio.as_ref().and_then(|s| s.stderr),
+				stdio.stdin,
+				stdio.stdout,
+				stdio.stderr,
 			)
 			.boxed()
 			.await?;
 
 		// If the detach flag is set, then return the process ID.
-		if detach {
+		if options.detach {
 			return Ok(tg::Value::String(process.item().id().to_string()));
 		}
 
@@ -249,7 +242,16 @@ impl Cli {
 		}
 
 		// Wait for the process to finish.
-		let wait = if let Some(stdio) = stdio {
+		let wait = if matches!(
+			stdio.stdin,
+			tg::process::Stdio::Pipe | tg::process::Stdio::Pty
+		) || matches!(
+			stdio.stdout,
+			tg::process::Stdio::Pipe | tg::process::Stdio::Pty
+		) || matches!(
+			stdio.stderr,
+			tg::process::Stdio::Pipe | tg::process::Stdio::Pty
+		) {
 			// Enable raw mode if necessary.
 			if let Some(tty) = &stdio.tty {
 				tty.enable_raw_mode()?;
@@ -301,6 +303,7 @@ impl Cli {
 			let view_task = {
 				let handle = handle.clone();
 				let root = process.clone().map(crate::viewer::Item::Process);
+				let view = options.view;
 				let task = Task::spawn_blocking(move |stop| -> tg::Result<()> {
 					let local_set = tokio::task::LocalSet::new();
 					let runtime = tokio::runtime::Builder::new_current_thread()
@@ -387,16 +390,17 @@ impl Cli {
 			result?
 		};
 
-		// If verbose, return the full wait output without processing errors or exit codes.
-		if verbose {
+		// If verbose, return the wait output.
+		if options.verbose {
 			let output = tg::process::wait::Output {
 				error: wait.error.as_ref().map(tg::Error::to_data_or_id),
 				exit: wait.exit,
 				output: wait.output.as_ref().map(tg::Value::to_data),
 			};
 			let value = serde_json::to_value(&output)
-				.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
-			return Ok(value.into());
+				.map_err(|source| tg::error!(!source, "failed to serialize the output"))?
+				.into();
+			return Ok(value);
 		}
 
 		// Set the exit.
@@ -441,7 +445,7 @@ impl Cli {
 		let output = wait.output.unwrap_or(tg::Value::Null);
 
 		// Check out the output if requested.
-		if let Some(path) = checkout {
+		if let Some(path) = options.checkout.clone() {
 			let artifact: tg::Artifact = output
 				.try_into()
 				.map_err(|_| tg::error!("expected an artifact"))?;
@@ -458,7 +462,7 @@ impl Cli {
 				artifact: artifact.clone(),
 				dependencies: path.is_some(),
 				extension: None,
-				force: checkout_force,
+				force: options.checkout_force,
 				lock: None,
 				path,
 			};
@@ -469,7 +473,8 @@ impl Cli {
 				self.render_progress_stream(stream).await.map_err(
 					|source| tg::error!(!source, %artifact, "failed to check out the artifact"),
 				)?;
-			return Ok(tg::Value::String(path.to_string_lossy().to_string()));
+			let value = path.display().to_string().into();
+			return Ok(value);
 		}
 
 		Ok(output)
