@@ -118,8 +118,6 @@ impl Drop for UpdateGuard {
 #[derive(Clone, Copy, Debug)]
 pub enum Indicator {
 	Created,
-	Enqueued,
-	Dequeued,
 	Started,
 	Canceled,
 	Failed,
@@ -323,8 +321,6 @@ where
 			let indicator = match node.borrow().indicator {
 				None => None,
 				Some(Indicator::Created) => Some(crossterm::style::Stylize::blue('⟳')),
-				Some(Indicator::Enqueued) => Some(crossterm::style::Stylize::yellow('⟳')),
-				Some(Indicator::Dequeued) => Some(crossterm::style::Stylize::yellow('•')),
 				Some(Indicator::Started) => {
 					let position = (now / (1000 / 10)) % 10;
 					let position = position.to_usize().unwrap();
@@ -2137,8 +2133,6 @@ where
 			let guard = counter.guard();
 			let indicator = match status {
 				tg::process::Status::Created => Indicator::Created,
-				tg::process::Status::Enqueued => Indicator::Enqueued,
-				tg::process::Status::Dequeued => Indicator::Dequeued,
 				tg::process::Status::Started => Indicator::Started,
 				tg::process::Status::Finished => {
 					// Remove the child if necessary.
@@ -2272,8 +2266,6 @@ where
 			let indicator = match node.borrow().indicator {
 				None => None,
 				Some(Indicator::Created) => Some("⟳".blue()),
-				Some(Indicator::Enqueued) => Some("⟳".yellow()),
-				Some(Indicator::Dequeued) => Some("•".yellow()),
 				Some(Indicator::Started) => {
 					let position = (now / (1000 / 10)) % 10;
 					let position = position.to_usize().unwrap();

@@ -67,14 +67,6 @@ impl tg::handle::Process for Handle {
 		self.0.try_dequeue_process(arg)
 	}
 
-	fn start_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::start::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.start_process(id, arg)) }
-	}
-
 	fn signal_process(
 		&self,
 		id: &tg::process::Id,

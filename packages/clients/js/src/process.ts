@@ -264,12 +264,7 @@ export namespace Process {
 		readonly?: boolean;
 	};
 
-	export type Status =
-		| "created"
-		| "enqueued"
-		| "dequeued"
-		| "started"
-		| "finished";
+	export type Status = "created" | "started" | "finished";
 
 	export type Data = {
 		command: tg.Command.Id;

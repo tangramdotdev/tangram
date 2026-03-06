@@ -189,8 +189,7 @@ impl Server {
 		if let Some(output) = &mut output {
 			if let Some(permit) = output.permit.take() {
 				let process = tg::Process::new(output.id.clone(), None, None, None, None);
-				let clean_guard = self.try_acquire_clean_guard()?;
-				self.spawn_process_task(&process, permit, clean_guard);
+				self.spawn_process_task(&process, permit);
 			} else {
 				let payload = crate::process::queue::Message {
 					id: output.id.clone(),
@@ -740,7 +739,7 @@ impl Server {
 		let status = if permit.is_some() {
 			tg::process::Status::Started
 		} else {
-			tg::process::Status::Enqueued
+			tg::process::Status::Created
 		};
 
 		// Insert the process.
@@ -752,7 +751,6 @@ impl Server {
 					command,
 					created_at,
 					depth,
-					enqueued_at,
 					expected_checksum,
 					heartbeat_at,
 					host,
@@ -768,49 +766,47 @@ impl Server {
 					token_count,
 					touched_at
 				)
-				values (
-					{p}1,
-					{p}2,
-					{p}3,
-					{p}4,
-					{p}5,
-					{p}6,
-					{p}7,
-					{p}8,
-					{p}9,
-					{p}10,
-					{p}11,
-					{p}12,
-					{p}13,
-					{p}14,
-					{p}15,
-					{p}16,
-					{p}17,
-					{p}18,
-					{p}19,
-					{p}20
-				)
-				on conflict (id) do update set
-					cacheable = {p}2,
-					command = {p}3,
-					created_at = {p}4,
-					depth = {p}5,
-					enqueued_at = {p}6,
-					expected_checksum = {p}7,
-					heartbeat_at = {p}8,
-					host = {p}9,
-					mounts = {p}10,
-					network = {p}11,
-					pty = {p}12,
-					retry = {p}13,
-					started_at = {p}14,
-					status = {p}15,
-					stderr = {p}16,
-					stdin = {p}17,
-					stdout = {p}18,
-					token_count = {p}19,
-					touched_at = {p}20;
-			"
+					values (
+						{p}1,
+						{p}2,
+						{p}3,
+						{p}4,
+						{p}5,
+						{p}6,
+						{p}7,
+						{p}8,
+						{p}9,
+						{p}10,
+						{p}11,
+						{p}12,
+						{p}13,
+						{p}14,
+						{p}15,
+						{p}16,
+						{p}17,
+						{p}18,
+						{p}19
+					)
+					on conflict (id) do update set
+						cacheable = {p}2,
+						command = {p}3,
+						created_at = {p}4,
+						depth = {p}5,
+						expected_checksum = {p}6,
+						heartbeat_at = {p}7,
+						host = {p}8,
+						mounts = {p}9,
+						network = {p}10,
+						pty = {p}11,
+						retry = {p}12,
+						started_at = {p}13,
+						status = {p}14,
+						stderr = {p}15,
+						stdin = {p}16,
+						stdout = {p}17,
+						token_count = {p}18,
+						touched_at = {p}19;
+				"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let heartbeat_at = if permit.is_some() { Some(now) } else { None };
@@ -821,7 +817,6 @@ impl Server {
 			arg.command.item.to_string(),
 			now,
 			1,
-			now,
 			arg.checksum.as_ref().map(ToString::to_string),
 			heartbeat_at,
 			host,
@@ -1203,22 +1198,22 @@ impl Server {
 					.map(|guard| ProcessPermit(tg::Either::Right(guard)))
 					.await;
 
-				// Wait for any cleans to finish.
-				let clean_guard = server.acquire_clean_guard().await;
-
 				// Attempt to start the process.
-				let arg = tg::process::start::Arg {
-					local: None,
-					remotes: process.remote().cloned().map(|remote| vec![remote]),
+				let Ok(started) = server
+					.try_start_process_local(process.id())
+					.await
+					.inspect_err(
+						|error| tracing::trace!(error = %error.trace(), "failed to start the process"),
+					)
+				else {
+					return;
 				};
-				let result = server.start_process(process.id(), arg.clone()).await;
-				if let Err(error) = result {
-					tracing::trace!(error = %error.trace(), "failed to start the process");
+				if !started {
 					return;
 				}
 
 				// Spawn the process task.
-				server.spawn_process_task(&process, permit, clean_guard);
+				server.spawn_process_task(&process, permit);
 			}
 		});
 	}

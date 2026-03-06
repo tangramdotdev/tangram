@@ -55,33 +55,22 @@ impl Server {
 			#[derive(db::row::Deserialize)]
 			struct Row {
 				created: u64,
-				enqueued: u64,
-				dequeued: u64,
 				started: u64,
 			}
 			let statement = "
 				select
 					(select count(*) from processes where status = 'created') as created,
-					(select count(*) from processes where status = 'enqueued') as enqueued,
-					(select count(*) from processes where status = 'dequeued') as dequeued,
 					(select count(*) from processes where status = 'started') as started;
 			"
 			.to_owned();
 			let params = db::params![];
-			let Row {
-				created,
-				enqueued,
-				dequeued,
-				started,
-			} = connection
+			let Row { created, started } = connection
 				.query_one_into::<Row>(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 			Some(tg::health::Processes {
 				created,
-				enqueued,
-				dequeued,
 				permits,
 				started,
 			})

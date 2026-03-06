@@ -44,8 +44,6 @@ impl Server {
 		let mut cacheables: Vec<bool> = Vec::with_capacity(items.len());
 		let mut commands = Vec::with_capacity(items.len());
 		let mut created_ats: Vec<i64> = Vec::with_capacity(items.len());
-		let mut dequeued_ats: Vec<Option<i64>> = Vec::with_capacity(items.len());
-		let mut enqueued_ats: Vec<Option<i64>> = Vec::with_capacity(items.len());
 		let mut errors: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut error_codes: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut exits: Vec<Option<i64>> = Vec::with_capacity(items.len());
@@ -72,8 +70,6 @@ impl Server {
 			cacheables.push(data.cacheable);
 			commands.push(data.command.to_string());
 			created_ats.push(data.created_at);
-			dequeued_ats.push(data.dequeued_at);
-			enqueued_ats.push(data.enqueued_at);
 			errors.push(data.error.as_ref().map(|error| match error {
 				tg::Either::Left(data) => serde_json::to_string(data).unwrap(),
 				tg::Either::Right(id) => id.to_string(),
@@ -126,8 +122,6 @@ impl Server {
 					cacheable,
 					command,
 					created_at,
-					dequeued_at,
-					enqueued_at,
 					error,
 					error_code,
 					exit,
@@ -154,34 +148,30 @@ impl Server {
 					unnest($3::bool[]),
 					unnest($4::text[]),
 					unnest($5::int8[]),
-					unnest($6::int8[]),
-					unnest($7::int8[]),
-					unnest($8::text[]),
+					unnest($6::text[]),
+					unnest($7::text[]),
+					unnest($8::int8[]),
 					unnest($9::text[]),
 					unnest($10::int8[]),
 					unnest($11::text[]),
-					unnest($12::int8[]),
+					unnest($12::text[]),
 					unnest($13::text[]),
-					unnest($14::text[]),
+					unnest($14::bool[]),
 					unnest($15::text[]),
-					unnest($16::bool[]),
-					unnest($17::text[]),
-					unnest($18::text[]),
-					unnest($19::bool[]),
-					unnest($20::int8[]),
+					unnest($16::text[]),
+					unnest($17::bool[]),
+					unnest($18::int8[]),
+					unnest($19::text[]),
+					unnest($20::text[]),
 					unnest($21::text[]),
 					unnest($22::text[]),
-					unnest($23::text[]),
-					unnest($24::text[]),
-					unnest($25::int8[]),
-					unnest($26::int8[])
+					unnest($23::int8[]),
+					unnest($24::int8[])
 				on conflict (id) do update set
 					actual_checksum = excluded.actual_checksum,
 					cacheable = excluded.cacheable,
 					command = excluded.command,
 					created_at = excluded.created_at,
-					dequeued_at = excluded.dequeued_at,
-					enqueued_at = excluded.enqueued_at,
 					error = excluded.error,
 					error_code = excluded.error_code,
 					exit = excluded.exit,
@@ -212,8 +202,6 @@ impl Server {
 					&cacheables,
 					&commands,
 					&created_ats,
-					&dequeued_ats,
-					&enqueued_ats,
 					&errors,
 					&error_codes,
 					&exits,

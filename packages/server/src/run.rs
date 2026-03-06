@@ -71,44 +71,26 @@ impl Server {
 				},
 			};
 
-			// Wait for any cleans to finish.
-			let clean_guard = self.acquire_clean_guard().await;
-
-			// Attempt to start the process.
-			let arg = tg::process::start::Arg {
-				local: None,
-				remotes: process.remote().cloned().map(|r| vec![r]),
-			};
-			let result = self.start_process(process.id(), arg.clone()).await;
-			if let Err(error) = result {
-				tracing::trace!(error = %error.trace(), "failed to start the process");
-				continue;
-			}
-
 			// Spawn the process task.
-			self.spawn_process_task(&process, permit, clean_guard);
+			self.spawn_process_task(&process, permit);
 		}
 	}
 
-	pub(crate) fn spawn_process_task(
-		&self,
-		process: &tg::Process,
-		permit: ProcessPermit,
-		clean_guard: crate::CleanGuard,
-	) {
-		// Spawn the process task.
+	pub(crate) fn spawn_process_task(&self, process: &tg::Process, permit: ProcessPermit) {
 		self.process_tasks
 			.spawn(process.id().clone(), |_| {
 				let server = self.clone();
 				let process = process.clone();
-				async move { server.process_task(&process, permit, clean_guard).await }
+				async move { server.process_task(&process, permit).await }
 					.inspect_err(|error| {
 						tracing::error!(error = %error.trace(), "the process task failed");
 					})
 					.map(|_| ())
 			})
 			.detach();
+	}
 
+	async fn process_task(&self, process: &tg::Process, permit: ProcessPermit) -> tg::Result<()> {
 		// Spawn the heartbeat task.
 		tokio::spawn({
 			let server = self.clone();
@@ -119,16 +101,9 @@ impl Server {
 				})
 				.map(|_| ())
 		});
-	}
 
-	async fn process_task(
-		&self,
-		process: &tg::Process,
-		permit: ProcessPermit,
-		clean_guard: crate::CleanGuard,
-	) -> tg::Result<()> {
-		// Guard against concurrent cleans.
-		let _clean_guard = self.try_acquire_clean_guard()?;
+		// Acquire a clean guard.
+		let clean_guard = self.acquire_clean_guard().await;
 
 		// Set the process's permit.
 		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
@@ -155,6 +130,7 @@ impl Server {
 			None
 		};
 
+		// Get the error.
 		let error = if let Some(error) = &wait.error {
 			match error.to_data_or_id() {
 				tg::Either::Left(mut data) => {

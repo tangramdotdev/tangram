@@ -32,10 +32,6 @@ pub struct Health {
 pub struct Processes {
 	pub created: u64,
 
-	pub dequeued: u64,
-
-	pub enqueued: u64,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub permits: Option<u64>,
 
