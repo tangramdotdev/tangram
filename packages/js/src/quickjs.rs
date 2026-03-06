@@ -39,6 +39,7 @@ struct Module {
 	source_map: Option<SourceMap>,
 }
 
+#[derive(Clone)]
 pub struct Abort {
 	sender: tokio::sync::watch::Sender<bool>,
 }
@@ -119,101 +120,98 @@ where
 	});
 
 	// Initialize the context and await the result.
-	let result = qjs::async_with!(context => |ctx| {
-		let state = state.clone();
-		let args = args.clone();
-		let cwd = cwd.clone();
-		let env = env.clone();
-		let executable = executable.clone();
+	let result = context
+		.async_with(async |ctx| {
+			// Store the state in the context's userdata.
+			ctx.store_userdata(StateHandle(state.clone()))
+				.map_err(|_| tg::error!("failed to store the state in the context"))?;
 
-		// Store the state in the context's userdata.
-		ctx.store_userdata(StateHandle(state.clone()))
-			.map_err(|_| tg::error!("failed to store the state in the context"))?;
-
-		// Load the bytecode.
-		let main_module = unsafe { qjs::Module::load(ctx.clone(), BYTECODE) }
-			.catch(&ctx)
-			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-
-		// Evaluate the module.
-		let (_evaluated_module, _promise) = main_module
-			.eval()
-			.catch(&ctx)
-			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-
-		// Register the syscall function.
-		let globals = ctx.globals();
-		let syscall_function = qjs::Function::new(ctx.clone(), syscall)
-			.catch(&ctx)
-			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-		globals
-			.set("syscall", syscall_function)
-			.catch(&ctx)
-			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-
-		// Register the prepareStackTrace callback on Error.
-		let error_constructor = globals
-			.get::<_, qjs::Object>("Error")
-			.catch(&ctx)
-			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-		let prepare_stack_trace_function =
-			qjs::Function::new(ctx.clone(), self::error::prepare_stack_trace)
+			// Load the bytecode.
+			let main_module = unsafe { qjs::Module::load(ctx.clone(), BYTECODE) }
 				.catch(&ctx)
 				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-		error_constructor
-			.set("prepareStackTrace", prepare_stack_trace_function)
-			.catch(&ctx)
-			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
 
-		// Get the start function.
-		let start: qjs::Function = globals
-			.get("start")
-			.catch(&ctx)
-			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+			// Evaluate the module.
+			let (_evaluated_module, _promise) = main_module
+				.eval()
+				.catch(&ctx)
+				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
 
-		// Build the arg object.
-		let arg = qjs::Object::new(ctx.clone())
-			.catch(&ctx)
-			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-		arg.set("args", Serde(&args))
-			.catch(&ctx)
-			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-		arg.set(
-			"cwd",
-			cwd.to_str().ok_or_else(|| tg::error!("invalid cwd"))?,
-		)
-		.catch(&ctx)
-		.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-		arg.set("env", Serde(&env))
-			.catch(&ctx)
-			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-		arg.set("executable", Serde(&executable))
-			.catch(&ctx)
-			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+			// Register the syscall function.
+			let globals = ctx.globals();
+			let syscall_function = qjs::Function::new(ctx.clone(), syscall)
+				.catch(&ctx)
+				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+			globals
+				.set("syscall", syscall_function)
+				.catch(&ctx)
+				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
 
-		// Call the start function.
-		let value: qjs::Value = start
-			.call((arg,))
+			// Register the prepareStackTrace callback on Error.
+			let error_constructor = globals
+				.get::<_, qjs::Object>("Error")
+				.catch(&ctx)
+				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+			let prepare_stack_trace_function =
+				qjs::Function::new(ctx.clone(), self::error::prepare_stack_trace)
+					.catch(&ctx)
+					.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+			error_constructor
+				.set("prepareStackTrace", prepare_stack_trace_function)
+				.catch(&ctx)
+				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+
+			// Get the start function.
+			let start: qjs::Function = globals
+				.get("start")
+				.catch(&ctx)
+				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+
+			// Build the arg object.
+			let arg = qjs::Object::new(ctx.clone())
+				.catch(&ctx)
+				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+			arg.set("args", Serde(&args))
+				.catch(&ctx)
+				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+			arg.set(
+				"cwd",
+				cwd.to_str().ok_or_else(|| tg::error!("invalid cwd"))?,
+			)
 			.catch(&ctx)
 			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+			arg.set("env", Serde(&env))
+				.catch(&ctx)
+				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+			arg.set("executable", Serde(&executable))
+				.catch(&ctx)
+				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
 
-		// Get the promise and await its result.
-		let promise = value
-			.as_promise()
-			.ok_or_else(|| tg::error!("expected a promise"))?;
-		let result =
-			promise.clone().into_future::<Serde<tg::value::Data>>().await;
+			// Call the start function.
+			let value: qjs::Value = start
+				.call((arg,))
+				.catch(&ctx)
+				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
 
-		if let Ok(value) = result {
-			Ok(value)
-		} else {
-			let exception = ctx.catch();
-			let error = self::error::from_exception(&state, &ctx, &exception)
-				.unwrap_or_else(|| tg::error!("promise rejected"));
-			Err(error)
-		}
-	})
-	.await;
+			// Get the promise and await its result.
+			let promise = value
+				.as_promise()
+				.ok_or_else(|| tg::error!("expected a promise"))?;
+			let result = promise
+				.clone()
+				.into_future::<Serde<tg::value::Data>>()
+				.await;
+
+			if let Ok(value) = result {
+				Ok(value)
+			} else {
+				let exception = ctx.catch();
+				let error = self::error::from_exception(&state, &ctx, &exception)
+					.unwrap_or_else(|| tg::error!("promise rejected"));
+				Err(error)
+			}
+		})
+		.await;
 
 	let output = match result {
 		Ok(Serde(data)) => Output {

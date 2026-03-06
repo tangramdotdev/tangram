@@ -3,9 +3,9 @@ error an error occurred
    id = PROCESS
 -> the child process failed
    id = PROCESS
--> Uncaught Error: failed assertion
+-> failed assertion
    ╭─[./bar/tangram.ts:1:25]
  1 │ export default () => tg.assert(false);
    ·                         ▲
-   ·                         ╰── Uncaught Error: failed assertion
+   ·                         ╰── failed assertion
    ╰────

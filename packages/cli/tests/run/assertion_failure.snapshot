@@ -1,15 +1,15 @@
 error an error occurred
 -> the process failed
    id = PROCESS
--> Uncaught Error: failed assertion
+-> failed assertion
    ╭─[./tangram.ts:2:22]
  1 │ import foo from "./foo.tg.ts";
  2 │ export default () => foo();
    ·                      ▲
-   ·                      ╰── Uncaught Error: failed assertion
+   ·                      ╰── failed assertion
    ╰────
    ╭─[./foo.tg.ts:1:25]
  1 │ export default () => tg.assert(false);
    ·                         ▲
-   ·                         ╰── Uncaught Error: failed assertion
+   ·                         ╰── failed assertion
    ╰────

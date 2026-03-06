@@ -18,22 +18,26 @@ pub fn magic<'js>(
 	let file_name: Option<String> = function.get("fileName").ok();
 
 	// Find the module in our modules list.
-	let modules = state.modules.borrow();
-	let mut found_module = None;
-
-	if let Some(ref file) = file_name {
-		// Try to match against loaded modules.
-		for module_info in modules.iter() {
-			let module_id = serde_json::to_string(&module_info.module).unwrap_or_default();
-			if file == &module_id || file.contains(&module_id) || file == "!" {
-				found_module = Some(module_info.module.clone());
-				break;
+	let module = file_name
+		.as_deref()
+		.and_then(|file_name| {
+			if file_name == "!" {
+				Some(state.root.clone())
+			} else {
+				file_name.parse::<tg::module::Data>().ok().or_else(|| {
+					let modules = state.modules.borrow();
+					modules.iter().find_map(|module_info| {
+						let name = module_info.module.to_string();
+						if file_name == name || file_name.contains(&name) {
+							Some(module_info.module.clone())
+						} else {
+							None
+						}
+					})
+				})
 			}
-		}
-	}
-
-	// If no module is found, then use the root module.
-	let module = found_module.unwrap_or_else(|| state.root.clone());
+		})
+		.unwrap_or_else(|| state.root.clone());
 
 	// Create the executable.
 	let executable = tg::command::data::Executable::Module(tg::command::data::ModuleExecutable {

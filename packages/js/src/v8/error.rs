@@ -100,7 +100,14 @@ pub(super) fn from_exception<'s>(
 		.and_then(|location| location.try_into().ok());
 
 	// Get the message.
-	let message = Some(v8_message.get(scope).to_rust_string_lossy(scope));
+	let message_string = v8::String::new_external_onebyte_static(scope, b"message").unwrap();
+	let message = exception
+		.is_native_error()
+		.then(|| exception.to_object(scope).unwrap())
+		.and_then(|exception| exception.get(scope, message_string.into()))
+		.and_then(|value| value.to_string(scope))
+		.map(|message| message.to_rust_string_lossy(scope))
+		.or_else(|| Some(v8_message.get(scope).to_rust_string_lossy(scope)));
 
 	// Get the source.
 	let cause_string = v8::String::new_external_onebyte_static(scope, b"cause").unwrap();
