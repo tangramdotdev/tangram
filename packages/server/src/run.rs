@@ -480,7 +480,7 @@ impl Server {
 			stdout: sandbox_stdout,
 			stderr: sandbox_stderr,
 		};
-		let sandbox_process = sandbox.spawn(sandbox_command, state.pty).await.map_err(
+		let sandbox_process = sandbox.spawn(id.clone(), sandbox_command, state.pty).await.map_err(
 			|source| tg::error!(!source, %id, "failed to spawn the process in the sandbox"),
 		)?;
 		let sandbox_process = Arc::new(sandbox_process);
