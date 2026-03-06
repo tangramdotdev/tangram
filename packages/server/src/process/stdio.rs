@@ -2,7 +2,7 @@ use {
 	crate::{Context, Server},
 	bytes::Bytes,
 	futures::{
-		FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future, stream,
+		FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
 	},
 	std::pin::pin,
 	tangram_client::prelude::*,
@@ -114,6 +114,59 @@ impl Server {
 		.await
 	}
 
+	pub async fn close_process_stdin_with_context(
+		&self,
+		context: &Context,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> tg::Result<()> {
+		self.close_process_stdio_with_context(context, id, arg, tg::process::stdio::Stream::Stdin)
+			.await
+	}
+
+	pub async fn close_process_stdout_with_context(
+		&self,
+		context: &Context,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> tg::Result<()> {
+		self.close_process_stdio_with_context(context, id, arg, tg::process::stdio::Stream::Stdout)
+			.await
+	}
+
+	pub async fn close_process_stderr_with_context(
+		&self,
+		context: &Context,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> tg::Result<()> {
+		self.close_process_stdio_with_context(context, id, arg, tg::process::stdio::Stream::Stderr)
+			.await
+	}
+
+	pub async fn close_process_stdio_with_context(
+		&self,
+		_context: &Context,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+		stream: tg::process::stdio::Stream,
+	) -> tg::Result<()> {
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			let client = self
+				.get_remote_client(remote)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the client"))?;
+			return client.close_process_stdio(id, arg, stream).await;
+		}
+		let subject = format!("processes.{id}.{stream}");
+		let _future = self
+			.messenger
+			.stream_publish("stdio".into(), subject, Bytes::new())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to send close message"))?;
+		Ok(())
+	}
+
 	pub async fn try_read_process_stdio_with_context(
 		&self,
 		_context: &Context,
@@ -168,7 +221,7 @@ impl Server {
 			deliver_policy: tangram_messenger::DeliverPolicy::All,
 			ack_policy: tangram_messenger::AckPolicy::None,
 			durable_name: None,
-			filter_subject: Some(subject),
+			filter_subject: Some(subject.clone()),
 		};
 		let consumer = stream_
 			.create_consumer(None, consumer_config)
@@ -297,7 +350,6 @@ impl Server {
 			..Default::default()
 		};
 		let stream_ = ReaderStream::new(reader)
-			.chain(stream::once(future::ok(Bytes::new())))
 			.map_err(|source| tg::error!(!source, "failed to read from stdio"));
 		let mut stream_ = pin!(stream_);
 		let subject = format!("processes.{id}.{stream}");
@@ -306,6 +358,9 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read stdio chunk"))?
 		{
+			if bytes.is_empty() {
+				continue;
+			}
 			let retries = tangram_futures::retry_stream(retry_options.clone());
 			let mut retries = pin!(retries);
 			while let Some(()) = retries.next().await {
@@ -327,7 +382,6 @@ impl Server {
 				}
 			}
 		}
-
 		Ok(())
 	}
 
@@ -454,6 +508,74 @@ impl Server {
 			tg::process::stdio::Stream::Stderr,
 		)
 		.await
+	}
+
+	pub(crate) async fn handle_post_process_stdin_close_request(
+		&self,
+		request: http::Request<BoxBody>,
+		context: &Context,
+		id: &str,
+	) -> tg::Result<http::Response<BoxBody>> {
+		self.handle_post_process_stdio_close_request(
+			request,
+			context,
+			id,
+			tg::process::stdio::Stream::Stdin,
+		)
+		.await
+	}
+
+	pub(crate) async fn handle_post_process_stdout_close_request(
+		&self,
+		request: http::Request<BoxBody>,
+		context: &Context,
+		id: &str,
+	) -> tg::Result<http::Response<BoxBody>> {
+		self.handle_post_process_stdio_close_request(
+			request,
+			context,
+			id,
+			tg::process::stdio::Stream::Stdout,
+		)
+		.await
+	}
+
+	pub(crate) async fn handle_post_process_stderr_close_request(
+		&self,
+		request: http::Request<BoxBody>,
+		context: &Context,
+		id: &str,
+	) -> tg::Result<http::Response<BoxBody>> {
+		self.handle_post_process_stdio_close_request(
+			request,
+			context,
+			id,
+			tg::process::stdio::Stream::Stderr,
+		)
+		.await
+	}
+
+	pub(crate) async fn handle_post_process_stdio_close_request(
+		&self,
+		request: http::Request<BoxBody>,
+		context: &Context,
+		id: &str,
+		stream: tg::process::stdio::Stream,
+	) -> tg::Result<http::Response<BoxBody>> {
+		let id = id
+			.parse::<tg::process::Id>()
+			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
+
+		self.close_process_stdio_with_context(context, &id, arg, stream)
+			.await?;
+
+		let response = http::Response::builder().body(BoxBody::empty()).unwrap();
+		Ok(response)
 	}
 
 	pub(crate) async fn handle_post_process_stdio_read_request(

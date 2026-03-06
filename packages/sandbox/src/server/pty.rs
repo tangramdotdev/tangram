@@ -23,7 +23,7 @@ impl Server {
 		let pty = pty.lock().await;
 		let fd = pty.master.as_raw_fd();
 		let size = arg.size;
-		tokio::task::spawn_blocking(move || unsafe {
+		unsafe {
 			let mut winsize = libc::winsize {
 				ws_col: size.cols,
 				ws_row: size.rows,
@@ -34,14 +34,10 @@ impl Server {
 			if ret != 0 {
 				let error = std::io::Error::last_os_error();
 				if !matches!(error.raw_os_error(), Some(libc::EBADF)) {
-					return Err(error);
+					return Err(tg::error!(!error, "failed to set the pty size"));
 				}
 			}
-			Ok(())
-		})
-		.await
-		.map_err(|source| tg::error!(!source, "the task panicked"))?
-		.map_err(|source| tg::error!(!source, "failed to set the pty size"))?;
+		}
 		Ok(())
 	}
 

@@ -467,6 +467,15 @@ impl Server {
 			(http::Method::POST, ["processes", process, "stderr", "write"]) => self
 				.handle_post_process_stderr_write_request(request, &context, process)
 				.boxed(),
+			(http::Method::POST, ["processes", process, "stdin", "close"]) => self
+				.handle_post_process_stdin_close_request(request, &context, process)
+				.boxed(),
+			(http::Method::POST, ["processes", process, "stdout", "close"]) => self
+				.handle_post_process_stdout_close_request(request, &context, process)
+				.boxed(),
+			(http::Method::POST, ["processes", process, "stderr", "close"]) => self
+				.handle_post_process_stderr_close_request(request, &context, process)
+				.boxed(),
 			(http::Method::POST, ["processes", process, "heartbeat"]) => self
 				.handle_heartbeat_process_request(request, &context, process)
 				.boxed(),

@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Stdio,
-		common::{InputStream, OutputStream, Pty, SpawnContext},
+		common::{AsyncPtyFd, InputStream, OutputStream, Pty, SpawnContext},
 		server::{ChildProcess, ChildStdio, Server},
 	},
 	std::{fs::File, os::fd::OwnedFd},
@@ -20,7 +20,7 @@ impl Server {
 		arg: crate::client::spawn::Arg,
 	) -> tg::Result<crate::client::spawn::Output> {
 		// Create a PTY if asked.
-		let pty = arg.pty.map(Pty::new).transpose()?;
+		let mut pty = arg.pty.map(Pty::new).transpose()?;
 		let (host_stdin, guest_stdin): (InputStream, Option<OwnedFd>) = match arg.command.stdin {
 			Stdio::Null => {
 				let fd = File::options()
@@ -45,6 +45,8 @@ impl Server {
 					.master
 					.try_clone()
 					.map_err(|source| tg::error!(!source, "failed to clone the master fd"))?;
+				let master = AsyncPtyFd::new(master)
+					.map_err(|source| tg::error!(!source, "failed to create the async pty fd"))?;
 				(InputStream::Pty(master), None)
 			},
 		};
@@ -74,6 +76,8 @@ impl Server {
 					.master
 					.try_clone()
 					.map_err(|source| tg::error!(!source, "failed to clone the master fd"))?;
+				let master = AsyncPtyFd::new(master)
+					.map_err(|source| tg::error!(!source, "failed to create the async pty fd"))?;
 				(OutputStream::Pty(master), None)
 			},
 		};
@@ -103,6 +107,8 @@ impl Server {
 					.master
 					.try_clone()
 					.map_err(|source| tg::error!(!source, "failed to clone the master fd"))?;
+				let master = AsyncPtyFd::new(master)
+					.map_err(|source| tg::error!(!source, "failed to create the async pty fd"))?;
 				(OutputStream::Pty(master), None)
 			},
 		};
@@ -135,7 +141,9 @@ impl Server {
 			#[cfg(target_os = "linux")]
 			notify: std::sync::Arc::new(tokio::sync::Notify::new()),
 		};
-
+		if let Some(pty) = &mut pty {
+			pty.slave.take();
+		}
 		let child_stdio = ChildStdio {
 			stdin: Mutex::new(host_stdin),
 			stdout: Mutex::new(host_stdout),

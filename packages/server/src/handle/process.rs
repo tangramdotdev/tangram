@@ -209,6 +209,36 @@ impl tg::handle::Process for Shared {
 			.await
 	}
 
+	async fn close_process_stdin(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> tg::Result<()> {
+		self.0
+			.close_process_stdin_with_context(&Context::default(), id, arg)
+			.await
+	}
+
+	async fn close_process_stdout(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> tg::Result<()> {
+		self.0
+			.close_process_stdout_with_context(&Context::default(), id, arg)
+			.await
+	}
+
+	async fn close_process_stderr(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> tg::Result<()> {
+		self.0
+			.close_process_stderr_with_context(&Context::default(), id, arg)
+			.await
+	}
+
 	async fn heartbeat_process(
 		&self,
 		id: &tg::process::Id,
@@ -450,6 +480,33 @@ impl tg::handle::Process for Server {
 		reader: impl AsyncRead + Send + 'static,
 	) -> tg::Result<()> {
 		self.write_process_stderr_with_context(&Context::default(), id, arg, reader)
+			.await
+	}
+
+	async fn close_process_stdin(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> tg::Result<()> {
+		self.close_process_stdin_with_context(&Context::default(), id, arg)
+			.await
+	}
+
+	async fn close_process_stdout(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> tg::Result<()> {
+		self.close_process_stdout_with_context(&Context::default(), id, arg)
+			.await
+	}
+
+	async fn close_process_stderr(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::Arg,
+	) -> tg::Result<()> {
+		self.close_process_stderr_with_context(&Context::default(), id, arg)
 			.await
 	}
 

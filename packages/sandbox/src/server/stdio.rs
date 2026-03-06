@@ -5,8 +5,6 @@ use {
 	},
 	bytes::Bytes,
 	futures::TryStreamExt as _,
-	num::ToPrimitive as _,
-	std::os::fd::AsRawFd as _,
 	tangram_client::prelude::*,
 	tangram_futures::{BoxAsyncRead, read::Ext as _},
 	tangram_http::{
@@ -51,26 +49,9 @@ impl Server {
 						.map_err(|source| tg::error!(!source, "failed to write stdin"))?;
 				},
 				InputStream::Pty(pty) => {
-					let fd = pty.as_raw_fd();
-					tokio::task::spawn_blocking(move || unsafe {
-						let mut chunk = chunk.as_ref();
-						while !chunk.is_empty() {
-							let n = libc::write(fd, chunk.as_ptr().cast(), chunk.len());
-							if n < 0 {
-								let error = std::io::Error::last_os_error();
-								return Err(error);
-							}
-							let n = n.to_usize().unwrap();
-							if n == 0 {
-								break;
-							}
-							chunk = &chunk[n..];
-						}
-						Ok(())
-					})
-					.await
-					.map_err(|source| tg::error!(!source, "the stdin task panicked"))?
-					.map_err(|source| tg::error!(!source, "failed to write stdin"))?;
+					pty.write_all(&chunk)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to write stdin"))?;
 				},
 			}
 		}
@@ -133,34 +114,15 @@ impl Server {
 							}
 						},
 						OutputStream::Pty(pty) => {
-							let fd = pty.as_raw_fd();
-							drop(stdout);
-							let result = tokio::task::spawn_blocking(move || unsafe {
-								let mut buf = vec![0u8; 1 << 14];
-								let n = libc::read(fd, buf.as_mut_ptr().cast(), buf.len());
-								if n < 0 {
-									return Err(std::io::Error::last_os_error());
-								}
-								let n = n.to_usize().unwrap();
-								buf.truncate(n);
-								Ok(Bytes::from(buf))
-							})
-							.await
-							.unwrap_or_else(|source| {
-								Err(std::io::Error::other(format!(
-									"the spawned task panicked: {source}"
-								)))
-							});
-							match result {
-								Ok(buf) if buf.is_empty() => break,
-								Ok(buf) => {
-									if sender.send(Ok(buf)).await.is_err() {
+							let mut buf = vec![0u8; 1 << 14];
+							match pty.read(&mut buf).await {
+								Ok(0) => continue,
+								Ok(n) => {
+									buf.truncate(n);
+									if sender.send(Ok(buf.into())).await.is_err() {
 										break;
 									}
 								},
-								#[cfg(target_os = "linux")]
-								Err(error) if error.raw_os_error() == Some(libc::EBADF) => break,
-								#[cfg(target_os = "macos")]
 								Err(error) if error.raw_os_error() == Some(libc::EIO) => break,
 								Err(error) => {
 									if sender.send(Err(error)).await.is_err() {
@@ -233,34 +195,15 @@ impl Server {
 							}
 						},
 						OutputStream::Pty(pty) => {
-							let fd = pty.as_raw_fd();
-							drop(stderr);
-							let result = tokio::task::spawn_blocking(move || unsafe {
-								let mut buf = vec![0u8; 1 << 14];
-								let n = libc::read(fd, buf.as_mut_ptr().cast(), buf.len());
-								if n < 0 {
-									return Err(std::io::Error::last_os_error());
-								}
-								let n = n.to_usize().unwrap();
-								buf.truncate(n);
-								Ok(Bytes::from(buf))
-							})
-							.await
-							.unwrap_or_else(|source| {
-								Err(std::io::Error::other(format!(
-									"the spawned task panicked: {source}"
-								)))
-							});
-							match result {
-								Ok(buf) if buf.is_empty() => break,
-								Ok(buf) => {
-									if sender.send(Ok(buf)).await.is_err() {
+							let mut buf = vec![0u8; 1 << 14];
+							match pty.read(&mut buf).await {
+								Ok(0) => continue,
+								Ok(n) => {
+									buf.truncate(n);
+									if sender.send(Ok(buf.into())).await.is_err() {
 										break;
 									}
 								},
-								#[cfg(target_os = "linux")]
-								Err(error) if error.raw_os_error() == Some(libc::EBADF) => break,
-								#[cfg(target_os = "macos")]
 								Err(error) if error.raw_os_error() == Some(libc::EIO) => break,
 								Err(error) => {
 									if sender.send(Err(error)).await.is_err() {
