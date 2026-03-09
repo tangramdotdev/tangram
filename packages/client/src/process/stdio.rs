@@ -1,7 +1,8 @@
 use {
 	crate::prelude::*,
+	futures::TryStreamExt as _,
 	serde_with::serde_as,
-	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_http::{body::BodyStream, request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::CommaSeparatedString,
 	tokio::io::AsyncRead,
 };
@@ -243,6 +244,37 @@ impl tg::Client {
 				tg::error!(!source, "failed to deserialize the error response")
 			})?;
 			return Err(error);
+		}
+		let mut frames = BodyStream::new(response.into_body());
+		while let Some(frame) = frames
+			.try_next()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to read the response body"))?
+		{
+			if let Ok(trailers) = frame.into_trailers() {
+				let event = trailers
+					.get("x-tg-event")
+					.ok_or_else(|| tg::error!("missing event"))?
+					.to_str()
+					.map_err(|source| tg::error!(!source, "invalid event"))?;
+				match event {
+					"end" => return Ok(()),
+					"error" => {
+						let data = trailers
+							.get("x-tg-data")
+							.ok_or_else(|| tg::error!("missing data"))?
+							.to_str()
+							.map_err(|source| tg::error!(!source, "invalid data"))?;
+						let error = serde_json::from_str(data).map_err(|source| {
+							tg::error!(!source, "failed to deserialize the error")
+						})?;
+						return Err(error);
+					},
+					_ => {
+						return Err(tg::error!(%event, "unknown event"));
+					},
+				}
+			}
 		}
 		Ok(())
 	}

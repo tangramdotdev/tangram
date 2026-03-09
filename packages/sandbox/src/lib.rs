@@ -304,7 +304,7 @@ pub fn run(config: &Config, ready_fd: Option<RawFd>) -> tg::Result<()> {
 	// Run the server.
 	runtime.block_on(async move {
 		let server = Server::new();
-		server.serve(listener).await
+		server.serve(listener).await;
 	});
 
 	Ok(())

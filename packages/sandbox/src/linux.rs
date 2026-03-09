@@ -103,7 +103,7 @@ pub fn enter(config: &Config) -> tg::Result<()> {
 			"libc.so",
 			"libm.so",
 			"libgcc_s.so",
-			"libfdb.so",
+			"libfdb_c.so",
 			"ld-linux",
 			"libm.so.6",
 			"libmvec.so.1",

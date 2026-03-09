@@ -1,14 +1,11 @@
 use {
-	crate::Command,
-	std::{
+	crate::Command, num::ToPrimitive, std::{
 		ffi::{CStr, CString},
 		os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
 		path::Path,
 		pin::Pin,
 		task::{Context, Poll, ready},
-	},
-	tangram_client as tg,
-	tokio::io::{AsyncRead, AsyncWrite, ReadBuf, unix::AsyncFd},
+	}, tangram_client as tg, tokio::io::{AsyncRead, AsyncWrite, ReadBuf, unix::AsyncFd}
 };
 
 pub(crate) struct SpawnContext {
@@ -124,7 +121,7 @@ impl AsyncRead for AsyncPtyFd {
 				}
 				return Poll::Ready(Err(error));
 			}
-			let n = result as usize;
+			let n = result.to_usize().unwrap();
 			unsafe {
 				buf.assume_init(n);
 			}
@@ -152,7 +149,7 @@ impl AsyncWrite for AsyncPtyFd {
 				}
 				return Poll::Ready(Err(error));
 			}
-			return Poll::Ready(Ok(result as usize));
+			return Poll::Ready(Ok(result.to_usize().unwrap()));
 		}
 	}
 

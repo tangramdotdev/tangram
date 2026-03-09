@@ -116,7 +116,7 @@ impl Server {
 						OutputStream::Pty(pty) => {
 							let mut buf = vec![0u8; 1 << 14];
 							match pty.read(&mut buf).await {
-								Ok(0) => continue,
+								Ok(0) => (),
 								Ok(n) => {
 									buf.truncate(n);
 									if sender.send(Ok(buf.into())).await.is_err() {
@@ -197,7 +197,7 @@ impl Server {
 						OutputStream::Pty(pty) => {
 							let mut buf = vec![0u8; 1 << 14];
 							match pty.read(&mut buf).await {
-								Ok(0) => continue,
+								Ok(0) => (),
 								Ok(n) => {
 									buf.truncate(n);
 									if sender.send(Ok(buf.into())).await.is_err() {

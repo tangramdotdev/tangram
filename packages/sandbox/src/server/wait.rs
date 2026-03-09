@@ -1,10 +1,12 @@
 use {
 	crate::server::Server,
+	bytes::Bytes,
+	futures::stream,
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody,
 		request::Ext as _,
-		response::{Ext, builder::Ext as _},
+		response::builder::Ext as _,
 	},
 };
 
@@ -59,19 +61,24 @@ impl Server {
 			.json()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to parse the body"))?;
-
-		// Wait.
-		let output = self
-			.wait(arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to wait"))?;
-
+		let server = self.clone();
+		let stream = stream::once(async move {
+			let result = server.wait(arg).await;
+			let bytes = match result {
+				Ok(output) => serde_json::to_vec(&output).unwrap_or_default(),
+				Err(error) => {
+					error
+						.state()
+						.object()
+						.and_then(|object| serde_json::to_vec(&object.unwrap_error_ref().to_data()).ok())
+						.unwrap_or_default()
+				}
+			};
+			Ok::<_, std::io::Error>(Bytes::from(bytes))
+		});
 		let response = http::Response::builder()
-			.json(output)
-			.unwrap()
-			.unwrap()
-			.boxed_body();
-
+			.data_stream(stream)
+			.unwrap();
 		Ok(response)
 	}
 }

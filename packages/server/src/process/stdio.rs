@@ -2,11 +2,15 @@ use {
 	crate::{Context, Server},
 	bytes::Bytes,
 	futures::{
-		FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
+		FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future, stream,
 	},
 	std::pin::pin,
 	tangram_client::prelude::*,
-	tangram_futures::{BoxAsyncRead, stream::Ext as _, task::Task},
+	tangram_futures::{
+		BoxAsyncRead,
+		stream::Ext as _,
+		task::{Stop, Task},
+	},
 	tangram_http::{
 		body::Boxed as BoxBody,
 		request::Ext as _,
@@ -660,12 +664,33 @@ impl Server {
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
 			.unwrap_or_default();
-
+		let context = context.clone();
+		let stop = request.extensions().get::<Stop>().cloned().unwrap();
 		let reader = request.reader();
-		self.write_process_stdio_with_context(context, &id, arg, stream, reader)
-			.await?;
-
-		let response = http::Response::builder().body(BoxBody::empty()).unwrap();
+		let server = self.clone();
+		let frames = stream::once(async move {
+			let result =
+				server.write_process_stdio_with_context(&context, &id, arg, stream, reader);
+			let stop = stop.wait();
+			let result = match future::select(pin!(result), pin!(stop)).await {
+				future::Either::Left((result, _)) => result,
+				future::Either::Right(_) => Ok(()),
+			};
+			let mut trailers = http::HeaderMap::new();
+			match result {
+				Ok(()) => {
+					trailers.insert("x-tg-event", http::HeaderValue::from_static("end"));
+				},
+				Err(error) => {
+					trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
+					let json = serde_json::to_string(&error.to_data_or_id()).unwrap();
+					trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
+				},
+			}
+			Ok::<_, tg::Error>(hyper::body::Frame::trailers(trailers))
+		});
+		let body = BoxBody::with_stream(frames);
+		let response = http::Response::builder().body(body).unwrap();
 		Ok(response)
 	}
 }
