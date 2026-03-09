@@ -74,7 +74,8 @@ where
 				};
 				handle
 					.write_process_stdin(&process, arg, StreamReader::new(stream))
-					.await
+					.await?;
+				Ok::<_, tg::Error>(())
 			}
 			.boxed();
 			let stop = stop.wait();

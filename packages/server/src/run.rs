@@ -337,7 +337,19 @@ impl Server {
 			"js" => {
 				let tg = PathBuf::from("/.tangram/bin/tg");
 				args.insert(0, "js".to_owned());
+				match &self.config.runner.as_ref().unwrap().js.engine {
+					crate::config::JsEngine::Auto => {
+						args.insert(1, "--engine=auto".into());
+					}
+					crate::config::JsEngine::QuickJs => {
+						args.insert(1, "--engine=quick-js".into());
+					},
+					crate::config::JsEngine::V8 => {
+						args.insert(1, "--engine=v8".into());
+					}
+				}
 				args.insert(1, command.executable.to_string());
+				dbg!(&args);
 				tg
 			},
 
