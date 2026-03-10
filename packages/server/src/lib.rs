@@ -857,6 +857,7 @@ impl Server {
 					}
 					tracing::trace!("http task");
 				}
+				tracing::trace!("here");
 
 				// Stop the VFS.
 				let vfs = server.vfs.lock().unwrap().take();

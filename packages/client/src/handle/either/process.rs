@@ -1,7 +1,6 @@
 use {
 	crate::prelude::*,
-	futures::{FutureExt as _, Stream, TryFutureExt as _},
-	tokio::io::AsyncRead,
+	futures::{FutureExt as _, Stream, TryFutureExt as _, stream::BoxStream},
 };
 
 impl<L, R> tg::handle::Process for tg::Either<L, R>
@@ -243,15 +242,19 @@ where
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> impl Future<Output = tg::Result<Option<impl AsyncRead + Send + 'static>>> {
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::process::stdio::Event>> + Send + 'static>,
+		>,
+	> {
 		match self {
 			tg::Either::Left(s) => s
 				.try_read_process_stdin(id, arg)
-				.map_ok(|option| option.map(tangram_futures::either::Either::Left))
+				.map_ok(|option| option.map(futures::StreamExt::left_stream))
 				.left_future(),
 			tg::Either::Right(s) => s
 				.try_read_process_stdin(id, arg)
-				.map_ok(|option| option.map(tangram_futures::either::Either::Right))
+				.map_ok(|option| option.map(futures::StreamExt::right_stream))
 				.right_future(),
 		}
 	}
@@ -260,11 +263,21 @@ where
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-		reader: impl AsyncRead + Send + 'static,
-	) -> impl Future<Output = tg::Result<()>> {
+		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static,
+		>,
+	> {
 		match self {
-			tg::Either::Left(s) => s.write_process_stdin(id, arg, reader).left_future(),
-			tg::Either::Right(s) => s.write_process_stdin(id, arg, reader).right_future(),
+			tg::Either::Left(s) => s
+				.write_process_stdin(id, arg, stream)
+				.map_ok(futures::StreamExt::left_stream)
+				.left_future(),
+			tg::Either::Right(s) => s
+				.write_process_stdin(id, arg, stream)
+				.map_ok(futures::StreamExt::right_stream)
+				.right_future(),
 		}
 	}
 
@@ -272,15 +285,19 @@ where
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> impl Future<Output = tg::Result<Option<impl AsyncRead + Send + 'static>>> {
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::process::stdio::Event>> + Send + 'static>,
+		>,
+	> {
 		match self {
 			tg::Either::Left(s) => s
 				.try_read_process_stdout(id, arg)
-				.map_ok(|option| option.map(tangram_futures::either::Either::Left))
+				.map_ok(|option| option.map(futures::StreamExt::left_stream))
 				.left_future(),
 			tg::Either::Right(s) => s
 				.try_read_process_stdout(id, arg)
-				.map_ok(|option| option.map(tangram_futures::either::Either::Right))
+				.map_ok(|option| option.map(futures::StreamExt::right_stream))
 				.right_future(),
 		}
 	}
@@ -289,11 +306,21 @@ where
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-		reader: impl AsyncRead + Send + 'static,
-	) -> impl Future<Output = tg::Result<()>> {
+		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static,
+		>,
+	> {
 		match self {
-			tg::Either::Left(s) => s.write_process_stdout(id, arg, reader).left_future(),
-			tg::Either::Right(s) => s.write_process_stdout(id, arg, reader).right_future(),
+			tg::Either::Left(s) => s
+				.write_process_stdout(id, arg, stream)
+				.map_ok(futures::StreamExt::left_stream)
+				.left_future(),
+			tg::Either::Right(s) => s
+				.write_process_stdout(id, arg, stream)
+				.map_ok(futures::StreamExt::right_stream)
+				.right_future(),
 		}
 	}
 
@@ -301,15 +328,19 @@ where
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> impl Future<Output = tg::Result<Option<impl AsyncRead + Send + 'static>>> {
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::process::stdio::Event>> + Send + 'static>,
+		>,
+	> {
 		match self {
 			tg::Either::Left(s) => s
 				.try_read_process_stderr(id, arg)
-				.map_ok(|option| option.map(tangram_futures::either::Either::Left))
+				.map_ok(|option| option.map(futures::StreamExt::left_stream))
 				.left_future(),
 			tg::Either::Right(s) => s
 				.try_read_process_stderr(id, arg)
-				.map_ok(|option| option.map(tangram_futures::either::Either::Right))
+				.map_ok(|option| option.map(futures::StreamExt::right_stream))
 				.right_future(),
 		}
 	}
@@ -318,11 +349,21 @@ where
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-		reader: impl AsyncRead + Send + 'static,
-	) -> impl Future<Output = tg::Result<()>> {
+		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static,
+		>,
+	> {
 		match self {
-			tg::Either::Left(s) => s.write_process_stderr(id, arg, reader).left_future(),
-			tg::Either::Right(s) => s.write_process_stderr(id, arg, reader).right_future(),
+			tg::Either::Left(s) => s
+				.write_process_stderr(id, arg, stream)
+				.map_ok(futures::StreamExt::left_stream)
+				.left_future(),
+			tg::Either::Right(s) => s
+				.write_process_stderr(id, arg, stream)
+				.map_ok(futures::StreamExt::right_stream)
+				.right_future(),
 		}
 	}
 

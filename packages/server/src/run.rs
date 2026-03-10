@@ -349,7 +349,6 @@ impl Server {
 					}
 				}
 				args.insert(1, command.executable.to_string());
-				dbg!(&args);
 				tg
 			},
 

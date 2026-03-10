@@ -3,6 +3,7 @@ use {
 	bytes::Bytes,
 	futures::{
 		FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future, stream,
+		stream::BoxStream,
 	},
 	std::pin::pin,
 	tangram_client::prelude::*,
@@ -27,7 +28,9 @@ impl Server {
 		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> tg::Result<Option<impl AsyncRead + Send + 'static + use<>>> {
+	) -> tg::Result<
+		Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>,
+	> {
 		self.try_read_process_stdio_with_context(
 			context,
 			id,
@@ -42,14 +45,14 @@ impl Server {
 		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-		reader: impl AsyncRead + Send + 'static,
-	) -> tg::Result<()> {
+		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::OutputEvent>>> {
 		self.write_process_stdio_with_context(
 			context,
 			id,
 			arg,
 			tg::process::stdio::Stream::Stdin,
-			reader,
+			stream,
 		)
 		.await
 	}
@@ -59,7 +62,9 @@ impl Server {
 		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> tg::Result<Option<impl AsyncRead + Send + 'static + use<>>> {
+	) -> tg::Result<
+		Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>,
+	> {
 		self.try_read_process_stdio_with_context(
 			context,
 			id,
@@ -74,14 +79,14 @@ impl Server {
 		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-		reader: impl AsyncRead + Send + 'static,
-	) -> tg::Result<()> {
+		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::OutputEvent>>> {
 		self.write_process_stdio_with_context(
 			context,
 			id,
 			arg,
 			tg::process::stdio::Stream::Stdout,
-			reader,
+			stream,
 		)
 		.await
 	}
@@ -91,7 +96,9 @@ impl Server {
 		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> tg::Result<Option<impl AsyncRead + Send + 'static + use<>>> {
+	) -> tg::Result<
+		Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>,
+	> {
 		self.try_read_process_stdio_with_context(
 			context,
 			id,
@@ -106,14 +113,14 @@ impl Server {
 		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-		reader: impl AsyncRead + Send + 'static,
-	) -> tg::Result<()> {
+		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::OutputEvent>>> {
 		self.write_process_stdio_with_context(
 			context,
 			id,
 			arg,
 			tg::process::stdio::Stream::Stderr,
-			reader,
+			stream,
 		)
 		.await
 	}
@@ -623,7 +630,7 @@ impl Server {
 				.unwrap()
 				.boxed_body());
 		};
-
+		todo!("spawn a task that has an AbortOnDrop handle that");
 		let response = http::Response::builder()
 			.header(
 				http::header::CONTENT_TYPE,
@@ -687,6 +694,7 @@ impl Server {
 					trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
 				},
 			}
+			eprintln!("done with stdio");
 			Ok::<_, tg::Error>(hyper::body::Frame::trailers(trailers))
 		});
 		let body = BoxBody::with_stream(frames);

@@ -1,4 +1,4 @@
-use {crate::prelude::*, futures::Stream, tokio::io::AsyncRead};
+use {crate::prelude::*, futures::{Stream, stream::BoxStream}};
 
 pub trait Process: Clone + Unpin + Send + Sync + 'static {
 	fn list_processes(
@@ -124,40 +124,64 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> impl Future<Output = tg::Result<Option<impl AsyncRead + Send + 'static>>> + Send;
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::process::stdio::Event>> + Send + 'static>,
+		>,
+	> + Send;
 
 	fn write_process_stdin(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-		reader: impl AsyncRead + Send + 'static,
-	) -> impl Future<Output = tg::Result<()>> + Send;
+		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static,
+		>,
+	> + Send;
 
 	fn try_read_process_stdout(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> impl Future<Output = tg::Result<Option<impl AsyncRead + Send + 'static>>> + Send;
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::process::stdio::Event>> + Send + 'static>,
+		>,
+	> + Send;
 
 	fn write_process_stdout(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-		reader: impl AsyncRead + Send + 'static,
-	) -> impl Future<Output = tg::Result<()>> + Send;
+		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static,
+		>,
+	> + Send;
 
 	fn try_read_process_stderr(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> impl Future<Output = tg::Result<Option<impl AsyncRead + Send + 'static>>> + Send;
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::process::stdio::Event>> + Send + 'static>,
+		>,
+	> + Send;
 
 	fn write_process_stderr(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-		reader: impl AsyncRead + Send + 'static,
-	) -> impl Future<Output = tg::Result<()>> + Send;
+		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static,
+		>,
+	> + Send;
 
 	fn close_process_stdin(
 		&self,
@@ -362,7 +386,11 @@ impl tg::handle::Process for tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> impl Future<Output = tg::Result<Option<impl AsyncRead + Send + 'static>>> {
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::process::stdio::Event>> + Send + 'static>,
+		>,
+	> {
 		self.try_read_process_stdin(id, arg)
 	}
 
@@ -370,16 +398,24 @@ impl tg::handle::Process for tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-		reader: impl AsyncRead + Send + 'static,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.write_process_stdin(id, arg, reader)
+		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static,
+		>,
+	> {
+		self.write_process_stdin(id, arg, stream)
 	}
 
 	fn try_read_process_stdout(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> impl Future<Output = tg::Result<Option<impl AsyncRead + Send + 'static>>> {
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::process::stdio::Event>> + Send + 'static>,
+		>,
+	> {
 		self.try_read_process_stdout(id, arg)
 	}
 
@@ -387,16 +423,24 @@ impl tg::handle::Process for tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-		reader: impl AsyncRead + Send + 'static,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.write_process_stdout(id, arg, reader)
+		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static,
+		>,
+	> {
+		self.write_process_stdout(id, arg, stream)
 	}
 
 	fn try_read_process_stderr(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> impl Future<Output = tg::Result<Option<impl AsyncRead + Send + 'static>>> {
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::process::stdio::Event>> + Send + 'static>,
+		>,
+	> {
 		self.try_read_process_stderr(id, arg)
 	}
 
@@ -404,9 +448,13 @@ impl tg::handle::Process for tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-		reader: impl AsyncRead + Send + 'static,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.write_process_stderr(id, arg, reader)
+		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static,
+		>,
+	> {
+		self.write_process_stderr(id, arg, stream)
 	}
 
 	fn close_process_stdin(

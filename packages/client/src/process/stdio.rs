@@ -1,10 +1,10 @@
 use {
 	crate::prelude::*,
-	futures::TryStreamExt as _,
+	bytes::Bytes,
+	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
 	serde_with::serde_as,
-	tangram_http::{body::BodyStream, request::builder::Ext as _, response::Ext as _},
-	tangram_util::serde::CommaSeparatedString,
-	tokio::io::AsyncRead,
+	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_util::serde::{BytesBase64, CommaSeparatedString},
 };
 
 #[serde_as]
@@ -66,12 +66,32 @@ pub enum Stream {
 	Stderr,
 }
 
+#[derive(Clone, Debug)]
+pub enum Event {
+	Chunk(Chunk),
+	End,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Chunk {
+	#[serde_as(as = "BytesBase64")]
+	pub bytes: Bytes,
+}
+
+#[derive(Clone, Debug)]
+pub enum OutputEvent {
+	End,
+}
+
 impl tg::Client {
 	pub async fn try_read_process_stdin(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> tg::Result<Option<impl AsyncRead + Send + 'static>> {
+	) -> tg::Result<
+		Option<impl futures::Stream<Item = tg::Result<tg::process::stdio::Event>> + Send + 'static>,
+	> {
 		self.try_read_process_stdio(id, arg, tg::process::stdio::Stream::Stdin)
 			.await
 	}
@@ -80,9 +100,11 @@ impl tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-		reader: impl AsyncRead + Send + 'static,
-	) -> tg::Result<()> {
-		self.write_process_stdio(id, arg, tg::process::stdio::Stream::Stdin, reader)
+		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
+	) -> tg::Result<
+		impl futures::Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static,
+	> {
+		self.write_process_stdio(id, arg, tg::process::stdio::Stream::Stdin, stream)
 			.await
 	}
 
@@ -90,7 +112,9 @@ impl tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> tg::Result<Option<impl AsyncRead + Send + 'static>> {
+	) -> tg::Result<
+		Option<impl futures::Stream<Item = tg::Result<tg::process::stdio::Event>> + Send + 'static>,
+	> {
 		self.try_read_process_stdio(id, arg, tg::process::stdio::Stream::Stdout)
 			.await
 	}
@@ -99,9 +123,11 @@ impl tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-		reader: impl AsyncRead + Send + 'static,
-	) -> tg::Result<()> {
-		self.write_process_stdio(id, arg, tg::process::stdio::Stream::Stdout, reader)
+		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
+	) -> tg::Result<
+		impl futures::Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static,
+	> {
+		self.write_process_stdio(id, arg, tg::process::stdio::Stream::Stdout, stream)
 			.await
 	}
 
@@ -109,7 +135,9 @@ impl tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> tg::Result<Option<impl AsyncRead + Send + 'static>> {
+	) -> tg::Result<
+		Option<impl futures::Stream<Item = tg::Result<tg::process::stdio::Event>> + Send + 'static>,
+	> {
 		self.try_read_process_stdio(id, arg, tg::process::stdio::Stream::Stderr)
 			.await
 	}
@@ -118,9 +146,11 @@ impl tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-		reader: impl AsyncRead + Send + 'static,
-	) -> tg::Result<()> {
-		self.write_process_stdio(id, arg, tg::process::stdio::Stream::Stderr, reader)
+		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
+	) -> tg::Result<
+		impl futures::Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static,
+	> {
+		self.write_process_stdio(id, arg, tg::process::stdio::Stream::Stderr, stream)
 			.await
 	}
 
@@ -184,7 +214,9 @@ impl tg::Client {
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
 		stream: tg::process::stdio::Stream,
-	) -> tg::Result<Option<tangram_futures::BoxAsyncRead<'static>>> {
+	) -> tg::Result<
+		Option<impl futures::Stream<Item = tg::Result<tg::process::stdio::Event>> + Send + 'static>,
+	> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(&arg)
 			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
@@ -192,10 +224,7 @@ impl tg::Client {
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
-			.header(
-				http::header::ACCEPT,
-				mime::APPLICATION_OCTET_STREAM.to_string(),
-			)
+			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
 			.empty()
 			.unwrap();
 		let response = self
@@ -211,29 +240,60 @@ impl tg::Client {
 			})?;
 			return Err(error);
 		}
-		let reader = Box::pin(response.reader());
-		Ok(Some(reader))
+		let content_type = response
+			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
+			.transpose()?;
+		if !matches!(
+			content_type
+				.as_ref()
+				.map(|content_type| (content_type.type_(), content_type.subtype())),
+			Some((mime::TEXT, mime::EVENT_STREAM)),
+		) {
+			return Err(tg::error!(?content_type, "invalid content type"));
+		}
+		let stream = response
+			.sse()
+			.map_err(|source| tg::error!(!source, "failed to read an event"))
+			.and_then(|event| {
+				future::ready(
+					if event.event.as_deref().is_some_and(|event| event == "error") {
+						match event.try_into() {
+							Ok(error) | Err(error) => Err(error),
+						}
+					} else {
+						event.try_into()
+					},
+				)
+			});
+		Ok(Some(stream))
 	}
 
 	async fn write_process_stdio(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-		stream: tg::process::stdio::Stream,
-		reader: impl AsyncRead + Send + 'static,
-	) -> tg::Result<()> {
+		stdio_stream: tg::process::stdio::Stream,
+		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
+	) -> tg::Result<
+		impl futures::Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + use<>,
+	> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(&arg)
 			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
-		let uri = format!("/processes/{id}/{stream}/write?{query}");
+		let uri = format!("/processes/{id}/{stdio_stream}/write?{query}");
+		let sse_stream = stream.map(|result| match result {
+			Ok(event) => event.try_into(),
+			Err(error) => error.try_into(),
+		});
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
+			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
 			.header(
 				http::header::CONTENT_TYPE,
-				mime::APPLICATION_OCTET_STREAM.to_string(),
+				mime::TEXT_EVENT_STREAM.to_string(),
 			)
-			.reader(reader)
+			.sse(sse_stream)
 			.unwrap();
 		let response = self
 			.send(request)
@@ -245,38 +305,95 @@ impl tg::Client {
 			})?;
 			return Err(error);
 		}
-		let mut frames = BodyStream::new(response.into_body());
-		while let Some(frame) = frames
-			.try_next()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read the response body"))?
-		{
-			if let Ok(trailers) = frame.into_trailers() {
-				let event = trailers
-					.get("x-tg-event")
-					.ok_or_else(|| tg::error!("missing event"))?
-					.to_str()
-					.map_err(|source| tg::error!(!source, "invalid event"))?;
-				match event {
-					"end" => return Ok(()),
-					"error" => {
-						let data = trailers
-							.get("x-tg-data")
-							.ok_or_else(|| tg::error!("missing data"))?
-							.to_str()
-							.map_err(|source| tg::error!(!source, "invalid data"))?;
-						let error = serde_json::from_str(data).map_err(|source| {
-							tg::error!(!source, "failed to deserialize the error")
-						})?;
-						return Err(error);
-					},
-					_ => {
-						return Err(tg::error!(%event, "unknown event"));
-					},
-				}
-			}
+		let content_type = response
+			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
+			.transpose()?;
+		if !matches!(
+			content_type
+				.as_ref()
+				.map(|content_type| (content_type.type_(), content_type.subtype())),
+			Some((mime::TEXT, mime::EVENT_STREAM)),
+		) {
+			return Err(tg::error!(?content_type, "invalid content type"));
 		}
-		Ok(())
+		let stream = response
+			.sse()
+			.map_err(|source| tg::error!(!source, "failed to read an event"))
+			.and_then(|event| {
+				future::ready(
+					if event.event.as_deref().is_some_and(|event| event == "error") {
+						match event.try_into() {
+							Ok(error) | Err(error) => Err(error),
+						}
+					} else {
+						event.try_into()
+					},
+				)
+			});
+		Ok(stream)
+	}
+}
+
+impl TryFrom<Event> for tangram_http::sse::Event {
+	type Error = tg::Error;
+
+	fn try_from(value: Event) -> Result<Self, Self::Error> {
+		let event = match value {
+			Event::Chunk(chunk) => {
+				let data = serde_json::to_string(&chunk)
+					.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
+				tangram_http::sse::Event {
+					data,
+					..Default::default()
+				}
+			},
+			Event::End => tangram_http::sse::Event {
+				event: Some("end".to_owned()),
+				..Default::default()
+			},
+		};
+		Ok(event)
+	}
+}
+
+impl TryFrom<tangram_http::sse::Event> for Event {
+	type Error = tg::Error;
+
+	fn try_from(value: tangram_http::sse::Event) -> tg::Result<Self> {
+		match value.event.as_deref() {
+			None => {
+				let chunk = serde_json::from_str(&value.data)
+					.map_err(|source| tg::error!(!source, "failed to deserialize the event"))?;
+				Ok(Self::Chunk(chunk))
+			},
+			Some("end") => Ok(Self::End),
+			_ => Err(tg::error!("invalid event")),
+		}
+	}
+}
+
+impl TryFrom<OutputEvent> for tangram_http::sse::Event {
+	type Error = tg::Error;
+
+	fn try_from(value: OutputEvent) -> Result<Self, Self::Error> {
+		let event = match value {
+			OutputEvent::End => tangram_http::sse::Event {
+				event: Some("end".to_owned()),
+				..Default::default()
+			},
+		};
+		Ok(event)
+	}
+}
+
+impl TryFrom<tangram_http::sse::Event> for OutputEvent {
+	type Error = tg::Error;
+
+	fn try_from(value: tangram_http::sse::Event) -> tg::Result<Self> {
+		match value.event.as_deref() {
+			Some("end") => Ok(Self::End),
+			_ => Err(tg::error!("invalid event")),
+		}
 	}
 }
 
