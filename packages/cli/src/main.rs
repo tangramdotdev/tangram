@@ -296,7 +296,11 @@ fn main() -> std::process::ExitCode {
 		},
 		#[cfg(feature = "js")]
 		Command::Js(args) => {
-			if cfg!(feature = "v8") && matches!(args.engine, crate::js::JsEngine::Auto | crate::js::JsEngine::V8) {
+			if cfg!(feature = "v8")
+				&& matches!(
+					args.engine,
+					crate::js::JsEngine::Auto | crate::js::JsEngine::V8
+				) {
 				Cli::initialize_v8(0);
 			}
 			return Cli::command_js(&matches, args);

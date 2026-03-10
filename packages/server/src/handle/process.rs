@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Shared},
+	crate::{Context, Server, Shared},
 	futures::{Stream, stream::BoxStream},
 	tangram_client::prelude::*,
 };
@@ -159,9 +159,8 @@ impl tg::handle::Process for Shared {
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static,
-	> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static>
+	{
 		self.0
 			.write_process_stdin_with_context(&Context::default(), id, arg, stream)
 			.await
@@ -184,9 +183,8 @@ impl tg::handle::Process for Shared {
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static,
-	> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static>
+	{
 		self.0
 			.write_process_stdout_with_context(&Context::default(), id, arg, stream)
 			.await
@@ -209,9 +207,8 @@ impl tg::handle::Process for Shared {
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static,
-	> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static>
+	{
 		self.0
 			.write_process_stderr_with_context(&Context::default(), id, arg, stream)
 			.await
@@ -447,9 +444,8 @@ impl tg::handle::Process for Server {
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static,
-	> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static>
+	{
 		self.write_process_stdin_with_context(&Context::default(), id, arg, stream)
 			.await
 	}
@@ -470,9 +466,8 @@ impl tg::handle::Process for Server {
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static,
-	> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static>
+	{
 		self.write_process_stdout_with_context(&Context::default(), id, arg, stream)
 			.await
 	}
@@ -493,9 +488,8 @@ impl tg::handle::Process for Server {
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static,
-	> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::OutputEvent>> + Send + 'static>
+	{
 		self.write_process_stderr_with_context(&Context::default(), id, arg, stream)
 			.await
 	}

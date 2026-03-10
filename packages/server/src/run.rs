@@ -4,10 +4,12 @@ use {
 		context::{Context, PathMap},
 		temp::Temp,
 	},
-	futures::{FutureExt as _, TryFutureExt as _, TryStreamExt as _, future},
+	futures::{FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future},
 	std::{
 		collections::{BTreeMap, BTreeSet},
+		ops::ControlFlow,
 		path::{Path, PathBuf},
+		pin::pin,
 		sync::Arc,
 		time::Duration,
 	},
@@ -340,13 +342,13 @@ impl Server {
 				match &self.config.runner.as_ref().unwrap().js.engine {
 					crate::config::JsEngine::Auto => {
 						args.insert(1, "--engine=auto".into());
-					}
+					},
 					crate::config::JsEngine::QuickJs => {
 						args.insert(1, "--engine=quick-js".into());
 					},
 					crate::config::JsEngine::V8 => {
 						args.insert(1, "--engine=v8".into());
-					}
+					},
 				}
 				args.insert(1, command.executable.to_string());
 				tg
@@ -491,9 +493,12 @@ impl Server {
 			stdout: sandbox_stdout,
 			stderr: sandbox_stderr,
 		};
-		let sandbox_process = sandbox.spawn(id.clone(), sandbox_command, state.pty).await.map_err(
-			|source| tg::error!(!source, %id, "failed to spawn the process in the sandbox"),
-		)?;
+		let sandbox_process = sandbox
+			.spawn(id.clone(), sandbox_command, state.pty)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %id, "failed to spawn the process in the sandbox"),
+			)?;
 		let sandbox_process = Arc::new(sandbox_process);
 		let stdin = state.stdin;
 		let stdout = state.stdout;
@@ -903,21 +908,80 @@ impl Server {
 				}
 			},
 			tg::process::Stdio::Pipe | tg::process::Stdio::Pty => {
-				let arg = tg::process::stdio::Arg {
-					local: None,
-					remotes: remote.clone().map(|remote| vec![remote]),
-				};
-				match stdio_stream {
-					tg::process::stdio::Stream::Stdout => {
-						self.write_process_stdout(id, arg, reader).await
+				// Read from the sandbox and write to a channel.
+				let (sender, receiver) = async_channel::bounded::<bytes::Bytes>(1024);
+				tokio::spawn(async move {
+					let mut stream = ReaderStream::new(reader);
+					while let Some(result) = stream.next().await {
+						match result {
+							Ok(bytes) => {
+								if sender.send(bytes).await.is_err() {
+									break;
+								}
+							},
+							Err(_) => break,
+						}
+					}
+				});
+
+				// Write with retry.
+				tangram_futures::retry::retry(
+					&tangram_futures::retry::Options::default(),
+					|| {
+						let receiver = receiver.clone();
+						let remote = remote.clone();
+						async move {
+							let stream = receiver
+								.map(|bytes| {
+									Ok(tg::process::stdio::Event::Chunk(
+										tg::process::stdio::Chunk { bytes },
+									))
+								})
+								.chain(futures::stream::once(futures::future::ready(Ok(
+									tg::process::stdio::Event::End,
+								))))
+								.boxed();
+							let arg = tg::process::stdio::Arg {
+								local: None,
+								remotes: remote.map(|remote| vec![remote]),
+							};
+							let stream = match stdio_stream {
+								tg::process::stdio::Stream::Stdout => self
+									.write_process_stdout(id, arg, stream)
+									.await
+									.map_err(|source| {
+										tg::error!(!source, %stdio_stream, "failed to forward process stdio")
+									})?
+									.boxed(),
+								tg::process::stdio::Stream::Stderr => self
+									.write_process_stderr(id, arg, stream)
+									.await
+									.map_err(|source| {
+										tg::error!(!source, %stdio_stream, "failed to forward process stdio")
+									})?
+									.boxed(),
+								tg::process::stdio::Stream::Stdin => unreachable!(),
+							};
+							let mut stream = pin!(stream);
+							let Some(event) = stream.try_next().await? else {
+								return Ok(ControlFlow::Break(()));
+							};
+							match event {
+								tg::process::stdio::OutputEvent::End => {
+									Ok(ControlFlow::Break(()))
+								},
+								tg::process::stdio::OutputEvent::Stop => {
+									Ok(ControlFlow::Continue(tg::error!(
+										"the server was stopped"
+									)))
+								},
+							}
+						}
 					},
-					tg::process::stdio::Stream::Stderr => {
-						self.write_process_stderr(id, arg, reader).await
-					},
-					tg::process::stdio::Stream::Stdin => unreachable!(),
-				}
+				)
+				.await
 				.map_err(
-					|source| tg::error!(!source, %stdio_stream, "failed to forward process stdio"),
+					|source| tg::error!(!source, %stdio_stream, "failed to complete process stdio write"),
 				)?;
 			},
 		}
@@ -958,10 +1022,23 @@ impl Server {
 			stdin_mode,
 			tg::process::Stdio::Pipe | tg::process::Stdio::Pty
 		) {
+			// Convert the event stream to an AsyncRead.
 			self.try_read_process_stdin(id, tg::process::stdio::Arg::default())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to read process stdin stream"))?
-				.map(|reader| Box::pin(reader) as tangram_futures::BoxAsyncRead<'static>)
+				.map(|event_stream| {
+					let bytes_stream = event_stream
+						.try_filter_map(|event| {
+							futures::future::ready(Ok(match event {
+								tg::process::stdio::Event::Chunk(chunk) => Some(chunk.bytes),
+								tg::process::stdio::Event::End => None,
+							}))
+						})
+						.map_err(std::io::Error::other)
+						.boxed();
+					Box::pin(tokio_util::io::StreamReader::new(bytes_stream))
+						as tangram_futures::BoxAsyncRead<'static>
+				})
 		} else {
 			None
 		};

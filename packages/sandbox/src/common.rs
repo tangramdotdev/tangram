@@ -1,11 +1,15 @@
 use {
-	crate::Command, num::ToPrimitive, std::{
+	crate::Command,
+	num::ToPrimitive,
+	std::{
 		ffi::{CStr, CString},
 		os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
 		path::Path,
 		pin::Pin,
 		task::{Context, Poll, ready},
-	}, tangram_client as tg, tokio::io::{AsyncRead, AsyncWrite, ReadBuf, unix::AsyncFd}
+	},
+	tangram_client as tg,
+	tokio::io::{AsyncRead, AsyncWrite, ReadBuf, unix::AsyncFd},
 };
 
 pub(crate) struct SpawnContext {

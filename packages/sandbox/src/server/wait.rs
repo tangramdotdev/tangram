@@ -3,11 +3,7 @@ use {
 	bytes::Bytes,
 	futures::stream,
 	tangram_client::prelude::*,
-	tangram_http::{
-		body::Boxed as BoxBody,
-		request::Ext as _,
-		response::builder::Ext as _,
-	},
+	tangram_http::{body::Boxed as BoxBody, request::Ext as _, response::builder::Ext as _},
 };
 
 impl Server {
@@ -66,19 +62,17 @@ impl Server {
 			let result = server.wait(arg).await;
 			let bytes = match result {
 				Ok(output) => serde_json::to_vec(&output).unwrap_or_default(),
-				Err(error) => {
-					error
-						.state()
-						.object()
-						.and_then(|object| serde_json::to_vec(&object.unwrap_error_ref().to_data()).ok())
-						.unwrap_or_default()
-				}
+				Err(error) => error
+					.state()
+					.object()
+					.and_then(|object| {
+						serde_json::to_vec(&object.unwrap_error_ref().to_data()).ok()
+					})
+					.unwrap_or_default(),
 			};
 			Ok::<_, std::io::Error>(Bytes::from(bytes))
 		});
-		let response = http::Response::builder()
-			.data_stream(stream)
-			.unwrap();
+		let response = http::Response::builder().data_stream(stream).unwrap();
 		Ok(response)
 	}
 }

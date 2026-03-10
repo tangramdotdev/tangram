@@ -82,6 +82,7 @@ pub struct Chunk {
 #[derive(Clone, Debug)]
 pub enum OutputEvent {
 	End,
+	Stop,
 }
 
 impl tg::Client {
@@ -381,6 +382,10 @@ impl TryFrom<OutputEvent> for tangram_http::sse::Event {
 				event: Some("end".to_owned()),
 				..Default::default()
 			},
+			OutputEvent::Stop => tangram_http::sse::Event {
+				event: Some("stop".to_owned()),
+				..Default::default()
+			},
 		};
 		Ok(event)
 	}
@@ -392,6 +397,7 @@ impl TryFrom<tangram_http::sse::Event> for OutputEvent {
 	fn try_from(value: tangram_http::sse::Event) -> tg::Result<Self> {
 		match value.event.as_deref() {
 			Some("end") => Ok(Self::End),
+			Some("stop") => Ok(Self::Stop),
 			_ => Err(tg::error!("invalid event")),
 		}
 	}

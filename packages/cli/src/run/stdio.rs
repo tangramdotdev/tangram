@@ -1,16 +1,12 @@
 use {
-	super::Options,
-	futures::{FutureExt as _, StreamExt as _, future},
-	std::{
+	super::Options, bytes::Bytes, futures::{StreamExt as _, TryStreamExt as _, future, stream}, std::{
 		io::IsTerminal as _,
 		mem::MaybeUninit,
 		os::fd::{AsRawFd as _, RawFd},
 		pin::pin,
 		sync::Arc,
-	},
-	tangram_client::prelude::*,
-	tangram_futures::task::{Stop, Task},
-	tokio_util::io::StreamReader,
+		ops::ControlFlow,
+}, tangram_client::prelude::*, tangram_futures::task::{Stop, Task}, tokio::io::AsyncWriteExt as _
 };
 
 #[derive(Clone, Debug)]
@@ -65,26 +61,67 @@ where
 			if !matches!(stdin, tg::process::Stdio::Pipe | tg::process::Stdio::Pty) {
 				return Ok(());
 			}
-			let remote_ = remote.clone();
-			let stream = crate::util::stdio::stdin_stream().take_until(stop.wait());
-			let future = async {
-				let arg = tg::process::stdio::Arg {
-					remotes: remote_.map(|remote| vec![remote]),
-					..tg::process::stdio::Arg::default()
-				};
-				handle
-					.write_process_stdin(&process, arg, StreamReader::new(stream))
-					.await?;
-				Ok::<_, tg::Error>(())
-			}
-			.boxed();
-			let stop = stop.wait();
-			let future = pin!(future);
-			let stop = pin!(stop);
-			let either = future::select(future, stop).await;
-			if let future::Either::Left((Err(error), _)) = either {
-				return Err(error);
-			}
+
+			// Read from stdin and write to a channel.
+			let (sender, receiver) = async_channel::bounded::<Bytes>(1024);
+			tokio::spawn(async move {
+				let mut stream =
+					pin!(crate::util::stdio::stdin_stream().take_until(stop.wait()));
+				while let Some(result) = stream.next().await {
+					match result {
+						Ok(bytes) => {
+							if sender.send(bytes).await.is_err() {
+								break;
+							}
+						},
+						Err(_) => break,
+					}
+				}
+			});
+
+			// Write stdin with retry.
+			tangram_futures::retry::retry(
+				&tangram_futures::retry::Options::default(),
+				|| {
+					let handle = handle.clone();
+					let process = process.clone();
+					let remote = remote.clone();
+					let receiver = receiver.clone();
+					async move {
+						let stream = receiver
+							.map(|bytes| {
+								Ok(tg::process::stdio::Event::Chunk(
+									tg::process::stdio::Chunk { bytes },
+								))
+							})
+							.chain(stream::once(future::ready(Ok(
+								tg::process::stdio::Event::End,
+							))))
+							.boxed();
+						let arg = tg::process::stdio::Arg {
+							remotes: remote.map(|remote| vec![remote]),
+							..tg::process::stdio::Arg::default()
+						};
+						let stream =
+							handle.write_process_stdin(&process, arg, stream).await?;
+						let mut stream = pin!(stream);
+						let Some(event) = stream.try_next().await? else {
+							return Ok(ControlFlow::Break(()))
+						};
+						match event {
+							tg::process::stdio::OutputEvent::End => {
+								Ok(ControlFlow::Break(()))
+							},
+							tg::process::stdio::OutputEvent::Stop => {
+								Ok(ControlFlow::Continue(tg::error!(
+									"the server was stopped"
+								)))
+							},
+						}
+					}
+				},
+			)
+			.await?;
 
 			// Close stdin.
 			let arg = tg::process::stdio::Arg {
@@ -112,13 +149,25 @@ where
 				..tg::process::stdio::Arg::default()
 			};
 			let mut writer = tokio::io::BufWriter::new(tokio::io::stdout());
-			let Some(reader) = handle.try_read_process_stdout(&process, arg).await? else {
+			let Some(stream) = handle.try_read_process_stdout(&process, arg).await? else {
 				return Ok(());
 			};
-			let mut reader = pin!(reader);
-			tokio::io::copy(&mut reader, &mut writer)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to copy stdout"))?;
+			let mut stream = pin!(stream);
+			while let Some(event) = stream.try_next().await? {
+				match event {
+					tg::process::stdio::Event::Chunk(chunk) => {
+						writer
+							.write_all(&chunk.bytes)
+							.await
+							.map_err(|source| tg::error!(!source, "failed to write stdout"))?;
+						writer
+							.flush()
+							.await
+							.map_err(|source| tg::error!(!source, "failed to flush stdout"))?;
+					},
+					tg::process::stdio::Event::End => break,
+				}
+			}
 			Ok::<_, tg::Error>(())
 		}
 	};
@@ -138,14 +187,25 @@ where
 				..tg::process::stdio::Arg::default()
 			};
 			let mut writer = tokio::io::BufWriter::new(tokio::io::stderr());
-			let Some(reader) = handle.try_read_process_stderr(&process, arg).await? else {
+			let Some(stream) = handle.try_read_process_stderr(&process, arg).await? else {
 				return Ok(());
 			};
-			let mut reader = pin!(reader);
-			tokio::io::copy(&mut reader, &mut writer)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to copy stdout"))?;
-
+			let mut stream = pin!(stream);
+			while let Some(event) = stream.try_next().await? {
+				match event {
+					tg::process::stdio::Event::Chunk(chunk) => {
+						writer
+							.write_all(&chunk.bytes)
+							.await
+							.map_err(|source| tg::error!(!source, "failed to write stderr"))?;
+						writer
+							.flush()
+							.await
+							.map_err(|source| tg::error!(!source, "failed to flush stderr"))?;
+					},
+					tg::process::stdio::Event::End => break,
+				}
+			}
 			Ok::<_, tg::Error>(())
 		}
 	};

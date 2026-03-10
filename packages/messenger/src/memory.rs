@@ -937,15 +937,12 @@ mod tests {
 		let messages = consumer1
 			.subscribe::<Bytes>()
 			.await
-			.inspect(|_| eprintln!("subscribed"))
 			.unwrap()
-			.inspect_ok(|message| eprintln!("{:?}", message.payload))
 			.take(1)
 			.map_ok(|result| result.payload)
 			.try_collect::<Vec<_>>()
 			.await
 			.unwrap();
-		eprintln!("messages: {messages:#?}");
 		assert_eq!(messages.len(), 1);
 
 		let config = ConsumerConfig {
@@ -964,7 +961,6 @@ mod tests {
 			.try_collect::<Vec<_>>()
 			.await
 			.unwrap();
-		eprintln!("messages: {messages:#?}");
 		assert_eq!(messages.len(), 1);
 	}
 }

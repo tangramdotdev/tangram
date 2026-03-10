@@ -33,6 +33,7 @@ workspace = true
 
 [dependencies]
 anstream = { workspace = true }
+async-channel = { workspace = true }
 byte-unit = { workspace = true }
 byteorder = { workspace = true }
 bytes = { workspace = true }

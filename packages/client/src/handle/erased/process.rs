@@ -112,58 +112,40 @@ pub trait Process: Send + Sync + 'static {
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> BoxFuture<
-		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>>,
-	>;
+	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>>>;
 
 	fn write_process_stdin<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::stdio::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
-	) -> BoxFuture<
-		'a,
-		tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::OutputEvent>>>,
-	>;
+	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::OutputEvent>>>>;
 
 	fn try_read_process_stdout<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> BoxFuture<
-		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>>,
-	>;
+	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>>>;
 
 	fn write_process_stdout<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::stdio::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
-	) -> BoxFuture<
-		'a,
-		tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::OutputEvent>>>,
-	>;
+	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::OutputEvent>>>>;
 
 	fn try_read_process_stderr<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> BoxFuture<
-		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>>,
-	>;
+	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>>>;
 
 	fn write_process_stderr<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::stdio::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
-	) -> BoxFuture<
-		'a,
-		tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::OutputEvent>>>,
-	>;
+	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::OutputEvent>>>>;
 
 	fn close_process_stdin<'a>(
 		&'a self,
@@ -366,10 +348,8 @@ where
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> BoxFuture<
-		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>>,
-	> {
+	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>>>
+	{
 		self.try_read_process_stdin(id, arg)
 			.map_ok(|option| option.map(futures::StreamExt::boxed))
 			.boxed()
@@ -380,10 +360,8 @@ where
 		id: &'a tg::process::Id,
 		arg: tg::process::stdio::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
-	) -> BoxFuture<
-		'a,
-		tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::OutputEvent>>>,
-	> {
+	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::OutputEvent>>>>
+	{
 		self.write_process_stdin(id, arg, stream)
 			.map_ok(futures::StreamExt::boxed)
 			.boxed()
@@ -393,10 +371,8 @@ where
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> BoxFuture<
-		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>>,
-	> {
+	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>>>
+	{
 		self.try_read_process_stdout(id, arg)
 			.map_ok(|option| option.map(futures::StreamExt::boxed))
 			.boxed()
@@ -407,10 +383,8 @@ where
 		id: &'a tg::process::Id,
 		arg: tg::process::stdio::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
-	) -> BoxFuture<
-		'a,
-		tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::OutputEvent>>>,
-	> {
+	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::OutputEvent>>>>
+	{
 		self.write_process_stdout(id, arg, stream)
 			.map_ok(futures::StreamExt::boxed)
 			.boxed()
@@ -420,10 +394,8 @@ where
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> BoxFuture<
-		'a,
-		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>>,
-	> {
+	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>>>
+	{
 		self.try_read_process_stderr(id, arg)
 			.map_ok(|option| option.map(futures::StreamExt::boxed))
 			.boxed()
@@ -434,10 +406,8 @@ where
 		id: &'a tg::process::Id,
 		arg: tg::process::stdio::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
-	) -> BoxFuture<
-		'a,
-		tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::OutputEvent>>>,
-	> {
+	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::OutputEvent>>>>
+	{
 		self.write_process_stderr(id, arg, stream)
 			.map_ok(futures::StreamExt::boxed)
 			.boxed()

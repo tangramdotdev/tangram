@@ -1,4 +1,7 @@
-use {crate::prelude::*, futures::{Stream, stream::BoxStream}};
+use {
+	crate::prelude::*,
+	futures::{Stream, stream::BoxStream},
+};
 
 pub trait Process: Clone + Unpin + Send + Sync + 'static {
 	fn list_processes(

@@ -5,17 +5,16 @@ use {
 	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future},
 	indexmap::IndexMap,
 	num::ToPrimitive as _,
-	std::{fmt::Write as _, pin::pin},
+	std::{fmt::Write as _, ops::ControlFlow, pin::pin},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
-	tokio_util::io::StreamReader,
 	unicode_width::UnicodeWidthChar as _,
 };
 
 struct State {
 	indicators: IndexMap<String, tg::progress::Indicator>,
 	lines: Option<u16>,
-	sender: async_channel::Sender<tg::Result<Bytes>>,
+	sender: async_channel::Sender<Bytes>,
 }
 
 impl Server {
@@ -82,7 +81,7 @@ impl Server {
 		remote: Option<String>,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
 	) -> tg::Result<T> {
-		let (sender, receiver) = async_channel::bounded(1024);
+		let (sender, receiver) = async_channel::bounded::<Bytes>(1024);
 		let mut state = State {
 			indicators: IndexMap::new(),
 			lines: None,
@@ -126,15 +125,52 @@ impl Server {
 			}
 			output.ok_or_else(|| tg::error!("expected an output"))
 		});
-		let stream = receiver.map_err(std::io::Error::other);
-		let reader = StreamReader::new(stream);
-		let arg = tg::process::stdio::Arg {
-			local: None,
-			remotes: remote.map(|remote| vec![remote]),
-		};
-		self.write_process_stderr(id, arg, reader)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to write process stderr"))?;
+
+		// Write with retry.
+		tangram_futures::retry::retry(
+			&tangram_futures::retry::Options::default(),
+			|| {
+				let receiver = receiver.clone();
+				let remote = remote.clone();
+				async move {
+					let stream = receiver
+						.map(|bytes| {
+							Ok(tg::process::stdio::Event::Chunk(
+								tg::process::stdio::Chunk { bytes },
+							))
+						})
+						.chain(futures::stream::once(futures::future::ready(Ok(
+							tg::process::stdio::Event::End,
+						))))
+						.boxed();
+					let arg = tg::process::stdio::Arg {
+						local: None,
+						remotes: remote.map(|remote| vec![remote]),
+					};
+					let stream = self
+						.write_process_stderr(id, arg, stream)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to write process stderr"))?;
+					let mut stream = pin!(stream);
+					let Some(event) = stream.try_next().await? else {
+						return Ok(ControlFlow::Break(()));
+					};
+					match event {
+						tg::process::stdio::OutputEvent::End => {
+							Ok(ControlFlow::Break(()))
+						},
+						tg::process::stdio::OutputEvent::Stop => {
+							Ok(ControlFlow::Continue(tg::error!(
+								"the server was stopped"
+							)))
+						},
+					}
+				}
+			},
+		)
+		.await
+		.map_err(|source| tg::error!(!source, "failed to write process stderr"))?;
+
 		task.wait()
 			.await
 			.map_err(|source| tg::error!(!source, "the progress task panicked"))?
@@ -160,13 +196,13 @@ impl State {
 							format!("{} ", "error".red().bold())
 						},
 					};
-					self.sender.send(Ok(output.into())).await.ok();
+					self.sender.send(output.into()).await.ok();
 				}
 			},
 
 			tg::progress::Event::Diagnostic(diagnostic) => {
 				let output = diagnostic.to_string();
-				self.sender.send(Ok(output.into())).await.ok();
+				self.sender.send(output.into()).await.ok();
 			},
 
 			tg::progress::Event::Indicators(indicators) => {
@@ -190,7 +226,7 @@ impl State {
 					crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
 				)
 				.unwrap();
-				self.sender.send(Ok(message.into())).await.ok();
+				self.sender.send(message.into()).await.ok();
 			},
 			_ => (),
 		}
@@ -230,7 +266,7 @@ impl State {
 		}
 
 		// Send the event.
-		self.sender.send(Ok(buffer.into())).await.ok();
+		self.sender.send(buffer.into()).await.ok();
 
 		// Update the number of lines.
 		self.lines.replace(self.indicators.len().to_u16().unwrap());

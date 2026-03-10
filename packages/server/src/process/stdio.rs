@@ -8,7 +8,6 @@ use {
 	std::pin::pin,
 	tangram_client::prelude::*,
 	tangram_futures::{
-		BoxAsyncRead,
 		stream::Ext as _,
 		task::{Stop, Task},
 	},
@@ -18,8 +17,6 @@ use {
 		response::{Ext as _, builder::Ext as _},
 	},
 	tangram_messenger::prelude::*,
-	tokio::io::AsyncRead,
-	tokio_util::io::{ReaderStream, StreamReader},
 };
 
 impl Server {
@@ -28,9 +25,7 @@ impl Server {
 		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> tg::Result<
-		Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>,
-	> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>> {
 		self.try_read_process_stdio_with_context(
 			context,
 			id,
@@ -62,9 +57,7 @@ impl Server {
 		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> tg::Result<
-		Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>,
-	> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>> {
 		self.try_read_process_stdio_with_context(
 			context,
 			id,
@@ -96,9 +89,7 @@ impl Server {
 		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-	) -> tg::Result<
-		Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>,
-	> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>> {
 		self.try_read_process_stdio_with_context(
 			context,
 			id,
@@ -184,28 +175,26 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
 		stream: tg::process::stdio::Stream,
-	) -> tg::Result<Option<impl AsyncRead + Send + 'static + use<>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>> {
 		if Self::local(arg.local, arg.remotes.as_ref())
-			&& let Some(reader) = self
+			&& let Some(event_stream) = self
 				.try_read_process_stdio_local(id, stream)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to read local process stdio"))?
 		{
-			return Ok(Some(reader));
+			return Ok(Some(event_stream));
 		}
-
 		let remotes = self
 			.remotes(arg.local, arg.remotes.clone())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
-		if let Some(reader) = self
+		if let Some(event_stream) = self
 			.try_read_process_stdio_remote(id, stream, &remotes)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read remote process stdio"))?
 		{
-			return Ok(Some(reader));
+			return Ok(Some(event_stream));
 		}
-
 		Ok(None)
 	}
 
@@ -213,7 +202,7 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 		stream: tg::process::stdio::Stream,
-	) -> tg::Result<Option<BoxAsyncRead<'static>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>> {
 		if !self
 			.get_process_exists_local(id)
 			.await
@@ -256,12 +245,16 @@ impl Server {
 			}
 			Ok::<_, tg::Error>(())
 		});
-		let stream = receiver
+		let event_stream = receiver
 			.take_while(|result| future::ready(!result.as_ref().is_ok_and(Bytes::is_empty)))
+			.map(|result| {
+				result.map(|bytes| {
+					tg::process::stdio::Event::Chunk(tg::process::stdio::Chunk { bytes })
+				})
+			})
 			.attach(task)
-			.map_err(std::io::Error::other);
-		let reader = StreamReader::new(stream);
-		Ok(Some(Box::pin(reader)))
+			.boxed();
+		Ok(Some(event_stream))
 	}
 
 	async fn try_read_process_stdio_remote(
@@ -269,7 +262,7 @@ impl Server {
 		id: &tg::process::Id,
 		stream: tg::process::stdio::Stream,
 		remotes: &[String],
-	) -> tg::Result<Option<BoxAsyncRead<'static>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Event>>>> {
 		if remotes.is_empty() {
 			return Ok(None);
 		}
@@ -279,41 +272,38 @@ impl Server {
 				let client = self.get_remote_client(remote.clone()).await.map_err(
 					|source| tg::error!(!source, %remote, "failed to get the remote client"),
 				)?;
-				let arg = tg::process::stdio::Arg {
-					local: None,
-					remotes: None,
-				};
-				let reader = match stream {
+				let arg = tg::process::stdio::Arg::default();
+				let stream = match stream {
 					tg::process::stdio::Stream::Stdin => client
 						.try_read_process_stdin(id, arg)
 						.await
 						.map_err(
-							|source| tg::error!(!source, %id, %remote, "failed to read process stdin"),
+							|source| tg::error!(!source, %remote, "failed to read the process stdin"),
 						)?
-						.map(|reader| Box::pin(reader) as BoxAsyncRead<'static>),
+						.map(futures::StreamExt::boxed),
 					tg::process::stdio::Stream::Stdout => client
 						.try_read_process_stdout(id, arg)
 						.await
 						.map_err(
-							|source| tg::error!(!source, %id, %remote, "failed to read process stdout"),
+							|source| tg::error!(!source, %remote, "failed to read the process stdout"),
 						)?
-						.map(|reader| Box::pin(reader) as BoxAsyncRead<'static>),
+						.map(futures::StreamExt::boxed),
 					tg::process::stdio::Stream::Stderr => client
 						.try_read_process_stderr(id, arg)
 						.await
 						.map_err(
-							|source| tg::error!(!source, %id, %remote, "failed to read process stderr"),
+							|source| tg::error!(!source, %remote, "failed to read the process stderr"),
 						)?
-						.map(|reader| Box::pin(reader) as BoxAsyncRead<'static>),
+						.map(futures::StreamExt::boxed),
 				};
-				reader.ok_or_else(|| tg::error!(%id, %remote, "failed to find the process"))
+				Ok::<_, tg::Error>(stream)
 			}
 			.boxed()
 		});
-		let Ok((reader, _)) = future::select_ok(futures).await else {
+		let Ok((stream, _)) = future::select_ok(futures).await else {
 			return Ok(None);
 		};
-		Ok(Some(reader))
+		Ok(stream)
 	}
 
 	pub async fn write_process_stdio_with_context(
@@ -321,21 +311,23 @@ impl Server {
 		_context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::Arg,
-		stream: tg::process::stdio::Stream,
-		reader: impl AsyncRead + Send + 'static,
-	) -> tg::Result<()> {
+		stdio_stream: tg::process::stdio::Stream,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::OutputEvent>>> {
 		if Self::local(arg.local, arg.remotes.as_ref())
 			&& self
 				.get_process_exists_local(id)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to check if the process exists"))?
 		{
-			return self.write_process_stdio_local(id, stream, reader).await;
+			return self
+				.write_process_stdio_local(id, stdio_stream, input)
+				.await;
 		}
 
 		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
 			return self
-				.write_process_stdio_remote(id, stream, reader, &remote)
+				.write_process_stdio_remote(id, stdio_stream, input, &remote)
 				.await;
 		}
 
@@ -345,9 +337,9 @@ impl Server {
 	async fn write_process_stdio_local(
 		&self,
 		id: &tg::process::Id,
-		stream: tg::process::stdio::Stream,
-		reader: impl AsyncRead + Send + 'static,
-	) -> tg::Result<()> {
+		stdio_stream: tg::process::stdio::Stream,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::OutputEvent>>> {
 		if !self
 			.get_process_exists_local(id)
 			.await
@@ -356,79 +348,105 @@ impl Server {
 			return Err(tg::error!("not found"));
 		}
 
-		let retry_options = tangram_futures::retry::Options {
-			max_retries: u64::MAX,
-			..Default::default()
-		};
-		let stream_ = ReaderStream::new(reader)
-			.map_err(|source| tg::error!(!source, "failed to read from stdio"));
-		let mut stream_ = pin!(stream_);
-		let subject = format!("processes.{id}.{stream}");
-		while let Some(bytes) = stream_
-			.try_next()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read stdio chunk"))?
-		{
-			if bytes.is_empty() {
-				continue;
-			}
-			let retries = tangram_futures::retry_stream(retry_options.clone());
-			let mut retries = pin!(retries);
-			while let Some(()) = retries.next().await {
-				let publish = self
-					.messenger
-					.stream_publish("stdio".to_owned(), subject.clone(), bytes.clone())
-					.and_then(|result| result)
-					.await;
-				match publish {
-					Ok(_) => break,
-					Err(
-						tangram_messenger::Error::MaxMessages
-						| tangram_messenger::Error::MaxBytes
-						| tangram_messenger::Error::PublishFailed,
-					) => (),
-					Err(source) => {
-						return Err(tg::error!(!source, "failed to publish stdio"));
-					},
+		let server = self.clone();
+		let id = id.clone();
+		let output_stream = stream::unfold(
+			(server, id, stdio_stream, Some(input)),
+			|(server, id, stdio_stream, input)| async move {
+				let mut input = input?;
+				let retry_options = tangram_futures::retry::Options {
+					max_retries: u64::MAX,
+					..Default::default()
+				};
+				let subject = format!("processes.{id}.{stdio_stream}");
+				loop {
+					let result = input.next().await?;
+					let event = match result {
+						Ok(event) => event,
+						Err(source) => {
+							return Some((
+								Err(tg::error!(!source, "failed to read stdio event")),
+								(server, id, stdio_stream, None),
+							));
+						},
+					};
+					match event {
+						tg::process::stdio::Event::Chunk(chunk) => {
+							if chunk.bytes.is_empty() {
+								continue;
+							}
+							let retries = tangram_futures::retry_stream(retry_options.clone());
+							let mut retries = pin!(retries);
+							while let Some(()) = retries.next().await {
+								let publish = server
+									.messenger
+									.stream_publish(
+										"stdio".to_owned(),
+										subject.clone(),
+										chunk.bytes.clone(),
+									)
+									.and_then(|result| result)
+									.await;
+								match publish {
+									Ok(_) => break,
+									Err(
+										tangram_messenger::Error::MaxMessages
+										| tangram_messenger::Error::MaxBytes
+										| tangram_messenger::Error::PublishFailed,
+									) => (),
+									Err(source) => {
+										return Some((
+											Err(tg::error!(!source, "failed to publish stdio")),
+											(server, id, stdio_stream, None),
+										));
+									},
+								}
+							}
+						},
+						tg::process::stdio::Event::End => {
+							return Some((
+								Ok(tg::process::stdio::OutputEvent::End),
+								(server, id, stdio_stream, None),
+							));
+						},
+					}
 				}
-			}
-		}
-		Ok(())
+			},
+		)
+		.boxed();
+		Ok(output_stream)
 	}
 
 	async fn write_process_stdio_remote(
 		&self,
 		id: &tg::process::Id,
 		stream: tg::process::stdio::Stream,
-		reader: impl AsyncRead + Send + 'static,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
 		remote: &str,
-	) -> tg::Result<()> {
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::OutputEvent>>> {
 		let client = self
 			.get_remote_client(remote.to_owned())
 			.await
 			.map_err(|source| tg::error!(!source, %remote, "failed to get the remote client"))?;
-		let arg = tg::process::stdio::Arg {
-			local: None,
-			remotes: None,
+		let arg = tg::process::stdio::Arg::default();
+		let stream = match stream {
+			tg::process::stdio::Stream::Stdin => client
+				.write_process_stdin(id, arg, input)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write process stdin"))?
+				.boxed(),
+			tg::process::stdio::Stream::Stdout => client
+				.write_process_stdout(id, arg, input)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write process stdout"))?
+				.boxed(),
+			tg::process::stdio::Stream::Stderr => client
+				.write_process_stderr(id, arg, input)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write process sterr"))?
+				.boxed(),
 		};
-		match stream {
-			tg::process::stdio::Stream::Stdin => {
-				client.write_process_stdin(id, arg, reader).await.map_err(
-					|source| tg::error!(!source, %id, %remote, "failed to write process stdin"),
-				)?;
-			},
-			tg::process::stdio::Stream::Stdout => {
-				client.write_process_stdout(id, arg, reader).await.map_err(
-					|source| tg::error!(!source, %id, %remote, "failed to write process stdout"),
-				)?;
-			},
-			tg::process::stdio::Stream::Stderr => {
-				client.write_process_stderr(id, arg, reader).await.map_err(
-					|source| tg::error!(!source, %id, %remote, "failed to write process stderr"),
-				)?;
-			},
-		}
-		Ok(())
+		Ok(stream)
 	}
 
 	pub(crate) async fn handle_post_process_stdin_read_request(
@@ -594,7 +612,7 @@ impl Server {
 		request: http::Request<BoxBody>,
 		context: &Context,
 		id: &str,
-		stream: tg::process::stdio::Stream,
+		stdio_stream: tg::process::stdio::Stream,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept: Option<mime::Mime> = request
 			.parse_header(http::header::ACCEPT)
@@ -605,7 +623,7 @@ impl Server {
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))
 		{
-			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::OCTET_STREAM)) => (),
+			None | Some((mime::STAR, mime::STAR) | (mime::TEXT, mime::EVENT_STREAM)) => (),
 			Some((type_, subtype)) => {
 				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
 			},
@@ -620,8 +638,8 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
 			.unwrap_or_default();
 
-		let Some(reader) = self
-			.try_read_process_stdio_with_context(context, &id, arg, stream)
+		let Some(event_stream) = self
+			.try_read_process_stdio_with_context(context, &id, arg, stdio_stream)
 			.await?
 		else {
 			return Ok(http::Response::builder()
@@ -630,13 +648,23 @@ impl Server {
 				.unwrap()
 				.boxed_body());
 		};
-		todo!("spawn a task that has an AbortOnDrop handle that");
+
+		// Stop the stream when the server stops.
+		let stop = request.extensions().get::<Stop>().cloned().unwrap();
+		let stop = async move { stop.wait().await };
+		let event_stream = event_stream.take_until(stop);
+
+		// Create the body.
+		let content_type = mime::TEXT_EVENT_STREAM;
+		let sse_stream = event_stream.map(|result| match result {
+			Ok(event) => event.try_into(),
+			Err(error) => error.try_into(),
+		});
+		let body = BoxBody::with_sse_stream(sse_stream);
+
 		let response = http::Response::builder()
-			.header(
-				http::header::CONTENT_TYPE,
-				mime::APPLICATION_OCTET_STREAM.to_string(),
-			)
-			.body(BoxBody::with_reader(reader))
+			.header(http::header::CONTENT_TYPE, content_type.to_string())
+			.body(body)
 			.unwrap();
 		Ok(response)
 	}
@@ -646,7 +674,7 @@ impl Server {
 		request: http::Request<BoxBody>,
 		context: &Context,
 		id: &str,
-		stream: tg::process::stdio::Stream,
+		stdio_stream: tg::process::stdio::Stream,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
@@ -657,7 +685,7 @@ impl Server {
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))
 		{
-			None | Some((mime::STAR, mime::STAR)) => (),
+			None | Some((mime::STAR, mime::STAR) | (mime::TEXT, mime::EVENT_STREAM)) => (),
 			Some((type_, subtype)) => {
 				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
 			},
@@ -671,34 +699,51 @@ impl Server {
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
 			.unwrap_or_default();
-		let context = context.clone();
+
+		// Parse the input SSE stream. Stop it when the server stops.
 		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let reader = request.reader();
-		let server = self.clone();
-		let frames = stream::once(async move {
-			let result =
-				server.write_process_stdio_with_context(&context, &id, arg, stream, reader);
-			let stop = stop.wait();
-			let result = match future::select(pin!(result), pin!(stop)).await {
-				future::Either::Left((result, _)) => result,
-				future::Either::Right(_) => Ok(()),
-			};
-			let mut trailers = http::HeaderMap::new();
-			match result {
-				Ok(()) => {
-					trailers.insert("x-tg-event", http::HeaderValue::from_static("end"));
-				},
-				Err(error) => {
-					trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
-					let json = serde_json::to_string(&error.to_data_or_id()).unwrap();
-					trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
-				},
-			}
-			eprintln!("done with stdio");
-			Ok::<_, tg::Error>(hyper::body::Frame::trailers(trailers))
+		let stop_signal = stop.clone();
+		let input_stream = request
+			.sse()
+			.map_err(|source| tg::error!(!source, "failed to read an event"))
+			.and_then(|event| {
+				future::ready(
+					if event.event.as_deref().is_some_and(|event| event == "error") {
+						match event.try_into() {
+							Ok(error) | Err(error) => Err(error),
+						}
+					} else {
+						event.try_into()
+					},
+				)
+			})
+			.boxed();
+
+		let output_stream = self
+			.write_process_stdio_with_context(context, &id, arg, stdio_stream, input_stream)
+			.await?;
+
+		// Emit OutputEvent::Stop if the server stop signal fires before the output stream ends.
+		let stop_future = async move { stop_signal.wait().await };
+		let output_stream = output_stream
+			.take_until(stop_future)
+			.chain(stream::once(future::ready(Ok(
+				tg::process::stdio::OutputEvent::Stop,
+			))))
+			.boxed();
+
+		// Create the response body.
+		let content_type = mime::TEXT_EVENT_STREAM;
+		let sse_stream = output_stream.map(|result| match result {
+			Ok(event) => event.try_into(),
+			Err(error) => error.try_into(),
 		});
-		let body = BoxBody::with_stream(frames);
-		let response = http::Response::builder().body(body).unwrap();
+		let body = BoxBody::with_sse_stream(sse_stream);
+
+		let response = http::Response::builder()
+			.header(http::header::CONTENT_TYPE, content_type.to_string())
+			.body(body)
+			.unwrap();
 		Ok(response)
 	}
 }

@@ -6348,6 +6348,7 @@ name = "tangram_cli"
 version = "0.0.0"
 dependencies = [
  "anstream 1.0.0",
+ "async-channel",
  "byte-unit",
  "byteorder",
  "bytes",
