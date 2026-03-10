@@ -15,6 +15,7 @@ use {
 };
 
 pub fn enter(config: &Config) -> std::io::Result<()> {
+	std::fs::create_dir_all(&config.output_path).ok();
 	let profile = create_sandbox_profile(&config);
 	unsafe {
 		let mut error = std::ptr::null::<std::ffi::c_char>();
@@ -47,7 +48,7 @@ pub fn spawn(context: SpawnContext) -> tg::Result<tokio::process::Child> {
 	let stdin = context.stdin.is_none();
 	let stdout = context.stdout.is_none();
 	let stderr = context.stderr.is_none();
-	let mut command = tokio::process::Command::new(executable);
+	let mut command = tokio::process::Command::new(&executable);
 	command
 		.env_clear()
 		.args(context.command.args)
@@ -71,7 +72,7 @@ pub fn spawn(context: SpawnContext) -> tg::Result<tokio::process::Child> {
 				Ok(())
 			})
 			.spawn()
-			.map_err(|source| tg::error!(!source, "failed to spawn the child process"))
+			.map_err(|source| tg::error!(!source, executable = %executable.display(), "failed to spawn the child process"))
 	}
 }
 
@@ -150,7 +151,8 @@ fn create_sandbox_profile(config: &Config) -> CString {
 					(subpath "/System/Library/PrivateFrameworks")
 					(subpath "/System/iOSSupport/System/Library/Frameworks")
 					(subpath "/System/iOSSupport/System/Library/PrivateFrameworks")
-					(subpath "/usr/lib"))
+					(subpath "/usr/lib")
+					(subpath "/opt/homebew"))
 
 				;; Allow writing to common devices.
 				(allow file-read* file-write-data file-ioctl
@@ -201,9 +203,35 @@ fn create_sandbox_profile(config: &Config) -> CString {
 				(allow file-read* file-write* file-ioctl process-exec
 					(literal "/dev/fd")
 					(subpath "/dev/fd"))
+				
+				;; Allow opening pseudo-terminals.
+				(allow file-read* file-write* file-ioctl
+					(literal "/dev/ptmx")
+					(regex #"^/dev/ttys[0-9]+$"))
 			"#
 		).unwrap();
 	}
+
+	writedoc!(
+		profile,
+		r#"
+		;; Allow exec'ing the tg binary itself.
+		(allow file-read* process-exec
+			(literal "{}"))
+
+		;; Allow reading/writing to the socket path.
+		(allow file-read* file-write*
+			(literal "{}")
+			(literal "{}"))
+		(allow file-read* file-write* process-exec
+			(subpath "{}"))
+	"#,
+		config.tangram_path.display(),
+		config.socket_path.display(),
+		config.listen_path.display(),
+		config.scratch_path.parent().unwrap().display(),
+	)
+	.unwrap();
 
 	// Write the network profile.
 	if config.network {

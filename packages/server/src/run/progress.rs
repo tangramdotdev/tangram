@@ -127,47 +127,40 @@ impl Server {
 		});
 
 		// Write with retry.
-		tangram_futures::retry::retry(
-			&tangram_futures::retry::Options::default(),
-			|| {
-				let receiver = receiver.clone();
-				let remote = remote.clone();
-				async move {
-					let stream = receiver
-						.map(|bytes| {
-							Ok(tg::process::stdio::Event::Chunk(
-								tg::process::stdio::Chunk { bytes },
-							))
-						})
-						.chain(futures::stream::once(futures::future::ready(Ok(
-							tg::process::stdio::Event::End,
-						))))
-						.boxed();
-					let arg = tg::process::stdio::Arg {
-						local: None,
-						remotes: remote.map(|remote| vec![remote]),
-					};
-					let stream = self
-						.write_process_stderr(id, arg, stream)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to write process stderr"))?;
-					let mut stream = pin!(stream);
-					let Some(event) = stream.try_next().await? else {
-						return Ok(ControlFlow::Break(()));
-					};
-					match event {
-						tg::process::stdio::OutputEvent::End => {
-							Ok(ControlFlow::Break(()))
-						},
-						tg::process::stdio::OutputEvent::Stop => {
-							Ok(ControlFlow::Continue(tg::error!(
-								"the server was stopped"
-							)))
-						},
-					}
+		tangram_futures::retry::retry(&tangram_futures::retry::Options::default(), || {
+			let receiver = receiver.clone();
+			let remote = remote.clone();
+			async move {
+				let stream = receiver
+					.map(|bytes| {
+						Ok(tg::process::stdio::Event::Chunk(
+							tg::process::stdio::Chunk { bytes },
+						))
+					})
+					.chain(futures::stream::once(futures::future::ready(Ok(
+						tg::process::stdio::Event::End,
+					))))
+					.boxed();
+				let arg = tg::process::stdio::Arg {
+					local: None,
+					remotes: remote.map(|remote| vec![remote]),
+				};
+				let stream = self
+					.write_process_stderr(id, arg, stream)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to write process stderr"))?;
+				let mut stream = pin!(stream);
+				let Some(event) = stream.try_next().await? else {
+					return Ok(ControlFlow::Break(()));
+				};
+				match event {
+					tg::process::stdio::OutputEvent::End => Ok(ControlFlow::Break(())),
+					tg::process::stdio::OutputEvent::Stop => {
+						Ok(ControlFlow::Continue(tg::error!("the server was stopped")))
+					},
 				}
-			},
-		)
+			}
+		})
 		.await
 		.map_err(|source| tg::error!(!source, "failed to write process stderr"))?;
 

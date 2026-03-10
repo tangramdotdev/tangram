@@ -330,14 +330,28 @@ impl Server {
 		// Render the executable.
 		let executable = match command.host.as_str() {
 			"builtin" => {
+				#[cfg(target_os = "linux")]
 				let tg = PathBuf::from("/.tangram/bin/tg");
+
+				#[cfg(target_os = "macos")]
+				let tg = tangram_util::env::current_exe().map_err(|source| {
+					tg::error!(!source, "failed to get the current executable path")
+				})?;
+
 				args.insert(0, "builtin".to_owned());
 				args.insert(1, command.executable.to_string());
 				tg
 			},
 
 			"js" => {
+				#[cfg(target_os = "linux")]
 				let tg = PathBuf::from("/.tangram/bin/tg");
+
+				#[cfg(target_os = "macos")]
+				let tg = tangram_util::env::current_exe().map_err(|source| {
+					tg::error!(!source, "failed to get the current executable path")
+				})?;
+
 				args.insert(0, "js".to_owned());
 				match &self.config.runner.as_ref().unwrap().js.engine {
 					crate::config::JsEngine::Auto => {
@@ -394,7 +408,12 @@ impl Server {
 		env.insert("TANGRAM_PROCESS".to_owned(), id.to_string());
 
 		// Create the guest uri.
+		#[cfg(target_os = "linux")]
 		let socket_guest_path = PathBuf::from("/.tangram/socket");
+
+		#[cfg(target_os = "macos")]
+		let socket_guest_path = socket_path.clone();
+
 		let authority = socket_guest_path.to_str().unwrap();
 		let guest_uri = tangram_uri::Uri::builder()
 			.scheme("http+unix")
@@ -925,60 +944,53 @@ impl Server {
 				});
 
 				// Write with retry.
-				tangram_futures::retry::retry(
-					&tangram_futures::retry::Options::default(),
-					|| {
-						let receiver = receiver.clone();
-						let remote = remote.clone();
-						async move {
-							let stream = receiver
-								.map(|bytes| {
-									Ok(tg::process::stdio::Event::Chunk(
-										tg::process::stdio::Chunk { bytes },
-									))
-								})
-								.chain(futures::stream::once(futures::future::ready(Ok(
-									tg::process::stdio::Event::End,
-								))))
-								.boxed();
-							let arg = tg::process::stdio::Arg {
-								local: None,
-								remotes: remote.map(|remote| vec![remote]),
-							};
-							let stream = match stdio_stream {
-								tg::process::stdio::Stream::Stdout => self
-									.write_process_stdout(id, arg, stream)
-									.await
-									.map_err(|source| {
-										tg::error!(!source, %stdio_stream, "failed to forward process stdio")
-									})?
-									.boxed(),
-								tg::process::stdio::Stream::Stderr => self
-									.write_process_stderr(id, arg, stream)
-									.await
-									.map_err(|source| {
-										tg::error!(!source, %stdio_stream, "failed to forward process stdio")
-									})?
-									.boxed(),
-								tg::process::stdio::Stream::Stdin => unreachable!(),
-							};
-							let mut stream = pin!(stream);
-							let Some(event) = stream.try_next().await? else {
-								return Ok(ControlFlow::Break(()));
-							};
-							match event {
-								tg::process::stdio::OutputEvent::End => {
-									Ok(ControlFlow::Break(()))
-								},
-								tg::process::stdio::OutputEvent::Stop => {
-									Ok(ControlFlow::Continue(tg::error!(
-										"the server was stopped"
-									)))
-								},
-							}
+				tangram_futures::retry::retry(&tangram_futures::retry::Options::default(), || {
+					let receiver = receiver.clone();
+					let remote = remote.clone();
+					async move {
+						let stream = receiver
+							.map(|bytes| {
+								Ok(tg::process::stdio::Event::Chunk(
+									tg::process::stdio::Chunk { bytes },
+								))
+							})
+							.chain(futures::stream::once(futures::future::ready(Ok(
+								tg::process::stdio::Event::End,
+							))))
+							.boxed();
+						let arg = tg::process::stdio::Arg {
+							local: None,
+							remotes: remote.map(|remote| vec![remote]),
+						};
+						let stream = match stdio_stream {
+							tg::process::stdio::Stream::Stdout => self
+								.write_process_stdout(id, arg, stream)
+								.await
+								.map_err(
+									|source| tg::error!(!source, %stdio_stream, "failed to forward process stdio"),
+								)?
+								.boxed(),
+							tg::process::stdio::Stream::Stderr => self
+								.write_process_stderr(id, arg, stream)
+								.await
+								.map_err(
+									|source| tg::error!(!source, %stdio_stream, "failed to forward process stdio"),
+								)?
+								.boxed(),
+							tg::process::stdio::Stream::Stdin => unreachable!(),
+						};
+						let mut stream = pin!(stream);
+						let Some(event) = stream.try_next().await? else {
+							return Ok(ControlFlow::Break(()));
+						};
+						match event {
+							tg::process::stdio::OutputEvent::End => Ok(ControlFlow::Break(())),
+							tg::process::stdio::OutputEvent::Stop => {
+								Ok(ControlFlow::Continue(tg::error!("the server was stopped")))
+							},
 						}
-					},
-				)
+					}
+				})
 				.await
 				.map_err(
 					|source| tg::error!(!source, %stdio_stream, "failed to complete process stdio write"),
