@@ -76,9 +76,14 @@ export const run = async (...args: std.Args<Arg>) => {
 		features.push("foundationdb");
 	}
 
+	// Set up environment, including the pre-downloaded V8 archive so the
+	// build script copies it instead of downloading via curl.
+	const cargoLock = await source_.get("Cargo.lock").then(tg.File.expect);
+	const env = await std.env.arg(env_, librustyv8(cargoLock, host));
+
 	// Call cargo.run() with the source, features, and env.
 	return cargo.run({
-		env: env_,
+		env,
 		features,
 		host,
 		proxy,
