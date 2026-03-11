@@ -1,12 +1,18 @@
 use {
-	super::Options, bytes::Bytes, futures::{StreamExt as _, TryStreamExt as _, future, stream}, std::{
+	super::Options,
+	bytes::Bytes,
+	futures::{StreamExt as _, TryStreamExt as _, future, stream},
+	std::{
 		io::IsTerminal as _,
 		mem::MaybeUninit,
+		ops::ControlFlow,
 		os::fd::{AsRawFd as _, RawFd},
 		pin::pin,
 		sync::Arc,
-		ops::ControlFlow,
-}, tangram_client::prelude::*, tangram_futures::task::{Stop, Task}, tokio::io::AsyncWriteExt as _
+	},
+	tangram_client::prelude::*,
+	tangram_futures::task::{Stop, Task},
+	tokio::io::AsyncWriteExt as _,
 };
 
 #[derive(Clone, Debug)]
@@ -65,8 +71,7 @@ where
 			// Read from stdin and write to a channel.
 			let (sender, receiver) = async_channel::bounded::<Bytes>(1024);
 			tokio::spawn(async move {
-				let mut stream =
-					pin!(crate::util::stdio::stdin_stream().take_until(stop.wait()));
+				let mut stream = pin!(crate::util::stdio::stdin_stream().take_until(stop.wait()));
 				while let Some(result) = stream.next().await {
 					match result {
 						Ok(bytes) => {
@@ -80,55 +85,40 @@ where
 			});
 
 			// Write stdin with retry.
-			tangram_futures::retry::retry(
-				&tangram_futures::retry::Options::default(),
-				|| {
-					let handle = handle.clone();
-					let process = process.clone();
-					let remote = remote.clone();
-					let receiver = receiver.clone();
-					async move {
-						let stream = receiver
-							.map(|bytes| {
-								Ok(tg::process::stdio::Event::Chunk(
-									tg::process::stdio::Chunk { bytes },
-								))
-							})
-							.chain(stream::once(future::ready(Ok(
-								tg::process::stdio::Event::End,
-							))))
-							.boxed();
-						let arg = tg::process::stdio::Arg {
-							remotes: remote.map(|remote| vec![remote]),
-							..tg::process::stdio::Arg::default()
-						};
-						let stream =
-							handle.write_process_stdin(&process, arg, stream).await?;
-						let mut stream = pin!(stream);
-						let Some(event) = stream.try_next().await? else {
-							return Ok(ControlFlow::Break(()))
-						};
-						match event {
-							tg::process::stdio::OutputEvent::End => {
-								Ok(ControlFlow::Break(()))
-							},
-							tg::process::stdio::OutputEvent::Stop => {
-								Ok(ControlFlow::Continue(tg::error!(
-									"the server was stopped"
-								)))
-							},
-						}
+			tangram_futures::retry::retry(&tangram_futures::retry::Options::default(), || {
+				let handle = handle.clone();
+				let process = process.clone();
+				let remote = remote.clone();
+				let receiver = receiver.clone();
+				async move {
+					let stream = receiver
+						.map(|bytes| {
+							Ok(tg::process::stdio::Event::Chunk(
+								tg::process::stdio::Chunk { bytes },
+							))
+						})
+						.chain(stream::once(future::ready(Ok(
+							tg::process::stdio::Event::End,
+						))))
+						.boxed();
+					let arg = tg::process::stdio::Arg {
+						remotes: remote.map(|remote| vec![remote]),
+						..tg::process::stdio::Arg::default()
+					};
+					let stream = handle.write_process_stdin(&process, arg, stream).await?;
+					let mut stream = pin!(stream);
+					let Some(event) = stream.try_next().await? else {
+						return Ok(ControlFlow::Break(()));
+					};
+					match event {
+						tg::process::stdio::OutputEvent::End => Ok(ControlFlow::Break(())),
+						tg::process::stdio::OutputEvent::Stop => {
+							Ok(ControlFlow::Continue(tg::error!("the server was stopped")))
+						},
 					}
-				},
-			)
+				}
+			})
 			.await?;
-
-			// Close stdin.
-			let arg = tg::process::stdio::Arg {
-				remotes: remote.map(|remote| vec![remote]),
-				..tg::process::stdio::Arg::default()
-			};
-			handle.close_process_stdin(&process, arg).await.ok();
 
 			Ok(())
 		}

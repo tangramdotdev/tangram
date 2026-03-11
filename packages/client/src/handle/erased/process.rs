@@ -147,24 +147,6 @@ pub trait Process: Send + Sync + 'static {
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::Event>>,
 	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::OutputEvent>>>>;
 
-	fn close_process_stdin<'a>(
-		&'a self,
-		id: &'a tg::process::Id,
-		arg: tg::process::stdio::Arg,
-	) -> BoxFuture<'a, tg::Result<()>>;
-
-	fn close_process_stdout<'a>(
-		&'a self,
-		id: &'a tg::process::Id,
-		arg: tg::process::stdio::Arg,
-	) -> BoxFuture<'a, tg::Result<()>>;
-
-	fn close_process_stderr<'a>(
-		&'a self,
-		id: &'a tg::process::Id,
-		arg: tg::process::stdio::Arg,
-	) -> BoxFuture<'a, tg::Result<()>>;
-
 	fn heartbeat_process<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
@@ -411,30 +393,6 @@ where
 		self.write_process_stderr(id, arg, stream)
 			.map_ok(futures::StreamExt::boxed)
 			.boxed()
-	}
-
-	fn close_process_stdin<'a>(
-		&'a self,
-		id: &'a tg::process::Id,
-		arg: tg::process::stdio::Arg,
-	) -> BoxFuture<'a, tg::Result<()>> {
-		self.close_process_stdin(id, arg).boxed()
-	}
-
-	fn close_process_stdout<'a>(
-		&'a self,
-		id: &'a tg::process::Id,
-		arg: tg::process::stdio::Arg,
-	) -> BoxFuture<'a, tg::Result<()>> {
-		self.close_process_stdout(id, arg).boxed()
-	}
-
-	fn close_process_stderr<'a>(
-		&'a self,
-		id: &'a tg::process::Id,
-		arg: tg::process::stdio::Arg,
-	) -> BoxFuture<'a, tg::Result<()>> {
-		self.close_process_stderr(id, arg).boxed()
 	}
 
 	fn heartbeat_process<'a>(

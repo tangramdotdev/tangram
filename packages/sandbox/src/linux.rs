@@ -85,6 +85,29 @@ pub fn enter(config: &Config) -> tg::Result<()> {
 			std::fs::copy("/etc/resolv.conf", root.join("etc/resolv.conf")).map_err(|source| {
 				tg::error!(!source, "failed to copy /etc/resolv.conf to the sandbox")
 			})?;
+
+			// Mount the CA certificates so that HTTPS requests work inside the sandbox.
+			let ssl_certs = Path::new("/etc/ssl/certs");
+			if ssl_certs.exists() {
+				mounts
+					.entry(ssl_certs.to_owned())
+					.or_default()
+					.push((ssl_certs.to_owned(), true));
+			}
+			let ssl_openssl_cnf = Path::new("/etc/ssl/openssl.cnf");
+			if ssl_openssl_cnf.exists() {
+				mounts
+					.entry(ssl_openssl_cnf.to_owned())
+					.or_default()
+					.push((ssl_openssl_cnf.to_owned(), true));
+			}
+			let pki_tls = Path::new("/etc/pki/tls");
+			if pki_tls.exists() {
+				mounts
+					.entry(pki_tls.to_owned())
+					.or_default()
+					.push((pki_tls.to_owned(), true));
+			}
 		}
 
 		// Add the root overlay, /dev, and /proc.
@@ -155,9 +178,17 @@ pub fn enter(config: &Config) -> tg::Result<()> {
 					.iter()
 					.map(|(source, _)| source.clone())
 					.collect::<Vec<_>>();
-				let upperdir = config.scratch_path.join(format!("upper/{num_overlays}"));
-				let workdir = config.scratch_path.join(format!("work/{num_overlays}"));
-				num_overlays += 1;
+				let (upperdir, workdir) = if target == Path::new("/") {
+					(
+						config.root_path.clone(),
+						config.scratch_path.join("root_work"),
+					)
+				} else {
+					let upperdir = config.scratch_path.join(format!("upper/{num_overlays}"));
+					let workdir = config.scratch_path.join(format!("work/{num_overlays}"));
+					num_overlays += 1;
+					(upperdir, workdir)
+				};
 				std::fs::create_dir_all(&upperdir).ok();
 				std::fs::create_dir_all(&workdir).ok();
 				overlay(&lowerdirs, &upperdir, &workdir, &target)

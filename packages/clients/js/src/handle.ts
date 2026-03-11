@@ -34,9 +34,9 @@ export namespace Handle {
 		parent: tg.Process.Id | undefined;
 		remote: string | undefined;
 		retry: boolean;
-		stderr: string | undefined;
-		stdin: string | undefined;
-		stdout: string | undefined;
+		stderr: string;
+		stdin: string;
+		stdout: string;
 	};
 
 	export type SpawnOutput = {

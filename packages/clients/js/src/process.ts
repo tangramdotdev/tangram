@@ -182,9 +182,9 @@ export namespace Process {
 		name?: string | undefined;
 		network?: boolean | undefined;
 		sandbox?: boolean | undefined;
-		stderr?: undefined;
+		stderr?: undefined | string;
 		stdin?: tg.Blob.Arg | undefined;
-		stdout?: undefined;
+		stdout?: undefined | string;
 		user?: string | undefined;
 	};
 

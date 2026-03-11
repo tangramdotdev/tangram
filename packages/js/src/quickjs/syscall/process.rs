@@ -37,7 +37,7 @@ pub async fn spawn(
 	arg: Serde<tg::process::spawn::Arg>,
 ) -> Result<Serde<tg::process::spawn::Output>> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
-	let Serde(arg) = arg;
+	let Serde(arg) = dbg!(arg);
 	let result = async {
 		let stream = state
 			.main_runtime_handle

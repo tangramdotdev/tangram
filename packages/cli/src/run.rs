@@ -76,7 +76,6 @@ pub enum View {
 impl Cli {
 	pub async fn command_run(&mut self, args: Args) -> tg::Result<()> {
 		let checkout = args.options.checkout.is_some();
-		let detach = args.options.detach;
 		let print = args.options.print.clone();
 		let local = args.options.spawn.local.local;
 		let remotes = args.options.spawn.remotes.remotes.clone();
@@ -85,7 +84,7 @@ impl Cli {
 		let output = self.run(args).await?;
 
 		// Print the output.
-		if detach || checkout {
+		if checkout {
 			Self::print_display(output);
 		} else if !output.is_null() {
 			let arg = tg::object::get::Arg {
@@ -229,7 +228,9 @@ impl Cli {
 
 		// If the detach flag is set, then return the process ID.
 		if options.detach {
-			return Ok(tg::Value::String(process.item().id().to_string()));
+			// Print the process id, avoiding formatting it as a string.
+			println!("{}", process.item().id());
+			return Ok(tg::Value::Null);
 		}
 
 		// Print the process.

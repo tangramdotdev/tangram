@@ -279,16 +279,16 @@ impl Server {
 		})?;
 
 		// Get the artifacts path.
-		let artifacts_path = if chroot {
+		let (host_artifacts_path, render_artifacts_path) = if chroot {
 			let host = self.artifacts_path();
 			let guest = PathBuf::from("/.tangram/artifacts");
 			path_maps.push(PathMap {
 				host: host.clone(),
-				guest,
+				guest: guest.clone(),
 			});
-			host
+			(host, guest)
 		} else {
-			self.artifacts_path()
+			(self.artifacts_path(), self.artifacts_path())
 		};
 
 		// Get the output path.
@@ -314,7 +314,7 @@ impl Server {
 		// Render the args.
 		let mut args = match command.host.as_str() {
 			"builtin" | "js" => render_args_dash_a(&command.args),
-			_ => render_args_string(&command.args, &artifacts_path, &output_path)?,
+			_ => render_args_string(&command.args, &render_artifacts_path, &output_path)?,
 		};
 
 		// Get the working directory.
@@ -325,7 +325,7 @@ impl Server {
 		};
 
 		// Render the env.
-		let mut env = render_env(&command.env, &artifacts_path, &output_path)?;
+		let mut env = render_env(&command.env, &render_artifacts_path, &output_path)?;
 
 		// Render the executable.
 		let executable = match command.host.as_str() {
@@ -370,7 +370,7 @@ impl Server {
 
 			_ => match &command.executable {
 				tg::command::data::Executable::Artifact(executable) => {
-					let mut path = artifacts_path.join(executable.artifact.to_string());
+					let mut path = render_artifacts_path.join(executable.artifact.to_string());
 					if let Some(executable_path) = &executable.path {
 						path.push(executable_path);
 					}
@@ -485,7 +485,7 @@ impl Server {
 
 		// Create the sandbox.
 		let sandbox_config = tangram_sandbox::Config {
-			artifacts_path,
+			artifacts_path: host_artifacts_path,
 			hostname: None,
 			listen_path,
 			mounts,
@@ -915,6 +915,9 @@ impl Server {
 				while let Some(bytes) = stream.try_next().await.map_err(
 					|source| tg::error!(!source, %stdio_stream, "failed to read process stdio stream"),
 				)? {
+					if bytes.is_empty() {
+						continue;
+					}
 					let arg = tg::process::log::post::Arg {
 						bytes,
 						local: None,
@@ -934,6 +937,9 @@ impl Server {
 					while let Some(result) = stream.next().await {
 						match result {
 							Ok(bytes) => {
+								if bytes.is_empty() {
+									continue;
+								}
 								if sender.send(bytes).await.is_err() {
 									break;
 								}
@@ -997,17 +1003,6 @@ impl Server {
 				)?;
 			},
 		}
-
-		// Close the stream.
-		let arg = tg::process::stdio::Arg {
-			local: None,
-			remotes: remote.map(|remote| vec![remote]),
-		};
-		self.close_process_stdio_with_context(&Context::default(), id, arg, stdio_stream)
-			.await
-			.map_err(
-				|source| tg::error!(!source, %stdio_stream, "failed to close process stdio"),
-			)?;
 
 		Ok(())
 	}

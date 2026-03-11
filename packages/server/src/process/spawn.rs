@@ -136,9 +136,9 @@ impl Server {
 		let cacheable = arg.checksum.is_some()
 			|| (arg.mounts.is_empty()
 				&& !arg.network
-				&& arg.stdin.is_null()
-				&& arg.stdout.is_null()
-				&& arg.stderr.is_null());
+				&& (arg.stdin.is_null() || arg.stdin.is_log())
+				&& (arg.stdin.is_null() || arg.stdin.is_log())
+				&& (arg.stdin.is_null() || arg.stdin.is_log()));
 
 		// Get or create a local process.
 		let mut output = if cacheable

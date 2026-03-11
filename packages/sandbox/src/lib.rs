@@ -328,7 +328,7 @@ impl std::str::FromStr for Stdio {
 			"null" => Ok(Stdio::Null),
 			"pipe" => Ok(Stdio::Pipe),
 			"pty" => Ok(Stdio::Pty),
-			_ => Err(tg::error!("invalid stdio")),
+			s => Err(tg::error!(string = %s, "invalid stdio {s}")),
 		}
 	}
 }

@@ -66,7 +66,8 @@ pub enum Stream {
 	Stderr,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case", tag = "kind", content = "value")]
 pub enum Event {
 	Chunk(Chunk),
 	End,
@@ -153,61 +154,6 @@ impl tg::Client {
 	> {
 		self.write_process_stdio(id, arg, tg::process::stdio::Stream::Stderr, stream)
 			.await
-	}
-
-	pub async fn close_process_stdin(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::stdio::Arg,
-	) -> tg::Result<()> {
-		self.close_process_stdio(id, arg, tg::process::stdio::Stream::Stdin)
-			.await
-	}
-
-	pub async fn close_process_stdout(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::stdio::Arg,
-	) -> tg::Result<()> {
-		self.close_process_stdio(id, arg, tg::process::stdio::Stream::Stdout)
-			.await
-	}
-
-	pub async fn close_process_stderr(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::stdio::Arg,
-	) -> tg::Result<()> {
-		self.close_process_stdio(id, arg, tg::process::stdio::Stream::Stderr)
-			.await
-	}
-
-	pub async fn close_process_stdio(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::stdio::Arg,
-		stream: tg::process::stdio::Stream,
-	) -> tg::Result<()> {
-		let method = http::Method::POST;
-		let query = serde_urlencoded::to_string(&arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
-		let uri = format!("/processes/{id}/{stream}/close?{query}");
-		let request = http::request::Builder::default()
-			.method(method)
-			.uri(uri)
-			.empty()
-			.unwrap();
-		let response = self
-			.send(request)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
-		if !response.status().is_success() {
-			let error = response.json().await.map_err(|source| {
-				tg::error!(!source, "failed to deserialize the error response")
-			})?;
-			return Err(error);
-		}
-		Ok(())
 	}
 
 	async fn try_read_process_stdio(
@@ -423,7 +369,7 @@ impl std::str::FromStr for Stdio {
 			"log" => Ok(Self::Log),
 			"pipe" => Ok(Self::Pipe),
 			"pty" => Ok(Self::Pty),
-			_ => Err(tg::error!("invalid stdio")),
+			_ => Err(tg::error!(string = %s, "invalid stdio {s:?}")),
 		}
 	}
 }

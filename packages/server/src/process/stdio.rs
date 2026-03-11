@@ -116,59 +116,6 @@ impl Server {
 		.await
 	}
 
-	pub async fn close_process_stdin_with_context(
-		&self,
-		context: &Context,
-		id: &tg::process::Id,
-		arg: tg::process::stdio::Arg,
-	) -> tg::Result<()> {
-		self.close_process_stdio_with_context(context, id, arg, tg::process::stdio::Stream::Stdin)
-			.await
-	}
-
-	pub async fn close_process_stdout_with_context(
-		&self,
-		context: &Context,
-		id: &tg::process::Id,
-		arg: tg::process::stdio::Arg,
-	) -> tg::Result<()> {
-		self.close_process_stdio_with_context(context, id, arg, tg::process::stdio::Stream::Stdout)
-			.await
-	}
-
-	pub async fn close_process_stderr_with_context(
-		&self,
-		context: &Context,
-		id: &tg::process::Id,
-		arg: tg::process::stdio::Arg,
-	) -> tg::Result<()> {
-		self.close_process_stdio_with_context(context, id, arg, tg::process::stdio::Stream::Stderr)
-			.await
-	}
-
-	pub async fn close_process_stdio_with_context(
-		&self,
-		_context: &Context,
-		id: &tg::process::Id,
-		arg: tg::process::stdio::Arg,
-		stream: tg::process::stdio::Stream,
-	) -> tg::Result<()> {
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self
-				.get_remote_client(remote)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the client"))?;
-			return client.close_process_stdio(id, arg, stream).await;
-		}
-		let subject = format!("processes.{id}.{stream}");
-		let _future = self
-			.messenger
-			.stream_publish("stdio".into(), subject, Bytes::new())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to send close message"))?;
-		Ok(())
-	}
-
 	pub async fn try_read_process_stdio_with_context(
 		&self,
 		_context: &Context,
@@ -227,7 +174,8 @@ impl Server {
 			.create_consumer(None, consumer_config)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create a stdio consumer"))?;
-		let (sender, receiver) = async_channel::unbounded::<tg::Result<Bytes>>();
+		let (sender, receiver) =
+			async_channel::unbounded::<tg::Result<tg::process::stdio::Event>>();
 		let task = Task::spawn(|_| async move {
 			let stream = consumer
 				.subscribe::<Bytes>()
@@ -239,21 +187,20 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to read stdio"))
 			}));
 			while let Some(result) = stream.next().await {
-				if sender.send(result).await.is_err() {
+				let event = match result {
+					Ok(bytes) => serde_json::from_slice::<tg::process::stdio::Event>(&bytes)
+						.map_err(|source| {
+							tg::error!(!source, "failed to deserialize the stdio event")
+						}),
+					Err(error) => Err(error),
+				};
+				if sender.send(event).await.is_err() {
 					break;
 				}
 			}
 			Ok::<_, tg::Error>(())
 		});
-		let event_stream = receiver
-			.take_while(|result| future::ready(!result.as_ref().is_ok_and(Bytes::is_empty)))
-			.map(|result| {
-				result.map(|bytes| {
-					tg::process::stdio::Event::Chunk(tg::process::stdio::Chunk { bytes })
-				})
-			})
-			.attach(task)
-			.boxed();
+		let event_stream = receiver.attach(task).boxed();
 		Ok(Some(event_stream))
 	}
 
@@ -370,45 +317,48 @@ impl Server {
 							));
 						},
 					};
-					match event {
-						tg::process::stdio::Event::Chunk(chunk) => {
-							if chunk.bytes.is_empty() {
-								continue;
-							}
-							let retries = tangram_futures::retry_stream(retry_options.clone());
-							let mut retries = pin!(retries);
-							while let Some(()) = retries.next().await {
-								let publish = server
-									.messenger
-									.stream_publish(
-										"stdio".to_owned(),
-										subject.clone(),
-										chunk.bytes.clone(),
-									)
-									.and_then(|result| result)
-									.await;
-								match publish {
-									Ok(_) => break,
-									Err(
-										tangram_messenger::Error::MaxMessages
-										| tangram_messenger::Error::MaxBytes
-										| tangram_messenger::Error::PublishFailed,
-									) => (),
-									Err(source) => {
-										return Some((
-											Err(tg::error!(!source, "failed to publish stdio")),
-											(server, id, stdio_stream, None),
-										));
-									},
-								}
-							}
-						},
-						tg::process::stdio::Event::End => {
+					if matches!(&event, tg::process::stdio::Event::Chunk(chunk) if chunk.bytes.is_empty())
+					{
+						continue;
+					}
+					let is_end = matches!(&event, tg::process::stdio::Event::End);
+					let payload = match serde_json::to_vec(&event) {
+						Ok(payload) => Bytes::from(payload),
+						Err(source) => {
 							return Some((
-								Ok(tg::process::stdio::OutputEvent::End),
+								Err(tg::error!(!source, "failed to serialize the stdio event")),
 								(server, id, stdio_stream, None),
 							));
 						},
+					};
+					let retries = tangram_futures::retry_stream(retry_options.clone());
+					let mut retries = pin!(retries);
+					while let Some(()) = retries.next().await {
+						let publish = server
+							.messenger
+							.stream_publish("stdio".to_owned(), subject.clone(), payload.clone())
+							.and_then(|result| result)
+							.await;
+						match publish {
+							Ok(_) => break,
+							Err(
+								tangram_messenger::Error::MaxMessages
+								| tangram_messenger::Error::MaxBytes
+								| tangram_messenger::Error::PublishFailed,
+							) => (),
+							Err(source) => {
+								return Some((
+									Err(tg::error!(!source, "failed to publish stdio")),
+									(server, id, stdio_stream, None),
+								));
+							},
+						}
+					}
+					if is_end {
+						return Some((
+							Ok(tg::process::stdio::OutputEvent::End),
+							(server, id, stdio_stream, None),
+						));
 					}
 				}
 			},
@@ -537,74 +487,6 @@ impl Server {
 			tg::process::stdio::Stream::Stderr,
 		)
 		.await
-	}
-
-	pub(crate) async fn handle_post_process_stdin_close_request(
-		&self,
-		request: http::Request<BoxBody>,
-		context: &Context,
-		id: &str,
-	) -> tg::Result<http::Response<BoxBody>> {
-		self.handle_post_process_stdio_close_request(
-			request,
-			context,
-			id,
-			tg::process::stdio::Stream::Stdin,
-		)
-		.await
-	}
-
-	pub(crate) async fn handle_post_process_stdout_close_request(
-		&self,
-		request: http::Request<BoxBody>,
-		context: &Context,
-		id: &str,
-	) -> tg::Result<http::Response<BoxBody>> {
-		self.handle_post_process_stdio_close_request(
-			request,
-			context,
-			id,
-			tg::process::stdio::Stream::Stdout,
-		)
-		.await
-	}
-
-	pub(crate) async fn handle_post_process_stderr_close_request(
-		&self,
-		request: http::Request<BoxBody>,
-		context: &Context,
-		id: &str,
-	) -> tg::Result<http::Response<BoxBody>> {
-		self.handle_post_process_stdio_close_request(
-			request,
-			context,
-			id,
-			tg::process::stdio::Stream::Stderr,
-		)
-		.await
-	}
-
-	pub(crate) async fn handle_post_process_stdio_close_request(
-		&self,
-		request: http::Request<BoxBody>,
-		context: &Context,
-		id: &str,
-		stream: tg::process::stdio::Stream,
-	) -> tg::Result<http::Response<BoxBody>> {
-		let id = id
-			.parse::<tg::process::Id>()
-			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
-		let arg = request
-			.query_params()
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
-			.unwrap_or_default();
-
-		self.close_process_stdio_with_context(context, &id, arg, stream)
-			.await?;
-
-		let response = http::Response::builder().body(BoxBody::empty()).unwrap();
-		Ok(response)
 	}
 
 	pub(crate) async fn handle_post_process_stdio_read_request(

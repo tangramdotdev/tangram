@@ -289,7 +289,7 @@ impl std::str::FromStr for Stdio {
 				.parse::<tg::blob::Id>()
 				.map(tg::Blob::with_id)
 				.map(Self::Blob)
-				.map_err(|_| tg::error!("invalid stdio")),
+				.map_err(|_| tg::error!(string = %s, "invalid stdio: {s:?}")),
 		}
 	}
 }

@@ -367,39 +367,6 @@ where
 		}
 	}
 
-	fn close_process_stdin(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::stdio::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		match self {
-			tg::Either::Left(s) => s.close_process_stdin(id, arg).left_future(),
-			tg::Either::Right(s) => s.close_process_stdin(id, arg).right_future(),
-		}
-	}
-
-	fn close_process_stdout(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::stdio::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		match self {
-			tg::Either::Left(s) => s.close_process_stdout(id, arg).left_future(),
-			tg::Either::Right(s) => s.close_process_stdout(id, arg).right_future(),
-		}
-	}
-
-	fn close_process_stderr(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::stdio::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		match self {
-			tg::Either::Left(s) => s.close_process_stderr(id, arg).left_future(),
-			tg::Either::Right(s) => s.close_process_stderr(id, arg).right_future(),
-		}
-	}
-
 	fn heartbeat_process(
 		&self,
 		id: &tg::process::Id,

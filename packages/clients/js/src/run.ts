@@ -166,9 +166,9 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		parent: undefined,
 		remote: undefined,
 		retry: false,
-		stderr,
-		stdin: processStdin,
-		stdout,
+		stderr: stderr ?? "null",
+		stdin: processStdin ?? "null",
+		stdout: stdout ?? "null",
 	});
 
 	let wait = await process.wait();

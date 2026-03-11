@@ -37,8 +37,10 @@ impl Cli {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 		let reference = tg::Reference::with_object(command.into());
+		let mut options = args.build;
+		options.spawn.network = Some(true);
 		let args = crate::run::Args {
-			options: args.build,
+			options,
 			reference,
 			trailing: Vec::new(),
 		};
