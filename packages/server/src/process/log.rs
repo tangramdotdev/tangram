@@ -97,7 +97,9 @@ impl Server {
 			.try_get_process_local(process, false)
 			.await?
 			.ok_or_else(|| tg::error!("expected the process to exist"))?;
-		if output.data.log.is_some() {
+		if output.data.log.is_some()
+			|| !(output.data.stdout.is_log() || output.data.stderr.is_log())
+		{
 			return Ok(());
 		}
 

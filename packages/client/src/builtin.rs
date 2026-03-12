@@ -383,6 +383,9 @@ impl std::str::FromStr for DownloadMode {
 impl From<DownloadOptions> for tg::Value {
 	fn from(options: DownloadOptions) -> Self {
 		let mut map = BTreeMap::new();
+		if let Some(checksum) = options.checksum {
+			map.insert("checksum".to_owned(), checksum.to_string().into());
+		}
 		if let Some(mode) = options.mode {
 			map.insert("mode".to_owned(), mode.to_string().into());
 		}
@@ -399,6 +402,16 @@ impl TryFrom<tg::Value> for DownloadOptions {
 			.try_unwrap_map()
 			.ok()
 			.ok_or_else(|| tg::error!("expected a map"))?;
+		if let Some(value) = map.get("checksum") {
+			let checksum = value
+				.clone()
+				.try_unwrap_string()
+				.ok()
+				.ok_or_else(|| tg::error!("expected a string"))?
+				.parse()
+				.map_err(|source| tg::error!(!source, "failed to parse the checksum algorithm"))?;
+			options.checksum = Some(checksum);
+		}
 		if let Some(value) = map.get("mode") {
 			let mode = value
 				.clone()

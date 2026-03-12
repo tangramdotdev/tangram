@@ -707,7 +707,7 @@ export def --env spawn [
 	mut default_config = {
 		advanced: {
 			disable_version_check: true
-			internal_error_locations: true
+			internal_error_locations: false
 		},
 		index: {
 			kind: 'lmdb',

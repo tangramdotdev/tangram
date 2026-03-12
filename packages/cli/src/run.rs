@@ -228,8 +228,21 @@ impl Cli {
 
 		// If the detach flag is set, then return the process ID.
 		if options.detach {
-			// Print the process id, avoiding formatting it as a string.
-			println!("{}", process.item().id());
+			if options.verbose {
+				let mut map = serde_json::Map::new();
+				map.insert(
+					"process".into(),
+					serde_json::Value::String(process.item().id().to_string()),
+				);
+				if let Some(token) = process.item().token() {
+					map.insert("token".into(), serde_json::Value::String(token.clone()));
+				}
+				let json = serde_json::to_string(&map)
+					.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
+				println!("{json}");
+			} else {
+				println!("{}", process.item().id());
+			}
 			return Ok(tg::Value::Null);
 		}
 

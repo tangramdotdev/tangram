@@ -62,12 +62,19 @@ impl Server {
 		>,
 	> {
 		// Verify the process is local.
-		if !self
-			.get_process_exists_local(id)
+		let output = self
+			.try_get_process_local(id, false)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to check if the process exists"))?
-		{
+			.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?;
+		let Some(output) = output else {
 			return Ok(None);
+		};
+
+		// If neither stdout nor stderr uses the log, return an end event.
+		if !(output.data.stdout.is_log() || output.data.stderr.is_log()) {
+			return Ok(Some(
+				stream::once(future::ok(tg::process::log::get::Event::End)).left_stream(),
+			));
 		}
 
 		// Create the channel.
@@ -87,7 +94,7 @@ impl Server {
 
 		let stream = receiver.attach(task);
 
-		Ok(Some(stream))
+		Ok(Some(stream.right_stream()))
 	}
 
 	async fn try_get_process_log_local_task(

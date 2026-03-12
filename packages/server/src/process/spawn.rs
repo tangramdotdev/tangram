@@ -671,7 +671,7 @@ impl Server {
 			true,
 			arg.command.item.to_string(),
 			now,
-			error_data.map(db::value::Json),
+			error_data.map(|id| id.to_string()),
 			error_code,
 			exit,
 			expected_checksum.to_string(),

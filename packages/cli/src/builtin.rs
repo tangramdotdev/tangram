@@ -109,7 +109,7 @@ impl Cli {
 			error,
 			exit,
 			output,
-			..
+			checksum,
 		} = tokio::runtime::Builder::new_current_thread()
 			.enable_all()
 			.build()
@@ -122,6 +122,11 @@ impl Cli {
 		{
 			std::fs::write(&output_path, "")
 				.map_err(|source| tg::error!(!source, "failed to write the output"))?;
+			if let Some(checksum) = &checksum {
+				let string = checksum.to_string();
+				xattr::set(&output_path, "user.tangram.checksum", string.as_bytes())
+					.map_err(|source| tg::error!(!source, "failed to write the checksum xattr"))?;
+			}
 			if let Some(output) = &output {
 				let tgon = output.to_string();
 				xattr::set(&output_path, "user.tangram.output", tgon.as_bytes())

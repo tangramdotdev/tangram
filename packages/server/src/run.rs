@@ -116,9 +116,17 @@ impl Server {
 		}
 
 		// Run.
-		let wait = self.run(process).await.map_err(
+		let wait = match self.run(process).await.map_err(
 			|source| tg::error!(!source, process = %process.id(), "failed to run the process"),
-		)?;
+		) {
+			Ok(output) => output,
+			Err(error) => Output {
+				error: Some(error),
+				checksum: None,
+				exit: 1,
+				value: None,
+			},
+		};
 
 		// Store the output.
 		let value = if let Some(value) = &wait.value {
@@ -292,16 +300,19 @@ impl Server {
 		};
 
 		// Get the output path.
-		let output_path = if chroot {
+		let (output_path, render_output_path) = if chroot {
 			let host = output_path.clone();
 			let guest = PathBuf::from("/.tangram/output");
 			path_maps.push(PathMap {
 				host: host.clone(),
-				guest,
+				guest: guest.clone(),
 			});
-			host
+			(host, guest.join(id.to_string()))
 		} else {
-			output_path.clone()
+			(
+				output_path.clone(),
+				output_path.clone().join(id.to_string()),
+			)
 		};
 
 		// Add the root to the path map.
@@ -314,7 +325,7 @@ impl Server {
 		// Render the args.
 		let mut args = match command.host.as_str() {
 			"builtin" | "js" => render_args_dash_a(&command.args),
-			_ => render_args_string(&command.args, &render_artifacts_path, &output_path)?,
+			_ => render_args_string(&command.args, &render_artifacts_path, &render_output_path)?,
 		};
 
 		// Get the working directory.
@@ -325,7 +336,7 @@ impl Server {
 		};
 
 		// Render the env.
-		let mut env = render_env(&command.env, &render_artifacts_path, &output_path)?;
+		let mut env = render_env(&command.env, &render_artifacts_path, &render_output_path)?;
 
 		// Render the executable.
 		let executable = match command.host.as_str() {
@@ -390,18 +401,9 @@ impl Server {
 			.collect::<Vec<_>>();
 
 		// Set `$TANGRAM_OUTPUT`.
-		let guest_output_path = if chroot {
-			Path::new("/.tangram/output")
-		} else {
-			&output_path
-		};
 		env.insert(
 			"TANGRAM_OUTPUT".to_owned(),
-			guest_output_path
-				.join(id.to_string())
-				.to_str()
-				.unwrap()
-				.to_owned(),
+			render_output_path.to_str().unwrap().to_owned(),
 		);
 
 		// Set `$TANGRAM_PROCESS`.
@@ -671,6 +673,15 @@ impl Server {
 		let exists = tokio::fs::try_exists(&path).await.map_err(|source| {
 			tg::error!(!source, "failed to determine if the output path exists")
 		})?;
+
+		// Try to read the user.tangram.checksum xattr.
+		if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.checksum") {
+			let checksum = String::from_utf8(bytes)
+				.map_err(|source| tg::error!(!source, "failed to parse the checksum xattr"))
+				.and_then(|string| string.parse::<tg::Checksum>())
+				.map_err(|source| tg::error!(!source, "failed to parse the checksum string"))?;
+			output.checksum = Some(checksum);
+		}
 
 		// Try to read the user.tangram.output xattr.
 		if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.output") {

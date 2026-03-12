@@ -446,7 +446,10 @@ impl Server {
 
 		// Create the finalize stream and consumer if the messenger is memory.
 		if messenger.is_memory() {
-			let stream_config = tangram_messenger::StreamConfig::default();
+			let stream_config = tangram_messenger::StreamConfig {
+				retention: tangram_messenger::RetentionPolicy::WorkQueue,
+				..tangram_messenger::StreamConfig::default()
+			};
 			let stream = messenger
 				.create_stream("finalize".to_owned(), stream_config)
 				.await

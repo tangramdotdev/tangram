@@ -482,7 +482,8 @@ impl Stream {
 			return;
 		};
 		match &mut message.retention {
-			MessageRetention::Limits => (),
+			MessageRetention::Limits => {
+			},
 			MessageRetention::Interest(count) => {
 				*count = count.saturating_sub(1);
 				if *count == 0 {
