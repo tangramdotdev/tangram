@@ -81,6 +81,7 @@ export const run = async (...args: std.Args<Arg>) => {
 	const cargoLock = await source_.get("Cargo.lock").then(tg.File.expect);
 	const env = await std.env.arg(env_, librustyv8(cargoLock, host), {
 		WATERMARK: "2",
+		TGRUSTC_RUNNER_PASSTHROUGH: "v8",
 	});
 
 	// Call cargo.run() with the source, features, and env.
