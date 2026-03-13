@@ -80,7 +80,7 @@ export const run = async (...args: std.Args<Arg>) => {
 	// build script copies it instead of downloading via curl.
 	const cargoLock = await source_.get("Cargo.lock").then(tg.File.expect);
 	const env = await std.env.arg(env_, librustyv8(cargoLock, host), {
-		WATERMARK: "2",
+		WATERMARK: "4",
 		TGRUSTC_RUNNER_PASSTHROUGH: "v8",
 	});
 
@@ -544,18 +544,38 @@ const librustyv8 = async (lockfile: tg.File, ...hosts: Array<string>) => {
 					tg.assert(b instanceof tg.Blob);
 					return tg.file(b);
 				});
+			// Also download the src binding file. The v8 build script downloads
+			// this from RUSTY_V8_MIRROR when RUSTY_V8_SRC_BINDING_PATH is not
+			// set. With --target, cargo may invoke the build script twice
+			// concurrently with different OUT_DIRs, causing a race on the shared
+			// gen/ directory. Providing the binding path avoids the download and
+			// the race entirely.
+			const bindingFile = `src_binding_release_${triple}.rs`;
+			const binding = await std
+				.download({
+					checksum,
+					url: `https://github.com/denoland/rusty_v8/releases/download/v${version}/${bindingFile}`,
+				})
+				.then((b) => {
+					tg.assert(b instanceof tg.Blob);
+					return tg.file(b);
+				});
 			const envVarSuffix = triple.replace(/-/g, "_");
 			const key =
 				hostList.length === 1
 					? "RUSTY_V8_ARCHIVE"
 					: `RUSTY_V8_ARCHIVE_${envVarSuffix}`;
-			return { key, value: lib };
+			return { key, value: lib, binding };
 		}),
 	);
 
 	const result: Record<string, tg.File> = {};
-	for (const { key, value } of downloads) {
+	for (const { key, value, binding } of downloads) {
 		result[key] = value;
+		// Set the src binding path to avoid the download race condition.
+		if (binding) {
+			result["RUSTY_V8_SRC_BINDING_PATH"] = binding;
+		}
 	}
 
 	return result;
