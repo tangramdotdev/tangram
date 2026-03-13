@@ -157,8 +157,9 @@ where
 
 	// Download.
 	let temp_path = temp_path.map_or_else(std::env::temp_dir, ToOwned::to_owned);
-	let temp = tempfile::TempDir::new_in(&temp_path)
+	let mut temp = tempfile::TempDir::new_in(&temp_path)
 		.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
+	temp.disable_cleanup(true);
 	let path = match mode {
 		Mode::Raw => {
 			let path = temp.path().join("file");
