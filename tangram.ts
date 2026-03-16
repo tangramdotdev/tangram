@@ -77,12 +77,23 @@ export const run = async (...args: std.Args<Arg>) => {
 	}
 
 	// Set up environment, including the pre-downloaded V8 archive so the
-	// build script copies it instead of downloading via curl.
+	// build script copies it instead of downloading via curl. Also include
+	// bun and pre-built node_modules so that build scripts (tangram_compiler,
+	// tangram_js) can find them inside the runner sandbox.
 	const cargoLock = await source_.get("Cargo.lock").then(tg.File.expect);
-	const env = await std.env.arg(env_, librustyv8(cargoLock, host), {
-		WATERMARK: "4",
-		TGRUSTC_RUNNER_PASSTHROUGH: "v8",
-	});
+	const runNodeModules = nodeModules(host);
+	const bunArt = bun({ host });
+	const env = await std.env.arg(
+		env_,
+		bunEnvArg(host),
+		librustyv8(cargoLock, host),
+		{
+			WATERMARK: "9",
+			TGRUSTC_RUNNER_PASSTHROUGH: "v8",
+			NODE_PATH: tg`${runNodeModules}/node_modules`,
+			TGRUSTC_RUNNER_EXTRA_PATH: tg`${bunArt}/bin:${runNodeModules}/node_modules/.bin`,
+		},
+	);
 
 	// Call cargo.run() with the source, features, and env.
 	return cargo.run({
