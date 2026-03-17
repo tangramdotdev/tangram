@@ -1,5 +1,12 @@
 [build]
 rustflags = ["-Zthreads=8"]
+target-applies-to-host = false
+
+[host]
+rustflags = ["-Zthreads=8"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-Zthreads=8", "-C", "target-feature=+crt-static"]
 
 [env]
 RUSTY_V8_MIRROR = "https://github.com/denoland/rusty_v8/releases/download"
@@ -23,3 +30,5 @@ feature-unification = "workspace"
 
 [unstable]
 feature-unification = true
+host-config = true
+target-applies-to-host = true
