@@ -1,4 +1,11 @@
-use {crate::Cli, std::collections::HashSet, tangram_client::prelude::*};
+use {
+	crate::Cli,
+	std::{
+		collections::{BTreeSet, HashSet},
+		path::PathBuf,
+	},
+	tangram_client::prelude::*,
+};
 
 /// Get a package's outdated dependencies.
 #[derive(Clone, Debug, clap::Args)]
@@ -11,95 +18,53 @@ pub struct Args {
 	pub print: crate::print::Options,
 
 	#[arg(default_value = ".", index = 1)]
-	pub reference: tg::Reference,
+	pub path: PathBuf,
 }
 
 impl Cli {
 	pub async fn command_outdated(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
+
+		// Find the root.
+		let root = Self::find_root(args.path.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to find the root"))?;
+
+		// Deserialize the lock.
+		let lock = Self::try_read_lock(root)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to read lockfile"))?
+			.ok_or_else(|| tg::error!("missing lockfile"))?;
+
+		// Edge case, do nothing.
+		if lock.nodes.is_empty() {
+			return Ok(());
+		}
+
+		// Collect dependencies.
 		let mut visitor = Visitor::default();
-		let arg = tg::get::Arg {
-			checkin: args.checkin.to_options(),
-			..Default::default()
-		};
-		let referent = self
-			.get_reference_with_arg(&args.reference, arg, true)
-			.await?
-			.try_map(|item| item.left().ok_or_else(|| tg::error!("expected an object")))?;
-		tg::object::visit(&handle, &mut visitor, &referent, false)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to walk objects"))?;
-		let output = visitor.entries.into_iter().collect::<Vec<_>>();
-		self.print_serde(output, args.print).await?;
-		Ok(())
-	}
-}
+		visitor.walk(0, &lock.nodes);
 
-#[derive(Default)]
-struct Visitor {
-	entries: HashSet<Entry>,
-}
-
-#[derive(serde::Serialize, Debug, PartialEq, Eq, Hash)]
-struct Entry {
-	current: tg::Tag,
-	compatible: Option<tg::Tag>,
-	latest: Option<tg::Tag>,
-}
-
-impl<H> tg::object::Visitor<H> for Visitor
-where
-	H: tg::Handle,
-{
-	async fn visit_directory(
-		&mut self,
-		_handle: &H,
-		_directory: tg::Referent<&tg::Directory>,
-	) -> tg::Result<bool> {
-		Ok(true)
-	}
-
-	async fn visit_symlink(
-		&mut self,
-		_handle: &H,
-		_symlink: tg::Referent<&tg::Symlink>,
-	) -> tg::Result<bool> {
-		Ok(true)
-	}
-
-	async fn visit_file(&mut self, handle: &H, file: tg::Referent<&tg::File>) -> tg::Result<bool> {
-		let file = file.item;
-
-		// Get the file's dependencies.
-		let dependencies = file
-			.dependencies(handle)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the file's dependencies"))?
-			.into_iter()
-			.filter_map(|(reference, option)| {
-				let pattern = reference.item().clone().try_unwrap_tag().ok()?;
-				let tag = option?.0.options.tag.take()?;
-				Some((pattern, tag))
-			});
-
-		for (pattern, current) in dependencies {
+		// Find compatible and latest versions.
+		let mut output: HashSet<Entry> = HashSet::default();
+		for (pattern, current) in visitor.dependencies {
 			let compatible = handle
 				.list_tags(tg::tag::list::Arg {
-					cached: false,
-					length: Some(1),
-					local: None,
 					pattern: pattern.clone(),
+					cached: false,
+					length: None,
+					local: None,
 					recursive: false,
 					remotes: None,
 					reverse: true,
 					ttl: None,
 				})
-				.await?
+				.await
+				.map_err(|source| tg::error!(!source, "failed to list tags"))?
 				.data
 				.into_iter()
 				.map(|output| output.tag)
 				.next();
-
 			let mut components = pattern.components().collect::<Vec<_>>();
 			components.pop();
 			components.push("*");
@@ -120,16 +85,72 @@ where
 				.into_iter()
 				.map(|output| output.tag)
 				.next();
-
-			let entry = Entry {
+			output.insert(Entry {
 				current,
 				compatible,
 				latest,
-			};
-
-			self.entries.insert(entry);
+			});
 		}
 
-		Ok(true)
+		// Display output.
+		self.print_serde(output, args.print).await?;
+		Ok(())
+	}
+}
+
+#[derive(Default)]
+struct Visitor {
+	dependencies: Vec<(tg::tag::Pattern, tg::Tag)>,
+	visited: BTreeSet<usize>,
+}
+
+#[derive(serde::Serialize, Debug, PartialEq, Eq, Hash)]
+struct Entry {
+	current: tg::Tag,
+	compatible: Option<tg::Tag>,
+	latest: Option<tg::Tag>,
+}
+
+impl Visitor {
+	fn walk(&mut self, node: usize, nodes: &[tg::graph::data::Node]) {
+		if !self.visited.insert(node) {
+			return;
+		}
+		let node = &nodes[node];
+		match node {
+			tg::graph::data::Node::Directory(directory) => {
+				let entries = crate::update::flatten_directory(directory, nodes);
+				for node in entries.into_values() {
+					self.walk(node, nodes);
+				}
+			},
+			tg::graph::data::Node::File(file) => {
+				for (reference, dependency) in &file.dependencies {
+					let Some(dependency) = dependency else {
+						continue;
+					};
+
+					let pattern = reference.item().try_unwrap_tag_ref().ok().cloned();
+					let tag = dependency.tag().cloned();
+					if let (Some(pattern), Some(tag)) = (pattern, tag) {
+						self.dependencies.push((pattern, tag));
+					}
+					if let Some(dependency) = dependency.0.item().as_ref().and_then(|edge| {
+						let pointer = edge.try_unwrap_pointer_ref().ok()?;
+						pointer.graph.is_none().then_some(pointer.index)
+					}) {
+						self.walk(dependency, nodes);
+					}
+				}
+			},
+			tg::graph::data::Node::Symlink(symlink) => {
+				if let Some(artifact) = symlink.artifact.as_ref().and_then(|edge| {
+					let pointer = edge.try_unwrap_pointer_ref().ok()?;
+					pointer.graph.is_none().then_some(pointer.index)
+				}) {
+					self.walk(artifact, nodes);
+				}
+			},
+		}
 	}
 }

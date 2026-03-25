@@ -20,6 +20,7 @@ let path = artifact {
 	'
 }
 
+tg checkin $path
 let output = tg outdated --pretty $path
 snapshot $output '
 	[
