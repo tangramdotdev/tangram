@@ -16,6 +16,7 @@ workspace = true
 [features]
 postgres = ["dep:postgres-protocol", "dep:tokio-postgres"]
 sqlite = ["dep:rusqlite"]
+turso = ["dep:turso"]
 
 [dependencies]
 bytes = { workspace = true }
@@ -34,4 +35,5 @@ tangram_either = { workspace = true }
 tangram_uri = { workspace = true }
 tokio = { workspace = true }
 tokio-postgres = { workspace = true, optional = true }
+turso = { workspace = true, optional = true }
 tracing = { workspace = true }

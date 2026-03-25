@@ -241,6 +241,93 @@ pub fn sqlite_row_deserialize(input: proc_macro::TokenStream) -> proc_macro::Tok
 	code.into()
 }
 
+#[proc_macro_derive(TursoRowDeserialize, attributes(tangram_database))]
+pub fn turso_row_deserialize(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+	let input = syn::parse_macro_input!(input as syn::DeriveInput);
+	let name = &input.ident;
+
+	let syn::Data::Struct(data) = &input.data else {
+		return syn::Error::new_spanned(&input, "this can only be derived for structs")
+			.to_compile_error()
+			.into();
+	};
+
+	let syn::Fields::Named(fields) = &data.fields else {
+		return syn::Error::new_spanned(
+			&input,
+			"this can only be derived for structs with named fields",
+		)
+		.to_compile_error()
+		.into();
+	};
+
+	let field_exprs: Vec<_> = fields
+		.named
+		.iter()
+		.map(|field| {
+			let name = field.ident.as_ref().unwrap();
+			let name_str = name.to_string();
+			let field_type = &field.ty;
+			let attrs = FieldAttrs::from_attrs(&field.attrs);
+
+			let index_expr = quote! {
+				let index = columns.iter().position(|c| c == #name_str)
+					.ok_or_else(|| tangram_database::turso::Error::other(
+						format!("missing column \"{}\"", #name_str)))?
+			};
+
+			if let Some(deserialize_with) = attrs.deserialize_with {
+				quote! {
+					#name: {
+						#deserialize_with(row, columns, #name_str)
+							.map_err(|error| tangram_database::turso::Error::other(format!("failed to deserialize column \"{}\": {error}", #name_str)))?
+					}
+				}
+			} else if let Some(as_type) = attrs.as_type {
+				quote! {
+					#name: {
+						#index_expr;
+						let value = row.get_value(index)
+							.map_err(|error| tangram_database::turso::Error::other(format!("failed to get column \"{}\": {error}", #name_str)))?;
+						<#as_type as tangram_database::turso::value::DeserializeAs<#field_type>>::deserialize_as(value)
+							.map_err(|error| tangram_database::turso::Error::other(format!("failed to deserialize column \"{}\": {error}", #name_str)))?
+					}
+				}
+			} else if let Some(try_from) = attrs.try_from {
+				quote! {
+					#name: {
+						#index_expr;
+						let value = row.get::<#try_from>(index)
+							.map_err(|error| tangram_database::turso::Error::other(format!("failed to get column \"{}\": {error}", #name_str)))?;
+						value.try_into()
+							.map_err(|error| tangram_database::turso::Error::other(format!("failed to convert column \"{}\": {error}", #name_str)))?
+					}
+				}
+			} else {
+				quote! {
+					#name: {
+						#index_expr;
+						row.get::<#field_type>(index)
+							.map_err(|error| tangram_database::turso::Error::other(format!("failed to deserialize column \"{}\": {error}", #name_str)))?
+					}
+				}
+			}
+		})
+		.collect();
+
+	let code = quote! {
+		impl tangram_database::turso::row::Deserialize for #name {
+			fn deserialize(row: &turso::Row, columns: &[String]) -> Result<Self, tangram_database::turso::Error> {
+				Ok(Self {
+					#( #field_exprs, )*
+				})
+			}
+		}
+	};
+
+	code.into()
+}
+
 impl FieldAttrs {
 	fn from_attrs(attrs: &[syn::Attribute]) -> Self {
 		let mut field_attrs = Self {

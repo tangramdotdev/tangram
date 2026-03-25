@@ -73,33 +73,6 @@ where
 	}
 }
 
-#[cfg(feature = "sqlite")]
-impl<T> sqlite::types::ToSql for Json<T>
-where
-	T: serde::Serialize,
-{
-	fn to_sql(&self) -> sqlite::Result<sqlite::types::ToSqlOutput<'_>> {
-		let json = serde_json::to_string(&self.0)
-			.map_err(|error| sqlite::Error::ToSqlConversionFailure(error.into()))?;
-		Ok(sqlite::types::ToSqlOutput::Owned(
-			sqlite::types::Value::Text(json),
-		))
-	}
-}
-
-#[cfg(feature = "sqlite")]
-impl<T> sqlite::types::FromSql for Json<T>
-where
-	T: serde::de::DeserializeOwned,
-{
-	fn column_result(value: sqlite::types::ValueRef) -> sqlite::types::FromSqlResult<Self> {
-		let json = value.as_str()?;
-		let value = serde_json::from_str(json)
-			.map_err(|error| sqlite::types::FromSqlError::Other(error.into()))?;
-		Ok(Self(value))
-	}
-}
-
 #[cfg(feature = "postgres")]
 impl<T> postgres::types::ToSql for Json<T>
 where
@@ -147,5 +120,59 @@ where
 				| postgres::types::Type::JSON
 				| postgres::types::Type::JSONB
 		)
+	}
+}
+
+#[cfg(feature = "sqlite")]
+impl<T> sqlite::types::ToSql for Json<T>
+where
+	T: serde::Serialize,
+{
+	fn to_sql(&self) -> sqlite::Result<sqlite::types::ToSqlOutput<'_>> {
+		let json = serde_json::to_string(&self.0)
+			.map_err(|error| sqlite::Error::ToSqlConversionFailure(error.into()))?;
+		Ok(sqlite::types::ToSqlOutput::Owned(
+			sqlite::types::Value::Text(json),
+		))
+	}
+}
+
+#[cfg(feature = "sqlite")]
+impl<T> sqlite::types::FromSql for Json<T>
+where
+	T: serde::de::DeserializeOwned,
+{
+	fn column_result(value: sqlite::types::ValueRef) -> sqlite::types::FromSqlResult<Self> {
+		let json = value.as_str()?;
+		let value = serde_json::from_str(json)
+			.map_err(|error| sqlite::types::FromSqlError::Other(error.into()))?;
+		Ok(Self(value))
+	}
+}
+
+#[cfg(feature = "turso")]
+impl<T> TryFrom<turso::Value> for Json<T>
+where
+	T: serde::de::DeserializeOwned,
+{
+	type Error = Box<dyn std::error::Error + Send + Sync>;
+
+	fn try_from(value: turso::Value) -> Result<Self, Self::Error> {
+		let turso::Value::Text(json) = value else {
+			return Err("expected text for json".into());
+		};
+		let value = serde_json::from_str(&json)?;
+		Ok(Self(value))
+	}
+}
+
+#[cfg(feature = "turso")]
+impl<T> Json<T>
+where
+	T: serde::Serialize,
+{
+	pub fn into_turso_value(self) -> Result<turso::Value, serde_json::Error> {
+		let json = serde_json::to_string(&self.0)?;
+		Ok(turso::Value::Text(json))
 	}
 }
