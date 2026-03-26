@@ -44,14 +44,14 @@ export def test [path: string, ...args] {
 	# Confirm children are present if --recursive.
 	if "--recursive" in $args {
 		for child in $children {
-			tg -u $remote.url get $child.item
+			tg -u $remote.url get $child.process
 		}
 	}
 
 	# Confirm children commands are present if --recursive and --commands.
 	if "--commands" in $args and "--recursive" in $args {
 		for child in $children {
-			let output = tg -u $remote.url get $child.item | from json
+			let output = tg -u $remote.url get $child.process | from json
 			tg -u $remote.url get $output.command --pretty
 		}
 	}
@@ -59,7 +59,7 @@ export def test [path: string, ...args] {
 	# Confirm children output is present if --recursive.
 	if "--recursive" in $args {
 		for child in $children {
-			let output = tg get $child.item | from json
+			let output = tg get $child.process | from json
 			if (($output.output | describe) | str starts-with 'record') {
 				if $output.output.kind == "object" {
 					tg -u $remote.url get $output.output.value --pretty

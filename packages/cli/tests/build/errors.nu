@@ -25,7 +25,7 @@ let process = tg get $process_id | from json
 
 # Get error IDs from parent and child processes.
 let parent_error = $process.error
-let child_id = $process.children | first | get item
+let child_id = $process.children | first | get process
 let child = tg get $child_id | from json
 let child_error = $child.error
 

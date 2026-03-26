@@ -345,10 +345,10 @@ impl Server {
 				|| (state.arg.outputs && !stored.is_some_and(|stored| stored.subtree_output)))
 			&& let Some(children) = &data.children
 		{
-			for referent in children {
+			for child in children {
 				state.queue.enqueue_process(ProcessItem {
 					parent: Some(id.clone()),
-					id: referent.item.clone(),
+					id: child.process.clone(),
 					eager: state.arg.eager,
 				});
 			}

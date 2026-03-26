@@ -248,6 +248,7 @@ impl Server {
 		// Get the children.
 		#[derive(db::row::Deserialize)]
 		struct Row {
+			cached: bool,
 			#[tangram_database(as = "db::value::FromStr")]
 			child: tg::process::Id,
 			#[tangram_database(as = "db::value::Json<tg::referent::Options>")]
@@ -256,7 +257,7 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select child, options
+				select cached, child, options
 				from process_children
 				where process = {p}1
 				order by position
@@ -270,8 +271,9 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
 			.into_iter()
-			.map(|row| tg::Referent {
-				item: row.child,
+			.map(|row| tg::process::data::Child {
+				cached: row.cached,
+				process: row.child,
 				options: row.options,
 			})
 			.collect();

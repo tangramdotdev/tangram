@@ -183,7 +183,7 @@ impl Server {
 			.as_ref()
 			.ok_or_else(|| tg::error!("expected the children to be set"))?
 			.iter()
-			.map(|referent| referent.item.clone())
+			.map(|child| child.process.clone())
 			.collect();
 		let put_process_arg = tangram_index::PutProcessArg {
 			children,

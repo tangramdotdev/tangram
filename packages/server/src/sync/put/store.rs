@@ -204,7 +204,7 @@ impl Server {
 					.iter()
 					.map(|child| crate::sync::queue::ProcessItem {
 						parent: Some(item.id.clone()),
-						id: child.item.clone(),
+						id: child.process.clone(),
 						eager: item.eager,
 					});
 				state.queue.enqueue_processes(items);

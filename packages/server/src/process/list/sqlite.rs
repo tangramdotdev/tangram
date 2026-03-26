@@ -110,13 +110,14 @@ impl Server {
 			// Get the children for this process.
 			#[derive(db::sqlite::row::Deserialize)]
 			struct ChildRow {
+				cached: bool,
 				#[tangram_database(as = "db::sqlite::value::FromStr")]
 				child: tg::process::Id,
 				options: db::value::Json<tg::referent::Options>,
 			}
 			let statement = indoc!(
 				"
-					select child, options
+					select cached, child, options
 					from process_children
 					where process = ?1;
 				"
@@ -134,11 +135,12 @@ impl Server {
 			{
 				let child_row = <ChildRow as db::sqlite::row::Deserialize>::deserialize(child_row)
 					.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
-				let referent = tg::Referent {
-					item: child_row.child,
+				let child = tg::process::data::Child {
+					cached: child_row.cached,
+					process: child_row.child,
 					options: child_row.options.0,
 				};
-				children.push(referent);
+				children.push(child);
 			}
 
 			let error = row

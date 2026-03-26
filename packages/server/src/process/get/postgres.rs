@@ -26,8 +26,8 @@ impl Server {
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
 			actual_checksum: Option<tg::Checksum>,
 			cacheable: Option<bool>,
-			#[tangram_database(as = "Option<Vec<db::postgres::value::FromStr>>")]
-			children: Option<Vec<tg::Referent<tg::process::Id>>>,
+			#[tangram_database(as = "Option<db::value::Json<Vec<tg::process::data::Child>>>")]
+			children: Option<Vec<tg::process::data::Child>>,
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
 			command: Option<tg::command::Id>,
 			created_at: Option<i64>,
@@ -64,7 +64,7 @@ impl Server {
 					processes.id,
 					actual_checksum,
 					cacheable,
-					(select coalesce(array_agg(child), '{}') from process_children where process = ids.id) as children,
+					(select coalesce(json_agg(json_build_object('cached', cached::bool, 'process', child, 'options', options::json) order by position), '[]'::json) from process_children where process = ids.id) as children,
 					command,
 					created_at,
 					dequeued_at,

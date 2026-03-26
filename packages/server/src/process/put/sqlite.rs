@@ -149,8 +149,8 @@ impl Server {
 		// Prepare the children insert statement.
 		let children_statement = indoc!(
 			"
-				insert into process_children (process, position, child, options)
-				values (?1, ?2, ?3, ?4)
+				insert into process_children (process, position, cached, child, options)
+				values (?1, ?2, ?3, ?4, ?5)
 				on conflict (process, child) do nothing;
 			"
 		);
@@ -212,8 +212,9 @@ impl Server {
 					let params = sqlite::params![
 						id.to_string(),
 						position.to_i64().unwrap(),
-						child.item.to_string(),
-						serde_json::to_string(child.options()).unwrap(),
+						child.cached,
+						child.process.to_string(),
+						serde_json::to_string(&child.options).unwrap(),
 					];
 					children_stmt
 						.execute(params)

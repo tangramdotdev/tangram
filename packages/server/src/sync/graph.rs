@@ -224,7 +224,7 @@ impl Graph {
 				children
 					.iter()
 					.map(|child| {
-						let child_entry = self.nodes.entry(child.item.clone().into());
+						let child_entry = self.nodes.entry(child.process.clone().into());
 						let child_index = child_entry.index();
 						let child_node =
 							child_entry.or_insert_with(|| Node::Process(ProcessNode::default()));
