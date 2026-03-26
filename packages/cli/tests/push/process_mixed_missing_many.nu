@@ -102,7 +102,7 @@ def test [...args] {
 	let child_count = $children | length
 	for i in 0..<$child_count {
 		let child = $children | get $i
-		let child_id = $child.item
+		let child_id = $child.process
 		let child_data = tg -u $source.url get $child_id | from json
 		let child_command_id = $child_data.command
 		let child_output_id = $child_data.output.value

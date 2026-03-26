@@ -5,7 +5,7 @@ def collect_commands [process_id: string] {
 	let process = tg get $process_id | from json
 	mut commands = [$process.command]
 	for child in $process.children {
-		$commands = $commands | append (collect_commands $child.item)
+		$commands = $commands | append (collect_commands $child.process)
 	}
 	$commands
 }

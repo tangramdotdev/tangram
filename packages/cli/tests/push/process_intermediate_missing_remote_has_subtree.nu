@@ -51,7 +51,7 @@ def test [...args] {
 	let children_a = $process_a_data.children
 
 	# Get process B (first child of A).
-	let process_b_id = $children_a | get 0 | get item
+	let process_b_id = $children_a | get 0 | get process
 	let process_b_data = tg -u $source.url get $process_b_id | from json
 	let command_b_id = $process_b_data.command
 	let output_b_id = $process_b_data.output.value
@@ -59,7 +59,7 @@ def test [...args] {
 	let children_b = $process_b_data.children
 
 	# Get process C (first child of B).
-	let process_c_id = $children_b | get 0 | get item
+	let process_c_id = $children_b | get 0 | get process
 	let process_c_data = tg -u $source.url get $process_c_id | from json
 	let command_c_id = $process_c_data.command
 	let output_c_id = $process_c_data.output.value
@@ -67,7 +67,7 @@ def test [...args] {
 	let children_c = $process_c_data.children
 
 	# Get process D (first child of C).
-	let process_d_id = $children_c | get 0 | get item
+	let process_d_id = $children_c | get 0 | get process
 	let process_d_data = tg -u $source.url get $process_d_id | from json
 	let command_d_id = $process_d_data.command
 	let output_d_id = $process_d_data.output.value
