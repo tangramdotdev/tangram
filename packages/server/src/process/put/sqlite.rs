@@ -211,8 +211,8 @@ impl Server {
 				for (position, child) in children.iter().enumerate() {
 					let params = sqlite::params![
 						id.to_string(),
-						child.cached,
 						position.to_i64().unwrap(),
+						child.cached,
 						child.process.to_string(),
 						serde_json::to_string(&child.options).unwrap(),
 					];
