@@ -231,6 +231,7 @@ impl Server {
 		// Collect all children from all processes.
 		let mut child_processes = Vec::new();
 		let mut child_positions = Vec::new();
+		let mut child_cached = Vec::new();
 		let mut child_ids = Vec::new();
 		let mut child_options = Vec::new();
 
@@ -239,8 +240,9 @@ impl Server {
 				for (position, child) in children.iter().enumerate() {
 					child_processes.push(id.to_string());
 					child_positions.push(position.to_i64().unwrap());
-					child_ids.push(child.item.to_string());
-					child_options.push(serde_json::to_string(child.options()).unwrap());
+					child_cached.push(child.cached);
+					child_ids.push(child.process.to_string());
+					child_options.push(serde_json::to_string(&child.options).unwrap());
 				}
 			}
 		}
@@ -249,8 +251,8 @@ impl Server {
 		if !child_processes.is_empty() {
 			let statement = indoc!(
 				"
-					insert into process_children (process, position, child, options)
-					select unnest($1::text[]), unnest($2::int8[]), unnest($3::text[]), unnest($4::text[])
+					insert into process_children (process, position, cached, child, options)
+					select unnest($1::text[]), unnest($2::int8[]), unnest($3::int8[]), unnest($4::text[]), unnest($5::text[])
 					on conflict (process, child) do nothing;
 				"
 			);
@@ -260,6 +262,7 @@ impl Server {
 					&[
 						&child_processes,
 						&child_positions,
+						&child_cached,
 						&child_ids,
 						&child_options,
 					],

@@ -24,7 +24,7 @@ pub struct Data {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
-	pub children: Option<Vec<tg::Referent<tg::process::Id>>>,
+	pub children: Option<Vec<tg::process::data::Child>>,
 
 	#[tangram_serialize(id = 3)]
 	pub command: tg::command::Id,
@@ -101,6 +101,25 @@ pub struct Data {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 21, default, skip_serializing_if = "Option::is_none")]
 	pub stdout: Option<tg::process::Stdio>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+
+pub struct Child {
+	#[tangram_serialize(id = 1)]
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub cached: bool,
+	#[tangram_serialize(id = 2)]
+	pub process: tg::process::Id,
+	#[tangram_serialize(id = 3)]
+	pub options: tg::referent::Options,
 }
 
 #[derive(

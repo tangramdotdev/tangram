@@ -187,12 +187,13 @@ impl Server {
 		// Get the children.
 		#[derive(db::sqlite::row::Deserialize)]
 		struct ChildRow {
+			cached: bool,
 			child: String,
 			options: db::value::Json<tg::referent::Options>,
 		}
 		let statement = indoc!(
 			"
-				select child, options
+				select cached, child, options
 				from process_children
 				where process = ?1;
 			"
@@ -210,13 +211,17 @@ impl Server {
 		{
 			let child_row = <ChildRow as db::sqlite::row::Deserialize>::deserialize(child_row)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the row"))?;
-			let item = child_row
+			let cached = child_row.cached;
+			let process = child_row
 				.child
 				.parse()
 				.map_err(|source| tg::error!(!source, %id, "failed to parse the child id"))?;
 			let options = child_row.options.0;
-			let referent = tg::Referent { item, options };
-			children.push(referent);
+			children.push(tg::process::data::Child {
+				cached,
+				process,
+				options,
+			});
 		}
 
 		let data = tg::process::Data {

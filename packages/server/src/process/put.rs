@@ -64,7 +64,7 @@ impl Server {
 			.as_ref()
 			.ok_or_else(|| tg::error!("expected the children to be set"))?
 			.iter()
-			.map(|referent| referent.item.clone())
+			.map(|child| child.process.clone())
 			.collect();
 		let command = std::iter::once((
 			arg.data.command.clone().into(),

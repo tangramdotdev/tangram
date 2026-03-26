@@ -49,6 +49,7 @@ create index process_tokens_token_index on process_tokens (token);
 
 create table process_children (
 	process text not null,
+	cached integer not null,
 	child text not null,
 	options text,
 	position integer not null,

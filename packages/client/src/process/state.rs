@@ -4,7 +4,7 @@ use crate::prelude::*;
 pub struct State {
 	pub actual_checksum: Option<tg::Checksum>,
 	pub cacheable: bool,
-	pub children: Option<Vec<tg::Referent<tg::Process>>>,
+	pub children: Option<Vec<Child>>,
 	pub command: tg::Command,
 	pub created_at: i64,
 	pub dequeued_at: Option<i64>,
@@ -25,18 +25,22 @@ pub struct State {
 	pub stdout: Option<tg::process::Stdio>,
 }
 
+#[derive(Clone, Debug)]
+pub struct Child {
+	pub cached: bool,
+	pub process: tg::Process,
+	pub options: tg::referent::Options,
+}
+
 impl TryFrom<tg::process::Data> for tg::process::State {
 	type Error = tg::Error;
 
 	fn try_from(value: tg::process::Data) -> Result<Self, Self::Error> {
 		let actual_checksum = value.actual_checksum;
 		let cacheable = value.cacheable;
-		let children = value.children.map(|children| {
-			children
-				.into_iter()
-				.map(|referent| referent.map(|id| tg::Process::new(id, None, None, None, None)))
-				.collect()
-		});
+		let children = value
+			.children
+			.map(|children| children.into_iter().map(|child| child.into()).collect());
 		let command = tg::Command::with_id(value.command);
 		let created_at = value.created_at;
 		let dequeued_at = value.dequeued_at;
@@ -87,5 +91,15 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 			stdin,
 			stdout,
 		})
+	}
+}
+
+impl From<tg::process::data::Child> for Child {
+	fn from(value: tg::process::data::Child) -> Self {
+		Self {
+			cached: value.cached,
+			process: tg::Process::new(value.process, None, None, None, None),
+			options: value.options,
+		}
 	}
 }

@@ -40,6 +40,7 @@ export namespace Handle {
 	};
 
 	export type SpawnOutput = {
+		cached: boolean,
 		process: tg.Process.Id;
 		remote: string | undefined;
 		token: string | undefined;

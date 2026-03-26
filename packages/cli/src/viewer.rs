@@ -44,13 +44,19 @@ pub type UpdateReceiver<H> = std::sync::mpsc::Receiver<Box<dyn FnOnce(&mut Viewe
 #[derive(Clone, Debug, derive_more::TryUnwrap)]
 pub enum Item {
 	Package(Package),
-	Process(tg::Process),
+	Process(Process),
 	Tag(tg::tag::Pattern),
 	Value(tg::Value),
 }
 
 #[derive(Clone, Debug)]
 pub struct Package(pub tg::Object);
+
+#[derive(Clone, Debug)]
+pub struct Process {
+	pub cached: bool,
+	pub process: tg::Process,
+}
 
 #[derive(Clone, Debug)]
 pub struct Options {

@@ -15,6 +15,7 @@ use {
 
 #[derive(derive_more::Debug)]
 struct LocalOutput {
+	cached: bool,
 	id: tg::process::Id,
 	#[debug(ignore)]
 	permit: Option<ProcessPermit>,
@@ -261,6 +262,7 @@ impl Server {
 				if let Some(wait) = result? {
 					let output = output.unwrap();
 					tg::process::spawn::Output {
+						cached: output.cached,
 						process: output.id,
 						remote: None,
 						token: output.token,
@@ -296,6 +298,7 @@ impl Server {
 						return Ok(None);
 					};
 					tg::process::spawn::Output {
+						cached: output.cached,
 						process: output.id,
 						remote: None,
 						token: output.token,
@@ -310,6 +313,7 @@ impl Server {
 		{
 			self.add_process_child(
 				parent,
+				output.cached,
 				&output.process,
 				&arg.command.options,
 				output.token.as_ref(),
@@ -463,6 +467,7 @@ impl Server {
 		};
 
 		Ok(Some(LocalOutput {
+			cached: true,
 			id,
 			permit: None,
 			status,
@@ -554,8 +559,8 @@ impl Server {
 		// Insert the process children.
 		let statement = formatdoc!(
 			"
-				insert into process_children (process, position, child, options)
-				select process, position, child, options from process_children where process = {p}1;
+				insert into process_children (process, position, cached, child, options)
+				select process, position, cached, child, options from process_children where process = {p}1;
 			"
 		);
 		let params = db::params![id.to_string()];
@@ -689,6 +694,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		Ok(Some(LocalOutput {
+			cached: true,
 			id,
 			permit: None,
 			status,
@@ -862,6 +868,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		Ok(LocalOutput {
+			cached: false,
 			id,
 			permit,
 			status,
@@ -924,6 +931,7 @@ impl Server {
 	async fn add_process_child(
 		&self,
 		parent: &tg::process::Id,
+		cached: bool,
 		child: &tg::process::Id,
 		options: &tg::referent::Options,
 		token: Option<&String>,
@@ -942,11 +950,18 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		// Add the process as a child.
-		self.add_process_child_with_transaction(&transaction, parent, child, options, token)
-			.await
-			.map_err(
-				|source| tg::error!(!source, %parent, %child, "failed to add the process as a child"),
-			)?;
+		self.add_process_child_with_transaction(
+			&transaction,
+			parent,
+			cached,
+			child,
+			options,
+			token,
+		)
+		.await
+		.map_err(
+			|source| tg::error!(!source, %parent, %child, "failed to add the process as a child"),
+		)?;
 
 		// Commit the transaction.
 		transaction
@@ -967,6 +982,7 @@ impl Server {
 		&self,
 		transaction: &database::Transaction<'_>,
 		parent: &tg::process::Id,
+		cached: bool,
 		child: &tg::process::Id,
 		options: &tg::referent::Options,
 		token: Option<&String>,
@@ -1042,13 +1058,14 @@ impl Server {
 		// Add the child to the database.
 		let statement = formatdoc!(
 			"
-				insert into process_children (process, position, child, options, token)
-				values ({p}1, (select coalesce(max(position) + 1, 0) from process_children where process = {p}1), {p}2, {p}3, {p}4)
+				insert into process_children (process, position, cached, child, options, token)
+				values ({p}1, (select coalesce(max(position) + 1, 0) from process_children where process = {p}1), {p}2, {p}3, {p}4, {p}5)
 				on conflict (process, child) do nothing;
 			"
 		);
 		let params = db::params![
 			parent.to_string(),
+			cached,
 			child.to_string(),
 			db::value::Json(options),
 			token

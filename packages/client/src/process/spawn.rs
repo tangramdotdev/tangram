@@ -48,6 +48,9 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub cached: bool,
+
 	pub process: tg::process::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
