@@ -104,7 +104,7 @@ where
 	// Log that the compression finished.
 	let message = "finished compressing\n";
 	logger(
-		tg::process::log::Stream::Stderr,
+		tg::process::stdio::Stream::Stderr,
 		message.to_owned().into_bytes(),
 	)
 	.await?;

@@ -1,9 +1,7 @@
 use {
 	crate::prelude::*,
-	futures::{Stream, TryStreamExt as _},
 	std::{
 		ops::Deref,
-		pin::pin,
 		sync::{Arc, Mutex, RwLock},
 	},
 	tangram_util::arc::Ext as _,
@@ -11,7 +9,7 @@ use {
 
 pub use self::{
 	data::Data, id::Id, metadata::Metadata, mount::Mount, signal::Signal, state::State,
-	status::Status, stdio::Stdio, wait::Wait,
+	status::Status, stdio::Stdio, tty::Tty, wait::Wait,
 };
 
 pub mod cancel;
@@ -22,32 +20,42 @@ pub mod get;
 pub mod heartbeat;
 pub mod id;
 pub mod list;
-pub mod log;
 pub mod metadata;
 pub mod mount;
 pub mod put;
 pub mod queue;
 pub mod signal;
 pub mod spawn;
-pub mod start;
 pub mod state;
 pub mod status;
 pub mod stdio;
 pub mod touch;
+pub mod tty;
 pub mod wait;
-
-static CURRENT: Mutex<Option<tg::Process>> = Mutex::new(None);
 
 #[derive(Clone, Debug)]
 pub struct Process(Arc<Inner>);
 
-#[derive(Debug)]
+#[derive(derive_more::Debug)]
 pub struct Inner {
 	id: Id,
 	metadata: RwLock<Option<Arc<Metadata>>>,
 	remote: Option<String>,
 	state: RwLock<Option<Arc<State>>>,
+	#[debug(ignore)]
+	stdio_task: Option<tangram_futures::task::Shared<tg::Result<()>>>,
 	token: Option<String>,
+	#[debug(ignore)]
+	unsandboxed: Option<Unsandboxed>,
+	wait: Mutex<Option<Wait>>,
+}
+
+struct Unsandboxed {
+	pid: u32,
+	stdin: tokio::sync::Mutex<Option<tokio::process::ChildStdin>>,
+	stdout: tokio::sync::Mutex<Option<tokio::process::ChildStdout>>,
+	stderr: tokio::sync::Mutex<Option<tokio::process::ChildStderr>>,
+	task: tangram_futures::task::Shared<tg::Result<tg::process::wait::Output>>,
 }
 
 impl Process {
@@ -66,23 +74,11 @@ impl Process {
 			metadata,
 			remote,
 			state,
+			stdio_task: None,
 			token,
+			unsandboxed: None,
+			wait: Mutex::new(None),
 		}))
-	}
-
-	pub fn current() -> tg::Result<Option<Self>> {
-		if let Some(process) = CURRENT.lock().unwrap().as_ref() {
-			return Ok(Some(process.clone()));
-		}
-		let Ok(id) = std::env::var("TANGRAM_PROCESS") else {
-			return Ok(None);
-		};
-		let id = id
-			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
-		let process = Self::new(id, None, None, None, None);
-		CURRENT.lock().unwrap().replace(process.clone());
-		Ok(Some(process))
 	}
 
 	#[must_use]
@@ -163,19 +159,32 @@ impl Process {
 		Ok(self.load(handle).await?.map(|state| &state.retry))
 	}
 
-	pub async fn spawn<H>(
-		handle: &H,
-		arg: tg::process::spawn::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<tg::Process>>> + Send>
+	pub async fn signal<H>(&self, handle: &H, signal: tg::process::Signal) -> tg::Result<()>
 	where
 		H: tg::Handle,
 	{
-		let stream = handle.spawn_process(arg).await?.map_ok(|event| {
-			event.map_output(|output| {
-				tg::Process::new(output.process, None, output.remote, None, output.token)
-			})
-		});
-		Ok(stream)
+		if let Some(unsandboxed) = &self.unsandboxed {
+			let pid = i32::try_from(unsandboxed.pid)
+				.map_err(|source| tg::error!(!source, "failed to convert the process id"))?;
+			let signal = i32::from(signal as u8);
+			let ret = unsafe { libc::kill(pid, signal) };
+			if ret < 0 {
+				return Err(tg::error!(
+					source = std::io::Error::last_os_error(),
+					"failed to signal the process"
+				));
+			}
+			return Ok(());
+		}
+
+		let arg = tg::process::signal::post::Arg {
+			local: self.remote.is_none().then_some(true),
+			remotes: self.remote.clone().map(|remote| vec![remote]),
+			signal,
+		};
+		handle.signal_process(self.id(), arg).await?;
+
+		Ok(())
 	}
 
 	pub async fn wait<H>(
@@ -186,7 +195,24 @@ impl Process {
 	where
 		H: tg::Handle,
 	{
-		handle.wait_process(&self.id, arg).await?.try_into()
+		if let Some(task) = self.stdio_task.as_ref() {
+			task.wait()
+				.await
+				.map_err(|source| tg::error!(!source, "the stdio task panicked"))??;
+		}
+		if let Some(unsandboxed) = &self.unsandboxed {
+			let output = unsandboxed
+				.task
+				.wait()
+				.await
+				.map_err(|source| tg::error!(!source, "the task panicked"))??;
+			return output.try_into();
+		}
+		if let Some(wait) = self.wait.lock().unwrap().take() {
+			return Ok(wait);
+		}
+		let wait = handle.wait_process(&self.id, arg).await?.try_into()?;
+		Ok(wait)
 	}
 
 	pub async fn output<H>(&self, handle: &H) -> tg::Result<tg::Value>
@@ -196,17 +222,6 @@ impl Process {
 		let wait = self.wait(handle, tg::process::wait::Arg::default()).await?;
 		let output = wait.into_output()?;
 		Ok(output)
-	}
-
-	pub async fn current_status<H>(&self, handle: &H) -> tg::Result<tg::process::Status>
-	where
-		H: tg::Handle,
-	{
-		let stream = self.status(handle).await?;
-		pin!(stream)
-			.try_next()
-			.await?
-			.ok_or_else(|| tg::error!("expected a status"))
 	}
 }
 

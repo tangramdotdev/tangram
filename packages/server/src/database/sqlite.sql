@@ -3,9 +3,7 @@ create table processes (
 	cacheable integer not null,
 	command text not null,
 	created_at integer not null,
-	dequeued_at integer,
 	depth integer,
-	enqueued_at integer,
 	error text,
 	error_code text,
 	exit integer,
@@ -25,7 +23,8 @@ create table processes (
 	stdin text,
 	stdout text,
 	token_count integer not null,
-	touched_at integer
+	touched_at integer,
+	tty text
 );
 
 create index processes_command_index on processes (command);

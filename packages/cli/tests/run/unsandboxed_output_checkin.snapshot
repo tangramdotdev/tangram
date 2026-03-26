@@ -1,0 +1,5 @@
+tg.directory({
+  "message.txt": tg.file({
+    "contents": tg.blob("Hello, World!\n"),
+  }),
+})

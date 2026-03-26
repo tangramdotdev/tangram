@@ -44,8 +44,8 @@ impl Cli {
 		let arg = tg::tag::put::Arg {
 			force: args.force,
 			item,
-			local: args.local.local,
-			remotes: args.remotes.remotes,
+			local: args.local.get(),
+			remotes: args.remotes.get(),
 		};
 		let tag = args.tag.unwrap();
 		handle

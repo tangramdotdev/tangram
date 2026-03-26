@@ -7,8 +7,6 @@ pub struct State {
 	pub children: Option<Vec<Child>>,
 	pub command: tg::Command,
 	pub created_at: i64,
-	pub dequeued_at: Option<i64>,
-	pub enqueued_at: Option<i64>,
 	pub error: Option<tg::Error>,
 	pub exit: Option<u8>,
 	pub expected_checksum: Option<tg::Checksum>,
@@ -20,9 +18,10 @@ pub struct State {
 	pub retry: bool,
 	pub started_at: Option<i64>,
 	pub status: tg::process::Status,
-	pub stderr: Option<tg::process::Stdio>,
-	pub stdin: Option<tg::process::Stdio>,
-	pub stdout: Option<tg::process::Stdio>,
+	pub stderr: tg::process::Stdio,
+	pub stdin: tg::process::Stdio,
+	pub stdout: tg::process::Stdio,
+	pub tty: Option<tg::process::Tty>,
 }
 
 #[derive(Clone, Debug)]
@@ -43,8 +42,6 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 			.map(|children| children.into_iter().map(Into::into).collect());
 		let command = tg::Command::with_id(value.command);
 		let created_at = value.created_at;
-		let dequeued_at = value.dequeued_at;
-		let enqueued_at = value.enqueued_at;
 		let error = value
 			.error
 			.map(|either| match either {
@@ -68,14 +65,13 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 		let stderr = value.stderr;
 		let stdin = value.stdin;
 		let stdout = value.stdout;
+		let tty = value.tty;
 		Ok(State {
 			actual_checksum,
 			cacheable,
 			children,
 			command,
 			created_at,
-			dequeued_at,
-			enqueued_at,
 			error,
 			exit,
 			expected_checksum,
@@ -90,6 +86,7 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 			stderr,
 			stdin,
 			stdout,
+			tty,
 		})
 	}
 }

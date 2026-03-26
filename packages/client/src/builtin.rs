@@ -44,7 +44,7 @@ where
 {
 	let output = tg::build::build(
 		handle,
-		tg::build::Arg {
+		tg::run::Arg {
 			host: Some("builtin".into()),
 			args: vec![
 				artifact.clone().into(),
@@ -56,7 +56,7 @@ where
 			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
 				path: "archive".into(),
 			})),
-			..tg::build::Arg::default()
+			..Default::default()
 		},
 	)
 	.await?;
@@ -90,13 +90,13 @@ where
 {
 	let output = tg::build::build(
 		handle,
-		tg::build::Arg {
+		tg::run::Arg {
 			host: Some("builtin".into()),
 			args: vec![artifact.clone().into()],
 			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
 				path: "bundle".into(),
 			})),
-			..tg::build::Arg::default()
+			..Default::default()
 		},
 	)
 	.await?;
@@ -124,13 +124,13 @@ where
 {
 	let output = tg::build::build(
 		handle,
-		tg::build::Arg {
+		tg::run::Arg {
 			host: Some("builtin".into()),
 			args: vec![input.cloned().into(), algorithm.to_string().into()],
 			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
 				path: "checksum".into(),
 			})),
-			..tg::build::Arg::default()
+			..Default::default()
 		},
 	)
 	.await?;
@@ -166,13 +166,13 @@ where
 {
 	let output = tg::build::build(
 		handle,
-		tg::build::Arg {
+		tg::run::Arg {
 			host: Some("builtin".into()),
 			args: vec![input.clone().into(), format.to_string().into()],
 			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
 				path: "compress".into(),
 			})),
-			..tg::build::Arg::default()
+			..Default::default()
 		},
 	)
 	.await?;
@@ -196,13 +196,13 @@ where
 {
 	let output = tg::build::build(
 		handle,
-		tg::build::Arg {
+		tg::run::Arg {
 			host: Some("builtin".into()),
 			args: vec![input.clone().into()],
 			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
 				path: "decompress".into(),
 			})),
-			..tg::build::Arg::default()
+			..Default::default()
 		},
 	)
 	.await?;
@@ -231,7 +231,7 @@ where
 {
 	let output = tg::build::build(
 		handle,
-		tg::build::Arg {
+		tg::run::Arg {
 			host: Some("builtin".into()),
 			args: std::iter::once(url.to_string().into())
 				.chain(options.map(tg::Value::from))
@@ -240,7 +240,7 @@ where
 			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
 				path: "download".into(),
 			})),
-			..tg::build::Arg::default()
+			..Default::default()
 		},
 	)
 	.await?;
@@ -273,13 +273,13 @@ where
 {
 	let output = tg::build::build(
 		handle,
-		tg::build::Arg {
+		tg::run::Arg {
 			host: Some("builtin".into()),
 			args: vec![input.clone().into()],
 			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
 				path: "extract".into(),
 			})),
-			..tg::build::Arg::default()
+			..Default::default()
 		},
 	)
 	.await?;
@@ -383,6 +383,9 @@ impl std::str::FromStr for DownloadMode {
 impl From<DownloadOptions> for tg::Value {
 	fn from(options: DownloadOptions) -> Self {
 		let mut map = BTreeMap::new();
+		if let Some(checksum) = options.checksum {
+			map.insert("checksum".to_owned(), checksum.to_string().into());
+		}
 		if let Some(mode) = options.mode {
 			map.insert("mode".to_owned(), mode.to_string().into());
 		}
@@ -399,6 +402,16 @@ impl TryFrom<tg::Value> for DownloadOptions {
 			.try_unwrap_map()
 			.ok()
 			.ok_or_else(|| tg::error!("expected a map"))?;
+		if let Some(value) = map.get("checksum") {
+			let checksum = value
+				.clone()
+				.try_unwrap_string()
+				.ok()
+				.ok_or_else(|| tg::error!("expected a string"))?
+				.parse()
+				.map_err(|source| tg::error!(!source, "failed to parse the checksum algorithm"))?;
+			options.checksum = Some(checksum);
+		}
 		if let Some(value) = map.get("mode") {
 			let mode = value
 				.clone()

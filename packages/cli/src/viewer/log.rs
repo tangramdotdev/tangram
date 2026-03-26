@@ -1,4 +1,5 @@
 use {
+	bytes::Bytes,
 	futures::{StreamExt as _, TryStreamExt as _, stream::BoxStream},
 	num::ToPrimitive as _,
 	ratatui::{self as tui, prelude::*},
@@ -11,6 +12,13 @@ use {
 const PAGE_SIZE: u64 = 4096;
 
 mod scroll;
+
+#[derive(Clone, Debug)]
+pub(super) struct Chunk {
+	bytes: Bytes,
+	position: u64,
+	stream: tg::process::stdio::Stream,
+}
 
 pub struct Log<H> {
 	state: Arc<State<H>>,
@@ -47,15 +55,15 @@ enum StreamState {
 
 #[derive(Default)]
 struct Scrolling {
-	chunks: Vec<tg::process::log::get::Chunk>,
+	chunks: Vec<Chunk>,
 	eof: bool,
 	forwards: bool,
 	scroll: Option<Scroll>,
-	stream: Option<BoxStream<'static, tg::Result<tg::process::log::get::Chunk>>>,
+	stream: Option<BoxStream<'static, tg::Result<Chunk>>>,
 }
 
 struct Tailing {
-	chunks: Vec<tg::process::log::get::Chunk>,
+	chunks: Vec<Chunk>,
 	task: JoinHandle<()>,
 }
 
@@ -164,6 +172,49 @@ impl<H> State<H>
 where
 	H: tg::Handle,
 {
+	async fn read_log(
+		&self,
+		position: Option<std::io::SeekFrom>,
+		length: Option<i64>,
+		size: Option<u64>,
+	) -> tg::Result<BoxStream<'static, tg::Result<Chunk>>> {
+		let arg = tg::process::stdio::read::Arg {
+			length,
+			position,
+			size,
+			streams: vec![
+				tg::process::stdio::Stream::Stdout,
+				tg::process::stdio::Stream::Stderr,
+			],
+			..Default::default()
+		};
+		let stream = self
+			.process
+			.try_read_stdio_all(&self.handle, arg)
+			.await?
+			.ok_or_else(|| tg::error!("failed to get the log stream"))?;
+		let stream = stream
+			.try_filter_map(|event| async move {
+				match event {
+					tg::process::stdio::read::Event::Chunk(chunk) => {
+						let position = chunk
+							.position
+							.ok_or_else(|| tg::error!("expected the chunk position"))?;
+						let stream = stdio_stream_to_log_stream(chunk.stream)?;
+						let chunk = Chunk {
+							bytes: chunk.bytes,
+							position,
+							stream,
+						};
+						Ok(Some(chunk))
+					},
+					tg::process::stdio::read::Event::End => Ok(None),
+				}
+			})
+			.boxed();
+		Ok(stream)
+	}
+
 	async fn scroll(self: &Arc<Self>, height: isize) {
 		// Do nothing if asked to scroll by 0.
 		if height == 0 {
@@ -266,14 +317,8 @@ where
 			let position = scrolling.chunks.last().map(|chunk| {
 				std::io::SeekFrom::Start(chunk.position + chunk.bytes.len().to_u64().unwrap())
 			});
-			let arg = tg::process::log::get::Arg {
-				position,
-				size: Some(PAGE_SIZE),
-				..tg::process::log::get::Arg::default()
-			};
 			let stream = self
-				.process
-				.log(&self.handle, arg)
+				.read_log(position, None, Some(PAGE_SIZE))
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the log stream"))?
 				.boxed();
@@ -291,6 +336,10 @@ where
 
 		// Update EOF.
 		if let Some(chunk) = chunk {
+			debug_assert!(matches!(
+				chunk.stream,
+				tg::process::stdio::Stream::Stdout | tg::process::stdio::Stream::Stderr
+			));
 			scrolling.eof = chunk.bytes.is_empty();
 			scrolling.chunks.push(chunk);
 		} else {
@@ -314,14 +363,8 @@ where
 				.chunks
 				.first()
 				.map(|chunk| std::io::SeekFrom::Start(chunk.position));
-			let arg = tg::process::log::get::Arg {
-				position,
-				length: Some(-(PAGE_SIZE.to_i64().unwrap())),
-				..tg::process::log::get::Arg::default()
-			};
 			let stream = self
-				.process
-				.log(&self.handle, arg)
+				.read_log(position, Some(-(PAGE_SIZE.to_i64().unwrap())), None)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the log stream"))?
 				.boxed();
@@ -337,6 +380,10 @@ where
 			.await
 			.map_err(|source| tg::error!(!source, "failed to page down"))?;
 		if let Some(chunk) = chunk {
+			debug_assert!(matches!(
+				chunk.stream,
+				tg::process::stdio::Stream::Stdout | tg::process::stdio::Stream::Stderr
+			));
 			scrolling.eof = chunk.position == 0;
 			scrolling.chunks.insert(0, chunk);
 		} else {
@@ -429,11 +476,10 @@ where
 				let position = scrolling.chunks.last().map_or(0, |chunk| {
 					chunk.position + chunk.bytes.len().to_u64().unwrap()
 				});
-				let arg = tg::process::log::get::Arg {
-					position: Some(std::io::SeekFrom::Start(position)),
-					..tg::process::log::get::Arg::default()
-				};
-				let Ok(stream) = self.process.log(&self.handle, arg).await else {
+				let Ok(stream) = self
+					.read_log(Some(std::io::SeekFrom::Start(position)), None, None)
+					.await
+				else {
 					tracing::error!("failed to get the log");
 					return;
 				};
@@ -448,6 +494,10 @@ where
 				let Some(state) = state.upgrade() else {
 					return;
 				};
+				debug_assert!(matches!(
+					chunk.stream,
+					tg::process::stdio::Stream::Stdout | tg::process::stdio::Stream::Stderr
+				));
 				let mut stream = state.stream.lock().await;
 				let Ok(tailing) = stream.try_unwrap_tailing_mut() else {
 					return;
@@ -485,5 +535,15 @@ where
 		};
 		let tailing = Tailing { chunks, task };
 		*stream = StreamState::Tailing(tailing);
+	}
+}
+
+fn stdio_stream_to_log_stream(
+	stream: tg::process::stdio::Stream,
+) -> tg::Result<tg::process::stdio::Stream> {
+	match stream {
+		tg::process::stdio::Stream::Stdout => Ok(tg::process::stdio::Stream::Stdout),
+		tg::process::stdio::Stream::Stderr => Ok(tg::process::stdio::Stream::Stderr),
+		tg::process::stdio::Stream::Stdin => Err(tg::error!("invalid stdio stream")),
 	}
 }

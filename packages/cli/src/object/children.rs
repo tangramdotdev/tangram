@@ -21,9 +21,9 @@ impl Cli {
 	pub async fn command_object_children(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let arg = tg::object::get::Arg {
-			local: args.local.local,
+			local: args.local.get(),
 			metadata: false,
-			remotes: args.remotes.remotes,
+			remotes: args.remotes.get(),
 		};
 		let output = handle
 			.try_get_object(&args.object, arg)

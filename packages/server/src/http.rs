@@ -121,7 +121,7 @@ impl Server {
 				let handle = handle.clone();
 				let context = context.clone();
 				async move {
-					let response = Self::handle_request(&handle, request, context).await;
+					let response = handle.handle_request(request, context).await;
 					Ok::<_, Infallible>(response)
 				}
 			}
@@ -327,7 +327,7 @@ impl Server {
 
 	#[tracing::instrument(level = "trace", name = "request", skip_all, fields(id, method, path))]
 	async fn handle_request(
-		server: &Server,
+		&self,
 		mut request: http::Request<BoxBody>,
 		mut context: Context,
 	) -> http::Response<BoxBody> {
@@ -341,214 +341,169 @@ impl Server {
 
 		let method = request.method().clone();
 		let path = request.uri().path().to_owned();
-		// Update the context.
+
 		context.token = request.token(None).map(ToOwned::to_owned);
 		context.untrusted = true;
 
 		let path_components = path.split('/').skip(1).collect::<Vec<_>>();
 		let response = match (method, path_components.as_slice()) {
-			(http::Method::POST, ["cache"]) => {
-				server.handle_cache_request(request, &context).boxed()
-			},
-			(http::Method::POST, ["check"]) => {
-				server.handle_check_request(request, &context).boxed()
-			},
+			(http::Method::POST, ["cache"]) => self.handle_cache_request(request, &context).boxed(),
+			(http::Method::POST, ["check"]) => self.handle_check_request(request, &context).boxed(),
 			(http::Method::POST, ["checkin"]) => {
-				server.handle_checkin_request(request, &context).boxed()
+				self.handle_checkin_request(request, &context).boxed()
 			},
 			(http::Method::POST, ["checkout"]) => {
-				server.handle_checkout_request(request, &context).boxed()
+				self.handle_checkout_request(request, &context).boxed()
 			},
-			(http::Method::POST, ["clean"]) => server
-				.handle_server_clean_request(request, &context)
-				.boxed(),
+			(http::Method::POST, ["clean"]) => {
+				self.handle_server_clean_request(request, &context).boxed()
+			},
 			(http::Method::POST, ["document"]) => {
-				server.handle_document_request(request, &context).boxed()
+				self.handle_document_request(request, &context).boxed()
 			},
 			(http::Method::POST, ["format"]) => {
-				server.handle_format_request(request, &context).boxed()
+				self.handle_format_request(request, &context).boxed()
 			},
-			(http::Method::GET, ["health"]) => server
-				.handle_server_health_request(request, &context)
-				.boxed(),
-			(http::Method::POST, ["index"]) => {
-				server.handle_index_request(request, &context).boxed()
+			(http::Method::GET, ["health"]) => {
+				self.handle_server_health_request(request, &context).boxed()
 			},
-			(http::Method::POST, ["lsp"]) => server.handle_lsp_request(request, &context).boxed(),
-			(http::Method::POST, ["pull"]) => server.handle_pull_request(request, &context).boxed(),
-			(http::Method::POST, ["push"]) => server.handle_push_request(request, &context).boxed(),
-			(http::Method::GET, ["read"]) => server.handle_read_request(request, &context).boxed(),
-			(http::Method::POST, ["sync"]) => server.handle_sync_request(request, &context).boxed(),
-			(http::Method::POST, ["write"]) => {
-				server.handle_write_request(request, &context).boxed()
-			},
+			(http::Method::POST, ["index"]) => self.handle_index_request(request, &context).boxed(),
+			(http::Method::POST, ["lsp"]) => self.handle_lsp_request(request, &context).boxed(),
+			(http::Method::POST, ["pull"]) => self.handle_pull_request(request, &context).boxed(),
+			(http::Method::POST, ["push"]) => self.handle_push_request(request, &context).boxed(),
+			(http::Method::GET, ["read"]) => self.handle_read_request(request, &context).boxed(),
+			(http::Method::POST, ["sync"]) => self.handle_sync_request(request, &context).boxed(),
+			(http::Method::POST, ["write"]) => self.handle_write_request(request, &context).boxed(),
 			(http::Method::GET, ["_", path @ ..]) => {
-				server.handle_get_request(request, &context, path).boxed()
+				self.handle_get_request(request, &context, path).boxed()
 			},
 
 			// Modules.
 			(http::Method::POST, ["modules", "load"]) => {
-				server.handle_load_module_request(request, &context).boxed()
+				self.handle_load_module_request(request, &context).boxed()
 			},
-			(http::Method::POST, ["modules", "resolve"]) => server
+			(http::Method::POST, ["modules", "resolve"]) => self
 				.handle_resolve_module_request(request, &context)
 				.boxed(),
 
 			// Objects.
-			(http::Method::GET, ["objects", object, "metadata"]) => server
+			(http::Method::GET, ["objects", object, "metadata"]) => self
 				.handle_get_object_metadata_request(request, &context, object)
 				.boxed(),
-			(http::Method::GET, ["objects", object]) => server
+			(http::Method::GET, ["objects", object]) => self
 				.handle_get_object_request(request, &context, object)
 				.boxed(),
-			(http::Method::PUT, ["objects", object]) => server
+			(http::Method::PUT, ["objects", object]) => self
 				.handle_put_object_request(request, &context, object)
 				.boxed(),
-			(http::Method::POST, ["objects", "batch"]) => server
+			(http::Method::POST, ["objects", "batch"]) => self
 				.handle_post_object_batch_request(request, &context)
 				.boxed(),
-			(http::Method::POST, ["objects", object, "touch"]) => server
+			(http::Method::POST, ["objects", object, "touch"]) => self
 				.handle_touch_object_request(request, &context, object)
 				.boxed(),
 
 			// Processes.
-			(http::Method::GET, ["processes"]) => server
+			(http::Method::GET, ["processes"]) => self
 				.handle_list_processes_request(request, &context)
 				.boxed(),
-			(http::Method::POST, ["processes", "spawn"]) => server
-				.handle_spawn_process_request(request, &context)
-				.boxed(),
-			(http::Method::GET, ["processes", process, "metadata"]) => server
+			(http::Method::POST, ["processes", "spawn"]) => {
+				self.handle_spawn_process_request(request, &context).boxed()
+			},
+			(http::Method::GET, ["processes", process, "metadata"]) => self
 				.handle_get_process_metadata_request(request, &context, process)
 				.boxed(),
-			(http::Method::GET, ["processes", process]) => server
+			(http::Method::GET, ["processes", process]) => self
 				.handle_get_process_request(request, &context, process)
 				.boxed(),
-			(http::Method::PUT, ["processes", process]) => server
+			(http::Method::PUT, ["processes", process]) => self
 				.handle_put_process_request(request, &context, process)
 				.boxed(),
-			(http::Method::POST, ["processes", process, "cancel"]) => server
+			(http::Method::POST, ["processes", process, "cancel"]) => self
 				.handle_cancel_process_request(request, &context, process)
 				.boxed(),
-			(http::Method::POST, ["processes", "dequeue"]) => server
+			(http::Method::POST, ["processes", "dequeue"]) => self
 				.handle_dequeue_process_request(request, &context)
 				.boxed(),
-			(http::Method::POST, ["processes", process, "start"]) => server
-				.handle_start_process_request(request, &context, process)
-				.boxed(),
-			(http::Method::POST, ["processes", process, "signal"]) => server
+			(http::Method::POST, ["processes", process, "signal"]) => self
 				.handle_post_process_signal_request(request, &context, process)
 				.boxed(),
-			(http::Method::GET, ["processes", process, "signal"]) => server
+			(http::Method::GET, ["processes", process, "signal"]) => self
 				.handle_get_process_signal_request(request, &context, process)
 				.boxed(),
-			(http::Method::GET, ["processes", process, "status"]) => server
+			(http::Method::GET, ["processes", process, "status"]) => self
 				.handle_get_process_status_request(request, &context, process)
 				.boxed(),
-			(http::Method::GET, ["processes", process, "children"]) => server
+			(http::Method::GET, ["processes", process, "children"]) => self
 				.handle_get_process_children_request(request, &context, process)
 				.boxed(),
-			(http::Method::GET, ["processes", process, "log"]) => server
-				.handle_get_process_log_request(request, &context, process)
+			(http::Method::GET, ["processes", process, "tty", "size"]) => self
+				.handle_get_process_tty_size_request(request, &context, process)
 				.boxed(),
-			(http::Method::POST, ["processes", process, "log"]) => server
-				.handle_post_process_log_request(request, &context, process)
+			(http::Method::PUT, ["processes", process, "tty", "size"]) => self
+				.handle_set_process_tty_size_request(request, &context, process)
 				.boxed(),
-			(http::Method::POST, ["processes", process, "finish"]) => server
-				.handle_finish_process_request(request, &context, process)
+			(http::Method::GET, ["processes", process, "stdio"]) => self
+				.handle_post_process_stdio_read_request(request, &context, process)
 				.boxed(),
-			(http::Method::POST, ["processes", process, "touch"]) => server
-				.handle_touch_process_request(request, &context, process)
+			(http::Method::POST, ["processes", process, "stdio"]) => self
+				.handle_post_process_stdio_write_request(request, &context, process)
 				.boxed(),
-			(http::Method::POST, ["processes", process, "heartbeat"]) => server
+			(http::Method::POST, ["processes", process, "heartbeat"]) => self
 				.handle_heartbeat_process_request(request, &context, process)
 				.boxed(),
-			(http::Method::POST, ["processes", process, "wait"]) => server
+			(http::Method::POST, ["processes", process, "touch"]) => self
+				.handle_touch_process_request(request, &context, process)
+				.boxed(),
+			(http::Method::POST, ["processes", process, "finish"]) => self
+				.handle_finish_process_request(request, &context, process)
+				.boxed(),
+			(http::Method::POST, ["processes", process, "wait"]) => self
 				.handle_post_process_wait_request(request, &context, process)
 				.boxed(),
 
-			// Pipes.
-			(http::Method::POST, ["pipes"]) => {
-				server.handle_create_pipe_request(request, &context).boxed()
-			},
-			(http::Method::DELETE, ["pipes", pipe]) => server
-				.handle_delete_pipe_request(request, &context, pipe)
-				.boxed(),
-			(http::Method::POST, ["pipes", pipe, "close"]) => server
-				.handle_close_pipe_request(request, &context, pipe)
-				.boxed(),
-			(http::Method::GET, ["pipes", pipe, "read"]) => server
-				.handle_read_pipe_request(request, &context, pipe)
-				.boxed(),
-			(http::Method::POST, ["pipes", pipe, "write"]) => server
-				.handle_write_pipe_request(request, &context, pipe)
-				.boxed(),
-
-			// Ptys.
-			(http::Method::POST, ["ptys"]) => {
-				server.handle_create_pty_request(request, &context).boxed()
-			},
-			(http::Method::DELETE, ["ptys", pty]) => server
-				.handle_delete_pty_request(request, &context, pty)
-				.boxed(),
-			(http::Method::POST, ["ptys", pty, "close"]) => server
-				.handle_close_pty_request(request, &context, pty)
-				.boxed(),
-			(http::Method::GET, ["ptys", pty, "size"]) => server
-				.handle_get_pty_size_request(request, &context, pty)
-				.boxed(),
-			(http::Method::PUT, ["ptys", pty, "size"]) => server
-				.handle_put_pty_size_request(request, &context, pty)
-				.boxed(),
-			(http::Method::GET, ["ptys", pty, "read"]) => server
-				.handle_read_pty_request(request, &context, pty)
-				.boxed(),
-			(http::Method::POST, ["ptys", pty, "write"]) => server
-				.handle_write_pty_request(request, &context, pty)
-				.boxed(),
-
 			// Remotes.
-			(http::Method::GET, ["remotes"]) => server
-				.handle_list_remotes_request(request, &context)
-				.boxed(),
-			(http::Method::GET, ["remotes", name]) => server
+			(http::Method::GET, ["remotes"]) => {
+				self.handle_list_remotes_request(request, &context).boxed()
+			},
+			(http::Method::GET, ["remotes", name]) => self
 				.handle_get_remote_request(request, &context, name)
 				.boxed(),
-			(http::Method::PUT, ["remotes", name]) => server
+			(http::Method::PUT, ["remotes", name]) => self
 				.handle_put_remote_request(request, &context, name)
 				.boxed(),
-			(http::Method::DELETE, ["remotes", name]) => server
+			(http::Method::DELETE, ["remotes", name]) => self
 				.handle_delete_remote_request(request, &context, name)
 				.boxed(),
 
 			// Watches.
-			(http::Method::GET, ["watches"]) => server
-				.handle_list_watches_request(request, &context)
-				.boxed(),
-			(http::Method::DELETE, ["watches"]) => server
-				.handle_delete_watch_request(request, &context)
-				.boxed(),
+			(http::Method::GET, ["watches"]) => {
+				self.handle_list_watches_request(request, &context).boxed()
+			},
+			(http::Method::DELETE, ["watches"]) => {
+				self.handle_delete_watch_request(request, &context).boxed()
+			},
 			(http::Method::POST, ["watches", "touch"]) => {
-				server.handle_touch_watch_request(request, &context).boxed()
+				self.handle_touch_watch_request(request, &context).boxed()
 			},
 
 			// Tags.
 			(http::Method::GET, ["tags"]) => {
-				server.handle_list_tags_request(request, &context).boxed()
+				self.handle_list_tags_request(request, &context).boxed()
 			},
-			(http::Method::POST, ["tags", "batch"]) => server
+			(http::Method::POST, ["tags", "batch"]) => self
 				.handle_post_tag_batch_request(request, &context)
 				.boxed(),
-			(http::Method::PUT, ["tags", tag @ ..]) => server
-				.handle_put_tag_request(request, &context, tag)
-				.boxed(),
-			(http::Method::DELETE, ["tags", tag @ ..]) => server
+			(http::Method::PUT, ["tags", tag @ ..]) => {
+				self.handle_put_tag_request(request, &context, tag).boxed()
+			},
+			(http::Method::DELETE, ["tags", tag @ ..]) => self
 				.handle_delete_tag_request(request, &context, tag)
 				.boxed(),
 
 			// Users.
 			(http::Method::GET, ["user"]) => {
-				server.handle_get_user_request(request, &context).boxed()
+				self.handle_get_user_request(request, &context).boxed()
 			},
 
 			(_, _) => future::ok(
@@ -568,10 +523,7 @@ impl Server {
 			let bytes = error
 				.state()
 				.object()
-				.and_then(|arc| {
-					let object = arc.unwrap_error_ref();
-					serde_json::to_string(&object.to_data()).ok()
-				})
+				.and_then(|object| serde_json::to_string(&object.unwrap_error_ref().to_data()).ok())
 				.unwrap_or_default();
 			http::Response::builder()
 				.status(http::StatusCode::INTERNAL_SERVER_ERROR)

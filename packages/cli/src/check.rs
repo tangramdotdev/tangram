@@ -32,9 +32,9 @@ impl Cli {
 		// Check the modules.
 		let modules = modules.iter().map(tg::Module::to_data).collect();
 		let arg = tg::check::Arg {
-			local: args.local.local,
+			local: args.local.get(),
 			modules,
-			remotes: args.remotes.remotes,
+			remotes: args.remotes.get(),
 		};
 		let output = handle
 			.check(arg)

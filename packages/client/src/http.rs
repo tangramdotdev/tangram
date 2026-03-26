@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	std::{
+		error::Error as _,
 		ops::ControlFlow,
 		path::{Path, PathBuf},
 		str::FromStr,
@@ -478,7 +479,7 @@ impl tg::Client {
 		let mut root_store = rustls::RootCertStore::empty();
 		root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 		let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(
-			rustls::crypto::ring::default_provider(),
+			rustls::crypto::aws_lc_rs::default_provider(),
 		))
 		.with_safe_default_protocol_versions()
 		.unwrap()
@@ -537,13 +538,19 @@ impl tg::Client {
 						let response = response.map(Into::into);
 						Ok(ControlFlow::Break(response))
 					},
-					Err(Error::Hyper(source))
-						if source.is_closed()
-							|| source.is_canceled()
-							|| source.is_incomplete_message() =>
+					Err(Error::Hyper(error))
+						if error.is_closed()
+							|| error.is_canceled()
+							|| error.is_incomplete_message()
+							|| error
+								.source()
+								.and_then(|source| source.downcast_ref::<std::io::Error>())
+								.is_some_and(|error| {
+									error.kind() == std::io::ErrorKind::ConnectionReset
+								}) =>
 					{
 						Ok(ControlFlow::Continue(tg::error!(
-							!source,
+							!error,
 							"failed to send the request"
 						)))
 					},

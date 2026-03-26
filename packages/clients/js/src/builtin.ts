@@ -81,6 +81,7 @@ export let download = async (
 		checksum,
 		executable: "download",
 		host: "builtin",
+		network: true,
 	});
 	tg.assert(value instanceof tg.Blob || tg.Artifact.is(value));
 	return value;

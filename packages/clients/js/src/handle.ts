@@ -15,6 +15,8 @@ export type Handle = {
 	tg.Handle.System;
 
 export namespace Handle {
+	export type Lock = "auto" | "attr" | "file";
+
 	export type ReadArg = {
 		blob: tg.Blob.Id;
 	} & tg.Handle.ReadOptions;
@@ -34,9 +36,11 @@ export namespace Handle {
 		parent: tg.Process.Id | undefined;
 		remote: string | undefined;
 		retry: boolean;
-		stderr: string | undefined;
-		stdin: string | undefined;
-		stdout: string | undefined;
+		sandbox: boolean;
+		stderr: string;
+		stdin: string;
+		stdout: string;
+		tty: boolean | tg.Process.Tty | undefined;
 	};
 
 	export type SpawnOutput = {
@@ -48,9 +52,66 @@ export namespace Handle {
 	};
 
 	export type WaitArg = {
-		local: string | undefined;
+		local: boolean | undefined;
 		remotes: Array<string> | undefined;
 		token: string | undefined;
+	};
+
+	export type CheckoutArg = {
+		artifact: tg.Artifact.Id;
+		dependencies: boolean;
+		extension?: string | undefined;
+		force: boolean;
+		lock?: tg.Handle.Lock | undefined;
+		path?: string | undefined;
+	};
+
+	export type CheckinArg = {
+		options: tg.Handle.CheckinOptions;
+		path: string;
+		updates: Array<string>;
+	};
+
+	export type CheckinOptions = {
+		cachePointers?: boolean | undefined;
+		destructive?: boolean | undefined;
+		deterministic?: boolean | undefined;
+		root?: boolean | undefined;
+		ignore?: boolean | undefined;
+		localDependencies?: boolean | undefined;
+		lock?: tg.Handle.Lock | undefined;
+		locked?: boolean | undefined;
+		solve?: boolean | undefined;
+		unsolvedDependencies?: boolean | undefined;
+		ttl?: number | undefined;
+		watch?: boolean | undefined;
+	};
+
+	export type SignalArg = {
+		local?: boolean | undefined;
+		remotes?: Array<string> | undefined;
+		signal: tg.Process.Signal;
+	};
+
+	export type ProcessStdioReadArg = {
+		length?: number | undefined;
+		local?: boolean | undefined;
+		position?: number | string | undefined;
+		remotes?: Array<string> | undefined;
+		size?: number | undefined;
+		streams: Array<tg.Process.Stdio.Stream>;
+	};
+
+	export type ProcessStdioWriteArg = {
+		local?: boolean | undefined;
+		remotes?: Array<string> | undefined;
+		streams: Array<tg.Process.Stdio.Stream>;
+	};
+
+	export type ProcessTtySizePutArg = {
+		local?: boolean | undefined;
+		remotes?: Array<string> | undefined;
+		size: tg.Process.Tty.Size;
 	};
 
 	export type PostObjectBatchArg = {
@@ -71,55 +132,48 @@ export namespace Handle {
 			remote: string | undefined,
 		): Promise<tg.Process.Data>;
 
+		readProcessStdio(
+			id: tg.Process.Id,
+			arg: tg.Handle.ProcessStdioReadArg,
+		): Promise<AsyncIterableIterator<tg.Process.Stdio.Read.Event> | undefined>;
+
+		setProcessTtySize(
+			id: tg.Process.Id,
+			arg: tg.Handle.ProcessTtySizePutArg,
+		): Promise<void>;
+
+		signalProcess(id: tg.Process.Id, arg: SignalArg): Promise<void>;
+
 		spawnProcess(arg: SpawnArg): Promise<SpawnOutput>;
 
 		waitProcess(
 			id: tg.Process.Id,
 			arg: tg.Handle.WaitArg,
 		): Promise<tg.Process.Wait.Data>;
+
+		writeProcessStdio(
+			id: tg.Process.Id,
+			arg: tg.Handle.ProcessStdioWriteArg,
+			input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
+		): Promise<void>;
 	};
 
-	export type LogStream = "stdout" | "stderr";
-
 	export type System = {
+		checkin(arg: tg.Handle.CheckinArg): Promise<tg.Artifact.Id>;
+
 		checksum(
 			input: string | Uint8Array,
 			algorithm: tg.Checksum.Algorithm,
 		): tg.Checksum;
 
-		encoding: {
-			base64: {
-				decode: (value: string) => Uint8Array;
-				encode: (value: Uint8Array) => string;
-			};
-			hex: {
-				decode: (value: string) => Uint8Array;
-				encode: (value: Uint8Array) => string;
-			};
-			json: {
-				decode: (value: string) => unknown;
-				encode: (value: unknown) => string;
-			};
-			toml: {
-				decode: (value: string) => unknown;
-				encode: (value: unknown) => string;
-			};
-			utf8: {
-				decode: (value: Uint8Array) => string;
-				encode: (value: string) => Uint8Array;
-			};
-			yaml: {
-				decode: (value: string) => unknown;
-				encode: (value: unknown) => string;
-			};
-		};
-
-		log(stream: LogStream, string: string): void;
+		checkout(arg: tg.Handle.CheckoutArg): Promise<string>;
 
 		objectId(object: tg.Object.Data): tg.Object.Id;
 
-		magic(value: Function): tg.Command.Data.Executable;
+		parseValue(value: string): tg.Value.Data;
 
-		sleep(duration: number): Promise<void>;
+		processId(): tg.Process.Id;
+
+		stringifyValue(value: tg.Value.Data): string;
 	};
 }

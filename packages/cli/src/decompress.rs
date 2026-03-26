@@ -8,7 +8,7 @@ pub struct Args {
 	pub blob: tg::blob::Id,
 
 	#[command(flatten)]
-	pub build: crate::build::Options,
+	pub build: crate::run::Options,
 }
 
 impl Cli {
@@ -21,7 +21,7 @@ impl Cli {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 		let reference = tg::Reference::with_object(command.into());
-		let args = crate::build::Args {
+		let args = crate::run::Args {
 			options: args.build,
 			reference,
 			trailing: Vec::new(),

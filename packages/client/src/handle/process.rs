@@ -1,10 +1,24 @@
-use {crate::prelude::*, futures::Stream};
+use {
+	crate::prelude::*,
+	futures::{Stream, stream::BoxStream},
+};
 
 pub trait Process: Clone + Unpin + Send + Sync + 'static {
 	fn list_processes(
 		&self,
 		arg: tg::process::list::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::list::Output>> + Send;
+
+	fn try_spawn_process(
+		&self,
+		arg: tg::process::spawn::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>
+			+ Send
+			+ 'static,
+		>,
+	> + Send;
 
 	fn try_get_process_metadata(
 		&self,
@@ -24,27 +38,22 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::process::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn try_get_process_children_stream(
+	fn cancel_process(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::children::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<
-				impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static,
-			>,
-		>,
-	> + Send;
+		arg: tg::process::cancel::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn try_get_process_log_stream(
+	fn try_dequeue_process(
+		&self,
+		arg: tg::process::queue::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::queue::Output>>> + Send;
+
+	fn signal_process(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::log::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::process::log::get::Event>> + Send + 'static>,
-		>,
-	> + Send;
+		arg: tg::process::signal::post::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn try_get_process_signal_stream(
 		&self,
@@ -68,22 +77,58 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		>,
 	> + Send;
 
-	fn cancel_process(
+	fn try_get_process_children_stream(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::cancel::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send;
+		arg: tg::process::children::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static,
+			>,
+		>,
+	> + Send;
 
-	fn try_dequeue_process(
-		&self,
-		arg: tg::process::queue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::process::queue::Output>>> + Send;
-
-	fn finish_process(
+	fn try_get_process_tty_size_stream(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::finish::Arg,
+		arg: tg::process::tty::size::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::tty::size::get::Event>> + Send + 'static,
+			>,
+		>,
+	> + Send;
+
+	fn set_process_tty_size(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::tty::size::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn try_read_process_stdio(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::read::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static,
+			>,
+		>,
+	> + Send;
+
+	fn write_process_stdio(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::write::Arg,
+		stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static,
+		>,
+	> + Send;
 
 	fn heartbeat_process(
 		&self,
@@ -91,39 +136,16 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::process::heartbeat::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> + Send;
 
-	fn post_process_log(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::log::post::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send;
-
-	fn signal_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::signal::post::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send;
-
-	fn try_spawn_process(
-		&self,
-		arg: tg::process::spawn::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>
-			+ Send
-			+ 'static,
-		>,
-	> + Send;
-
-	fn start_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::start::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send;
-
 	fn touch_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::touch::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn finish_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::finish::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn try_wait_process_future(
@@ -158,20 +180,6 @@ impl tg::handle::Process for tg::Client {
 		>,
 	> + Send {
 		self.try_spawn_process(arg)
-	}
-
-	fn try_wait_process_future(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::wait::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<
-				impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
-			>,
-		>,
-	> {
-		self.try_wait_process_future(id, arg)
 	}
 
 	fn try_get_process_metadata(
@@ -211,22 +219,6 @@ impl tg::handle::Process for tg::Client {
 		arg: tg::process::queue::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::queue::Output>>> {
 		self.try_dequeue_process(arg)
-	}
-
-	fn start_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::start::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.start_process(id, arg)
-	}
-
-	fn heartbeat_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::heartbeat::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> {
-		self.heartbeat_process(id, arg)
 	}
 
 	fn signal_process(
@@ -277,24 +269,69 @@ impl tg::handle::Process for tg::Client {
 		self.try_get_process_children_stream(id, arg)
 	}
 
-	fn try_get_process_log_stream(
+	fn try_get_process_tty_size_stream(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::log::get::Arg,
+		arg: tg::process::tty::size::get::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::process::log::get::Event>> + Send + 'static>,
+			Option<
+				impl Stream<Item = tg::Result<tg::process::tty::size::get::Event>> + Send + 'static,
+			>,
 		>,
 	> {
-		self.try_get_process_log_stream(id, arg)
+		self.try_get_process_tty_size_stream(id, arg)
 	}
 
-	fn post_process_log(
+	fn set_process_tty_size(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::log::post::Arg,
+		arg: tg::process::tty::size::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
-		self.post_process_log(id, arg)
+		self.set_process_tty_size(id, arg)
+	}
+
+	fn try_read_process_stdio(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::read::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static,
+			>,
+		>,
+	> {
+		self.try_read_process_stdio(id, arg)
+	}
+
+	fn write_process_stdio(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::write::Arg,
+		stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static,
+		>,
+	> {
+		self.write_process_stdio(id, arg, stream)
+	}
+
+	fn heartbeat_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::heartbeat::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> {
+		self.heartbeat_process(id, arg)
+	}
+
+	fn touch_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::touch::Arg,
+	) -> impl Future<Output = tg::Result<()>> {
+		self.touch_process(id, arg)
 	}
 
 	fn finish_process(
@@ -305,11 +342,17 @@ impl tg::handle::Process for tg::Client {
 		self.finish_process(id, arg)
 	}
 
-	fn touch_process(
+	fn try_wait_process_future(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::touch::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.touch_process(id, arg)
+		arg: tg::process::wait::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+			>,
+		>,
+	> {
+		self.try_wait_process_future(id, arg)
 	}
 }

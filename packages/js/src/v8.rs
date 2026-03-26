@@ -5,14 +5,17 @@ use {
 		},
 		syscall::syscall,
 	},
-	crate::{Logger, Output},
+	crate::Output,
 	futures::{
 		FutureExt as _, StreamExt as _, TryFutureExt as _,
 		future::{self, LocalBoxFuture},
-		stream::FuturesUnordered,
+		stream::{BoxStream, FuturesUnordered},
 	},
 	sourcemap::SourceMap,
-	std::{cell::RefCell, future::poll_fn, path::PathBuf, pin::pin, rc::Rc, task::Poll},
+	std::{
+		cell::RefCell, collections::BTreeMap, future::poll_fn, path::PathBuf, pin::pin, rc::Rc,
+		sync::atomic::AtomicUsize, task::Poll,
+	},
 	tangram_client::prelude::*,
 	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 };
@@ -28,12 +31,22 @@ const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.js.map"
 struct State {
 	promises: RefCell<FuturesUnordered<LocalBoxFuture<'static, PromiseOutput>>>,
 	global_source_map: Option<SourceMap>,
-	logger: Logger,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
+	next_process_stdio_token: AtomicUsize,
+	process_stdio_readers: tokio::sync::Mutex<
+		BTreeMap<usize, BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>,
+	>,
+	process_stdio_writers: tokio::sync::Mutex<BTreeMap<usize, ProcessStdioWriter>>,
 	rejection: tokio::sync::watch::Sender<Option<tg::Error>>,
 	root: tg::module::Data,
 	handle: tg::handle::dynamic::Handle,
+	host: crate::host::Host,
+}
+
+struct ProcessStdioWriter {
+	sender: futures::channel::mpsc::Sender<tg::Result<tg::process::stdio::read::Event>>,
+	task: tokio::task::JoinHandle<tg::Result<()>>,
 }
 
 struct PromiseOutput {
@@ -51,14 +64,12 @@ struct Module {
 #[derive(Clone)]
 pub struct Abort(v8::IsolateHandle);
 
-#[expect(clippy::too_many_arguments)]
 pub async fn run<H>(
 	handle: &H,
 	args: tg::value::data::Array,
 	cwd: PathBuf,
 	env: tg::value::data::Map,
 	executable: tg::command::data::Executable,
-	logger: Logger,
 	main_runtime_handle: tokio::runtime::Handle,
 	abort_sender: Option<tokio::sync::watch::Sender<Option<Abort>>>,
 ) -> tg::Result<Output>
@@ -93,12 +104,15 @@ where
 	let state = Rc::new(State {
 		promises: RefCell::new(FuturesUnordered::new()),
 		global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
-		logger,
 		main_runtime_handle,
 		modules: RefCell::new(Vec::new()),
+		next_process_stdio_token: AtomicUsize::new(0),
+		process_stdio_readers: tokio::sync::Mutex::new(BTreeMap::new()),
+		process_stdio_writers: tokio::sync::Mutex::new(BTreeMap::new()),
 		rejection,
 		root: module.clone(),
 		handle: tg::handle::dynamic::Handle::new(handle.clone()),
+		host: crate::host::Host::default(),
 	});
 
 	// Create the isolate params.

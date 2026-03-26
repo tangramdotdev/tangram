@@ -184,8 +184,8 @@ export class File {
 		return this.id;
 	}
 
-	async children(): Promise<Array<tg.Object>> {
-		return this.#state.children();
+	get children(): Promise<Array<tg.Object>> {
+		return this.#state.children;
 	}
 
 	get contents(): Promise<tg.Blob> {

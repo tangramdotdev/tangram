@@ -578,8 +578,11 @@ impl crate::Store for Store {
 		// Find the starting position.
 		let start = if let Some(stream) = arg.stream {
 			let stream = match stream {
-				tg::process::log::Stream::Stdout => 1i32,
-				tg::process::log::Stream::Stderr => 2i32,
+				tg::process::stdio::Stream::Stdout => 1i32,
+				tg::process::stdio::Stream::Stderr => 2i32,
+				tg::process::stdio::Stream::Stdin => {
+					return Err(tg::error!("invalid stdio stream"));
+				},
 			};
 			#[derive(scylla::DeserializeRow)]
 			struct StreamRow {
@@ -640,9 +643,9 @@ impl crate::Store for Store {
 
 			// Determine the stream type.
 			let chunk_stream = if row.stream == 1 {
-				tg::process::log::Stream::Stdout
+				tg::process::stdio::Stream::Stdout
 			} else {
-				tg::process::log::Stream::Stderr
+				tg::process::stdio::Stream::Stderr
 			};
 
 			// Skip entries that do not match the stream filter.
@@ -711,7 +714,7 @@ impl crate::Store for Store {
 	async fn try_get_process_log_length(
 		&self,
 		id: &tg::process::Id,
-		stream: Option<tg::process::log::Stream>,
+		stream: Option<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<u64>> {
 		let process = id.to_bytes().to_vec();
 
@@ -744,8 +747,11 @@ impl crate::Store for Store {
 			Some(stream) => {
 				// Stream length: get last stream index entry, then look up combined entry.
 				let stream = match stream {
-					tg::process::log::Stream::Stdout => 1i32,
-					tg::process::log::Stream::Stderr => 2i32,
+					tg::process::stdio::Stream::Stdout => 1i32,
+					tg::process::stdio::Stream::Stderr => 2i32,
+					tg::process::stdio::Stream::Stdin => {
+						return Err(tg::error!("invalid stdio stream"));
+					},
 				};
 
 				#[derive(scylla::DeserializeRow)]
@@ -805,8 +811,11 @@ impl crate::Store for Store {
 
 		let process = arg.process.to_bytes().to_vec();
 		let stream = match arg.stream {
-			tg::process::log::Stream::Stdout => 1i32,
-			tg::process::log::Stream::Stderr => 2i32,
+			tg::process::stdio::Stream::Stdout => 1i32,
+			tg::process::stdio::Stream::Stderr => 2i32,
+			tg::process::stdio::Stream::Stdin => {
+				return Err(tg::error!("invalid stdio stream"));
+			},
 		};
 
 		#[derive(scylla::DeserializeRow)]

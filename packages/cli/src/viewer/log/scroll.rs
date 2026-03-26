@@ -1,4 +1,5 @@
 use {
+	super::Chunk,
 	num::ToPrimitive as _,
 	ratatui as tui,
 	tangram_client::prelude::*,
@@ -39,16 +40,13 @@ struct GraphemeParserState<'a, 'b> {
 	buffer: &'b mut Vec<u8>,
 	byte: usize,
 	chunk: usize,
-	chunks: &'a [tg::process::log::get::Chunk],
+	chunks: &'a [Chunk],
 	forward: bool,
 	start: usize,
 }
 
 impl Scroll {
-	pub fn new(
-		rect: tui::layout::Rect,
-		chunks: &[tg::process::log::get::Chunk],
-	) -> tg::Result<Self, Error> {
+	pub fn new(rect: tui::layout::Rect, chunks: &[Chunk]) -> tg::Result<Self, Error> {
 		let mut buffer = Vec::with_capacity(64);
 		let chunk = chunks.last().unwrap();
 		let end = chunk.position + chunk.bytes.len().to_u64().unwrap();
@@ -67,11 +65,7 @@ impl Scroll {
 		})
 	}
 
-	pub fn scroll(
-		&mut self,
-		height: isize,
-		chunks: &[tg::process::log::get::Chunk],
-	) -> tg::Result<usize, Error> {
+	pub fn scroll(&mut self, height: isize, chunks: &[Chunk]) -> tg::Result<usize, Error> {
 		match height.cmp(&0) {
 			std::cmp::Ordering::Equal => Ok(0),
 			std::cmp::Ordering::Less => self.scroll_up(height.abs().to_usize().unwrap(), chunks),
@@ -79,11 +73,7 @@ impl Scroll {
 		}
 	}
 
-	fn scroll_up(
-		&mut self,
-		height: usize,
-		chunks: &[tg::process::log::get::Chunk],
-	) -> tg::Result<usize, Error> {
+	fn scroll_up(&mut self, height: usize, chunks: &[Chunk]) -> tg::Result<usize, Error> {
 		let (count, new_start) = scroll_up_inner(
 			&mut self.buffer,
 			self.start,
@@ -105,11 +95,7 @@ impl Scroll {
 		Ok(count)
 	}
 
-	fn scroll_down(
-		&mut self,
-		height: usize,
-		chunks: &[tg::process::log::get::Chunk],
-	) -> tg::Result<usize, Error> {
+	fn scroll_down(&mut self, height: usize, chunks: &[Chunk]) -> tg::Result<usize, Error> {
 		let (count, new_end) = scroll_down_inner(
 			&mut self.buffer,
 			self.end,
@@ -131,10 +117,7 @@ impl Scroll {
 		Ok(count)
 	}
 
-	pub fn read_lines(
-		&mut self,
-		chunks: &[tg::process::log::get::Chunk],
-	) -> tg::Result<Lines, Error> {
+	pub fn read_lines(&mut self, chunks: &[Chunk]) -> tg::Result<Lines, Error> {
 		read_lines_inner(
 			&mut self.buffer,
 			self.start,
@@ -150,7 +133,7 @@ fn scroll_up_inner(
 	mut position: u64,
 	max_width: usize,
 	num_lines: usize,
-	chunks: &[tg::process::log::get::Chunk],
+	chunks: &[Chunk],
 ) -> tg::Result<(usize, u64), Error> {
 	for count in 0..num_lines {
 		let mut width = 0;
@@ -184,7 +167,7 @@ fn scroll_down_inner(
 	mut position: u64,
 	max_width: usize,
 	num_lines: usize,
-	chunks: &[tg::process::log::get::Chunk],
+	chunks: &[Chunk],
 ) -> tg::Result<(usize, u64), Error> {
 	let last = chunks.last().unwrap();
 	let last = last.position + last.bytes.len().to_u64().unwrap();
@@ -219,7 +202,7 @@ fn read_lines_inner(
 	position: u64,
 	max_width: usize,
 	num_lines: usize,
-	chunks: &[tg::process::log::get::Chunk],
+	chunks: &[Chunk],
 ) -> tg::Result<Lines, Error> {
 	let mut result = Lines {
 		start: position,
@@ -267,7 +250,7 @@ fn next_grapheme<'a>(
 	buffer: &'a mut Vec<u8>,
 	position: u64,
 	forward: bool,
-	chunks: &[tg::process::log::get::Chunk],
+	chunks: &[Chunk],
 ) -> tg::Result<(&'a str, u64), Error> {
 	let end_position = {
 		let last = chunks.last().unwrap();
@@ -521,7 +504,7 @@ impl GraphemeParserState<'_, '_> {
 #[cfg(test)]
 mod tests {
 	use {
-		super::{Error, Scroll, next_grapheme, scroll_down_inner, scroll_up_inner},
+		super::{Chunk, Error, Scroll, next_grapheme, scroll_down_inner, scroll_up_inner},
 		num::ToPrimitive as _,
 		ratatui::layout::Rect,
 		tangram_client::prelude::*,
@@ -529,10 +512,10 @@ mod tests {
 
 	#[test]
 	fn scroll_up_and_down() {
-		let chunks = [tg::process::log::get::Chunk {
+		let chunks = [Chunk {
 			position: 0,
 			bytes: b"1 abcdef\n2 abcdef\n3 abcdef\n".to_vec().into(),
-			stream: tg::process::log::Stream::Stdout,
+			stream: tg::process::stdio::Stream::Stdout,
 		}];
 		let mut scroll = Scroll::new(Rect::new(0, 0, 20, 1), &chunks).unwrap();
 		let (init_start, init_end) = (scroll.start, scroll.end);
@@ -550,20 +533,20 @@ mod tests {
 	#[test]
 	fn invalid_utf8() {
 		let chunks = vec![
-			tg::process::log::get::Chunk {
+			Chunk {
 				position: 0,
 				bytes: b"a".to_vec().into(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 			},
-			tg::process::log::get::Chunk {
+			Chunk {
 				position: 1,
 				bytes: vec![0b1010_1010].into(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 			},
-			tg::process::log::get::Chunk {
+			Chunk {
 				position: 2,
 				bytes: b"b".to_vec().into(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 			},
 		];
 		let mut buffer = Vec::new();
@@ -592,20 +575,20 @@ mod tests {
 	fn emoji() {
 		// Non tailing case.
 		let chunks = vec![
-			tg::process::log::get::Chunk {
+			Chunk {
 				position: 0,
 				bytes: "1——👍👌👉👈——\n".as_bytes().to_vec().into(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 			},
-			tg::process::log::get::Chunk {
+			Chunk {
 				position: 30,
 				bytes: "2——👍👌👉👈——\n".as_bytes().to_vec().into(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 			},
-			tg::process::log::get::Chunk {
+			Chunk {
 				position: 60,
 				bytes: "3——👍👌👉👈——\n".as_bytes().to_vec().into(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 			},
 		];
 		let mut scroll = Scroll {
@@ -623,19 +606,19 @@ mod tests {
 
 		// Tailing case.
 		let chunks = vec![
-			tg::process::log::get::Chunk {
+			Chunk {
 				position: 0,
 				bytes:
 					"\"0——👍👌👉👈——\"\n\"1——👍👌👉👈——\"\n\"2——👍👌👉👈——\"\n\"3——👍👌👉👈——\"\n"
 						.as_bytes()
 						.to_vec()
 						.into(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 			},
-			tg::process::log::get::Chunk {
+			Chunk {
 				position: 128,
 				bytes: "\"4——👍👌👉👈——\"\n".as_bytes().to_vec().into(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 			},
 		];
 		let mut scroll = Scroll::new(Rect::new(0, 0, 20, 10), &chunks).unwrap();
@@ -655,10 +638,10 @@ mod tests {
 
 	#[test]
 	fn word_wrap_emoji() {
-		let chunks = vec![tg::process::log::get::Chunk {
+		let chunks = vec![Chunk {
 			position: 0,
 			bytes: "😀😀".as_bytes().to_vec().into(),
-			stream: tg::process::log::Stream::Stdout,
+			stream: tg::process::stdio::Stream::Stdout,
 		}];
 		let mut scroll = Scroll::new(Rect::new(0, 0, 2, 4), &chunks).unwrap();
 		let lines = scroll.read_lines(&chunks).unwrap();
@@ -672,10 +655,10 @@ mod tests {
 		let mut chunks = Vec::new();
 		for n in 0..24 {
 			let bytes = format!("\"log line {n}\"\n").into();
-			let chunk = tg::process::log::get::Chunk {
+			let chunk = Chunk {
 				position,
 				bytes,
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 			};
 			position += chunk.bytes.len().to_u64().unwrap();
 			chunks.push(chunk);
@@ -694,10 +677,10 @@ mod tests {
 		let mut chunks = Vec::new();
 		for n in 0..8 {
 			let bytes = format!("\"log line {n}\"\n").into();
-			let chunk = tg::process::log::get::Chunk {
+			let chunk = Chunk {
 				position,
 				bytes,
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 			};
 			position += chunk.bytes.len().to_u64().unwrap();
 			chunks.push(chunk);
@@ -725,10 +708,10 @@ mod tests {
 		let mut chunks = Vec::new();
 		for n in 0..8 {
 			let bytes = format!("\"log line {n}\"\n").into();
-			let chunk = tg::process::log::get::Chunk {
+			let chunk = Chunk {
 				position,
 				bytes,
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 			};
 			position += chunk.bytes.len().to_u64().unwrap();
 			chunks.push(chunk);
@@ -764,30 +747,30 @@ mod tests {
 		let num_lines = 26;
 
 		let chunks = [
-			tg::process::log::get::Chunk {
+			Chunk {
 				position: 114,
 				bytes: b"\"doing stuff 6...\"\n".to_vec().into(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 			},
-			tg::process::log::get::Chunk {
+			Chunk {
 				position: 133,
 				bytes: b"\"doing stuff 7...\"\n".to_vec().into(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 			},
-			tg::process::log::get::Chunk {
+			Chunk {
 				position: 152,
 				bytes: b"\"doing stuff 8...\"\n".to_vec().into(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 			},
-			tg::process::log::get::Chunk {
+			Chunk {
 				position: 171,
 				bytes: b"\"doing stuff 9...\"\n".to_vec().into(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 			},
-			tg::process::log::get::Chunk {
+			Chunk {
 				position: 190,
 				bytes: b"\"doing stuff 10...\"\n".to_vec().into(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 			},
 		];
 

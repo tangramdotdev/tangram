@@ -318,7 +318,7 @@ impl store::Store for Store {
 	async fn try_get_process_log_length(
 		&self,
 		id: &tg::process::Id,
-		stream: Option<tg::process::log::Stream>,
+		stream: Option<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<u64>> {
 		match self {
 			#[cfg(feature = "lmdb")]

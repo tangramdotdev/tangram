@@ -141,7 +141,7 @@ export class Error {
 	}
 
 	get children(): Promise<Array<tg.Object>> {
-		return this.#state.children();
+		return this.#state.children;
 	}
 
 	get code(): Promise<string | undefined> {

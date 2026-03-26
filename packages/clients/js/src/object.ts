@@ -116,9 +116,11 @@ export namespace Object {
 			}
 		}
 
-		async children(): Promise<Array<tg.Object>> {
-			await this.load();
-			return tg.Object.Object.children(this.#object!);
+		get children(): Promise<Array<tg.Object>> {
+			return (async () => {
+				await this.load();
+				return tg.Object.Object.children(this.#object!);
+			})();
 		}
 	}
 

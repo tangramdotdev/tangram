@@ -30,6 +30,8 @@ let path = artifact {
 	'#
 }
 let id = tg build --no-cache-pointers $path
+rm -rf ($server.directory | path join "artifacts")
+mkdir ($server.directory | path join "artifacts")
 
 tg cache $id | complete
 

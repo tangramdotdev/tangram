@@ -23,8 +23,8 @@ impl Cli {
 
 		// Cancel the process.
 		let arg = tg::process::cancel::Arg {
-			local: args.local.local,
-			remotes: args.remotes.remotes,
+			local: args.local.get(),
+			remotes: args.remotes.get(),
 			token: args.token,
 		};
 		handle.cancel_process(&args.process, arg).await.map_err(

@@ -21,8 +21,8 @@ impl Cli {
 	pub async fn command_process_metadata(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let arg = tg::process::metadata::Arg {
-			local: args.local.local,
-			remotes: args.remotes.remotes,
+			local: args.local.get(),
+			remotes: args.remotes.get(),
 		};
 		let output = handle
 			.try_get_process_metadata(&args.process, arg)

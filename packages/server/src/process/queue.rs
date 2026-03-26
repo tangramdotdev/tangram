@@ -2,10 +2,8 @@ use {
 	crate::{Context, Server},
 	bytes::Bytes,
 	futures::{StreamExt as _, TryStreamExt as _, future, stream},
-	indoc::formatdoc,
 	std::pin::pin,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
 	tangram_futures::task::Stop,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_messenger::{self as messenger, prelude::*},
@@ -44,45 +42,25 @@ impl Server {
 			.get_consumer("queue".into())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the consumer"))?;
-		let enqueued = consumer.subscribe::<Message>().await.map_err(|source| {
+		let messages = consumer.subscribe::<Message>().await.map_err(|source| {
 			tg::error!(!source, "failed to subscribe to the process queue stream")
 		})?;
 
-		let mut enqueued = pin!(enqueued);
+		let mut messages = pin!(messages);
 
 		// Attempt to dequeue a process from the stream.
-		while let Some(message) = enqueued
+		while let Some(message) = messages
 			.try_next()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to dequeue a process"))?
 		{
 			let (payload, acker) = message.split();
 
-			// Get a database connection.
-			let connection = self
-				.database
-				.write_connection()
+			// Attempt to start the process.
+			let started = self
+				.try_start_process_local(&payload.id)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-			// Update the process's status.
-			let p = connection.p();
-			let statement = formatdoc!(
-				"
-					update processes
-					set
-						status = 'dequeued',
-						dequeued_at = {p}2
-					where
-						id = {p}1 and status = 'enqueued';
-				"
-			);
-			let now = time::OffsetDateTime::now_utc().unix_timestamp();
-			let params = db::params![payload.id.to_string(), now];
-			let result = connection
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|source| tg::error!(!source, "failed to start the process"))?;
 
 			// Ack the message unconditionally to avoid redelivery.
 			acker
@@ -91,15 +69,11 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to ack the message"))?;
 
 			// Only return the process if we successfully changed the status of the process.
-			if result == 0 {
+			if !started {
 				continue;
 			}
 
-			// Publish a message that the status changed.
-			let subject = format!("processes.{}.status", payload.id);
-			self.messenger.publish(subject, ()).await.ok();
-
-			// Return the dequeued process.
+			// Return the started process.
 			let output = tg::process::queue::Output {
 				process: payload.id,
 			};

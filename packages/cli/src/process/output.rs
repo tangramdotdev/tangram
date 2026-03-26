@@ -22,8 +22,8 @@ impl Cli {
 		let handle = self.handle().await?;
 		let process = &args.process;
 		let arg = tg::process::wait::Arg {
-			local: args.local.local,
-			remotes: args.remotes.remotes,
+			local: args.local.get(),
+			remotes: args.remotes.get(),
 			token: None,
 		};
 		let wait = handle.wait_process(process, arg).await.map_err(

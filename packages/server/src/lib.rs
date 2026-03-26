@@ -1,7 +1,6 @@
 use {
 	self::{
-		context::Context, database::Database, index::Index, messenger::Messenger, pipe::Pipe,
-		pty::Pty, store::Store,
+		context::Context, database::Database, index::Index, messenger::Messenger, store::Store,
 	},
 	crate::{temp::Temp, watch::Watch},
 	dashmap::{DashMap, DashSet},
@@ -11,7 +10,7 @@ use {
 		ops::Deref,
 		os::fd::AsRawFd as _,
 		path::PathBuf,
-		sync::{Arc, Mutex, OnceLock},
+		sync::{Arc, Mutex},
 	},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -43,9 +42,7 @@ mod lsp;
 mod messenger;
 mod module;
 mod object;
-mod pipe;
 mod process;
-mod pty;
 mod pull;
 mod push;
 mod read;
@@ -91,19 +88,16 @@ pub struct State {
 	index: Index,
 	index_tasks: tangram_futures::task::Set<()>,
 	library: Mutex<Option<Arc<Temp>>>,
-	#[cfg_attr(not(feature = "js"), expect(dead_code))]
-	local_pool_handle: OnceLock<tokio_util::task::LocalPoolHandle>,
 	lock: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	path: PathBuf,
-	pipes: DashMap<tg::pipe::Id, Pipe, tg::id::BuildHasher>,
 	process_permits: ProcessPermits,
 	process_semaphore: Arc<tokio::sync::Semaphore>,
 	process_tasks: ProcessTasks,
-	ptys: DashMap<tg::pty::Id, Pty, tg::id::BuildHasher>,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	remote_get_object_tasks: RemoteGetObjectTasks,
 	remote_list_tags_tasks: RemoteListTagsTasks,
+	sandbox_manager: tangram_sandbox::Manager,
 	store: Store,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
@@ -412,9 +406,6 @@ impl Server {
 		// Create the library.
 		let library = Mutex::new(None);
 
-		// Create the local pool handle lazily.
-		let local_pool_handle = OnceLock::new();
-
 		// Create the messenger.
 		let messenger = match &config.messenger {
 			self::config::Messenger::Memory => {
@@ -456,16 +447,22 @@ impl Server {
 
 		// Create the finalize stream and consumer if the messenger is memory.
 		if messenger.is_memory() {
-			let stream_config = tangram_messenger::StreamConfig::default();
+			let stream_config = tangram_messenger::StreamConfig {
+				retention: tangram_messenger::RetentionPolicy::WorkQueue,
+				..tangram_messenger::StreamConfig::default()
+			};
 			let stream = messenger
 				.create_stream("finalize".to_owned(), stream_config)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the finalize stream"))?;
 			let consumer_config = tangram_messenger::ConsumerConfig {
-				deliver: tangram_messenger::DeliverPolicy::All,
+				deliver_policy: tangram_messenger::DeliverPolicy::All,
+				ack_policy: tangram_messenger::AckPolicy::Explicit,
+				durable_name: None,
+				filter_subjects: Vec::new(),
 			};
 			stream
-				.create_consumer("finalize".to_owned(), consumer_config)
+				.create_consumer(Some("finalize".to_owned()), consumer_config)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the finalize consumer"))?;
 		}
@@ -483,17 +480,26 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the queue stream"))?;
 			let consumer_config = tangram_messenger::ConsumerConfig {
-				deliver: tangram_messenger::DeliverPolicy::All,
+				deliver_policy: tangram_messenger::DeliverPolicy::All,
+				ack_policy: tangram_messenger::AckPolicy::Explicit,
+				durable_name: None,
+				filter_subjects: Vec::new(),
 			};
 			stream
-				.create_consumer("queue".to_owned(), consumer_config)
+				.create_consumer(Some("queue".to_owned()), consumer_config)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the queue consumer"))?;
+			let stream_config = tangram_messenger::StreamConfig {
+				discard: tangram_messenger::DiscardPolicy::New,
+				max_bytes: None,
+				max_messages: None,
+				retention: tangram_messenger::RetentionPolicy::WorkQueue,
+			};
+			messenger
+				.create_stream("stdio".to_owned(), stream_config)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create stdio stream"))?;
 		}
-
-		// Create the pipes and ptys.
-		let pipes = DashMap::default();
-		let ptys = DashMap::default();
 
 		// Create the remotes.
 		let remotes = DashMap::default();
@@ -503,6 +509,16 @@ impl Server {
 
 		// Create the remote list tags tasks.
 		let remote_list_tags_tasks = tangram_futures::task::Map::default();
+
+		// Create the sandbox rootfs path and manager.
+		let sandbox_rootfs_path = path.join("rootfs");
+		let tangram_path = tangram_util::env::current_exe()
+			.map_err(|source| tg::error!(!source, "failed to get the tangram executable path"))?;
+		let sandbox_manager = tangram_sandbox::Manager::new(tangram_sandbox::ManagerArg {
+			artifacts_path: path.join("artifacts"),
+			rootfs_path: sandbox_rootfs_path.clone(),
+			tangram_path,
+		})?;
 
 		// Create the store.
 		let store = match &config.store {
@@ -568,18 +584,16 @@ impl Server {
 			index,
 			index_tasks,
 			library,
-			local_pool_handle,
 			lock,
 			messenger,
 			path,
-			pipes,
 			process_permits,
 			process_semaphore,
 			process_tasks,
-			ptys,
 			remotes,
 			remote_get_object_tasks,
 			remote_list_tags_tasks,
+			sandbox_manager,
 			store,
 			temps,
 			version,
@@ -846,20 +860,6 @@ impl Server {
 					}
 				}
 				tracing::trace!("process tasks");
-
-				// Close all PTYs.
-				let pty_ids = server
-					.ptys
-					.iter()
-					.map(|r| r.key().clone())
-					.collect::<Vec<_>>();
-				for pty in pty_ids {
-					server
-						.close_pty(&pty, tg::pty::close::Arg::default())
-						.await
-						.ok();
-				}
-				tracing::trace!("close ptys");
 
 				// Stop the HTTP task.
 				if let Some(task) = http_task {

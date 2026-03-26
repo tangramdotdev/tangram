@@ -1,4 +1,7 @@
-use {crate::Cli, tangram_client::prelude::*, tokio::io::AsyncReadExt as _};
+use {
+	crate::Cli, tangram_client::prelude::*, tokio::io::AsyncReadExt as _,
+	tokio_util::io::StreamReader,
+};
 
 // Put a process.
 #[derive(Clone, Debug, clap::Args)]
@@ -24,7 +27,7 @@ impl Cli {
 			bytes
 		} else {
 			let mut bytes = String::new();
-			crate::util::stdio::stdin()
+			StreamReader::new(crate::util::stdio::stdin())
 				.read_to_string(&mut bytes)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
@@ -34,8 +37,8 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to deseralize the data"))?;
 		let arg = tg::process::put::Arg {
 			data,
-			local: args.local.local,
-			remotes: args.remotes.remotes,
+			local: args.local.get(),
+			remotes: args.remotes.get(),
 		};
 		handle
 			.put_process(&args.id, arg)

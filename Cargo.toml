@@ -17,7 +17,6 @@ members = [
   "packages/sandbox",
   "packages/serialize",
   "packages/server",
-  "packages/session",
   "packages/store",
   "packages/uri",
   "packages/util",
@@ -60,16 +59,13 @@ unused_async = "allow"
 
 [workspace.dependencies]
 anstream = "1"
-astral-tokio-tar = "0.5"
+astral-tokio-tar = "0.6"
 async-broadcast = "0.7"
 async-channel = "2"
 async-compression = { version = "0.4", features = ["all"] }
 async-nats = "0.46"
 async_zip = { version = "0.0.18", features = ["full"] }
-aws-credential-types = "1"
-aws-sigv4 = "1"
 blake3 = "1"
-boa_engine = "0.21"
 byte-unit = { version = "5", features = ["byte"] }
 byteorder = "1"
 bytes = { version = "1", features = ["serde"] }
@@ -85,7 +81,6 @@ data-encoding = "2"
 data-encoding-macro = "0.1"
 deno_core_icudata = "0.77"
 derive_more = { version = "2", features = ["full"] }
-erased-serde = "0.4"
 fastcdc = { version = "3", features = ["tokio"] }
 filetime = "0.2"
 flate2 = "1"
@@ -109,10 +104,10 @@ insta = { version = "1", features = ["filters", "json", "redactions", "yaml"] }
 io-uring = { git = "https://github.com/tangramdotdev/io-uring", rev = "1648de189c5c11edc3b9de4d3f0421ef52830c73" }
 itertools = "0.14"
 libc = "0.2"
+liblzma = { version = "0.4", features = ["static"] }
 lsp-types = "0.97"
 miette = { version = "7.6", features = ["fancy"] }
 mime = "0.3"
-moka = { version = "0.12", features = ["sync"] }
 notify = "8"
 num = "0.4"
 num-derive = "0.4"
@@ -134,10 +129,9 @@ rand = "0.10"
 ratatui = "0.30"
 reflink-copy = "0.1"
 rquickjs = { git = "https://github.com/tangramdotdev/rquickjs", features = ["full-async", "loader", "futures"] }
-rquickjs-serde = "0.4"
 regex = "1"
 reqwest = { version = "0.13", features = ["json", "stream"] }
-rusqlite = { version = "0.38", default-features = false, features = ["bundled", "functions"] }
+rusqlite = { version = "0.39", default-features = false, features = ["bundled", "functions"] }
 rustix = { version = "1", features = ["fs"] }
 rustls = "0.23"
 rustls-pemfile = "2"
@@ -150,7 +144,7 @@ serde_repr = "0.1"
 serde_urlencoded = "0.7"
 serde_with = { version = "3", features = ["time_0_3"] }
 serde_yaml = { version = "0.9" }
-sha2 = "0.10"
+sha2 = "0.11"
 smallvec = "1"
 sourcemap = "9"
 syn = { version = "2", features = ["full"] }
@@ -171,7 +165,6 @@ tangram_messenger = { path = "packages/messenger" }
 tangram_sandbox = { path = "packages/sandbox" }
 tangram_serialize = { path = "packages/serialize" }
 tangram_server = { path = "packages/server" }
-tangram_session = { path = "packages/session" }
 tangram_store = { path = "packages/store" }
 tangram_uri = { path = "packages/uri" }
 tangram_util = { path = "packages/util" }
@@ -195,8 +188,6 @@ opentelemetry = "0.31"
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "zstd-tonic", "logs", "metrics"] }
 opentelemetry-appender-tracing = "0.31"
-opentelemetry-stdout = "0.31"
-opentelemetry-semantic-conventions = "0.31"
 unicode-segmentation = "1"
 unicode-width = "0.2"
 uuid = { version = "1", features = ["v7"] }
@@ -204,7 +195,7 @@ v8 = { git = "https://github.com/tangramdotdev/rusty_v8" }
 waitpid-any = "0.3"
 webbrowser = "1"
 webpki-roots = "1"
-winnow = "0.7"
+winnow = "1"
 xattr = { version = "1" }
 zed_extension_api = "0.7"
 zerocopy = { version = "0.8", features = ["derive"] }
@@ -213,7 +204,7 @@ zstd = "0.13"
 [workspace.metadata.cargo-shear]
 ignored = [
   "comfy-table",
-  "num-traits",
+  "liblzma",
   "oauth2",
   "octocrab",
   "webbrowser",

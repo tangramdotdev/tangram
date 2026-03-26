@@ -31,8 +31,6 @@ impl Server {
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
 			command: Option<tg::command::Id>,
 			created_at: Option<i64>,
-			dequeued_at: Option<i64>,
-			enqueued_at: Option<i64>,
 			error: Option<String>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			exit: Option<u8>,
@@ -57,6 +55,8 @@ impl Server {
 			stdin: Option<tg::process::Stdio>,
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
 			stdout: Option<tg::process::Stdio>,
+			#[tangram_database(as = "Option<db::value::Json<tg::process::Tty>>")]
+			tty: Option<tg::process::Tty>,
 		}
 		let statement = indoc!(
 			"
@@ -67,23 +67,22 @@ impl Server {
 					(select coalesce(json_agg(json_build_object('cached', cached::bool, 'process', child, 'options', options::json) order by position), '[]'::json) from process_children where process = ids.id) as children,
 					command,
 					created_at,
-					dequeued_at,
-					enqueued_at,
 					error,
 					exit,
 					expected_checksum,
 					finished_at,
 					host,
 					log,
-					output,
-					retry,
 					mounts,
 					network,
+					output,
+					retry,
 					started_at,
 					status,
 					stderr,
 					stdin,
-					stdout
+					stdout,
+					tty
 				from unnest($1::text[]) as ids (id)
 				left join processes on processes.id = ids.id;
 			"
@@ -154,23 +153,22 @@ impl Server {
 					children: Some(children),
 					command,
 					created_at,
-					dequeued_at: row.dequeued_at,
-					enqueued_at: row.enqueued_at,
 					error,
 					exit: row.exit,
 					expected_checksum: row.expected_checksum,
 					finished_at: row.finished_at,
 					host,
 					log: row.log,
-					output: row.output,
-					retry,
 					mounts: row.mounts.unwrap_or_default(),
 					network,
+					output: row.output,
+					retry,
 					started_at: row.started_at,
 					status,
-					stderr: row.stderr,
-					stdin: row.stdin,
-					stdout: row.stdout,
+					stderr: row.stderr.unwrap_or(tg::process::Stdio::Null),
+					stdin: row.stdin.unwrap_or(tg::process::Stdio::Null),
+					stdout: row.stdout.unwrap_or(tg::process::Stdio::Null),
+					tty: row.tty,
 				};
 				let output = tg::process::get::Output {
 					id,

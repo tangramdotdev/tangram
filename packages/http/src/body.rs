@@ -10,6 +10,7 @@ use {
 };
 
 pub mod and_then_frame;
+pub mod arg;
 pub mod compression;
 
 pub use http_body_util::BodyStream;

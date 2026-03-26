@@ -41,6 +41,12 @@ impl Server {
 			arg.retry = process.retry;
 		}
 
+		if !arg.sandbox {
+			return Err(tg::error!(
+				"unsandboxed processes cannot be spawned on the server"
+			));
+		}
+
 		// Create the progress.
 		let progress = crate::progress::Handle::new();
 
@@ -67,6 +73,16 @@ impl Server {
 		arg: tg::process::spawn::Arg,
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
+		let tty = match arg.tty.as_ref() {
+			None => None,
+			Some(tty) => Some(
+				tty.as_ref()
+					.right()
+					.copied()
+					.ok_or_else(|| tg::error!("invalid tty"))?,
+			),
+		};
+
 		// Forward to remote if requested.
 		if let Some(name) = Self::remote(arg.local, arg.remotes.as_ref())? {
 			// Push the command.
@@ -134,12 +150,13 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		// Determine if the process is cacheable.
-		let cacheable = arg.checksum.is_some()
-			|| (arg.mounts.is_empty()
-				&& !arg.network
-				&& arg.stdin.is_none()
-				&& arg.stdout.is_none()
-				&& arg.stderr.is_none());
+		let cacheable = arg.mounts.is_empty()
+			&& !arg.network
+			&& arg.stdin.is_null()
+			&& arg.stdout.is_log()
+			&& arg.stderr.is_log()
+			&& tty.is_none();
+		let cacheable = cacheable || arg.checksum.is_some();
 
 		// Get or create a local process.
 		let mut output = if cacheable
@@ -190,14 +207,13 @@ impl Server {
 		if let Some(output) = &mut output {
 			if let Some(permit) = output.permit.take() {
 				let process = tg::Process::new(output.id.clone(), None, None, None, None);
-				let clean_guard = self.try_acquire_clean_guard()?;
-				self.spawn_process_task(&process, permit, clean_guard);
+				self.spawn_process_task(&process, permit);
 			} else {
 				let payload = crate::process::queue::Message {
 					id: output.id.clone(),
 				};
 				self.messenger
-					.stream_publish("queue".into(), payload)
+					.stream_publish("queue".into(), "queue".into(), payload)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to enqueue the process"))?
 					.await
@@ -612,6 +628,7 @@ impl Server {
 					mounts,
 					network,
 					output,
+					tty,
 					retry,
 					status,
 					token_count,
@@ -635,7 +652,8 @@ impl Server {
 					{p}15,
 					{p}16,
 					{p}17,
-					{p}18
+					{p}18,
+					{p}19
 				)
 				on conflict (id) do update set
 					actual_checksum = {p}2,
@@ -651,10 +669,11 @@ impl Server {
 					mounts = {p}12,
 					network = {p}13,
 					output = {p}14,
-					retry = {p}15,
-					status = {p}16,
-					token_count = {p}17,
-					touched_at = {p}18;
+					tty = {p}15,
+					retry = {p}16,
+					status = {p}17,
+					token_count = {p}18,
+					touched_at = {p}19;
 			"
 		);
 		let now: i64 = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -668,13 +687,22 @@ impl Server {
 		} else {
 			(None, None)
 		};
+		let tty = match arg.tty.as_ref() {
+			None => None,
+			Some(tty) => Some(
+				tty.as_ref()
+					.right()
+					.copied()
+					.ok_or_else(|| tg::error!("invalid tty"))?,
+			),
+		};
 		let params = db::params![
 			id.to_string(),
 			actual_checksum.to_string(),
 			true,
 			arg.command.item.to_string(),
 			now,
-			error_data.map(db::value::Json),
+			error_data.map(|id| id.to_string()),
 			error_code,
 			exit,
 			expected_checksum.to_string(),
@@ -683,6 +711,7 @@ impl Server {
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
 			arg.network,
 			output.clone().map(db::value::Json),
+			tty.map(db::value::Json),
 			arg.retry,
 			status.to_string(),
 			0,
@@ -742,7 +771,7 @@ impl Server {
 		let status = if permit.is_some() {
 			tg::process::Status::Started
 		} else {
-			tg::process::Status::Enqueued
+			tg::process::Status::Created
 		};
 
 		// Insert the process.
@@ -754,12 +783,12 @@ impl Server {
 					command,
 					created_at,
 					depth,
-					enqueued_at,
 					expected_checksum,
 					heartbeat_at,
 					host,
 					mounts,
 					network,
+					tty,
 					retry,
 					started_at,
 					status,
@@ -769,69 +798,78 @@ impl Server {
 					token_count,
 					touched_at
 				)
-				values (
-					{p}1,
-					{p}2,
-					{p}3,
-					{p}4,
-					{p}5,
-					{p}6,
-					{p}7,
-					{p}8,
-					{p}9,
-					{p}10,
-					{p}11,
-					{p}12,
-					{p}13,
-					{p}14,
-					{p}15,
-					{p}16,
-					{p}17,
-					{p}18,
-					{p}19
-				)
-				on conflict (id) do update set
-					cacheable = {p}2,
-					command = {p}3,
-					created_at = {p}4,
-					depth = {p}5,
-					enqueued_at = {p}6,
-					expected_checksum = {p}7,
-					heartbeat_at = {p}8,
-					host = {p}9,
-					mounts = {p}10,
-					network = {p}11,
-					retry = {p}12,
-					started_at = {p}13,
-					status = {p}14,
-					stderr = {p}15,
-					stdin = {p}16,
-					stdout = {p}17,
-					token_count = {p}18,
-					touched_at = {p}19;
-			"
+					values (
+						{p}1,
+						{p}2,
+						{p}3,
+						{p}4,
+						{p}5,
+						{p}6,
+						{p}7,
+						{p}8,
+						{p}9,
+						{p}10,
+						{p}11,
+						{p}12,
+						{p}13,
+						{p}14,
+						{p}15,
+						{p}16,
+						{p}17,
+						{p}18,
+						{p}19
+					)
+					on conflict (id) do update set
+						cacheable = {p}2,
+						command = {p}3,
+						created_at = {p}4,
+						depth = {p}5,
+						expected_checksum = {p}6,
+						heartbeat_at = {p}7,
+						host = {p}8,
+						mounts = {p}9,
+						network = {p}10,
+						tty = {p}11,
+						retry = {p}12,
+						started_at = {p}13,
+						status = {p}14,
+						stderr = {p}15,
+						stdin = {p}16,
+						stdout = {p}17,
+						token_count = {p}18,
+						touched_at = {p}19;
+				"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let heartbeat_at = if permit.is_some() { Some(now) } else { None };
 		let started_at = if permit.is_some() { Some(now) } else { None };
+		let tty = match arg.tty.as_ref() {
+			None => None,
+			Some(tty) => Some(
+				tty.as_ref()
+					.right()
+					.copied()
+					.ok_or_else(|| tg::error!("invalid tty"))?,
+			),
+		};
 		let params = db::params![
 			id.to_string(),
 			cacheable,
 			arg.command.item.to_string(),
 			now,
 			1,
-			now,
 			arg.checksum.as_ref().map(ToString::to_string),
 			heartbeat_at,
 			host,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
 			arg.network,
+			tty.map(db::value::Json),
 			arg.retry,
 			started_at,
 			status.to_string(),
-			arg.stderr.as_ref().map(ToString::to_string),
-			arg.stdin.as_ref().map(ToString::to_string),
-			arg.stdout.as_ref().map(ToString::to_string),
+			(!arg.stderr.is_null()).then(|| arg.stderr.to_string()),
+			(!arg.stdin.is_null()).then(|| arg.stdin.to_string()),
+			(!arg.stdout.is_null()).then(|| arg.stdout.to_string()),
 			0,
 			now,
 		];
@@ -1212,22 +1250,22 @@ impl Server {
 					.map(|guard| ProcessPermit(tg::Either::Right(guard)))
 					.await;
 
-				// Wait for any cleans to finish.
-				let clean_guard = server.acquire_clean_guard().await;
-
 				// Attempt to start the process.
-				let arg = tg::process::start::Arg {
-					local: None,
-					remotes: process.remote().cloned().map(|remote| vec![remote]),
+				let Ok(started) = server
+					.try_start_process_local(process.id())
+					.await
+					.inspect_err(
+						|error| tracing::trace!(error = %error.trace(), "failed to start the process"),
+					)
+				else {
+					return;
 				};
-				let result = server.start_process(process.id(), arg.clone()).await;
-				if let Err(error) = result {
-					tracing::trace!(error = %error.trace(), "failed to start the process");
+				if !started {
 					return;
 				}
 
 				// Spawn the process task.
-				server.spawn_process_task(&process, permit, clean_guard);
+				server.spawn_process_task(&process, permit);
 			}
 		});
 	}

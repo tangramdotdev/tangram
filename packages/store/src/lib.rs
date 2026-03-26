@@ -30,14 +30,14 @@ pub struct ReadProcessLogArg {
 	pub length: u64,
 	pub position: u64,
 	pub process: tg::process::Id,
-	pub stream: Option<tg::process::log::Stream>,
+	pub stream: Option<tg::process::stdio::Stream>,
 }
 
 #[derive(Clone, Debug)]
 pub struct PutProcessLogArg {
 	pub bytes: Bytes,
 	pub process: tg::process::Id,
-	pub stream: tg::process::log::Stream,
+	pub stream: tg::process::stdio::Stream,
 	pub timestamp: i64,
 }
 
@@ -90,7 +90,7 @@ pub struct ProcessLogEntry<'a> {
 	pub position: u64,
 
 	#[tangram_serialize(id = 2)]
-	pub stream: tg::process::log::Stream,
+	pub stream: tg::process::stdio::Stream,
 
 	#[tangram_serialize(id = 3)]
 	pub stream_position: u64,
@@ -138,7 +138,7 @@ pub trait Store {
 	fn try_get_process_log_length(
 		&self,
 		id: &tg::process::Id,
-		stream: Option<tg::process::log::Stream>,
+		stream: Option<tg::process::stdio::Stream>,
 	) -> impl std::future::Future<Output = tg::Result<Option<u64>>> + Send;
 
 	fn put_process_log(

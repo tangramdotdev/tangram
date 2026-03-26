@@ -100,7 +100,7 @@ where
 	// Log that the archiving finished.
 	let message = "finished archiving\n";
 	logger(
-		tg::process::log::Stream::Stderr,
+		tg::process::stdio::Stream::Stderr,
 		message.to_owned().into_bytes(),
 	)
 	.await?;

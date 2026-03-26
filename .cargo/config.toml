@@ -1,5 +1,7 @@
-[build]
-rustflags = ["-Zthreads=8"]
+# target-applies-to-host = false
+
+# [build]
+# rustflags = ["-Zthreads=8"]
 
 [env]
 RUSTY_V8_MIRROR = "https://github.com/denoland/rusty_v8/releases/download"
@@ -19,7 +21,9 @@ inherits = "dev"
 debug = true
 
 [resolver]
-feature-unification = "workspace"
+# feature-unification = "workspace"
 
 [unstable]
-feature-unification = true
+# feature-unification = true
+# host-config = true
+# target-applies-to-host = true

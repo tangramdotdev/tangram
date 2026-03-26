@@ -13,6 +13,9 @@ version = { workspace = true }
 [features]
 tls = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
 
+[lib]
+doctest = false
+
 [lints]
 workspace = true
 
@@ -20,6 +23,7 @@ workspace = true
 insta = { workspace = true }
 
 [dependencies]
+async-channel = { workspace = true }
 blake3 = { workspace = true }
 byte-unit = { workspace = true }
 byteorder = { workspace = true }
@@ -36,6 +40,7 @@ hyper-util = { workspace = true }
 indoc = { workspace = true }
 indexmap = { workspace = true }
 itertools = { workspace = true }
+libc = { workspace = true }
 lsp-types = { workspace = true }
 miette = { workspace = true }
 mime = { workspace = true }
@@ -44,7 +49,6 @@ regex = { workspace = true }
 rustls = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde-untagged = { workspace = true }
 serde_urlencoded = { workspace = true }
 serde_with = { workspace = true }
 sha2 = { workspace = true }
@@ -54,6 +58,7 @@ tangram_http = { workspace = true }
 tangram_serialize = { workspace = true }
 tangram_uri = { workspace = true }
 tangram_util = { workspace = true }
+tempfile = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true, optional = true }
@@ -65,3 +70,4 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 webpki-roots = { workspace = true, optional = true }
 winnow = { workspace = true }
+xattr = { workspace = true }

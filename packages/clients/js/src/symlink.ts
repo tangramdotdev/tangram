@@ -129,8 +129,8 @@ export class Symlink {
 		return this.id;
 	}
 
-	async children(): Promise<Array<tg.Object>> {
-		return this.#state.children();
+	get children(): Promise<Array<tg.Object>> {
+		return this.#state.children;
 	}
 
 	get artifact(): Promise<tg.Artifact | undefined> {

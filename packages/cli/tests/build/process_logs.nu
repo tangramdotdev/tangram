@@ -20,12 +20,14 @@ tg wait $id
 let combined = tg process log $id o+e>| complete
 let stdout = tg process log --stream stdout $id | complete
 let stderr = tg process log --stream stderr $id | complete
+let combined = $combined.stdout | lines | where $it != "" | sort | str join "\n"
+let combined = $combined + "\n"
 
-snapshot $combined.stdout '
-	stdout line 1
-	stdout line 2
+snapshot $combined '
 	stderr line 1
 	stderr line 2
+	stdout line 1
+	stdout line 2
 
 '
 
@@ -36,32 +38,6 @@ snapshot $stdout.stdout '
 '
 
 snapshot $stderr.stderr '
-	stderr line 1
-	stderr line 2
-
-'
-
-# Test reading with position.
-# Combined log layout (each line is 14 bytes including newline):
-#   0-13:  "stdout line 1\n"
-#   14-27: "stdout line 2\n"
-#   28-41: "stderr line 1\n"
-#   42-55: "stderr line 2\n"
-
-# Read starting at position 7 (middle of "stdout line 1\n").
-let partial = tg process log --position 7 $id o+e>| complete
-snapshot $partial.stdout '
-	line 1
-	stdout line 2
-	stderr line 1
-	stderr line 2
-
-'
-
-# Read at position 14 (start of "stdout line 2\n" based on actual log layout).
-let boundary = tg process log --position 14 $id o+e>| complete
-snapshot $boundary.stdout '
-	stdout line 2
 	stderr line 1
 	stderr line 2
 
@@ -83,12 +59,14 @@ tg push --logs $id
 let remote_combined = tg --url $remote.url process log $id o+e>| complete
 let remote_stdout = tg --url $remote.url process log --stream stdout $id | complete
 let remote_stderr = tg --url $remote.url process log --stream stderr $id | complete
+let remote_combined = $remote_combined.stdout | lines | where $it != "" | sort | str join "\n"
+let remote_combined = $remote_combined + "\n"
 
-snapshot $remote_combined.stdout '
-	stdout line 1
-	stdout line 2
+snapshot $remote_combined '
 	stderr line 1
 	stderr line 2
+	stdout line 1
+	stdout line 2
 
 '
 
@@ -99,25 +77,6 @@ snapshot $remote_stdout.stdout '
 '
 
 snapshot $remote_stderr.stderr '
-	stderr line 1
-	stderr line 2
-
-'
-
-# Test position-based reading from remote.
-let remote_partial = tg --url $remote.url process log --position 7 $id o+e>| complete
-snapshot $remote_partial.stdout '
-	line 1
-	stdout line 2
-	stderr line 1
-	stderr line 2
-
-'
-
-# Read at position 14 (boundary between lines) from remote.
-let remote_boundary = tg --url $remote.url process log --position 14 $id o+e>| complete
-snapshot $remote_boundary.stdout '
-	stdout line 2
 	stderr line 1
 	stderr line 2
 

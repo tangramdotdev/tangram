@@ -287,12 +287,17 @@ impl tg::Client {
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
 		let method = http::Method::POST;
-		let query = serde_urlencoded::to_string(arg)
+		let query = serde_urlencoded::to_string(&arg)
 			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
-		let uri = format!("/sync?{query}");
+		let arg_in_body = query.len() > tangram_http::body::arg::THRESHOLD;
+		let uri = if arg_in_body || query.is_empty() {
+			"/sync".to_owned()
+		} else {
+			format!("/sync?{query}")
+		};
 
 		// Create the body.
-		let body = tangram_http::body::Boxed::with_stream(stream.then(|result| async {
+		let stream = stream.then(|result| async {
 			let frame = match result {
 				Ok(message) => {
 					let message = tangram_serialize::to_vec(&message).unwrap();
@@ -316,19 +321,27 @@ impl tg::Client {
 				},
 			};
 			Ok::<_, tg::Error>(frame)
-		}));
+		});
+		let mut body = tangram_http::body::Boxed::with_stream(stream);
+		if arg_in_body {
+			body = tangram_http::body::arg::set(body, &arg)
+				.map_err(|source| tg::error!(!source, "failed to add the sync arg"))?;
+		}
 
 		// Send the request.
-		let request = http::request::Builder::default()
+		let mut request = http::request::Builder::default();
+		request = request
 			.method(method)
 			.uri(uri)
 			.header(http::header::ACCEPT, tg::sync::CONTENT_TYPE.to_string())
 			.header(
 				http::header::CONTENT_TYPE,
 				tg::sync::CONTENT_TYPE.to_string(),
-			)
-			.body(body)
-			.unwrap();
+			);
+		if arg_in_body {
+			request = request.header(tangram_http::body::arg::HEADER, "true");
+		}
+		let request = request.body(body).unwrap();
 		let response = self
 			.send(request)
 			.await
