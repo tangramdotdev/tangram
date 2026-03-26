@@ -7,9 +7,7 @@ use {
 
 mod module;
 mod object;
-mod pipe;
 mod process;
-mod pty;
 mod remote;
 mod tag;
 mod user;

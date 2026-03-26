@@ -1,4 +1,6 @@
-use {futures::future::BoxFuture, std::sync::Arc, tangram_client as tg};
+use tangram_client as tg;
+
+mod host;
 
 #[cfg(feature = "quickjs")]
 pub mod quickjs;
@@ -24,13 +26,6 @@ impl Abort {
 		}
 	}
 }
-
-pub type Logger = Arc<
-	dyn Fn(tg::process::log::Stream, Vec<u8>) -> BoxFuture<'static, tg::Result<()>>
-		+ Send
-		+ Sync
-		+ 'static,
->;
 
 #[derive(Clone, Debug)]
 pub struct Output {

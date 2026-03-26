@@ -50,7 +50,10 @@ pub struct StreamInfo {
 
 #[derive(Clone, Debug, Default)]
 pub struct ConsumerConfig {
-	pub deliver: DeliverPolicy,
+	pub deliver_policy: DeliverPolicy,
+	pub ack_policy: AckPolicy,
+	pub durable_name: Option<String>,
+	pub filter_subjects: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -58,6 +61,13 @@ pub enum DeliverPolicy {
 	#[default]
 	All,
 	New,
+}
+
+#[derive(Clone, Debug, Default)]
+pub enum AckPolicy {
+	#[default]
+	Explicit,
+	None,
 }
 
 #[derive(Debug)]
@@ -131,7 +141,8 @@ pub trait Messenger {
 
 	fn stream_publish<T>(
 		&self,
-		name: String,
+		stream: String,
+		subject: String,
 		payload: T,
 	) -> impl Future<Output = Result<impl Future<Output = Result<u64, Error>>, Error>> + Send
 	where
@@ -139,7 +150,8 @@ pub trait Messenger {
 
 	fn stream_batch_publish<T>(
 		&self,
-		name: String,
+		stream: String,
+		subject: String,
 		payloads: Vec<T>,
 	) -> impl Future<Output = Result<impl Future<Output = Result<Vec<u64>, Error>> + Send, Error>> + Send
 	where
@@ -158,13 +170,13 @@ pub trait Stream {
 
 	fn create_consumer(
 		&self,
-		name: String,
+		name: Option<String>,
 		config: ConsumerConfig,
 	) -> impl Future<Output = Result<Self::Consumer, Error>> + Send;
 
 	fn get_or_create_consumer(
 		&self,
-		name: String,
+		name: Option<String>,
 		config: ConsumerConfig,
 	) -> impl Future<Output = Result<Self::Consumer, Error>> + Send;
 

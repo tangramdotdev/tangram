@@ -1,6 +1,4 @@
-use {
-	crate::Cli, futures::FutureExt as _, tangram_client::prelude::*, tokio::io::AsyncWriteExt as _,
-};
+use {crate::Cli, futures::FutureExt as _, tangram_client::prelude::*};
 
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -35,6 +33,7 @@ pub struct Args {
 }
 
 #[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
+#[value(rename_all = "lowercase")]
 pub enum JsEngine {
 	#[default]
 	Auto,
@@ -74,7 +73,7 @@ impl Cli {
 		for (index, value) in arg_value_indices.zip(args.arg_values) {
 			let value = value
 				.parse()
-				.map_err(|error| tg::error!(!error, "failed to parse the arg"))?;
+				.map_err(|error| tg::error!(!error, arg = %value, "failed to parse the arg"))?;
 			indexed.push((index, value));
 		}
 		indexed.sort_by_key(|&(index, _)| index);
@@ -96,22 +95,6 @@ impl Cli {
 		// Get the executable.
 		let executable = args.executable;
 
-		// Create a logger that writes to stdio.
-		let logger = std::sync::Arc::new(|stream: tg::process::log::Stream, message: Vec<u8>| {
-			async move {
-				match stream {
-					tg::process::log::Stream::Stdout => {
-						tokio::io::stdout().write_all(&message).await.ok();
-					},
-					tg::process::log::Stream::Stderr => {
-						tokio::io::stderr().write_all(&message).await.ok();
-					},
-				}
-				Ok(())
-			}
-			.boxed()
-		});
-
 		// Create the client.
 		let client = tg::Client::with_env()?;
 
@@ -132,7 +115,6 @@ impl Cli {
 				cwd,
 				env,
 				executable,
-				logger,
 				runtime.handle().clone(),
 				None,
 			)
@@ -145,7 +127,6 @@ impl Cli {
 				cwd,
 				env,
 				executable,
-				logger,
 				runtime.handle().clone(),
 				None,
 			)
@@ -168,8 +149,9 @@ impl Cli {
 		if let Ok(output_path) = std::env::var("TANGRAM_OUTPUT")
 			&& (output.is_some() || error.is_some())
 		{
-			std::fs::write(&output_path, "")
-				.map_err(|source| tg::error!(!source, "failed to write the output"))?;
+			std::fs::write(&output_path, "").map_err(
+				|source| tg::error!(!source, path = %output_path, "failed to write the output"),
+			)?;
 			if let Some(output) = &output {
 				let tgon = output.to_string();
 				xattr::set(&output_path, "user.tangram.output", tgon.as_bytes())

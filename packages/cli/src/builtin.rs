@@ -85,14 +85,21 @@ impl Cli {
 		let executable = args.executable;
 
 		// Create a logger that writes to stdio.
-		let logger = std::sync::Arc::new(|stream: tg::process::log::Stream, message: Vec<u8>| {
+		let logger = std::sync::Arc::new(|stream: tg::process::stdio::Stream, message: Vec<u8>| {
 			async move {
 				match stream {
-					tg::process::log::Stream::Stdout => {
-						tokio::io::stdout().write_all(&message).await.ok();
+					tg::process::stdio::Stream::Stdout => {
+						let mut stdout = tokio::io::stdout();
+						stdout.write_all(&message).await.ok();
+						stdout.flush().await.ok();
 					},
-					tg::process::log::Stream::Stderr => {
-						tokio::io::stderr().write_all(&message).await.ok();
+					tg::process::stdio::Stream::Stderr => {
+						let mut stderr = tokio::io::stderr();
+						stderr.write_all(&message).await.ok();
+						stderr.flush().await.ok();
+					},
+					tg::process::stdio::Stream::Stdin => {
+						return Err(tg::error!("invalid stdio stream"));
 					},
 				}
 				Ok(())
@@ -109,7 +116,7 @@ impl Cli {
 			error,
 			exit,
 			output,
-			..
+			checksum,
 		} = tokio::runtime::Builder::new_current_thread()
 			.enable_all()
 			.build()
@@ -122,6 +129,11 @@ impl Cli {
 		{
 			std::fs::write(&output_path, "")
 				.map_err(|source| tg::error!(!source, "failed to write the output"))?;
+			if let Some(checksum) = &checksum {
+				let string = checksum.to_string();
+				xattr::set(&output_path, "user.tangram.checksum", string.as_bytes())
+					.map_err(|source| tg::error!(!source, "failed to write the checksum xattr"))?;
+			}
 			if let Some(output) = &output {
 				let tgon = output.to_string();
 				xattr::set(&output_path, "user.tangram.output", tgon.as_bytes())

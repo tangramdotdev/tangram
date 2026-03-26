@@ -6,21 +6,19 @@ use {
 
 mod module;
 mod object;
-mod pipe;
 mod process;
-mod pty;
 mod remote;
 mod tag;
 mod user;
 mod watch;
 
 pub use self::{
-	module::Module, object::Object, pipe::Pipe, process::Process, pty::Pty, remote::Remote,
-	tag::Tag, user::User, watch::Watch,
+	module::Module, object::Object, process::Process, remote::Remote, tag::Tag, user::User,
+	watch::Watch,
 };
 
 pub trait Handle:
-	Module + Object + Process + Pipe + Pty + Remote + Tag + User + Watch + Send + Sync + 'static
+	Module + Object + Process + Remote + Tag + User + Watch + Send + Sync + 'static
 {
 	fn cache(
 		&self,

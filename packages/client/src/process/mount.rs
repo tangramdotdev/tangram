@@ -1,9 +1,6 @@
-use {
-	crate::prelude::*,
-	std::{path::PathBuf, str::FromStr},
-};
+use {crate::prelude::*, std::path::PathBuf};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
 pub struct Mount {
 	pub source: PathBuf,
 	pub target: PathBuf,
@@ -39,7 +36,17 @@ impl From<tg::process::data::Mount> for Mount {
 	}
 }
 
-impl FromStr for Mount {
+impl std::fmt::Display for Mount {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}:{}", self.source.display(), self.target.display())?;
+		if self.readonly {
+			write!(f, ",ro")?;
+		}
+		Ok(())
+	}
+}
+
+impl std::str::FromStr for Mount {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -84,5 +91,18 @@ mod tests {
 		let _mount = "./source:/target"
 			.parse::<super::Mount>()
 			.expect("failed to parse");
+	}
+
+	#[test]
+	fn display() {
+		let mount = "./source:/target,ro"
+			.parse::<super::Mount>()
+			.expect("failed to parse");
+		assert_eq!(mount.to_string(), "./source:/target,ro");
+
+		let mount = "./source:/target,rw"
+			.parse::<super::Mount>()
+			.expect("failed to parse");
+		assert_eq!(mount.to_string(), "./source:/target");
 	}
 }

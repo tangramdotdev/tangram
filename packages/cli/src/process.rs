@@ -4,13 +4,13 @@ pub mod cancel;
 pub mod children;
 pub mod get;
 pub mod list;
-pub mod log;
 pub mod metadata;
 pub mod output;
 pub mod put;
 pub mod signal;
 pub mod spawn;
 pub mod status;
+pub mod stdio;
 pub mod wait;
 
 /// Manage processes.
@@ -28,7 +28,7 @@ pub enum Command {
 	Get(self::get::Args),
 	#[command(alias = "ls")]
 	List(self::list::Args),
-	Log(self::log::Args),
+	Log(self::stdio::read::Args),
 	Metadata(self::metadata::Args),
 	Output(self::output::Args),
 	#[command(alias = "add")]
@@ -37,6 +37,7 @@ pub enum Command {
 	Signal(self::signal::Args),
 	Spawn(self::spawn::Args),
 	Status(self::status::Args),
+	Stdio(self::stdio::Args),
 	Wait(self::wait::Args),
 }
 
@@ -56,7 +57,7 @@ impl Cli {
 				self.command_process_list(args).await?;
 			},
 			Command::Log(args) => {
-				self.command_process_log(args).await?;
+				self.command_process_stdio_read(args).await?;
 			},
 			Command::Metadata(args) => {
 				self.command_process_metadata(args).await?;
@@ -75,6 +76,9 @@ impl Cli {
 			},
 			Command::Status(args) => {
 				self.command_process_status(args).await?;
+			},
+			Command::Stdio(args) => {
+				self.command_process_stdio(args).await?;
 			},
 			Command::Wait(args) => {
 				self.command_process_wait(args).await?;

@@ -119,8 +119,6 @@ impl Drop for UpdateGuard {
 pub enum Indicator {
 	Cached,
 	Created,
-	Enqueued,
-	Dequeued,
 	Started,
 	Canceled,
 	Failed,
@@ -325,8 +323,6 @@ where
 				None => None,
 				Some(Indicator::Cached) => Some(crossterm::style::Stylize::white('🎯')),
 				Some(Indicator::Created) => Some(crossterm::style::Stylize::blue('⟳')),
-				Some(Indicator::Enqueued) => Some(crossterm::style::Stylize::yellow('⟳')),
-				Some(Indicator::Dequeued) => Some(crossterm::style::Stylize::yellow('•')),
 				Some(Indicator::Started) => {
 					let position = (now / (1000 / 10)) % 10;
 					let position = position.to_usize().unwrap();
@@ -540,20 +536,6 @@ where
 		};
 		children.push(("executable".to_owned(), value));
 		children.push(("host".to_owned(), tg::Value::String(object.host.clone())));
-		let mut mounts = Vec::new();
-		for mount in &object.mounts {
-			let mut map = BTreeMap::new();
-			map.insert(
-				"source".to_owned(),
-				tg::Value::Object(mount.source.clone().into()),
-			);
-			map.insert(
-				"target".to_owned(),
-				tg::Value::String(mount.target.to_string_lossy().to_string()),
-			);
-			mounts.push(tg::Value::Map(map));
-		}
-		children.push(("mounts".to_owned(), tg::Value::Array(mounts)));
 		let metadata = get_object_metadata_as_value(handle, command.id()).await?;
 		command.unload();
 
@@ -2043,10 +2025,21 @@ where
 		process: tg::Process,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
+		let arg = tg::process::stdio::read::Arg {
+			streams: vec![
+				tg::process::stdio::Stream::Stdout,
+				tg::process::stdio::Stream::Stderr,
+			],
+			..Default::default()
+		};
 		let mut log = process
-			.log(handle, tg::process::log::get::Arg::default())
-			.await?;
-		while let Some(chunk) = log.try_next().await? {
+			.try_read_stdio_all(handle, arg)
+			.await?
+			.ok_or_else(|| tg::error!("failed to get the process log"))?;
+		while let Some(event) = log.try_next().await? {
+			let tg::process::stdio::read::Event::Chunk(chunk) = event else {
+				break;
+			};
 			let chunk = String::from_utf8_lossy(&chunk.bytes);
 			for line in chunk.lines() {
 				let line = line.to_owned();
@@ -2154,8 +2147,6 @@ where
 			let indicator = match (process.item.cached, status) {
 				(true, _) => Indicator::Cached,
 				(false, tg::process::Status::Created) => Indicator::Created,
-				(false, tg::process::Status::Enqueued) => Indicator::Enqueued,
-				(false, tg::process::Status::Dequeued) => Indicator::Dequeued,
 				(false, tg::process::Status::Started) => Indicator::Started,
 				(false, tg::process::Status::Finished) => {
 					// Remove the child if necessary.
@@ -2290,8 +2281,6 @@ where
 				None => None,
 				Some(Indicator::Cached) => Some("🎯".white()),
 				Some(Indicator::Created) => Some("⟳".blue()),
-				Some(Indicator::Enqueued) => Some("⟳".yellow()),
-				Some(Indicator::Dequeued) => Some("•".yellow()),
 				Some(Indicator::Started) => {
 					let position = (now / (1000 / 10)) % 10;
 					let position = position.to_usize().unwrap();

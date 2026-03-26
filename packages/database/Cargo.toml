@@ -10,13 +10,17 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
-[lints]
-workspace = true
-
 [features]
 postgres = ["dep:postgres-protocol", "dep:tokio-postgres"]
 sqlite = ["dep:rusqlite"]
 turso = ["dep:turso"]
+
+[lib]
+doctest = false
+test = false
+
+[lints]
+workspace = true
 
 [dependencies]
 bytes = { workspace = true }

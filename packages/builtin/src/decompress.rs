@@ -105,7 +105,7 @@ where
 	// Log that the decompression finished.
 	let message = "finished decompressing\n";
 	logger(
-		tg::process::log::Stream::Stderr,
+		tg::process::stdio::Stream::Stderr,
 		message.to_owned().into_bytes(),
 	)
 	.await?;

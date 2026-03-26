@@ -23,8 +23,8 @@ impl Cli {
 
 		// Signal the process.
 		let arg = tg::process::signal::post::Arg {
-			local: args.local.local,
-			remotes: args.remotes.remotes,
+			local: args.local.get(),
+			remotes: args.remotes.get(),
 			signal: args.signal,
 		};
 		handle.signal_process(&args.process, arg).await.map_err(

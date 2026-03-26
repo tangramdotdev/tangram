@@ -52,7 +52,7 @@ impl Server {
 		id: &tg::process::Id,
 		metadata: bool,
 	) -> tg::Result<Option<tg::process::get::Output>> {
-		self.try_get_process_batch(std::slice::from_ref(id), metadata)
+		self.try_get_process_batch_local(std::slice::from_ref(id), metadata)
 			.await
 			.map(|outputs| outputs.into_iter().next().unwrap())
 	}

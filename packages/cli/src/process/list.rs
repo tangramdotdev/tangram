@@ -18,8 +18,8 @@ impl Cli {
 	pub async fn command_process_list(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let arg = tg::process::list::Arg {
-			local: args.local.local,
-			remotes: args.remotes.remotes,
+			local: args.local.get(),
+			remotes: args.remotes.get(),
 		};
 		let output = handle
 			.list_processes(arg)

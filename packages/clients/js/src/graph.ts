@@ -261,8 +261,8 @@ export class Graph {
 		return this.id;
 	}
 
-	async children(): Promise<Array<tg.Object>> {
-		return this.#state.children();
+	get children(): Promise<Array<tg.Object>> {
+		return this.#state.children;
 	}
 
 	get nodes(): Promise<Array<tg.Graph.Node>> {

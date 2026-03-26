@@ -24,16 +24,20 @@ fn value(input: &mut Input) -> ModalResult<tg::Value> {
 
 fn value_inner(input: &mut Input) -> ModalResult<tg::Value> {
 	alt((
-		null.value(tg::Value::Null),
-		bool_.map(tg::Value::Bool),
-		number.map(tg::Value::Number),
-		string.map(tg::Value::String),
-		array.map(tg::Value::Array),
-		map.map(tg::Value::Map),
-		object.map(tg::Value::Object),
-		bytes.map(tg::Value::Bytes),
-		mutation.map(tg::Value::Mutation),
-		template.map(tg::Value::Template),
+		alt((
+			null.value(tg::Value::Null),
+			bool_.map(tg::Value::Bool),
+			number.map(tg::Value::Number),
+			string.map(tg::Value::String),
+			array.map(tg::Value::Array),
+		)),
+		alt((
+			map.map(tg::Value::Map),
+			object.map(tg::Value::Object),
+			bytes.map(tg::Value::Bytes),
+			mutation.map(tg::Value::Mutation),
+			template.map(tg::Value::Template),
+		)),
 	))
 	.parse_next(input)
 }
@@ -668,7 +672,6 @@ fn command_inner(input: &mut Input) -> ModalResult<tg::Object> {
 		let mut env = BTreeMap::new();
 		let mut executable = None;
 		let mut host = String::from("builtin");
-		let mut mounts = Vec::new();
 		for (key, value) in entries {
 			match key.as_str() {
 				"args" => {
@@ -698,18 +701,6 @@ fn command_inner(input: &mut Input) -> ModalResult<tg::Object> {
 						.map_err(|_| tg::error!("expected string for host"))?;
 					host = value.clone();
 				},
-				"mounts" => {
-					let value = value
-						.try_unwrap_array_ref()
-						.map_err(|_| tg::error!("expected array for mounts"))?;
-					for item in value {
-						let value = item
-							.try_unwrap_map_ref()
-							.map_err(|_| tg::error!("expected object for mount in mounts array"))?;
-						let mount = parse_mount(value)?;
-						mounts.push(mount);
-					}
-				},
 				_ => {
 					return Err(tg::error!("unexpected field in command: {}", key));
 				},
@@ -722,7 +713,6 @@ fn command_inner(input: &mut Input) -> ModalResult<tg::Object> {
 			env,
 			executable,
 			host,
-			mounts,
 			stdin: None,
 			user: None,
 		};
@@ -1353,37 +1343,71 @@ fn parse_module_referent(map: &tg::value::Map) -> tg::Result<tg::Referent<tg::mo
 	Ok(tg::Referent { item, options })
 }
 
-fn parse_mount(map: &tg::value::Map) -> tg::Result<tg::command::Mount> {
-	let mut source = None;
-	let mut target = None;
-	for (key, value) in map {
-		match key.as_str() {
-			"source" => {
-				let value = value
-					.try_unwrap_object_ref()
-					.map_err(|_| tg::error!("expected object for source"))?;
-				let artifact = tg::Artifact::try_from(value.clone())
-					.map_err(|error| tg::error!(!error, "expected artifact object for source"))?;
-				source = Some(artifact);
-			},
-			"target" => {
-				let value = value
-					.try_unwrap_string_ref()
-					.map_err(|_| tg::error!("expected string for target"))?;
-				target = Some(PathBuf::from(value));
-			},
-			_ => {
-				return Err(tg::error!("unexpected field in mount: {}", key));
-			},
-		}
-	}
-	let source = source.ok_or_else(|| tg::error!("missing source field"))?;
-	let target = target.ok_or_else(|| tg::error!("missing target field"))?;
-	Ok(tg::command::Mount { source, target })
-}
-
 fn whitespace(input: &mut Input) -> ModalResult<()> {
 	take_while(0.., [' ', '\t', '\r', '\n'])
 		.parse_next(input)
 		.map(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+	use indoc::indoc;
+
+	#[test]
+	fn big_test() {
+		let tgon = indoc!(
+			r##"
+		{
+			"bootstrap": true,
+			"command": {
+				"host": "x86_64-linux"
+			},
+			"env": {
+				"AR_x86_64_unknown_linux_musl":tg.mutation({
+					"kind": "set",
+					"value":tg.template([
+						"ar"
+					])
+				}),
+				"CC_x86_64_unknown_linux_musl":tg.mutation({
+					"kind": "set",
+					"value":tg.template([
+						"cc"
+					])
+				}),
+				"LD_x86_64_unknown_linux_musl":tg.mutation({
+					"kind": "set",
+					"value":tg.template([
+						"ld"
+					])
+				}),
+				"LIBRARY_PATH":tg.mutation({
+					"kind": "prefix",
+					"separator": ":",
+					"template":tg.template([dir_013z883yx1kx09apy23dqtcaf86wsnqn2ja0fk8zwqwf9q7qxv3a80,
+						"/lib"
+					])
+				}),
+				"PATH":tg.mutation({
+					"kind": "prefix",
+					"separator": ":",
+					"template":tg.template([dir_013z883yx1kx09apy23dqtcaf86wsnqn2ja0fk8zwqwf9q7qxv3a80,
+						"/bin"
+					])
+				})
+			},
+			"network": false,
+			"phases": {
+				"build":tg.template([
+					"# Create output directory.\nmkdir ",
+					tg.placeholder("output")
+				]),
+				"install": null,
+				"prepare": null
+			}
+		}
+		"##
+		);
+		super::parse(tgon).expect("failed to parse tgon");
+	}
 }

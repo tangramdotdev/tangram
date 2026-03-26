@@ -23,6 +23,9 @@ impl tg::Process {
 	where
 		H: tg::Handle,
 	{
+		if self.unsandboxed.is_some() {
+			return self.signal(handle, tg::process::Signal::SIGTERM).await;
+		}
 		let id = self.id();
 		let (local, remotes) = match self.remote.clone() {
 			Some(remote) => (None, Some(vec![remote])),

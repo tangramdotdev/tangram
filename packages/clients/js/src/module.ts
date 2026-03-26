@@ -51,13 +51,14 @@ export namespace Module {
 	export let toDataString = (value: tg.Module): string => {
 		let item = value.referent.item;
 		let string: string;
-		if (
-			typeof item === "string" &&
-			(item.startsWith(".") || item.startsWith("/"))
-		) {
-			string = item;
+		if (typeof item === "string") {
+			if (item.startsWith(".") || item.startsWith("/")) {
+				string = item;
+			} else {
+				string = `./${item}`;
+			}
 		} else {
-			string = tg.Graph.Edge.toDataString(item, (id) => id.toString());
+			string = tg.Graph.Edge.toDataString(item, (object) => object.id);
 		}
 		let params = [];
 		if (value.referent.options?.artifact !== undefined) {

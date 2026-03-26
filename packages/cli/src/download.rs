@@ -8,7 +8,7 @@ pub struct Args {
 	pub checksum_algorithm: Option<tg::checksum::Algorithm>,
 
 	#[command(flatten)]
-	pub build: crate::build::Options,
+	pub build: crate::run::Options,
 
 	#[arg(long)]
 	pub mode: Option<tg::DownloadMode>,
@@ -37,8 +37,10 @@ impl Cli {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 		let reference = tg::Reference::with_object(command.into());
-		let args = crate::build::Args {
-			options: args.build,
+		let mut options = args.build;
+		options.spawn.network = crate::process::spawn::Network::new(true);
+		let args = crate::run::Args {
+			options,
 			reference,
 			trailing: Vec::new(),
 		};

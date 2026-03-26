@@ -38,7 +38,7 @@ pub fn initialize(connection: &sqlite::Connection) -> sqlite::Result<()> {
 }
 
 pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
-	let migrations = vec![migration_0000(database)];
+	let migration_count = 1;
 
 	let connection = database
 		.connection()
@@ -56,19 +56,20 @@ pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 	drop(connection);
 
 	// If this path is from a newer version of Tangram, then return an error.
-	if version > migrations.len() {
+	if version > migration_count {
 		return Err(tg::error!(
 			r"The database has run migrations from a newer version of Tangram. Please run `tg self update` to update to the latest version of Tangram."
 		));
 	}
 
 	// Run all migrations and update the version.
-	let migrations = migrations.into_iter().enumerate().skip(version);
-	for (version, migration) in migrations {
+	for version in version..migration_count {
 		// Run the migration.
-		migration
-			.await
-			.map_err(|source| tg::error!(!source, %version, "failed to run the migration"))?;
+		match version {
+			0 => migration_0000(database).await,
+			_ => unreachable!(),
+		}
+		.map_err(|source| tg::error!(!source, %version, "failed to run the migration"))?;
 
 		// Update the version.
 		let connection = database

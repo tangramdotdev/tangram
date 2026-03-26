@@ -7,7 +7,6 @@ pub struct Command {
 	pub env: tg::value::Map,
 	pub executable: tg::command::Executable,
 	pub host: String,
-	pub mounts: Vec<tg::command::Mount>,
 	pub stdin: Option<tg::Blob>,
 	pub user: Option<String>,
 }
@@ -37,12 +36,6 @@ pub struct PathExecutable {
 	pub path: PathBuf,
 }
 
-#[derive(Clone, Debug)]
-pub struct Mount {
-	pub source: tg::Artifact,
-	pub target: PathBuf,
-}
-
 impl Command {
 	#[must_use]
 	pub fn to_data(&self) -> Data {
@@ -59,7 +52,6 @@ impl Command {
 			.collect();
 		let executable = self.executable.to_data();
 		let host = self.host.clone();
-		let mounts = self.mounts.iter().map(Mount::to_data).collect();
 		let stdin = self.stdin.as_ref().map(tg::Blob::id);
 		let user = self.user.clone();
 		Data {
@@ -68,7 +60,6 @@ impl Command {
 			env,
 			executable,
 			host,
-			mounts,
 			stdin,
 			user,
 		}
@@ -88,7 +79,6 @@ impl Command {
 			.collect::<tg::Result<_>>()?;
 		let executable = tg::command::object::Executable::try_from_data(data.executable)?;
 		let host = data.host;
-		let mounts = data.mounts.into_iter().map(Mount::from_data).collect();
 		let stdin = data.stdin.map(tg::Blob::with_id);
 		let user = data.user;
 		Ok(Self {
@@ -97,7 +87,6 @@ impl Command {
 			env,
 			executable,
 			host,
-			mounts,
 			stdin,
 			user,
 		})
@@ -109,7 +98,6 @@ impl Command {
 			.chain(self.executable.objects())
 			.chain(self.args.iter().flat_map(tg::Value::objects))
 			.chain(self.env.values().flat_map(tg::Value::objects))
-			.chain(self.mounts.iter().flat_map(tg::command::Mount::object))
 			.collect()
 	}
 }
@@ -220,62 +208,6 @@ impl PathExecutable {
 	#[must_use]
 	pub fn objects(&self) -> Vec<tg::object::Handle> {
 		vec![]
-	}
-}
-
-impl Mount {
-	#[must_use]
-	pub fn to_data(&self) -> tg::command::data::Mount {
-		let source = self.source.id();
-		let target = self.target.clone();
-		tg::command::data::Mount { source, target }
-	}
-
-	fn from_data(data: tg::command::data::Mount) -> Self {
-		let source = tg::Artifact::with_id(data.source);
-		let target = data.target;
-		Self { source, target }
-	}
-
-	#[must_use]
-	pub fn object(&self) -> Vec<tg::Object> {
-		[self.source.clone().into()].into()
-	}
-}
-
-impl std::fmt::Display for Mount {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}:{}", self.source.id(), self.target.display())
-	}
-}
-
-impl std::str::FromStr for Mount {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		let s = if let Some((s, ro)) = s.split_once(',') {
-			if ro == "ro" {
-				s
-			} else if ro == "rw" {
-				return Err(tg::error!("cannot mount artifacts read-write"));
-			} else {
-				return Err(tg::error!("unknown option: {ro:#?}"));
-			}
-		} else {
-			s
-		};
-		let (source, target) = s
-			.split_once(':')
-			.ok_or_else(|| tg::error!("expected a target path"))?;
-		let target = PathBuf::from(target);
-		if !target.is_absolute() {
-			return Err(tg::error!(target = %target.display(), "expected an absolute path"));
-		}
-		let id = source
-			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse the artifact id"))?;
-		let source = tg::Artifact::with_id(id);
-		Ok(Self { source, target })
 	}
 }
 

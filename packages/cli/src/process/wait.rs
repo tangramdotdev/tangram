@@ -21,8 +21,8 @@ impl Cli {
 	pub async fn command_process_wait(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let arg = tg::process::wait::Arg {
-			local: args.local.local,
-			remotes: args.remotes.remotes,
+			local: args.local.get(),
+			remotes: args.remotes.get(),
 			token: None,
 		};
 		let output = handle.wait_process(&args.process, arg).await.map_err(

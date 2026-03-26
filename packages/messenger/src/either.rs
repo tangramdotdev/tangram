@@ -96,7 +96,8 @@ where
 
 	fn stream_publish<T>(
 		&self,
-		name: String,
+		stream: String,
+		subject: String,
 		payload: T,
 	) -> impl Future<Output = Result<impl Future<Output = Result<u64, Error>>, Error>> + Send
 	where
@@ -104,11 +105,11 @@ where
 	{
 		match self {
 			Either::Left(s) => s
-				.stream_publish(name, payload)
+				.stream_publish(stream, subject, payload)
 				.map_ok(futures::FutureExt::left_future)
 				.left_future(),
 			Either::Right(s) => s
-				.stream_publish(name, payload)
+				.stream_publish(stream, subject, payload)
 				.map_ok(futures::FutureExt::right_future)
 				.right_future(),
 		}
@@ -116,7 +117,8 @@ where
 
 	fn stream_batch_publish<T>(
 		&self,
-		name: String,
+		stream: String,
+		subject: String,
 		payloads: Vec<T>,
 	) -> impl Future<Output = Result<impl Future<Output = Result<Vec<u64>, Error>> + Send, Error>> + Send
 	where
@@ -124,11 +126,11 @@ where
 	{
 		match self {
 			Either::Left(s) => s
-				.stream_batch_publish(name, payloads)
+				.stream_batch_publish(stream, subject, payloads)
 				.map_ok(futures::FutureExt::left_future)
 				.left_future(),
 			Either::Right(s) => s
-				.stream_batch_publish(name, payloads)
+				.stream_batch_publish(stream, subject, payloads)
 				.map_ok(futures::FutureExt::right_future)
 				.right_future(),
 		}
@@ -161,7 +163,7 @@ where
 
 	fn create_consumer(
 		&self,
-		name: String,
+		name: Option<String>,
 		config: ConsumerConfig,
 	) -> impl Future<Output = Result<Self::Consumer, Error>> + Send {
 		match self {
@@ -178,7 +180,7 @@ where
 
 	fn get_or_create_consumer(
 		&self,
-		name: String,
+		name: Option<String>,
 		config: ConsumerConfig,
 	) -> impl Future<Output = Result<Self::Consumer, Error>> + Send {
 		match self {

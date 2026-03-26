@@ -3,6 +3,7 @@ use {
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
+	tangram_messenger::prelude::*,
 };
 
 pub(crate) mod cancel;
@@ -18,9 +19,10 @@ pub(crate) mod put;
 pub(crate) mod queue;
 pub(crate) mod signal;
 pub(crate) mod spawn;
-pub(crate) mod start;
 pub(crate) mod status;
+pub(crate) mod stdio;
 pub(crate) mod touch;
+pub(crate) mod tty;
 pub(crate) mod wait;
 
 impl Server {
@@ -51,5 +53,40 @@ impl Server {
 		drop(connection);
 
 		Ok(exists)
+	}
+
+	pub(crate) async fn try_start_process_local(&self, id: &tg::process::Id) -> tg::Result<bool> {
+		let connection = self
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				update processes
+				set
+					heartbeat_at = {p}1,
+					started_at = {p}1,
+					status = 'started'
+				where id = {p}2 and status = 'created';
+			"
+		);
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let params = db::params![now, id.to_string()];
+		let n = connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		drop(connection);
+
+		if n == 0 {
+			return Ok(false);
+		}
+
+		let subject = format!("processes.{id}.status");
+		self.messenger.publish(subject, ()).await.ok();
+
+		Ok(true)
 	}
 }

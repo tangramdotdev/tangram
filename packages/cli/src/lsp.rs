@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client::prelude::*};
+use {crate::Cli, tangram_client::prelude::*, tokio_util::io::StreamReader};
 
 /// Run the language server.
 #[derive(Clone, Debug, clap::Args)]
@@ -8,7 +8,7 @@ pub struct Args {}
 impl Cli {
 	pub async fn command_lsp(&mut self, _args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let stdin = Box::new(crate::util::stdio::stdin());
+		let stdin = Box::new(StreamReader::new(crate::util::stdio::stdin()));
 		let stdout = Box::new(tokio::io::BufWriter::new(tokio::io::stdout()));
 		handle
 			.lsp(stdin, stdout)

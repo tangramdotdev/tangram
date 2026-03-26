@@ -14,6 +14,14 @@ export type Value =
 	| tg.Placeholder;
 
 export namespace Value {
+	export let parse = (value: string): tg.Value => {
+		return fromData(tg.handle.parseValue(value));
+	};
+
+	export let stringify = (value: tg.Value): string => {
+		return tg.handle.stringifyValue(toData(value));
+	};
+
 	export let toData = (value: Value): Data => {
 		if (
 			typeof value === "undefined" ||

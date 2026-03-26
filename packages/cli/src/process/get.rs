@@ -25,9 +25,9 @@ impl Cli {
 	pub async fn command_process_get(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let arg = tg::process::get::Arg {
-			local: args.local.local,
+			local: args.local.get(),
 			metadata: args.metadata,
-			remotes: args.remotes.remotes,
+			remotes: args.remotes.get(),
 		};
 		let output = handle
 			.try_get_process(&args.process, arg)

@@ -1,61 +1,32 @@
-import * as tg from "./index.ts";
+export let encoding: Encoding = {} as any;
 
-export namespace base64 {
-	export let decode = (value: string): Uint8Array => {
-		return tg.handle.encoding.base64.decode(value);
-	};
+export let setEncoding = (newEncoding: Encoding) => {
+	Object.assign(encoding, newEncoding);
+};
 
-	export let encode = (value: Uint8Array): string => {
-		return tg.handle.encoding.base64.encode(value);
+export type Encoding = {
+	base64: {
+		decode(value: string): Uint8Array;
+		encode(value: Uint8Array): string;
 	};
-}
-
-export namespace hex {
-	export let decode = (value: string): Uint8Array => {
-		return tg.handle.encoding.hex.decode(value);
+	hex: {
+		decode(value: string): Uint8Array;
+		encode(value: Uint8Array): string;
 	};
-
-	export let encode = (value: Uint8Array): string => {
-		return tg.handle.encoding.hex.encode(value);
+	json: {
+		decode(value: string): unknown;
+		encode(value: unknown): string;
 	};
-}
-
-export namespace json {
-	export let decode = (value: string): unknown => {
-		return tg.handle.encoding.json.decode(value);
+	toml: {
+		decode(value: string): unknown;
+		encode(value: unknown): string;
 	};
-
-	export let encode = (value: unknown): string => {
-		return tg.handle.encoding.json.encode(value);
+	utf8: {
+		decode(value: Uint8Array): string;
+		encode(value: string): Uint8Array;
 	};
-}
-
-export namespace toml {
-	export let decode = (value: string): unknown => {
-		return tg.handle.encoding.toml.decode(value);
+	yaml: {
+		decode(value: string): unknown;
+		encode(value: unknown): string;
 	};
-
-	export let encode = (value: unknown): string => {
-		return tg.handle.encoding.toml.encode(value);
-	};
-}
-
-export namespace utf8 {
-	export let decode = (value: Uint8Array): string => {
-		return tg.handle.encoding.utf8.decode(value);
-	};
-
-	export let encode = (value: string): Uint8Array => {
-		return tg.handle.encoding.utf8.encode(value);
-	};
-}
-
-export namespace yaml {
-	export let decode = (value: string): unknown => {
-		return tg.handle.encoding.yaml.decode(value);
-	};
-
-	export let encode = (value: unknown): string => {
-		return tg.handle.encoding.yaml.encode(value);
-	};
-}
+};

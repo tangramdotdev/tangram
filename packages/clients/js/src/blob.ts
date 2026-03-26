@@ -195,8 +195,8 @@ export class Blob {
 		return this.id;
 	}
 
-	async children(): Promise<Array<tg.Object>> {
-		return this.#state.children();
+	get children(): Promise<Array<tg.Object>> {
+		return this.#state.children;
 	}
 
 	get length(): Promise<number> {

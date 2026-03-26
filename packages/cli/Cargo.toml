@@ -10,6 +10,9 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
+[package.metadata.cargo-shear]
+ignored = ["tangram_fdb"]
+
 [[bin]]
 name = "tangram"
 path = "src/main.rs"
@@ -72,7 +75,6 @@ tangram_futures = { workspace = true }
 tangram_js = { workspace = true }
 tangram_sandbox = { workspace = true }
 tangram_server = { workspace = true }
-tangram_session = { workspace = true }
 tangram_uri = { workspace = true }
 tangram_util = { workspace = true }
 tokio = { workspace = true }

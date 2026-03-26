@@ -246,7 +246,7 @@ pub struct HttpTls {
 	pub key: PathBuf,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, derive_more::IsVariant, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum Index {
 	Fdb(FdbIndex),

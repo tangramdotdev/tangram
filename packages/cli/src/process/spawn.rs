@@ -1,4 +1,7 @@
-use {crate::Cli, futures::prelude::*, std::path::PathBuf, tangram_client::prelude::*};
+use {
+	crate::Cli, crossterm as ct, futures::prelude::*, std::path::PathBuf,
+	tangram_client::prelude::*,
+};
 
 /// Spawn a process.
 #[derive(Clone, Debug, clap::Args)]
@@ -52,6 +55,9 @@ pub struct Options {
 	)]
 	pub cached: Option<bool>,
 
+	#[command(flatten)]
+	pub checkin: crate::checkin::Options,
+
 	/// The output's expected checksum.
 	#[arg(long)]
 	pub checksum: Option<tg::Checksum>,
@@ -78,12 +84,16 @@ pub struct Options {
 	)]
 	pub env_values: Vec<String>,
 
+	/// Set the path to use for the executable.
+	#[arg(long, short = 'x')]
+	pub executable_path: Option<PathBuf>,
+
 	/// Set the host.
 	#[arg(long)]
 	pub host: Option<String>,
 
 	#[command(flatten)]
-	pub checkin: crate::checkin::Options,
+	pub local: crate::util::args::Local,
 
 	/// Configure mounts.
 	#[arg(
@@ -92,19 +102,10 @@ pub struct Options {
 		num_args = 1,
 		short,
 	)]
-	pub mounts: Vec<tg::Either<tg::process::Mount, tg::command::Mount>>,
+	pub mounts: Vec<tg::process::Mount>,
 
 	#[command(flatten)]
-	pub local: crate::util::args::Local,
-
-	/// Enable network access.
-	#[arg(
-		default_missing_value = "true",
-		long,
-		num_args = 0..=1,
-		require_equals = true,
-	)]
-	pub network: Option<bool>,
+	pub network: Network,
 
 	#[command(flatten)]
 	pub remotes: crate::util::args::Remotes,
@@ -116,12 +117,59 @@ pub struct Options {
 	#[command(flatten)]
 	pub sandbox: Sandbox,
 
+	/// Set the stderr mode.
+	#[arg(long)]
+	pub stderr: Option<tg::process::Stdio>,
+
+	/// Set the stdin mode.
+	#[arg(long)]
+	pub stdin: Option<tg::process::Stdio>,
+
+	/// Set the stdout mode.
+	#[arg(long)]
+	pub stdout: Option<tg::process::Stdio>,
+
 	/// Tag the process.
 	#[arg(long)]
 	pub tag: Option<tg::Tag>,
 
 	#[command(flatten)]
 	pub tty: Tty,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct Network {
+	/// Whether to enable the network.
+	#[arg(
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		overrides_with = "no_network",
+		require_equals = true,
+	)]
+	network: Option<bool>,
+
+	#[arg(
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		overrides_with = "network",
+		require_equals = true,
+	)]
+	no_network: Option<bool>,
+}
+
+impl Network {
+	pub fn new(network: bool) -> Self {
+		Self {
+			network: Some(network),
+			no_network: None,
+		}
+	}
+
+	pub fn get(&self) -> Option<bool> {
+		self.network.or(self.no_network.map(|v| !v))
+	}
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -161,15 +209,16 @@ impl Sandbox {
 
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Tty {
-	/// Whether to allocate a terminal.
+	/// Whether to allocate a tty for the process. Optionally set the size as rows,cols.
 	#[arg(
 		default_missing_value = "true",
 		long,
 		num_args = 0..=1,
 		overrides_with = "no_tty",
 		require_equals = true,
+		value_name = "ROWS,COLS",
 	)]
-	tty: Option<bool>,
+	pub(crate) tty: Option<tg::Either<bool, tg::process::tty::Size>>,
 
 	#[arg(
 		default_missing_value = "true",
@@ -178,38 +227,79 @@ pub struct Tty {
 		overrides_with = "tty",
 		require_equals = true,
 	)]
-	no_tty: Option<bool>,
+	pub(crate) no_tty: Option<bool>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct Output {
+	pub cached: bool,
+	pub process: tg::Referent<tg::Process>,
 }
 
 impl Tty {
-	pub fn get(&self) -> bool {
-		self.tty.or(self.no_tty.map(|v| !v)).unwrap_or(true)
+	pub fn new_disabled() -> Self {
+		Self {
+			tty: None,
+			no_tty: Some(true),
+		}
 	}
 }
 
-pub struct Output {
-	pub process: tg::Referent<tg::Process>,
-	pub output: tg::process::spawn::Output,
-}
-
 impl Cli {
-	pub async fn command_process_spawn(&mut self, args: Args) -> tg::Result<()> {
-		let Output { output, .. } = self
-			.spawn(
-				args.options,
-				args.reference,
-				args.trailing,
-				None,
-				None,
-				None,
-			)
+	pub async fn command_process_spawn(&mut self, mut args: Args) -> tg::Result<()> {
+		if args.options.sandbox.get().is_some_and(|v| !v) {
+			return Err(tg::error!("a spawn must be sandboxed"));
+		}
+		args.options.sandbox = crate::process::spawn::Sandbox::new(Some(true));
+
+		match args.options.stdin {
+			None => {
+				args.options.stdin = Some(tg::process::Stdio::Null);
+			},
+			Some(tg::process::Stdio::Blob(_) | tg::process::Stdio::Null) => (),
+			Some(_) => {
+				return Err(tg::error!("invalid stdin for a spawn"));
+			},
+		}
+
+		match args.options.stdout {
+			None => {
+				args.options.stdout = Some(tg::process::Stdio::Log);
+			},
+			Some(tg::process::Stdio::Log | tg::process::Stdio::Null) => (),
+			Some(_) => {
+				return Err(tg::error!("invalid stdout for a spawn"));
+			},
+		}
+
+		match args.options.stderr {
+			None => {
+				args.options.stderr = Some(tg::process::Stdio::Log);
+			},
+			Some(tg::process::Stdio::Log) => (),
+			Some(_) => {
+				return Err(tg::error!("invalid stderr for a spawn"));
+			},
+		}
+
+		let output = self
+			.spawn(args.options, args.reference, args.trailing)
 			.boxed()
 			.await?;
+
 		if args.verbose {
+			let output = tg::process::spawn::Output {
+				cached: output.cached,
+				process: output.process.item().id().clone(),
+				remote: output.process.item().remote().cloned(),
+				token: output.process.item().token().cloned(),
+				wait: None,
+			};
 			self.print_serde(output, args.print).await?;
 		} else {
-			Self::print_display(&output.process);
+			Self::print_display(output.process.item().id());
 		}
+
 		Ok(())
 	}
 
@@ -218,15 +308,42 @@ impl Cli {
 		options: Options,
 		reference: tg::Reference,
 		trailing: Vec<String>,
-		stdin: Option<tg::process::Stdio>,
-		stdout: Option<tg::process::Stdio>,
-		stderr: Option<tg::process::Stdio>,
 	) -> tg::Result<Output> {
 		let handle = self.handle().await?;
 
-		// Determine if the process is sandboxed.
-		let sandbox =
-			options.sandbox.get().unwrap_or_default() || options.remotes.remotes.is_some();
+		// Determine whether to sandbox.
+		let sandbox = match options.sandbox.get() {
+			None => {
+				options.cached.is_some_and(|v| v)
+					|| options.checksum.is_some()
+					|| !options.mounts.is_empty()
+					|| options.network.get().is_some()
+					|| options.remotes.get().is_some()
+					|| matches!(
+						options.tty.tty,
+						Some(tg::Either::Left(true) | tg::Either::Right(_))
+					)
+			},
+			Some(true) => true,
+			Some(false) => false,
+		};
+
+		// Handle the executable path.
+		let reference = if let Some(path) = &options.executable_path {
+			let mut options = reference.options().clone();
+			if let Some(reference_path) = &mut options.path {
+				*reference_path = reference_path.join(path);
+			} else {
+				options.path = Some(path.clone());
+			}
+			tg::Reference::new(
+				reference.item().clone(),
+				options,
+				reference.export().map(ToOwned::to_owned),
+			)
+		} else {
+			reference
+		};
 
 		// Get the reference.
 		let arg = tg::get::Arg {
@@ -250,7 +367,6 @@ impl Cli {
 				tg::Command::builder(object.host.clone(), object.executable.clone())
 					.args(object.args.clone())
 					.cwd(object.cwd.clone())
-					.mounts(object.mounts.clone())
 					.stdin(object.stdin.clone())
 			},
 
@@ -338,6 +454,9 @@ impl Cli {
 				return Err(tg::error!("expected a command or an artifact"));
 			},
 		};
+		if let Some(tg::process::Stdio::Blob(blob)) = &options.stdin {
+			command = command.stdin(Some(tg::Blob::with_id(blob.clone())));
+		}
 
 		// Set the args.
 		let mut args_: Vec<tg::Value> = Vec::new();
@@ -406,8 +525,16 @@ impl Cli {
 		if !sandbox {
 			env.extend(std::env::vars().map(|(key, value)| (key, value.into())));
 			env.remove("TANGRAM_OUTPUT");
-			env.remove("TANGRAM_PROCESS");
-			env.remove("TANGRAM_URL");
+			if !env.contains_key("TANGRAM_URL")
+				&& let tg::Either::Left(client) = &handle
+			{
+				env.insert("TANGRAM_URL".to_owned(), client.url().to_string().into());
+			}
+			if !env.contains_key("TANGRAM_TOKEN")
+				&& let Some(token) = &self.args.token
+			{
+				env.insert("TANGRAM_TOKEN".to_owned(), token.clone().into());
+			}
 		}
 		for (key, value) in command_env.into_iter().flatten() {
 			if let Ok(mutation) = value.try_unwrap_mutation_ref() {
@@ -452,13 +579,6 @@ impl Cli {
 		}
 		command = command.env(env);
 
-		// Set the mounts.
-		for mount in &options.mounts {
-			if let tg::Either::Right(mount) = mount {
-				command = command.mount(mount.clone());
-			}
-		}
-
 		// Create the command and store it.
 		let command = command.build();
 		command
@@ -467,62 +587,94 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 
 		// Determine if the network is enabled.
-		let network = options.network.unwrap_or(!sandbox);
-
-		// Determine the retry.
-		let retry = options.retry;
+		let network = options.network.get().unwrap_or(!sandbox);
 
 		// Get the mounts.
 		let mut mounts = Vec::new();
-		if !sandbox {
+		for mount in &options.mounts {
+			let source = tokio::fs::canonicalize(&mount.source)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
 			mounts.push(tg::process::data::Mount {
-				source: "/".into(),
-				target: "/".into(),
-				readonly: false,
+				source,
+				target: mount.target.clone(),
+				readonly: mount.readonly,
 			});
 		}
-		for mount in &options.mounts {
-			if let tg::Either::Left(mount) = mount {
-				let source = tokio::fs::canonicalize(&mount.source)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
-				mounts.push(tg::process::data::Mount {
-					source,
-					target: mount.target.clone(),
-					readonly: mount.readonly,
-				});
-			}
-		}
+
+		// Get the tty.
+		let tty = match (options.tty.tty.clone(), options.tty.no_tty) {
+			(Some(tg::Either::Left(true)), _) => {
+				let tty = std::fs::OpenOptions::new()
+					.read(true)
+					.write(true)
+					.open("/dev/tty")
+					.ok();
+				let tty_fd = tty.as_ref().map(std::os::fd::AsRawFd::as_raw_fd);
+				let size = if let Some(fd) = tty_fd {
+					let mut size = unsafe { std::mem::zeroed::<libc::winsize>() };
+					if unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, &mut size) } < 0
+						|| size.ws_col == 0
+						|| size.ws_row == 0
+					{
+						None
+					} else {
+						Some(tg::process::tty::Size {
+							rows: size.ws_row,
+							cols: size.ws_col,
+						})
+					}
+				} else {
+					ct::terminal::size().ok().and_then(|(cols, rows)| {
+						(cols != 0 && rows != 0).then_some(tg::process::tty::Size { rows, cols })
+					})
+				};
+				let default = tg::process::tty::Size { rows: 64, cols: 64 };
+				let size = size.unwrap_or(default);
+				let tty = tg::process::Tty { size };
+				Some(tg::Either::Right(tty))
+			},
+			(Some(tg::Either::Right(size)), _) => {
+				let tty = tg::process::Tty { size };
+				Some(tg::Either::Right(tty))
+			},
+			(Some(tg::Either::Left(false)), _) | (_, Some(true)) => Some(tg::Either::Left(false)),
+			_ => None,
+		};
 
 		// Spawn the process.
 		let arg = tg::process::spawn::Arg {
 			cached: options.cached,
 			checksum: options.checksum,
 			command: tg::Referent::with_item(command.id()),
-			local: options.local.local,
+			local: options.local.get(),
 			mounts,
 			network,
 			parent: None,
-			remotes: options.remotes.remotes.clone(),
-			retry,
-			stderr,
-			stdin,
-			stdout,
+			remotes: options.remotes.get(),
+			retry: options.retry,
+			sandbox,
+			stderr: options.stderr.unwrap_or_default(),
+			stdin: options.stdin.unwrap_or_default(),
+			stdout: options.stdout.unwrap_or_default(),
+			tty,
 		};
-		let stream = handle
-			.spawn_process(arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
-		let output = self.render_progress_stream(stream).await?;
+		let output = tg::Process::spawn_with_progress(&handle, arg, |stream| {
+			self.render_progress_stream(stream)
+		})
+		.await
+		.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
+		let cached = output.cached;
+		let process = output.process;
 
 		// Tag the process if requested.
 		if let Some(tag) = options.tag {
-			let item = tg::Either::Right(output.process.clone());
+			let item = tg::Either::Right(process.id().clone());
 			let arg = tg::tag::put::Arg {
 				force: false,
 				item,
-				local: options.local.local,
-				remotes: options.remotes.remotes.clone(),
+				local: options.local.get(),
+				remotes: options.remotes.get(),
 			};
 			handle
 				.put_tag(&tag, arg)
@@ -530,13 +682,8 @@ impl Cli {
 				.map_err(|source| tg::error!(!source, %tag, "failed to tag the process"))?;
 		}
 
-		let id = output.process.clone();
-		let remote = output.remote.clone();
-		let token = output.token.clone();
-		let process = tg::Process::new(id, None, remote, None, token);
 		let process = referent.replace(process).0;
-		let output = Output { process, output };
 
-		Ok(output)
+		Ok(Output { cached, process })
 	}
 }

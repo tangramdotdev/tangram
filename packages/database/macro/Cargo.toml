@@ -11,7 +11,9 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [lib]
+doctest = false
 proc-macro = true
+test = false
 
 [lints]
 workspace = true

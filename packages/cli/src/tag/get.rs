@@ -31,10 +31,10 @@ impl Cli {
 		let arg = tg::tag::list::Arg {
 			cached: args.cached,
 			length: Some(1),
-			local: args.local.local,
+			local: args.local.get(),
 			pattern: args.pattern.clone(),
 			recursive: false,
-			remotes: args.remotes.remotes,
+			remotes: args.remotes.get(),
 			reverse: true,
 			ttl: args.ttl,
 		};

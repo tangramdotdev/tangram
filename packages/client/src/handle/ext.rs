@@ -1,6 +1,5 @@
 use {
 	crate::prelude::*,
-	bytes::Bytes,
 	futures::{
 		FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
 		stream::{self, BoxStream},
@@ -8,8 +7,10 @@ use {
 	num::ToPrimitive as _,
 	std::{
 		io::SeekFrom,
+		ops::ControlFlow,
 		sync::{Arc, Mutex},
 	},
+	tangram_futures::task::Task,
 };
 
 pub trait Ext: tg::Handle {
@@ -308,107 +309,6 @@ pub trait Ext: tg::Handle {
 		}
 	}
 
-	fn try_get_process_log(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::log::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::process::log::get::Chunk>> + Send + 'static>,
-		>,
-	> + Send {
-		async move {
-			let handle = self.clone();
-			let id = id.clone();
-			let Some(stream) = handle.try_get_process_log_stream(&id, arg.clone()).await? else {
-				return Ok(None);
-			};
-			let stream = stream.boxed();
-			struct State {
-				stream: Option<BoxStream<'static, tg::Result<tg::process::log::get::Event>>>,
-				arg: tg::process::log::get::Arg,
-				end: bool,
-			}
-			let state = State {
-				stream: Some(stream),
-				arg,
-				end: false,
-			};
-			let state = Arc::new(Mutex::new(state));
-			let stream = stream::try_unfold(state.clone(), move |state| {
-				let handle = handle.clone();
-				let id = id.clone();
-				async move {
-					if state.lock().unwrap().end {
-						return Ok(None);
-					}
-					let stream = state.lock().unwrap().stream.take();
-					let stream = if let Some(stream) = stream {
-						stream
-					} else {
-						let arg = state.lock().unwrap().arg.clone();
-						handle
-							.try_get_process_log_stream(&id, arg)
-							.await?
-							.ok_or_else(|| tg::error!("the stream was not found"))?
-							.boxed()
-					};
-					Ok::<_, tg::Error>(Some((stream, state)))
-				}
-			})
-			.try_flatten()
-			.take_while(|event| {
-				future::ready(!matches!(event, Ok(tg::process::log::get::Event::End)))
-			})
-			.map(|event| match event {
-				Ok(tg::process::log::get::Event::Chunk(chunk)) => Ok(chunk),
-				Err(e) => Err(e),
-				_ => unreachable!(),
-			})
-			.inspect_ok(move |chunk| {
-				let mut state = state.lock().unwrap();
-
-				// Compute the end condition.
-				let forward = state.arg.length.is_none_or(|l| l >= 0);
-				state.end = chunk.bytes.is_empty()
-					|| (!forward && chunk.position == 0)
-					|| matches!(state.arg.length, Some(0));
-
-				// Update the length argument.
-				if let Some(length) = &mut state.arg.length {
-					if *length >= 0 {
-						*length -= chunk.bytes.len().to_i64().unwrap().min(*length);
-					} else {
-						*length += chunk.bytes.len().to_i64().unwrap().min(length.abs());
-					}
-				}
-
-				// Update the position argument.
-				let position = if forward {
-					chunk.position + chunk.bytes.len().to_u64().unwrap()
-				} else {
-					chunk.position.saturating_sub(1)
-				};
-				state.arg.position = Some(SeekFrom::Start(position));
-			});
-			Ok(Some(stream))
-		}
-	}
-
-	fn get_process_log(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::log::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::process::log::get::Chunk>> + Send + 'static,
-		>,
-	> + Send {
-		self.try_get_process_log(id, arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the process")))
-		})
-	}
-
 	fn wait_process_future(
 		&self,
 		id: &tg::process::Id,
@@ -526,107 +426,189 @@ pub trait Ext: tg::Handle {
 		})
 	}
 
-	fn try_read_pipe(
+	fn try_read_process_stdio_all(
 		&self,
-		id: &tg::pipe::Id,
-		arg: tg::pipe::read::Arg,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::read::Arg,
 	) -> impl Future<
-		Output = tg::Result<Option<impl Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static,
+			>,
+		>,
 	> + Send {
-		let id = id.clone();
 		async move {
 			let handle = self.clone();
-			let Some(stream) = handle.try_read_pipe_stream(&id, arg.clone()).await? else {
+			let id = id.clone();
+			let Some(stream) = handle.try_read_process_stdio(&id, arg.clone()).await? else {
 				return Ok(None);
 			};
-			let stream = stream.boxed();
-			struct State {
-				stream: Option<BoxStream<'static, tg::Result<tg::pipe::Event>>>,
-				arg: tg::pipe::read::Arg,
+			struct State<H> {
+				arg: tg::process::stdio::read::Arg,
+				end: bool,
+				handle: H,
+				id: tg::process::Id,
+				stream: Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>,
 			}
 			let state = State {
-				stream: Some(stream),
 				arg,
+				end: false,
+				handle,
+				id,
+				stream: Some(stream.boxed()),
 			};
-			let state = Arc::new(Mutex::new(state));
-			let stream = stream::try_unfold(state.clone(), move |state| {
-				let handle = handle.clone();
-				let id = id.clone();
-				async move {
-					let stream = state.lock().unwrap().stream.take();
-					let stream = if let Some(stream) = stream {
+			let stream = stream::try_unfold(state, move |mut state| async move {
+				loop {
+					if state.end {
+						return Ok(None);
+					}
+					let mut stream = if let Some(stream) = state.stream.take() {
 						stream
 					} else {
-						let arg = state.lock().unwrap().arg.clone();
-						handle
-							.try_read_pipe_stream(&id, arg)
+						state
+							.handle
+							.try_read_process_stdio(&state.id, state.arg.clone())
 							.await?
-							.ok_or_else(|| tg::error!(%id, "the pipe was not found"))?
+							.ok_or_else(|| tg::error!("the stream was not found"))?
 							.boxed()
 					};
-					Ok::<_, tg::Error>(Some((stream, state)))
+					match stream.next().await.transpose()? {
+						Some(event) => {
+							state.end = matches!(event, tg::process::stdio::read::Event::End);
+							if let tg::process::stdio::read::Event::Chunk(chunk) = &event
+								&& let Some(position) = chunk.position
+							{
+								let forward = state.arg.length.is_none_or(|length| length >= 0);
+								if let Some(length) = &mut state.arg.length {
+									if *length >= 0 {
+										*length -= chunk.bytes.len().to_i64().unwrap().min(*length);
+									} else {
+										*length +=
+											chunk.bytes.len().to_i64().unwrap().min(length.abs());
+									}
+								}
+								let position = if forward {
+									position + chunk.bytes.len().to_u64().unwrap()
+								} else {
+									position.saturating_sub(1)
+								};
+								state.arg.position = Some(SeekFrom::Start(position));
+							}
+							if !state.end {
+								state.stream = Some(stream);
+							}
+							return Ok(Some((event, state)));
+						},
+						None => {
+							state.stream = None;
+						},
+					}
 				}
-			})
-			.try_flatten()
-			.take_while(|event| future::ready(!matches!(event, Ok(tg::pipe::Event::End))))
-			.map(|event| match event {
-				Ok(tg::pipe::Event::Chunk(chunk)) => Ok(chunk),
-				Err(e) => Err(e),
-				_ => unreachable!(),
 			});
 			Ok(Some(stream))
 		}
 	}
 
-	fn try_read_pty(
+	fn write_process_stdio_all(
 		&self,
-		id: &tg::pty::Id,
-		arg: tg::pty::read::Arg,
-	) -> impl Future<
-		Output = tg::Result<Option<impl Stream<Item = tg::Result<Bytes>> + Send + 'static>>,
-	> + Send {
-		let id = id.clone();
+		id: &tg::process::Id,
+		arg: tg::process::stdio::write::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
+	) -> impl Future<Output = tg::Result<()>> + Send {
 		async move {
-			let handle = self.clone();
-			let Some(stream) = handle.try_read_pty_stream(&id, arg.clone()).await? else {
-				return Ok(None);
-			};
-			let stream = stream.boxed();
-			struct State {
-				stream: Option<BoxStream<'static, tg::Result<tg::pty::Event>>>,
-				arg: tg::pty::read::Arg,
-			}
-			let state = State {
-				stream: Some(stream),
-				arg,
-			};
-			let state = Arc::new(Mutex::new(state));
-			let stream = stream::try_unfold(state.clone(), move |state| {
-				let handle = handle.clone();
-				let id = id.clone();
-				async move {
-					let stream = state.lock().unwrap().stream.take();
-					let stream = if let Some(stream) = stream {
-						stream
-					} else {
-						let arg = state.lock().unwrap().arg.clone();
-						handle
-							.try_read_pty_stream(&id, arg)
-							.await?
-							.ok_or_else(|| tg::error!(%id, "the pty was not found"))?
-							.boxed()
-					};
-					Ok::<_, tg::Error>(Some((stream, state)))
+			// Create a channel for notifications.
+			let (notification_sender, notification_receiver) = async_channel::bounded(1);
+
+			// Create a channel for the events.
+			let (event_sender, event_receiver) =
+				async_channel::bounded::<tg::Result<tg::process::stdio::read::Event>>(16);
+
+			// Spawn a task to forward events from the input stream to the event channel.
+			let send_task = Task::spawn(move |_stop| async move {
+				let mut input = std::pin::pin!(input);
+				while let Some(event) = input.next().await {
+					if event_sender.send(event).await.is_err() {
+						break;
+					}
+
+					// Check if there is a pending notification. This is done instead of a select() to avoid cancelling the input stream future.
+					match notification_receiver.try_recv() {
+						Ok(()) => {
+							if notification_receiver.recv().await.is_err() {
+								break;
+							}
+						},
+						Err(async_channel::TryRecvError::Empty) => (),
+						Err(async_channel::TryRecvError::Closed) => break,
+					}
 				}
-			})
-			.try_flatten()
-			.take_while(|event| future::ready(!matches!(event, Ok(tg::pty::Event::End))))
-			.map(|event| match event {
-				Ok(tg::pty::Event::Chunk(chunk)) => Ok(chunk),
-				Err(e) => Err(e),
-				_ => unreachable!(),
+				notification_receiver.close();
 			});
-			Ok(Some(stream))
+
+			// Write input events in a retry loop.
+			let handle = self.clone();
+			let result =
+				tangram_futures::retry(&tangram_futures::retry::Options::default(), move || {
+					let event_receiver = event_receiver.clone();
+					let notification_sender = notification_sender.clone();
+					let arg = arg.clone();
+					let handle = handle.clone();
+					async move {
+						let events = event_receiver.clone().boxed();
+						let result = handle
+							.write_process_stdio(id, arg, events)
+							.await
+							.map(futures::StreamExt::boxed);
+						let mut output = match result {
+							Ok(output) => output,
+							Err(error) => return Ok(ControlFlow::Continue(error)),
+						};
+						match output.next().await {
+							Some(Ok(tg::process::stdio::write::Event::Stop)) => {
+								if notification_sender.send(()).await.is_err() {
+									return Ok(ControlFlow::Break(()));
+								}
+								while let Some(event) = output.next().await {
+									match event {
+										Ok(tg::process::stdio::write::Event::Stop) => (),
+										Ok(tg::process::stdio::write::Event::End) => {
+											if notification_sender.send(()).await.is_err() {
+												return Ok(ControlFlow::Break(()));
+											}
+											return Ok(ControlFlow::Continue(tg::error!(
+												"the stream ended early"
+											)));
+										},
+										Err(error) => {
+											return Ok(ControlFlow::Continue(error));
+										},
+									}
+								}
+								return Err(tg::error!("expected an end event"));
+							},
+							Some(Ok(tg::process::stdio::write::Event::End)) => {
+								notification_sender.close();
+								return Ok(ControlFlow::Break(()));
+							},
+							Some(Err(error)) => {
+								return Ok(ControlFlow::Continue(error));
+							},
+							None => (),
+						}
+						Ok(ControlFlow::Continue(tg::error!(
+							"expected an output event"
+						)))
+					}
+				})
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write process stdio"));
+
+			send_task
+				.wait()
+				.await
+				.map_err(|source| tg::error!(!source, "the send task panicked"))?;
+
+			result
 		}
 	}
 }

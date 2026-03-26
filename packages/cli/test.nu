@@ -6,6 +6,30 @@ export use std assert
 
 const repository_path = path self '../../'
 
+def force_unmount_vfs [path: string] {
+	if $nu.os-info.name != 'linux' {
+		return
+	}
+
+	let artifacts_paths = (
+		[
+			($path | path join 'artifacts')
+		] | append (
+			try {
+				^fd -a -t d '^artifacts$' $path | lines
+			} catch {
+				[]
+			}
+		) | uniq | where { |path| $path | path exists }
+	)
+
+	for artifacts_path in $artifacts_paths {
+		try {
+			^fusermount3 -u -z $artifacts_path o> /dev/null e> /dev/null
+		}
+	}
+}
+
 def main [
 	--accept (-a) # Accept all new and updated snapshots.
 	--clean # Clean up leftover test resources from postgres, scylla, and nats.
@@ -22,6 +46,7 @@ def main [
 	if $clean {
 		for entry in (ls ($nu.temp-dir? | default $nu.temp-path?) | where name =~ 'tangram_test_' and type == dir) {
 			print -e $"Removing temp directory: ($entry.name)"
+			force_unmount_vfs $entry.name
 			chmod -R +w $entry.name
 			rm -rf $entry.name
 		}
@@ -155,8 +180,17 @@ def main [
 				clean_databases $id
 			}
 
+			# Kill any background jobs started by the test, such as server processes.
+			for job in (job list | where { ($in.tag? | default '') == 'server' }) {
+				for pid in ($job.pids? | default []) {
+					try { ^kill -KILL $pid }
+				}
+				try { job kill $job.id }
+			}
+
 			# Clean up the temp directory.
 			if not $preserve_temps {
+				force_unmount_vfs $temp_path
 				chmod -R +w $temp_path
 				rm -rf $temp_path
 			}
@@ -793,31 +827,19 @@ export def --env spawn [
 	mkfifo $ready_path
 
 	# Spawn the server.
-	match $nu.os-info.name {
-		'macos' => {
-			job spawn {
-				bash -c $"
-					PARENT_PID=$PPID
-					SELF_PID=$$
-					\(
-						while kill -0 $PARENT_PID 2>/dev/null; do
-							sleep 1
-						done
-						kill -9 -$SELF_PID
-					\) &
-					exec 3>\"($ready_path)\"
-					tangram -c ($config_path) -d ($directory_path) -u ($url) serve --ready-fd 3
-				" e>| lines | each { |line| print -e $"($name | default 'server'): ($line)\r" }
-			}
-		}
-		'linux' => {
-			job spawn {
-				bash -c $"
-					exec 3>\"($ready_path)\"
-					setpriv --pdeathsig SIGKILL tangram -c \"($config_path)\" -d \"($directory_path)\" -u \"($url)\" serve --ready-fd 3
-				" e>| lines | each { |line| print -e $"($name | default 'server'): ($line)\r" }
-			}
-		}
+	job spawn -t server {
+		bash -c $"
+			PARENT_PID=$PPID
+			SELF_PID=$$
+			\(
+				while kill -0 $PARENT_PID 2>/dev/null; do
+					sleep 1
+				done
+				kill -9 -$SELF_PID
+			\) &
+			exec 3>\"($ready_path)\"
+			tangram -c ($config_path) -d ($directory_path) -u ($url) serve --ready-fd 3
+		" e>| lines | each { |line| print -e $"($name | default 'server'): ($line)\r" }
 	}
 
 	# Wait for the server to be ready.

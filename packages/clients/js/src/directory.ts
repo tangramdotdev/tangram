@@ -196,8 +196,8 @@ export class Directory {
 		return this.id;
 	}
 
-	async children(): Promise<Array<tg.Object>> {
-		return this.#state.children();
+	get children(): Promise<Array<tg.Object>> {
+		return this.#state.children;
 	}
 
 	async get(arg: string): Promise<tg.Artifact> {

@@ -9,7 +9,7 @@ pub struct Args {
 	pub algorithm: tg::checksum::Algorithm,
 
 	#[command(flatten)]
-	pub build: crate::build::Options,
+	pub build: crate::run::Options,
 
 	/// The artifact, blob, or URL to checksum.
 	#[arg(default_value = ".", index = 1)]
@@ -31,7 +31,7 @@ impl Cli {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 			let reference = tg::Reference::with_object(command.into());
-			let args = crate::build::Args {
+			let args = crate::run::Args {
 				options: args.build,
 				reference,
 				trailing: Vec::new(),
@@ -45,7 +45,7 @@ impl Cli {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 			let reference = tg::Reference::with_object(command.into());
-			let args = crate::build::Args {
+			let args = crate::run::Args {
 				options: args.build,
 				reference,
 				trailing: Vec::new(),

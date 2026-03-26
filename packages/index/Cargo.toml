@@ -10,34 +10,30 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
-[lints]
-workspace = true
-
 [features]
 foundationdb = ["dep:foundationdb", "dep:foundationdb-tuple", "dep:opentelemetry"]
 lmdb = ["dep:heed", "dep:foundationdb-tuple"]
 
+[lints]
+workspace = true
+
+[lib]
+doctest = false
+test = false
+
 [dependencies]
-bitflags = "2"
 crossbeam-channel = { workspace = true }
-bytes = { workspace = true }
-derive_more = { workspace = true }
-fnv = { workspace = true }
 foundationdb = { workspace = true, optional = true }
 foundationdb-tuple = { workspace = true, optional = true }
 futures = { workspace = true }
 heed = { workspace = true, optional = true }
 opentelemetry = { workspace = true, optional = true }
-indoc = { workspace = true }
-itertools = { workspace = true }
 num = { workspace = true }
 num-derive = { workspace = true }
 num-traits = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
 serde_with = { workspace = true }
 tangram_client = { workspace = true }
 tangram_serialize = { workspace = true }
 tangram_util = { workspace = true }
-time = { workspace = true }
 tokio = { workspace = true }

@@ -138,11 +138,9 @@ impl Wait {
 	}
 }
 
-impl TryFrom<Output> for Wait {
-	type Error = tg::Error;
-
-	fn try_from(value: Output) -> Result<Self, Self::Error> {
-		let error = value
+impl Wait {
+	pub fn try_from_data(data: Output) -> tg::Result<Self> {
+		let error = data
 			.error
 			.map(|either| match either {
 				tg::Either::Left(data) => {
@@ -154,9 +152,26 @@ impl TryFrom<Output> for Wait {
 			.transpose()?;
 		Ok(Self {
 			error,
-			exit: value.exit,
-			output: value.output.map(TryInto::try_into).transpose()?,
+			exit: data.exit,
+			output: data.output.map(TryInto::try_into).transpose()?,
 		})
+	}
+
+	#[must_use]
+	pub fn to_data(&self) -> Output {
+		Output {
+			error: self.error.as_ref().map(tg::Error::to_data_or_id),
+			exit: self.exit,
+			output: self.output.as_ref().map(tg::Value::to_data),
+		}
+	}
+}
+
+impl TryFrom<Output> for Wait {
+	type Error = tg::Error;
+
+	fn try_from(value: Output) -> Result<Self, Self::Error> {
+		Self::try_from_data(value)
 	}
 }
 

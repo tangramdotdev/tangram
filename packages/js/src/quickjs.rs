@@ -4,10 +4,11 @@ use {
 		serde::Serde,
 		syscall::syscall,
 	},
-	crate::{Logger, Output},
+	crate::Output,
+	futures::stream::BoxStream,
 	rquickjs::{self as qjs, CatchResultExt as _},
 	sourcemap::SourceMap,
-	std::{cell::RefCell, path::PathBuf, rc::Rc},
+	std::{cell::RefCell, collections::BTreeMap, path::PathBuf, rc::Rc, sync::atomic::AtomicUsize},
 	tangram_client::prelude::*,
 };
 
@@ -23,11 +24,21 @@ const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.js.map"
 
 struct State {
 	global_source_map: Option<SourceMap>,
-	logger: Logger,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
+	next_process_stdio_token: AtomicUsize,
+	process_stdio_readers: tokio::sync::Mutex<
+		BTreeMap<usize, BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>,
+	>,
+	process_stdio_writers: tokio::sync::Mutex<BTreeMap<usize, ProcessStdioWriter>>,
 	root: tg::module::Data,
 	handle: tg::handle::dynamic::Handle,
+	host: crate::host::Host,
+}
+
+struct ProcessStdioWriter {
+	sender: futures::channel::mpsc::Sender<tg::Result<tg::process::stdio::read::Event>>,
+	task: tokio::task::JoinHandle<tg::Result<()>>,
 }
 
 #[derive(Clone)]
@@ -44,14 +55,12 @@ pub struct Abort {
 	sender: tokio::sync::watch::Sender<bool>,
 }
 
-#[expect(clippy::too_many_arguments)]
 pub async fn run<H>(
 	handle: &H,
 	args: tg::value::data::Array,
 	cwd: PathBuf,
 	env: tg::value::data::Map,
 	executable: tg::command::data::Executable,
-	logger: Logger,
 	main_runtime_handle: tokio::runtime::Handle,
 	abort_sender: Option<tokio::sync::watch::Sender<Option<Abort>>>,
 ) -> tg::Result<Output>
@@ -112,11 +121,14 @@ where
 	// Create the state.
 	let state = Rc::new(State {
 		global_source_map: SourceMap::from_slice(SOURCE_MAP).ok(),
-		logger,
 		main_runtime_handle,
 		modules: RefCell::new(Vec::new()),
+		next_process_stdio_token: AtomicUsize::new(0),
+		process_stdio_readers: tokio::sync::Mutex::new(BTreeMap::new()),
+		process_stdio_writers: tokio::sync::Mutex::new(BTreeMap::new()),
 		root: module.clone(),
 		handle: tg::handle::dynamic::Handle::new(handle.clone()),
+		host: crate::host::Host::default(),
 	});
 
 	// Initialize the context and await the result.

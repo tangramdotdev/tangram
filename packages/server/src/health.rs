@@ -21,7 +21,7 @@ impl Server {
 		if let Some(fields) = fields {
 			for field in fields {
 				match field.as_str() {
-					"database" | "diagnostics" | "pipes" | "processes" | "ptys" | "version" => (),
+					"database" | "diagnostics" | "pipes" | "processes" | "ttys" | "version" => (),
 					_ => return Err(tg::error!(%field, "invalid health field")),
 				}
 			}
@@ -33,9 +33,9 @@ impl Server {
 		};
 		let include_database = include_field("database");
 		let include_diagnostics = include_field("diagnostics");
-		let include_pipes = include_field("pipes");
+		let _include_pipes = include_field("pipes");
 		let include_processes = include_field("processes");
-		let include_ptys = include_field("ptys");
+		let _include_ttys = include_field("ttys");
 		let include_version = include_field("version");
 
 		let processes = if include_processes {
@@ -55,33 +55,22 @@ impl Server {
 			#[derive(db::row::Deserialize)]
 			struct Row {
 				created: u64,
-				enqueued: u64,
-				dequeued: u64,
 				started: u64,
 			}
 			let statement = "
 				select
 					(select count(*) from processes where status = 'created') as created,
-					(select count(*) from processes where status = 'enqueued') as enqueued,
-					(select count(*) from processes where status = 'dequeued') as dequeued,
 					(select count(*) from processes where status = 'started') as started;
 			"
 			.to_owned();
 			let params = db::params![];
-			let Row {
-				created,
-				enqueued,
-				dequeued,
-				started,
-			} = connection
+			let Row { created, started } = connection
 				.query_one_into::<Row>(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 			Some(tg::health::Processes {
 				created,
-				enqueued,
-				dequeued,
 				permits,
 				started,
 			})
@@ -117,10 +106,7 @@ impl Server {
 					.map(tg::Diagnostic::to_data)
 					.collect()
 			}),
-			pipes: include_pipes
-				.then(|| self.pipes.iter().map(|entry| entry.key().clone()).collect()),
 			processes,
-			ptys: include_ptys.then(|| self.ptys.iter().map(|entry| entry.key().clone()).collect()),
 			version: include_version.then(|| self.version.clone()),
 		};
 

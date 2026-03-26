@@ -37,10 +37,10 @@ impl Cli {
 		let arg = tg::tag::list::Arg {
 			cached: args.cached,
 			length: None,
-			local: args.local.local,
+			local: args.local.get(),
 			pattern: args.pattern.clone(),
 			recursive: args.recursive,
-			remotes: args.remotes.remotes,
+			remotes: args.remotes.get(),
 			reverse: args.reverse,
 			ttl: args.ttl,
 		};

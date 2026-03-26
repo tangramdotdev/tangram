@@ -20,7 +20,7 @@ export function run(...args: any): any {
 	if (typeof args[0] === "function") {
 		return new tg.RunBuilder({
 			host: "js",
-			executable: tg.Command.Executable.fromData(tg.handle.magic(args[0])),
+			executable: tg.Command.Executable.fromData(tg.host.magic(args[0])),
 			args: args.slice(1),
 		});
 	} else if (Array.isArray(args[0]) && "raw" in args[0]) {
@@ -40,28 +40,23 @@ export function run(...args: any): any {
 }
 
 async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
-	let cwd =
-		tg.Process.current !== undefined
-			? (await tg.Process.current.cwd) !== undefined
-				? tg.process.cwd
-				: undefined
-			: tg.process.cwd;
-	let env =
-		tg.Process.current !== undefined
-			? await tg.Process.current.env()
-			: { ...tg.process.env };
-	delete env.TANGRAM_OUTPUT;
-	delete env.TANGRAM_PROCESS;
-	delete env.TANGRAM_URL;
-	let arg = await arg_(
-		{
-			cwd,
-			env,
-		},
-		...args,
-	);
+	let arg = await arg_(...args);
+	let sandbox = arg.sandbox ?? false;
 
-	let currentCommand = await tg.Process.current?.command;
+	if (!sandbox) {
+		let cwd = tg.process.cwd;
+		let env = { ...tg.process.env };
+		delete env.TANGRAM_OUTPUT;
+		arg = await arg_({ cwd, env }, arg);
+	} else {
+		if (!("host" in arg)) {
+			arg.host = tg.process.env.TANGRAM_HOST as string | undefined;
+		}
+		if (arg.executable === tg.process.env.SHELL) {
+			arg.executable = "sh";
+		}
+	}
+
 	let sourceOptions: tg.Referent.Options = {};
 	if ("name" in arg) {
 		sourceOptions.name = arg.name;
@@ -93,41 +88,27 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 	}
 
 	let checksum = arg.checksum;
-	let processMounts: Array<tg.Process.Mount> = [];
-	let commandMounts: Array<tg.Command.Mount> | undefined;
-	if ("mounts" in arg && arg.mounts !== undefined) {
-		for (let mount of arg.mounts) {
-			if (tg.Artifact.is(mount.source)) {
-				if (commandMounts === undefined) {
-					commandMounts = [];
-				}
-				commandMounts.push(mount as tg.Command.Mount);
-			} else {
-				processMounts.push(mount as tg.Process.Mount);
-			}
-		}
-	} else {
-		commandMounts = await currentCommand?.mounts;
-		processMounts = tg.Process.current?.state?.mounts ?? [];
-	}
-	let processStdin = tg.Process.current?.state?.stdin;
+	let processMounts = arg.mounts ?? [];
+	let processStdin: tg.Process.Stdio.Value | undefined;
 	let commandStdin: tg.Blob.Arg | undefined;
 	if ("stdin" in arg) {
-		processStdin = undefined;
-		if (arg.stdin !== undefined) {
+		if (
+			arg.stdin === "inherit" ||
+			arg.stdin === "log" ||
+			arg.stdin === "null" ||
+			arg.stdin === "pipe" ||
+			arg.stdin === "tty"
+		) {
+			processStdin = arg.stdin;
+		} else if (arg.stdin !== undefined) {
 			commandStdin = arg.stdin;
 		}
-	} else {
-		commandStdin = await currentCommand?.stdin;
 	}
-	let stdout = tg.Process.current?.state?.stdout;
-	if ("stdout" in arg) {
-		stdout = arg.stdout;
-	}
-	let stderr = tg.Process.current?.state?.stderr;
-	if ("stderr" in arg) {
-		stderr = arg.stderr;
-	}
+	let stdout = "stdout" in arg ? arg.stdout : undefined;
+	let stderr = "stderr" in arg ? arg.stderr : undefined;
+	let tty = "tty" in arg ? arg.tty : undefined;
+	let network = "network" in arg ? (arg.network ?? false) : false;
+
 	let command = await tg.command(
 		"args" in arg ? { args: arg.args } : undefined,
 		"cwd" in arg ? { cwd: arg.cwd } : undefined,
@@ -135,20 +116,16 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		executable !== undefined ? { executable: executable } : undefined,
 		"host" in arg ? { host: arg.host } : undefined,
 		"user" in arg ? { user: arg.user } : undefined,
-		commandMounts !== undefined ? { mounts: commandMounts } : undefined,
 		commandStdin !== undefined ? { stdin: commandStdin } : undefined,
 	);
 
-	let network =
-		"network" in arg
-			? (arg.network ?? false)
-			: (tg.Process.current?.state?.network ?? false);
 	let commandId = await command.store();
 	let commandReferent = {
 		item: commandId,
 		options: sourceOptions,
 	};
-	let spawnOutput = await tg.handle.spawnProcess({
+
+	let process = await tg.Process.spawn({
 		checksum,
 		command: commandReferent,
 		create: false,
@@ -157,21 +134,14 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 		parent: undefined,
 		remote: undefined,
 		retry: false,
-		stderr,
-		stdin: processStdin,
-		stdout,
-	});
-	let process = new tg.Process({
-		id: spawnOutput.process,
-		remote: spawnOutput.remote,
-		state: undefined,
-		token: spawnOutput.token,
+		sandbox,
+		stderr: stderr ?? "inherit",
+		stdin: processStdin ?? "inherit",
+		stdout: stdout ?? "inherit",
+		tty,
 	});
 
-	let wait =
-		spawnOutput.wait !== undefined
-			? tg.Process.Wait.fromData(spawnOutput.wait)
-			: await process.wait();
+	let wait = await process.wait();
 
 	if (wait.error !== undefined) {
 		let error = wait.error;
@@ -180,7 +150,7 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 			options: sourceOptions,
 		};
 		const values: { [key: string]: string } = {
-			id: process.id,
+			id: String(process.id),
 		};
 		if (sourceOptions.name !== undefined) {
 			values.name = sourceOptions.name;
@@ -197,7 +167,7 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 			options: sourceOptions,
 		};
 		const values: { [key: string]: string } = {
-			id: process.id,
+			id: String(process.id),
 		};
 		if (sourceOptions.name !== undefined) {
 			values.name = sourceOptions.name;
@@ -214,7 +184,7 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 			options: sourceOptions,
 		};
 		const values: { [key: string]: string } = {
-			id: process.id,
+			id: String(process.id),
 		};
 		if (sourceOptions.name !== undefined) {
 			values.name = sourceOptions.name;
@@ -256,7 +226,6 @@ async function arg_(
 					env: object.env,
 					executable: object.executable,
 					host: object.host,
-					mounts: object.mounts,
 				};
 				if (object.cwd !== undefined) {
 					output.cwd = object.cwd;
@@ -352,19 +321,13 @@ export class RunBuilder<
 		return this;
 	}
 
-	mount(
-		...mounts: Array<tg.Unresolved<tg.Command.Mount | tg.Process.Mount>>
-	): this {
+	mount(...mounts: Array<tg.Unresolved<tg.Process.Mount>>): this {
 		this.#args.push({ mounts });
 		return this;
 	}
 
 	mounts(
-		...mounts: Array<
-			tg.Unresolved<
-				tg.MaybeMutation<Array<tg.Command.Mount | tg.Process.Mount>>
-			>
-		>
+		...mounts: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Process.Mount>>>>
 	): this {
 		this.#args.push(...mounts.map((mounts) => ({ mounts })));
 		return this;
@@ -377,6 +340,11 @@ export class RunBuilder<
 
 	network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this {
 		this.#args.push({ network });
+		return this;
+	}
+
+	sandbox(sandbox?: tg.Unresolved<tg.MaybeMutation<boolean>>): this {
+		this.#args.push({ sandbox: sandbox ?? true });
 		return this;
 	}
 

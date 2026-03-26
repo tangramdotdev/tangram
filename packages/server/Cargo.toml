@@ -10,8 +10,8 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
-[lints]
-workspace = true
+[package.metadata.cargo-shear]
+ignored = ["tangram_js", "tokio-postgres"]
 
 [features]
 foundationdb = ["tangram_index/foundationdb"]
@@ -26,11 +26,17 @@ tls = ["dep:rustls", "dep:rustls-pemfile", "dep:tokio-rustls"]
 typescript = ["tangram_compiler/typescript"]
 v8 = ["tangram_js/v8"]
 
+[lib]
+doctest = false
+test = false
+
+[lints]
+workspace = true
+
 [dependencies]
 async-broadcast = { workspace = true }
 async-channel = { workspace = true }
 async-nats = { workspace = true, optional = true }
-byteorder = { workspace = true }
 bytes = { workspace = true }
 crossterm = { workspace = true }
 dashmap = { workspace = true }
@@ -51,12 +57,9 @@ indoc = { workspace = true }
 itertools = { workspace = true }
 libc = { workspace = true }
 mime = { workspace = true }
-moka = { workspace = true }
 notify = { workspace = true }
 num = { workspace = true }
 opentelemetry = { workspace = true }
-num-derive = { workspace = true }
-num-traits = { workspace = true }
 oauth2 = { workspace = true }
 octocrab = { workspace = true }
 petgraph = { workspace = true }
@@ -71,7 +74,6 @@ serde_json = { workspace = true }
 serde_with = { workspace = true }
 smallvec = { workspace = true }
 sync_wrapper = { workspace = true }
-tangram_builtin = { workspace = true }
 tangram_client = { workspace = true }
 tangram_compiler = { workspace = true }
 tangram_database = { workspace = true }
@@ -81,8 +83,8 @@ tangram_ignore = { workspace = true }
 tangram_index = { workspace = true }
 tangram_js = { workspace = true, optional = true }
 tangram_messenger = { workspace = true }
+tangram_sandbox = { workspace = true }
 tangram_serialize = { workspace = true }
-tangram_session = { workspace = true }
 tangram_store = { workspace = true }
 tangram_uri = { workspace = true }
 tangram_util = { workspace = true }

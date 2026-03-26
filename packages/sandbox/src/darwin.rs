@@ -1,7 +1,7 @@
 use {
 	crate::{
-		Command,
-		common::{CStringVec, abort_errno, cstring},
+		RunArg,
+		common::{SpawnContext, start_session, which},
 	},
 	indoc::writedoc,
 	num::ToPrimitive as _,
@@ -11,115 +11,74 @@ use {
 		os::unix::ffi::OsStrExt as _,
 		path::Path,
 	},
+	tangram_client::prelude::*,
 };
 
-struct Context {
-	argv: CStringVec,
-	cwd: CString,
-	executable: CString,
-	profile: CString,
+pub fn enter(arg: &RunArg) -> std::io::Result<()> {
+	let directory = crate::Directory::new(arg.path.clone());
+	std::fs::create_dir_all(directory.host_output_path()).ok();
+	let profile = create_sandbox_profile(arg);
+	unsafe {
+		let mut error = std::ptr::null::<std::ffi::c_char>();
+		let ret = sandbox_init(profile.as_ptr(), 0, std::ptr::addr_of_mut!(error));
+		if ret != 0 {
+			let error = error;
+			let message = CStr::from_ptr(error);
+			let result = std::io::Error::other(format!(
+				"failed to enter sandbox: {}",
+				message.to_string_lossy()
+			));
+			sandbox_free_error(error);
+			return Err(result);
+		}
+	}
+	Ok(())
 }
 
-#[expect(clippy::needless_pass_by_value)]
-pub fn spawn(command: Command) -> std::io::Result<std::process::ExitCode> {
-	// Create the argv.
-	let argv = std::iter::once(cstring(&command.executable))
-		.chain(command.trailing.iter().map(cstring))
-		.collect::<CStringVec>();
-
-	// Create the cwd.
-	let cwd = command
-		.cwd
-		.clone()
-		.map_or_else(std::env::current_dir, Ok::<_, std::io::Error>)
-		.inspect_err(|_| eprintln!("failed to get cwd"))
-		.map(cstring)?;
-
-	// Create the executable.
-	let executable = cstring(&command.executable);
-
-	if command.chroot.is_some() {
-		return Err(std::io::Error::other("chroot is not allowed on darwin"));
+pub fn spawn(context: SpawnContext) -> tg::Result<tokio::process::Child> {
+	let executable = context
+		.command
+		.env
+		.iter()
+		.find_map(|(key, value)| {
+			(key == "PATH")
+				.then_some(value)
+				.and_then(|path| which(path.as_ref(), &context.command.executable))
+		})
+		.unwrap_or_else(|| context.command.executable.clone());
+	let stdin = context.stdin.is_none();
+	let stdout = context.stdout.is_none();
+	let stderr = context.stderr.is_none();
+	let mut command = tokio::process::Command::new(&executable);
+	command
+		.env_clear()
+		.args(context.command.args)
+		.envs(context.command.env)
+		.current_dir(context.command.cwd);
+	if let Some(fd) = context.stdin {
+		command.stdin(fd);
 	}
-
-	if command.user.is_some() {
-		return Err(std::io::Error::other("uid/gid is not allowed on darwin"));
+	if let Some(fd) = context.stdout {
+		command.stdout(fd);
 	}
-
-	// Set the environment.
+	if let Some(fd) = context.stderr {
+		command.stderr(fd);
+	}
 	unsafe {
-		for (key, _) in std::env::vars_os() {
-			std::env::remove_var(key);
-		}
-		for (key, value) in &command.env {
-			std::env::set_var(key, value);
-		}
+		command
+			.pre_exec(move || {
+				if let Some(pty) = &context.pty {
+					start_session(pty, stdin, stdout, stderr);
+				}
+				Ok(())
+			})
+			.spawn()
+			.map_err(|source| tg::error!(!source, executable = %executable.display(), "failed to spawn the child process"))
 	}
-
-	// Create the sandbox profile.
-	let profile = create_sandbox_profile(&command);
-
-	// Create the context.
-	let context = Context {
-		argv,
-		cwd,
-		executable,
-		profile,
-	};
-
-	// Fork.
-	let pid = unsafe { libc::fork() };
-	if pid < 0 {
-		return Err(std::io::Error::last_os_error());
-	}
-	if pid == 0 {
-		// Initialize the sandbox.
-		unsafe {
-			let error = std::ptr::null_mut::<*const libc::c_char>();
-			let ret = sandbox_init(context.profile.as_ptr(), 0, error);
-
-			// Handle an error from `sandbox_init`.
-			if ret != 0 {
-				let error = *error;
-				let message = CStr::from_ptr(error);
-				sandbox_free_error(error);
-				abort_errno!("failed to setup the sandbox: {}", message.to_string_lossy());
-			}
-		}
-
-		// Change directories if necessary.
-		if unsafe { libc::chdir(context.cwd.as_ptr()) } != 0 {
-			abort_errno!("failed to change working directory");
-		}
-
-		// Exec.
-		unsafe {
-			libc::execvp(context.executable.as_ptr(), context.argv.as_ptr());
-			abort_errno!("failed to exec");
-		}
-	}
-
-	// Wait for the child process to exit.
-	let mut status = 0;
-	unsafe {
-		libc::waitpid(pid, std::ptr::addr_of_mut!(status), 0);
-	}
-
-	// Reap its children.
-	kill_process_tree(pid);
-
-	let status = if libc::WIFEXITED(status) {
-		libc::WEXITSTATUS(status).to_u8().unwrap().into()
-	} else if libc::WIFSIGNALED(status) {
-		(128 + libc::WTERMSIG(status).to_u8().unwrap()).into()
-	} else {
-		return Err(std::io::Error::other("unknown process termination"));
-	};
-
-	Ok(status)
 }
 
-fn create_sandbox_profile(command: &Command) -> CString {
+fn create_sandbox_profile(arg: &RunArg) -> CString {
+	let directory = crate::Directory::new(arg.path.clone());
 	let mut profile = String::new();
 	writedoc!(
 		profile,
@@ -129,13 +88,10 @@ fn create_sandbox_profile(command: &Command) -> CString {
 	)
 	.unwrap();
 
-	let root_mount = command.mounts.iter().any(|mount| {
-		mount.source == mount.target
-			&& mount
-				.target
-				.as_ref()
-				.is_some_and(|path| path == Path::new("/"))
-	});
+	let root_mount = arg
+		.mounts
+		.iter()
+		.any(|mount| mount.source == mount.target && mount.target == Path::new("/"));
 
 	if root_mount {
 		writedoc!(
@@ -174,6 +130,7 @@ fn create_sandbox_profile(command: &Command) -> CString {
 					(subpath "/Library/Filesystems/NetFSPlugins")
 					(subpath "/Library/Preferences/Logging")
 					(subpath "/System")
+					(subpath "/opt/homebrew")
 					(subpath "/private/var/db/dyld")
 					(subpath "/private/var/db/timezone")
 					(subpath "/usr/lib")
@@ -195,7 +152,8 @@ fn create_sandbox_profile(command: &Command) -> CString {
 					(subpath "/System/Library/PrivateFrameworks")
 					(subpath "/System/iOSSupport/System/Library/Frameworks")
 					(subpath "/System/iOSSupport/System/Library/PrivateFrameworks")
-					(subpath "/usr/lib"))
+					(subpath "/usr/lib")
+					(subpath "/opt/homebrew"))
 
 				;; Allow writing to common devices.
 				(allow file-read* file-write-data file-ioctl
@@ -246,12 +204,38 @@ fn create_sandbox_profile(command: &Command) -> CString {
 				(allow file-read* file-write* file-ioctl process-exec
 					(literal "/dev/fd")
 					(subpath "/dev/fd"))
+				
+				;; Allow opening pseudo-terminals.
+				(allow file-read* file-write* file-ioctl
+					(literal "/dev/ptmx")
+					(regex #"^/dev/ttys[0-9]+$"))
 			"#
 		).unwrap();
 	}
 
+	writedoc!(
+		profile,
+		r#"
+		;; Allow exec'ing the tg binary itself.
+		(allow file-read* process-exec
+			(literal "{}"))
+
+		;; Allow reading/writing to the socket path.
+		(allow file-read* file-write*
+			(literal "{}")
+			(literal "{}"))
+		(allow file-read* file-write* process-exec
+			(subpath "{}"))
+	"#,
+		arg.tangram_path.display(),
+		directory.host_socket_path().display(),
+		directory.host_listen_path().display(),
+		directory.host_scratch_path().parent().unwrap().display(),
+	)
+	.unwrap();
+
 	// Write the network profile.
-	if command.network {
+	if arg.network {
 		writedoc!(
 			profile,
 			r#"
@@ -283,10 +267,10 @@ fn create_sandbox_profile(command: &Command) -> CString {
 		.unwrap();
 	}
 
-	for mount in &command.mounts {
+	for mount in &arg.mounts {
 		if !root_mount {
-			let path = mount.source.as_ref().unwrap();
-			if (mount.flags & libc::MNT_RDONLY.to_u64().unwrap()) != 0 {
+			if mount.readonly {
+				let path = &mount.source;
 				writedoc!(
 					profile,
 					r"
@@ -300,13 +284,14 @@ fn create_sandbox_profile(command: &Command) -> CString {
 					writedoc!(
 						profile,
 						r"
-							(allow file-read* (path-ancestors {0}))
+						(allow file-read* (path-ancestors {0}))
 						",
 						escape(path.as_os_str().as_bytes()),
 					)
 					.unwrap();
 				}
 			} else {
+				let path = &mount.source;
 				writedoc!(
 					profile,
 					r"
@@ -334,6 +319,7 @@ fn create_sandbox_profile(command: &Command) -> CString {
 	CString::new(profile).unwrap()
 }
 
+#[allow(dead_code)]
 fn kill_process_tree(pid: i32) {
 	let mut pids = vec![pid];
 	let mut i = 0;
