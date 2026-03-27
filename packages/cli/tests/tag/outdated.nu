@@ -21,13 +21,19 @@ let path = artifact {
 }
 
 tg checkin $path
-let output = tg outdated --pretty $path
+let output = tg outdated --pretty $path | str replace --all --regex '"/[^"]*"' '"PATH"'
 snapshot $output '
 	[
 	  {
 	    "compatible": "hello/1.1.0",
 	    "current": "hello/1.1.0",
 	    "latest": "hello/2.0.0",
+	    "required_by": {
+	      "item": null,
+	      "options": {
+	        "path": "PATH",
+	      },
+	    },
 	  },
 	]
 '
