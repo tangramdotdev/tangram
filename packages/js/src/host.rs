@@ -402,7 +402,7 @@ impl Host {
 				drop(fd);
 				StdinFd::Async(Arc::new(async_fd))
 			},
-			Err(source) if source.raw_os_error() == Some(libc::EPERM) => {
+			Err(source) if matches!(source.raw_os_error(), Some(libc::EPERM | libc::EINVAL)) => {
 				StdinFd::Blocking(Arc::new(fd))
 			},
 			Err(source) => {
