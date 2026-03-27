@@ -17,6 +17,19 @@ export function build(
 ): tg.RunBuilder;
 export function build(...args: tg.Args<tg.Process.RunArg>): tg.RunBuilder;
 export function build(...args: any): any {
+	let validate = (arg: tg.Process.RunArgObject): void => {
+		let cacheable =
+			(arg.mounts?.length ?? 0) === 0 &&
+			(arg.network ?? false) === false &&
+			arg.stdin === "null" &&
+			arg.stdout === "log" &&
+			arg.stderr === "log" &&
+			(arg.tty === undefined || arg.tty === false);
+		cacheable = cacheable || arg.checksum !== undefined;
+		if (!cacheable) {
+			throw tg.error("a build must be cacheable");
+		}
+	};
 	let firstArg: tg.Process.RunArgObject = {
 		sandbox: true,
 		stderr: "log",
@@ -32,7 +45,7 @@ export function build(...args: any): any {
 			host: "js",
 			executable: tg.Command.Executable.fromData(tg.host.magic(args[0])),
 			args: args.slice(1),
-		});
+		}).validate(validate);
 	} else if (Array.isArray(args[0]) && "raw" in args[0]) {
 		let strings = args[0] as TemplateStringsArray;
 		let placeholders = args.slice(1);
@@ -42,8 +55,8 @@ export function build(...args: any): any {
 		return new tg.RunBuilder(firstArg, {
 			executable,
 			args: ["-c", template],
-		});
+		}).validate(validate);
 	} else {
-		return new tg.RunBuilder(firstArg, ...args);
+		return new tg.RunBuilder(firstArg, ...args).validate(validate);
 	}
 }
