@@ -46,10 +46,12 @@ export type ResolvedArgs<T extends Array<tg.Unresolved<tg.Value>>> = {
 
 export type Function<
 	A extends tg.UnresolvedArgs<Array<tg.Value>>,
-	R extends tg.ReturnValue,
-> = (...args: A) => R;
+	O extends tg.ReturnValue,
+> = (...args: A) => O;
 
-export type ReturnValue = tg.MaybePromise<void> | tg.Unresolved<tg.Value>;
+export type ReturnValue<T extends tg.Value = tg.Value> =
+	| (T extends undefined ? tg.MaybePromise<void> : never)
+	| tg.Unresolved<T>;
 
 export type ResolvedReturnValue<T extends tg.ReturnValue> =
 	T extends tg.MaybePromise<void>

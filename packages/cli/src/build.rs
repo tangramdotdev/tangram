@@ -59,9 +59,9 @@ impl Cli {
 			&& matches!(args.options.spawn.stdout, Some(tg::process::Stdio::Log))
 			&& matches!(args.options.spawn.stderr, Some(tg::process::Stdio::Log))
 			&& !matches!(
-			args.options.spawn.tty.tty.as_ref(),
-			Some(tg::Either::Left(true) | tg::Either::Right(_))
-		);
+				args.options.spawn.tty.tty.as_ref(),
+				Some(tg::Either::Left(true) | tg::Either::Right(_))
+			);
 		let cacheable = cacheable || args.options.spawn.checksum.is_some();
 		if !cacheable {
 			return Err(tg::error!("a build must be cacheable"));

@@ -15,9 +15,9 @@ let path = artifact {
 				executable: "sleep",
 				host,
 			});
-			const process = await (tg.Process as any).spawn({
+			const process = await tg.spawn({
 				checksum: undefined,
-				command: { item: await command.store(), options: {} },
+				command,
 				create: false,
 				mounts: [],
 				network: false,
