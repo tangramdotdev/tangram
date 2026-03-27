@@ -1,7 +1,7 @@
 use {
 	crate::Cli,
 	std::{
-		collections::{BTreeMap, BTreeSet},
+		collections::{BTreeMap, BTreeSet, HashMap},
 		path::{Path, PathBuf},
 	},
 	tangram_client::prelude::*,
@@ -13,6 +13,13 @@ use {
 pub struct Args {
 	#[command(flatten)]
 	pub checkin: crate::checkin::Options,
+
+	/// Whether to output JSON.
+	#[arg(long)]
+	pub json: bool,
+
+	#[command(flatten)]
+	pub print: crate::print::Options,
 
 	#[arg(default_value = ".", index = 1)]
 	pub path: PathBuf,
@@ -62,23 +69,30 @@ impl Cli {
 		self.render_progress_stream(stream).await?;
 
 		// Get the new lockfile.
-		let new_lock = Self::try_read_lock(root)
+		let new_lock = Self::try_read_lock(root.clone())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read lockfile"))?;
 
 		// Print out any changes.
-		for updated in Self::updates(old_lock.as_ref(), new_lock.as_ref()) {
-			match (updated.old, updated.new) {
-				(Some(old), Some(new)) => {
-					println!("↑ updated {old} to {new}");
-				},
-				(None, Some(new)) => {
-					println!("+ added {new}");
-				},
-				(Some(old), None) => {
-					println!("- removed {old}");
-				},
-				(None, None) => (),
+		let updates = Self::updates(old_lock.as_ref(), new_lock.as_ref(), root);
+		if args.json {
+			self.print_serde(updates, args.print).await?;
+		} else {
+			for updated in updates {
+				let referrer = format_referrer(&updated.pattern);
+				match (updated.old, updated.new) {
+					
+					(Some(old), Some(new)) => {
+						println!("↑ updated {old} to {new}, required by {referrer}");
+					},
+					(None, Some(new)) => {
+						println!("+ added {new}, required by {referrer}");
+					},
+					(Some(old), None) => {
+						println!("- removed {old}, required by {referrer}");
+					},
+					(None, None) => (),
+				}
 			}
 		}
 		Ok(())
@@ -158,162 +172,147 @@ impl Cli {
 		}
 	}
 
-	fn updates(old: Option<&tg::graph::Data>, new: Option<&tg::graph::Data>) -> Vec<Updated> {
-		let mut visitor = Visitor::default();
-		let old = old.map(|old| old.nodes.as_slice()).unwrap_or_default();
-		let new = new.map(|new| new.nodes.as_slice()).unwrap_or_default();
-		let old_node = (!old.is_empty()).then_some(0);
-		let new_node = (!new.is_empty()).then_some(0);
-		visitor.walk(old_node, new_node, old, new);
-		visitor.updated
+	fn updates(
+		old: Option<&tg::graph::Data>,
+		new: Option<&tg::graph::Data>,
+		root: PathBuf,
+	) -> Vec<Updated> {
+		let old_deps = old
+			.map(|lock| Graph::new(lock, root.clone()).dependencies())
+			.unwrap_or_default();
+		let new_deps = new
+			.map(|lock| Graph::new(lock, root.clone()).dependencies())
+			.unwrap_or_default();
+		let all_patterns: BTreeSet<_> = old_deps
+			.keys()
+			.cloned()
+			.chain(new_deps.keys().cloned())
+			.collect();
+		let mut updated = Vec::new();
+		for pattern in all_patterns {
+			let old = old_deps.get(&pattern).cloned();
+			let new = new_deps.get(&pattern).cloned();
+			if old != new {
+				updated.push(Updated { pattern, old, new });
+			}
+		}
+		updated
 	}
 }
 
-#[allow(unused)]
+#[derive(Clone, Debug, serde::Serialize)]
 struct Updated {
-	pattern: tg::tag::Pattern,
+	pattern: tg::Referent<tg::tag::Pattern>,
 	old: Option<tg::Tag>,
 	new: Option<tg::Tag>,
 }
 
-#[derive(Default)]
-struct Visitor {
-	updated: Vec<Updated>,
-	visited: BTreeSet<(Option<usize>, Option<usize>)>,
+#[derive(Clone, Debug)]
+struct Node {
+	edges: Vec<(Option<tg::tag::Pattern>, Edge)>,
+	options: tg::referent::Options,
+	path: Vec<usize>,
 }
 
-impl Visitor {
-	fn walk(
-		&mut self,
-		old_node_index: Option<usize>,
-		new_node_index: Option<usize>,
-		old: &[tg::graph::data::Node],
-		new: &[tg::graph::data::Node],
-	) {
-		if !self.visited.insert((old_node_index, new_node_index)) {
-			return;
+#[derive(Clone, Debug)]
+enum Edge {
+	Node(usize),
+	Tag(tg::Tag),
+}
+
+#[derive(Debug)]
+struct Graph {
+	nodes: Vec<Node>,
+}
+
+impl Graph {
+	fn new(lock: &tg::graph::Data, path: PathBuf) -> Self {
+		let mut nodes = vec![None; lock.nodes.len()];
+		let mut stack = vec![(0, tg::referent::Options::with_path(path), Vec::new())];
+		while let Some((index, options, path)) = stack.pop() {
+			if nodes[index].is_some() {
+				continue;
+			}
+			let mut node = Node {
+				edges: Vec::new(),
+				options,
+				path,
+			};
+			match &lock.nodes[index] {
+				tg::graph::data::Node::Directory(directory) => {
+					let entries = flatten_directory(directory, &lock.nodes);
+					for (name, child) in entries {
+						let mut child_options = tg::referent::Options::with_path(name);
+						child_options.inherit(&node.options);
+						let mut path = node.path.clone();
+						path.push(index);
+						node.edges.push((None, Edge::Node(child)));
+						stack.push((child, child_options, path));
+					}
+				},
+				tg::graph::data::Node::File(file) => {
+					for (reference, dependency) in &file.dependencies {
+						let pattern = reference.item().try_unwrap_tag_ref().ok().cloned();
+						let Some(dependency) = dependency else {
+							continue;
+						};
+						match (dependency.item(), dependency.tag()) {
+							(Some(tg::graph::data::Edge::Pointer(pointer)), tag) => {
+								if pointer.graph.is_none() {
+									let reference =
+										reference.item().try_unwrap_tag_ref().ok().cloned();
+									node.edges.push((reference, Edge::Node(pointer.index)));
+									let mut child_options = dependency.options.clone();
+									let mut path = node.path.clone();
+									path.push(index);
+									child_options.inherit(&node.options);
+									stack.push((pointer.index, child_options, path));
+								} else if let Some(tag) = tag {
+									node.edges.push((pattern, Edge::Tag(tag.clone())));
+								}
+							},
+							(_, Some(tag)) => node.edges.push((pattern, Edge::Tag(tag.clone()))),
+							_ => (),
+						}
+					}
+				},
+				tg::graph::data::Node::Symlink(symlink) => {
+					let Some(tg::graph::data::Edge::Pointer(pointer)) = &symlink.artifact else {
+						continue;
+					};
+					if pointer.graph.is_some() {
+						continue;
+					}
+					node.edges.push((None, Edge::Node(pointer.index)));
+					let child_options = tg::referent::Options::default();
+					let mut path = node.path.clone();
+					path.push(index);
+					stack.push((pointer.index, child_options, path));
+				},
+			}
+			nodes[index].replace(node);
 		}
 
-		match (old_node_index, new_node_index) {
-			(Some(old_node_index), Some(new_node_index)) => {
-				match (&old[old_node_index], &new[new_node_index]) {
-					(
-						tg::graph::data::Node::Directory(old_node),
-						tg::graph::data::Node::Directory(new_node),
-					) => {
-						let old_entries = flatten_directory(old_node, old);
-						let new_entries = flatten_directory(new_node, new);
-						let all_entries: BTreeSet<&String> =
-							old_entries.keys().chain(new_entries.keys()).collect();
-						for name in all_entries {
-							let old_node_index = old_entries.get(name).cloned();
-							let new_node_index = new_entries.get(name).cloned();
-							self.walk(old_node_index, new_node_index, old, new);
-						}
-					},
-					(
-						tg::graph::data::Node::File(old_node),
-						tg::graph::data::Node::File(new_node),
-					) => {
-						let old_dependencies: &std::collections::BTreeMap<
-							tangram_client::Reference,
-							Option<tangram_client::graph::data::Dependency>,
-						> = &old_node.dependencies;
-						let new_dependencies = &new_node.dependencies;
-						let all_references = old_dependencies
-							.keys()
-							.chain(new_dependencies.keys())
-							.collect::<BTreeSet<_>>();
-						for reference in all_references {
-							let old_dep = old_dependencies.get(reference).and_then(|d| d.as_ref());
-							let new_dep = new_dependencies.get(reference).and_then(|d| d.as_ref());
-							let old_tag = old_dep.and_then(|d| d.0.options.tag.clone());
-							let new_tag = new_dep.and_then(|d| d.0.options.tag.clone());
-							if (old_tag != new_tag) && (old_tag.is_some() || new_tag.is_some()) {
-								if let Ok(pattern) = reference.item().try_unwrap_tag_ref() {
-									self.updated.push(Updated {
-										pattern: pattern.clone(),
-										old: old_tag,
-										new: new_tag,
-									});
-								}
-							}
-							let old_node_index = old_dep.and_then(|d| {
-								let edge = d.0.item.as_ref()?;
-								let pointer = edge.try_unwrap_pointer_ref().ok()?;
-								if pointer.graph.is_some() {
-									return None;
-								}
-								Some(pointer.index)
-							});
-							let new_node_index = new_dep.and_then(|d| {
-								let edge = d.0.item.as_ref()?;
-								let pointer = edge.try_unwrap_pointer_ref().ok()?;
-								if pointer.graph.is_some() {
-									return None;
-								}
-								Some(pointer.index)
-							});
-							self.walk(old_node_index, new_node_index, old, new);
-						}
-					},
-					(
-						tg::graph::data::Node::Symlink(old_node),
-						tg::graph::data::Node::Symlink(new_node),
-					) => {
-						let Some(old_artifact) = &old_node.artifact else {
-							return;
-						};
-						let Some(new_artifact) = &new_node.artifact else {
-							return;
-						};
-						let old_node_index = old_artifact
-							.try_unwrap_pointer_ref()
-							.ok()
-							.and_then(|pointer| pointer.graph.is_none().then_some(pointer.index));
-						let new_node_index = new_artifact
-							.try_unwrap_pointer_ref()
-							.ok()
-							.and_then(|pointer| pointer.graph.is_none().then_some(pointer.index));
-						self.walk(old_node_index, new_node_index, old, new);
-					},
-					_ => (),
-				}
-			},
-			(Some(old_node_index), None) => {
-				if let tg::graph::data::Node::File(old_file) = &old[old_node_index] {
-					for (reference, dep) in &old_file.dependencies {
-						let old_tag = dep.as_ref().and_then(|d| d.0.options.tag.clone());
-						if let Some(old_tag) = old_tag {
-							if let Ok(pattern) = reference.item().try_unwrap_tag_ref() {
-								self.updated.push(Updated {
-									pattern: pattern.clone(),
-									old: Some(old_tag),
-									new: None,
-								});
-							}
-						}
-					}
-				}
-			},
-			(None, Some(new_node_index)) => {
-				if let tg::graph::data::Node::File(new_file) = &new[new_node_index] {
-					for (reference, dep) in &new_file.dependencies {
-						let new_tag = dep.as_ref().and_then(|d| d.0.options.tag.clone());
-						if let Some(new_tag) = new_tag {
-							if let Ok(pattern) = reference.item().try_unwrap_tag_ref() {
-								self.updated.push(Updated {
-									pattern: pattern.clone(),
-									old: None,
-									new: Some(new_tag),
-								});
-							}
-						}
-					}
-				}
-			},
-			(None, None) => (),
-		}
+		let nodes = nodes.into_iter().map(Option::unwrap).collect::<Vec<_>>();
+		Self { nodes }
+	}
+
+	fn dependencies(&self) -> HashMap<tg::Referent<tg::tag::Pattern>, tg::Tag> {
+		self.nodes
+			.iter()
+			.flat_map(|node| {
+				node.edges.iter().filter_map(|(pattern, edge)| {
+					let options = node.options.clone();
+					let pattern = pattern.clone()?;
+					let tag = match edge {
+						Edge::Node(index) => self.nodes[*index].options.tag.clone()?,
+						Edge::Tag(tag) => tag.clone(),
+					};
+					let key = tg::Referent::new(pattern, options);
+					Some((key, tag))
+				})
+			})
+			.collect()
 	}
 }
 
@@ -350,4 +349,20 @@ pub(crate) fn flatten_directory(
 				acc
 			}),
 	}
+}
+
+pub(crate) fn format_referrer(referrer: &tg::Referent<tg::tag::Pattern>) -> String {
+	let tg::referent::Options { artifact, id, name, path, tag } = referrer.options();
+	let mut name = name
+		.as_ref()
+		.map(String::clone)
+		.or_else(|| artifact.as_ref().map(tg::artifact::Id::to_string))
+		.or_else(|| tag.as_ref().map(tg::Tag::to_string))
+		.unwrap_or_default();
+	if let Some(path) = path {
+		name = PathBuf::from(name).join(path).to_str().unwrap().to_owned();
+	} else if let Some(id) = id {
+		name = id.to_string();
+	}
+	name
 }

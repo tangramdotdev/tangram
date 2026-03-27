@@ -82,11 +82,12 @@ cp ($old_root | path join "tangram.lock") ($new_root | path join "tangram.lock")
 # Run update and capture the output.
 let output = do { tg update $new_root } | complete
 success $output
-let stdout = $output.stdout | str trim
+let stdout = $output.stdout | str trim | str replace --all --regex '/tmp/[^\s,]+' 'PATH'
 snapshot $stdout '
-	+ added added/1.0.0
-	↑ updated dep/1.0.0 to dep/1.1.0
-	+ added added/1.0.0
-	↑ updated transitive/1.0.0 to transitive/1.1.0
-	- removed removed/1.0.0
+	+ added added/1.0.0, required by PATH
+	+ added added/1.0.0, required by dep/1.1.0/tangram.ts
+	↑ updated dep/1.0.0 to dep/1.1.0, required by PATH
+	- removed removed/1.0.0, required by PATH
+	- removed transitive/1.0.0, required by dep/1.0.0/tangram.ts
+	+ added transitive/1.1.0, required by dep/1.1.0/tangram.ts
 '
