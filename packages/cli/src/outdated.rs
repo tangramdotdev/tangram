@@ -1,4 +1,11 @@
-use {crate::Cli, std::collections::HashSet, tangram_client::prelude::*};
+use {
+	crate::Cli,
+	std::{
+		collections::HashSet,
+		path::PathBuf,
+	},
+	tangram_client::prelude::*,
+};
 
 /// Get a package's outdated dependencies.
 #[derive(Clone, Debug, clap::Args)]
@@ -11,125 +18,199 @@ pub struct Args {
 	pub print: crate::print::Options,
 
 	#[arg(default_value = ".", index = 1)]
-	pub reference: tg::Reference,
+	pub path: PathBuf,
 }
 
 impl Cli {
 	pub async fn command_outdated(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let mut visitor = Visitor::default();
-		let arg = tg::get::Arg {
-			checkin: args.checkin.to_options(),
-			..Default::default()
-		};
-		let referent = self
-			.get_reference_with_arg(&args.reference, arg, true)
-			.await?
-			.try_map(|item| item.left().ok_or_else(|| tg::error!("expected an object")))?;
-		tg::object::visit(&handle, &mut visitor, &referent, false)
+
+		// Find the root.
+		let root = Self::find_root(args.path.clone())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to walk objects"))?;
-		let output = visitor.entries.into_iter().collect::<Vec<_>>();
+			.map_err(|source| tg::error!(!source, "failed to find the root"))?;
+
+		// Deserialize the lock.
+		let lock = Self::try_read_lock(root.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to read lockfile"))?
+			.ok_or_else(|| tg::error!("missing lockfile"))?;
+
+		// Edge case, do nothing.
+		if lock.nodes.is_empty() {
+			return Ok(());
+		}
+
+		// Collect dependencies.
+		let graph = Graph::new(&lock, root);
+		let mut output: HashSet<Entry> = HashSet::new();
+		for node in &graph.nodes {
+			for (pattern, edge) in &node.edges {
+				let Some(pattern) = pattern else {
+					continue;
+				};
+				let current = match edge{
+					Edge::Node(node) => {
+						let Some(tag) = graph.nodes[*node].options.tag.clone() else {
+							continue;
+						};
+						tag
+					},
+					Edge::Tag(tag) => tag.clone()
+				};
+				let compatible = handle
+					.list_tags(tg::tag::list::Arg {
+						cached: false,
+						length: Some(1),
+						local: None,
+						pattern: pattern.clone(),
+						recursive: false,
+						remotes: None,
+						reverse: true,
+						ttl: None,
+					})
+					.await?
+					.data
+					.into_iter()
+					.map(|output| output.tag)
+					.next();
+
+				let mut components = pattern.components().collect::<Vec<_>>();
+				components.pop();
+				components.push("*");
+				let pattern = tg::tag::Pattern::new(components.join("/"));
+				let latest = handle
+					.list_tags(tg::tag::list::Arg {
+						cached: false,
+						length: Some(1),
+						local: None,
+						pattern: pattern.clone(),
+						recursive: false,
+						remotes: None,
+						reverse: true,
+						ttl: None,
+					})
+					.await?
+					.data
+					.into_iter()
+					.map(|output| output.tag)
+					.next();
+
+				let entry = Entry {
+					current,
+					compatible,
+					latest,
+					required_by: tg::Referent::new((), node.options.clone()),
+				};
+
+				output.insert(entry);
+			}
+			// let c
+		}
+
+		// Display output.
 		self.print_serde(output, args.print).await?;
 		Ok(())
 	}
 }
 
-#[derive(Default)]
-struct Visitor {
-	entries: HashSet<Entry>,
+#[derive(Clone, Debug)]
+struct Node {
+	edges: Vec<(Option<tg::tag::Pattern>, Edge)>,
+	options: tg::referent::Options,
+	path: Vec<usize>,
 }
 
-#[derive(serde::Serialize, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug)]
+enum Edge {
+	Node(usize),
+	Tag(tg::Tag),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize)]
 struct Entry {
 	current: tg::Tag,
 	compatible: Option<tg::Tag>,
 	latest: Option<tg::Tag>,
+	required_by: tg::Referent<()>,
 }
 
-impl<H> tg::object::Visitor<H> for Visitor
-where
-	H: tg::Handle,
-{
-	async fn visit_directory(
-		&mut self,
-		_handle: &H,
-		_directory: tg::Referent<&tg::Directory>,
-	) -> tg::Result<bool> {
-		Ok(true)
-	}
+#[derive(Debug)]
+pub struct Graph {
+	nodes: Vec<Node>,
+}
 
-	async fn visit_symlink(
-		&mut self,
-		_handle: &H,
-		_symlink: tg::Referent<&tg::Symlink>,
-	) -> tg::Result<bool> {
-		Ok(true)
-	}
-
-	async fn visit_file(&mut self, handle: &H, file: tg::Referent<&tg::File>) -> tg::Result<bool> {
-		let file = file.item;
-
-		// Get the file's dependencies.
-		let dependencies = file
-			.dependencies(handle)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the file's dependencies"))?
-			.into_iter()
-			.filter_map(|(reference, option)| {
-				let pattern = reference.item().clone().try_unwrap_tag().ok()?;
-				let tag = option?.0.options.tag.take()?;
-				Some((pattern, tag))
-			});
-
-		for (pattern, current) in dependencies {
-			let compatible = handle
-				.list_tags(tg::tag::list::Arg {
-					cached: false,
-					length: Some(1),
-					local: None,
-					pattern: pattern.clone(),
-					recursive: false,
-					remotes: None,
-					reverse: true,
-					ttl: None,
-				})
-				.await?
-				.data
-				.into_iter()
-				.map(|output| output.tag)
-				.next();
-
-			let mut components = pattern.components().collect::<Vec<_>>();
-			components.pop();
-			components.push("*");
-			let pattern = tg::tag::Pattern::new(components.join("/"));
-			let latest = handle
-				.list_tags(tg::tag::list::Arg {
-					cached: false,
-					length: Some(1),
-					local: None,
-					pattern: pattern.clone(),
-					recursive: false,
-					remotes: None,
-					reverse: true,
-					ttl: None,
-				})
-				.await?
-				.data
-				.into_iter()
-				.map(|output| output.tag)
-				.next();
-
-			let entry = Entry {
-				current,
-				compatible,
-				latest,
+impl Graph {
+	pub fn new(lock: &tg::graph::Data, path: PathBuf) -> Self {
+		let mut nodes = vec![None; lock.nodes.len()];
+		let mut stack = vec![(0, tg::referent::Options::with_path(path), Vec::new())];
+		while let Some((index, options, path)) = stack.pop() {
+			if nodes[index].is_some() {
+				continue;
+			}
+			let mut node = Node {
+				edges: Vec::new(),
+				options,
+				path,
 			};
-
-			self.entries.insert(entry);
+			match &lock.nodes[index] {
+				tg::graph::data::Node::Directory(directory) => {
+					let entries = crate::update::flatten_directory(directory, &lock.nodes);
+					for (name, child) in entries {
+						let mut child_options = tg::referent::Options::with_path(name);
+						child_options.inherit(&node.options);
+						let mut path = node.path.clone();
+						path.push(index);
+						node.edges.push((None, Edge::Node(child)));
+						stack.push((child, child_options, path));
+					}
+				},
+				tg::graph::data::Node::File(file) => {
+					for (reference, dependency) in &file.dependencies {
+						let pattern = reference.item().try_unwrap_tag_ref().ok().cloned();
+						let Some(dependency) = dependency else {
+							continue;
+						};
+						match (dependency.item(), dependency.tag()) {
+							(Some(tg::graph::data::Edge::Pointer(pointer)), tag) => {
+								if pointer.graph.is_none() {
+									let reference =
+										reference.item().try_unwrap_tag_ref().ok().cloned();
+									node.edges.push((reference, Edge::Node(pointer.index)));
+									let mut child_options = dependency.options.clone();
+									let mut path = node.path.clone();
+									path.push(index);
+									child_options.inherit(&node.options);
+									stack.push((pointer.index, child_options, path));
+								} else if let Some(tag) = tag {
+									node.edges.push((pattern, Edge::Tag(tag.clone())));
+								}
+							},
+							(_, Some(tag)) => {
+								node.edges.push((pattern, Edge::Tag(tag.clone())))
+							},
+							_ => (),
+						}
+					}
+				},
+				tg::graph::data::Node::Symlink(symlink) => {
+					let Some(tg::graph::data::Edge::Pointer(pointer)) = &symlink.artifact else {
+						continue;
+					};
+					if pointer.graph.is_some() {
+						continue;
+					}
+					node.edges.push((None, Edge::Node(pointer.index)));
+					let child_options = tg::referent::Options::default();
+					let mut path = node.path.clone();
+					path.push(index);
+					stack.push((pointer.index, child_options, path));
+				},
+			}
+			nodes[index].replace(node);
 		}
 
-		Ok(true)
+		let nodes = nodes.into_iter().map(Option::unwrap).collect::<Vec<_>>();
+		Self { nodes }
 	}
 }

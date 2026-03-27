@@ -128,22 +128,7 @@ impl<T> Referent<T> {
 	}
 
 	pub fn inherit<U>(&mut self, parent: &tg::Referent<U>) {
-		if self.id().is_none() && self.tag().is_none() {
-			self.options.id = parent.options.id.clone();
-			self.options.tag = parent.options.tag.clone();
-			match (&self.options.path, &parent.options.path) {
-				(None, Some(parent_path)) => {
-					let path = parent_path.clone();
-					self.options.path = Some(path);
-				},
-				(Some(self_path), Some(parent_path)) => {
-					let path = parent_path.parent().unwrap().join(self_path);
-					let path = tangram_util::path::normalize(&path);
-					self.options.path = Some(path);
-				},
-				_ => (),
-			}
-		}
+		self.options.inherit(&parent.options);
 	}
 }
 
@@ -252,6 +237,25 @@ impl Options {
 			name: None,
 			path: Some(path.into()),
 			tag: None,
+		}
+	}
+
+	pub fn inherit(&mut self, parent: &Options) {
+		if self.id.is_none() && self.tag.is_none() {
+			self.id = parent.id.clone();
+			self.tag = parent.tag.clone();
+			match (&self.path, &parent.path) {
+				(None, Some(parent_path)) => {
+					let path = parent_path.clone();
+					self.path = Some(path);
+				},
+				(Some(self_path), Some(parent_path)) => {
+					let path = parent_path.parent().unwrap().join(self_path);
+					let path = tangram_util::path::normalize(&path);
+					self.path = Some(path);
+				},
+				_ => (),
+			}
 		}
 	}
 }
