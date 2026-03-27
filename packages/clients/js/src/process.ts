@@ -13,6 +13,7 @@ export let setProcess = (newProcess: typeof process) => {
 
 export class Process {
 	#id: tg.Process.Id;
+	#options: tg.Referent.Options;
 	#remote: string | undefined;
 	#token: string | undefined;
 	#state: tg.Process.State | undefined;
@@ -20,8 +21,340 @@ export class Process {
 	#unsandboxed: tg.Process.Unsandboxed | undefined;
 	#wait: tg.Process.Wait | undefined;
 
+	static build<
+		A extends tg.UnresolvedArgs<Array<tg.Value>>,
+		O extends tg.ReturnValue,
+	>(
+		function_: (...args: A) => O,
+	): tg.Process.Builder<"run", [], tg.ResolvedReturnValue<O>>;
+	static build<
+		A extends tg.UnresolvedArgs<Array<tg.Value>>,
+		O extends tg.ReturnValue,
+	>(
+		function_: (...args: A) => O,
+		...args: tg.UnresolvedArgs<tg.ResolvedArgs<A>>
+	): tg.Process.Builder<"run", [], tg.ResolvedReturnValue<O>>;
+	static build(
+		strings: TemplateStringsArray,
+		...placeholders: tg.Args<tg.Template.Arg>
+	): tg.Process.Builder<"run", Array<tg.Value>, tg.Value>;
+	static build(
+		...args: tg.Args<tg.Process.Arg>
+	): tg.Process.Builder<"run", Array<tg.Value>, tg.Value>;
+	static build(...args: any): any {
+		let validate = (arg: tg.Process.ArgObject): void => {
+			let cacheable =
+				(arg.mounts?.length ?? 0) === 0 &&
+				(arg.network ?? false) === false &&
+				arg.stdin === "null" &&
+				arg.stdout === "log" &&
+				arg.stderr === "log" &&
+				(arg.tty === undefined || arg.tty === false);
+			cacheable = cacheable || arg.checksum !== undefined;
+			if (!cacheable) {
+				throw tg.error("a build must be cacheable");
+			}
+		};
+		let firstArg: tg.Process.ArgObject = {
+			sandbox: true,
+			stderr: "log",
+			stdin: "null",
+			stdout: "log",
+			tty: false,
+			env: {
+				TANGRAM_HOST: tg.process.env.TANGRAM_HOST,
+			},
+		};
+		if (typeof args[0] === "function") {
+			return new tg.Process.Builder("run", firstArg, {
+				host: "js",
+				executable: tg.Command.Executable.fromData(tg.host.magic(args[0])),
+				args: args.slice(1),
+			}).validate(validate);
+		} else if (Array.isArray(args[0]) && "raw" in args[0]) {
+			let strings = args[0] as TemplateStringsArray;
+			let placeholders = args.slice(1);
+			let template = tg.template(strings, ...placeholders);
+			let executable = tg.process.env.SHELL ?? "sh";
+			tg.assert(tg.Command.Arg.Executable.is(executable));
+			return new tg.Process.Builder("run", firstArg, {
+				executable,
+				args: ["-c", template],
+			}).validate(validate);
+		} else {
+			return new tg.Process.Builder("run", firstArg, ...args).validate(
+				validate,
+			);
+		}
+	}
+
+	static run<
+		A extends tg.UnresolvedArgs<Array<tg.Value>>,
+		O extends tg.ReturnValue,
+	>(
+		function_: (...args: A) => O,
+	): tg.Process.Builder<"run", [], tg.ResolvedReturnValue<O>>;
+	static run<
+		A extends tg.UnresolvedArgs<Array<tg.Value>>,
+		O extends tg.ReturnValue,
+	>(
+		function_: (...args: A) => O,
+		...args: tg.UnresolvedArgs<tg.ResolvedArgs<A>>
+	): tg.Process.Builder<"run", [], tg.ResolvedReturnValue<O>>;
+	static run(
+		strings: TemplateStringsArray,
+		...placeholders: tg.Args<tg.Template.Arg>
+	): tg.Process.Builder<"run", Array<tg.Value>, tg.Value>;
+	static run(
+		...args: tg.Args<tg.Process.Arg>
+	): tg.Process.Builder<"run", Array<tg.Value>, tg.Value>;
+	static run(...args: any): any {
+		if (typeof args[0] === "function") {
+			return new tg.Process.Builder("run", {
+				host: "js",
+				executable: tg.Command.Executable.fromData(tg.host.magic(args[0])),
+				args: args.slice(1),
+			});
+		} else if (Array.isArray(args[0]) && "raw" in args[0]) {
+			let strings = args[0] as TemplateStringsArray;
+			let placeholders = args.slice(1);
+			let template = tg.template(strings, ...placeholders);
+			let executable = tg.process.env.SHELL ?? "sh";
+			tg.assert(tg.Command.Arg.Executable.is(executable));
+			let arg = {
+				executable,
+				args: ["-c", template],
+			};
+			return new tg.Process.Builder("run", arg);
+		} else {
+			return new tg.Process.Builder("run", ...args);
+		}
+	}
+
+	static spawn<
+		A extends tg.UnresolvedArgs<Array<tg.Value>>,
+		O extends tg.ReturnValue,
+	>(
+		function_: (...args: A) => O,
+	): tg.Process.Builder<"spawn", [], tg.ResolvedReturnValue<O>>;
+	static spawn<
+		A extends tg.UnresolvedArgs<Array<tg.Value>>,
+		O extends tg.ReturnValue,
+	>(
+		function_: (...args: A) => O,
+		...args: tg.UnresolvedArgs<tg.ResolvedArgs<A>>
+	): tg.Process.Builder<"spawn", [], tg.ResolvedReturnValue<O>>;
+	static spawn(
+		strings: TemplateStringsArray,
+		...placeholders: tg.Args<tg.Template.Arg>
+	): tg.Process.Builder<"spawn", Array<tg.Value>, tg.Value>;
+	static spawn(
+		...args: tg.Args<tg.Process.Arg>
+	): tg.Process.Builder<"spawn", Array<tg.Value>, tg.Value>;
+	static spawn(...args: any): any {
+		if (typeof args[0] === "function") {
+			return new tg.Process.Builder("spawn", {
+				host: "js",
+				executable: tg.Command.Executable.fromData(tg.host.magic(args[0])),
+				args: args.slice(1),
+			});
+		} else if (Array.isArray(args[0]) && "raw" in args[0]) {
+			let strings = args[0] as TemplateStringsArray;
+			let placeholders = args.slice(1);
+			let template = tg.template(strings, ...placeholders);
+			let executable = tg.process.env.SHELL ?? "sh";
+			tg.assert(tg.Command.Arg.Executable.is(executable));
+			let arg = {
+				executable,
+				args: ["-c", template],
+			};
+			return new tg.Process.Builder("spawn", arg);
+		} else {
+			return new tg.Process.Builder("spawn", ...args);
+		}
+	}
+
+	static async arg(
+		...args: tg.Args<tg.Process.Arg>
+	): Promise<tg.Process.ArgObject> {
+		return await tg.Args.apply({
+			args,
+			map: async (arg) => {
+				if (arg === undefined) {
+					return {};
+				} else if (
+					typeof arg === "string" ||
+					tg.Artifact.is(arg) ||
+					arg instanceof tg.Template
+				) {
+					let host = tg.process.env.TANGRAM_HOST;
+					tg.assert(host !== undefined, "TANGRAM_HOST must be set");
+					let executable = tg.process.env.SHELL ?? "sh";
+					return {
+						args: ["-c", arg],
+						executable,
+						host,
+					};
+				} else if (arg instanceof tg.Command) {
+					let object = await arg.object();
+					let output: tg.Process.ArgObject = {
+						args: object.args,
+						env: object.env,
+						executable: object.executable,
+						host: object.host,
+					};
+					if (object.cwd !== undefined) {
+						output.cwd = object.cwd;
+					}
+					if (object.stdin !== undefined) {
+						output.stdin = object.stdin;
+					}
+					if (object.user !== undefined) {
+						output.user = object.user;
+					}
+					return output;
+				} else {
+					return arg;
+				}
+			},
+			reduce: {
+				args: "append",
+				env: "merge",
+			},
+		});
+	}
+
+	static async new(...args: tg.Args<tg.Process.Arg>): Promise<tg.Process> {
+		let arg = await tg.Process.arg(...args);
+
+		let sandbox = arg.sandbox ?? false;
+
+		if (!sandbox) {
+			let cwd = tg.process.cwd;
+			let env = { ...tg.process.env };
+			delete env.TANGRAM_OUTPUT;
+			arg = await tg.Process.arg({ cwd, env }, arg);
+		} else {
+			if (!("host" in arg)) {
+				arg.host = tg.process.env.TANGRAM_HOST as string | undefined;
+			}
+			if (arg.executable === tg.process.env.SHELL) {
+				arg.executable = "sh";
+			}
+		}
+
+		let command_: tg.Command | undefined;
+		let options: tg.Referent.Options = {};
+		if ("command" in arg) {
+			if (
+				typeof arg.command === "object" &&
+				arg.command !== null &&
+				"item" in arg.command &&
+				"options" in arg.command
+			) {
+				command_ = tg.Command.expect(arg.command.item);
+				options = { ...arg.command.options };
+			} else {
+				command_ = arg.command;
+			}
+		}
+		if ("name" in arg) {
+			options.name = arg.name;
+		}
+		let executable: tg.Command.Arg.Executable | undefined;
+		if ("executable" in arg) {
+			if (
+				typeof arg.executable === "object" &&
+				!tg.Artifact.is(arg.executable) &&
+				"module" in arg.executable
+			) {
+				options = {
+					...arg.executable.module.referent.options,
+					...options,
+				};
+				executable = {
+					...arg.executable,
+					module: {
+						...arg.executable.module,
+						referent: {
+							...arg.executable.module.referent,
+							options: {},
+						},
+					},
+				};
+			} else {
+				executable = arg.executable;
+			}
+		}
+
+		let checksum = arg.checksum;
+		let processMounts = arg.mounts ?? [];
+		let processStdin: tg.Process.Stdio.Value | undefined;
+		let commandStdin: tg.Blob.Arg | undefined;
+		if ("stdin" in arg) {
+			if (
+				arg.stdin === "inherit" ||
+				arg.stdin === "log" ||
+				arg.stdin === "null" ||
+				arg.stdin === "pipe" ||
+				arg.stdin === "tty"
+			) {
+				processStdin = arg.stdin;
+			} else if (arg.stdin !== undefined) {
+				commandStdin = arg.stdin;
+			}
+		}
+		let stdout = "stdout" in arg ? arg.stdout : undefined;
+		let stderr = "stderr" in arg ? arg.stderr : undefined;
+		let tty = "tty" in arg ? arg.tty : undefined;
+		let network = "network" in arg ? (arg.network ?? false) : false;
+
+		let command = await tg.command(
+			command_,
+			"args" in arg ? { args: arg.args } : undefined,
+			"cwd" in arg ? { cwd: arg.cwd } : undefined,
+			"env" in arg ? { env: arg.env } : undefined,
+			executable !== undefined ? { executable: executable } : undefined,
+			"host" in arg ? { host: arg.host } : undefined,
+			"user" in arg ? { user: arg.user } : undefined,
+			commandStdin !== undefined ? { stdin: commandStdin } : undefined,
+		);
+
+		let commandId = await command.store();
+		let commandReferent = {
+			item: commandId,
+			options: options,
+		};
+
+		let spawnArg = {
+			checksum,
+			command: commandReferent,
+			create: false,
+			mounts: processMounts,
+			network,
+			parent: undefined,
+			remote: undefined,
+			retry: false,
+			sandbox,
+			stderr: stderr ?? "inherit",
+			stdin: processStdin ?? "inherit",
+			stdout: stdout ?? "inherit",
+			tty,
+		};
+		let process: tg.Process;
+		if (!arg.sandbox) {
+			process = await spawnUnsandboxedProcess(spawnArg);
+		} else {
+			process = await spawnSandboxedProcess(spawnArg);
+		}
+		process.#options = options;
+
+		return process;
+	}
+
 	constructor(arg: tg.Process.ConstructorArg) {
 		this.#id = arg.id;
+		this.#options = arg.options ?? {};
 		this.#remote = arg.remote;
 		this.#state = arg.state;
 		this.#stdioPromise = arg.stdioPromise;
@@ -32,81 +365,6 @@ export class Process {
 
 	get state(): tg.Process.State | undefined {
 		return this.#state;
-	}
-
-	static async spawn(arg: tg.Handle.SpawnArg): Promise<tg.Process> {
-		if (!arg.sandbox) {
-			return await spawnUnsandboxedProcess(arg);
-		}
-		return await spawnSandboxedProcess(arg);
-	}
-
-	async signal(signal: tg.Process.Signal): Promise<void> {
-		if (this.#unsandboxed !== undefined) {
-			await tg.host.signal(this.#unsandboxed.pid, signal);
-			return;
-		}
-		let arg = {
-			local: this.#remote === undefined ? true : undefined,
-			remotes: this.#remote !== undefined ? [this.#remote] : undefined,
-			signal,
-		};
-		await tg.handle.signalProcess(this.#id, arg);
-	}
-
-	async wait(): Promise<tg.Process.Wait> {
-		if (this.#stdioPromise !== undefined) {
-			await this.#stdioPromise;
-		}
-		if (this.#wait !== undefined) {
-			return this.#wait;
-		}
-		if (this.#unsandboxed !== undefined) {
-			let wait = await this.#unsandboxed.promise;
-			this.#wait = wait;
-			return wait;
-		}
-		let remotes = undefined;
-		if (this.#remote) {
-			remotes = [this.#remote];
-		}
-		let arg = {
-			local: undefined,
-			remotes,
-			token: this.#token,
-		};
-		let data = await tg.handle.waitProcess(this.#id, arg);
-		let wait = tg.Process.Wait.fromData(data);
-		this.#wait = wait;
-		return wait;
-	}
-
-	async readStdio(
-		arg: tg.Process.Stdio.Read.Arg,
-	): Promise<AsyncIterableIterator<tg.Process.Stdio.Read.Event> | undefined> {
-		if (arg.streams.length === 0) {
-			throw new Error("expected at least one stdio stream");
-		}
-		if (this.#unsandboxed !== undefined) {
-			return readUnsandboxedProcessStdio(this.#unsandboxed, arg);
-		}
-		return await tg.handle.readProcessStdio(
-			this.#id,
-			normalizeProcessStdioReadArg(this.#remote, arg),
-		);
-	}
-
-	async setTtySize(size: tg.Process.Tty.Size): Promise<void> {
-		if (this.#unsandboxed !== undefined) {
-			throw new Error(
-				"tty resizing is not supported for unsandboxed processes",
-			);
-		}
-		await tg.handle.setProcessTtySize(this.#id, {
-			local: undefined,
-			remotes: this.#remote !== undefined ? [this.#remote] : undefined,
-			size,
-		});
 	}
 
 	static expect(value: unknown): tg.Process {
@@ -178,21 +436,6 @@ export class Process {
 		})();
 	}
 
-	async writeStdio(
-		arg: tg.Process.Stdio.Write.Arg,
-		input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
-	): Promise<void> {
-		if (this.#unsandboxed !== undefined) {
-			await writeUnsandboxedProcessStdio(this.#unsandboxed, arg, input);
-			return;
-		}
-		await tg.handle.writeProcessStdio(
-			this.#id,
-			normalizeProcessStdioWriteArg(this.#remote, arg),
-			input,
-		);
-	}
-
 	get mounts(): Promise<Array<tg.Process.Mount>> {
 		return (async () => {
 			await this.load();
@@ -214,13 +457,327 @@ export class Process {
 			).user;
 		})();
 	}
+
+	async signal(signal: tg.Process.Signal): Promise<void> {
+		if (this.#unsandboxed !== undefined) {
+			await tg.host.signal(this.#unsandboxed.pid, signal);
+			return;
+		}
+		let arg = {
+			local: this.#remote === undefined ? true : undefined,
+			remotes: this.#remote !== undefined ? [this.#remote] : undefined,
+			signal,
+		};
+		await tg.handle.signalProcess(this.#id, arg);
+	}
+
+	async wait(): Promise<tg.Process.Wait> {
+		if (this.#stdioPromise !== undefined) {
+			await this.#stdioPromise;
+		}
+		if (this.#wait !== undefined) {
+			return this.#wait;
+		}
+		if (this.#unsandboxed !== undefined) {
+			let wait = await this.#unsandboxed.promise;
+			this.#wait = wait;
+			return wait;
+		}
+		let remotes = undefined;
+		if (this.#remote) {
+			remotes = [this.#remote];
+		}
+		let arg = {
+			local: undefined,
+			remotes,
+			token: this.#token,
+		};
+		let data = await tg.handle.waitProcess(this.#id, arg);
+		let wait = tg.Process.Wait.fromData(data);
+		this.#wait = wait;
+		return wait;
+	}
+
+	async output(): Promise<tg.Value> {
+		let wait = await this.wait();
+
+		if (wait.error !== undefined) {
+			let error = wait.error;
+			const source = {
+				item: error,
+				options: this.#options,
+			};
+			const values: { [key: string]: string } = {
+				id: String(this.id),
+			};
+			if (this.#options.name !== undefined) {
+				values.name = this.#options.name;
+			}
+			throw tg.error("the child process failed", {
+				source,
+				values,
+			});
+		}
+		if (wait.exit >= 1 && wait.exit < 128) {
+			const error = tg.error(`the process exited with code ${wait.exit}`);
+			const source = {
+				item: error,
+				options: this.#options,
+			};
+			const values: { [key: string]: string } = {
+				id: String(this.id),
+			};
+			if (this.#options.name !== undefined) {
+				values.name = this.#options.name;
+			}
+			throw tg.error("the child process failed", {
+				source,
+				values,
+			});
+		}
+		if (wait.exit >= 128) {
+			const error = tg.error(`the process exited with code ${wait.exit}`);
+			const source = {
+				item: error,
+				options: this.#options,
+			};
+			const values: { [key: string]: string } = {
+				id: String(this.id),
+			};
+			if (this.#options.name !== undefined) {
+				values.name = this.#options.name;
+			}
+			throw tg.error(
+				`the child process exited with signal ${wait.exit - 128}`,
+				{
+					source,
+					values,
+				},
+			);
+		}
+
+		let output = wait.output;
+
+		return output;
+	}
+
+	async readStdio(
+		arg: tg.Process.Stdio.Read.Arg,
+	): Promise<AsyncIterableIterator<tg.Process.Stdio.Read.Event> | undefined> {
+		if (arg.streams.length === 0) {
+			throw new Error("expected at least one stdio stream");
+		}
+		if (this.#unsandboxed !== undefined) {
+			return readUnsandboxedProcessStdio(this.#unsandboxed, arg);
+		}
+		return await tg.handle.readProcessStdio(
+			this.#id,
+			normalizeProcessStdioReadArg(this.#remote, arg),
+		);
+	}
+
+	async setTtySize(size: tg.Process.Tty.Size): Promise<void> {
+		if (this.#unsandboxed !== undefined) {
+			throw new Error(
+				"tty resizing is not supported for unsandboxed processes",
+			);
+		}
+		await tg.handle.setProcessTtySize(this.#id, {
+			local: undefined,
+			remotes: this.#remote !== undefined ? [this.#remote] : undefined,
+			size,
+		});
+	}
+
+	async writeStdio(
+		arg: tg.Process.Stdio.Write.Arg,
+		input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
+	): Promise<void> {
+		if (this.#unsandboxed !== undefined) {
+			await writeUnsandboxedProcessStdio(this.#unsandboxed, arg, input);
+			return;
+		}
+		await tg.handle.writeProcessStdio(
+			this.#id,
+			normalizeProcessStdioWriteArg(this.#remote, arg),
+			input,
+		);
+	}
 }
 
 export namespace Process {
 	export type Id = string;
 
+	export interface Builder<
+		M extends tg.Process.Builder.Mode,
+		A extends Array<tg.Value> = Array<tg.Value>,
+		O extends tg.Value = tg.Value,
+	> {
+		(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<M, [], O>;
+	}
+
+	export class Builder<
+		M extends tg.Process.Builder.Mode,
+		A extends Array<tg.Value> = Array<tg.Value>,
+		O extends tg.Value = tg.Value,
+	> extends Function {
+		#args: tg.Args<tg.Process.Arg>;
+		#mode: M;
+		#validate?: (arg: tg.Process.ArgObject) => void;
+
+		constructor(mode: M, ...args: tg.Args<tg.Process.Arg>) {
+			super();
+			this.#args = args;
+			this.#mode = mode;
+			return new Proxy(this, {
+				get(this_: any, prop, _receiver) {
+					if (typeof this_[prop] === "function") {
+						return this_[prop].bind(this_);
+					}
+					return this_[prop];
+				},
+				apply: (this_, _, args) => {
+					return this_.args(args);
+				},
+				getPrototypeOf: (this_) => {
+					return Object.getPrototypeOf(this_);
+				},
+			});
+		}
+
+		arg(...args: Array<tg.Unresolved<tg.Value>>): this {
+			this.#args.push({ args });
+			return this;
+		}
+
+		args(
+			...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>>
+		): this {
+			this.#args.push(...args.map((args) => ({ args })));
+			return this;
+		}
+
+		checksum(
+			checksum: tg.Unresolved<tg.MaybeMutation<tg.Checksum | undefined>>,
+		): this {
+			this.#args.push({ checksum });
+			return this;
+		}
+
+		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this {
+			this.#args.push({ cwd });
+			return this;
+		}
+
+		env(
+			...envs: Array<tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>>
+		): this {
+			this.#args.push(...envs.map((env) => ({ env })));
+			return this;
+		}
+
+		executable(
+			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.Arg.Executable>>,
+		): this {
+			this.#args.push({ executable });
+			return this;
+		}
+
+		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this {
+			this.#args.push({ host });
+			return this;
+		}
+
+		mount(...mounts: Array<tg.Unresolved<tg.Process.Mount>>): this {
+			this.#args.push({ mounts });
+			return this;
+		}
+
+		mounts(
+			...mounts: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Process.Mount>>>>
+		): this {
+			this.#args.push(...mounts.map((mounts) => ({ mounts })));
+			return this;
+		}
+
+		named(name: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this {
+			this.#args.push({ name });
+			return this;
+		}
+
+		network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this {
+			this.#args.push({ network });
+			return this;
+		}
+
+		sandbox(sandbox?: tg.Unresolved<tg.MaybeMutation<boolean>>): this {
+			this.#args.push({ sandbox: sandbox ?? true });
+			return this;
+		}
+
+		validate(validate: (arg: tg.Process.ArgObject) => void): this {
+			this.#validate = validate;
+			return this;
+		}
+
+		run(): tg.Process.Builder<"run", A, O> {
+			let output = new tg.Process.Builder("run", ...this.#args);
+			if (this.#validate !== undefined) {
+				output.validate(this.#validate);
+			}
+			return output as tg.Process.Builder<"run", A, O>;
+		}
+
+		spawn(): tg.Process.Builder<"spawn", A, O> {
+			let output = new tg.Process.Builder("spawn", ...this.#args);
+			if (this.#validate !== undefined) {
+				output.validate(this.#validate);
+			}
+			return output as tg.Process.Builder<"spawn", A, O>;
+		}
+
+		then<TResult1 = tg.Process.Builder.Output<M, O>, TResult2 = never>(
+			onfulfilled?:
+				| ((
+						value: tg.Process.Builder.Output<M, O>,
+				  ) => TResult1 | PromiseLike<TResult1>)
+				| undefined
+				| null,
+			onrejected?:
+				| ((reason: any) => TResult2 | PromiseLike<TResult2>)
+				| undefined
+				| null,
+		): PromiseLike<TResult1 | TResult2> {
+			return this.#thenInner().then(onfulfilled, onrejected);
+		}
+
+		async #thenInner(): Promise<tg.Process.Builder.Output<M, O>> {
+			let arg = await tg.Process.arg(...this.#args);
+			this.#validate?.(arg);
+			let process = await tg.Process.new(arg);
+			switch (this.#mode) {
+				case "run": {
+					return (await process.output()) as tg.Process.Builder.Output<M, O>;
+				}
+				case "spawn": {
+					return process as tg.Process.Builder.Output<M, O>;
+				}
+			}
+		}
+	}
+
+	export namespace Builder {
+		export type Mode = "run" | "spawn";
+
+		export type Output<
+			M extends tg.Process.Builder.Mode,
+			O extends tg.Value,
+		> = M extends "spawn" ? tg.Process : O;
+	}
+
 	export type ConstructorArg = {
 		id: tg.Process.Id;
+		options?: tg.Referent.Options;
 		remote?: string | undefined;
 		state?: State | undefined;
 		stdioPromise?: Promise<void> | undefined;
@@ -237,17 +794,18 @@ export namespace Process {
 		stderr?: UnsandboxedStdoutOrStderr | undefined;
 	};
 
-	export type RunArg =
+	export type Arg =
 		| undefined
 		| string
 		| tg.Artifact
 		| tg.Template
 		| tg.Command
-		| RunArgObject;
+		| ArgObject;
 
-	export type RunArgObject = {
+	export type ArgObject = {
 		args?: Array<tg.Value> | undefined;
 		checksum?: tg.Checksum | undefined;
+		command?: tg.MaybeReferent<tg.Command> | undefined;
 		cwd?: string | undefined;
 		env?: tg.MaybeMutationMap | undefined;
 		executable?: tg.Command.Arg.Executable | undefined;

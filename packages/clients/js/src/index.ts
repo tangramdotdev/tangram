@@ -2,7 +2,6 @@ import { Args } from "./args.ts";
 import { Artifact } from "./artifact.ts";
 import { assert, todo, unimplemented, unreachable } from "./assert.ts";
 import { Blob, blob } from "./blob.ts";
-import { build } from "./build.ts";
 import {
 	type ArchiveFormat,
 	archive,
@@ -14,7 +13,7 @@ import {
 	extract,
 } from "./builtin.ts";
 import { Checksum, checksum } from "./checksum.ts";
-import { Command, CommandBuilder, command } from "./command.ts";
+import { Command, command } from "./command.ts";
 import { Diagnostic } from "./diagnostic.ts";
 import { Directory, directory } from "./directory.ts";
 import { type Encoding, encoding, setEncoding } from "./encoding.ts";
@@ -35,7 +34,6 @@ import type { Reference } from "./reference.ts";
 import { Referent } from "./referent.ts";
 import type { Resolved, Unresolved } from "./resolve.ts";
 import { resolve } from "./resolve.ts";
-import { RunBuilder, run } from "./run.ts";
 import { sleep } from "./sleep.ts";
 import { Symlink, symlink } from "./symlink.ts";
 import type { Tag } from "./tag.ts";
@@ -79,13 +77,16 @@ export type {
 	ValueOrMaybeMutationMap,
 };
 
+let build = Process.build;
+let run = Process.run;
+let spawn = Process.spawn;
+
 export {
 	Args,
 	Artifact,
 	Blob,
 	Checksum,
 	Command,
-	CommandBuilder,
 	Diagnostic,
 	Directory,
 	Error,
@@ -98,7 +99,6 @@ export {
 	Placeholder,
 	Process,
 	Referent,
-	RunBuilder,
 	Symlink,
 	Template,
 	Value,
@@ -132,6 +132,7 @@ export {
 	setHost,
 	setProcess,
 	sleep,
+	spawn,
 	symlink,
 	template,
 	todo,

@@ -2,22 +2,22 @@ import * as tg from "./index.ts";
 
 export function command<
 	A extends tg.UnresolvedArgs<Array<tg.Value>>,
-	R extends tg.ReturnValue,
+	O extends tg.ReturnValue,
 >(
-	function_: (...args: A) => R,
-): tg.CommandBuilder<[], tg.ResolvedReturnValue<R>>;
+	function_: (...args: A) => O,
+): tg.Command.Builder<[], tg.ResolvedReturnValue<O>>;
 export function command<
 	A extends tg.UnresolvedArgs<Array<tg.Value>>,
-	R extends tg.ReturnValue,
+	O extends tg.ReturnValue,
 >(
-	function_: (...args: A) => R,
+	function_: (...args: A) => O,
 	...args: tg.UnresolvedArgs<tg.ResolvedArgs<A>>
-): tg.CommandBuilder<[], tg.ResolvedReturnValue<R>>;
+): tg.Command.Builder<[], tg.ResolvedReturnValue<O>>;
 export function command(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<tg.Template.Arg>
-): tg.CommandBuilder;
-export function command(...args: tg.Args<tg.Command.Arg>): tg.CommandBuilder;
+): tg.Command.Builder;
+export function command(...args: tg.Args<tg.Command.Arg>): tg.Command.Builder;
 export function command(...args: any): any {
 	if (typeof args[0] === "function") {
 		let executable = tg.Command.Executable.fromData(tg.host.magic(args[0]));
@@ -30,7 +30,7 @@ export function command(...args: any): any {
 		) {
 			executable.module.referent.options.path = undefined;
 		}
-		return new tg.CommandBuilder({
+		return new tg.Command.Builder({
 			host: "js",
 			executable,
 			args: args.slice(1),
@@ -45,54 +45,22 @@ export function command(...args: any): any {
 			executable,
 			args: ["-c", template],
 		};
-		return new tg.CommandBuilder(arg);
+		return new tg.Command.Builder(arg);
 	} else {
-		return new tg.CommandBuilder(...args);
+		return new tg.Command.Builder(...args);
 	}
 }
 
 export class Command<
 	A extends Array<tg.Value> = Array<tg.Value>,
-	R extends tg.Value = tg.Value,
+	O extends tg.Value = tg.Value,
 > {
 	#state: tg.Object.State;
 
-	constructor(arg: {
-		id?: tg.Command.Id;
-		object?: tg.Command.Object;
-		stored: boolean;
-	}) {
-		let object =
-			arg.object !== undefined
-				? { kind: "command" as const, value: arg.object }
-				: undefined;
-		this.#state = new tg.Object.State({
-			id: arg.id,
-			object,
-			stored: arg.stored,
-		});
-	}
-
-	get state(): tg.Object.State {
-		return this.#state;
-	}
-
-	static withId(id: tg.Command.Id): tg.Command {
-		return new tg.Command({ id, stored: true });
-	}
-
-	static withObject(object: tg.Command.Object): tg.Command {
-		return new tg.Command({ object, stored: false });
-	}
-
-	static fromData(data: tg.Command.Data): tg.Command {
-		return tg.Command.withObject(tg.Command.Object.fromData(data));
-	}
-
 	static async new<
 		A extends Array<tg.Value> = Array<tg.Value>,
-		R extends tg.Value = tg.Value,
-	>(...args: tg.Args<tg.Command.Arg>): Promise<tg.Command<A, R>> {
+		O extends tg.Value = tg.Value,
+	>(...args: tg.Args<tg.Command.Arg>): Promise<tg.Command<A, O>> {
 		let arg = await tg.Command.arg(...args);
 		let args_ = arg.args ?? [];
 		let cwd = arg.cwd;
@@ -135,7 +103,7 @@ export class Command<
 			stdin,
 			user,
 		};
-		return tg.Command.withObject(object) as tg.Command<A, R>;
+		return tg.Command.withObject(object) as tg.Command<A, O>;
 	}
 
 	static async arg(
@@ -169,6 +137,38 @@ export class Command<
 				env: "merge",
 			},
 		});
+	}
+
+	constructor(arg: {
+		id?: tg.Command.Id;
+		object?: tg.Command.Object;
+		stored: boolean;
+	}) {
+		let object =
+			arg.object !== undefined
+				? { kind: "command" as const, value: arg.object }
+				: undefined;
+		this.#state = new tg.Object.State({
+			id: arg.id,
+			object,
+			stored: arg.stored,
+		});
+	}
+
+	get state(): tg.Object.State {
+		return this.#state;
+	}
+
+	static withId(id: tg.Command.Id): tg.Command {
+		return new tg.Command({ id, stored: true });
+	}
+
+	static withObject(object: tg.Command.Object): tg.Command {
+		return new tg.Command({ object, stored: false });
+	}
+
+	static fromData(data: tg.Command.Data): tg.Command {
+		return tg.Command.withObject(tg.Command.Object.fromData(data));
 	}
 
 	static expect(value: unknown): tg.Command {
@@ -253,12 +253,16 @@ export class Command<
 		})();
 	}
 
-	build(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R> {
-		return tg.build(this, { args }) as tg.RunBuilder<[], R>;
+	build(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"run", [], O> {
+		return tg.build(this, { args }) as tg.Process.Builder<"run", [], O>;
 	}
 
-	run(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R> {
-		return tg.run(this, { args }) as tg.RunBuilder<[], R>;
+	run(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"run", [], O> {
+		return tg.run(this, { args }) as tg.Process.Builder<"run", [], O>;
+	}
+
+	spawn(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"spawn", [], O> {
+		return tg.spawn(this, { args }) as tg.Process.Builder<"spawn", [], O>;
 	}
 }
 
@@ -512,92 +516,114 @@ export namespace Command {
 	}
 }
 
-export interface CommandBuilder<
-	A extends Array<tg.Value> = Array<tg.Value>,
-	R extends tg.Value = tg.Value,
-> {
-	(...args: { [K in keyof A]: tg.Unresolved<A[K]> }): tg.CommandBuilder<[], R>;
-}
-
-export class CommandBuilder<
-	A extends Array<tg.Value> = Array<tg.Value>,
-	R extends tg.Value = tg.Value,
-> extends Function {
-	#args: tg.Args<tg.Command.Arg.Object>;
-
-	constructor(...args: tg.Args<tg.Command.Arg.Object>) {
-		super();
-		this.#args = args;
-		return new Proxy(this, {
-			get(this_: any, prop, _receiver) {
-				if (typeof this_[prop] === "function") {
-					return this_[prop].bind(this_);
-				}
-				return this_[prop];
-			},
-			apply: (this_, _, args) => {
-				return this_.args(args);
-			},
-			getPrototypeOf: (this_) => {
-				return Object.getPrototypeOf(this_);
-			},
-		});
+export namespace Command {
+	export interface Builder<
+		A extends Array<tg.Value> = Array<tg.Value>,
+		O extends tg.Value = tg.Value,
+	> {
+		(
+			...args: { [K in keyof A]: tg.Unresolved<A[K]> }
+		): tg.Command.Builder<[], O>;
 	}
 
-	arg(...args: Array<tg.Unresolved<tg.Value>>): this {
-		this.#args.push({ args });
-		return this;
-	}
+	export class Builder<
+		A extends Array<tg.Value> = Array<tg.Value>,
+		O extends tg.Value = tg.Value,
+	> extends Function {
+		#args: tg.Args<tg.Command.Arg.Object>;
 
-	args(...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>>): this {
-		this.#args.push(...args.map((args) => ({ args })));
-		return this;
-	}
+		constructor(...args: tg.Args<tg.Command.Arg.Object>) {
+			super();
+			this.#args = args;
+			return new Proxy(this, {
+				get(this_: any, prop, _receiver) {
+					if (typeof this_[prop] === "function") {
+						return this_[prop].bind(this_);
+					}
+					return this_[prop];
+				},
+				apply: (this_, _, args) => {
+					return this_.args(args);
+				},
+				getPrototypeOf: (this_) => {
+					return globalThis.Object.getPrototypeOf(this_);
+				},
+			});
+		}
 
-	cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this {
-		this.#args.push({ cwd });
-		return this;
-	}
+		arg(...args: Array<tg.Unresolved<tg.Value>>): this {
+			this.#args.push({ args });
+			return this;
+		}
 
-	env(
-		...envs: Array<tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>>
-	): this {
-		this.#args.push(...envs.map((env) => ({ env })));
-		return this;
-	}
+		args(
+			...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>>
+		): this {
+			this.#args.push(...args.map((args) => ({ args })));
+			return this;
+		}
 
-	executable(
-		executable: tg.Unresolved<tg.MaybeMutation<tg.Command.Arg.Executable>>,
-	): this {
-		this.#args.push({ executable });
-		return this;
-	}
+		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this {
+			this.#args.push({ cwd });
+			return this;
+		}
 
-	host(host: tg.Unresolved<tg.MaybeMutation<string>>): this {
-		this.#args.push({ host });
-		return this;
-	}
+		env(
+			...envs: Array<tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>>
+		): this {
+			this.#args.push(...envs.map((env) => ({ env })));
+			return this;
+		}
 
-	then<TResult1 = tg.Command<A, R>, TResult2 = never>(
-		onfulfilled?:
-			| ((value: tg.Command<A, R>) => TResult1 | PromiseLike<TResult1>)
-			| undefined
-			| null,
-		onrejected?:
-			| ((reason: any) => TResult2 | PromiseLike<TResult2>)
-			| undefined
-			| null,
-	): PromiseLike<TResult1 | TResult2> {
-		return tg.Command.new(...this.#args)
-			.then((command) => command as tg.Command<A, R>)
-			.then(onfulfilled, onrejected);
-	}
+		executable(
+			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.Arg.Executable>>,
+		): this {
+			this.#args.push({ executable });
+			return this;
+		}
 
-	build(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R> {
-		return tg.build(...this.#args, { args }) as tg.RunBuilder<[], R>;
-	}
+		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this {
+			this.#args.push({ host });
+			return this;
+		}
 
-	run(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R> {
-		return new tg.RunBuilder(...this.#args, { args });
+		build(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"run", [], O> {
+			return tg.build(...this.#args, { args }) as tg.Process.Builder<
+				"run",
+				[],
+				O
+			>;
+		}
+
+		run(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"run", [], O> {
+			return tg.run(...this.#args, { args }) as tg.Process.Builder<
+				"run",
+				[],
+				O
+			>;
+		}
+
+		spawn(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"spawn", [], O> {
+			return tg.spawn(...this.#args, { args }) as tg.Process.Builder<
+				"spawn",
+				[],
+				O
+			>;
+		}
+
+		then<TResult1 = tg.Command<A, O>, TResult2 = never>(
+			onfulfilled?:
+				| ((value: tg.Command<A, O>) => TResult1 | PromiseLike<TResult1>)
+				| undefined
+				| null,
+			onrejected?:
+				| ((reason: any) => TResult2 | PromiseLike<TResult2>)
+				| undefined
+				| null,
+		): PromiseLike<TResult1 | TResult2> {
+			return tg.Command.new(...this.#args)
+				.then((command) => command as tg.Command<A, O>)
+				.then(onfulfilled, onrejected);
+		}
 	}
 }

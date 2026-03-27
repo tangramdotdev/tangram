@@ -20,11 +20,9 @@ let path = artifact {
 				executable: "sh",
 				host,
 			});
-			let commandId = await command.store();
-			let Process = tg.Process as any;
-			let process: tg.Process = await Process.spawn({
+			let process = await tg.spawn({
 				checksum: undefined,
-				command: { item: commandId, options: {} },
+				command,
 				create: false,
 				mounts: [],
 				network: false,
