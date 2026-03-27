@@ -1,6 +1,6 @@
 use {
 	crate::{
-		RunArg, abort_errno,
+		ManagerArg, RunArg, abort_errno,
 		common::{SpawnContext, start_session, which},
 		server::Server,
 	},
@@ -28,6 +28,135 @@ struct Mount {
 	fstype: Option<CString>,
 	flags: u64,
 	data: Option<Bytes>,
+}
+
+pub(crate) fn prepare_runtime_libraries(arg: &ManagerArg) -> tg::Result<Vec<PathBuf>> {
+	std::fs::remove_dir_all(&arg.rootfs_path).ok();
+	std::fs::create_dir_all(&arg.rootfs_path)
+		.map_err(|source| tg::error!(!source, "failed to create the sandbox directory"))?;
+	let permissions = <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755);
+	crate::ROOTFS
+		.extract(&arg.rootfs_path)
+		.map_err(|source| tg::error!(!source, "failed to extract the sandbox rootfs"))?;
+	crate::set_rootfs_permissions(&arg.rootfs_path, &crate::ROOTFS, &permissions)?;
+
+	let lib_path = arg.rootfs_path.join("opt/tangram/lib");
+	let output = std::process::Command::new("ldd")
+		.arg(&arg.tangram_path)
+		.output()
+		.map_err(|source| {
+			if source.kind() == std::io::ErrorKind::NotFound {
+				tg::error!(
+					"failed to prepare the sandbox rootfs: could not execute `ldd`; install `ldd` on this Linux host"
+				)
+			} else {
+				tg::error!(
+					!source,
+					path = %arg.tangram_path.display(),
+					"failed to execute `ldd`"
+				)
+			}
+		})?;
+	if !output.status.success() {
+		let stderr = String::from_utf8_lossy(&output.stderr);
+		let stdout = String::from_utf8_lossy(&output.stdout);
+		return Err(tg::error!(
+			status = %output.status,
+			path = %arg.tangram_path.display(),
+			stderr = %stderr.trim(),
+			stdout = %stdout.trim(),
+			"`ldd` failed"
+		));
+	}
+	let stdout = String::from_utf8(output.stdout)
+		.map_err(|source| tg::error!(!source, "failed to parse the `ldd` output"))?;
+	for line in stdout.lines() {
+		let line = line.trim();
+		if line.is_empty() || line.starts_with("linux-vdso") {
+			continue;
+		}
+		let parsed = if let Some((name, path)) = line.split_once("=>") {
+			let name = name.trim();
+			let path = path.trim();
+			if path == "not found" {
+				return Err(tg::error!(
+					dependency = %name,
+					executable = %arg.tangram_path.display(),
+					"`ldd` reported a missing dependency"
+				));
+			}
+			let path = path
+				.split_whitespace()
+				.next()
+				.ok_or_else(|| tg::error!("failed to parse a path from the `ldd` output"))?;
+			path.starts_with('/').then(|| PathBuf::from(path))
+		} else if line.starts_with('/') {
+			let path = line
+				.split_whitespace()
+				.next()
+				.ok_or_else(|| tg::error!("failed to parse a path from the `ldd` output"))?;
+			Some(PathBuf::from(path))
+		} else {
+			None
+		};
+		let Some(dependency_path) = parsed else {
+			continue;
+		};
+		let source = std::fs::canonicalize(&dependency_path).map_err(|source| {
+			tg::error!(
+				!source,
+				path = %dependency_path.display(),
+				"failed to canonicalize the library path"
+			)
+		})?;
+		let name = dependency_path
+			.file_name()
+			.and_then(|name| name.to_str())
+			.ok_or_else(|| {
+				tg::error!(
+					path = %dependency_path.display(),
+					"failed to get the library file name"
+				)
+			})?;
+		let target = lib_path.join(name);
+		if target.exists() {
+			continue;
+		}
+		if std::fs::hard_link(&source, &target).is_err() {
+			std::fs::copy(&source, &target).map_err(|error| {
+				tg::error!(
+					!error,
+					source = %source.display(),
+					target = %target.display(),
+					"failed to stage the shared library"
+				)
+			})?;
+		}
+		std::fs::set_permissions(&target, permissions.clone()).map_err(|source| {
+			tg::error!(
+				!source,
+				path = %target.display(),
+				"failed to set sandbox file permissions"
+			)
+		})?;
+	}
+
+	Ok(Vec::new())
+}
+
+pub(crate) fn prepare_command_for_spawn(
+	command: &mut crate::Command,
+	_tangram_path: &Path,
+	_library_paths: &[PathBuf],
+) -> tg::Result<()> {
+	crate::append_directories_to_path(
+		command,
+		&[
+			Path::new("/opt/tangram/bin"),
+			Path::new("/usr/bin"),
+			Path::new("/bin"),
+		],
+	)
 }
 
 pub fn enter(arg: &RunArg) -> tg::Result<()> {
@@ -342,27 +471,15 @@ pub fn spawn(context: SpawnContext) -> tg::Result<libc::pid_t> {
 		.chain(command.args.iter().map(cstring))
 		.collect::<CStringVec>();
 	let cwd = cstring(&command.cwd);
-	// Compute the PATH with the rootfs paths appended.
-	let path = {
-		let suffix = "/opt/tangram/bin:/usr/bin:/bin";
-		match command.env.get("PATH") {
-			Some(path) => format!("{path}:{suffix}"),
-			None => suffix.to_owned(),
-		}
-	};
 	let envp = command
 		.env
 		.iter()
-		.map(|(key, value)| {
-			if key == "PATH" {
-				envstring(key, &path)
-			} else {
-				envstring(key, value)
-			}
-		})
-		.chain((!command.env.contains_key("PATH")).then(|| envstring("PATH", &path)))
+		.map(|(key, value)| envstring(key, value))
 		.collect::<CStringVec>();
-	let executable = which(Path::new(&path), &command.executable)
+	let executable = command
+		.env
+		.get("PATH")
+		.and_then(|path| which(Path::new(path), &command.executable))
 		.map_or_else(|| cstring(&command.executable), cstring);
 	let mut clone_args: libc::clone_args = libc::clone_args {
 		flags: 0,

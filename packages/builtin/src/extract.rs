@@ -1,7 +1,11 @@
 use {
 	async_zip::base::read::stream::ZipFileReader,
-	futures::AsyncReadExt as _,
-	std::{os::unix::fs::PermissionsExt as _, path::Path, pin::pin},
+	futures::{AsyncReadExt as _, StreamExt as _},
+	std::{
+		os::unix::fs::PermissionsExt as _,
+		path::{Component, Path, PathBuf},
+		pin::pin,
+	},
 	tangram_client::prelude::*,
 	tangram_futures::{
 		read::{Ext as _, shared_position_reader::SharedPositionReader},
@@ -166,13 +170,94 @@ pub(crate) async fn extract_tar(
 		},
 		None => reader.boxed(),
 	};
-	tokio_tar::ArchiveBuilder::new(reader)
-		.set_preserve_permissions(true)
-		.build()
-		.unpack(&temp)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to extract the archive"))?;
+	let mut archive = tokio_tar::ArchiveBuilder::new(reader).build();
+	let mut entries = archive
+		.entries()
+		.map_err(|source| tg::error!(!source, "failed to read the archive"))?;
+	while let Some(entry) = entries.next().await {
+		let mut entry =
+			entry.map_err(|source| tg::error!(!source, "failed to read the archive entry"))?;
+		let path = entry
+			.path()
+			.map_err(|source| tg::error!(!source, "failed to read the archive entry path"))?;
+		let path = resolve_tar_entry_path(temp.path(), &path)?;
+		let kind = entry.header().entry_type();
+
+		if kind.is_dir() {
+			tokio::fs::create_dir_all(&path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
+			continue;
+		}
+
+		let parent = path.parent().expect("expected the entry to have a parent");
+		tokio::fs::create_dir_all(parent)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
+
+		if kind.is_symlink() {
+			let target = entry
+				.link_name()
+				.map_err(|source| tg::error!(!source, "failed to read symlink target"))?
+				.ok_or_else(|| tg::error!("expected the entry to have a symlink target"))?;
+			tokio::fs::symlink(&target, &path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
+			continue;
+		}
+
+		if kind.is_hard_link() {
+			let target = entry
+				.link_name()
+				.map_err(|source| tg::error!(!source, "failed to read hard link target"))?
+				.ok_or_else(|| tg::error!("expected the entry to have a hard link target"))?;
+			let target = resolve_tar_entry_path(temp.path(), &target)?;
+			tokio::fs::hard_link(&target, &path)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the hard link"))?;
+			continue;
+		}
+
+		let is_executable = entry
+			.header()
+			.mode()
+			.ok()
+			.is_some_and(|permissions| permissions & 0o000_111 != 0);
+		let mut file = tokio::fs::OpenOptions::new()
+			.write(true)
+			.create_new(true)
+			.open(&path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the file"))?;
+		tokio::io::copy(&mut entry, &mut file)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to write the file"))?;
+		if is_executable {
+			let permissions = std::fs::Permissions::from_mode(0o755);
+			tokio::fs::set_permissions(&path, permissions)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to set the permissions"))?;
+		}
+	}
+
 	Ok(())
+}
+
+fn resolve_tar_entry_path(root: &Path, path: &Path) -> tg::Result<PathBuf> {
+	let mut output = root.to_owned();
+	for component in path.components() {
+		match component {
+			Component::CurDir => (),
+			Component::Normal(component) => output.push(component),
+			_ => {
+				return Err(tg::error!(
+					path = %path.display(),
+					"invalid archive entry path"
+				));
+			},
+		}
+	}
+	Ok(output)
 }
 
 pub(crate) async fn extract_zip(
