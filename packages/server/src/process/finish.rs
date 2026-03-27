@@ -29,10 +29,21 @@ impl Server {
 				output: arg.output,
 				remotes: None,
 			};
-			client
-				.finish_process(id, arg)
-				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to finish the process"))?;
+			if let Err(error) = client.finish_process(id, arg).await {
+				let output = client
+					.try_get_process(id, tg::process::get::Arg::default())
+					.await
+					.map_err(|source| {
+						tg::error!(
+							!source,
+							%id,
+							"failed to confirm the process state after the finish request failed"
+						)
+					})?;
+				if output.is_none_or(|output| !output.data.status.is_finished()) {
+					return Err(tg::error!(!error, %id, "failed to finish the process"));
+				}
+			}
 			return Ok(());
 		}
 

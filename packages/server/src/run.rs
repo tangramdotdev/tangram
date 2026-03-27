@@ -164,18 +164,20 @@ impl Server {
 		{
 			let mut objects = BTreeSet::new();
 			value.children(&mut objects);
-			let arg = tg::push::Arg {
-				items: objects.into_iter().map(tg::Either::Left).collect(),
-				remote: Some(remote.to_owned()),
-				..Default::default()
-			};
-			let stream = self
-				.push(arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to push the output"))?;
-			self.write_progress_stream(process, stream)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to log the progress stream"))?;
+			if !objects.is_empty() {
+				let arg = tg::push::Arg {
+					items: objects.into_iter().map(tg::Either::Left).collect(),
+					remote: Some(remote.to_owned()),
+					..Default::default()
+				};
+				let stream = self
+					.push(arg)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to push the output"))?;
+				self.write_progress_stream(process, stream)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to log the progress stream"))?;
+			}
 		}
 
 		// Finish the process.
