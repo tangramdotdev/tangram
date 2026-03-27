@@ -41,43 +41,31 @@ impl Cli {
 		}
 		args.options.spawn.sandbox = crate::process::spawn::Sandbox::new(Some(true));
 
-		match args.options.spawn.stdin {
-			None => {
-				args.options.spawn.stdin = Some(tg::process::Stdio::Null);
-			},
-			Some(tg::process::Stdio::Blob(_) | tg::process::Stdio::Null) => (),
-			Some(_) => {
-				return Err(tg::error!("invalid stdin for a build"));
-			},
+		if args.options.spawn.stdin.is_none() {
+			args.options.spawn.stdin = Some(tg::process::Stdio::Null);
 		}
 
-		match args.options.spawn.stdout {
-			None => {
-				args.options.spawn.stdout = Some(tg::process::Stdio::Log);
-			},
-			Some(tg::process::Stdio::Log) => (),
-			Some(_) => {
-				return Err(tg::error!("invalid stdout for a build"));
-			},
+		if args.options.spawn.stdout.is_none() {
+			args.options.spawn.stdout = Some(tg::process::Stdio::Log);
 		}
 
-		match args.options.spawn.stderr {
-			None => {
-				args.options.spawn.stderr = Some(tg::process::Stdio::Log);
-			},
-			Some(tg::process::Stdio::Log) => (),
-			Some(_) => {
-				return Err(tg::error!("invalid stderr for a build"));
-			},
+		if args.options.spawn.stderr.is_none() {
+			args.options.spawn.stderr = Some(tg::process::Stdio::Log);
 		}
 
-		if matches!(
+		let cacheable = args.options.spawn.mounts.is_empty()
+			&& !args.options.spawn.network.get().unwrap_or_default()
+			&& matches!(args.options.spawn.stdin, Some(tg::process::Stdio::Null))
+			&& matches!(args.options.spawn.stdout, Some(tg::process::Stdio::Log))
+			&& matches!(args.options.spawn.stderr, Some(tg::process::Stdio::Log))
+			&& !matches!(
 			args.options.spawn.tty.tty.as_ref(),
 			Some(tg::Either::Left(true) | tg::Either::Right(_))
-		) {
-			return Err(tg::error!("invalid tty for a build"));
+		);
+		let cacheable = cacheable || args.options.spawn.checksum.is_some();
+		if !cacheable {
+			return Err(tg::error!("a build must be cacheable"));
 		}
-		args.options.spawn.tty = crate::process::spawn::Tty::new_disabled();
 
 		if args.options.view.is_none() {
 			args.options.view = Some(crate::run::View::Inline);

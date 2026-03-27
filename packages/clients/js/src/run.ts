@@ -39,8 +39,57 @@ export function run(...args: any): any {
 	}
 }
 
-async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
-	let arg = await arg_(...args);
+async function arg_(
+	...args: tg.Args<tg.Process.RunArg>
+): Promise<tg.Process.RunArgObject> {
+	return await tg.Args.apply({
+		args,
+		map: async (arg) => {
+			if (arg === undefined) {
+				return {};
+			} else if (
+				typeof arg === "string" ||
+				tg.Artifact.is(arg) ||
+				arg instanceof tg.Template
+			) {
+				let host = tg.process.env.TANGRAM_HOST;
+				tg.assert(host !== undefined, "TANGRAM_HOST must be set");
+				let executable = tg.process.env.SHELL ?? "sh";
+				return {
+					args: ["-c", arg],
+					executable,
+					host,
+				};
+			} else if (arg instanceof tg.Command) {
+				let object = await arg.object();
+				let output: tg.Process.RunArgObject = {
+					args: object.args,
+					env: object.env,
+					executable: object.executable,
+					host: object.host,
+				};
+				if (object.cwd !== undefined) {
+					output.cwd = object.cwd;
+				}
+				if (object.stdin !== undefined) {
+					output.stdin = object.stdin;
+				}
+				if (object.user !== undefined) {
+					output.user = object.user;
+				}
+				return output;
+			} else {
+				return arg;
+			}
+		},
+		reduce: {
+			args: "append",
+			env: "merge",
+		},
+	});
+}
+
+async function inner(arg: tg.Process.RunArgObject): Promise<tg.Value> {
 	let sandbox = arg.sandbox ?? false;
 
 	if (!sandbox) {
@@ -198,56 +247,6 @@ async function inner(...args: tg.Args<tg.Process.RunArg>): Promise<tg.Value> {
 	return wait.output;
 }
 
-async function arg_(
-	...args: tg.Args<tg.Process.RunArg>
-): Promise<tg.Process.RunArgObject> {
-	return await tg.Args.apply({
-		args,
-		map: async (arg) => {
-			if (arg === undefined) {
-				return {};
-			} else if (
-				typeof arg === "string" ||
-				tg.Artifact.is(arg) ||
-				arg instanceof tg.Template
-			) {
-				let host = tg.process.env.TANGRAM_HOST;
-				tg.assert(host !== undefined, "TANGRAM_HOST must be set");
-				let executable = tg.process.env.SHELL ?? "sh";
-				return {
-					args: ["-c", arg],
-					executable,
-					host,
-				};
-			} else if (arg instanceof tg.Command) {
-				let object = await arg.object();
-				let output: tg.Process.RunArgObject = {
-					args: object.args,
-					env: object.env,
-					executable: object.executable,
-					host: object.host,
-				};
-				if (object.cwd !== undefined) {
-					output.cwd = object.cwd;
-				}
-				if (object.stdin !== undefined) {
-					output.stdin = object.stdin;
-				}
-				if (object.user !== undefined) {
-					output.user = object.user;
-				}
-				return output;
-			} else {
-				return arg;
-			}
-		},
-		reduce: {
-			args: "append",
-			env: "merge",
-		},
-	});
-}
-
 export interface RunBuilder<
 	A extends Array<tg.Value> = Array<tg.Value>,
 	R extends tg.Value = tg.Value,
@@ -260,6 +259,7 @@ export class RunBuilder<
 	R extends tg.Value = tg.Value,
 > extends Function {
 	#args: tg.Args<tg.Process.RunArg>;
+	#validate?: (arg: tg.Process.RunArgObject) => void;
 
 	constructor(...args: tg.Args<tg.Process.RunArg>) {
 		super();
@@ -348,6 +348,11 @@ export class RunBuilder<
 		return this;
 	}
 
+	validate(validate: (arg: tg.Process.RunArgObject) => void): this {
+		this.#validate = validate;
+		return this;
+	}
+
 	then<TResult1 = R, TResult2 = never>(
 		onfulfilled?:
 			| ((value: R) => TResult1 | PromiseLike<TResult1>)
@@ -358,7 +363,12 @@ export class RunBuilder<
 			| undefined
 			| null,
 	): PromiseLike<TResult1 | TResult2> {
-		return inner(...this.#args)
+		return arg_(...this.#args)
+			.then((arg) => {
+				this.#validate?.(arg);
+				return arg;
+			})
+			.then(inner)
 			.then((output) => output as R)
 			.then(onfulfilled, onrejected);
 	}
