@@ -29,5 +29,8 @@ let path = artifact {
 
 let output = "hello\n" | tg run $path | complete
 success $output
-assert (($output.stdout | str trim -r -c "\n") == "stdout:hello")
+snapshot $output.stdout '
+	stdout:hello
+
+'
 assert (($output.stderr | lines | last) == "stderr:hello")

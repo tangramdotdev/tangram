@@ -12,4 +12,7 @@ let path = artifact {
 
 let output = tg run --sandbox $path | complete
 success $output
-snapshot ($output.stdout | str trim -r -c "\n") 'Hello, World!'
+snapshot $output.stdout '
+	Hello, World!
+
+'

@@ -10,6 +10,9 @@ let path = artifact {
 	',
 }
 
-let output = "" | tg run $path | complete
+let output = tg run $path | complete
 success $output
-snapshot ($output.stdout | str trim -r -c "\n") 'hello'
+snapshot $output.stdout '
+	hello
+
+'

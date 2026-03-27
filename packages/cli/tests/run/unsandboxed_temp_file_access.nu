@@ -16,4 +16,6 @@ let path = artifact {
 }
 
 let output = tg run $path --arg-string $temp_path
-snapshot ($output | str trim -r -c "\n") 'hello from temp file'
+snapshot $output '
+	hello from temp file
+'
