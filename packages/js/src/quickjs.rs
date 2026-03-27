@@ -5,10 +5,9 @@ use {
 		syscall::syscall,
 	},
 	crate::Output,
-	futures::stream::BoxStream,
 	rquickjs::{self as qjs, CatchResultExt as _},
 	sourcemap::SourceMap,
-	std::{cell::RefCell, collections::BTreeMap, path::PathBuf, rc::Rc, sync::atomic::AtomicUsize},
+	std::{cell::RefCell, path::PathBuf, rc::Rc},
 	tangram_client::prelude::*,
 };
 
@@ -26,19 +25,10 @@ struct State {
 	global_source_map: Option<SourceMap>,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
-	next_process_stdio_token: AtomicUsize,
-	process_stdio_readers: tokio::sync::Mutex<
-		BTreeMap<usize, BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>,
-	>,
-	process_stdio_writers: tokio::sync::Mutex<BTreeMap<usize, ProcessStdioWriter>>,
 	root: tg::module::Data,
 	handle: tg::handle::dynamic::Handle,
 	host: crate::host::Host,
-}
-
-struct ProcessStdioWriter {
-	sender: futures::channel::mpsc::Sender<tg::Result<tg::process::stdio::read::Event>>,
-	task: tokio::task::JoinHandle<tg::Result<()>>,
+	stdio: crate::stdio::Stdio,
 }
 
 #[derive(Clone)]
@@ -119,16 +109,15 @@ where
 		.map_err(|source| tg::error!(!source, "failed to create the context"))?;
 
 	// Create the state.
+	let handle = tg::handle::dynamic::Handle::new(handle.clone());
 	let state = Rc::new(State {
 		global_source_map: SourceMap::from_slice(SOURCE_MAP).ok(),
-		main_runtime_handle,
+		main_runtime_handle: main_runtime_handle.clone(),
 		modules: RefCell::new(Vec::new()),
-		next_process_stdio_token: AtomicUsize::new(0),
-		process_stdio_readers: tokio::sync::Mutex::new(BTreeMap::new()),
-		process_stdio_writers: tokio::sync::Mutex::new(BTreeMap::new()),
 		root: module.clone(),
-		handle: tg::handle::dynamic::Handle::new(handle.clone()),
+		handle: handle.clone(),
 		host: crate::host::Host::default(),
+		stdio: crate::stdio::Stdio::new(handle, main_runtime_handle),
 	});
 
 	// Initialize the context and await the result.
@@ -198,7 +187,6 @@ where
 			arg.set("executable", Serde(&executable))
 				.catch(&ctx)
 				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-
 			// Call the start function.
 			let value: qjs::Value = start
 				.call((arg,))

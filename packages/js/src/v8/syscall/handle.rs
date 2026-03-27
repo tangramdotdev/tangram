@@ -1,7 +1,7 @@
 use {
 	super::State,
 	bytes::Bytes,
-	futures::{SinkExt as _, StreamExt as _, TryStreamExt as _, future},
+	futures::{StreamExt as _, TryStreamExt as _, future},
 	std::{io::Cursor, pin::pin, rc::Rc},
 	tangram_client::prelude::*,
 	tangram_v8::Serde,
@@ -164,7 +164,7 @@ pub fn process_id(
 
 pub async fn process_stdio_read_close(state: Rc<State>, args: (usize,)) -> tg::Result<()> {
 	let (token,) = args;
-	state.process_stdio_readers.lock().await.remove(&token);
+	state.stdio.process_stdio_read_close(token).await;
 	Ok(())
 }
 
@@ -173,21 +173,7 @@ pub async fn process_stdio_read_read(
 	args: (usize,),
 ) -> tg::Result<Serde<Option<tg::process::stdio::read::Event>>> {
 	let (token,) = args;
-	let reader = state.process_stdio_readers.lock().await.remove(&token);
-	let Some(mut reader) = reader else {
-		return Ok(Serde(None));
-	};
-	let event = reader.next().await.transpose()?;
-	if event
-		.as_ref()
-		.is_some_and(|event| !matches!(event, tg::process::stdio::read::Event::End))
-	{
-		state
-			.process_stdio_readers
-			.lock()
-			.await
-			.insert(token, reader);
-	}
+	let event = state.stdio.process_stdio_read_read(token).await?;
 	Ok(Serde(event))
 }
 
@@ -196,48 +182,12 @@ pub async fn process_stdio_read_open(
 	args: (Serde<tg::process::Id>, Serde<tg::process::stdio::read::Arg>),
 ) -> tg::Result<Option<usize>> {
 	let (Serde(id), Serde(arg)) = args;
-	let handle = state.handle.clone();
-	let stream = state
-		.main_runtime_handle
-		.spawn(async move {
-			let stream = handle
-				.try_read_process_stdio_all(&id, arg)
-				.await?
-				.map(futures::StreamExt::boxed);
-			Ok::<_, tg::Error>(stream)
-		})
-		.await
-		.unwrap()?;
-	let Some(stream) = stream else {
-		return Ok(None);
-	};
-	let token = state
-		.next_process_stdio_token
-		.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-		+ 1;
-	state
-		.process_stdio_readers
-		.lock()
-		.await
-		.insert(token, stream);
-	Ok(Some(token))
+	state.stdio.process_stdio_read_open(id, arg).await
 }
 
 pub async fn process_stdio_write_close(state: Rc<State>, args: (usize,)) -> tg::Result<()> {
 	let (token,) = args;
-	let writer = state.process_stdio_writers.lock().await.remove(&token);
-	let Some(mut writer) = writer else {
-		return Ok(());
-	};
-	let _ = writer
-		.sender
-		.send(Ok(tg::process::stdio::read::Event::End))
-		.await;
-	drop(writer.sender);
-	writer
-		.task
-		.await
-		.map_err(|source| tg::error!(!source, "the task panicked"))?
+	state.stdio.process_stdio_write_close(token).await
 }
 
 pub async fn process_stdio_write_open(
@@ -248,22 +198,7 @@ pub async fn process_stdio_write_open(
 	),
 ) -> tg::Result<usize> {
 	let (Serde(id), Serde(arg)) = args;
-	let (sender, receiver) = futures::channel::mpsc::channel(16);
-	let handle = state.handle.clone();
-	let task = state.main_runtime_handle.spawn(async move {
-		let input = receiver.boxed();
-		handle.write_process_stdio_all(&id, arg, input).await
-	});
-	let token = state
-		.next_process_stdio_token
-		.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-		+ 1;
-	state
-		.process_stdio_writers
-		.lock()
-		.await
-		.insert(token, crate::v8::ProcessStdioWriter { sender, task });
-	Ok(token)
+	state.stdio.process_stdio_write_open(id, arg).await
 }
 
 pub async fn process_stdio_write_write(
@@ -271,18 +206,7 @@ pub async fn process_stdio_write_write(
 	args: (usize, Serde<tg::process::stdio::Chunk>),
 ) -> tg::Result<()> {
 	let (token, Serde(chunk)) = args;
-	let mut sender = {
-		let writers = state.process_stdio_writers.lock().await;
-		let writer = writers
-			.get(&token)
-			.ok_or_else(|| tg::error!(%token, "failed to find the process stdio writer"))?;
-		writer.sender.clone()
-	};
-	let event = tg::process::stdio::read::Event::Chunk(chunk);
-	sender
-		.send(Ok(event))
-		.await
-		.map_err(|source| tg::error!(!source, %token, "failed to send the process stdio event"))
+	state.stdio.process_stdio_write_write(token, chunk).await
 }
 
 pub async fn process_signal(

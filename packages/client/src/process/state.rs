@@ -39,7 +39,7 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 		let cacheable = value.cacheable;
 		let children = value
 			.children
-			.map(|children| children.into_iter().map(|child| child.into()).collect());
+			.map(|children| children.into_iter().map(Into::into).collect());
 		let command = tg::Command::with_id(value.command);
 		let created_at = value.created_at;
 		let error = value
