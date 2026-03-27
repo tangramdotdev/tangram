@@ -5,7 +5,7 @@ use {
 		serde::Serde,
 		types::{Either, Uint8Array},
 	},
-	futures::{SinkExt as _, StreamExt as _, TryStreamExt as _, future},
+	futures::{StreamExt as _, TryStreamExt as _, future},
 	rquickjs as qjs,
 	std::{io::Cursor, pin::pin},
 	tangram_client::prelude::*,
@@ -197,7 +197,7 @@ pub fn process_id(_value: Option<String>) -> Result<Serde<tg::process::Id>> {
 
 pub async fn process_stdio_read_close(ctx: qjs::Ctx<'_>, token: usize) -> Result<()> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
-	state.process_stdio_readers.lock().await.remove(&token);
+	state.stdio.process_stdio_read_close(token).await;
 	Result(Ok(()))
 }
 
@@ -207,21 +207,7 @@ pub async fn process_stdio_read_read(
 ) -> Result<Serde<Option<tg::process::stdio::read::Event>>> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	let result = async {
-		let reader = state.process_stdio_readers.lock().await.remove(&token);
-		let Some(mut reader) = reader else {
-			return Ok(None);
-		};
-		let event = reader.next().await.transpose()?;
-		if event
-			.as_ref()
-			.is_some_and(|event| !matches!(event, tg::process::stdio::read::Event::End))
-		{
-			state
-				.process_stdio_readers
-				.lock()
-				.await
-				.insert(token, reader);
-		}
+		let event = state.stdio.process_stdio_read_read(token).await?;
 		Ok(event)
 	}
 	.await;
@@ -236,57 +222,13 @@ pub async fn process_stdio_read_open(
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	let Serde(id) = id;
 	let Serde(arg) = arg;
-	let result = async {
-		let stream = state
-			.main_runtime_handle
-			.spawn({
-				let handle = state.handle.clone();
-				async move {
-					let stream = handle
-						.try_read_process_stdio_all(&id, arg)
-						.await?
-						.map(futures::StreamExt::boxed);
-					Ok::<_, tg::Error>(stream)
-				}
-			})
-			.await
-			.map_err(|source| tg::error!(!source, "the task panicked"))??;
-		let Some(stream) = stream else {
-			return Ok(None);
-		};
-		let token = state
-			.next_process_stdio_token
-			.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-			+ 1;
-		state
-			.process_stdio_readers
-			.lock()
-			.await
-			.insert(token, stream);
-		Ok(Some(token))
-	}
-	.await;
+	let result = state.stdio.process_stdio_read_open(id, arg).await;
 	Result(result)
 }
 
 pub async fn process_stdio_write_close(ctx: qjs::Ctx<'_>, token: usize) -> Result<()> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
-	let result = async {
-		let writer = state.process_stdio_writers.lock().await.remove(&token);
-		let Some(mut writer) = writer else {
-			return Ok(());
-		};
-		let _ = writer
-			.sender
-			.send(Ok(tg::process::stdio::read::Event::End))
-			.await;
-		drop(writer.sender);
-		writer
-			.task
-			.await
-			.map_err(|source| tg::error!(!source, "the task panicked"))?
-	}
-	.await;
+	let result = state.stdio.process_stdio_write_close(token).await;
 	Result(result)
 }
 
@@ -298,27 +240,7 @@ pub async fn process_stdio_write_open(
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	let Serde(id) = id;
 	let Serde(arg) = arg;
-	let result = async {
-		let (sender, receiver) = futures::channel::mpsc::channel(16);
-		let task = state.main_runtime_handle.spawn({
-			let handle = state.handle.clone();
-			async move {
-				let input = receiver.boxed();
-				handle.write_process_stdio_all(&id, arg, input).await
-			}
-		});
-		let token = state
-			.next_process_stdio_token
-			.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-			+ 1;
-		state
-			.process_stdio_writers
-			.lock()
-			.await
-			.insert(token, crate::quickjs::ProcessStdioWriter { sender, task });
-		Ok(token)
-	}
-	.await;
+	let result = state.stdio.process_stdio_write_open(id, arg).await;
 	Result(result)
 }
 
@@ -329,21 +251,7 @@ pub async fn process_stdio_write_write(
 ) -> Result<()> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	let Serde(chunk) = chunk;
-	let result = async {
-		let mut sender = {
-			let writers = state.process_stdio_writers.lock().await;
-			let writer = writers
-				.get(&token)
-				.ok_or_else(|| tg::error!(%token, "failed to find the process stdio writer"))?;
-			writer.sender.clone()
-		};
-		let event = tg::process::stdio::read::Event::Chunk(chunk);
-		sender
-			.send(Ok(event))
-			.await
-			.map_err(|source| tg::error!(!source, %token, "failed to send the process stdio event"))
-	}
-	.await;
+	let result = state.stdio.process_stdio_write_write(token, chunk).await;
 	Result(result)
 }
 

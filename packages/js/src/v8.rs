@@ -9,13 +9,10 @@ use {
 	futures::{
 		FutureExt as _, StreamExt as _, TryFutureExt as _,
 		future::{self, LocalBoxFuture},
-		stream::{BoxStream, FuturesUnordered},
+		stream::FuturesUnordered,
 	},
 	sourcemap::SourceMap,
-	std::{
-		cell::RefCell, collections::BTreeMap, future::poll_fn, path::PathBuf, pin::pin, rc::Rc,
-		sync::atomic::AtomicUsize, task::Poll,
-	},
+	std::{cell::RefCell, future::poll_fn, path::PathBuf, pin::pin, rc::Rc, task::Poll},
 	tangram_client::prelude::*,
 	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 };
@@ -33,20 +30,11 @@ struct State {
 	global_source_map: Option<SourceMap>,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
-	next_process_stdio_token: AtomicUsize,
-	process_stdio_readers: tokio::sync::Mutex<
-		BTreeMap<usize, BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>,
-	>,
-	process_stdio_writers: tokio::sync::Mutex<BTreeMap<usize, ProcessStdioWriter>>,
 	rejection: tokio::sync::watch::Sender<Option<tg::Error>>,
 	root: tg::module::Data,
 	handle: tg::handle::dynamic::Handle,
 	host: crate::host::Host,
-}
-
-struct ProcessStdioWriter {
-	sender: futures::channel::mpsc::Sender<tg::Result<tg::process::stdio::read::Event>>,
-	task: tokio::task::JoinHandle<tg::Result<()>>,
+	stdio: crate::stdio::Stdio,
 }
 
 struct PromiseOutput {
@@ -101,18 +89,17 @@ where
 
 	// Create the state.
 	let (rejection, _) = tokio::sync::watch::channel(None);
+	let handle = tg::handle::dynamic::Handle::new(handle.clone());
 	let state = Rc::new(State {
 		promises: RefCell::new(FuturesUnordered::new()),
 		global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
-		main_runtime_handle,
+		main_runtime_handle: main_runtime_handle.clone(),
 		modules: RefCell::new(Vec::new()),
-		next_process_stdio_token: AtomicUsize::new(0),
-		process_stdio_readers: tokio::sync::Mutex::new(BTreeMap::new()),
-		process_stdio_writers: tokio::sync::Mutex::new(BTreeMap::new()),
 		rejection,
 		root: module.clone(),
-		handle: tg::handle::dynamic::Handle::new(handle.clone()),
+		handle: handle.clone(),
 		host: crate::host::Host::default(),
+		stdio: crate::stdio::Stdio::new(handle, main_runtime_handle),
 	});
 
 	// Create the isolate params.

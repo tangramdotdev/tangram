@@ -19,8 +19,10 @@ export function build(...args: tg.Args<tg.Process.RunArg>): tg.RunBuilder;
 export function build(...args: any): any {
 	let firstArg: tg.Process.RunArgObject = {
 		sandbox: true,
-		stdout: "log",
 		stderr: "log",
+		stdin: "null",
+		stdout: "log",
+		tty: false,
 		env: {
 			TANGRAM_HOST: tg.process.env.TANGRAM_HOST,
 		},

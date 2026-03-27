@@ -1,6 +1,7 @@
 use tangram_client as tg;
 
 mod host;
+mod stdio;
 
 #[cfg(feature = "quickjs")]
 pub mod quickjs;
