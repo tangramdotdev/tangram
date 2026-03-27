@@ -12,4 +12,6 @@ let path = artifact {
 }
 
 let output = (with-env { TEST_ENV_INHERIT: inherited } { tg run $path })
-snapshot ($output | str trim -r -c "\n") 'inherited'
+snapshot $output '
+	inherited
+'
