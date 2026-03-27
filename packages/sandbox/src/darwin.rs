@@ -163,6 +163,13 @@ fn collect_dynamic_libraries(executable: &Path) -> tg::Result<Vec<std::path::Pat
 		let rpaths = otool_rpaths(&path)?;
 		let dependencies = otool_dependencies(&path)?;
 		for dependency in dependencies {
+			if path
+				.extension()
+				.is_some_and(|extension| extension == "dylib")
+				&& Path::new(&dependency).file_name() == path.file_name()
+			{
+				continue;
+			}
 			let Some(dependency) = resolve_dynamic_library(&path, &rpaths, &dependency)? else {
 				continue;
 			};
@@ -337,7 +344,7 @@ fn resolve_dynamic_library_in_loaded_images(suffix: &str) -> Option<std::path::P
 		let path = unsafe { CStr::from_ptr(path) };
 		let path = std::ffi::OsStr::from_bytes(path.to_bytes());
 		let path = std::path::PathBuf::from(path);
-		(path.file_name() == Some(file_name)).then_some(path)
+		(path.file_name() == Some(file_name) && path.exists()).then_some(path)
 	})
 }
 
