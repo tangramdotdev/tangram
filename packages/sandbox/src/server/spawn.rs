@@ -19,6 +19,13 @@ impl Server {
 		&self,
 		arg: crate::client::spawn::Arg,
 	) -> tg::Result<crate::client::spawn::Output> {
+		let mut arg = arg;
+		crate::prepare_command_for_spawn(
+			&mut arg.command,
+			&self.tangram_path,
+			&self.library_paths,
+		)?;
+
 		// Create a PTY if a tty was requested.
 		let mut pty = arg.tty.map(Pty::new).transpose()?;
 		let (host_stdin, guest_stdin): (InputStream, Option<OwnedFd>) = match arg.command.stdin {
@@ -136,6 +143,7 @@ impl Server {
 			pid,
 			#[cfg(target_os = "macos")]
 			child,
+			#[cfg(target_os = "linux")]
 			status: None,
 			#[cfg(target_os = "linux")]
 			notify: std::sync::Arc::new(tokio::sync::Notify::new()),

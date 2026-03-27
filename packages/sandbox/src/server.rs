@@ -21,11 +21,18 @@ mod wait;
 #[derive(Clone)]
 pub struct Server(Arc<State>);
 
+pub(crate) struct ServerArg {
+	pub(crate) library_paths: Vec<std::path::PathBuf>,
+	pub(crate) tangram_path: std::path::PathBuf,
+}
+
 pub struct State {
+	pub(crate) library_paths: Vec<std::path::PathBuf>,
 	#[cfg(target_os = "linux")]
 	pub(crate) pids: DashMap<libc::pid_t, tg::process::Id>,
 	pub(crate) processes: DashMap<tg::process::Id, ChildProcess>,
 	pub(crate) stdio: DashMap<tg::process::Id, ChildStdio>,
+	pub(crate) tangram_path: std::path::PathBuf,
 }
 
 pub(crate) struct ChildProcess {
@@ -35,6 +42,7 @@ pub(crate) struct ChildProcess {
 	pub(crate) notify: Arc<tokio::sync::Notify>,
 	#[cfg(target_os = "linux")]
 	pub(crate) pid: libc::pid_t,
+	#[cfg(target_os = "linux")]
 	pub(crate) status: Option<u8>,
 }
 
@@ -49,12 +57,14 @@ pub(crate) type Listener =
 	tokio_util::either::Either<tokio::net::UnixListener, tokio::net::TcpListener>;
 
 impl Server {
-	pub fn new() -> Self {
+	pub fn new(arg: ServerArg) -> Self {
 		let server = Self(Arc::new(State {
+			library_paths: arg.library_paths,
 			#[cfg(target_os = "linux")]
 			pids: DashMap::default(),
 			processes: DashMap::default(),
 			stdio: DashMap::default(),
+			tangram_path: arg.tangram_path,
 		}));
 
 		#[cfg(target_os = "linux")]

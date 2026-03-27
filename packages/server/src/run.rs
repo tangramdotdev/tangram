@@ -335,6 +335,14 @@ impl Server {
 		// Render the env.
 		let mut env = render_env(&command.env, &guest_artifacts_path, &guest_output_path)?;
 
+		#[cfg(target_os = "macos")]
+		env.entry("TMPDIR".to_owned()).or_insert_with(|| {
+			sandbox_directory
+				.host_scratch_path()
+				.to_string_lossy()
+				.into_owned()
+		});
+
 		// Render the executable.
 		let executable = match command.host.as_str() {
 			"builtin" => {

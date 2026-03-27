@@ -1,5 +1,8 @@
 use {
-	crate::{client::Client, server::Server},
+	crate::{
+		client::Client,
+		server::{Server, ServerArg},
+	},
 	std::{
 		collections::BTreeMap,
 		io::{Read as _, Write as _},
@@ -27,9 +30,9 @@ const ROOTFS: include_dir::Dir<'static> = include_dir::include_dir!("$OUT_DIR/ro
 #[derive(Clone)]
 pub struct Manager(Arc<ManagerState>);
 
-#[expect(clippy::struct_field_names)]
 struct ManagerState {
 	artifacts_path: PathBuf,
+	library_paths: Vec<PathBuf>,
 	rootfs_path: PathBuf,
 	tangram_path: PathBuf,
 }
@@ -72,6 +75,7 @@ pub struct SpawnArg {
 pub struct RunArg {
 	pub artifacts_path: PathBuf,
 	pub hostname: Option<String>,
+	pub library_paths: Vec<PathBuf>,
 	pub mounts: Vec<tg::process::Mount>,
 	pub network: bool,
 	pub path: PathBuf,
@@ -100,124 +104,11 @@ pub enum Stdio {
 
 impl Manager {
 	pub fn new(arg: ManagerArg) -> tg::Result<Self> {
-		#[cfg(target_os = "linux")]
-		{
-			std::fs::remove_dir_all(&arg.rootfs_path).ok();
-			std::fs::create_dir_all(&arg.rootfs_path)
-				.map_err(|source| tg::error!(!source, "failed to create the sandbox directory"))?;
-			let permissions =
-				<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755);
-			ROOTFS
-				.extract(&arg.rootfs_path)
-				.map_err(|source| tg::error!(!source, "failed to extract the sandbox rootfs"))?;
-			set_rootfs_permissions(&arg.rootfs_path, &ROOTFS, &permissions)?;
-
-			let lib_path = arg.rootfs_path.join("opt/tangram/lib");
-			let output = std::process::Command::new("ldd")
-				.arg(&arg.tangram_path)
-				.output()
-				.map_err(|source| {
-					if source.kind() == std::io::ErrorKind::NotFound {
-						tg::error!(
-							"failed to prepare the sandbox rootfs: could not execute `ldd`; install `ldd` on this Linux host"
-						)
-					} else {
-						tg::error!(
-							!source,
-							path = %arg.tangram_path.display(),
-							"failed to execute `ldd`"
-						)
-					}
-				})?;
-			if !output.status.success() {
-				let stderr = String::from_utf8_lossy(&output.stderr);
-				let stdout = String::from_utf8_lossy(&output.stdout);
-				return Err(tg::error!(
-					status = %output.status,
-					path = %arg.tangram_path.display(),
-					stderr = %stderr.trim(),
-					stdout = %stdout.trim(),
-					"`ldd` failed"
-				));
-			}
-			let stdout = String::from_utf8(output.stdout)
-				.map_err(|source| tg::error!(!source, "failed to parse the `ldd` output"))?;
-			for line in stdout.lines() {
-				let line = line.trim();
-				if line.is_empty() || line.starts_with("linux-vdso") {
-					continue;
-				}
-				let parsed = if let Some((name, path)) = line.split_once("=>") {
-					let name = name.trim();
-					let path = path.trim();
-					if path == "not found" {
-						return Err(tg::error!(
-							dependency = %name,
-							executable = %arg.tangram_path.display(),
-							"`ldd` reported a missing dependency"
-						));
-					}
-					let path = path.split_whitespace().next().ok_or_else(|| {
-						tg::error!("failed to parse a path from the `ldd` output")
-					})?;
-					path.starts_with('/').then(|| PathBuf::from(path))
-				} else if line.starts_with('/') {
-					let path = line.split_whitespace().next().ok_or_else(|| {
-						tg::error!("failed to parse a path from the `ldd` output")
-					})?;
-					Some(PathBuf::from(path))
-				} else {
-					None
-				};
-				let Some(dependency_path) = parsed else {
-					continue;
-				};
-				let source = std::fs::canonicalize(&dependency_path).map_err(|source| {
-					tg::error!(
-						!source,
-						path = %dependency_path.display(),
-						"failed to canonicalize the library path"
-					)
-				})?;
-				let name = dependency_path
-					.file_name()
-					.and_then(|name| name.to_str())
-					.ok_or_else(|| {
-						tg::error!(
-							path = %dependency_path.display(),
-							"failed to get the library file name"
-						)
-					})?;
-				let target = lib_path.join(name);
-				if target.exists() {
-					continue;
-				}
-				if std::fs::hard_link(&source, &target).is_err() {
-					std::fs::copy(&source, &target).map_err(|error| {
-						tg::error!(
-							!error,
-							source = %source.display(),
-							target = %target.display(),
-							"failed to stage the shared library"
-						)
-					})?;
-				}
-				std::fs::set_permissions(&target, permissions.clone()).map_err(|source| {
-					tg::error!(
-						!source,
-						path = %target.display(),
-						"failed to set sandbox file permissions"
-					)
-				})?;
-			}
-		}
-
-		#[cfg(not(target_os = "linux"))]
-		std::fs::create_dir_all(&arg.rootfs_path)
-			.map_err(|source| tg::error!(!source, "failed to create the sandbox directory"))?;
+		let library_paths = prepare_runtime_libraries(&arg)?;
 
 		let state = ManagerState {
 			artifacts_path: arg.artifacts_path,
+			library_paths,
 			rootfs_path: arg.rootfs_path,
 			tangram_path: arg.tangram_path,
 		};
@@ -236,6 +127,7 @@ impl Manager {
 		let arg = RunArg {
 			artifacts_path: self.0.artifacts_path.clone(),
 			hostname: arg.hostname,
+			library_paths: self.0.library_paths.clone(),
 			mounts: arg.mounts,
 			network: arg.network,
 			path: arg.path,
@@ -279,7 +171,9 @@ impl Sandbox {
 		let mut command = tokio::process::Command::new(&arg.tangram_path);
 		tokio::fs::create_dir_all(directory.host_scratch_path())
 			.await
-			.ok();
+			.map_err(|source| {
+				tg::error!(!source, "failed to create the sandbox scratch directory")
+			})?;
 		command.arg("sandbox").arg("run");
 		command
 			.arg("--artifacts-path")
@@ -292,6 +186,9 @@ impl Sandbox {
 			.arg(&arg.rootfs_path)
 			.arg("--tangram-path")
 			.arg(&arg.tangram_path);
+		for path in &arg.library_paths {
+			command.arg("--library-path").arg(path);
+		}
 		if let Some(hostname) = &arg.hostname {
 			command.arg("--hostname").arg(hostname);
 		}
@@ -502,11 +399,84 @@ pub fn run(arg: &RunArg, ready_fd: Option<RawFd>) -> tg::Result<()> {
 
 	// Run the server.
 	runtime.block_on(async move {
-		let server = Server::new();
+		let server = Server::new(ServerArg {
+			library_paths: arg.library_paths.clone(),
+			tangram_path: arg.tangram_path.clone(),
+		});
 		server.serve(listener).await;
-	});
+		Ok::<_, tg::Error>(())
+	})?;
 
 	Ok(())
+}
+
+fn prepare_runtime_libraries(arg: &ManagerArg) -> tg::Result<Vec<PathBuf>> {
+	#[cfg(target_os = "linux")]
+	{
+		crate::linux::prepare_runtime_libraries(arg)
+	}
+	#[cfg(target_os = "macos")]
+	{
+		crate::darwin::prepare_runtime_libraries(arg)
+	}
+}
+
+fn prepare_command_for_spawn(
+	command: &mut Command,
+	tangram_path: &Path,
+	library_paths: &[PathBuf],
+) -> tg::Result<()> {
+	#[cfg(target_os = "linux")]
+	{
+		crate::linux::prepare_command_for_spawn(command, tangram_path, library_paths)
+	}
+	#[cfg(target_os = "macos")]
+	{
+		crate::darwin::prepare_command_for_spawn(command, tangram_path, library_paths)
+	}
+}
+
+fn append_directories_to_path(command: &mut Command, directories: &[&Path]) -> tg::Result<()> {
+	let mut paths = command
+		.env
+		.get("PATH")
+		.map(|path| std::env::split_paths(path).collect::<Vec<_>>())
+		.unwrap_or_default();
+	paths.extend(directories.iter().map(|path| path.to_path_buf()));
+	let path = std::env::join_paths(paths)
+		.map_err(|source| tg::error!(!source, "failed to build `PATH`"))?;
+	let path = path
+		.to_str()
+		.ok_or_else(|| tg::error!("failed to encode `PATH` as valid UTF-8"))?;
+	command.env.insert("PATH".to_owned(), path.to_owned());
+	Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn command_resolves_to_path(command: &Command, target: &Path) -> bool {
+	let resolved = if command.executable.is_absolute() {
+		command.executable.clone()
+	} else {
+		let Some(path) = command.env.get("PATH") else {
+			return false;
+		};
+		let Some(resolved) = crate::common::which(Path::new(path), &command.executable) else {
+			return false;
+		};
+		resolved
+	};
+	canonicalized_paths_match(&resolved, target)
+}
+
+#[cfg(target_os = "macos")]
+fn canonicalized_paths_match(lhs: &Path, rhs: &Path) -> bool {
+	let Ok(lhs) = std::fs::canonicalize(lhs) else {
+		return false;
+	};
+	let Ok(rhs) = std::fs::canonicalize(rhs) else {
+		return false;
+	};
+	lhs == rhs
 }
 
 #[cfg(target_os = "linux")]

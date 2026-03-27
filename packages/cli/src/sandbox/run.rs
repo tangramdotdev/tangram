@@ -7,6 +7,9 @@ pub struct Args {
 	#[arg(long)]
 	pub artifacts_path: PathBuf,
 
+	#[arg(action = clap::ArgAction::Append, long = "library-path", num_args = 1)]
+	pub library_paths: Vec<PathBuf>,
+
 	#[command(flatten)]
 	pub options: super::Options,
 
@@ -29,6 +32,7 @@ impl Cli {
 		let config = tangram_sandbox::RunArg {
 			artifacts_path: args.artifacts_path,
 			hostname: args.options.hostname,
+			library_paths: args.library_paths,
 			mounts: args.options.mounts,
 			network: args.options.network.get(),
 			path: args.path,
