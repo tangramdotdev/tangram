@@ -5,6 +5,7 @@ use std/util 'path add'
 export use std assert
 
 const repository_path = path self '../../'
+const server_exit_directory_name = 'server_jobs'
 
 def force_unmount_vfs [path: string] {
 	if $nu.os-info.name != 'linux' {
@@ -30,6 +31,29 @@ def force_unmount_vfs [path: string] {
 	}
 }
 
+def server_exit_path [temp_path: string, job_id: int] {
+	$temp_path | path join $server_exit_directory_name | path join $'($job_id).exit'
+}
+
+def wait_for_server_exit [path: string] {
+	if ($path | path exists) {
+		return true
+	}
+
+	let output = (open /dev/null | timeout 5 bash -c 'while [ ! -e "$1" ]; do sleep 0.05; done' _ $path | complete)
+	$output.exit_code == 0 or ($path | path exists)
+}
+
+def remove_temp_directory [path: string] {
+	if not ($path | path exists) {
+		return
+	}
+
+	force_unmount_vfs $path
+	try { chmod -R +w $path }
+	rm -rf $path
+}
+
 def main [
 	--accept (-a) # Accept all new and updated snapshots.
 	--clean # Clean up leftover test resources from postgres, scylla, and nats.
@@ -46,9 +70,7 @@ def main [
 	if $clean {
 		for entry in (ls ($nu.temp-dir? | default $nu.temp-path?) | where name =~ 'tangram_test_' and type == dir) {
 			print -e $"Removing temp directory: ($entry.name)"
-			force_unmount_vfs $entry.name
-			chmod -R +w $entry.name
-			rm -rf $entry.name
+			remove_temp_directory $entry.name
 		}
 
 		let preserved_dbs = ['postgres', 'template0', 'template1', 'database']
@@ -182,17 +204,18 @@ def main [
 
 			# Kill any background jobs started by the test, such as server processes.
 			for job in (job list | where { ($in.tag? | default '') == 'server' }) {
+				let exit_path = server_exit_path $temp_path $job.id
 				for pid in ($job.pids? | default []) {
 					try { ^kill -KILL $pid }
 				}
-				try { job kill $job.id }
+				if not (wait_for_server_exit $exit_path) {
+					try { job kill $job.id }
+				}
 			}
 
 			# Clean up the temp directory.
 			if not $preserve_temps {
-				force_unmount_vfs $temp_path
-				chmod -R +w $temp_path
-				rm -rf $temp_path
+				remove_temp_directory $temp_path
 			}
 
 			# Send the result.
@@ -825,21 +848,28 @@ export def --env spawn [
 	# Create a path for server readiness signaling.
 	let ready_path = ($config_path | path dirname | path join 'ready')
 	mkfifo $ready_path
+	let server_exit_directory_path = (($env.TMPDIR? | default ($config_path | path dirname)) | path join $server_exit_directory_name)
+	try { mkdir $server_exit_directory_path }
 
 	# Spawn the server.
 	job spawn -t server {
-		bash -c $"
-			PARENT_PID=$PPID
-			SELF_PID=$$
-			\(
-				while kill -0 $PARENT_PID 2>/dev/null; do
-					sleep 1
-				done
-				kill -9 -$SELF_PID
-			\) &
-			exec 3>\"($ready_path)\"
-			tangram -c ($config_path) -d ($directory_path) -u ($url) serve --ready-fd 3
-		" e>| lines | each { |line| print -e $"($name | default 'server'): ($line)\r" }
+		let server_job_id = job id
+		let exit_path = $server_exit_directory_path | path join $'($server_job_id).exit'
+		do -i {
+			bash -c $"
+				PARENT_PID=$PPID
+				SELF_PID=$$
+				\(
+					while kill -0 $PARENT_PID 2>/dev/null; do
+						sleep 1
+					done
+					kill -9 -$SELF_PID
+				\) &
+				exec 3>\"($ready_path)\"
+				tangram -c ($config_path) -d ($directory_path) -u ($url) serve --ready-fd 3
+			" e>| lines | each { |line| print -e $"($name | default 'server'): ($line)\r" }
+		}
+		'' | save -f $exit_path
 	}
 
 	# Wait for the server to be ready.
