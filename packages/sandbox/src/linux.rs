@@ -169,6 +169,11 @@ pub fn enter(arg: &RunArg) -> tg::Result<()> {
 		.map(|mount| (mount.source.clone(), mount.target.clone(), mount.readonly));
 	let mut mounts = HashMap::new();
 	for (source, target, readonly) in iter {
+		if target == Path::new("/") && source == Path::new("/") {
+			return Err(tg::error!(
+				"mounting the host root directory to the guest root is not supported"
+			));
+		}
 		mounts
 			.entry(target)
 			.or_insert(Vec::new())
@@ -179,64 +184,50 @@ pub fn enter(arg: &RunArg) -> tg::Result<()> {
 		.or_default()
 		.push((arg.rootfs_path.clone(), true));
 
-	// Edge case: the host root is mounted to the guest root.
-	let root_mounted = mounts
-		.get(Path::new("/"))
-		.is_some_and(|sources| sources.iter().any(|(source, _)| source == Path::new("/")));
+	// Set up /opt/tangram, /etc, /tmp, /dev, and /proc.
+	let root = directory.host_scratch_path().join("guest_root");
+	std::fs::create_dir_all(root.join("opt/tangram")).ok();
+	std::fs::create_dir_all(root.join("etc")).ok();
+	std::fs::create_dir_all(root.join("tmp")).ok();
 
-	// Set up /opt/tangram, /etc, /tmp, /dev, and /proc if the host root is not mounted.
-	if !root_mounted {
-		let root = directory.host_scratch_path().join("guest_root");
-		std::fs::create_dir_all(root.join("opt/tangram")).ok();
-		std::fs::create_dir_all(root.join("etc")).ok();
-		std::fs::create_dir_all(root.join("tmp")).ok();
-
-		// Setup /etc.
-		std::fs::write(
-			root.join("etc/nsswitch.conf"),
-			indoc!(
-				"
-				passwd: files compat
-				shadow: files compat
-				hosts: files dns compat
+	// Setup /etc.
+	std::fs::write(
+		root.join("etc/nsswitch.conf"),
+		indoc!(
 			"
-			),
-		)
-		.map_err(|source| tg::error!(!source, "failed to create /etc/nsswitch.conf"))?;
-		std::fs::write(
-			root.join("etc/passwd"),
-			indoc!(
-				"
-				root:!:0:0:root:/nonexistent:/bin/false
-				nobody:!:65534:65534:nobody:/nonexistent:/bin/false
+			passwd: files compat
+			shadow: files compat
+			hosts: files dns compat
+		"
+		),
+	)
+	.map_err(|source| tg::error!(!source, "failed to create /etc/nsswitch.conf"))?;
+	std::fs::write(
+		root.join("etc/passwd"),
+		indoc!(
 			"
-			),
-		)
-		.map_err(|source| tg::error!(!source, "failed to create /etc/passwd"))?;
-		if arg.network {
-			std::fs::copy("/etc/resolv.conf", root.join("etc/resolv.conf")).map_err(|source| {
-				tg::error!(!source, "failed to copy /etc/resolv.conf to the sandbox")
-			})?;
-		}
-
-		// Add the root overlay, /dev, and /proc.
-		mounts.entry("/".into()).or_default().push((root, false));
-		mounts
-			.entry("/dev".into())
-			.or_default()
-			.push(("/dev".into(), false));
-		mounts
-			.entry("/proc".into())
-			.or_default()
-			.push(("/proc".into(), false));
+			root:!:0:0:root:/nonexistent:/bin/false
+			nobody:!:65534:65534:nobody:/nonexistent:/bin/false
+		"
+		),
+	)
+	.map_err(|source| tg::error!(!source, "failed to create /etc/passwd"))?;
+	if arg.network {
+		std::fs::copy("/etc/resolv.conf", root.join("etc/resolv.conf")).map_err(|source| {
+			tg::error!(!source, "failed to copy /etc/resolv.conf to the sandbox")
+		})?;
 	}
 
-	// If the host root is mounted to /, we cannot use it as the lowerdir in an overlay. As a workaround, we mount the children of each mount to /.
-	let root_mounts = if root_mounted {
-		mounts.remove(Path::new("/")).unwrap_or_default()
-	} else {
-		Vec::new()
-	};
+	// Add the root overlay, /dev, and /proc.
+	mounts.entry("/".into()).or_default().push((root, false));
+	mounts
+		.entry("/dev".into())
+		.or_default()
+		.push(("/dev".into(), false));
+	mounts
+		.entry("/proc".into())
+		.or_default()
+		.push(("/proc".into(), false));
 
 	// Add /opt/tangram/artifacts, /opt/tangram/libexec/tangram, /opt/tangram/socket, and /opt/tangram/output.
 	std::fs::create_dir_all(directory.host_output_path()).ok();
@@ -358,86 +349,6 @@ pub fn enter(arg: &RunArg) -> tg::Result<()> {
 				return Err(tg::error!(!source, "failed to set hostname"));
 			}
 		}
-	}
-
-	// Handle mounts to /.
-	if root_mounted {
-		std::fs::create_dir(directory.host_root_path()).ok();
-		mount(
-			&Mount {
-				source: Some("tmpfs".into()),
-				target: Some(directory.host_root_path()),
-				fstype: Some(c"tmpfs".to_owned()),
-				flags: 0,
-				data: None,
-			},
-			Path::new("/"),
-		)?;
-
-		// Collect children from all root mount sources, grouped by name.
-		let mut children: HashMap<std::ffi::OsString, Vec<(PathBuf, bool)>> = HashMap::new();
-		for (source, readonly) in &root_mounts {
-			let entries = std::fs::read_dir(source).map_err(|source| {
-				tg::error!(!source, "failed to read a root mount source directory")
-			})?;
-			for entry in entries {
-				let entry = entry
-					.map_err(|source| tg::error!(!source, "failed to read a directory entry"))?;
-				let name = entry.file_name();
-				let source_child = source.join(&name);
-				let file_type = entry.file_type().map_err(|source| {
-					tg::error!(!source, "failed to get the file type of a directory entry")
-				})?;
-				if file_type.is_symlink() {
-					let target = directory.host_root_path().join(&name);
-					if let Ok(link_target) = std::fs::read_link(&source_child) {
-						std::os::unix::fs::symlink(&link_target, &target).ok();
-					}
-				} else {
-					children
-						.entry(name)
-						.or_default()
-						.push((source_child, *readonly));
-				}
-			}
-		}
-
-		// Since we cannot use the source directly, we create bind or overlay for each child of each source.
-		for (name, sources) in &mut children {
-			// Deduplicate sources that resolve to the same path.
-			sources.dedup_by_key(|(source, _)| source.clone());
-			let target = directory.host_root_path().join(name);
-			let m = if sources.len() == 1 {
-				let (source, readonly) = &sources[0];
-				if source.is_dir() {
-					std::fs::create_dir_all(&target).ok();
-				} else {
-					std::fs::File::create_new(&target).ok();
-				}
-				bind(source, &target, *readonly)
-			} else {
-				std::fs::create_dir_all(&target).ok();
-				let lowerdirs = sources
-					.iter()
-					.map(|(source, _)| source.clone())
-					.collect::<Vec<_>>();
-				let upperdir = directory
-					.host_scratch_path()
-					.join(format!("upper/{num_overlays}"));
-				let workdir = directory
-					.host_scratch_path()
-					.join(format!("work/{num_overlays}"));
-				num_overlays += 1;
-				std::fs::create_dir_all(&upperdir).ok();
-				std::fs::create_dir_all(&workdir).ok();
-				overlay(&lowerdirs, &upperdir, &workdir, &target)
-			};
-			mount(&m, Path::new("/"))?;
-		}
-
-		// Create writable directories on the tmpfs.
-		std::fs::create_dir_all(directory.host_root_path().join("opt/tangram")).ok();
-		std::fs::create_dir_all(directory.host_root_path().join("opt/tangram/output")).ok();
 	}
 
 	// Perform the mounts.
