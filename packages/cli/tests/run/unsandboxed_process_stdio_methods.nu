@@ -5,68 +5,46 @@ let server = spawn
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
-			let host = tg.process.env.TANGRAM_HOST;
-			tg.assert(typeof host === "string");
-
-			let command = await tg.command({
-				args: [
-					"-c",
-					`
-						read line
-						echo "stdout:$line"
-						echo "stderr:$line" 1>&2
-					`,
-				],
-				executable: "sh",
-				host,
-			});
-			let process = await tg.spawn({
-				checksum: undefined,
-				command,
-				create: false,
-				mounts: [],
-				network: false,
-				parent: undefined,
-				remote: undefined,
-				retry: false,
-				sandbox: false,
-				stderr: "pipe",
-				stdin: "pipe",
-				stdout: "pipe",
-				tty: undefined,
-			});
-
-			let stdout = "";
-			let stderr = "";
-			let iterator = await process.readStdio({ streams: ["stdout", "stderr"] });
-			tg.assert(iterator !== undefined);
-			let reader = (async () => {
-				for await (let event of iterator) {
-					if (event.kind === "end") {
-						break;
+			let process = await tg
+				.spawn`
+					awk '{print "stdout:" $0; print "stderr:" $0 > "/dev/stderr"}'
+				`
+				.stdin("pipe")
+				.stdout("pipe")
+				.stderr("pipe");
+			tg.assert(process.stdin !== undefined);
+			tg.assert(process.stdout !== undefined);
+			tg.assert(process.stderr !== undefined);
+			let input = tg.encoding.utf8.encode("hello\n");
+			let [written, stdout, stderr] = await Promise.all([
+				process.stdin.write(input).then(async (written) => {
+					await process.stdin!.close();
+					return written;
+				}),
+				(async () => {
+					let chunks = [];
+					while (true) {
+						let chunk = await process.stdout!.read();
+						if (chunk === undefined) {
+							break;
+						}
+						chunks.push(tg.encoding.utf8.decode(chunk));
 					}
-					let string = tg.encoding.utf8.decode(event.value.bytes);
-					if (event.value.stream === "stdout") {
-						stdout += string;
-					} else {
-						stderr += string;
-					}
-				}
-			})();
-			let writer = process.writeStdio(
-				{ streams: ["stdin"] },
-				(async function* (): AsyncIterableIterator<tg.Process.Stdio.Read.Event> {
-					yield {
-						kind: "chunk",
-						value: {
-							bytes: tg.encoding.utf8.encode("hello" + String.fromCharCode(10)),
-							stream: "stdin",
-						},
-					};
-					yield { kind: "end" };
+					return chunks.join("");
 				})(),
-			);
-			await Promise.all([reader, writer]);
+				(async () => {
+					let chunks = [];
+					while (true) {
+						let chunk = await process.stderr!.read();
+						if (chunk === undefined) {
+							break;
+						}
+						chunks.push(tg.encoding.utf8.decode(chunk));
+					}
+					return chunks.join("");
+				})(),
+			]);
+			tg.assert(written === input.length);
 			let wait = await process.wait();
 			return { exit: wait.exit, stderr, stdout };
 		}

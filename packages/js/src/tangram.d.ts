@@ -1344,17 +1344,6 @@ declare namespace tg {
 		/** Wait for this process to exit and return the output. */
 		output(): Promise<tg.Value>;
 
-		/** Read this process's stdio. */
-		readStdio(
-			arg: tg.Process.Stdio.Read.Arg,
-		): Promise<AsyncIterableIterator<tg.Process.Stdio.Read.Event> | undefined>;
-
-		/** Write to this process's stdio. */
-		writeStdio(
-			arg: tg.Process.Stdio.Write.Arg,
-			input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
-		): Promise<void>;
-
 		/** Set this process's tty size. */
 		setTtySize(size: tg.Process.Tty.Size): Promise<void>;
 
@@ -1391,6 +1380,15 @@ declare namespace tg {
 
 		/** Get whether this process has the network enabled. */
 		get network(): Promise<boolean>;
+
+		/** Get this process's piped stdin writer. */
+		get stdin(): tg.Process.Stdio.Writer | undefined;
+
+		/** Get this process's piped stdout reader. */
+		get stdout(): tg.Process.Stdio.Reader | undefined;
+
+		/** Get this process's piped stderr reader. */
+		get stderr(): tg.Process.Stdio.Reader | undefined;
 
 		/** Get this process's command's user. */
 		get user(): Promise<string | undefined>;
@@ -1517,6 +1515,35 @@ declare namespace tg {
 
 				export type Event = { kind: "end" } | { kind: "stop" };
 			}
+
+			export class Reader {
+				#__brand;
+
+				/** Close the stream without reading it. */
+				close(): Promise<void>;
+
+				/** Read one chunk from the stream. */
+				read(): Promise<Uint8Array | undefined>;
+
+				/** Read all remaining bytes from the stream. */
+				readAll(): Promise<Uint8Array>;
+
+				/** Read all remaining bytes as UTF-8 text. */
+				text(): Promise<string>;
+			}
+
+			export class Writer {
+				#__brand;
+
+				/** Close the stream without writing additional input. */
+				close(): Promise<void>;
+
+				/** Write one chunk to the stream and return the number of bytes written. */
+				write(input: Uint8Array): Promise<number>;
+
+				/** Write all input bytes to the stream and then close it. */
+				writeAll(input: Uint8Array): Promise<void>;
+			}
 		}
 
 		export type Tty = {
@@ -1632,6 +1659,20 @@ declare namespace tg {
 			): this;
 
 			host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
+
+			stdin(
+				stdin: tg.Unresolved<
+					tg.MaybeMutation<tg.Blob.Arg | tg.Process.Stdio.Value>
+				>,
+			): this;
+
+			stdout(
+				stdout: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio.Value>>,
+			): this;
+
+			stderr(
+				stderr: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio.Value>>,
+			): this;
 
 			mount(...mounts: Array<tg.Unresolved<tg.Process.Mount>>): this;
 
@@ -1862,7 +1903,9 @@ declare namespace tg {
 		[K in keyof T]: tg.Resolved<T[K]>;
 	};
 
-	type ReturnValue = tg.MaybePromise<void> | tg.Unresolved<tg.Value>;
+	type ReturnValue<T extends tg.Value = tg.Value> =
+		| (T extends undefined ? tg.MaybePromise<void> : never)
+		| tg.Unresolved<T>;
 
 	type ResolvedReturnValue<T extends tg.ReturnValue> =
 		T extends tg.MaybePromise<void>
