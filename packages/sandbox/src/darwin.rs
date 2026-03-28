@@ -17,6 +17,13 @@ use {
 pub fn enter(arg: &RunArg) -> std::io::Result<()> {
 	let directory = crate::Directory::new(arg.path.clone());
 	std::fs::create_dir_all(directory.host_output_path()).ok();
+	for mount in &arg.mounts {
+		if mount.source == Path::new("/") && mount.target == Path::new("/") {
+			return Err(std::io::Error::other(
+				"mounting the host root directory to the guest root is not supported",
+			));
+		}
+	}
 	let profile = create_sandbox_profile(arg);
 	unsafe {
 		let mut error = std::ptr::null::<std::ffi::c_char>();
@@ -383,129 +390,114 @@ fn create_sandbox_profile(arg: &RunArg) -> CString {
 	)
 	.unwrap();
 
-	let root_mount = arg
-		.mounts
-		.iter()
-		.any(|mount| mount.source == mount.target && mount.target == Path::new("/"));
+	writedoc!(
+		profile,
+		r#"
+			;; See /System/Library/Sandbox/Profiles/system.sb for more info.
 
-	if root_mount {
-		writedoc!(
-			profile,
-			"
-				;; Allow everything by default.
-				(allow default)
-			"
-		)
-		.unwrap();
-	} else {
-		writedoc!(
-			profile,
-			r#"
-				;; See /System/Library/Sandbox/Profiles/system.sb for more info.
+			;; Deny everything by default.
+			(deny default)
 
-				;; Deny everything by default.
-				(deny default)
+			;; Allow most system operations.
+			(allow syscall*)
+			(allow system-socket)
+			(allow mach*)
+			(allow ipc*)
+			(allow sysctl*)
 
-				;; Allow most system operations.
-				(allow syscall*)
-				(allow system-socket)
-				(allow mach*)
-				(allow ipc*)
-				(allow sysctl*)
+			;; Allow most process operations, except for `process-exec`. `process-exec` will let you execute binaries without having been granted the corresponding `file-read*` permission.
+			(allow process-fork process-info*)
 
-				;; Allow most process operations, except for `process-exec`. `process-exec` will let you execute binaries without having been granted the corresponding `file-read*` permission.
-				(allow process-fork process-info*)
+			;; Allow limited exploration of the root.
+			(allow file-read* file-test-existence
+				(literal "/"))
 
-				;; Allow limited exploration of the root.
-				(allow file-read* file-test-existence
-					(literal "/"))
+			(allow file-read* file-test-existence
+				(subpath "/Library/Apple/System")
+				(subpath "/Library/Filesystems/NetFSPlugins")
+				(subpath "/Library/Preferences/Logging")
+				(subpath "/System")
+				(subpath "/private/var/db/dyld")
+				(subpath "/private/var/db/timezone")
+				(subpath "/usr/lib")
+				(subpath "/usr/share"))
 
-				(allow file-read* file-test-existence
-					(subpath "/Library/Apple/System")
-					(subpath "/Library/Filesystems/NetFSPlugins")
-					(subpath "/Library/Preferences/Logging")
-					(subpath "/System")
-					(subpath "/private/var/db/dyld")
-					(subpath "/private/var/db/timezone")
-					(subpath "/usr/lib")
-					(subpath "/usr/share"))
+			(allow file-read-metadata
+				(literal "/Library")
+				(literal "/Users")
+				(literal "/Volumes")
+				(literal "/tmp")
+				(literal "/var")
+				(literal "/etc"))
 
-				(allow file-read-metadata
-					(literal "/Library")
-					(literal "/Users")
-					(literal "/Volumes")
-					(literal "/tmp")
-					(literal "/var")
-					(literal "/etc"))
+			;; Map system frameworks + dylibs.
+			(allow file-map-executable
+				(subpath "/Library/Apple/System/Library/Frameworks")
+				(subpath "/Library/Apple/System/Library/PrivateFrameworks")
+				(subpath "/System/Library/Frameworks")
+				(subpath "/System/Library/PrivateFrameworks")
+				(subpath "/System/iOSSupport/System/Library/Frameworks")
+				(subpath "/System/iOSSupport/System/Library/PrivateFrameworks")
+				(subpath "/usr/lib"))
 
-				;; Map system frameworks + dylibs.
-				(allow file-map-executable
-					(subpath "/Library/Apple/System/Library/Frameworks")
-					(subpath "/Library/Apple/System/Library/PrivateFrameworks")
-					(subpath "/System/Library/Frameworks")
-					(subpath "/System/Library/PrivateFrameworks")
-					(subpath "/System/iOSSupport/System/Library/Frameworks")
-					(subpath "/System/iOSSupport/System/Library/PrivateFrameworks")
-					(subpath "/usr/lib"))
+			;; Allow writing to common devices.
+			(allow file-read* file-write-data file-ioctl
+				(literal "/dev/null")
+				(literal "/dev/zero")
+				(literal "/dev/dtracehelper"))
 
-				;; Allow writing to common devices.
-				(allow file-read* file-write-data file-ioctl
-					(literal "/dev/null")
-					(literal "/dev/zero")
-					(literal "/dev/dtracehelper"))
+			;; Allow reading and writing temporary files.
+			(allow file-write* file-write-create file-write-mode file-write-unlink
+				file-link file-read* process-exec*
+				(subpath "/tmp")
+				(subpath "/private/tmp")
+				(subpath "/private/var")
+				(subpath "/var"))
 
-				;; Allow reading and writing temporary files.
-				(allow file-write* file-write-create file-write-mode file-write-unlink
-					file-link file-read* process-exec*
-					(subpath "/tmp")
-					(subpath "/private/tmp")
-					(subpath "/private/var")
-					(subpath "/var"))
+			;; Allow reading some system devices and files.
+			(allow file-read*
+				(literal "/dev/autofs_nowait")
+				(literal "/dev/random")
+				(literal "/dev/urandom")
+				(literal "/private/etc/localtime")
+				(literal "/private/etc/protocols")
+				(literal "/private/etc/services")
+				(subpath "/private/etc/ssl"))
 
-				;; Allow reading some system devices and files.
-				(allow file-read*
-					(literal "/dev/autofs_nowait")
-					(literal "/dev/random")
-					(literal "/dev/urandom")
-					(literal "/private/etc/localtime")
-					(literal "/private/etc/protocols")
-					(literal "/private/etc/services")
-					(subpath "/private/etc/ssl"))
+			(allow file-read* file-test-existence file-write-data file-ioctl
+				(literal "/dev/dtracehelper"))
 
-				(allow file-read* file-test-existence file-write-data file-ioctl
-					(literal "/dev/dtracehelper"))
+			;; Allow executing /usr/bin/env and /bin/sh.
+			(allow file-read* process-exec
+				(literal "/usr/bin/env")
+				(literal "/bin/sh")
+				(literal "/bin/bash"))
 
-				;; Allow executing /usr/bin/env and /bin/sh.
-				(allow file-read* process-exec
-					(literal "/usr/bin/env")
-					(literal "/bin/sh")
-					(literal "/bin/bash"))
+			;; Support Rosetta.
+			(allow file-read* file-test-existence
+				(literal "/Library/Apple/usr/libexec/oah/libRosettaRuntime"))
 
-				;; Support Rosetta.
-				(allow file-read* file-test-existence
-					(literal "/Library/Apple/usr/libexec/oah/libRosettaRuntime"))
+			;; Allow accessing the dyld shared cache.
+			(allow file-read* process-exec
+				(literal "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld")
+				(subpath "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld"))
 
-				;; Allow accessing the dyld shared cache.
-				(allow file-read* process-exec
-					(literal "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld")
-					(subpath "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld"))
+			;; Allow querying the macOS system version metadata.
+			(allow file-read* file-test-existence
+				(literal "/System/Library/CoreServices/SystemVersion.plist"))
 
-				;; Allow querying the macOS system version metadata.
-				(allow file-read* file-test-existence
-					(literal "/System/Library/CoreServices/SystemVersion.plist"))
+			;; Allow bash to create and use file descriptors for pipes.
+			(allow file-read* file-write* file-ioctl process-exec
+				(literal "/dev/fd")
+				(subpath "/dev/fd"))
 
-				;; Allow bash to create and use file descriptors for pipes.
-				(allow file-read* file-write* file-ioctl process-exec
-					(literal "/dev/fd")
-					(subpath "/dev/fd"))
-				
-				;; Allow opening pseudo-terminals.
-				(allow file-read* file-write* file-ioctl
-					(literal "/dev/ptmx")
-					(regex #"^/dev/ttys[0-9]+$"))
-			"#
-		).unwrap();
-	}
+			;; Allow opening pseudo-terminals.
+			(allow file-read* file-write* file-ioctl
+				(literal "/dev/ptmx")
+				(regex #"^/dev/ttys[0-9]+$"))
+		"#
+	)
+	.unwrap();
 
 	writedoc!(
 		profile,
@@ -616,50 +608,48 @@ fn create_sandbox_profile(arg: &RunArg) -> CString {
 	}
 
 	for mount in &arg.mounts {
-		if !root_mount {
-			if mount.readonly {
-				let path = &mount.source;
+		if mount.readonly {
+			let path = &mount.source;
+			writedoc!(
+				profile,
+				r"
+					(allow process-exec* (subpath {0}))
+					(allow file-read* (subpath {0}))
+				",
+				escape(path.as_os_str().as_bytes()),
+			)
+			.unwrap();
+			if path != Path::new("/") {
 				writedoc!(
 					profile,
 					r"
-						(allow process-exec* (subpath {0}))
-						(allow file-read* (subpath {0}))
+					(allow file-read* (path-ancestors {0}))
 					",
 					escape(path.as_os_str().as_bytes()),
 				)
 				.unwrap();
-				if path != Path::new("/") {
-					writedoc!(
-						profile,
-						r"
+			}
+		} else {
+			let path = &mount.source;
+			writedoc!(
+				profile,
+				r"
+					(allow process-exec* (subpath {0}))
+					(allow file-read* (subpath {0}))
+					(allow file-write* (subpath {0}))
+				",
+				escape(path.as_os_str().as_bytes()),
+			)
+			.unwrap();
+			if path != Path::new("/") {
+				writedoc!(
+					profile,
+					r"
 						(allow file-read* (path-ancestors {0}))
-						",
-						escape(path.as_os_str().as_bytes()),
-					)
-					.unwrap();
-				}
-			} else {
-				let path = &mount.source;
-				writedoc!(
-					profile,
-					r"
-						(allow process-exec* (subpath {0}))
-						(allow file-read* (subpath {0}))
-						(allow file-write* (subpath {0}))
 					",
 					escape(path.as_os_str().as_bytes()),
 				)
 				.unwrap();
-				if path != Path::new("/") {
-					writedoc!(
-						profile,
-						r"
-							(allow file-read* (path-ancestors {0}))
-						",
-						escape(path.as_os_str().as_bytes()),
-					)
-					.unwrap();
-				}
 			}
 		}
 	}
