@@ -48,6 +48,8 @@ export type Host = {
 export namespace Host {
 	export type Signal = "sigwinch";
 
+	export type Stdio = "inherit" | "null" | "pipe";
+
 	export type SignalListener = AsyncIterable<void> & {
 		close(): Promise<void>;
 	};
@@ -61,9 +63,9 @@ export namespace Host {
 		args: Array<string>;
 		cwd?: string | undefined;
 		env: { [key: string]: string };
-		stdin: "inherit" | "null" | "pipe";
-		stdout: "inherit" | "null" | "pipe";
-		stderr: "inherit" | "null" | "pipe";
+		stdin: tg.Host.Stdio;
+		stdout: tg.Host.Stdio;
+		stderr: tg.Host.Stdio;
 	};
 
 	export type SpawnOutput = {

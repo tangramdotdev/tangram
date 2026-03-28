@@ -14,11 +14,15 @@ export let setProcess = (newProcess: typeof process) => {
 export class Process {
 	#id: tg.Process.Id;
 	#options: tg.Referent.Options;
+	#pid: number | undefined;
+	#promise: Promise<tg.Process.Wait> | undefined;
 	#remote: string | undefined;
-	#token: string | undefined;
 	#state: tg.Process.State | undefined;
+	#stderr: tg.Process.Stdio.Reader | undefined;
+	#stdin: tg.Process.Stdio.Writer | undefined;
 	#stdioPromise: Promise<void> | undefined;
-	#unsandboxed: tg.Process.Unsandboxed | undefined;
+	#stdout: tg.Process.Stdio.Reader | undefined;
+	#token: string | undefined;
 	#wait: tg.Process.Wait | undefined;
 
 	static build<
@@ -358,8 +362,12 @@ export class Process {
 		this.#remote = arg.remote;
 		this.#state = arg.state;
 		this.#stdioPromise = arg.stdioPromise;
+		this.#pid = arg.pid;
+		this.#promise = arg.promise;
+		this.#stdin = arg.stdin;
+		this.#stdout = arg.stdout;
+		this.#stderr = arg.stderr;
 		this.#token = arg.token;
-		this.#unsandboxed = arg.unsandboxed;
 		this.#wait = arg.wait;
 	}
 
@@ -377,7 +385,7 @@ export class Process {
 	}
 
 	async load(): Promise<void> {
-		if (this.#unsandboxed !== undefined) {
+		if (this.#pid !== undefined) {
 			throw new Error("loading unsandboxed process state is not supported");
 		}
 		let data = await tg.handle.getProcess(this.#id, this.#remote);
@@ -458,9 +466,21 @@ export class Process {
 		})();
 	}
 
+	get stdin(): tg.Process.Stdio.Writer | undefined {
+		return this.#stdin;
+	}
+
+	get stdout(): tg.Process.Stdio.Reader | undefined {
+		return this.#stdout;
+	}
+
+	get stderr(): tg.Process.Stdio.Reader | undefined {
+		return this.#stderr;
+	}
+
 	async signal(signal: tg.Process.Signal): Promise<void> {
-		if (this.#unsandboxed !== undefined) {
-			await tg.host.signal(this.#unsandboxed.pid, signal);
+		if (this.#pid !== undefined) {
+			await tg.host.signal(this.#pid, signal);
 			return;
 		}
 		let arg = {
@@ -478,8 +498,9 @@ export class Process {
 		if (this.#wait !== undefined) {
 			return this.#wait;
 		}
-		if (this.#unsandboxed !== undefined) {
-			let wait = await this.#unsandboxed.promise;
+		if (this.#pid !== undefined) {
+			tg.assert(this.#promise !== undefined);
+			let wait = await this.#promise;
 			this.#wait = wait;
 			return wait;
 		}
@@ -561,23 +582,8 @@ export class Process {
 		return output;
 	}
 
-	async readStdio(
-		arg: tg.Process.Stdio.Read.Arg,
-	): Promise<AsyncIterableIterator<tg.Process.Stdio.Read.Event> | undefined> {
-		if (arg.streams.length === 0) {
-			throw new Error("expected at least one stdio stream");
-		}
-		if (this.#unsandboxed !== undefined) {
-			return readUnsandboxedProcessStdio(this.#unsandboxed, arg);
-		}
-		return await tg.handle.readProcessStdio(
-			this.#id,
-			normalizeProcessStdioReadArg(this.#remote, arg),
-		);
-	}
-
 	async setTtySize(size: tg.Process.Tty.Size): Promise<void> {
-		if (this.#unsandboxed !== undefined) {
+		if (this.#pid !== undefined) {
 			throw new Error(
 				"tty resizing is not supported for unsandboxed processes",
 			);
@@ -587,21 +593,6 @@ export class Process {
 			remotes: this.#remote !== undefined ? [this.#remote] : undefined,
 			size,
 		});
-	}
-
-	async writeStdio(
-		arg: tg.Process.Stdio.Write.Arg,
-		input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
-	): Promise<void> {
-		if (this.#unsandboxed !== undefined) {
-			await writeUnsandboxedProcessStdio(this.#unsandboxed, arg, input);
-			return;
-		}
-		await tg.handle.writeProcessStdio(
-			this.#id,
-			normalizeProcessStdioWriteArg(this.#remote, arg),
-			input,
-		);
 	}
 }
 
@@ -685,6 +676,29 @@ export namespace Process {
 
 		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this {
 			this.#args.push({ host });
+			return this;
+		}
+
+		stdin(
+			stdin: tg.Unresolved<
+				tg.MaybeMutation<tg.Blob.Arg | tg.Process.Stdio.Value>
+			>,
+		): this {
+			this.#args.push({ stdin });
+			return this;
+		}
+
+		stdout(
+			stdout: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio.Value>>,
+		): this {
+			this.#args.push({ stdout });
+			return this;
+		}
+
+		stderr(
+			stderr: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio.Value>>,
+		): this {
+			this.#args.push({ stderr });
 			return this;
 		}
 
@@ -778,20 +792,16 @@ export namespace Process {
 	export type ConstructorArg = {
 		id: tg.Process.Id;
 		options?: tg.Referent.Options;
+		pid?: number | undefined;
+		promise?: Promise<tg.Process.Wait> | undefined;
 		remote?: string | undefined;
 		state?: State | undefined;
+		stderr?: tg.Process.Stdio.Reader | undefined;
+		stdin?: tg.Process.Stdio.Writer | undefined;
 		stdioPromise?: Promise<void> | undefined;
+		stdout?: tg.Process.Stdio.Reader | undefined;
 		token?: string | undefined;
-		unsandboxed?: tg.Process.Unsandboxed | undefined;
 		wait?: tg.Process.Wait | undefined;
-	};
-
-	export type Unsandboxed = {
-		pid: number;
-		promise: Promise<tg.Process.Wait>;
-		stdin?: UnsandboxedStdin | undefined;
-		stdout?: UnsandboxedStdoutOrStderr | undefined;
-		stderr?: UnsandboxedStdoutOrStderr | undefined;
 	};
 
 	export type Arg =
@@ -943,6 +953,176 @@ export namespace Process {
 
 			export type Event = { kind: "end" } | { kind: "stop" };
 		}
+
+		export class Reader {
+			#fd: number | undefined;
+			#input: AsyncIterableIterator<tg.Process.Stdio.Read.Event> | undefined;
+			#process: tg.Process.Id | undefined;
+			#remote: string | undefined;
+			#stream: "stdout" | "stderr";
+
+			constructor(arg: {
+				fd?: number | undefined;
+				process?: tg.Process.Id | undefined;
+				remote?: string | undefined;
+				stream: "stdout" | "stderr";
+			}) {
+				this.#fd = arg.fd;
+				this.#input = undefined;
+				this.#process = arg.process;
+				this.#remote = arg.remote;
+				this.#stream = arg.stream;
+			}
+
+			async close(): Promise<void> {
+				let fd = this.#fd;
+				let input = this.#input;
+				this.#fd = undefined;
+				this.#input = undefined;
+				this.#process = undefined;
+				this.#remote = undefined;
+				if (fd !== undefined) {
+					await tg.host.close(fd);
+				}
+				if (input !== undefined) {
+					await input.return?.();
+				}
+			}
+
+			async read(): Promise<Uint8Array | undefined> {
+				if (this.#fd !== undefined) {
+					let bytes = await readProcessStdioFdChunk(this.#fd);
+					if (bytes !== undefined) {
+						return bytes;
+					}
+					let fd = this.#fd;
+					this.#fd = undefined;
+					this.#process = undefined;
+					this.#remote = undefined;
+					if (fd !== undefined) {
+						await tg.host.close(fd);
+					}
+					return undefined;
+				}
+				if (this.#process === undefined) {
+					throw new Error(`${this.#stream} is not available`);
+				}
+				if (this.#input === undefined) {
+					let input = await tg.handle.readProcessStdio(
+						this.#process,
+						createProcessStdioReadArg(this.#remote, [this.#stream]),
+					);
+					if (input === undefined) {
+						throw new Error(`${this.#stream} is not available`);
+					}
+					this.#input = input;
+				}
+				let bytes = await readProcessStdioChunk(this.#input, this.#stream);
+				if (bytes !== undefined) {
+					return bytes;
+				}
+				this.#input = undefined;
+				this.#process = undefined;
+				this.#remote = undefined;
+				return undefined;
+			}
+
+			async readAll(): Promise<Uint8Array> {
+				let chunks: Array<Uint8Array> = [];
+				let length = 0;
+				while (true) {
+					let bytes = await this.read();
+					if (bytes === undefined) {
+						break;
+					}
+					chunks.push(bytes);
+					length += bytes.length;
+				}
+				return concatenateUint8Arrays(chunks, length);
+			}
+
+			async text(): Promise<string> {
+				return tg.encoding.utf8.decode(await this.readAll());
+			}
+		}
+
+		export class Writer {
+			#fd: number | undefined;
+			#process: tg.Process.Id | undefined;
+			#remote: string | undefined;
+			#stream: "stdin";
+
+			constructor(arg: {
+				fd?: number | undefined;
+				process?: tg.Process.Id | undefined;
+				remote?: string | undefined;
+				stream: "stdin";
+			}) {
+				this.#fd = arg.fd;
+				this.#process = arg.process;
+				this.#remote = arg.remote;
+				this.#stream = arg.stream;
+			}
+
+			async close(): Promise<void> {
+				let fd = this.#fd;
+				let process = this.#process;
+				let remote = this.#remote;
+				if (fd !== undefined) {
+					this.#fd = undefined;
+					this.#process = undefined;
+					this.#remote = undefined;
+					await tg.host.close(fd);
+					return;
+				}
+				if (process !== undefined) {
+					this.#fd = undefined;
+					this.#process = undefined;
+					this.#remote = undefined;
+					await tg.handle.writeProcessStdio(
+						process,
+						createProcessStdioWriteArg(remote, [this.#stream]),
+						createProcessStdioEndInput(),
+					);
+				}
+			}
+
+			async write(input: Uint8Array): Promise<number> {
+				assertProcessStdioBytes(input);
+				let fd = this.#fd;
+				let process = this.#process;
+				let remote = this.#remote;
+				if (fd === undefined && process === undefined) {
+					throw new Error(`${this.#stream} is not available`);
+				}
+				if (input.length === 0) {
+					return 0;
+				}
+				if (fd !== undefined) {
+					await tg.host.write(fd, input);
+					return input.length;
+				}
+				await tg.handle.writeProcessStdio(
+					process!,
+					createProcessStdioWriteArg(remote, [this.#stream]),
+					createProcessStdioChunkInput(this.#stream, input),
+				);
+				return input.length;
+			}
+
+			async writeAll(input: Uint8Array): Promise<void> {
+				assertProcessStdioBytes(input);
+				let position = 0;
+				while (position < input.length) {
+					let count = await this.write(input.subarray(position));
+					if (count === 0) {
+						throw new Error("failed to write stdin");
+					}
+					position += count;
+				}
+				await this.close();
+			}
+		}
 	}
 
 	export type Signal = (typeof Signal)[keyof typeof Signal];
@@ -1091,8 +1271,32 @@ async function spawnSandboxedProcess(
 		id: output.process,
 		remote: output.remote,
 		state: undefined,
+		stderr:
+			arg.stderr === "pipe"
+				? new tg.Process.Stdio.Reader({
+						process: output.process,
+						remote: output.remote,
+						stream: "stderr",
+					})
+				: undefined,
+		stdin:
+			arg.stdin === "pipe"
+				? new tg.Process.Stdio.Writer({
+						process: output.process,
+						remote: output.remote,
+						stream: "stdin",
+					})
+				: undefined,
 		stdioPromise,
 		token: output.token,
+		stdout:
+			arg.stdout === "pipe"
+				? new tg.Process.Stdio.Reader({
+						process: output.process,
+						remote: output.remote,
+						stream: "stdout",
+					})
+				: undefined,
 		wait,
 	});
 	return process;
@@ -1191,96 +1395,82 @@ function normalizeProcessStdioWriteArg(
 	};
 }
 
-function readUnsandboxedProcessStdio(
-	unsandboxed: tg.Process.Unsandboxed,
-	arg: tg.Process.Stdio.Read.Arg,
-): AsyncIterableIterator<tg.Process.Stdio.Read.Event> | undefined {
-	if (
-		arg.position !== undefined ||
-		arg.length !== undefined ||
-		arg.size !== undefined
-	) {
-		throw new Error(
-			"position, length, and size are only valid for logged stdio",
-		);
+function concatenateUint8Arrays(
+	chunks: Array<Uint8Array>,
+	length: number,
+): Uint8Array {
+	let output = new Uint8Array(length);
+	let position = 0;
+	for (let chunk of chunks) {
+		output.set(chunk, position);
+		position += chunk.length;
 	}
-	let iterators: Array<AsyncIterableIterator<tg.Process.Stdio.Read.Event>> = [];
-	for (let stream of arg.streams) {
-		switch (stream) {
-			case "stdin":
-				throw new Error("reading stdin is invalid");
-			case "stdout": {
-				let stdout = unsandboxed.stdout?.read();
-				if (stdout !== undefined) {
-					iterators.push(stdout);
-				}
-				break;
-			}
-			case "stderr": {
-				let stderr = unsandboxed.stderr?.read();
-				if (stderr !== undefined) {
-					iterators.push(stderr);
-				}
-				break;
-			}
+	return output;
+}
+
+async function readProcessStdioFdChunk(
+	fd: number,
+): Promise<Uint8Array | undefined> {
+	while (true) {
+		let bytes = await tg.host.read(fd, 4096);
+		if (bytes === undefined) {
+			return undefined;
+		}
+		if (bytes.length > 0) {
+			return bytes;
 		}
 	}
-	if (iterators.length === 0) {
-		return undefined;
+}
+
+async function readProcessStdioChunk(
+	input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
+	stream: "stdout" | "stderr",
+): Promise<Uint8Array | undefined> {
+	while (true) {
+		let result = await input.next();
+		if (result.done) {
+			return undefined;
+		}
+		let event = result.value;
+		if (event.kind === "end") {
+			return undefined;
+		}
+		if (event.value.stream !== stream) {
+			throw new Error("invalid process stdio stream");
+		}
+		if (event.value.bytes.length > 0) {
+			return event.value.bytes;
+		}
 	}
-	if (iterators.length === 1) {
-		let iterator = iterators[0]!;
-		return (async function* (): AsyncIterableIterator<tg.Process.Stdio.Read.Event> {
-			for await (let event of iterator) {
-				yield event;
-			}
-			yield { kind: "end" };
-		})();
-	}
+}
+
+function createProcessStdioChunkInput(
+	stream: "stdin",
+	bytes: Uint8Array,
+): AsyncIterableIterator<tg.Process.Stdio.Read.Event> {
 	return (async function* (): AsyncIterableIterator<tg.Process.Stdio.Read.Event> {
-		let states = iterators.map((iterator) => ({
-			iterator,
-			next: iterator.next(),
-		}));
-		try {
-			while (states.length > 0) {
-				let { result, state } = await Promise.race(
-					states.map(async (state) => ({
-						result: await state.next,
-						state,
-					})),
-				);
-				if (result.done) {
-					states = states.filter((other) => other !== state);
-					continue;
-				}
-				state.next = state.iterator.next();
-				yield result.value;
-			}
-		} finally {
-			await Promise.all(
-				states
-					.map((state) => state.iterator.return?.())
-					.filter((result) => result !== undefined),
-			);
+		if (bytes.length > 0) {
+			yield {
+				kind: "chunk",
+				value: {
+					bytes,
+					stream,
+				},
+			};
 		}
+	})();
+}
+
+function createProcessStdioEndInput(): AsyncIterableIterator<tg.Process.Stdio.Read.Event> {
+	return (async function* (): AsyncIterableIterator<tg.Process.Stdio.Read.Event> {
 		yield { kind: "end" };
 	})();
 }
 
-async function writeUnsandboxedProcessStdio(
-	unsandboxed: tg.Process.Unsandboxed,
-	arg: tg.Process.Stdio.Write.Arg,
-	input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
-): Promise<void> {
-	if (arg.streams.length !== 1 || arg.streams[0] !== "stdin") {
-		throw new Error("writing stdout or stderr is invalid");
+function assertProcessStdioBytes(value: unknown): asserts value is Uint8Array {
+	if (!(value instanceof Uint8Array)) {
+		throw new Error("expected stdio bytes");
 	}
-	let stdin = unsandboxed.stdin;
-	if (stdin === undefined) {
-		throw new Error("stdin is not available");
-	}
-	await stdin.write(input);
 }
 
 async function stdinTask(
@@ -1398,45 +1588,65 @@ async function spawnUnsandboxedProcess(
 		stdin: renderStdio(arg.stdin, "stdin"),
 		stdout: renderStdio(arg.stdout, "stdout"),
 	});
-	let unsandboxed: tg.Process.Unsandboxed = {
-		pid: spawnOutput.pid,
-		promise: undefined as any,
-		stdin:
-			spawnOutput.stdin !== undefined
-				? new UnsandboxedStdin(spawnOutput.stdin)
-				: undefined,
-		stdout:
-			spawnOutput.stdout !== undefined
-				? new UnsandboxedStdoutOrStderr(spawnOutput.stdout, "stdout")
-				: undefined,
-		stderr:
-			spawnOutput.stderr !== undefined
-				? new UnsandboxedStdoutOrStderr(spawnOutput.stderr, "stderr")
-				: undefined,
-	};
-	unsandboxed.promise = waitForUnsandboxedProcess(
-		unsandboxed,
+	let stdin =
+		spawnOutput.stdin !== undefined
+			? new tg.Process.Stdio.Writer({
+					fd: spawnOutput.stdin,
+					stream: "stdin",
+				})
+			: undefined;
+	let stdout =
+		spawnOutput.stdout !== undefined
+			? new tg.Process.Stdio.Reader({
+					fd: spawnOutput.stdout,
+					stream: "stdout",
+				})
+			: undefined;
+	let stderr =
+		spawnOutput.stderr !== undefined
+			? new tg.Process.Stdio.Reader({
+					fd: spawnOutput.stderr,
+					stream: "stderr",
+				})
+			: undefined;
+	let pid = spawnOutput.pid;
+	let promise = waitForUnsandboxedProcess(
+		pid,
+		{
+			stderr,
+			stdin,
+			stdout,
+		},
 		tempDir,
 		outputPath,
 	);
 	return new tg.Process({
 		id,
+		pid,
+		promise,
 		remote: undefined,
 		state: undefined,
+		stderr,
+		stdin,
 		token: undefined,
-		unsandboxed,
+		stdout,
 	});
 }
 
 async function waitForUnsandboxedProcess(
-	unsandboxed: tg.Process.Unsandboxed,
+	pid: number,
+	stdio: {
+		stderr?: tg.Process.Stdio.Reader | undefined;
+		stdin?: tg.Process.Stdio.Writer | undefined;
+		stdout?: tg.Process.Stdio.Reader | undefined;
+	},
 	tempDir: string,
 	outputPath: string,
 ): Promise<tg.Process.Wait> {
 	let wait: tg.Process.Wait | undefined;
 	let waitError: unknown;
 	try {
-		let output = await tg.host.wait(unsandboxed.pid);
+		let output = await tg.host.wait(pid);
 		wait = {
 			error: undefined,
 			exit: output.exit,
@@ -1487,10 +1697,10 @@ async function waitForUnsandboxedProcess(
 	}
 	try {
 		for (let name of ["stdin", "stdout", "stderr"] as const) {
-			let stdio = unsandboxed[name];
-			unsandboxed[name] = undefined;
-			if (stdio !== undefined) {
-				await stdio.close();
+			let handle = stdio[name];
+			stdio[name] = undefined;
+			if (handle !== undefined) {
+				await handle.close();
 			}
 		}
 		await tg.host.remove(tempDir);
@@ -1699,101 +1909,5 @@ function renderStdio(
 			}
 			throw new Error("blob stdio is not supported for unsandboxed processes");
 		}
-	}
-}
-
-class UnsandboxedStdin {
-	#fd: number | undefined;
-
-	constructor(fd: number) {
-		this.#fd = fd;
-	}
-
-	async close(): Promise<void> {
-		let fd = this.#take();
-		if (fd !== undefined) {
-			await tg.host.close(fd);
-		}
-	}
-
-	async write(
-		input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
-	): Promise<void> {
-		let fd = this.#take();
-		if (fd === undefined) {
-			throw new Error("stdin is not available");
-		}
-		try {
-			for await (let event of input) {
-				if (event.kind === "end") {
-					break;
-				}
-				if (event.value.stream !== "stdin") {
-					throw new Error("invalid process stdio stream");
-				}
-				await tg.host.write(fd, event.value.bytes);
-			}
-		} finally {
-			await tg.host.close(fd);
-		}
-	}
-
-	#take(): number | undefined {
-		let fd = this.#fd;
-		this.#fd = undefined;
-		return fd;
-	}
-}
-
-class UnsandboxedStdoutOrStderr {
-	#fd: number | undefined;
-	#stream: "stdout" | "stderr";
-
-	constructor(fd: number, stream: "stdout" | "stderr") {
-		this.#fd = fd;
-		this.#stream = stream;
-	}
-
-	async close(): Promise<void> {
-		let fd = this.#take();
-		if (fd !== undefined) {
-			await tg.host.close(fd);
-		}
-	}
-
-	read(): AsyncIterableIterator<tg.Process.Stdio.Read.Event> | undefined {
-		let fd = this.#take();
-		if (fd === undefined) {
-			return undefined;
-		}
-		let stream = this.#stream;
-		return (async function* (): AsyncIterableIterator<tg.Process.Stdio.Read.Event> {
-			try {
-				while (true) {
-					let bytes = await tg.host.read(fd, 4096);
-					if (bytes === undefined) {
-						break;
-					}
-					if (bytes.length === 0) {
-						continue;
-					}
-					yield {
-						kind: "chunk",
-						value: {
-							bytes,
-							stream,
-						},
-					};
-				}
-			} finally {
-				await tg.host.close(fd);
-			}
-		})();
-	}
-
-	#take(): number | undefined {
-		let fd = this.#fd;
-		this.#fd = undefined;
-		return fd;
 	}
 }
