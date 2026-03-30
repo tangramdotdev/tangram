@@ -24,4 +24,10 @@ export namespace Location {
 			range: data.range,
 		};
 	};
+
+	export namespace Data {
+		export let children = (data: tg.Location.Data): Array<tg.Object.Id> => {
+			return tg.Module.Data.children(data.module);
+		};
+	}
 }

@@ -2,7 +2,6 @@ use {
 	super::Result,
 	crate::quickjs::{StateHandle, serde::Serde, types::Uint8Array},
 	rquickjs as qjs,
-	std::time::Duration,
 	tangram_client::prelude::*,
 };
 
@@ -102,11 +101,16 @@ pub async fn mkdtemp(ctx: qjs::Ctx<'_>, _value: Option<String>) -> Result<String
 	Result(state.host.mkdtemp().await)
 }
 
-pub async fn read(ctx: qjs::Ctx<'_>, fd: i32, length: Option<usize>) -> Result<Option<Uint8Array>> {
+pub async fn read(
+	ctx: qjs::Ctx<'_>,
+	fd: i32,
+	length: Option<usize>,
+	stopper: Option<usize>,
+) -> Result<Option<Uint8Array>> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	let result = state
 		.host
-		.read(fd, length)
+		.read(fd, length, stopper)
 		.await
 		.map(|bytes| bytes.map(Uint8Array::from));
 	Result(result)
@@ -123,21 +127,9 @@ pub async fn signal(ctx: qjs::Ctx<'_>, pid: u32, signal: Serde<tg::process::Sign
 	Result(state.host.signal(pid, signal).await)
 }
 
-pub async fn sleep(ctx: qjs::Ctx<'_>, duration: f64) -> Result<()> {
+pub async fn sleep(ctx: qjs::Ctx<'_>, duration: f64, stopper: Option<usize>) -> Result<()> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
-	let result = async {
-		state
-			.main_runtime_handle
-			.spawn(async move {
-				let duration = Duration::from_secs_f64(duration);
-				tokio::time::sleep(duration).await;
-			})
-			.await
-			.map_err(|source| tg::error!(!source, "the task panicked"))?;
-		Ok(())
-	}
-	.await;
-	Result(result)
+	Result(state.host.sleep(duration, stopper).await)
 }
 
 pub async fn spawn(
@@ -150,34 +142,28 @@ pub async fn spawn(
 	Result(result)
 }
 
-pub async fn stdin_close(ctx: qjs::Ctx<'_>, token: usize) -> Result<()> {
+pub async fn stop_close(ctx: qjs::Ctx<'_>, stopper: usize) -> Result<()> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
-	state.host.stdin_close(token).await;
-	Result(Ok(()))
+	Result(state.host.stop_close(stopper).await)
 }
 
-pub async fn stdin_open(ctx: qjs::Ctx<'_>, _value: Option<String>) -> Result<usize> {
+pub async fn stop_open(ctx: qjs::Ctx<'_>, _value: Option<String>) -> Result<usize> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
-	Result(state.host.stdin_open().await)
+	Result(state.host.stop_open().await)
 }
 
-pub async fn stdin_read(
+pub async fn stop_stop(ctx: qjs::Ctx<'_>, stopper: usize) -> Result<()> {
+	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	Result(state.host.stop_stop(stopper).await)
+}
+
+pub async fn wait(
 	ctx: qjs::Ctx<'_>,
-	token: usize,
-	length: Option<usize>,
-) -> Result<Option<Uint8Array>> {
+	pid: u32,
+	stopper: Option<usize>,
+) -> Result<Serde<crate::host::WaitOutput>> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
-	let result = state
-		.host
-		.stdin_read(token, length)
-		.await
-		.map(|bytes| bytes.map(Uint8Array::from));
-	Result(result)
-}
-
-pub async fn wait(ctx: qjs::Ctx<'_>, pid: u32) -> Result<Serde<crate::host::WaitOutput>> {
-	let state = ctx.userdata::<StateHandle>().unwrap().clone();
-	let result = state.host.wait(pid).await.map(Serde);
+	let result = state.host.wait(pid, stopper).await.map(Serde);
 	Result(result)
 }
 

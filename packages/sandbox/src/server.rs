@@ -30,12 +30,12 @@ pub struct State {
 	pub(crate) library_paths: Vec<std::path::PathBuf>,
 	#[cfg(target_os = "linux")]
 	pub(crate) pids: DashMap<libc::pid_t, tg::process::Id>,
-	pub(crate) processes: DashMap<tg::process::Id, ChildProcess>,
-	pub(crate) stdio: DashMap<tg::process::Id, ChildStdio>,
+	pub(crate) processes: DashMap<tg::process::Id, Process>,
+	pub(crate) stdio: DashMap<tg::process::Id, Stdio>,
 	pub(crate) tangram_path: std::path::PathBuf,
 }
 
-pub(crate) struct ChildProcess {
+pub(crate) struct Process {
 	#[cfg(target_os = "macos")]
 	pub(crate) child: tokio::process::Child,
 	#[cfg(target_os = "linux")]
@@ -46,7 +46,7 @@ pub(crate) struct ChildProcess {
 	pub(crate) status: Option<u8>,
 }
 
-pub(crate) struct ChildStdio {
+pub(crate) struct Stdio {
 	pub(crate) stdin: Mutex<common::InputStream>,
 	pub(crate) stdout: Mutex<common::OutputStream>,
 	pub(crate) stderr: Mutex<common::OutputStream>,

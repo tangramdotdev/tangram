@@ -22,6 +22,7 @@ export let start = async (arg: Arg): Promise<tg.Value.Data> => {
 	});
 
 	// Import the module.
+	// oxlint-disable-next-line no-eval
 	let namespace = await eval(`import("!")`);
 
 	// If there is no export, then return undefined.

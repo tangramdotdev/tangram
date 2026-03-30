@@ -6,7 +6,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::{
 		stream::Ext as _,
-		task::{Stop, Task},
+		task::{Stopper, Task},
 	},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::{self as index, prelude::*},
@@ -389,11 +389,11 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to start the index task"))?;
 
 		// Stop the stream when the server stops.
-		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let stop = async move {
-			stop.wait().await;
+		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
+		let stopper = async move {
+			stopper.wait().await;
 		};
-		let stream = stream.take_until(stop);
+		let stream = stream.take_until(stopper);
 
 		let (content_type, body) = match accept
 			.as_ref()

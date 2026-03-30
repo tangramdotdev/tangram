@@ -1,7 +1,7 @@
 use {
 	super::State,
 	bytes::Bytes,
-	std::{rc::Rc, time::Duration},
+	std::rc::Rc,
 	tangram_client::prelude::*,
 	tangram_v8::{Serde, Serialize as _},
 };
@@ -95,9 +95,12 @@ pub async fn mkdtemp(state: Rc<State>, _args: (Option<String>,)) -> tg::Result<S
 	state.host.mkdtemp().await
 }
 
-pub async fn read(state: Rc<State>, args: (i32, Option<usize>)) -> tg::Result<Option<Bytes>> {
-	let (fd, length) = args;
-	state.host.read(fd, length).await
+pub async fn read(
+	state: Rc<State>,
+	args: (i32, Option<usize>, Option<usize>),
+) -> tg::Result<Option<Bytes>> {
+	let (fd, length, stopper) = args;
+	state.host.read(fd, length, stopper).await
 }
 
 pub async fn remove(state: Rc<State>, args: (String,)) -> tg::Result<()> {
@@ -110,11 +113,9 @@ pub async fn signal(state: Rc<State>, args: (u32, Serde<tg::process::Signal>)) -
 	state.host.signal(pid, signal).await
 }
 
-pub async fn sleep(_state: Rc<State>, args: (f64,)) -> tg::Result<()> {
-	let (duration,) = args;
-	let duration = Duration::from_secs_f64(duration);
-	tokio::time::sleep(duration).await;
-	Ok(())
+pub async fn sleep(state: Rc<State>, args: (f64, Option<usize>)) -> tg::Result<()> {
+	let (duration, stopper) = args;
+	state.host.sleep(duration, stopper).await
 }
 
 pub async fn spawn(
@@ -126,27 +127,26 @@ pub async fn spawn(
 	Ok(Serde(output))
 }
 
-pub async fn stdin_close(state: Rc<State>, args: (usize,)) -> tg::Result<()> {
-	let (token,) = args;
-	state.host.stdin_close(token).await;
-	Ok(())
+pub async fn stop_close(state: Rc<State>, args: (usize,)) -> tg::Result<()> {
+	let (stopper,) = args;
+	state.host.stop_close(stopper).await
 }
 
-pub async fn stdin_open(state: Rc<State>, _args: (Option<String>,)) -> tg::Result<usize> {
-	state.host.stdin_open().await
+pub async fn stop_open(state: Rc<State>, _args: (Option<String>,)) -> tg::Result<usize> {
+	state.host.stop_open().await
 }
 
-pub async fn stdin_read(
+pub async fn stop_stop(state: Rc<State>, args: (usize,)) -> tg::Result<()> {
+	let (stopper,) = args;
+	state.host.stop_stop(stopper).await
+}
+
+pub async fn wait(
 	state: Rc<State>,
-	args: (usize, Option<usize>),
-) -> tg::Result<Option<Bytes>> {
-	let (token, length) = args;
-	state.host.stdin_read(token, length).await
-}
-
-pub async fn wait(state: Rc<State>, args: (u32,)) -> tg::Result<Serde<crate::host::WaitOutput>> {
-	let (pid,) = args;
-	let output = state.host.wait(pid).await?;
+	args: (u32, Option<usize>),
+) -> tg::Result<Serde<crate::host::WaitOutput>> {
+	let (pid, stopper) = args;
+	let output = state.host.wait(pid, stopper).await?;
 	Ok(Serde(output))
 }
 

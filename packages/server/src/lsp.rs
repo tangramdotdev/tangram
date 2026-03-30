@@ -3,7 +3,7 @@ use {
 	futures::{FutureExt as _, TryFutureExt as _, future},
 	std::pin::pin,
 	tangram_client::prelude::*,
-	tangram_futures::task::Stop,
+	tangram_futures::task::Stopper,
 	tangram_http::{body::Boxed as BoxBody, response::Ext as _, response::builder::Ext as _},
 	tokio::io::{AsyncBufRead, AsyncWrite},
 };
@@ -61,7 +61,7 @@ impl Server {
 		// Spawn the LSP.
 		let handle = self.clone();
 		let context = context.clone();
-		let stop = request.extensions().get::<Stop>().cloned().unwrap();
+		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
 		tokio::spawn(
 			async move {
 				let io = hyper::upgrade::on(request)
@@ -71,7 +71,7 @@ impl Server {
 				let (input, output) = tokio::io::split(io);
 				let input = tokio::io::BufReader::new(input);
 				let task = handle.lsp_with_context(&context, input, output);
-				future::select(pin!(task), pin!(stop.wait()))
+				future::select(pin!(task), pin!(stopper.wait()))
 					.map(|output| match output {
 						future::Either::Left((Err(error), _)) => Err(error),
 						_ => Ok(()),

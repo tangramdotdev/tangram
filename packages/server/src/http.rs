@@ -3,7 +3,7 @@ use {
 	futures::{FutureExt as _, future},
 	std::{convert::Infallible, path::Path, pin::pin, time::Duration},
 	tangram_client::prelude::*,
-	tangram_futures::task::Stop,
+	tangram_futures::task::Stopper,
 	tangram_http::{
 		body::Boxed as BoxBody, body::Ext as _, request::Ext as _, response::Ext as _,
 		response::builder::Ext as _,
@@ -49,7 +49,7 @@ impl Server {
 		&self,
 		listener: tokio_util::either::Either<tokio::net::UnixListener, tokio::net::TcpListener>,
 		context: Context,
-		stop: Stop,
+		stopper: Stopper,
 	) {
 		#[cfg(feature = "tls")]
 		let tls = if self
@@ -89,7 +89,7 @@ impl Server {
 				http::StatusCode::REQUEST_TIMEOUT,
 				Duration::from_mins(1),
 			))
-			.add_extension(stop.clone())
+			.add_extension(stopper.clone())
 			.layer(tangram_http::layer::compression::RequestDecompressionLayer)
 			.layer(
 				tangram_http::layer::compression::ResponseCompressionLayer::new(
@@ -140,7 +140,7 @@ impl Server {
 				};
 				Ok::<_, std::io::Error>(stream)
 			};
-			let stream = match future::select(pin!(accept), pin!(stop.wait())).await {
+			let stream = match future::select(pin!(accept), pin!(stopper.wait())).await {
 				future::Either::Left((result, _)) => match result {
 					Ok(stream) => stream,
 					Err(error) => {
@@ -163,7 +163,7 @@ impl Server {
 			};
 			task_tracker.spawn({
 				let service = service.clone();
-				let stop = stop.clone();
+				let stopper = stopper.clone();
 				#[cfg(feature = "tls")]
 				let tls = tls.clone();
 				async move {
@@ -228,7 +228,7 @@ impl Server {
 
 					let result = match future::select(
 						pin!(connection),
-						future::select(pin!(idle.wait()), pin!(stop.wait())),
+						future::select(pin!(idle.wait()), pin!(stopper.wait())),
 					)
 					.await
 					{

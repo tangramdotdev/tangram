@@ -8,7 +8,7 @@ use {
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::{
 		stream::Ext as _,
-		task::{Stop, Task},
+		task::{Stopper, Task},
 	},
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
@@ -386,9 +386,9 @@ impl Server {
 		};
 
 		// Stop the stream when the server stops.
-		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let stop = async move { stop.wait().await };
-		let stream = stream.take_until(stop);
+		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
+		let stopper = async move { stopper.wait().await };
+		let stream = stream.take_until(stopper);
 
 		// Create the body.
 		let (content_type, body) = match accept

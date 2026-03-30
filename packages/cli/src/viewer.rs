@@ -13,7 +13,7 @@ use {
 		time::{Duration, Instant},
 	},
 	tangram_client::prelude::*,
-	tangram_futures::task::Stop,
+	tangram_futures::task::Stopper,
 	unicode_segmentation::UnicodeSegmentation as _,
 	unicode_width::UnicodeWidthStr as _,
 };
@@ -235,7 +235,7 @@ where
 		}
 	}
 
-	pub async fn run_fullscreen(&mut self, stop: Stop) -> tg::Result<()> {
+	pub async fn run_fullscreen(&mut self, stopper: Stopper) -> tg::Result<()> {
 		// Make sure the root is selected. This is only necessary in the fullscreen viewer.
 		self.tree.ensure_root_selected();
 
@@ -293,7 +293,7 @@ where
 
 		// Run the event loop.
 		let result = loop {
-			if stop.stopped() || self.stopped {
+			if stopper.stopped() || self.stopped {
 				break Ok(());
 			}
 
@@ -339,7 +339,7 @@ where
 		result
 	}
 
-	pub async fn run_inline(&mut self, stop: Stop, print: bool) -> tg::Result<()> {
+	pub async fn run_inline(&mut self, stopper: Stopper, print: bool) -> tg::Result<()> {
 		let mut tty: Option<std::io::Stderr> = if std::io::stderr().is_terminal() {
 			Some(std::io::stderr())
 		} else {
@@ -369,7 +369,7 @@ where
 			self.update();
 
 			// If we are finished rendering, then clear the screen and show the cursor.
-			if stop.stopped() || self.tree.is_finished() {
+			if stopper.stopped() || self.tree.is_finished() {
 				if self.tree.has_process()
 					&& let Some(tty_handle) = tty.as_mut()
 				{
@@ -440,11 +440,11 @@ where
 			}
 
 			// Wait for the task to be stopped, a change, or a timeout.
-			let mut stop = pin!(stop.wait().fuse());
+			let mut stopper_wait = pin!(stopper.wait().fuse());
 			let mut changed = pin!(self.tree.changed().fuse());
 			let mut sleep = pin!(tokio::time::sleep(Duration::from_millis(100)).fuse());
 			futures::select! {
-				() = stop => (),
+				() = stopper_wait => (),
 				() = changed => (),
 				() = sleep => (),
 			};

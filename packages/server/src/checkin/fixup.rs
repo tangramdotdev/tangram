@@ -18,14 +18,14 @@ impl Server {
 		receiver: &std::sync::mpsc::Receiver<Message>,
 	) -> tg::Result<()> {
 		while let Ok(message) = receiver.recv() {
-			Self::checkin_fixup_task_inner(&message.path, &message.metadata).map_err(
+			Self::checkin_fixup(&message.path, &message.metadata).map_err(
 				|source| tg::error!(!source, path = %message.path.display(), "failed to set permissions"),
 			)?;
 		}
 		Ok::<_, tg::Error>(())
 	}
 
-	fn checkin_fixup_task_inner(path: &Path, metadata: &std::fs::Metadata) -> tg::Result<()> {
+	pub(super) fn checkin_fixup(path: &Path, metadata: &std::fs::Metadata) -> tg::Result<()> {
 		if !metadata.is_symlink() {
 			let mode = metadata.permissions().mode();
 			let executable = mode & 0o111 != 0;

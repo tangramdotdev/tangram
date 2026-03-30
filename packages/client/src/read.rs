@@ -43,9 +43,10 @@ pub enum Event {
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Chunk {
-	pub position: u64,
 	#[serde_as(as = "BytesBase64")]
 	pub bytes: Bytes,
+
+	pub position: u64,
 }
 
 impl tg::Client {

@@ -240,4 +240,14 @@ export namespace Symlink {
 	}
 
 	export type Data = tg.Graph.Data.Pointer | tg.Graph.Data.Symlink;
+
+	export namespace Data {
+		export let children = (data: tg.Symlink.Data): Array<tg.Object.Id> => {
+			if (tg.Graph.Data.Pointer.is(data)) {
+				return tg.Graph.Data.Pointer.children(data);
+			} else {
+				return tg.Graph.Data.Symlink.children(data);
+			}
+		};
+	}
 }

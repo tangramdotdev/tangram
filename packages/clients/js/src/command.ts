@@ -493,6 +493,16 @@ export namespace Command {
 	};
 
 	export namespace Data {
+		export let children = (data: tg.Command.Data): Array<tg.Object.Id> => {
+			return [
+				...tg.Command.Data.Executable.children(data.executable),
+				...(data.args ?? []).flatMap(tg.Value.Data.children),
+				...globalThis.Object.values(data.env ?? {}).flatMap(
+					tg.Value.Data.children,
+				),
+			];
+		};
+
 		export type Executable =
 			| tg.Command.Data.Executable.Artifact
 			| tg.Command.Data.Executable.Module
@@ -511,6 +521,18 @@ export namespace Command {
 
 			export type Path = {
 				path: string;
+			};
+
+			export let children = (
+				data: tg.Command.Data.Executable,
+			): Array<tg.Object.Id> => {
+				if ("artifact" in data) {
+					return [data.artifact];
+				} else if ("module" in data) {
+					return tg.Module.Data.children(data.module);
+				} else {
+					return [];
+				}
 			};
 		}
 	}

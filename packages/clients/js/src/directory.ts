@@ -434,4 +434,14 @@ export namespace Directory {
 	}
 
 	export type Data = tg.Graph.Data.Pointer | tg.Graph.Data.Directory;
+
+	export namespace Data {
+		export let children = (data: tg.Directory.Data): Array<tg.Object.Id> => {
+			if (tg.Graph.Data.Pointer.is(data)) {
+				return tg.Graph.Data.Pointer.children(data);
+			} else {
+				return tg.Graph.Data.Directory.children(data);
+			}
+		};
+	}
 }

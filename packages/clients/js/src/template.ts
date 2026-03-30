@@ -181,6 +181,16 @@ export namespace Template {
 			| { kind: "string"; value: string }
 			| { kind: "artifact"; value: tg.Artifact.Id }
 			| { kind: "placeholder"; value: tg.Placeholder.Data };
+
+		export let children = (data: tg.Template.Data): Array<tg.Object.Id> => {
+			return data.components.flatMap((component) => {
+				if (component.kind === "artifact") {
+					return [component.value];
+				} else {
+					return [];
+				}
+			});
+		};
 	}
 
 	export let raw = async (

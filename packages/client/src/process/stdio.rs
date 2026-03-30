@@ -6,11 +6,9 @@ use {
 		stream::{self},
 	},
 	serde_with::serde_as,
-	std::io::Read as _,
 	tangram_futures::task::Task,
-	tangram_util::serde::BytesBase64,
+	tangram_util::{io, serde::BytesBase64},
 	tokio::io::AsyncWriteExt as _,
-	tokio_stream::wrappers::ReceiverStream,
 };
 
 pub mod read;
@@ -56,8 +54,10 @@ pub enum Stdio {
 pub enum Stream {
 	#[tangram_serialize(id = 0)]
 	Stdin,
+
 	#[tangram_serialize(id = 1)]
 	Stdout,
+
 	#[tangram_serialize(id = 2)]
 	Stderr,
 }
@@ -67,8 +67,10 @@ pub enum Stream {
 pub struct Chunk {
 	#[serde_as(as = "BytesBase64")]
 	pub bytes: Bytes,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub position: Option<u64>,
+
 	pub stream: Stream,
 }
 
@@ -201,7 +203,8 @@ where
 		remotes: remote.map(|remote| vec![remote]),
 		..Default::default()
 	};
-	let input = stdin_stream()
+	let input = io::stdin()
+		.map_err(|source| tg::error!(!source, "failed to open stdin"))?
 		.filter_map(|result| {
 			future::ready(match result {
 				Ok(bytes) if bytes.is_empty() => None,
@@ -228,25 +231,6 @@ where
 		}
 	}
 	Ok(())
-}
-
-fn stdin_stream() -> impl futures::Stream<Item = std::io::Result<Bytes>> + Send + 'static {
-	let (send, recv) = tokio::sync::mpsc::channel(1);
-	std::thread::spawn(move || {
-		let mut stdin = std::io::stdin();
-		loop {
-			let mut buf = vec![0u8; 4096];
-			let result = match stdin.read(&mut buf) {
-				Ok(0) => break,
-				Ok(n) => Ok(Bytes::copy_from_slice(&buf[0..n])),
-				Err(error) => Err(error),
-			};
-			if send.blocking_send(result).is_err() {
-				break;
-			}
-		}
-	});
-	ReceiverStream::new(recv)
 }
 
 async fn stdout_stderr_task_task<H>(

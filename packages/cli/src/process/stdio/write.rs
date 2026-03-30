@@ -34,7 +34,8 @@ impl Cli {
 			remotes: args.remotes.get(),
 			streams: vec![stream],
 		};
-		let input = crate::util::stdio::stdin()
+		let input = tangram_util::io::stdin()
+			.map_err(|source| tg::error!(!source, "failed to open stdin"))?
 			.filter_map(move |result| {
 				future::ready(match result {
 					Ok(bytes) if bytes.is_empty() => None,

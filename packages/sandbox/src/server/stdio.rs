@@ -292,23 +292,23 @@ async fn read_output_chunk(output: &mut OutputStream) -> std::io::Result<Option<
 	match output {
 		OutputStream::Null => Ok(None),
 		OutputStream::Pipe(pipe) => {
-			let mut buf = vec![0u8; 1 << 14];
-			match pipe.read(&mut buf).await {
+			let mut buffer = vec![0u8; 1 << 14];
+			match pipe.read(&mut buffer).await {
 				Ok(0) => Ok(None),
 				Ok(n) => {
-					buf.truncate(n);
-					Ok(Some(buf.into()))
+					buffer.truncate(n);
+					Ok(Some(buffer.into()))
 				},
 				Err(error) => Err(error),
 			}
 		},
 		OutputStream::Pty(pty) => {
-			let mut buf = vec![0u8; 1 << 14];
-			match pty.read(&mut buf).await {
+			let mut buffer = vec![0u8; 1 << 14];
+			match pty.read(&mut buffer).await {
 				Ok(0) => Ok(None),
 				Ok(n) => {
-					buf.truncate(n);
-					Ok(Some(buf.into()))
+					buffer.truncate(n);
+					Ok(Some(buffer.into()))
 				},
 				Err(error) if error.raw_os_error() == Some(libc::EIO) => Ok(None),
 				Err(error) => Err(error),

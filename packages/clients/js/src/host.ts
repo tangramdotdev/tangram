@@ -26,19 +26,29 @@ export type Host = {
 	read(
 		fd: number,
 		length?: number | undefined,
+		stopper?: tg.Host.Stopper | undefined,
 	): Promise<Uint8Array | undefined>;
 
 	remove(path: string): Promise<void>;
 
 	signal(pid: number, signal: tg.Process.Signal): Promise<void>;
 
-	sleep(duration: number): Promise<void>;
+	sleep(duration: number, stopper?: tg.Host.Stopper | undefined): Promise<void>;
 
 	spawn(arg: tg.Host.SpawnArg): Promise<tg.Host.SpawnOutput>;
 
+	stopClose(stopper: tg.Host.Stopper): Promise<void>;
+
+	stopOpen(): Promise<tg.Host.Stopper>;
+
+	stopStop(stopper: tg.Host.Stopper): Promise<void>;
+
 	stdin(length?: number | undefined): tg.Host.StdinListener;
 
-	wait(pid: number): Promise<tg.Host.WaitOutput>;
+	wait(
+		pid: number,
+		stopper?: tg.Host.Stopper | undefined,
+	): Promise<tg.Host.WaitOutput>;
 
 	write(fd: number, bytes: Uint8Array): Promise<void>;
 
@@ -47,6 +57,8 @@ export type Host = {
 
 export namespace Host {
 	export type Signal = "sigwinch";
+
+	export type Stopper = number;
 
 	export type Stdio = "inherit" | "null" | "pipe";
 

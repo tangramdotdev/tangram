@@ -11,7 +11,7 @@ use {
 		sync::{Arc, Mutex, RwLock, atomic::AtomicI32},
 	},
 	tangram_client::prelude::*,
-	tangram_futures::task::Stop,
+	tangram_futures::task::Stopper,
 	tokio::io::{
 		AsyncBufRead, AsyncBufReadExt as _, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
 	},
@@ -245,8 +245,8 @@ impl Compiler {
 
 		// Spawn the task.
 		let task = tangram_futures::task::Shared::spawn({
-			move |stop| async move {
-				stop.wait().await;
+			move |stopper| async move {
+				stopper.wait().await;
 				shutdown.await;
 			}
 		});
@@ -259,10 +259,10 @@ impl Compiler {
 		input: impl AsyncBufRead + Send + Unpin + 'static,
 		output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
-		let task = tangram_futures::task::Shared::spawn(|stop| {
+		let task = tangram_futures::task::Shared::spawn(|stopper| {
 			let compiler = self.clone();
 			async move {
-				compiler.serve_inner(input, output, stop).await;
+				compiler.serve_inner(input, output, stopper).await;
 			}
 		});
 		self.serve_task.lock().unwrap().replace(task.clone());
@@ -276,7 +276,7 @@ impl Compiler {
 		&self,
 		mut input: impl AsyncBufRead + Send + Unpin + 'static,
 		mut output: impl AsyncWrite + Send + Unpin + 'static,
-		stop: Stop,
+		stopper: Stopper,
 	) {
 		// Create the task tracker.
 		let tasks = TaskTracker::new();
@@ -317,7 +317,7 @@ impl Compiler {
 		loop {
 			// Read a message.
 			let read = Self::read_incoming_message(&mut input);
-			let result = match future::select(pin!(read), pin!(stop.wait())).await {
+			let result = match future::select(pin!(read), pin!(stopper.wait())).await {
 				future::Either::Left((result, _)) => result,
 				future::Either::Right(((), _)) => {
 					break;

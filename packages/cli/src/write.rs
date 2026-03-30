@@ -27,7 +27,10 @@ impl Cli {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write the blob"))?
 		} else {
-			let reader = StreamReader::new(crate::util::stdio::stdin());
+			let reader = StreamReader::new(
+				tangram_util::io::stdin()
+					.map_err(|source| tg::error!(!source, "failed to open stdin"))?,
+			);
 			handle
 				.write(arg, reader)
 				.await

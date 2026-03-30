@@ -2,7 +2,7 @@ use {
 	crate::{Context, Server},
 	futures::{Stream, StreamExt as _},
 	tangram_client::prelude::*,
-	tangram_futures::task::Stop,
+	tangram_futures::task::Stopper,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -166,9 +166,9 @@ impl Server {
 		};
 
 		// Stop the stream when the server stops.
-		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let stop = async move { stop.wait().await };
-		let stream = stream.take_until(stop);
+		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
+		let stopper = async move { stopper.wait().await };
+		let stream = stream.take_until(stopper);
 
 		// Create the body.
 		let (content_type, body) = match accept

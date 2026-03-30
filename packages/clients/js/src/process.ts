@@ -224,6 +224,7 @@ export class Process {
 			reduce: {
 				args: "append",
 				env: "merge",
+				mounts: "append",
 			},
 		});
 	}
@@ -293,7 +294,7 @@ export class Process {
 
 		let checksum = arg.checksum;
 		let processMounts = arg.mounts ?? [];
-		let processStdin: tg.Process.Stdio.Value | undefined;
+		let processStdin: tg.Process.Stdio | undefined;
 		let commandStdin: tg.Blob.Arg | undefined;
 		if ("stdin" in arg) {
 			if (
@@ -347,12 +348,278 @@ export class Process {
 		};
 		let process: tg.Process;
 		if (!arg.sandbox) {
-			process = await spawnUnsandboxedProcess(spawnArg);
+			process = await this.spawnUnsandboxed(spawnArg);
 		} else {
-			process = await spawnSandboxedProcess(spawnArg);
+			process = await this.spawnSandboxed(spawnArg);
 		}
 		process.#options = options;
 
+		return process;
+	}
+
+	static async spawnUnsandboxed(arg: tg.Handle.SpawnArg): Promise<tg.Process> {
+		if (arg.tty !== undefined) {
+			throw new Error("tty is not supported for unsandboxed processes");
+		}
+		if (arg.mounts.length > 0) {
+			throw new Error("mounts are not supported for unsandboxed processes");
+		}
+		if (arg.stdin.startsWith("blb_")) {
+			throw new Error("blob stdin is not supported for unsandboxed processes");
+		}
+
+		let command = await tg.Command.withId(arg.command.item).object();
+		if (command.stdin !== undefined) {
+			throw new Error(
+				"command stdin blobs are not supported for unsandboxed processes",
+			);
+		}
+		if (command.user !== undefined) {
+			throw new Error(
+				"setting a user is not supported for unsandboxed processes",
+			);
+		}
+
+		let id = tg.handle.processId();
+		let tempDir = await tg.host.mkdtemp();
+		let outputPath = tg.path.join(tempDir, id);
+		let artifacts = await checkoutArtifacts(command);
+		let env = await renderEnv(command.env, artifacts, outputPath);
+		let { args, executable } = renderCommand(command, artifacts, outputPath);
+		let spawnOutput = await tg.host.spawn({
+			args,
+			cwd: command.cwd,
+			env,
+			executable,
+			stderr: renderStdio(arg.stderr, "stderr"),
+			stdin: renderStdio(arg.stdin, "stdin"),
+			stdout: renderStdio(arg.stdout, "stdout"),
+		});
+		let stdin =
+			spawnOutput.stdin !== undefined
+				? new tg.Process.Stdio.Writer({
+						fd: spawnOutput.stdin,
+						stream: "stdin",
+					})
+				: undefined;
+		let stdout =
+			spawnOutput.stdout !== undefined
+				? new tg.Process.Stdio.Reader({
+						fd: spawnOutput.stdout,
+						stream: "stdout",
+					})
+				: undefined;
+		let stderr =
+			spawnOutput.stderr !== undefined
+				? new tg.Process.Stdio.Reader({
+						fd: spawnOutput.stderr,
+						stream: "stderr",
+					})
+				: undefined;
+		let pid = spawnOutput.pid;
+		let promise = this.waitUnsandboxed(
+			pid,
+			{
+				stderr,
+				stdin,
+				stdout,
+			},
+			tempDir,
+			outputPath,
+		);
+		return new tg.Process({
+			id,
+			pid,
+			promise,
+			remote: undefined,
+			state: undefined,
+			stderr,
+			stdin,
+			token: undefined,
+			stdout,
+		});
+	}
+
+	static async waitUnsandboxed(
+		pid: number,
+		stdio: {
+			stderr?: tg.Process.Stdio.Reader | undefined;
+			stdin?: tg.Process.Stdio.Writer | undefined;
+			stdout?: tg.Process.Stdio.Reader | undefined;
+		},
+		tempDir: string,
+		outputPath: string,
+	): Promise<tg.Process.Wait> {
+		let wait: tg.Process.Wait | undefined;
+		let waitError: unknown;
+		try {
+			let output = await tg.host.wait(pid);
+			wait = {
+				error: undefined,
+				exit: output.exit,
+			};
+			let exists = await tg.host.exists(outputPath);
+			if (exists) {
+				let outputBytes = await tg.host.getxattr(
+					outputPath,
+					"user.tangram.output",
+				);
+				if (outputBytes !== undefined) {
+					let tgon = tg.encoding.utf8.decode(outputBytes);
+					wait.output = tg.Value.parse(tgon);
+				}
+				let errorBytes = await tg.host.getxattr(
+					outputPath,
+					"user.tangram.error",
+				);
+				if (errorBytes !== undefined) {
+					let string = tg.encoding.utf8.decode(errorBytes);
+					try {
+						let value = tg.encoding.json.decode(string) as
+							| tg.Error.Data
+							| tg.Error.Id;
+						wait.error =
+							typeof value === "string"
+								? tg.Error.withId(value)
+								: tg.Error.fromData(value);
+					} catch {
+						wait.error = tg.Error.withId(string);
+					}
+				}
+				if (wait.output === undefined) {
+					let artifact = await tg.handle.checkin({
+						options: {
+							destructive: true,
+							deterministic: true,
+							ignore: false,
+							lock: undefined,
+							locked: true,
+							root: true,
+						},
+						path: outputPath,
+						updates: [],
+					});
+					wait.output = tg.Artifact.withId(artifact);
+				}
+			}
+		} catch (error) {
+			waitError = error;
+		}
+		try {
+			for (let name of ["stdin", "stdout", "stderr"] as const) {
+				let handle = stdio[name];
+				stdio[name] = undefined;
+				if (handle !== undefined) {
+					await handle.close();
+				}
+			}
+			await tg.host.remove(tempDir);
+		} catch (error) {
+			if (waitError === undefined) {
+				waitError = error;
+			}
+		}
+		if (waitError !== undefined) {
+			throw waitError;
+		}
+		return wait!;
+	}
+
+	static async spawnSandboxed(arg: tg.Handle.SpawnArg): Promise<tg.Process> {
+		let noTty = arg.tty === false;
+		let tty: tg.Process.Tty | undefined;
+		if (arg.tty === true) {
+			let size = tg.host.getTtySize();
+			if (size !== undefined) {
+				tty = { size };
+			}
+		} else if (arg.tty !== undefined && arg.tty !== false) {
+			tty = arg.tty;
+		}
+		let stdin: "pipe" | "tty" | undefined =
+			arg.stdin === "inherit"
+				? !noTty && tg.host.isTty(0)
+					? "tty"
+					: "pipe"
+				: undefined;
+		let stdout: "pipe" | "tty" | undefined =
+			arg.stdout === "inherit"
+				? !noTty && tg.host.isTty(1)
+					? "tty"
+					: "pipe"
+				: undefined;
+		let stderr: "pipe" | "tty" | undefined =
+			arg.stderr === "inherit"
+				? !noTty && tg.host.isTty(2)
+					? "tty"
+					: "pipe"
+				: undefined;
+		if (
+			tty === undefined &&
+			(stdin === "tty" || stdout === "tty" || stderr === "tty")
+		) {
+			let size = tg.host.getTtySize();
+			if (size !== undefined) {
+				tty = { size };
+			}
+		}
+		let output = await tg.handle.spawnProcess({
+			...arg,
+			stderr: stderr ?? arg.stderr,
+			stdin: stdin ?? arg.stdin,
+			stdout: stdout ?? arg.stdout,
+			tty,
+		});
+		let wait =
+			output.wait !== undefined
+				? tg.Process.Wait.fromData(output.wait)
+				: undefined;
+		let stdioPromise =
+			stdin !== undefined ||
+			stdout !== undefined ||
+			stderr !== undefined ||
+			tty !== undefined
+				? stdioTask(
+						output.process,
+						output.remote,
+						stdin,
+						stdout,
+						stderr,
+						tty !== undefined,
+					)
+				: undefined;
+		let process = new tg.Process({
+			id: output.process,
+			remote: output.remote,
+			state: undefined,
+			stderr:
+				arg.stderr === "pipe"
+					? new tg.Process.Stdio.Reader({
+							process: output.process,
+							remote: output.remote,
+							stream: "stderr",
+						})
+					: undefined,
+			stdin:
+				arg.stdin === "pipe"
+					? new tg.Process.Stdio.Writer({
+							process: output.process,
+							remote: output.remote,
+							stream: "stdin",
+						})
+					: undefined,
+			stdioPromise,
+			token: output.token,
+			stdout:
+				arg.stdout === "pipe"
+					? new tg.Process.Stdio.Reader({
+							process: output.process,
+							remote: output.remote,
+							stream: "stdout",
+						})
+					: undefined,
+			wait,
+		});
 		return process;
 	}
 
@@ -679,29 +946,6 @@ export namespace Process {
 			return this;
 		}
 
-		stdin(
-			stdin: tg.Unresolved<
-				tg.MaybeMutation<tg.Blob.Arg | tg.Process.Stdio.Value>
-			>,
-		): this {
-			this.#args.push({ stdin });
-			return this;
-		}
-
-		stdout(
-			stdout: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio.Value>>,
-		): this {
-			this.#args.push({ stdout });
-			return this;
-		}
-
-		stderr(
-			stderr: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio.Value>>,
-		): this {
-			this.#args.push({ stderr });
-			return this;
-		}
-
 		mount(...mounts: Array<tg.Unresolved<tg.Process.Mount>>): this {
 			this.#args.push({ mounts });
 			return this;
@@ -726,6 +970,32 @@ export namespace Process {
 
 		sandbox(sandbox?: tg.Unresolved<tg.MaybeMutation<boolean>>): this {
 			this.#args.push({ sandbox: sandbox ?? true });
+			return this;
+		}
+
+		stderr(stderr: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio>>): this {
+			this.#args.push({ stderr });
+			return this;
+		}
+
+		stdin(
+			stdin: tg.Unresolved<tg.MaybeMutation<tg.Blob.Arg | tg.Process.Stdio>>,
+		): this {
+			this.#args.push({ stdin });
+			return this;
+		}
+
+		stdout(stdout: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio>>): this {
+			this.#args.push({ stdout });
+			return this;
+		}
+
+		tty(
+			tty: tg.Unresolved<
+				tg.MaybeMutation<boolean | tg.Process.Tty | undefined>
+			>,
+		): this {
+			this.#args.push({ tty });
 			return this;
 		}
 
@@ -824,9 +1094,9 @@ export namespace Process {
 		name?: string | undefined;
 		network?: boolean | undefined;
 		sandbox?: boolean | undefined;
-		stderr?: tg.Process.Stdio.Value | undefined;
-		stdin?: tg.Blob.Arg | tg.Process.Stdio.Value | undefined;
-		stdout?: tg.Process.Stdio.Value | undefined;
+		stderr?: tg.Process.Stdio | undefined;
+		stdin?: tg.Blob.Arg | tg.Process.Stdio | undefined;
+		stdout?: tg.Process.Stdio | undefined;
 		tty?: boolean | tg.Process.Tty | undefined;
 		user?: string | undefined;
 	};
@@ -918,9 +1188,9 @@ export namespace Process {
 		};
 	}
 
-	export namespace Stdio {
-		export type Value = "inherit" | "log" | "null" | "pipe" | "tty";
+	export type Stdio = "inherit" | "log" | "null" | "pipe" | "tty";
 
+	export namespace Stdio {
 		export type Chunk = {
 			bytes: Uint8Array;
 			position?: number | undefined;
@@ -942,6 +1212,54 @@ export namespace Process {
 			export type Event =
 				| { kind: "chunk"; value: tg.Process.Stdio.Chunk }
 				| { kind: "end" };
+
+			export namespace Event {
+				export type Data =
+					| { kind: "chunk"; value: tg.Process.Stdio.Read.Event.Data.Chunk }
+					| { kind: "end" };
+
+				export namespace Data {
+					export type Chunk = {
+						bytes: string;
+						position?: number | undefined;
+						stream: tg.Process.Stdio.Stream;
+					};
+				}
+
+				export let fromData = (
+					data: tg.Process.Stdio.Read.Event.Data,
+				): tg.Process.Stdio.Read.Event => {
+					if (data.kind === "chunk") {
+						return {
+							kind: "chunk",
+							value: {
+								bytes: tg.encoding.base64.decode(data.value.bytes),
+								position: data.value.position,
+								stream: data.value.stream,
+							},
+						};
+					} else {
+						return data;
+					}
+				};
+
+				export let toData = (
+					event: tg.Process.Stdio.Read.Event,
+				): tg.Process.Stdio.Read.Event.Data => {
+					if (event.kind === "chunk") {
+						return {
+							kind: "chunk",
+							value: {
+								bytes: tg.encoding.base64.encode(event.value.bytes),
+								position: event.value.position,
+								stream: event.value.stream,
+							},
+						};
+					} else {
+						return event;
+					}
+				};
+			}
 		}
 
 		export namespace Write {
@@ -991,9 +1309,14 @@ export namespace Process {
 
 			async read(): Promise<Uint8Array | undefined> {
 				if (this.#fd !== undefined) {
-					let bytes = await readProcessStdioFdChunk(this.#fd);
-					if (bytes !== undefined) {
-						return bytes;
+					while (true) {
+						let bytes = await tg.host.read(this.#fd, 4096);
+						if (bytes === undefined) {
+							break;
+						}
+						if (bytes.length > 0) {
+							return bytes;
+						}
 					}
 					let fd = this.#fd;
 					this.#fd = undefined;
@@ -1008,18 +1331,31 @@ export namespace Process {
 					throw new Error(`${this.#stream} is not available`);
 				}
 				if (this.#input === undefined) {
-					let input = await tg.handle.readProcessStdio(
-						this.#process,
-						createProcessStdioReadArg(this.#remote, [this.#stream]),
-					);
+					let input = await tg.handle.readProcessStdio(this.#process, {
+						local: undefined,
+						remotes: this.#remote !== undefined ? [this.#remote] : undefined,
+						streams: [this.#stream],
+					});
 					if (input === undefined) {
 						throw new Error(`${this.#stream} is not available`);
 					}
 					this.#input = input;
 				}
-				let bytes = await readProcessStdioChunk(this.#input, this.#stream);
-				if (bytes !== undefined) {
-					return bytes;
+				while (true) {
+					let result = await this.#input.next();
+					if (result.done) {
+						break;
+					}
+					let event = result.value;
+					if (event.kind === "end") {
+						break;
+					}
+					if (event.value.stream !== this.#stream) {
+						throw new Error("invalid process stdio stream");
+					}
+					if (event.value.bytes.length > 0) {
+						return event.value.bytes;
+					}
 				}
 				this.#input = undefined;
 				this.#process = undefined;
@@ -1038,7 +1374,13 @@ export namespace Process {
 					chunks.push(bytes);
 					length += bytes.length;
 				}
-				return concatenateUint8Arrays(chunks, length);
+				let output = new Uint8Array(length);
+				let position = 0;
+				for (let chunk of chunks) {
+					output.set(chunk, position);
+					position += chunk.length;
+				}
+				return output;
 			}
 
 			async text(): Promise<string> {
@@ -1068,6 +1410,7 @@ export namespace Process {
 				let fd = this.#fd;
 				let process = this.#process;
 				let remote = this.#remote;
+				let stream = this.#stream;
 				if (fd !== undefined) {
 					this.#fd = undefined;
 					this.#process = undefined;
@@ -1081,19 +1424,28 @@ export namespace Process {
 					this.#remote = undefined;
 					await tg.handle.writeProcessStdio(
 						process,
-						createProcessStdioWriteArg(remote, [this.#stream]),
-						createProcessStdioEndInput(),
+						{
+							local: undefined,
+							remotes: remote !== undefined ? [remote] : undefined,
+							streams: [stream],
+						},
+						(async function* (): AsyncIterableIterator<tg.Process.Stdio.Read.Event> {
+							yield { kind: "end" };
+						})(),
 					);
 				}
 			}
 
 			async write(input: Uint8Array): Promise<number> {
-				assertProcessStdioBytes(input);
+				if (!(input instanceof Uint8Array)) {
+					throw new Error("expected stdio bytes");
+				}
 				let fd = this.#fd;
 				let process = this.#process;
 				let remote = this.#remote;
+				let stream = this.#stream;
 				if (fd === undefined && process === undefined) {
-					throw new Error(`${this.#stream} is not available`);
+					throw new Error(`${stream} is not available`);
 				}
 				if (input.length === 0) {
 					return 0;
@@ -1104,14 +1456,28 @@ export namespace Process {
 				}
 				await tg.handle.writeProcessStdio(
 					process!,
-					createProcessStdioWriteArg(remote, [this.#stream]),
-					createProcessStdioChunkInput(this.#stream, input),
+					{
+						local: undefined,
+						remotes: remote !== undefined ? [remote] : undefined,
+						streams: [stream],
+					},
+					(async function* (): AsyncIterableIterator<tg.Process.Stdio.Read.Event> {
+						yield {
+							kind: "chunk",
+							value: {
+								bytes: input,
+								stream,
+							},
+						};
+					})(),
 				);
 				return input.length;
 			}
 
 			async writeAll(input: Uint8Array): Promise<void> {
-				assertProcessStdioBytes(input);
+				if (!(input instanceof Uint8Array)) {
+					throw new Error("expected stdio bytes");
+				}
 				let position = 0;
 				while (position < input.length) {
 					let count = await this.write(input.subarray(position));
@@ -1202,107 +1568,7 @@ export namespace Process {
 	}
 }
 
-async function spawnSandboxedProcess(
-	arg: tg.Handle.SpawnArg,
-): Promise<tg.Process> {
-	let noTty = arg.tty === false;
-	let tty: tg.Process.Tty | undefined;
-	if (arg.tty === true) {
-		let size = tg.host.getTtySize();
-		if (size !== undefined) {
-			tty = { size };
-		}
-	} else if (arg.tty !== undefined && arg.tty !== false) {
-		tty = arg.tty;
-	}
-	let stdin: "pipe" | "tty" | undefined =
-		arg.stdin === "inherit"
-			? !noTty && tg.host.isTty(0)
-				? "tty"
-				: "pipe"
-			: undefined;
-	let stdout: "pipe" | "tty" | undefined =
-		arg.stdout === "inherit"
-			? !noTty && tg.host.isTty(1)
-				? "tty"
-				: "pipe"
-			: undefined;
-	let stderr: "pipe" | "tty" | undefined =
-		arg.stderr === "inherit"
-			? !noTty && tg.host.isTty(2)
-				? "tty"
-				: "pipe"
-			: undefined;
-	if (
-		tty === undefined &&
-		(stdin === "tty" || stdout === "tty" || stderr === "tty")
-	) {
-		let size = tg.host.getTtySize();
-		if (size !== undefined) {
-			tty = { size };
-		}
-	}
-	let output = await tg.handle.spawnProcess({
-		...arg,
-		stderr: stderr ?? arg.stderr,
-		stdin: stdin ?? arg.stdin,
-		stdout: stdout ?? arg.stdout,
-		tty,
-	});
-	let wait =
-		output.wait !== undefined
-			? tg.Process.Wait.fromData(output.wait)
-			: undefined;
-	let stdioPromise =
-		stdin !== undefined ||
-		stdout !== undefined ||
-		stderr !== undefined ||
-		tty !== undefined
-			? runStdioTask(
-					output.process,
-					output.remote,
-					stdin,
-					stdout,
-					stderr,
-					tty !== undefined,
-				)
-			: undefined;
-	let process = new tg.Process({
-		id: output.process,
-		remote: output.remote,
-		state: undefined,
-		stderr:
-			arg.stderr === "pipe"
-				? new tg.Process.Stdio.Reader({
-						process: output.process,
-						remote: output.remote,
-						stream: "stderr",
-					})
-				: undefined,
-		stdin:
-			arg.stdin === "pipe"
-				? new tg.Process.Stdio.Writer({
-						process: output.process,
-						remote: output.remote,
-						stream: "stdin",
-					})
-				: undefined,
-		stdioPromise,
-		token: output.token,
-		stdout:
-			arg.stdout === "pipe"
-				? new tg.Process.Stdio.Reader({
-						process: output.process,
-						remote: output.remote,
-						stream: "stdout",
-					})
-				: undefined,
-		wait,
-	});
-	return process;
-}
-
-async function runStdioTask(
+async function stdioTask(
 	id: tg.Process.Id,
 	remote: string | undefined,
 	stdin: "pipe" | "tty" | undefined,
@@ -1359,120 +1625,6 @@ async function runStdioTask(
 	}
 }
 
-function createProcessStdioReadArg(
-	remote: string | undefined,
-	streams: Array<tg.Process.Stdio.Stream>,
-): tg.Process.Stdio.Read.Arg {
-	return normalizeProcessStdioReadArg(remote, { streams });
-}
-
-function createProcessStdioWriteArg(
-	remote: string | undefined,
-	streams: Array<tg.Process.Stdio.Stream>,
-): tg.Process.Stdio.Write.Arg {
-	return normalizeProcessStdioWriteArg(remote, { streams });
-}
-
-function normalizeProcessStdioReadArg(
-	remote: string | undefined,
-	arg: tg.Process.Stdio.Read.Arg,
-): tg.Process.Stdio.Read.Arg {
-	return {
-		...arg,
-		local: arg.local,
-		remotes: arg.remotes ?? (remote !== undefined ? [remote] : undefined),
-	};
-}
-
-function normalizeProcessStdioWriteArg(
-	remote: string | undefined,
-	arg: tg.Process.Stdio.Write.Arg,
-): tg.Process.Stdio.Write.Arg {
-	return {
-		...arg,
-		local: arg.local,
-		remotes: arg.remotes ?? (remote !== undefined ? [remote] : undefined),
-	};
-}
-
-function concatenateUint8Arrays(
-	chunks: Array<Uint8Array>,
-	length: number,
-): Uint8Array {
-	let output = new Uint8Array(length);
-	let position = 0;
-	for (let chunk of chunks) {
-		output.set(chunk, position);
-		position += chunk.length;
-	}
-	return output;
-}
-
-async function readProcessStdioFdChunk(
-	fd: number,
-): Promise<Uint8Array | undefined> {
-	while (true) {
-		let bytes = await tg.host.read(fd, 4096);
-		if (bytes === undefined) {
-			return undefined;
-		}
-		if (bytes.length > 0) {
-			return bytes;
-		}
-	}
-}
-
-async function readProcessStdioChunk(
-	input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
-	stream: "stdout" | "stderr",
-): Promise<Uint8Array | undefined> {
-	while (true) {
-		let result = await input.next();
-		if (result.done) {
-			return undefined;
-		}
-		let event = result.value;
-		if (event.kind === "end") {
-			return undefined;
-		}
-		if (event.value.stream !== stream) {
-			throw new Error("invalid process stdio stream");
-		}
-		if (event.value.bytes.length > 0) {
-			return event.value.bytes;
-		}
-	}
-}
-
-function createProcessStdioChunkInput(
-	stream: "stdin",
-	bytes: Uint8Array,
-): AsyncIterableIterator<tg.Process.Stdio.Read.Event> {
-	return (async function* (): AsyncIterableIterator<tg.Process.Stdio.Read.Event> {
-		if (bytes.length > 0) {
-			yield {
-				kind: "chunk",
-				value: {
-					bytes,
-					stream,
-				},
-			};
-		}
-	})();
-}
-
-function createProcessStdioEndInput(): AsyncIterableIterator<tg.Process.Stdio.Read.Event> {
-	return (async function* (): AsyncIterableIterator<tg.Process.Stdio.Read.Event> {
-		yield { kind: "end" };
-	})();
-}
-
-function assertProcessStdioBytes(value: unknown): asserts value is Uint8Array {
-	if (!(value instanceof Uint8Array)) {
-		throw new Error("expected stdio bytes");
-	}
-}
-
 async function stdinTask(
 	id: tg.Process.Id,
 	remote: string | undefined,
@@ -1493,7 +1645,11 @@ async function stdinTask(
 		})();
 	await tg.handle.writeProcessStdio(
 		id,
-		createProcessStdioWriteArg(remote, ["stdin"]),
+		{
+			local: undefined,
+			remotes: remote !== undefined ? [remote] : undefined,
+			streams: ["stdin"],
+		},
 		input,
 	);
 }
@@ -1514,10 +1670,11 @@ async function stdoutStderrTask(
 	if (streams.length === 0) {
 		return;
 	}
-	let iterator = await tg.handle.readProcessStdio(
-		id,
-		createProcessStdioReadArg(remote, streams),
-	);
+	let iterator = await tg.handle.readProcessStdio(id, {
+		local: undefined,
+		remotes: remote !== undefined ? [remote] : undefined,
+		streams,
+	});
 	if (iterator === undefined) {
 		return;
 	}
@@ -1548,191 +1705,15 @@ async function sigwinchTask(
 	}
 }
 
-async function spawnUnsandboxedProcess(
-	arg: tg.Handle.SpawnArg,
-): Promise<tg.Process> {
-	if (arg.tty !== undefined) {
-		throw new Error("tty is not supported for unsandboxed processes");
-	}
-	if (arg.mounts.length > 0) {
-		throw new Error("mounts are not supported for unsandboxed processes");
-	}
-	if (arg.stdin.startsWith("blb_")) {
-		throw new Error("blob stdin is not supported for unsandboxed processes");
-	}
-
-	let command = await tg.Command.withId(arg.command.item).object();
-	if (command.stdin !== undefined) {
-		throw new Error(
-			"command stdin blobs are not supported for unsandboxed processes",
-		);
-	}
-	if (command.user !== undefined) {
-		throw new Error(
-			"setting a user is not supported for unsandboxed processes",
-		);
-	}
-
-	let id = tg.handle.processId();
-	let tempDir = await tg.host.mkdtemp();
-	let outputPath = tg.path.join(tempDir, id);
-	let artifacts = await checkoutArtifacts(command);
-	let env = await renderEnv(command.env, artifacts, outputPath);
-	let { args, executable } = renderCommand(command, artifacts, outputPath);
-	let spawnOutput = await tg.host.spawn({
-		args,
-		cwd: command.cwd,
-		env,
-		executable,
-		stderr: renderStdio(arg.stderr, "stderr"),
-		stdin: renderStdio(arg.stdin, "stdin"),
-		stdout: renderStdio(arg.stdout, "stdout"),
-	});
-	let stdin =
-		spawnOutput.stdin !== undefined
-			? new tg.Process.Stdio.Writer({
-					fd: spawnOutput.stdin,
-					stream: "stdin",
-				})
-			: undefined;
-	let stdout =
-		spawnOutput.stdout !== undefined
-			? new tg.Process.Stdio.Reader({
-					fd: spawnOutput.stdout,
-					stream: "stdout",
-				})
-			: undefined;
-	let stderr =
-		spawnOutput.stderr !== undefined
-			? new tg.Process.Stdio.Reader({
-					fd: spawnOutput.stderr,
-					stream: "stderr",
-				})
-			: undefined;
-	let pid = spawnOutput.pid;
-	let promise = waitForUnsandboxedProcess(
-		pid,
-		{
-			stderr,
-			stdin,
-			stdout,
-		},
-		tempDir,
-		outputPath,
-	);
-	return new tg.Process({
-		id,
-		pid,
-		promise,
-		remote: undefined,
-		state: undefined,
-		stderr,
-		stdin,
-		token: undefined,
-		stdout,
-	});
-}
-
-async function waitForUnsandboxedProcess(
-	pid: number,
-	stdio: {
-		stderr?: tg.Process.Stdio.Reader | undefined;
-		stdin?: tg.Process.Stdio.Writer | undefined;
-		stdout?: tg.Process.Stdio.Reader | undefined;
-	},
-	tempDir: string,
-	outputPath: string,
-): Promise<tg.Process.Wait> {
-	let wait: tg.Process.Wait | undefined;
-	let waitError: unknown;
-	try {
-		let output = await tg.host.wait(pid);
-		wait = {
-			error: undefined,
-			exit: output.exit,
-		};
-		let exists = await tg.host.exists(outputPath);
-		if (exists) {
-			let outputBytes = await tg.host.getxattr(
-				outputPath,
-				"user.tangram.output",
-			);
-			if (outputBytes !== undefined) {
-				let tgon = tg.encoding.utf8.decode(outputBytes);
-				wait.output = tg.Value.parse(tgon);
-			}
-			let errorBytes = await tg.host.getxattr(outputPath, "user.tangram.error");
-			if (errorBytes !== undefined) {
-				let string = tg.encoding.utf8.decode(errorBytes);
-				try {
-					let value = tg.encoding.json.decode(string) as
-						| tg.Error.Data
-						| tg.Error.Id;
-					wait.error =
-						typeof value === "string"
-							? tg.Error.withId(value)
-							: tg.Error.fromData(value);
-				} catch {
-					wait.error = tg.Error.withId(string);
-				}
-			}
-			if (wait.output === undefined) {
-				let artifact = await tg.handle.checkin({
-					options: {
-						destructive: true,
-						deterministic: true,
-						ignore: false,
-						lock: undefined,
-						locked: true,
-						root: true,
-					},
-					path: outputPath,
-					updates: [],
-				});
-				wait.output = tg.Artifact.withId(artifact);
-			}
-		}
-	} catch (error) {
-		waitError = error;
-	}
-	try {
-		for (let name of ["stdin", "stdout", "stderr"] as const) {
-			let handle = stdio[name];
-			stdio[name] = undefined;
-			if (handle !== undefined) {
-				await handle.close();
-			}
-		}
-		await tg.host.remove(tempDir);
-	} catch (error) {
-		if (waitError === undefined) {
-			waitError = error;
-		}
-	}
-	if (waitError !== undefined) {
-		throw waitError;
-	}
-	return wait!;
-}
-
 async function checkoutArtifacts(
 	command: tg.Command.Object,
 ): Promise<Map<tg.Artifact.Id, string>> {
 	let artifacts = new Set<tg.Artifact.Id>();
-	let seen = new Set<tg.Object.Id>();
-	let stack = tg.Command.Object.children(command);
-	while (stack.length > 0) {
-		let object = stack.pop()!;
-		let id = object.id;
-		if (seen.has(id)) {
-			continue;
+	let data = tg.Command.Object.toData(command);
+	for (let object of tg.Command.Data.children(data)) {
+		if (tg.Artifact.Id.is(object)) {
+			artifacts.add(object);
 		}
-		seen.add(id);
-		if (tg.Artifact.is(object)) {
-			artifacts.add(object.id);
-		}
-		let children = await object.children;
-		stack.push(...children);
 	}
 	let output = new Map<tg.Artifact.Id, string>();
 	for (let artifact of artifacts) {

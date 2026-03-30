@@ -315,6 +315,14 @@ export namespace Blob {
 			blob: tg.Blob.Id;
 			length: number;
 		};
+
+		export let children = (data: tg.Blob.Data): Array<tg.Object.Id> => {
+			if ("children" in data) {
+				return data.children.map((child) => child.blob);
+			} else {
+				return [];
+			}
+		};
 	}
 
 	export type ReadOptions = {

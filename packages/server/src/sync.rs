@@ -10,7 +10,7 @@ use {
 	tangram_futures::{
 		read::Ext as _,
 		stream::Ext as _,
-		task::{Stop, Task},
+		task::{Stopper, Task},
 		write::Ext as _,
 	},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -242,7 +242,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Get the stop signal.
-		let stop = request.extensions().get::<Stop>().cloned().unwrap();
+		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
 
 		// Create the request body.
 		let mut reader = request.reader();
@@ -307,10 +307,10 @@ impl Server {
 		}
 
 		// Create the response body.
-		let stop = async move {
-			stop.wait().await;
+		let stopper = async move {
+			stopper.wait().await;
 		};
-		let stream = stream.take_until(stop);
+		let stream = stream.take_until(stopper);
 		let content_type = Some(tg::sync::CONTENT_TYPE);
 		let stream = stream.then(|result| async {
 			let frame = match result {

@@ -331,6 +331,29 @@ export namespace Error {
 	};
 
 	export namespace Data {
+		export let children = (data: tg.Error.Data): Array<tg.Object.Id> => {
+			let diagnostics = (data.diagnostics ?? []).flatMap(
+				tg.Diagnostic.Data.children,
+			);
+			let location =
+				data.location !== undefined
+					? tg.Error.Data.Location.children(data.location)
+					: [];
+			let stack = (data.stack ?? []).flatMap(tg.Error.Data.Location.children);
+			let source: Array<tg.Object.Id>;
+			if (data.source === undefined) {
+				source = [];
+			} else if (typeof data.source === "string") {
+				let [item] = data.source.split("?");
+				source = item !== undefined && item !== "" ? [item] : [];
+			} else if (typeof data.source.item === "string") {
+				source = [data.source.item];
+			} else {
+				source = tg.Error.Data.children(data.source.item);
+			}
+			return [...diagnostics, ...location, ...stack, ...source];
+		};
+
 		export type Location = {
 			symbol?: string;
 			file: tg.Error.Data.File;
@@ -340,6 +363,24 @@ export namespace Error {
 		export type File =
 			| { kind: "internal"; value: string }
 			| { kind: "module"; value: tg.Module.Data };
+
+		export namespace Location {
+			export let children = (
+				data: tg.Error.Data.Location,
+			): Array<tg.Object.Id> => {
+				return tg.Error.Data.File.children(data.file);
+			};
+		}
+
+		export namespace File {
+			export let children = (data: tg.Error.Data.File): Array<tg.Object.Id> => {
+				if (data.kind === "module") {
+					return tg.Module.Data.children(data.value);
+				} else {
+					return [];
+				}
+			};
+		}
 	}
 
 	export namespace Location {

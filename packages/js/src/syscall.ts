@@ -175,6 +175,7 @@ declare global {
 		syscall: "host_read",
 		fd: number,
 		length: number | undefined,
+		stopper: number | undefined,
 	): Promise<Uint8Array | undefined>;
 
 	function syscall(syscall: "host_remove", path: string): Promise<void>;
@@ -200,32 +201,30 @@ declare global {
 		token: number,
 	): Promise<boolean>;
 
-	function syscall(syscall: "host_sleep", duration: number): Promise<void>;
+	function syscall(
+		syscall: "host_sleep",
+		duration: number,
+		stopper: number | undefined,
+	): Promise<void>;
 
 	function syscall(
 		syscall: "host_spawn",
 		arg: tg.Host.SpawnArg,
 	): Promise<tg.Host.SpawnOutput>;
 
-	function syscall(
-		syscall: "host_stdin_close",
-		token: number,
-	): Promise<void>;
+	function syscall(syscall: "host_stop_close", stopper: number): Promise<void>;
 
 	function syscall(
-		syscall: "host_stdin_open",
+		syscall: "host_stop_open",
 		value: undefined,
 	): Promise<number>;
 
-	function syscall(
-		syscall: "host_stdin_read",
-		token: number,
-		length: number | undefined,
-	): Promise<Uint8Array | undefined>;
+	function syscall(syscall: "host_stop_stop", stopper: number): Promise<void>;
 
 	function syscall(
 		syscall: "host_wait",
 		pid: number,
+		stopper: number | undefined,
 	): Promise<tg.Host.WaitOutput>;
 
 	function syscall(

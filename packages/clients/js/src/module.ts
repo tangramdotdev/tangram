@@ -158,4 +158,18 @@ export namespace Module {
 		kind: Module.Kind;
 		referent: tg.Referent.Data<tg.Graph.Data.Edge<tg.Object.Id>>;
 	};
+
+	export namespace Data {
+		export let children = (data: tg.Module.Data): Array<tg.Object.Id> => {
+			let item =
+				typeof data.referent === "string" ? data.referent : data.referent.item;
+			if (
+				typeof item === "string" &&
+				(item.startsWith(".") || item.startsWith("/"))
+			) {
+				return [];
+			}
+			return tg.Graph.Data.Edge.children(item);
+		};
+	}
 }

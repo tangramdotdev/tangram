@@ -3,7 +3,7 @@ use {
 	futures::future,
 	std::{pin::pin, sync::atomic::AtomicU64, time::Duration},
 	tangram_client::prelude::*,
-	tangram_futures::task::Stop,
+	tangram_futures::task::Stopper,
 };
 
 #[derive(Debug)]
@@ -23,15 +23,15 @@ impl Server {
 	pub(super) async fn sync_get_progress_task(
 		&self,
 		progress: &Progress,
-		stop: Stop,
+		stopper: Stopper,
 		sender: &tokio::sync::mpsc::Sender<tg::Result<tg::sync::GetMessage>>,
 	) {
 		loop {
-			let stop = stop.wait();
-			let stop = pin!(stop);
+			let stopper = stopper.wait();
+			let stopper = pin!(stopper);
 			let sleep = tokio::time::sleep(Duration::from_millis(100));
 			let sleep = pin!(sleep);
-			let result = future::select(sleep, stop).await;
+			let result = future::select(sleep, stopper).await;
 			let message = progress.reset();
 			if message != tg::sync::ProgressMessage::default() {
 				let message = tg::sync::GetMessage::Progress(message);
@@ -46,15 +46,15 @@ impl Server {
 	pub(super) async fn sync_put_progress_task(
 		&self,
 		progress: &Progress,
-		stop: Stop,
+		stopper: Stopper,
 		sender: &tokio::sync::mpsc::Sender<tg::Result<tg::sync::PutMessage>>,
 	) {
 		loop {
-			let stop = stop.wait();
-			let stop = pin!(stop);
+			let stopper = stopper.wait();
+			let stopper = pin!(stopper);
 			let sleep = tokio::time::sleep(Duration::from_millis(100));
 			let sleep = pin!(sleep);
-			let result = future::select(sleep, stop).await;
+			let result = future::select(sleep, stopper).await;
 			let message = progress.reset();
 			if message != tg::sync::ProgressMessage::default() {
 				let message = tg::sync::PutMessage::Progress(message);

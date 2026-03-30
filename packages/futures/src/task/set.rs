@@ -1,5 +1,5 @@
 use {
-	crate::task::{Map, Shared, Stop},
+	crate::task::{Map, Shared, Stopper},
 	futures::Future,
 	std::{
 		hash::BuildHasher,
@@ -22,7 +22,7 @@ where
 {
 	pub fn spawn<F, Fut>(&self, f: F) -> Shared<T, ()>
 	where
-		F: FnOnce(Stop) -> Fut,
+		F: FnOnce(Stopper) -> Fut,
 		Fut: Future<Output = T> + Send + 'static,
 	{
 		let id = self.next_id.fetch_add(1, Ordering::Relaxed);

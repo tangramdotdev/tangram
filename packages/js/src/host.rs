@@ -3,6 +3,7 @@ use {
 	std::{
 		collections::BTreeMap,
 		fs::OpenOptions,
+		future::Future,
 		os::{
 			fd::{AsRawFd, FromRawFd, OwnedFd},
 			unix::process::ExitStatusExt as _,
@@ -12,8 +13,10 @@ use {
 			Arc,
 			atomic::{AtomicUsize, Ordering},
 		},
+		time::Duration,
 	},
 	tangram_client as tg,
+	tangram_futures::task::Stopper,
 	tokio::io::{Interest, unix::AsyncFd},
 };
 
@@ -28,7 +31,7 @@ struct Inner {
 	fds: BTreeMap<i32, Arc<AsyncFd<OwnedFd>>>,
 	processes: BTreeMap<u32, tokio::process::Child>,
 	signals: BTreeMap<usize, Arc<Signal>>,
-	stdins: BTreeMap<usize, Arc<Stdin>>,
+	stops: BTreeMap<usize, Stopper>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -73,16 +76,6 @@ pub enum SignalKind {
 
 struct Signal {
 	signal: tokio::sync::Mutex<tokio::signal::unix::Signal>,
-	stop: tokio::sync::watch::Sender<bool>,
-}
-
-enum StdinFd {
-	Async(Arc<AsyncFd<OwnedFd>>),
-	Blocking(Arc<OwnedFd>),
-}
-
-struct Stdin {
-	fd: StdinFd,
 	stop: tokio::sync::watch::Sender<bool>,
 }
 
@@ -148,17 +141,26 @@ impl Host {
 		})
 	}
 
-	pub async fn read(&self, fd: i32, length: Option<usize>) -> tg::Result<Option<Bytes>> {
+	pub async fn read(
+		&self,
+		fd: i32,
+		length: Option<usize>,
+		stopper: Option<usize>,
+	) -> tg::Result<Option<Bytes>> {
+		let stopper = self.get_stop(stopper).await?;
 		let fd_ = self.inner.lock().await.fds.get(&fd).cloned();
 		let Some(fd_) = fd_ else {
 			let length = length.unwrap_or(64 * 1024);
-			return tokio::task::spawn_blocking(move || read(fd, length))
-				.await
-				.map_err(|source| tg::error!(!source, "the task panicked"))?;
+			return match stopper {
+				Some(stopper) => read_with_stop(fd, length, stopper).await,
+				None => tokio::task::spawn_blocking(move || read(fd, length))
+					.await
+					.map_err(|source| tg::error!(!source, "the task panicked"))?,
+			};
 		};
 		let mut buffer = vec![0; length.unwrap_or(64 * 1024)];
-		let bytes_read = fd_
-			.async_io(Interest::READABLE, |fd_| {
+		let bytes_read = with_stop(stopper, async {
+			fd_.async_io(Interest::READABLE, |fd_| {
 				let bytes_read = unsafe {
 					libc::read(
 						fd_.as_raw_fd(),
@@ -173,7 +175,9 @@ impl Host {
 				}
 			})
 			.await
-			.map_err(|source| tg::error!(!source, %fd, "failed to read the file descriptor"))?;
+			.map_err(|source| tg::error!(!source, %fd, "failed to read the file descriptor"))
+		})
+		.await?;
 		if bytes_read == 0 {
 			return Ok(None);
 		}
@@ -256,6 +260,15 @@ impl Host {
 			));
 		}
 		Ok(())
+	}
+
+	pub async fn sleep(&self, duration: f64, stopper: Option<usize>) -> tg::Result<()> {
+		let stopper = self.get_stop(stopper).await?;
+		with_stop(stopper, async move {
+			tokio::time::sleep(Duration::from_secs_f64(duration)).await;
+			Ok(())
+		})
+		.await
 	}
 
 	pub async fn spawn(&self, arg: SpawnArg) -> tg::Result<SpawnOutput> {
@@ -357,118 +370,39 @@ impl Host {
 		})
 	}
 
-	pub async fn stdin_close(&self, token: usize) {
-		let stdin = self.inner.lock().await.stdins.remove(&token);
-		if let Some(stdin) = stdin {
-			let _ = stdin.stop.send(true);
-		}
+	pub async fn stop_close(&self, token: usize) -> tg::Result<()> {
+		let stopper = self
+			.inner
+			.lock()
+			.await
+			.stops
+			.remove(&token)
+			.ok_or_else(|| tg::error!(%token, "failed to find the stop"))?;
+		stopper.stop();
+		Ok(())
 	}
 
-	pub async fn stdin_open(&self) -> tg::Result<usize> {
-		let fd = unsafe { libc::dup(0) };
-		if fd < 0 {
-			return Err(tg::error!(
-				source = std::io::Error::last_os_error(),
-				"failed to duplicate stdin"
-			));
-		}
-		let fd = unsafe { OwnedFd::from_raw_fd(fd) };
-		let fd_number = fd.as_raw_fd();
-		unsafe {
-			let flags = libc::fcntl(fd_number, libc::F_GETFL);
-			if flags < 0 {
-				return Err(tg::error!(
-					source = std::io::Error::last_os_error(),
-					"failed to get the stdin flags"
-				));
-			}
-			if libc::fcntl(fd_number, libc::F_SETFL, flags | libc::O_NONBLOCK) < 0 {
-				return Err(tg::error!(
-					source = std::io::Error::last_os_error(),
-					"failed to set stdin to non-blocking"
-				));
-			}
-		}
-		let async_fd = unsafe { libc::dup(fd_number) };
-		if async_fd < 0 {
-			return Err(tg::error!(
-				source = std::io::Error::last_os_error(),
-				"failed to duplicate stdin for async registration"
-			));
-		}
-		let async_fd = unsafe { OwnedFd::from_raw_fd(async_fd) };
-		let fd = match AsyncFd::new(async_fd) {
-			Ok(async_fd) => {
-				drop(fd);
-				StdinFd::Async(Arc::new(async_fd))
-			},
-			Err(source) if matches!(source.raw_os_error(), Some(libc::EPERM | libc::EINVAL)) => {
-				StdinFd::Blocking(Arc::new(fd))
-			},
-			Err(source) => {
-				return Err(tg::error!(!source, %fd_number, "failed to register stdin"));
-			},
-		};
-		let (stop, _) = tokio::sync::watch::channel(false);
+	pub async fn stop_open(&self) -> tg::Result<usize> {
 		let token = self.next_token.fetch_add(1, Ordering::Relaxed) + 1;
-		let stdin = Arc::new(Stdin { fd, stop });
-		self.inner.lock().await.stdins.insert(token, stdin);
+		self.inner.lock().await.stops.insert(token, Stopper::new());
 		Ok(token)
 	}
 
-	pub async fn stdin_read(
-		&self,
-		token: usize,
-		length: Option<usize>,
-	) -> tg::Result<Option<Bytes>> {
-		let stdin = self.inner.lock().await.stdins.get(&token).cloned();
-		let Some(stdin) = stdin else {
-			return Ok(None);
-		};
-		let mut stop = stdin.stop.subscribe();
-		let mut buffer = vec![0; length.unwrap_or(64 * 1024)];
-		match &stdin.fd {
-			StdinFd::Async(fd) => {
-				tokio::select! {
-					result = fd.async_io(Interest::READABLE, |fd| {
-						let bytes_read = unsafe {
-							libc::read(
-								fd.as_raw_fd(),
-								buffer.as_mut_ptr().cast::<libc::c_void>(),
-								buffer.len(),
-							)
-						};
-						if bytes_read < 0 {
-							Err(std::io::Error::last_os_error())
-						} else {
-							Ok(bytes_read.cast_unsigned())
-						}
-					}) => {
-						let bytes_read = result.map_err(|source| {
-							tg::error!(!source, %token, "failed to read stdin")
-						})?;
-						if bytes_read == 0 {
-							Ok(None)
-						} else {
-							buffer.truncate(bytes_read);
-							Ok(Some(buffer.into()))
-						}
-					},
-					_ = stop.changed() => Ok(None),
-				}
-			},
-			StdinFd::Blocking(fd) => {
-				let fd = fd.clone();
-				let length = buffer.len();
-				let result = tokio::task::spawn_blocking(move || read(fd.as_raw_fd(), length))
-					.await
-					.map_err(|source| tg::error!(!source, "the task panicked"))?;
-				if *stop.borrow() { Ok(None) } else { result }
-			},
-		}
+	pub async fn stop_stop(&self, token: usize) -> tg::Result<()> {
+		let stopper = self
+			.inner
+			.lock()
+			.await
+			.stops
+			.get(&token)
+			.cloned()
+			.ok_or_else(|| tg::error!(%token, "failed to find the stop"))?;
+		stopper.stop();
+		Ok(())
 	}
 
-	pub async fn wait(&self, pid: u32) -> tg::Result<WaitOutput> {
+	pub async fn wait(&self, pid: u32, stopper: Option<usize>) -> tg::Result<WaitOutput> {
+		let stopper = self.get_stop(stopper).await?;
 		let mut child = self
 			.inner
 			.lock()
@@ -476,10 +410,27 @@ impl Host {
 			.processes
 			.remove(&pid)
 			.ok_or_else(|| tg::error!(%pid, "failed to find the process"))?;
-		let status = child
-			.wait()
-			.await
-			.map_err(|source| tg::error!(!source, %pid, "failed to wait for the process"))?;
+		let status = match stopper {
+			Some(stopper) => {
+				if stopper.stopped() {
+					self.inner.lock().await.processes.insert(pid, child);
+					return Err(stopped_error());
+				}
+				let result = tokio::select! {
+					result = child.wait() => Ok(result),
+					() = stopper.wait() => Err(stopped_error()),
+				};
+				match result {
+					Ok(result) => result,
+					Err(error) => {
+						self.inner.lock().await.processes.insert(pid, child);
+						return Err(error);
+					},
+				}
+			},
+			None => child.wait().await,
+		}
+		.map_err(|source| tg::error!(!source, %pid, "failed to wait for the process"))?;
 		let exit = exit_status_to_code(status)?;
 		Ok(WaitOutput { exit })
 	}
@@ -534,6 +485,21 @@ impl Host {
 		}
 		Ok(())
 	}
+
+	async fn get_stop(&self, token: Option<usize>) -> tg::Result<Option<Stopper>> {
+		let Some(token) = token else {
+			return Ok(None);
+		};
+		let stopper = self
+			.inner
+			.lock()
+			.await
+			.stops
+			.get(&token)
+			.cloned()
+			.ok_or_else(|| tg::error!(%token, "failed to find the stop"))?;
+		Ok(Some(stopper))
+	}
 }
 
 impl Stdio {
@@ -561,21 +527,138 @@ fn exit_status_to_code(status: std::process::ExitStatus) -> tg::Result<u8> {
 	Err(tg::error!("failed to determine the exit status"))
 }
 
+async fn read_with_stop(fd: i32, length: usize, stopper: Stopper) -> tg::Result<Option<Bytes>> {
+	if stopper.stopped() {
+		return Err(stopped_error());
+	}
+	let (wake_read, wake_write) = pipe()?;
+	let stop_task = tokio::spawn(async move {
+		stopper.wait().await;
+		let _ = write_wakeup(wake_write.as_raw_fd());
+	});
+	let result = tokio::task::spawn_blocking(move || {
+		let wake_fd = wake_read.as_raw_fd();
+		read_with_wakeup(fd, length, wake_fd)
+	})
+	.await
+	.map_err(|source| tg::error!(!source, "the task panicked"))?;
+	stop_task.abort();
+	result
+}
+
 fn read(fd: i32, length: usize) -> tg::Result<Option<Bytes>> {
 	let mut buffer = vec![0; length];
-	let bytes_read =
-		unsafe { libc::read(fd, buffer.as_mut_ptr().cast::<libc::c_void>(), buffer.len()) };
-	if bytes_read < 0 {
+	let bytes_read = loop {
+		let bytes_read =
+			unsafe { libc::read(fd, buffer.as_mut_ptr().cast::<libc::c_void>(), buffer.len()) };
+		if bytes_read >= 0 {
+			break bytes_read.cast_unsigned();
+		}
+		let source = std::io::Error::last_os_error();
+		if source.kind() == std::io::ErrorKind::Interrupted {
+			continue;
+		}
 		return Err(tg::error!(
-			source = std::io::Error::last_os_error(),
+			!source,
 			%fd,
 			"failed to read the file descriptor"
 		));
-	}
-	let bytes_read = bytes_read.cast_unsigned();
+	};
 	if bytes_read == 0 {
 		return Ok(None);
 	}
 	buffer.truncate(bytes_read);
 	Ok(Some(buffer.into()))
+}
+
+fn read_with_wakeup(fd: i32, length: usize, wake_fd: i32) -> tg::Result<Option<Bytes>> {
+	loop {
+		let mut fds = [
+			libc::pollfd {
+				fd,
+				events: libc::POLLIN,
+				revents: 0,
+			},
+			libc::pollfd {
+				fd: wake_fd,
+				events: libc::POLLIN,
+				revents: 0,
+			},
+		];
+		let result = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, -1) };
+		if result < 0 {
+			let source = std::io::Error::last_os_error();
+			if source.kind() == std::io::ErrorKind::Interrupted {
+				continue;
+			}
+			return Err(tg::error!(!source, %fd, "failed to poll the file descriptor"));
+		}
+		let wake_revents = fds[1].revents;
+		if wake_revents & (libc::POLLIN | libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
+			return Err(stopped_error());
+		}
+		let fd_revents = fds[0].revents;
+		if fd_revents & libc::POLLNVAL != 0 {
+			return Err(tg::error!(%fd, "failed to poll the file descriptor"));
+		}
+		if fd_revents & (libc::POLLIN | libc::POLLERR | libc::POLLHUP) == 0 {
+			continue;
+		}
+		return read(fd, length);
+	}
+}
+
+fn stopped_error() -> tg::Error {
+	tg::error!(
+		code = tg::error::Code::Cancellation,
+		"the operation was stopped"
+	)
+}
+
+fn pipe() -> tg::Result<(OwnedFd, OwnedFd)> {
+	let mut fds = [0; 2];
+	if unsafe { libc::pipe(fds.as_mut_ptr()) } < 0 {
+		return Err(tg::error!(
+			source = std::io::Error::last_os_error(),
+			"failed to create a pipe"
+		));
+	}
+	let read = unsafe { OwnedFd::from_raw_fd(fds[0]) };
+	let write = unsafe { OwnedFd::from_raw_fd(fds[1]) };
+	Ok((read, write))
+}
+
+async fn with_stop<T, F>(stopper: Option<Stopper>, future: F) -> tg::Result<T>
+where
+	F: Future<Output = tg::Result<T>>,
+{
+	let Some(stopper) = stopper else {
+		return future.await;
+	};
+	if stopper.stopped() {
+		return Err(stopped_error());
+	}
+	tokio::select! {
+		result = future => result,
+		() = stopper.wait() => Err(stopped_error()),
+	}
+}
+
+fn write_wakeup(fd: i32) -> tg::Result<()> {
+	let byte = [0_u8; 1];
+	loop {
+		let bytes_written =
+			unsafe { libc::write(fd, byte.as_ptr().cast::<libc::c_void>(), byte.len()) };
+		if bytes_written >= 0 {
+			return Ok(());
+		}
+		let source = std::io::Error::last_os_error();
+		match source.kind() {
+			std::io::ErrorKind::BrokenPipe => return Ok(()),
+			std::io::ErrorKind::Interrupted => {},
+			_ => {
+				return Err(tg::error!(!source, "failed to write the wakeup pipe"));
+			},
+		}
+	}
 }

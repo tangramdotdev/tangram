@@ -1660,20 +1660,6 @@ declare namespace tg {
 
 			host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
 
-			stdin(
-				stdin: tg.Unresolved<
-					tg.MaybeMutation<tg.Blob.Arg | tg.Process.Stdio.Value>
-				>,
-			): this;
-
-			stdout(
-				stdout: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio.Value>>,
-			): this;
-
-			stderr(
-				stderr: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio.Value>>,
-			): this;
-
 			mount(...mounts: Array<tg.Unresolved<tg.Process.Mount>>): this;
 
 			mounts(
@@ -1687,6 +1673,26 @@ declare namespace tg {
 			network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
 
 			sandbox(sandbox?: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
+
+			stderr(
+				stderr: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio.Value>>,
+			): this;
+
+			stdin(
+				stdin: tg.Unresolved<
+					tg.MaybeMutation<tg.Blob.Arg | tg.Process.Stdio.Value>
+				>,
+			): this;
+
+			stdout(
+				stdout: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio.Value>>,
+			): this;
+
+			tty(
+				tty: tg.Unresolved<
+					tg.MaybeMutation<boolean | tg.Process.Tty | undefined>
+				>,
+			): this;
 
 			run(): tg.Process.Builder<"run", A, O>;
 

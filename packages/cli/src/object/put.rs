@@ -39,10 +39,13 @@ impl Cli {
 			input.into_bytes()
 		} else {
 			let mut input = Vec::new();
-			StreamReader::new(crate::util::stdio::stdin())
-				.read_to_end(&mut input)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
+			StreamReader::new(
+				tangram_util::io::stdin()
+					.map_err(|source| tg::error!(!source, "failed to open stdin"))?,
+			)
+			.read_to_end(&mut input)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
 			input
 		};
 

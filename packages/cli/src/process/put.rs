@@ -27,10 +27,13 @@ impl Cli {
 			bytes
 		} else {
 			let mut bytes = String::new();
-			StreamReader::new(crate::util::stdio::stdin())
-				.read_to_string(&mut bytes)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
+			StreamReader::new(
+				tangram_util::io::stdin()
+					.map_err(|source| tg::error!(!source, "failed to open stdin"))?,
+			)
+			.read_to_string(&mut bytes)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
 			bytes
 		};
 		let data = serde_json::from_str(&bytes)

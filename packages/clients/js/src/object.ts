@@ -236,6 +236,34 @@ export namespace Object {
 		| { kind: "command"; value: tg.Command.Data }
 		| { kind: "error"; value: tg.Error.Data };
 
+	export namespace Data {
+		export let children = (data: tg.Object.Data): Array<tg.Object.Id> => {
+			switch (data.kind) {
+				case "blob": {
+					return tg.Blob.Data.children(data.value);
+				}
+				case "directory": {
+					return tg.Directory.Data.children(data.value);
+				}
+				case "file": {
+					return tg.File.Data.children(data.value);
+				}
+				case "symlink": {
+					return tg.Symlink.Data.children(data.value);
+				}
+				case "graph": {
+					return tg.Graph.Data.children(data.value);
+				}
+				case "command": {
+					return tg.Command.Data.children(data.value);
+				}
+				case "error": {
+					return tg.Error.Data.children(data.value);
+				}
+			}
+		};
+	}
+
 	export let withId = (id: tg.Object.Id): tg.Object => {
 		let prefix = id.substring(0, 3);
 		if (prefix === "blb") {

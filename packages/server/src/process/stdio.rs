@@ -10,7 +10,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::{
 		stream::Ext as _,
-		task::{Stop, Task},
+		task::{Stopper, Task},
 	},
 	tangram_http::{
 		body::Boxed as BoxBody,
@@ -242,12 +242,14 @@ impl Server {
 			let mut ended = BTreeSet::new();
 			while let Some(result) = stream.next().await {
 				let event = match result {
-					Ok((subject, bytes)) => (
-						subject,
-						serde_json::from_slice::<tg::process::stdio::read::Event>(&bytes).map_err(
-							|source| tg::error!(!source, "failed to deserialize the stdio event"),
-						)?,
-					),
+					Ok((subject, bytes)) => {
+						let event =
+							serde_json::from_slice::<tg::process::stdio::read::Event>(&bytes)
+								.map_err(|source| {
+									tg::error!(!source, "failed to deserialize the stdio event")
+								})?;
+						(subject, event)
+					},
 					Err(error) => {
 						sender.send(Err(error)).await.ok();
 						break;
@@ -327,7 +329,7 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
-		stop: Option<Stop>,
+		stopper: Option<Stopper>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>> {
 		if arg.streams.is_empty() {
 			return Err(tg::error!("expected at least one stdio stream"));
@@ -356,10 +358,10 @@ impl Server {
 					return Err(tg::error!("not found"));
 				};
 
-				let result = if let Some(stop) = stop {
+				let result = if let Some(stopper) = stopper {
 					let future = pin!(future);
-					let stop = pin!(stop.wait());
-					match future::select(future, stop).await {
+					let stopper_wait = pin!(stopper.wait());
+					match future::select(future, stopper_wait).await {
 						future::Either::Left((result, _)) => result,
 						future::Either::Right(((), future)) => {
 							sender
@@ -564,9 +566,9 @@ impl Server {
 				.boxed_body());
 		};
 
-		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let stop = async move { stop.wait().await };
-		let event_stream = event_stream.take_until(stop);
+		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
+		let stopper_wait = async move { stopper.wait().await };
+		let event_stream = event_stream.take_until(stopper_wait);
 
 		let content_type = mime::TEXT_EVENT_STREAM;
 		let stream = event_stream.map(|result| match result {
@@ -612,7 +614,7 @@ impl Server {
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
 			.unwrap_or_default();
-		let stop = request.extensions().get::<Stop>().cloned().unwrap();
+		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
 		let input = request
 			.sse()
 			.map_err(|source| tg::error!(!source, "failed to read an event"))
@@ -630,7 +632,7 @@ impl Server {
 			.boxed();
 
 		let output = self
-			.write_process_stdio_with_context(context, &id, arg, input, Some(stop.clone()))
+			.write_process_stdio_with_context(context, &id, arg, input, Some(stopper.clone()))
 			.await?;
 
 		let content_type = mime::TEXT_EVENT_STREAM;

@@ -2,7 +2,7 @@ use {
 	crate::{
 		Stdio,
 		common::{AsyncPtyFd, InputStream, OutputStream, Pty, SpawnContext},
-		server::{ChildProcess, ChildStdio, Server},
+		server::{Process, Server},
 	},
 	std::{fs::File, os::fd::OwnedFd},
 	tangram_client::prelude::*,
@@ -138,7 +138,7 @@ impl Server {
 		#[cfg(target_os = "macos")]
 		let child = crate::darwin::spawn(context)?;
 
-		let child_process = ChildProcess {
+		let process = Process {
 			#[cfg(target_os = "linux")]
 			pid,
 			#[cfg(target_os = "macos")]
@@ -151,14 +151,14 @@ impl Server {
 		if let Some(pty) = &mut pty {
 			pty.slave.take();
 		}
-		let child_stdio = ChildStdio {
+		let stdio = super::Stdio {
 			stdin: Mutex::new(host_stdin),
 			stdout: Mutex::new(host_stdout),
 			stderr: Mutex::new(host_stderr),
 			pty: pty.map(Mutex::new),
 		};
-		self.stdio.insert(id.clone(), child_stdio);
-		self.processes.insert(id.clone(), child_process);
+		self.stdio.insert(id.clone(), stdio);
+		self.processes.insert(id.clone(), process);
 
 		Ok(crate::client::spawn::Output { id })
 	}

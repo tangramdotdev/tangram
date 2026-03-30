@@ -1,5 +1,5 @@
 use {
-	crate::task::Stop,
+	crate::task::Stopper,
 	futures::{future::BoxFuture, prelude::*},
 	std::sync::{
 		Arc, Mutex,
@@ -18,7 +18,7 @@ struct Inner<T, C> {
 	context: C,
 	future: future::Shared<BoxFuture<'static, Result<T, Arc<tokio::task::JoinError>>>>,
 	on_drop: Mutex<Option<Box<dyn FnOnce() + Send + Sync>>>,
-	stop: Stop,
+	stopper: Stopper,
 }
 
 impl<T, C> Task<T, C>
@@ -28,11 +28,11 @@ where
 {
 	pub fn spawn_with_context<F, Fut>(context: C, f: F) -> Self
 	where
-		F: FnOnce(Stop) -> Fut,
+		F: FnOnce(Stopper) -> Fut,
 		Fut: Future<Output = T> + Send + 'static,
 	{
-		let stop = Stop::new();
-		let task = tokio::spawn(f(stop.clone()));
+		let stopper = Stopper::new();
+		let task = tokio::spawn(f(stopper.clone()));
 		let abort_handle = task.abort_handle();
 		let future = task.map_err(Arc::new).boxed().shared();
 		let inner = Inner {
@@ -41,7 +41,7 @@ where
 			context,
 			future,
 			on_drop: Mutex::new(None),
-			stop,
+			stopper,
 		};
 		Self {
 			inner: Arc::new(inner),
@@ -51,11 +51,11 @@ where
 
 	pub fn spawn_local_with_context<F, Fut>(context: C, f: F) -> Self
 	where
-		F: FnOnce(Stop) -> Fut,
+		F: FnOnce(Stopper) -> Fut,
 		Fut: Future<Output = T> + 'static,
 	{
-		let stop = Stop::new();
-		let task = tokio::task::spawn_local(f(stop.clone()));
+		let stopper = Stopper::new();
+		let task = tokio::task::spawn_local(f(stopper.clone()));
 		let abort_handle = task.abort_handle();
 		let future = task.map_err(Arc::new).boxed().shared();
 		let inner = Inner {
@@ -64,7 +64,7 @@ where
 			context,
 			future,
 			on_drop: Mutex::new(None),
-			stop,
+			stopper,
 		};
 		Self {
 			inner: Arc::new(inner),
@@ -74,12 +74,12 @@ where
 
 	pub fn spawn_blocking_with_context<F>(context: C, f: F) -> Self
 	where
-		F: FnOnce(Stop) -> T + Send + 'static,
+		F: FnOnce(Stopper) -> T + Send + 'static,
 	{
-		let stop = Stop::new();
+		let stopper = Stopper::new();
 		let task = tokio::task::spawn_blocking({
-			let stop = stop.clone();
-			move || f(stop)
+			let stopper = stopper.clone();
+			move || f(stopper)
 		});
 		let abort_handle = task.abort_handle();
 		let future = task.map_err(Arc::new).boxed().shared();
@@ -89,7 +89,7 @@ where
 			context,
 			future,
 			on_drop: Mutex::new(None),
-			stop,
+			stopper,
 		};
 		Self {
 			inner: Arc::new(inner),
@@ -138,7 +138,7 @@ where
 	}
 
 	pub fn stop(&self) {
-		self.inner.stop.stop();
+		self.inner.stopper.stop();
 	}
 
 	pub async fn wait(&self) -> Result<T, Arc<tokio::task::JoinError>> {
@@ -152,7 +152,7 @@ where
 {
 	pub fn spawn<F, Fut>(f: F) -> Self
 	where
-		F: FnOnce(Stop) -> Fut,
+		F: FnOnce(Stopper) -> Fut,
 		Fut: Future<Output = T> + Send + 'static,
 	{
 		Self::spawn_with_context((), f)
@@ -160,7 +160,7 @@ where
 
 	pub fn spawn_local<F, Fut>(f: F) -> Self
 	where
-		F: FnOnce(Stop) -> Fut,
+		F: FnOnce(Stopper) -> Fut,
 		Fut: Future<Output = T> + 'static,
 	{
 		Self::spawn_local_with_context((), f)
@@ -168,7 +168,7 @@ where
 
 	pub fn spawn_blocking<F>(f: F) -> Self
 	where
-		F: FnOnce(Stop) -> T + Send + 'static,
+		F: FnOnce(Stopper) -> T + Send + 'static,
 	{
 		Self::spawn_blocking_with_context((), f)
 	}

@@ -524,7 +524,7 @@ pub trait Ext: tg::Handle {
 				async_channel::bounded::<tg::Result<tg::process::stdio::read::Event>>(16);
 
 			// Spawn a task to forward events from the input stream to the event channel.
-			let send_task = Task::spawn(move |_stop| async move {
+			let send_task = Task::spawn(move |_stopper| async move {
 				let mut input = std::pin::pin!(input);
 				while let Some(event) = input.next().await {
 					if event_sender.send(event).await.is_err() {

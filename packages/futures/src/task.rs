@@ -1,6 +1,6 @@
 use {futures::FutureExt as _, tokio_util::task::AbortOnDropHandle};
 
-pub use self::{map::Map, set::Set, shared::Task as Shared, stop::Stop};
+pub use self::{map::Map, set::Set, shared::Task as Shared, stop::Stopper};
 
 pub mod map;
 pub mod set;
@@ -11,7 +11,7 @@ pub struct Task<T, C = ()> {
 	attached: bool,
 	context: C,
 	handle: Option<tokio::task::JoinHandle<T>>,
-	stop: Stop,
+	stopper: Stopper,
 }
 
 impl<T, C> Task<T, C>
@@ -21,15 +21,15 @@ where
 {
 	pub fn spawn_with_context<F, Fut>(context: C, f: F) -> Self
 	where
-		F: FnOnce(Stop) -> Fut,
+		F: FnOnce(Stopper) -> Fut,
 		Fut: Future<Output = T> + Send + 'static,
 	{
-		let stop = Stop::new();
-		let handle = tokio::spawn(f(stop.clone()));
+		let stopper = Stopper::new();
+		let handle = tokio::spawn(f(stopper.clone()));
 		Self {
 			attached: true,
 			context,
-			stop,
+			stopper,
 			handle: Some(handle),
 		}
 	}
@@ -38,31 +38,31 @@ where
 	where
 		F: 'static,
 		Fut: Future<Output = T> + 'static,
-		F: FnOnce(Stop) -> Fut,
+		F: FnOnce(Stopper) -> Fut,
 	{
-		let stop = Stop::new();
-		let handle = tokio::task::spawn_local(f(stop.clone()));
+		let stopper = Stopper::new();
+		let handle = tokio::task::spawn_local(f(stopper.clone()));
 		Self {
 			attached: true,
 			context,
-			stop,
+			stopper,
 			handle: Some(handle),
 		}
 	}
 
 	pub fn spawn_blocking_with_context<F>(context: C, f: F) -> Self
 	where
-		F: FnOnce(Stop) -> T + Send + 'static,
+		F: FnOnce(Stopper) -> T + Send + 'static,
 	{
-		let stop = Stop::new();
+		let stopper = Stopper::new();
 		let handle = tokio::task::spawn_blocking({
-			let stop = stop.clone();
-			move || f(stop)
+			let stopper = stopper.clone();
+			move || f(stopper)
 		});
 		Self {
 			attached: true,
 			context,
-			stop,
+			stopper,
 			handle: Some(handle),
 		}
 	}
@@ -95,7 +95,7 @@ where
 	}
 
 	pub fn stop(&self) {
-		self.stop.stop();
+		self.stopper.stop();
 	}
 
 	pub fn wait(mut self) -> impl Future<Output = Result<T, tokio::task::JoinError>> {
@@ -114,7 +114,7 @@ where
 {
 	pub fn spawn<F, Fut>(f: F) -> Self
 	where
-		F: FnOnce(Stop) -> Fut,
+		F: FnOnce(Stopper) -> Fut,
 		Fut: Future<Output = T> + Send + 'static,
 	{
 		Self::spawn_with_context((), f)
@@ -124,14 +124,14 @@ where
 	where
 		F: 'static,
 		Fut: Future<Output = T> + 'static,
-		F: FnOnce(Stop) -> Fut,
+		F: FnOnce(Stopper) -> Fut,
 	{
 		Self::spawn_local_with_context((), f)
 	}
 
 	pub fn spawn_blocking<F>(f: F) -> Self
 	where
-		F: FnOnce(Stop) -> T + Send + 'static,
+		F: FnOnce(Stopper) -> T + Send + 'static,
 	{
 		Self::spawn_blocking_with_context((), f)
 	}
