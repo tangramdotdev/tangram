@@ -1,6 +1,6 @@
 use {
 	crate::{Context, Server},
-	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
+	futures::{Stream, StreamExt as _, stream},
 	indoc::formatdoc,
 	num::ToPrimitive as _,
 	std::time::Duration,
@@ -308,32 +308,45 @@ impl Server {
 			remotes: None,
 			..arg
 		};
-		let futures = remotes.iter().map(|remote| {
-			let remote = remote.clone();
-			let arg = arg.clone();
-			async move {
-				let client = self.get_remote_client(remote.clone()).await.map_err(
-					|source| tg::error!(!source, %remote, "failed to get the remote client"),
-				)?;
-				client
-					.get_process_children(id, arg)
-					.await
-					.map(futures::StreamExt::boxed)
-					.map_err(
-						|source| tg::error!(!source, %remote, "failed to get the process children"),
-					)
+		let mut error = None;
+		let mut stream = None;
+		for remote in remotes {
+			let client = match self.get_remote_client(remote.clone()).await {
+				Ok(client) => client,
+				Err(source) => {
+					error.replace(tg::error!(
+						!source,
+						%remote,
+						"failed to get the remote client"
+					));
+					continue;
+				},
+			};
+			match client
+				.try_get_process_children_stream(id, arg.clone())
+				.await
+			{
+				Ok(Some(remote_stream)) => {
+					stream.replace(remote_stream.boxed());
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					error.replace(tg::error!(
+						!source,
+						%remote,
+						"failed to get the process children"
+					));
+				},
 			}
-			.boxed()
-		});
-		let Ok((stream, _)) = future::select_ok(futures).await else {
-			return Ok(None);
-		};
-		let stream = stream
-			.map_ok(tg::process::children::get::Event::Chunk)
-			.chain(stream::once(future::ok(
-				tg::process::children::get::Event::End,
-			)));
-		Ok(Some(stream))
+		}
+		if let Some(stream) = stream {
+			return Ok(Some(stream));
+		}
+		if let Some(error) = error {
+			return Err(error);
+		}
+		Ok(None)
 	}
 
 	pub(crate) async fn handle_get_process_children_request(

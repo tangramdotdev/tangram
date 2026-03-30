@@ -1331,7 +1331,7 @@ async function runStdioTask(
 			: undefined;
 	let outputError: unknown;
 	try {
-		await outputTask(id, remote, stdout, stderr);
+		await stdoutStderrTask(id, remote, stdout, stderr);
 	} catch (error) {
 		outputError = error;
 	}
@@ -1498,7 +1498,7 @@ async function stdinTask(
 	);
 }
 
-async function outputTask(
+async function stdoutStderrTask(
 	id: tg.Process.Id,
 	remote: string | undefined,
 	stdout: "pipe" | "tty" | undefined,

@@ -145,7 +145,7 @@ type ProcessTasks = tangram_futures::task::Map<tg::process::Id, (), (), tg::id::
 
 type RemoteGetObjectTasks = tangram_futures::task::Map<
 	crate::object::get::RemoteObjectGetTaskKey,
-	tg::Result<tg::object::get::Output>,
+	tg::Result<Option<tg::object::get::Output>>,
 	(),
 	fnv::FnvBuildHasher,
 >;

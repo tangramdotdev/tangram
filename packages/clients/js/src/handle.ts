@@ -7,6 +7,10 @@ export let setHandle = (newHandle: Handle) => {
 };
 
 export type Handle = {
+	checkin(arg: tg.Handle.CheckinArg): Promise<tg.Artifact.Id>;
+
+	checkout(arg: tg.Handle.CheckoutArg): Promise<string>;
+
 	read(arg: tg.Handle.ReadArg): Promise<Uint8Array>;
 
 	write(bytes: string | Uint8Array): Promise<tg.Blob.Id>;
@@ -159,14 +163,10 @@ export namespace Handle {
 	};
 
 	export type System = {
-		checkin(arg: tg.Handle.CheckinArg): Promise<tg.Artifact.Id>;
-
 		checksum(
 			input: string | Uint8Array,
 			algorithm: tg.Checksum.Algorithm,
 		): tg.Checksum;
-
-		checkout(arg: tg.Handle.CheckoutArg): Promise<string>;
 
 		objectId(object: tg.Object.Data): tg.Object.Id;
 

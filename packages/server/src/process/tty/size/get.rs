@@ -1,6 +1,6 @@
 use {
 	crate::{Context, Server},
-	futures::{FutureExt as _, Stream, StreamExt as _, future},
+	futures::{Stream, StreamExt as _},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stop,
 	tangram_http::{
@@ -94,28 +94,45 @@ impl Server {
 			local: None,
 			remotes: None,
 		};
-		let futures = remotes.iter().map(|remote| {
-			let remote = remote.clone();
-			let arg = arg.clone();
-			async move {
-				let client = self.get_remote_client(remote.clone()).await.map_err(
-					|source| tg::error!(!source, %remote, "failed to get the remote client"),
-				)?;
-				client
-					.try_get_process_tty_size_stream(id, arg)
-					.await
-					.map_err(
-						|source| tg::error!(!source, %remote, "failed to get the process tty stream"),
-					)?
-					.ok_or_else(|| tg::error!("not found"))
-					.map(futures::StreamExt::boxed)
+		let mut error = None;
+		let mut stream = None;
+		for remote in remotes {
+			let client = match self.get_remote_client(remote.clone()).await {
+				Ok(client) => client,
+				Err(source) => {
+					error.replace(tg::error!(
+						!source,
+						%remote,
+						"failed to get the remote client"
+					));
+					continue;
+				},
+			};
+			match client
+				.try_get_process_tty_size_stream(id, arg.clone())
+				.await
+			{
+				Ok(Some(remote_stream)) => {
+					stream.replace(remote_stream.boxed());
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					error.replace(tg::error!(
+						!source,
+						%remote,
+						"failed to get the process tty stream"
+					));
+				},
 			}
-			.boxed()
-		});
-		let Ok((stream, _)) = future::select_ok(futures).await else {
-			return Ok(None);
-		};
-		Ok(Some(stream))
+		}
+		if let Some(stream) = stream {
+			return Ok(Some(stream));
+		}
+		if let Some(error) = error {
+			return Err(error);
+		}
+		Ok(None)
 	}
 
 	pub(crate) async fn handle_get_process_tty_size_request(
