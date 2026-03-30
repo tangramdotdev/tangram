@@ -1,7 +1,7 @@
 use {
 	crate::{Context, Server, database::Database},
 	futures::{
-		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
+		StreamExt as _, TryStreamExt as _, future,
 		stream::{self, FuturesUnordered},
 	},
 	tangram_client::prelude::*,
@@ -140,27 +140,25 @@ impl Server {
 		if remotes.is_empty() {
 			return Ok(None);
 		}
-		let futures = remotes.iter().map(|remote| {
-			let remote = remote.clone();
-			async move {
-				let client = self.get_remote_client(remote.clone()).await.map_err(
-					|source| tg::error!(!source, %remote, "failed to get the remote client"),
-				)?;
-				let arg = tg::process::get::Arg {
-					metadata,
-					..Default::default()
-				};
-				client
-					.try_get_process(id, arg)
-					.await
-					.map_err(
-						|source| tg::error!(!source, %id, %remote, "failed to get the process"),
-					)?
-					.ok_or_else(|| tg::error!(%id, %remote, "failed to find the process"))
+		let arg = tg::process::get::Arg {
+			metadata,
+			..Default::default()
+		};
+		let mut output = None;
+		for remote in remotes {
+			let client = self.get_remote_client(remote.clone()).await.map_err(
+				|source| tg::error!(!source, %remote, "failed to get the remote client"),
+			)?;
+			let remote_output = client
+				.try_get_process(id, arg.clone())
+				.await
+				.map_err(|source| tg::error!(!source, %id, %remote, "failed to get the process"))?;
+			if let Some(remote_output) = remote_output {
+				output = Some(remote_output);
+				break;
 			}
-			.boxed()
-		});
-		let Ok((output, _)) = future::select_ok(futures).await else {
+		}
+		let Some(output) = output else {
 			return Ok(None);
 		};
 

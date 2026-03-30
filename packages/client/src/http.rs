@@ -528,7 +528,9 @@ impl tg::Client {
 		B: http_body::Body<Data = bytes::Bytes> + Clone + Send + Unpin + 'static,
 		B::Error: Into<tangram_http::Error> + Clone + Send,
 	{
+		let client = self.clone();
 		tangram_futures::retry(&self.retry, || {
+			let client = client.clone();
 			let request = request.clone();
 			async move {
 				let request = request.boxed_body();
@@ -538,17 +540,8 @@ impl tg::Client {
 						let response = response.map(Into::into);
 						Ok(ControlFlow::Break(response))
 					},
-					Err(Error::Hyper(error))
-						if error.is_closed()
-							|| error.is_canceled()
-							|| error.is_incomplete_message()
-							|| error
-								.source()
-								.and_then(|source| source.downcast_ref::<std::io::Error>())
-								.is_some_and(|error| {
-									error.kind() == std::io::ErrorKind::ConnectionReset
-								}) =>
-					{
+					Err(Error::Hyper(error)) if is_retryable_error(&error) => {
+						client.disconnect().await;
 						Ok(ControlFlow::Continue(tg::error!(
 							!error,
 							"failed to send the request"
@@ -565,4 +558,31 @@ impl tg::Client {
 		})
 		.await
 	}
+}
+
+fn is_retryable_error(error: &hyper::Error) -> bool {
+	error.is_closed()
+		|| error.is_canceled()
+		|| error.is_incomplete_message()
+		|| io_error_kind(error).is_some_and(|kind| {
+			matches!(
+				kind,
+				std::io::ErrorKind::BrokenPipe
+					| std::io::ErrorKind::ConnectionAborted
+					| std::io::ErrorKind::ConnectionReset
+					| std::io::ErrorKind::NotConnected
+					| std::io::ErrorKind::UnexpectedEof
+			)
+		})
+}
+
+fn io_error_kind(error: &hyper::Error) -> Option<std::io::ErrorKind> {
+	let mut source = error.source();
+	while let Some(error) = source {
+		if let Some(error) = error.downcast_ref::<std::io::Error>() {
+			return Some(error.kind());
+		}
+		source = error.source();
+	}
+	None
 }

@@ -305,28 +305,20 @@ impl Server {
 			remotes: None,
 			..arg
 		};
-		let futures = remotes.iter().map(|remote| {
-			let remote = remote.clone();
-			let arg = arg.clone();
-			async move {
-				let client = self.get_remote_client(remote.clone()).await.map_err(
-					|source| tg::error!(!source, %remote, "failed to get the remote client"),
-				)?;
-				let stream = client
-					.try_read_process_stdio_all(id, arg)
-					.await
-					.map_err(
-						|source| tg::error!(!source, %remote, "failed to read the process stdio"),
-					)?
-					.map(futures::StreamExt::boxed);
-				Ok::<_, tg::Error>(stream)
+		for remote in remotes {
+			let client = self.get_remote_client(remote.clone()).await.map_err(
+				|source| tg::error!(!source, %remote, "failed to get the remote client"),
+			)?;
+			let stream = client
+				.try_read_process_stdio_all(id, arg.clone())
+				.await
+				.map_err(|source| tg::error!(!source, %remote, "failed to read the process stdio"))?
+				.map(futures::StreamExt::boxed);
+			if let Some(stream) = stream {
+				return Ok(Some(stream));
 			}
-			.boxed()
-		});
-		let Ok((stream, _)) = future::select_ok(futures).await else {
-			return Ok(None);
-		};
-		Ok(stream)
+		}
+		Ok(None)
 	}
 
 	pub async fn write_process_stdio_with_context(
