@@ -18,8 +18,11 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_download(&mut self, args: Args) -> tg::Result<()> {
+	pub async fn command_download(&mut self, mut args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
+		if args.build.spawn.checksum.is_none() {
+			args.build.spawn.checksum.replace("sha256:any".parse().unwrap());
+		}
 		let checksum = args.checksum_algorithm.or_else(|| {
 			args.build
 				.spawn
