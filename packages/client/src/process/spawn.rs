@@ -114,7 +114,7 @@ impl tg::Process {
 			return progress(stream).await;
 		}
 		let no_tty = matches!(arg.tty, Some(tg::Either::Left(false)));
-		let raw_stdin =
+		let raw =
 			arg.sandbox && arg.stdin.is_inherit() && !no_tty && std::io::stdin().is_terminal();
 		let mut tty = match arg.tty.take() {
 			Some(tg::Either::Left(true)) => {
@@ -124,7 +124,7 @@ impl tg::Process {
 			_ => None,
 		};
 		let stdin = if arg.sandbox && arg.stdin.is_inherit() {
-			let stdin = if raw_stdin {
+			let stdin = if raw {
 				tg::process::Stdio::Tty
 			} else {
 				tg::process::Stdio::Pipe
@@ -194,16 +194,7 @@ impl tg::Process {
 								let stderr = stderr.clone();
 								Some(tangram_futures::task::Shared::spawn(move |_| async move {
 									super::stdio::stdio_task(
-										handle,
-										id,
-										remote,
-										stdin,
-										stdout,
-										stderr,
-										super::stdio::StdioTaskOptions {
-											tty: tty_,
-											raw_stdin,
-										},
+										handle, id, remote, stdin, stdout, stderr, tty_, raw,
 									)
 									.await
 								}))

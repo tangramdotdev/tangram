@@ -128,12 +128,7 @@ impl std::str::FromStr for Stream {
 	}
 }
 
-#[derive(Clone, Copy)]
-pub(super) struct StdioTaskOptions {
-	pub tty: bool,
-	pub raw_stdin: bool,
-}
-
+#[expect(clippy::too_many_arguments)]
 pub(super) async fn stdio_task<H>(
 	handle: H,
 	id: tg::process::Id,
@@ -141,7 +136,8 @@ pub(super) async fn stdio_task<H>(
 	stdin: Option<tg::process::Stdio>,
 	stdout: Option<tg::process::Stdio>,
 	stderr: Option<tg::process::Stdio>,
-	options: StdioTaskOptions,
+	tty: bool,
+	raw: bool,
 ) -> tg::Result<()>
 where
 	H: tg::Handle,
@@ -150,12 +146,10 @@ where
 		let handle = handle.clone();
 		let id = id.clone();
 		let remote = remote.clone();
-		Task::spawn(move |_| async move {
-			stdin_task(&handle, id, remote, stdin, options.raw_stdin).await
-		})
+		Task::spawn(move |_| async move { stdin_task(&handle, id, remote, stdin, raw).await })
 	});
 
-	let sigwinch_task = if options.tty {
+	let sigwinch_task = if tty {
 		let handle = handle.clone();
 		let id = id.clone();
 		let remote = remote.clone();
@@ -199,7 +193,7 @@ async fn stdin_task<H>(
 	id: tg::process::Id,
 	remote: Option<String>,
 	stdin: tg::process::Stdio,
-	raw_stdin: bool,
+	raw: bool,
 ) -> tg::Result<()>
 where
 	H: tg::Handle,
@@ -208,7 +202,7 @@ where
 		return Ok(());
 	}
 	#[cfg(unix)]
-	let _raw_mode_guard = if raw_stdin {
+	let _raw_mode_guard = if raw {
 		let fd = libc::STDIN_FILENO;
 		let mut original = std::mem::MaybeUninit::<libc::termios>::uninit();
 		if unsafe { libc::tcgetattr(fd, original.as_mut_ptr()) } != 0 {
@@ -235,7 +229,7 @@ where
 		None
 	};
 	#[cfg(not(unix))]
-	let _ = raw_stdin;
+	let _ = raw;
 	let arg = tg::process::stdio::write::Arg {
 		streams: vec![tg::process::stdio::Stream::Stdin],
 		remotes: remote.map(|remote| vec![remote]),
