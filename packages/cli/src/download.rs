@@ -8,7 +8,7 @@ pub struct Args {
 	pub checksum_algorithm: Option<tg::checksum::Algorithm>,
 
 	#[command(flatten)]
-	pub build: crate::run::Options,
+	pub build: crate::process::build::Options,
 
 	#[arg(long)]
 	pub mode: Option<tg::DownloadMode>,
@@ -39,7 +39,7 @@ impl Cli {
 		let reference = tg::Reference::with_object(command.into());
 		let mut options = args.build;
 		options.spawn.network = crate::process::spawn::Network::new(true);
-		let args = crate::run::Args {
+		let args = crate::process::build::Args {
 			options,
 			reference,
 			trailing: Vec::new(),

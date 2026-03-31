@@ -11,11 +11,9 @@ pub struct Command {
 }
 
 impl Command {
-	pub fn builder(
-		host: impl Into<String>,
-		executable: impl Into<tg::command::Executable>,
-	) -> Builder {
-		Builder::new(host, executable)
+	#[must_use]
+	pub fn builder() -> Builder {
+		Builder::new()
 	}
 
 	#[must_use]

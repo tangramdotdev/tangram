@@ -1,5 +1,6 @@
 use {crate::Cli, tangram_client::prelude::*};
 
+pub mod build;
 pub mod cancel;
 pub mod children;
 pub mod get;
@@ -7,6 +8,7 @@ pub mod list;
 pub mod metadata;
 pub mod output;
 pub mod put;
+pub mod run;
 pub mod signal;
 pub mod spawn;
 pub mod status;

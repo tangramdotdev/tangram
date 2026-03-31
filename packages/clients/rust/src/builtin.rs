@@ -42,24 +42,21 @@ pub async fn archive<H>(
 where
 	H: tg::Handle,
 {
-	let output = tg::build::build(
-		handle,
-		tg::run::Arg {
-			host: Some("builtin".into()),
-			args: vec![
-				artifact.clone().into(),
-				format.to_string().into(),
-				compression
-					.map(|compression| compression.to_string())
-					.into(),
-			],
-			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
-				path: "archive".into(),
-			})),
-			..Default::default()
-		},
-	)
-	.await?;
+	let arg = tg::process::Arg {
+		host: Some("builtin".into()),
+		args: vec![
+			artifact.clone().into(),
+			format.to_string().into(),
+			compression
+				.map(|compression| compression.to_string())
+				.into(),
+		],
+		executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
+			path: "archive".into(),
+		})),
+		..Default::default()
+	};
+	let output = tg::build(handle, arg).await?;
 	let blob = output.try_into()?;
 	Ok(blob)
 }
@@ -81,25 +78,27 @@ pub fn archive_command(
 			.map(|compression| compression.to_string())
 			.into(),
 	];
-	tg::Command::builder(host, executable).args(args).build()
+	tg::Command::builder()
+		.host(host)
+		.executable(executable)
+		.args(args)
+		.finish()
+		.expect("the command builder should be complete")
 }
 
 pub async fn bundle<H>(artifact: &tg::Artifact, handle: &H) -> tg::Result<tg::Artifact>
 where
 	H: tg::Handle,
 {
-	let output = tg::build::build(
-		handle,
-		tg::run::Arg {
-			host: Some("builtin".into()),
-			args: vec![artifact.clone().into()],
-			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
-				path: "bundle".into(),
-			})),
-			..Default::default()
-		},
-	)
-	.await?;
+	let arg = tg::process::Arg {
+		host: Some("builtin".into()),
+		args: vec![artifact.clone().into()],
+		executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
+			path: "bundle".into(),
+		})),
+		..Default::default()
+	};
+	let output = tg::build(handle, arg).await?;
 	let artifact = output.try_into()?;
 	Ok(artifact)
 }
@@ -111,7 +110,12 @@ pub fn bundle_command(artifact: &tg::Artifact) -> tg::Command {
 		path: "bundle".into(),
 	});
 	let args = vec![artifact.clone().into()];
-	tg::Command::builder(host, executable).args(args).build()
+	tg::Command::builder()
+		.host(host)
+		.executable(executable)
+		.args(args)
+		.finish()
+		.expect("the command builder should be complete")
 }
 
 pub async fn checksum<H>(
@@ -122,18 +126,15 @@ pub async fn checksum<H>(
 where
 	H: tg::Handle,
 {
-	let output = tg::build::build(
-		handle,
-		tg::run::Arg {
-			host: Some("builtin".into()),
-			args: vec![input.cloned().into(), algorithm.to_string().into()],
-			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
-				path: "checksum".into(),
-			})),
-			..Default::default()
-		},
-	)
-	.await?;
+	let arg = tg::process::Arg {
+		host: Some("builtin".into()),
+		args: vec![input.cloned().into(), algorithm.to_string().into()],
+		executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
+			path: "checksum".into(),
+		})),
+		..Default::default()
+	};
+	let output = tg::build(handle, arg).await?;
 	let checksum = output
 		.try_unwrap_string()
 		.ok()
@@ -153,7 +154,12 @@ pub fn checksum_command(
 		path: "checksum".into(),
 	});
 	let args = vec![input.into(), algorithm.to_string().into()];
-	tg::Command::builder(host, executable).args(args).build()
+	tg::Command::builder()
+		.host(host)
+		.executable(executable)
+		.args(args)
+		.finish()
+		.expect("the command builder should be complete")
 }
 
 pub async fn compress<H>(
@@ -164,18 +170,15 @@ pub async fn compress<H>(
 where
 	H: tg::Handle,
 {
-	let output = tg::build::build(
-		handle,
-		tg::run::Arg {
-			host: Some("builtin".into()),
-			args: vec![input.clone().into(), format.to_string().into()],
-			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
-				path: "compress".into(),
-			})),
-			..Default::default()
-		},
-	)
-	.await?;
+	let arg = tg::process::Arg {
+		host: Some("builtin".into()),
+		args: vec![input.clone().into(), format.to_string().into()],
+		executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
+			path: "compress".into(),
+		})),
+		..Default::default()
+	};
+	let output = tg::build(handle, arg).await?;
 	let blob = output.try_into()?;
 	Ok(blob)
 }
@@ -187,25 +190,27 @@ pub fn compress_command(input: &tg::Blob, format: tg::CompressionFormat) -> tg::
 	let executable = tg::command::Executable::Path(tg::command::PathExecutable {
 		path: "compress".into(),
 	});
-	tg::Command::builder(host, executable).args(args).build()
+	tg::Command::builder()
+		.host(host)
+		.executable(executable)
+		.args(args)
+		.finish()
+		.expect("the command builder should be complete")
 }
 
 pub async fn decompress<H>(input: &tg::Blob, handle: &H) -> tg::Result<tg::Blob>
 where
 	H: tg::Handle,
 {
-	let output = tg::build::build(
-		handle,
-		tg::run::Arg {
-			host: Some("builtin".into()),
-			args: vec![input.clone().into()],
-			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
-				path: "decompress".into(),
-			})),
-			..Default::default()
-		},
-	)
-	.await?;
+	let arg = tg::process::Arg {
+		host: Some("builtin".into()),
+		args: vec![input.clone().into()],
+		executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
+			path: "decompress".into(),
+		})),
+		..Default::default()
+	};
+	let output = tg::build(handle, arg).await?;
 	let blob = output.try_into()?;
 	Ok(blob)
 }
@@ -217,7 +222,12 @@ pub fn decompress_command(input: &tg::Blob) -> tg::Command {
 	let executable = tg::command::Executable::Path(tg::command::PathExecutable {
 		path: "decompress".into(),
 	});
-	tg::Command::builder(host, executable).args(args).build()
+	tg::Command::builder()
+		.host(host)
+		.executable(executable)
+		.args(args)
+		.finish()
+		.expect("the command builder should be complete")
 }
 
 pub async fn download<H>(
@@ -229,21 +239,18 @@ pub async fn download<H>(
 where
 	H: tg::Handle,
 {
-	let output = tg::build::build(
-		handle,
-		tg::run::Arg {
-			host: Some("builtin".into()),
-			args: std::iter::once(url.to_string().into())
-				.chain(options.map(tg::Value::from))
-				.collect(),
-			checksum: Some(checksum.clone()),
-			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
-				path: "download".into(),
-			})),
-			..Default::default()
-		},
-	)
-	.await?;
+	let arg = tg::process::Arg {
+		host: Some("builtin".into()),
+		args: std::iter::once(url.to_string().into())
+			.chain(options.map(tg::Value::from))
+			.collect(),
+		checksum: Some(checksum.clone()),
+		executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
+			path: "download".into(),
+		})),
+		..Default::default()
+	};
+	let output = tg::build(handle, arg).await?;
 	let output = if output.is_blob() {
 		tg::Either::Left(output.try_into()?)
 	} else if output.is_artifact() {
@@ -264,25 +271,27 @@ pub fn download_command(url: &Uri, options: Option<DownloadOptions>) -> tg::Comm
 	let executable = tg::command::Executable::Path(tg::command::PathExecutable {
 		path: "download".into(),
 	});
-	tg::Command::builder(host, executable).args(args).build()
+	tg::Command::builder()
+		.host(host)
+		.executable(executable)
+		.args(args)
+		.finish()
+		.expect("the command builder should be complete")
 }
 
 pub async fn extract<H>(handle: &H, input: &tg::Blob) -> tg::Result<tg::Artifact>
 where
 	H: tg::Handle,
 {
-	let output = tg::build::build(
-		handle,
-		tg::run::Arg {
-			host: Some("builtin".into()),
-			args: vec![input.clone().into()],
-			executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
-				path: "extract".into(),
-			})),
-			..Default::default()
-		},
-	)
-	.await?;
+	let arg = tg::process::Arg {
+		host: Some("builtin".into()),
+		args: vec![input.clone().into()],
+		executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
+			path: "extract".into(),
+		})),
+		..Default::default()
+	};
+	let output = tg::build(handle, arg).await?;
 	let artifact = output.try_into()?;
 	Ok(artifact)
 }
@@ -294,7 +303,12 @@ pub fn extract_command(input: &tg::Blob) -> tg::Command {
 	let executable = tg::command::Executable::Path(tg::command::PathExecutable {
 		path: "extract".into(),
 	});
-	tg::Command::builder(host, executable).args(args).build()
+	tg::Command::builder()
+		.host(host)
+		.executable(executable)
+		.args(args)
+		.finish()
+		.expect("the command builder should be complete")
 }
 
 impl std::fmt::Display for ArchiveFormat {

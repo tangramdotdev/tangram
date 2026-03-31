@@ -1,9 +1,9 @@
 use {crate::Cli, tangram_client::prelude::*};
 
-pub use crate::run::Args;
+pub use crate::process::run::{Args, Options};
 
 impl Cli {
-	pub async fn command_build(&mut self, args: crate::run::Args) -> tg::Result<()> {
+	pub async fn command_build(&mut self, args: Args) -> tg::Result<()> {
 		let detach = args.options.detach;
 		let verbose = args.options.verbose;
 		let checkout = args.options.checkout.is_some();
@@ -68,7 +68,7 @@ impl Cli {
 		}
 
 		if args.options.view.is_none() {
-			args.options.view = Some(crate::run::View::Inline);
+			args.options.view = Some(crate::process::run::View::Inline);
 		}
 
 		let output = self.run(args).await?;

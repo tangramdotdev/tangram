@@ -14,21 +14,21 @@ export let archive = async (
 	format: ArchiveFormat,
 	compression?: tg.CompressionFormat,
 ): Promise<tg.Blob> => {
-	let value = await tg.build({
-		args: [artifact, format, compression],
-		executable: "archive",
-		host: "builtin",
-	});
+	let value = await tg
+		.build()
+		.host("builtin")
+		.executable("archive")
+		.args([artifact, format, compression]);
 	tg.assert(value instanceof tg.Blob);
 	return value;
 };
 
 export let bundle = async (artifact: tg.Artifact): Promise<tg.Artifact> => {
-	let value = await tg.build({
-		args: [artifact],
-		executable: "bundle",
-		host: "builtin",
-	});
+	let value = await tg
+		.build()
+		.host("builtin")
+		.executable("bundle")
+		.args([artifact]);
 	tg.assert(tg.Artifact.is(value));
 	return value;
 };
@@ -37,11 +37,11 @@ export let checksum = async (
 	input: tg.Blob | tg.Artifact,
 	algorithm: tg.Checksum.Algorithm,
 ): Promise<tg.Checksum> => {
-	let value = await tg.build({
-		args: [input, algorithm],
-		executable: "checksum",
-		host: "builtin",
-	});
+	let value = await tg
+		.build()
+		.host("builtin")
+		.executable("checksum")
+		.args([input, algorithm]);
 	tg.assert(tg.Checksum.is(value));
 	return value;
 };
@@ -50,21 +50,21 @@ export let compress = async (
 	blob: tg.Blob,
 	format: tg.CompressionFormat,
 ): Promise<tg.Blob> => {
-	let value = await tg.build({
-		args: [blob, format],
-		executable: "compress",
-		host: "builtin",
-	});
+	let value = await tg
+		.build()
+		.host("builtin")
+		.executable("compress")
+		.args([blob, format]);
 	tg.assert(value instanceof tg.Blob);
 	return value;
 };
 
 export let decompress = async (blob: tg.Blob): Promise<tg.Blob> => {
-	let value = await tg.build({
-		args: [blob],
-		executable: "decompress",
-		host: "builtin",
-	});
+	let value = await tg
+		.build()
+		.host("builtin")
+		.executable("decompress")
+		.args([blob]);
 	tg.assert(value instanceof tg.Blob);
 	return value;
 };
@@ -76,23 +76,23 @@ export let download = async (
 ): Promise<tg.Blob | tg.Artifact> => {
 	options = options ?? {};
 	options.checksum ??= tg.Checksum.algorithm(checksum);
-	let value = await tg.build({
-		args: [url, options],
-		checksum,
-		executable: "download",
-		host: "builtin",
-		network: true,
-	});
+	let value = await tg
+		.build()
+		.host("builtin")
+		.executable("download")
+		.args([url, options])
+		.checksum(checksum)
+		.network(true);
 	tg.assert(value instanceof tg.Blob || tg.Artifact.is(value));
 	return value;
 };
 
 export let extract = async (blob: tg.Blob): Promise<tg.Artifact> => {
-	let value = await tg.build({
-		args: [blob],
-		executable: "extract",
-		host: "builtin",
-	});
+	let value = await tg
+		.build()
+		.host("builtin")
+		.executable("extract")
+		.args([blob]);
 	tg.assert(tg.Artifact.is(value));
 	return value;
 };

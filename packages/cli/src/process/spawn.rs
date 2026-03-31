@@ -363,7 +363,9 @@ impl Cli {
 			tg::Object::Command(command) => {
 				let object = command.object(&handle).await?;
 				command_env = Some(object.env.clone());
-				tg::Command::builder(object.host.clone(), object.executable.clone())
+				tg::Command::builder()
+					.host(object.host.clone())
+					.executable(object.executable.clone())
 					.args(object.args.clone())
 					.cwd(object.cwd.clone())
 					.stdin(object.stdin.clone())
@@ -396,7 +398,7 @@ impl Cli {
 					module,
 					export: Some(export),
 				});
-				tg::Command::builder(host, executable)
+				tg::Command::builder().host(host).executable(executable)
 			},
 
 			tg::Object::File(file) => {
@@ -433,7 +435,7 @@ impl Cli {
 							module,
 							export: Some(export),
 						});
-					tg::Command::builder(host, executable)
+					tg::Command::builder().host(host).executable(executable)
 				} else {
 					let host = tg::host().to_owned();
 					let executable =
@@ -441,7 +443,7 @@ impl Cli {
 							artifact: file.clone().into(),
 							path: None,
 						});
-					tg::Command::builder(host, executable)
+					tg::Command::builder().host(host).executable(executable)
 				}
 			},
 
@@ -579,7 +581,7 @@ impl Cli {
 		command = command.env(env);
 
 		// Create the command and store it.
-		let command = command.build();
+		let command = command.finish()?;
 		command
 			.store(&handle)
 			.await

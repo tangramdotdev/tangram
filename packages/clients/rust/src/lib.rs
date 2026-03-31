@@ -29,7 +29,7 @@ pub use {
 		object::Handle as Object,
 		placeholder::Placeholder,
 		position::Position,
-		process::Process,
+		process::{Process, build, run},
 		range::Range,
 		reference::Reference,
 		referent::Referent,
@@ -44,7 +44,6 @@ pub use {
 
 pub mod artifact;
 pub mod blob;
-pub mod build;
 pub mod builtin;
 pub mod bytes;
 pub mod cache;
@@ -82,7 +81,6 @@ pub mod read;
 pub mod reference;
 pub mod referent;
 pub mod remote;
-pub mod run;
 pub mod symlink;
 pub mod sync;
 pub mod tag;

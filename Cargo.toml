@@ -3,7 +3,7 @@ default-members = ["packages/cli"]
 members = [
   "packages/builtin",
   "packages/cli",
-  "packages/client",
+  "packages/clients/rust",
   "packages/compiler",
   "packages/database",
   "packages/either",
@@ -151,7 +151,7 @@ syn = { version = "2", features = ["full"] }
 tempfile = "3"
 sync_wrapper = "1"
 tangram_builtin = { path = "packages/builtin" }
-tangram_client = { path = "packages/client" }
+tangram_client = { path = "packages/clients/rust" }
 tangram_compiler = { path = "packages/compiler" }
 tangram_database = { path = "packages/database" }
 tangram_either = { path = "packages/either" }

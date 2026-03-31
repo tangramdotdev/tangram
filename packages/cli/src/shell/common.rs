@@ -289,11 +289,11 @@ impl Cli {
 		&mut self,
 		reference: &tg::Reference,
 	) -> tg::Result<PathBuf> {
-		let options = crate::run::Options {
+		let options = crate::process::build::Options {
 			checkout: Some(None),
 			..Default::default()
 		};
-		let args = crate::run::Args {
+		let args = crate::process::build::Args {
 			options,
 			reference: reference.clone(),
 			trailing: Vec::new(),

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use {
 	crate::prelude::*,
 	std::{
@@ -8,10 +10,11 @@ use {
 };
 
 pub use self::{
-	data::Data, id::Id, metadata::Metadata, mount::Mount, signal::Signal, state::State,
-	status::Status, stdio::Stdio, tty::Tty, wait::Wait,
+	build::build, data::Data, id::Id, metadata::Metadata, mount::Mount, run::run, signal::Signal,
+	state::State, status::Status, stdio::Stdio, tty::Tty, wait::Wait,
 };
 
+pub mod build;
 pub mod cancel;
 pub mod children;
 pub mod data;
@@ -24,6 +27,7 @@ pub mod metadata;
 pub mod mount;
 pub mod put;
 pub mod queue;
+pub mod run;
 pub mod signal;
 pub mod spawn;
 pub mod state;
@@ -57,6 +61,29 @@ struct Unsandboxed {
 	stdout: tokio::sync::Mutex<Option<tokio::process::ChildStdout>>,
 	stderr: tokio::sync::Mutex<Option<tokio::process::ChildStderr>>,
 	task: tangram_futures::task::Shared<tg::Result<tg::process::wait::Output>>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Arg {
+	pub args: tg::value::Array,
+	pub cached: Option<bool>,
+	pub checksum: Option<tg::Checksum>,
+	pub cwd: Option<PathBuf>,
+	pub env: tg::value::Map,
+	pub executable: Option<tg::command::Executable>,
+	pub host: Option<String>,
+	pub mounts: Option<Vec<tg::process::Mount>>,
+	pub name: Option<String>,
+	pub network: Option<bool>,
+	pub parent: Option<tg::process::Id>,
+	pub progress: bool,
+	pub remote: Option<String>,
+	pub retry: bool,
+	pub sandbox: Option<bool>,
+	pub stderr: tg::process::Stdio,
+	pub stdin: tg::process::Stdio,
+	pub stdout: tg::process::Stdio,
+	pub user: Option<String>,
 }
 
 impl Process {

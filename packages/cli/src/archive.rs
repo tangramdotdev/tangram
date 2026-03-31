@@ -8,7 +8,7 @@ pub struct Args {
 	pub artifact: tg::artifact::Id,
 
 	#[command(flatten)]
-	pub build: crate::run::Options,
+	pub build: crate::process::build::Options,
 
 	#[arg(long)]
 	pub format: tg::ArchiveFormat,
@@ -29,7 +29,7 @@ impl Cli {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 		let reference = tg::Reference::with_object(command.into());
-		let args = crate::run::Args {
+		let args = crate::process::build::Args {
 			options: args.build,
 			reference,
 			trailing: Vec::new(),

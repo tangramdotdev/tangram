@@ -11,7 +11,6 @@ use {
 };
 
 mod archive;
-mod build;
 mod builtin;
 mod bundle;
 mod cache;
@@ -49,7 +48,6 @@ mod push;
 mod put;
 mod read;
 mod remote;
-mod run;
 mod sandbox;
 mod server;
 mod shell;
@@ -155,9 +153,8 @@ enum Mode {
 enum Command {
 	Archive(self::archive::Args),
 
-	/// Spawn and await a sandboxed process.
 	#[command(alias = "b")]
-	Build(self::run::Args),
+	Build(self::process::build::Args),
 
 	#[command(hide = true)]
 	Builtin(self::builtin::Args),
@@ -247,7 +244,7 @@ enum Command {
 	Remote(self::remote::Args),
 
 	#[command(alias = "r")]
-	Run(self::run::Args),
+	Run(self::process::run::Args),
 
 	#[command(hide = true)]
 	Sandbox(self::sandbox::Args),
