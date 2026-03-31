@@ -37,7 +37,7 @@ struct ManagerState {
 	tangram_path: PathBuf,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Directory(PathBuf);
 
 pub struct Sandbox(Arc<SandboxState>);
@@ -55,14 +55,14 @@ pub struct Process {
 	id: tg::process::Id,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct ManagerArg {
 	pub artifacts_path: PathBuf,
 	pub rootfs_path: PathBuf,
 	pub tangram_path: PathBuf,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct SpawnArg {
 	pub hostname: Option<String>,
 	pub mounts: Vec<tg::process::Mount>,
@@ -71,7 +71,7 @@ pub struct SpawnArg {
 	pub user: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct RunArg {
 	pub artifacts_path: PathBuf,
 	pub hostname: Option<String>,
@@ -84,7 +84,7 @@ pub struct RunArg {
 	pub user: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Command {
 	pub args: Vec<String>,
 	pub cwd: PathBuf,
@@ -95,7 +95,7 @@ pub struct Command {
 	pub stdout: Stdio,
 }
 
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Stdio {
 	Null,
 	Pipe,
@@ -293,11 +293,8 @@ impl Sandbox {
 		process: &Process,
 		size: tg::process::tty::Size,
 	) -> tg::Result<()> {
-		let arg = crate::client::tty::SizeArg {
-			id: process.id.clone(),
-			size,
-		};
-		self.client.set_tty_size(arg).await?;
+		let arg = crate::client::tty::SizeArg { size };
+		self.client.set_tty_size(&process.id, arg).await?;
 		Ok(())
 	}
 
@@ -308,11 +305,8 @@ impl Sandbox {
 	) -> tg::Result<
 		impl futures::Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static,
 	> {
-		let arg = crate::client::stdio::Arg {
-			id: process.id.clone(),
-			streams,
-		};
-		self.client.read_stdio(arg).await
+		let arg = crate::client::stdio::Arg { streams };
+		self.client.read_stdio(&process.id, arg).await
 	}
 
 	pub async fn write_stdio(
@@ -323,27 +317,18 @@ impl Sandbox {
 	) -> tg::Result<
 		impl futures::Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static,
 	> {
-		let arg = crate::client::stdio::Arg {
-			id: process.id.clone(),
-			streams,
-		};
-		self.client.write_stdio(arg, input).await
+		let arg = crate::client::stdio::Arg { streams };
+		self.client.write_stdio(&process.id, arg, input).await
 	}
 
 	pub async fn kill(&self, process: &Process, signal: tg::process::Signal) -> tg::Result<()> {
-		let arg = crate::client::kill::Arg {
-			id: process.id.clone(),
-			signal,
-		};
-		self.client.kill(arg).await?;
+		let arg = crate::client::kill::Arg { signal };
+		self.client.kill(&process.id, arg).await?;
 		Ok(())
 	}
 
 	pub async fn wait(&self, process: &Process) -> tg::Result<u8> {
-		let arg = crate::client::wait::Arg {
-			id: process.id.clone(),
-		};
-		let output = self.client.wait(arg).await?;
+		let output = self.client.wait(&process.id).await?;
 		Ok(output.status)
 	}
 }

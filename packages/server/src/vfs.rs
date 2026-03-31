@@ -2,7 +2,7 @@ use {provider::Provider, std::path::Path, tangram_client::prelude::*, tangram_vf
 
 mod provider;
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum Kind {
 	Fuse,
 	Nfs,

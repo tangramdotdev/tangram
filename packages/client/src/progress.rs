@@ -9,8 +9,8 @@ use {
 };
 
 #[derive(
-	Debug,
 	Clone,
+	Debug,
 	derive_more::IsVariant,
 	derive_more::TryUnwrap,
 	derive_more::Unwrap,

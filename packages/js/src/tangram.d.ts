@@ -1458,13 +1458,13 @@ declare namespace tg {
 			sandbox?: boolean | undefined;
 
 			/** Configure stderr. */
-			stderr?: tg.Process.Stdio.Value | undefined;
+			stderr?: tg.Process.Stdio | undefined;
 
 			/** Configure stdin, or set it to a blob. */
-			stdin?: tg.Blob.Arg | tg.Process.Stdio.Value | undefined;
+			stdin?: tg.Blob.Arg | tg.Process.Stdio | undefined;
 
 			/** Configure stdout. */
-			stdout?: tg.Process.Stdio.Value | undefined;
+			stdout?: tg.Process.Stdio | undefined;
 
 			/** Configure whether the process should allocate a tty. */
 			tty?: boolean | tg.Process.Tty | undefined;
@@ -1480,9 +1480,9 @@ declare namespace tg {
 			readonly: boolean;
 		};
 
-		export namespace Stdio {
-			export type Value = "inherit" | "log" | "null" | "pipe" | "tty";
+		export type Stdio = "inherit" | "log" | "null" | "pipe" | "tty";
 
+		export namespace Stdio {
 			export type Chunk = {
 				bytes: Uint8Array;
 				position?: number | undefined;
@@ -1504,6 +1504,28 @@ declare namespace tg {
 				export type Event =
 					| { kind: "chunk"; value: tg.Process.Stdio.Chunk }
 					| { kind: "end" };
+
+				export namespace Event {
+					export type Data =
+						| { kind: "chunk"; value: tg.Process.Stdio.Read.Event.Data.Chunk }
+						| { kind: "end" };
+
+					export namespace Data {
+						export type Chunk = {
+							bytes: string;
+							position?: number | undefined;
+							stream: tg.Process.Stdio.Stream;
+						};
+					}
+
+					export let fromData: (
+						data: tg.Process.Stdio.Read.Event.Data,
+					) => tg.Process.Stdio.Read.Event;
+
+					export let toData: (
+						event: tg.Process.Stdio.Read.Event,
+					) => tg.Process.Stdio.Read.Event.Data;
+				}
 			}
 
 			export namespace Write {
@@ -1674,19 +1696,13 @@ declare namespace tg {
 
 			sandbox(sandbox?: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
 
-			stderr(
-				stderr: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio.Value>>,
-			): this;
+			stderr(stderr: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio>>): this;
 
 			stdin(
-				stdin: tg.Unresolved<
-					tg.MaybeMutation<tg.Blob.Arg | tg.Process.Stdio.Value>
-				>,
+				stdin: tg.Unresolved<tg.MaybeMutation<tg.Blob.Arg | tg.Process.Stdio>>,
 			): this;
 
-			stdout(
-				stdout: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio.Value>>,
-			): this;
+			stdout(stdout: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio>>): this;
 
 			tty(
 				tty: tg.Unresolved<

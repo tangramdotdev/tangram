@@ -67,8 +67,8 @@ pub struct Arg {
 }
 
 #[derive(
-	Debug,
 	Clone,
+	Debug,
 	derive_more::TryUnwrap,
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
@@ -84,7 +84,7 @@ pub enum Message {
 	End,
 }
 
-#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub enum GetMessage {
 	#[tangram_serialize(id = 0)]
 	Item(GetItemMessage),
@@ -99,7 +99,7 @@ pub enum GetMessage {
 	End,
 }
 
-#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub enum GetItemMessage {
 	#[tangram_serialize(id = 0)]
 	Object(GetItemObjectMessage),
@@ -108,7 +108,7 @@ pub enum GetItemMessage {
 	Process(GetItemProcessMessage),
 }
 
-#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct GetItemObjectMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::object::Id,
@@ -117,7 +117,7 @@ pub struct GetItemObjectMessage {
 	pub eager: bool,
 }
 
-#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct GetItemProcessMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::process::Id,
@@ -174,7 +174,7 @@ pub struct GetStoredProcessMessage {
 	pub subtree_stored: bool,
 }
 
-#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub enum PutMessage {
 	#[tangram_serialize(id = 0)]
 	Item(PutItemMessage),
@@ -189,7 +189,7 @@ pub enum PutMessage {
 	End,
 }
 
-#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub enum PutItemMessage {
 	#[tangram_serialize(id = 0)]
 	Object(PutItemObjectMessage),
@@ -198,7 +198,7 @@ pub enum PutItemMessage {
 	Process(PutItemProcessMessage),
 }
 
-#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct PutItemObjectMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::object::Id,
@@ -210,7 +210,7 @@ pub struct PutItemObjectMessage {
 	pub metadata: Option<tg::object::Metadata>,
 }
 
-#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct PutItemProcessMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::process::Id,
@@ -222,7 +222,7 @@ pub struct PutItemProcessMessage {
 	pub metadata: Option<tg::process::Metadata>,
 }
 
-#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub enum PutMissingMessage {
 	#[tangram_serialize(id = 0)]
 	Object(PutMissingObjectMessage),
@@ -231,13 +231,13 @@ pub enum PutMissingMessage {
 	Process(PutMissingProcessMessage),
 }
 
-#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct PutMissingObjectMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::object::Id,
 }
 
-#[derive(Debug, Clone, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct PutMissingProcessMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::process::Id,

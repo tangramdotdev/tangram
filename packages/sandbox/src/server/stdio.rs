@@ -22,6 +22,7 @@ enum OutputEvent {
 impl Server {
 	pub async fn read_stdio(
 		&self,
+		id: tg::process::Id,
 		arg: crate::client::stdio::Arg,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>> {
 		if arg.streams.is_empty() {
@@ -41,6 +42,26 @@ impl Server {
 		if streams.is_empty() {
 			return Err(tg::error!("expected stdout or stderr for a stdio read"));
 		}
+		let streams = if streams.contains(&tg::process::stdio::Stream::Stdout)
+			&& streams.contains(&tg::process::stdio::Stream::Stderr)
+		{
+			if let Some((stdout, stderr)) = match self.processes.get(&id) {
+				Some(process) => Some((process.stdout.clone(), process.stderr.clone())),
+				None => None,
+			} {
+				let stdout_is_tty = matches!(&*stdout.lock().await, OutputStream::Pty(_));
+				let stderr_is_tty = matches!(&*stderr.lock().await, OutputStream::Pty(_));
+				if stdout_is_tty && stderr_is_tty {
+					vec![tg::process::stdio::Stream::Stdout]
+				} else {
+					streams
+				}
+			} else {
+				streams
+			}
+		} else {
+			streams
+		};
 		let (sender, receiver) =
 			tokio::sync::mpsc::channel::<tg::Result<tg::process::stdio::read::Event>>(1);
 		let (output_sender, mut output_receiver) = tokio::sync::mpsc::channel::<OutputEvent>(1);
@@ -48,21 +69,23 @@ impl Server {
 		for stream_ in streams.iter().copied() {
 			let task = Task::spawn({
 				let server = self.clone();
-				let id = arg.id.clone();
+				let id = id.clone();
 				let output_sender = output_sender.clone();
 				move |_| async move {
 					loop {
-						let Some(stdio) = server.stdio.get(&id) else {
-							break;
+						let output = match server.processes.get(&id) {
+							Some(process) => match stream_ {
+								tg::process::stdio::Stream::Stdout => process.stdout.clone(),
+								tg::process::stdio::Stream::Stderr => process.stderr.clone(),
+								tg::process::stdio::Stream::Stdin => unreachable!(),
+							},
+							None => break,
 						};
 						let result = match stream_ {
-							tg::process::stdio::Stream::Stdout => {
-								let mut stdout = stdio.stdout.lock().await;
-								read_output_chunk(&mut stdout).await
-							},
-							tg::process::stdio::Stream::Stderr => {
-								let mut stderr = stdio.stderr.lock().await;
-								read_output_chunk(&mut stderr).await
+							tg::process::stdio::Stream::Stdout
+							| tg::process::stdio::Stream::Stderr => {
+								let mut output = output.lock().await;
+								read_output_chunk(&mut output).await
 							},
 							tg::process::stdio::Stream::Stdin => {
 								unreachable!();
@@ -139,6 +162,7 @@ impl Server {
 
 	pub async fn write_stdio(
 		&self,
+		id: tg::process::Id,
 		arg: crate::client::stdio::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>> {
@@ -160,10 +184,11 @@ impl Server {
 								return;
 							},
 						};
-						let Some(stdio) = server.stdio.get(&arg.id) else {
-							break;
+						let stdin = match server.processes.get(&id) {
+							Some(process) => process.stdin.clone(),
+							None => break,
 						};
-						let mut stdin = stdio.stdin.lock().await;
+						let mut stdin = stdin.lock().await;
 						match event {
 							tg::process::stdio::read::Event::Chunk(chunk) => match &mut *stdin {
 								InputStream::Null => break,
@@ -206,17 +231,15 @@ impl Server {
 		let id: tg::process::Id = id
 			.parse()
 			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
-		let mut arg: crate::client::stdio::Arg = request
+		let arg: crate::client::stdio::Arg = request
 			.query_params()
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
 			.unwrap_or(crate::client::stdio::Arg {
-				id: id.clone(),
 				streams: Vec::new(),
 			});
-		arg.id = id;
 		let stream = self
-			.read_stdio(arg)
+			.read_stdio(id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to handle stdio"))?;
 		let stream = stream.map(
@@ -243,15 +266,13 @@ impl Server {
 		let id: tg::process::Id = id
 			.parse()
 			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
-		let mut arg: crate::client::stdio::Arg = request
+		let arg: crate::client::stdio::Arg = request
 			.query_params()
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
 			.unwrap_or(crate::client::stdio::Arg {
-				id: id.clone(),
 				streams: Vec::new(),
 			});
-		arg.id = id;
 		let input = request
 			.sse()
 			.map_err(|source| tg::error!(!source, "failed to read an event"))
@@ -268,7 +289,7 @@ impl Server {
 			})
 			.boxed();
 		let output = self
-			.write_stdio(arg, input)
+			.write_stdio(id, arg, input)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to handle stdio"))?;
 		let stream = output.map(

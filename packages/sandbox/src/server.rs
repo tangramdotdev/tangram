@@ -31,7 +31,6 @@ pub struct State {
 	#[cfg(target_os = "linux")]
 	pub(crate) pids: DashMap<libc::pid_t, tg::process::Id>,
 	pub(crate) processes: DashMap<tg::process::Id, Process>,
-	pub(crate) stdio: DashMap<tg::process::Id, Stdio>,
 	pub(crate) tangram_path: std::path::PathBuf,
 }
 
@@ -44,13 +43,10 @@ pub(crate) struct Process {
 	pub(crate) pid: libc::pid_t,
 	#[cfg(target_os = "linux")]
 	pub(crate) status: Option<u8>,
-}
-
-pub(crate) struct Stdio {
-	pub(crate) stdin: Mutex<common::InputStream>,
-	pub(crate) stdout: Mutex<common::OutputStream>,
-	pub(crate) stderr: Mutex<common::OutputStream>,
-	pub(crate) pty: Option<Mutex<common::Pty>>,
+	pub(crate) stdin: Arc<Mutex<common::InputStream>>,
+	pub(crate) stdout: Arc<Mutex<common::OutputStream>>,
+	pub(crate) stderr: Arc<Mutex<common::OutputStream>>,
+	pub(crate) pty: Option<Arc<Mutex<common::Pty>>>,
 }
 
 pub(crate) type Listener =
@@ -63,7 +59,6 @@ impl Server {
 			#[cfg(target_os = "linux")]
 			pids: DashMap::default(),
 			processes: DashMap::default(),
-			stdio: DashMap::default(),
 			tangram_path: arg.tangram_path,
 		}));
 
@@ -167,11 +162,15 @@ impl Server {
 			(http::Method::POST, ["processes", process, "stdio"]) => {
 				self.handle_write_stdio_request(request, process).boxed()
 			},
-			(http::Method::POST, ["tty", "size"]) => {
-				self.handle_set_tty_size_request(request).boxed()
+			(http::Method::POST, ["processes", process, "tty", "size"]) => {
+				self.handle_set_tty_size_request(request, process).boxed()
 			},
-			(http::Method::POST, ["kill"]) => self.handle_kill_request(request).boxed(),
-			(http::Method::POST, ["wait"]) => self.handle_wait_request(request).boxed(),
+			(http::Method::POST, ["processes", process, "kill"]) => {
+				self.handle_kill_request(request, process).boxed()
+			},
+			(http::Method::POST, ["processes", process, "wait"]) => {
+				self.handle_wait_request(request, process).boxed()
+			},
 			(_, _) => future::ok(
 				http::Response::builder()
 					.status(http::StatusCode::NOT_FOUND)

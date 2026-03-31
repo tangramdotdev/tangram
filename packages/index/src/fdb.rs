@@ -77,7 +77,7 @@ enum Response {
 	UpdateCount(usize),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 enum Key {
 	CacheEntry(tg::artifact::Id),
 	Object(tg::object::Id),

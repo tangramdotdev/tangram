@@ -10,8 +10,6 @@ use {
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub id: tg::process::Id,
-
 	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub streams: Vec<tg::process::stdio::Stream>,
@@ -20,12 +18,17 @@ pub struct Arg {
 impl Client {
 	pub async fn read_stdio(
 		&self,
+		id: &tg::process::Id,
 		arg: Arg,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>> {
 		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg)
 			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
-		let uri = format!("/processes/{}/stdio?{query}", arg.id);
+		let uri = if query.is_empty() {
+			format!("/processes/{id}/stdio")
+		} else {
+			format!("/processes/{id}/stdio?{query}")
+		};
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
@@ -62,13 +65,18 @@ impl Client {
 
 	pub async fn write_stdio(
 		&self,
+		id: &tg::process::Id,
 		arg: Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>> {
 		let method = http::Method::POST;
 		let query = serde_urlencoded::to_string(&arg)
 			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
-		let uri = format!("/processes/{}/stdio?{query}", arg.id);
+		let uri = if query.is_empty() {
+			format!("/processes/{id}/stdio")
+		} else {
+			format!("/processes/{id}/stdio?{query}")
+		};
 		let stream = stream.map(
 			|result: tg::Result<tg::process::stdio::read::Event>| match result {
 				Ok(event) => event.try_into(),

@@ -57,7 +57,10 @@ declare global {
 		id: tg.Object.Id,
 	): Promise<tg.Object.Data>;
 
-	function syscall(syscall: "handle_object_id", object: tg.Object.Data): tg.Object.Id;
+	function syscall(
+		syscall: "handle_object_id",
+		object: tg.Object.Data,
+	): tg.Object.Id;
 
 	function syscall(
 		syscall: "handle_process_get",
@@ -65,7 +68,10 @@ declare global {
 		remote: string | undefined,
 	): Promise<tg.Process.Data>;
 
-	function syscall(syscall: "handle_process_id", value: undefined): tg.Process.Id;
+	function syscall(
+		syscall: "handle_process_id",
+		value: undefined,
+	): tg.Process.Id;
 
 	function syscall(
 		syscall: "handle_process_signal",
@@ -92,7 +98,7 @@ declare global {
 	function syscall(
 		syscall: "handle_process_stdio_read_read",
 		token: number,
-	): Promise<tg.Process.Stdio.Read.Event | undefined>;
+	): Promise<tg.Process.Stdio.Read.Event.Data | undefined>;
 
 	function syscall(
 		syscall: "handle_process_stdio_write_close",
@@ -166,10 +172,7 @@ declare global {
 		value: Function,
 	): tg.Command.Data.Executable;
 
-	function syscall(
-		syscall: "host_mkdtemp",
-		value: undefined,
-	): Promise<string>;
+	function syscall(syscall: "host_mkdtemp", value: undefined): Promise<string>;
 
 	function syscall(
 		syscall: "host_read",
@@ -186,10 +189,7 @@ declare global {
 		signal: tg.Process.Signal,
 	): Promise<void>;
 
-	function syscall(
-		syscall: "host_signal_close",
-		token: number,
-	): Promise<void>;
+	function syscall(syscall: "host_signal_close", token: number): Promise<void>;
 
 	function syscall(
 		syscall: "host_signal_open",
@@ -212,14 +212,14 @@ declare global {
 		arg: tg.Host.SpawnArg,
 	): Promise<tg.Host.SpawnOutput>;
 
-	function syscall(syscall: "host_stop_close", stopper: number): Promise<void>;
+	function syscall(syscall: "host_stopper_close", stopper: number): Promise<void>;
 
 	function syscall(
-		syscall: "host_stop_open",
+		syscall: "host_stopper_open",
 		value: undefined,
 	): Promise<number>;
 
-	function syscall(syscall: "host_stop_stop", stopper: number): Promise<void>;
+	function syscall(syscall: "host_stopper_stop", stopper: number): Promise<void>;
 
 	function syscall(
 		syscall: "host_wait",

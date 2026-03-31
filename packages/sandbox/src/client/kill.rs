@@ -6,14 +6,13 @@ use {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	pub id: tg::process::Id,
 	pub signal: tg::process::Signal,
 }
 
 impl Client {
-	pub async fn kill(&self, arg: Arg) -> tg::Result<()> {
+	pub async fn kill(&self, id: &tg::process::Id, arg: Arg) -> tg::Result<()> {
 		let method = http::Method::POST;
-		let uri = "/kill";
+		let uri = format!("/processes/{id}/kill");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

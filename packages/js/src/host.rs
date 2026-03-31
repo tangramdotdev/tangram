@@ -31,7 +31,7 @@ struct Inner {
 	fds: BTreeMap<i32, Arc<AsyncFd<OwnedFd>>>,
 	processes: BTreeMap<u32, tokio::process::Child>,
 	signals: BTreeMap<usize, Arc<Signal>>,
-	stops: BTreeMap<usize, Stopper>,
+	stoppers: BTreeMap<usize, Stopper>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -147,19 +147,19 @@ impl Host {
 		length: Option<usize>,
 		stopper: Option<usize>,
 	) -> tg::Result<Option<Bytes>> {
-		let stopper = self.get_stop(stopper).await?;
+		let stopper = self.get_stopper(stopper).await?;
 		let fd_ = self.inner.lock().await.fds.get(&fd).cloned();
 		let Some(fd_) = fd_ else {
 			let length = length.unwrap_or(64 * 1024);
 			return match stopper {
-				Some(stopper) => read_with_stop(fd, length, stopper).await,
+				Some(stopper) => read_with_stopper(fd, length, stopper).await,
 				None => tokio::task::spawn_blocking(move || read(fd, length))
 					.await
 					.map_err(|source| tg::error!(!source, "the task panicked"))?,
 			};
 		};
 		let mut buffer = vec![0; length.unwrap_or(64 * 1024)];
-		let bytes_read = with_stop(stopper, async {
+		let bytes_read = with_stopper(stopper, async {
 			fd_.async_io(Interest::READABLE, |fd_| {
 				let bytes_read = unsafe {
 					libc::read(
@@ -263,8 +263,8 @@ impl Host {
 	}
 
 	pub async fn sleep(&self, duration: f64, stopper: Option<usize>) -> tg::Result<()> {
-		let stopper = self.get_stop(stopper).await?;
-		with_stop(stopper, async move {
+		let stopper = self.get_stopper(stopper).await?;
+		with_stopper(stopper, async move {
 			tokio::time::sleep(Duration::from_secs_f64(duration)).await;
 			Ok(())
 		})
@@ -370,39 +370,43 @@ impl Host {
 		})
 	}
 
-	pub async fn stop_close(&self, token: usize) -> tg::Result<()> {
+	pub async fn stopper_close(&self, token: usize) -> tg::Result<()> {
 		let stopper = self
 			.inner
 			.lock()
 			.await
-			.stops
+			.stoppers
 			.remove(&token)
-			.ok_or_else(|| tg::error!(%token, "failed to find the stop"))?;
+			.ok_or_else(|| tg::error!(%token, "failed to find the stopper"))?;
 		stopper.stop();
 		Ok(())
 	}
 
-	pub async fn stop_open(&self) -> tg::Result<usize> {
+	pub async fn stopper_open(&self) -> tg::Result<usize> {
 		let token = self.next_token.fetch_add(1, Ordering::Relaxed) + 1;
-		self.inner.lock().await.stops.insert(token, Stopper::new());
+		self.inner
+			.lock()
+			.await
+			.stoppers
+			.insert(token, Stopper::new());
 		Ok(token)
 	}
 
-	pub async fn stop_stop(&self, token: usize) -> tg::Result<()> {
+	pub async fn stopper_stop(&self, token: usize) -> tg::Result<()> {
 		let stopper = self
 			.inner
 			.lock()
 			.await
-			.stops
+			.stoppers
 			.get(&token)
 			.cloned()
-			.ok_or_else(|| tg::error!(%token, "failed to find the stop"))?;
+			.ok_or_else(|| tg::error!(%token, "failed to find the stopper"))?;
 		stopper.stop();
 		Ok(())
 	}
 
 	pub async fn wait(&self, pid: u32, stopper: Option<usize>) -> tg::Result<WaitOutput> {
-		let stopper = self.get_stop(stopper).await?;
+		let stopper = self.get_stopper(stopper).await?;
 		let mut child = self
 			.inner
 			.lock()
@@ -486,7 +490,7 @@ impl Host {
 		Ok(())
 	}
 
-	async fn get_stop(&self, token: Option<usize>) -> tg::Result<Option<Stopper>> {
+	async fn get_stopper(&self, token: Option<usize>) -> tg::Result<Option<Stopper>> {
 		let Some(token) = token else {
 			return Ok(None);
 		};
@@ -494,10 +498,10 @@ impl Host {
 			.inner
 			.lock()
 			.await
-			.stops
+			.stoppers
 			.get(&token)
 			.cloned()
-			.ok_or_else(|| tg::error!(%token, "failed to find the stop"))?;
+			.ok_or_else(|| tg::error!(%token, "failed to find the stopper"))?;
 		Ok(Some(stopper))
 	}
 }
@@ -527,7 +531,7 @@ fn exit_status_to_code(status: std::process::ExitStatus) -> tg::Result<u8> {
 	Err(tg::error!("failed to determine the exit status"))
 }
 
-async fn read_with_stop(fd: i32, length: usize, stopper: Stopper) -> tg::Result<Option<Bytes>> {
+async fn read_with_stopper(fd: i32, length: usize, stopper: Stopper) -> tg::Result<Option<Bytes>> {
 	if stopper.stopped() {
 		return Err(stopped_error());
 	}
@@ -628,7 +632,7 @@ fn pipe() -> tg::Result<(OwnedFd, OwnedFd)> {
 	Ok((read, write))
 }
 
-async fn with_stop<T, F>(stopper: Option<Stopper>, future: F) -> tg::Result<T>
+async fn with_stopper<T, F>(stopper: Option<Stopper>, future: F) -> tg::Result<T>
 where
 	F: Future<Output = tg::Result<T>>,
 {

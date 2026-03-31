@@ -5,29 +5,19 @@ use {
 };
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Arg {
-	pub id: tg::process::Id,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub status: u8,
 }
 
 impl Client {
-	pub async fn wait(&self, arg: Arg) -> tg::Result<Output> {
+	pub async fn wait(&self, id: &tg::process::Id) -> tg::Result<Output> {
 		let method = http::Method::POST;
-		let uri = "/wait";
+		let uri = format!("/processes/{id}/wait");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
-			.header(
-				http::header::CONTENT_TYPE,
-				mime::APPLICATION_JSON.to_string(),
-			)
-			.json(arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
+			.empty()
 			.unwrap();
 		let response = self
 			.send(request)

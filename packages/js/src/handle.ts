@@ -47,35 +47,33 @@ export let handle: tg.Handle = {
 		return syscall("handle_read", arg);
 	},
 
-	readProcessStdio(
+	async readProcessStdio(
 		id: tg.Process.Id,
 		arg: tg.Handle.ProcessStdioReadArg,
 	): Promise<AsyncIterableIterator<tg.Process.Stdio.Read.Event> | undefined> {
-			return (async () => {
-				let token = await syscall("handle_process_stdio_read_open", id, arg);
-				if (token === undefined) {
-					return undefined;
-				}
-				return (async function* (): AsyncIterableIterator<tg.Process.Stdio.Read.Event> {
-					try {
-						while (true) {
-							let eventData = (await syscall(
-								"handle_process_stdio_read_read",
-								token,
-							)) as tg.Process.Stdio.Read.Event.Data | undefined;
-							if (eventData === undefined) {
-								break;
-							}
-							let event = tg.Process.Stdio.Read.Event.fromData(eventData);
-							yield event;
-							if (event.kind === "end") {
-								break;
-							}
+		let token = await syscall("handle_process_stdio_read_open", id, arg);
+		if (token === undefined) {
+			return undefined;
+		}
+		return (async function* () {
+			try {
+				while (true) {
+					let eventData = await syscall(
+						"handle_process_stdio_read_read",
+						token,
+					);
+					if (eventData === undefined) {
+						break;
 					}
-				} finally {
-					await syscall("handle_process_stdio_read_close", token);
+					let event = tg.Process.Stdio.Read.Event.fromData(eventData);
+					yield event;
+					if (event.kind === "end") {
+						break;
+					}
 				}
-			})();
+			} finally {
+				await syscall("handle_process_stdio_read_close", token);
+			}
 		})();
 	},
 
@@ -109,34 +107,32 @@ export let handle: tg.Handle = {
 		return syscall("handle_write", bytes);
 	},
 
-	writeProcessStdio(
+	async writeProcessStdio(
 		id: tg.Process.Id,
 		arg: tg.Handle.ProcessStdioWriteArg,
 		input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
 	): Promise<void> {
-		return (async () => {
-			let token = await syscall("handle_process_stdio_write_open", id, arg);
-			try {
-				for await (let event of input) {
-					if (event.kind === "end") {
-						break;
-					}
-					if (!arg.streams.includes(event.value.stream)) {
-						throw new Error("invalid process stdio stream");
-					}
-					let eventData = tg.Process.Stdio.Read.Event.toData(event);
-					if (eventData.kind !== "chunk") {
-						throw new Error("invalid process stdio event");
-					}
-					await syscall(
-						"handle_process_stdio_write_write",
-						token,
-						eventData.value,
-					);
+		let token = await syscall("handle_process_stdio_write_open", id, arg);
+		try {
+			for await (let event of input) {
+				if (event.kind === "end") {
+					break;
 				}
-			} finally {
-				await syscall("handle_process_stdio_write_close", token);
+				if (!arg.streams.includes(event.value.stream)) {
+					throw new Error("invalid process stdio stream");
+				}
+				let eventData = tg.Process.Stdio.Read.Event.toData(event);
+				if (eventData.kind !== "chunk") {
+					throw new Error("invalid process stdio event");
+				}
+				await syscall(
+					"handle_process_stdio_write_write",
+					token,
+					eventData.value,
+				);
 			}
-		})();
+		} finally {
+			await syscall("handle_process_stdio_write_close", token);
+		}
 	},
 };

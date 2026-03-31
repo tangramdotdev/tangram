@@ -6,14 +6,13 @@ use {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct SizeArg {
-	pub id: tg::process::Id,
 	pub size: tg::process::tty::Size,
 }
 
 impl Client {
-	pub async fn set_tty_size(&self, arg: SizeArg) -> tg::Result<()> {
+	pub async fn set_tty_size(&self, id: &tg::process::Id, arg: SizeArg) -> tg::Result<()> {
 		let method = http::Method::POST;
-		let uri = "/tty/size";
+		let uri = format!("/processes/{id}/tty/size");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

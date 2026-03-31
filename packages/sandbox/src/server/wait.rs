@@ -3,22 +3,19 @@ use {
 	bytes::Bytes,
 	futures::stream,
 	tangram_client::prelude::*,
-	tangram_http::{body::Boxed as BoxBody, request::Ext as _, response::builder::Ext as _},
+	tangram_http::{body::Boxed as BoxBody, response::builder::Ext as _},
 };
 
 impl Server {
-	pub async fn wait(
-		&self,
-		arg: crate::client::wait::Arg,
-	) -> tg::Result<crate::client::wait::Output> {
+	pub async fn wait(&self, id: tg::process::Id) -> tg::Result<crate::client::wait::Output> {
 		#[cfg(target_os = "linux")]
 		{
 			use std::sync::Arc;
 			loop {
 				let child = self
 					.processes
-					.get_mut(&arg.id)
-					.ok_or_else(|| tg::error!(process = %arg.id, "not found"))?;
+					.get_mut(&id)
+					.ok_or_else(|| tg::error!(process = %id, "not found"))?;
 				if let Some(status) = child.status {
 					return Ok(crate::client::wait::Output { status });
 				}
@@ -33,8 +30,8 @@ impl Server {
 			use std::os::unix::process::ExitStatusExt as _;
 			let (_, mut child) = self
 				.processes
-				.remove(&arg.id)
-				.ok_or_else(|| tg::error!(process = %arg.id, "not found"))?;
+				.remove(&id)
+				.ok_or_else(|| tg::error!(process = %id, "not found"))?;
 			let status = child
 				.child
 				.wait()
@@ -50,16 +47,15 @@ impl Server {
 
 	pub(crate) async fn handle_wait_request(
 		&self,
-		request: http::Request<BoxBody>,
+		_request: http::Request<BoxBody>,
+		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
-		// Get the arg.
-		let arg = request
-			.json()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to parse the body"))?;
+		let id: tg::process::Id = id
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
 		let server = self.clone();
 		let stream = stream::once(async move {
-			let result = server.wait(arg).await;
+			let result = server.wait(id).await;
 			let bytes = match result {
 				Ok(output) => serde_json::to_vec(&output).unwrap_or_default(),
 				Err(error) => error

@@ -141,7 +141,7 @@ pub type verifier4 = [u8; NFS4_VERIFIER_SIZE];
 /*
  * Timeval
  */
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct nfstime4 {
 	pub seconds: int64_t,
 	pub nseconds: uint32_t,
@@ -153,7 +153,7 @@ pub enum time_how4 {
 	SET_TO_CLIENT_TIME4 = 1,
 }
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum settime4 {
 	SET_TO_SERVER_TIME4(nfstime4),
 	SET_TO_CLIENT_TIME4,
@@ -167,7 +167,7 @@ pub enum settime4 {
  * FSID structure for major/minor
  */
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct fsid4 {
 	pub major: uint64_t,
 	pub minor: uint64_t,
@@ -947,31 +947,31 @@ pub struct PUTFH4args {
 	pub object: nfs_fh4,
 }
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct PUTFH4res {
 	/* CURRENT_FH */
 	pub status: nfsstat4,
 }
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct PUTPUBFH4res {
 	/* CURRENT_FH: */
 	pub status: nfsstat4,
 }
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct PUTFPUBH4res {
 	/* CURRENT_FH: pub fh */
 	pub status: nfsstat4,
 }
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct PUTROOTFH4res {
 	/* CURRENT_FH: root fh */
 	pub status: nfsstat4,
 }
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct READ4args {
 	/* CURRENT_FH: file */
 	pub stateid: stateid4,

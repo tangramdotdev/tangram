@@ -10,14 +10,20 @@ use {
 };
 
 impl Server {
-	pub async fn set_tty_size(&self, arg: crate::client::tty::SizeArg) -> tg::Result<()> {
-		let child = self
-			.stdio
-			.get(&arg.id)
-			.ok_or_else(|| tg::error!(process = %arg.id, "not found"))?;
-		let Some(tty) = &child.pty else {
+	pub async fn set_tty_size(
+		&self,
+		id: tg::process::Id,
+		arg: crate::client::tty::SizeArg,
+	) -> tg::Result<()> {
+		let tty = self
+			.processes
+			.get(&id)
+			.ok_or_else(|| tg::error!(process = %id, "not found"))?
+			.pty
+			.clone();
+		let Some(tty) = tty else {
 			return Err(
-				tg::error!(process = %arg.id, "process does not have a tty associated with it"),
+				tg::error!(process = %id, "process does not have a tty associated with it"),
 			);
 		};
 		let tty = tty.lock().await;
@@ -44,7 +50,11 @@ impl Server {
 	pub(crate) async fn handle_set_tty_size_request(
 		&self,
 		request: http::Request<BoxBody>,
+		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
+		let id: tg::process::Id = id
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
 		// Get the arg.
 		let arg = request
 			.json()
@@ -52,7 +62,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to parse the body"))?;
 
 		// Set the tty size.
-		self.set_tty_size(arg)
+		self.set_tty_size(id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to set the tty size"))?;
 

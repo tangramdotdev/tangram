@@ -127,18 +127,18 @@ pub async fn spawn(
 	Ok(Serde(output))
 }
 
-pub async fn stop_close(state: Rc<State>, args: (usize,)) -> tg::Result<()> {
+pub async fn stopper_close(state: Rc<State>, args: (usize,)) -> tg::Result<()> {
 	let (stopper,) = args;
-	state.host.stop_close(stopper).await
+	state.host.stopper_close(stopper).await
 }
 
-pub async fn stop_open(state: Rc<State>, _args: (Option<String>,)) -> tg::Result<usize> {
-	state.host.stop_open().await
+pub async fn stopper_open(state: Rc<State>, _args: (Option<String>,)) -> tg::Result<usize> {
+	state.host.stopper_open().await
 }
 
-pub async fn stop_stop(state: Rc<State>, args: (usize,)) -> tg::Result<()> {
+pub async fn stopper_stop(state: Rc<State>, args: (usize,)) -> tg::Result<()> {
 	let (stopper,) = args;
-	state.host.stop_stop(stopper).await
+	state.host.stopper_stop(stopper).await
 }
 
 pub async fn wait(

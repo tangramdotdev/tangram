@@ -142,19 +142,19 @@ pub async fn spawn(
 	Result(result)
 }
 
-pub async fn stop_close(ctx: qjs::Ctx<'_>, stopper: usize) -> Result<()> {
+pub async fn stopper_close(ctx: qjs::Ctx<'_>, stopper: usize) -> Result<()> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
-	Result(state.host.stop_close(stopper).await)
+	Result(state.host.stopper_close(stopper).await)
 }
 
-pub async fn stop_open(ctx: qjs::Ctx<'_>, _value: Option<String>) -> Result<usize> {
+pub async fn stopper_open(ctx: qjs::Ctx<'_>, _value: Option<String>) -> Result<usize> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
-	Result(state.host.stop_open().await)
+	Result(state.host.stopper_open().await)
 }
 
-pub async fn stop_stop(ctx: qjs::Ctx<'_>, stopper: usize) -> Result<()> {
+pub async fn stopper_stop(ctx: qjs::Ctx<'_>, stopper: usize) -> Result<()> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
-	Result(state.host.stop_stop(stopper).await)
+	Result(state.host.stopper_stop(stopper).await)
 }
 
 pub async fn wait(

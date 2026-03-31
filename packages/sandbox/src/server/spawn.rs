@@ -4,7 +4,7 @@ use {
 		common::{AsyncPtyFd, InputStream, OutputStream, Pty, SpawnContext},
 		server::{Process, Server},
 	},
-	std::{fs::File, os::fd::OwnedFd},
+	std::{fs::File, os::fd::OwnedFd, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody,
@@ -138,6 +138,10 @@ impl Server {
 		#[cfg(target_os = "macos")]
 		let child = crate::darwin::spawn(context)?;
 
+		if let Some(pty) = &mut pty {
+			pty.slave.take();
+		}
+		let pty = pty.map(Mutex::new);
 		let process = Process {
 			#[cfg(target_os = "linux")]
 			pid,
@@ -147,17 +151,11 @@ impl Server {
 			status: None,
 			#[cfg(target_os = "linux")]
 			notify: std::sync::Arc::new(tokio::sync::Notify::new()),
+			stdin: Arc::new(Mutex::new(host_stdin)),
+			stdout: Arc::new(Mutex::new(host_stdout)),
+			stderr: Arc::new(Mutex::new(host_stderr)),
+			pty: pty.map(Arc::new),
 		};
-		if let Some(pty) = &mut pty {
-			pty.slave.take();
-		}
-		let stdio = super::Stdio {
-			stdin: Mutex::new(host_stdin),
-			stdout: Mutex::new(host_stdout),
-			stderr: Mutex::new(host_stderr),
-			pty: pty.map(Mutex::new),
-		};
-		self.stdio.insert(id.clone(), stdio);
 		self.processes.insert(id.clone(), process);
 
 		Ok(crate::client::spawn::Output { id })

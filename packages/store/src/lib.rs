@@ -46,7 +46,7 @@ pub struct DeleteProcessLogArg {
 	pub process: tg::process::Id,
 }
 
-#[derive(Debug, Clone, tangram_serialize::Serialize, tangram_serialize::Deserialize)]
+#[derive(Clone, Debug, tangram_serialize::Serialize, tangram_serialize::Deserialize)]
 pub struct Object<'a> {
 	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
 	pub bytes: Option<Cow<'a, [u8]>>,
@@ -81,7 +81,7 @@ pub struct CachePointer {
 	pub position: u64,
 }
 
-#[derive(Debug, Clone, tangram_serialize::Serialize, tangram_serialize::Deserialize)]
+#[derive(Clone, Debug, tangram_serialize::Serialize, tangram_serialize::Deserialize)]
 pub struct ProcessLogEntry<'a> {
 	#[tangram_serialize(id = 0)]
 	pub bytes: Cow<'a, [u8]>,

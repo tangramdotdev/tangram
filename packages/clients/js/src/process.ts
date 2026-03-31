@@ -1429,7 +1429,7 @@ export namespace Process {
 							remotes: remote !== undefined ? [remote] : undefined,
 							streams: [stream],
 						},
-						(async function* (): AsyncIterableIterator<tg.Process.Stdio.Read.Event> {
+						(async function* () {
 							yield { kind: "end" };
 						})(),
 					);
@@ -1461,7 +1461,7 @@ export namespace Process {
 						remotes: remote !== undefined ? [remote] : undefined,
 						streams: [stream],
 					},
-					(async function* (): AsyncIterableIterator<tg.Process.Stdio.Read.Event> {
+					(async function* () {
 						yield {
 							kind: "chunk",
 							value: {
@@ -1578,35 +1578,36 @@ async function stdioTask(
 ): Promise<void> {
 	let stdinError: unknown;
 	let stdinClosing = false;
-	let stdinListener = stdin !== undefined ? tg.host.stdin(4096) : undefined;
+	let stdinStopper =
+		stdin !== undefined ? await tg.host.stopperOpen() : undefined;
 	let stdinTask_ =
-		stdinListener !== undefined
-			? stdinTask(id, remote, stdinListener).catch((error) => {
+		stdinStopper !== undefined
+			? stdinTask(id, remote, stdinStopper).catch((error) => {
 					if (!stdinClosing) {
 						stdinError = error;
 					}
 				})
 			: undefined;
 	let sigwinchError: unknown;
-	let signalListener = tty ? tg.host.listenSignal("sigwinch") : undefined;
+	let sigwinchListener = tty ? tg.host.listenSignal("sigwinch") : undefined;
 	let sigwinchTask_ =
-		signalListener !== undefined
-			? sigwinchTask(id, remote, signalListener).catch((error) => {
+		sigwinchListener !== undefined
+			? sigwinchTask(id, remote, sigwinchListener).catch((error) => {
 					sigwinchError = error;
 				})
 			: undefined;
-	let outputError: unknown;
+	let stdoutStderrError: unknown;
 	try {
-		await stdoutStderrTask(id, remote, stdout, stderr);
-	} catch (error) {
-		outputError = error;
-	}
-	if (stdinListener !== undefined) {
-		stdinClosing = true;
-		await stdinListener.close();
-	}
-	if (signalListener !== undefined) {
-		await signalListener.close();
+		stdoutStderrError = await stdoutStderrTask(id, remote, stdout, stderr).then(
+			() => undefined,
+			(error) => error,
+		);
+		if (stdinStopper !== undefined) {
+			stdinClosing = true;
+			await tg.host.stopperStop(stdinStopper);
+		}
+	} finally {
+		await cleanupStdio(stdinStopper, sigwinchListener);
 	}
 	if (stdinTask_ !== undefined) {
 		await stdinTask_;
@@ -1620,19 +1621,41 @@ async function stdioTask(
 	if (sigwinchError !== undefined) {
 		throw sigwinchError;
 	}
-	if (outputError !== undefined) {
-		throw outputError;
+	if (stdoutStderrError !== undefined) {
+		throw stdoutStderrError;
+	}
+}
+
+async function cleanupStdio(
+	stdinStopper: tg.Host.Stopper | undefined,
+	sigwinchListener: tg.Host.SignalListener | undefined,
+): Promise<void> {
+	try {
+		if (sigwinchListener !== undefined) {
+			await sigwinchListener.close();
+		}
+	} finally {
+		if (stdinStopper !== undefined) {
+			await tg.host.stopperClose(stdinStopper);
+		}
 	}
 }
 
 async function stdinTask(
 	id: tg.Process.Id,
 	remote: string | undefined,
-	stdinListener: tg.Host.StdinListener,
+	stopper: tg.Host.Stopper,
 ): Promise<void> {
 	let input =
 		(async function* (): AsyncIterableIterator<tg.Process.Stdio.Read.Event> {
-			for await (let bytes of stdinListener) {
+			while (true) {
+				let bytes = await tg.host.read(0, 4096, stopper);
+				if (bytes === undefined) {
+					break;
+				}
+				if (bytes.length === 0) {
+					continue;
+				}
 				yield {
 					kind: "chunk",
 					value: {

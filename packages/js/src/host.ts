@@ -60,20 +60,16 @@ export let host: tg.Host = {
 		return syscall("host_spawn", arg);
 	},
 
-	stopClose(stopper: tg.Host.Stopper): Promise<void> {
-		return syscall("host_stop_close", stopper);
+	stopperClose(stopper: tg.Host.Stopper): Promise<void> {
+		return syscall("host_stopper_close", stopper);
 	},
 
-	stopOpen(): Promise<tg.Host.Stopper> {
-		return syscall("host_stop_open", undefined);
+	stopperOpen(): Promise<tg.Host.Stopper> {
+		return syscall("host_stopper_open", undefined);
 	},
 
-	stopStop(stopper: tg.Host.Stopper): Promise<void> {
-		return syscall("host_stop_stop", stopper);
-	},
-
-	stdin(length?: number | undefined): tg.Host.StdinListener {
-		return stdin(length);
+	stopperStop(stopper: tg.Host.Stopper): Promise<void> {
+		return syscall("host_stopper_stop", stopper);
 	},
 
 	wait(
@@ -120,50 +116,6 @@ function listenSignal(signal: tg.Host.Signal): tg.Host.SignalListener {
 					closed = true;
 					await syscall("host_signal_close", token);
 				}
-			}
-		},
-	};
-}
-
-function stdin(length?: number | undefined): tg.Host.StdinListener {
-	let closed = false;
-	let released = false;
-	let stopperPromise = syscall("host_stop_open", undefined);
-	let release = async () => {
-		if (released) {
-			return;
-		}
-		released = true;
-		let stopper = await stopperPromise;
-		await syscall("host_stop_close", stopper);
-	};
-	return {
-		async close(): Promise<void> {
-			if (closed) {
-				return;
-			}
-			closed = true;
-			let stopper = await stopperPromise;
-			await syscall("host_stop_stop", stopper);
-			await release();
-		},
-
-		async *[Symbol.asyncIterator](): AsyncIterator<Uint8Array> {
-			let stopper = await stopperPromise;
-			try {
-				while (!closed) {
-					let bytes = await syscall("host_read", 0, length, stopper);
-					if (bytes === undefined) {
-						break;
-					}
-					if (bytes.length === 0) {
-						continue;
-					}
-					yield bytes;
-				}
-			} finally {
-				closed = true;
-				await release();
 			}
 		},
 	};

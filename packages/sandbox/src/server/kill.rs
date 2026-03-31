@@ -9,11 +9,11 @@ use {
 };
 
 impl Server {
-	pub async fn kill(&self, arg: crate::client::kill::Arg) -> tg::Result<()> {
+	pub async fn kill(&self, id: tg::process::Id, arg: crate::client::kill::Arg) -> tg::Result<()> {
 		let child = self
 			.processes
-			.get(&arg.id)
-			.ok_or_else(|| tg::error!(process = %arg.id, "not found"))?;
+			.get(&id)
+			.ok_or_else(|| tg::error!(process = %id, "not found"))?;
 		let signal = match arg.signal {
 			tg::process::Signal::SIGABRT => libc::SIGABRT,
 			tg::process::Signal::SIGALRM => libc::SIGALRM,
@@ -49,7 +49,7 @@ impl Server {
 			if result != 0 {
 				let error = std::io::Error::last_os_error();
 				return Err(
-					tg::error!(!error, process = %arg.id, signal = %arg.signal, "failed to signal process"),
+					tg::error!(!error, process = %id, signal = %arg.signal, "failed to signal process"),
 				);
 			}
 		}
@@ -59,7 +59,11 @@ impl Server {
 	pub(crate) async fn handle_kill_request(
 		&self,
 		request: http::Request<BoxBody>,
+		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
+		let id: tg::process::Id = id
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
 		// Get the arg.
 		let arg = request
 			.json()
@@ -67,7 +71,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to parse the body"))?;
 
 		// Kill.
-		self.kill(arg)
+		self.kill(id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to kill"))?;
 

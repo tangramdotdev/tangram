@@ -37,13 +37,11 @@ export type Host = {
 
 	spawn(arg: tg.Host.SpawnArg): Promise<tg.Host.SpawnOutput>;
 
-	stopClose(stopper: tg.Host.Stopper): Promise<void>;
+	stopperClose(stopper: tg.Host.Stopper): Promise<void>;
 
-	stopOpen(): Promise<tg.Host.Stopper>;
+	stopperOpen(): Promise<tg.Host.Stopper>;
 
-	stopStop(stopper: tg.Host.Stopper): Promise<void>;
-
-	stdin(length?: number | undefined): tg.Host.StdinListener;
+	stopperStop(stopper: tg.Host.Stopper): Promise<void>;
 
 	wait(
 		pid: number,
@@ -63,10 +61,6 @@ export namespace Host {
 	export type Stdio = "inherit" | "null" | "pipe";
 
 	export type SignalListener = AsyncIterable<void> & {
-		close(): Promise<void>;
-	};
-
-	export type StdinListener = AsyncIterable<Uint8Array> & {
 		close(): Promise<void>;
 	};
 

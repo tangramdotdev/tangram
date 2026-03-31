@@ -50,7 +50,8 @@ def remove_temp_directory [path: string] {
 	}
 
 	force_unmount_vfs $path
-	try { chmod -R +w $path }
+	# Restore owner traversal permissions so Nushell can descend into sandbox scratch directories.
+	try { chmod -R u+rwx $path }
 	rm -rf $path
 }
 
