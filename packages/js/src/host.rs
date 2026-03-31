@@ -32,6 +32,7 @@ struct Inner {
 	processes: BTreeMap<u32, tokio::process::Child>,
 	signals: BTreeMap<usize, Arc<Signal>>,
 	stoppers: BTreeMap<usize, Stopper>,
+	termios: BTreeMap<i32, libc::termios>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -88,37 +89,39 @@ impl Host {
 		Ok(())
 	}
 
+	pub async fn disable_raw_mode(&self, fd: i32) -> tg::Result<()> {
+		let original = {
+			let mut inner = self.inner.lock().await;
+			inner
+				.termios
+				.remove(&fd)
+				.ok_or_else(|| tg::error!(%fd, "failed to find the file descriptor raw mode"))?
+		};
+		if let Err(error) = set_termios(fd, &original) {
+			self.inner.lock().await.termios.insert(fd, original);
+			return Err(error);
+		}
+		Ok(())
+	}
+
+	pub async fn enable_raw_mode(&self, fd: i32) -> tg::Result<()> {
+		let mut inner = self.inner.lock().await;
+		if inner.termios.contains_key(&fd) {
+			return Ok(());
+		}
+		let original = get_termios(fd)?;
+		let raw = raw_termios(&original);
+		set_termios(fd, &raw)?;
+		inner.termios.insert(fd, original);
+		Ok(())
+	}
+
 	pub async fn exists(&self, path: String) -> tg::Result<bool> {
 		let path = PathBuf::from(path);
 		let exists = tokio::fs::try_exists(&path).await.map_err(
 			|source| tg::error!(!source, path = %path.display(), "failed to determine if the path exists"),
 		)?;
 		Ok(exists)
-	}
-
-	pub async fn getxattr(&self, path: String, name: String) -> tg::Result<Option<Bytes>> {
-		let path_ = PathBuf::from(path);
-		let path_display = path_.display().to_string();
-		let path_for_task = path_.clone();
-		let name_for_task = name.clone();
-		let bytes = tokio::task::spawn_blocking(move || xattr::get(&path_for_task, &name_for_task))
-			.await
-			.map_err(|source| tg::error!(!source, "the xattr task panicked"))?
-			.map_err(
-				|source| tg::error!(!source, path = %path_display, %name, "failed to read the xattr"),
-			)?;
-		Ok(bytes.map(Bytes::from))
-	}
-
-	pub async fn mkdtemp(&self) -> tg::Result<String> {
-		let path = tempfile::tempdir()
-			.map_err(|source| tg::error!(!source, "failed to create a temp directory"))?
-			.keep();
-		let path = path
-			.into_os_string()
-			.into_string()
-			.map_err(|path| tg::error!(?path, "failed to convert the temp directory path"))?;
-		Ok(path)
 	}
 
 	pub fn get_tty_size() -> Option<tg::process::tty::Size> {
@@ -139,6 +142,71 @@ impl Host {
 			cols: size.ws_col,
 			rows: size.ws_row,
 		})
+	}
+
+	pub async fn getxattr(&self, path: String, name: String) -> tg::Result<Option<Bytes>> {
+		let path_ = PathBuf::from(path);
+		let path_display = path_.display().to_string();
+		let path_for_task = path_.clone();
+		let name_for_task = name.clone();
+		let bytes = tokio::task::spawn_blocking(move || xattr::get(&path_for_task, &name_for_task))
+			.await
+			.map_err(|source| tg::error!(!source, "the xattr task panicked"))?
+			.map_err(
+				|source| tg::error!(!source, path = %path_display, %name, "failed to read the xattr"),
+			)?;
+		Ok(bytes.map(Bytes::from))
+	}
+
+	pub fn is_tty(fd: i32) -> bool {
+		unsafe { libc::isatty(fd) == 1 }
+	}
+
+	pub async fn listen_signal_close(&self, token: usize) {
+		let signal = self.inner.lock().await.signals.remove(&token);
+		if let Some(signal) = signal {
+			let _ = signal.stop.send(true);
+		}
+	}
+
+	pub async fn listen_signal_open(&self, kind: SignalKind) -> tg::Result<usize> {
+		let signal_kind = match kind {
+			SignalKind::Sigwinch => tokio::signal::unix::SignalKind::window_change(),
+		};
+		let signal = tokio::signal::unix::signal(signal_kind)
+			.map_err(|source| tg::error!(!source, "failed to create the signal handler"))?;
+		let (stop, _) = tokio::sync::watch::channel(false);
+		let token = self.next_token.fetch_add(1, Ordering::Relaxed) + 1;
+		let signal = Arc::new(Signal {
+			signal: tokio::sync::Mutex::new(signal),
+			stop,
+		});
+		self.inner.lock().await.signals.insert(token, signal);
+		Ok(token)
+	}
+
+	pub async fn listen_signal_read(&self, token: usize) -> tg::Result<Option<()>> {
+		let signal = self.inner.lock().await.signals.get(&token).cloned();
+		let Some(signal) = signal else {
+			return Ok(None);
+		};
+		let mut stop = signal.stop.subscribe();
+		let mut signal_ = signal.signal.lock().await;
+		tokio::select! {
+			value = signal_.recv() => Ok(value),
+			_ = stop.changed() => Ok(None),
+		}
+	}
+
+	pub async fn mkdtemp(&self) -> tg::Result<String> {
+		let path = tempfile::tempdir()
+			.map_err(|source| tg::error!(!source, "failed to create a temp directory"))?
+			.keep();
+		let path = path
+			.into_os_string()
+			.into_string()
+			.map_err(|path| tg::error!(?path, "failed to convert the temp directory path"))?;
+		Ok(path)
 	}
 
 	pub async fn read(
@@ -183,46 +251,6 @@ impl Host {
 		}
 		buffer.truncate(bytes_read);
 		Ok(Some(buffer.into()))
-	}
-
-	pub fn is_tty(fd: i32) -> bool {
-		unsafe { libc::isatty(fd) == 1 }
-	}
-
-	pub async fn listen_signal_close(&self, token: usize) {
-		let signal = self.inner.lock().await.signals.remove(&token);
-		if let Some(signal) = signal {
-			let _ = signal.stop.send(true);
-		}
-	}
-
-	pub async fn listen_signal_read(&self, token: usize) -> tg::Result<Option<()>> {
-		let signal = self.inner.lock().await.signals.get(&token).cloned();
-		let Some(signal) = signal else {
-			return Ok(None);
-		};
-		let mut stop = signal.stop.subscribe();
-		let mut signal_ = signal.signal.lock().await;
-		tokio::select! {
-			value = signal_.recv() => Ok(value),
-			_ = stop.changed() => Ok(None),
-		}
-	}
-
-	pub async fn listen_signal_open(&self, kind: SignalKind) -> tg::Result<usize> {
-		let signal_kind = match kind {
-			SignalKind::Sigwinch => tokio::signal::unix::SignalKind::window_change(),
-		};
-		let signal = tokio::signal::unix::signal(signal_kind)
-			.map_err(|source| tg::error!(!source, "failed to create the signal handler"))?;
-		let (stop, _) = tokio::sync::watch::channel(false);
-		let token = self.next_token.fetch_add(1, Ordering::Relaxed) + 1;
-		let signal = Arc::new(Signal {
-			signal: tokio::sync::Mutex::new(signal),
-			stop,
-		});
-		self.inner.lock().await.signals.insert(token, signal);
-		Ok(token)
 	}
 
 	pub async fn remove(&self, path: String) -> tg::Result<()> {
@@ -531,6 +559,18 @@ fn exit_status_to_code(status: std::process::ExitStatus) -> tg::Result<u8> {
 	Err(tg::error!("failed to determine the exit status"))
 }
 
+fn get_termios(fd: i32) -> tg::Result<libc::termios> {
+	let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
+	if unsafe { libc::tcgetattr(fd, termios.as_mut_ptr()) } != 0 {
+		return Err(tg::error!(
+			source = std::io::Error::last_os_error(),
+			%fd,
+			"failed to get the file descriptor termios"
+		));
+	}
+	Ok(unsafe { termios.assume_init() })
+}
+
 async fn read_with_stopper(fd: i32, length: usize, stopper: Stopper) -> tg::Result<Option<Bytes>> {
 	if stopper.stopped() {
 		return Err(stopped_error());
@@ -630,6 +670,25 @@ fn pipe() -> tg::Result<(OwnedFd, OwnedFd)> {
 	let read = unsafe { OwnedFd::from_raw_fd(fds[0]) };
 	let write = unsafe { OwnedFd::from_raw_fd(fds[1]) };
 	Ok((read, write))
+}
+
+fn raw_termios(termios: &libc::termios) -> libc::termios {
+	let mut termios = unsafe { std::ptr::read(termios) };
+	unsafe {
+		libc::cfmakeraw(std::ptr::addr_of_mut!(termios));
+	}
+	termios
+}
+
+fn set_termios(fd: i32, termios: &libc::termios) -> tg::Result<()> {
+	if unsafe { libc::tcsetattr(fd, libc::TCSAFLUSH, std::ptr::from_ref(termios)) } != 0 {
+		return Err(tg::error!(
+			source = std::io::Error::last_os_error(),
+			%fd,
+			"failed to set the file descriptor termios"
+		));
+	}
+	Ok(())
 }
 
 async fn with_stopper<T, F>(stopper: Option<Stopper>, future: F) -> tg::Result<T>

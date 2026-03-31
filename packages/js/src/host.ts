@@ -5,6 +5,14 @@ export let host: tg.Host = {
 		return syscall("host_close", fd);
 	},
 
+	disableRawMode(fd: number): Promise<void> {
+		return syscall("host_disable_raw_mode", fd);
+	},
+
+	enableRawMode(fd: number): Promise<void> {
+		return syscall("host_enable_raw_mode", fd);
+	},
+
 	exists(path: string): Promise<boolean> {
 		return syscall("host_exists", path);
 	},

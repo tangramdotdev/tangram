@@ -9,6 +9,10 @@ export let setHost = (newHost: Host) => {
 export type Host = {
 	close(fd: number): Promise<void>;
 
+	disableRawMode(fd: number): Promise<void>;
+
+	enableRawMode(fd: number): Promise<void>;
+
 	exists(path: string): Promise<boolean>;
 
 	getTtySize(): tg.Process.Tty.Size | undefined;

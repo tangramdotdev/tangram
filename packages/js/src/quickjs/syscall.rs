@@ -80,6 +80,12 @@ pub fn syscall<'js>(
 		"handle_value_stringify" => qjs::Function::new(ctx.clone(), self::handle::value_stringify),
 		"handle_write" => qjs::Function::new(ctx.clone(), Async(self::handle::write)),
 		"host_close" => qjs::Function::new(ctx.clone(), Async(self::host::close)),
+		"host_disable_raw_mode" => {
+			qjs::Function::new(ctx.clone(), Async(self::host::disable_raw_mode))
+		},
+		"host_enable_raw_mode" => {
+			qjs::Function::new(ctx.clone(), Async(self::host::enable_raw_mode))
+		},
 		"host_exists" => qjs::Function::new(ctx.clone(), Async(self::host::exists)),
 		"host_get_tty_size" => qjs::Function::new(ctx.clone(), self::host::get_tty_size),
 		"host_get_xattr" => qjs::Function::new(ctx.clone(), Async(self::host::getxattr)),

@@ -152,6 +152,10 @@ declare global {
 
 	function syscall(syscall: "host_close", fd: number): Promise<void>;
 
+	function syscall(syscall: "host_disable_raw_mode", fd: number): Promise<void>;
+
+	function syscall(syscall: "host_enable_raw_mode", fd: number): Promise<void>;
+
 	function syscall(syscall: "host_exists", path: string): Promise<boolean>;
 
 	function syscall(

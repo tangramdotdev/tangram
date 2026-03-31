@@ -1581,8 +1581,8 @@ async function stdioTask(
 	let stdinStopper =
 		stdin !== undefined ? await tg.host.stopperOpen() : undefined;
 	let stdinTask_ =
-		stdinStopper !== undefined
-			? stdinTask(id, remote, stdinStopper).catch((error) => {
+		stdin !== undefined && stdinStopper !== undefined
+			? stdinTask(id, remote, stdin, stdinStopper).catch((error) => {
 					if (!stdinClosing) {
 						stdinError = error;
 					}
@@ -1644,37 +1644,60 @@ async function cleanupStdio(
 async function stdinTask(
 	id: tg.Process.Id,
 	remote: string | undefined,
+	stdin: "pipe" | "tty",
 	stopper: tg.Host.Stopper,
 ): Promise<void> {
-	let input =
-		(async function* (): AsyncIterableIterator<tg.Process.Stdio.Read.Event> {
-			while (true) {
-				let bytes = await tg.host.read(0, 4096, stopper);
-				if (bytes === undefined) {
-					break;
+	let error: unknown;
+	let raw = stdin === "tty";
+	if (raw) {
+		await tg.host.enableRawMode(0);
+	}
+	try {
+		let input =
+			(async function* (): AsyncIterableIterator<tg.Process.Stdio.Read.Event> {
+				while (true) {
+					let bytes = await tg.host.read(0, 4096, stopper);
+					if (bytes === undefined) {
+						break;
+					}
+					if (bytes.length === 0) {
+						continue;
+					}
+					yield {
+						kind: "chunk",
+						value: {
+							bytes,
+							stream: "stdin",
+						},
+					};
 				}
-				if (bytes.length === 0) {
-					continue;
+				yield { kind: "end" };
+			})();
+		await tg.handle.writeProcessStdio(
+			id,
+			{
+				local: undefined,
+				remotes: remote !== undefined ? [remote] : undefined,
+				streams: ["stdin"],
+			},
+			input,
+		);
+	} catch (error_) {
+		error = error_;
+	} finally {
+		if (raw) {
+			try {
+				await tg.host.disableRawMode(0);
+			} catch (disableError) {
+				if (error === undefined) {
+					error = disableError;
 				}
-				yield {
-					kind: "chunk",
-					value: {
-						bytes,
-						stream: "stdin",
-					},
-				};
 			}
-			yield { kind: "end" };
-		})();
-	await tg.handle.writeProcessStdio(
-		id,
-		{
-			local: undefined,
-			remotes: remote !== undefined ? [remote] : undefined,
-			streams: ["stdin"],
-		},
-		input,
-	);
+		}
+	}
+	if (error !== undefined) {
+		throw error;
+	}
 }
 
 async function stdoutStderrTask(

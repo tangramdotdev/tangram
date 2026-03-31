@@ -11,6 +11,16 @@ pub async fn close(state: Rc<State>, args: (i32,)) -> tg::Result<()> {
 	state.host.close(fd).await
 }
 
+pub async fn disable_raw_mode(state: Rc<State>, args: (i32,)) -> tg::Result<()> {
+	let (fd,) = args;
+	state.host.disable_raw_mode(fd).await
+}
+
+pub async fn enable_raw_mode(state: Rc<State>, args: (i32,)) -> tg::Result<()> {
+	let (fd,) = args;
+	state.host.enable_raw_mode(fd).await
+}
+
 pub async fn exists(state: Rc<State>, args: (String,)) -> tg::Result<bool> {
 	let (path,) = args;
 	state.host.exists(path).await

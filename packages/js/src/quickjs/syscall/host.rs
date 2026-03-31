@@ -10,6 +10,16 @@ pub async fn close(ctx: qjs::Ctx<'_>, fd: i32) -> Result<()> {
 	Result(state.host.close(fd).await)
 }
 
+pub async fn disable_raw_mode(ctx: qjs::Ctx<'_>, fd: i32) -> Result<()> {
+	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	Result(state.host.disable_raw_mode(fd).await)
+}
+
+pub async fn enable_raw_mode(ctx: qjs::Ctx<'_>, fd: i32) -> Result<()> {
+	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	Result(state.host.enable_raw_mode(fd).await)
+}
+
 pub async fn exists(ctx: qjs::Ctx<'_>, path: String) -> Result<bool> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	Result(state.host.exists(path).await)
