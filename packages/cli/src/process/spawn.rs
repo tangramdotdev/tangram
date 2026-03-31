@@ -232,7 +232,6 @@ pub struct Tty {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Output {
-	pub cached: bool,
 	pub process: tg::Referent<tg::Process>,
 }
 
@@ -289,7 +288,7 @@ impl Cli {
 
 		if args.verbose {
 			let output = tg::process::spawn::Output {
-				cached: output.cached,
+				cached: output.process.item().cached().unwrap_or(false),
 				process: output.process.item().id().clone(),
 				remote: output.process.item().remote().cloned(),
 				token: output.process.item().token().cloned(),
@@ -664,8 +663,7 @@ impl Cli {
 		})
 		.await
 		.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
-		let cached = output.cached;
-		let process = output.process;
+		let process = output;
 
 		// Tag the process if requested.
 		if let Some(tag) = options.tag {
@@ -684,6 +682,6 @@ impl Cli {
 
 		let process = referent.replace(process).0;
 
-		Ok(Output { cached, process })
+		Ok(Output { process })
 	}
 }

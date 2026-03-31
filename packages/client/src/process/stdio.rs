@@ -128,6 +128,12 @@ impl std::str::FromStr for Stream {
 	}
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct StdioTaskOptions {
+	pub tty: bool,
+	pub raw_stdin: bool,
+}
+
 pub(super) async fn stdio_task<H>(
 	handle: H,
 	id: tg::process::Id,
@@ -135,7 +141,7 @@ pub(super) async fn stdio_task<H>(
 	stdin: Option<tg::process::Stdio>,
 	stdout: Option<tg::process::Stdio>,
 	stderr: Option<tg::process::Stdio>,
-	tty: bool,
+	options: StdioTaskOptions,
 ) -> tg::Result<()>
 where
 	H: tg::Handle,
@@ -144,10 +150,12 @@ where
 		let handle = handle.clone();
 		let id = id.clone();
 		let remote = remote.clone();
-		Task::spawn(move |_| async move { stdin_task(&handle, id, remote, stdin).await })
+		Task::spawn(move |_| async move {
+			stdin_task(&handle, id, remote, stdin, options.raw_stdin).await
+		})
 	});
 
-	let sigwinch_task = if tty {
+	let sigwinch_task = if options.tty {
 		let handle = handle.clone();
 		let id = id.clone();
 		let remote = remote.clone();
@@ -191,6 +199,7 @@ async fn stdin_task<H>(
 	id: tg::process::Id,
 	remote: Option<String>,
 	stdin: tg::process::Stdio,
+	raw_stdin: bool,
 ) -> tg::Result<()>
 where
 	H: tg::Handle,
@@ -198,6 +207,35 @@ where
 	if !matches!(stdin, tg::process::Stdio::Pipe | tg::process::Stdio::Tty) {
 		return Ok(());
 	}
+	#[cfg(unix)]
+	let _raw_mode_guard = if raw_stdin {
+		let fd = libc::STDIN_FILENO;
+		let mut original = std::mem::MaybeUninit::<libc::termios>::uninit();
+		if unsafe { libc::tcgetattr(fd, original.as_mut_ptr()) } != 0 {
+			return Err(tg::error!(
+				source = std::io::Error::last_os_error(),
+				"failed to get stdin termios"
+			));
+		}
+		let original = unsafe { original.assume_init() };
+		let mut raw = original;
+		unsafe {
+			libc::cfmakeraw(std::ptr::addr_of_mut!(raw));
+		}
+		if unsafe { libc::tcsetattr(fd, libc::TCSAFLUSH, std::ptr::addr_of!(raw)) } != 0 {
+			return Err(tg::error!(
+				source = std::io::Error::last_os_error(),
+				"failed to set stdin raw mode"
+			));
+		}
+		Some(scopeguard::guard(original, move |original| unsafe {
+			libc::tcsetattr(fd, libc::TCSAFLUSH, std::ptr::addr_of!(original));
+		}))
+	} else {
+		None
+	};
+	#[cfg(not(unix))]
+	let _ = raw_stdin;
 	let arg = tg::process::stdio::write::Arg {
 		streams: vec![tg::process::stdio::Stream::Stdin],
 		remotes: remote.map(|remote| vec![remote]),

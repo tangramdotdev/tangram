@@ -38,6 +38,7 @@ pub struct Process(Arc<Inner>);
 
 #[derive(derive_more::Debug)]
 pub struct Inner {
+	cached: Option<bool>,
 	id: Id,
 	metadata: RwLock<Option<Arc<Metadata>>>,
 	remote: Option<String>,
@@ -67,9 +68,22 @@ impl Process {
 		state: Option<State>,
 		token: Option<String>,
 	) -> Self {
+		Self::new_with_cached(id, metadata, remote, state, token, None)
+	}
+
+	#[must_use]
+	pub(crate) fn new_with_cached(
+		id: Id,
+		metadata: Option<Metadata>,
+		remote: Option<String>,
+		state: Option<State>,
+		token: Option<String>,
+		cached: Option<bool>,
+	) -> Self {
 		let metadata = RwLock::new(metadata.map(Arc::new));
 		let state = RwLock::new(state.map(Arc::new));
 		Self(Arc::new(Inner {
+			cached,
 			id,
 			metadata,
 			remote,
@@ -79,6 +93,11 @@ impl Process {
 			unsandboxed: None,
 			wait: Mutex::new(None),
 		}))
+	}
+
+	#[must_use]
+	pub fn cached(&self) -> Option<bool> {
+		self.cached
 	}
 
 	#[must_use]

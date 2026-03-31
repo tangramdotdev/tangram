@@ -6997,6 +6997,7 @@ dependencies = [
  "num",
  "regex",
  "rustls",
+ "scopeguard",
  "serde",
  "serde_json",
  "serde_urlencoded",

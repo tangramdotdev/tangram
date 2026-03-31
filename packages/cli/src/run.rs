@@ -176,14 +176,13 @@ impl Cli {
 			.spawn(options.spawn, reference, trailing)
 			.boxed()
 			.await?;
-		let cached = output.cached;
 		let process = output.process;
 
 		// If the detach flag is set, then return the process ID.
 		if options.detach {
 			if options.verbose {
 				let output = tg::process::spawn::Output {
-					cached,
+					cached: process.item().cached().unwrap_or(false),
 					process: process.item().id().clone(),
 					remote: process.item().remote().cloned(),
 					token: process.item().token().cloned(),
@@ -209,9 +208,7 @@ impl Cli {
 		// Spawn the view task if necessary.
 		let view_task = if let Some(view) = options.view {
 			let handle = handle.clone();
-			let root = process.clone().map(move |process| {
-				crate::viewer::Item::Process(crate::viewer::Process { cached, process })
-			});
+			let root = process.clone().map(crate::viewer::Item::Process);
 			let task = Task::spawn_blocking(move |stop| -> tg::Result<()> {
 				let local_set = tokio::task::LocalSet::new();
 				let runtime = tokio::runtime::Builder::new_current_thread()

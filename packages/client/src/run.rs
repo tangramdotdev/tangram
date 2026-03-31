@@ -113,14 +113,13 @@ where
 		stdout,
 		tty: None,
 	};
-	let output = tg::Process::spawn_with_progress(handle, arg, |stream| {
+	let process = tg::Process::spawn_with_progress(handle, arg, |stream| {
 		let writer = std::io::stderr();
 		let is_tty = progress && writer.is_terminal();
 		tg::progress::write_progress_stream(handle, stream, writer, is_tty)
 	})
 	.await
 	.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
-	let process = output.process;
 
 	let output = process
 		.output(handle)

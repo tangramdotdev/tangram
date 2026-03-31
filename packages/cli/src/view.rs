@@ -86,10 +86,7 @@ impl Cli {
 						return Err(tg::error!(reference = %args.reference, "expected an object"));
 					},
 					(tg::Either::Right(process), Kind::Value) => {
-						crate::viewer::Item::Process(crate::viewer::Process {
-							cached: false,
-							process: process.clone(),
-						})
+						crate::viewer::Item::Process(process.clone())
 					},
 					(_, Kind::Tag) => unreachable!(),
 				};

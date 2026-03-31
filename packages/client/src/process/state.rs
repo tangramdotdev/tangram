@@ -26,7 +26,6 @@ pub struct State {
 
 #[derive(Clone, Debug)]
 pub struct Child {
-	pub cached: bool,
 	pub process: tg::Process,
 	pub options: tg::referent::Options,
 }
@@ -94,8 +93,14 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 impl From<tg::process::data::Child> for Child {
 	fn from(value: tg::process::data::Child) -> Self {
 		Self {
-			cached: value.cached,
-			process: tg::Process::new(value.process, None, None, None, None),
+			process: tg::Process::new_with_cached(
+				value.process,
+				None,
+				None,
+				None,
+				None,
+				Some(value.cached),
+			),
 			options: value.options,
 		}
 	}

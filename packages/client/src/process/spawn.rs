@@ -1,6 +1,9 @@
 use {
 	crate::prelude::*,
-	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream},
+	futures::{
+		Stream, StreamExt as _, TryStreamExt as _, future,
+		stream::{self, BoxStream},
+	},
 	serde_with::serde_as,
 	std::{
 		collections::{BTreeMap, BTreeSet},
@@ -8,7 +11,6 @@ use {
 		io::IsTerminal as _,
 		os::unix::process::ExitStatusExt as _,
 		path::{Path, PathBuf},
-		pin::Pin,
 		sync::{Arc, Mutex, RwLock},
 	},
 	tangram_futures::stream::TryExt as _,
@@ -80,12 +82,6 @@ pub struct Output {
 	pub wait: Option<tg::process::wait::Output>,
 }
 
-#[derive(Clone, Debug)]
-pub struct SpawnedProcess {
-	pub cached: bool,
-	pub process: tg::Process,
-}
-
 impl tg::Process {
 	pub async fn spawn<H>(handle: &H, arg: tg::process::spawn::Arg) -> tg::Result<tg::Process>
 	where
@@ -96,7 +92,6 @@ impl tg::Process {
 				.try_last()
 				.await?
 				.and_then(|event| event.try_unwrap_output().ok())
-				.map(|output| output.process)
 				.ok_or_else(|| tg::error!("expected the stream to contain an output event"))
 		})
 		.await
@@ -109,31 +104,18 @@ impl tg::Process {
 	) -> tg::Result<T>
 	where
 		H: tg::Handle,
-		F: FnOnce(
-			Pin<
-				Box<
-					dyn Stream<
-							Item = tg::Result<
-								tg::progress::Event<tg::process::spawn::SpawnedProcess>,
-							>,
-						> + Send,
-				>,
-			>,
-		) -> Fut,
+		F: FnOnce(BoxStream<'static, tg::Result<tg::progress::Event<tg::Process>>>) -> Fut,
 		Fut: Future<Output = tg::Result<T>>,
 	{
 		let handle = handle.clone();
 		if !arg.sandbox {
-			let process = spawn_unsandboxed_process(&handle, arg).await?;
-			let output = tg::process::spawn::SpawnedProcess {
-				cached: false,
-				process,
-			};
-			let stream = stream::once(future::ok(tg::progress::Event::Output(output))).boxed();
+			let process = Self::spawn_unsandboxed(&handle, arg).await?;
+			let stream = stream::once(future::ok(tg::progress::Event::Output(process))).boxed();
 			return progress(stream).await;
 		}
-
 		let no_tty = matches!(arg.tty, Some(tg::Either::Left(false)));
+		let raw_stdin =
+			arg.sandbox && arg.stdin.is_inherit() && !no_tty && std::io::stdin().is_terminal();
 		let mut tty = match arg.tty.take() {
 			Some(tg::Either::Left(true)) => {
 				super::stdio::get_tty_size().map(|size| tg::process::Tty { size })
@@ -142,7 +124,7 @@ impl tg::Process {
 			_ => None,
 		};
 		let stdin = if arg.sandbox && arg.stdin.is_inherit() {
-			let stdin = if !no_tty && std::io::stdin().is_terminal() {
+			let stdin = if raw_stdin {
 				tg::process::Stdio::Tty
 			} else {
 				tg::process::Stdio::Pipe
@@ -212,7 +194,16 @@ impl tg::Process {
 								let stderr = stderr.clone();
 								Some(tangram_futures::task::Shared::spawn(move |_| async move {
 									super::stdio::stdio_task(
-										handle, id, remote, stdin, stdout, stderr, tty_,
+										handle,
+										id,
+										remote,
+										stdin,
+										stdout,
+										stderr,
+										super::stdio::StdioTaskOptions {
+											tty: tty_,
+											raw_stdin,
+										},
 									)
 									.await
 								}))
@@ -220,6 +211,7 @@ impl tg::Process {
 								None
 							};
 							let process = Self(Arc::new(super::Inner {
+								cached: Some(output.cached),
 								id,
 								metadata: RwLock::new(None),
 								remote,
@@ -229,11 +221,7 @@ impl tg::Process {
 								wait: Mutex::new(wait),
 								unsandboxed: None,
 							}));
-							let output = tg::process::spawn::SpawnedProcess {
-								cached: output.cached,
-								process,
-							};
-							tg::progress::Event::Output(output)
+							tg::progress::Event::Output(process)
 						},
 						tg::progress::Event::Log(log) => tg::progress::Event::Log(log),
 						tg::progress::Event::Diagnostic(diagnostic) => {
@@ -249,6 +237,198 @@ impl tg::Process {
 			.boxed();
 		let process = progress(stream).await?;
 		Ok(process)
+	}
+
+	async fn spawn_unsandboxed<H>(
+		handle: &H,
+		arg: tg::process::spawn::Arg,
+	) -> tg::Result<tg::Process>
+	where
+		H: tg::Handle,
+	{
+		if arg.tty.is_some() {
+			return Err(tg::error!("tty is not supported for unsandboxed processes"));
+		}
+		if !arg.mounts.is_empty() {
+			return Err(tg::error!(
+				"mounts are not supported for unsandboxed processes"
+			));
+		}
+		if arg.stdin.is_blob() {
+			return Err(tg::error!(
+				"blob stdin is not supported for unsandboxed processes"
+			));
+		}
+
+		let command = tg::Command::with_id(arg.command.item().clone())
+			.data(handle)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to load the command"))?;
+		if command.stdin.is_some() {
+			return Err(tg::error!(
+				"command stdin blobs are not supported for unsandboxed processes"
+			));
+		}
+		if command.user.is_some() {
+			return Err(tg::error!(
+				"setting a user is not supported for unsandboxed processes"
+			));
+		}
+
+		let id = tg::process::Id::new();
+		let temp = TempDir::new()
+			.map_err(|source| tg::error!(!source, "failed to create a temp directory"))?;
+		let output_path = temp.path().join(id.to_string());
+		let artifacts = checkout_artifacts(handle, &command).await?;
+		let env = render_env(&command.env, &artifacts, &output_path)?;
+		let (executable, args) = render_command(&command, &artifacts, &output_path)?;
+
+		let mut command_ = tokio::process::Command::new(&executable);
+		command_.args(&args);
+		command_.env_clear();
+		command_.envs(&env);
+		if let Some(cwd) = &command.cwd {
+			command_.current_dir(cwd);
+		}
+		command_.stdin(convert_stdio(
+			&arg.stdin,
+			tg::process::stdio::Stream::Stdin,
+		)?);
+		command_.stdout(convert_stdio(
+			&arg.stdout,
+			tg::process::stdio::Stream::Stdout,
+		)?);
+		command_.stderr(convert_stdio(
+			&arg.stderr,
+			tg::process::stdio::Stream::Stderr,
+		)?);
+
+		let mut child = command_.spawn().map_err(|source| {
+			tg::error!(
+				!source,
+				executable = %executable.display(),
+				"failed to spawn the process"
+			)
+		})?;
+		let pid = child
+			.id()
+			.ok_or_else(|| tg::error!("failed to get the process id"))?;
+		let stdin = tokio::sync::Mutex::new(child.stdin.take());
+		let stdout = tokio::sync::Mutex::new(child.stdout.take());
+		let stderr = tokio::sync::Mutex::new(child.stderr.take());
+
+		let mut task = tangram_futures::task::Shared::spawn({
+			let handle = handle.clone();
+			move |_| async move { Self::wait_unsandboxed(handle, child, output_path, temp).await }
+		});
+		task.detach();
+
+		Ok(super::Process(Arc::new(super::Inner {
+			cached: Some(false),
+			id,
+			metadata: RwLock::new(None),
+			remote: None,
+			state: RwLock::new(None),
+			stdio_task: None,
+			token: None,
+			wait: Mutex::new(None),
+			unsandboxed: Some(super::Unsandboxed {
+				pid,
+				stdin,
+				stdout,
+				stderr,
+				task,
+			}),
+		})))
+	}
+
+	async fn wait_unsandboxed<H>(
+		handle: H,
+		mut child: tokio::process::Child,
+		output_path: PathBuf,
+		_temp: TempDir,
+	) -> tg::Result<tg::process::wait::Output>
+	where
+		H: tg::Handle,
+	{
+		let status = child
+			.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to wait for the process"))?;
+		let exit = exit_status_to_code(status)?;
+		let mut output = tg::process::wait::Output {
+			error: None,
+			exit,
+			output: None,
+		};
+
+		let exists = tokio::fs::try_exists(&output_path)
+			.await
+			.map_err(|source| {
+				tg::error!(!source, "failed to determine if the output path exists")
+			})?;
+
+		if exists {
+			let output_bytes = xattr::get(&output_path, "user.tangram.output")
+				.map_err(|source| tg::error!(!source, "failed to read the output xattr"))?;
+			if let Some(bytes) = output_bytes {
+				let tgon = String::from_utf8(bytes)
+					.map_err(|source| tg::error!(!source, "failed to decode the output xattr"))?;
+				output.output = Some(
+					tgon.parse::<tg::Value>()
+						.map_err(|source| tg::error!(!source, "failed to parse the output xattr"))?
+						.to_data(),
+				);
+			}
+
+			let error_bytes = xattr::get(&output_path, "user.tangram.error")
+				.map_err(|source| tg::error!(!source, "failed to read the error xattr"))?;
+			if let Some(bytes) = error_bytes {
+				let error = if let Ok(error) =
+					serde_json::from_slice::<tg::Either<tg::error::Data, tg::error::Id>>(&bytes)
+				{
+					match error {
+						tg::Either::Left(data) => tg::Error::try_from(data).map_err(|source| {
+							tg::error!(!source, "failed to convert the error data")
+						})?,
+						tg::Either::Right(id) => tg::Error::with_id(id),
+					}
+				} else {
+					let id = String::from_utf8(bytes).map_err(|source| {
+						tg::error!(!source, "failed to decode the error xattr")
+					})?;
+					let id = id
+						.parse()
+						.map_err(|source| tg::error!(!source, "failed to parse the error xattr"))?;
+					tg::Error::with_id(id)
+				};
+				output.error = Some(error.to_data_or_id());
+			}
+		}
+
+		if output.output.is_none() && exists {
+			let artifact = tg::checkin::checkin(
+				&handle,
+				tg::checkin::Arg {
+					options: tg::checkin::Options {
+						destructive: true,
+						deterministic: true,
+						ignore: false,
+						lock: None,
+						locked: true,
+						root: true,
+						..Default::default()
+					},
+					path: output_path.clone(),
+					updates: Vec::new(),
+				},
+			)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to check in the output"))?;
+			output.output = Some(tg::Value::from(artifact).to_data());
+		}
+
+		Ok(output)
 	}
 }
 
@@ -300,194 +480,6 @@ impl tg::Client {
 			});
 		Ok(stream)
 	}
-}
-
-async fn spawn_unsandboxed_process<H>(
-	handle: &H,
-	arg: tg::process::spawn::Arg,
-) -> tg::Result<tg::Process>
-where
-	H: tg::Handle,
-{
-	if arg.tty.is_some() {
-		return Err(tg::error!("tty is not supported for unsandboxed processes"));
-	}
-	if !arg.mounts.is_empty() {
-		return Err(tg::error!(
-			"mounts are not supported for unsandboxed processes"
-		));
-	}
-	if arg.stdin.is_blob() {
-		return Err(tg::error!(
-			"blob stdin is not supported for unsandboxed processes"
-		));
-	}
-
-	let command = tg::Command::with_id(arg.command.item().clone())
-		.data(handle)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to load the command"))?;
-	if command.stdin.is_some() {
-		return Err(tg::error!(
-			"command stdin blobs are not supported for unsandboxed processes"
-		));
-	}
-	if command.user.is_some() {
-		return Err(tg::error!(
-			"setting a user is not supported for unsandboxed processes"
-		));
-	}
-
-	let id = tg::process::Id::new();
-	let temp = TempDir::new()
-		.map_err(|source| tg::error!(!source, "failed to create a temp directory"))?;
-	let output_path = temp.path().join(id.to_string());
-	let artifacts = checkout_artifacts(handle, &command).await?;
-	let env = render_env(&command.env, &artifacts, &output_path)?;
-	let (executable, args) = render_command(&command, &artifacts, &output_path)?;
-
-	let mut command_ = tokio::process::Command::new(&executable);
-	command_.args(&args);
-	command_.env_clear();
-	command_.envs(&env);
-	if let Some(cwd) = &command.cwd {
-		command_.current_dir(cwd);
-	}
-	command_.stdin(convert_stdio(
-		&arg.stdin,
-		tg::process::stdio::Stream::Stdin,
-	)?);
-	command_.stdout(convert_stdio(
-		&arg.stdout,
-		tg::process::stdio::Stream::Stdout,
-	)?);
-	command_.stderr(convert_stdio(
-		&arg.stderr,
-		tg::process::stdio::Stream::Stderr,
-	)?);
-
-	let mut child = command_.spawn().map_err(|source| {
-		tg::error!(
-			!source,
-			executable = %executable.display(),
-			"failed to spawn the process"
-		)
-	})?;
-	let pid = child
-		.id()
-		.ok_or_else(|| tg::error!("failed to get the process id"))?;
-	let stdin = tokio::sync::Mutex::new(child.stdin.take());
-	let stdout = tokio::sync::Mutex::new(child.stdout.take());
-	let stderr = tokio::sync::Mutex::new(child.stderr.take());
-
-	let mut task = tangram_futures::task::Shared::spawn({
-		let handle = handle.clone();
-		move |_| async move { wait_for_unsandboxed_process(handle, child, output_path, temp).await }
-	});
-	task.detach();
-
-	Ok(super::Process(Arc::new(super::Inner {
-		id,
-		metadata: RwLock::new(None),
-		remote: None,
-		state: RwLock::new(None),
-		stdio_task: None,
-		token: None,
-		wait: Mutex::new(None),
-		unsandboxed: Some(super::Unsandboxed {
-			pid,
-			stdin,
-			stdout,
-			stderr,
-			task,
-		}),
-	})))
-}
-
-async fn wait_for_unsandboxed_process<H>(
-	handle: H,
-	mut child: tokio::process::Child,
-	output_path: PathBuf,
-	_temp: TempDir,
-) -> tg::Result<tg::process::wait::Output>
-where
-	H: tg::Handle,
-{
-	let status = child
-		.wait()
-		.await
-		.map_err(|source| tg::error!(!source, "failed to wait for the process"))?;
-	let exit = exit_status_to_code(status)?;
-	let mut output = tg::process::wait::Output {
-		error: None,
-		exit,
-		output: None,
-	};
-
-	let exists = tokio::fs::try_exists(&output_path)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to determine if the output path exists"))?;
-
-	if exists {
-		let output_bytes = xattr::get(&output_path, "user.tangram.output")
-			.map_err(|source| tg::error!(!source, "failed to read the output xattr"))?;
-		if let Some(bytes) = output_bytes {
-			let tgon = String::from_utf8(bytes)
-				.map_err(|source| tg::error!(!source, "failed to decode the output xattr"))?;
-			output.output = Some(
-				tgon.parse::<tg::Value>()
-					.map_err(|source| tg::error!(!source, "failed to parse the output xattr"))?
-					.to_data(),
-			);
-		}
-
-		let error_bytes = xattr::get(&output_path, "user.tangram.error")
-			.map_err(|source| tg::error!(!source, "failed to read the error xattr"))?;
-		if let Some(bytes) = error_bytes {
-			let error = if let Ok(error) =
-				serde_json::from_slice::<tg::Either<tg::error::Data, tg::error::Id>>(&bytes)
-			{
-				match error {
-					tg::Either::Left(data) => tg::Error::try_from(data).map_err(|source| {
-						tg::error!(!source, "failed to convert the error data")
-					})?,
-					tg::Either::Right(id) => tg::Error::with_id(id),
-				}
-			} else {
-				let id = String::from_utf8(bytes)
-					.map_err(|source| tg::error!(!source, "failed to decode the error xattr"))?;
-				let id = id
-					.parse()
-					.map_err(|source| tg::error!(!source, "failed to parse the error xattr"))?;
-				tg::Error::with_id(id)
-			};
-			output.error = Some(error.to_data_or_id());
-		}
-	}
-
-	if output.output.is_none() && exists {
-		let artifact = tg::checkin::checkin(
-			&handle,
-			tg::checkin::Arg {
-				options: tg::checkin::Options {
-					destructive: true,
-					deterministic: true,
-					ignore: false,
-					lock: None,
-					locked: true,
-					root: true,
-					..Default::default()
-				},
-				path: output_path.clone(),
-				updates: Vec::new(),
-			},
-		)
-		.await
-		.map_err(|source| tg::error!(!source, "failed to check in the output"))?;
-		output.output = Some(tg::Value::from(artifact).to_data());
-	}
-
-	Ok(output)
 }
 
 async fn checkout_artifacts<H>(

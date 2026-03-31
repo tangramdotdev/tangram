@@ -211,7 +211,7 @@ where
 				.insert(NodeID::Package(package.0.id())),
 			Some(Item::Process(process)) if options.expand_processes => expanded_nodes
 				.borrow_mut()
-				.insert(NodeID::Process(process.process.id().clone())),
+				.insert(NodeID::Process(process.id().clone())),
 			Some(Item::Tag(pattern)) if options.expand_tags => expanded_nodes
 				.borrow_mut()
 				.insert(NodeID::Tag(pattern.to_string())),
@@ -1382,11 +1382,7 @@ where
 						Item::Value(tg::Value::Object(tg::Object::with_id(object)))
 					},
 					Some(tg::Either::Right(process)) => {
-						let process = crate::viewer::Process {
-							cached: false,
-							process: tg::Process::new(process, None, None, None, None),
-						};
-						Item::Process(process)
+						Item::Process(tg::Process::new(process, None, None, None, None))
 					},
 					None => Item::Tag(tg::tag::Pattern::new(output.tag.to_string())),
 				};
@@ -1414,10 +1410,10 @@ where
 	async fn expand_process(
 		handle: &H,
 		counter: UpdateCounter,
-		referent: tg::Referent<crate::viewer::Process>,
+		referent: tg::Referent<tg::Process>,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
-		let process = referent.item.process.clone();
+		let process = referent.item.clone();
 
 		// Create the log task.
 		let log_task = Task::spawn_local({
@@ -1500,7 +1496,6 @@ where
 			.children(handle, tg::process::children::get::Arg::default())
 			.await?;
 		while let Some(child) = children.try_next().await? {
-			let cached = child.cached;
 			let mut child = tg::Referent::new(child.process, child.options);
 
 			// Inherit from the referent.
@@ -1522,9 +1517,7 @@ where
 				if node.borrow().options.collapse_process_children && finished {
 					return;
 				}
-				let child = child
-					.clone()
-					.map(|process| crate::viewer::Process { cached, process });
+				let child = child.clone();
 				let child_node =
 					Self::create_node(&handle, &node, None, Some(child.clone().map(Item::Process)));
 
@@ -1903,7 +1896,7 @@ where
 				.insert(NodeID::Package(package.0.id())),
 			Item::Process(process) if options.expand_processes => expanded_nodes
 				.borrow_mut()
-				.insert(NodeID::Process(process.process.id().clone())),
+				.insert(NodeID::Process(process.id().clone())),
 			Item::Tag(pattern) if options.expand_tags => expanded_nodes
 				.borrow_mut()
 				.insert(NodeID::Tag(pattern.to_string())),
@@ -2076,17 +2069,14 @@ where
 		Ok(())
 	}
 
-	async fn process_title(
-		handle: &H,
-		process: &tg::Referent<crate::viewer::Process>,
-	) -> Option<String> {
+	async fn process_title(handle: &H, process: &tg::Referent<tg::Process>) -> Option<String> {
 		// Use the name if provided.
 		if let Some(name) = process.name() {
 			return Some(name.to_owned());
 		}
 
 		// Get the original commands' executable.
-		let command = process.item.process.command(handle).await.ok()?.clone();
+		let command = process.item.command(handle).await.ok()?.clone();
 		let executable = command.executable(handle).await.ok()?.clone();
 
 		// Handle paths.
@@ -2123,7 +2113,7 @@ where
 	async fn process_update_task(
 		handle: &H,
 		counter: UpdateCounter,
-		process: &tg::Referent<crate::viewer::Process>,
+		process: &tg::Referent<tg::Process>,
 		options: &Options,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()>
@@ -2141,14 +2131,14 @@ where
 		}
 
 		// Create the status stream.
-		let mut status = process.item.process.status(handle).await?;
+		let mut status = process.item.status(handle).await?;
 		while let Some(status) = status.try_next().await? {
 			let guard = counter.guard();
-			let indicator = match (process.item.cached, status) {
-				(true, _) => Indicator::Cached,
-				(false, tg::process::Status::Created) => Indicator::Created,
-				(false, tg::process::Status::Started) => Indicator::Started,
-				(false, tg::process::Status::Finished) => {
+			let indicator = match (process.item.cached(), status) {
+				(Some(true), _) => Indicator::Cached,
+				(_, tg::process::Status::Created) => Indicator::Created,
+				(_, tg::process::Status::Started) => Indicator::Started,
+				(_, tg::process::Status::Finished) => {
 					// Remove the child if necessary.
 					if options.collapse_process_children {
 						let update = move |node: Rc<RefCell<Node>>| {
@@ -2179,7 +2169,7 @@ where
 						return Ok(());
 					}
 
-					let state = process.item.process.load(handle).await?;
+					let state = process.item.load(handle).await?;
 					let failed =
 						state.error.is_some() || state.exit.as_ref().is_some_and(|code| *code != 0);
 					if failed {
@@ -2198,7 +2188,7 @@ where
 		// Check if the process was canceled.
 		let arg = tg::process::get::Arg::default();
 		if handle
-			.try_get_process(process.item.process.id(), arg)
+			.try_get_process(process.item.id(), arg)
 			.await?
 			.and_then(|output| output.data.error)
 			.is_some_and(|error| match error {
@@ -2360,7 +2350,7 @@ where
 					let handle = handle.clone();
 					let update = move |viewer: &mut super::Viewer<H>| {
 						if let Some(process) = process {
-							let log = Log::new(&handle, &process.process);
+							let log = Log::new(&handle, &process);
 							viewer.log.replace(log);
 						} else {
 							viewer.log.take();
@@ -2375,7 +2365,7 @@ where
 					async move {
 						match referent.item {
 							Item::Process(process) => handle
-								.get_process(process.process.id())
+								.get_process(process.id())
 								.and_then(async |output: tg::process::get::Output| {
 									#[derive(serde::Serialize)]
 									struct ProcessData {
@@ -2384,7 +2374,7 @@ where
 									}
 									let metadata = handle
 										.try_get_process_metadata(
-											process.process.id(),
+											process.id(),
 											tg::process::metadata::Arg::default(),
 										)
 										.await?;
@@ -2534,7 +2524,7 @@ where
 		let contents = match referent.item() {
 			Item::Package(package) => package.0.id().to_string(),
 			Item::Tag(tag) => tag.to_string(),
-			Item::Process(process) => process.process.id().to_string(),
+			Item::Process(process) => process.id().to_string(),
 			Item::Value(value) => {
 				if let tg::Value::Object(object) = value {
 					Self::object_id(object)
