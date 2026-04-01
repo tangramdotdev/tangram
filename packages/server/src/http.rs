@@ -462,6 +462,17 @@ impl Server {
 				.handle_post_process_wait_request(request, &context, process)
 				.boxed(),
 
+			// Sandboxes.
+			(http::Method::POST, ["sandboxes"]) => self
+				.handle_create_sandbox_request(request, &context)
+				.boxed(),
+			(http::Method::GET, ["sandboxes"]) => self
+				.handle_list_sandboxes_request(request, &context)
+				.boxed(),
+			(http::Method::DELETE, ["sandboxes", sandbox]) => self
+				.handle_delete_sandbox_request(request, &context, sandbox)
+				.boxed(),
+
 			// Remotes.
 			(http::Method::GET, ["remotes"]) => {
 				self.handle_list_remotes_request(request, &context).boxed()

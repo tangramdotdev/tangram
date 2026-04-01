@@ -246,7 +246,6 @@ enum Command {
 	#[command(alias = "r")]
 	Run(self::process::run::Args),
 
-	#[command(hide = true)]
 	Sandbox(self::sandbox::Args),
 
 	#[command(name = "self")]
@@ -949,7 +948,7 @@ impl Cli {
 			Command::Js(_) => {
 				unreachable!()
 			},
-			Command::Builtin(_) | Command::Sandbox(_) => {
+			Command::Builtin(_) => {
 				unreachable!()
 			},
 			Command::Archive(args) => self.command_archive(args).boxed(),
@@ -991,6 +990,7 @@ impl Cli {
 			Command::Read(args) => self.command_read(args).boxed(),
 			Command::Remote(args) => self.command_remote(args).boxed(),
 			Command::Run(args) => self.command_run(args).boxed(),
+			Command::Sandbox(args) => self.command_sandbox(args).boxed(),
 			Command::Self_(args) => self.command_tangram(args).boxed(),
 			Command::Shell(args) => self.command_shell(args).boxed(),
 			Command::Serve(args) => self.command_server_run(args).boxed(),

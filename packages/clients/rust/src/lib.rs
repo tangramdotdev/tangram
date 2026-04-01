@@ -81,6 +81,7 @@ pub mod read;
 pub mod reference;
 pub mod referent;
 pub mod remote;
+pub mod sandbox;
 pub mod symlink;
 pub mod sync;
 pub mod tag;
@@ -93,8 +94,8 @@ pub mod write;
 pub mod prelude {
 	pub use {
 		super::handle::{
-			Ext as _, Handle as _, Module as _, Object as _, Process as _, Remote as _, Tag as _,
-			User as _, Watch as _,
+			Ext as _, Handle as _, Module as _, Object as _, Process as _, Remote as _,
+			Sandbox as _, Tag as _, User as _, Watch as _,
 		},
 		crate as tg,
 	};

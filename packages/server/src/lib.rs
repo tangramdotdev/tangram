@@ -48,6 +48,7 @@ mod push;
 mod read;
 mod remote;
 mod run;
+mod sandbox;
 mod store;
 mod sync;
 mod tag;

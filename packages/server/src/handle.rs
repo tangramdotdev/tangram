@@ -9,6 +9,7 @@ mod module;
 mod object;
 mod process;
 mod remote;
+mod sandbox;
 mod tag;
 mod user;
 mod watch;

@@ -4,12 +4,16 @@ let server = spawn --busybox
 
 let path = artifact {
 	tangram.ts: '
+		import busybox from "busybox";
+
 		export default async function () {
-			const process = await tg
-				.spawn`sleep 1000`
+			const process = await tg.spawn`
+				sleep 1000
+			`
+				.env(busybox())
+				.stderr("null")
 				.stdin("null")
-				.stdout("null")
-				.stderr("null");
+				.stdout("null");
 			await tg.sleep(0.1);
 			await process.signal(tg.Process.Signal.TERM);
 			const wait = await process.wait();

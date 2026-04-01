@@ -1,7 +1,8 @@
 use {crate::Cli, tangram_client::prelude::*};
 
-// pub mod create;
-// pub mod delete;
+pub mod create;
+pub mod delete;
+pub mod list;
 pub mod run;
 
 /// Manage sandboxes.
@@ -14,8 +15,12 @@ pub struct Args {
 
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
-	// Create(self::create::Args),
-	// Delete(self::delete::Args),
+	Create(self::create::Args),
+	#[command(alias = "remove", alias = "rm")]
+	Delete(self::delete::Args),
+	#[command(alias = "ls")]
+	List(self::list::Args),
+	#[command(hide = true)]
 	Run(self::run::Args),
 }
 
@@ -68,9 +73,19 @@ impl Network {
 impl Cli {
 	pub async fn command_sandbox(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
+			Command::Create(args) => {
+				self.command_sandbox_create(args).await?;
+			},
+			Command::Delete(args) => {
+				self.command_sandbox_delete(args).await?;
+			},
+			Command::List(args) => {
+				self.command_sandbox_list(args).await?;
+			},
 			Command::Run(_) => {
 				unreachable!()
 			},
 		}
+		Ok(())
 	}
 }

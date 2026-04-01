@@ -37,6 +37,7 @@ fn value_inner(input: &mut Input) -> ModalResult<tg::Value> {
 			bytes.map(tg::Value::Bytes),
 			mutation.map(tg::Value::Mutation),
 			template.map(tg::Value::Template),
+			placeholder.map(tg::Value::Placeholder),
 		)),
 	))
 	.parse_next(input)
@@ -144,15 +145,21 @@ fn id(input: &mut Input) -> ModalResult<tg::id::Id> {
 
 fn id_kind(input: &mut Input) -> ModalResult<tg::id::Kind> {
 	alt((
-		alt(("blb", "blob")).value(tg::id::Kind::Blob),
-		alt(("dir", "directory")).value(tg::id::Kind::Directory),
-		alt(("fil", "file")).value(tg::id::Kind::File),
-		alt(("sym", "symlink")).value(tg::id::Kind::Symlink),
-		alt(("gph", "graph")).value(tg::id::Kind::Graph),
-		alt(("cmd", "command")).value(tg::id::Kind::Command),
-		alt(("pcs", "process")).value(tg::id::Kind::Process),
-		alt(("usr", "user")).value(tg::id::Kind::User),
-		alt(("req", "request")).value(tg::id::Kind::Request),
+		alt((
+			alt(("blb", "blob")).value(tg::id::Kind::Blob),
+			alt(("dir", "directory")).value(tg::id::Kind::Directory),
+			alt(("fil", "file")).value(tg::id::Kind::File),
+			alt(("sym", "symlink")).value(tg::id::Kind::Symlink),
+			alt(("gph", "graph")).value(tg::id::Kind::Graph),
+		)),
+		alt((
+			alt(("cmd", "command")).value(tg::id::Kind::Command),
+			alt(("err", "error")).value(tg::id::Kind::Error),
+			alt(("sbx", "sandbox")).value(tg::id::Kind::Sandbox),
+			alt(("pcs", "process")).value(tg::id::Kind::Process),
+			alt(("usr", "user")).value(tg::id::Kind::User),
+			alt(("req", "request")).value(tg::id::Kind::Request),
+		)),
 	))
 	.parse_next(input)
 }
@@ -187,7 +194,7 @@ fn object(input: &mut Input) -> ModalResult<tg::Object> {
 	alt((
 		preceded(
 			("tg", whitespace, ".", whitespace),
-			alt((blob, directory, file, symlink, graph, command)),
+			alt((blob, directory, file, symlink, graph, command, error)),
 		),
 		id.verify_map(|id| id.try_into().map(tg::Object::with_id).ok()),
 	))
@@ -721,6 +728,325 @@ fn command_inner(input: &mut Input) -> ModalResult<tg::Object> {
 	.parse_next(input)
 }
 
+fn error(input: &mut Input) -> ModalResult<tg::Object> {
+	preceded(
+		("error", whitespace, "(", whitespace),
+		cut_err(delimited(whitespace, error_inner, (whitespace, ")"))),
+	)
+	.parse_next(input)
+}
+
+fn error_inner(input: &mut Input) -> ModalResult<tg::Object> {
+	delimited(
+		("{", whitespace),
+		cut_err(separated(
+			0..,
+			separated_pair(string, (whitespace, ":", whitespace), value),
+			(whitespace, ",", whitespace),
+		)),
+		(whitespace, opt(","), whitespace, "}"),
+	)
+	.try_map(|entries: Vec<(String, tg::Value)>| {
+		let mut code = None;
+		let mut diagnostics = None;
+		let mut location = None;
+		let mut message = None;
+		let mut source = None;
+		let mut stack = None;
+		let mut values = BTreeMap::new();
+		for (key, value) in entries {
+			match key.as_str() {
+				"code" => {
+					let value = value
+						.try_unwrap_string_ref()
+						.map_err(|_| tg::error!("expected string for code"))?;
+					code = Some(
+						value
+							.parse()
+							.map_err(|error| tg::error!(!error, "failed to parse code"))?,
+					);
+				},
+				"diagnostics" => {
+					let value = value
+						.try_unwrap_array_ref()
+						.map_err(|_| tg::error!("expected array for diagnostics"))?;
+					let diagnostics_ = value
+						.iter()
+						.map(parse_diagnostic)
+						.collect::<tg::Result<Vec<_>>>()?;
+					diagnostics = Some(diagnostics_);
+				},
+				"location" => {
+					location = Some(parse_error_location(&value)?);
+				},
+				"message" => {
+					let value = value
+						.try_unwrap_string_ref()
+						.map_err(|_| tg::error!("expected string for message"))?;
+					message = Some(value.clone());
+				},
+				"source" => {
+					source = Some(parse_error_source(&value)?);
+				},
+				"stack" => {
+					let value = value
+						.try_unwrap_array_ref()
+						.map_err(|_| tg::error!("expected array for stack"))?;
+					let stack_ = value
+						.iter()
+						.map(parse_error_location)
+						.collect::<tg::Result<Vec<_>>>()?;
+					stack = Some(stack_);
+				},
+				"values" => {
+					let value = value
+						.try_unwrap_map_ref()
+						.map_err(|_| tg::error!("expected map for values"))?;
+					for (key, value) in value {
+						let value = value
+							.try_unwrap_string_ref()
+							.map_err(|_| tg::error!("expected string value in values"))?;
+						values.insert(key.clone(), value.clone());
+					}
+				},
+				_ => {
+					return Err(tg::error!("unexpected field in error: {}", key));
+				},
+			}
+		}
+		let object = tg::error::Object {
+			code,
+			diagnostics,
+			location,
+			message,
+			source,
+			stack,
+			values,
+		};
+		Ok(tg::Error::with_object(object).into())
+	})
+	.parse_next(input)
+}
+
+fn parse_error_source(
+	value: &tg::Value,
+) -> tg::Result<tg::Referent<tg::Either<Box<tg::error::Object>, Box<tg::Error>>>> {
+	let value = value
+		.try_unwrap_object_ref()
+		.map_err(|_| tg::error!("expected object for source"))?;
+	let value = value
+		.try_unwrap_error_ref()
+		.map_err(|_| tg::error!("expected error object for source"))?;
+	let item = if let Some(object) = value.state().object() {
+		let object = object
+			.try_unwrap_error_ref()
+			.map_err(|_| tg::error!("expected error object for source"))?;
+		tg::Either::Left(Box::new(object.as_ref().clone()))
+	} else {
+		tg::Either::Right(Box::new(value.clone()))
+	};
+	Ok(tg::Referent::with_item(item))
+}
+
+fn parse_error_location(value: &tg::Value) -> tg::Result<tg::error::Location> {
+	let value = value
+		.try_unwrap_map_ref()
+		.map_err(|_| tg::error!("expected map for error location"))?;
+	let mut file = None;
+	let mut range = None;
+	let mut symbol = None;
+	for (key, value) in value {
+		match key.as_str() {
+			"file" => {
+				file = Some(parse_error_file(value)?);
+			},
+			"range" => {
+				range = Some(parse_range(value)?);
+			},
+			"symbol" => {
+				let value = value
+					.try_unwrap_string_ref()
+					.map_err(|_| tg::error!("expected string for symbol"))?;
+				symbol = Some(value.clone());
+			},
+			_ => {
+				return Err(tg::error!("unexpected field in error location: {}", key));
+			},
+		}
+	}
+	let file = file.ok_or_else(|| tg::error!("missing file field"))?;
+	let range = range.ok_or_else(|| tg::error!("missing range field"))?;
+	Ok(tg::error::Location {
+		symbol,
+		file,
+		range,
+	})
+}
+
+fn parse_error_file(value: &tg::Value) -> tg::Result<tg::error::File> {
+	let value = value
+		.try_unwrap_map_ref()
+		.map_err(|_| tg::error!("expected map for error file"))?;
+	let mut kind = None;
+	let mut value_ = None;
+	for (key, value) in value {
+		match key.as_str() {
+			"kind" => {
+				let value = value
+					.try_unwrap_string_ref()
+					.map_err(|_| tg::error!("expected string for kind"))?;
+				kind = Some(value.clone());
+			},
+			"value" => {
+				value_ = Some(value);
+			},
+			_ => {
+				return Err(tg::error!("unexpected field in error file: {}", key));
+			},
+		}
+	}
+	let kind = kind.ok_or_else(|| tg::error!("missing kind field"))?;
+	let value = value_.ok_or_else(|| tg::error!("missing value field"))?;
+	match kind.as_str() {
+		"internal" => {
+			let value = value
+				.try_unwrap_string_ref()
+				.map_err(|_| tg::error!("expected string for internal error file value"))?;
+			Ok(tg::error::File::Internal(PathBuf::from(value)))
+		},
+		"module" => Ok(tg::error::File::Module(parse_module(value)?)),
+		_ => Err(tg::error!("unknown error file kind: {}", kind)),
+	}
+}
+
+fn parse_diagnostic(value: &tg::Value) -> tg::Result<tg::Diagnostic> {
+	let value = value
+		.try_unwrap_map_ref()
+		.map_err(|_| tg::error!("expected map for diagnostic"))?;
+	let mut location = None;
+	let mut message = None;
+	let mut severity = None;
+	for (key, value) in value {
+		match key.as_str() {
+			"location" => {
+				location = Some(parse_location(value)?);
+			},
+			"message" => {
+				let value = value
+					.try_unwrap_string_ref()
+					.map_err(|_| tg::error!("expected string for diagnostic message"))?;
+				message = Some(value.clone());
+			},
+			"severity" => {
+				let value = value
+					.try_unwrap_string_ref()
+					.map_err(|_| tg::error!("expected string for diagnostic severity"))?;
+				severity = Some(
+					value
+						.parse()
+						.map_err(|error| tg::error!(!error, "failed to parse severity"))?,
+				);
+			},
+			_ => {
+				return Err(tg::error!("unexpected field in diagnostic: {}", key));
+			},
+		}
+	}
+	let message = message.ok_or_else(|| tg::error!("missing message field"))?;
+	let severity = severity.ok_or_else(|| tg::error!("missing severity field"))?;
+	Ok(tg::Diagnostic {
+		location,
+		severity,
+		message,
+	})
+}
+
+fn parse_location(value: &tg::Value) -> tg::Result<tg::Location> {
+	let value = value
+		.try_unwrap_map_ref()
+		.map_err(|_| tg::error!("expected map for location"))?;
+	let mut module = None;
+	let mut range = None;
+	for (key, value) in value {
+		match key.as_str() {
+			"module" => {
+				module = Some(parse_module(value)?);
+			},
+			"range" => {
+				range = Some(parse_range(value)?);
+			},
+			_ => {
+				return Err(tg::error!("unexpected field in location: {}", key));
+			},
+		}
+	}
+	let module = module.ok_or_else(|| tg::error!("missing module field"))?;
+	let range = range.ok_or_else(|| tg::error!("missing range field"))?;
+	Ok(tg::Location { module, range })
+}
+
+fn parse_range(value: &tg::Value) -> tg::Result<tg::Range> {
+	let value = value
+		.try_unwrap_map_ref()
+		.map_err(|_| tg::error!("expected map for range"))?;
+	let mut start = None;
+	let mut end = None;
+	for (key, value) in value {
+		match key.as_str() {
+			"start" => {
+				start = Some(parse_position(value)?);
+			},
+			"end" => {
+				end = Some(parse_position(value)?);
+			},
+			_ => {
+				return Err(tg::error!("unexpected field in range: {}", key));
+			},
+		}
+	}
+	let start = start.ok_or_else(|| tg::error!("missing start field"))?;
+	let end = end.ok_or_else(|| tg::error!("missing end field"))?;
+	Ok(tg::Range { start, end })
+}
+
+fn parse_position(value: &tg::Value) -> tg::Result<tg::Position> {
+	let value = value
+		.try_unwrap_map_ref()
+		.map_err(|_| tg::error!("expected map for position"))?;
+	let mut line = None;
+	let mut character = None;
+	for (key, value) in value {
+		match key.as_str() {
+			"line" => {
+				let value = value
+					.try_unwrap_number_ref()
+					.map_err(|_| tg::error!("expected number for line"))?;
+				line = Some(
+					value
+						.to_u32()
+						.ok_or_else(|| tg::error!("line must be a non-negative integer"))?,
+				);
+			},
+			"character" => {
+				let value = value
+					.try_unwrap_number_ref()
+					.map_err(|_| tg::error!("expected number for character"))?;
+				character = Some(
+					value
+						.to_u32()
+						.ok_or_else(|| tg::error!("character must be a non-negative integer"))?,
+				);
+			},
+			_ => {
+				return Err(tg::error!("unexpected field in position: {}", key));
+			},
+		}
+	}
+	let line = line.ok_or_else(|| tg::error!("missing line field"))?;
+	let character = character.ok_or_else(|| tg::error!("missing character field"))?;
+	Ok(tg::Position { line, character })
+}
+
 fn bytes(input: &mut Input) -> ModalResult<Bytes> {
 	preceded(
 		(
@@ -900,6 +1226,27 @@ fn template_inner(input: &mut Input) -> ModalResult<tg::Template> {
 		}
 		Ok(tg::Template { components })
 	})
+	.parse_next(input)
+}
+
+fn placeholder(input: &mut Input) -> ModalResult<tg::Placeholder> {
+	preceded(
+		(
+			"tg",
+			whitespace,
+			".",
+			whitespace,
+			"placeholder",
+			whitespace,
+			"(",
+			whitespace,
+		),
+		cut_err(delimited(
+			whitespace,
+			string.map(tg::Placeholder::new),
+			(whitespace, ")"),
+		)),
+	)
 	.parse_next(input)
 }
 
@@ -1352,6 +1699,15 @@ fn whitespace(input: &mut Input) -> ModalResult<()> {
 #[cfg(test)]
 mod tests {
 	use indoc::indoc;
+
+	#[test]
+	fn parse_sandbox_id() {
+		let id = crate::sandbox::Id::new();
+		let string = id.to_string();
+		let mut input = super::Input::new(&string);
+		let value = super::id(&mut input).expect("failed to parse the sandbox id");
+		assert_eq!(value.kind(), crate::id::Kind::Sandbox);
+	}
 
 	#[test]
 	fn big_test() {

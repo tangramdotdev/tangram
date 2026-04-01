@@ -8,17 +8,18 @@ mod module;
 mod object;
 mod process;
 mod remote;
+mod sandbox;
 mod tag;
 mod user;
 mod watch;
 
 pub use self::{
-	module::Module, object::Object, process::Process, remote::Remote, tag::Tag, user::User,
-	watch::Watch,
+	module::Module, object::Object, process::Process, remote::Remote, sandbox::Sandbox, tag::Tag,
+	user::User, watch::Watch,
 };
 
 pub trait Handle:
-	Module + Object + Process + Remote + Tag + User + Watch + Send + Sync + 'static
+	Module + Object + Process + Remote + Sandbox + Tag + User + Watch + Send + Sync + 'static
 {
 	fn cache(
 		&self,
