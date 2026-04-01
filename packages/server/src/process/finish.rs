@@ -41,11 +41,17 @@ impl Server {
 		}
 
 		// If the task for the process is not the current task, then abort it.
-		if self
+		let is_different_task = self
 			.process_tasks
 			.try_get_id(id)
-			.is_some_and(|task_id| task_id != tokio::task::id())
-		{
+			.is_some_and(|task_id| task_id != tokio::task::id());
+		if is_different_task {
+			tracing::info!(
+				%id,
+				exit = arg.exit,
+				has_error = arg.error.is_some(),
+				"finish_process: aborting running task",
+			);
 			self.process_tasks.abort(id);
 		}
 

@@ -148,7 +148,13 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a cached local process"))?
 		{
-			tracing::trace!(?output, "got cached local process");
+			tracing::info!(
+				command = %arg.command.item,
+				process = %output.id,
+				status = ?output.status,
+				has_wait = output.wait.is_some(),
+				"try_get_cached_process_local: found",
+			);
 			Some(output)
 		} else if cacheable
 			&& matches!(arg.cached, None | Some(true))
@@ -170,7 +176,11 @@ impl Server {
 				.create_local_process(&transaction, &arg, cacheable, &host)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create a local process"))?;
-			tracing::trace!(?output, "created local process");
+			tracing::info!(
+				command = %arg.command.item,
+				process = %output.id,
+				"create_local_process: new process",
+			);
 			Some(output)
 		} else {
 			None
@@ -256,10 +266,20 @@ impl Server {
 		};
 
 		// If the local process finishes before the remote responds, then use the local process. If a remote process is found sooner, then spawn a task to cancel the local process and use the remote process.
+		let race_start = std::time::Instant::now();
+		let command_id = arg.command.item.to_string();
 		let output = match future::select(pin!(local_future), pin!(remote_future)).await {
 			future::Either::Left((result, remote_future)) => {
 				if let Some(wait) = result? {
 					let output = output.unwrap();
+					tracing::info!(
+						command = %command_id,
+						process = %output.id,
+						exit = wait.exit,
+						has_error = wait.error.is_some(),
+						race_ms = race_start.elapsed().as_millis(),
+						"local won the race",
+					);
 					tg::process::spawn::Output {
 						process: output.id,
 						remote: None,
@@ -267,6 +287,11 @@ impl Server {
 						wait: Some(wait),
 					}
 				} else {
+					tracing::info!(
+						command = %command_id,
+						race_ms = race_start.elapsed().as_millis(),
+						"local had no output, awaiting remote",
+					);
 					let Some(remote_output) = remote_future.await? else {
 						return Ok(None);
 					};
@@ -275,6 +300,12 @@ impl Server {
 			},
 			future::Either::Right((result, _)) => {
 				if let Ok(Some(remote_output)) = result {
+					tracing::info!(
+						command = %command_id,
+						remote_process = %remote_output.process,
+						race_ms = race_start.elapsed().as_millis(),
+						"remote won the race",
+					);
 					if let Some(output) = output
 						&& let Some(token) = output.token
 					{
@@ -292,6 +323,12 @@ impl Server {
 					}
 					remote_output
 				} else {
+					tracing::info!(
+						command = %command_id,
+						?result,
+						race_ms = race_start.elapsed().as_millis(),
+						"remote failed or returned None, using local",
+					);
 					let Some(output) = output else {
 						return Ok(None);
 					};
@@ -974,6 +1011,7 @@ impl Server {
 		let p = transaction.p();
 
 		// Determine if adding this child process creates a cycle.
+		let cycle_start = std::time::Instant::now();
 		let statement = formatdoc!(
 			"
 				with recursive ancestors as (
@@ -993,6 +1031,10 @@ impl Server {
 			.query_one_value_into::<bool>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the cycle check"))?;
+		tracing::info!(
+			%parent, %child, cycle_ms = cycle_start.elapsed().as_millis(),
+			"cycle_detection",
+		);
 
 		// If adding this child creates a cycle, return an error.
 		if cycle {

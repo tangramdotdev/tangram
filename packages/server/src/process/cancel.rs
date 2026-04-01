@@ -57,14 +57,20 @@ impl Server {
 			"
 				update processes
 				set token_count = token_count - 1
-				where id = {p}1;
+				where id = {p}1
+				returning token_count;
 			"
 		);
 		let params = db::params![id.to_string()];
-		connection
-			.execute(statement.into(), params)
+		let new_token_count: i64 = connection
+			.query_one_value_into(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		tracing::info!(
+			%id,
+			new_token_count,
+			"cancel_process: token removed",
+		);
 
 		// Publish the watchdog message.
 		tokio::spawn({

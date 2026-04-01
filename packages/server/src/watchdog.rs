@@ -93,6 +93,16 @@ impl Server {
 
 		// Finish the processes.
 		let n = rows.len().to_u64().unwrap();
+		if n > 0 {
+			for row in &rows {
+				tracing::info!(
+					process = %row.id,
+					code = ?row.code,
+					message = %row.message,
+					"watchdog: cancelling process",
+				);
+			}
+		}
 		rows.into_iter()
 			.map(|row| {
 				let server = self.clone();
