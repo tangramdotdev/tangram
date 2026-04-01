@@ -52,6 +52,15 @@ impl Checksum {
 	}
 }
 
+impl Default for Checksum {
+	fn default() -> Self {
+		Self {
+			algorithm: Algorithm::Sha512,
+			body: Body::None,
+		}
+	}
+}
+
 impl std::fmt::Display for Checksum {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "{}:{}", self.algorithm, self.body)?;

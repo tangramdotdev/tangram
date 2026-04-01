@@ -71,17 +71,18 @@ export let decompress = async (blob: tg.Blob): Promise<tg.Blob> => {
 
 export let download = async (
 	url: string,
-	checksum: tg.Checksum,
+	checksum?: tg.Checksum,
 	options?: DownloadOptions,
 ): Promise<tg.Blob | tg.Artifact> => {
+	const checksum_ = checksum ?? "sha256:any";
 	options = options ?? {};
-	options.checksum ??= tg.Checksum.algorithm(checksum);
+	options.checksum ??= tg.Checksum.algorithm(checksum_);
 	let value = await tg
 		.build()
 		.host("builtin")
 		.executable("download")
 		.args([url, options])
-		.checksum(checksum)
+		.checksum(checksum_)
 		.network(true);
 	tg.assert(value instanceof tg.Blob || tg.Artifact.is(value));
 	return value;

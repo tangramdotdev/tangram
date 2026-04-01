@@ -233,7 +233,7 @@ pub fn decompress_command(input: &tg::Blob) -> tg::Command {
 pub async fn download<H>(
 	handle: &H,
 	url: &Uri,
-	checksum: &tg::Checksum,
+	checksum: Option<&tg::Checksum>,
 	options: Option<DownloadOptions>,
 ) -> tg::Result<tg::Either<tg::Blob, tg::Artifact>>
 where
@@ -244,7 +244,7 @@ where
 		args: std::iter::once(url.to_string().into())
 			.chain(options.map(tg::Value::from))
 			.collect(),
-		checksum: Some(checksum.clone()),
+		checksum: Some(checksum.cloned().unwrap_or_default()),
 		executable: Some(tg::command::Executable::Path(tg::command::PathExecutable {
 			path: "download".into(),
 		})),
