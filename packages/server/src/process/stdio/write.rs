@@ -16,7 +16,7 @@ use {
 	tokio_util::task::AbortOnDropHandle,
 };
 
-enum WriteBacking {
+enum Destination {
 	Log,
 	Messenger,
 	Null,
@@ -124,7 +124,7 @@ impl Server {
 					}
 					chunk.position = None;
 					match classify_write_process_stdio_stream(&data, chunk.stream)? {
-						WriteBacking::Log => {
+						Destination::Log => {
 							let started_at = started_at
 								.ok_or_else(|| tg::error!("expected the process to be started"))?;
 							if data.status != tg::process::Status::Started {
@@ -157,7 +157,7 @@ impl Server {
 								}
 							});
 						},
-						WriteBacking::Messenger => {
+						Destination::Messenger => {
 							let subject = format!("processes.{id}.{}", chunk.stream);
 							let payload =
 								serde_json::to_vec(&tg::process::stdio::read::Event::Chunk(chunk))
@@ -171,7 +171,7 @@ impl Server {
 								.await
 								.map_err(|source| tg::error!(!source, "failed to publish stdio"))?;
 						},
-						WriteBacking::Null => (),
+						Destination::Null => (),
 					}
 				},
 				tg::process::stdio::read::Event::End => {
@@ -183,7 +183,7 @@ impl Server {
 					for stream in &streams {
 						if !matches!(
 							classify_write_process_stdio_stream(&data, *stream)?,
-							WriteBacking::Messenger
+							Destination::Messenger
 						) {
 							continue;
 						}
@@ -293,20 +293,20 @@ impl Server {
 fn classify_write_process_stdio_stream(
 	data: &tg::process::Data,
 	stream: tg::process::stdio::Stream,
-) -> tg::Result<WriteBacking> {
+) -> tg::Result<Destination> {
 	let stdio = process_stdio(data, stream);
 	match stream {
 		tg::process::stdio::Stream::Stdin => match stdio {
-			tg::process::Stdio::Null => Ok(WriteBacking::Null),
-			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Ok(WriteBacking::Messenger),
+			tg::process::Stdio::Null => Ok(Destination::Null),
+			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Ok(Destination::Messenger),
 			tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit | tg::process::Stdio::Log => {
 				Err(tg::error!("invalid stdio"))
 			},
 		},
 		tg::process::stdio::Stream::Stdout | tg::process::stdio::Stream::Stderr => match stdio {
-			tg::process::Stdio::Log => Ok(WriteBacking::Log),
-			tg::process::Stdio::Null => Ok(WriteBacking::Null),
-			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Ok(WriteBacking::Messenger),
+			tg::process::Stdio::Log => Ok(Destination::Log),
+			tg::process::Stdio::Null => Ok(Destination::Null),
+			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Ok(Destination::Messenger),
 			tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit => {
 				Err(tg::error!("invalid stdio"))
 			},

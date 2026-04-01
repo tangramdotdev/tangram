@@ -113,6 +113,18 @@ impl tg::Process {
 			let stream = stream::once(future::ok(tg::progress::Event::Output(process))).boxed();
 			return progress(stream).await;
 		}
+		let provide_stderr = matches!(
+			arg.stderr,
+			tg::process::Stdio::Pipe | tg::process::Stdio::Tty
+		);
+		let provide_stdin = matches!(
+			arg.stdin,
+			tg::process::Stdio::Pipe | tg::process::Stdio::Tty
+		);
+		let provide_stdout = matches!(
+			arg.stdout,
+			tg::process::Stdio::Pipe | tg::process::Stdio::Tty
+		);
 		let no_tty = matches!(arg.tty, Some(tg::Either::Left(false)));
 		let raw =
 			arg.sandbox && arg.stdin.is_inherit() && !no_tty && std::io::stdin().is_terminal();
@@ -201,16 +213,51 @@ impl tg::Process {
 							} else {
 								None
 							};
+							let stderr = if provide_stderr {
+								super::stdio::Reader::from_process(
+									id.clone(),
+									remote.clone(),
+									tg::process::stdio::Stream::Stderr,
+								)
+							} else {
+								super::stdio::Reader::unavailable(
+									tg::process::stdio::Stream::Stderr,
+								)
+							};
+							let stdin = if provide_stdin {
+								super::stdio::Writer::from_process(
+									id.clone(),
+									remote.clone(),
+									tg::process::stdio::Stream::Stdin,
+								)
+							} else {
+								super::stdio::Writer::unavailable(tg::process::stdio::Stream::Stdin)
+							};
+							let stdout = if provide_stdout {
+								super::stdio::Reader::from_process(
+									id.clone(),
+									remote.clone(),
+									tg::process::stdio::Stream::Stdout,
+								)
+							} else {
+								super::stdio::Reader::unavailable(
+									tg::process::stdio::Stream::Stdout,
+								)
+							};
 							let process = Self(Arc::new(super::Inner {
 								cached: Some(output.cached),
 								id,
 								metadata: RwLock::new(None),
 								remote,
 								state: RwLock::new(None),
+								stderr,
+								stdin,
 								stdio_task,
+								stdout,
+								task: None,
 								token: output.token,
 								wait: Mutex::new(wait),
-								unsandboxed: None,
+								pid: None,
 							}));
 							tg::progress::Event::Output(process)
 						},
@@ -304,9 +351,30 @@ impl tg::Process {
 		let pid = child
 			.id()
 			.ok_or_else(|| tg::error!("failed to get the process id"))?;
-		let stdin = tokio::sync::Mutex::new(child.stdin.take());
-		let stdout = tokio::sync::Mutex::new(child.stdout.take());
-		let stderr = tokio::sync::Mutex::new(child.stderr.take());
+		let stderr = if arg.stderr.is_pipe() {
+			child.stderr.take().map_or_else(
+				|| super::stdio::Reader::unavailable(tg::process::stdio::Stream::Stderr),
+				super::stdio::Reader::from_stderr,
+			)
+		} else {
+			super::stdio::Reader::unavailable(tg::process::stdio::Stream::Stderr)
+		};
+		let stdin = if arg.stdin.is_pipe() {
+			child.stdin.take().map_or_else(
+				|| super::stdio::Writer::unavailable(tg::process::stdio::Stream::Stdin),
+				super::stdio::Writer::from_stdin,
+			)
+		} else {
+			super::stdio::Writer::unavailable(tg::process::stdio::Stream::Stdin)
+		};
+		let stdout = if arg.stdout.is_pipe() {
+			child.stdout.take().map_or_else(
+				|| super::stdio::Reader::unavailable(tg::process::stdio::Stream::Stdout),
+				super::stdio::Reader::from_stdout,
+			)
+		} else {
+			super::stdio::Reader::unavailable(tg::process::stdio::Stream::Stdout)
+		};
 
 		let mut task = tangram_futures::task::Shared::spawn({
 			let handle = handle.clone();
@@ -318,18 +386,16 @@ impl tg::Process {
 			cached: Some(false),
 			id,
 			metadata: RwLock::new(None),
+			pid: Some(pid),
 			remote: None,
 			state: RwLock::new(None),
+			stderr,
+			stdin,
 			stdio_task: None,
+			stdout,
+			task: Some(task),
 			token: None,
 			wait: Mutex::new(None),
-			unsandboxed: Some(super::Unsandboxed {
-				pid,
-				stdin,
-				stdout,
-				stderr,
-				task,
-			}),
 		})))
 	}
 

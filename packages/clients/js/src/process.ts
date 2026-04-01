@@ -18,10 +18,10 @@ export class Process {
 	#promise: Promise<tg.Process.Wait> | undefined;
 	#remote: string | undefined;
 	#state: tg.Process.State | undefined;
-	#stderr: tg.Process.Stdio.Reader | undefined;
-	#stdin: tg.Process.Stdio.Writer | undefined;
+	#stderr: tg.Process.Stdio.Reader;
+	#stdin: tg.Process.Stdio.Writer;
 	#stdioPromise: Promise<void> | undefined;
-	#stdout: tg.Process.Stdio.Reader | undefined;
+	#stdout: tg.Process.Stdio.Reader;
 	#token: string | undefined;
 	#wait: tg.Process.Wait | undefined;
 
@@ -395,27 +395,18 @@ export class Process {
 			stdin: renderStdio(arg.stdin, "stdin"),
 			stdout: renderStdio(arg.stdout, "stdout"),
 		});
-		let stdin =
-			spawnOutput.stdin !== undefined
-				? new tg.Process.Stdio.Writer({
-						fd: spawnOutput.stdin,
-						stream: "stdin",
-					})
-				: undefined;
-		let stdout =
-			spawnOutput.stdout !== undefined
-				? new tg.Process.Stdio.Reader({
-						fd: spawnOutput.stdout,
-						stream: "stdout",
-					})
-				: undefined;
-		let stderr =
-			spawnOutput.stderr !== undefined
-				? new tg.Process.Stdio.Reader({
-						fd: spawnOutput.stderr,
-						stream: "stderr",
-					})
-				: undefined;
+		let stdin = new tg.Process.Stdio.Writer({
+			fd: spawnOutput.stdin,
+			stream: "stdin",
+		});
+		let stdout = new tg.Process.Stdio.Reader({
+			fd: spawnOutput.stdout,
+			stream: "stdout",
+		});
+		let stderr = new tg.Process.Stdio.Reader({
+			fd: spawnOutput.stderr,
+			stream: "stderr",
+		});
 		let pid = spawnOutput.pid;
 		let promise = this.waitUnsandboxed(
 			pid,
@@ -443,9 +434,9 @@ export class Process {
 	static async waitUnsandboxed(
 		pid: number,
 		stdio: {
-			stderr?: tg.Process.Stdio.Reader | undefined;
-			stdin?: tg.Process.Stdio.Writer | undefined;
-			stdout?: tg.Process.Stdio.Reader | undefined;
+			stderr: tg.Process.Stdio.Reader;
+			stdin: tg.Process.Stdio.Writer;
+			stdout: tg.Process.Stdio.Reader;
 		},
 		tempDir: string,
 		outputPath: string,
@@ -507,11 +498,7 @@ export class Process {
 		}
 		try {
 			for (let name of ["stdin", "stdout", "stderr"] as const) {
-				let handle = stdio[name];
-				stdio[name] = undefined;
-				if (handle !== undefined) {
-					await handle.close();
-				}
+				await stdio[name].close();
 			}
 			await tg.host.remove(tempDir);
 		} catch (error) {
@@ -592,32 +579,23 @@ export class Process {
 			id: output.process,
 			remote: output.remote,
 			state: undefined,
-			stderr:
-				arg.stderr === "pipe"
-					? new tg.Process.Stdio.Reader({
-							process: output.process,
-							remote: output.remote,
-							stream: "stderr",
-						})
-					: undefined,
-			stdin:
-				arg.stdin === "pipe"
-					? new tg.Process.Stdio.Writer({
-							process: output.process,
-							remote: output.remote,
-							stream: "stdin",
-						})
-					: undefined,
+			stderr: new tg.Process.Stdio.Reader({
+				process: arg.stderr === "pipe" ? output.process : undefined,
+				remote: arg.stderr === "pipe" ? output.remote : undefined,
+				stream: "stderr",
+			}),
+			stdin: new tg.Process.Stdio.Writer({
+				process: arg.stdin === "pipe" ? output.process : undefined,
+				remote: arg.stdin === "pipe" ? output.remote : undefined,
+				stream: "stdin",
+			}),
 			stdioPromise,
 			token: output.token,
-			stdout:
-				arg.stdout === "pipe"
-					? new tg.Process.Stdio.Reader({
-							process: output.process,
-							remote: output.remote,
-							stream: "stdout",
-						})
-					: undefined,
+			stdout: new tg.Process.Stdio.Reader({
+				process: arg.stdout === "pipe" ? output.process : undefined,
+				remote: arg.stdout === "pipe" ? output.remote : undefined,
+				stream: "stdout",
+			}),
 			wait,
 		});
 		return process;
@@ -733,15 +711,15 @@ export class Process {
 		})();
 	}
 
-	get stdin(): tg.Process.Stdio.Writer | undefined {
+	get stdin(): tg.Process.Stdio.Writer {
 		return this.#stdin;
 	}
 
-	get stdout(): tg.Process.Stdio.Reader | undefined {
+	get stdout(): tg.Process.Stdio.Reader {
 		return this.#stdout;
 	}
 
-	get stderr(): tg.Process.Stdio.Reader | undefined {
+	get stderr(): tg.Process.Stdio.Reader {
 		return this.#stderr;
 	}
 
@@ -1066,10 +1044,10 @@ export namespace Process {
 		promise?: Promise<tg.Process.Wait> | undefined;
 		remote?: string | undefined;
 		state?: State | undefined;
-		stderr?: tg.Process.Stdio.Reader | undefined;
-		stdin?: tg.Process.Stdio.Writer | undefined;
+		stderr: tg.Process.Stdio.Reader;
+		stdin: tg.Process.Stdio.Writer;
 		stdioPromise?: Promise<void> | undefined;
-		stdout?: tg.Process.Stdio.Reader | undefined;
+		stdout: tg.Process.Stdio.Reader;
 		token?: string | undefined;
 		wait?: tg.Process.Wait | undefined;
 	};

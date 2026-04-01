@@ -120,7 +120,7 @@ impl tg::Process {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
 
-		if let Some(unsandboxed) = &self.unsandboxed {
+		if self.pid.is_some() {
 			let mut streams = Vec::new();
 			for stream in arg.streams {
 				match stream {
@@ -128,47 +128,48 @@ impl tg::Process {
 						return Err(tg::error!("reading stdin is invalid"));
 					},
 					tg::process::stdio::Stream::Stdout => {
-						let stdout = unsandboxed.stdout.lock().await.take();
-						if let Some(stdout) = stdout {
-							let stream = tokio_util::io::ReaderStream::new(stdout).map(|result| {
-								result
-									.map(|bytes| {
-										tg::process::stdio::read::Event::Chunk(
-											tg::process::stdio::Chunk {
-												bytes,
-												position: None,
-												stream: tg::process::stdio::Stream::Stdout,
-											},
-										)
-									})
-									.map_err(|source| tg::error!(!source, "failed to read stdout"))
-							});
-							streams.push(stream.boxed());
-						}
+						let handle = handle.clone();
+						let stdout = self.stdout();
+						let stream = stream::try_unfold(
+							(handle, stdout),
+							|(handle, mut stdout)| async move {
+								let Some(bytes) = stdout.read(&handle).await? else {
+									return Ok(None);
+								};
+								let event = tg::process::stdio::read::Event::Chunk(
+									tg::process::stdio::Chunk {
+										bytes,
+										position: None,
+										stream: tg::process::stdio::Stream::Stdout,
+									},
+								);
+								Ok(Some((event, (handle, stdout))))
+							},
+						);
+						streams.push(stream.boxed());
 					},
 					tg::process::stdio::Stream::Stderr => {
-						let stderr = unsandboxed.stderr.lock().await.take();
-						if let Some(stderr) = stderr {
-							let stream = tokio_util::io::ReaderStream::new(stderr).map(|result| {
-								result
-									.map(|bytes| {
-										tg::process::stdio::read::Event::Chunk(
-											tg::process::stdio::Chunk {
-												bytes,
-												position: None,
-												stream: tg::process::stdio::Stream::Stderr,
-											},
-										)
-									})
-									.map_err(|source| tg::error!(!source, "failed to read stderr"))
-							});
-							streams.push(stream.boxed());
-						}
+						let handle = handle.clone();
+						let stderr = self.stderr();
+						let stream = stream::try_unfold(
+							(handle, stderr),
+							|(handle, mut stderr)| async move {
+								let Some(bytes) = stderr.read(&handle).await? else {
+									return Ok(None);
+								};
+								let event = tg::process::stdio::read::Event::Chunk(
+									tg::process::stdio::Chunk {
+										bytes,
+										position: None,
+										stream: tg::process::stdio::Stream::Stderr,
+									},
+								);
+								Ok(Some((event, (handle, stderr))))
+							},
+						);
+						streams.push(stream.boxed());
 					},
 				}
-			}
-			if streams.is_empty() {
-				return Ok(None);
 			}
 			let stream = futures::stream::select_all(streams).chain(stream::once(future::ok(
 				tg::process::stdio::read::Event::End,

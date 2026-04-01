@@ -1381,14 +1381,14 @@ declare namespace tg {
 		/** Get whether this process has the network enabled. */
 		get network(): Promise<boolean>;
 
-		/** Get this process's piped stdin writer. */
-		get stdin(): tg.Process.Stdio.Writer | undefined;
+		/** Get this process's stdin writer. */
+		get stdin(): tg.Process.Stdio.Writer;
 
-		/** Get this process's piped stdout reader. */
-		get stdout(): tg.Process.Stdio.Reader | undefined;
+		/** Get this process's stdout reader. */
+		get stdout(): tg.Process.Stdio.Reader;
 
-		/** Get this process's piped stderr reader. */
-		get stderr(): tg.Process.Stdio.Reader | undefined;
+		/** Get this process's stderr reader. */
+		get stderr(): tg.Process.Stdio.Reader;
 
 		/** Get this process's command's user. */
 		get user(): Promise<string | undefined>;

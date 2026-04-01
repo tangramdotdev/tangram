@@ -5,7 +5,6 @@ use {
 	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::CommaSeparatedString,
-	tokio::io::AsyncWriteExt as _,
 };
 
 #[serde_as]
@@ -110,25 +109,22 @@ impl tg::Process {
 	where
 		H: tg::Handle,
 	{
-		if let Some(unsandboxed) = &self.unsandboxed {
+		if self.pid.is_some() {
 			if arg.streams.as_slice() != [tg::process::stdio::Stream::Stdin] {
 				return Err(tg::error!("writing stdout or stderr is invalid"));
 			}
-			let mut stdin = unsandboxed.stdin.lock().await;
-			let Some(stdin_) = stdin.as_mut() else {
-				return Err(tg::error!("stdin is not available"));
-			};
+			let mut stdin = self.stdin();
 			let mut input = std::pin::pin!(input);
 			while let Some(event) = input.try_next().await? {
 				match event {
 					tg::process::stdio::read::Event::Chunk(chunk) => {
-						stdin_
-							.write_all(&chunk.bytes)
-							.await
-							.map_err(|source| tg::error!(!source, "failed to write stdin"))?;
+						if chunk.stream != tg::process::stdio::Stream::Stdin {
+							return Err(tg::error!("invalid process stdio stream"));
+						}
+						stdin.write(handle, &chunk.bytes).await?;
 					},
 					tg::process::stdio::read::Event::End => {
-						stdin.take();
+						stdin.close(handle).await?;
 						break;
 					},
 				}

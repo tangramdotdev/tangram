@@ -1,9 +1,8 @@
-use std::path::PathBuf;
-
 use {
 	crate::prelude::*,
 	std::{
 		ops::Deref,
+		path::PathBuf,
 		sync::{Arc, Mutex, RwLock},
 	},
 	tangram_util::arc::Ext as _,
@@ -45,22 +44,18 @@ pub struct Inner {
 	cached: Option<bool>,
 	id: Id,
 	metadata: RwLock<Option<Arc<Metadata>>>,
+	pid: Option<u32>,
 	remote: Option<String>,
 	state: RwLock<Option<Arc<State>>>,
+	stderr: tg::process::stdio::Reader,
+	stdin: tg::process::stdio::Writer,
 	#[debug(ignore)]
 	stdio_task: Option<tangram_futures::task::Shared<tg::Result<()>>>,
-	token: Option<String>,
+	stdout: tg::process::stdio::Reader,
 	#[debug(ignore)]
-	unsandboxed: Option<Unsandboxed>,
+	task: Option<tangram_futures::task::Shared<tg::Result<tg::process::wait::Output>>>,
+	token: Option<String>,
 	wait: Mutex<Option<Wait>>,
-}
-
-struct Unsandboxed {
-	pid: u32,
-	stdin: tokio::sync::Mutex<Option<tokio::process::ChildStdin>>,
-	stdout: tokio::sync::Mutex<Option<tokio::process::ChildStdout>>,
-	stderr: tokio::sync::Mutex<Option<tokio::process::ChildStderr>>,
-	task: tangram_futures::task::Shared<tg::Result<tg::process::wait::Output>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -83,6 +78,7 @@ pub struct Arg {
 	pub stderr: tg::process::Stdio,
 	pub stdin: tg::process::Stdio,
 	pub stdout: tg::process::Stdio,
+	pub tty: Option<tg::Either<bool, tg::process::Tty>>,
 	pub user: Option<String>,
 }
 
@@ -109,15 +105,34 @@ impl Process {
 	) -> Self {
 		let metadata = RwLock::new(metadata.map(Arc::new));
 		let state = RwLock::new(state.map(Arc::new));
+		let stderr = tg::process::stdio::Reader::from_process(
+			id.clone(),
+			remote.clone(),
+			tg::process::stdio::Stream::Stderr,
+		);
+		let stdin = tg::process::stdio::Writer::from_process(
+			id.clone(),
+			remote.clone(),
+			tg::process::stdio::Stream::Stdin,
+		);
+		let stdout = tg::process::stdio::Reader::from_process(
+			id.clone(),
+			remote.clone(),
+			tg::process::stdio::Stream::Stdout,
+		);
 		Self(Arc::new(Inner {
 			cached,
 			id,
 			metadata,
+			pid: None,
 			remote,
 			state,
+			stderr,
+			stdin,
 			stdio_task: None,
+			stdout,
+			task: None,
 			token,
-			unsandboxed: None,
 			wait: Mutex::new(None),
 		}))
 	}
@@ -160,6 +175,21 @@ impl Process {
 	#[must_use]
 	pub fn token(&self) -> Option<&String> {
 		self.token.as_ref()
+	}
+
+	#[must_use]
+	pub fn stdin(&self) -> tg::process::stdio::Writer {
+		self.0.stdin.clone()
+	}
+
+	#[must_use]
+	pub fn stdout(&self) -> tg::process::stdio::Reader {
+		self.0.stdout.clone()
+	}
+
+	#[must_use]
+	pub fn stderr(&self) -> tg::process::stdio::Reader {
+		self.0.stderr.clone()
 	}
 
 	pub async fn load<H>(&self, handle: &H) -> tg::Result<Arc<tg::process::State>>
@@ -209,8 +239,8 @@ impl Process {
 	where
 		H: tg::Handle,
 	{
-		if let Some(unsandboxed) = &self.unsandboxed {
-			let pid = i32::try_from(unsandboxed.pid)
+		if let Some(pid) = self.pid {
+			let pid = i32::try_from(pid)
 				.map_err(|source| tg::error!(!source, "failed to convert the process id"))?;
 			let signal = i32::from(signal as u8);
 			let ret = unsafe { libc::kill(pid, signal) };
@@ -246,9 +276,8 @@ impl Process {
 				.await
 				.map_err(|source| tg::error!(!source, "the stdio task panicked"))??;
 		}
-		if let Some(unsandboxed) = &self.unsandboxed {
-			let output = unsandboxed
-				.task
+		if let Some(task) = &self.task {
+			let output = task
 				.wait()
 				.await
 				.map_err(|source| tg::error!(!source, "the task panicked"))??;

@@ -15,19 +15,16 @@ let path = artifact {
 				.stdout("pipe")
 				.stderr("pipe")
 				.sandbox();
-			tg.assert(process.stdin !== undefined);
-			tg.assert(process.stdout !== undefined);
-			tg.assert(process.stderr !== undefined);
 			let input = tg.encoding.utf8.encode("hello\n");
 			let [written, stdout, stderr] = await Promise.all([
 				process.stdin.write(input).then(async (written) => {
-					await process.stdin!.close();
+					await process.stdin.close();
 					return written;
 				}),
 				(async () => {
 					let chunks = [];
 					while (true) {
-						let chunk = await process.stdout!.read();
+						let chunk = await process.stdout.read();
 						if (chunk === undefined) {
 							break;
 						}
@@ -38,7 +35,7 @@ let path = artifact {
 				(async () => {
 					let chunks = [];
 					while (true) {
-						let chunk = await process.stderr!.read();
+						let chunk = await process.stderr.read();
 						if (chunk === undefined) {
 							break;
 						}

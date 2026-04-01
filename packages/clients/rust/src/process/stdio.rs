@@ -11,6 +11,10 @@ use {
 	tokio::io::AsyncWriteExt as _,
 };
 
+mod reader;
+mod writer;
+
+pub use self::{reader::Reader, writer::Writer};
 pub mod read;
 pub mod write;
 

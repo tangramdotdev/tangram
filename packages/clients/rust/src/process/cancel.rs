@@ -23,7 +23,7 @@ impl tg::Process {
 	where
 		H: tg::Handle,
 	{
-		if self.unsandboxed.is_some() {
+		if self.pid.is_some() {
 			return self.signal(handle, tg::process::Signal::SIGTERM).await;
 		}
 		let id = self.id();

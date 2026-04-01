@@ -93,7 +93,7 @@ impl tg::Process {
 			stderr,
 			stdin,
 			stdout,
-			tty: None,
+			tty: arg.tty,
 		};
 		let process = tg::Process::spawn_with_progress(handle, arg, |stream| {
 			let writer = std::io::stderr();
