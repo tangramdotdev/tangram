@@ -6,7 +6,7 @@ let path = artifact {
 	tangram.ts: '
 		export default async function () {
 			const process = await tg
-				.spawn`sleep 1000sec`
+				.spawn`sleep 1000`
 				.stdin("null")
 				.stdout("null")
 				.stderr("null");
