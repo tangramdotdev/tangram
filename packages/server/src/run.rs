@@ -37,13 +37,6 @@ pub struct Output {
 	pub value: Option<tg::Value>,
 }
 
-#[derive(Clone, Debug)]
-struct QueuedSandbox {
-	id: tg::sandbox::Id,
-	process: Option<tg::process::Id>,
-	remote: Option<String>,
-}
-
 impl Server {
 	pub(crate) async fn runner_task(&self) {
 		loop {
@@ -58,11 +51,7 @@ impl Server {
 			let arg = tg::sandbox::queue::Arg::default();
 			let futures = std::iter::once(
 				self.dequeue_sandbox(arg)
-					.map_ok(|output| QueuedSandbox {
-						id: output.sandbox,
-						process: output.process,
-						remote: None,
-					})
+					.map_ok(|output| (output, None))
 					.boxed(),
 			)
 			.chain(self.config.runner.iter().flat_map(|config| {
@@ -73,18 +62,14 @@ impl Server {
 						let client = server.get_remote_client(remote.clone()).await?;
 						let arg = tg::sandbox::queue::Arg::default();
 						let output = client.dequeue_sandbox(arg).await?;
-						Ok::<_, tg::Error>(QueuedSandbox {
-							id: output.sandbox,
-							process: output.process,
-							remote: Some(remote),
-						})
+						Ok::<_, tg::Error>((output, Some(remote)))
 					}
 					.boxed()
 				})
 			}));
 
-			let sandbox = match future::select_ok(futures).await {
-				Ok((sandbox, _)) => sandbox,
+			let (output, remote) = match future::select_ok(futures).await {
+				Ok((output, _)) => output,
 				Err(error) => {
 					tracing::error!(error = %error.trace(), "failed to dequeue a sandbox");
 					tokio::time::sleep(Duration::from_secs(1)).await;
@@ -92,7 +77,7 @@ impl Server {
 				},
 			};
 
-			self.spawn_sandbox_task(&sandbox.id, sandbox.remote, permit, sandbox.process);
+			self.spawn_sandbox_task(&output.sandbox, remote, permit, output.process);
 		}
 	}
 
