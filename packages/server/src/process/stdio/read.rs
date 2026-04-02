@@ -203,7 +203,7 @@ impl Server {
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>> {
 		let stream = self
 			.messenger
-			.get_stream("stdio".to_owned())
+			.get_stream("processes.stdio".to_owned())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the stdio stream"))?;
 		let consumer_config = tangram_messenger::ConsumerConfig {
@@ -212,7 +212,7 @@ impl Server {
 			durable_name: None,
 			filter_subjects: streams
 				.iter()
-				.map(|stream| format!("processes.{id}.{stream}"))
+				.map(|stream| format!("processes.stdio.{id}.{stream}"))
 				.collect(),
 		};
 		let consumer = stream

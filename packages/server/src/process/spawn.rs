@@ -255,8 +255,8 @@ impl Server {
 				};
 				self.messenger
 					.stream_publish(
-						"sandboxes.processes".into(),
-						format!("sandboxes.{sandbox}.processes"),
+						"sandboxes.processes.queue".into(),
+						format!("sandboxes.{sandbox}.processes.queue"),
 						payload,
 					)
 					.await

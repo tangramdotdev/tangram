@@ -35,14 +35,14 @@ impl Server {
 
 		let stream = self
 			.messenger
-			.get_stream("sandboxes.processes".into())
+			.get_stream("sandboxes.processes.queue".into())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the stream"))?;
 		let consumer_config = tangram_messenger::ConsumerConfig {
 			deliver_policy: tangram_messenger::DeliverPolicy::All,
 			ack_policy: tangram_messenger::AckPolicy::Explicit,
 			durable_name: None,
-			filter_subjects: vec![format!("sandboxes.{sandbox}.processes")],
+			filter_subjects: vec![format!("sandboxes.{sandbox}.processes.queue")],
 		};
 		let consumer = stream
 			.create_consumer(None, consumer_config)

@@ -239,7 +239,11 @@ impl Server {
 				let message = crate::process::finalize::Message { id: id.clone() };
 				server
 					.messenger
-					.stream_publish("finalize".to_owned(), "finalize".to_owned(), message)
+					.stream_publish(
+						"processes.finalize.queue".to_owned(),
+						"processes.finalize.queue".to_owned(),
+						message,
+					)
 					.await
 					.inspect_err(|error| tracing::error!(%error, %id, "failed to publish"))
 					.ok();

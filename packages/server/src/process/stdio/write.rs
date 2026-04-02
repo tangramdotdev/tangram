@@ -158,7 +158,7 @@ impl Server {
 							});
 						},
 						Destination::Messenger => {
-							let subject = format!("processes.{id}.{}", chunk.stream);
+							let subject = format!("processes.stdio.{id}.{}", chunk.stream);
 							let payload =
 								serde_json::to_vec(&tg::process::stdio::read::Event::Chunk(chunk))
 									.map(Bytes::from)
@@ -166,7 +166,7 @@ impl Server {
 										tg::error!(!source, "failed to serialize the stdio event")
 									})?;
 							self.messenger
-								.stream_publish("stdio".to_owned(), subject, payload)
+								.stream_publish("processes.stdio".to_owned(), subject, payload)
 								.and_then(|result| result)
 								.await
 								.map_err(|source| tg::error!(!source, "failed to publish stdio"))?;
@@ -187,9 +187,9 @@ impl Server {
 						) {
 							continue;
 						}
-						let subject = format!("processes.{id}.{stream}");
+						let subject = format!("processes.stdio.{id}.{stream}");
 						self.messenger
-							.stream_publish("stdio".to_owned(), subject, payload.clone())
+							.stream_publish("processes.stdio".to_owned(), subject, payload.clone())
 							.and_then(|result| result)
 							.await
 							.map_err(|source| tg::error!(!source, "failed to publish stdio"))?;

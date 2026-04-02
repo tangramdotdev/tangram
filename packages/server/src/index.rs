@@ -253,7 +253,7 @@ impl Server {
 		// Get the finalize stream.
 		let finalize_stream = self
 			.messenger
-			.get_stream("finalize".to_owned())
+			.get_stream("processes.finalize.queue".to_owned())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the finalize stream"))?;
 
