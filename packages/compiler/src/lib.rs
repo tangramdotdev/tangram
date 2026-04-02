@@ -1387,7 +1387,7 @@ impl Deref for Compiler {
 	}
 }
 
-impl Drop for Shared {
+impl Drop for Owned {
 	fn drop(&mut self) {
 		#[cfg(feature = "typescript")]
 		self.compiler.typescript.stop();
