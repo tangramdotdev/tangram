@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client::prelude::*, tangram_futures::task::Task};
+use {crate::Cli, std::io::Read, tangram_client::prelude::*, tangram_futures::task::Task};
 
 /// View a process, an object, or a tag.
 #[derive(Clone, Debug, clap::Args)]
@@ -40,6 +40,9 @@ pub struct Args {
 	#[arg(default_value = "fullscreen", long)]
 	pub mode: Mode,
 
+	#[command(flatten)]
+	pub alternate_screen: AlternateScreen,
+
 	/// The reference to view.
 	#[arg(index = 1, default_value = ".")]
 	pub reference: tg::Reference,
@@ -59,6 +62,43 @@ pub enum Kind {
 	Package,
 	Value,
 }
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct AlternateScreen {
+	#[arg(
+		default_missing_value = "true",
+		hide = true,
+		long,
+		num_args = 0..=1,
+		overrides_with = "no_alternate_screen",
+		require_equals = true,
+	)]
+	alternate_screen: Option<bool>,
+
+	#[arg(
+		default_missing_value = "true",
+		hide = true,
+		long,
+		num_args = 0..=1,
+		overrides_with = "alternate_screen",
+		require_equals = true,
+	)]
+	no_alternate_screen: Option<bool>,
+}
+
+impl AlternateScreen {
+	pub fn new(flag: bool) -> Self {
+		Self {
+			alternate_screen: Some(flag),
+			no_alternate_screen: None,
+		}
+	}
+
+	pub fn get(&self) -> Option<bool> {
+		self.alternate_screen.or(self.no_alternate_screen.map(|v| !v))
+	}
+}
+
 
 impl Cli {
 	pub async fn command_view(&mut self, args: Args) -> tg::Result<()> {
@@ -94,6 +134,21 @@ impl Cli {
 			},
 		};
 
+		// Create a channel to send the exit signal when stdin finishes reading.
+		let (exit_sender, exit_receiver) = tokio::sync::oneshot::channel();
+		let _stdin = Task::spawn_blocking(move |_| {
+			let mut buf = vec![0u8; 1024];
+			loop {
+				match std::io::stdin().read(&mut buf) {
+					Ok(0) => break,
+					Ok(_) => continue,
+					Err(_) => break,
+				}
+			}
+			exit_sender.send(()).ok();
+		});
+
+		let alternate_screen = args.alternate_screen.get().unwrap_or(true);
 		let mode = args.mode;
 		Task::spawn_blocking(move |stop| {
 			let local_set = tokio::task::LocalSet::new();
@@ -114,13 +169,13 @@ impl Cli {
 						expand_values: matches!(mode, Mode::Inline),
 						show_process_commands: true,
 					};
-					let mut viewer = crate::viewer::Viewer::new(&handle, root, options);
+					let mut viewer = crate::viewer::Viewer::new(&handle, root, exit_receiver, options);
 					match mode {
 						Mode::Inline => {
 							viewer.run_inline(stop, true).await?;
 						},
 						Mode::Fullscreen => {
-							viewer.run_fullscreen(stop).await?;
+							viewer.run_fullscreen(stop, alternate_screen).await?;
 						},
 					}
 					Ok::<_, tg::Error>(())

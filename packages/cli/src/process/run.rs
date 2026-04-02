@@ -206,6 +206,7 @@ impl Cli {
 		}
 
 		// Spawn the view task if necessary.
+		let (_exit_sender, exit_receiver) = tokio::sync::oneshot::channel();
 		let view_task = if let Some(view) = options.view {
 			let handle = handle.clone();
 			let root = process.clone().map(crate::viewer::Item::Process);
@@ -227,14 +228,14 @@ impl Cli {
 						expand_values: false,
 						show_process_commands: false,
 					};
-					let mut viewer = crate::viewer::Viewer::new(&handle, root, viewer_options);
+					let mut viewer = crate::viewer::Viewer::new(&handle, root, exit_receiver, viewer_options);
 					match view {
 						View::None => (),
 						View::Inline => {
 							viewer.run_inline(stop, false).await?;
 						},
 						View::Fullscreen => {
-							viewer.run_fullscreen(stop).await?;
+							viewer.run_fullscreen(stop, true).await?;
 						},
 					}
 					Ok::<_, tg::Error>(())

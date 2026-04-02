@@ -27,11 +27,13 @@ mod util;
 
 pub struct Viewer<H> {
 	data: Data,
+	exit: tokio::sync::oneshot::Receiver<()>,
+	exited: bool,
 	focus: Focus,
 	help: Help,
 	log: Option<Log<H>>,
 	split: Split,
-	stopped: bool,
+	quit: bool,
 	tree: Tree<H>,
 	update_receiver: UpdateReceiver<H>,
 	_update_sender: UpdateSender<H>,
@@ -102,7 +104,7 @@ where
 					return;
 				},
 				(ct::event::KeyCode::Char('q'), ct::event::KeyModifiers::NONE) => {
-					self.stopped = true;
+					self.quit = true;
 					return;
 				},
 				(ct::event::KeyCode::Char('/'), ct::event::KeyModifiers::NONE) => {
@@ -182,7 +184,7 @@ where
 		}
 	}
 
-	pub fn new(handle: &H, root: tg::Referent<Item>, options: Options) -> Self {
+	pub fn new(handle: &H, root: tg::Referent<Item>, exit: tokio::sync::oneshot::Receiver<()>, options: Options) -> Self {
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let data = Data::new();
 		let tree = Tree::new(
@@ -194,11 +196,13 @@ where
 		);
 		Self {
 			data,
+			exit,
+			exited: false,
 			focus: Focus::Tree,
 			help: Help,
 			log: None,
 			split: Split::Vertical,
-			stopped: false,
+			quit: false,
 			tree,
 			update_receiver,
 			_update_sender: update_sender,
@@ -229,7 +233,11 @@ where
 		}
 	}
 
-	pub async fn run_fullscreen(&mut self, stopper: Stopper) -> tg::Result<()> {
+	pub async fn run_fullscreen(
+		&mut self,
+		stopper: Stopper,
+		alternate_screen: bool,
+	) -> tg::Result<()> {
 		// Make sure the root is selected. This is only necessary in the fullscreen viewer.
 		self.tree.ensure_root_selected();
 
@@ -247,12 +255,16 @@ where
 			.map_err(|source| tg::error!(!source, "failed to create the terminal backend"))?;
 
 		// Enable mouse capture and enter an alternate screen.
-		ct::execute!(
-			terminal.backend_mut(),
-			ct::event::EnableMouseCapture,
-			ct::terminal::EnterAlternateScreen,
-		)
-		.map_err(|source| tg::error!(!source, "failed to enable mouse capture"))?;
+		ct::execute!(terminal.backend_mut(), ct::event::EnableMouseCapture,)
+			.map_err(|source| tg::error!(!source, "failed to enable mouse capture"))?;
+		if alternate_screen {
+			ct::execute!(
+				terminal.backend_mut(),
+				ct::event::EnableMouseCapture,
+				ct::terminal::EnterAlternateScreen,
+			)
+			.map_err(|source| tg::error!(!source, "failed to enable mouse capture"))?;
+		}
 
 		// Get the termios and enable raw mode.
 		let termios = unsafe {
@@ -287,7 +299,8 @@ where
 
 		// Run the event loop.
 		let result = loop {
-			if stopper.stopped() || self.stopped {
+			// Break out of the event loop if we've stopped.
+			if stopper.stopped() {
 				break Ok(());
 			}
 
@@ -299,6 +312,11 @@ where
 				terminal.draw(|frame| self.render(frame.area(), frame.buffer_mut()))
 			{
 				break Err(tg::error!(!source, "failed to render the frame"));
+			}
+
+			// If the user has requested an exit, exit the loop after rendering.
+			if self.exited() {
+				break Ok(());
 			}
 
 			// Wait for and handle an event.
@@ -323,12 +341,10 @@ where
 		}
 
 		// Disable mouse capture and leave the alternate screen, ignoring errors.
-		ct::execute!(
-			terminal.backend_mut(),
-			ct::event::DisableMouseCapture,
-			ct::terminal::LeaveAlternateScreen,
-		)
-		.ok();
+		ct::execute!(terminal.backend_mut(), ct::event::DisableMouseCapture,).ok();
+		if alternate_screen {
+			ct::execute!(terminal.backend_mut(), ct::terminal::LeaveAlternateScreen,).ok();
+		}
 
 		result
 	}
@@ -458,6 +474,17 @@ where
 		}
 		self.tree.update();
 		self.data.update();
+	}
+
+	fn exited(&mut self) -> bool {
+		if !self.exited {
+			self.exited = match self.exit.try_recv() {
+				Ok(()) => true,
+				Err(tokio::sync::oneshot::error::TryRecvError::Closed) => true,
+				Err(tokio::sync::oneshot::error::TryRecvError::Empty) => false,
+			};
+		}
+		self.quit || (self.exited && self.tree.is_finished())
 	}
 }
 
