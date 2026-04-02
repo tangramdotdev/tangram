@@ -428,7 +428,7 @@ where
 			}
 			node.borrow_mut().guard.replace(guard);
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 		Ok(())
 	}
 
@@ -468,7 +468,7 @@ where
 			}
 			node.borrow_mut().guard.replace(guard);
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 
 		Ok(())
 	}
@@ -558,7 +558,7 @@ where
 			}
 			node.borrow_mut().guard.replace(guard);
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 		Ok(())
 	}
 
@@ -757,7 +757,7 @@ where
 			}
 			node.borrow_mut().guard.replace(guard);
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 		Ok(())
 	}
 
@@ -861,7 +861,7 @@ where
 			}
 			node.borrow_mut().guard.replace(guard);
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 		Ok(())
 	}
 
@@ -973,7 +973,7 @@ where
 				node.borrow_mut().children.push(metadata);
 			}
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 		Ok(())
 	}
 
@@ -1160,7 +1160,7 @@ where
 				node.borrow_mut().children.push(metadata);
 			}
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 		Ok(())
 	}
 
@@ -1179,7 +1179,7 @@ where
 				node.borrow_mut().children.push(child);
 			}
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 		Ok(())
 	}
 
@@ -1261,7 +1261,7 @@ where
 				node.borrow_mut().children.push(child);
 			}
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 		Ok(())
 	}
 
@@ -1342,7 +1342,7 @@ where
 				node.borrow_mut().children.push(child);
 			}
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 
 		Ok(())
 	}
@@ -1403,7 +1403,7 @@ where
 			node.borrow_mut().children = children;
 			node.borrow_mut().guard.replace(guard);
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 		Ok(())
 	}
 
@@ -1431,7 +1431,7 @@ where
 		let update = move |node: Rc<RefCell<Node>>| {
 			node.borrow_mut().log_task.replace(log_task);
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 
 		let command = process.command(handle).await?;
 		let value = tg::Value::Object(command.clone().into());
@@ -1486,7 +1486,7 @@ where
 						);
 						node.borrow_mut().children.insert(0, output);
 					};
-					update_sender.send(Box::new(update)).unwrap();
+					update_sender.send(Box::new(update)).ok();
 				}
 			}
 		});
@@ -1546,7 +1546,7 @@ where
 				// Add the child to the children node.
 				node.borrow_mut().children.push(child_node);
 			};
-			update_sender.send(Box::new(update)).unwrap();
+			update_sender.send(Box::new(update)).ok();
 		}
 
 		// Remove the log.
@@ -1632,7 +1632,7 @@ where
 				node.borrow_mut().children.push(metadata);
 			}
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 
 		Ok(())
 	}
@@ -1716,7 +1716,7 @@ where
 				Self::create_node(&handle, &node, Some("components".to_owned()), Some(item));
 			node.borrow_mut().children.push(child);
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 		Ok(())
 	}
 
@@ -2063,7 +2063,7 @@ where
 					let log_node = &node.borrow().children[log_node];
 					log_node.borrow_mut().title = line;
 				};
-				update_sender.send(Box::new(update)).unwrap();
+				update_sender.send(Box::new(update)).ok();
 			}
 		}
 		Ok(())
@@ -2165,7 +2165,7 @@ where
 							// Remove this node from its parent.
 							parent.borrow_mut().children.remove(index);
 						};
-						update_sender.send(Box::new(update)).unwrap();
+						update_sender.send(Box::new(update)).ok();
 						return Ok(());
 					}
 

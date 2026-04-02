@@ -1,4 +1,9 @@
-use {crate::Cli, std::io::Read, tangram_client::prelude::*, tangram_futures::task::Task};
+use {
+	crate::Cli,
+	std::io::{IsTerminal as _, Read as _},
+	tangram_client::prelude::*,
+	tangram_futures::task::Task,
+};
 
 /// View a process, an object, or a tag.
 #[derive(Clone, Debug, clap::Args)]
@@ -136,16 +141,20 @@ impl Cli {
 
 		// Create a channel to send the exit signal when stdin finishes reading.
 		let (exit_sender, exit_receiver) = tokio::sync::oneshot::channel();
-		let _stdin = Task::spawn_blocking(move |_| {
-			let mut buf = vec![0u8; 1024];
-			loop {
-				match std::io::stdin().read(&mut buf) {
-					Ok(0) | Err(_) => break,
-					Ok(_) => {},
+		let _stdin = if std::io::stdin().is_terminal() {
+			None
+		} else {
+			Some(Task::spawn_blocking(move |_| {
+				let mut buf = vec![0u8; 1024];
+				loop {
+					match std::io::stdin().read(&mut buf) {
+						Ok(0) | Err(_) => break,
+						Ok(_) => {},
+					}
 				}
-			}
-			exit_sender.send(()).ok();
-		});
+				exit_sender.send(()).ok();
+			}))
+		};
 
 		let alternate_screen = args.alternate_screen.get().unwrap_or(true);
 		let mode = args.mode;
