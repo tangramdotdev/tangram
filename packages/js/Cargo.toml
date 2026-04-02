@@ -31,7 +31,9 @@ v8 = { workspace = true, optional = true }
 
 [dependencies]
 bytes = { workspace = true }
+dashmap = { workspace = true }
 data-encoding = { workspace = true }
+fnv = { workspace = true }
 futures = { workspace = true }
 libc = { workspace = true }
 num = { workspace = true }

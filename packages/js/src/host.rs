@@ -1,5 +1,6 @@
 use {
 	bytes::Bytes,
+	dashmap::{DashMap, mapref::entry::Entry},
 	std::{
 		collections::BTreeMap,
 		fs::OpenOptions,
@@ -21,19 +22,27 @@ use {
 };
 
 #[derive(Clone, Default)]
-pub struct Host {
-	inner: Arc<tokio::sync::Mutex<Inner>>,
-	next_token: Arc<AtomicUsize>,
-}
+pub struct Host(Arc<State>);
 
 #[derive(Default)]
-struct Inner {
-	fds: BTreeMap<i32, Arc<AsyncFd<OwnedFd>>>,
-	processes: BTreeMap<u32, tokio::process::Child>,
-	signals: BTreeMap<usize, Arc<Signal>>,
-	stoppers: BTreeMap<usize, Stopper>,
-	termios: BTreeMap<i32, libc::termios>,
+pub struct State {
+	fds: FileDescriptors,
+	processes: Processes,
+	signals: Signals,
+	stoppers: Stoppers,
+	termios: Termios,
+	next_token: AtomicUsize,
 }
+
+type FileDescriptors = DashMap<i32, Arc<AsyncFd<OwnedFd>>, fnv::FnvBuildHasher>;
+
+type Processes = DashMap<u32, tokio::sync::Mutex<tokio::process::Child>, fnv::FnvBuildHasher>;
+
+type Signals = DashMap<usize, Arc<Signal>, fnv::FnvBuildHasher>;
+
+type Stoppers = DashMap<usize, Stopper, fnv::FnvBuildHasher>;
+
+type Termios = DashMap<i32, libc::termios, fnv::FnvBuildHasher>;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct SpawnArg {
@@ -82,7 +91,7 @@ struct Signal {
 
 impl Host {
 	pub async fn close(&self, fd: i32) -> tg::Result<()> {
-		let removed = self.inner.lock().await.fds.remove(&fd);
+		let removed = self.0.fds.remove(&fd);
 		if removed.is_none() {
 			return Err(tg::error!(%fd, "failed to find the file descriptor"));
 		}
@@ -90,30 +99,30 @@ impl Host {
 	}
 
 	pub async fn disable_raw_mode(&self, fd: i32) -> tg::Result<()> {
-		let original = {
-			let mut inner = self.inner.lock().await;
-			inner
-				.termios
-				.remove(&fd)
-				.ok_or_else(|| tg::error!(%fd, "failed to find the file descriptor raw mode"))?
-		};
+		let original = self
+			.0
+			.termios
+			.remove(&fd)
+			.map(|(_, original)| original)
+			.ok_or_else(|| tg::error!(%fd, "failed to find the file descriptor raw mode"))?;
 		if let Err(error) = set_termios(fd, &original) {
-			self.inner.lock().await.termios.insert(fd, original);
+			self.0.termios.insert(fd, original);
 			return Err(error);
 		}
 		Ok(())
 	}
 
 	pub async fn enable_raw_mode(&self, fd: i32) -> tg::Result<()> {
-		let mut inner = self.inner.lock().await;
-		if inner.termios.contains_key(&fd) {
-			return Ok(());
+		match self.0.termios.entry(fd) {
+			Entry::Occupied(_) => Ok(()),
+			Entry::Vacant(entry) => {
+				let original = get_termios(fd)?;
+				let raw = raw_termios(&original);
+				set_termios(fd, &raw)?;
+				entry.insert(original);
+				Ok(())
+			},
 		}
-		let original = get_termios(fd)?;
-		let raw = raw_termios(&original);
-		set_termios(fd, &raw)?;
-		inner.termios.insert(fd, original);
-		Ok(())
 	}
 
 	pub async fn exists(&self, path: String) -> tg::Result<bool> {
@@ -163,7 +172,7 @@ impl Host {
 	}
 
 	pub async fn listen_signal_close(&self, token: usize) {
-		let signal = self.inner.lock().await.signals.remove(&token);
+		let signal = self.0.signals.remove(&token).map(|(_, signal)| signal);
 		if let Some(signal) = signal {
 			let _ = signal.stop.send(true);
 		}
@@ -176,17 +185,21 @@ impl Host {
 		let signal = tokio::signal::unix::signal(signal_kind)
 			.map_err(|source| tg::error!(!source, "failed to create the signal handler"))?;
 		let (stop, _) = tokio::sync::watch::channel(false);
-		let token = self.next_token.fetch_add(1, Ordering::Relaxed) + 1;
+		let token = self.0.next_token.fetch_add(1, Ordering::Relaxed) + 1;
 		let signal = Arc::new(Signal {
 			signal: tokio::sync::Mutex::new(signal),
 			stop,
 		});
-		self.inner.lock().await.signals.insert(token, signal);
+		self.0.signals.insert(token, signal);
 		Ok(token)
 	}
 
 	pub async fn listen_signal_read(&self, token: usize) -> tg::Result<Option<()>> {
-		let signal = self.inner.lock().await.signals.get(&token).cloned();
+		let signal = self
+			.0
+			.signals
+			.get(&token)
+			.map(|signal| signal.value().clone());
 		let Some(signal) = signal else {
 			return Ok(None);
 		};
@@ -216,7 +229,7 @@ impl Host {
 		stopper: Option<usize>,
 	) -> tg::Result<Option<Bytes>> {
 		let stopper = self.get_stopper(stopper).await?;
-		let fd_ = self.inner.lock().await.fds.get(&fd).cloned();
+		let fd_ = self.0.fds.get(&fd).map(|fd_| fd_.value().clone());
 		let Some(fd_) = fd_ else {
 			let length = length.unwrap_or(64 * 1024);
 			return match stopper {
@@ -378,17 +391,16 @@ impl Host {
 		let stdout = stdout_.as_ref().map(|(fd, _)| *fd);
 		let stderr = stderr_.as_ref().map(|(fd, _)| *fd);
 
-		let mut inner = self.inner.lock().await;
 		if let Some((fd, stdin)) = stdin_ {
-			inner.fds.insert(fd, stdin);
+			self.0.fds.insert(fd, stdin);
 		}
 		if let Some((fd, stdout)) = stdout_ {
-			inner.fds.insert(fd, stdout);
+			self.0.fds.insert(fd, stdout);
 		}
 		if let Some((fd, stderr)) = stderr_ {
-			inner.fds.insert(fd, stderr);
+			self.0.fds.insert(fd, stderr);
 		}
-		inner.processes.insert(pid, child);
+		self.0.processes.insert(pid, tokio::sync::Mutex::new(child));
 
 		Ok(SpawnOutput {
 			pid,
@@ -400,34 +412,25 @@ impl Host {
 
 	pub async fn stopper_close(&self, token: usize) -> tg::Result<()> {
 		let stopper = self
-			.inner
-			.lock()
-			.await
 			.stoppers
 			.remove(&token)
+			.map(|(_, stopper)| stopper)
 			.ok_or_else(|| tg::error!(%token, "failed to find the stopper"))?;
 		stopper.stop();
 		Ok(())
 	}
 
 	pub async fn stopper_open(&self) -> tg::Result<usize> {
-		let token = self.next_token.fetch_add(1, Ordering::Relaxed) + 1;
-		self.inner
-			.lock()
-			.await
-			.stoppers
-			.insert(token, Stopper::new());
+		let token = self.0.next_token.fetch_add(1, Ordering::Relaxed) + 1;
+		self.0.stoppers.insert(token, Stopper::new());
 		Ok(token)
 	}
 
 	pub async fn stopper_stop(&self, token: usize) -> tg::Result<()> {
 		let stopper = self
-			.inner
-			.lock()
-			.await
 			.stoppers
 			.get(&token)
-			.cloned()
+			.map(|stopper| stopper.value().clone())
 			.ok_or_else(|| tg::error!(%token, "failed to find the stopper"))?;
 		stopper.stop();
 		Ok(())
@@ -435,17 +438,17 @@ impl Host {
 
 	pub async fn wait(&self, pid: u32, stopper: Option<usize>) -> tg::Result<WaitOutput> {
 		let stopper = self.get_stopper(stopper).await?;
-		let mut child = self
-			.inner
-			.lock()
-			.await
+		let child = self
+			.0
 			.processes
 			.remove(&pid)
+			.map(|(_, child)| child)
 			.ok_or_else(|| tg::error!(%pid, "failed to find the process"))?;
+		let mut child = child.into_inner();
 		let status = match stopper {
 			Some(stopper) => {
 				if stopper.stopped() {
-					self.inner.lock().await.processes.insert(pid, child);
+					self.0.processes.insert(pid, tokio::sync::Mutex::new(child));
 					return Err(stopped_error());
 				}
 				let result = tokio::select! {
@@ -455,7 +458,7 @@ impl Host {
 				match result {
 					Ok(result) => result,
 					Err(error) => {
-						self.inner.lock().await.processes.insert(pid, child);
+						self.0.processes.insert(pid, tokio::sync::Mutex::new(child));
 						return Err(error);
 					},
 				}
@@ -468,7 +471,7 @@ impl Host {
 	}
 
 	pub async fn write(&self, fd: i32, bytes: Bytes) -> tg::Result<()> {
-		let fd_ = self.inner.lock().await.fds.get(&fd).cloned();
+		let fd_ = self.0.fds.get(&fd).map(|fd_| fd_.value().clone());
 		let Some(fd_) = fd_ else {
 			let bytes = bytes.clone();
 			return tokio::task::spawn_blocking(move || Self::write_sync(fd, bytes.as_ref()))
@@ -523,12 +526,10 @@ impl Host {
 			return Ok(None);
 		};
 		let stopper = self
-			.inner
-			.lock()
-			.await
+			.0
 			.stoppers
 			.get(&token)
-			.cloned()
+			.map(|stopper| stopper.value().clone())
 			.ok_or_else(|| tg::error!(%token, "failed to find the stopper"))?;
 		Ok(Some(stopper))
 	}
@@ -723,5 +724,13 @@ fn write_wakeup(fd: i32) -> tg::Result<()> {
 				return Err(tg::error!(!source, "failed to write the wakeup pipe"));
 			},
 		}
+	}
+}
+
+impl std::ops::Deref for Host {
+	type Target = State;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
 	}
 }

@@ -8,11 +8,11 @@ use {
 };
 
 pub struct Task<T, C = ()> {
-	inner: Arc<Inner<T, C>>,
+	inner: Arc<State<T, C>>,
 	attached: bool,
 }
 
-struct Inner<T, C> {
+struct State<T, C> {
 	abort_handle: tokio::task::AbortHandle,
 	attached_count: AtomicUsize,
 	context: C,
@@ -35,7 +35,7 @@ where
 		let task = tokio::spawn(f(stopper.clone()));
 		let abort_handle = task.abort_handle();
 		let future = task.map_err(Arc::new).boxed().shared();
-		let inner = Inner {
+		let inner = State {
 			abort_handle,
 			attached_count: AtomicUsize::new(1),
 			context,
@@ -58,7 +58,7 @@ where
 		let task = tokio::task::spawn_local(f(stopper.clone()));
 		let abort_handle = task.abort_handle();
 		let future = task.map_err(Arc::new).boxed().shared();
-		let inner = Inner {
+		let inner = State {
 			abort_handle,
 			attached_count: AtomicUsize::new(1),
 			context,
@@ -83,7 +83,7 @@ where
 		});
 		let abort_handle = task.abort_handle();
 		let future = task.map_err(Arc::new).boxed().shared();
-		let inner = Inner {
+		let inner = State {
 			abort_handle,
 			attached_count: AtomicUsize::new(1),
 			context,

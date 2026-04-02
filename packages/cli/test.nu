@@ -33,7 +33,7 @@ def main [
 			try { dropdb -U postgres -h localhost $db }
 		}
 
-		let preserved_streams = ['finalize', 'queue']
+		let preserved_streams = ['finalize', 'sandboxes.queue', 'sandboxes.processes', 'stdio']
 		let streams = nats stream ls -n | lines | where { $in not-in $preserved_streams }
 		for stream in $streams {
 			print -e $"deleting nats stream ($stream)"
@@ -746,10 +746,10 @@ export def --env spawn [
 		let cluster = mktemp -t
 		"docker:docker@localhost:4500" | save -f $cluster
 
-		nats stream create $'finalize_($id)' --discard new --retention work --subjects $'($id).finalize' --defaults
-		nats consumer create $'finalize_($id)' finalize --deliver all --max-pending 1000000 --pull --defaults
-		nats stream create $'queue_($id)' --discard new --retention work --subjects $'($id).queue' --defaults
-		nats consumer create $'queue_($id)' queue --deliver all --max-pending 1000000 --pull --defaults
+		nats stream create $'finalize_($id)' --retention work --subjects $'($id).finalize' --defaults
+		nats stream create $'sandboxes.queue_($id)' --discard new --retention work --subjects $'($id).sandboxes.queue' --defaults
+		nats stream create $'sandboxes.processes_($id)' --discard new --retention work --subjects $'($id).sandboxes.*.processes' --defaults
+		nats stream create $'stdio_($id)' --discard new --retention work --subjects $'($id).processes.*.*' --defaults
 
 		cqlsh -e $"create keyspace \"store_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
 		cqlsh -k $'store_($id)' -f ($repository_path | path join packages/store/src/scylla.cql)
@@ -885,11 +885,11 @@ def clean_databases [id: string] {
 	"docker:docker@localhost:4500" | save -f $cluster
 	try { fdbcli -C $cluster --exec $'writemode on; clearrange "($id)" "($id)\xff"' }
 
-	# Remove the NATS streams and consumers.
-	try { nats consumer rm -f $'finalize_($id)' finalize }
+	# Remove the NATS streams.
 	try { nats stream rm -f $'finalize_($id)' }
-	try { nats consumer rm -f $'queue_($id)' queue }
-	try { nats stream rm -f $'queue_($id)' }
+	try { nats stream rm -f $'sandboxes.queue_($id)' }
+	try { nats stream rm -f $'sandboxes.processes_($id)' }
+	try { nats stream rm -f $'stdio_($id)' }
 
 	# Drop the scylla keyspace.
 	try { cqlsh -e $"drop keyspace \"store_($id)\";" }
@@ -1024,4 +1024,3 @@ def force_unmount_vfs [path: string] {
 		}
 	}
 }
-

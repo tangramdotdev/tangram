@@ -82,9 +82,9 @@ pub enum Passthrough {
 	Required,
 }
 
-pub struct Server<P>(Arc<Inner<P>>);
+pub struct Server<P>(Arc<State<P>>);
 
-pub struct Inner<P> {
+pub struct State<P> {
 	provider: P,
 	no_opendir_support: bool,
 	passthrough_enabled: bool,
@@ -247,7 +247,7 @@ where
 			.map_err(|error| Error::other(format!("failed to complete init handshake: {error}")))?;
 
 		// Create the server.
-		let server = Self(Arc::new(Inner {
+		let server = Self(Arc::new(State {
 			provider,
 			no_opendir_support: features.no_opendir_support,
 			passthrough_enabled: features.passthrough,
@@ -2439,7 +2439,7 @@ impl<P> Clone for Server<P> {
 }
 
 impl<P> Deref for Server<P> {
-	type Target = Inner<P>;
+	type Target = State<P>;
 
 	fn deref(&self) -> &Self::Target {
 		&self.0

@@ -7159,7 +7159,9 @@ name = "tangram_js"
 version = "0.0.0"
 dependencies = [
  "bytes",
+ "dashmap",
  "data-encoding",
+ "fnv",
  "futures",
  "indoc",
  "libc",

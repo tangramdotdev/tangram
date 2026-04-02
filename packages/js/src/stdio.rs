@@ -1,32 +1,30 @@
 use {
+	dashmap::DashMap,
 	futures::{SinkExt as _, StreamExt as _},
-	std::{
-		collections::BTreeMap,
-		sync::{
-			Arc,
-			atomic::{AtomicUsize, Ordering},
-		},
+	std::sync::{
+		Arc,
+		atomic::{AtomicUsize, Ordering},
 	},
 	tangram_client::prelude::*,
 };
 
 #[derive(Clone)]
-pub struct Stdio {
-	inner: Arc<Inner>,
-}
+pub struct Stdio(Arc<State>);
 
-struct Inner {
+struct State {
 	handle: tg::handle::dynamic::Handle,
 	main_runtime_handle: tokio::runtime::Handle,
 	next_process_stdio_token: AtomicUsize,
-	process_stdio_readers: tokio::sync::Mutex<
-		BTreeMap<
-			usize,
-			futures::stream::BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
-		>,
-	>,
-	process_stdio_writers: tokio::sync::Mutex<BTreeMap<usize, ProcessStdioWriter>>,
+	process_stdio_readers: ProcessStdioReaders,
+	process_stdio_writers: ProcessStdioWriters,
 }
+
+type ProcessStdioReader =
+	futures::stream::BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>;
+
+type ProcessStdioReaders = DashMap<usize, ProcessStdioReader, fnv::FnvBuildHasher>;
+
+type ProcessStdioWriters = DashMap<usize, ProcessStdioWriter, fnv::FnvBuildHasher>;
 
 struct ProcessStdioWriter {
 	sender: futures::channel::mpsc::Sender<tg::Result<tg::process::stdio::read::Event>>,
@@ -38,18 +36,18 @@ impl Stdio {
 		handle: tg::handle::dynamic::Handle,
 		main_runtime_handle: tokio::runtime::Handle,
 	) -> Self {
-		let inner = Arc::new(Inner {
+		let state = Arc::new(State {
 			handle,
 			main_runtime_handle,
 			next_process_stdio_token: AtomicUsize::new(0),
-			process_stdio_readers: tokio::sync::Mutex::new(BTreeMap::new()),
-			process_stdio_writers: tokio::sync::Mutex::new(BTreeMap::new()),
+			process_stdio_readers: ProcessStdioReaders::default(),
+			process_stdio_writers: ProcessStdioWriters::default(),
 		});
-		Self { inner }
+		Self(state)
 	}
 
 	pub async fn process_stdio_read_close(&self, token: usize) {
-		self.inner.process_stdio_readers.lock().await.remove(&token);
+		self.0.process_stdio_readers.remove(&token);
 	}
 
 	pub async fn process_stdio_read_open(
@@ -57,9 +55,9 @@ impl Stdio {
 		id: tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 	) -> tg::Result<Option<usize>> {
-		let handle = self.inner.handle.clone();
+		let handle = self.0.handle.clone();
 		let stream = self
-			.inner
+			.0
 			.main_runtime_handle
 			.spawn(async move {
 				let stream = handle
@@ -74,15 +72,11 @@ impl Stdio {
 			return Ok(None);
 		};
 		let token = self
-			.inner
+			.0
 			.next_process_stdio_token
 			.fetch_add(1, Ordering::Relaxed)
 			+ 1;
-		self.inner
-			.process_stdio_readers
-			.lock()
-			.await
-			.insert(token, stream);
+		self.0.process_stdio_readers.insert(token, stream);
 		Ok(Some(token))
 	}
 
@@ -90,8 +84,8 @@ impl Stdio {
 		&self,
 		token: usize,
 	) -> tg::Result<Option<tg::process::stdio::read::Event>> {
-		let reader = self.inner.process_stdio_readers.lock().await.remove(&token);
-		let Some(mut reader) = reader else {
+		let reader = self.0.process_stdio_readers.remove(&token);
+		let Some((_, mut reader)) = reader else {
 			return Ok(None);
 		};
 		let event = reader.next().await.transpose()?;
@@ -99,18 +93,14 @@ impl Stdio {
 			.as_ref()
 			.is_some_and(|event| !matches!(event, tg::process::stdio::read::Event::End))
 		{
-			self.inner
-				.process_stdio_readers
-				.lock()
-				.await
-				.insert(token, reader);
+			self.0.process_stdio_readers.insert(token, reader);
 		}
 		Ok(event)
 	}
 
 	pub async fn process_stdio_write_close(&self, token: usize) -> tg::Result<()> {
-		let writer = self.inner.process_stdio_writers.lock().await.remove(&token);
-		let Some(mut writer) = writer else {
+		let writer = self.0.process_stdio_writers.remove(&token);
+		let Some((_, mut writer)) = writer else {
 			return Ok(());
 		};
 		let _ = writer
@@ -130,20 +120,18 @@ impl Stdio {
 		arg: tg::process::stdio::write::Arg,
 	) -> tg::Result<usize> {
 		let (sender, receiver) = futures::channel::mpsc::channel(16);
-		let handle = self.inner.handle.clone();
-		let task = self.inner.main_runtime_handle.spawn(async move {
+		let handle = self.0.handle.clone();
+		let task = self.0.main_runtime_handle.spawn(async move {
 			let input = receiver.boxed();
 			handle.write_process_stdio_all(&id, arg, input).await
 		});
 		let token = self
-			.inner
+			.0
 			.next_process_stdio_token
 			.fetch_add(1, Ordering::Relaxed)
 			+ 1;
-		self.inner
+		self.0
 			.process_stdio_writers
-			.lock()
-			.await
 			.insert(token, ProcessStdioWriter { sender, task });
 		Ok(token)
 	}
@@ -153,13 +141,12 @@ impl Stdio {
 		token: usize,
 		chunk: tg::process::stdio::Chunk,
 	) -> tg::Result<()> {
-		let mut sender = {
-			let writers = self.inner.process_stdio_writers.lock().await;
-			let writer = writers
-				.get(&token)
-				.ok_or_else(|| tg::error!(%token, "failed to find the process stdio writer"))?;
-			writer.sender.clone()
-		};
+		let mut sender = self
+			.0
+			.process_stdio_writers
+			.get(&token)
+			.map(|writer| writer.sender.clone())
+			.ok_or_else(|| tg::error!(%token, "failed to find the process stdio writer"))?;
 		let event = tg::process::stdio::read::Event::Chunk(chunk);
 		sender
 			.send(Ok(event))

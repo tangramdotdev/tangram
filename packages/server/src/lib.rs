@@ -442,26 +442,16 @@ impl Server {
 			},
 		};
 
-		// Create the finalize stream and consumer if the messenger is memory.
+		// Create the finalize stream if the messenger is memory.
 		if messenger.is_memory() {
 			let stream_config = tangram_messenger::StreamConfig {
 				retention: tangram_messenger::RetentionPolicy::WorkQueue,
 				..tangram_messenger::StreamConfig::default()
 			};
-			let stream = messenger
+			messenger
 				.create_stream("finalize".to_owned(), stream_config)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the finalize stream"))?;
-			let consumer_config = tangram_messenger::ConsumerConfig {
-				deliver_policy: tangram_messenger::DeliverPolicy::All,
-				ack_policy: tangram_messenger::AckPolicy::Explicit,
-				durable_name: None,
-				filter_subjects: Vec::new(),
-			};
-			stream
-				.create_consumer(Some("finalize".to_owned()), consumer_config)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the finalize consumer"))?;
 		}
 
 		// Create the sandbox and process queue streams if the messenger is memory.
@@ -472,23 +462,11 @@ impl Server {
 				max_messages: None,
 				retention: tangram_messenger::RetentionPolicy::WorkQueue,
 			};
-			let stream = messenger
+			messenger
 				.create_stream("sandboxes.queue".to_owned(), stream_config.clone())
 				.await
 				.map_err(|source| {
 					tg::error!(!source, "failed to create the sandbox queue stream")
-				})?;
-			let consumer_config = tangram_messenger::ConsumerConfig {
-				deliver_policy: tangram_messenger::DeliverPolicy::All,
-				ack_policy: tangram_messenger::AckPolicy::Explicit,
-				durable_name: None,
-				filter_subjects: Vec::new(),
-			};
-			stream
-				.create_consumer(Some("sandboxes.queue".to_owned()), consumer_config)
-				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to create the sandbox queue consumer")
 				})?;
 			messenger
 				.create_stream("sandboxes.processes".to_owned(), stream_config.clone())
@@ -1071,7 +1049,7 @@ impl Server {
 		Ok(())
 	}
 
-	fn create_compiler(&self) -> tangram_compiler::Handle {
+	fn create_compiler(&self) -> tangram_compiler::Shared {
 		tangram_compiler::Compiler::start(
 			tg::handle::dynamic::Handle::new(self.clone()),
 			self.cache_path(),

@@ -66,10 +66,16 @@ impl Server {
 			.get_stream("finalize".to_owned())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the finalize stream"))?;
+		let consumer_config = messenger::ConsumerConfig {
+			deliver_policy: messenger::DeliverPolicy::All,
+			ack_policy: messenger::AckPolicy::Explicit,
+			durable_name: None,
+			filter_subjects: Vec::new(),
+		};
 		let consumer = stream
-			.get_consumer("finalize".to_owned())
+			.create_consumer(None, consumer_config)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the finalize consumer"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the finalize consumer"))?;
 		let batch_config = messenger::BatchConfig {
 			max_bytes: None,
 			max_messages: Some(config.message_batch_size.to_u64().unwrap()),

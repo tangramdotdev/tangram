@@ -55,9 +55,9 @@ pub mod workspace_symbols;
 pub const LIBRARY: include_dir::Dir = include_dir::include_dir!("$OUT_DIR/lib");
 
 #[derive(Clone)]
-pub struct Handle(Arc<Inner>);
+pub struct Shared(Arc<Owned>);
 
-pub struct Inner {
+pub struct Owned {
 	compiler: Compiler,
 	task: tangram_futures::task::Shared<()>,
 }
@@ -173,7 +173,7 @@ enum Response {
 	WorkspaceSymbol(workspace_symbols::Response),
 }
 
-impl Handle {
+impl Shared {
 	pub fn stop(&self) {
 		self.task.stop();
 	}
@@ -195,7 +195,7 @@ impl Compiler {
 		library_path: PathBuf,
 		main_runtime_handle: tokio::runtime::Handle,
 		version: String,
-	) -> Handle {
+	) -> Shared {
 		let documents = DashMap::default();
 		let requests = DashMap::new();
 		let request_id = AtomicI32::new(1);
@@ -251,7 +251,7 @@ impl Compiler {
 			}
 		});
 
-		Handle(Arc::new(Inner { compiler, task }))
+		Shared(Arc::new(Owned { compiler, task }))
 	}
 
 	pub async fn serve(
@@ -1363,15 +1363,15 @@ impl Compiler {
 	}
 }
 
-impl Deref for Handle {
-	type Target = Inner;
+impl Deref for Shared {
+	type Target = Owned;
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
 	}
 }
 
-impl Deref for Inner {
+impl Deref for Owned {
 	type Target = Compiler;
 
 	fn deref(&self) -> &Self::Target {
@@ -1387,7 +1387,7 @@ impl Deref for Compiler {
 	}
 }
 
-impl Drop for Handle {
+impl Drop for Shared {
 	fn drop(&mut self) {
 		#[cfg(feature = "typescript")]
 		self.compiler.typescript.stop();

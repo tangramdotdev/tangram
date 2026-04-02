@@ -43,7 +43,7 @@ pub struct StreamInner {
 struct StreamState {
 	closed: bool,
 	config: StreamConfig,
-	consumers: HashMap<String, (Consumer, ConsumerState)>,
+	consumers: HashMap<String, ConsumerState>,
 	messages: BTreeMap<u64, StreamMessage>,
 	bytes: u64,
 	sequence: u64,
@@ -59,7 +59,7 @@ struct StreamMessage {
 enum MessageRetention {
 	Interest(usize),
 	Limits,
-	WorkQueue(bool),
+	WorkQueue(Option<String>),
 }
 
 #[derive(Debug)]
@@ -261,15 +261,13 @@ impl Stream {
 	}
 
 	fn get_consumer(&self, name: &str) -> Result<Consumer, Error> {
-		Ok(self
-			.state
+		self.state
 			.read()
 			.unwrap()
 			.consumers
 			.get(name)
-			.ok_or(Error::NotFound)?
-			.0
-			.clone())
+			.ok_or(Error::NotFound)?;
+		Ok(Consumer::new(name.to_owned(), Arc::downgrade(&self.inner)))
 	}
 
 	fn create_consumer(&self, name: Option<String>, config: ConsumerConfig) -> Consumer {
@@ -284,17 +282,15 @@ impl Stream {
 			.saturating_sub(1);
 		let consumer = Consumer::new(name.clone(), Arc::downgrade(&self.inner));
 		let consumer_state = ConsumerState { config, sequence };
-		state
-			.consumers
-			.insert(name, (consumer.clone(), consumer_state));
+		state.consumers.insert(name, consumer_state);
 		consumer
 	}
 
 	fn get_or_create_consumer(&self, name: Option<String>, config: ConsumerConfig) -> Consumer {
 		let mut state = self.state.write().unwrap();
 		let (name, config) = Self::normalize_consumer(&state, name, config);
-		if let Some((consumer, _)) = state.consumers.get(&name) {
-			return consumer.clone();
+		if state.consumers.contains_key(&name) {
+			return Consumer::new(name, Arc::downgrade(&self.inner));
 		}
 		let sequence = state
 			.messages
@@ -304,9 +300,7 @@ impl Stream {
 			.saturating_sub(1);
 		let consumer = Consumer::new(name.clone(), Arc::downgrade(&self.inner));
 		let consumer_state = ConsumerState { config, sequence };
-		state
-			.consumers
-			.insert(name, (consumer.clone(), consumer_state));
+		state.consumers.insert(name, consumer_state);
 		consumer
 	}
 
@@ -340,25 +334,9 @@ impl Stream {
 
 	fn delete_consumer(&self, name: &str) {
 		let mut state = self.state.write().unwrap();
-		let Some((_, consumer_state)) = state.consumers.remove(name) else {
-			return;
-		};
-		// Ack all unacknowledged messages that this consumer was responsible for.
-		let sequences = state
-			.messages
-			.range(..=consumer_state.sequence)
-			.filter(|(_, message)| {
-				consumer_state.config.filter_subjects.is_empty()
-					|| consumer_state
-						.config
-						.filter_subjects
-						.iter()
-						.any(|filter| filter == &message.subject)
-			})
-			.map(|(sequence, _)| *sequence)
-			.collect::<Vec<_>>();
-		for sequence in sequences {
-			Self::ack_inner(&mut state, sequence);
+		if Self::delete_consumer_inner(&mut state, name) {
+			drop(state);
+			self.notify.notify_waiters();
 		}
 	}
 
@@ -451,7 +429,7 @@ impl Stream {
 				let count = state
 					.consumers
 					.values()
-					.filter(|(_, state)| {
+					.filter(|state| {
 						state.config.filter_subjects.is_empty()
 							|| state
 								.config
@@ -463,7 +441,7 @@ impl Stream {
 				MessageRetention::Interest(count)
 			},
 			RetentionPolicy::Limits => MessageRetention::Limits,
-			RetentionPolicy::WorkQueue => MessageRetention::WorkQueue(false),
+			RetentionPolicy::WorkQueue => MessageRetention::WorkQueue(None),
 		};
 		let payload: Arc<dyn Payload> = Arc::new(payload);
 		let sequence = state.sequence;
@@ -496,6 +474,49 @@ impl Stream {
 			},
 		}
 	}
+
+	fn delete_consumer_inner(state: &mut StreamState, name: &str) -> bool {
+		let Some(consumer_state) = state.consumers.remove(name) else {
+			return false;
+		};
+		let sequences = state
+			.messages
+			.range(..=consumer_state.sequence)
+			.filter(|(_, message)| {
+				consumer_state.config.filter_subjects.is_empty()
+					|| consumer_state
+						.config
+						.filter_subjects
+						.iter()
+						.any(|filter| filter == &message.subject)
+			})
+			.map(|(sequence, _)| *sequence)
+			.collect::<Vec<_>>();
+		for sequence in sequences {
+			Self::drop_consumer_message_inner(state, sequence, name);
+		}
+		true
+	}
+
+	fn drop_consumer_message_inner(state: &mut StreamState, sequence: u64, name: &str) {
+		let Some(message) = state.messages.get_mut(&sequence) else {
+			return;
+		};
+		match &mut message.retention {
+			MessageRetention::Limits => (),
+			MessageRetention::Interest(count) => {
+				*count = count.saturating_sub(1);
+				if *count == 0 {
+					state.messages.remove(&sequence);
+				}
+			},
+			MessageRetention::WorkQueue(owner) => {
+				if owner.as_deref() == Some(name) {
+					*owner = None;
+				}
+			},
+		}
+	}
 }
 
 impl Consumer {
@@ -508,11 +529,10 @@ impl Consumer {
 		let inner = self.stream.upgrade().ok_or_else(|| Error::NotFound)?;
 		let stream = Stream { inner };
 		let state = stream.state.read().unwrap();
-		let consumer_state = &state
+		let consumer_state = state
 			.consumers
 			.get(&self.name)
-			.ok_or_else(|| Error::NotFound)?
-			.1;
+			.ok_or_else(|| Error::NotFound)?;
 		let info = ConsumerInfo {
 			sequence: consumer_state.sequence,
 		};
@@ -575,16 +595,18 @@ impl Consumer {
 					.upgrade()
 					.and_then(|stream| {
 						let stream = stream.state.read().unwrap();
-						let (_, consumer_state) = stream.consumers.get(&state.consumer.name)?;
+						let consumer_state = stream.consumers.get(&state.consumer.name)?;
 						let has_pending = stream.messages.iter().any(|(sequence, message)| {
 							*sequence > consumer_state.sequence
-								&& !matches!(message.retention, MessageRetention::WorkQueue(true))
-								&& consumer_state.config.filter_subjects.is_empty()
+								&& !matches!(
+									&message.retention,
+									MessageRetention::WorkQueue(Some(_))
+								) && (consumer_state.config.filter_subjects.is_empty()
 								|| consumer_state
 									.config
 									.filter_subjects
 									.iter()
-									.any(|filter| filter == &message.subject)
+									.any(|filter| filter == &message.subject))
 						});
 						Some(!has_pending)
 					})
@@ -609,11 +631,10 @@ impl Consumer {
 
 			// Get the messages.
 			let max_messages = max_messages.unwrap_or(stream_state.messages.len());
-			let consumer_state = &stream_state
+			let consumer_state = stream_state
 				.consumers
 				.get(&state.consumer.name)
-				.ok_or_else(|| Error::NotFound)?
-				.1;
+				.ok_or_else(|| Error::NotFound)?;
 			let consumer_sequence = consumer_state.sequence;
 			let ack_policy = consumer_state.config.ack_policy.clone();
 			let filter_subjects = consumer_state.config.filter_subjects.clone();
@@ -622,7 +643,7 @@ impl Consumer {
 				.iter_mut()
 				.skip_while(|(sequence, _)| **sequence <= consumer_sequence)
 				.filter(|(_, message)| {
-					!matches!(message.retention, MessageRetention::WorkQueue(true))
+					!matches!(&message.retention, MessageRetention::WorkQueue(Some(_)))
 						&& (filter_subjects.is_empty()
 							|| filter_subjects
 								.iter()
@@ -630,8 +651,8 @@ impl Consumer {
 				})
 				.take(max_messages)
 				.map(|(sequence, message)| {
-					if let MessageRetention::WorkQueue(delivered) = &mut message.retention {
-						*delivered = true;
+					if let MessageRetention::WorkQueue(owner) = &mut message.retention {
+						*owner = Some(state.consumer.name.clone());
 					}
 					(
 						*sequence,
@@ -648,7 +669,6 @@ impl Consumer {
 					.consumers
 					.get_mut(&state.consumer.name)
 					.ok_or_else(|| Error::NotFound)?
-					.1
 					.sequence = *sequence;
 			}
 
@@ -879,29 +899,13 @@ impl Drop for ConsumerInner {
 		let remove = state
 			.consumers
 			.get(&self.name)
-			.is_some_and(|(_, state_)| state_.config.durable_name.is_none());
+			.is_some_and(|state_| state_.config.durable_name.is_none());
 		if !remove {
 			return;
 		}
-		let Some((_, consumer_state)) = state.consumers.remove(&self.name) else {
-			return;
-		};
-		// Ack all unacknowledged messages that this consumer was responsible for.
-		let sequences = state
-			.messages
-			.range(..=consumer_state.sequence)
-			.filter(|(_, message)| {
-				consumer_state.config.filter_subjects.is_empty()
-					|| consumer_state
-						.config
-						.filter_subjects
-						.iter()
-						.any(|filter| filter == &message.subject)
-			})
-			.map(|(sequence, _)| *sequence)
-			.collect::<Vec<_>>();
-		for sequence in sequences {
-			Stream::ack_inner(&mut state, sequence);
+		if Stream::delete_consumer_inner(&mut state, &self.name) {
+			drop(state);
+			stream.notify.notify_waiters();
 		}
 	}
 }

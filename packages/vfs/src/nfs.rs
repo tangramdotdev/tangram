@@ -59,9 +59,9 @@ pub mod xdr;
 
 const ROOT: nfs_fh4 = nfs_fh4(crate::ROOT_NODE_ID);
 
-pub struct Server<P>(Arc<Inner<P>>);
+pub struct Server<P>(Arc<State<P>>);
 
-pub struct Inner<P> {
+pub struct State<P> {
 	client_index: AtomicU64,
 	clients: DashMap<Vec<u8>, Arc<tokio::sync::RwLock<ClientData>>>,
 	host: String,
@@ -100,7 +100,7 @@ where
 	) -> Result<Self, std::io::Error> {
 		// Create the server.
 		let provider = Provider::new(provider);
-		let server = Self(Arc::new(Inner {
+		let server = Self(Arc::new(State {
 			client_index: AtomicU64::new(0),
 			clients: DashMap::default(),
 			host: host.to_owned(),
@@ -1134,7 +1134,7 @@ impl<P> Clone for Server<P> {
 }
 
 impl<P> Deref for Server<P> {
-	type Target = Inner<P>;
+	type Target = State<P>;
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
