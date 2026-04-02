@@ -80,18 +80,7 @@ pub struct Arg {
 
 impl Process {
 	#[must_use]
-	pub fn new(
-		id: Id,
-		metadata: Option<Metadata>,
-		remote: Option<String>,
-		state: Option<State>,
-		token: Option<String>,
-	) -> Self {
-		Self::new_with_cached(id, metadata, remote, state, token, None)
-	}
-
-	#[must_use]
-	pub(crate) fn new_with_cached(
+	pub(crate) fn new(
 		id: Id,
 		metadata: Option<Metadata>,
 		remote: Option<String>,

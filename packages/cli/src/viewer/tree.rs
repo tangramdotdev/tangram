@@ -1382,7 +1382,7 @@ where
 						Item::Value(tg::Value::Object(tg::Object::with_id(object)))
 					},
 					Some(tg::Either::Right(process)) => {
-						Item::Process(tg::Process::new(process, None, None, None, None))
+						Item::Process(tg::Process::new(process, None, None, None, None, None))
 					},
 					None => Item::Tag(tg::tag::Pattern::new(output.tag.to_string())),
 				};

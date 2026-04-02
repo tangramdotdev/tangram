@@ -90,14 +90,7 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 impl From<tg::process::data::Child> for Child {
 	fn from(value: tg::process::data::Child) -> Self {
 		Self {
-			process: tg::Process::new_with_cached(
-				value.process,
-				None,
-				None,
-				None,
-				None,
-				Some(value.cached),
-			),
+			process: tg::Process::new(value.process, None, None, None, None, Some(value.cached)),
 			options: value.options,
 		}
 	}

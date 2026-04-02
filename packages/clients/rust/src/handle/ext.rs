@@ -514,7 +514,7 @@ pub trait Ext: tg::Handle {
 							.map(|output| {
 								let referent = output.referent.map(|item| {
 									item.map_left(tg::Object::with_id).map_right(|id| {
-										tg::Process::new(id, None, None, None, None)
+										tg::Process::new(id, None, None, None, None, None)
 									})
 								});
 								tg::progress::Event::Output(referent)

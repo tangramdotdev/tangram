@@ -257,7 +257,7 @@ impl Server {
 		if let Some(process) = process {
 			active_processes += 1;
 			let server = self.clone();
-			let process = tg::Process::new(process.clone(), None, remote.clone(), None, None);
+			let process = tg::Process::new(process.clone(), None, remote.clone(), None, None, None);
 			let sandbox = sandbox.clone();
 			let sandbox_directory = sandbox_directory.clone();
 			let sender = sender.clone();
@@ -302,7 +302,7 @@ impl Server {
 					active_processes += 1;
 					idle_armed = false;
 					let server = self.clone();
-					let process = tg::Process::new(payload.id.clone(), None, None, None, None);
+					let process = tg::Process::new(payload.id.clone(), None, None, None, None, None);
 					let sandbox = sandbox.clone();
 					let sandbox_directory = sandbox_directory.clone();
 					let sender = sender.clone();
@@ -327,7 +327,7 @@ impl Server {
 					active_processes += 1;
 					idle_armed = false;
 					let server = self.clone();
-					let process = tg::Process::new(output.process.clone(), None, remote.clone(), None, None);
+					let process = tg::Process::new(output.process.clone(), None, remote.clone(), None, None, None);
 					let sandbox = sandbox.clone();
 					let sandbox_directory = sandbox_directory.clone();
 					let sender = sender.clone();

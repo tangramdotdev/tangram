@@ -106,8 +106,10 @@ pub struct Child {
 	#[tangram_serialize(id = 1)]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub cached: bool,
+
 	#[tangram_serialize(id = 2)]
 	pub process: tg::process::Id,
+
 	#[tangram_serialize(id = 3)]
 	pub options: tg::referent::Options,
 }

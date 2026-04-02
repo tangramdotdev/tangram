@@ -1103,7 +1103,7 @@ impl Cli {
 					return Ok(referent);
 				},
 				tg::reference::Item::Process(id) => {
-					let process = tg::Process::new(id.clone(), None, None, None, None);
+					let process = tg::Process::new(id.clone(), None, None, None, None, None);
 					let referent = tg::Referent::with_item(tg::Either::Right(process));
 					return Ok(referent);
 				},
