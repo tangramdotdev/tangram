@@ -3,12 +3,12 @@ use ../../test.nu *
 # Test that staggered callers do not receive TOCTOU cancellation errors
 # when the watchdog cancels a shared dependency resolved via remote.
 #
-# Only the shared build process is pushed to the remote. The wrapper and
-# outer modules execute locally on the fresh server. Each wrapper's
-# process_task calls tg.build(shared), producing the same command hash
-# as the pushed process. Staggered arrival (from process semaphore
-# batching) means some callers arrive during the watchdog's cancellation
-# window, receiving the cancellation error instead of the remote result.
+# Only the shared build process is pushed to the remote. Wrapper builds
+# execute locally on the fresh server. Each wrapper's process_task calls
+# tg.build(shared), which produces the same command hash as the pushed
+# process. Staggered arrival (from process semaphore batching) creates
+# the conditions for the TOCTOU: the watchdog cancels the shared process
+# while a later caller has already found it as Started.
 
 let remote = spawn -n remote -u "http://localhost:8473" -c { tokio_single_threaded: false }
 let primary = spawn -n primary -c { tokio_single_threaded: false }
@@ -18,13 +18,13 @@ tg remote put default $remote.url
 let shared = artifact {
 	tangram.ts: '
 		export default async () => {
-			await tg.sleep(5);
+			await tg.sleep(3);
 			return tg.directory({ "result.txt": tg.file("shared result") });
 		};
 	'
 }
 
-# Build the shared module on the primary and push ONLY that process.
+# Build the shared module on the primary and push only that process.
 let shared_process = tg build -d $shared | str trim
 tg wait $shared_process
 tg index
@@ -41,12 +41,13 @@ let wrapper_ts = [
 ] | str join "\n"
 $wrapper_ts | save ($wrapper | path join "tangram.ts")
 
-# 20 concurrent callers — enough for batching without permit starvation.
-let outer = mktemp -d
-let count = 20
+# 100 concurrent callers — enough for staggered batches across the
+# process semaphore to hit the cancellation window.
+let count = 100
 let builds = 0..<$count | each { |i|
 	'tg.build(wrap, "item' + ($i | into string) + '").then(tg.Directory.expect)'
 } | str join ", "
+let outer = mktemp -d
 let outer_ts = [
 	$'import wrap from "wrap" with { local: "($wrapper)" };'
 	''
