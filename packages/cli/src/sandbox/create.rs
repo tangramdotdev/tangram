@@ -11,7 +11,7 @@ pub struct Args {
 impl Cli {
 	pub async fn command_sandbox_create(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let arg = args.arg.into_arg();
+		let arg = args.arg.into_arg_with_default_ttl(i64::MAX as u64);
 		let output = handle
 			.create_sandbox(arg)
 			.await

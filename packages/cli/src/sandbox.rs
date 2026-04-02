@@ -36,6 +36,9 @@ pub struct Options {
 	#[clap(flatten)]
 	pub network: Network,
 
+	#[arg(id = "sandbox_ttl", long = "sandbox-ttl")]
+	pub ttl: Option<u64>,
+
 	#[arg(long)]
 	pub user: Option<String>,
 }
@@ -82,12 +85,12 @@ impl Network {
 }
 
 impl Options {
-	pub fn into_arg(self) -> tg::sandbox::create::Arg {
+	pub fn into_arg_with_default_ttl(self, ttl: u64) -> tg::sandbox::create::Arg {
 		tg::sandbox::create::Arg {
 			hostname: self.hostname,
 			mounts: self.mounts,
 			network: self.network.get(),
-			ttl: None,
+			ttl: self.ttl.unwrap_or(ttl),
 			user: self.user,
 		}
 	}
@@ -96,6 +99,7 @@ impl Options {
 		self.hostname.is_none()
 			&& self.mounts.is_empty()
 			&& self.network.try_get().is_none()
+			&& self.ttl.is_none()
 			&& self.user.is_none()
 	}
 }

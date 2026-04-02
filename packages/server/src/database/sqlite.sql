@@ -45,7 +45,7 @@ create table sandboxes (
 	network integer not null,
 	started_at integer,
 	status text not null,
-	ttl integer,
+	ttl integer not null,
 	"user" text
 );
 

@@ -42,6 +42,10 @@ impl Server {
 			}
 			arg.retry = process.retry;
 		}
+		let parent_sandbox = context
+			.process
+			.as_ref()
+			.and_then(|process| process.sandbox.clone());
 
 		if arg.sandbox.is_none() {
 			return Err(tg::error!(
@@ -56,7 +60,13 @@ impl Server {
 		let task = Task::spawn({
 			let server = self.clone();
 			let progress = progress.clone();
-			async move |_| match Box::pin(server.try_spawn_process_task(arg, &progress)).await {
+			async move |_| match Box::pin(server.try_spawn_process_task(
+				arg,
+				parent_sandbox,
+				&progress,
+			))
+			.await
+			{
 				Ok(output) => {
 					progress.output(output);
 				},
@@ -73,6 +83,7 @@ impl Server {
 	async fn try_spawn_process_task(
 		&self,
 		arg: tg::process::spawn::Arg,
+		parent_sandbox: Option<tg::sandbox::Id>,
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		let tty = match arg.tty.as_ref() {
@@ -111,12 +122,13 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, %name, "failed to get the remote client"))?;
 
-			// Spawn the process.
 			let arg = tg::process::spawn::Arg {
 				local: None,
 				remotes: None,
 				..arg
 			};
+
+			// Spawn the process.
 			let stream = remote.try_spawn_process(arg).await.map_err(
 				|source| tg::error!(!source, %name, "failed to spawn process on remote"),
 			)?;
@@ -188,7 +200,13 @@ impl Server {
 		} else if matches!(arg.cached, None | Some(false)) {
 			let host = host.ok_or_else(|| tg::error!("expected the host to be set"))?;
 			let output = self
-				.create_local_process(&transaction, &arg, cacheable, &host)
+				.create_local_process(
+					&transaction,
+					&arg,
+					parent_sandbox.as_ref(),
+					cacheable,
+					&host,
+				)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create a local process"))?;
 			tracing::trace!(?output, "created local process");
@@ -211,24 +229,12 @@ impl Server {
 			&& !output.status.is_finished()
 			&& let Some(sandbox) = &output.sandbox
 		{
-			let payload = crate::process::queue::Message {
-				id: output.id.clone(),
-			};
-			self.messenger
-				.stream_publish(
-					"sandboxes.processes".into(),
-					format!("sandboxes.{sandbox}.processes"),
-					payload,
-				)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to enqueue the process"))?
-				.await
-				.map_err(|source| tg::error!(!source, "failed to enqueue the process"))?;
 			if let Some(permit) = output.permit.take() {
-				self.spawn_sandbox_task(sandbox, None, permit);
+				self.spawn_sandbox_task(sandbox, None, permit, Some(output.id.clone()));
 			} else if output.sandbox_status == Some(tg::sandbox::Status::Created) {
 				let payload = crate::sandbox::queue::Message {
 					id: sandbox.clone(),
+					process: Some(output.id.clone()),
 				};
 				self.messenger
 					.stream_publish("sandboxes.queue".into(), "sandboxes.queue".into(), payload)
@@ -237,8 +243,26 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to enqueue the sandbox"))?;
 				if matches!(arg.sandbox, Some(tg::Either::Left(_))) {
-					self.spawn_process_parent_permit_task(&arg, sandbox);
+					self.spawn_process_parent_permit_task(
+						parent_sandbox.as_ref(),
+						sandbox,
+						&output.id,
+					);
 				}
+			} else {
+				let payload = crate::process::queue::Message {
+					id: output.id.clone(),
+				};
+				self.messenger
+					.stream_publish(
+						"sandboxes.processes".into(),
+						format!("sandboxes.{sandbox}.processes"),
+						payload,
+					)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to enqueue the process"))?
+					.await
+					.map_err(|source| tg::error!(!source, "failed to enqueue the process"))?;
 			}
 		}
 
@@ -776,6 +800,7 @@ impl Server {
 		&self,
 		transaction: &database::Transaction<'_>,
 		arg: &tg::process::spawn::Arg,
+		parent_sandbox: Option<&tg::sandbox::Id>,
 		cacheable: bool,
 		host: &str,
 	) -> tg::Result<LocalOutput> {
@@ -787,21 +812,21 @@ impl Server {
 		// Create a token.
 		let token = Self::create_process_token();
 
-		let parent_sandbox = if let Some(parent) = &arg.parent {
-			self.try_get_process_sandbox_with_transaction(transaction, parent)
-				.await?
-		} else {
-			None
-		};
+		let parent_sandbox = parent_sandbox.cloned();
 
 		let (sandbox, sandbox_status, permit) = match &arg.sandbox {
 			None => (None, None, None),
 			Some(tg::Either::Left(arg)) => {
-				let sandbox = self
-					.create_local_sandbox_with_transaction(transaction, arg)
-					.await?;
 				let permit = self.try_acquire_sandbox_permit(parent_sandbox.as_ref());
-				(Some(sandbox), Some(tg::sandbox::Status::Created), permit)
+				let status = if permit.is_some() {
+					tg::sandbox::Status::Started
+				} else {
+					tg::sandbox::Status::Created
+				};
+				let sandbox = self
+					.create_local_sandbox_with_transaction(transaction, arg, status)
+					.await?;
+				(Some(sandbox), Some(status), permit)
 			},
 			Some(tg::Either::Right(sandbox)) => {
 				let status = self
@@ -815,7 +840,11 @@ impl Server {
 			},
 		};
 
-		let status = tg::process::Status::Created;
+		let status = if permit.is_some() {
+			tg::process::Status::Started
+		} else {
+			tg::process::Status::Created
+		};
 
 		// Insert the process.
 		let statement = formatdoc!(
@@ -829,6 +858,7 @@ impl Server {
 					expected_checksum,
 					host,
 					sandbox,
+					started_at,
 					tty,
 					retry,
 					status,
@@ -854,7 +884,8 @@ impl Server {
 						{p}13,
 						{p}14,
 						{p}15,
-						{p}16
+						{p}16,
+						{p}17
 					)
 					on conflict (id) do update set
 						cacheable = {p}2,
@@ -864,17 +895,19 @@ impl Server {
 						expected_checksum = {p}6,
 						host = {p}7,
 						sandbox = {p}8,
-						tty = {p}9,
-						retry = {p}10,
-						status = {p}11,
-						stderr = {p}12,
-						stdin = {p}13,
-						stdout = {p}14,
-						token_count = {p}15,
-						touched_at = {p}16;
+						started_at = {p}9,
+						tty = {p}10,
+						retry = {p}11,
+						status = {p}12,
+						stderr = {p}13,
+						stdin = {p}14,
+						stdout = {p}15,
+						token_count = {p}16,
+						touched_at = {p}17;
 				"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let started_at = (status == tg::process::Status::Started).then_some(now);
 		let tty = match arg.tty.as_ref() {
 			None => None,
 			Some(tty) => Some(
@@ -893,6 +926,7 @@ impl Server {
 			arg.checksum.as_ref().map(ToString::to_string),
 			host,
 			sandbox.as_ref().map(ToString::to_string),
+			started_at,
 			tty.map(db::value::Json),
 			arg.retry,
 			status.to_string(),
@@ -950,6 +984,7 @@ impl Server {
 		&self,
 		transaction: &database::Transaction<'_>,
 		arg: &tg::sandbox::create::Arg,
+		status: tg::sandbox::Status,
 	) -> tg::Result<tg::sandbox::Id> {
 		let p = transaction.p();
 		let id = tg::sandbox::Id::new();
@@ -958,9 +993,11 @@ impl Server {
 				insert into sandboxes (
 					id,
 					created_at,
+					heartbeat_at,
 					hostname,
 					mounts,
 					network,
+					started_at,
 					status,
 					ttl,
 					\"user\"
@@ -973,19 +1010,27 @@ impl Server {
 					{p}5,
 					{p}6,
 					{p}7,
-					{p}8
+					{p}8,
+					{p}9,
+					{p}10
 				);
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let heartbeat_at = (status == tg::sandbox::Status::Started).then_some(now);
+		let started_at = (status == tg::sandbox::Status::Started).then_some(now);
+		let ttl =
+			i64::try_from(arg.ttl).map_err(|source| tg::error!(!source, "invalid sandbox ttl"))?;
 		let params = db::params![
 			id.to_string(),
 			now,
+			heartbeat_at,
 			arg.hostname.clone(),
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
 			arg.network,
-			tg::sandbox::Status::Created.to_string(),
-			arg.ttl.map(|ttl| i64::try_from(ttl).unwrap()),
+			started_at,
+			status.to_string(),
+			ttl,
 			arg.user.clone(),
 		];
 		transaction
@@ -993,32 +1038,6 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		Ok(id)
-	}
-
-	async fn try_get_process_sandbox_with_transaction(
-		&self,
-		transaction: &database::Transaction<'_>,
-		id: &tg::process::Id,
-	) -> tg::Result<Option<tg::sandbox::Id>> {
-		let p = transaction.p();
-		let statement = formatdoc!(
-			"
-				select sandbox
-				from processes
-				where id = {p}1;
-			"
-		);
-		let params = db::params![id.to_string()];
-		let sandbox = transaction
-			.query_optional_value_into::<Option<db::value::Serde<tg::sandbox::Id>>>(
-				statement.into(),
-				params,
-			)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.flatten()
-			.map(|value| value.0);
-		Ok(sandbox)
 	}
 
 	async fn try_get_sandbox_status_with_transaction(
@@ -1378,33 +1397,23 @@ impl Server {
 
 	fn spawn_process_parent_permit_task(
 		&self,
-		arg: &tg::process::spawn::Arg,
+		parent_sandbox: Option<&tg::sandbox::Id>,
 		id: &tg::sandbox::Id,
+		process: &tg::process::Id,
 	) {
 		tokio::spawn({
 			let server = self.clone();
-			let parent = arg.parent.clone();
+			let parent_sandbox = parent_sandbox.cloned();
 			let sandbox = id.clone();
+			let process = process.clone();
 			async move {
-				let Some(parent) = parent.as_ref() else {
+				let Some(parent_sandbox) = parent_sandbox.as_ref() else {
 					return;
 				};
 
-				let Ok(Some(parent)) = server
-					.try_get_process_local(parent, false)
-					.await
-					.inspect_err(
-						|error| tracing::trace!(error = %error.trace(), "failed to get the parent process"),
-					)
-				else {
-					return;
-				};
-				let Some(parent_sandbox) = parent.data.sandbox else {
-					return;
-				};
 				let Some(permit) = server
 					.sandbox_permits
-					.get(&parent_sandbox)
+					.get(parent_sandbox)
 					.map(|permit| permit.clone())
 				else {
 					return;
@@ -1414,20 +1423,25 @@ impl Server {
 					.map(|guard| SandboxPermit(tg::Either::Right(guard)))
 					.await;
 
-				let Ok(Some(status)) = server
-					.try_get_current_sandbox_status_local(&sandbox)
-					.await
-					.inspect_err(
-						|error| tracing::trace!(error = %error.trace(), "failed to get the sandbox status"),
-					)
-				else {
+				let Ok(started) = server.try_start_sandbox_local(&sandbox).await.inspect_err(
+					|error| tracing::trace!(error = %error.trace(), "failed to start the sandbox"),
+				) else {
 					return;
 				};
-				if status != tg::sandbox::Status::Created {
+				if !started {
 					return;
 				}
 
-				server.spawn_sandbox_task(&sandbox, None, permit);
+				let Ok(started) = server.try_start_process_local(&process).await.inspect_err(
+					|error| tracing::trace!(error = %error.trace(), "failed to start the process"),
+				) else {
+					return;
+				};
+				if !started {
+					return;
+				}
+
+				server.spawn_sandbox_task(&sandbox, None, permit, Some(process));
 			}
 		});
 	}

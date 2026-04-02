@@ -29,7 +29,7 @@ impl Server {
 			network: bool,
 			#[tangram_database(as = "db::value::FromStr")]
 			status: tg::sandbox::Status,
-			ttl: Option<i64>,
+			ttl: i64,
 			user: Option<String>,
 		}
 		let connection = self
@@ -56,7 +56,7 @@ impl Server {
 			mounts: row.mounts.unwrap_or_default(),
 			network: row.network,
 			status: row.status,
-			ttl: row.ttl.map(|ttl| u64::try_from(ttl).unwrap()),
+			ttl: u64::try_from(row.ttl).unwrap(),
 			user: row.user,
 		});
 		Ok(row)

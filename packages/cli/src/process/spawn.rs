@@ -590,7 +590,7 @@ impl Cli {
 					hostname: options.sandbox.arg.hostname.clone(),
 					mounts,
 					network,
-					ttl: None,
+					ttl: options.sandbox.arg.ttl.unwrap_or(0),
 					user: options.sandbox.arg.user.clone(),
 				})),
 			}

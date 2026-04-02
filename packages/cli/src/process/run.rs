@@ -228,7 +228,8 @@ impl Cli {
 						expand_values: false,
 						show_process_commands: false,
 					};
-					let mut viewer = crate::viewer::Viewer::new(&handle, root, exit_receiver, viewer_options);
+					let mut viewer =
+						crate::viewer::Viewer::new(&handle, root, exit_receiver, viewer_options);
 					match view {
 						View::None => (),
 						View::Inline => {

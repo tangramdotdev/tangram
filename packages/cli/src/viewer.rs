@@ -184,7 +184,12 @@ where
 		}
 	}
 
-	pub fn new(handle: &H, root: tg::Referent<Item>, exit: tokio::sync::oneshot::Receiver<()>, options: Options) -> Self {
+	pub fn new(
+		handle: &H,
+		root: tg::Referent<Item>,
+		exit: tokio::sync::oneshot::Receiver<()>,
+		options: Options,
+	) -> Self {
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let data = Data::new();
 		let tree = Tree::new(
@@ -479,8 +484,7 @@ where
 	fn exited(&mut self) -> bool {
 		if !self.exited {
 			self.exited = match self.exit.try_recv() {
-				Ok(()) => true,
-				Err(tokio::sync::oneshot::error::TryRecvError::Closed) => true,
+				Ok(()) | Err(tokio::sync::oneshot::error::TryRecvError::Closed) => true,
 				Err(tokio::sync::oneshot::error::TryRecvError::Empty) => false,
 			};
 		}

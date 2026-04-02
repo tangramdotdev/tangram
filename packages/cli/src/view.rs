@@ -95,10 +95,10 @@ impl AlternateScreen {
 	}
 
 	pub fn get(&self) -> Option<bool> {
-		self.alternate_screen.or(self.no_alternate_screen.map(|v| !v))
+		self.alternate_screen
+			.or(self.no_alternate_screen.map(|v| !v))
 	}
 }
-
 
 impl Cli {
 	pub async fn command_view(&mut self, args: Args) -> tg::Result<()> {
@@ -140,9 +140,8 @@ impl Cli {
 			let mut buf = vec![0u8; 1024];
 			loop {
 				match std::io::stdin().read(&mut buf) {
-					Ok(0) => break,
-					Ok(_) => continue,
-					Err(_) => break,
+					Ok(0) | Err(_) => break,
+					Ok(_) => {},
 				}
 			}
 			exit_sender.send(()).ok();
@@ -169,7 +168,8 @@ impl Cli {
 						expand_values: matches!(mode, Mode::Inline),
 						show_process_commands: true,
 					};
-					let mut viewer = crate::viewer::Viewer::new(&handle, root, exit_receiver, options);
+					let mut viewer =
+						crate::viewer::Viewer::new(&handle, root, exit_receiver, options);
 					match mode {
 						Mode::Inline => {
 							viewer.run_inline(stop, true).await?;

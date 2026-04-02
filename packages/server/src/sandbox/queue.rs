@@ -20,6 +20,9 @@ use {
 pub struct Message {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::sandbox::Id,
+
+	#[tangram_serialize(id = 1)]
+	pub process: Option<tg::process::Id>,
 }
 
 impl Server {
@@ -55,6 +58,22 @@ impl Server {
 				.try_start_sandbox_local(&payload.id)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to start the sandbox"))?;
+			let process = if started {
+				if let Some(process) = payload.process.clone() {
+					let started = self
+						.try_start_process_local(&process)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to start the process"))?;
+					if !started {
+						return Err(tg::error!("failed to start the process"));
+					}
+					Some(process)
+				} else {
+					None
+				}
+			} else {
+				None
+			};
 			acker
 				.ack()
 				.await
@@ -64,6 +83,7 @@ impl Server {
 			}
 			return Ok(Some(tg::sandbox::queue::Output {
 				sandbox: payload.id,
+				process,
 			}));
 		}
 		Ok(None)

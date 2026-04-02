@@ -11,6 +11,7 @@ pub struct Arg {}
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub sandbox: tg::sandbox::Id,
+	pub process: Option<tg::process::Id>,
 }
 
 impl tg::Client {

@@ -15,6 +15,7 @@ impl tg::Process {
 		let sandbox = arg.sandbox.clone().unwrap_or_else(|| {
 			tg::Either::Left(tg::sandbox::create::Arg {
 				network: false,
+				ttl: 0,
 				..Default::default()
 			})
 		});

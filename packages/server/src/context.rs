@@ -17,6 +17,7 @@ pub struct Process {
 	pub path_maps: Option<Vec<PathMap>>,
 	pub remote: Option<String>,
 	pub retry: bool,
+	pub sandbox: Option<tg::sandbox::Id>,
 }
 
 #[derive(Clone, Debug)]

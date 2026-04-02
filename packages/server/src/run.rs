@@ -4,12 +4,15 @@ use {
 		context::{Context, PathMap},
 		temp::Temp,
 	},
-	futures::{FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future},
+	futures::{
+		FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
+		stream::{self, BoxStream},
+	},
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		path::Path,
 		pin::pin,
-		sync::Arc,
+		sync::{Arc, Mutex},
 		time::Duration,
 	},
 	tangram_client::prelude::*,
@@ -37,6 +40,7 @@ pub struct Output {
 #[derive(Clone, Debug)]
 struct QueuedSandbox {
 	id: tg::sandbox::Id,
+	process: Option<tg::process::Id>,
 	remote: Option<String>,
 }
 
@@ -56,6 +60,7 @@ impl Server {
 				self.dequeue_sandbox(arg)
 					.map_ok(|output| QueuedSandbox {
 						id: output.sandbox,
+						process: output.process,
 						remote: None,
 					})
 					.boxed(),
@@ -70,6 +75,7 @@ impl Server {
 						let output = client.dequeue_sandbox(arg).await?;
 						Ok::<_, tg::Error>(QueuedSandbox {
 							id: output.sandbox,
+							process: output.process,
 							remote: Some(remote),
 						})
 					}
@@ -86,7 +92,7 @@ impl Server {
 				},
 			};
 
-			self.spawn_sandbox_task(&sandbox.id, sandbox.remote, permit);
+			self.spawn_sandbox_task(&sandbox.id, sandbox.remote, permit, sandbox.process);
 		}
 	}
 
@@ -95,6 +101,7 @@ impl Server {
 		id: &tg::sandbox::Id,
 		remote: Option<String>,
 		permit: SandboxPermit,
+		process: Option<tg::process::Id>,
 	) {
 		if self.sandbox_tasks.try_get_id(id).is_some() {
 			return;
@@ -103,7 +110,7 @@ impl Server {
 			.spawn(id.clone(), |_| {
 				let server = self.clone();
 				let id = id.clone();
-				async move { server.sandbox_task(&id, remote, permit).await }
+				async move { server.sandbox_task(&id, remote, permit, process).await }
 					.inspect_err(|error| {
 						tracing::error!(error = %error.trace(), "the sandbox task failed");
 					})
@@ -117,6 +124,7 @@ impl Server {
 		id: &tg::sandbox::Id,
 		remote: Option<String>,
 		permit: SandboxPermit,
+		process: Option<tg::process::Id>,
 	) -> tg::Result<()> {
 		let remote_client = if let Some(remote) = &remote {
 			Some(self.get_remote_client(remote.clone()).await.map_err(
@@ -141,28 +149,11 @@ impl Server {
 		if state.status.is_finished() {
 			return Ok(());
 		}
-		if remote.is_none() && state.status == tg::sandbox::Status::Created {
-			let started = self
-				.try_start_sandbox_local(id)
-				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to start the sandbox"))?;
-			if !started
-				&& self
-					.get_current_sandbox_status_local(id)
-					.await
-					.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox status"))?
-					.is_finished()
-			{
-				return Ok(());
-			}
-		}
 
-		let clean_guard = self.acquire_clean_guard().await;
 		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
 		self.sandbox_permits.insert(id.clone(), permit);
 		scopeguard::defer! {
 			self.sandbox_permits.remove(id);
-			drop(clean_guard);
 		}
 
 		let temp = Temp::new(self);
@@ -227,18 +218,27 @@ impl Server {
 		};
 
 		let status = if let Some(client) = remote_client.as_ref() {
-			client
-				.try_get_sandbox_status_stream(id, tg::sandbox::status::Arg::default())
-				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox status"))?
-				.map(futures::StreamExt::boxed)
+			Some(Self::get_remote_sandbox_status_stream(
+				id,
+				remote.as_deref(),
+				client.clone(),
+			))
 		} else {
 			self.try_get_sandbox_status_stream_local(id)
 				.await
 				.map_err(
 					|source| tg::error!(!source, %id, "failed to get the sandbox status stream"),
 				)?
-				.map(futures::StreamExt::boxed)
+				.map(|stream| {
+					stream
+						.try_filter_map(|event| async move {
+							match event {
+								tg::sandbox::status::Event::Status(status) => Ok(Some(status)),
+								tg::sandbox::status::Event::End => Ok(None),
+							}
+						})
+						.boxed()
+				})
 		}
 		.ok_or_else(|| tg::error!("failed to get the sandbox status stream"))?;
 		let mut status = pin!(status);
@@ -250,11 +250,33 @@ impl Server {
 			tg::id::BuildHasher,
 		>::default();
 		let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<tg::process::Id>();
-		let ttl = state.ttl.map(Duration::from_secs);
+		let ttl = (state.ttl != i64::MAX as u64).then(|| Duration::from_secs(state.ttl));
 		let mut idle = Box::pin(tokio::time::sleep(Duration::MAX));
 		let mut idle_armed = false;
 		let mut active_processes = 0usize;
-		if let Some(ttl) = ttl {
+		if let Some(process) = process {
+			active_processes += 1;
+			let server = self.clone();
+			let process = tg::Process::new(process.clone(), None, remote.clone(), None, None);
+			let sandbox = sandbox.clone();
+			let sandbox_directory = sandbox_directory.clone();
+			let sender = sender.clone();
+			process_tasks
+				.spawn(process.id().clone(), move |stopper| async move {
+					let process_id = process.id().clone();
+					let _guard =
+						scopeguard::guard((sender, process_id.clone()), |(sender, process_id)| {
+							sender.send(process_id).ok();
+						});
+					server
+						.process_task(&process, sandbox, sandbox_directory, stopper)
+						.await
+						.inspect_err(|error| {
+							tracing::error!(error = %error.trace(), process = %process.id(), "the process task failed");
+						})
+				})
+				.detach();
+		} else if let Some(ttl) = ttl {
 			idle.as_mut().reset(tokio::time::Instant::now() + ttl);
 			idle_armed = true;
 		}
@@ -299,8 +321,7 @@ impl Server {
 				},
 				output = async {
 					let client = remote_client.as_ref().unwrap();
-					let arg = tg::process::queue::Arg::default();
-					client.dequeue_process(id, arg).await
+					self.dequeue_process_remote(client, id, remote.as_deref()).await
 				}, if remote_client.is_some() => {
 					let output = output.map_err(|source| tg::error!(!source, "failed to dequeue a process"))?;
 					active_processes += 1;
@@ -324,17 +345,11 @@ impl Server {
 					}).detach();
 				},
 				event = status.try_next() => {
-					let Some(event) = event.map_err(|source| tg::error!(!source, "failed to read the sandbox status"))? else {
+					let Some(status) = event.map_err(|source| tg::error!(!source, "failed to read the sandbox status"))? else {
 						break;
 					};
-					match event {
-						tg::sandbox::status::Event::Status(status) if status.is_finished() => {
-							break;
-						},
-						tg::sandbox::status::Event::End => {
-							break;
-						},
-						tg::sandbox::status::Event::Status(_) => (),
+					if status.is_finished() {
+						break;
 					}
 				},
 				id_ = receiver.recv() => {
@@ -392,6 +407,83 @@ impl Server {
 		Ok(())
 	}
 
+	fn get_remote_sandbox_status_stream(
+		id: &tg::sandbox::Id,
+		remote: Option<&str>,
+		client: tg::Client,
+	) -> BoxStream<'static, tg::Result<tg::sandbox::Status>> {
+		struct State {
+			end: bool,
+			stream: Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>,
+		}
+		let id = id.clone();
+		let remote = remote.map(ToOwned::to_owned);
+		let state = Arc::new(Mutex::new(State {
+			end: false,
+			stream: None,
+		}));
+		stream::try_unfold(state.clone(), move |state| {
+			let client = client.clone();
+			let id = id.clone();
+			let remote = remote.clone();
+			async move {
+				loop {
+					if state.lock().unwrap().end {
+						return Ok(None);
+					}
+					let mut stream = if let Some(stream) = state.lock().unwrap().stream.take() {
+						stream
+					} else {
+						match client
+							.try_get_sandbox_status_stream(&id, tg::sandbox::status::Arg::default())
+							.await
+						{
+							Ok(Some(stream)) => stream.boxed(),
+							Ok(None) => continue,
+							Err(error) => {
+								tracing::trace!(error = %error.trace(), sandbox = %id, remote = ?remote, "failed to get the sandbox status stream");
+								continue;
+							},
+						}
+					};
+					match stream.try_next().await {
+						Ok(Some(tg::sandbox::status::Event::Status(status))) => {
+							let mut lock = state.lock().unwrap();
+							lock.end = status.is_finished();
+							if !lock.end {
+								lock.stream = Some(stream);
+							}
+							return Ok(Some((status, state.clone())));
+						},
+						Ok(Some(tg::sandbox::status::Event::End) | None) => (),
+						Err(error) => {
+							tracing::trace!(error = %error.trace(), sandbox = %id, remote = ?remote, "failed to read the sandbox status");
+						},
+					}
+				}
+			}
+		})
+		.boxed()
+	}
+
+	async fn dequeue_process_remote(
+		&self,
+		client: &tg::Client,
+		id: &tg::sandbox::Id,
+		remote: Option<&str>,
+	) -> tg::Result<tg::process::queue::Output> {
+		loop {
+			let arg = tg::process::queue::Arg::default();
+			match client.try_dequeue_process(id, arg).await {
+				Ok(Some(output)) => return Ok(output),
+				Ok(None) => (),
+				Err(error) => {
+					tracing::trace!(error = %error.trace(), sandbox = %id, remote = ?remote, "failed to dequeue a process");
+				},
+			}
+		}
+	}
+
 	async fn sandbox_heartbeat_task(
 		&self,
 		id: &tg::sandbox::Id,
@@ -426,6 +518,8 @@ impl Server {
 		sandbox_directory: tangram_sandbox::Directory,
 		stopper: Stopper,
 	) -> tg::Result<()> {
+		let _clean_guard = self.acquire_clean_guard().await;
+
 		let wait = match self
 			.run(process, sandbox, sandbox_directory, stopper)
 			.await
@@ -768,6 +862,7 @@ impl Server {
 				path_maps: chroot.then_some(path_maps),
 				remote: remote.cloned(),
 				retry: state.retry,
+				sandbox: state.sandbox.clone(),
 			})),
 			..Default::default()
 		};

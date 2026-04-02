@@ -7,54 +7,6 @@ export use std assert
 const repository_path = path self '../../'
 const server_exit_directory_name = 'server_jobs'
 
-def force_unmount_vfs [path: string] {
-	if $nu.os-info.name != 'linux' {
-		return
-	}
-
-	let artifacts_paths = (
-		[
-			($path | path join 'artifacts')
-		] | append (
-			try {
-				^fd -a -t d '^artifacts$' $path | lines
-			} catch {
-				[]
-			}
-		) | uniq | where { |path| $path | path exists }
-	)
-
-	for artifacts_path in $artifacts_paths {
-		try {
-			^fusermount3 -u -z $artifacts_path o> /dev/null e> /dev/null
-		}
-	}
-}
-
-def server_exit_path [temp_path: string, job_id: int] {
-	$temp_path | path join $server_exit_directory_name | path join $'($job_id).exit'
-}
-
-def wait_for_server_exit [path: string] {
-	if ($path | path exists) {
-		return true
-	}
-
-	let output = (open /dev/null | timeout 5 bash -c 'while [ ! -e "$1" ]; do sleep 0.05; done' _ $path | complete)
-	$output.exit_code == 0 or ($path | path exists)
-}
-
-def remove_temp_directory [path: string] {
-	if not ($path | path exists) {
-		return
-	}
-
-	force_unmount_vfs $path
-	# Restore owner traversal permissions so Nushell can descend into sandbox scratch directories.
-	try { chmod -R u+rwx $path }
-	rm -rf $path
-}
-
 def main [
 	--accept (-a) # Accept all new and updated snapshots.
 	--clean # Clean up leftover test resources from postgres, scylla, and nats.
@@ -161,6 +113,7 @@ def main [
 				$config | to json | save -f ($temp_path | path join "config.json")
 			}
 			let output = with-env {
+				SHELL: "/bin/sh",
 				TANGRAM_CONFIG: ($temp_path | path join "config.json"),
 				TANGRAM_MODE: client,
 				TANGRAM_TEST_CLOUD: (if $cloud { "1" } else { "" }),
@@ -1028,3 +981,47 @@ export def xattr_write [name: string, value: string, path: string] {
 		'linux' => { setfattr -n $name -v $value $path }
 	}
 }
+
+def server_exit_path [temp_path: string, job_id: int] {
+	$temp_path | path join $server_exit_directory_name | path join $'($job_id).exit'
+}
+
+def wait_for_server_exit [path: string] {
+	if ($path | path exists) {
+		return true
+	}
+	let output = (open /dev/null | timeout 5 bash -c 'while [ ! -e "$1" ]; do sleep 0.05; done' _ $path | complete)
+	$output.exit_code == 0 or ($path | path exists)
+}
+
+def remove_temp_directory [path: string] {
+	if not ($path | path exists) {
+		return
+	}
+	force_unmount_vfs $path
+	try { chmod -R u+rwx $path }
+	rm -rf $path
+}
+
+def force_unmount_vfs [path: string] {
+	if $nu.os-info.name != 'linux' {
+		return
+	}
+	let artifacts_paths = (
+		[
+			($path | path join 'artifacts')
+		] | append (
+			try {
+				^fd -a -t d '^artifacts$' $path | lines
+			} catch {
+				[]
+			}
+		) | uniq | where { |path| $path | path exists }
+	)
+	for artifacts_path in $artifacts_paths {
+		try {
+			^fusermount3 -u -z $artifacts_path o> /dev/null e> /dev/null
+		}
+	}
+}
+

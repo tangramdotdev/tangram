@@ -49,6 +49,8 @@ impl Server {
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let ttl =
+			i64::try_from(arg.ttl).map_err(|source| tg::error!(!source, "invalid sandbox ttl"))?;
 		let params = db::params![
 			id.to_string(),
 			now,
@@ -56,7 +58,7 @@ impl Server {
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
 			arg.network,
 			tg::sandbox::Status::Created.to_string(),
-			arg.ttl.map(|ttl| i64::try_from(ttl).unwrap()),
+			ttl,
 			arg.user.clone(),
 		];
 		connection
@@ -67,7 +69,10 @@ impl Server {
 
 		self.publish_sandbox_status(&id);
 		let subject = "sandboxes.queue".to_owned();
-		let payload = crate::sandbox::queue::Message { id: id.clone() };
+		let payload = crate::sandbox::queue::Message {
+			id: id.clone(),
+			process: None,
+		};
 		self.messenger
 			.stream_publish("sandboxes.queue".to_owned(), subject, payload)
 			.await

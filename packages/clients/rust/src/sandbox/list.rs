@@ -26,8 +26,7 @@ pub struct Item {
 
 	pub status: tg::sandbox::Status,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub ttl: Option<u64>,
+	pub ttl: u64,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub user: Option<String>,
