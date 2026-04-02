@@ -916,18 +916,6 @@ impl Server {
 		&self,
 		arg: &tg::process::spawn::Arg,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		// Artificial delay for testing the watchdog token race.
-		// TODO: Remove this before merging.
-		if std::env::var("TANGRAM_REMOTE_DELAY_MS").is_ok() {
-			let delay: u64 = std::env::var("TANGRAM_REMOTE_DELAY_MS")
-				.unwrap_or_default()
-				.parse()
-				.unwrap_or(0);
-			if delay > 0 {
-				tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-			}
-		}
-
 		// Find a process.
 		let streams = self
 			.get_remote_clients()

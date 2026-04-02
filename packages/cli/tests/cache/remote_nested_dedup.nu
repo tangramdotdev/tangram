@@ -48,10 +48,7 @@ let id = tg build $outer
 tg push --eager --outputs --recursive $id
 
 # Fresh: multi-threaded, single_process disabled, fast watchdog.
-# TANGRAM_REMOTE_DELAY_MS adds artificial latency to remote lookups so
-# multiple callers can accumulate tokens before the remote resolves.
-$env.TANGRAM_REMOTE_DELAY_MS = "500"
-let fresh = spawn -n fresh -c { tokio_single_threaded: false, advanced: { single_process: false }, watchdog: { batch_size: 100, interval: 0.1, ttl: 60, max_depth: 1024 } }
+let fresh = spawn -n fresh -c { tokio_single_threaded: false, advanced: { single_process: false } }
 tg remote put default $remote.url
 
 let fresh_id = tg build $outer
