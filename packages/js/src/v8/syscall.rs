@@ -36,6 +36,7 @@ pub fn syscall<'s>(
 		"handle_object_id" => sync(scope, &args, self::handle::object_id),
 		"handle_process_get" => async_(scope, &args, self::handle::process_get),
 		"handle_process_id" => sync(scope, &args, self::handle::process_id),
+		"handle_sandbox_get" => async_(scope, &args, self::handle::sandbox_get),
 		"handle_process_signal" => async_(scope, &args, self::handle::process_signal),
 		"handle_process_spawn" => async_(scope, &args, self::handle::process_spawn),
 		"handle_process_stdio_read_close" => {

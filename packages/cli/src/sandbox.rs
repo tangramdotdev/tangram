@@ -24,16 +24,14 @@ pub enum Command {
 	Run(self::run::Args),
 }
 
-#[derive(Clone, Debug, clap::Args)]
+#[derive(Clone, Debug, Default, clap::Args)]
 #[group(skip)]
 pub struct Options {
-	pub host: Option<String>,
-
 	#[arg(long)]
 	pub hostname: Option<String>,
 
 	#[arg(action = clap::ArgAction::Append, long = "mount", num_args = 1, short)]
-	pub mounts: Vec<tg::process::Mount>,
+	pub mounts: Vec<tg::sandbox::Mount>,
 
 	#[clap(flatten)]
 	pub network: Network,
@@ -66,7 +64,39 @@ pub struct Network {
 
 impl Network {
 	pub fn get(&self) -> bool {
-		self.network.or(self.no_network.map(|v| !v)).unwrap_or(true)
+		self.network
+			.or(self.no_network.map(|v| !v))
+			.unwrap_or(false)
+	}
+
+	pub fn new(network: bool) -> Self {
+		Self {
+			network: Some(network),
+			no_network: None,
+		}
+	}
+
+	pub fn try_get(&self) -> Option<bool> {
+		self.network.or(self.no_network.map(|v| !v))
+	}
+}
+
+impl Options {
+	pub fn into_arg(self) -> tg::sandbox::create::Arg {
+		tg::sandbox::create::Arg {
+			hostname: self.hostname,
+			mounts: self.mounts,
+			network: self.network.get(),
+			ttl: None,
+			user: self.user,
+		}
+	}
+
+	pub fn is_empty(&self) -> bool {
+		self.hostname.is_none()
+			&& self.mounts.is_empty()
+			&& self.network.try_get().is_none()
+			&& self.user.is_none()
 	}
 }
 

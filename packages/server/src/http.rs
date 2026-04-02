@@ -422,8 +422,8 @@ impl Server {
 			(http::Method::POST, ["processes", process, "cancel"]) => self
 				.handle_cancel_process_request(request, &context, process)
 				.boxed(),
-			(http::Method::POST, ["processes", "dequeue"]) => self
-				.handle_dequeue_process_request(request, &context)
+			(http::Method::POST, ["sandboxes", sandbox, "processes", "dequeue"]) => self
+				.handle_dequeue_process_request(request, &context, sandbox)
 				.boxed(),
 			(http::Method::POST, ["processes", process, "signal"]) => self
 				.handle_post_process_signal_request(request, &context, process)
@@ -449,9 +449,6 @@ impl Server {
 			(http::Method::POST, ["processes", process, "stdio"]) => self
 				.handle_post_process_stdio_write_request(request, &context, process)
 				.boxed(),
-			(http::Method::POST, ["processes", process, "heartbeat"]) => self
-				.handle_heartbeat_process_request(request, &context, process)
-				.boxed(),
 			(http::Method::POST, ["processes", process, "touch"]) => self
 				.handle_touch_process_request(request, &context, process)
 				.boxed(),
@@ -469,8 +466,23 @@ impl Server {
 			(http::Method::GET, ["sandboxes"]) => self
 				.handle_list_sandboxes_request(request, &context)
 				.boxed(),
+			(http::Method::POST, ["sandboxes", "dequeue"]) => self
+				.handle_dequeue_sandbox_request(request, &context)
+				.boxed(),
+			(http::Method::GET, ["sandboxes", sandbox]) => self
+				.handle_get_sandbox_request(request, &context, sandbox)
+				.boxed(),
 			(http::Method::DELETE, ["sandboxes", sandbox]) => self
 				.handle_delete_sandbox_request(request, &context, sandbox)
+				.boxed(),
+			(http::Method::POST, ["sandboxes", sandbox, "finish"]) => self
+				.handle_finish_sandbox_request(request, &context, sandbox)
+				.boxed(),
+			(http::Method::POST, ["sandboxes", sandbox, "heartbeat"]) => self
+				.handle_heartbeat_sandbox_request(request, &context, sandbox)
+				.boxed(),
+			(http::Method::GET, ["sandboxes", sandbox, "status"]) => self
+				.handle_get_sandbox_status_request(request, &context, sandbox)
 				.boxed(),
 
 			// Remotes.

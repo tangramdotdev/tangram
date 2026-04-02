@@ -43,10 +43,11 @@ pub trait Process: Send + Sync + 'static {
 		arg: tg::process::cancel::Arg,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
-	fn try_dequeue_process(
-		&self,
+	fn try_dequeue_process<'a>(
+		&'a self,
+		sandbox: &'a tg::sandbox::Id,
 		arg: tg::process::queue::Arg,
-	) -> BoxFuture<'_, tg::Result<Option<tg::process::queue::Output>>>;
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::queue::Output>>>;
 
 	fn signal_process<'a>(
 		&'a self,
@@ -108,12 +109,6 @@ pub trait Process: Send + Sync + 'static {
 		arg: tg::process::stdio::write::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>>;
-
-	fn heartbeat_process<'a>(
-		&'a self,
-		id: &'a tg::process::Id,
-		arg: tg::process::heartbeat::Arg,
-	) -> BoxFuture<'a, tg::Result<tg::process::heartbeat::Output>>;
 
 	fn touch_process<'a>(
 		&'a self,
@@ -194,11 +189,12 @@ where
 		self.cancel_process(id, arg).boxed()
 	}
 
-	fn try_dequeue_process(
-		&self,
+	fn try_dequeue_process<'a>(
+		&'a self,
+		sandbox: &'a tg::sandbox::Id,
 		arg: tg::process::queue::Arg,
-	) -> BoxFuture<'_, tg::Result<Option<tg::process::queue::Output>>> {
-		self.try_dequeue_process(arg).boxed()
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::queue::Output>>> {
+		self.try_dequeue_process(sandbox, arg).boxed()
 	}
 
 	fn signal_process<'a>(
@@ -290,14 +286,6 @@ where
 		self.write_process_stdio(id, arg, stream)
 			.map_ok(futures::StreamExt::boxed)
 			.boxed()
-	}
-
-	fn heartbeat_process<'a>(
-		&'a self,
-		id: &'a tg::process::Id,
-		arg: tg::process::heartbeat::Arg,
-	) -> BoxFuture<'a, tg::Result<tg::process::heartbeat::Output>> {
-		self.heartbeat_process(id, arg).boxed()
 	}
 
 	fn touch_process<'a>(

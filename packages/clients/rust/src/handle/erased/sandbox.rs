@@ -9,12 +9,54 @@ pub trait Sandbox: Send + Sync + 'static {
 		arg: tg::sandbox::create::Arg,
 	) -> BoxFuture<'_, tg::Result<tg::sandbox::create::Output>>;
 
+	fn try_get_sandbox<'a>(
+		&'a self,
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::get::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::sandbox::get::Output>>>;
+
+	fn try_dequeue_sandbox(
+		&self,
+		arg: tg::sandbox::queue::Arg,
+	) -> BoxFuture<'_, tg::Result<Option<tg::sandbox::queue::Output>>>;
+
 	fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,
 	) -> BoxFuture<'_, tg::Result<tg::sandbox::list::Output>>;
 
 	fn delete_sandbox<'a>(&'a self, id: &'a tg::sandbox::Id) -> BoxFuture<'a, tg::Result<()>>;
+
+	fn finish_sandbox<'a>(
+		&'a self,
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::finish::Arg,
+	) -> BoxFuture<'a, tg::Result<()>>;
+
+	fn heartbeat_sandbox<'a>(
+		&'a self,
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::heartbeat::Arg,
+	) -> BoxFuture<'a, tg::Result<tg::sandbox::heartbeat::Output>>;
+
+	fn try_get_sandbox_status_stream<'a>(
+		&'a self,
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::status::Arg,
+	) -> BoxFuture<
+		'a,
+		tg::Result<
+			Option<
+				std::pin::Pin<
+					Box<
+						dyn futures::Stream<Item = tg::Result<tg::sandbox::status::Event>>
+							+ Send
+							+ 'static,
+					>,
+				>,
+			>,
+		>,
+	>;
 }
 
 impl<T> Sandbox for T
@@ -28,6 +70,21 @@ where
 		self.create_sandbox(arg).boxed()
 	}
 
+	fn try_get_sandbox<'a>(
+		&'a self,
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::get::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::sandbox::get::Output>>> {
+		self.try_get_sandbox(id, arg).boxed()
+	}
+
+	fn try_dequeue_sandbox(
+		&self,
+		arg: tg::sandbox::queue::Arg,
+	) -> BoxFuture<'_, tg::Result<Option<tg::sandbox::queue::Output>>> {
+		self.try_dequeue_sandbox(arg).boxed()
+	}
+
 	fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,
@@ -37,5 +94,48 @@ where
 
 	fn delete_sandbox<'a>(&'a self, id: &'a tg::sandbox::Id) -> BoxFuture<'a, tg::Result<()>> {
 		self.delete_sandbox(id).boxed()
+	}
+
+	fn finish_sandbox<'a>(
+		&'a self,
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::finish::Arg,
+	) -> BoxFuture<'a, tg::Result<()>> {
+		self.finish_sandbox(id, arg).boxed()
+	}
+
+	fn heartbeat_sandbox<'a>(
+		&'a self,
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::heartbeat::Arg,
+	) -> BoxFuture<'a, tg::Result<tg::sandbox::heartbeat::Output>> {
+		self.heartbeat_sandbox(id, arg).boxed()
+	}
+
+	fn try_get_sandbox_status_stream<'a>(
+		&'a self,
+		id: &'a tg::sandbox::Id,
+		arg: tg::sandbox::status::Arg,
+	) -> BoxFuture<
+		'a,
+		tg::Result<
+			Option<
+				std::pin::Pin<
+					Box<
+						dyn futures::Stream<Item = tg::Result<tg::sandbox::status::Event>>
+							+ Send
+							+ 'static,
+					>,
+				>,
+			>,
+		>,
+	> {
+		async move {
+			Ok(self
+				.try_get_sandbox_status_stream(id, arg)
+				.await?
+				.map(|stream| Box::pin(stream) as _))
+		}
+		.boxed()
 	}
 }

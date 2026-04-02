@@ -38,7 +38,7 @@ pub fn initialize(connection: &sqlite::Connection) -> sqlite::Result<()> {
 }
 
 pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
-	let migration_count = 1;
+	let schema_version = 2;
 
 	let connection = database
 		.connection()
@@ -55,23 +55,24 @@ pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 		.await?;
 	drop(connection);
 
+	// Fail on databases from older incompatible schemas.
+	if version == 1 {
+		return Err(tg::error!(
+			"the database schema is incompatible with this version of tangram; please recreate the data directory"
+		));
+	}
+
 	// If this path is from a newer version of Tangram, then return an error.
-	if version > migration_count {
+	if version > schema_version {
 		return Err(tg::error!(
 			r"The database has run migrations from a newer version of Tangram. Please run `tg self update` to update to the latest version of Tangram."
 		));
 	}
 
-	// Run all migrations and update the version.
-	for version in version..migration_count {
-		// Run the migration.
-		match version {
-			0 => migration_0000(database).await,
-			_ => unreachable!(),
-		}
-		.map_err(|source| tg::error!(!source, %version, "failed to run the migration"))?;
-
-		// Update the version.
+	if version == 0 {
+		migration_0000(database)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the database schema"))?;
 		let connection = database
 			.write_connection()
 			.await
@@ -79,8 +80,8 @@ pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 		connection
 			.with(move |connection, _cache| {
 				connection
-					.pragma_update(None, "user_version", (version + 1).to_i64().unwrap())
-					.map_err(|source| tg::error!(!source, "failed to get the version"))
+					.pragma_update(None, "user_version", schema_version.to_i64().unwrap())
+					.map_err(|source| tg::error!(!source, "failed to set the version"))
 			})
 			.await?;
 	}

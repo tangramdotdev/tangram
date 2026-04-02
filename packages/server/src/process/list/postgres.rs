@@ -36,12 +36,11 @@ impl Server {
 			host: String,
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
 			log: Option<tg::blob::Id>,
-			#[tangram_database(as = "Option<db::value::Json<Vec<tg::process::data::Mount>>>")]
-			mounts: Option<Vec<tg::process::data::Mount>>,
-			network: bool,
 			#[tangram_database(as = "Option<db::value::Json<tg::value::Data>>")]
 			output: Option<tg::value::Data>,
 			retry: bool,
+			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
+			sandbox: Option<tg::sandbox::Id>,
 			started_at: Option<i64>,
 			#[tangram_database(as = "db::postgres::value::FromStr")]
 			status: tg::process::Status,
@@ -69,10 +68,9 @@ impl Server {
 					finished_at,
 					host,
 					log,
-					mounts,
-					network,
 					output,
 					retry,
+					sandbox,
 					started_at,
 					status,
 					stderr,
@@ -123,10 +121,9 @@ impl Server {
 					finished_at: row.finished_at,
 					host: row.host,
 					log: row.log,
-					mounts: row.mounts.unwrap_or_default(),
-					network: row.network,
 					output: row.output,
 					retry: row.retry,
+					sandbox: row.sandbox,
 					started_at: row.started_at,
 					status: row.status,
 					stderr: row.stderr.unwrap_or(tg::process::Stdio::Null),

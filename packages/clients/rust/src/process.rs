@@ -9,8 +9,8 @@ use {
 };
 
 pub use self::{
-	build::build, data::Data, id::Id, metadata::Metadata, mount::Mount, run::run, signal::Signal,
-	state::State, status::Status, stdio::Stdio, tty::Tty, wait::Wait,
+	build::build, data::Data, id::Id, metadata::Metadata, run::run, signal::Signal, state::State,
+	status::Status, stdio::Stdio, tty::Tty, wait::Wait,
 };
 
 pub mod build;
@@ -19,11 +19,9 @@ pub mod children;
 pub mod data;
 pub mod finish;
 pub mod get;
-pub mod heartbeat;
 pub mod id;
 pub mod list;
 pub mod metadata;
-pub mod mount;
 pub mod put;
 pub mod queue;
 pub mod run;
@@ -67,14 +65,12 @@ pub struct Arg {
 	pub env: tg::value::Map,
 	pub executable: Option<tg::command::Executable>,
 	pub host: Option<String>,
-	pub mounts: Option<Vec<tg::process::Mount>>,
 	pub name: Option<String>,
-	pub network: Option<bool>,
 	pub parent: Option<tg::process::Id>,
 	pub progress: bool,
 	pub remote: Option<String>,
 	pub retry: bool,
-	pub sandbox: Option<bool>,
+	pub sandbox: Option<tg::Either<tg::sandbox::create::Arg, tg::sandbox::Id>>,
 	pub stderr: tg::process::Stdio,
 	pub stdin: tg::process::Stdio,
 	pub stdout: tg::process::Stdio,

@@ -51,15 +51,6 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 
-		// If the task for the process is not the current task, then abort it.
-		if self
-			.process_tasks
-			.try_get_id(id)
-			.is_some_and(|task_id| task_id != tokio::task::id())
-		{
-			self.process_tasks.abort(id);
-		}
-
 		let tg::process::finish::Arg {
 			mut error,
 			output,
@@ -174,7 +165,6 @@ impl Server {
 					error = {p}2,
 					error_code = {p}3,
 					finished_at = {p}4,
-					heartbeat_at = null,
 					output = {p}5,
 					exit = {p}6,
 					status = {p}7,

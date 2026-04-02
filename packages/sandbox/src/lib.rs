@@ -65,7 +65,7 @@ pub struct ManagerArg {
 #[derive(Clone, Debug)]
 pub struct SpawnArg {
 	pub hostname: Option<String>,
-	pub mounts: Vec<tg::process::Mount>,
+	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: bool,
 	pub path: PathBuf,
 	pub user: Option<String>,
@@ -76,7 +76,7 @@ pub struct RunArg {
 	pub artifacts_path: PathBuf,
 	pub hostname: Option<String>,
 	pub library_paths: Vec<PathBuf>,
-	pub mounts: Vec<tg::process::Mount>,
+	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: bool,
 	pub path: PathBuf,
 	pub rootfs_path: PathBuf,
@@ -496,6 +496,16 @@ impl Directory {
 		Self(path)
 	}
 
+	fn socket_name_for_process(id: &tg::process::Id) -> String {
+		let id = id.to_string();
+		let id = id.strip_prefix("pcs_").unwrap_or(&id);
+		if id.len() > 16 {
+			id[id.len() - 16..].to_owned()
+		} else {
+			id.to_owned()
+		}
+	}
+
 	#[must_use]
 	pub fn host_path(&self) -> &Path {
 		&self.0
@@ -528,7 +538,13 @@ impl Directory {
 
 	#[must_use]
 	pub fn host_socket_path(&self) -> PathBuf {
-		self.0.join("server.socket")
+		self.0.join("s")
+	}
+
+	#[must_use]
+	pub fn host_socket_path_for_process(&self, id: &tg::process::Id) -> PathBuf {
+		self.host_socket_path()
+			.join(Self::socket_name_for_process(id))
 	}
 
 	#[must_use]
@@ -554,6 +570,12 @@ impl Directory {
 	#[must_use]
 	pub fn guest_socket_path(&self) -> PathBuf {
 		"/opt/tangram/socket".into()
+	}
+
+	#[must_use]
+	pub fn guest_socket_path_for_process(&self, id: &tg::process::Id) -> PathBuf {
+		self.guest_socket_path()
+			.join(Self::socket_name_for_process(id))
 	}
 
 	#[must_use]

@@ -12,10 +12,9 @@ pub struct State {
 	pub expected_checksum: Option<tg::Checksum>,
 	pub finished_at: Option<i64>,
 	pub log: Option<tg::Blob>,
-	pub mounts: Vec<tg::process::Mount>,
-	pub network: bool,
 	pub output: Option<tg::Value>,
 	pub retry: bool,
+	pub sandbox: Option<tg::sandbox::Id>,
 	pub started_at: Option<i64>,
 	pub status: tg::process::Status,
 	pub stderr: tg::process::Stdio,
@@ -55,10 +54,9 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 		let expected_checksum = value.expected_checksum;
 		let finished_at = value.finished_at;
 		let log = value.log.map(tg::Blob::with_id);
-		let mounts = value.mounts.into_iter().map(Into::into).collect();
-		let network = value.network;
 		let output = value.output.map(tg::Value::try_from).transpose()?;
 		let retry = value.retry;
+		let sandbox = value.sandbox;
 		let started_at = value.started_at;
 		let status = value.status;
 		let stderr = value.stderr;
@@ -76,10 +74,9 @@ impl TryFrom<tg::process::Data> for tg::process::State {
 			expected_checksum,
 			finished_at,
 			log,
-			mounts,
-			network,
 			output,
 			retry,
+			sandbox,
 			started_at,
 			status,
 			stderr,

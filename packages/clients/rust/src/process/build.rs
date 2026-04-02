@@ -12,17 +12,27 @@ impl tg::Process {
 	where
 		H: tg::Handle,
 	{
-		let cacheable = arg.mounts.as_ref().is_none_or(Vec::is_empty)
-			&& !arg.network.unwrap_or_default()
-			&& arg.stdin.is_null()
+		let sandbox = arg.sandbox.clone().unwrap_or_else(|| {
+			tg::Either::Left(tg::sandbox::create::Arg {
+				network: false,
+				..Default::default()
+			})
+		});
+		let cacheable = matches!(
+			&sandbox,
+			tg::Either::Left(arg) if arg.mounts.is_empty() && !arg.network
+		) && arg.stdin.is_null()
 			&& arg.stdout.is_log()
 			&& arg.stderr.is_log();
 		let cacheable = cacheable || arg.checksum.is_some();
 		if !cacheable {
 			return Err(tg::error!("a build must be cacheable"));
 		}
+		if matches!(sandbox, tg::Either::Right(_)) {
+			return Err(tg::error!("a build cannot use an existing sandbox"));
+		}
 		let arg = tg::process::Arg {
-			sandbox: Some(arg.sandbox.unwrap_or(true)),
+			sandbox: Some(sandbox),
 			..arg
 		};
 		tg::run(handle, arg).await

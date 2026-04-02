@@ -18,30 +18,17 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub status: tg::process::Status,
-}
-
-impl tg::Process {
-	pub async fn heartbeat<H>(
-		&self,
-		handle: &H,
-		arg: tg::process::heartbeat::Arg,
-	) -> tg::Result<tg::process::heartbeat::Output>
-	where
-		H: tg::Handle,
-	{
-		handle.heartbeat_process(self.id(), arg).await
-	}
+	pub status: tg::sandbox::Status,
 }
 
 impl tg::Client {
-	pub async fn heartbeat_process(
+	pub async fn heartbeat_sandbox(
 		&self,
-		id: &tg::process::Id,
-		arg: tg::process::heartbeat::Arg,
-	) -> tg::Result<Output> {
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::heartbeat::Arg,
+	) -> tg::Result<tg::sandbox::heartbeat::Output> {
 		let method = http::Method::POST;
-		let uri = format!("/processes/{id}/heartbeat");
+		let uri = format!("/sandboxes/{id}/heartbeat");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

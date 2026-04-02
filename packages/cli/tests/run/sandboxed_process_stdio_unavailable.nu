@@ -13,9 +13,7 @@ let stdin = run '
 	export default async function () {
 		let process = await tg
 			.spawn`true`
-			.stdin("null")
-			.stdout("null")
-			.stderr("null")
+			.stdio("null")
 			.sandbox();
 		let input = tg.encoding.utf8.encode("hello");
 		await process.stdin.write(input);
@@ -27,9 +25,7 @@ let stdout = run '
 	export default async function () {
 		let process = await tg
 			.spawn`true`
-			.stdin("null")
-			.stdout("null")
-			.stderr("null")
+			.stdio("null")
 			.sandbox();
 		await process.stdout.read();
 	}
@@ -40,9 +36,7 @@ let stderr = run '
 	export default async function () {
 		let process = await tg
 			.spawn`true`
-			.stdin("null")
-			.stdout("null")
-			.stderr("null")
+			.stdio("null")
 			.sandbox();
 		await process.stderr.read();
 	}

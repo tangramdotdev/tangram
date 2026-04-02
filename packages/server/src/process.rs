@@ -11,7 +11,6 @@ pub(crate) mod children;
 pub(crate) mod finalize;
 pub(crate) mod finish;
 pub(crate) mod get;
-pub(crate) mod heartbeat;
 pub(crate) mod list;
 pub(crate) mod log;
 pub(crate) mod metadata;
@@ -66,7 +65,6 @@ impl Server {
 			"
 				update processes
 				set
-					heartbeat_at = {p}1,
 					started_at = {p}1,
 					status = 'started'
 				where id = {p}2 and status = 'created';

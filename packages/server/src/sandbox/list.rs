@@ -1,6 +1,8 @@
 use {
 	crate::{Context, Server},
+	indoc::formatdoc,
 	tangram_client::prelude::*,
+	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
@@ -14,8 +16,50 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 
-		// TODO: Implement sandbox listing.
-		Err(tg::error!("sandbox listing is not implemented"))
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			id: tg::sandbox::Id,
+			hostname: Option<String>,
+			#[tangram_database(as = "Option<db::value::Json<Vec<tg::sandbox::Mount>>>")]
+			mounts: Option<Vec<tg::sandbox::Mount>>,
+			network: bool,
+			#[tangram_database(as = "db::value::FromStr")]
+			status: tg::sandbox::Status,
+			ttl: Option<i64>,
+			user: Option<String>,
+		}
+		let connection = self
+			.database
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let statement = formatdoc!(
+			"
+				select id, hostname, mounts, network, status, ttl, \"user\" as user
+				from sandboxes
+				where status != 'finished'
+				order by created_at;
+			"
+		);
+		let params = db::params![];
+		let rows = connection
+			.query_all_into::<Row>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		let data = rows
+			.into_iter()
+			.map(|row| tg::sandbox::list::Item {
+				id: row.id,
+				hostname: row.hostname,
+				mounts: row.mounts.unwrap_or_default(),
+				network: row.network,
+				status: row.status,
+				ttl: row.ttl.map(|ttl| u64::try_from(ttl).unwrap()),
+				user: row.user,
+			})
+			.collect();
+		Ok(tg::sandbox::list::Output { data })
 	}
 
 	pub(crate) async fn handle_list_sandboxes_request(

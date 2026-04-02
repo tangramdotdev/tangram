@@ -1375,11 +1375,8 @@ declare namespace tg {
 		/** Get this process's command's executable. */
 		get executable(): Promise<tg.Command.Executable>;
 
-		/** Get the mounts for this process. */
-		get mounts(): Promise<Array<tg.Process.Mount>>;
-
-		/** Get whether this process has the network enabled. */
-		get network(): Promise<boolean>;
+		/** Get this process's sandbox. */
+		get sandbox(): Promise<tg.Sandbox.Id | undefined>;
 
 		/** Get this process's stdin writer. */
 		get stdin(): tg.Process.Stdio.Writer;
@@ -1445,17 +1442,11 @@ declare namespace tg {
 			/** The command's host. */
 			host?: string | undefined;
 
-			/** The process's mounts. */
-			mounts?: Array<tg.Process.Mount> | undefined;
-
 			/** The process's name. */
 			name?: string | undefined;
 
-			/** Configure whether the process has access to the network. **/
-			network?: boolean | undefined;
-
-			/** Whether to sandbox the process. Defaults to false. */
-			sandbox?: boolean | undefined;
+			/** Configure or select the sandbox for this process. */
+			sandbox?: boolean | tg.Sandbox.Arg | tg.Sandbox.Id | undefined;
 
 			/** Configure stderr. */
 			stderr?: tg.Process.Stdio | undefined;
@@ -1474,11 +1465,7 @@ declare namespace tg {
 		};
 
 		/** A mount. */
-		export type Mount = {
-			source: string;
-			target: string;
-			readonly: boolean;
-		};
+		export type Mount = tg.Sandbox.Mount;
 
 		export type Stdio = "inherit" | "log" | "null" | "pipe" | "tty";
 
@@ -1694,13 +1681,19 @@ declare namespace tg {
 
 			network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
 
-			sandbox(sandbox?: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
+			sandbox(
+				sandbox?: tg.Unresolved<
+					tg.MaybeMutation<boolean | tg.Sandbox.Arg | tg.Sandbox.Id | undefined>
+				>,
+			): this;
 
 			stderr(stderr: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio>>): this;
 
 			stdin(
 				stdin: tg.Unresolved<tg.MaybeMutation<tg.Blob.Arg | tg.Process.Stdio>>,
 			): this;
+
+			stdio(stdio: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio>>): this;
 
 			stdout(stdout: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio>>): this;
 
@@ -1871,6 +1864,38 @@ declare namespace tg {
 						: T extends { [key: string]: tg.Unresolved<tg.Value> }
 							? { [K in keyof T]: tg.Resolved<T[K]> }
 							: never;
+
+	export namespace Sandbox {
+		export type Id = string;
+
+		export type Arg = {
+			hostname?: string | undefined;
+			mounts?: Array<tg.Sandbox.Mount> | undefined;
+			network?: boolean | undefined;
+			ttl?: number | undefined;
+			user?: string | undefined;
+		};
+
+		export type Status = "created" | "started" | "finished";
+
+		export type Mount = {
+			source: string;
+			target: string;
+			readonly?: boolean | undefined;
+		};
+
+		export namespace Mount {
+			export type Data = string;
+
+			export let toDataString: (
+				value: tg.Sandbox.Mount,
+			) => tg.Sandbox.Mount.Data;
+
+			export let fromDataString: (
+				data: tg.Sandbox.Mount.Data,
+			) => tg.Sandbox.Mount;
+		}
+	}
 
 	/** Sleep for the specified duration in seconds. */
 	export let sleep: (duration: number) => Promise<void>;

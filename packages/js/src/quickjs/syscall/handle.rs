@@ -195,6 +195,32 @@ pub fn process_id(_value: Option<String>) -> Result<Serde<tg::process::Id>> {
 	Result(Ok(Serde(tg::process::Id::new())))
 }
 
+pub async fn sandbox_get(
+	ctx: qjs::Ctx<'_>,
+	id: Serde<tg::sandbox::Id>,
+) -> Result<Serde<tg::sandbox::get::Output>> {
+	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	let Serde(id) = id;
+	let result = async {
+		let data = state
+			.main_runtime_handle
+			.spawn({
+				let handle = state.handle.clone();
+				let id = id.clone();
+				async move {
+					let output = handle.get_sandbox(&id).await?;
+					Ok::<_, tg::Error>(output)
+				}
+			})
+			.await
+			.map_err(|source| tg::error!(!source, "the task panicked"))?
+			.map_err(|source| tg::error!(!source, "failed to get the sandbox"))?;
+		Ok(data)
+	}
+	.await;
+	Result(result.map(Serde))
+}
+
 pub async fn process_stdio_read_close(ctx: qjs::Ctx<'_>, token: usize) -> Result<()> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	state.stdio.process_stdio_read_close(token).await;

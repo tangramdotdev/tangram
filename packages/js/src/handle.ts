@@ -27,6 +27,13 @@ export let handle: tg.Handle = {
 		return syscall("handle_process_get", id, remote);
 	},
 
+	getSandbox(
+		id: tg.Sandbox.Id,
+		remote: string | undefined,
+	): Promise<tg.Handle.SandboxGetOutput> {
+		return syscall("handle_sandbox_get", id, remote);
+	},
+
 	objectId(object: tg.Object.Data): tg.Object.Id {
 		return syscall("handle_object_id", object);
 	},

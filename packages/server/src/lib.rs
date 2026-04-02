@@ -92,13 +92,13 @@ pub struct State {
 	lock: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	path: PathBuf,
-	process_permits: ProcessPermits,
-	process_semaphore: Arc<tokio::sync::Semaphore>,
-	process_tasks: ProcessTasks,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	remote_get_object_tasks: RemoteGetObjectTasks,
 	remote_list_tags_tasks: RemoteListTagsTasks,
 	sandbox_manager: tangram_sandbox::Manager,
+	sandbox_permits: SandboxPermits,
+	sandbox_semaphore: Arc<tokio::sync::Semaphore>,
+	sandbox_tasks: SandboxTasks,
 	store: Store,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
@@ -134,15 +134,15 @@ struct Http {
 	url: Uri,
 }
 
-type ProcessPermits =
-	DashMap<tg::process::Id, Arc<tokio::sync::Mutex<Option<ProcessPermit>>>, tg::id::BuildHasher>;
+type SandboxPermits =
+	DashMap<tg::sandbox::Id, Arc<tokio::sync::Mutex<Option<SandboxPermit>>>, tg::id::BuildHasher>;
 
-struct ProcessPermit(
+struct SandboxPermit(
 	#[expect(dead_code)]
 	tg::Either<tokio::sync::OwnedSemaphorePermit, tokio::sync::OwnedMutexGuard<Option<Self>>>,
 );
 
-type ProcessTasks = tangram_futures::task::Map<tg::process::Id, (), (), tg::id::BuildHasher>;
+type SandboxTasks = tangram_futures::task::Map<tg::sandbox::Id, (), (), tg::id::BuildHasher>;
 
 type RemoteGetObjectTasks = tangram_futures::task::Map<
 	crate::object::get::RemoteObjectGetTaskKey,
@@ -294,18 +294,16 @@ impl Server {
 			Http { url }
 		});
 
-		// Create the process permits.
-		let process_permits = DashMap::default();
-
-		// Create the process semaphore.
+		// Create the sandbox permits and semaphore.
+		let sandbox_permits = DashMap::default();
 		let permits = config
 			.runner
 			.as_ref()
 			.map_or(0, |runner| runner.concurrency.unwrap_or(parallelism));
-		let process_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
+		let sandbox_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
-		// Create the process tasks.
-		let process_tasks = tangram_futures::task::Map::default();
+		// Create the sandbox tasks.
+		let sandbox_tasks = tangram_futures::task::Map::default();
 
 		// Create the database.
 		let database = match &config.database {
@@ -468,7 +466,7 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to create the finalize consumer"))?;
 		}
 
-		// Create the process stream if the messenger is memory.
+		// Create the sandbox and process queue streams if the messenger is memory.
 		if messenger.is_memory() {
 			let stream_config = tangram_messenger::StreamConfig {
 				discard: tangram_messenger::DiscardPolicy::New,
@@ -477,9 +475,11 @@ impl Server {
 				retention: tangram_messenger::RetentionPolicy::WorkQueue,
 			};
 			let stream = messenger
-				.create_stream("queue".to_owned(), stream_config)
+				.create_stream("sandboxes.queue".to_owned(), stream_config.clone())
 				.await
-				.map_err(|source| tg::error!(!source, "failed to create the queue stream"))?;
+				.map_err(|source| {
+					tg::error!(!source, "failed to create the sandbox queue stream")
+				})?;
 			let consumer_config = tangram_messenger::ConsumerConfig {
 				deliver_policy: tangram_messenger::DeliverPolicy::All,
 				ack_policy: tangram_messenger::AckPolicy::Explicit,
@@ -487,15 +487,17 @@ impl Server {
 				filter_subjects: Vec::new(),
 			};
 			stream
-				.create_consumer(Some("queue".to_owned()), consumer_config)
+				.create_consumer(Some("sandboxes.queue".to_owned()), consumer_config)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to create the queue consumer"))?;
-			let stream_config = tangram_messenger::StreamConfig {
-				discard: tangram_messenger::DiscardPolicy::New,
-				max_bytes: None,
-				max_messages: None,
-				retention: tangram_messenger::RetentionPolicy::WorkQueue,
-			};
+				.map_err(|source| {
+					tg::error!(!source, "failed to create the sandbox queue consumer")
+				})?;
+			messenger
+				.create_stream("sandboxes.processes".to_owned(), stream_config.clone())
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to create the sandbox process queue stream")
+				})?;
 			messenger
 				.create_stream("stdio".to_owned(), stream_config)
 				.await
@@ -588,13 +590,13 @@ impl Server {
 			lock,
 			messenger,
 			path,
-			process_permits,
-			process_semaphore,
-			process_tasks,
 			remotes,
 			remote_get_object_tasks,
 			remote_list_tags_tasks,
 			sandbox_manager,
+			sandbox_permits,
+			sandbox_semaphore,
+			sandbox_tasks,
 			store,
 			temps,
 			version,
@@ -850,17 +852,17 @@ impl Server {
 					tracing::trace!("runner task");
 				}
 
-				// Abort the process tasks.
-				server.process_tasks.abort_all();
-				let results = server.process_tasks.wait().await;
+				// Abort the sandbox tasks.
+				server.sandbox_tasks.abort_all();
+				let results = server.sandbox_tasks.wait().await;
 				for result in results {
 					if let Err(error) = result
 						&& !error.is_cancelled()
 					{
-						tracing::error!(?error, "a process task panicked");
+						tracing::error!(?error, "a sandbox task panicked");
 					}
 				}
-				tracing::trace!("process tasks");
+				tracing::trace!("sandbox tasks");
 
 				// Stop the HTTP task.
 				if let Some(task) = http_task {
@@ -1240,7 +1242,7 @@ impl Drop for Owned {
 		self.cache_graph_tasks.abort_all();
 		self.cache_tasks.abort_all();
 		self.library.lock().unwrap().take();
-		self.process_tasks.abort_all();
+		self.sandbox_tasks.abort_all();
 		self.remote_get_object_tasks.abort_all();
 		self.remote_list_tags_tasks.abort_all();
 		self.index_tasks.abort_all();

@@ -16,9 +16,28 @@ export type Handle = {
 	write(bytes: string | Uint8Array): Promise<tg.Blob.Id>;
 } & tg.Handle.Object &
 	tg.Handle.Process &
+	tg.Handle.Sandbox &
 	tg.Handle.System;
 
 export namespace Handle {
+	export type SandboxArg = {
+		hostname?: string | undefined;
+		mounts?: Array<tg.Sandbox.Mount.Data> | undefined;
+		network: boolean;
+		ttl?: number | undefined;
+		user?: string | undefined;
+	};
+
+	export type SandboxGetOutput = {
+		hostname?: string | undefined;
+		id: tg.Sandbox.Id;
+		mounts: Array<tg.Sandbox.Mount.Data>;
+		network: boolean;
+		status: tg.Sandbox.Status;
+		ttl?: number | undefined;
+		user?: string | undefined;
+	};
+
 	export type Lock = "auto" | "attr" | "file";
 
 	export type ReadArg = {
@@ -34,13 +53,10 @@ export namespace Handle {
 	export type SpawnArg = {
 		checksum: tg.Checksum | undefined;
 		command: tg.Referent<tg.Command.Id>;
-		create: boolean;
-		mounts: Array<tg.Process.Mount>;
-		network: boolean;
 		parent: tg.Process.Id | undefined;
 		remote: string | undefined;
 		retry: boolean;
-		sandbox: boolean;
+		sandbox: tg.Handle.SandboxArg | string | undefined;
 		stderr: string;
 		stdin: string;
 		stdout: string;
@@ -160,6 +176,13 @@ export namespace Handle {
 			arg: tg.Handle.ProcessStdioWriteArg,
 			input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
 		): Promise<void>;
+	};
+
+	export type Sandbox = {
+		getSandbox(
+			id: tg.Sandbox.Id,
+			remote: string | undefined,
+		): Promise<tg.Handle.SandboxGetOutput>;
 	};
 
 	export type System = {

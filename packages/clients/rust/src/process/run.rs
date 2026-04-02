@@ -12,7 +12,8 @@ impl tg::Process {
 	where
 		H: tg::Handle,
 	{
-		let sandbox = arg.sandbox.unwrap_or(false);
+		let sandbox = arg.sandbox.clone();
+		let sandboxed = sandbox.is_some();
 
 		let host = arg
 			.host
@@ -26,7 +27,7 @@ impl tg::Process {
 
 		builder = builder.args(arg.args);
 
-		let cwd = if sandbox {
+		let cwd = if sandboxed {
 			None
 		} else {
 			let cwd = std::env::current_dir()
@@ -36,7 +37,7 @@ impl tg::Process {
 		let cwd = arg.cwd.or(cwd);
 		builder = builder.cwd(cwd);
 
-		let env = if sandbox {
+		let env = if sandboxed {
 			arg.env
 		} else {
 			let mut env = std::env::vars()
@@ -46,13 +47,6 @@ impl tg::Process {
 			env
 		};
 		builder = builder.env(env);
-
-		let process_mounts = arg
-			.mounts
-			.unwrap_or_default()
-			.into_iter()
-			.map(|mount| mount.to_data())
-			.collect();
 
 		builder = builder.stdin(None);
 		builder = builder.user(arg.user);
@@ -66,12 +60,14 @@ impl tg::Process {
 
 		let checksum = arg.checksum;
 
-		let network = arg.network.unwrap_or_default();
-
 		let stdin = arg.stdin;
 		let stdout = arg.stdout;
 		let stderr = arg.stderr;
-		if network && checksum.is_none() {
+		let sandbox_arg = match sandbox.clone() {
+			Some(tg::Either::Left(arg)) => Some(arg),
+			Some(tg::Either::Right(_)) | None => None,
+		};
+		if sandbox_arg.as_ref().is_some_and(|arg| arg.network) && checksum.is_none() {
 			return Err(tg::error!(
 				"a checksum is required to build with network enabled"
 			));
@@ -84,8 +80,6 @@ impl tg::Process {
 			checksum,
 			command,
 			local: None,
-			mounts: process_mounts,
-			network,
 			parent: arg.parent,
 			remotes: arg.remote.map(|remote| vec![remote]),
 			retry: arg.retry,

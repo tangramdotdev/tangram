@@ -86,11 +86,12 @@ where
 
 	fn try_dequeue_process(
 		&self,
+		sandbox: &tg::sandbox::Id,
 		arg: tg::process::queue::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::queue::Output>>> {
 		match self {
-			tg::Either::Left(s) => s.try_dequeue_process(arg).left_future(),
-			tg::Either::Right(s) => s.try_dequeue_process(arg).right_future(),
+			tg::Either::Left(s) => s.try_dequeue_process(sandbox, arg).left_future(),
+			tg::Either::Right(s) => s.try_dequeue_process(sandbox, arg).right_future(),
 		}
 	}
 
@@ -248,17 +249,6 @@ where
 				.write_process_stdio(id, arg, stream)
 				.map_ok(futures::StreamExt::right_stream)
 				.right_future(),
-		}
-	}
-
-	fn heartbeat_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::heartbeat::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::heartbeat::Output>> {
-		match self {
-			tg::Either::Left(s) => s.heartbeat_process(id, arg).left_future(),
-			tg::Either::Right(s) => s.heartbeat_process(id, arg).right_future(),
 		}
 	}
 

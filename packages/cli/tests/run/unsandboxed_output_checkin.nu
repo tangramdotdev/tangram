@@ -13,7 +13,7 @@ let path = artifact {
 				args: ["-c", tg`mkdir -p ${tg.output} && printf "Hello, World!\n" > ${tg.output}/message.txt`],
 				executable: "sh",
 				host,
-				env: busybox(),
+				env: tg.build(busybox),
 			});
 		}
 	',

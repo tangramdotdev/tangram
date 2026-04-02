@@ -41,7 +41,6 @@ impl Server {
 		&self,
 		config: &crate::config::Watchdog,
 	) -> tg::Result<u64> {
-		// Get a database connection.
 		let connection = self
 			.database
 			.connection()
@@ -53,27 +52,30 @@ impl Server {
 		#[derive(Debug, db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
-			id: tg::process::Id,
+			id: tg::sandbox::Id,
 			#[tangram_database(as = "Option<db::value::FromStr>")]
 			code: Option<tg::error::Code>,
 			message: String,
 		}
 		let statement = formatdoc!(
 			"
-				select id, null as code, 'maximum depth exceeded' as message
+				select sandbox as id, null as code, 'maximum depth exceeded' as message
 				from processes
-				where status = 'started' and depth > {p}1
+				where sandbox is not null and status != 'finished' and depth > {p}1
+				group by sandbox
 
 				union all
 
-				select id, 'cancellation' as code, 'the process was canceled' as message
+				select sandbox as id, 'cancellation' as code, 'the process was canceled' as message
 				from processes
-				where status != 'finished' and token_count = 0
+				where sandbox is not null and status != 'finished'
+				group by sandbox
+				having sum(case when token_count > 0 then 1 else 0 end) = 0
 
 				union all
 
 				select id, 'heartbeat_expiration' as code, 'heartbeat expired' as message
-				from processes
+				from sandboxes
 				where status = 'started' and heartbeat_at < {p}2
 
 				limit {p}3;
@@ -88,10 +90,16 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Drop the database connection.
 		drop(connection);
 
-		// Finish the processes.
+		let rows = rows
+			.into_iter()
+			.fold(BTreeMap::<tg::sandbox::Id, Row>::new(), |mut rows, row| {
+				rows.entry(row.id.clone()).or_insert(row);
+				rows
+			})
+			.into_values()
+			.collect::<Vec<_>>();
 		let n = rows.len().to_u64().unwrap();
 		rows.into_iter()
 			.map(|row| {
@@ -106,19 +114,18 @@ impl Server {
 						stack: None,
 						values: BTreeMap::default(),
 					};
-					let arg = tg::process::finish::Arg {
-						checksum: None,
-						error: Some(tg::Either::Left(error)),
-						exit: 1,
-						local: None,
-						output: None,
-						remotes: None,
-					};
 					server
-						.finish_process(&row.id, arg)
+						.finish_unfinished_processes_in_sandbox_local(&row.id, error)
 						.await
 						.inspect_err(|error| {
-							tracing::error!(error = %error.trace(), "failed to cancel the process");
+							tracing::error!(error = %error.trace(), "failed to cancel the sandbox processes");
+						})
+						.ok();
+					server
+						.try_finish_sandbox_local(&row.id)
+						.await
+						.inspect_err(|error| {
+							tracing::error!(error = %error.trace(), "failed to finish the sandbox");
 						})
 						.ok();
 				}

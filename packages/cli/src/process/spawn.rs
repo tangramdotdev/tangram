@@ -95,18 +95,6 @@ pub struct Options {
 	#[command(flatten)]
 	pub local: crate::util::args::Local,
 
-	/// Configure mounts.
-	#[arg(
-		action = clap::ArgAction::Append,
-		long = "mount",
-		num_args = 1,
-		short,
-	)]
-	pub mounts: Vec<tg::process::Mount>,
-
-	#[command(flatten)]
-	pub network: Network,
-
 	#[command(flatten)]
 	pub remotes: crate::util::args::Remotes,
 
@@ -138,72 +126,50 @@ pub struct Options {
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
-pub struct Network {
-	/// Whether to enable the network.
-	#[arg(
-		default_missing_value = "true",
-		long,
-		num_args = 0..=1,
-		overrides_with = "no_network",
-		require_equals = true,
-	)]
-	network: Option<bool>,
-
-	#[arg(
-		default_missing_value = "true",
-		long,
-		num_args = 0..=1,
-		overrides_with = "network",
-		require_equals = true,
-	)]
-	no_network: Option<bool>,
-}
-
-impl Network {
-	pub fn new(network: bool) -> Self {
-		Self {
-			network: Some(network),
-			no_network: None,
-		}
-	}
-
-	pub fn get(&self) -> Option<bool> {
-		self.network.or(self.no_network.map(|v| !v))
-	}
-}
-
-#[derive(Clone, Debug, Default, clap::Args)]
 pub struct Sandbox {
-	/// Whether to sandbox the process.
+	/// Whether to sandbox the process, or an existing sandbox to use.
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "sandbox",
+		long = "sandbox",
 		num_args = 0..=1,
 		overrides_with = "no_sandbox",
 		require_equals = true,
 	)]
-	sandbox: Option<bool>,
+	value: Option<tg::Either<bool, tg::sandbox::Id>>,
 
 	#[arg(
 		default_missing_value = "true",
-		long,
+		id = "no_sandbox",
+		long = "no-sandbox",
 		num_args = 0..=1,
 		overrides_with = "sandbox",
 		require_equals = true,
 	)]
-	no_sandbox: Option<bool>,
+	disabled: Option<bool>,
+
+	#[command(flatten)]
+	pub arg: crate::sandbox::Options,
 }
 
 impl Sandbox {
-	pub fn new(sandbox: Option<bool>) -> Self {
+	pub fn new(sandbox: Option<tg::Either<bool, tg::sandbox::Id>>) -> Self {
 		Self {
-			sandbox,
-			no_sandbox: None,
+			value: sandbox,
+			disabled: None,
+			arg: crate::sandbox::Options::default(),
 		}
 	}
 
-	pub fn get(&self) -> Option<bool> {
-		self.sandbox.or(self.no_sandbox.map(|v| !v))
+	pub fn get(&self) -> Option<tg::Either<bool, tg::sandbox::Id>> {
+		self.value
+			.clone()
+			.or(self.disabled.map(|v| tg::Either::Left(!v)))
+	}
+
+	pub fn set(&mut self, sandbox: Option<tg::Either<bool, tg::sandbox::Id>>) {
+		self.value = sandbox;
+		self.disabled = None;
 	}
 }
 
@@ -246,10 +212,12 @@ impl Tty {
 
 impl Cli {
 	pub async fn command_process_spawn(&mut self, mut args: Args) -> tg::Result<()> {
-		if args.options.sandbox.get().is_some_and(|v| !v) {
+		if matches!(args.options.sandbox.get(), Some(tg::Either::Left(false))) {
 			return Err(tg::error!("a spawn must be sandboxed"));
 		}
-		args.options.sandbox = crate::process::spawn::Sandbox::new(Some(true));
+		if args.options.sandbox.get().is_none() {
+			args.options.sandbox.set(Some(tg::Either::Left(true)));
+		}
 
 		match args.options.stdin {
 			None => {
@@ -315,17 +283,21 @@ impl Cli {
 			None => {
 				options.cached.is_some_and(|v| v)
 					|| options.checksum.is_some()
-					|| !options.mounts.is_empty()
-					|| options.network.get().is_some()
+					|| !options.sandbox.arg.is_empty()
 					|| options.remotes.get().is_some()
 					|| matches!(
 						options.tty.tty,
 						Some(tg::Either::Left(true) | tg::Either::Right(_))
 					)
 			},
-			Some(true) => true,
-			Some(false) => false,
+			Some(tg::Either::Left(true) | tg::Either::Right(_)) => true,
+			Some(tg::Either::Left(false)) => false,
 		};
+		if !sandbox && !options.sandbox.arg.is_empty() {
+			return Err(tg::error!(
+				"sandbox options are not supported without a sandbox"
+			));
+		}
 
 		// Handle the executable path.
 		let reference = if let Some(path) = &options.executable_path {
@@ -588,20 +560,43 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 
 		// Determine if the network is enabled.
-		let network = options.network.get().unwrap_or(!sandbox);
+		let sandboxed = sandbox;
+		let has_sandbox_arg = !options.sandbox.arg.is_empty();
+		let network = options.sandbox.arg.network.get();
 
 		// Get the mounts.
 		let mut mounts = Vec::new();
-		for mount in &options.mounts {
+		for mount in &options.sandbox.arg.mounts {
 			let source = tokio::fs::canonicalize(&mount.source)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
-			mounts.push(tg::process::data::Mount {
+			mounts.push(tg::sandbox::Mount {
 				source,
 				target: mount.target.clone(),
 				readonly: mount.readonly,
 			});
 		}
+		let sandbox = if sandboxed {
+			match options.sandbox.get() {
+				Some(tg::Either::Right(id)) => {
+					if has_sandbox_arg {
+						return Err(tg::error!(
+							"sandbox options are not supported for existing sandboxes"
+						));
+					}
+					Some(tg::Either::Right(id))
+				},
+				_ => Some(tg::Either::Left(tg::sandbox::create::Arg {
+					hostname: options.sandbox.arg.hostname.clone(),
+					mounts,
+					network,
+					ttl: None,
+					user: options.sandbox.arg.user.clone(),
+				})),
+			}
+		} else {
+			None
+		};
 
 		// Get the tty.
 		let tty = match (options.tty.tty.clone(), options.tty.no_tty) {
@@ -649,8 +644,6 @@ impl Cli {
 			checksum: options.checksum,
 			command: tg::Referent::with_item(command.id()),
 			local: options.local.get(),
-			mounts,
-			network,
 			parent: None,
 			remotes: options.remotes.get(),
 			retry: options.retry,

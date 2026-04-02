@@ -34,6 +34,7 @@ import type { Reference } from "./reference.ts";
 import { Referent } from "./referent.ts";
 import type { Resolved, Unresolved } from "./resolve.ts";
 import { resolve } from "./resolve.ts";
+import { Sandbox } from "./sandbox.ts";
 import { sleep } from "./sleep.ts";
 import { Symlink, symlink } from "./symlink.ts";
 import type { Tag } from "./tag.ts";
@@ -99,6 +100,7 @@ export {
 	Placeholder,
 	Process,
 	Referent,
+	Sandbox,
 	Symlink,
 	Template,
 	Value,

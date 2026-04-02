@@ -118,14 +118,114 @@ pub trait Ext: tg::Handle {
 		})
 	}
 
+	fn get_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> impl Future<Output = tg::Result<tg::sandbox::get::Output>> + Send {
+		let arg = tg::sandbox::get::Arg::default();
+		self.try_get_sandbox(id, arg).map(|result| {
+			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the sandbox")))
+		})
+	}
+
 	fn dequeue_process(
 		&self,
+		sandbox: &tg::sandbox::Id,
 		arg: tg::process::queue::Arg,
 	) -> impl Future<Output = tg::Result<tg::process::queue::Output>> + Send {
-		self.try_dequeue_process(arg).map(|result| {
+		self.try_dequeue_process(sandbox, arg).map(|result| {
 			result
 				.and_then(|option| option.ok_or_else(|| tg::error!("failed to dequeue a process")))
 		})
+	}
+
+	fn dequeue_sandbox(
+		&self,
+		arg: tg::sandbox::queue::Arg,
+	) -> impl Future<Output = tg::Result<tg::sandbox::queue::Output>> + Send {
+		self.try_dequeue_sandbox(arg).map(|result| {
+			result
+				.and_then(|option| option.ok_or_else(|| tg::error!("failed to dequeue a sandbox")))
+		})
+	}
+
+	fn get_sandbox_status(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::status::Arg,
+	) -> impl Future<
+		Output = tg::Result<impl Stream<Item = tg::Result<tg::sandbox::Status>> + Send + 'static>,
+	> + Send {
+		self.try_get_sandbox_status(id, arg).map(|result| {
+			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the sandbox")))
+		})
+	}
+
+	fn try_get_sandbox_status(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::status::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::sandbox::Status>> + Send + 'static>,
+		>,
+	> + Send {
+		async move {
+			let handle = self.clone();
+			let id = id.clone();
+			let Some(stream) = handle
+				.try_get_sandbox_status_stream(&id, arg.clone())
+				.await?
+			else {
+				return Ok(None);
+			};
+			let stream = stream.boxed();
+			struct State {
+				stream: Option<stream::BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>,
+				end: bool,
+			}
+			let state = Arc::new(Mutex::new(State {
+				stream: Some(stream),
+				end: false,
+			}));
+			let stream = stream::try_unfold(state.clone(), move |state| {
+				let handle = handle.clone();
+				let id = id.clone();
+				let arg = arg.clone();
+				async move {
+					if state.lock().unwrap().end {
+						return Ok(None);
+					}
+					let stream = state.lock().unwrap().stream.take();
+					let stream = if let Some(stream) = stream {
+						stream
+					} else {
+						handle
+							.try_get_sandbox_status_stream(&id, arg)
+							.await?
+							.ok_or_else(|| tg::error!("the stream was not found"))?
+							.boxed()
+					};
+					Ok::<_, tg::Error>(Some((stream, state)))
+				}
+			})
+			.try_flatten()
+			.take_while(|event| {
+				future::ready(!matches!(event, Ok(tg::sandbox::status::Event::End)))
+			})
+			.map(|event| match event {
+				Ok(tg::sandbox::status::Event::Status(status)) => Ok(status),
+				Err(error) => Err(error),
+				_ => unreachable!(),
+			})
+			.inspect_ok({
+				let state = state.clone();
+				move |status| {
+					state.lock().unwrap().end = status.is_finished();
+				}
+			});
+			Ok(Some(stream))
+		}
 	}
 
 	fn get_process_status(

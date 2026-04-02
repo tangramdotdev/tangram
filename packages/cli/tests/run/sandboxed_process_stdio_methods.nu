@@ -11,9 +11,7 @@ let path = artifact {
 					echo "stdout:$line"
 					echo "stderr:$line" 1>&2
 				`
-				.stdin("pipe")
-				.stdout("pipe")
-				.stderr("pipe")
+				.stdio("pipe")
 				.sandbox();
 			let input = tg.encoding.utf8.encode("hello\n");
 			let [written, stdout, stderr] = await Promise.all([

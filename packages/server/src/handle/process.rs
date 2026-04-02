@@ -57,9 +57,10 @@ impl tg::handle::Process for Shared {
 
 	async fn try_dequeue_process(
 		&self,
+		sandbox: &tg::sandbox::Id,
 		arg: tg::process::queue::Arg,
 	) -> tg::Result<Option<tg::process::queue::Output>> {
-		self.0.try_dequeue_process(arg).await
+		self.0.try_dequeue_process(sandbox, arg).await
 	}
 
 	async fn signal_process(
@@ -146,14 +147,6 @@ impl tg::handle::Process for Shared {
 		self.0
 			.write_process_stdio_with_context(&Context::default(), id, arg, stream, None)
 			.await
-	}
-
-	async fn heartbeat_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::heartbeat::Arg,
-	) -> tg::Result<tg::process::heartbeat::Output> {
-		self.0.heartbeat_process(id, arg).await
 	}
 
 	async fn touch_process(
@@ -244,9 +237,10 @@ impl tg::handle::Process for Server {
 
 	async fn try_dequeue_process(
 		&self,
+		sandbox: &tg::sandbox::Id,
 		arg: tg::process::queue::Arg,
 	) -> tg::Result<Option<tg::process::queue::Output>> {
-		self.try_dequeue_process_with_context(&Context::default(), arg)
+		self.try_dequeue_process_with_context(&Context::default(), sandbox, arg)
 			.await
 	}
 
@@ -331,15 +325,6 @@ impl tg::handle::Process for Server {
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>
 	{
 		self.write_process_stdio_with_context(&Context::default(), id, arg, stream, None)
-			.await
-	}
-
-	async fn heartbeat_process(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::heartbeat::Arg,
-	) -> tg::Result<tg::process::heartbeat::Output> {
-		self.heartbeat_process_with_context(&Context::default(), id, arg)
 			.await
 	}
 

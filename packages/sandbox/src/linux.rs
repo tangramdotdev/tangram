@@ -231,6 +231,7 @@ pub fn enter(arg: &RunArg) -> tg::Result<()> {
 
 	// Add /opt/tangram/artifacts, /opt/tangram/libexec/tangram, /opt/tangram/socket, and /opt/tangram/output.
 	std::fs::create_dir_all(directory.host_output_path()).ok();
+	std::fs::create_dir_all(directory.host_socket_path()).ok();
 	mounts
 		.entry(directory.guest_artifacts_path())
 		.or_default()

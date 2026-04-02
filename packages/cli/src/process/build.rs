@@ -36,10 +36,16 @@ impl Cli {
 	}
 
 	pub(crate) async fn build(&mut self, mut args: Args) -> tg::Result<tg::Value> {
-		if args.options.spawn.sandbox.get().is_some_and(|v| !v) {
-			return Err(tg::error!("a build must be sandboxed"));
+		match args.options.spawn.sandbox.get() {
+			Some(tg::Either::Left(false)) => {
+				return Err(tg::error!("a build must be sandboxed"));
+			},
+			Some(tg::Either::Right(_)) => {
+				return Err(tg::error!("a build must not use an existing sandbox"));
+			},
+			_ => (),
 		}
-		args.options.spawn.sandbox = crate::process::spawn::Sandbox::new(Some(true));
+		args.options.spawn.sandbox.set(Some(tg::Either::Left(true)));
 
 		if args.options.spawn.stdin.is_none() {
 			args.options.spawn.stdin = Some(tg::process::Stdio::Null);
@@ -53,8 +59,8 @@ impl Cli {
 			args.options.spawn.stderr = Some(tg::process::Stdio::Log);
 		}
 
-		let cacheable = args.options.spawn.mounts.is_empty()
-			&& !args.options.spawn.network.get().unwrap_or_default()
+		let cacheable = args.options.spawn.sandbox.arg.mounts.is_empty()
+			&& !args.options.spawn.sandbox.arg.network.get()
 			&& matches!(args.options.spawn.stdin, Some(tg::process::Stdio::Null))
 			&& matches!(args.options.spawn.stdout, Some(tg::process::Stdio::Log))
 			&& matches!(args.options.spawn.stderr, Some(tg::process::Stdio::Log))

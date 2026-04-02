@@ -20,9 +20,14 @@ pub struct Item {
 	pub hostname: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub mounts: Vec<tg::process::Mount>,
+	pub mounts: Vec<tg::sandbox::Mount>,
 
 	pub network: bool,
+
+	pub status: tg::sandbox::Status,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ttl: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub user: Option<String>,

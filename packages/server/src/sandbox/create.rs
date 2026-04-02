@@ -1,21 +1,81 @@
 use {
 	crate::{Context, Server},
+	indoc::formatdoc,
 	tangram_client::prelude::*,
+	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_messenger::prelude::*,
 };
 
 impl Server {
 	pub(crate) async fn create_sandbox_with_context(
 		&self,
 		context: &Context,
-		_arg: tg::sandbox::create::Arg,
+		arg: tg::sandbox::create::Arg,
 	) -> tg::Result<tg::sandbox::create::Output> {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
-		// TODO: Implement sandbox creation.
-		Err(tg::error!("sandbox creation is not implemented"))
+		let id = tg::sandbox::Id::new();
+		let connection = self
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				insert into sandboxes (
+					id,
+					created_at,
+					hostname,
+					mounts,
+					network,
+					status,
+					ttl,
+					\"user\"
+				)
+				values (
+					{p}1,
+					{p}2,
+					{p}3,
+					{p}4,
+					{p}5,
+					{p}6,
+					{p}7,
+					{p}8
+				);
+			"
+		);
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let params = db::params![
+			id.to_string(),
+			now,
+			arg.hostname.clone(),
+			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
+			arg.network,
+			tg::sandbox::Status::Created.to_string(),
+			arg.ttl.map(|ttl| i64::try_from(ttl).unwrap()),
+			arg.user.clone(),
+		];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		drop(connection);
+
+		self.publish_sandbox_status(&id);
+		let subject = "sandboxes.queue".to_owned();
+		let payload = crate::sandbox::queue::Message { id: id.clone() };
+		self.messenger
+			.stream_publish("sandboxes.queue".to_owned(), subject, payload)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to enqueue the sandbox"))?
+			.await
+			.map_err(|source| tg::error!(!source, "failed to enqueue the sandbox"))?;
+
+		Ok(tg::sandbox::create::Output { id })
 	}
 
 	pub(crate) async fn handle_create_sandbox_request(

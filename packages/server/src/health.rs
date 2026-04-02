@@ -48,7 +48,7 @@ impl Server {
 
 			// Get the process health.
 			let permits = if self.config.runner.is_some() {
-				Some(self.process_semaphore.available_permits().to_u64().unwrap())
+				Some(self.sandbox_semaphore.available_permits().to_u64().unwrap())
 			} else {
 				None
 			};

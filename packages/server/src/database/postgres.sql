@@ -9,14 +9,12 @@ create table processes (
 	exit int8,
 	expected_checksum text,
 	finished_at int8,
-	heartbeat_at int8,
 	host text not null,
 	id text primary key,
 	log text,
-	mounts text,
-	network boolean not null,
 	output text,
 	retry boolean not null,
+	sandbox text,
 	started_at int8,
 	status text not null,
 	stderr text,
@@ -31,11 +29,28 @@ create index processes_command_index on processes (command);
 
 create index processes_depth_index on processes (depth) where status = 'started';
 
-create index processes_heartbeat_at_index on processes (heartbeat_at) where status = 'started';
-
+create index processes_sandbox_index on processes (sandbox) where sandbox is not null;
 create index processes_status_index on processes (status);
 
 create index processes_token_count_index on processes (token_count) where token_count = 0 and status != 'finished';
+
+create table sandboxes (
+	created_at int8 not null,
+	finished_at int8,
+	heartbeat_at int8,
+	hostname text,
+	id text primary key,
+	mounts text,
+	network boolean not null,
+	started_at int8,
+	status text not null,
+	ttl int8,
+	"user" text
+);
+
+create index sandboxes_heartbeat_at_index on sandboxes (heartbeat_at) where status = 'started';
+
+create index sandboxes_status_index on sandboxes (status);
 
 create or replace procedure update_parent_depths(
 	changed_process_ids text[]

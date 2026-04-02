@@ -74,9 +74,8 @@ impl Server {
 					finished_at,
 					host,
 					log,
-					mounts,
-					network,
 					output,
+					sandbox,
 					tty,
 					retry,
 					started_at,
@@ -110,8 +109,7 @@ impl Server {
 					?20,
 					?21,
 					?22,
-					?23,
-					?24
+					?23
 				)
 				on conflict (id) do update set
 					actual_checksum = ?2,
@@ -125,18 +123,17 @@ impl Server {
 					finished_at = ?10,
 					host = ?11,
 					log = ?12,
-					mounts = ?13,
-					network = ?14,
-					output = ?15,
-					tty = ?16,
-					retry = ?17,
-					started_at = ?18,
-					status = ?19,
-					stderr = ?20,
-					stdin = ?21,
-					stdout = ?22,
-					token_count = ?23,
-					touched_at = ?24
+					output = ?13,
+					sandbox = ?14,
+					tty = ?15,
+					retry = ?16,
+					started_at = ?17,
+					status = ?18,
+					stderr = ?19,
+					stdin = ?20,
+					stdout = ?21,
+					token_count = ?22,
+					touched_at = ?23
 			"
 		);
 		let mut process_stmt = cache
@@ -165,8 +162,6 @@ impl Server {
 				tg::Either::Left(data) => data.code.map(|code| code.to_string()),
 				tg::Either::Right(_) => None,
 			});
-			let mounts_json =
-				(!data.mounts.is_empty()).then(|| serde_json::to_string(&data.mounts).unwrap());
 			let output_json = data
 				.output
 				.as_ref()
@@ -189,9 +184,8 @@ impl Server {
 				data.finished_at,
 				data.host,
 				data.log.as_ref().map(ToString::to_string),
-				mounts_json,
-				data.network,
 				output_json,
+				data.sandbox.as_ref().map(ToString::to_string),
 				tty_json,
 				data.retry,
 				data.started_at,

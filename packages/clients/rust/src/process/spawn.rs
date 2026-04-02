@@ -33,12 +33,6 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub local: Option<bool>,
 
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	pub mounts: Vec<tg::process::data::Mount>,
-
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub network: bool,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::process::Id>,
 
@@ -49,8 +43,8 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub retry: bool,
 
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub sandbox: bool,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sandbox: Option<tg::Either<tg::sandbox::create::Arg, tg::sandbox::Id>>,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub stderr: tg::process::Stdio,
@@ -108,7 +102,8 @@ impl tg::Process {
 		Fut: Future<Output = tg::Result<T>>,
 	{
 		let handle = handle.clone();
-		if !arg.sandbox {
+		let sandboxed = arg.sandbox.is_some();
+		if !sandboxed {
 			let process = Self::spawn_unsandboxed(&handle, arg).await?;
 			let stream = stream::once(future::ok(tg::progress::Event::Output(process))).boxed();
 			return progress(stream).await;
@@ -126,8 +121,7 @@ impl tg::Process {
 			tg::process::Stdio::Pipe | tg::process::Stdio::Tty
 		);
 		let no_tty = matches!(arg.tty, Some(tg::Either::Left(false)));
-		let raw =
-			arg.sandbox && arg.stdin.is_inherit() && !no_tty && std::io::stdin().is_terminal();
+		let raw = sandboxed && arg.stdin.is_inherit() && !no_tty && std::io::stdin().is_terminal();
 		let mut tty = match arg.tty.take() {
 			Some(tg::Either::Left(true)) => {
 				super::stdio::get_tty_size().map(|size| tg::process::Tty { size })
@@ -135,7 +129,7 @@ impl tg::Process {
 			Some(tg::Either::Right(tty)) => Some(tty),
 			_ => None,
 		};
-		let stdin = if arg.sandbox && arg.stdin.is_inherit() {
+		let stdin = if sandboxed && arg.stdin.is_inherit() {
 			let stdin = if raw {
 				tg::process::Stdio::Tty
 			} else {
@@ -146,7 +140,7 @@ impl tg::Process {
 		} else {
 			None
 		};
-		let stdout = if arg.sandbox && arg.stdout.is_inherit() {
+		let stdout = if sandboxed && arg.stdout.is_inherit() {
 			let stdout = if !no_tty && std::io::stdout().is_terminal() {
 				tg::process::Stdio::Tty
 			} else {
@@ -157,7 +151,7 @@ impl tg::Process {
 		} else {
 			None
 		};
-		let stderr = if arg.sandbox && arg.stderr.is_inherit() {
+		let stderr = if sandboxed && arg.stderr.is_inherit() {
 			let stderr = if !no_tty && std::io::stderr().is_terminal() {
 				tg::process::Stdio::Tty
 			} else {
@@ -286,11 +280,6 @@ impl tg::Process {
 	{
 		if arg.tty.is_some() {
 			return Err(tg::error!("tty is not supported for unsandboxed processes"));
-		}
-		if !arg.mounts.is_empty() {
-			return Err(tg::error!(
-				"mounts are not supported for unsandboxed processes"
-			));
 		}
 		if arg.stdin.is_blob() {
 			return Err(tg::error!(

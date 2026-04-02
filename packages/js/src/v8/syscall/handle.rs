@@ -162,6 +162,24 @@ pub fn process_id(
 	Ok(Serde(tg::process::Id::new()))
 }
 
+pub async fn sandbox_get(
+	state: Rc<State>,
+	args: (Serde<tg::sandbox::Id>, Option<String>),
+) -> tg::Result<Serde<tg::sandbox::get::Output>> {
+	let (Serde(id), _) = args;
+	let handle = state.handle.clone();
+	let data = state
+		.main_runtime_handle
+		.spawn(async move {
+			let output = handle.get_sandbox(&id).await?;
+			Ok::<_, tg::Error>(output)
+		})
+		.await
+		.unwrap()
+		.map_err(|source| tg::error!(!source, "failed to get the sandbox"))?;
+	Ok(Serde(data))
+}
+
 pub async fn process_stdio_read_close(state: Rc<State>, args: (usize,)) -> tg::Result<()> {
 	let (token,) = args;
 	state.stdio.process_stdio_read_close(token).await;

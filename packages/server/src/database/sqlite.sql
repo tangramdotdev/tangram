@@ -9,14 +9,12 @@ create table processes (
 	exit integer,
 	expected_checksum text,
 	finished_at integer,
-	heartbeat_at integer,
 	host text not null,
 	id text primary key,
 	log text,
-	mounts text,
-	network integer not null,
 	output text,
 	retry integer not null,
+	sandbox text,
 	started_at integer,
 	status text not null,
 	stderr text,
@@ -31,11 +29,29 @@ create index processes_command_index on processes (command);
 
 create index processes_depth_index on processes (depth) where status = 'started';
 
-create index processes_heartbeat_at_index on processes (heartbeat_at) where status = 'started';
+create index processes_sandbox_index on processes (sandbox) where sandbox is not null;
 
 create index processes_status_index on processes (status);
 
 create index processes_token_count_index on processes (token_count) where token_count = 0 and status != 'finished';
+
+create table sandboxes (
+	created_at integer not null,
+	finished_at integer,
+	heartbeat_at integer,
+	hostname text,
+	id text primary key,
+	mounts text,
+	network integer not null,
+	started_at integer,
+	status text not null,
+	ttl integer,
+	"user" text
+);
+
+create index sandboxes_heartbeat_at_index on sandboxes (heartbeat_at) where status = 'started';
+
+create index sandboxes_status_index on sandboxes (status);
 
 create table process_tokens (
 	process text not null,

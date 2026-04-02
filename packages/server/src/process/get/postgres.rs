@@ -40,12 +40,11 @@ impl Server {
 			host: Option<String>,
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
 			log: Option<tg::blob::Id>,
-			#[tangram_database(as = "Option<db::value::Json<Vec<tg::process::data::Mount>>>")]
-			mounts: Option<Vec<tg::process::data::Mount>>,
-			network: Option<bool>,
 			#[tangram_database(as = "Option<db::value::Json<tg::value::Data>>")]
 			output: Option<tg::value::Data>,
 			retry: Option<bool>,
+			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
+			sandbox: Option<tg::sandbox::Id>,
 			started_at: Option<i64>,
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
 			status: Option<tg::process::Status>,
@@ -73,10 +72,9 @@ impl Server {
 					finished_at,
 					host,
 					log,
-					mounts,
-					network,
 					output,
 					retry,
+					sandbox,
 					started_at,
 					status,
 					stderr,
@@ -122,9 +120,6 @@ impl Server {
 				let host = row
 					.host
 					.ok_or_else(|| tg::error!(%id, "missing host field"))?;
-				let network = row
-					.network
-					.ok_or_else(|| tg::error!(%id, "missing network field"))?;
 				let retry = row
 					.retry
 					.ok_or_else(|| tg::error!(%id, "missing retry field"))?;
@@ -159,10 +154,9 @@ impl Server {
 					finished_at: row.finished_at,
 					host,
 					log: row.log,
-					mounts: row.mounts.unwrap_or_default(),
-					network,
 					output: row.output,
 					retry,
+					sandbox: row.sandbox,
 					started_at: row.started_at,
 					status,
 					stderr: row.stderr.unwrap_or(tg::process::Stdio::Null),

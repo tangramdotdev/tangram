@@ -17,6 +17,7 @@ use {
 pub fn enter(arg: &RunArg) -> std::io::Result<()> {
 	let directory = crate::Directory::new(arg.path.clone());
 	std::fs::create_dir_all(directory.host_output_path()).ok();
+	std::fs::create_dir_all(directory.host_socket_path()).ok();
 	for mount in &arg.mounts {
 		if mount.source == Path::new("/") && mount.target == Path::new("/") {
 			return Err(std::io::Error::other(
@@ -517,12 +518,16 @@ fn create_sandbox_profile(arg: &RunArg) -> CString {
 			(literal "{}"))
 		(allow file-read* file-write* file-write-create file-write-mode
 			file-write-unlink file-link process-exec
+			(subpath "{}")
+			(subpath "{}")
 			(subpath "{}"))
 	"#,
 		arg.tangram_path.display(),
 		arg.rootfs_path.join("lib").display(),
 		directory.host_socket_path().display(),
 		directory.host_listen_path().display(),
+		directory.host_socket_path().display(),
+		directory.host_output_path().display(),
 		directory.host_scratch_path().parent().unwrap().display(),
 	)
 	.unwrap();

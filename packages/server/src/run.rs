@@ -1,6 +1,6 @@
 use {
 	crate::{
-		ProcessPermit, Server,
+		SandboxPermit, Server,
 		context::{Context, PathMap},
 		temp::Temp,
 	},
@@ -13,7 +13,12 @@ use {
 		time::Duration,
 	},
 	tangram_client::prelude::*,
-	tangram_futures::{read::Ext as _, stream::TryExt as _, task::Task},
+	tangram_futures::{
+		read::Ext as _,
+		stream::TryExt as _,
+		task::{Stopper, Task},
+	},
+	tangram_messenger::prelude::*,
 	tokio::io::AsyncReadExt as _,
 	tokio_stream::wrappers::ReceiverStream,
 	tokio_util::io::ReaderStream,
@@ -29,23 +34,30 @@ pub struct Output {
 	pub value: Option<tg::Value>,
 }
 
+#[derive(Clone, Debug)]
+struct QueuedSandbox {
+	id: tg::sandbox::Id,
+	remote: Option<String>,
+}
+
 impl Server {
 	pub(crate) async fn runner_task(&self) {
 		loop {
-			// Wait for a permit.
 			let permit = self
-				.process_semaphore
+				.sandbox_semaphore
 				.clone()
 				.acquire_owned()
 				.await
 				.unwrap();
-			let permit = ProcessPermit(tg::Either::Left(permit));
+			let permit = SandboxPermit(tg::Either::Left(permit));
 
-			// Try to dequeue a process locally or from one of the remotes.
-			let arg = tg::process::queue::Arg::default();
+			let arg = tg::sandbox::queue::Arg::default();
 			let futures = std::iter::once(
-				self.dequeue_process(arg)
-					.map_ok(|output| tg::Process::new(output.process, None, None, None, None))
+				self.dequeue_sandbox(arg)
+					.map_ok(|output| QueuedSandbox {
+						id: output.sandbox,
+						remote: None,
+					})
 					.boxed(),
 			)
 			.chain(self.config.runner.iter().flat_map(|config| {
@@ -53,72 +65,373 @@ impl Server {
 					let server = self.clone();
 					let remote = name.to_owned();
 					async move {
-						let client = server.get_remote_client(remote).await?;
-						let arg = tg::process::queue::Arg::default();
-						let output = client.dequeue_process(arg).await?;
-						let process =
-							tg::Process::new(output.process, None, Some(name.clone()), None, None);
-						Ok::<_, tg::Error>(process)
+						let client = server.get_remote_client(remote.clone()).await?;
+						let arg = tg::sandbox::queue::Arg::default();
+						let output = client.dequeue_sandbox(arg).await?;
+						Ok::<_, tg::Error>(QueuedSandbox {
+							id: output.sandbox,
+							remote: Some(remote),
+						})
 					}
 					.boxed()
 				})
 			}));
 
-			let process = match future::select_ok(futures).await {
-				Ok((process, _)) => process,
+			let sandbox = match future::select_ok(futures).await {
+				Ok((sandbox, _)) => sandbox,
 				Err(error) => {
-					tracing::error!(error = %error.trace(), "failed to dequeue a process");
+					tracing::error!(error = %error.trace(), "failed to dequeue a sandbox");
 					tokio::time::sleep(Duration::from_secs(1)).await;
 					continue;
 				},
 			};
 
-			// Spawn the process task.
-			self.spawn_process_task(&process, permit);
+			self.spawn_sandbox_task(&sandbox.id, sandbox.remote, permit);
 		}
 	}
 
-	pub(crate) fn spawn_process_task(&self, process: &tg::Process, permit: ProcessPermit) {
-		self.process_tasks
-			.spawn(process.id().clone(), |_| {
+	pub(crate) fn spawn_sandbox_task(
+		&self,
+		id: &tg::sandbox::Id,
+		remote: Option<String>,
+		permit: SandboxPermit,
+	) {
+		if self.sandbox_tasks.try_get_id(id).is_some() {
+			return;
+		}
+		self.sandbox_tasks
+			.spawn(id.clone(), |_| {
 				let server = self.clone();
-				let process = process.clone();
-				async move { server.process_task(&process, permit).await }
+				let id = id.clone();
+				async move { server.sandbox_task(&id, remote, permit).await }
 					.inspect_err(|error| {
-						tracing::error!(error = %error.trace(), "the process task failed");
+						tracing::error!(error = %error.trace(), "the sandbox task failed");
 					})
 					.map(|_| ())
 			})
 			.detach();
 	}
 
-	async fn process_task(&self, process: &tg::Process, permit: ProcessPermit) -> tg::Result<()> {
-		// Spawn the heartbeat task.
-		tokio::spawn({
-			let server = self.clone();
-			let process = process.clone();
-			async move { server.heartbeat_task(&process).await }
-				.inspect_err(|error| {
-					tracing::error!(error = %error.trace(), "the heartbeat task failed");
-				})
-				.map(|_| ())
-		});
+	async fn sandbox_task(
+		&self,
+		id: &tg::sandbox::Id,
+		remote: Option<String>,
+		permit: SandboxPermit,
+	) -> tg::Result<()> {
+		let remote_client = if let Some(remote) = &remote {
+			Some(self.get_remote_client(remote.clone()).await.map_err(
+				|source| tg::error!(!source, %id, %remote, "failed to get the remote client"),
+			)?)
+		} else {
+			None
+		};
+		let state = if let Some(client) = remote_client.as_ref() {
+			client
+				.try_get_sandbox(id, tg::sandbox::get::Arg::default())
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox"))?
+		} else {
+			self.try_get_sandbox_local(id)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox"))?
+		};
+		let Some(state) = state else {
+			return Ok(());
+		};
+		if state.status.is_finished() {
+			return Ok(());
+		}
+		if remote.is_none() && state.status == tg::sandbox::Status::Created {
+			let started = self
+				.try_start_sandbox_local(id)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to start the sandbox"))?;
+			if !started
+				&& self
+					.get_current_sandbox_status_local(id)
+					.await
+					.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox status"))?
+					.is_finished()
+			{
+				return Ok(());
+			}
+		}
 
-		// Acquire a clean guard.
 		let clean_guard = self.acquire_clean_guard().await;
-
-		// Set the process's permit.
 		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
-		self.process_permits.insert(process.id().clone(), permit);
+		self.sandbox_permits.insert(id.clone(), permit);
 		scopeguard::defer! {
-			self.process_permits.remove(process.id());
+			self.sandbox_permits.remove(id);
 			drop(clean_guard);
 		}
 
-		// Run.
-		let wait = match self.run(process).await.map_err(
-			|source| tg::error!(!source, process = %process.id(), "failed to run the process"),
-		) {
+		let temp = Temp::new(self);
+		tokio::fs::create_dir_all(temp.path())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
+		let sandbox_directory = tangram_sandbox::Directory::new(temp.path().to_owned());
+		let sandbox_arg = tangram_sandbox::SpawnArg {
+			hostname: state.hostname.clone(),
+			mounts: state.mounts.clone(),
+			network: state.network,
+			path: temp.path().to_owned(),
+			user: state.user.clone(),
+		};
+		let sandbox = self
+			.sandbox_manager
+			.spawn(sandbox_arg)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to create the sandbox"))?;
+		let sandbox = Arc::new(sandbox);
+
+		let heartbeat_task = Task::spawn({
+			let server = self.clone();
+			let id = id.clone();
+			let remote = remote.clone();
+			move |stopper| async move {
+				server
+					.sandbox_heartbeat_task(&id, remote.as_deref(), stopper)
+					.await
+			}
+		});
+
+		let mut messages = if remote.is_none() {
+			let stream = self
+				.messenger
+				.get_stream("sandboxes.processes".to_owned())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the process queue stream"))?;
+			let consumer_config = tangram_messenger::ConsumerConfig {
+				deliver_policy: tangram_messenger::DeliverPolicy::All,
+				ack_policy: tangram_messenger::AckPolicy::Explicit,
+				durable_name: None,
+				filter_subjects: vec![format!("sandboxes.{id}.processes")],
+			};
+			let consumer = stream
+				.create_consumer(None, consumer_config)
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to create a process queue consumer")
+				})?;
+			Some(
+				consumer
+					.subscribe::<crate::process::queue::Message>()
+					.await
+					.map_err(|source| {
+						tg::error!(!source, "failed to subscribe to the process queue")
+					})?
+					.boxed(),
+			)
+		} else {
+			None
+		};
+
+		let status = if let Some(client) = remote_client.as_ref() {
+			client
+				.try_get_sandbox_status_stream(id, tg::sandbox::status::Arg::default())
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox status"))?
+				.map(futures::StreamExt::boxed)
+		} else {
+			self.try_get_sandbox_status_stream_local(id)
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, "failed to get the sandbox status stream"),
+				)?
+				.map(futures::StreamExt::boxed)
+		}
+		.ok_or_else(|| tg::error!("failed to get the sandbox status stream"))?;
+		let mut status = pin!(status);
+
+		let process_tasks = tangram_futures::task::Map::<
+			tg::process::Id,
+			tg::Result<()>,
+			(),
+			tg::id::BuildHasher,
+		>::default();
+		let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<tg::process::Id>();
+		let ttl = state.ttl.map(Duration::from_secs);
+		let mut idle = Box::pin(tokio::time::sleep(Duration::MAX));
+		let mut idle_armed = false;
+		let mut active_processes = 0usize;
+		if let Some(ttl) = ttl {
+			idle.as_mut().reset(tokio::time::Instant::now() + ttl);
+			idle_armed = true;
+		}
+
+		loop {
+			tokio::select! {
+				message = async { messages.as_mut().unwrap().try_next().await }, if messages.is_some() => {
+					let Some(message) = message.map_err(|source| tg::error!(!source, "failed to read the process queue"))? else {
+						break;
+					};
+					let (payload, acker) = message.split();
+					let started = self
+						.try_start_process_local(&payload.id)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to start the process"))?;
+					acker
+						.ack()
+						.await
+						.map_err(|source| tg::error!(!source, "failed to ack the process queue message"))?;
+					if !started {
+						continue;
+					}
+					active_processes += 1;
+					idle_armed = false;
+					let server = self.clone();
+					let process = tg::Process::new(payload.id.clone(), None, None, None, None);
+					let sandbox = sandbox.clone();
+					let sandbox_directory = sandbox_directory.clone();
+					let sender = sender.clone();
+					process_tasks.spawn(payload.id.clone(), move |stopper| async move {
+						let process_id = process.id().clone();
+						let _guard = scopeguard::guard((sender, process_id.clone()), |(sender, process_id)| {
+							sender.send(process_id).ok();
+						});
+						server
+							.process_task(&process, sandbox, sandbox_directory, stopper)
+							.await
+							.inspect_err(|error| {
+								tracing::error!(error = %error.trace(), process = %process.id(), "the process task failed");
+							})
+					}).detach();
+				},
+				output = async {
+					let client = remote_client.as_ref().unwrap();
+					let arg = tg::process::queue::Arg::default();
+					client.dequeue_process(id, arg).await
+				}, if remote_client.is_some() => {
+					let output = output.map_err(|source| tg::error!(!source, "failed to dequeue a process"))?;
+					active_processes += 1;
+					idle_armed = false;
+					let server = self.clone();
+					let process = tg::Process::new(output.process.clone(), None, remote.clone(), None, None);
+					let sandbox = sandbox.clone();
+					let sandbox_directory = sandbox_directory.clone();
+					let sender = sender.clone();
+					process_tasks.spawn(output.process.clone(), move |stopper| async move {
+						let process_id = process.id().clone();
+						let _guard = scopeguard::guard((sender, process_id.clone()), |(sender, process_id)| {
+							sender.send(process_id).ok();
+						});
+						server
+							.process_task(&process, sandbox, sandbox_directory, stopper)
+							.await
+							.inspect_err(|error| {
+								tracing::error!(error = %error.trace(), process = %process.id(), "the process task failed");
+							})
+					}).detach();
+				},
+				event = status.try_next() => {
+					let Some(event) = event.map_err(|source| tg::error!(!source, "failed to read the sandbox status"))? else {
+						break;
+					};
+					match event {
+						tg::sandbox::status::Event::Status(status) if status.is_finished() => {
+							break;
+						},
+						tg::sandbox::status::Event::End => {
+							break;
+						},
+						tg::sandbox::status::Event::Status(_) => (),
+					}
+				},
+				id_ = receiver.recv() => {
+					let Some(_) = id_ else {
+						break;
+					};
+					active_processes = active_processes.saturating_sub(1);
+					if active_processes == 0
+						&& let Some(ttl) = ttl
+					{
+						idle.as_mut().reset(tokio::time::Instant::now() + ttl);
+						idle_armed = true;
+					}
+				},
+				() = async {
+					if idle_armed {
+						idle.as_mut().await;
+					} else {
+						future::pending::<()>().await;
+					}
+				} => {
+					if let Some(client) = remote_client.as_ref() {
+						let _ = client
+							.finish_sandbox(id, tg::sandbox::finish::Arg::default())
+							.await;
+					} else {
+						let _ = self.try_finish_sandbox_local(id).await;
+					}
+					idle_armed = false;
+				},
+			}
+		}
+
+		process_tasks.stop_all();
+		drop(sender);
+		process_tasks.wait().await;
+		heartbeat_task.stop();
+		heartbeat_task
+			.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "the heartbeat task panicked"))?
+			.map_err(|source| tg::error!(!source, "the heartbeat task failed"))?;
+		self.finish_unfinished_processes_in_sandbox(
+			id,
+			remote.as_deref(),
+			tg::error::Data {
+				code: Some(tg::error::Code::Cancellation),
+				message: Some("the process was canceled".into()),
+				..Default::default()
+			},
+		)
+		.await
+		.map_err(|source| tg::error!(!source, %id, "failed to finish unfinished processes"))?;
+
+		Ok(())
+	}
+
+	async fn sandbox_heartbeat_task(
+		&self,
+		id: &tg::sandbox::Id,
+		remote: Option<&str>,
+		stopper: Stopper,
+	) -> tg::Result<()> {
+		let config = self.config.runner.clone().unwrap_or_default();
+		loop {
+			let arg = tg::sandbox::heartbeat::Arg {
+				local: remote.is_none().then_some(true),
+				remotes: remote.map(|remote| vec![remote.to_owned()]),
+			};
+			let result = self.heartbeat_sandbox(id, arg).await;
+			if let Ok(output) = result
+				&& output.status.is_finished()
+			{
+				break;
+			}
+			let sleep = tokio::time::sleep(config.heartbeat_interval);
+			match future::select(pin!(sleep), pin!(stopper.wait())).await {
+				future::Either::Left(_) => (),
+				future::Either::Right(_) => break,
+			}
+		}
+		Ok(())
+	}
+
+	async fn process_task(
+		&self,
+		process: &tg::Process,
+		sandbox: Arc<tangram_sandbox::Sandbox>,
+		sandbox_directory: tangram_sandbox::Directory,
+		stopper: Stopper,
+	) -> tg::Result<()> {
+		let wait = match self
+			.run(process, sandbox, sandbox_directory, stopper)
+			.await
+			.map_err(
+				|source| tg::error!(!source, process = %process.id(), "failed to run the process"),
+			) {
 			Ok(output) => output,
 			Err(error) => Output {
 				error: Some(error),
@@ -196,26 +509,13 @@ impl Server {
 		Ok::<_, tg::Error>(())
 	}
 
-	async fn heartbeat_task(&self, process: &tg::Process) -> tg::Result<()> {
-		let config = self.config.runner.clone().unwrap_or_default();
-		loop {
-			let arg = tg::process::heartbeat::Arg {
-				local: None,
-				remotes: process.remote().cloned().map(|r| vec![r]),
-			};
-			let result = self.heartbeat_process(process.id(), arg).await;
-			if let Ok(output) = result
-				&& output.status.is_finished()
-			{
-				self.process_tasks.abort(process.id());
-				break;
-			}
-			tokio::time::sleep(config.heartbeat_interval).await;
-		}
-		Ok(())
-	}
-
-	async fn run(&self, process: &tg::Process) -> tg::Result<Output> {
+	async fn run(
+		&self,
+		process: &tg::Process,
+		sandbox: Arc<tangram_sandbox::Sandbox>,
+		sandbox_directory: tangram_sandbox::Directory,
+		stopper: Stopper,
+	) -> tg::Result<Output> {
 		let id = process.id();
 		let state = &process
 			.load(self)
@@ -268,14 +568,6 @@ impl Server {
 		self.cache_children(process)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to cache the children"))?;
-
-		// Create the temp.
-		let temp = Temp::new(self);
-		tokio::fs::create_dir_all(temp.path())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
-
-		let sandbox_directory = tangram_sandbox::Directory::new(temp.path().to_owned());
 
 		// Determine whether to use a chroot.
 		let chroot = cfg!(target_os = "linux");
@@ -397,9 +689,6 @@ impl Server {
 			},
 		};
 
-		// Create mounts.
-		let mounts = state.mounts.clone();
-
 		// Set `$TANGRAM_OUTPUT`.
 		env.insert(
 			"TANGRAM_OUTPUT".to_owned(),
@@ -408,12 +697,12 @@ impl Server {
 
 		// Create the guest uri.
 		#[cfg(target_os = "linux")]
-		let socket_guest_path = sandbox_directory.guest_socket_path();
+		let socket_guest_path = sandbox_directory.guest_socket_path_for_process(id);
 
 		#[cfg(target_os = "macos")]
 		let (listener, guest_uri) = {
 			const MAX_SOCKET_PATH_LEN: usize = 100;
-			let socket_path = sandbox_directory.host_socket_path();
+			let socket_path = sandbox_directory.host_socket_path_for_process(id);
 			tokio::fs::create_dir_all(socket_path.parent().unwrap())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
@@ -445,7 +734,7 @@ impl Server {
 
 		#[cfg(target_os = "linux")]
 		let (listener, guest_uri) = {
-			let socket_path = sandbox_directory.host_socket_path();
+			let socket_path = sandbox_directory.host_socket_path_for_process(id);
 			tokio::fs::create_dir_all(socket_path.parent().unwrap())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
@@ -478,10 +767,7 @@ impl Server {
 				id: process.id().clone(),
 				path_maps: chroot.then_some(path_maps),
 				remote: remote.cloned(),
-				retry: *process
-					.retry(self)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the process retry"))?,
+				retry: state.retry,
 			})),
 			..Default::default()
 		};
@@ -517,21 +803,6 @@ impl Server {
 				return Err(tg::error!("invalid stderr"));
 			},
 		};
-
-		// Create the sandbox.
-		let sandbox_arg = tangram_sandbox::SpawnArg {
-			hostname: None,
-			mounts,
-			network: state.network,
-			path: temp.path().to_owned(),
-			user: None,
-		};
-		let sandbox = self
-			.sandbox_manager
-			.spawn(sandbox_arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the sandbox"))?;
-		let sandbox = Arc::new(sandbox);
 
 		// Spawn.
 		let sandbox_command = tangram_sandbox::Command {
@@ -620,11 +891,21 @@ impl Server {
 			}
 		});
 
-		// Wait.
-		let exit = sandbox
-			.wait(&sandbox_process)
-			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to wait for the process"))?;
+		let (exit, stopped) = tokio::select! {
+			result = sandbox.wait(&sandbox_process) => {
+				let exit = result
+					.map_err(|source| tg::error!(!source, %id, "failed to wait for the process"))?;
+				(exit, false)
+			},
+			() = stopper.wait() => {
+				sandbox.kill(&sandbox_process, tg::process::Signal::SIGKILL).await.ok();
+				let exit = sandbox
+					.wait(&sandbox_process)
+					.await
+					.map_err(|source| tg::error!(!source, %id, "failed to wait for the process"))?;
+				(exit, true)
+			},
+		};
 
 		// Abort the tty task.
 		if let Some(tty_task) = tty_task {
@@ -649,6 +930,13 @@ impl Server {
 			task.wait()
 				.await
 				.map_err(|source| tg::error!(!source, "the serve task panicked"))?;
+		}
+
+		if stopped {
+			return Err(tg::error!(
+				code = tg::error::Code::Cancellation,
+				"the process was canceled"
+			));
 		}
 
 		// Create the output.

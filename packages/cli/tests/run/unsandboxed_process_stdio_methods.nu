@@ -9,9 +9,7 @@ let path = artifact {
 				.spawn`
 					awk '{print "stdout:" $0; print "stderr:" $0 > "/dev/stderr"}'
 				`
-				.stdin("pipe")
-				.stdout("pipe")
-				.stderr("pipe");
+				.stdio("pipe");
 			let input = tg.encoding.utf8.encode("hello\n");
 			let [written, stdout, stderr] = await Promise.all([
 				process.stdin.write(input).then(async (written) => {
