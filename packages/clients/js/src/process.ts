@@ -604,6 +604,33 @@ export class Process {
 				tty = { size };
 			}
 		}
+		if (
+			tty !== undefined &&
+			(stdin !== undefined || stdout !== undefined || stderr !== undefined) &&
+			(tg.process.env.COLORTERM !== undefined ||
+				tg.process.env.TERM !== undefined)
+		) {
+			let command = await tg.Command.withId(arg.command.item).object();
+			let env = { ...command.env };
+			let changed = false;
+			for (let name of ["COLORTERM", "TERM"] as const) {
+				let value = tg.process.env[name];
+				if (
+					value !== undefined &&
+					!Object.prototype.hasOwnProperty.call(env, name)
+				) {
+					env[name] = value;
+					changed = true;
+				}
+			}
+			if (changed) {
+				let commandId = await tg.Command.withObject({
+					...command,
+					env,
+				}).store();
+				arg.command.item = commandId;
+			}
+		}
 		let output = await tg.handle.spawnProcess({
 			...arg,
 			stderr: stderr ?? arg.stderr,

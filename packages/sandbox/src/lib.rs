@@ -412,6 +412,10 @@ fn prepare_command_for_spawn(
 	library_paths: &[PathBuf],
 ) -> tg::Result<()> {
 	#[cfg(target_os = "linux")]
+	set_home_for_command(command);
+	#[cfg(target_os = "macos")]
+	set_home_for_command(command)?;
+	#[cfg(target_os = "linux")]
 	{
 		crate::linux::prepare_command_for_spawn(command, tangram_path, library_paths)
 	}
@@ -419,6 +423,25 @@ fn prepare_command_for_spawn(
 	{
 		crate::darwin::prepare_command_for_spawn(command, tangram_path, library_paths)
 	}
+}
+
+#[cfg(target_os = "linux")]
+fn set_home_for_command(command: &mut Command) {
+	if command.env.contains_key("HOME") {
+		return;
+	}
+	command.env.insert("HOME".to_owned(), "/root".to_owned());
+}
+
+#[cfg(target_os = "macos")]
+fn set_home_for_command(command: &mut Command) -> tg::Result<()> {
+	if command.env.contains_key("HOME") {
+		return Ok(());
+	}
+	let home = std::env::var("HOME")
+		.map_err(|source| tg::error!(!source, "failed to get the home directory"))?;
+	command.env.insert("HOME".to_owned(), home);
+	Ok(())
 }
 
 fn append_directories_to_path(command: &mut Command, directories: &[&Path]) -> tg::Result<()> {

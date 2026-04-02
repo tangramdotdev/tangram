@@ -171,6 +171,32 @@ impl tg::Process {
 		}
 		let tty_ = tty.is_some();
 		arg.tty = tty.map(tg::Either::Right);
+		if tty_ && (stdin.is_some() || stdout.is_some() || stderr.is_some()) {
+			let mut object = tg::Command::with_id(arg.command.item.clone())
+				.object(&handle)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to load the command"))?
+				.as_ref()
+				.clone();
+			let mut changed = false;
+			for name in ["COLORTERM", "TERM"] {
+				if object.env.contains_key(name) {
+					continue;
+				}
+				let Ok(value) = std::env::var(name) else {
+					continue;
+				};
+				object.env.insert(name.to_owned(), tg::Value::String(value));
+				changed = true;
+			}
+			if changed {
+				let id = tg::Command::with_object(object)
+					.store(&handle)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to store the command"))?;
+				arg.command.item = id;
+			}
+		}
 		let stream = handle
 			.spawn_process(arg)
 			.await?
