@@ -300,9 +300,13 @@ impl Server {
 			},
 			future::Either::Right((result, _)) => {
 				if let Ok(Some(remote_output)) = result {
+					let local_id = output.as_ref().map(|o| o.id.to_string());
+					let local_token = output.as_ref().and_then(|o| o.token.clone());
 					tracing::info!(
 						command = %command_id,
 						remote_process = %remote_output.process,
+						?local_id,
+						has_local_token = local_token.is_some(),
 						race_ms = race_start.elapsed().as_millis(),
 						"remote won the race",
 					);

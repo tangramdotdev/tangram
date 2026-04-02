@@ -95,12 +95,20 @@ impl Server {
 		let n = rows.len().to_u64().unwrap();
 		if n > 0 {
 			for row in &rows {
+				let has_active_task = self.process_tasks.try_get_id(&row.id).is_some();
 				tracing::info!(
 					process = %row.id,
 					code = ?row.code,
 					message = %row.message,
+					has_active_task,
 					"watchdog: cancelling process",
 				);
+				if has_active_task && matches!(row.code, Some(tg::error::Code::Cancellation)) {
+					tracing::error!(
+						process = %row.id,
+						"INVARIANT VIOLATION: watchdog cancelling process that has an active task",
+					);
+				}
 			}
 		}
 		rows.into_iter()

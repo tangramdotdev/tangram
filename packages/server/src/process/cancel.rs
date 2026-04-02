@@ -66,11 +66,26 @@ impl Server {
 			.query_one_value_into(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		let has_active_task = self.process_tasks.try_get_id(id).is_some();
 		tracing::info!(
 			%id,
 			new_token_count,
+			has_active_task,
 			"cancel_process: token removed",
 		);
+		if new_token_count == 0 && has_active_task {
+			tracing::error!(
+				%id,
+				"INVARIANT VIOLATION: token_count reached 0 while process has an active task. The watchdog will cancel this executing process.",
+			);
+		}
+		if new_token_count < 0 {
+			tracing::error!(
+				%id,
+				new_token_count,
+				"INVARIANT VIOLATION: token_count went negative.",
+			);
+		}
 
 		// Publish the watchdog message.
 		tokio::spawn({
