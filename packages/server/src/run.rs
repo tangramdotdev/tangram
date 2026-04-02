@@ -1,10 +1,8 @@
 use {
 	crate::{ProcessPermit, Server},
 	futures::{FutureExt as _, TryFutureExt as _, future},
-	indoc::formatdoc,
 	std::{collections::BTreeSet, path::Path, sync::Arc, time::Duration},
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
 };
 
 mod common;
@@ -129,31 +127,6 @@ impl Server {
 	) -> tg::Result<()> {
 		// Guard against concurrent cleans.
 		let _clean_guard = self.try_acquire_clean_guard()?;
-
-		// Increment token_count to prevent the watchdog from cancelling this
-		// process while it is executing. Callers hold their own tokens which
-		// may be removed when their remote lookups win, but this execution
-		// token ensures token_count stays above zero until the process finishes.
-		{
-			let connection = self
-				.database
-				.write_connection()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
-			let statement = formatdoc!(
-				"
-					update processes
-					set token_count = token_count + 1
-					where id = {};
-				",
-				connection.p()
-			);
-			let params = db::params![process.id().to_string()];
-			connection
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to increment token count"))?;
-		}
 
 		// Set the process's permit.
 		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
