@@ -67,9 +67,7 @@ pub mod progress;
 #[derive(Clone)]
 pub struct Shared(Arc<Owned>);
 
-pub struct Owned(Arc<Inner>);
-
-pub struct Inner {
+pub struct Owned {
 	server: Server,
 	task: tangram_futures::task::Shared<()>,
 }
@@ -1032,7 +1030,7 @@ impl Server {
 			shutdown.await;
 		});
 
-		let handle = Owned(Arc::new(Inner { server, task }));
+		let handle = Owned { server, task };
 
 		Ok(handle)
 	}
@@ -1214,14 +1212,6 @@ impl Deref for Shared {
 }
 
 impl Deref for Owned {
-	type Target = Inner;
-
-	fn deref(&self) -> &Self::Target {
-		&self.0
-	}
-}
-
-impl Deref for Inner {
 	type Target = Server;
 
 	fn deref(&self) -> &Self::Target {

@@ -80,7 +80,7 @@ pub struct Arg {
 
 impl Process {
 	#[must_use]
-	pub(crate) fn new(
+	pub fn new(
 		id: Id,
 		metadata: Option<Metadata>,
 		remote: Option<String>,
