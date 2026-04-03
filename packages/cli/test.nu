@@ -862,8 +862,10 @@ export def --env spawn [
 	}
 
 	# Wait for the server to be ready.
-	let ready_output = (open /dev/null | timeout 5 bash -c 'od -An -t u1 -N1 "$1"' _ $ready_path | complete)
+	let ready_output = (open /dev/null |  bash -c 'od -An -t u1 -N1 "$1"' _ $ready_path | complete)
 	rm -f $ready_path
+	print $ready_output.stderr
+	assert (($ready_output.stderr | str trim) == '') "the server had an error"
 	assert ($ready_output.exit_code == 0) "the server did not signal readiness"
 	assert (($ready_output.stdout | str trim) == '0') "the server signaled an invalid readiness byte"
 

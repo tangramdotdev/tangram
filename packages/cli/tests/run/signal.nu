@@ -1,22 +1,19 @@
 use ../../test.nu *
 
 let server = spawn
-
+let mount = artifact {}
 let path = artifact {
 	tangram.ts: '
 		export default async () => {
-			await tg.sleep(60);
+			await tg.sleep(10);
+			return 42;
 		};
 	'
 }
-
-# Spawn a long-running process.
-let process = tg run --sandbox $path | str trim
-
-# Signal the process.
-let output = tg signal $process | complete
+let process = tg spawn --sandbox --mount $"($mount):/target" $path | str trim
+let output = tg signal -s KILL $process | complete
 success $output
 
 # Wait for the process to finish.
-let output = tg wait $process
-snapshot -n wait $output
+let output = tg wait $process | from json
+snapshot -n wait $output ''
