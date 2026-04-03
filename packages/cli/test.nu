@@ -56,9 +56,9 @@ def main [
 	}
 
 	# Add the debug build to the path.
-	cargo build --all-features
+	cargo build --all-features --release
 	ln -sf tangram target/debug/tg
-	path add ($repository_path | path join 'target/debug')
+	path add ($repository_path | path join 'target/release')
 
 	# Get the matching tests.
 	let filter = if ($filters | is-empty) {
