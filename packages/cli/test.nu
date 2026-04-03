@@ -17,6 +17,7 @@ def main [
 	--print-passing-test-output # Print the output of passing tests.
 	--review (-r) # Review snapshots.
 	--timeout: duration = 30sec # The timeout for each test.
+	--trace # Collect server traces.
 	...filters: string # Filter tests.
 ] {
 	# Clean up leftover test resources if requested.
@@ -59,6 +60,15 @@ def main [
 	cargo build --all-features
 	ln -sf tangram target/debug/tg
 	path add ($repository_path | path join 'target/debug')
+
+	# Create the traces directory if tracing is enabled.
+	let traces_path = if $trace {
+		let path = mktemp -d -t tangram_traces_XXXXXX
+		print -e $"Traces directory: ($path)"
+		$path
+	} else {
+		""
+	}
 
 	# Get the matching tests.
 	let filter = if ($filters | is-empty) {
@@ -117,6 +127,8 @@ def main [
 				TANGRAM_CONFIG: ($temp_path | path join "config.json"),
 				TANGRAM_MODE: client,
 				TANGRAM_TEST_CLOUD: (if $cloud { "1" } else { "" }),
+				TANGRAM_TEST_NAME: $test.name,
+				TANGRAM_TEST_TRACES: $traces_path,
 				TMPDIR: $temp_path,
 			} {
 				if $no_capture {
@@ -405,6 +417,14 @@ def main [
 		for result in $results {
 			print -e $'  ($result.name): ($result.temp_path)'
 		}
+	}
+
+	if $trace {
+		let tests_path = ($repository_path | path join 'packages/cli/tests')
+		print -e ''
+		print -e 'collecting traces...'
+		bun run ($tests_path | path join 'collect-traces.ts') --api ($tests_path | path join 'api.json') $traces_path
+		print -e $"traces written to ($traces_path)"
 	}
 
 	if $failed > 0 {
@@ -714,7 +734,20 @@ export def --env spawn [
 	--directory (-d): string
 	--name (-n): string
 	--url (-u): string
+	--trace
+	--vfs
 ] {
+	let enable_vfs = $vfs and (($env.TANGRAM_TEST_VFS? | default "") | str length) > 0
+	let collect_traces = ($env.TANGRAM_TEST_TRACES? | default "") | str length | $in > 0
+	let trace_file_path = if $collect_traces {
+		let test_name = $env.TANGRAM_TEST_NAME? | default ($name | default 'server')
+		let trace_path = $env.TANGRAM_TEST_TRACES | path join $'($test_name).trace.json'
+		let trace_dir = $trace_path | path dirname
+		mkdir $trace_dir
+		$trace_path
+	} else {
+		null
+	}
 	mut default_config = {
 		advanced: {
 			disable_version_check: true
@@ -729,8 +762,10 @@ export def --env spawn [
 			kind: 'lmdb',
 			map_size: 10_485_760,
 		},
+		tracing: (if $collect_traces { { filter: 'tangram_server=trace,tangram_http=trace', format: 'json' } } else { false }),
 		tokio_single_threaded: true,
 		v8_thread_pool_size: 1,
+		vfs: $enable_vfs
 	}
 
 	mut id: any = null
@@ -821,7 +856,7 @@ export def --env spawn [
 				\) &
 				exec 3>\"($ready_path)\"
 				tangram -c ($config_path) -d ($directory_path) -u ($url) serve --ready-fd 3
-			" e>| lines | each { |line| print -e $"($name | default 'server'): ($line)\r" }
+			" e>| if $trace_file_path != null { save -f $trace_file_path } else { lines | each { |line| print -e $"($name | default 'server'): ($line)\r" } }
 		}
 		'' | save -f $exit_path
 	}
