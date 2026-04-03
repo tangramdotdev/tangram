@@ -356,7 +356,7 @@ pub fn run(arg: &RunArg, ready_fd: Option<RawFd>) -> tg::Result<()> {
 				.to_str()
 				.is_none_or(|string| string.len() > MAX_SOCKET_PATH_LEN)
 			{
-				let listener = std::net::TcpListener::bind(([127, 0, 0, 1], 0))
+				let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
 					.map_err(|source| tg::error!(!source, "failed to bind"))?;
 				listener
 					.set_nonblocking(true)
@@ -365,8 +365,6 @@ pub fn run(arg: &RunArg, ready_fd: Option<RawFd>) -> tg::Result<()> {
 					.local_addr()
 					.map_err(|source| tg::error!(!source, "failed to get the local address"))?
 					.port();
-				let listener = tokio::net::TcpListener::from_std(listener)
-					.map_err(|source| tg::error!(!source, "failed to create the tcp listener"))?;
 				(tokio_util::either::Either::Right(listener), port)
 			} else {
 				let listener = std::os::unix::net::UnixListener::bind(&listen_path).map_err(
@@ -375,8 +373,6 @@ pub fn run(arg: &RunArg, ready_fd: Option<RawFd>) -> tg::Result<()> {
 				listener
 					.set_nonblocking(true)
 					.map_err(|source| tg::error!(!source, "failed to set nonblocking mode"))?;
-				let listener = tokio::net::UnixListener::from_std(listener)
-					.map_err(|source| tg::error!(!source, "failed to create the unix listener"))?;
 				(tokio_util::either::Either::Left(listener), 0)
 			}
 		};
@@ -394,6 +390,22 @@ pub fn run(arg: &RunArg, ready_fd: Option<RawFd>) -> tg::Result<()> {
 
 		// Run the server.
 		runtime.block_on(async move {
+			let listener = match listener {
+				tokio_util::either::Either::Left(listener) => {
+					let listener =
+						tokio::net::UnixListener::from_std(listener).map_err(|source| {
+							tg::error!(!source, "failed to create the unix listener")
+						})?;
+					tokio_util::either::Either::Left(listener)
+				},
+				tokio_util::either::Either::Right(listener) => {
+					let listener =
+						tokio::net::TcpListener::from_std(listener).map_err(|source| {
+							tg::error!(!source, "failed to create the tcp listener")
+						})?;
+					tokio_util::either::Either::Right(listener)
+				},
+			};
 			let server = crate::server::Server::new(crate::server::ServerArg {
 				library_paths: arg.library_paths.clone(),
 				tangram_path: arg.tangram_path.clone(),

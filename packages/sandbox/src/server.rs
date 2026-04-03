@@ -2,7 +2,7 @@ use {
 	crate::common,
 	dashmap::DashMap,
 	futures::{FutureExt as _, future},
-	std::{convert::Infallible, ops::Deref, os::fd::OwnedFd, sync::Arc},
+	std::{convert::Infallible, ops::Deref, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody,
@@ -39,7 +39,7 @@ pub(crate) struct Process {
 	#[cfg(target_os = "macos")]
 	pub(crate) pid: libc::pid_t,
 	#[cfg(target_os = "linux")]
-	pub(crate) pidfd: Arc<OwnedFd>,
+	pub(crate) pidfd: Arc<std::os::fd::OwnedFd>,
 	pub(crate) stdin: Arc<Mutex<common::InputStream>>,
 	pub(crate) stdout: Arc<Mutex<common::OutputStream>>,
 	pub(crate) stderr: Arc<Mutex<common::OutputStream>>,
