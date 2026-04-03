@@ -2,7 +2,7 @@ use {
 	crate::common,
 	dashmap::DashMap,
 	futures::{FutureExt as _, future},
-	std::{convert::Infallible, net::SocketAddr, ops::Deref, path::Path, sync::Arc},
+	std::{convert::Infallible, ops::Deref, os::fd::OwnedFd, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody,
@@ -28,8 +28,6 @@ pub(crate) struct ServerArg {
 
 pub struct State {
 	pub(crate) library_paths: Vec<std::path::PathBuf>,
-	#[cfg(target_os = "linux")]
-	pub(crate) pids: DashMap<libc::pid_t, tg::process::Id>,
 	pub(crate) processes: DashMap<tg::process::Id, Process>,
 	pub(crate) tangram_path: std::path::PathBuf,
 }
@@ -38,12 +36,15 @@ pub(crate) struct Process {
 	#[cfg(target_os = "macos")]
 	pub(crate) child: Arc<Mutex<Option<tokio::process::Child>>>,
 	pub(crate) notify: Arc<tokio::sync::Notify>,
+	#[cfg(target_os = "macos")]
 	pub(crate) pid: libc::pid_t,
-	pub(crate) status: Option<tg::Result<u8>>,
+	#[cfg(target_os = "linux")]
+	pub(crate) pidfd: Arc<OwnedFd>,
 	pub(crate) stdin: Arc<Mutex<common::InputStream>>,
 	pub(crate) stdout: Arc<Mutex<common::OutputStream>>,
 	pub(crate) stderr: Arc<Mutex<common::OutputStream>>,
 	pub(crate) pty: Option<Arc<Mutex<common::Pty>>>,
+	pub(crate) status: Option<tg::Result<u8>>,
 }
 
 pub(crate) type Listener =
@@ -51,58 +52,12 @@ pub(crate) type Listener =
 
 impl Server {
 	pub fn new(arg: ServerArg) -> Self {
-		let server = Self(Arc::new(State {
+		Self(Arc::new(State {
 			library_paths: arg.library_paths,
-			#[cfg(target_os = "linux")]
-			pids: DashMap::default(),
 			processes: DashMap::default(),
 			tangram_path: arg.tangram_path,
-		}));
-
-		#[cfg(target_os = "linux")]
-		{
-			tokio::spawn({
-				let server = server.clone();
-				async move {
-					server
-						.reaper_task()
-						.await
-						.inspect_err(|error| tracing::error!(?error, "failed to reap children"))
-						.ok();
-				}
-			});
-		}
-
-		server
+		}))
 	}
-
-	pub(crate) fn listen(
-		addr: &tokio_util::either::Either<&Path, SocketAddr>,
-	) -> tg::Result<(Listener, u16)> {
-		match addr {
-			tokio_util::either::Either::Left(path) => {
-				let listener = tokio::net::UnixListener::bind(path).map_err(
-					|source| tg::error!(!source, path = %path.display(), "failed to bind"),
-				)?;
-				Ok((tokio_util::either::Either::Left(listener), 0))
-			},
-			tokio_util::either::Either::Right(addr) => {
-				let listener = std::net::TcpListener::bind(addr)
-					.map_err(|source| tg::error!(!source, "failed to bind"))?;
-				listener
-					.set_nonblocking(true)
-					.map_err(|source| tg::error!(!source, "failed to set nonblocking mode"))?;
-				let port = listener
-					.local_addr()
-					.map_err(|source| tg::error!(!source, "failed to get the local address"))?
-					.port();
-				let listener = tokio::net::TcpListener::from_std(listener)
-					.map_err(|source| tg::error!(!source, "failed to create the tcp listener"))?;
-				Ok((tokio_util::either::Either::Right(listener), port))
-			},
-		}
-	}
-
 	pub(crate) async fn serve(&self, listener: Listener) {
 		loop {
 			let stream = match &listener {

@@ -1,13 +1,10 @@
 use {
-	crate::{
-		client::Client,
-		server::{Server, ServerArg},
-	},
+	crate::client::Client,
 	std::{
 		collections::BTreeMap,
-		io::{Read as _, Write as _},
+		io::Read as _,
 		ops::Deref,
-		os::fd::{AsRawFd as _, FromRawFd as _, RawFd},
+		os::fd::{AsRawFd as _, RawFd},
 		path::{Path, PathBuf},
 		sync::Arc,
 		time::Duration,
@@ -334,65 +331,78 @@ impl Sandbox {
 }
 
 pub fn run(arg: &RunArg, ready_fd: Option<RawFd>) -> tg::Result<()> {
-	let directory = Directory::new(arg.path.clone());
-
-	// Create a current thread tokio runtime.
-	let runtime = tokio::runtime::Builder::new_current_thread()
-		.enable_all()
-		.build()
-		.map_err(|source| tg::error!(!source, "failed to create the runtime"))?;
-
-	// Bind the listener.
-	let listen_path = directory.host_listen_path();
-	#[cfg(target_os = "macos")]
-	let listen_arg = {
-		const MAX_SOCKET_PATH_LEN: usize = 100;
-		if listen_path
-			.to_str()
-			.is_none_or(|string| string.len() > MAX_SOCKET_PATH_LEN)
-		{
-			tokio_util::either::Either::Right(std::net::SocketAddr::from(([127, 0, 0, 1], 0)))
-		} else {
-			tokio_util::either::Either::Left(listen_path.as_path())
-		}
-	};
 	#[cfg(target_os = "linux")]
-	let listen_arg = tokio_util::either::Either::Left(listen_path.as_path());
-	let guard = runtime.enter();
-	let (listener, port) = Server::listen(&listen_arg)?;
-	drop(guard);
+	{
+		crate::linux::run(arg, ready_fd)
+	}
 
-	// Enter the sandbox.
 	#[cfg(target_os = "macos")]
 	{
+		use std::{io::Write as _, os::fd::FromRawFd as _};
+
+		let directory = Directory::new(arg.path.clone());
+
+		// Create a current thread tokio runtime.
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.map_err(|source| tg::error!(!source, "failed to create the runtime"))?;
+
+		// Bind the listener.
+		let listen_path = directory.host_listen_path();
+		let (listener, port) = {
+			const MAX_SOCKET_PATH_LEN: usize = 100;
+			if listen_path
+				.to_str()
+				.is_none_or(|string| string.len() > MAX_SOCKET_PATH_LEN)
+			{
+				let listener = std::net::TcpListener::bind(([127, 0, 0, 1], 0))
+					.map_err(|source| tg::error!(!source, "failed to bind"))?;
+				listener
+					.set_nonblocking(true)
+					.map_err(|source| tg::error!(!source, "failed to set nonblocking mode"))?;
+				let port = listener
+					.local_addr()
+					.map_err(|source| tg::error!(!source, "failed to get the local address"))?
+					.port();
+				let listener = tokio::net::TcpListener::from_std(listener)
+					.map_err(|source| tg::error!(!source, "failed to create the tcp listener"))?;
+				(tokio_util::either::Either::Right(listener), port)
+			} else {
+				let listener = std::os::unix::net::UnixListener::bind(&listen_path).map_err(
+					|source| tg::error!(!source, path = %listen_path.display(), "failed to bind"),
+				)?;
+				listener
+					.set_nonblocking(true)
+					.map_err(|source| tg::error!(!source, "failed to set nonblocking mode"))?;
+				let listener = tokio::net::UnixListener::from_std(listener)
+					.map_err(|source| tg::error!(!source, "failed to create the unix listener"))?;
+				(tokio_util::either::Either::Left(listener), 0)
+			}
+		};
+
 		crate::darwin::enter(arg)
 			.map_err(|source| tg::error!(!source, "failed to enter the sandbox"))?;
-	}
-	#[cfg(target_os = "linux")]
-	{
-		crate::linux::enter(arg)
-			.map_err(|source| tg::error!(!source, "failed to enter the sandbox"))?;
-	}
 
-	// Signal the ready fd.
-	if let Some(fd) = ready_fd {
-		let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
-		let port_bytes = port.to_be_bytes();
-		file.write_all(&[0x00, port_bytes[0], port_bytes[1]])
-			.map_err(|source| tg::error!(!source, "failed to write the ready signal"))?;
+		// Signal the ready fd.
+		if let Some(fd) = ready_fd {
+			let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+			let port_bytes = port.to_be_bytes();
+			file.write_all(&[0x00, port_bytes[0], port_bytes[1]])
+				.map_err(|source| tg::error!(!source, "failed to write the ready signal"))?;
+		}
+
+		// Run the server.
+		runtime.block_on(async move {
+			let server = crate::server::Server::new(crate::server::ServerArg {
+				library_paths: arg.library_paths.clone(),
+				tangram_path: arg.tangram_path.clone(),
+			});
+			server.serve(listener).await;
+			Ok::<_, tg::Error>(())
+		})?;
+		Ok(())
 	}
-
-	// Run the server.
-	runtime.block_on(async move {
-		let server = Server::new(ServerArg {
-			library_paths: arg.library_paths.clone(),
-			tangram_path: arg.tangram_path.clone(),
-		});
-		server.serve(listener).await;
-		Ok::<_, tg::Error>(())
-	})?;
-
-	Ok(())
 }
 
 fn prepare_runtime_libraries(arg: &ManagerArg) -> tg::Result<Vec<PathBuf>> {

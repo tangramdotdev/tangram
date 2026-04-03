@@ -130,10 +130,7 @@ impl Server {
 		};
 
 		#[cfg(target_os = "linux")]
-		let pid = crate::linux::spawn(context)?;
-
-		#[cfg(target_os = "linux")]
-		self.pids.insert(pid, id.clone());
+		let pidfd = std::sync::Arc::new(crate::linux::spawn(context)?);
 
 		#[cfg(target_os = "macos")]
 		let child = crate::darwin::spawn(context)?;
@@ -152,17 +149,22 @@ impl Server {
 		}
 		let pty = pty.map(Mutex::new);
 		let process = Process {
+			#[cfg(target_os = "macos")]
 			pid,
 			#[cfg(target_os = "macos")]
 			child: Arc::new(Mutex::new(Some(child))),
-			status: None,
 			notify: std::sync::Arc::new(tokio::sync::Notify::new()),
+			#[cfg(target_os = "linux")]
+			pidfd: pidfd.clone(),
 			stdin: Arc::new(Mutex::new(host_stdin)),
 			stdout: Arc::new(Mutex::new(host_stdout)),
 			stderr: Arc::new(Mutex::new(host_stderr)),
 			pty: pty.map(Arc::new),
+			status: None,
 		};
 		self.processes.insert(id.clone(), process);
+		#[cfg(target_os = "linux")]
+		self.spawn_wait_task(id.clone(), pidfd);
 
 		#[cfg(target_os = "macos")]
 		{
@@ -193,6 +195,29 @@ impl Server {
 		}
 
 		Ok(crate::client::spawn::Output { id })
+	}
+
+	#[cfg(target_os = "linux")]
+	fn spawn_wait_task(&self, id: tg::process::Id, pidfd: Arc<std::os::fd::OwnedFd>) {
+		tokio::spawn({
+			let server = self.clone();
+			async move {
+				let status =
+					tokio::task::spawn_blocking(move || crate::linux::wait_for_process(&pidfd))
+						.await
+						.map_err(|source| tg::error!(!source, "the process waiter task panicked"))
+						.and_then(|result| result);
+				server.finish_process(&id, status);
+			}
+		});
+	}
+
+	#[cfg(target_os = "linux")]
+	fn finish_process(&self, id: &tg::process::Id, status: tg::Result<u8>) {
+		if let Some(mut process) = self.processes.get_mut(id) {
+			process.status.replace(status);
+			process.notify.notify_waiters();
+		}
 	}
 
 	pub(crate) async fn handle_spawn_request(
