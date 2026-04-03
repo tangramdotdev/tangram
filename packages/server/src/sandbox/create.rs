@@ -19,7 +19,7 @@ impl Server {
 
 		let id = tg::sandbox::Id::new();
 		let connection = self
-			.database
+			.register
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;

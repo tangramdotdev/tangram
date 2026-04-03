@@ -46,6 +46,17 @@ impl Server {
 		{
 			return Ok(Some(event_stream));
 		}
+		let peers = self
+			.peers(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
+		if let Some(event_stream) = self
+			.try_read_process_stdio_peer(id, arg.clone(), &peers)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to read peer process stdio"))?
+		{
+			return Ok(Some(event_stream));
+		}
 		let remotes = self
 			.remotes(arg.local, arg.remotes.clone())
 			.await
@@ -286,6 +297,38 @@ impl Server {
 		Ok(receiver.attach(task).boxed())
 	}
 
+	async fn try_read_process_stdio_peer(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::read::Arg,
+		peers: &[String],
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
+		if peers.is_empty() {
+			return Ok(None);
+		}
+		let arg = tg::process::stdio::read::Arg {
+			local: None,
+			remotes: None,
+			..arg
+		};
+		for peer in peers {
+			let client = self.get_peer_client(peer.clone()).await.map_err(
+				|source| tg::error!(!source, peer = %peer, "failed to get the peer client"),
+			)?;
+			let stream = client
+				.try_read_process_stdio_all(id, arg.clone())
+				.await
+				.map_err(
+					|source| tg::error!(!source, peer = %peer, "failed to read the process stdio"),
+				)?
+				.map(futures::StreamExt::boxed);
+			if let Some(stream) = stream {
+				return Ok(Some(stream));
+			}
+		}
+		Ok(None)
+	}
+
 	async fn try_read_process_stdio_remote(
 		&self,
 		id: &tg::process::Id,
@@ -302,12 +345,14 @@ impl Server {
 		};
 		for remote in remotes {
 			let client = self.get_remote_client(remote.clone()).await.map_err(
-				|source| tg::error!(!source, %remote, "failed to get the remote client"),
+				|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
 			)?;
 			let stream = client
 				.try_read_process_stdio_all(id, arg.clone())
 				.await
-				.map_err(|source| tg::error!(!source, %remote, "failed to read the process stdio"))?
+				.map_err(
+					|source| tg::error!(!source, remote = %remote, "failed to read the process stdio"),
+				)?
 				.map(futures::StreamExt::boxed);
 			if let Some(stream) = stream {
 				return Ok(Some(stream));

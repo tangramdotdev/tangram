@@ -42,10 +42,12 @@ mod lsp;
 mod messenger;
 mod module;
 mod object;
+mod peer;
 mod process;
 mod pull;
 mod push;
 mod read;
+mod register;
 mod remote;
 mod run;
 mod sandbox;
@@ -90,8 +92,10 @@ pub struct State {
 	lock: Mutex<Option<tokio::fs::File>>,
 	messenger: Messenger,
 	path: PathBuf,
+	peers: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
+	object_get_tasks: ObjectGetTasks,
+	register: Database,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
-	remote_get_object_tasks: RemoteGetObjectTasks,
 	remote_list_tags_tasks: RemoteListTagsTasks,
 	sandbox_manager: tangram_sandbox::Manager,
 	sandbox_permits: SandboxPermits,
@@ -142,8 +146,8 @@ struct SandboxPermit(
 
 type SandboxTasks = tangram_futures::task::Map<tg::sandbox::Id, (), (), tg::id::BuildHasher>;
 
-type RemoteGetObjectTasks = tangram_futures::task::Map<
-	crate::object::get::RemoteObjectGetTaskKey,
+type ObjectGetTasks = tangram_futures::task::Map<
+	crate::object::get::ObjectGetTaskKey,
 	tg::Result<Option<tg::object::get::Output>>,
 	(),
 	fnv::FnvBuildHasher,
@@ -349,6 +353,52 @@ impl Server {
 			},
 		};
 
+		// Create the register.
+		let register = match &config.register {
+			self::config::Database::Postgres(options) => {
+				#[cfg(not(feature = "postgres"))]
+				{
+					let _ = options;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with postgres support"
+					));
+				}
+				#[cfg(feature = "postgres")]
+				{
+					let options = db::postgres::DatabaseOptions {
+						connections: options.connections.unwrap_or(parallelism),
+						url: options.url.clone(),
+					};
+					let register = db::postgres::Database::new(options)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to create the register"))?;
+					Database::Postgres(register)
+				}
+			},
+			self::config::Database::Sqlite(config) => {
+				#[cfg(not(feature = "sqlite"))]
+				{
+					let _ = config;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with sqlite support"
+					));
+				}
+				#[cfg(feature = "sqlite")]
+				{
+					let initialize = Arc::new(self::database::sqlite::initialize);
+					let options = db::sqlite::DatabaseOptions {
+						connections: config.connections.unwrap_or(parallelism),
+						initialize,
+						path: path.join(&config.path),
+					};
+					let register = db::sqlite::Database::new(options)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to create the register"))?;
+					Database::Sqlite(register)
+				}
+			},
+		};
+
 		// Create the diagnostics.
 		let diagnostics = Mutex::new(Vec::new());
 
@@ -483,11 +533,14 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to create stdio stream"))?;
 		}
 
+		// Create the peers.
+		let peers = DashMap::default();
+
+		// Create the object get tasks.
+		let object_get_tasks = tangram_futures::task::Map::default();
+
 		// Create the remotes.
 		let remotes = DashMap::default();
-
-		// Create the remote get object tasks.
-		let remote_get_object_tasks = tangram_futures::task::Map::default();
 
 		// Create the remote list tags tasks.
 		let remote_list_tags_tasks = tangram_futures::task::Map::default();
@@ -569,8 +622,10 @@ impl Server {
 			lock,
 			messenger,
 			path,
+			peers,
+			object_get_tasks,
+			register,
 			remotes,
-			remote_get_object_tasks,
 			remote_list_tags_tasks,
 			sandbox_manager,
 			sandbox_permits,
@@ -589,6 +644,14 @@ impl Server {
 			self::database::sqlite::migrate(database)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to migrate the database"))?;
+		}
+
+		// Migrate the register if necessary.
+		#[cfg(feature = "sqlite")]
+		if let Ok(register) = server.register.try_unwrap_sqlite_ref() {
+			self::register::sqlite::migrate(register)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to migrate the register"))?;
 		}
 
 		// Finish unfinished processes if single process mode is enabled.
@@ -931,17 +994,17 @@ impl Server {
 				}
 				tracing::trace!("cache tasks");
 
-				// Abort the remote get object tasks.
-				server.remote_get_object_tasks.abort_all();
-				let results = server.remote_get_object_tasks.wait().await;
+				// Abort the object get tasks.
+				server.object_get_tasks.abort_all();
+				let results = server.object_get_tasks.wait().await;
 				for result in results {
 					if let Err(error) = result
 						&& !error.is_cancelled()
 					{
-						tracing::error!(?error, "a remote get object task panicked");
+						tracing::error!(?error, "an object get task panicked");
 					}
 				}
-				tracing::trace!("remote get object tasks");
+				tracing::trace!("object get tasks");
 
 				// Abort the remote list tags tasks.
 				server.remote_list_tags_tasks.abort_all();
@@ -1142,6 +1205,20 @@ impl Server {
 		}
 	}
 
+	pub async fn peers(
+		&self,
+		local: Option<bool>,
+		remotes: Option<Vec<String>>,
+	) -> tg::Result<Vec<String>> {
+		if !Self::local(local, remotes.as_ref()) {
+			return Ok(Vec::new());
+		}
+		let peers = self.config.peers.as_ref().map_or_else(Vec::new, |peers| {
+			peers.iter().map(|peer| peer.name.clone()).collect()
+		});
+		Ok(peers)
+	}
+
 	pub async fn remotes(
 		&self,
 		local: Option<bool>,
@@ -1214,7 +1291,7 @@ impl Drop for Owned {
 		self.cache_tasks.abort_all();
 		self.library.lock().unwrap().take();
 		self.sandbox_tasks.abort_all();
-		self.remote_get_object_tasks.abort_all();
+		self.object_get_tasks.abort_all();
 		self.remote_list_tags_tasks.abort_all();
 		self.index_tasks.abort_all();
 		self.vfs.lock().unwrap().take();

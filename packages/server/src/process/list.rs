@@ -31,6 +31,16 @@ impl Server {
 			output.data.extend(local_outputs);
 		}
 
+		// List the peer processes if requested.
+		let peers = self
+			.peers(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
+		let peer_outputs = self.list_processes_peer(&peers).await?;
+		output
+			.data
+			.extend(peer_outputs.into_iter().flat_map(|output| output.data));
+
 		// List the remote processes if requested.
 		let remotes = self
 			.remotes(arg.local, arg.remotes.clone())
@@ -65,12 +75,39 @@ impl Server {
 	}
 
 	pub(crate) async fn list_processes_local(&self) -> tg::Result<Vec<tg::process::get::Output>> {
-		match &self.database {
+		match &self.register {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(database) => self.list_processes_postgres(database).await,
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(database) => self.list_processes_sqlite(database).await,
 		}
+	}
+
+	async fn list_processes_peer(
+		&self,
+		peers: &[String],
+	) -> tg::Result<Vec<tg::process::list::Output>> {
+		let peer_outputs = peers
+			.iter()
+			.map(|peer| {
+				let arg = tg::process::list::Arg {
+					local: None,
+					remotes: None,
+				};
+				async move {
+					let client = self.get_peer_client(peer.clone()).await.map_err(
+						|source| tg::error!(!source, peer = %peer, "failed to get the peer client"),
+					)?;
+					let output = client.list_processes(arg).await.map_err(
+						|source| tg::error!(!source, peer = %peer, "failed to list processes"),
+					)?;
+					Ok::<_, tg::Error>(output)
+				}
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+		Ok(peer_outputs)
 	}
 
 	pub(crate) async fn handle_list_processes_request(

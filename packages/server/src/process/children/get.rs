@@ -1,6 +1,9 @@
 use {
 	crate::{Context, Server},
-	futures::{Stream, StreamExt as _, stream},
+	futures::{
+		StreamExt as _,
+		stream::{self, BoxStream},
+	},
 	indoc::formatdoc,
 	num::ToPrimitive as _,
 	std::time::Duration,
@@ -23,11 +26,7 @@ impl Server {
 		_context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
-	) -> tg::Result<
-		Option<
-			impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static + use<>,
-		>,
-	> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
 		// Try local first if requested.
 		if Self::local(arg.local, arg.remotes.as_ref())
 			&& let Some(stream) = self
@@ -35,7 +34,19 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the process children"))?
 		{
-			return Ok(Some(stream.left_stream()));
+			return Ok(Some(stream));
+		}
+
+		// Try peers.
+		let peers = self
+			.peers(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
+		if let Some(stream) = self
+			.try_get_process_children_peer(id, arg.clone(), &peers)
+			.await?
+		{
+			return Ok(Some(stream));
 		}
 
 		// Try remotes.
@@ -47,7 +58,7 @@ impl Server {
 			.try_get_process_children_remote(id, arg.clone(), &remotes)
 			.await?
 		{
-			return Ok(Some(stream.right_stream()));
+			return Ok(Some(stream));
 		}
 
 		Ok(None)
@@ -57,11 +68,7 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
-	) -> tg::Result<
-		Option<
-			impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static + use<>,
-		>,
-	> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
 		// Verify the process is local.
 		if !self
 			.get_process_exists_local(id)
@@ -86,7 +93,7 @@ impl Server {
 			}
 		});
 
-		let stream = receiver.attach(task);
+		let stream = receiver.attach(task).boxed();
 
 		Ok(Some(stream))
 	}
@@ -206,7 +213,7 @@ impl Server {
 	) -> tg::Result<u64> {
 		// Get a database connection.
 		let connection = self
-			.database
+			.register
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -240,7 +247,7 @@ impl Server {
 	) -> tg::Result<tg::process::children::get::Chunk> {
 		// Get a database connection.
 		let connection = self
-			.database
+			.register
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -290,16 +297,67 @@ impl Server {
 		Ok(chunk)
 	}
 
+	async fn try_get_process_children_peer(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::children::get::Arg,
+		peers: &[String],
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
+		if peers.is_empty() {
+			return Ok(None);
+		}
+		let arg = tg::process::children::get::Arg {
+			local: None,
+			remotes: None,
+			..arg
+		};
+		let mut error = None;
+		let mut stream = None;
+		for peer in peers {
+			let client = match self.get_peer_client(peer.clone()).await {
+				Ok(client) => client,
+				Err(source) => {
+					error.replace(tg::error!(
+						!source,
+						peer = %peer,
+						"failed to get the peer client"
+					));
+					continue;
+				},
+			};
+			match client
+				.try_get_process_children_stream(id, arg.clone())
+				.await
+			{
+				Ok(Some(peer_stream)) => {
+					stream.replace(peer_stream.boxed());
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					error.replace(tg::error!(
+						!source,
+						peer = %peer,
+						"failed to get the process children"
+					));
+				},
+			}
+		}
+		if let Some(stream) = stream {
+			return Ok(Some(stream));
+		}
+		if let Some(error) = error {
+			return Err(error);
+		}
+		Ok(None)
+	}
+
 	async fn try_get_process_children_remote(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 		remotes: &[String],
-	) -> tg::Result<
-		Option<
-			impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static + use<>,
-		>,
-	> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
 		if remotes.is_empty() {
 			return Ok(None);
 		}
@@ -316,7 +374,7 @@ impl Server {
 				Err(source) => {
 					error.replace(tg::error!(
 						!source,
-						%remote,
+						remote = %remote,
 						"failed to get the remote client"
 					));
 					continue;
@@ -334,7 +392,7 @@ impl Server {
 				Err(source) => {
 					error.replace(tg::error!(
 						!source,
-						%remote,
+						remote = %remote,
 						"failed to get the process children"
 					));
 				},

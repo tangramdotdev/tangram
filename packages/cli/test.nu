@@ -9,8 +9,8 @@ const server_exit_directory_name = 'server_jobs'
 
 def main [
 	--accept (-a) # Accept all new and updated snapshots.
-	--clean # Clean up leftover test resources from postgres, scylla, and nats.
-	--cloud # Enable cloud database backends (postgres, scylla, nats) for spawn --cloud.
+	--clean # Clean up leftover test resources from cockroach, postgres, scylla, and nats.
+	--cloud # Enable cloud database backends (cockroach, postgres, scylla, nats) for spawn --cloud.
 	--jobs (-j): int # The number of concurrent tests to run.
 	--preserve-temps # Keep the temporary directories.
 	--no-capture # Do not capture the output of each test. This sets --jobs to 1.
@@ -26,11 +26,18 @@ def main [
 			remove_temp_directory $entry.name
 		}
 
-		let preserved_dbs = ['postgres', 'template0', 'template1', 'database']
+		let preserved_dbs = ['postgres', 'template0', 'template1', 'register']
 		let dbs = psql -U postgres -h localhost -t -c "SELECT datname FROM pg_database" | lines | str trim | where { $in not-in $preserved_dbs and $in != '' }
 		for db in $dbs {
 			print -e $"dropping postgres database ($db)"
 			try { dropdb -U postgres -h localhost $db }
+		}
+
+		let preserved_cockroach_dbs = ['database', 'defaultdb', 'postgres', 'register', 'system']
+		let cockroach_dbs = cockroach sql --insecure --host=localhost:26257 --format=csv -e 'show databases;' | from csv | get database_name | where { $in not-in $preserved_cockroach_dbs }
+		for db in $cockroach_dbs {
+			print -e $"dropping cockroach database ($db)"
+			try { cockroach sql --insecure --host=localhost:26257 -e $'drop database if exists ($db) cascade' }
 		}
 
 		let preserved_streams = ['processes.finalize.queue', 'sandboxes.queue', 'sandboxes.processes.queue', 'processes.stdio']
@@ -740,25 +747,39 @@ export def --env spawn [
 		$id ++ "\n" | save --append (($nu.temp-dir? | default $nu.temp-path?) | path join 'ids')
 		print -e $id
 
-		createdb -U postgres -h localhost $'database_($id)'
-		psql -U postgres -h localhost -d $'database_($id)' -f ($repository_path | path join packages/server/src/database/postgres.sql)
+		cockroach sql --insecure --host=localhost:26257 -e $'create database ($id)'
+		cockroach sql --insecure --host=localhost:26257 -d $id -f ($repository_path | path join packages/server/src/database/postgres.sql)
+
+		createdb -U postgres -h localhost $id
+		psql -U postgres -h localhost -d $id -f ($repository_path | path join packages/server/src/register/postgres.sql)
 
 		let cluster = mktemp -t
 		"docker:docker@localhost:4500" | save -f $cluster
 
-		nats stream create $'processes.finalize.queue_($id)' --retention work --subjects $'($id).processes.finalize.queue' --defaults
-		nats stream create $'sandboxes.queue_($id)' --discard new --retention work --subjects $'($id).sandboxes.queue' --defaults
-		nats stream create $'sandboxes.processes.queue_($id)' --discard new --retention work --subjects $'($id).sandboxes.*.processes.queue' --defaults
-		nats stream create $'processes.stdio_($id)' --discard new --retention work --subjects $'($id).processes.stdio.*.*' --defaults
+		let processes_finalize_queue = 'processes.finalize.queue'
+		let sandboxes_queue = 'sandboxes.queue'
+		let sandboxes_processes_queue = 'sandboxes.processes.queue'
+		let sandboxes_processes_subject = 'sandboxes.*.processes.queue'
+		let processes_stdio = 'processes.stdio'
 
-		cqlsh -e $"create keyspace \"store_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
-		cqlsh -k $'store_($id)' -f ($repository_path | path join packages/store/src/scylla.cql)
+		nats stream create $'($processes_finalize_queue)_($id)' --retention work --subjects $'($id).($processes_finalize_queue)' --defaults
+		nats stream create $'($sandboxes_queue)_($id)' --discard new --retention work --subjects $'($id).($sandboxes_queue)' --defaults
+		nats stream create $'($sandboxes_processes_queue)_($id)' --discard new --retention work --subjects $'($id).($sandboxes_processes_subject)' --defaults
+		nats stream create $'($processes_stdio)_($id)' --discard new --retention work --subjects $'($id).($processes_stdio).*.*' --defaults
+
+		cqlsh -e $"create keyspace \"($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
+		cqlsh -k $id -f ($repository_path | path join packages/store/src/scylla.cql)
 
 		let config = {
 			database: {
 				kind: 'postgres',
 				connections: 1,
-				url: $'postgres://postgres@localhost:5432/database_($id)',
+				url: $'postgres://root@localhost:26257/($id)?sslmode=disable',
+			},
+			register: {
+				kind: 'postgres',
+				connections: 1,
+				url: $'postgres://postgres@localhost:5432/($id)',
 			},
 			index: {
 				kind: 'fdb',
@@ -775,7 +796,7 @@ export def --env spawn [
 				kind: 'scylla',
 				addr: 'localhost:9042',
 				connections: 1,
-				keyspace: $'store_($id)',
+				keyspace: $id,
 			},
 			watchdog: {
 				batch_size: 100,
@@ -877,8 +898,16 @@ export def --env spawn [
 }
 
 def clean_databases [id: string] {
-	# Drop the postgres database.
-	try { dropdb -U postgres -h localhost $'database_($id)' }
+	let processes_finalize_queue = 'processes.finalize.queue'
+	let sandboxes_queue = 'sandboxes.queue'
+	let sandboxes_processes_queue = 'sandboxes.processes.queue'
+	let processes_stdio = 'processes.stdio'
+
+	# Drop the Cockroach database.
+	try { cockroach sql --insecure --host=localhost:26257 -e $'drop database if exists ($id) cascade' }
+
+	# Drop the Postgres database.
+	try { dropdb -U postgres -h localhost $id }
 
 	# Clear the fdb key range.
 	let cluster = mktemp -t
@@ -886,13 +915,13 @@ def clean_databases [id: string] {
 	try { fdbcli -C $cluster --exec $'writemode on; clearrange "($id)" "($id)\xff"' }
 
 	# Remove the NATS streams.
-	try { nats stream rm -f $'processes.finalize.queue_($id)' }
-	try { nats stream rm -f $'sandboxes.queue_($id)' }
-	try { nats stream rm -f $'sandboxes.processes.queue_($id)' }
-	try { nats stream rm -f $'processes.stdio_($id)' }
+	try { nats stream rm -f $'($processes_finalize_queue)_($id)' }
+	try { nats stream rm -f $'($sandboxes_queue)_($id)' }
+	try { nats stream rm -f $'($sandboxes_processes_queue)_($id)' }
+	try { nats stream rm -f $'($processes_stdio)_($id)' }
 
 	# Drop the scylla keyspace.
-	try { cqlsh -e $"drop keyspace \"store_($id)\";" }
+	try { cqlsh -e $"drop keyspace \"($id)\";" }
 }
 
 def diff [old: string, new: string, --path] {

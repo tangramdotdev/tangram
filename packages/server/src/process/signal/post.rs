@@ -12,39 +12,120 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
 	) -> tg::Result<()> {
-		// Forward to remote if requested.
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self
-				.get_remote_client(remote)
+		if Self::local(arg.local, arg.remotes.as_ref())
+			&& let Some(output) = self
+				.try_get_process_local(id, false)
 				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
-			let arg = tg::process::signal::post::Arg {
-				local: None,
-				remotes: None,
-				signal: arg.signal,
-			};
-			return client.post_process_signal(id, arg).await;
+				.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
+		{
+			return self
+				.post_process_signal_local(id, arg.signal, output.data.cacheable)
+				.await;
 		}
 
-		// Check if the process is cacheable.
-		if tg::Process::new(id.clone(), None, None, None, None, None)
-			.load(self)
+		let peers = self
+			.peers(arg.local, arg.remotes.clone())
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to load the process"))?
-			.cacheable
-		{
+			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
+		if self.post_process_signal_peer(id, &arg, &peers).await? {
+			return Ok(());
+		}
+
+		let remotes = self
+			.remotes(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
+		if self.post_process_signal_remote(id, &arg, &remotes).await? {
+			return Ok(());
+		}
+
+		Err(tg::error!("failed to find the process"))
+	}
+
+	async fn post_process_signal_local(
+		&self,
+		id: &tg::process::Id,
+		signal: tg::process::Signal,
+		cacheable: bool,
+	) -> tg::Result<()> {
+		// Check if the process is cacheable.
+		if cacheable {
 			return Err(tg::error!(%id, "cannot signal cacheable processes"));
 		}
 
 		// Publish the signal message.
 		let payload =
-			tangram_messenger::payload::Json(tg::process::signal::get::Event::Signal(arg.signal));
+			tangram_messenger::payload::Json(tg::process::signal::get::Event::Signal(signal));
 		self.messenger
 			.publish(format!("processes.{id}.signal"), payload)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to signal the process"))?;
 
 		Ok(())
+	}
+
+	async fn post_process_signal_peer(
+		&self,
+		id: &tg::process::Id,
+		arg: &tg::process::signal::post::Arg,
+		peers: &[String],
+	) -> tg::Result<bool> {
+		for peer in peers {
+			let client = self.get_peer_client(peer.clone()).await.map_err(
+				|source| tg::error!(!source, %id, peer = %peer, "failed to get the peer client"),
+			)?;
+			let output = client
+				.try_get_process(id, tg::process::get::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, peer = %peer, "failed to get the process"),
+				)?;
+			if output.is_none() {
+				continue;
+			}
+			let arg = tg::process::signal::post::Arg {
+				local: None,
+				remotes: None,
+				signal: arg.signal,
+			};
+			client.post_process_signal(id, arg).await.map_err(
+				|source| tg::error!(!source, %id, peer = %peer, "failed to post the process signal"),
+			)?;
+			return Ok(true);
+		}
+		Ok(false)
+	}
+
+	async fn post_process_signal_remote(
+		&self,
+		id: &tg::process::Id,
+		arg: &tg::process::signal::post::Arg,
+		remotes: &[String],
+	) -> tg::Result<bool> {
+		for remote in remotes {
+			let client = self.get_remote_client(remote.clone()).await.map_err(
+				|source| tg::error!(!source, %id, remote = %remote, "failed to get the remote client"),
+			)?;
+			let output = client
+				.try_get_process(id, tg::process::get::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, remote = %remote, "failed to get the process"),
+				)?;
+			if output.is_none() {
+				continue;
+			}
+			let arg = tg::process::signal::post::Arg {
+				local: None,
+				remotes: None,
+				signal: arg.signal,
+			};
+			client.post_process_signal(id, arg).await.map_err(
+				|source| tg::error!(!source, %id, remote = %remote, "failed to post the process signal"),
+			)?;
+			return Ok(true);
+		}
+		Ok(false)
 	}
 
 	pub(crate) async fn handle_post_process_signal_request(

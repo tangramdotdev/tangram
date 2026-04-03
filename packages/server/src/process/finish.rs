@@ -15,38 +15,40 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
 	) -> tg::Result<()> {
-		// If the remote arg is set, then forward the request.
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self
-				.get_remote_client(remote)
+		if Self::local(arg.local, arg.remotes.as_ref())
+			&& self
+				.get_process_exists_local(id)
 				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
-			let arg = tg::process::finish::Arg {
-				checksum: arg.checksum,
-				error: arg.error,
-				exit: arg.exit,
-				local: None,
-				output: arg.output,
-				remotes: None,
-			};
-			if let Err(error) = client.finish_process(id, arg).await {
-				let output = client
-					.try_get_process(id, tg::process::get::Arg::default())
-					.await
-					.map_err(|source| {
-						tg::error!(
-							!source,
-							%id,
-							"failed to confirm the process state after the finish request failed"
-						)
-					})?;
-				if output.is_none_or(|output| !output.data.status.is_finished()) {
-					return Err(tg::error!(!error, %id, "failed to finish the process"));
-				}
-			}
+				.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
+		{
+			return self.finish_process_local(context, id, arg).await;
+		}
+
+		let peers = self
+			.peers(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
+		if self.finish_process_peer(id, &arg, &peers).await? {
 			return Ok(());
 		}
 
+		let remotes = self
+			.remotes(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
+		if self.finish_process_remote(id, &arg, &remotes).await? {
+			return Ok(());
+		}
+
+		Err(tg::error!("failed to find the process"))
+	}
+
+	async fn finish_process_local(
+		&self,
+		context: &Context,
+		id: &tg::process::Id,
+		arg: tg::process::finish::Arg,
+	) -> tg::Result<()> {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
@@ -69,7 +71,7 @@ impl Server {
 
 		// Get the process's children.
 		let connection = self
-			.database
+			.register
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -149,7 +151,7 @@ impl Server {
 
 		// Get a database connection.
 		let connection = self
-			.database
+			.register
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -265,6 +267,112 @@ impl Server {
 		});
 
 		Ok(())
+	}
+
+	async fn finish_process_peer(
+		&self,
+		id: &tg::process::Id,
+		arg: &tg::process::finish::Arg,
+		peers: &[String],
+	) -> tg::Result<bool> {
+		for peer in peers {
+			let client = self.get_peer_client(peer.clone()).await.map_err(
+				|source| tg::error!(!source, %id, peer = %peer, "failed to get the peer client"),
+			)?;
+			let output = client
+				.try_get_process(id, tg::process::get::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, peer = %peer, "failed to get the process"),
+				)?;
+			if output.is_none() {
+				continue;
+			}
+			let arg = tg::process::finish::Arg {
+				checksum: arg.checksum.clone(),
+				error: arg.error.clone(),
+				exit: arg.exit,
+				local: None,
+				output: arg.output.clone(),
+				remotes: None,
+			};
+			if let Err(error) = client.finish_process(id, arg).await {
+				let output = client
+					.try_get_process(id, tg::process::get::Arg::default())
+					.await
+					.map_err(|source| {
+						tg::error!(
+							!source,
+							%id,
+							peer = %peer,
+							"failed to confirm the process state after the finish request failed"
+						)
+					})?;
+				if output.is_none_or(|output| !output.data.status.is_finished()) {
+					return Err(tg::error!(
+						!error,
+						%id,
+						peer = %peer,
+						"failed to finish the process"
+					));
+				}
+			}
+			return Ok(true);
+		}
+		Ok(false)
+	}
+
+	async fn finish_process_remote(
+		&self,
+		id: &tg::process::Id,
+		arg: &tg::process::finish::Arg,
+		remotes: &[String],
+	) -> tg::Result<bool> {
+		for remote in remotes {
+			let client = self.get_remote_client(remote.clone()).await.map_err(
+				|source| tg::error!(!source, %id, remote = %remote, "failed to get the remote client"),
+			)?;
+			let output = client
+				.try_get_process(id, tg::process::get::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, remote = %remote, "failed to get the process"),
+				)?;
+			if output.is_none() {
+				continue;
+			}
+			let arg = tg::process::finish::Arg {
+				checksum: arg.checksum.clone(),
+				error: arg.error.clone(),
+				exit: arg.exit,
+				local: None,
+				output: arg.output.clone(),
+				remotes: None,
+			};
+			if let Err(error) = client.finish_process(id, arg).await {
+				let output = client
+					.try_get_process(id, tg::process::get::Arg::default())
+					.await
+					.map_err(|source| {
+						tg::error!(
+							!source,
+							%id,
+							remote = %remote,
+							"failed to confirm the process state after the finish request failed"
+						)
+					})?;
+				if output.is_none_or(|output| !output.data.status.is_finished()) {
+					return Err(tg::error!(
+						!error,
+						%id,
+						remote = %remote,
+						"failed to finish the process"
+					));
+				}
+			}
+			return Ok(true);
+		}
+		Ok(false)
 	}
 
 	pub(crate) async fn handle_finish_process_request(

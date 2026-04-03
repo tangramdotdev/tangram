@@ -42,7 +42,7 @@ impl Server {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Insert the process into the database.
-		match &self.database {
+		match &self.register {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(database) => {
 				Self::put_process_postgres(id, &arg, database, now)

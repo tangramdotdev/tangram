@@ -38,7 +38,7 @@ pub fn initialize(connection: &sqlite::Connection) -> sqlite::Result<()> {
 }
 
 pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
-	let schema_version = 2;
+	let schema_version = 3;
 
 	let connection = database
 		.connection()
@@ -55,17 +55,16 @@ pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 		.await?;
 	drop(connection);
 
-	// Fail on databases from older incompatible schemas.
-	if version == 1 {
-		return Err(tg::error!(
-			"the database schema is incompatible with this version of tangram; please recreate the data directory"
-		));
-	}
-
-	// If this path is from a newer version of Tangram, then return an error.
 	if version > schema_version {
 		return Err(tg::error!(
 			r"The database has run migrations from a newer version of Tangram. Please run `tg self update` to update to the latest version of Tangram."
+		));
+	}
+
+	// Fail on databases from older incompatible schemas.
+	if version != 0 && version != schema_version {
+		return Err(tg::error!(
+			"the database schema is incompatible with this version of tangram; please recreate the data directory"
 		));
 	}
 

@@ -1,5 +1,8 @@
-createdb -U postgres -h localhost database
-psql -U postgres -h localhost -d database -f packages/server/src/database/postgres.sql
+cockroach sql --insecure --host=localhost:26257 -e 'create database database'
+cockroach sql --insecure --host=localhost:26257 -d database -f packages/server/src/database/postgres.sql
+
+createdb -U postgres -h localhost register
+psql -U postgres -h localhost -d register -f packages/server/src/register/postgres.sql
 
 nats stream create processes.finalize.queue --retention work --subjects processes.finalize.queue --defaults
 nats stream create sandboxes.queue --discard new --retention work --subjects sandboxes.queue --defaults

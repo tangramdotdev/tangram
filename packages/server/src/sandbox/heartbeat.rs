@@ -13,25 +13,43 @@ impl Server {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::heartbeat::Arg,
 	) -> tg::Result<tg::sandbox::heartbeat::Output> {
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self
-				.get_remote_client(remote)
+		if Self::local(arg.local, arg.remotes.as_ref())
+			&& self
+				.get_sandbox_exists_local(id)
 				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
-			let arg = tg::sandbox::heartbeat::Arg {
-				local: None,
-				remotes: None,
-			};
-			let output = client.heartbeat_sandbox(id, arg).await?;
+				.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox"))?
+		{
+			if context.process.is_some() {
+				return Err(tg::error!("forbidden"));
+			}
+			return self.heartbeat_sandbox_local(id).await;
+		}
+
+		let peers = self
+			.peers(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
+		if let Some(output) = self.heartbeat_sandbox_peer(id, &peers).await? {
 			return Ok(output);
 		}
 
-		if context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		let remotes = self
+			.remotes(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
+		if let Some(output) = self.heartbeat_sandbox_remote(id, &remotes).await? {
+			return Ok(output);
 		}
 
+		Err(tg::error!("failed to find the sandbox"))
+	}
+
+	async fn heartbeat_sandbox_local(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<tg::sandbox::heartbeat::Output> {
 		let connection = self
-			.database
+			.register
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -55,6 +73,64 @@ impl Server {
 		drop(connection);
 		let status = self.get_current_sandbox_status_local(id).await?;
 		Ok(tg::sandbox::heartbeat::Output { status })
+	}
+
+	async fn heartbeat_sandbox_peer(
+		&self,
+		id: &tg::sandbox::Id,
+		peers: &[String],
+	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
+		for peer in peers {
+			let client = self.get_peer_client(peer.clone()).await.map_err(
+				|source| tg::error!(!source, %id, peer = %peer, "failed to get the peer client"),
+			)?;
+			let output = client
+				.try_get_sandbox(id, tg::sandbox::get::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, peer = %peer, "failed to get the sandbox"),
+				)?;
+			if output.is_none() {
+				continue;
+			}
+			let output = client
+				.heartbeat_sandbox(id, tg::sandbox::heartbeat::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, peer = %peer, "failed to heartbeat the sandbox"),
+				)?;
+			return Ok(Some(output));
+		}
+		Ok(None)
+	}
+
+	async fn heartbeat_sandbox_remote(
+		&self,
+		id: &tg::sandbox::Id,
+		remotes: &[String],
+	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
+		for remote in remotes {
+			let client = self.get_remote_client(remote.clone()).await.map_err(
+				|source| tg::error!(!source, %id, remote = %remote, "failed to get the remote client"),
+			)?;
+			let output = client
+				.try_get_sandbox(id, tg::sandbox::get::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, remote = %remote, "failed to get the sandbox"),
+				)?;
+			if output.is_none() {
+				continue;
+			}
+			let output = client
+				.heartbeat_sandbox(id, tg::sandbox::heartbeat::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, remote = %remote, "failed to heartbeat the sandbox"),
+				)?;
+			return Ok(Some(output));
+		}
+		Ok(None)
 	}
 
 	pub(crate) async fn handle_heartbeat_sandbox_request(

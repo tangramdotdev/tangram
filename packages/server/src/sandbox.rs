@@ -33,7 +33,7 @@ impl Server {
 			user: Option<String>,
 		}
 		let connection = self
-			.database
+			.register
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -64,7 +64,7 @@ impl Server {
 
 	pub(crate) async fn get_sandbox_exists_local(&self, id: &tg::sandbox::Id) -> tg::Result<bool> {
 		let connection = self
-			.database
+			.register
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -87,7 +87,7 @@ impl Server {
 
 	pub(crate) async fn try_start_sandbox_local(&self, id: &tg::sandbox::Id) -> tg::Result<bool> {
 		let connection = self
-			.database
+			.register
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -118,7 +118,7 @@ impl Server {
 
 	pub(crate) async fn try_finish_sandbox_local(&self, id: &tg::sandbox::Id) -> tg::Result<bool> {
 		let connection = self
-			.database
+			.register
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -183,7 +183,7 @@ impl Server {
 			id: tg::process::Id,
 		}
 		let connection = self
-			.database
+			.register
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;

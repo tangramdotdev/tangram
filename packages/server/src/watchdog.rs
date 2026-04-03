@@ -58,7 +58,7 @@ impl Server {
 		config: &crate::config::Watchdog,
 	) -> tg::Result<u64> {
 		let connection = self
-			.database
+			.register
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -178,7 +178,7 @@ impl Server {
 		id: &tg::sandbox::Id,
 	) -> tg::Result<bool> {
 		let connection = self
-			.database
+			.register
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;

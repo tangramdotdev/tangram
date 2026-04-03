@@ -12,33 +12,98 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::touch::Arg,
 	) -> tg::Result<()> {
-		// If the remote arg is set, then forward the request.
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self
-				.get_remote_client(remote)
+		if Self::local(arg.local, arg.remotes.as_ref())
+			&& self
+				.get_process_exists_local(id)
 				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
-			let arg = tg::process::touch::Arg {
-				local: None,
-				remotes: None,
-			};
-			client.touch_process(id, arg).await.map_err(
-				|source| tg::error!(!source, %id, "failed to touch the process on the remote"),
-			)?;
+				.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
+		{
+			if context.process.is_some() {
+				return Err(tg::error!("forbidden"));
+			}
+			return self.touch_process_local(id).await;
+		}
+
+		let peers = self
+			.peers(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
+		if self.touch_process_peer(id, &peers).await? {
 			return Ok(());
 		}
 
-		if context.process.is_some() {
-			return Err(tg::error!("forbidden"));
+		let remotes = self
+			.remotes(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
+		if self.touch_process_remote(id, &remotes).await? {
+			return Ok(());
 		}
 
+		Err(tg::error!("failed to find the process"))
+	}
+
+	async fn touch_process_local(&self, id: &tg::process::Id) -> tg::Result<()> {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		self.index
 			.touch_process(id, touched_at)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to touch the process"))?;
-
 		Ok(())
+	}
+
+	async fn touch_process_peer(&self, id: &tg::process::Id, peers: &[String]) -> tg::Result<bool> {
+		for peer in peers {
+			let client = self.get_peer_client(peer.clone()).await.map_err(
+				|source| tg::error!(!source, %id, peer = %peer, "failed to get the peer client"),
+			)?;
+			let output = client
+				.try_get_process(id, tg::process::get::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, peer = %peer, "failed to get the process"),
+				)?;
+			if output.is_none() {
+				continue;
+			}
+			client
+				.touch_process(id, tg::process::touch::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, peer = %peer, "failed to touch the process"),
+				)?;
+			return Ok(true);
+		}
+		Ok(false)
+	}
+
+	async fn touch_process_remote(
+		&self,
+		id: &tg::process::Id,
+		remotes: &[String],
+	) -> tg::Result<bool> {
+		for remote in remotes {
+			let client = self.get_remote_client(remote.clone()).await.map_err(
+				|source| tg::error!(!source, %id, remote = %remote, "failed to get the remote client"),
+			)?;
+			let output = client
+				.try_get_process(id, tg::process::get::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, remote = %remote, "failed to get the process"),
+				)?;
+			if output.is_none() {
+				continue;
+			}
+			client
+				.touch_process(id, tg::process::touch::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, remote = %remote, "failed to touch the process"),
+				)?;
+			return Ok(true);
+		}
+		Ok(false)
 	}
 
 	pub(crate) async fn handle_touch_process_request(

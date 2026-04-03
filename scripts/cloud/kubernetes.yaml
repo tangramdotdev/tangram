@@ -48,6 +48,52 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
+  name: cockroach
+spec:
+  type: LoadBalancer
+  selector:
+    app: cockroach
+  ports:
+    - port: 26257
+      targetPort: 26257
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cockroach
+  labels:
+    app: cockroach
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cockroach
+  template:
+    metadata:
+      labels:
+        app: cockroach
+    spec:
+      containers:
+        - name: cockroach
+          image: cockroachdb/cockroach:v25.2.11
+          args:
+            - start-single-node
+            - --insecure
+          ports:
+            - containerPort: 26257
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health?ready=1
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 1
+            timeoutSeconds: 5
+            failureThreshold: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: scylla
 spec:
   type: LoadBalancer

@@ -152,7 +152,7 @@ impl Server {
 
 		// Get a database connection.
 		let mut connection = self
-			.database
+			.register
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -302,31 +302,44 @@ impl Server {
 		};
 
 		// Create a future that will attempt to get a cached remote process if possible.
-		let remote_future = {
+		let cached_future = {
 			async {
 				if finished {
 					return Ok::<_, tg::Error>(None);
 				}
 				if cacheable && matches!(arg.cached, None | Some(true)) {
-					let Some(output) =
-						self.try_get_cached_process_remote(&arg)
-							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to get a cached remote process")
-							})?
-					else {
-						return Ok(None);
-					};
-					Ok(Some(output))
+					let peers = self
+						.peers(None, None)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
+					if let Some(output) = self
+						.try_get_cached_process_peer(&arg, &peers)
+						.await
+						.map_err(|source| {
+							tg::error!(!source, "failed to get a cached peer process")
+						})? {
+						return Ok(Some(output));
+					}
+					let remotes = self
+						.remotes(None, None)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
+					let output = self
+						.try_get_cached_process_remote(&arg, &remotes)
+						.await
+						.map_err(|source| {
+							tg::error!(!source, "failed to get a cached remote process")
+						})?;
+					Ok(output)
 				} else {
 					Ok(None)
 				}
 			}
 		};
 
-		// If the local process finishes before the remote responds, then use the local process. If a remote process is found sooner, then spawn a task to cancel the local process and use the remote process.
-		let output = match future::select(pin!(local_future), pin!(remote_future)).await {
-			future::Either::Left((result, remote_future)) => {
+		// If the local process finishes before the cached lookup responds, then use the local process. If a cached process is found sooner, then spawn a task to cancel the local process and use the cached process.
+		let output = match future::select(pin!(local_future), pin!(cached_future)).await {
+			future::Either::Left((result, cached_future)) => {
 				if let Some(wait) = result? {
 					let output = output.unwrap();
 					tg::process::spawn::Output {
@@ -337,14 +350,14 @@ impl Server {
 						wait: Some(wait),
 					}
 				} else {
-					let Some(remote_output) = remote_future.await? else {
+					let Some(cached_output) = cached_future.await? else {
 						return Ok(None);
 					};
-					remote_output
+					cached_output
 				}
 			},
 			future::Either::Right((result, _)) => {
-				if let Ok(Some(remote_output)) = result {
+				if let Ok(Some(cached_output)) = result {
 					if let Some(output) = output
 						&& let Some(token) = output.token
 					{
@@ -360,7 +373,7 @@ impl Server {
 							}
 						});
 					}
-					remote_output
+					cached_output
 				} else {
 					let Some(output) = output else {
 						return Ok(None);
@@ -1107,17 +1120,80 @@ impl Server {
 			.map(|permit| SandboxPermit(tg::Either::Left(permit)))
 	}
 
+	async fn try_get_cached_process_peer(
+		&self,
+		arg: &tg::process::spawn::Arg,
+		peers: &[String],
+	) -> tg::Result<Option<tg::process::spawn::Output>> {
+		if peers.is_empty() {
+			return Ok(None);
+		}
+		let clients = peers
+			.iter()
+			.map(|peer| async move {
+				let client = self.get_peer_client(peer.clone()).await.map_err(
+					|source| tg::error!(!source, peer = %peer, "failed to get the peer client"),
+				)?;
+				Ok::<_, tg::Error>((peer.clone(), client))
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+		let streams = clients
+			.into_iter()
+			.map(|(_peer, client)| {
+				let arg = arg.clone();
+				async move {
+					let arg = tg::process::spawn::Arg {
+						cached: Some(true),
+						local: None,
+						parent: None,
+						remotes: None,
+						..arg.clone()
+					};
+					let stream = client.spawn_process(arg).await?.boxed();
+					Ok::<_, tg::Error>(stream)
+				}
+			})
+			.collect::<FuturesUnordered<_>>()
+			.collect::<Vec<_>>()
+			.await
+			.into_iter()
+			.filter_map(std::result::Result::ok)
+			.collect::<Vec<_>>();
+
+		let stream = stream::iter(streams).flatten();
+		let mut stream = pin!(stream);
+		while let Some(event) = stream.next().await {
+			if let Ok(tg::progress::Event::Output(output)) = event {
+				return Ok(Some(output));
+			}
+		}
+		Ok(None)
+	}
+
 	async fn try_get_cached_process_remote(
 		&self,
 		arg: &tg::process::spawn::Arg,
+		remotes: &[String],
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		// Find a process.
-		let streams = self
-			.get_remote_clients()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remote clients"))?
+		if remotes.is_empty() {
+			return Ok(None);
+		}
+		let clients = remotes
+			.iter()
+			.map(|remote| async move {
+				let client = self.get_remote_client(remote.clone()).await.map_err(
+					|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
+				)?;
+				Ok::<_, tg::Error>((remote.clone(), client))
+			})
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+		let streams = clients
 			.into_iter()
-			.map(|(name, client)| {
+			.map(|(remote, client)| {
 				let arg = arg.clone();
 				async move {
 					let arg = tg::process::spawn::Arg {
@@ -1132,7 +1208,7 @@ impl Server {
 						.await?
 						.map_ok(move |event| {
 							event.map_output(|mut output| {
-								output.remote.replace(name.clone());
+								output.remote.replace(remote.clone());
 								output
 							})
 						})
@@ -1168,7 +1244,7 @@ impl Server {
 	) -> tg::Result<()> {
 		// Get a database connection.
 		let mut connection = self
-			.database
+			.register
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
