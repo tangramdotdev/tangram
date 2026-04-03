@@ -157,6 +157,21 @@ impl Server {
 		});
 	}
 
+	pub(crate) async fn finish_unfinished_processes_in_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+		remote: Option<&str>,
+		error: tg::error::Data,
+	) -> tg::Result<()> {
+		if let Some(remote) = remote {
+			self.finish_unfinished_processes_in_sandbox_remote(id, remote, error)
+				.await
+		} else {
+			self.finish_unfinished_processes_in_sandbox_local(id, error)
+				.await
+		}
+	}
+
 	pub(crate) async fn finish_unfinished_processes_in_sandbox_local(
 		&self,
 		id: &tg::sandbox::Id,
@@ -209,21 +224,6 @@ impl Server {
 			.await;
 
 		Ok(())
-	}
-
-	pub(crate) async fn finish_unfinished_processes_in_sandbox(
-		&self,
-		id: &tg::sandbox::Id,
-		remote: Option<&str>,
-		error: tg::error::Data,
-	) -> tg::Result<()> {
-		if let Some(remote) = remote {
-			self.finish_unfinished_processes_in_sandbox_remote(id, remote, error)
-				.await
-		} else {
-			self.finish_unfinished_processes_in_sandbox_local(id, error)
-				.await
-		}
 	}
 
 	async fn finish_unfinished_processes_in_sandbox_remote(

@@ -5,6 +5,7 @@ use {
 		Arc,
 		atomic::{AtomicUsize, Ordering},
 	},
+	sync_wrapper::SyncWrapper,
 	tangram_client::prelude::*,
 };
 
@@ -20,7 +21,7 @@ struct State {
 }
 
 type ProcessStdioReader =
-	futures::stream::BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>;
+	SyncWrapper<futures::stream::BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>;
 
 type ProcessStdioReaders = DashMap<usize, ProcessStdioReader, fnv::FnvBuildHasher>;
 
@@ -76,7 +77,9 @@ impl Stdio {
 			.next_process_stdio_token
 			.fetch_add(1, Ordering::Relaxed)
 			+ 1;
-		self.0.process_stdio_readers.insert(token, stream);
+		self.0
+			.process_stdio_readers
+			.insert(token, SyncWrapper::new(stream));
 		Ok(Some(token))
 	}
 
@@ -88,7 +91,7 @@ impl Stdio {
 		let Some((_, mut reader)) = reader else {
 			return Ok(None);
 		};
-		let event = reader.next().await.transpose()?;
+		let event = reader.get_mut().next().await.transpose()?;
 		if event
 			.as_ref()
 			.is_some_and(|event| !matches!(event, tg::process::stdio::read::Event::End))

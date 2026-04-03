@@ -4,7 +4,6 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tangram_messenger::prelude::*,
 };
 
 impl Server {
@@ -32,14 +31,20 @@ impl Server {
 		}
 
 		// Get a database connection.
-		let connection = self
+		let mut connection = self
 			.database
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
 
+		// Begin a transaction.
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+
 		// Delete the process token.
-		let p = connection.p();
+		let p = transaction.p();
 		let statement = formatdoc!(
 			"
 				delete from process_tokens
@@ -47,39 +52,75 @@ impl Server {
 			"
 		);
 		let params = db::params![id.to_string(), arg.token];
-		connection
+		let deleted = transaction
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Update token count.
+		// If no token was removed, then validate whether the token was stale or invalid.
+		if deleted == 0 {
+			let statement = formatdoc!(
+				"
+					select status
+					from processes
+					where id = {p}1;
+				"
+			);
+			let params = db::params![id.to_string()];
+			let status = transaction
+				.query_optional_value_into::<db::value::Serde<tg::process::Status>>(
+					statement.into(),
+					params,
+				)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+				.map(|status| status.0);
+			if status.is_none() {
+				transaction
+					.rollback()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to roll back the transaction"))?;
+				return Err(tg::error!("failed to find the process"));
+			}
+			if status.is_some_and(|status| !status.is_finished()) {
+				transaction
+					.rollback()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to roll back the transaction"))?;
+				return Err(tg::error!("the process token was not found"));
+			}
+		}
+
+		// Update the token count.
 		let statement = formatdoc!(
 			"
 				update processes
-				set token_count = token_count - 1
+				set token_count = (
+					select count(*)
+					from process_tokens
+					where process = {p}1
+				)
 				where id = {p}1;
 			"
 		);
 		let params = db::params![id.to_string()];
-		connection
+		transaction
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Publish the watchdog message.
-		tokio::spawn({
-			let server = self.clone();
-			async move {
-				server
-					.messenger
-					.publish("watchdog".into(), ())
-					.await
-					.inspect_err(|error| {
-						tracing::error!(?error, "failed to publish the watchdog message");
-					})
-					.ok();
-			}
-		});
+		// Commit the transaction.
+		transaction
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+		drop(connection);
+
+		// Publish the watchdog message if a token was removed.
+		if deleted > 0 {
+			self.spawn_publish_watchdog_message_task();
+		}
 
 		Ok(())
 	}

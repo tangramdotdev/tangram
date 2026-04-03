@@ -10,6 +10,22 @@ use {
 };
 
 impl Server {
+	pub(crate) fn spawn_publish_watchdog_message_task(&self) {
+		tokio::spawn({
+			let server = self.clone();
+			async move {
+				server
+					.messenger
+					.publish("watchdog".into(), ())
+					.await
+					.inspect_err(|error| {
+						tracing::error!(?error, "failed to publish the watchdog message");
+					})
+					.ok();
+			}
+		});
+	}
+
 	pub async fn watchdog_task(&self, config: &crate::config::Watchdog) -> tg::Result<()> {
 		loop {
 			// Finish processes.
@@ -105,6 +121,18 @@ impl Server {
 			.map(|row| {
 				let server = self.clone();
 				async move {
+					if matches!(row.code, Some(tg::error::Code::Cancellation)) {
+						let ready = server
+							.watchdog_try_finish_sandbox(&row.id)
+							.await
+							.inspect_err(|error| {
+								tracing::error!(error = %error.trace(), "failed to claim the tokenless sandbox for cancellation");
+							})
+							.unwrap_or(false);
+						if !ready {
+							return;
+						}
+					}
 					let error = tg::error::Data {
 						code: row.code,
 						diagnostics: None,
@@ -136,5 +164,49 @@ impl Server {
 			.await;
 
 		Ok(n)
+	}
+
+	pub(crate) async fn watchdog_try_finish_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<bool> {
+		let connection = self
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				update sandboxes
+				set
+					finished_at = {p}1,
+					heartbeat_at = null,
+					status = 'finished'
+				where
+					id = {p}2 and
+					status != 'finished' and
+					not exists (
+						select 1
+						from processes
+						where
+							sandbox = {p}2 and
+							status != 'finished' and
+							token_count > 0
+					);
+			"
+		);
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let params = db::params![now, id.to_string()];
+		let n = connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		drop(connection);
+		if n == 0 {
+			return Ok(false);
+		}
+		self.publish_sandbox_status(id);
+		Ok(true)
 	}
 }

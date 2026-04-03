@@ -224,6 +224,14 @@ impl Server {
 		// Drop the connection.
 		drop(connection);
 
+		// Wake the watchdog so depth-based limits are enforced promptly.
+		if output
+			.as_ref()
+			.is_some_and(|output| !output.status.is_finished())
+		{
+			self.spawn_publish_watchdog_message_task();
+		}
+
 		// If the process is unfinished, then enqueue it on its sandbox process queue.
 		if let Some(output) = &mut output
 			&& !output.status.is_finished()
@@ -504,18 +512,52 @@ impl Server {
 		let token = if status == tg::process::Status::Finished {
 			None
 		} else {
+			if sandbox_status.is_some_and(|status| status.is_finished()) {
+				return Ok(None);
+			}
+
+			if let Some(sandbox) = sandbox.as_ref() {
+				let statement = formatdoc!(
+					"
+						update sandboxes
+						set heartbeat_at = heartbeat_at
+						where id = {p}1 and status != 'finished';
+					"
+				);
+				let params = db::params![sandbox.to_string()];
+				let n = transaction
+					.execute(statement.into(), params)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				if n == 0 {
+					return Ok(None);
+				}
+			}
+
 			let token = Self::create_process_token();
 			let statement = formatdoc!(
 				"
 					insert into process_tokens (process, token)
-					values ({p}1, {p}2);
+					select processes.id, {p}2
+					from processes
+					left join sandboxes on sandboxes.id = processes.sandbox
+					where
+						processes.id = {p}1 and
+						processes.status != 'finished' and
+						(
+							processes.sandbox is null or
+							sandboxes.status != 'finished'
+						);
 				"
 			);
 			let params = db::params![id.to_string(), token];
-			transaction
+			let n = transaction
 				.execute(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			if n == 0 {
+				return Ok(None);
+			}
 
 			// Update token count.
 			let statement = formatdoc!(
@@ -1181,6 +1223,9 @@ impl Server {
 
 		// Publish the child message.
 		self.spawn_publish_process_child_message_task(parent);
+
+		// Wake the watchdog so parent depth changes are observed promptly.
+		self.spawn_publish_watchdog_message_task();
 
 		Ok(())
 	}

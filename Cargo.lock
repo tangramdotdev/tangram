@@ -7172,6 +7172,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sourcemap",
+ "sync_wrapper",
  "tangram_client",
  "tangram_compiler",
  "tangram_futures",
