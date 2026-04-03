@@ -3,6 +3,7 @@ pub mod artifact;
 pub mod collections;
 pub mod env;
 pub mod fs;
+pub mod io;
 pub mod iter;
 pub mod path;
 pub mod read;

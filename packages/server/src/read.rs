@@ -14,7 +14,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::{
 		stream::Ext as _,
-		task::{Stop, Task},
+		task::{Stopper, Task},
 	},
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
@@ -199,9 +199,9 @@ impl Server {
 		}
 
 		// Stop the stream when the server stops.
-		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let stop = async move { stop.wait().await };
-		let mut stream = stream.take_until(stop).boxed().peekable();
+		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
+		let stopper = async move { stopper.wait().await };
+		let mut stream = stream.take_until(stopper).boxed().peekable();
 
 		let mut position = None;
 		if let Some(Ok(tg::read::Event::Chunk(chunk))) = Pin::new(&mut stream).peek().await {

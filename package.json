@@ -18,21 +18,21 @@
 		"cloud:runner": "nu scripts/cloud/runner.nu",
 		"format": "cargo fmt --all && bun run --parallel --filter \"*\" format",
 		"test": "nu packages/cli/test.nu $@ && cargo nextest run --no-fail-fast --workspace && bun run --parallel --filter \"*\" test",
-		"tg": "cargo run --all-features -- -c .config/tangram/config.json -d .tangram -m client",
-		"tgr": "cargo run --release -- -c .config/tangram/config.json -d .tangram -m client",
-		"tgrs": "cargo run --release -- -c .config/tangram/config.json -d .tangram -m server",
-		"tgrsx": "cargo run --release -- -c .config/tangram/config.json -d .tangram -m server run -b",
-		"tgrx": "cargo run -- -c .config/tangram/config.json -d .tangram -m client run -b",
-		"tgs": "cargo run -- -c .config/tangram/config.json -d .tangram -m server",
-		"tgsx": "cargo run -- -c .config/tangram/config.json -d .tangram -m server run -b",
-		"tgx": "cargo run -- -c .config/tangram/config.json -d .tangram -m client run -b"
+		"tg": "PATH=\"$PWD/target/debug:$PATH\" cargo run --all-features -- -c .config/tangram/config.json -d .tangram -m client",
+		"tgr": "PATH=\"$PWD/target/release:$PATH\" cargo run --all-features --release -- -c .config/tangram/config.json -d .tangram -m client",
+		"tgrs": "PATH=\"$PWD/target/release:$PATH\" cargo run --all-features --release -- -c .config/tangram/config.json -d .tangram -m server",
+		"tgrsx": "PATH=\"$PWD/target/release:$PATH\" cargo run --all-features --release -- -c .config/tangram/config.json -d .tangram -m server run -b",
+		"tgrx": "PATH=\"$PWD/target/debug:$PATH\" cargo run --all-features -- -c .config/tangram/config.json -d .tangram -m client run -b",
+		"tgs": "PATH=\"$PWD/target/debug:$PATH\" cargo run --all-features -- -c .config/tangram/config.json -d .tangram -m server",
+		"tgsx": "PATH=\"$PWD/target/debug:$PATH\" cargo run --all-features -- -c .config/tangram/config.json -d .tangram -m server run -b",
+		"tgx": "PATH=\"$PWD/target/debug:$PATH\" cargo run --all-features -- -c .config/tangram/config.json -d .tangram -m client run -b"
 	},
 	"dependencies": {
-		"@types/bun": "^1.3.10",
-		"@typescript/native-preview": "^7.0.0-dev.20260305.1",
-		"esbuild": "^0.27.3",
-		"oxfmt": "^0.36.0",
-		"oxlint": "^1.51.0",
-		"typescript": "^5.9.3"
+		"@types/bun": "^1.3.11",
+		"@typescript/native-preview": "^7.0.0-dev.20260401.1",
+		"esbuild": "^0.27.5",
+		"oxfmt": "^0.43.0",
+		"oxlint": "^1.58.0",
+		"typescript": "^6.0.2"
 	}
 }

@@ -108,15 +108,18 @@ impl Server {
 		let node = graph.nodes.get(index).unwrap();
 		let id = node.id.as_ref().unwrap();
 		let src = node.path.as_ref().unwrap();
-		let dst = &self.cache_path().join(id.to_string());
+		let dst = self.cache_path().join(id.to_string());
 		if id.is_directory() {
 			let permissions = std::fs::Permissions::from_mode(0o755);
 			std::fs::set_permissions(src, permissions).map_err(
 				|source| tg::error!(!source, path = %src.display(), "failed to set permissions"),
 			)?;
 		}
-		let done = match tangram_util::fs::rename_noreplace(src, dst).await {
+		let done = match tangram_util::fs::rename_noreplace(src, &dst).await {
 			Ok(()) => false,
+			Err(error) if error.raw_os_error() == Some(libc::EXDEV) => {
+				self.checkin_cache_destructive_copy(src, &dst).await?
+			},
 			Err(error)
 				if matches!(
 					error.kind(),
@@ -133,16 +136,87 @@ impl Server {
 		};
 		if !done && id.is_directory() {
 			let permissions = std::fs::Permissions::from_mode(0o555);
-			tokio::fs::set_permissions(dst, permissions).await.map_err(
-				|source| tg::error!(!source, path = %dst.display(), "failed to set permissions"),
-			)?;
+			tokio::fs::set_permissions(&dst, permissions)
+				.await
+				.map_err(
+					|source| tg::error!(!source, path = %dst.display(), "failed to set permissions"),
+				)?;
 		}
 		if !done {
 			let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
-			filetime::set_symlink_file_times(dst, epoch, epoch).map_err(
+			filetime::set_symlink_file_times(&dst, epoch, epoch).map_err(
 				|source| tg::error!(!source, path = %dst.display(), "failed to set the modified time"),
 			)?;
 		}
+		Ok(())
+	}
+
+	async fn checkin_cache_destructive_copy(&self, src: &Path, dst: &Path) -> tg::Result<bool> {
+		let src = src.to_owned();
+		let dst = dst.to_owned();
+		let temp = Temp::new(self);
+		let temp_path = temp.path().to_owned();
+		tokio::task::spawn_blocking(move || {
+			Self::checkin_cache_destructive_copy_inner(&src, &temp_path)?;
+			let done = match tangram_util::fs::rename_noreplace_sync(&temp_path, &dst) {
+				Ok(()) => false,
+				Err(error)
+					if matches!(
+						error.kind(),
+						std::io::ErrorKind::AlreadyExists
+							| std::io::ErrorKind::IsADirectory
+							| std::io::ErrorKind::PermissionDenied
+					) =>
+				{
+					true
+				},
+				Err(source) => {
+					return Err(tg::error!(!source, "failed to rename the root"));
+				},
+			};
+			if !done {
+				tangram_util::fs::remove_sync(&src).map_err(
+					|source| tg::error!(!source, path = %src.display(), "failed to remove the root"),
+				)?;
+			}
+			Ok(done)
+		})
+		.await
+		.map_err(|source| tg::error!(!source, "the destructive checkin copy task panicked"))?
+	}
+
+	fn checkin_cache_destructive_copy_inner(src: &Path, dst: &Path) -> tg::Result<()> {
+		let metadata = std::fs::symlink_metadata(src).map_err(
+			|source| tg::error!(!source, path = %src.display(), "failed to get the metadata"),
+		)?;
+		if metadata.is_dir() {
+			std::fs::create_dir(dst).map_err(
+				|source| tg::error!(!source, path = %dst.display(), "failed to create the directory"),
+			)?;
+			let read_dir = std::fs::read_dir(src).map_err(
+				|source| tg::error!(!source, path = %src.display(), "failed to read the directory"),
+			)?;
+			for entry in read_dir {
+				let entry = entry
+					.map_err(|source| tg::error!(!source, "failed to get the directory entry"))?;
+				let src = entry.path();
+				let dst = dst.join(entry.file_name());
+				Self::checkin_cache_destructive_copy_inner(&src, &dst)?;
+			}
+		} else if metadata.is_file() {
+			std::fs::copy(src, dst)
+				.map_err(|source| tg::error!(!source, "failed to copy the file"))?;
+		} else if metadata.is_symlink() {
+			let target = std::fs::read_link(src)
+				.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;
+			std::os::unix::fs::symlink(target, dst)
+				.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
+		} else {
+			return Err(tg::error!(path = %src.display(), "invalid file type"));
+		}
+		Self::checkin_fixup(dst, &metadata).map_err(
+			|source| tg::error!(!source, path = %dst.display(), "failed to fix up the copied path"),
+		)?;
 		Ok(())
 	}
 

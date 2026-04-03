@@ -408,4 +408,31 @@ export namespace Mutation {
 				kind: "merge";
 				value: { [key: string]: tg.Value.Data };
 		  };
+
+	export namespace Data {
+		export let children = (data: tg.Mutation.Data): Array<tg.Object.Id> => {
+			switch (data.kind) {
+				case "unset": {
+					return [];
+				}
+				case "set":
+				case "set_if_unset": {
+					return tg.Value.Data.children(data.value);
+				}
+				case "prepend":
+				case "append": {
+					return data.values.flatMap(tg.Value.Data.children);
+				}
+				case "prefix":
+				case "suffix": {
+					return tg.Template.Data.children(data.template);
+				}
+				case "merge": {
+					return globalThis.Object.values(data.value).flatMap(
+						tg.Value.Data.children,
+					);
+				}
+			}
+		};
+	}
 }

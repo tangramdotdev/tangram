@@ -10,21 +10,22 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
-[lints]
-workspace = true
-
 [features]
 lmdb = ["dep:heed"]
 scylla = ["dep:scylla"]
+
+[lib]
+doctest = false
+
+[lints]
+workspace = true
 
 [dev-dependencies]
 tempfile = { workspace = true }
 
 [dependencies]
-byteorder = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
-derive_more = { workspace = true }
 foundationdb-tuple = { workspace = true }
 futures = { workspace = true }
 heed = { workspace = true, optional = true }
@@ -35,5 +36,4 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tangram_client = { workspace = true }
 tangram_serialize = { workspace = true }
-time = { workspace = true }
 tokio = { workspace = true }

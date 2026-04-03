@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client::prelude::*};
+use {crate::Cli, tangram_client::prelude::*, tokio_util::io::StreamReader};
 
 /// Write a blob.
 #[derive(Clone, Debug, clap::Args)]
@@ -27,7 +27,10 @@ impl Cli {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write the blob"))?
 		} else {
-			let reader = crate::util::stdio::stdin();
+			let reader = StreamReader::new(
+				tangram_util::io::stdin()
+					.map_err(|source| tg::error!(!source, "failed to open stdin"))?,
+			);
 			handle
 				.write(arg, reader)
 				.await

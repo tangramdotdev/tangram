@@ -5,6 +5,7 @@ use std/util 'path add'
 export use std assert
 
 const repository_path = path self '../../'
+const server_exit_directory_name = 'server_jobs'
 
 def main [
 	--accept (-a) # Accept all new and updated snapshots.
@@ -22,8 +23,7 @@ def main [
 	if $clean {
 		for entry in (ls ($nu.temp-dir? | default $nu.temp-path?) | where name =~ 'tangram_test_' and type == dir) {
 			print -e $"Removing temp directory: ($entry.name)"
-			chmod -R +w $entry.name
-			rm -rf $entry.name
+			remove_temp_directory $entry.name
 		}
 
 		let preserved_dbs = ['postgres', 'template0', 'template1', 'database']
@@ -33,7 +33,7 @@ def main [
 			try { dropdb -U postgres -h localhost $db }
 		}
 
-		let preserved_streams = ['finalize', 'queue']
+		let preserved_streams = ['processes.finalize.queue', 'sandboxes.queue', 'sandboxes.processes.queue', 'processes.stdio']
 		let streams = nats stream ls -n | lines | where { $in not-in $preserved_streams }
 		for stream in $streams {
 			print -e $"deleting nats stream ($stream)"
@@ -113,6 +113,7 @@ def main [
 				$config | to json | save -f ($temp_path | path join "config.json")
 			}
 			let output = with-env {
+				SHELL: "/bin/sh",
 				TANGRAM_CONFIG: ($temp_path | path join "config.json"),
 				TANGRAM_MODE: client,
 				TANGRAM_TEST_CLOUD: (if $cloud { "1" } else { "" }),
@@ -155,10 +156,20 @@ def main [
 				clean_databases $id
 			}
 
+			# Kill any background jobs started by the test, such as server processes.
+			for job in (job list | where { ($in.tag? | default '') == 'server' }) {
+				let exit_path = server_exit_path $temp_path $job.id
+				for pid in ($job.pids? | default []) {
+					try { ^kill -KILL $pid }
+				}
+				if not (wait_for_server_exit $exit_path) {
+					try { job kill $job.id }
+				}
+			}
+
 			# Clean up the temp directory.
 			if not $preserve_temps {
-				chmod -R +w $temp_path
-				rm -rf $temp_path
+				remove_temp_directory $temp_path
 			}
 
 			# Send the result.
@@ -735,10 +746,10 @@ export def --env spawn [
 		let cluster = mktemp -t
 		"docker:docker@localhost:4500" | save -f $cluster
 
-		nats stream create $'finalize_($id)' --discard new --retention work --subjects $'($id).finalize' --defaults
-		nats consumer create $'finalize_($id)' finalize --deliver all --max-pending 1000000 --pull --defaults
-		nats stream create $'queue_($id)' --discard new --retention work --subjects $'($id).queue' --defaults
-		nats consumer create $'queue_($id)' queue --deliver all --max-pending 1000000 --pull --defaults
+		nats stream create $'processes.finalize.queue_($id)' --retention work --subjects $'($id).processes.finalize.queue' --defaults
+		nats stream create $'sandboxes.queue_($id)' --discard new --retention work --subjects $'($id).sandboxes.queue' --defaults
+		nats stream create $'sandboxes.processes.queue_($id)' --discard new --retention work --subjects $'($id).sandboxes.*.processes.queue' --defaults
+		nats stream create $'processes.stdio_($id)' --discard new --retention work --subjects $'($id).processes.stdio.*.*' --defaults
 
 		cqlsh -e $"create keyspace \"store_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
 		cqlsh -k $'store_($id)' -f ($repository_path | path join packages/store/src/scylla.cql)
@@ -791,33 +802,28 @@ export def --env spawn [
 	# Create a path for server readiness signaling.
 	let ready_path = ($config_path | path dirname | path join 'ready')
 	mkfifo $ready_path
+	let server_exit_directory_path = (($env.TMPDIR? | default ($config_path | path dirname)) | path join $server_exit_directory_name)
+	try { mkdir $server_exit_directory_path }
 
 	# Spawn the server.
-	match $nu.os-info.name {
-		'macos' => {
-			job spawn {
-				bash -c $"
-					PARENT_PID=$PPID
-					SELF_PID=$$
-					\(
-						while kill -0 $PARENT_PID 2>/dev/null; do
-							sleep 1
-						done
-						kill -9 -$SELF_PID
-					\) &
-					exec 3>\"($ready_path)\"
-					tangram -c ($config_path) -d ($directory_path) -u ($url) serve --ready-fd 3
-				" e>| lines | each { |line| print -e $"($name | default 'server'): ($line)\r" }
-			}
+	job spawn -t server {
+		let server_job_id = job id
+		let exit_path = $server_exit_directory_path | path join $'($server_job_id).exit'
+		do -i {
+			bash -c $"
+				PARENT_PID=$PPID
+				SELF_PID=$$
+				\(
+					while kill -0 $PARENT_PID 2>/dev/null; do
+						sleep 1
+					done
+					kill -9 -$SELF_PID
+				\) &
+				exec 3>\"($ready_path)\"
+				tangram -c ($config_path) -d ($directory_path) -u ($url) serve --ready-fd 3
+			" e>| lines | each { |line| print -e $"($name | default 'server'): ($line)\r" }
 		}
-		'linux' => {
-			job spawn {
-				bash -c $"
-					exec 3>\"($ready_path)\"
-					setpriv --pdeathsig SIGKILL tangram -c \"($config_path)\" -d \"($directory_path)\" -u \"($url)\" serve --ready-fd 3
-				" e>| lines | each { |line| print -e $"($name | default 'server'): ($line)\r" }
-			}
-		}
+		'' | save -f $exit_path
 	}
 
 	# Wait for the server to be ready.
@@ -879,11 +885,11 @@ def clean_databases [id: string] {
 	"docker:docker@localhost:4500" | save -f $cluster
 	try { fdbcli -C $cluster --exec $'writemode on; clearrange "($id)" "($id)\xff"' }
 
-	# Remove the NATS streams and consumers.
-	try { nats consumer rm -f $'finalize_($id)' finalize }
-	try { nats stream rm -f $'finalize_($id)' }
-	try { nats consumer rm -f $'queue_($id)' queue }
-	try { nats stream rm -f $'queue_($id)' }
+	# Remove the NATS streams.
+	try { nats stream rm -f $'processes.finalize.queue_($id)' }
+	try { nats stream rm -f $'sandboxes.queue_($id)' }
+	try { nats stream rm -f $'sandboxes.processes.queue_($id)' }
+	try { nats stream rm -f $'processes.stdio_($id)' }
 
 	# Drop the scylla keyspace.
 	try { cqlsh -e $"drop keyspace \"store_($id)\";" }
@@ -973,5 +979,48 @@ export def xattr_write [name: string, value: string, path: string] {
 	match $nu.os-info.name {
 		'macos' => { xattr -w $name $value $path }
 		'linux' => { setfattr -n $name -v $value $path }
+	}
+}
+
+def server_exit_path [temp_path: string, job_id: int] {
+	$temp_path | path join $server_exit_directory_name | path join $'($job_id).exit'
+}
+
+def wait_for_server_exit [path: string] {
+	if ($path | path exists) {
+		return true
+	}
+	let output = (open /dev/null | timeout 5 bash -c 'while [ ! -e "$1" ]; do sleep 0.05; done' _ $path | complete)
+	$output.exit_code == 0 or ($path | path exists)
+}
+
+def remove_temp_directory [path: string] {
+	if not ($path | path exists) {
+		return
+	}
+	force_unmount_vfs $path
+	try { chmod -R u+rwx $path }
+	rm -rf $path
+}
+
+def force_unmount_vfs [path: string] {
+	if $nu.os-info.name != 'linux' {
+		return
+	}
+	let artifacts_paths = (
+		[
+			($path | path join 'artifacts')
+		] | append (
+			try {
+				^fd -a -t d '^artifacts$' $path | lines
+			} catch {
+				[]
+			}
+		) | uniq | where { |path| $path | path exists }
+	)
+	for artifacts_path in $artifacts_paths {
+		try {
+			^fusermount3 -u -z $artifacts_path o> /dev/null e> /dev/null
+		}
 	}
 }

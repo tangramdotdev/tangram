@@ -1,9 +1,9 @@
 use futures::prelude::*;
 
 #[derive(Clone)]
-pub struct Stop(tokio::sync::watch::Sender<bool>);
+pub struct Stopper(tokio::sync::watch::Sender<bool>);
 
-impl Stop {
+impl Stopper {
 	#[must_use]
 	pub fn new() -> Self {
 		let (sender, _) = tokio::sync::watch::channel(false);
@@ -32,7 +32,7 @@ impl Stop {
 	}
 }
 
-impl Default for Stop {
+impl Default for Stopper {
 	fn default() -> Self {
 		Self::new()
 	}

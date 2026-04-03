@@ -261,8 +261,8 @@ export class Graph {
 		return this.id;
 	}
 
-	async children(): Promise<Array<tg.Object>> {
-		return this.#state.children();
+	get children(): Promise<Array<tg.Object>> {
+		return this.#state.children;
 	}
 
 	get nodes(): Promise<Array<tg.Graph.Node>> {
@@ -951,6 +951,10 @@ export namespace Graph {
 	};
 
 	export namespace Data {
+		export let children = (data: tg.Graph.Data): Array<tg.Object.Id> => {
+			return data.nodes.flatMap(tg.Graph.Data.Node.children);
+		};
+
 		export type Node =
 			| tg.Graph.Data.DirectoryNode
 			| tg.Graph.Data.FileNode
@@ -958,6 +962,22 @@ export namespace Graph {
 		export type DirectoryNode = { kind: "directory" } & tg.Graph.Data.Directory;
 		export type FileNode = { kind: "file" } & tg.Graph.Data.File;
 		export type SymlinkNode = { kind: "symlink" } & tg.Graph.Data.Symlink;
+
+		export namespace Node {
+			export let children = (data: tg.Graph.Data.Node): Array<tg.Object.Id> => {
+				switch (data.kind) {
+					case "directory": {
+						return tg.Graph.Data.Directory.children(data);
+					}
+					case "file": {
+						return tg.Graph.Data.File.children(data);
+					}
+					case "symlink": {
+						return tg.Graph.Data.Symlink.children(data);
+					}
+				}
+			};
+		}
 
 		export type Directory =
 			| tg.Graph.Data.DirectoryLeaf
@@ -975,6 +995,18 @@ export namespace Graph {
 			): data is tg.Graph.Data.DirectoryBranch => {
 				return "children" in data;
 			};
+
+			export let children = (
+				data: tg.Graph.Data.Directory,
+			): Array<tg.Object.Id> => {
+				if (tg.Graph.Data.Directory.isBranch(data)) {
+					return data.children.flatMap(tg.Graph.Data.DirectoryChild.children);
+				} else {
+					return globalThis.Object.values(data.entries ?? {}).flatMap(
+						tg.Graph.Data.Edge.children,
+					);
+				}
+			};
 		}
 
 		export type DirectoryLeaf = {
@@ -991,6 +1023,14 @@ export namespace Graph {
 			last: string;
 		};
 
+		export namespace DirectoryChild {
+			export let children = (
+				data: tg.Graph.Data.DirectoryChild,
+			): Array<tg.Object.Id> => {
+				return tg.Graph.Data.Edge.children(data.directory);
+			};
+		}
+
 		export type File = {
 			contents?: tg.Blob.Id;
 			dependencies?: {
@@ -1000,12 +1040,58 @@ export namespace Graph {
 			module?: string;
 		};
 
+		export namespace File {
+			export let children = (data: tg.Graph.Data.File): Array<tg.Object.Id> => {
+				let dependencies = globalThis.Object.values(
+					data.dependencies ?? {},
+				).flatMap((dependency) => {
+					if (dependency !== undefined) {
+						return tg.Graph.Data.Dependency.children(dependency);
+					} else {
+						return [];
+					}
+				});
+				return [
+					...(data.contents !== undefined ? [data.contents] : []),
+					...dependencies,
+				];
+			};
+		}
+
 		export type Symlink = {
 			artifact?: tg.Graph.Data.Edge<tg.Artifact.Id>;
 			path?: string;
 		};
 
+		export namespace Symlink {
+			export let children = (
+				data: tg.Graph.Data.Symlink,
+			): Array<tg.Object.Id> => {
+				if (data.artifact !== undefined) {
+					return tg.Graph.Data.Edge.children(data.artifact);
+				} else {
+					return [];
+				}
+			};
+		}
+
 		export type Edge<T> = tg.Graph.Data.Pointer | T;
+
+		export namespace Edge {
+			export let children = <T extends string>(
+				data: tg.Graph.Data.Edge<T>,
+			): Array<tg.Object.Id> => {
+				if (typeof data === "string") {
+					if (data.includes("index=")) {
+						return tg.Graph.Data.Pointer.children(data);
+					} else {
+						return [data];
+					}
+				} else {
+					return tg.Graph.Data.Pointer.children(data);
+				}
+			};
+		}
 
 		export type Pointer =
 			| string
@@ -1025,6 +1111,42 @@ export namespace Graph {
 						"index" in value &&
 						typeof value.index === "number")
 				);
+			};
+
+			export let children = (
+				data: tg.Graph.Data.Pointer,
+			): Array<tg.Object.Id> => {
+				if (typeof data === "string") {
+					for (let param of data.split("&")) {
+						let [key, value] = param.split("=");
+						if (key === "graph" && value !== undefined) {
+							return [decodeURIComponent(value)];
+						}
+					}
+					return [];
+				} else if (data.graph !== undefined) {
+					return [data.graph];
+				} else {
+					return [];
+				}
+			};
+		}
+
+		export namespace Dependency {
+			export let children = (
+				data: tg.Graph.Dependency.Data,
+			): Array<tg.Object.Id> => {
+				if (typeof data === "string") {
+					let [item] = data.split("?");
+					if (item === undefined || item === "") {
+						return [];
+					}
+					return tg.Graph.Data.Edge.children(item);
+				} else if (data.item !== undefined) {
+					return tg.Graph.Data.Edge.children(data.item);
+				} else {
+					return [];
+				}
 			};
 		}
 	}

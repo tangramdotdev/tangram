@@ -4,9 +4,9 @@ import * as tg from "./index.ts";
 export type Unresolved<T extends tg.Value> = tg.MaybePromise<
 	T extends tg.Command<
 		infer A extends Array<tg.Value>,
-		infer R extends tg.Value
+		infer O extends tg.Value
 	>
-		? UnresolvedCommand<A, R>
+		? UnresolvedCommand<A, O>
 		: T extends
 					| undefined
 					| boolean
@@ -25,13 +25,13 @@ export type Unresolved<T extends tg.Value> = tg.MaybePromise<
 					: never
 >;
 
-type UnresolvedCommand<A extends Array<tg.Value>, R extends tg.Value> =
-	| tg.Command<A, R>
+type UnresolvedCommand<A extends Array<tg.Value>, O extends tg.Value> =
+	| tg.Command<A, O>
 	| tg.Function<
 			{
 				[K in keyof A]: UnresolvedWithoutCommand<A[K]>;
 			},
-			UnresolvedWithoutCommand<R>
+			UnresolvedWithoutCommand<O>
 	  >;
 
 type UnresolvedWithoutCommand<T extends tg.Value> = tg.MaybePromise<
@@ -56,8 +56,8 @@ type UnresolvedWithoutCommand<T extends tg.Value> = tg.MaybePromise<
 export type Resolved<T extends tg.Unresolved<tg.Value>> =
 	T extends PromiseLike<infer U extends tg.Unresolved<tg.Value>>
 		? tg.Resolved<U>
-		: T extends tg.Function<infer A, infer R>
-			? tg.Command<tg.ResolvedArgs<A>, tg.ResolvedReturnValue<R>>
+		: T extends tg.Function<infer A, infer O>
+			? tg.Command<tg.ResolvedArgs<A>, tg.ResolvedReturnValue<O>>
 			: T extends
 						| undefined
 						| boolean

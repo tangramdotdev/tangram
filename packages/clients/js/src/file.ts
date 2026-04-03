@@ -184,8 +184,8 @@ export class File {
 		return this.id;
 	}
 
-	async children(): Promise<Array<tg.Object>> {
-		return this.#state.children();
+	get children(): Promise<Array<tg.Object>> {
+		return this.#state.children;
 	}
 
 	get contents(): Promise<tg.Blob> {
@@ -397,6 +397,16 @@ export namespace File {
 	}
 
 	export type Data = tg.Graph.Data.Pointer | tg.Graph.Data.File;
+
+	export namespace Data {
+		export let children = (data: tg.File.Data): Array<tg.Object.Id> => {
+			if (tg.Graph.Data.Pointer.is(data)) {
+				return tg.Graph.Data.Pointer.children(data);
+			} else {
+				return tg.Graph.Data.File.children(data);
+			}
+		};
+	}
 
 	export let raw = async (
 		strings: TemplateStringsArray,

@@ -8,7 +8,7 @@ pub struct Args {
 	pub checksum_algorithm: Option<tg::checksum::Algorithm>,
 
 	#[command(flatten)]
-	pub build: crate::build::Options,
+	pub build: crate::process::build::Options,
 
 	#[arg(long)]
 	pub mode: Option<tg::DownloadMode>,
@@ -18,8 +18,11 @@ pub struct Args {
 }
 
 impl Cli {
-	pub async fn command_download(&mut self, args: Args) -> tg::Result<()> {
+	pub async fn command_download(&mut self, mut args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
+		if args.build.spawn.checksum.is_none() {
+			args.build.spawn.checksum.replace(tg::Checksum::default());
+		}
 		let checksum = args.checksum_algorithm.or_else(|| {
 			args.build
 				.spawn
@@ -37,8 +40,10 @@ impl Cli {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 		let reference = tg::Reference::with_object(command.into());
-		let args = crate::build::Args {
-			options: args.build,
+		let mut options = args.build;
+		options.spawn.sandbox.arg.network = crate::sandbox::Network::new(true);
+		let args = crate::process::build::Args {
+			options,
 			reference,
 			trailing: Vec::new(),
 		};

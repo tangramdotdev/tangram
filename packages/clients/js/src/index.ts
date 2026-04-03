@@ -2,7 +2,6 @@ import { Args } from "./args.ts";
 import { Artifact } from "./artifact.ts";
 import { assert, todo, unimplemented, unreachable } from "./assert.ts";
 import { Blob, blob } from "./blob.ts";
-import { BuildBuilder, build } from "./build.ts";
 import {
 	type ArchiveFormat,
 	archive,
@@ -14,14 +13,15 @@ import {
 	extract,
 } from "./builtin.ts";
 import { Checksum, checksum } from "./checksum.ts";
-import { Command, CommandBuilder, command } from "./command.ts";
+import { Command, command } from "./command.ts";
 import { Diagnostic } from "./diagnostic.ts";
 import { Directory, directory } from "./directory.ts";
-import * as encoding from "./encoding.ts";
+import { type Encoding, encoding, setEncoding } from "./encoding.ts";
 import { Error, error } from "./error.ts";
 import { File, file } from "./file.ts";
 import { Graph, graph } from "./graph.ts";
 import { type Handle, handle, setHandle } from "./handle.ts";
+import { type Host, host, setHost } from "./host.ts";
 import { Location } from "./location.ts";
 import { Module } from "./module.ts";
 import { Mutation, mutation } from "./mutation.ts";
@@ -34,7 +34,7 @@ import type { Reference } from "./reference.ts";
 import { Referent } from "./referent.ts";
 import type { Resolved, Unresolved } from "./resolve.ts";
 import { resolve } from "./resolve.ts";
-import { RunBuilder, run } from "./run.ts";
+import { Sandbox } from "./sandbox.ts";
 import { sleep } from "./sleep.ts";
 import { Symlink, symlink } from "./symlink.ts";
 import type { Tag } from "./tag.ts";
@@ -57,8 +57,10 @@ import { Value } from "./value.ts";
 export type {
 	ArchiveFormat,
 	CompressionFormat,
+	Encoding,
 	Function,
 	Handle,
+	Host,
 	MaybeMutation,
 	MaybeMutationMap,
 	MaybePromise,
@@ -76,14 +78,16 @@ export type {
 	ValueOrMaybeMutationMap,
 };
 
+let build = Process.build;
+let run = Process.run;
+let spawn = Process.spawn;
+
 export {
 	Args,
 	Artifact,
 	Blob,
-	BuildBuilder,
 	Checksum,
 	Command,
-	CommandBuilder,
 	Diagnostic,
 	Directory,
 	Error,
@@ -96,7 +100,7 @@ export {
 	Placeholder,
 	Process,
 	Referent,
-	RunBuilder,
+	Sandbox,
 	Symlink,
 	Template,
 	Value,
@@ -117,6 +121,7 @@ export {
 	file,
 	graph,
 	handle,
+	host,
 	mutation,
 	output,
 	path,
@@ -124,9 +129,12 @@ export {
 	process,
 	resolve,
 	run,
+	setEncoding,
 	setHandle,
+	setHost,
 	setProcess,
 	sleep,
+	spawn,
 	symlink,
 	template,
 	todo,

@@ -70,7 +70,7 @@ where
 
 	// Log that the download started.
 	let message = format!("downloading from \"{url}\"\n");
-	logger(tg::process::log::Stream::Stderr, message.into_bytes()).await?;
+	logger(tg::process::stdio::Stream::Stderr, message.into_bytes()).await?;
 
 	// Spawn the progress task.
 	let downloaded = Arc::new(AtomicU64::new(0));
@@ -157,8 +157,9 @@ where
 
 	// Download.
 	let temp_path = temp_path.map_or_else(std::env::temp_dir, ToOwned::to_owned);
-	let temp = tempfile::TempDir::new_in(&temp_path)
+	let mut temp = tempfile::TempDir::new_in(&temp_path)
 		.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
+	temp.disable_cleanup(true);
 	let path = match mode {
 		Mode::Raw => {
 			let path = temp.path().join("file");
@@ -244,7 +245,7 @@ where
 
 	// Log that the download finished.
 	let message = format!("finished download from \"{url}\"\n");
-	logger(tg::process::log::Stream::Stderr, message.into_bytes()).await?;
+	logger(tg::process::stdio::Stream::Stderr, message.into_bytes()).await?;
 
 	let output = match mode {
 		Mode::Raw => artifact

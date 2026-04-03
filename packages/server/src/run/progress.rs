@@ -7,80 +7,109 @@ use {
 	num::ToPrimitive as _,
 	std::{fmt::Write as _, pin::pin},
 	tangram_client::prelude::*,
-	tangram_futures::{stream::Ext as _, task::Task},
+	tangram_futures::task::Task,
+	tokio_stream::wrappers::ReceiverStream,
 	unicode_width::UnicodeWidthChar as _,
 };
 
 struct State {
-	server: Server,
-	pty: tg::pty::Id,
 	indicators: IndexMap<String, tg::progress::Indicator>,
 	lines: Option<u16>,
-	sender: async_channel::Sender<tg::Result<Bytes>>,
+	sender: tokio::sync::mpsc::Sender<Bytes>,
 }
 
 impl Server {
-	pub(crate) async fn log_progress_stream<T: Send + std::fmt::Debug>(
+	pub(crate) async fn write_progress_stream<T: Send + std::fmt::Debug + 'static>(
 		&self,
 		process: &tg::Process,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
-	) -> tg::Result<()> {
+	) -> tg::Result<T> {
 		let stderr = process.load(self).await?.stderr.clone();
-		match stderr {
-			None => {
-				self.write_progress_stream_to_log(process, stream).await?;
-			},
-			Some(tg::process::Stdio::Pipe(_)) => (),
-			Some(tg::process::Stdio::Pty(pty)) => {
+		let output = match stderr {
+			tg::process::Stdio::Log => self.write_progress_stream_to_log(process, stream).await?,
+			tg::process::Stdio::Null => self.write_progress_stream_to_null(stream).await?,
+			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => {
 				let remote = process.remote().cloned();
-				self.write_progress_stream_to_pty(remote, &pty, stream)
-					.await?;
+				self.write_progress_stream_to_tty(process.id(), remote, stream)
+					.await?
 			},
+			tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit => {
+				return Err(tg::error!("invalid stdio"));
+			},
+		};
+		Ok(output)
+	}
+
+	async fn write_progress_stream_to_null<T>(
+		&self,
+		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
+	) -> tg::Result<T> {
+		let mut stream = pin!(stream);
+		while let Some(event) = stream.try_next().await? {
+			if let tg::progress::Event::Output(output) = event {
+				return Ok(output);
+			}
 		}
-		Ok(())
+		Err(tg::error!("expected an output"))
 	}
 
 	async fn write_progress_stream_to_log<T: std::fmt::Debug>(
 		&self,
 		process: &tg::Process,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
-	) -> tg::Result<()> {
+	) -> tg::Result<T> {
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
-			let tg::progress::Event::Indicators(indicators) = event else {
-				continue;
-			};
-			for indicator in indicators {
-				let message = format!("{indicator}\n");
-				let arg = tg::process::log::post::Arg {
-					bytes: message.into(),
-					local: None,
-					remotes: process.remote().cloned().map(|r| vec![r]),
-					stream: tg::process::log::Stream::Stderr,
-				};
-				self.post_process_log(process.id(), arg).await?;
+			match event {
+				tg::progress::Event::Indicators(indicators) => {
+					for indicator in indicators {
+						let indicator = indicator.to_string();
+						if indicator.is_empty() {
+							continue;
+						}
+						let arg = tg::process::stdio::write::Arg {
+							local: None,
+							remotes: process.remote().cloned().map(|remote| vec![remote]),
+							streams: vec![tg::process::stdio::Stream::Stderr],
+						};
+						let input = futures::stream::iter([
+							Ok(tg::process::stdio::read::Event::Chunk(
+								tg::process::stdio::Chunk {
+									bytes: format!("{indicator}\n").into(),
+									position: None,
+									stream: tg::process::stdio::Stream::Stderr,
+								},
+							)),
+							Ok(tg::process::stdio::read::Event::End),
+						])
+						.boxed();
+						self.write_process_stdio_all(process.id(), arg, input)
+							.await?;
+					}
+				},
+				tg::progress::Event::Output(output) => return Ok(output),
+				_ => (),
 			}
 		}
-		Ok(())
+		Err(tg::error!("expected an output"))
 	}
 
-	async fn write_progress_stream_to_pty<T: Send>(
+	async fn write_progress_stream_to_tty<T: Send + 'static>(
 		&self,
+		id: &tg::process::Id,
 		remote: Option<String>,
-		pty: &tg::pty::Id,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
-	) -> tg::Result<()> {
-		let (sender, receiver) = async_channel::bounded(1024);
+	) -> tg::Result<T> {
+		let (sender, receiver) = tokio::sync::mpsc::channel(16);
 		let mut state = State {
-			server: self.clone(),
-			pty: pty.clone(),
 			indicators: IndexMap::new(),
 			lines: None,
 			sender,
 		};
-		let task = Task::spawn(|_| async move {
+		let progress_task = Task::spawn(|_| async move {
 			let mut interval = tokio::time::interval(std::time::Duration::from_millis(100));
 			let mut stream = pin!(stream);
+			let mut output = None;
 			loop {
 				let next = stream.next();
 				let tick = interval.tick().boxed();
@@ -88,7 +117,14 @@ impl Server {
 				match either {
 					future::Either::Left((Some(Ok(event)), _)) => {
 						let is_indicators = event.is_indicators();
-						state.update(event).await;
+						match event {
+							tg::progress::Event::Output(value) => {
+								output.replace(value);
+							},
+							event => {
+								state.update(event).await;
+							},
+						}
 						if is_indicators {
 							continue;
 						}
@@ -106,19 +142,35 @@ impl Server {
 				state.clear().await;
 				state.print().await?;
 			}
-			Ok::<_, tg::Error>(())
+			output.ok_or_else(|| tg::error!("expected an output"))
 		});
-		let mut stream = pin!(receiver.attach(task));
-		while let Some(event) = stream.try_next().await? {
-			let arg = tg::pty::write::Arg {
-				bytes: event,
+		let server = self.clone();
+		let id = id.clone();
+		let stderr_task = Task::spawn(|_| async move {
+			let arg = tg::process::stdio::write::Arg {
 				local: None,
-				master: false,
-				remotes: remote.clone().map(|r| vec![r]),
+				remotes: remote.map(|remote| vec![remote]),
+				streams: vec![tg::process::stdio::Stream::Stderr],
 			};
-			self.write_pty(pty, arg).await?;
-		}
-		Ok(())
+			let input = ReceiverStream::new(receiver)
+				.map(|bytes| {
+					Ok::<_, tg::Error>(tg::process::stdio::read::Event::Chunk(
+						tg::process::stdio::Chunk {
+							bytes,
+							position: None,
+							stream: tg::process::stdio::Stream::Stderr,
+						},
+					))
+				})
+				.boxed();
+			server
+				.write_process_stdio_all(&id, arg, input)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write the progress stream"))
+		});
+		let (result1, result2) = future::join(progress_task.wait(), stderr_task.wait()).await;
+		result2.map_err(|source| tg::error!(!source, "the stderr task panicked"))??;
+		result1.map_err(|source| tg::error!(!source, "the progress task panicked"))?
 	}
 }
 
@@ -141,13 +193,13 @@ impl State {
 							format!("{} ", "error".red().bold())
 						},
 					};
-					self.sender.send(Ok(output.into())).await.ok();
+					self.sender.send(output.into()).await.ok();
 				}
 			},
 
 			tg::progress::Event::Diagnostic(diagnostic) => {
 				let output = diagnostic.to_string();
-				self.sender.send(Ok(output.into())).await.ok();
+				self.sender.send(output.into()).await.ok();
 			},
 
 			tg::progress::Event::Indicators(indicators) => {
@@ -171,19 +223,14 @@ impl State {
 					crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
 				)
 				.unwrap();
-				self.sender.send(Ok(message.into())).await.ok();
+				self.sender.send(message.into()).await.ok();
 			},
 			_ => (),
 		}
 	}
 
 	async fn print(&mut self) -> tg::Result<()> {
-		// Get the size of the tty.
-		let size = self
-			.server
-			.get_pty_size(&self.pty, tg::pty::size::get::Arg::default())
-			.await?
-			.map_or((64, 64), |size| (size.cols, size.rows));
+		let size = (64usize, 64usize);
 
 		// Render the indicators.
 		let title_length = self
@@ -211,12 +258,12 @@ impl State {
 			)
 			.unwrap();
 			write!(line, " {indicator}").unwrap();
-			buffer.extend_from_slice(clip(&line, size.0.into()).as_bytes());
+			buffer.extend_from_slice(clip(&line, size.0).as_bytes());
 			buffer.extend_from_slice(b"\r\n");
 		}
 
 		// Send the event.
-		self.sender.send(Ok(buffer.into())).await.ok();
+		self.sender.send(buffer.into()).await.ok();
 
 		// Update the number of lines.
 		self.lines.replace(self.indicators.len().to_u16().unwrap());

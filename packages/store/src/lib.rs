@@ -30,14 +30,14 @@ pub struct ReadProcessLogArg {
 	pub length: u64,
 	pub position: u64,
 	pub process: tg::process::Id,
-	pub stream: Option<tg::process::log::Stream>,
+	pub stream: Option<tg::process::stdio::Stream>,
 }
 
 #[derive(Clone, Debug)]
 pub struct PutProcessLogArg {
 	pub bytes: Bytes,
 	pub process: tg::process::Id,
-	pub stream: tg::process::log::Stream,
+	pub stream: tg::process::stdio::Stream,
 	pub timestamp: i64,
 }
 
@@ -46,7 +46,7 @@ pub struct DeleteProcessLogArg {
 	pub process: tg::process::Id,
 }
 
-#[derive(Debug, Clone, tangram_serialize::Serialize, tangram_serialize::Deserialize)]
+#[derive(Clone, Debug, tangram_serialize::Serialize, tangram_serialize::Deserialize)]
 pub struct Object<'a> {
 	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
 	pub bytes: Option<Cow<'a, [u8]>>,
@@ -81,7 +81,7 @@ pub struct CachePointer {
 	pub position: u64,
 }
 
-#[derive(Debug, Clone, tangram_serialize::Serialize, tangram_serialize::Deserialize)]
+#[derive(Clone, Debug, tangram_serialize::Serialize, tangram_serialize::Deserialize)]
 pub struct ProcessLogEntry<'a> {
 	#[tangram_serialize(id = 0)]
 	pub bytes: Cow<'a, [u8]>,
@@ -90,7 +90,7 @@ pub struct ProcessLogEntry<'a> {
 	pub position: u64,
 
 	#[tangram_serialize(id = 2)]
-	pub stream: tg::process::log::Stream,
+	pub stream: tg::process::stdio::Stream,
 
 	#[tangram_serialize(id = 3)]
 	pub stream_position: u64,
@@ -138,7 +138,7 @@ pub trait Store {
 	fn try_get_process_log_length(
 		&self,
 		id: &tg::process::Id,
-		stream: Option<tg::process::log::Stream>,
+		stream: Option<tg::process::stdio::Stream>,
 	) -> impl std::future::Future<Output = tg::Result<Option<u64>>> + Send;
 
 	fn put_process_log(

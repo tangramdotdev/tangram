@@ -2,11 +2,9 @@ use {
 	crate::{Context, Server},
 	bytes::Bytes,
 	futures::{StreamExt as _, TryStreamExt as _, future, stream},
-	indoc::formatdoc,
 	std::pin::pin,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
-	tangram_futures::task::Stop,
+	tangram_futures::task::Stopper,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_messenger::{self as messenger, prelude::*},
 };
@@ -28,78 +26,56 @@ impl Server {
 	pub(crate) async fn try_dequeue_process_with_context(
 		&self,
 		context: &Context,
+		sandbox: &tg::sandbox::Id,
 		_arg: tg::process::queue::Arg,
 	) -> tg::Result<Option<tg::process::queue::Output>> {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
-		// Subscribe to the consumer stream.
 		let stream = self
 			.messenger
-			.get_stream("queue".into())
+			.get_stream("sandboxes.processes.queue".into())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the stream"))?;
+		let consumer_config = tangram_messenger::ConsumerConfig {
+			deliver_policy: tangram_messenger::DeliverPolicy::All,
+			ack_policy: tangram_messenger::AckPolicy::Explicit,
+			durable_name: None,
+			filter_subjects: vec![format!("sandboxes.{sandbox}.processes.queue")],
+		};
 		let consumer = stream
-			.get_consumer("queue".into())
+			.create_consumer(None, consumer_config)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the consumer"))?;
-		let enqueued = consumer.subscribe::<Message>().await.map_err(|source| {
+			.map_err(|source| tg::error!(!source, "failed to create the consumer"))?;
+		let messages = consumer.subscribe::<Message>().await.map_err(|source| {
 			tg::error!(!source, "failed to subscribe to the process queue stream")
 		})?;
 
-		let mut enqueued = pin!(enqueued);
+		let mut messages = pin!(messages);
 
-		// Attempt to dequeue a process from the stream.
-		while let Some(message) = enqueued
+		while let Some(message) = messages
 			.try_next()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to dequeue a process"))?
 		{
 			let (payload, acker) = message.split();
 
-			// Get a database connection.
-			let connection = self
-				.database
-				.write_connection()
+			// Attempt to start the process.
+			let started = self
+				.try_start_process_local(&payload.id)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-
-			// Update the process's status.
-			let p = connection.p();
-			let statement = formatdoc!(
-				"
-					update processes
-					set
-						status = 'dequeued',
-						dequeued_at = {p}2
-					where
-						id = {p}1 and status = 'enqueued';
-				"
-			);
-			let now = time::OffsetDateTime::now_utc().unix_timestamp();
-			let params = db::params![payload.id.to_string(), now];
-			let result = connection
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+				.map_err(|source| tg::error!(!source, "failed to start the process"))?;
 
 			// Ack the message unconditionally to avoid redelivery.
 			acker
 				.ack()
 				.await
 				.map_err(|source| tg::error!(!source, "failed to ack the message"))?;
-
-			// Only return the process if we successfully changed the status of the process.
-			if result == 0 {
+			if !started {
 				continue;
 			}
 
-			// Publish a message that the status changed.
-			let subject = format!("processes.{}.status", payload.id);
-			self.messenger.publish(subject, ()).await.ok();
-
-			// Return the dequeued process.
 			let output = tg::process::queue::Output {
 				process: payload.id,
 			};
@@ -113,8 +89,12 @@ impl Server {
 		&self,
 		request: http::Request<BoxBody>,
 		context: &Context,
+		sandbox: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
-		let stop = request.extensions().get::<Stop>().cloned().unwrap();
+		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
+		let sandbox = sandbox
+			.parse::<tg::sandbox::Id>()
+			.map_err(|source| tg::error!(!source, "failed to parse the sandbox id"))?;
 
 		// Get the accept header.
 		let accept: Option<mime::Mime> = request
@@ -131,12 +111,16 @@ impl Server {
 		// Get the stream.
 		let handle = self.clone();
 		let context = context.clone();
-		let future = async move { handle.try_dequeue_process_with_context(&context, arg).await };
+		let future = async move {
+			handle
+				.try_dequeue_process_with_context(&context, &sandbox, arg)
+				.await
+		};
 		let stream = stream::once(future).filter_map(|option| future::ready(option.transpose()));
 
 		// Stop the stream when the server stops.
-		let stop = async move { stop.wait().await };
-		let stream = stream.take_until(stop);
+		let stopper = async move { stopper.wait().await };
+		let stream = stream.take_until(stopper);
 
 		// Create the body.
 		let (content_type, body) = match accept

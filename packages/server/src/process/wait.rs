@@ -6,7 +6,7 @@ use {
 		atomic::{AtomicBool, Ordering},
 	},
 	tangram_client::prelude::*,
-	tangram_futures::{future::Ext as _, stream::TryExt as _, task::Stop},
+	tangram_futures::{future::Ext as _, stream::TryExt as _, task::Stopper},
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -160,31 +160,27 @@ impl Server {
 		if remotes.is_empty() {
 			return Ok(None);
 		}
-		let id = id.clone();
 		let arg = tg::process::wait::Arg {
 			local: None,
 			remotes: None,
 			token: None,
 		};
-		let futures = remotes.iter().map(|remote| {
-			let id = id.clone();
-			let arg = arg.clone();
-			let remote = remote.clone();
-			async move {
-				let client = self.get_remote_client(remote.clone()).await.map_err(
-					|source| tg::error!(!source, %remote, "failed to get the remote client"),
-				)?;
-				let output = client.wait_process(&id, arg).await.map_err(
+		for remote in remotes {
+			let client = self.get_remote_client(remote.clone()).await.map_err(
+				|source| tg::error!(!source, %remote, "failed to get the remote client"),
+			)?;
+			let future = client
+				.try_wait_process_future(id, arg.clone())
+				.await
+				.map_err(
 					|source| tg::error!(!source, %id, %remote, "failed to wait for the process"),
-				)?;
-				Ok::<_, tg::Error>(output)
+				)?
+				.map(futures::FutureExt::boxed);
+			if let Some(future) = future {
+				return Ok(Some(future));
 			}
-			.boxed()
-		});
-		let Ok((output, _)) = future::select_ok(futures).await else {
-			return Ok(None);
-		};
-		Ok(Some(async move { Ok(Some(output)) }))
+		}
+		Ok(None)
 	}
 
 	pub(crate) async fn handle_post_process_wait_request(
@@ -233,9 +229,9 @@ impl Server {
 		});
 
 		// Stop the stream when the server stops.
-		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let stop = async move { stop.wait().await };
-		let stream = stream.take_until(stop);
+		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
+		let stopper = async move { stopper.wait().await };
+		let stream = stream.take_until(stopper);
 
 		// Create the body.
 		let (content_type, body) = match accept

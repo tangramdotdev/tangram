@@ -26,6 +26,8 @@ let artifact = artifact {
 }
 let id = tg checkin --no-cache-pointers $artifact
 let id = tg build $id
+rm -rf ($server.directory | path join "artifacts")
+mkdir ($server.directory | path join "artifacts")
 
 # Cache.
 tg cache $id

@@ -14,6 +14,14 @@ export type Value =
 	| tg.Placeholder;
 
 export namespace Value {
+	export let parse = (value: string): tg.Value => {
+		return fromData(tg.handle.parseValue(value));
+	};
+
+	export let stringify = (value: tg.Value): string => {
+		return tg.handle.stringifyValue(toData(value));
+	};
+
 	export let toData = (value: Value): Data => {
 		if (
 			typeof value === "undefined" ||
@@ -196,4 +204,29 @@ export namespace Value {
 		| { kind: "mutation"; value: tg.Mutation.Data }
 		| { kind: "template"; value: tg.Template.Data }
 		| { kind: "placeholder"; value: tg.Placeholder.Data };
+
+	export namespace Data {
+		export let children = (data: tg.Value.Data): Array<tg.Object.Id> => {
+			if (
+				typeof data === "undefined" ||
+				typeof data === "boolean" ||
+				typeof data === "number" ||
+				typeof data === "string"
+			) {
+				return [];
+			} else if (data instanceof Array) {
+				return data.flatMap(children);
+			} else if (data.kind === "map") {
+				return globalThis.Object.values(data.value).flatMap(children);
+			} else if (data.kind === "object") {
+				return [data.value];
+			} else if (data.kind === "mutation") {
+				return tg.Mutation.Data.children(data.value);
+			} else if (data.kind === "template") {
+				return tg.Template.Data.children(data.value);
+			} else {
+				return [];
+			}
+		};
+	}
 }

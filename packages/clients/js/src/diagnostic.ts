@@ -36,4 +36,14 @@ export namespace Diagnostic {
 		}
 		return diagnostic;
 	};
+
+	export namespace Data {
+		export let children = (data: tg.Diagnostic.Data): Array<tg.Object.Id> => {
+			if (data.location !== undefined) {
+				return tg.Location.Data.children(data.location);
+			} else {
+				return [];
+			}
+		};
+	}
 }

@@ -29,24 +29,26 @@ impl Server {
 				output: arg.output,
 				remotes: None,
 			};
-			client
-				.finish_process(id, arg)
-				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to finish the process"))?;
+			if let Err(error) = client.finish_process(id, arg).await {
+				let output = client
+					.try_get_process(id, tg::process::get::Arg::default())
+					.await
+					.map_err(|source| {
+						tg::error!(
+							!source,
+							%id,
+							"failed to confirm the process state after the finish request failed"
+						)
+					})?;
+				if output.is_none_or(|output| !output.data.status.is_finished()) {
+					return Err(tg::error!(!error, %id, "failed to finish the process"));
+				}
+			}
 			return Ok(());
 		}
 
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
-		}
-
-		// If the task for the process is not the current task, then abort it.
-		if self
-			.process_tasks
-			.try_get_id(id)
-			.is_some_and(|task_id| task_id != tokio::task::id())
-		{
-			self.process_tasks.abort(id);
 		}
 
 		let tg::process::finish::Arg {
@@ -163,7 +165,6 @@ impl Server {
 					error = {p}2,
 					error_code = {p}3,
 					finished_at = {p}4,
-					heartbeat_at = null,
 					output = {p}5,
 					exit = {p}6,
 					status = {p}7,
@@ -238,7 +239,11 @@ impl Server {
 				let message = crate::process::finalize::Message { id: id.clone() };
 				server
 					.messenger
-					.stream_publish("finalize".to_owned(), message)
+					.stream_publish(
+						"processes.finalize.queue".to_owned(),
+						"processes.finalize.queue".to_owned(),
+						message,
+					)
 					.await
 					.inspect_err(|error| tracing::error!(%error, %id, "failed to publish"))
 					.ok();

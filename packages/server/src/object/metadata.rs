@@ -1,6 +1,5 @@
 use {
 	crate::{Context, Server},
-	futures::{FutureExt as _, future},
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::prelude::*,
@@ -67,22 +66,45 @@ impl Server {
 		if remotes.is_empty() {
 			return Ok(None);
 		}
-		let futures = remotes.iter().map(|remote| {
-			let remote = remote.clone();
-			async move {
-				let client = self.get_remote_client(remote.clone()).await.map_err(
-					|source| tg::error!(!source, %remote, "failed to get the remote client"),
-				)?;
-				client.get_object_metadata(id).await.map_err(
-					|source| tg::error!(!source, %remote, "failed to get the object metadata"),
-				)
+		let mut error = None;
+		let mut metadata = None;
+		for remote in remotes {
+			let client = match self.get_remote_client(remote.clone()).await {
+				Ok(client) => client,
+				Err(source) => {
+					error.replace(tg::error!(
+						!source,
+						%remote,
+						"failed to get the remote client"
+					));
+					continue;
+				},
+			};
+			match client
+				.try_get_object_metadata(id, tg::object::metadata::Arg::default())
+				.await
+			{
+				Ok(Some(remote_metadata)) => {
+					metadata.replace(remote_metadata);
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					error.replace(tg::error!(
+						!source,
+						%remote,
+						"failed to get the object metadata"
+					));
+				},
 			}
-			.boxed()
-		});
-		let Ok((metadata, _)) = future::select_ok(futures).await else {
-			return Ok(None);
-		};
-		Ok(Some(metadata))
+		}
+		if let Some(metadata) = metadata {
+			return Ok(Some(metadata));
+		}
+		if let Some(error) = error {
+			return Err(error);
+		}
+		Ok(None)
 	}
 
 	pub(crate) async fn handle_get_object_metadata_request(

@@ -67,8 +67,6 @@ impl Server {
 					cacheable,
 					command,
 					created_at,
-					dequeued_at,
-					enqueued_at,
 					error,
 					error_code,
 					exit,
@@ -76,9 +74,9 @@ impl Server {
 					finished_at,
 					host,
 					log,
-					mounts,
-					network,
 					output,
+					sandbox,
+					tty,
 					retry,
 					started_at,
 					status,
@@ -111,35 +109,31 @@ impl Server {
 					?20,
 					?21,
 					?22,
-					?23,
-					?24,
-					?25
+					?23
 				)
 				on conflict (id) do update set
 					actual_checksum = ?2,
 					cacheable = ?3,
 					command = ?4,
 					created_at = ?5,
-					dequeued_at = ?6,
-					enqueued_at = ?7,
-					error = ?8,
-					error_code = ?9,
-					exit = ?10,
-					expected_checksum = ?11,
-					finished_at = ?12,
-					host = ?13,
-					log = ?14,
-					mounts = ?15,
-					network = ?16,
-					output = ?17,
-					retry = ?18,
-					started_at = ?19,
-					status = ?20,
-					stderr = ?21,
-					stdin = ?22,
-					stdout = ?23,
-					token_count = ?24,
-					touched_at = ?25
+					error = ?6,
+					error_code = ?7,
+					exit = ?8,
+					expected_checksum = ?9,
+					finished_at = ?10,
+					host = ?11,
+					log = ?12,
+					output = ?13,
+					sandbox = ?14,
+					tty = ?15,
+					retry = ?16,
+					started_at = ?17,
+					status = ?18,
+					stderr = ?19,
+					stdin = ?20,
+					stdout = ?21,
+					token_count = ?22,
+					touched_at = ?23
 			"
 		);
 		let mut process_stmt = cache
@@ -168,12 +162,14 @@ impl Server {
 				tg::Either::Left(data) => data.code.map(|code| code.to_string()),
 				tg::Either::Right(_) => None,
 			});
-			let mounts_json =
-				(!data.mounts.is_empty()).then(|| serde_json::to_string(&data.mounts).unwrap());
 			let output_json = data
 				.output
 				.as_ref()
 				.map(|output| serde_json::to_string(output).unwrap());
+			let tty_json = data
+				.tty
+				.as_ref()
+				.map(|tty| serde_json::to_string(tty).unwrap());
 
 			let params = sqlite::params![
 				id.to_string(),
@@ -181,8 +177,6 @@ impl Server {
 				data.cacheable,
 				data.command.to_string(),
 				data.created_at,
-				data.dequeued_at,
-				data.enqueued_at,
 				error_string,
 				error_code,
 				data.exit,
@@ -190,15 +184,15 @@ impl Server {
 				data.finished_at,
 				data.host,
 				data.log.as_ref().map(ToString::to_string),
-				mounts_json,
-				data.network,
 				output_json,
+				data.sandbox.as_ref().map(ToString::to_string),
+				tty_json,
 				data.retry,
 				data.started_at,
 				data.status.to_string(),
-				data.stderr.as_ref().map(ToString::to_string),
-				data.stdin.as_ref().map(ToString::to_string),
-				data.stdout.as_ref().map(ToString::to_string),
+				(!data.stderr.is_null()).then(|| data.stderr.to_string()),
+				(!data.stdin.is_null()).then(|| data.stdin.to_string()),
+				(!data.stdout.is_null()).then(|| data.stdout.to_string()),
 				0,
 				touched_at
 			];

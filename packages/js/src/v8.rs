@@ -5,7 +5,7 @@ use {
 		},
 		syscall::syscall,
 	},
-	crate::{Logger, Output},
+	crate::Output,
 	futures::{
 		FutureExt as _, StreamExt as _, TryFutureExt as _,
 		future::{self, LocalBoxFuture},
@@ -28,12 +28,13 @@ const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.js.map"
 struct State {
 	promises: RefCell<FuturesUnordered<LocalBoxFuture<'static, PromiseOutput>>>,
 	global_source_map: Option<SourceMap>,
-	logger: Logger,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
 	rejection: tokio::sync::watch::Sender<Option<tg::Error>>,
 	root: tg::module::Data,
 	handle: tg::handle::dynamic::Handle,
+	host: crate::host::Host,
+	stdio: crate::stdio::Stdio,
 }
 
 struct PromiseOutput {
@@ -51,14 +52,12 @@ struct Module {
 #[derive(Clone)]
 pub struct Abort(v8::IsolateHandle);
 
-#[expect(clippy::too_many_arguments)]
 pub async fn run<H>(
 	handle: &H,
 	args: tg::value::data::Array,
 	cwd: PathBuf,
 	env: tg::value::data::Map,
 	executable: tg::command::data::Executable,
-	logger: Logger,
 	main_runtime_handle: tokio::runtime::Handle,
 	abort_sender: Option<tokio::sync::watch::Sender<Option<Abort>>>,
 ) -> tg::Result<Output>
@@ -90,15 +89,17 @@ where
 
 	// Create the state.
 	let (rejection, _) = tokio::sync::watch::channel(None);
+	let handle = tg::handle::dynamic::Handle::new(handle.clone());
 	let state = Rc::new(State {
 		promises: RefCell::new(FuturesUnordered::new()),
 		global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
-		logger,
-		main_runtime_handle,
+		main_runtime_handle: main_runtime_handle.clone(),
 		modules: RefCell::new(Vec::new()),
 		rejection,
 		root: module.clone(),
-		handle: tg::handle::dynamic::Handle::new(handle.clone()),
+		handle: handle.clone(),
+		host: crate::host::Host::default(),
+		stdio: crate::stdio::Stdio::new(handle, main_runtime_handle),
 	});
 
 	// Create the isolate params.

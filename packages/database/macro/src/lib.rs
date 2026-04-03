@@ -204,7 +204,9 @@ pub fn sqlite_row_deserialize(input: proc_macro::TokenStream) -> proc_macro::Tok
 					#name: {
 						let value = row.get_ref(#name_str)
 							.map_err(|error| tangram_database::sqlite::Error::other(format!("failed to get column \"{}\": {error}", #name_str)))?;
-						<#as_type as tangram_database::sqlite::value::DeserializeAs<#field_type>>::deserialize_as(value.into())
+						let value = std::convert::TryInto::<rusqlite::types::Value>::try_into(value)
+							.map_err(|error| tangram_database::sqlite::Error::other(format!("failed to convert column \"{}\": {error}", #name_str)))?;
+						<#as_type as tangram_database::sqlite::value::DeserializeAs<#field_type>>::deserialize_as(value)
 							.map_err(|error| tangram_database::sqlite::Error::other(format!("failed to deserialize column \"{}\": {error}", #name_str)))?
 					}
 				}

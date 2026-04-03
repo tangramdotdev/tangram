@@ -195,8 +195,8 @@ export class Blob {
 		return this.id;
 	}
 
-	async children(): Promise<Array<tg.Object>> {
-		return this.#state.children();
+	get children(): Promise<Array<tg.Object>> {
+		return this.#state.children;
 	}
 
 	get length(): Promise<number> {
@@ -314,6 +314,14 @@ export namespace Blob {
 		export type Child = {
 			blob: tg.Blob.Id;
 			length: number;
+		};
+
+		export let children = (data: tg.Blob.Data): Array<tg.Object.Id> => {
+			if ("children" in data) {
+				return data.children.map((child) => child.blob);
+			} else {
+				return [];
+			}
 		};
 	}
 

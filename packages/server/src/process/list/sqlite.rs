@@ -37,8 +37,6 @@ impl Server {
 			#[tangram_database(as = "db::sqlite::value::FromStr")]
 			command: tg::command::Id,
 			created_at: i64,
-			dequeued_at: Option<i64>,
-			enqueued_at: Option<i64>,
 			error: Option<String>,
 			exit: Option<u8>,
 			#[tangram_database(as = "Option<db::sqlite::value::FromStr>")]
@@ -50,9 +48,8 @@ impl Server {
 			#[tangram_database(as = "Option<db::value::Json<tg::value::Data>>")]
 			output: Option<tg::value::Data>,
 			retry: bool,
-			#[tangram_database(as = "Option<db::value::Json<Vec<tg::process::data::Mount>>>")]
-			mounts: Option<Vec<tg::process::data::Mount>>,
-			network: bool,
+			#[tangram_database(as = "Option<db::sqlite::value::FromStr>")]
+			sandbox: Option<tg::sandbox::Id>,
 			started_at: Option<i64>,
 			#[tangram_database(as = "db::sqlite::value::FromStr")]
 			status: tg::process::Status,
@@ -62,6 +59,8 @@ impl Server {
 			stdin: Option<tg::process::Stdio>,
 			#[tangram_database(as = "Option<db::sqlite::value::FromStr>")]
 			stdout: Option<tg::process::Stdio>,
+			#[tangram_database(as = "Option<db::value::Json<tg::process::Tty>>")]
+			tty: Option<tg::process::Tty>,
 		}
 		let statement = indoc!(
 			"
@@ -71,8 +70,6 @@ impl Server {
 					cacheable,
 					command,
 					created_at,
-					dequeued_at,
-					enqueued_at,
 					error,
 					exit,
 					expected_checksum,
@@ -81,13 +78,13 @@ impl Server {
 					log,
 					output,
 					retry,
-					mounts,
-					network,
+					sandbox,
 					started_at,
 					status,
 					stderr,
 					stdin,
-					stdout
+					stdout,
+					tty
 				from processes
 				where status != 'finished';
 			"
@@ -165,8 +162,6 @@ impl Server {
 				children: Some(children),
 				command: row.command,
 				created_at: row.created_at,
-				dequeued_at: row.dequeued_at,
-				enqueued_at: row.enqueued_at,
 				error,
 				exit: row.exit,
 				expected_checksum: row.expected_checksum,
@@ -175,13 +170,13 @@ impl Server {
 				log: row.log,
 				output: row.output,
 				retry: row.retry,
-				mounts: row.mounts.unwrap_or_default(),
-				network: row.network,
+				sandbox: row.sandbox,
 				started_at: row.started_at,
 				status: row.status,
-				stderr: row.stderr,
-				stdin: row.stdin,
-				stdout: row.stdout,
+				stderr: row.stderr.unwrap_or_default(),
+				stdin: row.stdin.unwrap_or_default(),
+				stdout: row.stdout.unwrap_or_default(),
+				tty: row.tty,
 			};
 
 			let output = tg::process::get::Output {

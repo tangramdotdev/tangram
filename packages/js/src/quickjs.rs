@@ -4,7 +4,7 @@ use {
 		serde::Serde,
 		syscall::syscall,
 	},
-	crate::{Logger, Output},
+	crate::Output,
 	rquickjs::{self as qjs, CatchResultExt as _},
 	sourcemap::SourceMap,
 	std::{cell::RefCell, path::PathBuf, rc::Rc},
@@ -23,11 +23,12 @@ const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.js.map"
 
 struct State {
 	global_source_map: Option<SourceMap>,
-	logger: Logger,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
 	root: tg::module::Data,
 	handle: tg::handle::dynamic::Handle,
+	host: crate::host::Host,
+	stdio: crate::stdio::Stdio,
 }
 
 #[derive(Clone)]
@@ -44,14 +45,12 @@ pub struct Abort {
 	sender: tokio::sync::watch::Sender<bool>,
 }
 
-#[expect(clippy::too_many_arguments)]
 pub async fn run<H>(
 	handle: &H,
 	args: tg::value::data::Array,
 	cwd: PathBuf,
 	env: tg::value::data::Map,
 	executable: tg::command::data::Executable,
-	logger: Logger,
 	main_runtime_handle: tokio::runtime::Handle,
 	abort_sender: Option<tokio::sync::watch::Sender<Option<Abort>>>,
 ) -> tg::Result<Output>
@@ -110,13 +109,15 @@ where
 		.map_err(|source| tg::error!(!source, "failed to create the context"))?;
 
 	// Create the state.
+	let handle = tg::handle::dynamic::Handle::new(handle.clone());
 	let state = Rc::new(State {
 		global_source_map: SourceMap::from_slice(SOURCE_MAP).ok(),
-		logger,
-		main_runtime_handle,
+		main_runtime_handle: main_runtime_handle.clone(),
 		modules: RefCell::new(Vec::new()),
 		root: module.clone(),
-		handle: tg::handle::dynamic::Handle::new(handle.clone()),
+		handle: handle.clone(),
+		host: crate::host::Host::default(),
+		stdio: crate::stdio::Stdio::new(handle, main_runtime_handle),
 	});
 
 	// Initialize the context and await the result.
@@ -186,7 +187,6 @@ where
 			arg.set("executable", Serde(&executable))
 				.catch(&ctx)
 				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-
 			// Call the start function.
 			let value: qjs::Value = start
 				.call((arg,))

@@ -1,111 +1,145 @@
-import type * as tg from "@tangramdotdev/client";
+import * as tg from "@tangramdotdev/client";
 
 export let handle: tg.Handle = {
-	read(arg: tg.Handle.ReadArg): Promise<Uint8Array> {
-		return syscall("read", arg);
+	checkin(arg: tg.Handle.CheckinArg): Promise<tg.Artifact.Id> {
+		return syscall("handle_checkin", arg);
 	},
 
-	write(bytes: string | Uint8Array): Promise<tg.Blob.Id> {
-		return syscall("write", bytes);
-	},
-
-	getObject(id) {
-		return syscall("object_get", id);
-	},
-
-	postObjectBatch(arg: tg.Handle.PostObjectBatchArg): Promise<void> {
-		return syscall("object_batch", arg);
-	},
-
-	getProcess(
-		id: tg.Process.Id,
-		remote: string | undefined,
-	): Promise<tg.Process.Data> {
-		return syscall("process_get", id, remote);
-	},
-
-	spawnProcess(arg: tg.Handle.SpawnArg): Promise<tg.Handle.SpawnOutput> {
-		return syscall("process_spawn", arg);
-	},
-
-	waitProcess(
-		id: tg.Process.Id,
-		arg: tg.Handle.WaitArg,
-	): Promise<tg.Process.Wait.Data> {
-		return syscall("process_wait", id, arg);
+	checkout(arg: tg.Handle.CheckoutArg): Promise<string> {
+		return syscall("handle_checkout", arg);
 	},
 
 	checksum(
 		input: string | Uint8Array,
 		algorithm: tg.Checksum.Algorithm,
 	): tg.Checksum {
-		return syscall("checksum", input, algorithm);
+		return syscall("handle_checksum", input, algorithm);
 	},
 
-	encoding: {
-		base64: {
-			decode(value: string): Uint8Array {
-				return syscall("encoding_base64_decode", value);
-			},
-			encode(value: Uint8Array): string {
-				return syscall("encoding_base64_encode", value);
-			},
-		},
-		hex: {
-			decode(value: string): Uint8Array {
-				return syscall("encoding_hex_decode", value);
-			},
-			encode(value: Uint8Array): string {
-				return syscall("encoding_hex_encode", value);
-			},
-		},
-		json: {
-			decode(value: string): unknown {
-				return syscall("encoding_json_decode", value);
-			},
-			encode(value: unknown): string {
-				return syscall("encoding_json_encode", value);
-			},
-		},
-		toml: {
-			decode(value: string): unknown {
-				return syscall("encoding_toml_decode", value);
-			},
-			encode(value: unknown): string {
-				return syscall("encoding_toml_encode", value);
-			},
-		},
-		utf8: {
-			decode(value: Uint8Array): string {
-				return syscall("encoding_utf8_decode", value);
-			},
-			encode(value: string): Uint8Array {
-				return syscall("encoding_utf8_encode", value);
-			},
-		},
-		yaml: {
-			decode(value: string): unknown {
-				return syscall("encoding_yaml_decode", value);
-			},
-			encode(value: unknown): string {
-				return syscall("encoding_yaml_encode", value);
-			},
-		},
+	getObject(id) {
+		return syscall("handle_object_get", id);
 	},
 
-	log(stream: tg.Handle.LogStream, string: string): void {
-		syscall("log", stream, string);
+	getProcess(
+		id: tg.Process.Id,
+		remote: string | undefined,
+	): Promise<tg.Process.Data> {
+		return syscall("handle_process_get", id, remote);
 	},
 
-	magic(value: Function): tg.Command.Data.Executable {
-		return syscall("magic", value);
+	getSandbox(
+		id: tg.Sandbox.Id,
+		remote: string | undefined,
+	): Promise<tg.Handle.SandboxGetOutput> {
+		return syscall("handle_sandbox_get", id, remote);
 	},
 
 	objectId(object: tg.Object.Data): tg.Object.Id {
-		return syscall("object_id", object);
+		return syscall("handle_object_id", object);
 	},
 
-	sleep(duration: number): Promise<void> {
-		return syscall("sleep", duration);
+	parseValue(value: string): tg.Value.Data {
+		return syscall("handle_value_parse", value);
+	},
+
+	postObjectBatch(arg: tg.Handle.PostObjectBatchArg): Promise<void> {
+		return syscall("handle_object_batch", arg);
+	},
+
+	processId(): tg.Process.Id {
+		return syscall("handle_process_id", undefined);
+	},
+
+	read(arg: tg.Handle.ReadArg): Promise<Uint8Array> {
+		return syscall("handle_read", arg);
+	},
+
+	async readProcessStdio(
+		id: tg.Process.Id,
+		arg: tg.Handle.ProcessStdioReadArg,
+	): Promise<AsyncIterableIterator<tg.Process.Stdio.Read.Event> | undefined> {
+		let token = await syscall("handle_process_stdio_read_open", id, arg);
+		if (token === undefined) {
+			return undefined;
+		}
+		return (async function* () {
+			try {
+				while (true) {
+					let eventData = await syscall(
+						"handle_process_stdio_read_read",
+						token,
+					);
+					if (eventData === undefined) {
+						break;
+					}
+					let event = tg.Process.Stdio.Read.Event.fromData(eventData);
+					yield event;
+					if (event.kind === "end") {
+						break;
+					}
+				}
+			} finally {
+				await syscall("handle_process_stdio_read_close", token);
+			}
+		})();
+	},
+
+	setProcessTtySize(
+		id: tg.Process.Id,
+		arg: tg.Handle.ProcessTtySizePutArg,
+	): Promise<void> {
+		return syscall("handle_process_tty_size_put", id, arg);
+	},
+
+	signalProcess(id: tg.Process.Id, arg: tg.Handle.SignalArg): Promise<void> {
+		return syscall("handle_process_signal", id, arg);
+	},
+
+	spawnProcess(arg: tg.Handle.SpawnArg): Promise<tg.Handle.SpawnOutput> {
+		return syscall("handle_process_spawn", arg);
+	},
+
+	waitProcess(
+		id: tg.Process.Id,
+		arg: tg.Handle.WaitArg,
+	): Promise<tg.Process.Wait.Data> {
+		return syscall("handle_process_wait", id, arg);
+	},
+
+	stringifyValue(value: tg.Value.Data): string {
+		return syscall("handle_value_stringify", value);
+	},
+
+	write(bytes: string | Uint8Array): Promise<tg.Blob.Id> {
+		return syscall("handle_write", bytes);
+	},
+
+	async writeProcessStdio(
+		id: tg.Process.Id,
+		arg: tg.Handle.ProcessStdioWriteArg,
+		input: AsyncIterableIterator<tg.Process.Stdio.Read.Event>,
+	): Promise<void> {
+		let token = await syscall("handle_process_stdio_write_open", id, arg);
+		try {
+			for await (let event of input) {
+				if (event.kind === "end") {
+					break;
+				}
+				if (!arg.streams.includes(event.value.stream)) {
+					throw new Error("invalid process stdio stream");
+				}
+				let eventData = tg.Process.Stdio.Read.Event.toData(event);
+				if (eventData.kind !== "chunk") {
+					throw new Error("invalid process stdio event");
+				}
+				await syscall(
+					"handle_process_stdio_write_write",
+					token,
+					eventData.value,
+				);
+			}
+		} finally {
+			await syscall("handle_process_stdio_write_close", token);
+		}
 	},
 };

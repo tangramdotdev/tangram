@@ -7,7 +7,14 @@ pub struct Local {
 		num_args = 0..=1,
 		require_equals = true,
 	)]
-	pub local: Option<bool>,
+	local: Option<bool>,
+}
+
+impl Local {
+	#[must_use]
+	pub fn get(&self) -> Option<bool> {
+		self.local
+	}
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -21,5 +28,12 @@ pub struct Remotes {
 		value_delimiter = ',',
 		visible_alias = "remote",
 	)]
-	pub remotes: Option<Vec<String>>,
+	remotes: Option<Vec<String>>,
+}
+
+impl Remotes {
+	#[must_use]
+	pub fn get(&self) -> Option<Vec<String>> {
+		self.remotes.clone()
+	}
 }

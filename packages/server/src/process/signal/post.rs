@@ -27,7 +27,7 @@ impl Server {
 		}
 
 		// Check if the process is cacheable.
-		if tg::Process::new(id.clone(), None, None, None, None)
+		if tg::Process::new(id.clone(), None, None, None, None, None)
 			.load(self)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to load the process"))?

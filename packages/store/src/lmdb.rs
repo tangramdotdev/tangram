@@ -63,7 +63,7 @@ enum ProcessLogRequest {
 struct PutProcessLog {
 	bytes: Bytes,
 	id: tg::process::Id,
-	stream: tg::process::log::Stream,
+	stream: tg::process::stdio::Stream,
 	timestamp: i64,
 }
 
@@ -75,7 +75,7 @@ struct DeleteProcessLog {
 enum Key<'a> {
 	Object(&'a tg::object::Id),
 	ProcessLogEntry(&'a tg::process::Id, u64),
-	ProcessLogStreamPosition(&'a tg::process::Id, tg::process::log::Stream, u64),
+	ProcessLogStreamPosition(&'a tg::process::Id, tg::process::stdio::Stream, u64),
 }
 
 impl Store {
@@ -472,8 +472,8 @@ impl Store {
 
 		// Delete all stream position entries.
 		for stream in [
-			tg::process::log::Stream::Stdout,
-			tg::process::log::Stream::Stderr,
+			tg::process::stdio::Stream::Stdout,
+			tg::process::stdio::Stream::Stderr,
 		] {
 			let start_key = Key::ProcessLogStreamPosition(id, stream, 0);
 			let end_key = Key::ProcessLogStreamPosition(id, stream, u64::MAX);
@@ -893,7 +893,7 @@ impl crate::Store for Store {
 	async fn try_get_process_log_length(
 		&self,
 		id: &tg::process::Id,
-		stream: Option<tg::process::log::Stream>,
+		stream: Option<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<u64>> {
 		tokio::task::spawn_blocking({
 			let db = self.db;
@@ -1024,11 +1024,18 @@ impl foundationdb_tuple::TuplePack for Key<'_> {
 			Key::ProcessLogEntry(id, position) => {
 				(1, id.to_bytes().as_ref(), 0, *position).pack(w, tuple_depth)
 			},
-			Key::ProcessLogStreamPosition(id, tg::process::log::Stream::Stdout, position) => {
+			Key::ProcessLogStreamPosition(id, tg::process::stdio::Stream::Stdout, position) => {
 				(1, id.to_bytes().as_ref(), 1, *position).pack(w, tuple_depth)
 			},
-			Key::ProcessLogStreamPosition(id, tg::process::log::Stream::Stderr, position) => {
+			Key::ProcessLogStreamPosition(id, tg::process::stdio::Stream::Stderr, position) => {
 				(1, id.to_bytes().as_ref(), 2, *position).pack(w, tuple_depth)
+			},
+			Key::ProcessLogStreamPosition(id, tg::process::stdio::Stream::Stdin, position) => {
+				let _ = (id, position);
+				Err(std::io::Error::new(
+					std::io::ErrorKind::InvalidInput,
+					"invalid stdio stream",
+				))
 			},
 		}
 	}
@@ -1062,7 +1069,7 @@ mod tests {
 			.put_process_log(PutProcessLogArg {
 				bytes: Bytes::from("hello world"),
 				process: process.clone(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 				timestamp: 1000,
 			})
 			.await
@@ -1074,7 +1081,7 @@ mod tests {
 				process: process.clone(),
 				position: 0,
 				length: 11,
-				stream: Some(tg::process::log::Stream::Stdout),
+				stream: Some(tg::process::stdio::Stream::Stdout),
 			})
 			.await
 			.unwrap();
@@ -1086,7 +1093,7 @@ mod tests {
 				process: process.clone(),
 				position: 6,
 				length: 5,
-				stream: Some(tg::process::log::Stream::Stdout),
+				stream: Some(tg::process::stdio::Stream::Stdout),
 			})
 			.await
 			.unwrap();
@@ -1108,7 +1115,7 @@ mod tests {
 			.put_process_log(PutProcessLogArg {
 				bytes: Bytes::from("hello"),
 				process: process.clone(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 				timestamp: 1000,
 			})
 			.await
@@ -1117,7 +1124,7 @@ mod tests {
 			.put_process_log(PutProcessLogArg {
 				bytes: Bytes::from(" "),
 				process: process.clone(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 				timestamp: 1001,
 			})
 			.await
@@ -1126,7 +1133,7 @@ mod tests {
 			.put_process_log(PutProcessLogArg {
 				bytes: Bytes::from("world"),
 				process: process.clone(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 				timestamp: 1002,
 			})
 			.await
@@ -1138,7 +1145,7 @@ mod tests {
 				process: process.clone(),
 				position: 0,
 				length: 11,
-				stream: Some(tg::process::log::Stream::Stdout),
+				stream: Some(tg::process::stdio::Stream::Stdout),
 			})
 			.await
 			.unwrap();
@@ -1160,7 +1167,7 @@ mod tests {
 			.put_process_log(PutProcessLogArg {
 				bytes: Bytes::from("AAAA"),
 				process: process.clone(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 				timestamp: 1000,
 			})
 			.await
@@ -1169,7 +1176,7 @@ mod tests {
 			.put_process_log(PutProcessLogArg {
 				bytes: Bytes::from("BBBB"),
 				process: process.clone(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 				timestamp: 1001,
 			})
 			.await
@@ -1178,7 +1185,7 @@ mod tests {
 			.put_process_log(PutProcessLogArg {
 				bytes: Bytes::from("CCCC"),
 				process: process.clone(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 				timestamp: 1002,
 			})
 			.await
@@ -1190,7 +1197,7 @@ mod tests {
 				process: process.clone(),
 				position: 2,
 				length: 4,
-				stream: Some(tg::process::log::Stream::Stdout),
+				stream: Some(tg::process::stdio::Stream::Stdout),
 			})
 			.await
 			.unwrap();
@@ -1202,7 +1209,7 @@ mod tests {
 				process: process.clone(),
 				position: 6,
 				length: 4,
-				stream: Some(tg::process::log::Stream::Stdout),
+				stream: Some(tg::process::stdio::Stream::Stdout),
 			})
 			.await
 			.unwrap();
@@ -1214,7 +1221,7 @@ mod tests {
 				process: process.clone(),
 				position: 2,
 				length: 8,
-				stream: Some(tg::process::log::Stream::Stdout),
+				stream: Some(tg::process::stdio::Stream::Stdout),
 			})
 			.await
 			.unwrap();
@@ -1236,7 +1243,7 @@ mod tests {
 			.put_process_log(PutProcessLogArg {
 				bytes: Bytes::from("out1"),
 				process: process.clone(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 				timestamp: 1000,
 			})
 			.await
@@ -1245,7 +1252,7 @@ mod tests {
 			.put_process_log(PutProcessLogArg {
 				bytes: Bytes::from("err1"),
 				process: process.clone(),
-				stream: tg::process::log::Stream::Stderr,
+				stream: tg::process::stdio::Stream::Stderr,
 				timestamp: 1001,
 			})
 			.await
@@ -1254,7 +1261,7 @@ mod tests {
 			.put_process_log(PutProcessLogArg {
 				bytes: Bytes::from("out2"),
 				process: process.clone(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 				timestamp: 1002,
 			})
 			.await
@@ -1278,7 +1285,7 @@ mod tests {
 				process: process.clone(),
 				position: 0,
 				length: 8,
-				stream: Some(tg::process::log::Stream::Stdout),
+				stream: Some(tg::process::stdio::Stream::Stdout),
 			})
 			.await
 			.unwrap();
@@ -1290,7 +1297,7 @@ mod tests {
 				process: process.clone(),
 				position: 0,
 				length: 4,
-				stream: Some(tg::process::log::Stream::Stderr),
+				stream: Some(tg::process::stdio::Stream::Stderr),
 			})
 			.await
 			.unwrap();
@@ -1312,7 +1319,7 @@ mod tests {
 			.put_process_log(PutProcessLogArg {
 				bytes: Bytes::from("hello"),
 				process: process.clone(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 				timestamp: 1000,
 			})
 			.await
@@ -1321,7 +1328,7 @@ mod tests {
 			.put_process_log(PutProcessLogArg {
 				bytes: Bytes::from("world"),
 				process: process.clone(),
-				stream: tg::process::log::Stream::Stderr,
+				stream: tg::process::stdio::Stream::Stderr,
 				timestamp: 1001,
 			})
 			.await
@@ -1375,7 +1382,7 @@ mod tests {
 			.put_process_log(PutProcessLogArg {
 				bytes: Bytes::from("hello"),
 				process: process.clone(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 				timestamp: 1000,
 			})
 			.await
@@ -1384,7 +1391,7 @@ mod tests {
 			.put_process_log(PutProcessLogArg {
 				bytes: Bytes::from("err"),
 				process: process.clone(),
-				stream: tg::process::log::Stream::Stderr,
+				stream: tg::process::stdio::Stream::Stderr,
 				timestamp: 1001,
 			})
 			.await
@@ -1393,7 +1400,7 @@ mod tests {
 			.put_process_log(PutProcessLogArg {
 				bytes: Bytes::from("world"),
 				process: process.clone(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 				timestamp: 1002,
 			})
 			.await
@@ -1409,14 +1416,14 @@ mod tests {
 		); // 5 + 3 + 5
 		assert_eq!(
 			store
-				.try_get_process_log_length(&process, Some(tg::process::log::Stream::Stdout))
+				.try_get_process_log_length(&process, Some(tg::process::stdio::Stream::Stdout))
 				.await
 				.unwrap(),
 			Some(10)
 		); // 5 + 5
 		assert_eq!(
 			store
-				.try_get_process_log_length(&process, Some(tg::process::log::Stream::Stderr))
+				.try_get_process_log_length(&process, Some(tg::process::stdio::Stream::Stderr))
 				.await
 				.unwrap(),
 			Some(3)
@@ -1438,7 +1445,7 @@ mod tests {
 			.put_process_log(PutProcessLogArg {
 				bytes: Bytes::from("hello"),
 				process: process.clone(),
-				stream: tg::process::log::Stream::Stdout,
+				stream: tg::process::stdio::Stream::Stdout,
 				timestamp: 1000,
 			})
 			.await
@@ -1450,7 +1457,7 @@ mod tests {
 				process: process.clone(),
 				position: 5,
 				length: 10,
-				stream: Some(tg::process::log::Stream::Stdout),
+				stream: Some(tg::process::stdio::Stream::Stdout),
 			})
 			.await
 			.unwrap();

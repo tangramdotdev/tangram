@@ -74,9 +74,14 @@ pub fn remove_sync(path: impl AsRef<Path>) -> std::io::Result<()> {
 		let metadata = std::fs::symlink_metadata(path)?;
 
 		if !metadata.is_symlink() {
-			// Set permissions +rw.
+			// Restore owner access before descending so non-traversable directories can be removed.
 			let mode = metadata.mode();
-			let permissions = std::fs::Permissions::from_mode(mode | 0o666);
+			let mode = if metadata.is_dir() {
+				mode | 0o700
+			} else {
+				mode | 0o600
+			};
+			let permissions = std::fs::Permissions::from_mode(mode);
 			std::fs::set_permissions(path, permissions)?;
 		}
 

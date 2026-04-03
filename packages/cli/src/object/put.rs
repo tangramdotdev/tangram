@@ -1,4 +1,7 @@
-use {crate::Cli, bytes::Bytes, tangram_client::prelude::*, tokio::io::AsyncReadExt as _};
+use {
+	crate::Cli, bytes::Bytes, tangram_client::prelude::*, tokio::io::AsyncReadExt as _,
+	tokio_util::io::StreamReader,
+};
 
 /// Put an object.
 #[derive(Clone, Debug, clap::Args)]
@@ -36,10 +39,13 @@ impl Cli {
 			input.into_bytes()
 		} else {
 			let mut input = Vec::new();
-			crate::util::stdio::stdin()
-				.read_to_end(&mut input)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
+			StreamReader::new(
+				tangram_util::io::stdin()
+					.map_err(|source| tg::error!(!source, "failed to open stdin"))?,
+			)
+			.read_to_end(&mut input)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to read stdin"))?;
 			input
 		};
 
@@ -60,8 +66,8 @@ impl Cli {
 			let arg = tg::object::put::Arg {
 				bytes,
 				metadata: None,
-				local: args.local.local,
-				remotes: args.remotes.remotes.clone(),
+				local: args.local.get(),
+				remotes: args.remotes.get(),
 			};
 			handle
 				.put_object(&id, arg)

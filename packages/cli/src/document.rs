@@ -43,9 +43,9 @@ impl Cli {
 
 		// Document the module.
 		let arg = tg::document::Arg {
-			local: args.local.local,
+			local: args.local.get(),
 			module,
-			remotes: args.remotes.remotes,
+			remotes: args.remotes.get(),
 		};
 		let output = handle
 			.document(arg)

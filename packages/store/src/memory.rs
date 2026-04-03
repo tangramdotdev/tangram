@@ -17,7 +17,7 @@ pub struct Store {
 #[derive(Default)]
 struct ProcessLogs {
 	entries: BTreeMap<u64, ProcessLogEntry<'static>>,
-	stream_positions: BTreeMap<(tg::process::log::Stream, u64), u64>,
+	stream_positions: BTreeMap<(tg::process::stdio::Stream, u64), u64>,
 }
 
 impl Store {
@@ -187,7 +187,7 @@ impl Store {
 	pub fn try_get_process_log_length(
 		&self,
 		id: &tg::process::Id,
-		stream: Option<tg::process::log::Stream>,
+		stream: Option<tg::process::stdio::Stream>,
 	) -> Option<u64> {
 		let process_logs = self.process_logs.get(id)?;
 		if let Some(stream) = stream {
@@ -311,7 +311,7 @@ impl crate::Store for Store {
 	async fn try_get_process_log_length(
 		&self,
 		id: &tg::process::Id,
-		stream: Option<tg::process::log::Stream>,
+		stream: Option<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<u64>> {
 		Ok(self.try_get_process_log_length(id, stream))
 	}
@@ -354,7 +354,7 @@ mod tests {
 		store.put_process_log(PutProcessLogArg {
 			bytes: Bytes::from("hello world"),
 			process: process.clone(),
-			stream: tg::process::log::Stream::Stdout,
+			stream: tg::process::stdio::Stream::Stdout,
 			timestamp: 1000,
 		});
 
@@ -363,7 +363,7 @@ mod tests {
 			process: process.clone(),
 			position: 0,
 			length: 11,
-			stream: Some(tg::process::log::Stream::Stdout),
+			stream: Some(tg::process::stdio::Stream::Stdout),
 		});
 		assert_eq!(collect_bytes(result), Bytes::from("hello world"));
 
@@ -372,7 +372,7 @@ mod tests {
 			process: process.clone(),
 			position: 6,
 			length: 5,
-			stream: Some(tg::process::log::Stream::Stdout),
+			stream: Some(tg::process::stdio::Stream::Stdout),
 		});
 		assert_eq!(collect_bytes(result), Bytes::from("world"));
 	}
@@ -386,19 +386,19 @@ mod tests {
 		store.put_process_log(PutProcessLogArg {
 			bytes: Bytes::from("hello"),
 			process: process.clone(),
-			stream: tg::process::log::Stream::Stdout,
+			stream: tg::process::stdio::Stream::Stdout,
 			timestamp: 1000,
 		});
 		store.put_process_log(PutProcessLogArg {
 			bytes: Bytes::from(" "),
 			process: process.clone(),
-			stream: tg::process::log::Stream::Stdout,
+			stream: tg::process::stdio::Stream::Stdout,
 			timestamp: 1001,
 		});
 		store.put_process_log(PutProcessLogArg {
 			bytes: Bytes::from("world"),
 			process: process.clone(),
-			stream: tg::process::log::Stream::Stdout,
+			stream: tg::process::stdio::Stream::Stdout,
 			timestamp: 1002,
 		});
 
@@ -407,7 +407,7 @@ mod tests {
 			process: process.clone(),
 			position: 0,
 			length: 11,
-			stream: Some(tg::process::log::Stream::Stdout),
+			stream: Some(tg::process::stdio::Stream::Stdout),
 		});
 		assert_eq!(collect_bytes(result), Bytes::from("hello world"));
 	}
@@ -421,19 +421,19 @@ mod tests {
 		store.put_process_log(PutProcessLogArg {
 			bytes: Bytes::from("AAAA"),
 			process: process.clone(),
-			stream: tg::process::log::Stream::Stdout,
+			stream: tg::process::stdio::Stream::Stdout,
 			timestamp: 1000,
 		});
 		store.put_process_log(PutProcessLogArg {
 			bytes: Bytes::from("BBBB"),
 			process: process.clone(),
-			stream: tg::process::log::Stream::Stdout,
+			stream: tg::process::stdio::Stream::Stdout,
 			timestamp: 1001,
 		});
 		store.put_process_log(PutProcessLogArg {
 			bytes: Bytes::from("CCCC"),
 			process: process.clone(),
-			stream: tg::process::log::Stream::Stdout,
+			stream: tg::process::stdio::Stream::Stdout,
 			timestamp: 1002,
 		});
 
@@ -442,7 +442,7 @@ mod tests {
 			process: process.clone(),
 			position: 2,
 			length: 4,
-			stream: Some(tg::process::log::Stream::Stdout),
+			stream: Some(tg::process::stdio::Stream::Stdout),
 		});
 		assert_eq!(collect_bytes(result), Bytes::from("AABB"));
 
@@ -451,7 +451,7 @@ mod tests {
 			process: process.clone(),
 			position: 6,
 			length: 4,
-			stream: Some(tg::process::log::Stream::Stdout),
+			stream: Some(tg::process::stdio::Stream::Stdout),
 		});
 		assert_eq!(collect_bytes(result), Bytes::from("BBCC"));
 
@@ -460,7 +460,7 @@ mod tests {
 			process: process.clone(),
 			position: 2,
 			length: 8,
-			stream: Some(tg::process::log::Stream::Stdout),
+			stream: Some(tg::process::stdio::Stream::Stdout),
 		});
 		assert_eq!(collect_bytes(result), Bytes::from("AABBBBCC"));
 	}
@@ -474,19 +474,19 @@ mod tests {
 		store.put_process_log(PutProcessLogArg {
 			bytes: Bytes::from("out1"),
 			process: process.clone(),
-			stream: tg::process::log::Stream::Stdout,
+			stream: tg::process::stdio::Stream::Stdout,
 			timestamp: 1000,
 		});
 		store.put_process_log(PutProcessLogArg {
 			bytes: Bytes::from("err1"),
 			process: process.clone(),
-			stream: tg::process::log::Stream::Stderr,
+			stream: tg::process::stdio::Stream::Stderr,
 			timestamp: 1001,
 		});
 		store.put_process_log(PutProcessLogArg {
 			bytes: Bytes::from("out2"),
 			process: process.clone(),
-			stream: tg::process::log::Stream::Stdout,
+			stream: tg::process::stdio::Stream::Stdout,
 			timestamp: 1002,
 		});
 
@@ -504,7 +504,7 @@ mod tests {
 			process: process.clone(),
 			position: 0,
 			length: 8,
-			stream: Some(tg::process::log::Stream::Stdout),
+			stream: Some(tg::process::stdio::Stream::Stdout),
 		});
 		assert_eq!(collect_bytes(result), Bytes::from("out1out2"));
 
@@ -513,7 +513,7 @@ mod tests {
 			process: process.clone(),
 			position: 0,
 			length: 4,
-			stream: Some(tg::process::log::Stream::Stderr),
+			stream: Some(tg::process::stdio::Stream::Stderr),
 		});
 		assert_eq!(collect_bytes(result), Bytes::from("err1"));
 	}
@@ -527,13 +527,13 @@ mod tests {
 		store.put_process_log(PutProcessLogArg {
 			bytes: Bytes::from("hello"),
 			process: process.clone(),
-			stream: tg::process::log::Stream::Stdout,
+			stream: tg::process::stdio::Stream::Stdout,
 			timestamp: 1000,
 		});
 		store.put_process_log(PutProcessLogArg {
 			bytes: Bytes::from("world"),
 			process: process.clone(),
-			stream: tg::process::log::Stream::Stderr,
+			stream: tg::process::stdio::Stream::Stderr,
 			timestamp: 1001,
 		});
 
@@ -570,30 +570,30 @@ mod tests {
 		store.put_process_log(PutProcessLogArg {
 			bytes: Bytes::from("hello"),
 			process: process.clone(),
-			stream: tg::process::log::Stream::Stdout,
+			stream: tg::process::stdio::Stream::Stdout,
 			timestamp: 1000,
 		});
 		store.put_process_log(PutProcessLogArg {
 			bytes: Bytes::from("err"),
 			process: process.clone(),
-			stream: tg::process::log::Stream::Stderr,
+			stream: tg::process::stdio::Stream::Stderr,
 			timestamp: 1001,
 		});
 		store.put_process_log(PutProcessLogArg {
 			bytes: Bytes::from("world"),
 			process: process.clone(),
-			stream: tg::process::log::Stream::Stdout,
+			stream: tg::process::stdio::Stream::Stdout,
 			timestamp: 1002,
 		});
 
 		// Check lengths.
 		assert_eq!(store.try_get_process_log_length(&process, None), Some(13)); // 5 + 3 + 5
 		assert_eq!(
-			store.try_get_process_log_length(&process, Some(tg::process::log::Stream::Stdout)),
+			store.try_get_process_log_length(&process, Some(tg::process::stdio::Stream::Stdout)),
 			Some(10)
 		); // 5 + 5
 		assert_eq!(
-			store.try_get_process_log_length(&process, Some(tg::process::log::Stream::Stderr)),
+			store.try_get_process_log_length(&process, Some(tg::process::stdio::Stream::Stderr)),
 			Some(3)
 		);
 	}
@@ -607,7 +607,7 @@ mod tests {
 		store.put_process_log(PutProcessLogArg {
 			bytes: Bytes::from("hello"),
 			process: process.clone(),
-			stream: tg::process::log::Stream::Stdout,
+			stream: tg::process::stdio::Stream::Stdout,
 			timestamp: 1000,
 		});
 
@@ -616,7 +616,7 @@ mod tests {
 			process: process.clone(),
 			position: 5,
 			length: 10,
-			stream: Some(tg::process::log::Stream::Stdout),
+			stream: Some(tg::process::stdio::Stream::Stdout),
 		});
 		assert_eq!(collect_bytes(result), Bytes::new());
 	}

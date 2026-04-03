@@ -14,6 +14,10 @@ version = { workspace = true }
 quickjs = ["dep:rquickjs"]
 v8 = ["dep:tangram_v8", "dep:v8"]
 
+[lib]
+doctest = false
+test = false
+
 [lints]
 workspace = true
 
@@ -27,8 +31,11 @@ v8 = { workspace = true, optional = true }
 
 [dependencies]
 bytes = { workspace = true }
+dashmap = { workspace = true }
 data-encoding = { workspace = true }
+fnv = { workspace = true }
 futures = { workspace = true }
+libc = { workspace = true }
 num = { workspace = true }
 rquickjs = { workspace = true, optional = true }
 scopeguard = { workspace = true }
@@ -36,12 +43,14 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 sourcemap = { workspace = true }
+sync_wrapper = { workspace = true }
 tangram_client = { workspace = true }
 tangram_compiler = { workspace = true }
-tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_v8 = { workspace = true, optional = true }
+tempfile = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 toml = { workspace = true }
 v8 = { workspace = true, optional = true }
+xattr = { workspace = true }

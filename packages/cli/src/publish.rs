@@ -49,14 +49,14 @@ struct State {
 	graph: Graph,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize)]
 #[serde(untagged)]
 enum Step {
 	Item(Item),
 	Cycle(Vec<Item>),
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize)]
 struct Item {
 	referent: tg::Referent<tg::object::Id>,
 	path: Option<PathBuf>,

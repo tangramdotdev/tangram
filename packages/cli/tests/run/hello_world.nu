@@ -11,6 +11,4 @@ let path = artifact {
 }
 
 let output = tg run $path
-snapshot $output '
-	Hello, World!
-'
+assert ($output == "Hello, World!")

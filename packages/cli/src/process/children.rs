@@ -35,9 +35,9 @@ impl Cli {
 		let handle = self.handle().await?;
 		let arg = tg::process::children::get::Arg {
 			length: args.length,
-			local: args.local.local,
+			local: args.local.get(),
 			position: args.position.map(std::io::SeekFrom::Start),
-			remotes: args.remotes.remotes,
+			remotes: args.remotes.get(),
 			size: args.size,
 		};
 		let stream = handle

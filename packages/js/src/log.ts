@@ -4,14 +4,14 @@ export let log = (...args: Array<unknown>) => {
 	let string = args
 		.map((arg) => (typeof arg === "string" ? arg : stringify(arg)))
 		.join(" ");
-	syscall("log", "stdout", `${string}\n`);
+	tg.host.writeSync(1, tg.encoding.utf8.encode(`${string}\n`));
 };
 
 export let error = (...args: Array<unknown>) => {
 	let string = args
 		.map((arg) => (typeof arg === "string" ? arg : stringify(arg)))
 		.join(" ");
-	syscall("log", "stderr", `${string}\n`);
+	tg.host.writeSync(2, tg.encoding.utf8.encode(`${string}\n`));
 };
 
 let stringify = (value: unknown): string => {

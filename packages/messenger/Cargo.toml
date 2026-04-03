@@ -10,11 +10,14 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
+[features]
+nats = ["dep:async-nats"]
+
 [lints]
 workspace = true
 
-[features]
-nats = ["dep:async-nats"]
+[lib]
+doctest = false
 
 [dependencies]
 async-broadcast = { workspace = true }
@@ -27,4 +30,3 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tangram_either = { workspace = true }
 tokio = { workspace = true }
-tracing = { workspace = true }

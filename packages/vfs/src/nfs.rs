@@ -47,7 +47,7 @@ use {
 		sync::{Arc, Mutex, atomic::AtomicU64},
 		time::Duration,
 	},
-	tangram_futures::task::Stop,
+	tangram_futures::task::Stopper,
 	tokio::net::{TcpListener, TcpStream},
 };
 
@@ -59,9 +59,9 @@ pub mod xdr;
 
 const ROOT: nfs_fh4 = nfs_fh4(crate::ROOT_NODE_ID);
 
-pub struct Server<P>(Arc<Inner<P>>);
+pub struct Server<P>(Arc<State<P>>);
 
-pub struct Inner<P> {
+pub struct State<P> {
 	client_index: AtomicU64,
 	clients: DashMap<Vec<u8>, Arc<tokio::sync::RwLock<ClientData>>>,
 	host: String,
@@ -100,7 +100,7 @@ where
 	) -> Result<Self, std::io::Error> {
 		// Create the server.
 		let provider = Provider::new(provider);
-		let server = Self(Arc::new(Inner {
+		let server = Self(Arc::new(State {
 			client_index: AtomicU64::new(0),
 			clients: DashMap::default(),
 			host: host.to_owned(),
@@ -121,11 +121,11 @@ where
 		Self::mount(&server.path, &server.host, server.port).await?;
 
 		// Spawn the task.
-		let request_handler_task = tangram_futures::task::Task::spawn(|stop| {
+		let request_handler_task = tangram_futures::task::Task::spawn(|stopper| {
 			let server = server.clone();
 			async move {
 				server
-					.request_handler_task(listener, stop)
+					.request_handler_task(listener, stopper)
 					.await
 					.inspect_err(|error| {
 						tracing::error!(?error);
@@ -140,8 +140,8 @@ where
 		};
 
 		// Spawn the task.
-		let task = tangram_futures::task::Shared::spawn(|stop| async move {
-			stop.wait().await;
+		let task = tangram_futures::task::Shared::spawn(|stopper| async move {
+			stopper.wait().await;
 			shutdown.await;
 		});
 		server.task.lock().unwrap().replace(task);
@@ -161,7 +161,7 @@ where
 	async fn request_handler_task(
 		&self,
 		listener: TcpListener,
-		stop: Stop,
+		stopper: Stopper,
 	) -> Result<(), std::io::Error> {
 		// Create the task tracker.
 		let task_tracker = tokio_util::task::TaskTracker::new();
@@ -169,8 +169,8 @@ where
 		loop {
 			// Accept.
 			let accept = listener.accept();
-			let stop = stop.clone();
-			let (stream, _addr) = match future::select(pin!(accept), pin!(stop.wait())).await {
+			let stopper = stopper.clone();
+			let (stream, _addr) = match future::select(pin!(accept), pin!(stopper.wait())).await {
 				future::Either::Left((result, _)) => match result {
 					Ok(stream) => stream,
 					Err(error) => {
@@ -188,7 +188,7 @@ where
 				let server = self.clone();
 				async move {
 					server
-						.handle_connection(stream, stop)
+						.handle_connection(stream, stopper)
 						.await
 						.inspect_err(|error| {
 							tracing::error!(?error);
@@ -233,7 +233,11 @@ where
 		Ok(())
 	}
 
-	async fn handle_connection(&self, stream: TcpStream, stop: Stop) -> Result<(), std::io::Error> {
+	async fn handle_connection(
+		&self,
+		stream: TcpStream,
+		stopper: Stopper,
+	) -> Result<(), std::io::Error> {
 		let (mut reader, mut writer) = tokio::io::split(stream);
 
 		// Create the task tracker.
@@ -254,7 +258,7 @@ where
 		// Receive incoming message fragments.
 		loop {
 			let read = rpc::read_fragments(&mut reader);
-			let fragments = match future::select(pin!(read), pin!(stop.wait())).await {
+			let fragments = match future::select(pin!(read), pin!(stopper.wait())).await {
 				future::Either::Left((result, _)) => result?,
 				future::Either::Right(((), _)) => {
 					break;
@@ -1130,7 +1134,7 @@ impl<P> Clone for Server<P> {
 }
 
 impl<P> Deref for Server<P> {
-	type Target = Inner<P>;
+	type Target = State<P>;
 
 	fn deref(&self) -> &Self::Target {
 		&self.0

@@ -2,7 +2,7 @@ use {
 	crate::{Context, Server},
 	bytes::Bytes,
 	futures::{
-		FutureExt as _, future,
+		future,
 		stream::{FuturesOrdered, TryStreamExt as _},
 	},
 	num::ToPrimitive as _,
@@ -230,19 +230,29 @@ impl Server {
 		if remotes.is_empty() {
 			return Ok(None);
 		}
-		let futures = remotes.iter().map(|remote| {
-			let remote = remote.clone();
-			async move {
-				let key = RemoteObjectGetTaskKey {
-					remote,
-					id: id.clone(),
-					metadata,
-				};
-				self.try_get_object_remote_task(key).await
+		let mut error = None;
+		let mut output = None;
+		for remote in remotes {
+			let key = RemoteObjectGetTaskKey {
+				remote: remote.clone(),
+				id: id.clone(),
+				metadata,
+			};
+			match self.try_get_object_remote_task(key).await {
+				Ok(Some(remote_output)) => {
+					output.replace(remote_output);
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					error.replace(source);
+				},
 			}
-			.boxed()
-		});
-		let Ok((output, _)) = future::select_ok(futures).await else {
+		}
+		let Some(output) = output else {
+			if let Some(error) = error {
+				return Err(error);
+			}
 			return Ok(None);
 		};
 
@@ -269,7 +279,7 @@ impl Server {
 	async fn try_get_object_remote_task(
 		&self,
 		key: RemoteObjectGetTaskKey,
-	) -> tg::Result<tg::object::get::Output> {
+	) -> tg::Result<Option<tg::object::get::Output>> {
 		let task = self
 			.remote_get_object_tasks
 			.get_or_spawn_detached(key.clone(), {
@@ -284,7 +294,7 @@ impl Server {
 	async fn try_get_object_remote_task_inner(
 		&self,
 		key: RemoteObjectGetTaskKey,
-	) -> tg::Result<tg::object::get::Output> {
+	) -> tg::Result<Option<tg::object::get::Output>> {
 		let RemoteObjectGetTaskKey {
 			remote,
 			id,
@@ -299,7 +309,7 @@ impl Server {
 			..Default::default()
 		};
 		client
-			.get_object(&id, arg)
+			.try_get_object(&id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, %remote, "failed to get the object"))
 	}

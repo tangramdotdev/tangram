@@ -1,5 +1,5 @@
 use {
-	crate::task::{Shared, Stop},
+	crate::task::{Shared, Stopper},
 	dashmap::DashMap,
 	futures::{prelude::*, stream::FuturesUnordered},
 	std::{
@@ -22,7 +22,7 @@ where
 	pub fn spawn_with_context<G, F, Fut>(&self, key: K, context: G, f: F) -> Shared<T, C>
 	where
 		G: FnOnce() -> C,
-		F: FnOnce(C, Stop) -> Fut,
+		F: FnOnce(C, Stopper) -> Fut,
 		Fut: Future<Output = T> + Send + 'static,
 	{
 		self.spawn_inner(key, context, f, false, false)
@@ -31,7 +31,7 @@ where
 	pub fn spawn_detached_with_context<G, F, Fut>(&self, key: K, context: G, f: F) -> Shared<T, C>
 	where
 		G: FnOnce() -> C,
-		F: FnOnce(C, Stop) -> Fut,
+		F: FnOnce(C, Stopper) -> Fut,
 		Fut: Future<Output = T> + Send + 'static,
 	{
 		self.spawn_inner(key, context, f, false, true)
@@ -40,7 +40,7 @@ where
 	pub fn get_or_spawn_with_context<G, F, Fut>(&self, key: K, context: G, f: F) -> Shared<T, C>
 	where
 		G: FnOnce() -> C,
-		F: FnOnce(C, Stop) -> Fut,
+		F: FnOnce(C, Stopper) -> Fut,
 		Fut: Future<Output = T> + Send + 'static,
 	{
 		self.spawn_inner(key, context, f, true, false)
@@ -54,7 +54,7 @@ where
 	) -> Shared<T, C>
 	where
 		G: FnOnce() -> C,
-		F: FnOnce(C, Stop) -> Fut,
+		F: FnOnce(C, Stopper) -> Fut,
 		Fut: Future<Output = T> + Send + 'static,
 	{
 		self.spawn_inner(key, context, f, true, true)
@@ -70,7 +70,7 @@ where
 	) -> Shared<T, C>
 	where
 		G: FnOnce() -> C,
-		F: FnOnce(C, Stop) -> Fut,
+		F: FnOnce(C, Stopper) -> Fut,
 		Fut: Future<Output = T> + Send + 'static,
 	{
 		let map = self.0.clone();
@@ -82,8 +82,8 @@ where
 				let mut task = Shared::spawn_with_context(context.clone(), {
 					let key = key.clone();
 					let weak = weak.clone();
-					move |stop| {
-						let future = f(context, stop);
+					move |stopper| {
+						let future = f(context, stopper);
 						async move {
 							let result = AssertUnwindSafe(future).catch_unwind().await;
 							if let Some(map) = weak.upgrade() {
@@ -126,7 +126,7 @@ where
 	pub fn spawn_blocking_with_context<G, F>(&self, key: K, context: G, f: F) -> Shared<T, C>
 	where
 		G: FnOnce() -> C,
-		F: FnOnce(C, Stop) -> T + Send + 'static,
+		F: FnOnce(C, Stopper) -> T + Send + 'static,
 	{
 		self.spawn_blocking_inner(key, context, f, false, false)
 	}
@@ -139,7 +139,7 @@ where
 	) -> Shared<T, C>
 	where
 		G: FnOnce() -> C,
-		F: FnOnce(C, Stop) -> T + Send + 'static,
+		F: FnOnce(C, Stopper) -> T + Send + 'static,
 	{
 		self.spawn_blocking_inner(key, context, f, false, true)
 	}
@@ -147,7 +147,7 @@ where
 	pub fn get_or_spawn_blocking_with_context<G, F>(&self, key: K, context: G, f: F) -> Shared<T, C>
 	where
 		G: FnOnce() -> C,
-		F: FnOnce(C, Stop) -> T + Send + 'static,
+		F: FnOnce(C, Stopper) -> T + Send + 'static,
 	{
 		self.spawn_blocking_inner(key, context, f, true, false)
 	}
@@ -160,7 +160,7 @@ where
 	) -> Shared<T, C>
 	where
 		G: FnOnce() -> C,
-		F: FnOnce(C, Stop) -> T + Send + 'static,
+		F: FnOnce(C, Stopper) -> T + Send + 'static,
 	{
 		self.spawn_blocking_inner(key, context, f, true, true)
 	}
@@ -175,7 +175,7 @@ where
 	) -> Shared<T, C>
 	where
 		G: FnOnce() -> C,
-		F: FnOnce(C, Stop) -> T + Send + 'static,
+		F: FnOnce(C, Stopper) -> T + Send + 'static,
 	{
 		let map = self.0.clone();
 		let spawn = {
@@ -186,8 +186,8 @@ where
 				let mut task = Shared::spawn_blocking_with_context(context.clone(), {
 					let key = key.clone();
 					let weak = weak.clone();
-					move |stop| {
-						let result = catch_unwind(AssertUnwindSafe(|| f(context, stop)));
+					move |stopper| {
+						let result = catch_unwind(AssertUnwindSafe(|| f(context, stopper)));
 						if let Some(map) = weak.upgrade() {
 							let id = tokio::task::id();
 							map.remove_if(&key, |_, task| task.id() == id);
@@ -283,62 +283,62 @@ where
 {
 	pub fn spawn<F, Fut>(&self, key: K, f: F) -> Shared<T, ()>
 	where
-		F: FnOnce(Stop) -> Fut,
+		F: FnOnce(Stopper) -> Fut,
 		Fut: Future<Output = T> + Send + 'static,
 	{
-		self.spawn_with_context(key, || (), |(), stop| f(stop))
+		self.spawn_with_context(key, || (), |(), stopper| f(stopper))
 	}
 
 	pub fn spawn_detached<F, Fut>(&self, key: K, f: F) -> Shared<T, ()>
 	where
-		F: FnOnce(Stop) -> Fut,
+		F: FnOnce(Stopper) -> Fut,
 		Fut: Future<Output = T> + Send + 'static,
 	{
-		self.spawn_detached_with_context(key, || (), |(), stop| f(stop))
+		self.spawn_detached_with_context(key, || (), |(), stopper| f(stopper))
 	}
 
 	pub fn get_or_spawn<F, Fut>(&self, key: K, f: F) -> Shared<T, ()>
 	where
-		F: FnOnce(Stop) -> Fut,
+		F: FnOnce(Stopper) -> Fut,
 		Fut: Future<Output = T> + Send + 'static,
 	{
-		self.get_or_spawn_with_context(key, || (), |(), stop| f(stop))
+		self.get_or_spawn_with_context(key, || (), |(), stopper| f(stopper))
 	}
 
 	pub fn get_or_spawn_detached<F, Fut>(&self, key: K, f: F) -> Shared<T, ()>
 	where
-		F: FnOnce(Stop) -> Fut,
+		F: FnOnce(Stopper) -> Fut,
 		Fut: Future<Output = T> + Send + 'static,
 	{
-		self.get_or_spawn_detached_with_context(key, || (), |(), stop| f(stop))
+		self.get_or_spawn_detached_with_context(key, || (), |(), stopper| f(stopper))
 	}
 
 	pub fn spawn_blocking<F>(&self, key: K, f: F) -> Shared<T, ()>
 	where
-		F: FnOnce(Stop) -> T + Send + 'static,
+		F: FnOnce(Stopper) -> T + Send + 'static,
 	{
-		self.spawn_blocking_with_context(key, || (), |(), stop| f(stop))
+		self.spawn_blocking_with_context(key, || (), |(), stopper| f(stopper))
 	}
 
 	pub fn spawn_blocking_detached<F>(&self, key: K, f: F) -> Shared<T, ()>
 	where
-		F: FnOnce(Stop) -> T + Send + 'static,
+		F: FnOnce(Stopper) -> T + Send + 'static,
 	{
-		self.spawn_blocking_detached_with_context(key, || (), |(), stop| f(stop))
+		self.spawn_blocking_detached_with_context(key, || (), |(), stopper| f(stopper))
 	}
 
 	pub fn get_or_spawn_blocking<F>(&self, key: K, f: F) -> Shared<T, ()>
 	where
-		F: FnOnce(Stop) -> T + Send + 'static,
+		F: FnOnce(Stopper) -> T + Send + 'static,
 	{
-		self.get_or_spawn_blocking_with_context(key, || (), |(), stop| f(stop))
+		self.get_or_spawn_blocking_with_context(key, || (), |(), stopper| f(stopper))
 	}
 
 	pub fn get_or_spawn_blocking_detached<F>(&self, key: K, f: F) -> Shared<T, ()>
 	where
-		F: FnOnce(Stop) -> T + Send + 'static,
+		F: FnOnce(Stopper) -> T + Send + 'static,
 	{
-		self.get_or_spawn_blocking_detached_with_context(key, || (), |(), stop| f(stop))
+		self.get_or_spawn_blocking_detached_with_context(key, || (), |(), stopper| f(stopper))
 	}
 }
 

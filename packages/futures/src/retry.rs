@@ -1,4 +1,5 @@
 use {
+	futures::{Stream, stream},
 	num::ToPrimitive as _,
 	std::{ops::ControlFlow, time::Duration},
 };
@@ -34,11 +35,29 @@ where
 	}
 }
 
+pub fn stream(options: Options) -> impl Stream<Item = ()> {
+	stream::unfold(
+		(options, 0u64, true),
+		|(options, attempt, first)| async move {
+			if first {
+				return Some(((), (options, attempt, false)));
+			}
+			let attempt = attempt.saturating_add(1);
+			let delay = delay_for_attempt(attempt, &options);
+			tokio::time::sleep(delay).await;
+			Some(((), (options, attempt, false)))
+		},
+	)
+}
+
 fn delay_for_attempt(attempt: u64, options: &Options) -> Duration {
 	let jitter = Duration::from_millis(rand::random_range(
 		0..=options.jitter.as_millis().to_u64().unwrap(),
 	));
-	(options.backoff * (1 << attempt) + jitter).min(options.max_delay)
+	let multiplier = 1u32
+		.checked_shl(attempt.min(31).to_u32().unwrap())
+		.unwrap_or(u32::MAX);
+	(options.backoff * multiplier + jitter).min(options.max_delay)
 }
 
 impl Default for Options {

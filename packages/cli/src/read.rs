@@ -21,8 +21,8 @@ impl Cli {
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
 
 		let arg = tg::get::Arg {
-			local: args.local.local,
-			remotes: args.remotes.remotes,
+			local: args.local.get(),
+			remotes: args.remotes.get(),
 			..Default::default()
 		};
 

@@ -27,8 +27,6 @@ impl Server {
 			#[tangram_database(as = "db::postgres::value::FromStr")]
 			command: tg::command::Id,
 			created_at: i64,
-			dequeued_at: Option<i64>,
-			enqueued_at: Option<i64>,
 			error: Option<String>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			exit: Option<u8>,
@@ -41,9 +39,8 @@ impl Server {
 			#[tangram_database(as = "Option<db::value::Json<tg::value::Data>>")]
 			output: Option<tg::value::Data>,
 			retry: bool,
-			#[tangram_database(as = "Option<db::value::Json<Vec<tg::process::data::Mount>>>")]
-			mounts: Option<Vec<tg::process::data::Mount>>,
-			network: bool,
+			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
+			sandbox: Option<tg::sandbox::Id>,
 			started_at: Option<i64>,
 			#[tangram_database(as = "db::postgres::value::FromStr")]
 			status: tg::process::Status,
@@ -53,6 +50,8 @@ impl Server {
 			stdin: Option<tg::process::Stdio>,
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
 			stdout: Option<tg::process::Stdio>,
+			#[tangram_database(as = "Option<db::value::Json<tg::process::Tty>>")]
+			tty: Option<tg::process::Tty>,
 		}
 		let statement = indoc!(
 			"
@@ -63,8 +62,6 @@ impl Server {
 					(select coalesce(json_agg(json_build_object('cached', cached::bool, 'process', child, 'options', options::json) order by position), '[]'::json) from process_children where process = processes.id) as children,
 					command,
 					created_at,
-					dequeued_at,
-					enqueued_at,
 					error,
 					exit,
 					expected_checksum,
@@ -73,13 +70,13 @@ impl Server {
 					log,
 					output,
 					retry,
-					mounts,
-					network,
+					sandbox,
 					started_at,
 					status,
 					stderr,
 					stdin,
-					stdout
+					stdout,
+					tty
 				from processes
 				where status != 'finished';
 			"
@@ -118,8 +115,6 @@ impl Server {
 					children: row.children,
 					command: row.command,
 					created_at: row.created_at,
-					dequeued_at: row.dequeued_at,
-					enqueued_at: row.enqueued_at,
 					error,
 					exit: row.exit,
 					expected_checksum: row.expected_checksum,
@@ -128,13 +123,13 @@ impl Server {
 					log: row.log,
 					output: row.output,
 					retry: row.retry,
-					mounts: row.mounts.unwrap_or_default(),
-					network: row.network,
+					sandbox: row.sandbox,
 					started_at: row.started_at,
 					status: row.status,
-					stderr: row.stderr,
-					stdin: row.stdin,
-					stdout: row.stdout,
+					stderr: row.stderr.unwrap_or(tg::process::Stdio::Null),
+					stdin: row.stdin.unwrap_or(tg::process::Stdio::Null),
+					stdout: row.stdout.unwrap_or(tg::process::Stdio::Null),
+					tty: row.tty,
 				};
 				let output = tg::process::get::Output {
 					id: row.id,

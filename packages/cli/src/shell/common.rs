@@ -8,7 +8,6 @@ use {
 		process::Stdio,
 	},
 	tangram_client::prelude::*,
-	tangram_futures::task::Task,
 };
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -290,157 +289,18 @@ impl Cli {
 		&mut self,
 		reference: &tg::Reference,
 	) -> tg::Result<PathBuf> {
-		let handle = self.handle().await?;
-		let options = crate::process::spawn::Options {
-			sandbox: crate::process::spawn::Sandbox::new(Some(true)),
+		let options = crate::process::build::Options {
+			checkout: Some(None),
 			..Default::default()
 		};
-		let crate::process::spawn::Output { process, output } = self
-			.spawn(options, reference.clone(), Vec::new(), None, None, None)
-			.boxed()
-			.await?;
-
-		let wait = output
-			.wait
-			.map(TryInto::try_into)
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the wait output"))?;
-
-		let wait = if let Some(wait) = wait {
-			wait
-		} else {
-			let view_task = {
-				let handle = handle.clone();
-				let root = process.clone().map(|process| {
-					let process = crate::viewer::Process {
-						cached: output.cached,
-						process,
-					};
-					crate::viewer::Item::Process(process)
-				});
-				let task = Task::spawn_blocking(move |stop| -> tg::Result<()> {
-					let local_set = tokio::task::LocalSet::new();
-					let runtime = tokio::runtime::Builder::new_current_thread()
-						.enable_all()
-						.build()
-						.map_err(|source| {
-							tg::error!(!source, "failed to create the tokio runtime")
-						})?;
-					local_set.block_on(&runtime, async move {
-						let viewer_options = crate::viewer::Options {
-							collapse_process_children: true,
-							depth: None,
-							expand_objects: false,
-							expand_packages: false,
-							expand_processes: true,
-							expand_metadata: false,
-							expand_tags: false,
-							expand_values: false,
-							show_process_commands: false,
-						};
-						let mut viewer = crate::viewer::Viewer::new(&handle, root, viewer_options);
-						viewer.run_inline(stop, false).await?;
-						Ok::<_, tg::Error>(())
-					})
-				});
-				Some(task)
-			};
-
-			let cancel_task = tokio::spawn({
-				let handle = handle.clone();
-				let process = process.clone();
-				async move {
-					tokio::signal::ctrl_c().await.unwrap();
-					tokio::spawn(async move {
-						process
-							.item()
-							.cancel(&handle)
-							.await
-							.inspect_err(|error| {
-								tracing::error!(?error, "failed to cancel the process");
-							})
-							.ok();
-					});
-					tokio::signal::ctrl_c().await.unwrap();
-					std::process::exit(130);
-				}
-			});
-
-			let arg = tg::process::wait::Arg {
-				token: process.item().token().cloned(),
-				..Default::default()
-			};
-			let result = process.item().wait(&handle, arg).await;
-			cancel_task.abort();
-
-			if let Some(view_task) = view_task {
-				view_task.stop();
-				match view_task.wait().await {
-					Ok(Ok(())) => {},
-					Ok(Err(error)) => {
-						tracing::warn!(?error, "failed to render the process viewer");
-						Self::print_warning_message("failed to render the process viewer");
-					},
-					Err(error) => {
-						tracing::warn!(?error, "failed to join the process viewer task");
-						Self::print_warning_message("failed to render the process viewer");
-					},
-				}
-			}
-
-			result?
+		let args = crate::process::build::Args {
+			options,
+			reference: reference.clone(),
+			trailing: Vec::new(),
 		};
-
-		if let Some(error) = wait.error {
-			let error = match error.to_data_or_id() {
-				tg::Either::Left(data) => {
-					let object = tg::error::Object::try_from_data(data)
-						.map_err(|source| tg::error!(!source, "invalid error"))?;
-					tg::Either::Left(Box::new(object))
-				},
-				tg::Either::Right(id) => tg::Either::Right(Box::new(tg::Error::with_id(id))),
-			};
-			let error = tg::Error::with_object(tg::error::Object {
-				message: Some("the process failed".to_owned()),
-				source: Some(process.clone().map(|_| error)),
-				values: [("id".to_owned(), process.item().id().to_string())].into(),
-				..Default::default()
-			});
-			return Err(error);
-		}
-
-		if wait.exit > 0 && wait.exit < 128 {
-			return Err(tg::error!("the process exited with code {}", wait.exit));
-		}
-		if wait.exit >= 128 {
-			return Err(tg::error!(
-				"the process exited with signal {}",
-				wait.exit - 128
-			));
-		}
-
-		let output = wait.output.unwrap_or(tg::Value::Null);
-		let artifact: tg::Artifact = output
-			.try_into()
-			.map_err(|_| tg::error!("expected an artifact"))?;
-		let artifact = artifact.id();
-		let arg = tg::checkout::Arg {
-			artifact: artifact.clone(),
-			dependencies: true,
-			extension: None,
-			force: true,
-			lock: None,
-			path: None,
-		};
-		let stream = handle
-			.checkout(arg)
-			.await
-			.map_err(|source| tg::error!(!source, %artifact, "failed to check out the artifact"))?;
-		let tg::checkout::Output { path, .. } = self
-			.render_progress_stream(stream)
-			.await
-			.map_err(|source| tg::error!(!source, %artifact, "failed to check out the artifact"))?;
-
+		let output = self.build(args).boxed().await?;
+		let path = output.unwrap_string();
+		let path = PathBuf::from(path);
 		Ok(path)
 	}
 
@@ -502,7 +362,6 @@ fn ignored(key: &str) -> bool {
 			| "SHLVL" | "TANGRAM_SHELL_STATE"
 			| "TANGRAM_HOST"
 			| "TANGRAM_OUTPUT"
-			| "TANGRAM_PROCESS"
 			| "TANGRAM_URL"
 	)
 }

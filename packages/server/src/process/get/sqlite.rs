@@ -54,8 +54,6 @@ impl Server {
 			cacheable: u64,
 			command: String,
 			created_at: i64,
-			dequeued_at: Option<i64>,
-			enqueued_at: Option<i64>,
 			error: Option<String>,
 			exit: Option<u8>,
 			expected_checksum: Option<String>,
@@ -65,14 +63,13 @@ impl Server {
 			output: Option<String>,
 			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			retry: u64,
-			mounts: Option<String>,
-			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
-			network: u64,
+			sandbox: Option<String>,
 			started_at: Option<i64>,
 			status: String,
 			stderr: Option<String>,
 			stdin: Option<String>,
 			stdout: Option<String>,
+			tty: Option<String>,
 		}
 		let statement = indoc!(
 			"
@@ -81,8 +78,6 @@ impl Server {
 					cacheable,
 					command,
 					created_at,
-					dequeued_at,
-					enqueued_at,
 					error,
 					exit,
 					expected_checksum,
@@ -91,13 +86,13 @@ impl Server {
 					log,
 					output,
 					retry,
-					mounts,
-					network,
+					sandbox,
 					started_at,
 					status,
 					stderr,
 					stdin,
-					stdout
+					stdout,
+					tty
 				from processes
 				where id = ?1;
 			"
@@ -157,13 +152,11 @@ impl Server {
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to deserialize"))?;
 		let retry = row.retry != 0;
-		let mounts = row
-			.mounts
-			.map(|s| serde_json::from_str(&s))
+		let sandbox = row
+			.sandbox
+			.map(|sandbox| sandbox.parse())
 			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to deserialize"))?
-			.unwrap_or_default();
-		let network = row.network != 0;
+			.map_err(|source| tg::error!(!source, %id, "failed to parse the sandbox"))?;
 		let status = row
 			.status
 			.parse()
@@ -183,6 +176,11 @@ impl Server {
 			.map(|s| s.parse())
 			.transpose()
 			.map_err(|source| tg::error!(!source, %id, "failed to parse the stdout pipe"))?;
+		let tty = row
+			.tty
+			.map(|s| serde_json::from_str(&s))
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to deserialize the tty"))?;
 
 		// Get the children.
 		#[derive(db::sqlite::row::Deserialize)]
@@ -230,8 +228,6 @@ impl Server {
 			children: Some(children),
 			command,
 			created_at: row.created_at,
-			dequeued_at: row.dequeued_at,
-			enqueued_at: row.enqueued_at,
 			error,
 			exit: row.exit,
 			expected_checksum,
@@ -240,13 +236,13 @@ impl Server {
 			log,
 			output,
 			retry,
-			mounts,
-			network,
+			sandbox,
 			started_at: row.started_at,
 			status,
-			stderr,
-			stdin,
-			stdout,
+			stderr: stderr.unwrap_or(tg::process::Stdio::Null),
+			stdin: stdin.unwrap_or(tg::process::Stdio::Null),
+			stdout: stdout.unwrap_or(tg::process::Stdio::Null),
+			tty,
 		};
 
 		let output = tg::process::get::Output {

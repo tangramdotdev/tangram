@@ -4,6 +4,9 @@ use {crate::Cli, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[command(flatten)]
+	pub alternate_screen: crate::view::AlternateScreen,
+
 	/// The maximum depth to render.
 	#[arg(long)]
 	pub depth: Option<u32>,
@@ -20,6 +23,7 @@ pub struct Args {
 impl Cli {
 	pub async fn command_tree(&mut self, args: Args) -> tg::Result<()> {
 		let args = crate::view::Args {
+			alternate_screen: args.alternate_screen,
 			collapse_process_children: false,
 			depth: args.depth,
 			expand_objects: matches!(args.kind, crate::view::Kind::Value | crate::view::Kind::Tag),

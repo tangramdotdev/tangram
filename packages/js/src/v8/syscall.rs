@@ -2,16 +2,9 @@
 
 use {super::State, std::rc::Rc, tangram_client::prelude::*};
 
-mod batch;
-mod blob;
-mod checksum;
 mod encoding;
-mod magic;
-mod object;
-mod process;
-mod sleep;
-
-pub mod log;
+mod handle;
+mod host;
 
 pub fn syscall<'s>(
 	scope: &mut v8::PinScope<'s, '_>,
@@ -23,7 +16,6 @@ pub fn syscall<'s>(
 
 	// Invoke the syscall.
 	let result = match name.as_str() {
-		"checksum" => async_(scope, &args, self::checksum::checksum),
 		"encoding_base64_decode" => sync(scope, &args, self::encoding::base64_decode),
 		"encoding_base64_encode" => sync(scope, &args, self::encoding::base64_encode),
 		"encoding_hex_decode" => sync(scope, &args, self::encoding::hex_decode),
@@ -36,17 +28,64 @@ pub fn syscall<'s>(
 		"encoding_utf8_encode" => sync(scope, &args, self::encoding::utf8_encode),
 		"encoding_yaml_decode" => sync(scope, &args, self::encoding::yaml_decode),
 		"encoding_yaml_encode" => sync(scope, &args, self::encoding::yaml_encode),
-		"log" => sync(scope, &args, self::log::log),
-		"magic" => self::magic::magic(scope, &args),
-		"object_batch" => async_(scope, &args, self::batch::object_batch),
-		"object_get" => async_(scope, &args, self::object::get),
-		"object_id" => sync(scope, &args, self::object::id),
-		"process_get" => async_(scope, &args, self::process::get),
-		"process_spawn" => async_(scope, &args, self::process::spawn),
-		"process_wait" => async_(scope, &args, self::process::wait),
-		"read" => async_(scope, &args, self::blob::read),
-		"sleep" => async_(scope, &args, self::sleep::sleep),
-		"write" => async_(scope, &args, self::blob::write),
+		"handle_checkin" => async_(scope, &args, self::handle::checkin),
+		"handle_checksum" => async_(scope, &args, self::handle::checksum),
+		"handle_checkout" => async_(scope, &args, self::handle::checkout),
+		"handle_object_batch" => async_(scope, &args, self::handle::object_batch),
+		"handle_object_get" => async_(scope, &args, self::handle::object_get),
+		"handle_object_id" => sync(scope, &args, self::handle::object_id),
+		"handle_process_get" => async_(scope, &args, self::handle::process_get),
+		"handle_process_id" => sync(scope, &args, self::handle::process_id),
+		"handle_sandbox_get" => async_(scope, &args, self::handle::sandbox_get),
+		"handle_process_signal" => async_(scope, &args, self::handle::process_signal),
+		"handle_process_spawn" => async_(scope, &args, self::handle::process_spawn),
+		"handle_process_stdio_read_close" => {
+			async_(scope, &args, self::handle::process_stdio_read_close)
+		},
+		"handle_process_stdio_read_open" => {
+			async_(scope, &args, self::handle::process_stdio_read_open)
+		},
+		"handle_process_stdio_read_read" => {
+			async_(scope, &args, self::handle::process_stdio_read_read)
+		},
+		"handle_process_stdio_write_close" => {
+			async_(scope, &args, self::handle::process_stdio_write_close)
+		},
+		"handle_process_stdio_write_open" => {
+			async_(scope, &args, self::handle::process_stdio_write_open)
+		},
+		"handle_process_stdio_write_write" => {
+			async_(scope, &args, self::handle::process_stdio_write_write)
+		},
+		"handle_process_tty_size_put" => async_(scope, &args, self::handle::process_tty_size_put),
+		"handle_process_wait" => async_(scope, &args, self::handle::process_wait),
+		"handle_read" => async_(scope, &args, self::handle::read),
+		"handle_value_parse" => sync(scope, &args, self::handle::value_parse),
+		"handle_value_stringify" => sync(scope, &args, self::handle::value_stringify),
+		"handle_write" => async_(scope, &args, self::handle::write),
+		"host_close" => async_(scope, &args, self::host::close),
+		"host_disable_raw_mode" => async_(scope, &args, self::host::disable_raw_mode),
+		"host_enable_raw_mode" => async_(scope, &args, self::host::enable_raw_mode),
+		"host_exists" => async_(scope, &args, self::host::exists),
+		"host_get_tty_size" => sync(scope, &args, self::host::get_tty_size),
+		"host_get_xattr" => async_(scope, &args, self::host::getxattr),
+		"host_is_tty" => sync(scope, &args, self::host::is_tty),
+		"host_magic" => self::host::magic(scope, &args),
+		"host_mkdtemp" => async_(scope, &args, self::host::mkdtemp),
+		"host_read" => async_(scope, &args, self::host::read),
+		"host_remove" => async_(scope, &args, self::host::remove),
+		"host_signal" => async_(scope, &args, self::host::signal),
+		"host_signal_close" => async_(scope, &args, self::host::listen_signal_close),
+		"host_signal_open" => async_(scope, &args, self::host::listen_signal_open),
+		"host_signal_read" => async_(scope, &args, self::host::listen_signal_read),
+		"host_sleep" => async_(scope, &args, self::host::sleep),
+		"host_spawn" => async_(scope, &args, self::host::spawn),
+		"host_stopper_close" => async_(scope, &args, self::host::stopper_close),
+		"host_stopper_open" => async_(scope, &args, self::host::stopper_open),
+		"host_stopper_stop" => async_(scope, &args, self::host::stopper_stop),
+		"host_wait" => async_(scope, &args, self::host::wait),
+		"host_write" => async_(scope, &args, self::host::write),
+		"host_write_sync" => sync(scope, &args, self::host::write_sync),
 		_ => Err(tg::error!(%name, "unknown syscall")),
 	};
 

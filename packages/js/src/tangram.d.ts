@@ -74,6 +74,12 @@ declare namespace tg {
 		| tg.Placeholder;
 
 	export namespace Value {
+		/** Parse TGON to a value. */
+		export let parse: (value: string) => tg.Value;
+
+		/** Serialize a value to TGON. */
+		export let stringify: (value: tg.Value) => string;
+
 		export type Id = string;
 
 		/** Check if a value is a `tg.Value`. */
@@ -582,27 +588,27 @@ declare namespace tg {
 	/** Create a command. */
 	export function command<
 		A extends tg.UnresolvedArgs<Array<tg.Value>>,
-		R extends tg.ReturnValue,
+		O extends tg.ReturnValue,
 	>(
-		function_: (...args: A) => R,
-	): tg.CommandBuilder<[], tg.ResolvedReturnValue<R>>;
+		function_: (...args: A) => O,
+	): tg.Command.Builder<[], tg.ResolvedReturnValue<O>>;
 	export function command<
 		A extends tg.UnresolvedArgs<Array<tg.Value>>,
-		R extends tg.ReturnValue,
+		O extends tg.ReturnValue,
 	>(
-		function_: (...args: A) => R,
+		function_: (...args: A) => O,
 		...args: tg.UnresolvedArgs<tg.ResolvedArgs<A>>
-	): tg.CommandBuilder<[], tg.ResolvedReturnValue<R>>;
+	): tg.Command.Builder<[], tg.ResolvedReturnValue<O>>;
 	export function command(
 		strings: TemplateStringsArray,
 		...placeholders: tg.Args<tg.Template.Arg>
-	): tg.CommandBuilder;
-	export function command(...args: tg.Args<tg.Command.Arg>): tg.CommandBuilder;
+	): tg.Command.Builder;
+	export function command(...args: tg.Args<tg.Command.Arg>): tg.Command.Builder;
 
 	/** A command. */
 	export class Command<
 		A extends Array<tg.Value> = Array<tg.Value>,
-		R extends tg.Value = tg.Value,
+		O extends tg.Value = tg.Value,
 	> {
 		#__brand;
 
@@ -612,8 +618,8 @@ declare namespace tg {
 		/** Create a command. */
 		static new<
 			A extends Array<tg.Value> = Array<tg.Value>,
-			R extends tg.Value = tg.Value,
-		>(...args: tg.Args<tg.Command.Arg>): Promise<tg.Command<A, R>>;
+			O extends tg.Value = tg.Value,
+		>(...args: tg.Args<tg.Command.Arg>): Promise<tg.Command<A, O>>;
 
 		/** Expect that a value is a `tg.Command`. */
 		static expect(value: unknown): tg.Command;
@@ -645,17 +651,17 @@ declare namespace tg {
 		/** Get this command's object. */
 		object(): Promise<tg.Command.Object>;
 
-		/** Get this command's mounts. */
-		get mounts(): Promise<Array<tg.Command.Mount> | undefined>;
-
 		/** Get this command's user. */
 		get user(): Promise<string | undefined>;
 
 		/** Build this command and return the process's output. */
-		build(...args: tg.UnresolvedArgs<A>): tg.BuildBuilder<[], R>;
+		build(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"run", [], O>;
 
 		/** Run this command and return the process's output. */
-		run(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R>;
+		run(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"run", [], O>;
+
+		/** Spawn this command and return the process. */
+		spawn(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"spawn", [], O>;
 	}
 
 	export namespace Command {
@@ -685,9 +691,6 @@ declare namespace tg {
 
 				/** The command's host. */
 				host?: string | undefined;
-
-				/** The command's mounts. */
-				mounts?: Array<tg.Command.Mount> | undefined;
 
 				/** The command's user. */
 				user?: string | undefined;
@@ -726,7 +729,6 @@ declare namespace tg {
 			env: { [key: string]: tg.Value };
 			executable: tg.Command.Executable;
 			host: string;
-			mounts: Array<tg.Command.Mount> | undefined;
 			stdin: tg.Blob | undefined;
 			user: string | undefined;
 		};
@@ -751,12 +753,6 @@ declare namespace tg {
 				path: string;
 			};
 		}
-
-		/** A mount. */
-		export type Mount = {
-			source: tg.Artifact;
-			target: string;
-		};
 	}
 
 	export namespace path {
@@ -1256,42 +1252,6 @@ declare namespace tg {
 		}
 	}
 
-	export function build<
-		A extends tg.UnresolvedArgs<Array<tg.Value>>,
-		R extends tg.ReturnValue,
-	>(
-		function_: (...args: A) => R,
-	): tg.BuildBuilder<[], tg.ResolvedReturnValue<R>>;
-	export function build<
-		A extends tg.UnresolvedArgs<Array<tg.Value>>,
-		R extends tg.ReturnValue,
-	>(
-		function_: (...args: A) => R,
-		...args: tg.UnresolvedArgs<tg.ResolvedArgs<A>>
-	): tg.BuildBuilder<[], tg.ResolvedReturnValue<R>>;
-	export function build(
-		strings: TemplateStringsArray,
-		...placeholders: tg.Args<tg.Template.Arg>
-	): tg.BuildBuilder;
-	export function build(...args: tg.Args<tg.Process.BuildArg>): tg.BuildBuilder;
-
-	export function run<
-		A extends tg.UnresolvedArgs<Array<tg.Value>>,
-		R extends tg.ReturnValue,
-	>(function_: (...args: A) => R): tg.RunBuilder<[], tg.ResolvedReturnValue<R>>;
-	export function run<
-		A extends tg.UnresolvedArgs<Array<tg.Value>>,
-		R extends tg.ReturnValue,
-	>(
-		function_: (...args: A) => R,
-		...args: tg.UnresolvedArgs<tg.ResolvedArgs<A>>
-	): tg.RunBuilder<[], tg.ResolvedReturnValue<R>>;
-	export function run(
-		strings: TemplateStringsArray,
-		...placeholders: tg.Args<tg.Template.Arg>
-	): tg.RunBuilder;
-	export function run(...args: tg.Args<tg.Process.RunArg>): tg.RunBuilder;
-
 	export let process: {
 		args: Array<tg.Value>;
 		cwd: string;
@@ -1299,8 +1259,75 @@ declare namespace tg {
 		executable: tg.Command.Executable;
 	};
 
+	export let build: typeof tg.Process.build;
+	export let run: typeof tg.Process.run;
+	export let spawn: typeof tg.Process.spawn;
+
 	export class Process {
 		#__brand;
+
+		static build<
+			A extends tg.UnresolvedArgs<Array<tg.Value>>,
+			O extends tg.ReturnValue,
+		>(
+			function_: (...args: A) => O,
+		): tg.Process.Builder<"run", [], tg.ResolvedReturnValue<O>>;
+		static build<
+			A extends tg.UnresolvedArgs<Array<tg.Value>>,
+			O extends tg.ReturnValue,
+		>(
+			function_: (...args: A) => O,
+			...args: tg.UnresolvedArgs<tg.ResolvedArgs<A>>
+		): tg.Process.Builder<"run", [], tg.ResolvedReturnValue<O>>;
+		static build(
+			strings: TemplateStringsArray,
+			...placeholders: tg.Args<tg.Template.Arg>
+		): tg.Process.Builder<"run", Array<tg.Value>, tg.Value>;
+		static build(
+			...args: tg.Args<tg.Process.Arg>
+		): tg.Process.Builder<"run", Array<tg.Value>, tg.Value>;
+
+		static run<
+			A extends tg.UnresolvedArgs<Array<tg.Value>>,
+			O extends tg.ReturnValue,
+		>(
+			function_: (...args: A) => O,
+		): tg.Process.Builder<"run", [], tg.ResolvedReturnValue<O>>;
+		static run<
+			A extends tg.UnresolvedArgs<Array<tg.Value>>,
+			O extends tg.ReturnValue,
+		>(
+			function_: (...args: A) => O,
+			...args: tg.UnresolvedArgs<tg.ResolvedArgs<A>>
+		): tg.Process.Builder<"run", [], tg.ResolvedReturnValue<O>>;
+		static run(
+			strings: TemplateStringsArray,
+			...placeholders: tg.Args<tg.Template.Arg>
+		): tg.Process.Builder<"run", Array<tg.Value>, tg.Value>;
+		static run(
+			...args: tg.Args<tg.Process.Arg>
+		): tg.Process.Builder<"run", Array<tg.Value>, tg.Value>;
+
+		static spawn<
+			A extends tg.UnresolvedArgs<Array<tg.Value>>,
+			O extends tg.ReturnValue,
+		>(
+			function_: (...args: A) => O,
+		): tg.Process.Builder<"spawn", [], tg.ResolvedReturnValue<O>>;
+		static spawn<
+			A extends tg.UnresolvedArgs<Array<tg.Value>>,
+			O extends tg.ReturnValue,
+		>(
+			function_: (...args: A) => O,
+			...args: tg.UnresolvedArgs<tg.ResolvedArgs<A>>
+		): tg.Process.Builder<"spawn", [], tg.ResolvedReturnValue<O>>;
+		static spawn(
+			strings: TemplateStringsArray,
+			...placeholders: tg.Args<tg.Template.Arg>
+		): tg.Process.Builder<"spawn", Array<tg.Value>, tg.Value>;
+		static spawn(
+			...args: tg.Args<tg.Process.Arg>
+		): tg.Process.Builder<"spawn", Array<tg.Value>, tg.Value>;
 
 		/** Expect that a value is a `tg.Process`. */
 		static expect(value: unknown): tg.Process;
@@ -1308,21 +1335,23 @@ declare namespace tg {
 		/** Assert that a value is a `tg.Process`. */
 		static assert(value: unknown): asserts value is tg.Process;
 
-		/** Combine a set of build args into a single build arg object. */
-		static buildArg(
-			...args: tg.Args<tg.Process.BuildArg>
-		): Promise<tg.Process.BuildArgObject>;
-
-		/** Combine a set of run args into a single build arg object. */
-		static runArg(
-			...args: tg.Args<tg.Process.RunArg>
-		): Promise<tg.Process.RunArgObject>;
-
 		/** Load the process's state. */
 		load(): Promise<void>;
 
 		/** Reload the process's state. */
 		reload(): Promise<void>;
+
+		/** Wait for this process to exit and return the output. */
+		output(): Promise<tg.Value>;
+
+		/** Set this process's tty size. */
+		setTtySize(size: tg.Process.Tty.Size): Promise<void>;
+
+		/** Send a signal to this process. */
+		signal(signal: tg.Process.Signal): Promise<void>;
+
+		/** Wait for this process to exit. */
+		wait(): Promise<tg.Process.Wait>;
 
 		/** Get this process's ID. */
 		get id(): tg.Process.Id;
@@ -1346,11 +1375,17 @@ declare namespace tg {
 		/** Get this process's command's executable. */
 		get executable(): Promise<tg.Command.Executable>;
 
-		/** Get the mounts for this process and its command. */
-		get mounts(): Promise<Array<tg.Command.Mount | tg.Process.Mount>>;
+		/** Get this process's sandbox. */
+		get sandbox(): Promise<tg.Sandbox.Id | undefined>;
 
-		/** Get whether this process has the network enabled. */
-		get network(): Promise<boolean>;
+		/** Get this process's stdin writer. */
+		get stdin(): tg.Process.Stdio.Writer;
+
+		/** Get this process's stdout reader. */
+		get stdout(): tg.Process.Stdio.Reader;
+
+		/** Get this process's stderr reader. */
+		get stderr(): tg.Process.Stdio.Reader;
 
 		/** Get this process's command's user. */
 		get user(): Promise<string | undefined>;
@@ -1359,60 +1394,41 @@ declare namespace tg {
 	export namespace Process {
 		export type Id = string;
 
-		export type BuildArg =
-			| undefined
-			| string
-			| tg.Artifact
-			| tg.Template
-			| tg.Command
-			| BuildArgObject;
-
-		type BuildArgObject = {
-			/** The command's arguments. */
-			args?: Array<tg.Value> | undefined;
-
-			/** If a checksum of the process's output is provided, then the process can be cached even if it is not sandboxed. */
-			checksum?: tg.Checksum | undefined;
-
-			/** The command's working directory. **/
-			cwd?: string | undefined;
-
-			/** The command's environment. */
-			env?: tg.MaybeMutationMap | undefined;
-
-			/** The command's executable. */
-			executable?: tg.Command.Arg.Executable | undefined;
-
-			/** The command's host. */
-			host?: string | undefined;
-
-			/** The command's mounts. */
-			mounts?: Array<tg.Command.Mount> | undefined;
-
-			/** Configure whether the process has access to the network. **/
-			network?: boolean | undefined;
-
-			/** Ignore stdin, or set it to a blob. */
-			stdin?: tg.Blob.Arg | undefined;
-
-			/** The command's user. */
-			user?: string | undefined;
+		export const Signal: {
+			readonly ABRT: "ABRT";
+			readonly ALRM: "ALRM";
+			readonly FPE: "FPE";
+			readonly HUP: "HUP";
+			readonly ILL: "ILL";
+			readonly INT: "INT";
+			readonly KILL: "KILL";
+			readonly PIPE: "PIPE";
+			readonly QUIT: "QUIT";
+			readonly SEGV: "SEGV";
+			readonly TERM: "TERM";
+			readonly USR1: "USR1";
+			readonly USR2: "USR2";
 		};
 
-		export type RunArg =
+		export type Signal = (typeof Signal)[keyof typeof Signal];
+
+		export type Arg =
 			| undefined
 			| string
 			| tg.Artifact
 			| tg.Template
 			| tg.Command
-			| RunArgObject;
+			| ArgObject;
 
-		type RunArgObject = {
+		type ArgObject = {
 			/** The command's arguments. */
 			args?: Array<tg.Value> | undefined;
 
 			/** If a checksum of the process's output is provided, then the process can be cached even if it is not sandboxed. */
 			checksum?: tg.Checksum | undefined;
+
+			/** The base command. */
+			command?: tg.MaybeReferent<tg.Command> | undefined;
 
 			/** The command's working directory. **/
 			cwd?: string | undefined;
@@ -1426,206 +1442,293 @@ declare namespace tg {
 			/** The command's host. */
 			host?: string | undefined;
 
-			/** The command's or process's mounts. */
-			mounts?: Array<tg.Command.Mount | tg.Process.Mount> | undefined;
+			/** The process's name. */
+			name?: string | undefined;
 
-			/** Configure whether the process has access to the network. **/
-			network?: boolean | undefined;
+			/** Configure or select the sandbox for this process. */
+			sandbox?: boolean | tg.Sandbox.Arg | tg.Sandbox.Id | undefined;
 
-			/** Suppress stderr. */
-			stderr?: undefined;
+			/** Configure stderr. */
+			stderr?: tg.Process.Stdio | undefined;
 
-			/** Ignore stdin, or set it to a blob. */
-			stdin?: tg.Blob.Arg | undefined;
+			/** Configure stdin, or set it to a blob. */
+			stdin?: tg.Blob.Arg | tg.Process.Stdio | undefined;
 
-			/** Suppress stdout. */
-			stdout?: undefined;
+			/** Configure stdout. */
+			stdout?: tg.Process.Stdio | undefined;
+
+			/** Configure whether the process should allocate a tty. */
+			tty?: boolean | tg.Process.Tty | undefined;
 
 			/** The command's user. */
 			user?: string | undefined;
 		};
 
 		/** A mount. */
-		export type Mount = {
-			source: string;
-			target: string;
-			readonly: boolean;
+		export type Mount = tg.Sandbox.Mount;
+
+		export type Stdio = "inherit" | "log" | "null" | "pipe" | "tty";
+
+		export namespace Stdio {
+			export type Chunk = {
+				bytes: Uint8Array;
+				position?: number | undefined;
+				stream: tg.Process.Stdio.Stream;
+			};
+
+			export type Stream = "stdin" | "stdout" | "stderr";
+
+			export namespace Read {
+				export type Arg = {
+					length?: number | undefined;
+					local?: boolean | undefined;
+					position?: number | string | undefined;
+					remotes?: Array<string> | undefined;
+					size?: number | undefined;
+					streams: Array<tg.Process.Stdio.Stream>;
+				};
+
+				export type Event =
+					| { kind: "chunk"; value: tg.Process.Stdio.Chunk }
+					| { kind: "end" };
+
+				export namespace Event {
+					export type Data =
+						| { kind: "chunk"; value: tg.Process.Stdio.Read.Event.Data.Chunk }
+						| { kind: "end" };
+
+					export namespace Data {
+						export type Chunk = {
+							bytes: string;
+							position?: number | undefined;
+							stream: tg.Process.Stdio.Stream;
+						};
+					}
+
+					export let fromData: (
+						data: tg.Process.Stdio.Read.Event.Data,
+					) => tg.Process.Stdio.Read.Event;
+
+					export let toData: (
+						event: tg.Process.Stdio.Read.Event,
+					) => tg.Process.Stdio.Read.Event.Data;
+				}
+			}
+
+			export namespace Write {
+				export type Arg = {
+					local?: boolean | undefined;
+					remotes?: Array<string> | undefined;
+					streams: Array<tg.Process.Stdio.Stream>;
+				};
+
+				export type Event = { kind: "end" } | { kind: "stop" };
+			}
+
+			export class Reader {
+				#__brand;
+
+				/** Close the stream without reading it. */
+				close(): Promise<void>;
+
+				/** Read one chunk from the stream. */
+				read(): Promise<Uint8Array | undefined>;
+
+				/** Read all remaining bytes from the stream. */
+				readAll(): Promise<Uint8Array>;
+
+				/** Read all remaining bytes as UTF-8 text. */
+				text(): Promise<string>;
+			}
+
+			export class Writer {
+				#__brand;
+
+				/** Close the stream without writing additional input. */
+				close(): Promise<void>;
+
+				/** Write one chunk to the stream and return the number of bytes written. */
+				write(input: Uint8Array): Promise<number>;
+
+				/** Write all input bytes to the stream and then close it. */
+				writeAll(input: Uint8Array): Promise<void>;
+			}
+		}
+
+		export type Tty = {
+			size: tg.Process.Tty.Size;
+		};
+
+		export namespace Tty {
+			export type Size = {
+				cols: number;
+				rows: number;
+			};
+		}
+
+		export type Wait = {
+			error: tg.Error | undefined;
+			exit: number;
+			output?: tg.Value;
 		};
 	}
 
-	export interface BuildBuilder<
-		A extends Array<tg.Value> = Array<tg.Value>,
-		R extends tg.Value = tg.Value,
-	> {
-		(...args: tg.UnresolvedArgs<A>): tg.BuildBuilder<[], R>;
+	export namespace Command {
+		export interface Builder<
+			A extends Array<tg.Value> = Array<tg.Value>,
+			O extends tg.Value = tg.Value,
+		> {
+			(...args: tg.UnresolvedArgs<A>): tg.Command.Builder<[], O>;
+		}
+
+		export class Builder<
+			A extends Array<tg.Value> = Array<tg.Value>,
+			O extends tg.Value = tg.Value,
+		> extends Function {
+			#__brand;
+
+			constructor(...args: tg.Args<tg.Command.Arg.Object>);
+
+			arg(...args: Array<tg.Unresolved<tg.Value>>): this;
+
+			args(
+				...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>>
+			): this;
+
+			cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
+
+			env(
+				...envs: Array<tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>>
+			): this;
+
+			executable(
+				executable: tg.Unresolved<tg.MaybeMutation<tg.Command.Arg.Executable>>,
+			): this;
+
+			host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
+
+			/** Build this command and return the process's output. */
+			build(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"run", [], O>;
+
+			/** Run this command and return the process's output. */
+			run(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"run", [], O>;
+
+			/** Spawn this command and return the process. */
+			spawn(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"spawn", [], O>;
+
+			then<TResult1 = tg.Command<A, O>, TResult2 = never>(
+				onfulfilled?:
+					| ((value: tg.Command<A, O>) => TResult1 | PromiseLike<TResult1>)
+					| undefined
+					| null,
+				onrejected?:
+					| ((reason: any) => TResult2 | PromiseLike<TResult2>)
+					| undefined
+					| null,
+			): PromiseLike<TResult1 | TResult2>;
+		}
 	}
 
-	export class BuildBuilder<
-		A extends Array<tg.Value> = Array<tg.Value>,
-		R extends tg.Value = tg.Value,
-	> extends Function {
-		#__brand;
+	export namespace Process {
+		export interface Builder<
+			M extends tg.Process.Builder.Mode,
+			A extends Array<tg.Value> = Array<tg.Value>,
+			O extends tg.Value = tg.Value,
+		> {
+			(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<M, [], O>;
+		}
 
-		constructor(...args: tg.Args<tg.Process.BuildArgObject>);
+		export class Builder<
+			M extends tg.Process.Builder.Mode,
+			A extends Array<tg.Value> = Array<tg.Value>,
+			O extends tg.Value = tg.Value,
+		> extends Function {
+			#__brand;
 
-		arg(...args: Array<tg.Unresolved<tg.Value>>): this;
+			constructor(mode: M, ...args: tg.Args<tg.Process.Arg>);
 
-		args(
-			...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>>
-		): this;
+			arg(...args: Array<tg.Unresolved<tg.Value>>): this;
 
-		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
+			args(
+				...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>>
+			): this;
 
-		env(
-			...envs: Array<tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>>
-		): this;
+			checksum(
+				checksum: tg.Unresolved<tg.MaybeMutation<tg.Checksum | undefined>>,
+			): this;
 
-		executable(
-			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.Arg.Executable>>,
-		): this;
+			cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
 
-		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
+			env(
+				...envs: Array<tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>>
+			): this;
 
-		mount(...mounts: Array<tg.Unresolved<tg.Command.Mount>>): this;
+			executable(
+				executable: tg.Unresolved<tg.MaybeMutation<tg.Command.Arg.Executable>>,
+			): this;
 
-		mounts(
-			...mounts: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Command.Mount>>>>
-		): this;
+			host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
 
-		named(name: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
+			mount(...mounts: Array<tg.Unresolved<tg.Process.Mount>>): this;
 
-		network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
-
-		then<TResult1 = R, TResult2 = never>(
-			this: tg.BuildBuilder<[], R>,
-			onfulfilled?:
-				| ((value: R) => TResult1 | PromiseLike<TResult1>)
-				| undefined
-				| null,
-			onrejected?:
-				| ((reason: any) => TResult2 | PromiseLike<TResult2>)
-				| undefined
-				| null,
-		): PromiseLike<TResult1 | TResult2>;
-	}
-
-	export interface CommandBuilder<
-		A extends Array<tg.Value> = Array<tg.Value>,
-		R extends tg.Value = tg.Value,
-	> {
-		(...args: tg.UnresolvedArgs<A>): tg.CommandBuilder<[], R>;
-	}
-
-	export class CommandBuilder<
-		A extends Array<tg.Value> = Array<tg.Value>,
-		R extends tg.Value = tg.Value,
-	> extends Function {
-		#__brand;
-
-		constructor(...args: tg.Args<tg.Command.Arg.Object>);
-
-		arg(...args: Array<tg.Unresolved<tg.Value>>): this;
-
-		args(
-			...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>>
-		): this;
-
-		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
-
-		env(
-			...envs: Array<tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>>
-		): this;
-
-		executable(
-			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.Arg.Executable>>,
-		): this;
-
-		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
-
-		mount(...mounts: Array<tg.Unresolved<tg.Command.Mount>>): this;
-
-		mounts(
-			...mounts: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Command.Mount>>>>
-		): this;
-
-		/** Build this command and return the process's output. */
-		build(...args: tg.UnresolvedArgs<A>): tg.BuildBuilder<[], R>;
-
-		/** Run this command and return the process's output. */
-		run(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R>;
-
-		then<TResult1 = tg.Command<A, R>, TResult2 = never>(
-			onfulfilled?:
-				| ((value: tg.Command<A, R>) => TResult1 | PromiseLike<TResult1>)
-				| undefined
-				| null,
-			onrejected?:
-				| ((reason: any) => TResult2 | PromiseLike<TResult2>)
-				| undefined
-				| null,
-		): PromiseLike<TResult1 | TResult2>;
-	}
-
-	export interface RunBuilder<
-		A extends Array<tg.Value> = Array<tg.Value>,
-		R extends tg.Value = tg.Value,
-	> {
-		(...args: tg.UnresolvedArgs<A>): tg.RunBuilder<[], R>;
-	}
-
-	export class RunBuilder<
-		A extends Array<tg.Value> = Array<tg.Value>,
-		R extends tg.Value = tg.Value,
-	> extends Function {
-		#__brand;
-
-		constructor(...args: tg.Args<tg.Process.RunArgObject>);
-
-		arg(...args: Array<tg.Unresolved<tg.Value>>): this;
-
-		args(
-			...args: Array<tg.Unresolved<tg.MaybeMutation<Array<tg.Value>>>>
-		): this;
-
-		cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
-
-		env(
-			...envs: Array<tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>>
-		): this;
-
-		executable(
-			executable: tg.Unresolved<tg.MaybeMutation<tg.Command.Arg.Executable>>,
-		): this;
-
-		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
-
-		mount(
-			...mounts: Array<tg.Unresolved<tg.Command.Mount | tg.Process.Mount>>
-		): this;
-
-		mounts(
-			...mounts: Array<
-				tg.Unresolved<
-					tg.MaybeMutation<Array<tg.Command.Mount | tg.Process.Mount>>
+			mounts(
+				...mounts: Array<
+					tg.Unresolved<tg.MaybeMutation<Array<tg.Process.Mount>>>
 				>
-			>
-		): this;
+			): this;
 
-		named(name: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
+			named(name: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
 
-		network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
+			network(network: tg.Unresolved<tg.MaybeMutation<boolean>>): this;
 
-		then<TResult1 = R, TResult2 = never>(
-			this: tg.RunBuilder<[], R>,
-			onfulfilled?:
-				| ((value: R) => TResult1 | PromiseLike<TResult1>)
-				| undefined
-				| null,
-			onrejected?:
-				| ((reason: any) => TResult2 | PromiseLike<TResult2>)
-				| undefined
-				| null,
-		): PromiseLike<TResult1 | TResult2>;
+			sandbox(
+				sandbox?: tg.Unresolved<
+					tg.MaybeMutation<boolean | tg.Sandbox.Arg | tg.Sandbox.Id | undefined>
+				>,
+			): this;
+
+			stderr(stderr: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio>>): this;
+
+			stdin(
+				stdin: tg.Unresolved<tg.MaybeMutation<tg.Blob.Arg | tg.Process.Stdio>>,
+			): this;
+
+			stdio(stdio: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio>>): this;
+
+			stdout(stdout: tg.Unresolved<tg.MaybeMutation<tg.Process.Stdio>>): this;
+
+			tty(
+				tty: tg.Unresolved<
+					tg.MaybeMutation<boolean | tg.Process.Tty | undefined>
+				>,
+			): this;
+
+			run(): tg.Process.Builder<"run", A, O>;
+
+			spawn(): tg.Process.Builder<"spawn", A, O>;
+
+			then<TResult1 = tg.Process.Builder.Output<M, O>, TResult2 = never>(
+				onfulfilled?:
+					| ((
+							value: tg.Process.Builder.Output<M, O>,
+					  ) => TResult1 | PromiseLike<TResult1>)
+					| undefined
+					| null,
+				onrejected?:
+					| ((reason: any) => TResult2 | PromiseLike<TResult2>)
+					| undefined
+					| null,
+			): PromiseLike<TResult1 | TResult2>;
+		}
+
+		export namespace Builder {
+			export type Mode = "run" | "spawn";
+
+			export type Output<
+				M extends tg.Process.Builder.Mode,
+				O extends tg.Value,
+			> = M extends "spawn" ? tg.Process : O;
+		}
 	}
 
 	export type Reference = string;
@@ -1679,9 +1782,9 @@ declare namespace tg {
 	export type Unresolved<T extends tg.Value> = tg.MaybePromise<
 		T extends tg.Command<
 			infer A extends Array<tg.Value>,
-			infer R extends tg.Value
+			infer O extends tg.Value
 		>
-			? UnresolvedCommand<A, R>
+			? UnresolvedCommand<A, O>
 			: T extends
 						| undefined
 						| boolean
@@ -1700,13 +1803,13 @@ declare namespace tg {
 						: never
 	>;
 
-	type UnresolvedCommand<A extends Array<tg.Value>, R extends tg.Value> =
-		| tg.Command<A, R>
+	type UnresolvedCommand<A extends Array<tg.Value>, O extends tg.Value> =
+		| tg.Command<A, O>
 		| tg.Function<
 				{
 					[K in keyof A]: UnresolvedWithoutCommand<A[K]>;
 				},
-				UnresolvedWithoutCommand<R>
+				UnresolvedWithoutCommand<O>
 		  >;
 
 	type UnresolvedWithoutCommand<T extends tg.Value> = tg.MaybePromise<
@@ -1743,8 +1846,8 @@ declare namespace tg {
 	export type Resolved<T extends tg.Unresolved<tg.Value>> =
 		T extends PromiseLike<infer U extends tg.Unresolved<tg.Value>>
 			? tg.Resolved<U>
-			: T extends tg.Function<infer A, infer R>
-				? tg.Command<tg.ResolvedArgs<A>, tg.ResolvedReturnValue<R>>
+			: T extends tg.Function<infer A, infer O>
+				? tg.Command<tg.ResolvedArgs<A>, tg.ResolvedReturnValue<O>>
 				: T extends
 							| undefined
 							| boolean
@@ -1761,6 +1864,38 @@ declare namespace tg {
 						: T extends { [key: string]: tg.Unresolved<tg.Value> }
 							? { [K in keyof T]: tg.Resolved<T[K]> }
 							: never;
+
+	export namespace Sandbox {
+		export type Id = string;
+
+		export type Arg = {
+			hostname?: string | undefined;
+			mounts?: Array<tg.Sandbox.Mount> | undefined;
+			network?: boolean | undefined;
+			ttl?: number | undefined;
+			user?: string | undefined;
+		};
+
+		export type Status = "created" | "started" | "finished";
+
+		export type Mount = {
+			source: string;
+			target: string;
+			readonly?: boolean | undefined;
+		};
+
+		export namespace Mount {
+			export type Data = string;
+
+			export let toDataString: (
+				value: tg.Sandbox.Mount,
+			) => tg.Sandbox.Mount.Data;
+
+			export let fromDataString: (
+				data: tg.Sandbox.Mount.Data,
+			) => tg.Sandbox.Mount;
+		}
+	}
 
 	/** Sleep for the specified duration in seconds. */
 	export let sleep: (duration: number) => Promise<void>;
@@ -1815,7 +1950,9 @@ declare namespace tg {
 		[K in keyof T]: tg.Resolved<T[K]>;
 	};
 
-	type ReturnValue = tg.MaybePromise<void> | tg.Unresolved<tg.Value>;
+	type ReturnValue<T extends tg.Value = tg.Value> =
+		| (T extends undefined ? tg.MaybePromise<void> : never)
+		| tg.Unresolved<T>;
 
 	type ResolvedReturnValue<T extends tg.ReturnValue> =
 		T extends tg.MaybePromise<void>
@@ -1826,6 +1963,6 @@ declare namespace tg {
 
 	type Function<
 		A extends tg.UnresolvedArgs<Array<tg.Value>>,
-		R extends tg.ReturnValue,
-	> = (...args: A) => R;
+		O extends tg.ReturnValue,
+	> = (...args: A) => O;
 }

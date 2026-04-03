@@ -11,7 +11,6 @@ use {
 };
 
 mod archive;
-mod build;
 mod builtin;
 mod bundle;
 mod cache;
@@ -49,10 +48,8 @@ mod push;
 mod put;
 mod read;
 mod remote;
-mod run;
 mod sandbox;
 mod server;
-mod session;
 mod shell;
 mod tag;
 mod tangram;
@@ -157,7 +154,7 @@ enum Command {
 	Archive(self::archive::Args),
 
 	#[command(alias = "b")]
-	Build(self::build::Args),
+	Build(self::process::build::Args),
 
 	#[command(hide = true)]
 	Builtin(self::builtin::Args),
@@ -213,7 +210,7 @@ enum Command {
 	#[command(alias = "ls")]
 	List(self::tag::list::Args),
 
-	Log(self::process::log::Args),
+	Log(self::process::stdio::read::Args),
 
 	Lsp(self::lsp::Args),
 
@@ -247,9 +244,8 @@ enum Command {
 	Remote(self::remote::Args),
 
 	#[command(alias = "r")]
-	Run(self::run::Args),
+	Run(self::process::run::Args),
 
-	#[command(hide = true)]
 	Sandbox(self::sandbox::Args),
 
 	#[command(name = "self")]
@@ -260,9 +256,6 @@ enum Command {
 	Serve(self::server::run::Args),
 
 	Server(self::server::Args),
-
-	#[command(hide = true)]
-	Session(self::session::Args),
 
 	#[command(alias = "kill")]
 	Signal(self::process::signal::Args),
@@ -300,14 +293,19 @@ fn main() -> std::process::ExitCode {
 		#[cfg(feature = "js")]
 		Command::Js(args) => {
 			#[cfg(feature = "v8")]
-			Cli::initialize_v8(0);
+			if matches!(
+				args.engine,
+				crate::js::JsEngine::Auto | crate::js::JsEngine::V8
+			) {
+				Cli::initialize_v8(0);
+			}
 			return Cli::command_js(&matches, args);
 		},
-		Command::Sandbox(args) => {
-			return Cli::command_sandbox(args);
-		},
-		Command::Session(args) => {
-			return Cli::command_session(args);
+		Command::Sandbox(self::sandbox::Args {
+			command: self::sandbox::Command::Run(args),
+			..
+		}) => {
+			return Cli::command_sandbox_run(args);
 		},
 		_ => (),
 	}
@@ -387,7 +385,11 @@ fn main() -> std::process::ExitCode {
 
 	// Initialize FoundationDB.
 	#[cfg(feature = "foundationdb")]
-	let _fdb = if matches!(mode, Mode::Server) {
+	let _fdb = if matches!(mode, Mode::Server)
+		&& config
+			.as_ref()
+			.is_some_and(|config| config.server.index.is_fdb())
+	{
 		Some(unsafe { foundationdb::boot() })
 	} else {
 		None
@@ -690,6 +692,7 @@ impl Cli {
 
 		// Start the server.
 		let server = tangram_server::Server::start(config)
+			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to start the server"))?;
 
@@ -945,7 +948,7 @@ impl Cli {
 			Command::Js(_) => {
 				unreachable!()
 			},
-			Command::Builtin(_) | Command::Sandbox(_) | Command::Session(_) => {
+			Command::Builtin(_) => {
 				unreachable!()
 			},
 			Command::Archive(args) => self.command_archive(args).boxed(),
@@ -971,7 +974,7 @@ impl Cli {
 			Command::Index(args) => self.command_index(args).boxed(),
 			Command::Init(args) => self.command_init(args).boxed(),
 			Command::List(args) => self.command_tag_list(args).boxed(),
-			Command::Log(args) => self.command_process_log(args).boxed(),
+			Command::Log(args) => self.command_process_stdio_read(args).boxed(),
 			Command::Lsp(args) => self.command_lsp(args).boxed(),
 			Command::Metadata(args) => self.command_metadata(args).boxed(),
 			Command::New(args) => self.command_new(args).boxed(),
@@ -987,6 +990,7 @@ impl Cli {
 			Command::Read(args) => self.command_read(args).boxed(),
 			Command::Remote(args) => self.command_remote(args).boxed(),
 			Command::Run(args) => self.command_run(args).boxed(),
+			Command::Sandbox(args) => self.command_sandbox(args).boxed(),
 			Command::Self_(args) => self.command_tangram(args).boxed(),
 			Command::Shell(args) => self.command_shell(args).boxed(),
 			Command::Serve(args) => self.command_server_run(args).boxed(),
@@ -1099,7 +1103,7 @@ impl Cli {
 					return Ok(referent);
 				},
 				tg::reference::Item::Process(id) => {
-					let process = tg::Process::new(id.clone(), None, None, None, None);
+					let process = tg::Process::new(id.clone(), None, None, None, None, None);
 					let referent = tg::Referent::with_item(tg::Either::Right(process));
 					return Ok(referent);
 				},

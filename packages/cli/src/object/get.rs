@@ -31,9 +31,9 @@ impl Cli {
 		let handle = self.handle().await?;
 		if args.bytes {
 			let arg = tg::object::get::Arg {
-				local: args.local.local,
+				local: args.local.get(),
 				metadata: args.metadata,
-				remotes: args.remotes.remotes.clone(),
+				remotes: args.remotes.get(),
 			};
 			let tg::object::get::Output { bytes, metadata } = handle
 				.try_get_object(&args.object, arg)
@@ -58,9 +58,9 @@ impl Cli {
 			.depth
 			.get_or_insert(crate::print::Depth::Finite(1));
 		let arg = tg::object::get::Arg {
-			local: args.local.local,
+			local: args.local.get(),
 			metadata: args.metadata,
-			remotes: args.remotes.remotes.clone(),
+			remotes: args.remotes.get(),
 		};
 		if args.metadata {
 			let output = handle

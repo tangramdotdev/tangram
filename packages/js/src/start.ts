@@ -21,14 +21,8 @@ export let start = async (arg: Arg): Promise<tg.Value.Data> => {
 		executable: tg.Command.Executable.fromData(arg.executable),
 	});
 
-	// Set tg.Process.current from the TANGRAM_PROCESS environment variable if it is defined.
-	let id = arg.env.TANGRAM_PROCESS;
-	if (id !== undefined) {
-		tg.assert(typeof id === "string");
-		tg.Process.current = new tg.Process({ id });
-	}
-
 	// Import the module.
+	// oxlint-disable-next-line no-eval
 	let namespace = await eval(`import("!")`);
 
 	// If there is no export, then return undefined.

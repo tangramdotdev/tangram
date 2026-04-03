@@ -1,11 +1,11 @@
 use {
 	crate::{Context, Server},
-	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
+	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream},
 	indoc::formatdoc,
 	std::time::Duration,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_futures::{stream::Ext as _, task::Stop},
+	tangram_futures::{stream::Ext as _, task::Stopper},
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -170,30 +170,22 @@ impl Server {
 		if remotes.is_empty() {
 			return Ok(None);
 		}
-		let futures = remotes
-			.iter()
-			.map(|remote| {
-				let remote = remote.clone();
-				let id = id.clone();
-				async move {
-					let client = self.get_remote_client(remote).await.map_err(
-						|source| tg::error!(!source, %id, "failed to get the remote client"),
-					)?;
-					client
-						.get_process_status(&id, tg::process::status::Arg::default())
-						.await
-						.map(futures::StreamExt::boxed)
-				}
-				.boxed()
-			})
-			.collect::<Vec<_>>();
-		let Ok((stream, _)) = future::select_ok(futures).await else {
-			return Ok(None);
-		};
-		let stream = stream
-			.map_ok(tg::process::status::Event::Status)
-			.chain(stream::once(future::ok(tg::process::status::Event::End)));
-		Ok(Some(stream))
+		for remote in remotes {
+			let client = self.get_remote_client(remote.clone()).await.map_err(
+				|source| tg::error!(!source, %id, %remote, "failed to get the remote client"),
+			)?;
+			let stream = client
+				.try_get_process_status_stream(id, tg::process::status::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, %remote, "failed to get the process status"),
+				)?
+				.map(futures::StreamExt::boxed);
+			if let Some(stream) = stream {
+				return Ok(Some(stream));
+			}
+		}
+		Ok(None)
 	}
 
 	pub(crate) async fn handle_get_process_status_request(
@@ -233,9 +225,9 @@ impl Server {
 		};
 
 		// Stop the stream when the server stops.
-		let stop = request.extensions().get::<Stop>().cloned().unwrap();
-		let stop = async move { stop.wait().await };
-		let stream = stream.take_until(stop);
+		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
+		let stopper = async move { stopper.wait().await };
+		let stream = stream.take_until(stopper);
 
 		// Create the body.
 		let (content_type, body) = match accept

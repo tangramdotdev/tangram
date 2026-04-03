@@ -119,8 +119,6 @@ impl Drop for UpdateGuard {
 pub enum Indicator {
 	Cached,
 	Created,
-	Enqueued,
-	Dequeued,
 	Started,
 	Canceled,
 	Failed,
@@ -213,7 +211,7 @@ where
 				.insert(NodeID::Package(package.0.id())),
 			Some(Item::Process(process)) if options.expand_processes => expanded_nodes
 				.borrow_mut()
-				.insert(NodeID::Process(process.process.id().clone())),
+				.insert(NodeID::Process(process.id().clone())),
 			Some(Item::Tag(pattern)) if options.expand_tags => expanded_nodes
 				.borrow_mut()
 				.insert(NodeID::Tag(pattern.to_string())),
@@ -325,8 +323,6 @@ where
 				None => None,
 				Some(Indicator::Cached) => Some(crossterm::style::Stylize::white('🎯')),
 				Some(Indicator::Created) => Some(crossterm::style::Stylize::blue('⟳')),
-				Some(Indicator::Enqueued) => Some(crossterm::style::Stylize::yellow('⟳')),
-				Some(Indicator::Dequeued) => Some(crossterm::style::Stylize::yellow('•')),
 				Some(Indicator::Started) => {
 					let position = (now / (1000 / 10)) % 10;
 					let position = position.to_usize().unwrap();
@@ -432,7 +428,7 @@ where
 			}
 			node.borrow_mut().guard.replace(guard);
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 		Ok(())
 	}
 
@@ -472,7 +468,7 @@ where
 			}
 			node.borrow_mut().guard.replace(guard);
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 
 		Ok(())
 	}
@@ -540,20 +536,6 @@ where
 		};
 		children.push(("executable".to_owned(), value));
 		children.push(("host".to_owned(), tg::Value::String(object.host.clone())));
-		let mut mounts = Vec::new();
-		for mount in &object.mounts {
-			let mut map = BTreeMap::new();
-			map.insert(
-				"source".to_owned(),
-				tg::Value::Object(mount.source.clone().into()),
-			);
-			map.insert(
-				"target".to_owned(),
-				tg::Value::String(mount.target.to_string_lossy().to_string()),
-			);
-			mounts.push(tg::Value::Map(map));
-		}
-		children.push(("mounts".to_owned(), tg::Value::Array(mounts)));
 		let metadata = get_object_metadata_as_value(handle, command.id()).await?;
 		command.unload();
 
@@ -576,7 +558,7 @@ where
 			}
 			node.borrow_mut().guard.replace(guard);
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 		Ok(())
 	}
 
@@ -775,7 +757,7 @@ where
 			}
 			node.borrow_mut().guard.replace(guard);
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 		Ok(())
 	}
 
@@ -879,7 +861,7 @@ where
 			}
 			node.borrow_mut().guard.replace(guard);
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 		Ok(())
 	}
 
@@ -991,7 +973,7 @@ where
 				node.borrow_mut().children.push(metadata);
 			}
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 		Ok(())
 	}
 
@@ -1178,7 +1160,7 @@ where
 				node.borrow_mut().children.push(metadata);
 			}
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 		Ok(())
 	}
 
@@ -1197,7 +1179,7 @@ where
 				node.borrow_mut().children.push(child);
 			}
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 		Ok(())
 	}
 
@@ -1279,7 +1261,7 @@ where
 				node.borrow_mut().children.push(child);
 			}
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 		Ok(())
 	}
 
@@ -1360,7 +1342,7 @@ where
 				node.borrow_mut().children.push(child);
 			}
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 
 		Ok(())
 	}
@@ -1400,11 +1382,7 @@ where
 						Item::Value(tg::Value::Object(tg::Object::with_id(object)))
 					},
 					Some(tg::Either::Right(process)) => {
-						let process = crate::viewer::Process {
-							cached: false,
-							process: tg::Process::new(process, None, None, None, None),
-						};
-						Item::Process(process)
+						Item::Process(tg::Process::new(process, None, None, None, None, None))
 					},
 					None => Item::Tag(tg::tag::Pattern::new(output.tag.to_string())),
 				};
@@ -1425,17 +1403,17 @@ where
 			node.borrow_mut().children = children;
 			node.borrow_mut().guard.replace(guard);
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 		Ok(())
 	}
 
 	async fn expand_process(
 		handle: &H,
 		counter: UpdateCounter,
-		referent: tg::Referent<crate::viewer::Process>,
+		referent: tg::Referent<tg::Process>,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
-		let process = referent.item.process.clone();
+		let process = referent.item.clone();
 
 		// Create the log task.
 		let log_task = Task::spawn_local({
@@ -1453,7 +1431,7 @@ where
 		let update = move |node: Rc<RefCell<Node>>| {
 			node.borrow_mut().log_task.replace(log_task);
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 
 		let command = process.command(handle).await?;
 		let value = tg::Value::Object(command.clone().into());
@@ -1508,7 +1486,7 @@ where
 						);
 						node.borrow_mut().children.insert(0, output);
 					};
-					update_sender.send(Box::new(update)).unwrap();
+					update_sender.send(Box::new(update)).ok();
 				}
 			}
 		});
@@ -1518,7 +1496,6 @@ where
 			.children(handle, tg::process::children::get::Arg::default())
 			.await?;
 		while let Some(child) = children.try_next().await? {
-			let cached = child.cached;
 			let mut child = tg::Referent::new(child.process, child.options);
 
 			// Inherit from the referent.
@@ -1540,9 +1517,7 @@ where
 				if node.borrow().options.collapse_process_children && finished {
 					return;
 				}
-				let child = child
-					.clone()
-					.map(|process| crate::viewer::Process { cached, process });
+				let child = child.clone();
 				let child_node =
 					Self::create_node(&handle, &node, None, Some(child.clone().map(Item::Process)));
 
@@ -1571,7 +1546,7 @@ where
 				// Add the child to the children node.
 				node.borrow_mut().children.push(child_node);
 			};
-			update_sender.send(Box::new(update)).unwrap();
+			update_sender.send(Box::new(update)).ok();
 		}
 
 		// Remove the log.
@@ -1657,7 +1632,7 @@ where
 				node.borrow_mut().children.push(metadata);
 			}
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 
 		Ok(())
 	}
@@ -1741,7 +1716,7 @@ where
 				Self::create_node(&handle, &node, Some("components".to_owned()), Some(item));
 			node.borrow_mut().children.push(child);
 		};
-		update_sender.send(Box::new(update)).unwrap();
+		update_sender.send(Box::new(update)).ok();
 		Ok(())
 	}
 
@@ -1921,7 +1896,7 @@ where
 				.insert(NodeID::Package(package.0.id())),
 			Item::Process(process) if options.expand_processes => expanded_nodes
 				.borrow_mut()
-				.insert(NodeID::Process(process.process.id().clone())),
+				.insert(NodeID::Process(process.id().clone())),
 			Item::Tag(pattern) if options.expand_tags => expanded_nodes
 				.borrow_mut()
 				.insert(NodeID::Tag(pattern.to_string())),
@@ -2043,10 +2018,21 @@ where
 		process: tg::Process,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
+		let arg = tg::process::stdio::read::Arg {
+			streams: vec![
+				tg::process::stdio::Stream::Stdout,
+				tg::process::stdio::Stream::Stderr,
+			],
+			..Default::default()
+		};
 		let mut log = process
-			.log(handle, tg::process::log::get::Arg::default())
-			.await?;
-		while let Some(chunk) = log.try_next().await? {
+			.try_read_stdio_all(handle, arg)
+			.await?
+			.ok_or_else(|| tg::error!("failed to get the process log"))?;
+		while let Some(event) = log.try_next().await? {
+			let tg::process::stdio::read::Event::Chunk(chunk) = event else {
+				break;
+			};
 			let chunk = String::from_utf8_lossy(&chunk.bytes);
 			for line in chunk.lines() {
 				let line = line.to_owned();
@@ -2077,23 +2063,20 @@ where
 					let log_node = &node.borrow().children[log_node];
 					log_node.borrow_mut().title = line;
 				};
-				update_sender.send(Box::new(update)).unwrap();
+				update_sender.send(Box::new(update)).ok();
 			}
 		}
 		Ok(())
 	}
 
-	async fn process_title(
-		handle: &H,
-		process: &tg::Referent<crate::viewer::Process>,
-	) -> Option<String> {
+	async fn process_title(handle: &H, process: &tg::Referent<tg::Process>) -> Option<String> {
 		// Use the name if provided.
 		if let Some(name) = process.name() {
 			return Some(name.to_owned());
 		}
 
 		// Get the original commands' executable.
-		let command = process.item.process.command(handle).await.ok()?.clone();
+		let command = process.item.command(handle).await.ok()?.clone();
 		let executable = command.executable(handle).await.ok()?.clone();
 
 		// Handle paths.
@@ -2130,7 +2113,7 @@ where
 	async fn process_update_task(
 		handle: &H,
 		counter: UpdateCounter,
-		process: &tg::Referent<crate::viewer::Process>,
+		process: &tg::Referent<tg::Process>,
 		options: &Options,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()>
@@ -2148,16 +2131,14 @@ where
 		}
 
 		// Create the status stream.
-		let mut status = process.item.process.status(handle).await?;
+		let mut status = process.item.status(handle).await?;
 		while let Some(status) = status.try_next().await? {
 			let guard = counter.guard();
-			let indicator = match (process.item.cached, status) {
-				(true, _) => Indicator::Cached,
-				(false, tg::process::Status::Created) => Indicator::Created,
-				(false, tg::process::Status::Enqueued) => Indicator::Enqueued,
-				(false, tg::process::Status::Dequeued) => Indicator::Dequeued,
-				(false, tg::process::Status::Started) => Indicator::Started,
-				(false, tg::process::Status::Finished) => {
+			let indicator = match (process.item.cached(), status) {
+				(Some(true), _) => Indicator::Cached,
+				(_, tg::process::Status::Created) => Indicator::Created,
+				(_, tg::process::Status::Started) => Indicator::Started,
+				(_, tg::process::Status::Finished) => {
 					// Remove the child if necessary.
 					if options.collapse_process_children {
 						let update = move |node: Rc<RefCell<Node>>| {
@@ -2184,11 +2165,11 @@ where
 							// Remove this node from its parent.
 							parent.borrow_mut().children.remove(index);
 						};
-						update_sender.send(Box::new(update)).unwrap();
+						update_sender.send(Box::new(update)).ok();
 						return Ok(());
 					}
 
-					let state = process.item.process.load(handle).await?;
+					let state = process.item.load(handle).await?;
 					let failed =
 						state.error.is_some() || state.exit.as_ref().is_some_and(|code| *code != 0);
 					if failed {
@@ -2207,7 +2188,7 @@ where
 		// Check if the process was canceled.
 		let arg = tg::process::get::Arg::default();
 		if handle
-			.try_get_process(process.item.process.id(), arg)
+			.try_get_process(process.item.id(), arg)
 			.await?
 			.and_then(|output| output.data.error)
 			.is_some_and(|error| match error {
@@ -2290,8 +2271,6 @@ where
 				None => None,
 				Some(Indicator::Cached) => Some("🎯".white()),
 				Some(Indicator::Created) => Some("⟳".blue()),
-				Some(Indicator::Enqueued) => Some("⟳".yellow()),
-				Some(Indicator::Dequeued) => Some("•".yellow()),
 				Some(Indicator::Started) => {
 					let position = (now / (1000 / 10)) % 10;
 					let position = position.to_usize().unwrap();
@@ -2371,7 +2350,7 @@ where
 					let handle = handle.clone();
 					let update = move |viewer: &mut super::Viewer<H>| {
 						if let Some(process) = process {
-							let log = Log::new(&handle, &process.process);
+							let log = Log::new(&handle, &process);
 							viewer.log.replace(log);
 						} else {
 							viewer.log.take();
@@ -2386,7 +2365,7 @@ where
 					async move {
 						match referent.item {
 							Item::Process(process) => handle
-								.get_process(process.process.id())
+								.get_process(process.id())
 								.and_then(async |output: tg::process::get::Output| {
 									#[derive(serde::Serialize)]
 									struct ProcessData {
@@ -2395,7 +2374,7 @@ where
 									}
 									let metadata = handle
 										.try_get_process_metadata(
-											process.process.id(),
+											process.id(),
 											tg::process::metadata::Arg::default(),
 										)
 										.await?;
@@ -2545,7 +2524,7 @@ where
 		let contents = match referent.item() {
 			Item::Package(package) => package.0.id().to_string(),
 			Item::Tag(tag) => tag.to_string(),
-			Item::Process(process) => process.process.id().to_string(),
+			Item::Process(process) => process.id().to_string(),
 			Item::Value(value) => {
 				if let tg::Value::Object(object) = value {
 					Self::object_id(object)
