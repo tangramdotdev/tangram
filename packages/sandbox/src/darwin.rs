@@ -161,6 +161,7 @@ fn collect_dynamic_libraries(executable: &Path) -> tg::Result<Vec<std::path::Pat
 			"failed to canonicalize the executable path"
 		)
 	})?;
+	let loaded_images = loaded_images();
 	let mut queue = std::collections::VecDeque::from([executable]);
 	let mut visited = std::collections::BTreeSet::new();
 	let mut libraries = std::collections::BTreeSet::new();
@@ -178,7 +179,9 @@ fn collect_dynamic_libraries(executable: &Path) -> tg::Result<Vec<std::path::Pat
 			{
 				continue;
 			}
-			let Some(dependency) = resolve_dynamic_library(&path, &rpaths, &dependency)? else {
+			let Some(dependency) =
+				resolve_dynamic_library(&path, &rpaths, &loaded_images, &dependency)?
+			else {
 				continue;
 			};
 			if libraries.insert(dependency.clone()) {
@@ -272,16 +275,18 @@ fn otool_rpaths(path: &Path) -> tg::Result<Vec<std::path::PathBuf>> {
 fn resolve_dynamic_library(
 	binary: &Path,
 	rpaths: &[std::path::PathBuf],
+	loaded_images: &[std::path::PathBuf],
 	dependency: &str,
 ) -> tg::Result<Option<std::path::PathBuf>> {
 	let resolved = if let Some(suffix) = dependency.strip_prefix("@rpath/") {
-		let path = resolve_rpath_dynamic_library(rpaths, suffix).ok_or_else(|| {
-			tg::error!(
-				binary = %binary.display(),
-				%dependency,
-				"failed to resolve the dynamic library"
-			)
-		})?;
+		let path =
+			resolve_rpath_dynamic_library(rpaths, loaded_images, suffix).ok_or_else(|| {
+				tg::error!(
+					binary = %binary.display(),
+					%dependency,
+					"failed to resolve the dynamic library"
+				)
+			})?;
 		std::fs::canonicalize(&path).map_err(|source| {
 			tg::error!(
 				!source,
@@ -310,11 +315,12 @@ fn resolve_dynamic_library(
 
 fn resolve_rpath_dynamic_library(
 	rpaths: &[std::path::PathBuf],
+	loaded_images: &[std::path::PathBuf],
 	suffix: &str,
 ) -> Option<std::path::PathBuf> {
 	resolve_dynamic_library_in_directories(rpaths, suffix)
 		.or_else(|| resolve_dynamic_library_in_dyld_environment(suffix))
-		.or_else(|| resolve_dynamic_library_in_loaded_images(suffix))
+		.or_else(|| resolve_dynamic_library_in_loaded_images(loaded_images, suffix))
 }
 
 fn resolve_dynamic_library_in_directories(
@@ -341,19 +347,31 @@ fn resolve_dynamic_library_in_dyld_environment(suffix: &str) -> Option<std::path
 	.find(|path| path.exists())
 }
 
-fn resolve_dynamic_library_in_loaded_images(suffix: &str) -> Option<std::path::PathBuf> {
-	let file_name = Path::new(suffix).file_name()?;
+fn loaded_images() -> Vec<std::path::PathBuf> {
 	let image_count = unsafe { _dyld_image_count() };
-	(0..image_count).find_map(|index| {
-		let path = unsafe { _dyld_get_image_name(index) };
-		if path.is_null() {
-			return None;
-		}
-		let path = unsafe { CStr::from_ptr(path) };
-		let path = std::ffi::OsStr::from_bytes(path.to_bytes());
-		let path = std::path::PathBuf::from(path);
-		(path.file_name() == Some(file_name) && path.exists()).then_some(path)
-	})
+	(0..image_count)
+		.filter_map(|index| {
+			let path = unsafe { _dyld_get_image_name(index) };
+			if path.is_null() {
+				return None;
+			}
+			let path = unsafe { CStr::from_ptr(path) };
+			let path = std::ffi::OsStr::from_bytes(path.to_bytes());
+			let path = std::path::PathBuf::from(path);
+			path.exists().then_some(path)
+		})
+		.collect()
+}
+
+fn resolve_dynamic_library_in_loaded_images(
+	loaded_images: &[std::path::PathBuf],
+	suffix: &str,
+) -> Option<std::path::PathBuf> {
+	let file_name = Path::new(suffix).file_name()?;
+	loaded_images
+		.iter()
+		.find(|path| path.file_name() == Some(file_name))
+		.cloned()
 }
 
 fn resolve_dyld_path(binary: &Path, path: &str) -> std::path::PathBuf {
