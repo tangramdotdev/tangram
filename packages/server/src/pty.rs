@@ -21,11 +21,11 @@ mod size;
 mod write;
 
 pub(crate) struct Pty {
-	master: Option<OwnedFd>,
-	slave: Option<OwnedFd>,
+	pub(crate) master: Option<OwnedFd>,
+	pub(crate) slave: Option<OwnedFd>,
 	#[expect(dead_code)]
-	name: CString,
-	session: Option<tokio::process::Child>,
+	pub(crate) name: CString,
+	pub(crate) session: Option<tokio::process::Child>,
 	pub(crate) temp: Temp,
 }
 

@@ -10,7 +10,7 @@ impl Server {
 		context: &Context,
 		arg: tg::watch::touch::Arg,
 	) -> tg::Result<()> {
-		if context.process.is_some() {
+		if context.sandbox.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 

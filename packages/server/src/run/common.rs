@@ -86,10 +86,10 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 	};
 
 	// Get the output path.
-	let path = temp.path().join("output/output");
+	let path = temp.path().join("output");
 	let exists = tokio::fs::try_exists(&path)
 		.await
-		.map_err(|source| tg::error!(!source, "failed to determine if the output path exists"))?;
+		.map_err(|source| tg::error!(!source, path = %path.display(), "failed to determine if the output path exists"))?;
 
 	// Try to read the user.tangram.output xattr.
 	if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.output") {
@@ -112,8 +112,8 @@ pub async fn run(mut arg: Arg<'_>) -> tg::Result<super::Output> {
 
 	// Check in the output.
 	if output.output.is_none() && exists {
-		let path = if let Some(process) = &context.process {
-			process
+		let path = if let Some(sandbox) = &context.sandbox {
+			sandbox
 				.guest_path_for_host_path(path.clone())
 				.map_err(|source| tg::error!(!source, "failed to map the output path"))?
 		} else {
@@ -319,6 +319,12 @@ async fn run_session(arg: Arg<'_>, pty: &tg::pty::Id) -> tg::Result<u8> {
 		.to_i32()
 		.unwrap();
 
+	// Update the process pid in the database.
+	server
+		.update_process_pid(id, pid)
+		.await
+		.map_err(|source| tg::error!(!source, %id, "failed to update the process pid"))?;
+
 	// Drop the FDs.
 	drop(fds);
 
@@ -515,6 +521,12 @@ async fn run_inner(arg: Arg<'_>) -> tg::Result<u8> {
 	drop(cmd);
 	let pid = child.id().unwrap().to_i32().unwrap();
 
+	// Update the process pid in the database.
+	server
+		.update_process_pid(id, pid)
+		.await
+		.map_err(|source| tg::error!(!source, %id, "failed to update the process pid"))?;
+
 	// Spawn the stdio task.
 	let stdio_task = tokio::spawn({
 		let server = server.clone();
@@ -571,7 +583,7 @@ async fn run_inner(arg: Arg<'_>) -> tg::Result<u8> {
 	Ok(exit)
 }
 
-async fn stdio_task<I, O, E>(
+pub(super) async fn stdio_task<I, O, E>(
 	server: &Server,
 	id: &tg::process::Id,
 	remote: Option<&String>,
@@ -663,7 +675,7 @@ where
 	Ok::<_, tg::Error>(())
 }
 
-async fn stdio_task_inner(
+pub(super) async fn stdio_task_inner(
 	server: &Server,
 	id: &tg::process::Id,
 	remote: Option<&String>,

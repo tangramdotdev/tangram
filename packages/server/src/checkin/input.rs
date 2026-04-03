@@ -571,9 +571,9 @@ impl Server {
 
 		// If the target is absolute, then get the host path if necessary.
 		if target.is_absolute()
-			&& let Some(process) = &state.context.process
+			&& let Some(sandbox) = &state.context.sandbox
 		{
-			target = process.host_path_for_guest_path(target);
+			target = sandbox.host_path_for_guest_path(target);
 		}
 
 		// Canonicalize the target.

@@ -1,6 +1,7 @@
 use std::{
 	ffi::{CString, OsStr},
 	os::unix::ffi::OsStrExt as _,
+	path::Path,
 };
 
 pub struct CStringVec {
@@ -20,6 +21,16 @@ pub fn cstring(s: impl AsRef<OsStr>) -> CString {
 	CString::new(s.as_ref().as_bytes()).unwrap()
 }
 
+#[allow(dead_code)]
+pub fn envstring(k: impl AsRef<OsStr>, v: impl AsRef<OsStr>) -> CString {
+	let string = format!(
+		"{}={}",
+		k.as_ref().to_string_lossy(),
+		v.as_ref().to_string_lossy()
+	);
+	CString::new(string).unwrap()
+}
+
 impl FromIterator<CString> for CStringVec {
 	fn from_iter<T: IntoIterator<Item = CString>>(iter: T) -> Self {
 		let mut strings = Vec::new();
@@ -34,6 +45,20 @@ impl FromIterator<CString> for CStringVec {
 			pointers,
 		}
 	}
+}
+
+/// Resolve a non-absolute executable path by searching the given PATH value.
+pub fn which(path: &Path, executable: &std::path::Path) -> Option<std::path::PathBuf> {
+	if executable.is_absolute() {
+		return Some(executable.to_owned());
+	}
+	for dir in std::env::split_paths(path) {
+		let candidate = dir.join(executable);
+		if candidate.is_file() {
+			return Some(candidate);
+		}
+	}
+	None
 }
 
 #[macro_export]
@@ -57,5 +82,3 @@ macro_rules! abort_errno {
 		std::process::exit(std::io::Error::last_os_error().raw_os_error().unwrap_or(1));
 	}};
 }
-
-pub use abort_errno;

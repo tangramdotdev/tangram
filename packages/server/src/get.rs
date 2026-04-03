@@ -15,7 +15,7 @@ impl Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + use<>,
 	> {
-		if context.process.is_some() {
+		if context.sandbox.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 		let stream = match reference.item() {

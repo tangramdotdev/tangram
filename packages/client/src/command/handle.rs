@@ -171,16 +171,6 @@ impl Command {
 		Ok(self.object(handle).await?.map(|object| &object.host))
 	}
 
-	pub async fn mounts<H>(
-		&self,
-		handle: &H,
-	) -> tg::Result<impl Deref<Target = Vec<tg::command::Mount>>>
-	where
-		H: tg::Handle,
-	{
-		Ok(self.object(handle).await?.map(|object| &object.mounts))
-	}
-
 	pub async fn stdin<H>(&self, handle: &H) -> tg::Result<impl Deref<Target = Option<tg::Blob>>>
 	where
 		H: tg::Handle,

@@ -32,7 +32,7 @@ impl Cli {
 		let mut current = std::env::vars().collect::<BTreeMap<_, _>>();
 		let mut output = String::new();
 
-		let Some((directory_path, desired)) = directory else {
+		let Some((directory_path, directory_config)) = directory else {
 			if state.as_ref().is_some_and(|state| state.directory) {
 				let deactivate = Self::deactivate_shell()?
 					.ok_or_else(|| tg::error!("expected an active shell environment"))?;
@@ -50,7 +50,7 @@ impl Cli {
 			.to_str()
 			.ok_or_else(|| tg::error!("the directory path is not valid UTF-8"))?
 			.to_owned();
-		let reference = format!("{directory}#{}", desired.export)
+		let reference = format!("{directory}#{}", directory_config.export)
 			.parse::<tg::Reference>()
 			.map_err(|source| {
 				tg::error!(!source, "failed to parse the shell directory reference")

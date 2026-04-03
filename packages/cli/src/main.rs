@@ -303,8 +303,14 @@ fn main() -> std::process::ExitCode {
 			Cli::initialize_v8(0);
 			return Cli::command_js(&matches, args);
 		},
-		Command::Sandbox(args) => {
-			return Cli::command_sandbox(args);
+		Command::Sandbox(self::sandbox::Args {
+			command: self::sandbox::Command::Run(_),
+			..
+		}) => {
+			let Command::Sandbox(args) = args.command else {
+				unreachable!()
+			};
+			return Cli::command_sandbox_sync(args);
 		},
 		Command::Session(args) => {
 			return Cli::command_session(args);
@@ -945,7 +951,7 @@ impl Cli {
 			Command::Js(_) => {
 				unreachable!()
 			},
-			Command::Builtin(_) | Command::Sandbox(_) | Command::Session(_) => {
+			Command::Builtin(_) | Command::Session(_) => {
 				unreachable!()
 			},
 			Command::Archive(args) => self.command_archive(args).boxed(),
@@ -987,6 +993,7 @@ impl Cli {
 			Command::Read(args) => self.command_read(args).boxed(),
 			Command::Remote(args) => self.command_remote(args).boxed(),
 			Command::Run(args) => self.command_run(args).boxed(),
+			Command::Sandbox(args) => self.command_sandbox(args).boxed(),
 			Command::Self_(args) => self.command_tangram(args).boxed(),
 			Command::Shell(args) => self.command_shell(args).boxed(),
 			Command::Serve(args) => self.command_server_run(args).boxed(),

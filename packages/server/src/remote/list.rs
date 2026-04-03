@@ -13,7 +13,7 @@ impl Server {
 		context: &Context,
 		_arg: tg::remote::list::Arg,
 	) -> tg::Result<tg::remote::list::Output> {
-		if context.process.is_some() {
+		if context.sandbox.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 

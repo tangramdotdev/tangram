@@ -51,6 +51,7 @@ mod push;
 mod read;
 mod remote;
 mod run;
+mod sandbox;
 mod store;
 mod sync;
 mod tag;
@@ -104,6 +105,7 @@ pub struct State {
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	remote_get_object_tasks: RemoteGetObjectTasks,
 	remote_list_tags_tasks: RemoteListTagsTasks,
+	sandboxes: Sandboxes,
 	store: Store,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
@@ -162,6 +164,8 @@ type RemoteListTagsTasks = tangram_futures::task::Map<
 	(),
 	fnv::FnvBuildHasher,
 >;
+
+type Sandboxes = DashMap<tg::sandbox::Id, crate::sandbox::Sandbox>;
 
 impl Owned {
 	pub fn stop(&self) {
@@ -268,9 +272,8 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create the tags directory"))?;
 
 		// Get the available parallelism.
-		let parallelism = std::thread::available_parallelism()
-			.map(std::num::NonZeroUsize::get)
-			.unwrap_or(1);
+		let parallelism =
+			std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
 
 		// Remove an existing socket file.
 		let socket_path = path.join("socket");
@@ -541,6 +544,9 @@ impl Server {
 			},
 		};
 
+		// Create the sandboxes.
+		let sandboxes = DashMap::default();
+
 		// Create the temp paths.
 		let temps = DashSet::default();
 
@@ -581,6 +587,7 @@ impl Server {
 			remotes,
 			remote_get_object_tasks,
 			remote_list_tags_tasks,
+			sandboxes,
 			store,
 			temps,
 			version,
@@ -1001,6 +1008,20 @@ impl Server {
 					}
 					tracing::trace!("indexer task");
 				}
+
+				// Kill all sandbox processes.
+				let sandbox_ids = server
+					.sandboxes
+					.iter()
+					.map(|r| r.key().clone())
+					.collect::<Vec<_>>();
+				for id in sandbox_ids {
+					if let Some((_, mut sandbox)) = server.sandboxes.remove(&id) {
+						sandbox.serve_task.abort();
+						sandbox.process.kill().await.ok();
+					}
+				}
+				tracing::trace!("sandboxes");
 
 				// Remove the temp paths.
 				server

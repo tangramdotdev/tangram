@@ -87,7 +87,7 @@ impl Server {
 			.layer(tangram_http::layer::tracing::TracingLayer::new())
 			.layer(tower_http::timeout::TimeoutLayer::with_status_code(
 				http::StatusCode::REQUEST_TIMEOUT,
-				Duration::from_secs(60),
+				Duration::from_mins(1),
 			))
 			.add_extension(stop.clone())
 			.layer(tangram_http::layer::compression::RequestDecompressionLayer)
@@ -519,6 +519,14 @@ impl Server {
 				.boxed(),
 			(http::Method::DELETE, ["remotes", name]) => server
 				.handle_delete_remote_request(request, &context, name)
+				.boxed(),
+
+			// Sandboxes.
+			(http::Method::POST, ["sandboxes"]) => server
+				.handle_create_sandbox_request(request, &context)
+				.boxed(),
+			(http::Method::DELETE, ["sandboxes", sandbox]) => server
+				.handle_delete_sandbox_request(request, &context, sandbox)
 				.boxed(),
 
 			// Watches.

@@ -110,21 +110,6 @@ export class Process {
 		})();
 	}
 
-	get mounts(): Promise<Array<tg.Command.Mount | tg.Process.Mount>> {
-		return (async () => {
-			let commandMounts = await (await this.command).mounts;
-			await this.load();
-			return [...this.#state!.mounts, ...(commandMounts ?? [])];
-		})();
-	}
-
-	get network(): Promise<boolean> {
-		return (async () => {
-			await this.load();
-			return this.#state!.network;
-		})();
-	}
-
 	get user(): Promise<string | undefined> {
 		return (async () => {
 			return await (
@@ -159,9 +144,8 @@ export namespace Process {
 		env?: tg.MaybeMutationMap | undefined;
 		executable?: tg.Command.Arg.Executable | undefined;
 		host?: string | undefined;
-		mounts?: Array<tg.Command.Mount> | undefined;
 		name?: string | undefined;
-		network?: boolean | undefined;
+		sandbox?: tg.Process.Sandbox | undefined;
 		stdin?: tg.Blob.Arg | undefined;
 		user?: string | undefined;
 	};
@@ -181,9 +165,8 @@ export namespace Process {
 		env?: tg.MaybeMutationMap | undefined;
 		executable?: tg.Command.Arg.Executable | undefined;
 		host?: string | undefined;
-		mounts?: Array<tg.Command.Mount | tg.Process.Mount> | undefined;
 		name?: string | undefined;
-		network?: boolean | undefined;
+		sandbox?: tg.Process.Sandbox | undefined;
 		stderr?: undefined;
 		stdin?: tg.Blob.Arg | undefined;
 		stdout?: undefined;
@@ -194,9 +177,8 @@ export namespace Process {
 		command: tg.Command;
 		error: tg.Error | undefined;
 		exit: number | undefined;
-		mounts: Array<tg.Process.Mount>;
-		network: boolean;
 		output?: tg.Value;
+		pid: number | undefined;
 		status: tg.Process.Status;
 		stderr: string | undefined;
 		stdin: string | undefined;
@@ -215,14 +197,11 @@ export namespace Process {
 			if (value.exit !== undefined) {
 				output.exit = value.exit;
 			}
-			if (value.mounts.length > 0) {
-				output.mounts = value.mounts;
-			}
-			if (value.network) {
-				output.network = value.network;
-			}
 			if ("output" in value) {
 				output.output = tg.Value.toData(value.output);
+			}
+			if (value.pid !== undefined) {
+				output.pid = value.pid;
 			}
 			if (value.stderr !== undefined) {
 				output.stderr = value.stderr;
@@ -246,8 +225,7 @@ export namespace Process {
 							: tg.Error.fromData(data.error)
 						: undefined,
 				exit: data.exit,
-				mounts: data.mounts ?? [],
-				network: data.network ?? false,
+				pid: data.pid,
 				status: data.status,
 				stderr: data.stderr,
 				stdin: data.stdin,
@@ -260,11 +238,23 @@ export namespace Process {
 		};
 	}
 
-	export type Mount = {
-		source: string;
-		target: string;
-		readonly?: boolean;
-	};
+	export type Sandbox = tg.Process.Sandbox.Create | string;
+
+	export namespace Sandbox {
+		export type Create = {
+			hostname?: string | undefined;
+			host: string;
+			mounts?: Array<tg.Process.Sandbox.Mount> | undefined;
+			network?: boolean | undefined;
+			user?: string | undefined;
+		};
+
+		export type Mount = {
+			source: string;
+			target: string;
+			readonly?: boolean;
+		};
+	}
 
 	export type Status =
 		| "created"
@@ -277,9 +267,8 @@ export namespace Process {
 		command: tg.Command.Id;
 		error?: tg.Error.Data | tg.Error.Id;
 		exit?: number;
-		mounts?: Array<tg.Process.Mount>;
-		network?: boolean;
 		output?: tg.Value.Data;
+		pid?: number;
 		status: tg.Process.Status;
 		stderr?: string;
 		stdin?: string;

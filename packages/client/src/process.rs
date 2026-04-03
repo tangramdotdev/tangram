@@ -10,8 +10,8 @@ use {
 };
 
 pub use self::{
-	data::Data, id::Id, metadata::Metadata, mount::Mount, signal::Signal, state::State,
-	status::Status, stdio::Stdio, wait::Wait,
+	data::Data, id::Id, metadata::Metadata, signal::Signal, state::State, status::Status,
+	stdio::Stdio, wait::Wait,
 };
 
 pub mod cancel;
@@ -24,7 +24,6 @@ pub mod id;
 pub mod list;
 pub mod log;
 pub mod metadata;
-pub mod mount;
 pub mod put;
 pub mod queue;
 pub mod signal;

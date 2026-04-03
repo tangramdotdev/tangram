@@ -6,7 +6,7 @@ use {
 	},
 	indoc::{formatdoc, indoc},
 	std::{fmt::Write, pin::pin},
-	tangram_client::prelude::*,
+	tangram_client::{handle::Sandbox, prelude::*},
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -31,13 +31,12 @@ impl Server {
 	) -> tg::Result<
 		BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>,
 	> {
-		// If the process context is set, update the parent, remotes, and retry.
-		if let Some(process) = &context.process {
-			arg.parent = Some(process.id.clone());
-			if let Some(remote) = &process.remote {
+		// If the sandbox context is set, update the remotes and retry.
+		if let Some(sandbox) = &context.sandbox {
+			if let Some(remote) = &sandbox.remote {
 				arg.remotes = Some(vec![remote.clone()]);
 			}
-			arg.retry = process.retry;
+			arg.retry = sandbox.retry;
 		}
 
 		// Create the progress.
@@ -45,9 +44,12 @@ impl Server {
 
 		// Spawn the task.
 		let task = Task::spawn({
+			let context = context.clone();
 			let server = self.clone();
 			let progress = progress.clone();
-			async move |_| match Box::pin(server.try_spawn_process_task(arg, &progress)).await {
+			async move |_| match Box::pin(server.try_spawn_process_task(arg, &context, &progress))
+				.await
+			{
 				Ok(output) => {
 					progress.output(output);
 				},
@@ -64,6 +66,7 @@ impl Server {
 	async fn try_spawn_process_task(
 		&self,
 		arg: tg::process::spawn::Arg,
+		context: &Context,
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		// Forward to remote if requested.
@@ -133,12 +136,26 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		// Determine if the process is cacheable.
+		let reproducible_sandbox = arg.sandbox.as_ref().is_some_and(|sbx| {
+			sbx.as_ref().left().is_some_and(|sandbox| {
+				!sandbox.network && sandbox.mounts.iter().all(|mount| mount.source.is_right())
+			})
+		});
+		let reproducible_stdin = arg.stdin.is_none();
+		let reproducible_stdout = arg
+			.stdout
+			.as_ref()
+			.is_none_or(|stdio| matches!(stdio, tg::process::Stdio::Pipe(_)));
+		let reproducible_stderr = arg
+			.stderr
+			.as_ref()
+			.is_none_or(|stdio| matches!(stdio, tg::process::Stdio::Pipe(_)));
+
 		let cacheable = arg.checksum.is_some()
-			|| (arg.mounts.is_empty()
-				&& !arg.network
-				&& arg.stdin.is_none()
-				&& arg.stdout.is_none()
-				&& arg.stderr.is_none());
+			|| (reproducible_sandbox
+				&& reproducible_stdin
+				&& reproducible_stdout
+				&& reproducible_stderr);
 
 		// Get or create a local process.
 		let mut output = if cacheable
@@ -167,7 +184,7 @@ impl Server {
 		} else if matches!(arg.cached, None | Some(false)) {
 			let host = host.ok_or_else(|| tg::error!("expected the host to be set"))?;
 			let output = self
-				.create_local_process(&transaction, &arg, cacheable, &host)
+				.create_local_process(&transaction, &arg, cacheable, &host, context)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create a local process"))?;
 			tracing::trace!(?output, "created local process");
@@ -604,10 +621,9 @@ impl Server {
 					expected_checksum,
 					finished_at,
 					host,
-					mounts,
-					network,
 					output,
 					retry,
+					sandbox,
 					status,
 					token_count,
 					touched_at
@@ -629,8 +645,7 @@ impl Server {
 					{p}14,
 					{p}15,
 					{p}16,
-					{p}17,
-					{p}18
+					{p}17
 				)
 				on conflict (id) do update set
 					actual_checksum = {p}2,
@@ -643,13 +658,12 @@ impl Server {
 					expected_checksum = {p}9,
 					finished_at = {p}10,
 					host = {p}11,
-					mounts = {p}12,
-					network = {p}13,
-					output = {p}14,
-					retry = {p}15,
-					status = {p}16,
-					token_count = {p}17,
-					touched_at = {p}18;
+					output = {p}12,
+					retry = {p}13,
+					sandbox = {p}14,
+					status = {p}15,
+					token_count = {p}16,
+					touched_at = {p}17;
 			"
 		);
 		let now: i64 = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -675,10 +689,12 @@ impl Server {
 			expected_checksum.to_string(),
 			now,
 			host,
-			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
-			arg.network,
 			output.clone().map(db::value::Json),
 			arg.retry,
+			arg.sandbox.as_ref().and_then(|s| match s {
+				tg::Either::Left(_) => None,
+				tg::Either::Right(id) => Some(id.to_string()),
+			}),
 			status.to_string(),
 			0,
 			now,
@@ -707,8 +723,26 @@ impl Server {
 		arg: &tg::process::spawn::Arg,
 		cacheable: bool,
 		host: &str,
+		context: &crate::Context,
 	) -> tg::Result<LocalOutput> {
 		let p = transaction.p();
+
+		// Get or create a sandbox.
+		let sandbox = match &arg.sandbox {
+			Some(tg::Either::Left(arg)) => {
+				let id = self.create_sandbox(arg.clone()).await?.id;
+				Some(id)
+			},
+			Some(tg::Either::Right(id)) => Some(id.clone()),
+			None => context.sandbox.as_ref().map(|sbx| sbx.id.clone()),
+		};
+
+		// Increment the sandbox refcount.
+		if let Some(sandbox_id) = &sandbox
+			&& let Some(mut sandbox) = self.sandboxes.get_mut(sandbox_id)
+		{
+			sandbox.refcount += 1;
+		}
 
 		// Create an ID.
 		let id = tg::process::Id::new();
@@ -752,9 +786,8 @@ impl Server {
 					expected_checksum,
 					heartbeat_at,
 					host,
-					mounts,
-					network,
 					retry,
+					sandbox,
 					started_at,
 					status,
 					stderr,
@@ -781,8 +814,7 @@ impl Server {
 					{p}15,
 					{p}16,
 					{p}17,
-					{p}18,
-					{p}19
+					{p}18
 				)
 				on conflict (id) do update set
 					cacheable = {p}2,
@@ -793,16 +825,15 @@ impl Server {
 					expected_checksum = {p}7,
 					heartbeat_at = {p}8,
 					host = {p}9,
-					mounts = {p}10,
-					network = {p}11,
-					retry = {p}12,
-					started_at = {p}13,
-					status = {p}14,
-					stderr = {p}15,
-					stdin = {p}16,
-					stdout = {p}17,
-					token_count = {p}18,
-					touched_at = {p}19;
+					retry = {p}10,
+					sandbox = {p}11,
+					started_at = {p}12,
+					status = {p}13,
+					stderr = {p}14,
+					stdin = {p}15,
+					stdout = {p}16,
+					token_count = {p}17,
+					touched_at = {p}18;
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -818,9 +849,8 @@ impl Server {
 			arg.checksum.as_ref().map(ToString::to_string),
 			heartbeat_at,
 			host,
-			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
-			arg.network,
 			arg.retry,
+			sandbox.as_ref().map(ToString::to_string),
 			started_at,
 			status.to_string(),
 			arg.stderr.as_ref().map(ToString::to_string),

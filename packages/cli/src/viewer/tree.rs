@@ -216,14 +216,10 @@ where
 			Some(Item::Tag(pattern)) if options.expand_tags => expanded_nodes
 				.borrow_mut()
 				.insert(NodeID::Tag(pattern.to_string())),
-			Some(Item::Value(tg::Value::Object(object))) => {
-				if options.expand_objects {
-					expanded_nodes
-						.borrow_mut()
-						.insert(NodeID::Object(object.id()))
-				} else {
-					false
-				}
+			Some(Item::Value(tg::Value::Object(object))) if options.expand_objects => {
+				expanded_nodes
+					.borrow_mut()
+					.insert(NodeID::Object(object.id()))
 			},
 			Some(Item::Value(_)) => options.expand_values,
 			_ => false,
@@ -541,20 +537,6 @@ where
 		};
 		children.push(("executable".to_owned(), value));
 		children.push(("host".to_owned(), tg::Value::String(object.host.clone())));
-		let mut mounts = Vec::new();
-		for mount in &object.mounts {
-			let mut map = BTreeMap::new();
-			map.insert(
-				"source".to_owned(),
-				tg::Value::Object(mount.source.clone().into()),
-			);
-			map.insert(
-				"target".to_owned(),
-				tg::Value::String(mount.target.to_string_lossy().to_string()),
-			);
-			mounts.push(tg::Value::Map(map));
-		}
-		children.push(("mounts".to_owned(), tg::Value::Array(mounts)));
 		let metadata = get_object_metadata_as_value(handle, command.id()).await?;
 		command.unload();
 

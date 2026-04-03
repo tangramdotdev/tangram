@@ -85,6 +85,7 @@ pub mod reference;
 pub mod referent;
 pub mod remote;
 pub mod run;
+pub mod sandbox;
 pub mod symlink;
 pub mod sync;
 pub mod tag;

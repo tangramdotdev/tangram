@@ -12,7 +12,7 @@ impl Server {
 		context: &Context,
 		token: &str,
 	) -> tg::Result<Option<tg::user::User>> {
-		if context.process.is_some() {
+		if context.sandbox.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 

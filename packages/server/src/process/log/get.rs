@@ -117,7 +117,7 @@ impl Server {
 			.boxed();
 
 		// Create the interval.
-		let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(60)))
+		let interval = IntervalStream::new(tokio::time::interval(Duration::from_mins(1)))
 			.map(|_| ())
 			.boxed();
 

@@ -35,10 +35,6 @@ pub struct Command {
 	#[tangram_serialize(id = 4)]
 	pub host: String,
 
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	#[tangram_serialize(id = 5, default, skip_serializing_if = "Vec::is_empty")]
-	pub mounts: Vec<tg::command::data::Mount>,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 6, default, skip_serializing_if = "Option::is_none")]
 	pub stdin: Option<tg::blob::Id>,
@@ -115,22 +111,6 @@ pub struct PathExecutable {
 	pub path: PathBuf,
 }
 
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct Mount {
-	#[tangram_serialize(id = 0)]
-	pub source: tg::artifact::Id,
-
-	#[tangram_serialize(id = 1)]
-	pub target: PathBuf,
-}
-
 impl Command {
 	pub fn serialize(&self) -> tg::Result<Bytes> {
 		let mut bytes = Vec::new();
@@ -170,9 +150,6 @@ impl Command {
 		}
 		for value in self.env.values() {
 			value.children(children);
-		}
-		for mount in &self.mounts {
-			mount.children(children);
 		}
 	}
 }
@@ -219,12 +196,6 @@ impl ModuleExecutable {
 		if let tg::module::data::Item::Edge(edge) = &self.module.referent.item {
 			edge.children(children);
 		}
-	}
-}
-
-impl Mount {
-	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
-		children.insert(self.source.clone().into());
 	}
 }
 

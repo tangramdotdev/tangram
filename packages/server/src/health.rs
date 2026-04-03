@@ -13,7 +13,7 @@ impl Server {
 		context: &Context,
 		arg: tg::health::Arg,
 	) -> tg::Result<tg::Health> {
-		if context.process.is_some() {
+		if context.sandbox.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -146,7 +146,7 @@ impl Server {
 				}
 			}
 			*self.diagnostics.lock().unwrap() = diagnostics;
-			tokio::time::sleep(Duration::from_secs(3600)).await;
+			tokio::time::sleep(Duration::from_hours(1)).await;
 		}
 	}
 

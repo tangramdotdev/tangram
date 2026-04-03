@@ -16,7 +16,7 @@ impl Server {
 		context: &Context,
 		arg: tg::process::list::Arg,
 	) -> tg::Result<tg::process::list::Output> {
-		if context.process.is_some() {
+		if context.sandbox.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
