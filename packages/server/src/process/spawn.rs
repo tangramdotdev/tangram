@@ -534,44 +534,34 @@ impl Server {
 				}
 			}
 
+			let status = self
+				.try_lock_process_for_token_mutation_with_transaction(transaction, &id)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to lock the process"))?;
+			let Some(status) = status else {
+				return Ok(None);
+			};
+			if status.is_finished() {
+				return Ok(None);
+			}
+
 			let token = Self::create_process_token();
 			let statement = formatdoc!(
 				"
 					insert into process_tokens (process, token)
-					select processes.id, {p}2
-					from processes
-					left join sandboxes on sandboxes.id = processes.sandbox
-					where
-						processes.id = {p}1 and
-						processes.status != 'finished' and
-						(
-							processes.sandbox is null or
-							sandboxes.status != 'finished'
-						);
+					values ({p}1, {p}2);
 				"
 			);
 			let params = db::params![id.to_string(), token];
-			let n = transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			if n == 0 {
-				return Ok(None);
-			}
-
-			// Update token count.
-			let statement = formatdoc!(
-				"
-					update processes
-					set token_count = token_count + 1
-					where id = {p}1;
-				"
-			);
-			let params = db::params![id.to_string()];
 			transaction
 				.execute(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+			// Update token count.
+			self.update_process_token_count_with_transaction(transaction, &id)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to update the token count"))?;
 
 			Some(token)
 		};
@@ -997,18 +987,9 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Update token count.
-		let statement = formatdoc!(
-			"
-				update processes
-				set token_count = token_count + 1
-				where id = {p}1;
-			"
-		);
-		let params = db::params![id.to_string()];
-		transaction
-			.execute(statement.into(), params)
+		self.update_process_token_count_with_transaction(transaction, &id)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to update the token count"))?;
 
 		Ok(LocalOutput {
 			cached: false,

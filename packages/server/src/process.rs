@@ -1,5 +1,5 @@
 use {
-	crate::Server,
+	crate::{Server, database},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -86,5 +86,70 @@ impl Server {
 		self.messenger.publish(subject, ()).await.ok();
 
 		Ok(true)
+	}
+
+	pub(crate) async fn try_lock_process_for_token_mutation_with_transaction(
+		&self,
+		transaction: &database::Transaction<'_>,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::Status>> {
+		let p = transaction.p();
+
+		// Touch the row to serialize token mutations for this process.
+		let statement = formatdoc!(
+			"
+				update processes
+				set touched_at = touched_at
+				where id = {p}1;
+			"
+		);
+		let params = db::params![id.to_string()];
+		let n = transaction
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		if n == 0 {
+			return Ok(None);
+		}
+
+		let statement = formatdoc!(
+			"
+				select status
+				from processes
+				where id = {p}1;
+			"
+		);
+		let params = db::params![id.to_string()];
+		let status = transaction
+			.query_one_value_into::<db::value::Serde<tg::process::Status>>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.0;
+		Ok(Some(status))
+	}
+
+	pub(crate) async fn update_process_token_count_with_transaction(
+		&self,
+		transaction: &database::Transaction<'_>,
+		id: &tg::process::Id,
+	) -> tg::Result<()> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				update processes
+				set token_count = (
+					select count(*)
+					from process_tokens
+					where process = {p}1
+				)
+				where id = {p}1;
+			"
+		);
+		let params = db::params![id.to_string()];
+		transaction
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		Ok(())
 	}
 }

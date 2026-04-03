@@ -43,10 +43,22 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
+		let status = self
+			.try_lock_process_for_token_mutation_with_transaction(&transaction, id)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to lock the process"))?;
+		let Some(status) = status else {
+			transaction
+				.rollback()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to roll back the transaction"))?;
+			return Err(tg::error!("failed to find the process"));
+		};
+
 		// Delete the process token.
 		let p = transaction.p();
 		let statement = formatdoc!(
-			"
+			r"
 				delete from process_tokens
 				where process = {p}1 and token = {p}2;
 			"
@@ -58,56 +70,18 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// If no token was removed, then validate whether the token was stale or invalid.
-		if deleted == 0 {
-			let statement = formatdoc!(
-				"
-					select status
-					from processes
-					where id = {p}1;
-				"
-			);
-			let params = db::params![id.to_string()];
-			let status = transaction
-				.query_optional_value_into::<db::value::Serde<tg::process::Status>>(
-					statement.into(),
-					params,
-				)
+		if deleted == 0 && !status.is_finished() {
+			transaction
+				.rollback()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-				.map(|status| status.0);
-			if status.is_none() {
-				transaction
-					.rollback()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to roll back the transaction"))?;
-				return Err(tg::error!("failed to find the process"));
-			}
-			if status.is_some_and(|status| !status.is_finished()) {
-				transaction
-					.rollback()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to roll back the transaction"))?;
-				return Err(tg::error!("the process token was not found"));
-			}
+				.map_err(|source| tg::error!(!source, "failed to roll back the transaction"))?;
+			return Err(tg::error!("the process token was not found"));
 		}
 
 		// Update the token count.
-		let statement = formatdoc!(
-			"
-				update processes
-				set token_count = (
-					select count(*)
-					from process_tokens
-					where process = {p}1
-				)
-				where id = {p}1;
-			"
-		);
-		let params = db::params![id.to_string()];
-		transaction
-			.execute(statement.into(), params)
+		self.update_process_token_count_with_transaction(&transaction, id)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			.map_err(|source| tg::error!(!source, "failed to update the token count"))?;
 
 		// Commit the transaction.
 		transaction

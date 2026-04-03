@@ -97,6 +97,8 @@ create table process_tokens (
 	token text not null
 );
 
+create unique index process_tokens_process_token_index on process_tokens (process, token);
+
 create index process_tokens_process_index on process_tokens (process);
 
 create index process_tokens_token_index on process_tokens (token);

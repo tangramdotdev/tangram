@@ -116,8 +116,8 @@ impl Server {
 			})
 			.into_values()
 			.collect::<Vec<_>>();
-		let n = rows.len().to_u64().unwrap();
-		rows.into_iter()
+		let results = rows
+			.into_iter()
 			.map(|row| {
 				let server = self.clone();
 				async move {
@@ -128,9 +128,9 @@ impl Server {
 							.inspect_err(|error| {
 								tracing::error!(error = %error.trace(), "failed to claim the tokenless sandbox for cancellation");
 							})
-							.unwrap_or(false);
+								.unwrap_or(false);
 						if !ready {
-							return;
+							return false;
 						}
 					}
 					let error = tg::error::Data {
@@ -152,16 +152,23 @@ impl Server {
 					server
 						.try_finish_sandbox_local(&row.id)
 						.await
-						.inspect_err(|error| {
-							tracing::error!(error = %error.trace(), "failed to finish the sandbox");
-						})
-						.ok();
+							.inspect_err(|error| {
+								tracing::error!(error = %error.trace(), "failed to finish the sandbox");
+							})
+							.ok();
+					true
 				}
 				.boxed()
 			})
 			.collect::<FuturesUnordered<_>>()
 			.collect::<Vec<_>>()
 			.await;
+		let n = results
+			.into_iter()
+			.filter(|result| *result)
+			.count()
+			.to_u64()
+			.unwrap();
 
 		Ok(n)
 	}
