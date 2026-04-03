@@ -83,19 +83,22 @@ fn stdin_thread(sender: &tokio::sync::mpsc::Sender<std::io::Result<Bytes>>, stop
 
 fn wait_for_stdin_or_stop(stop_fd: i32) -> std::io::Result<Readiness> {
 	loop {
-		let mut fds = [
-			libc::pollfd {
-				fd: libc::STDIN_FILENO,
-				events: libc::POLLIN,
-				revents: 0,
-			},
-			libc::pollfd {
-				fd: stop_fd,
-				events: libc::POLLIN,
-				revents: 0,
-			},
-		];
-		let result = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, -1) };
+		let mut readfds = unsafe { std::mem::zeroed::<libc::fd_set>() };
+		unsafe {
+			libc::FD_ZERO(&raw mut readfds);
+			libc::FD_SET(libc::STDIN_FILENO, &raw mut readfds);
+			libc::FD_SET(stop_fd, &raw mut readfds);
+		}
+		let nfds = std::cmp::max(libc::STDIN_FILENO, stop_fd) + 1;
+		let result = unsafe {
+			libc::select(
+				nfds,
+				&raw mut readfds,
+				std::ptr::null_mut(),
+				std::ptr::null_mut(),
+				std::ptr::null_mut(),
+			)
+		};
 		if result < 0 {
 			let error = std::io::Error::last_os_error();
 			if error.kind() == std::io::ErrorKind::Interrupted {
@@ -103,15 +106,12 @@ fn wait_for_stdin_or_stop(stop_fd: i32) -> std::io::Result<Readiness> {
 			}
 			return Err(error);
 		}
-		let stop_revents = fds[1].revents;
-		if stop_revents & (libc::POLLIN | libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
+		let stop_ready = unsafe { libc::FD_ISSET(stop_fd, &raw const readfds) };
+		if stop_ready {
 			return Ok(Readiness::Stopped);
 		}
-		let stdin_revents = fds[0].revents;
-		if stdin_revents & libc::POLLNVAL != 0 {
-			return Err(std::io::Error::other("failed to poll stdin"));
-		}
-		if stdin_revents & (libc::POLLIN | libc::POLLERR | libc::POLLHUP) != 0 {
+		let stdin_ready = unsafe { libc::FD_ISSET(libc::STDIN_FILENO, &raw const readfds) };
+		if stdin_ready {
 			return Ok(Readiness::Stdin);
 		}
 	}

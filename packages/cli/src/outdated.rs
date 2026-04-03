@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Cli,
-		update::{find_root, try_read_lock},
+		update::{find_root, normalize_root, try_read_lock},
 	},
 	anstream::println,
 	crossterm::style::Stylize as _,
@@ -57,6 +57,7 @@ impl Cli {
 		let root = find_root(args.path.clone())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to find the root"))?;
+		let root = normalize_root(root);
 
 		// Deserialize the lock.
 		let lock = try_read_lock(root.clone())

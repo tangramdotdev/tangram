@@ -662,7 +662,7 @@ impl Server {
 					.get(&pid)
 					.and_then(|id| self.processes.get_mut(&*id))
 				{
-					process.status.replace(status);
+					process.status.replace(Ok(status));
 					process.notify.notify_waiters();
 				}
 			}

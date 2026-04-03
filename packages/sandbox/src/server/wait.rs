@@ -8,40 +8,20 @@ use {
 
 impl Server {
 	pub async fn wait(&self, id: tg::process::Id) -> tg::Result<crate::client::wait::Output> {
-		#[cfg(target_os = "linux")]
-		{
-			use std::sync::Arc;
-			loop {
-				let child = self
-					.processes
-					.get_mut(&id)
-					.ok_or_else(|| tg::error!(process = %id, "not found"))?;
-				if let Some(status) = child.status {
-					return Ok(crate::client::wait::Output { status });
-				}
-				let notify = Arc::clone(&child.notify);
-				drop(child);
-				notify.notified().await;
-			}
-		}
-		#[cfg(target_os = "macos")]
-		{
-			use num::ToPrimitive as _;
-			use std::os::unix::process::ExitStatusExt as _;
-			let (_, mut child) = self
+		use std::sync::Arc;
+		loop {
+			let child = self
 				.processes
-				.remove(&id)
+				.get_mut(&id)
 				.ok_or_else(|| tg::error!(process = %id, "not found"))?;
-			let status = child
-				.child
-				.wait()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to wait the process"))?;
-			let status = status
-				.code()
-				.or(status.signal())
-				.map_or(128, |code| code.to_u8().unwrap());
-			Ok(crate::client::wait::Output { status })
+			if let Some(status) = &child.status {
+				return Ok(crate::client::wait::Output {
+					status: status.clone()?,
+				});
+			}
+			let notify = Arc::clone(&child.notify);
+			drop(child);
+			notify.notified().await;
 		}
 	}
 

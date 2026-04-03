@@ -80,19 +80,20 @@ let new_root = artifact {
 cp ($old_root | path join "tangram.lock") ($new_root | path join "tangram.lock")
 
 # Run update and capture the output.
-let output = do { tg update $new_root } | complete
+let output = do --env {
+	cd $new_root
+	tg update .
+} | complete
 success $output
 let stdout = (
 	$output.stdout
 	| str trim
-	| str replace --all --regex '/tmp/[^\s,]*/artifact' 'PATH'
-	| str replace --all --regex '/tmp/[^\s,]+' 'BADPATH'
 )
 snapshot $stdout '
-	+ added added/1.0.0, required by PATH/tangram.ts
+	+ added added/1.0.0, required by tangram.ts
 	+ added added/1.0.0, required by dep/1.1.0/tangram.ts
-	↑ updated dep/1.0.0 to dep/1.1.0, required by PATH/tangram.ts
-	- removed removed/1.0.0, required by PATH/tangram.ts
+	↑ updated dep/1.0.0 to dep/1.1.0, required by tangram.ts
+	- removed removed/1.0.0, required by tangram.ts
 	- removed transitive/1.0.0, required by dep/1.0.0/tangram.ts
 	+ added transitive/1.1.0, required by dep/1.1.0/tangram.ts
 '

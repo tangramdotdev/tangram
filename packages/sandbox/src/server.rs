@@ -36,13 +36,10 @@ pub struct State {
 
 pub(crate) struct Process {
 	#[cfg(target_os = "macos")]
-	pub(crate) child: tokio::process::Child,
-	#[cfg(target_os = "linux")]
+	pub(crate) child: Arc<Mutex<Option<tokio::process::Child>>>,
 	pub(crate) notify: Arc<tokio::sync::Notify>,
-	#[cfg(target_os = "linux")]
 	pub(crate) pid: libc::pid_t,
-	#[cfg(target_os = "linux")]
-	pub(crate) status: Option<u8>,
+	pub(crate) status: Option<tg::Result<u8>>,
 	pub(crate) stdin: Arc<Mutex<common::InputStream>>,
 	pub(crate) stdout: Arc<Mutex<common::OutputStream>>,
 	pub(crate) stderr: Arc<Mutex<common::OutputStream>>,

@@ -58,20 +58,19 @@ impl Server {
 			tokio::sync::mpsc::channel::<tg::Result<tg::process::stdio::read::Event>>(1);
 		let mut stream = ReceiverStream::new(receiver).boxed();
 		for stream_ in streams.iter().copied() {
+			let output = match self.processes.get(&id) {
+				Some(process) => match stream_ {
+					tg::process::stdio::Stream::Stdout => process.stdout.clone(),
+					tg::process::stdio::Stream::Stderr => process.stderr.clone(),
+					tg::process::stdio::Stream::Stdin => unreachable!(),
+				},
+				None => return Err(tg::error!(process = %id, "not found")),
+			};
 			let task = Task::spawn({
-				let server = self.clone();
-				let id = id.clone();
+				let output = output.clone();
 				let output_sender = output_sender.clone();
 				move |_| async move {
 					loop {
-						let output = match server.processes.get(&id) {
-							Some(process) => match stream_ {
-								tg::process::stdio::Stream::Stdout => process.stdout.clone(),
-								tg::process::stdio::Stream::Stderr => process.stderr.clone(),
-								tg::process::stdio::Stream::Stdin => unreachable!(),
-							},
-							None => break,
-						};
 						let result = match stream_ {
 							tg::process::stdio::Stream::Stdout
 							| tg::process::stdio::Stream::Stderr => {

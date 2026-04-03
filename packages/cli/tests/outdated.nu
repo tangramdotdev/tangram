@@ -28,19 +28,21 @@ let path = artifact {
 
 tg checkin $path
 let output = (
-	tg outdated $path
+	do --env {
+		cd $path
+		tg outdated .
+	}
 	| str trim
-	| str replace --all --regex '/tmp/[^\s,]*/artifact' 'PATH'
-	| str replace --all --regex '/tmp/[^\s,]+' 'BADPATH'
 )
 snapshot $output '
-	! hello/1.1.0 is latest compatible (newest hello/2.0.0) referrer PATH/tangram.ts
+	! hello/1.1.0 is latest compatible (newest hello/2.0.0) referrer tangram.ts
 '
 
 let output = (
-	tg outdated --json --pretty $path
-	| str replace --all --regex '"/tmp/[^"]*/artifact' '"PATH'
-	| str replace --all --regex '"/tmp/[^"]*"' '"BADPATH"'
+	do --env {
+		cd $path
+		tg outdated --json --pretty .
+	}
 )
 snapshot $output '
 	[
@@ -51,7 +53,7 @@ snapshot $output '
 	    "referrer": {
 	      "item": null,
 	      "options": {
-	        "path": "PATH/tangram.ts",
+	        "path": "tangram.ts",
 	      },
 	    },
 	  },

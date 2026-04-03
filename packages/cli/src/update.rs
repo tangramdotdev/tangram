@@ -69,12 +69,13 @@ impl Cli {
 
 		// Get the old lockfile.
 		let root = if args.checkin.root {
-			path.clone()
+			args.path.clone()
 		} else {
-			find_root(path.clone())
+			find_root(args.path.clone())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to find the root"))?
 		};
+		let root = normalize_root(root);
 		let old_lock = try_read_lock(root.clone())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read lockfile"))?;
@@ -132,6 +133,9 @@ pub(crate) async fn find_root(path: PathBuf) -> tg::Result<PathBuf> {
 	let output = tokio::task::spawn_blocking(move || {
 		let mut output = None;
 		for ancestor in path.ancestors() {
+			if ancestor.as_os_str().is_empty() {
+				continue;
+			}
 			let metadata = std::fs::symlink_metadata(ancestor).map_err(
 				|source| tg::error!(!source, path = %path.display(), "failed to get the metadata"),
 			)?;
@@ -147,6 +151,15 @@ pub(crate) async fn find_root(path: PathBuf) -> tg::Result<PathBuf> {
 	.await
 	.map_err(|source| tg::error!(!source, "the checkin root task panicked"))??;
 	Ok(output)
+}
+
+pub(crate) fn normalize_root(path: PathBuf) -> PathBuf {
+	let output = tangram_util::path::normalize(path);
+	if output.as_os_str().is_empty() {
+		PathBuf::from(".")
+	} else {
+		output
+	}
 }
 
 pub(crate) async fn try_read_lock(path: PathBuf) -> tg::Result<Option<tg::graph::Data>> {

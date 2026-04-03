@@ -138,18 +138,24 @@ impl Server {
 		#[cfg(target_os = "macos")]
 		let child = crate::darwin::spawn(context)?;
 
+		#[cfg(target_os = "macos")]
+		let pid = {
+			use num::ToPrimitive as _;
+			child
+				.id()
+				.and_then(|pid| pid.to_i32())
+				.ok_or_else(|| tg::error!("failed to get the process id"))?
+		};
+
 		if let Some(pty) = &mut pty {
 			pty.slave.take();
 		}
 		let pty = pty.map(Mutex::new);
 		let process = Process {
-			#[cfg(target_os = "linux")]
 			pid,
 			#[cfg(target_os = "macos")]
-			child,
-			#[cfg(target_os = "linux")]
+			child: Arc::new(Mutex::new(Some(child))),
 			status: None,
-			#[cfg(target_os = "linux")]
 			notify: std::sync::Arc::new(tokio::sync::Notify::new()),
 			stdin: Arc::new(Mutex::new(host_stdin)),
 			stdout: Arc::new(Mutex::new(host_stdout)),
@@ -157,6 +163,34 @@ impl Server {
 			pty: pty.map(Arc::new),
 		};
 		self.processes.insert(id.clone(), process);
+
+		#[cfg(target_os = "macos")]
+		{
+			let child = self
+				.processes
+				.get(&id)
+				.map(|process| process.child.clone())
+				.ok_or_else(|| tg::error!(process = %id, "not found"))?;
+			let server = self.clone();
+			let process_id = id.clone();
+			tokio::spawn(async move {
+				let status = {
+					let mut child = child.lock().await;
+					let Some(mut child) = child.take() else {
+						return;
+					};
+					child
+						.wait()
+						.await
+						.map_err(|source| tg::error!(!source, "failed to wait for the process"))
+						.map(exit_status_to_code)
+				};
+				if let Some(mut process) = server.processes.get_mut(&process_id) {
+					process.status.replace(status);
+					process.notify.notify_waiters();
+				}
+			});
+		}
 
 		Ok(crate::client::spawn::Output { id })
 	}
@@ -185,4 +219,14 @@ impl Server {
 
 		Ok(response)
 	}
+}
+
+#[cfg(target_os = "macos")]
+fn exit_status_to_code(status: std::process::ExitStatus) -> u8 {
+	use num::ToPrimitive as _;
+	use std::os::unix::process::ExitStatusExt as _;
+	status
+		.code()
+		.or(status.signal())
+		.map_or(128, |code| code.to_u8().unwrap())
 }

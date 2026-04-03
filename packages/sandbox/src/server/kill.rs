@@ -29,20 +29,7 @@ impl Server {
 			tg::process::Signal::SIGUSR1 => libc::SIGUSR1,
 			tg::process::Signal::SIGUSR2 => libc::SIGUSR2,
 		};
-
-		#[cfg(target_os = "linux")]
 		let pid = child.pid;
-
-		#[cfg(target_os = "macos")]
-		use num::ToPrimitive as _;
-
-		#[cfg(target_os = "macos")]
-		let pid = child
-			.child
-			.id()
-			.ok_or_else(|| tg::error!("expected a PID"))?
-			.to_i32()
-			.unwrap();
 
 		unsafe {
 			let result = libc::kill(pid, signal);

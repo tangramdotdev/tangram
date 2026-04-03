@@ -618,19 +618,22 @@ fn read(fd: i32, length: usize) -> tg::Result<Option<Bytes>> {
 
 fn read_with_wakeup(fd: i32, length: usize, wake_fd: i32) -> tg::Result<Option<Bytes>> {
 	loop {
-		let mut fds = [
-			libc::pollfd {
-				fd,
-				events: libc::POLLIN,
-				revents: 0,
-			},
-			libc::pollfd {
-				fd: wake_fd,
-				events: libc::POLLIN,
-				revents: 0,
-			},
-		];
-		let result = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, -1) };
+		let mut readfds = unsafe { std::mem::zeroed::<libc::fd_set>() };
+		unsafe {
+			libc::FD_ZERO(&raw mut readfds);
+			libc::FD_SET(fd, &raw mut readfds);
+			libc::FD_SET(wake_fd, &raw mut readfds);
+		}
+		let nfds = std::cmp::max(fd, wake_fd) + 1;
+		let result = unsafe {
+			libc::select(
+				nfds,
+				&raw mut readfds,
+				std::ptr::null_mut(),
+				std::ptr::null_mut(),
+				std::ptr::null_mut(),
+			)
+		};
 		if result < 0 {
 			let source = std::io::Error::last_os_error();
 			if source.kind() == std::io::ErrorKind::Interrupted {
@@ -638,15 +641,12 @@ fn read_with_wakeup(fd: i32, length: usize, wake_fd: i32) -> tg::Result<Option<B
 			}
 			return Err(tg::error!(!source, %fd, "failed to poll the file descriptor"));
 		}
-		let wake_revents = fds[1].revents;
-		if wake_revents & (libc::POLLIN | libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
+		let wake_ready = unsafe { libc::FD_ISSET(wake_fd, &raw const readfds) };
+		if wake_ready {
 			return Err(stopped_error());
 		}
-		let fd_revents = fds[0].revents;
-		if fd_revents & libc::POLLNVAL != 0 {
-			return Err(tg::error!(%fd, "failed to poll the file descriptor"));
-		}
-		if fd_revents & (libc::POLLIN | libc::POLLERR | libc::POLLHUP) == 0 {
+		let fd_ready = unsafe { libc::FD_ISSET(fd, &raw const readfds) };
+		if !fd_ready {
 			continue;
 		}
 		return read(fd, length);
