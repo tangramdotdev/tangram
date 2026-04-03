@@ -177,6 +177,9 @@ pub(crate) async fn extract_tar(
 	while let Some(entry) = entries.next().await {
 		let mut entry =
 			entry.map_err(|source| tg::error!(!source, "failed to read the archive entry"))?;
+		if entry.header().entry_type().is_pax_global_extensions() {
+			continue;
+		}
 		let path = entry
 			.path()
 			.map_err(|source| tg::error!(!source, "failed to read the archive entry path"))?;
