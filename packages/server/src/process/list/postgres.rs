@@ -59,7 +59,7 @@ impl Server {
 					processes.id,
 					actual_checksum,
 					cacheable,
-					(select coalesce(json_agg(json_build_object('cached', cached::bool, 'process', child, 'options', options::json) order by position), '[]'::json) from process_children where process = processes.id) as children,
+					(select coalesce(json_agg(json_build_object('cached', cached, 'process', child, 'options', options::json) order by position), '[]'::json) from process_children where process = processes.id) as children,
 					command,
 					created_at,
 					error,

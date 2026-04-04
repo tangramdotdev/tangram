@@ -242,7 +242,7 @@ impl Server {
 			let statement = indoc!(
 				"
 					insert into process_children (process, position, cached, child, options)
-					select unnest($1::text[]), unnest($2::int8[]), unnest($3::int8[]), unnest($4::text[]), unnest($5::text[])
+					select unnest($1::text[]), unnest($2::int8[]), unnest($3::bool[]), unnest($4::text[]), unnest($5::text[])
 					on conflict (process, child) do nothing;
 				"
 			);
