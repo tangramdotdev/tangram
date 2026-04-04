@@ -183,8 +183,9 @@ impl Server {
 				durable_name: None,
 				filter_subjects: vec![format!("sandboxes.{id}.processes.queue")],
 			};
+			let consumer_name = format!("sandboxes_processes_queue_{id}");
 			let consumer = stream
-				.create_consumer(None, consumer_config)
+				.get_or_create_consumer(Some(consumer_name), consumer_config)
 				.await
 				.map_err(|source| {
 					tg::error!(!source, "failed to create a process queue consumer")

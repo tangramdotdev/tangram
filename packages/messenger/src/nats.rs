@@ -19,6 +19,7 @@ pub struct Messenger {
 #[derive(Clone)]
 pub struct Stream {
 	stream: nats::jetstream::stream::Stream,
+	id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -111,7 +112,7 @@ impl Messenger {
 			.get_stream(name)
 			.await
 			.map_err(Error::other)?;
-		let stream = Stream::new(stream);
+		let stream = Stream::new(stream, self.id.clone());
 		Ok(stream)
 	}
 
@@ -123,7 +124,7 @@ impl Messenger {
 			.create_stream(stream_config)
 			.await
 			.map_err(Error::other)?;
-		let stream = Stream::new(stream);
+		let stream = Stream::new(stream, self.id.clone());
 		Ok(stream)
 	}
 
@@ -139,7 +140,7 @@ impl Messenger {
 			.get_or_create_stream(stream_config)
 			.await
 			.map_err(Error::other)?;
-		let stream = Stream::new(stream);
+		let stream = Stream::new(stream, self.id.clone());
 		Ok(stream)
 	}
 
@@ -274,8 +275,8 @@ impl Messenger {
 }
 
 impl Stream {
-	fn new(stream: nats::jetstream::stream::Stream) -> Self {
-		Self { stream }
+	fn new(stream: nats::jetstream::stream::Stream, id: Option<String>) -> Self {
+		Self { stream, id }
 	}
 
 	async fn info(&self) -> Result<StreamInfo, Error> {
@@ -302,7 +303,7 @@ impl Stream {
 		name: Option<String>,
 		config: ConsumerConfig,
 	) -> Result<Consumer, Error> {
-		let config = Self::consumer_config(name, &config);
+		let config = self.consumer_config(name, &config);
 		let consumer = self
 			.stream
 			.create_consumer(config)
@@ -320,7 +321,7 @@ impl Stream {
 		let name = name
 			.or_else(|| config.durable_name.clone())
 			.ok_or_else(|| Error::other("expected a durable consumer name"))?;
-		let config = Self::consumer_config(Some(name.clone()), &config);
+		let config = self.consumer_config(Some(name.clone()), &config);
 		let consumer = self
 			.stream
 			.get_or_create_consumer(&name, config)
@@ -331,9 +332,18 @@ impl Stream {
 	}
 
 	fn consumer_config(
+		&self,
 		name: Option<String>,
 		config: &ConsumerConfig,
 	) -> async_nats::jetstream::consumer::pull::Config {
+		let filter_subjects = config
+			.filter_subjects
+			.iter()
+			.map(|subject| match &self.id {
+				Some(id) => format!("{id}.{subject}"),
+				None => subject.clone(),
+			})
+			.collect::<Vec<_>>();
 		let deliver_policy = match config.deliver_policy {
 			DeliverPolicy::All => nats::jetstream::consumer::DeliverPolicy::All,
 			DeliverPolicy::New => nats::jetstream::consumer::DeliverPolicy::New,
@@ -346,8 +356,8 @@ impl Stream {
 			ack_policy,
 			deliver_policy,
 			durable_name: config.durable_name.clone().or(name),
-			filter_subject: config.filter_subjects.first().cloned().unwrap_or_default(),
-			filter_subjects: config.filter_subjects.clone(),
+			filter_subject: filter_subjects.first().cloned().unwrap_or_default(),
+			filter_subjects,
 			..Default::default()
 		}
 	}
