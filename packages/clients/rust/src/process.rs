@@ -9,14 +9,15 @@ use {
 };
 
 pub use self::{
-	build::build, data::Data, id::Id, metadata::Metadata, run::run, signal::Signal, state::State,
-	status::Status, stdio::Stdio, tty::Tty, wait::Wait,
+	build::build, data::Data, env::env, id::Id, metadata::Metadata, run::run, signal::Signal,
+	state::State, status::Status, stdio::Stdio, tty::Tty, wait::Wait,
 };
 
 pub mod build;
 pub mod cancel;
 pub mod children;
 pub mod data;
+pub mod env;
 pub mod finish;
 pub mod get;
 pub mod id;

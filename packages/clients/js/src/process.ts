@@ -1934,17 +1934,23 @@ async function renderEnv(
 	artifacts: Map<tg.Artifact.Id, string>,
 	outputPath: string,
 ): Promise<{ [key: string]: string }> {
-	let output: { [key: string]: tg.Value } = {};
+	let resolved: { [key: string]: tg.Value } = {};
 	for (let [key, value] of Object.entries(env)) {
 		if (value instanceof tg.Mutation) {
-			await value.apply(output, key);
+			await value.apply(resolved, key);
 		} else {
-			output[key] = value;
+			resolved[key] = value;
 		}
 	}
 	let rendered: { [key: string]: string } = {};
-	for (let [key, value] of Object.entries(output)) {
+	for (let [key, value] of Object.entries(resolved)) {
 		rendered[key] = renderValueString(value, artifacts, outputPath);
+	}
+	for (let [key, value] of Object.entries(resolved)) {
+		if (typeof value === "string") {
+			continue;
+		}
+		rendered[`TANGRAM_ENV_${key}`] = tg.Value.stringify(value);
 	}
 	rendered.TANGRAM_OUTPUT = outputPath;
 	return rendered;
