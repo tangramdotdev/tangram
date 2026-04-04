@@ -657,6 +657,14 @@ fn render_env(
 	artifacts: &BTreeMap<tg::artifact::Id, PathBuf>,
 	output_path: &Path,
 ) -> tg::Result<BTreeMap<String, String>> {
+	for key in env.keys() {
+		if key.starts_with(tg::process::env::PREFIX) {
+			return Err(tg::error!(
+				key = %key,
+				"env vars prefixed with TANGRAM_ENV_ are reserved"
+			));
+		}
+	}
 	let mut resolved = tg::value::data::Map::new();
 	for (key, value) in env {
 		let mutation = match value {

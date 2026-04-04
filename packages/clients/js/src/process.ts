@@ -1934,6 +1934,11 @@ async function renderEnv(
 	artifacts: Map<tg.Artifact.Id, string>,
 	outputPath: string,
 ): Promise<{ [key: string]: string }> {
+	for (let key of Object.keys(env)) {
+		if (key.startsWith("TANGRAM_ENV_")) {
+			throw new Error("env vars prefixed with TANGRAM_ENV_ are reserved");
+		}
+	}
 	let resolved: { [key: string]: tg.Value } = {};
 	for (let [key, value] of Object.entries(env)) {
 		if (value instanceof tg.Mutation) {
