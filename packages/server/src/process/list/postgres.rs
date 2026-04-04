@@ -8,12 +8,12 @@ use {
 impl Server {
 	pub(crate) async fn list_processes_postgres(
 		&self,
-		database: &db::postgres::Database,
+		register: &db::postgres::Database,
 	) -> tg::Result<Vec<tg::process::get::Output>> {
-		let connection = database
+		let connection = register
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 
 		#[derive(db::postgres::row::Deserialize)]
 		struct Row {

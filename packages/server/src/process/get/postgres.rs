@@ -8,14 +8,14 @@ use {
 impl Server {
 	pub(crate) async fn try_get_process_batch_postgres(
 		&self,
-		database: &db::postgres::Database,
+		register: &db::postgres::Database,
 		ids: &[tg::process::Id],
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
-		// Get a database connection.
-		let connection = database
+		// Get a register connection.
+		let connection = register
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 
 		// Get the process. All fields from the processes table must be Option because the LEFT JOIN
 		// returns NULL for all columns when a process doesn't exist.
@@ -100,7 +100,7 @@ impl Server {
 			})
 			.map(|row| {
 				let row = row?;
-				// If id is None, the process doesn't exist in the database.
+				// If id is None, the process does not exist in the register.
 				let Some(id) = row.id else {
 					return Ok(None);
 				};

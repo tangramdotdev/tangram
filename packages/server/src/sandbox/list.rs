@@ -60,7 +60,7 @@ impl Server {
 			.register
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 		let statement = formatdoc!(
 			"
 				select id, hostname, mounts, network, status, ttl, \"user\" as user

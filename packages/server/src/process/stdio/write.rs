@@ -196,7 +196,7 @@ impl Server {
 										tg::error!(!source, "failed to serialize the stdio event")
 									})?;
 							self.messenger
-								.stream_publish("processes.stdio".to_owned(), subject, payload)
+								.stream_publish("processes_stdio".to_owned(), subject, payload)
 								.and_then(|result| result)
 								.await
 								.map_err(|source| tg::error!(!source, "failed to publish stdio"))?;
@@ -219,7 +219,7 @@ impl Server {
 						}
 						let subject = format!("processes.stdio.{id}.{stream}");
 						self.messenger
-							.stream_publish("processes.stdio".to_owned(), subject, payload.clone())
+							.stream_publish("processes_stdio".to_owned(), subject, payload.clone())
 							.and_then(|result| result)
 							.await
 							.map_err(|source| tg::error!(!source, "failed to publish stdio"))?;

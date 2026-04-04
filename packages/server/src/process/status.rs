@@ -135,12 +135,12 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Status>> {
-		// Get a database connection.
+		// Get a register connection.
 		let connection = self
 			.register
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 
 		// Get the status.
 		let p = connection.p();
@@ -164,7 +164,7 @@ impl Server {
 			return Ok(None);
 		};
 
-		// Drop the database connection.
+		// Drop the register connection.
 		drop(connection);
 
 		Ok(Some(status))

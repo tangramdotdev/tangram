@@ -35,7 +35,7 @@ impl Server {
 
 		let stream = self
 			.messenger
-			.get_stream("sandboxes.processes.queue".into())
+			.get_stream("sandboxes_processes_queue".into())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the stream"))?;
 		let consumer_config = tangram_messenger::ConsumerConfig {

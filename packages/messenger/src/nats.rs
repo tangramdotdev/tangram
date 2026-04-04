@@ -105,7 +105,7 @@ impl Messenger {
 	}
 
 	async fn get_stream(&self, name: String) -> Result<Stream, Error> {
-		let name = self.stream_name(name);
+		let name = self.stream_name(&name);
 		let stream = self
 			.jetstream
 			.get_stream(name)
@@ -116,7 +116,7 @@ impl Messenger {
 	}
 
 	async fn create_stream(&self, name: String, config: StreamConfig) -> Result<Stream, Error> {
-		let name = self.stream_name(name);
+		let name = self.stream_name(&name);
 		let stream_config = Self::stream_config(name, &config);
 		let stream = self
 			.jetstream
@@ -132,7 +132,7 @@ impl Messenger {
 		name: String,
 		config: StreamConfig,
 	) -> Result<Stream, Error> {
-		let name = self.stream_name(name);
+		let name = self.stream_name(&name);
 		let stream_config = Self::stream_config(name, &config);
 		let stream = self
 			.jetstream
@@ -172,7 +172,7 @@ impl Messenger {
 	}
 
 	async fn delete_stream(&self, name: String) -> Result<(), Error> {
-		let name = self.stream_name(name);
+		let name = self.stream_name(&name);
 		self.jetstream
 			.delete_stream(name)
 			.await
@@ -265,10 +265,10 @@ impl Messenger {
 		}
 	}
 
-	fn stream_name(&self, name: String) -> String {
+	fn stream_name(&self, name: &str) -> String {
 		match &self.id {
 			Some(id) => format!("{name}_{id}"),
-			None => name,
+			None => name.to_owned(),
 		}
 	}
 }

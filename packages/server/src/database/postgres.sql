@@ -4,7 +4,7 @@ create table remotes (
 );
 
 create table tags (
-	id bigserial primary key,
+	id int8 primary key default unique_rowid(),
 	component text not null,
 	item text
 );

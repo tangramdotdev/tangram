@@ -37,7 +37,7 @@ impl Server {
 
 		let stream = self
 			.messenger
-			.get_stream("sandboxes.queue".into())
+			.get_stream("sandboxes_queue".into())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the stream"))?;
 		let consumer_config = messenger::ConsumerConfig {

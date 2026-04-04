@@ -27,20 +27,19 @@ def main [
 		}
 
 		let preserved_dbs = ['postgres', 'template0', 'template1', 'register']
-		let dbs = psql -U postgres -h localhost -t -c "SELECT datname FROM pg_database" | lines | str trim | where { $in not-in $preserved_dbs and $in != '' }
+		let dbs = psql -U postgres -h localhost -t -c "SELECT datname FROM pg_database" | lines | str trim | where { $in starts-with 'register_' }
 		for db in $dbs {
 			print -e $"dropping postgres database ($db)"
 			try { dropdb -U postgres -h localhost $db }
 		}
 
-		let preserved_cockroach_dbs = ['database', 'defaultdb', 'postgres', 'register', 'system']
-		let cockroach_dbs = cockroach sql --insecure --host=localhost:26257 --format=csv -e 'show databases;' | from csv | get database_name | where { $in not-in $preserved_cockroach_dbs }
+		let cockroach_dbs = cockroach sql --insecure --host=localhost:26257 --format=csv -e 'show databases;' | from csv | get database_name | where { $in starts-with 'database_' }
 		for db in $cockroach_dbs {
 			print -e $"dropping cockroach database ($db)"
 			try { cockroach sql --insecure --host=localhost:26257 -e $'drop database if exists ($db) cascade' }
 		}
 
-		let preserved_streams = ['processes.finalize.queue', 'sandboxes.queue', 'sandboxes.processes.queue', 'processes.stdio']
+		let preserved_streams = ['processes_finalize_queue', 'sandboxes_queue', 'sandboxes_processes_queue', 'processes_stdio']
 		let streams = nats stream ls -n | lines | where { $in not-in $preserved_streams }
 		for stream in $streams {
 			print -e $"deleting nats stream ($stream)"
@@ -48,7 +47,7 @@ def main [
 		}
 
 		let preserved_keyspaces = ['system', 'system_auth', 'system_distributed', 'system_distributed_everywhere', 'system_schema', 'system_traces', 'system_views', 'store']
-		let keyspaces = cqlsh -e "SELECT JSON keyspace_name FROM system_schema.keyspaces" | lines | str trim | where { $in starts-with '{' } | each { $in | from json | get keyspace_name } | where { $in not-in $preserved_keyspaces }
+		let keyspaces = cqlsh -e "SELECT JSON keyspace_name FROM system_schema.keyspaces" | lines | str trim | where { $in starts-with '{' } | each { $in | from json | get keyspace_name } | where { $in starts-with 'store_' }
 		for keyspace in $keyspaces {
 			print -e $"dropping scylla keyspace ($keyspace)"
 			try { cqlsh -e $"drop keyspace \"($keyspace)\";" e> /dev/null }
@@ -747,57 +746,61 @@ export def --env spawn [
 		$id ++ "\n" | save --append (($nu.temp-dir? | default $nu.temp-path?) | path join 'ids')
 		print -e $id
 
-		cockroach sql --insecure --host=localhost:26257 -e $'create database ($id)'
-		cockroach sql --insecure --host=localhost:26257 -d $id -f ($repository_path | path join packages/server/src/database/postgres.sql)
+		let database_id = $'database_($id)'
+		let register_id = $'register_($id)'
+		let index_prefix = $'index_($id)'
+		let store_keyspace = $'store_($id)'
+		cockroach sql --insecure --host=localhost:26257 -e $'create database ($database_id)'
+		cockroach sql --insecure --host=localhost:26257 -d $database_id -f ($repository_path | path join packages/server/src/database/postgres.sql)
 
-		createdb -U postgres -h localhost $id
-		psql -U postgres -h localhost -d $id -f ($repository_path | path join packages/server/src/register/postgres.sql)
+		createdb -U postgres -h localhost $register_id
+		psql -U postgres -h localhost -d $register_id -f ($repository_path | path join packages/server/src/register/postgres.sql)
 
 		let cluster = mktemp -t
 		"docker:docker@localhost:4500" | save -f $cluster
 
-		let processes_finalize_queue = 'processes.finalize.queue'
-		let sandboxes_queue = 'sandboxes.queue'
-		let sandboxes_processes_queue = 'sandboxes.processes.queue'
-		let sandboxes_processes_subject = 'sandboxes.*.processes.queue'
-		let processes_stdio = 'processes.stdio'
+			let processes_finalize_queue = 'processes_finalize_queue'
+			let sandboxes_queue = 'sandboxes_queue'
+			let sandboxes_processes_queue = 'sandboxes_processes_queue'
+			let sandboxes_processes_subject = 'sandboxes.*.processes.queue'
+			let processes_stdio = 'processes_stdio'
 
-		nats stream create $'($processes_finalize_queue)_($id)' --retention work --subjects $'($id).($processes_finalize_queue)' --defaults
-		nats stream create $'($sandboxes_queue)_($id)' --discard new --retention work --subjects $'($id).($sandboxes_queue)' --defaults
-		nats stream create $'($sandboxes_processes_queue)_($id)' --discard new --retention work --subjects $'($id).($sandboxes_processes_subject)' --defaults
-		nats stream create $'($processes_stdio)_($id)' --discard new --retention work --subjects $'($id).($processes_stdio).*.*' --defaults
+			nats stream create $'($processes_finalize_queue)_($id)' --retention work --subjects $'($id).processes.finalize.queue' --defaults
+			nats stream create $'($sandboxes_queue)_($id)' --discard new --retention work --subjects $'($id).sandboxes.queue' --defaults
+			nats stream create $'($sandboxes_processes_queue)_($id)' --discard new --retention work --subjects $'($id).($sandboxes_processes_subject)' --defaults
+			nats stream create $'($processes_stdio)_($id)' --discard new --retention work --subjects $'($id).processes.stdio.*.*' --defaults
 
-		cqlsh -e $"create keyspace \"($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
-		cqlsh -k $id -f ($repository_path | path join packages/store/src/scylla.cql)
+		cqlsh -e $"create keyspace \"($store_keyspace)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
+		cqlsh -k $store_keyspace -f ($repository_path | path join packages/store/src/scylla.cql)
 
 		let config = {
-			database: {
-				kind: 'postgres',
-				connections: 1,
-				url: $'postgres://root@localhost:26257/($id)?sslmode=disable',
-			},
-			register: {
-				kind: 'postgres',
-				connections: 1,
-				url: $'postgres://postgres@localhost:5432/($id)',
-			},
-			index: {
-				kind: 'fdb',
-				cluster: $cluster,
-				prefix: $id,
-			},
+				database: {
+					kind: 'postgres',
+					connections: 1,
+					url: $'postgres://root@localhost:26257/($database_id)?sslmode=disable',
+				},
+				register: {
+					kind: 'postgres',
+					connections: 1,
+					url: $'postgres://postgres@localhost:5432/($register_id)',
+				},
+				index: {
+					kind: 'fdb',
+					cluster: $cluster,
+					prefix: $index_prefix,
+				},
 			messenger: {
 				kind: 'nats',
 				id: $id,
 				url: 'nats://localhost',
 			},
 			remotes: [],
-			store: {
-				kind: 'scylla',
-				addr: 'localhost:9042',
-				connections: 1,
-				keyspace: $id,
-			},
+				store: {
+					kind: 'scylla',
+					addr: 'localhost:9042',
+					connections: 1,
+					keyspace: $store_keyspace,
+				},
 			watchdog: {
 				batch_size: 100,
 				interval: 1,
@@ -898,21 +901,25 @@ export def --env spawn [
 }
 
 def clean_databases [id: string] {
-	let processes_finalize_queue = 'processes.finalize.queue'
-	let sandboxes_queue = 'sandboxes.queue'
-	let sandboxes_processes_queue = 'sandboxes.processes.queue'
-	let processes_stdio = 'processes.stdio'
+	let processes_finalize_queue = 'processes_finalize_queue'
+	let sandboxes_queue = 'sandboxes_queue'
+	let sandboxes_processes_queue = 'sandboxes_processes_queue'
+	let processes_stdio = 'processes_stdio'
+	let database_id = $'database_($id)'
+	let register_id = $'register_($id)'
+	let index_prefix = $'index_($id)'
+	let store_keyspace = $'store_($id)'
 
 	# Drop the Cockroach database.
-	try { cockroach sql --insecure --host=localhost:26257 -e $'drop database if exists ($id) cascade' }
+	try { cockroach sql --insecure --host=localhost:26257 -e $'drop database if exists ($database_id) cascade' }
 
 	# Drop the Postgres database.
-	try { dropdb -U postgres -h localhost $id }
+	try { dropdb -U postgres -h localhost $register_id }
 
 	# Clear the fdb key range.
 	let cluster = mktemp -t
 	"docker:docker@localhost:4500" | save -f $cluster
-	try { fdbcli -C $cluster --exec $'writemode on; clearrange "($id)" "($id)\xff"' }
+	try { fdbcli -C $cluster --exec $'writemode on; clearrange "($index_prefix)" "($index_prefix)\xff"' }
 
 	# Remove the NATS streams.
 	try { nats stream rm -f $'($processes_finalize_queue)_($id)' }
@@ -921,7 +928,7 @@ def clean_databases [id: string] {
 	try { nats stream rm -f $'($processes_stdio)_($id)' }
 
 	# Drop the scylla keyspace.
-	try { cqlsh -e $"drop keyspace \"($id)\";" }
+	try { cqlsh -e $"drop keyspace \"($store_keyspace)\";" }
 }
 
 def diff [old: string, new: string, --path] {

@@ -74,7 +74,7 @@ impl Server {
 			.register
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 		let p = connection.p();
 		#[derive(Clone, db::row::Deserialize)]
 		struct Row {
@@ -149,12 +149,12 @@ impl Server {
 			error.remove_internal_locations();
 		}
 
-		// Get a database connection.
+		// Get a register connection.
 		let connection = self
 			.register
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 
 		// Update the process.
 		let p = connection.p();
@@ -242,7 +242,7 @@ impl Server {
 				server
 					.messenger
 					.stream_publish(
-						"processes.finalize.queue".to_owned(),
+						"processes_finalize_queue".to_owned(),
 						"processes.finalize.queue".to_owned(),
 						message,
 					)

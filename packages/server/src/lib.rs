@@ -499,7 +499,7 @@ impl Server {
 				..tangram_messenger::StreamConfig::default()
 			};
 			messenger
-				.create_stream("processes.finalize.queue".to_owned(), stream_config)
+				.create_stream("processes_finalize_queue".to_owned(), stream_config)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the finalize stream"))?;
 		}
@@ -513,14 +513,14 @@ impl Server {
 				retention: tangram_messenger::RetentionPolicy::WorkQueue,
 			};
 			messenger
-				.create_stream("sandboxes.queue".to_owned(), stream_config.clone())
+				.create_stream("sandboxes_queue".to_owned(), stream_config.clone())
 				.await
 				.map_err(|source| {
 					tg::error!(!source, "failed to create the sandbox queue stream")
 				})?;
 			messenger
 				.create_stream(
-					"sandboxes.processes.queue".to_owned(),
+					"sandboxes_processes_queue".to_owned(),
 					stream_config.clone(),
 				)
 				.await
@@ -528,7 +528,7 @@ impl Server {
 					tg::error!(!source, "failed to create the sandbox process queue stream")
 				})?;
 			messenger
-				.create_stream("processes.stdio".to_owned(), stream_config)
+				.create_stream("processes_stdio".to_owned(), stream_config)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create stdio stream"))?;
 		}

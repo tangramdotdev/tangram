@@ -46,12 +46,12 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<()> {
-		// Get a database connection.
+		// Get a register connection.
 		let mut connection = self
 			.register
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection

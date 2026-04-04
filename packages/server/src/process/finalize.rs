@@ -63,7 +63,7 @@ impl Server {
 	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, messenger::Acker)>>>> {
 		let stream = self
 			.messenger
-			.get_stream("processes.finalize.queue".to_owned())
+			.get_stream("processes_finalize_queue".to_owned())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the finalize stream"))?;
 		let consumer_config = messenger::ConsumerConfig {

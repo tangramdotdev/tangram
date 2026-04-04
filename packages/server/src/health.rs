@@ -39,12 +39,12 @@ impl Server {
 		let include_version = include_field("version");
 
 		let processes = if include_processes {
-			// Get a database connection.
+			// Get a register connection.
 			let connection = self
 				.register
 				.connection()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+				.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 
 			// Get the process health.
 			let permits = if self.config.runner.is_some() {

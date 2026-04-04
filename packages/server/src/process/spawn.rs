@@ -150,12 +150,12 @@ impl Server {
 		let command_ = tg::Command::with_id(arg.command.item.clone());
 		let host = command_.host(self).await.ok();
 
-		// Get a database connection.
+		// Get a register connection.
 		let mut connection = self
 			.register
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection
@@ -245,7 +245,7 @@ impl Server {
 					process: Some(output.id.clone()),
 				};
 				self.messenger
-					.stream_publish("sandboxes.queue".into(), "sandboxes.queue".into(), payload)
+					.stream_publish("sandboxes_queue".into(), "sandboxes.queue".into(), payload)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to enqueue the sandbox"))?
 					.await
@@ -263,7 +263,7 @@ impl Server {
 				};
 				self.messenger
 					.stream_publish(
-						"sandboxes.processes.queue".into(),
+						"sandboxes_processes_queue".into(),
 						format!("sandboxes.{sandbox}.processes.queue"),
 						payload,
 					)
@@ -1242,12 +1242,12 @@ impl Server {
 		options: &tg::referent::Options,
 		token: Option<&String>,
 	) -> tg::Result<()> {
-		// Get a database connection.
+		// Get a register connection.
 		let mut connection = self
 			.register
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection
@@ -1364,7 +1364,7 @@ impl Server {
 			return Err(tg::error!("{message}"));
 		}
 
-		// Add the child to the database.
+		// Add the child to the register.
 		let statement = formatdoc!(
 			"
 				insert into process_children (process, position, cached, child, options, token)

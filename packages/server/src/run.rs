@@ -174,7 +174,7 @@ impl Server {
 		let mut messages = if remote.is_none() {
 			let stream = self
 				.messenger
-				.get_stream("sandboxes.processes.queue".to_owned())
+				.get_stream("sandboxes_processes_queue".to_owned())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the process queue stream"))?;
 			let consumer_config = tangram_messenger::ConsumerConfig {

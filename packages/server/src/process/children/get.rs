@@ -211,12 +211,12 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<u64> {
-		// Get a database connection.
+		// Get a register connection.
 		let connection = self
 			.register
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 
 		// Get the position.
 		let p = connection.p();
@@ -233,7 +233,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Drop the database connection.
+		// Drop the register connection.
 		drop(connection);
 
 		Ok(position)
@@ -245,12 +245,12 @@ impl Server {
 		position: u64,
 		length: u64,
 	) -> tg::Result<tg::process::children::get::Chunk> {
-		// Get a database connection.
+		// Get a register connection.
 		let connection = self
 			.register
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 
 		// Get the children.
 		#[derive(db::row::Deserialize)]
@@ -285,7 +285,7 @@ impl Server {
 			})
 			.collect();
 
-		// Drop the database connection.
+		// Drop the register connection.
 		drop(connection);
 
 		// Create the chunk.

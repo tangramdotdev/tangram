@@ -114,13 +114,13 @@ impl Server {
 		ids: &[tg::process::Id],
 		metadata: bool,
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
-		// Get the process from the database.
+		// Get the process from the register.
 		let data_future = async {
 			match &self.register {
 				#[cfg(feature = "postgres")]
-				Database::Postgres(database) => self.try_get_process_batch_postgres(database, ids).await,
+				Database::Postgres(register) => self.try_get_process_batch_postgres(register, ids).await,
 				#[cfg(feature = "sqlite")]
-				Database::Sqlite(database) => self.try_get_process_batch_sqlite(database, ids).await,
+				Database::Sqlite(register) => self.try_get_process_batch_sqlite(register, ids).await,
 			}
 		};
 

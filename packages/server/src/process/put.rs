@@ -41,17 +41,17 @@ impl Server {
 		}
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
-		// Insert the process into the database.
+		// Insert the process into the register.
 		match &self.register {
 			#[cfg(feature = "postgres")]
-			Database::Postgres(database) => {
-				Self::put_process_postgres(id, &arg, database, now)
+			Database::Postgres(register) => {
+				Self::put_process_postgres(id, &arg, register, now)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to put the process"))?;
 			},
 			#[cfg(feature = "sqlite")]
-			Database::Sqlite(database) => {
-				Self::put_process_sqlite(id, &arg, database, now)
+			Database::Sqlite(register) => {
+				Self::put_process_sqlite(id, &arg, register, now)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to put the process"))?;
 			},
