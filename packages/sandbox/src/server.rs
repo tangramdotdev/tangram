@@ -1,6 +1,5 @@
 use {
-	crate::common,
-	dashmap::DashMap,
+	crate::{Command, pty},
 	futures::{FutureExt as _, future},
 	std::{convert::Infallible, ops::Deref, sync::Arc},
 	tangram_client::prelude::*,
@@ -18,47 +17,43 @@ mod stdio;
 mod tty;
 mod wait;
 
+pub struct Arg {
+	pub library_paths: Vec<std::path::PathBuf>,
+	pub tangram_path: std::path::PathBuf,
+}
+
 #[derive(Clone)]
 pub struct Server(Arc<State>);
 
-pub(crate) struct ServerArg {
-	pub(crate) library_paths: Vec<std::path::PathBuf>,
-	pub(crate) tangram_path: std::path::PathBuf,
-}
-
 pub struct State {
-	pub(crate) library_paths: Vec<std::path::PathBuf>,
-	pub(crate) processes: DashMap<tg::process::Id, Process>,
-	pub(crate) tangram_path: std::path::PathBuf,
+	library_paths: Vec<std::path::PathBuf>,
+	processes: dashmap::DashMap<tg::process::Id, Process>,
+	tangram_path: std::path::PathBuf,
 }
 
-pub(crate) struct Process {
-	#[cfg(target_os = "macos")]
-	pub(crate) child: Arc<Mutex<Option<tokio::process::Child>>>,
-	pub(crate) notify: Arc<tokio::sync::Notify>,
-	#[cfg(target_os = "macos")]
-	pub(crate) pid: libc::pid_t,
-	#[cfg(target_os = "linux")]
-	pub(crate) pidfd: Arc<std::os::fd::OwnedFd>,
-	pub(crate) stdin: Arc<Mutex<common::InputStream>>,
-	pub(crate) stdout: Arc<Mutex<common::OutputStream>>,
-	pub(crate) stderr: Arc<Mutex<common::OutputStream>>,
-	pub(crate) pty: Option<Arc<Mutex<common::Pty>>>,
-	pub(crate) status: Option<tg::Result<u8>>,
+struct Process {
+	command: Command,
+	notify: Arc<tokio::sync::Notify>,
+	pid: libc::pid_t,
+	stdin: Option<Arc<Mutex<tokio::process::ChildStdin>>>,
+	stdout: Option<Arc<Mutex<tokio::process::ChildStdout>>>,
+	stderr: Option<Arc<Mutex<tokio::process::ChildStderr>>>,
+	pty: Option<Arc<pty::Pty>>,
+	status: Option<tg::Result<u8>>,
 }
 
-pub(crate) type Listener =
-	tokio_util::either::Either<tokio::net::UnixListener, tokio::net::TcpListener>;
+pub type Listener = tokio_util::either::Either<tokio::net::UnixListener, tokio::net::TcpListener>;
 
 impl Server {
-	pub fn new(arg: ServerArg) -> Self {
+	pub fn new(arg: Arg) -> Self {
 		Self(Arc::new(State {
 			library_paths: arg.library_paths,
-			processes: DashMap::default(),
+			processes: dashmap::DashMap::default(),
 			tangram_path: arg.tangram_path,
 		}))
 	}
-	pub(crate) async fn serve(&self, listener: Listener) {
+
+	pub async fn serve(&self, listener: Listener) {
 		loop {
 			let stream = match &listener {
 				tokio_util::either::Either::Left(unix) => {

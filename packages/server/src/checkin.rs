@@ -64,12 +64,7 @@ impl Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>> + Send + use<>,
 	> {
-		// Handle host path conversion.
-		if let Some(process) = &context.process {
-			arg.path = process.host_path_for_guest_path(&arg.path).ok_or_else(
-				|| tg::error!(path= %arg.path.display(), "no host path for guest path"),
-			)?;
-		}
+		arg.path = self.host_path_for_guest_path(context, &arg.path)?;
 
 		// Guard against concurrent cleans.
 		let _clean_guard = self.try_acquire_clean_guard()?;

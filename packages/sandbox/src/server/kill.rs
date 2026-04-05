@@ -29,19 +29,7 @@ impl Server {
 			tg::process::Signal::SIGUSR1 => libc::SIGUSR1,
 			tg::process::Signal::SIGUSR2 => libc::SIGUSR2,
 		};
-
-		#[cfg(target_os = "linux")]
-		let pidfd = child.pidfd.clone();
-
-		#[cfg(target_os = "macos")]
 		let pid = child.pid;
-
-		#[cfg(target_os = "linux")]
-		crate::linux::send_signal(&pidfd, signal).map_err(
-			|source| tg::error!(!source, process = %id, signal = %arg.signal, "failed to signal process"),
-		)?;
-
-		#[cfg(target_os = "macos")]
 		unsafe {
 			let result = libc::kill(pid, signal);
 			if result != 0 {

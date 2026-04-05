@@ -46,13 +46,8 @@ impl Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + use<>,
 	> {
-		// If there is a process in the context, then replace the path with the host path.
-		if let Some(process) = &context.process
-			&& let Some(path) = &mut arg.path
-		{
-			*path = process
-				.host_path_for_guest_path(path)
-				.ok_or_else(|| tg::error!(path= %path.display(), "no host path for guest path"))?;
+		if let Some(path) = &mut arg.path {
+			*path = self.host_path_for_guest_path(context, path)?;
 		}
 
 		// If the path is not provided, then cache.
@@ -90,13 +85,7 @@ impl Server {
 									};
 
 									// Map the path if necessary.
-									let path = if let Some(process) = &context.process {
-										process.guest_path_for_host_path(&path).ok_or_else(
-											|| tg::error!(path= %path.display(), "no guest path for host path"),
-										)?
-									} else {
-										path
-									};
+									let path = server.guest_path_for_host_path(&context, &path)?;
 
 									let output =
 										tg::progress::Event::Output(tg::checkout::Output { path });
@@ -118,13 +107,7 @@ impl Server {
 				path
 			};
 
-			let path = if let Some(process) = &context.process {
-				process.guest_path_for_host_path(&path).ok_or_else(
-					|| tg::error!(path= %path.display(), "no guest path for host path"),
-				)?
-			} else {
-				path
-			};
+			let path = self.guest_path_for_host_path(context, &path)?;
 
 			let output = tg::checkout::Output { path };
 			let event = tg::progress::Event::Output(output);
@@ -200,17 +183,15 @@ impl Server {
 		let stream = progress
 			.stream()
 			.and_then({
+				let server = self.clone();
 				let context = context.clone();
 				move |event| {
+					let server = server.clone();
 					let context = context.clone();
 					async move {
 						if let tg::progress::Event::Output(mut output) = event {
-							if let Some(process) = &context.process {
-								output.path =
-									process.host_path_for_guest_path(&output.path).ok_or_else(
-										|| tg::error!(path= %output.path.display(), "no host path for guest path"),
-									)?;
-							}
+							output.path =
+								server.host_path_for_guest_path(&context, &output.path)?;
 							Ok(tg::progress::Event::Output(output))
 						} else {
 							Ok(event)
