@@ -602,6 +602,19 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to load the process"))?;
 		let remote = process.remote();
+		let sandbox_mounts = if cfg!(target_os = "linux") {
+			if let Some(sandbox) = state.sandbox.as_ref() {
+				self.try_get_sandbox_local(sandbox)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the sandbox"))?
+					.map(|sandbox| sandbox.mounts)
+					.unwrap_or_default()
+			} else {
+				Vec::new()
+			}
+		} else {
+			Vec::new()
+		};
 
 		let command = process
 			.command(self)
@@ -684,11 +697,17 @@ impl Server {
 			)
 		};
 
-		// Add the root to the path map.
 		if chroot {
-			let host = sandbox_directory.host_root_path();
-			let guest = sandbox_directory.guest_root_path();
-			path_maps.push(PathMap { host, guest });
+			path_maps.push(PathMap {
+				host: sandbox_directory.host_tmp_path(),
+				guest: sandbox_directory.guest_tmp_path(),
+			});
+			for mount in &sandbox_mounts {
+				path_maps.push(PathMap {
+					host: mount.source.clone(),
+					guest: mount.target.clone(),
+				});
+			}
 		}
 
 		// Render the args.
@@ -972,16 +991,19 @@ impl Server {
 			}
 		});
 
+		let wait = sandbox.wait(&sandbox_process).await.map_err(
+			|source| tg::error!(!source, %id, "failed to start waiting for the process"),
+		)?;
+		let mut wait = std::pin::pin!(wait);
 		let (exit, stopped) = tokio::select! {
-			result = sandbox.wait(&sandbox_process) => {
+			result = &mut wait => {
 				let exit = result
 					.map_err(|source| tg::error!(!source, %id, "failed to wait for the process"))?;
 				(exit, false)
 			},
 			() = stopper.wait() => {
 				sandbox.kill(&sandbox_process, tg::process::Signal::SIGKILL).await.ok();
-				let exit = sandbox
-					.wait(&sandbox_process)
+				let exit = wait
 					.await
 					.map_err(|source| tg::error!(!source, %id, "failed to wait for the process"))?;
 				(exit, true)

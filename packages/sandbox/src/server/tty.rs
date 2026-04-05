@@ -26,8 +26,7 @@ impl Server {
 				tg::error!(process = %id, "process does not have a tty associated with it"),
 			);
 		};
-		let tty = tty.lock().await;
-		let fd = tty.master.as_raw_fd();
+		let fd = tty.master().as_raw_fd();
 		let size = arg.size;
 		unsafe {
 			let mut winsize = libc::winsize {

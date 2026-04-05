@@ -1,91 +1,54 @@
 use {
-	crate::{
-		ManagerArg, RunArg,
-		common::{SpawnContext, start_session, which},
-	},
+	crate::{Directory, Manager, ManagerArg, RunArg, SpawnArg},
 	indoc::writedoc,
 	num::ToPrimitive as _,
 	std::{
 		ffi::{CStr, CString},
 		fmt::Write,
+		os::fd::RawFd,
 		os::unix::ffi::OsStrExt as _,
 		path::Path,
 	},
 	tangram_client::prelude::*,
 };
 
-pub fn enter(arg: &RunArg) -> std::io::Result<()> {
-	let directory = crate::Directory::new(arg.path.clone());
-	std::fs::create_dir_all(directory.host_output_path()).ok();
-	std::fs::create_dir_all(directory.host_socket_path()).ok();
-	for mount in &arg.mounts {
-		if mount.source == Path::new("/") && mount.target == Path::new("/") {
-			return Err(std::io::Error::other(
-				"mounting the host root directory to the guest root is not supported",
-			));
-		}
+pub fn spawn_jailer(
+	manager: &Manager,
+	arg: &SpawnArg,
+	run_arg: &RunArg,
+	ready_fd: RawFd,
+) -> tg::Result<tokio::process::Child> {
+	let directory = Directory::new(arg.path.clone());
+	for path in [
+		directory.host_output_path(),
+		directory.host_socket_path(),
+		directory.host_scratch_path(),
+		directory.host_profile_path().parent().unwrap().to_owned(),
+	] {
+		std::fs::create_dir_all(&path).map_err(
+			|source| tg::error!(!source, path = %path.display(), "failed to create the sandbox path"),
+		)?;
 	}
-	let profile = create_sandbox_profile(arg);
-	unsafe {
-		let mut error = std::ptr::null::<std::ffi::c_char>();
-		let ret = sandbox_init(profile.as_ptr(), 0, std::ptr::addr_of_mut!(error));
-		if ret != 0 {
-			let error = error;
-			let message = CStr::from_ptr(error);
-			let result = std::io::Error::other(format!(
-				"failed to enter sandbox: {}",
-				message.to_string_lossy()
-			));
-			sandbox_free_error(error);
-			return Err(result);
-		}
-	}
-	Ok(())
-}
-
-pub fn spawn(context: SpawnContext) -> tg::Result<tokio::process::Child> {
-	let executable = context
-		.command
-		.env
-		.iter()
-		.find_map(|(key, value)| {
-			(key == "PATH")
-				.then_some(value)
-				.and_then(|path| which(path.as_ref(), &context.command.executable))
-		})
-		.unwrap_or_else(|| context.command.executable.clone());
-	let stdin = context.stdin.is_none();
-	let stdout = context.stdout.is_none();
-	let stderr = context.stderr.is_none();
-	let mut command = tokio::process::Command::new(&executable);
+	let profile = create_sandbox_profile(manager, arg);
+	std::fs::write(directory.host_profile_path(), profile.as_bytes())
+		.map_err(|source| tg::error!(!source, "failed to write the sandbox profile"))?;
+	let mut command = tokio::process::Command::new("sandbox-exec");
 	command
-		.env_clear()
-		.args(context.command.args)
-		.envs(context.command.env)
-		.current_dir(context.command.cwd);
-	if let Some(fd) = context.stdin {
-		command.stdin(fd);
-	}
-	if let Some(fd) = context.stdout {
-		command.stdout(fd);
-	}
-	if let Some(fd) = context.stderr {
-		command.stderr(fd);
-	}
-	unsafe {
-		command
-			.pre_exec(move || {
-				if let Some(pty) = &context.pty {
-					start_session(pty, stdin, stdout, stderr);
-				}
-				Ok(())
-			})
-			.spawn()
-			.map_err(|source| tg::error!(!source, executable = %executable.display(), "failed to spawn the child process"))
-	}
+		.arg("-f")
+		.arg(directory.host_profile_path())
+		.arg(&manager.tangram_path);
+	crate::append_run_args(&mut command, run_arg, ready_fd);
+	command
+		.stdin(std::process::Stdio::null())
+		.stdout(std::process::Stdio::inherit())
+		.stderr(std::process::Stdio::inherit())
+		.kill_on_drop(true);
+	command
+		.spawn()
+		.map_err(|source| tg::error!(!source, "failed to spawn sandbox-exec"))
 }
 
-pub(crate) fn prepare_command_for_spawn(
+pub fn prepare_command_for_spawn(
 	command: &mut crate::Command,
 	tangram_path: &Path,
 	library_paths: &[std::path::PathBuf],
@@ -116,7 +79,7 @@ pub(crate) fn prepare_command_for_spawn(
 	Ok(())
 }
 
-pub(crate) fn prepare_runtime_libraries(arg: &ManagerArg) -> tg::Result<Vec<std::path::PathBuf>> {
+pub fn prepare_runtime_libraries(arg: &ManagerArg) -> tg::Result<Vec<std::path::PathBuf>> {
 	std::fs::remove_dir_all(&arg.rootfs_path).ok();
 	std::fs::create_dir_all(&arg.rootfs_path)
 		.map_err(|source| tg::error!(!source, "failed to create the sandbox directory"))?;
@@ -348,6 +311,10 @@ fn resolve_dynamic_library_in_dyld_environment(suffix: &str) -> Option<std::path
 }
 
 fn loaded_images() -> Vec<std::path::PathBuf> {
+	unsafe extern "C" {
+		fn _dyld_image_count() -> u32;
+		fn _dyld_get_image_name(index: u32) -> *const libc::c_char;
+	}
 	let image_count = unsafe { _dyld_image_count() };
 	(0..image_count)
 		.filter_map(|index| {
@@ -396,9 +363,9 @@ fn is_system_library_path(path: &Path) -> bool {
 		|| path.starts_with("/System/Volumes/Preboot/Cryptexes/OS/usr/lib/")
 }
 
-fn create_sandbox_profile(arg: &RunArg) -> CString {
+fn create_sandbox_profile(manager: &Manager, arg: &SpawnArg) -> CString {
 	let directory = crate::Directory::new(arg.path.clone());
-	let tangram_parent = arg.tangram_path.parent();
+	let tangram_parent = manager.tangram_path.parent();
 	let home_path = std::env::var_os("HOME").map(std::path::PathBuf::from);
 	let mut profile = String::new();
 	writedoc!(
@@ -540,8 +507,8 @@ fn create_sandbox_profile(arg: &RunArg) -> CString {
 			(subpath "{}")
 			(subpath "{}"))
 	"#,
-		arg.tangram_path.display(),
-		arg.rootfs_path.join("lib").display(),
+		manager.tangram_path.display(),
+		manager.rootfs_path.join("lib").display(),
 		directory.host_socket_path().display(),
 		directory.host_listen_path().display(),
 		directory.host_socket_path().display(),
@@ -703,17 +670,6 @@ fn kill_process_tree(pid: i32) {
 		let mut status = 0;
 		unsafe { libc::waitpid(*pid, std::ptr::addr_of_mut!(status), 0) };
 	}
-}
-
-unsafe extern "C" {
-	fn _dyld_image_count() -> u32;
-	fn _dyld_get_image_name(index: u32) -> *const libc::c_char;
-	fn sandbox_init(
-		profile: *const libc::c_char,
-		flags: u64,
-		errorbuf: *mut *const libc::c_char,
-	) -> libc::c_int;
-	fn sandbox_free_error(errorbuf: *const libc::c_char) -> libc::c_void;
 }
 
 /// Escape a string using the string literal syntax rules for `TinyScheme`. See <https://github.com/dchest/tinyscheme/blob/master/Manual.txt#L130>.

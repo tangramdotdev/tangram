@@ -4,23 +4,14 @@ use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[arg(long)]
-	pub artifacts_path: PathBuf,
-
 	#[arg(action = clap::ArgAction::Append, long = "library-path", num_args = 1)]
 	pub library_paths: Vec<PathBuf>,
-
-	#[command(flatten)]
-	pub options: super::Options,
 
 	#[arg(long)]
 	pub path: PathBuf,
 
 	#[arg(long)]
 	pub ready_fd: Option<i32>,
-
-	#[arg(long)]
-	pub rootfs_path: PathBuf,
 
 	#[arg(long)]
 	pub tangram_path: PathBuf,
@@ -30,15 +21,9 @@ impl Cli {
 	#[must_use]
 	pub fn command_sandbox_run(args: Args) -> std::process::ExitCode {
 		let config = tangram_sandbox::RunArg {
-			artifacts_path: args.artifacts_path,
-			hostname: args.options.hostname,
 			library_paths: args.library_paths,
-			mounts: args.options.mounts,
-			network: args.options.network.get(),
 			path: args.path,
-			rootfs_path: args.rootfs_path,
 			tangram_path: args.tangram_path,
-			user: args.options.user,
 		};
 		let result = tangram_sandbox::run(&config, args.ready_fd);
 		if let Err(error) = result {

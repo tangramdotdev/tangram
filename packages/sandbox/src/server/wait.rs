@@ -1,9 +1,8 @@
 use {
 	crate::server::Server,
-	bytes::Bytes,
-	futures::stream,
+	futures::{StreamExt as _, stream},
 	tangram_client::prelude::*,
-	tangram_http::{body::Boxed as BoxBody, response::builder::Ext as _},
+	tangram_http::body::Boxed as BoxBody,
 };
 
 impl Server {
@@ -35,20 +34,24 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
 		let server = self.clone();
 		let stream = stream::once(async move {
-			let result = server.wait(id).await;
-			let bytes = match result {
-				Ok(output) => serde_json::to_vec(&output).unwrap_or_default(),
-				Err(error) => error
-					.state()
-					.object()
-					.and_then(|object| {
-						serde_json::to_vec(&object.unwrap_error_ref().to_data()).ok()
-					})
-					.unwrap_or_default(),
-			};
-			Ok::<_, std::io::Error>(Bytes::from(bytes))
+			server
+				.wait(id)
+				.await
+				.map(crate::client::wait::Event::Output)
 		});
-		let response = http::Response::builder().data_stream(stream).unwrap();
+		let stream = stream.map(
+			|result: tg::Result<crate::client::wait::Event>| match result {
+				Ok(event) => event.try_into(),
+				Err(error) => error.try_into(),
+			},
+		);
+		let response = http::Response::builder()
+			.header(
+				http::header::CONTENT_TYPE,
+				mime::TEXT_EVENT_STREAM.to_string(),
+			)
+			.body(BoxBody::with_sse_stream(stream))
+			.unwrap();
 		Ok(response)
 	}
 }
