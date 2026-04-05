@@ -57,7 +57,7 @@ def main [
 
 	# Add the debug build to the path.
 	cargo build --all-features --release
-	ln -sf tangram target/debug/tg
+	ln -sf tangram target/release/tg
 	path add ($repository_path | path join 'target/release')
 
 	# Get the matching tests.
