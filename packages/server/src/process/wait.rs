@@ -1,6 +1,10 @@
 use {
 	crate::{Context, Server},
-	futures::{FutureExt as _, StreamExt as _, future, stream},
+	futures::{
+		FutureExt as _, StreamExt as _,
+		future::{self, BoxFuture},
+		stream,
+	},
 	std::sync::{
 		Arc,
 		atomic::{AtomicBool, Ordering},
@@ -18,38 +22,52 @@ impl Server {
 		_context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
-	) -> tg::Result<
-		Option<
-			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static + use<>,
-		>,
-	> {
+	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
 		// Try local first if requested.
-		let future = if Self::local(arg.local, arg.remotes.as_ref())
+		if Self::local(arg.local, arg.remotes.as_ref())
 			&& let Some(future) = self
 				.try_wait_process_local(id)
 				.await
 				.map_err(|source| tg::error!(!source, %id, "failed to wait for the process"))?
 		{
-			Some(future.left_future())
-		} else {
-			// Try remotes.
-			let remote_names = self
-				.remotes(arg.local, arg.remotes.clone())
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
-			self.try_wait_process_remote(id, &remote_names)
-				.await
-				.map_err(
-					|source| tg::error!(!source, %id, "failed to wait for the process on the remote"),
-				)?
-				.map(futures::FutureExt::right_future)
-		};
+			return self.attach_wait_process_cancel_guard(id, arg, future).await;
+		}
 
-		// If no future was found, return None.
-		let Some(future) = future else {
+		// Try peers.
+		let peers = self
+			.peers(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
+		if let Some(future) = self.try_wait_process_peer(id, &peers).await.map_err(
+			|source| tg::error!(!source, %id, "failed to wait for the process on the peer"),
+		)? {
+			return self.attach_wait_process_cancel_guard(id, arg, future).await;
+		}
+
+		// Try remotes.
+		let remote_names = self
+			.remotes(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
+		let Some(future) = self
+			.try_wait_process_remote(id, &remote_names)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %id, "failed to wait for the process on the remote"),
+			)?
+		else {
 			return Ok(None);
 		};
 
+		self.attach_wait_process_cancel_guard(id, arg, future).await
+	}
+
+	async fn attach_wait_process_cancel_guard(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::wait::Arg,
+		future: BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
+	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
 		// If a token is provided, attach a cancellation guard.
 		let future = if let Some(token) = arg.token.clone() {
 			let cancel = Arc::new(AtomicBool::new(true));
@@ -65,7 +83,8 @@ impl Server {
 						result
 					},
 				)
-			};
+			}
+			.boxed();
 
 			// Create guard that cancels if not defused.
 			let guard = {
@@ -86,9 +105,9 @@ impl Server {
 				})
 			};
 
-			future.attach(guard).left_future()
+			future.attach(guard).boxed()
 		} else {
-			future.right_future()
+			future
 		};
 
 		Ok(Some(future))
@@ -97,11 +116,7 @@ impl Server {
 	async fn try_wait_process_local(
 		&self,
 		id: &tg::process::Id,
-	) -> tg::Result<
-		Option<
-			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static + use<>,
-		>,
-	> {
+	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
 		let server = self.clone();
 		let id = id.clone();
 		let Some(stream) = server
@@ -145,18 +160,45 @@ impl Server {
 			};
 			Ok(Some(output))
 		};
-		Ok(Some(future))
+		Ok(Some(future.boxed()))
+	}
+
+	async fn try_wait_process_peer(
+		&self,
+		id: &tg::process::Id,
+		peers: &[String],
+	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
+		if peers.is_empty() {
+			return Ok(None);
+		}
+		let arg = tg::process::wait::Arg {
+			local: None,
+			remotes: None,
+			token: None,
+		};
+		for peer in peers {
+			let client = self.get_peer_client(peer.clone()).await.map_err(
+				|source| tg::error!(!source, peer = %peer, "failed to get the peer client"),
+			)?;
+			let future = client
+				.try_wait_process_future(id, arg.clone())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, peer = %peer, "failed to wait for the process"),
+				)?
+				.map(futures::FutureExt::boxed);
+			if let Some(future) = future {
+				return Ok(Some(future));
+			}
+		}
+		Ok(None)
 	}
 
 	async fn try_wait_process_remote(
 		&self,
 		id: &tg::process::Id,
 		remotes: &[String],
-	) -> tg::Result<
-		Option<
-			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static + use<>,
-		>,
-	> {
+	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
 		if remotes.is_empty() {
 			return Ok(None);
 		}
@@ -167,13 +209,13 @@ impl Server {
 		};
 		for remote in remotes {
 			let client = self.get_remote_client(remote.clone()).await.map_err(
-				|source| tg::error!(!source, %remote, "failed to get the remote client"),
+				|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
 			)?;
 			let future = client
 				.try_wait_process_future(id, arg.clone())
 				.await
 				.map_err(
-					|source| tg::error!(!source, %id, %remote, "failed to wait for the process"),
+					|source| tg::error!(!source, %id, remote = %remote, "failed to wait for the process"),
 				)?
 				.map(futures::FutureExt::boxed);
 			if let Some(future) = future {

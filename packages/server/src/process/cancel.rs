@@ -13,29 +13,45 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<()> {
-		// Forward to remote if requested.
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self
-				.get_remote_client(remote)
+		if Self::local(arg.local, arg.remotes.as_ref())
+			&& self
+				.get_process_exists_local(id)
 				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
-			let arg = tg::process::cancel::Arg {
-				local: None,
-				remotes: None,
-				token: arg.token,
-			};
-			client.cancel_process(id, arg).await.map_err(
-				|source| tg::error!(!source, %id, "failed to cancel the process on the remote"),
-			)?;
+				.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
+		{
+			return self.cancel_process_local(id, arg).await;
+		}
+
+		let peers = self
+			.peers(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
+		if self.cancel_process_peer(id, &arg, &peers).await? {
 			return Ok(());
 		}
 
-		// Get a database connection.
+		let remotes = self
+			.remotes(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
+		if self.cancel_process_remote(id, &arg, &remotes).await? {
+			return Ok(());
+		}
+
+		Err(tg::error!("failed to find the process"))
+	}
+
+	async fn cancel_process_local(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::cancel::Arg,
+	) -> tg::Result<()> {
+		// Get a register connection.
 		let mut connection = self
-			.database
+			.register
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection
@@ -97,6 +113,70 @@ impl Server {
 		}
 
 		Ok(())
+	}
+
+	async fn cancel_process_peer(
+		&self,
+		id: &tg::process::Id,
+		arg: &tg::process::cancel::Arg,
+		peers: &[String],
+	) -> tg::Result<bool> {
+		for peer in peers {
+			let client = self.get_peer_client(peer.clone()).await.map_err(
+				|source| tg::error!(!source, %id, peer = %peer, "failed to get the peer client"),
+			)?;
+			let output = client
+				.try_get_process(id, tg::process::get::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, peer = %peer, "failed to get the process"),
+				)?;
+			if output.is_none() {
+				continue;
+			}
+			let arg = tg::process::cancel::Arg {
+				local: None,
+				remotes: None,
+				token: arg.token.clone(),
+			};
+			client.cancel_process(id, arg).await.map_err(
+				|source| tg::error!(!source, %id, peer = %peer, "failed to cancel the process"),
+			)?;
+			return Ok(true);
+		}
+		Ok(false)
+	}
+
+	async fn cancel_process_remote(
+		&self,
+		id: &tg::process::Id,
+		arg: &tg::process::cancel::Arg,
+		remotes: &[String],
+	) -> tg::Result<bool> {
+		for remote in remotes {
+			let client = self.get_remote_client(remote.clone()).await.map_err(
+				|source| tg::error!(!source, %id, remote = %remote, "failed to get the remote client"),
+			)?;
+			let output = client
+				.try_get_process(id, tg::process::get::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, remote = %remote, "failed to get the process"),
+				)?;
+			if output.is_none() {
+				continue;
+			}
+			let arg = tg::process::cancel::Arg {
+				local: None,
+				remotes: None,
+				token: arg.token.clone(),
+			};
+			client.cancel_process(id, arg).await.map_err(
+				|source| tg::error!(!source, %id, remote = %remote, "failed to cancel the process"),
+			)?;
+			return Ok(true);
+		}
+		Ok(false)
 	}
 
 	pub(crate) async fn handle_cancel_process_request(

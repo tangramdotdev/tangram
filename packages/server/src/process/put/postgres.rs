@@ -10,26 +10,26 @@ impl Server {
 	pub(crate) async fn put_process_postgres(
 		id: &tg::process::Id,
 		arg: &tg::process::put::Arg,
-		database: &db::postgres::Database,
+		register: &db::postgres::Database,
 		touched_at: i64,
 	) -> tg::Result<()> {
-		Self::put_process_batch_postgres(&[(id, &arg.data)], database, touched_at).await
+		Self::put_process_batch_postgres(&[(id, &arg.data)], register, touched_at).await
 	}
 
 	pub(crate) async fn put_process_batch_postgres(
 		items: &[(&tg::process::Id, &tg::process::Data)],
-		database: &db::postgres::Database,
+		register: &db::postgres::Database,
 		touched_at: i64,
 	) -> tg::Result<()> {
 		if items.is_empty() {
 			return Ok(());
 		}
 
-		// Get a database connection.
-		let mut connection = database
+		// Get a register connection.
+		let mut connection = register
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection
@@ -242,7 +242,7 @@ impl Server {
 			let statement = indoc!(
 				"
 					insert into process_children (process, position, cached, child, options)
-					select unnest($1::text[]), unnest($2::int8[]), unnest($3::int8[]), unnest($4::text[]), unnest($5::text[])
+					select unnest($1::text[]), unnest($2::int8[]), unnest($3::bool[]), unnest($4::text[]), unnest($5::text[])
 					on conflict (process, child) do nothing;
 				"
 			);

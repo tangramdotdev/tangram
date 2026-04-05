@@ -1,6 +1,6 @@
 use {
 	crate::{Context, Server},
-	futures::{Stream, StreamExt as _},
+	futures::{StreamExt as _, stream::BoxStream},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 	tangram_http::{
@@ -15,9 +15,7 @@ impl Server {
 		_context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::tty::size::get::Arg,
-	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::tty::size::get::Event>> + Send + use<>>,
-	> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::tty::size::get::Event>>>> {
 		// Try local first if requested.
 		if Self::local(arg.local, arg.remotes.as_ref())
 			&& let Some(stream) = self
@@ -25,7 +23,19 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the process tty stream"))?
 		{
-			return Ok(Some(stream.left_stream()));
+			return Ok(Some(stream));
+		}
+
+		// Try peers.
+		let peers = self
+			.peers(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
+		if let Some(stream) = self
+			.try_get_process_tty_size_stream_peer(id, arg.clone(), &peers)
+			.await?
+		{
+			return Ok(Some(stream));
 		}
 
 		// Try remotes.
@@ -37,7 +47,7 @@ impl Server {
 			.try_get_process_tty_size_stream_remote(id, arg.clone(), &remotes)
 			.await?
 		{
-			return Ok(Some(stream.right_stream()));
+			return Ok(Some(stream));
 		}
 
 		Ok(None)
@@ -46,11 +56,7 @@ impl Server {
 	async fn try_get_process_tty_size_stream_local(
 		&self,
 		id: &tg::process::Id,
-	) -> tg::Result<
-		Option<
-			impl Stream<Item = tg::Result<tg::process::tty::size::get::Event>> + Send + 'static + use<>,
-		>,
-	> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::tty::size::get::Event>>>> {
 		// Check if the process exists locally.
 		if self
 			.try_get_process_local(id, false)
@@ -79,14 +85,66 @@ impl Server {
 		Ok(Some(stream))
 	}
 
+	async fn try_get_process_tty_size_stream_peer(
+		&self,
+		id: &tg::process::Id,
+		_arg: tg::process::tty::size::get::Arg,
+		peers: &[String],
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::tty::size::get::Event>>>> {
+		if peers.is_empty() {
+			return Ok(None);
+		}
+		let arg = tg::process::tty::size::get::Arg {
+			local: None,
+			remotes: None,
+		};
+		let mut error = None;
+		let mut stream = None;
+		for peer in peers {
+			let client = match self.get_peer_client(peer.clone()).await {
+				Ok(client) => client,
+				Err(source) => {
+					error.replace(tg::error!(
+						!source,
+						peer = %peer,
+						"failed to get the peer client"
+					));
+					continue;
+				},
+			};
+			match client
+				.try_get_process_tty_size_stream(id, arg.clone())
+				.await
+			{
+				Ok(Some(peer_stream)) => {
+					stream.replace(peer_stream.boxed());
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					error.replace(tg::error!(
+						!source,
+						peer = %peer,
+						"failed to get the process tty stream"
+					));
+				},
+			}
+		}
+		if let Some(stream) = stream {
+			return Ok(Some(stream));
+		}
+		if let Some(error) = error {
+			return Err(error);
+		}
+		Ok(None)
+	}
+
 	async fn try_get_process_tty_size_stream_remote(
 		&self,
 		id: &tg::process::Id,
 		_arg: tg::process::tty::size::get::Arg,
 		remotes: &[String],
-	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::tty::size::get::Event>> + Send + use<>>,
-	> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::tty::size::get::Event>>>> {
 		if remotes.is_empty() {
 			return Ok(None);
 		}
@@ -102,7 +160,7 @@ impl Server {
 				Err(source) => {
 					error.replace(tg::error!(
 						!source,
-						%remote,
+						remote = %remote,
 						"failed to get the remote client"
 					));
 					continue;
@@ -120,7 +178,7 @@ impl Server {
 				Err(source) => {
 					error.replace(tg::error!(
 						!source,
-						%remote,
+						remote = %remote,
 						"failed to get the process tty stream"
 					));
 				},

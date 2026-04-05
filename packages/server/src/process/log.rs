@@ -171,7 +171,7 @@ impl Server {
 		let blob = self.write(arg, Cursor::new(blob_bytes)).await?.blob;
 
 		let connection = self
-			.database
+			.register
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get db connection"))?;

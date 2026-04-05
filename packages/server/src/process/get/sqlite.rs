@@ -9,13 +9,13 @@ use {
 impl Server {
 	pub(crate) async fn try_get_process_batch_sqlite(
 		&self,
-		database: &db::sqlite::Database,
+		register: &db::sqlite::Database,
 		ids: &[tg::process::Id],
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
-		let connection = database
+		let connection = register
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 
 		let outputs = connection
 			.with({

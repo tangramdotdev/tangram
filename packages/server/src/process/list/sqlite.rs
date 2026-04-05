@@ -9,12 +9,12 @@ use {
 impl Server {
 	pub(crate) async fn list_processes_sqlite(
 		&self,
-		database: &db::sqlite::Database,
+		register: &db::sqlite::Database,
 	) -> tg::Result<Vec<tg::process::get::Output>> {
-		let connection = database
+		let connection = register
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 
 		let outputs = connection
 			.with(move |connection, cache| Self::list_processes_sqlite_sync(connection, cache))

@@ -253,12 +253,12 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to delete objects"))?;
 
-		// Get a database connection.
+		// Get a register connection.
 		let connection = self
-			.database
+			.register
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 
 		// Delete processes.
 		let p = connection.p();

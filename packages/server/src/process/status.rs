@@ -1,6 +1,9 @@
 use {
 	crate::{Context, Server},
-	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream},
+	futures::{
+		StreamExt as _, TryStreamExt as _, future,
+		stream::{self, BoxStream},
+	},
 	indoc::formatdoc,
 	std::time::Duration,
 	tangram_client::prelude::*,
@@ -19,15 +22,24 @@ impl Server {
 		_context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::status::Arg,
-	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static + use<>>,
-	> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		// Try local first if requested.
 		if Self::local(arg.local, arg.remotes.as_ref())
 			&& let Some(status) = self.try_get_process_status_stream_local(id).await.map_err(
 				|source| tg::error!(!source, %id, "failed to get the process status stream"),
 			)? {
-			return Ok(Some(status.left_stream()));
+			return Ok(Some(status));
+		}
+
+		// Try peers.
+		let peers = self
+			.peers(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
+		if let Some(status) = self.try_get_process_status_peer(id, &peers).await.map_err(
+			|source| tg::error!(!source, %id, "failed to get the process status from the peer"),
+		)? {
+			return Ok(Some(status));
 		}
 
 		// Try remotes.
@@ -41,7 +53,7 @@ impl Server {
 			.map_err(
 				|source| tg::error!(!source, %id, "failed to get the process status from the remote"),
 			)? {
-			return Ok(Some(status.right_stream()));
+			return Ok(Some(status));
 		}
 
 		Ok(None)
@@ -50,9 +62,7 @@ impl Server {
 	pub(crate) async fn try_get_process_status_stream_local(
 		&self,
 		id: &tg::process::Id,
-	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static + use<>>,
-	> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		// Verify the process is local.
 		if !self
 			.get_process_exists_local(id)
@@ -109,7 +119,7 @@ impl Server {
 			.map_ok(tg::process::status::Event::Status)
 			.chain(stream::once(future::ok(tg::process::status::Event::End)));
 
-		Ok(Some(stream))
+		Ok(Some(stream.boxed()))
 	}
 
 	pub(crate) async fn get_current_process_status_local(
@@ -125,12 +135,12 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Status>> {
-		// Get a database connection.
+		// Get a register connection.
 		let connection = self
-			.database
+			.register
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 
 		// Get the status.
 		let p = connection.p();
@@ -154,37 +164,65 @@ impl Server {
 			return Ok(None);
 		};
 
-		// Drop the database connection.
+		// Drop the register connection.
 		drop(connection);
 
 		Ok(Some(status))
 	}
 
-	async fn try_get_process_status_remote(
+	async fn try_get_process_status_peer(
 		&self,
 		id: &tg::process::Id,
-		remotes: &[String],
-	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static + use<>>,
-	> {
-		if remotes.is_empty() {
+		peers: &[String],
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
+		if peers.is_empty() {
 			return Ok(None);
 		}
-		for remote in remotes {
-			let client = self.get_remote_client(remote.clone()).await.map_err(
-				|source| tg::error!(!source, %id, %remote, "failed to get the remote client"),
+
+		for peer in peers {
+			let client = self.get_peer_client(peer.clone()).await.map_err(
+				|source| tg::error!(!source, %id, peer = %peer, "failed to get the peer client"),
 			)?;
 			let stream = client
 				.try_get_process_status_stream(id, tg::process::status::Arg::default())
 				.await
 				.map_err(
-					|source| tg::error!(!source, %id, %remote, "failed to get the process status"),
+					|source| tg::error!(!source, %id, peer = %peer, "failed to get the process status"),
 				)?
 				.map(futures::StreamExt::boxed);
 			if let Some(stream) = stream {
 				return Ok(Some(stream));
 			}
 		}
+
+		Ok(None)
+	}
+
+	async fn try_get_process_status_remote(
+		&self,
+		id: &tg::process::Id,
+		remotes: &[String],
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
+		if remotes.is_empty() {
+			return Ok(None);
+		}
+
+		for remote in remotes {
+			let client = self.get_remote_client(remote.clone()).await.map_err(
+				|source| tg::error!(!source, %id, remote = %remote, "failed to get the remote client"),
+			)?;
+			let stream = client
+				.try_get_process_status_stream(id, tg::process::status::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, remote = %remote, "failed to get the process status"),
+				)?
+				.map(futures::StreamExt::boxed);
+			if let Some(stream) = stream {
+				return Ok(Some(stream));
+			}
+		}
+
 		Ok(None)
 	}
 

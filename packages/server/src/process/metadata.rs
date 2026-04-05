@@ -22,6 +22,15 @@ impl Server {
 			return Ok(Some(metadata));
 		}
 
+		// Try peers.
+		let peers = self
+			.peers(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
+		if let Some(metadata) = self.try_get_process_metadata_peer(id, &peers).await? {
+			return Ok(Some(metadata));
+		}
+
 		// Try remotes.
 		let remotes = self
 			.remotes(arg.local, arg.remotes.clone())
@@ -54,6 +63,55 @@ impl Server {
 			.collect())
 	}
 
+	async fn try_get_process_metadata_peer(
+		&self,
+		id: &tg::process::Id,
+		peers: &[String],
+	) -> tg::Result<Option<tg::process::Metadata>> {
+		if peers.is_empty() {
+			return Ok(None);
+		}
+		let mut error = None;
+		let mut metadata = None;
+		for peer in peers {
+			let client = match self.get_peer_client(peer.clone()).await {
+				Ok(client) => client,
+				Err(source) => {
+					error.replace(tg::error!(
+						!source,
+						peer = %peer,
+						"failed to get the peer client"
+					));
+					continue;
+				},
+			};
+			match client
+				.try_get_process_metadata(id, tg::process::metadata::Arg::default())
+				.await
+			{
+				Ok(Some(peer_metadata)) => {
+					metadata.replace(peer_metadata);
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					error.replace(tg::error!(
+						!source,
+						peer = %peer,
+						"failed to get the process metadata"
+					));
+				},
+			}
+		}
+		if let Some(metadata) = metadata {
+			return Ok(Some(metadata));
+		}
+		if let Some(error) = error {
+			return Err(error);
+		}
+		Ok(None)
+	}
+
 	async fn try_get_process_metadata_remote(
 		&self,
 		id: &tg::process::Id,
@@ -70,7 +128,7 @@ impl Server {
 				Err(source) => {
 					error.replace(tg::error!(
 						!source,
-						%remote,
+						remote = %remote,
 						"failed to get the remote client"
 					));
 					continue;
@@ -88,7 +146,7 @@ impl Server {
 				Err(source) => {
 					error.replace(tg::error!(
 						!source,
-						%remote,
+						remote = %remote,
 						"failed to get the process metadata"
 					));
 				},

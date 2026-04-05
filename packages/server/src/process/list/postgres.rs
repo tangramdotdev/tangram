@@ -8,12 +8,12 @@ use {
 impl Server {
 	pub(crate) async fn list_processes_postgres(
 		&self,
-		database: &db::postgres::Database,
+		register: &db::postgres::Database,
 	) -> tg::Result<Vec<tg::process::get::Output>> {
-		let connection = database
+		let connection = register
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 
 		#[derive(db::postgres::row::Deserialize)]
 		struct Row {
@@ -59,7 +59,7 @@ impl Server {
 					processes.id,
 					actual_checksum,
 					cacheable,
-					(select coalesce(json_agg(json_build_object('cached', cached::bool, 'process', child, 'options', options::json) order by position), '[]'::json) from process_children where process = processes.id) as children,
+					(select coalesce(json_agg(json_build_object('cached', cached, 'process', child, 'options', options::json) order by position), '[]'::json) from process_children where process = processes.id) as children,
 					command,
 					created_at,
 					error,

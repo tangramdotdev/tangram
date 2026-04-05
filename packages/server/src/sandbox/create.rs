@@ -19,10 +19,10 @@ impl Server {
 
 		let id = tg::sandbox::Id::new();
 		let connection = self
-			.database
+			.register
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -74,7 +74,7 @@ impl Server {
 			process: None,
 		};
 		self.messenger
-			.stream_publish("sandboxes.queue".to_owned(), subject, payload)
+			.stream_publish("sandboxes_queue".to_owned(), subject, payload)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to enqueue the sandbox"))?
 			.await

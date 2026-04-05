@@ -9,7 +9,11 @@ let config = {
 	cleaner: true,
 	database: {
 		kind: 'postgres',
-		url: 'postgres://postgres@localhost:5432/database',
+		url: 'postgres://root@localhost:26257/database?sslmode=disable',
+	},
+	register: {
+		kind: 'postgres',
+		url: 'postgres://postgres@localhost:5432/register',
 	},
 	http: {
 		url: 'http://localhost:8476'

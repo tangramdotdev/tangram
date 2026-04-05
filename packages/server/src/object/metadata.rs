@@ -22,6 +22,15 @@ impl Server {
 			return Ok(Some(metadata));
 		}
 
+		// Try peers.
+		let peers = self
+			.peers(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
+		if let Some(metadata) = self.try_get_object_metadata_peer(id, &peers).await? {
+			return Ok(Some(metadata));
+		}
+
 		// Try remotes.
 		let remotes = self
 			.remotes(arg.local, arg.remotes.clone())
@@ -74,7 +83,7 @@ impl Server {
 				Err(source) => {
 					error.replace(tg::error!(
 						!source,
-						%remote,
+						remote = %remote,
 						"failed to get the remote client"
 					));
 					continue;
@@ -92,7 +101,56 @@ impl Server {
 				Err(source) => {
 					error.replace(tg::error!(
 						!source,
-						%remote,
+						remote = %remote,
+						"failed to get the object metadata"
+					));
+				},
+			}
+		}
+		if let Some(metadata) = metadata {
+			return Ok(Some(metadata));
+		}
+		if let Some(error) = error {
+			return Err(error);
+		}
+		Ok(None)
+	}
+
+	async fn try_get_object_metadata_peer(
+		&self,
+		id: &tg::object::Id,
+		peers: &[String],
+	) -> tg::Result<Option<tg::object::Metadata>> {
+		if peers.is_empty() {
+			return Ok(None);
+		}
+		let mut error = None;
+		let mut metadata = None;
+		for peer in peers {
+			let client = match self.get_peer_client(peer.clone()).await {
+				Ok(client) => client,
+				Err(source) => {
+					error.replace(tg::error!(
+						!source,
+						peer = %peer,
+						"failed to get the peer client"
+					));
+					continue;
+				},
+			};
+			match client
+				.try_get_object_metadata(id, tg::object::metadata::Arg::default())
+				.await
+			{
+				Ok(Some(remote_metadata)) => {
+					metadata.replace(remote_metadata);
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					error.replace(tg::error!(
+						!source,
+						peer = %peer,
 						"failed to get the object metadata"
 					));
 				},

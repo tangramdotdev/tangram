@@ -58,10 +58,10 @@ impl Server {
 		config: &crate::config::Watchdog,
 	) -> tg::Result<u64> {
 		let connection = self
-			.database
+			.register
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 		let p = connection.p();
 
 		// Get processes to finish.
@@ -178,10 +178,10 @@ impl Server {
 		id: &tg::sandbox::Id,
 	) -> tg::Result<bool> {
 		let connection = self
-			.database
+			.register
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"

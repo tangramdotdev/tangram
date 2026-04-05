@@ -19,6 +19,7 @@ pub struct Messenger {
 #[derive(Clone)]
 pub struct Stream {
 	stream: nats::jetstream::stream::Stream,
+	id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -105,25 +106,25 @@ impl Messenger {
 	}
 
 	async fn get_stream(&self, name: String) -> Result<Stream, Error> {
-		let name = self.stream_name(name);
+		let name = self.stream_name(&name);
 		let stream = self
 			.jetstream
 			.get_stream(name)
 			.await
 			.map_err(Error::other)?;
-		let stream = Stream::new(stream);
+		let stream = Stream::new(stream, self.id.clone());
 		Ok(stream)
 	}
 
 	async fn create_stream(&self, name: String, config: StreamConfig) -> Result<Stream, Error> {
-		let name = self.stream_name(name);
+		let name = self.stream_name(&name);
 		let stream_config = Self::stream_config(name, &config);
 		let stream = self
 			.jetstream
 			.create_stream(stream_config)
 			.await
 			.map_err(Error::other)?;
-		let stream = Stream::new(stream);
+		let stream = Stream::new(stream, self.id.clone());
 		Ok(stream)
 	}
 
@@ -132,14 +133,14 @@ impl Messenger {
 		name: String,
 		config: StreamConfig,
 	) -> Result<Stream, Error> {
-		let name = self.stream_name(name);
+		let name = self.stream_name(&name);
 		let stream_config = Self::stream_config(name, &config);
 		let stream = self
 			.jetstream
 			.get_or_create_stream(stream_config)
 			.await
 			.map_err(Error::other)?;
-		let stream = Stream::new(stream);
+		let stream = Stream::new(stream, self.id.clone());
 		Ok(stream)
 	}
 
@@ -172,7 +173,7 @@ impl Messenger {
 	}
 
 	async fn delete_stream(&self, name: String) -> Result<(), Error> {
-		let name = self.stream_name(name);
+		let name = self.stream_name(&name);
 		self.jetstream
 			.delete_stream(name)
 			.await
@@ -265,17 +266,17 @@ impl Messenger {
 		}
 	}
 
-	fn stream_name(&self, name: String) -> String {
+	fn stream_name(&self, name: &str) -> String {
 		match &self.id {
 			Some(id) => format!("{name}_{id}"),
-			None => name,
+			None => name.to_owned(),
 		}
 	}
 }
 
 impl Stream {
-	fn new(stream: nats::jetstream::stream::Stream) -> Self {
-		Self { stream }
+	fn new(stream: nats::jetstream::stream::Stream, id: Option<String>) -> Self {
+		Self { stream, id }
 	}
 
 	async fn info(&self) -> Result<StreamInfo, Error> {
@@ -302,7 +303,7 @@ impl Stream {
 		name: Option<String>,
 		config: ConsumerConfig,
 	) -> Result<Consumer, Error> {
-		let config = Self::consumer_config(name, &config);
+		let config = self.consumer_config(name, &config);
 		let consumer = self
 			.stream
 			.create_consumer(config)
@@ -320,7 +321,7 @@ impl Stream {
 		let name = name
 			.or_else(|| config.durable_name.clone())
 			.ok_or_else(|| Error::other("expected a durable consumer name"))?;
-		let config = Self::consumer_config(Some(name.clone()), &config);
+		let config = self.consumer_config(Some(name.clone()), &config);
 		let consumer = self
 			.stream
 			.get_or_create_consumer(&name, config)
@@ -331,9 +332,18 @@ impl Stream {
 	}
 
 	fn consumer_config(
+		&self,
 		name: Option<String>,
 		config: &ConsumerConfig,
 	) -> async_nats::jetstream::consumer::pull::Config {
+		let filter_subjects = config
+			.filter_subjects
+			.iter()
+			.map(|subject| match &self.id {
+				Some(id) => format!("{id}.{subject}"),
+				None => subject.clone(),
+			})
+			.collect::<Vec<_>>();
 		let deliver_policy = match config.deliver_policy {
 			DeliverPolicy::All => nats::jetstream::consumer::DeliverPolicy::All,
 			DeliverPolicy::New => nats::jetstream::consumer::DeliverPolicy::New,
@@ -346,8 +356,8 @@ impl Stream {
 			ack_policy,
 			deliver_policy,
 			durable_name: config.durable_name.clone().or(name),
-			filter_subject: config.filter_subjects.first().cloned().unwrap_or_default(),
-			filter_subjects: config.filter_subjects.clone(),
+			filter_subject: filter_subjects.first().cloned().unwrap_or_default(),
+			filter_subjects,
 			..Default::default()
 		}
 	}

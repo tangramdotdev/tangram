@@ -20,18 +20,63 @@ impl Server {
 			return Ok(Some(output));
 		}
 
+		let peers = self
+			.peers(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
+		if let Some(output) = self.try_get_sandbox_peer(id, &peers).await? {
+			return Ok(Some(output));
+		}
+
 		let remotes = self
 			.remotes(arg.local, arg.remotes.clone())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
-		for remote in remotes {
-			let client = self.get_remote_client(remote.clone()).await.map_err(
-				|source| tg::error!(!source, %id, %remote, "failed to get the remote client"),
+		if let Some(output) = self.try_get_sandbox_remote(id, &remotes).await? {
+			return Ok(Some(output));
+		}
+
+		Ok(None)
+	}
+
+	async fn try_get_sandbox_peer(
+		&self,
+		id: &tg::sandbox::Id,
+		peers: &[String],
+	) -> tg::Result<Option<tg::sandbox::get::Output>> {
+		for peer in peers {
+			let client = self.get_peer_client(peer.clone()).await.map_err(
+				|source| tg::error!(!source, %id, peer = %peer, "failed to get the peer client"),
 			)?;
 			let output = client
 				.try_get_sandbox(id, tg::sandbox::get::Arg::default())
 				.await
-				.map_err(|source| tg::error!(!source, %id, %remote, "failed to get the sandbox"))?;
+				.map_err(
+					|source| tg::error!(!source, %id, peer = %peer, "failed to get the sandbox"),
+				)?;
+			if output.is_some() {
+				return Ok(output);
+			}
+		}
+
+		Ok(None)
+	}
+
+	async fn try_get_sandbox_remote(
+		&self,
+		id: &tg::sandbox::Id,
+		remotes: &[String],
+	) -> tg::Result<Option<tg::sandbox::get::Output>> {
+		for remote in remotes {
+			let client = self.get_remote_client(remote.clone()).await.map_err(
+				|source| tg::error!(!source, %id, remote = %remote, "failed to get the remote client"),
+			)?;
+			let output = client
+				.try_get_sandbox(id, tg::sandbox::get::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, remote = %remote, "failed to get the sandbox"),
+				)?;
 			if output.is_some() {
 				return Ok(output);
 			}

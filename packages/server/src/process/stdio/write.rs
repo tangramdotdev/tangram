@@ -22,6 +22,12 @@ enum Destination {
 	Null,
 }
 
+enum WriteTarget {
+	Local,
+	Peer(String),
+	Remote(String),
+}
+
 impl Server {
 	pub async fn write_process_stdio_with_context(
 		&self,
@@ -40,22 +46,46 @@ impl Server {
 			let server = self.clone();
 			let id = id.clone();
 			async move {
-				let future = if Self::local(arg.local, arg.remotes.as_ref())
+				let target = if Self::local(arg.local, arg.remotes.as_ref())
 					&& server
 						.get_process_exists_local(&id)
 						.await
 						.map_err(|source| {
 							tg::error!(!source, "failed to check if the process exists")
 						})? {
-					server
-						.write_process_stdio_local_task(&id, &arg.streams, input)
-						.left_future()
-				} else if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-					server
-						.write_process_stdio_remote_task(&id, &arg.streams, input, remote)
-						.right_future()
+					WriteTarget::Local
 				} else {
-					return Err(tg::error!("not found"));
+					let peers = server
+						.peers(arg.local, arg.remotes.clone())
+						.await
+						.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
+					if let Some(peer) = server.try_get_process_stdio_write_peer(&id, &peers).await?
+					{
+						WriteTarget::Peer(peer)
+					} else {
+						let remotes = server
+							.remotes(arg.local, arg.remotes.clone())
+							.await
+							.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
+						let Some(remote) = server
+							.try_get_process_stdio_write_remote(&id, &remotes)
+							.await?
+						else {
+							return Err(tg::error!("not found"));
+						};
+						WriteTarget::Remote(remote)
+					}
+				};
+				let future = match target {
+					WriteTarget::Local => server
+						.write_process_stdio_local_task(&id, &arg.streams, input)
+						.boxed(),
+					WriteTarget::Peer(peer) => server
+						.write_process_stdio_peer_task(&id, &arg.streams, input, peer)
+						.boxed(),
+					WriteTarget::Remote(remote) => server
+						.write_process_stdio_remote_task(&id, &arg.streams, input, remote)
+						.boxed(),
 				};
 
 				let result = if let Some(stopper) = stopper {
@@ -166,7 +196,7 @@ impl Server {
 										tg::error!(!source, "failed to serialize the stdio event")
 									})?;
 							self.messenger
-								.stream_publish("processes.stdio".to_owned(), subject, payload)
+								.stream_publish("processes_stdio".to_owned(), subject, payload)
 								.and_then(|result| result)
 								.await
 								.map_err(|source| tg::error!(!source, "failed to publish stdio"))?;
@@ -189,7 +219,7 @@ impl Server {
 						}
 						let subject = format!("processes.stdio.{id}.{stream}");
 						self.messenger
-							.stream_publish("processes.stdio".to_owned(), subject, payload.clone())
+							.stream_publish("processes_stdio".to_owned(), subject, payload.clone())
 							.and_then(|result| result)
 							.await
 							.map_err(|source| tg::error!(!source, "failed to publish stdio"))?;
@@ -201,17 +231,61 @@ impl Server {
 		Ok(())
 	}
 
-	async fn write_process_stdio_remote_task(
+	async fn try_get_process_stdio_write_peer(
+		&self,
+		id: &tg::process::Id,
+		peers: &[String],
+	) -> tg::Result<Option<String>> {
+		for peer in peers {
+			let client = self.get_peer_client(peer.clone()).await.map_err(
+				|source| tg::error!(!source, %id, peer = %peer, "failed to get the peer client"),
+			)?;
+			let output = client
+				.try_get_process(id, tg::process::get::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, peer = %peer, "failed to get the process"),
+				)?;
+			if output.is_some() {
+				return Ok(Some(peer.clone()));
+			}
+		}
+		Ok(None)
+	}
+
+	async fn try_get_process_stdio_write_remote(
+		&self,
+		id: &tg::process::Id,
+		remotes: &[String],
+	) -> tg::Result<Option<String>> {
+		for remote in remotes {
+			let client = self.get_remote_client(remote.clone()).await.map_err(
+				|source| tg::error!(!source, %id, remote = %remote, "failed to get the remote client"),
+			)?;
+			let output = client
+				.try_get_process(id, tg::process::get::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, remote = %remote, "failed to get the process"),
+				)?;
+			if output.is_some() {
+				return Ok(Some(remote.clone()));
+			}
+		}
+		Ok(None)
+	}
+
+	async fn write_process_stdio_peer_task(
 		&self,
 		id: &tg::process::Id,
 		streams: &[tg::process::stdio::Stream],
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
-		remote: String,
+		peer: String,
 	) -> tg::Result<()> {
 		let client = self
-			.get_remote_client(remote.clone())
+			.get_peer_client(peer.clone())
 			.await
-			.map_err(|source| tg::error!(!source, %remote, "failed to get the remote client"))?;
+			.map_err(|source| tg::error!(!source, peer = %peer, "failed to get the peer client"))?;
 		let arg = tg::process::stdio::write::Arg {
 			streams: streams.to_vec(),
 			..Default::default()
@@ -219,7 +293,30 @@ impl Server {
 		let output = client
 			.write_process_stdio(id, arg, input)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to write stdio"))?;
+			.map_err(|source| tg::error!(!source, peer = %peer, "failed to write stdio"))?;
+		let mut output = pin!(output);
+		while output.try_next().await?.is_some() {}
+		Ok(())
+	}
+
+	async fn write_process_stdio_remote_task(
+		&self,
+		id: &tg::process::Id,
+		streams: &[tg::process::stdio::Stream],
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
+		remote: String,
+	) -> tg::Result<()> {
+		let client = self.get_remote_client(remote.clone()).await.map_err(
+			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
+		)?;
+		let arg = tg::process::stdio::write::Arg {
+			streams: streams.to_vec(),
+			..Default::default()
+		};
+		let output = client
+			.write_process_stdio(id, arg, input)
+			.await
+			.map_err(|source| tg::error!(!source, remote = %remote, "failed to write stdio"))?;
 		let mut output = pin!(output);
 		while output.try_next().await?.is_some() {}
 		Ok(())

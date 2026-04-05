@@ -39,12 +39,12 @@ impl Server {
 		let include_version = include_field("version");
 
 		let processes = if include_processes {
-			// Get a database connection.
+			// Get a register connection.
 			let connection = self
-				.database
+				.register
 				.connection()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+				.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 
 			// Get the process health.
 			let permits = if self.config.runner.is_some() {
@@ -80,6 +80,14 @@ impl Server {
 
 		let database = if include_database {
 			let available_connections = match &self.database {
+				#[cfg(feature = "postgres")]
+				Database::Postgres(database) => database.pool().available().to_u64().unwrap(),
+				#[cfg(feature = "sqlite")]
+				Database::Sqlite(database) => {
+					database.read_pool().available().to_u64().unwrap()
+						+ database.write_pool().available().to_u64().unwrap()
+				},
+			} + match &self.register {
 				#[cfg(feature = "postgres")]
 				Database::Postgres(database) => database.pool().available().to_u64().unwrap(),
 				#[cfg(feature = "sqlite")]

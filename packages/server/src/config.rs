@@ -29,6 +29,9 @@ pub struct Config {
 	#[serde(default)]
 	pub database: Database,
 
+	#[serde(default = "default_register")]
+	pub register: Database,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub directory: Option<PathBuf>,
 
@@ -49,6 +52,9 @@ pub struct Config {
 
 	#[serde(default)]
 	pub messenger: Messenger,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub peers: Option<Vec<Peer>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remotes: Option<Vec<Remote>>,
@@ -302,6 +308,19 @@ pub struct NatsMessenger {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Remote {
+	pub name: String,
+	pub url: Uri,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub reconnect: Option<Reconnect>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<Retry>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Peer {
 	pub name: String,
 	pub url: Uri,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -602,12 +621,14 @@ impl Default for Config {
 			checkin: Checkin::default(),
 			cleaner: None,
 			database: Database::default(),
+			register: default_register(),
 			directory: None,
 			http: Some(Http::default()),
 			index: Index::default(),
 			indexer: Some(Indexer::default()),
 			finalizer: Some(Finalizer::default()),
 			messenger: Messenger::default(),
+			peers: None,
 			remotes: None,
 			runner: Some(Runner::default()),
 			store: Store::default(),
@@ -924,6 +945,13 @@ impl Default for Write {
 #[expect(clippy::unnecessary_wraps)]
 fn default_finalizer() -> Option<Finalizer> {
 	Some(Finalizer::default())
+}
+
+fn default_register() -> Database {
+	Database::Sqlite(SqliteDatabase {
+		connections: None,
+		path: PathBuf::from("register"),
+	})
 }
 
 #[expect(clippy::unnecessary_wraps)]

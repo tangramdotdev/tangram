@@ -174,7 +174,7 @@ impl Server {
 		let mut messages = if remote.is_none() {
 			let stream = self
 				.messenger
-				.get_stream("sandboxes.processes.queue".to_owned())
+				.get_stream("sandboxes_processes_queue".to_owned())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the process queue stream"))?;
 			let consumer_config = tangram_messenger::ConsumerConfig {
@@ -183,8 +183,9 @@ impl Server {
 				durable_name: None,
 				filter_subjects: vec![format!("sandboxes.{id}.processes.queue")],
 			};
+			let consumer_name = format!("sandboxes_processes_queue_{id}");
 			let consumer = stream
-				.create_consumer(None, consumer_config)
+				.get_or_create_consumer(Some(consumer_name), consumer_config)
 				.await
 				.map_err(|source| {
 					tg::error!(!source, "failed to create a process queue consumer")
