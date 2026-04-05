@@ -228,6 +228,7 @@ impl Server {
 				dependencies: BTreeMap::new(),
 				executable: metadata.permissions().mode() & 0o111 != 0,
 				module: None,
+				size: Some(metadata.len()),
 			})
 		} else if metadata.is_symlink() {
 			let path = std::fs::read_link(&item.path)

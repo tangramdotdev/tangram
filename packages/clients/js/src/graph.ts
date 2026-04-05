@@ -83,12 +83,14 @@ export class Graph {
 					);
 					let executable = node.executable ?? false;
 					let module = node.module ?? undefined;
+					let size = node.size ?? undefined;
 					return {
 						kind: "file" as const,
 						contents,
 						dependencies,
 						executable,
 						module,
+						size,
 					};
 				} else if (node.kind === "symlink") {
 					let artifact = tg.Graph.Edge.fromArg(node.artifact, arg.nodes);
@@ -194,6 +196,9 @@ export class Graph {
 					}
 					if ("executable" in argNode) {
 						node.executable = argNode.executable;
+					}
+					if ("size" in argNode) {
+						node.size = argNode.size;
 					}
 					nodes.push(node);
 				} else if (argNode.kind === "symlink") {
@@ -332,6 +337,7 @@ export namespace Graph {
 				| undefined;
 			executable?: boolean | undefined;
 			module?: string | undefined;
+			size?: number | undefined;
 		};
 
 		export type Symlink = {
@@ -560,6 +566,7 @@ export namespace Graph {
 		};
 		executable: boolean;
 		module: string | undefined;
+		size: number | undefined;
 	};
 
 	export namespace File {
@@ -580,6 +587,12 @@ export namespace Graph {
 			}
 			if (object.executable !== false) {
 				data.executable = object.executable;
+			}
+			if (object.module !== undefined) {
+				data.module = object.module;
+			}
+			if (object.size !== undefined) {
+				data.size = object.size;
 			}
 			return data;
 		};
@@ -609,6 +622,7 @@ export namespace Graph {
 				),
 				executable: data.executable ?? false,
 				module: data.module ?? undefined,
+				size: data.size ?? undefined,
 			};
 		};
 
@@ -1038,6 +1052,7 @@ export namespace Graph {
 			};
 			executable?: boolean;
 			module?: string;
+			size?: number;
 		};
 
 		export namespace File {

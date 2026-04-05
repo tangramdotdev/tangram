@@ -65,6 +65,7 @@ impl Builder {
 				.collect(),
 			executable: self.executable,
 			module: self.module,
+			size: None,
 		}))
 	}
 }
