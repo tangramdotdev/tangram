@@ -175,7 +175,7 @@ impl Server {
 #[derive(Clone)]
 enum OutputHandle {
 	Null,
-	Pty(std::sync::Arc<crate::common::Pty>),
+	Pty(std::sync::Arc<crate::pty::Pty>),
 	Stderr(std::sync::Arc<tokio::sync::Mutex<tokio::process::ChildStderr>>),
 	Stdout(std::sync::Arc<tokio::sync::Mutex<tokio::process::ChildStdout>>),
 }

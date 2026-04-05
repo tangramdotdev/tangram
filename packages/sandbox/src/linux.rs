@@ -1,5 +1,5 @@
 use {
-	crate::{Directory, Manager, ManagerArg, RunArg, SpawnArg},
+	crate::{PrepareRootfsArg, RunArg, Sandbox, SpawnArg},
 	indoc::indoc,
 	std::{
 		ffi::{CStr, CString, OsStr},
@@ -17,18 +17,18 @@ struct User {
 	uid: libc::uid_t,
 }
 
-pub fn prepare_runtime_libraries(arg: &ManagerArg) -> tg::Result<Vec<PathBuf>> {
-	std::fs::remove_dir_all(&arg.rootfs_path).ok();
-	std::fs::create_dir_all(&arg.rootfs_path)
+pub fn prepare_runtime_libraries(arg: &PrepareRootfsArg) -> tg::Result<()> {
+	std::fs::remove_dir_all(&arg.path).ok();
+	std::fs::create_dir_all(&arg.path)
 		.map_err(|source| tg::error!(!source, "failed to create the sandbox directory"))?;
 	let permissions = <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755);
 	crate::ROOTFS
-		.extract(&arg.rootfs_path)
+		.extract(&arg.path)
 		.map_err(|source| tg::error!(!source, "failed to extract the sandbox rootfs"))?;
-	crate::set_rootfs_permissions(&arg.rootfs_path, &crate::ROOTFS, &permissions)?;
-	prepare_rootfs_mountpoints(&arg.rootfs_path)?;
+	crate::set_rootfs_permissions(&arg.path, &crate::ROOTFS, &permissions)?;
+	prepare_rootfs_mountpoints(&arg.path)?;
 
-	let lib_path = arg.rootfs_path.join("opt/tangram/lib");
+	let lib_path = arg.path.join("opt/tangram/lib");
 	let output = std::process::Command::new("ldd")
 		.arg(&arg.tangram_path)
 		.output()
@@ -129,7 +129,7 @@ pub fn prepare_runtime_libraries(arg: &ManagerArg) -> tg::Result<Vec<PathBuf>> {
 		})?;
 	}
 
-	Ok(Vec::new())
+	Ok(())
 }
 
 pub fn prepare_command_for_spawn(
@@ -148,17 +148,15 @@ pub fn prepare_command_for_spawn(
 }
 
 pub fn spawn_jailer(
-	manager: &Manager,
 	arg: &SpawnArg,
 	run_arg: &RunArg,
 	ready_fd: RawFd,
 ) -> tg::Result<tokio::process::Child> {
-	let directory = Directory::new(arg.path.clone());
-	prepare_sandbox_directory(&directory)?;
-	let user = prepare_etc_files(&directory, arg.network, arg.user.as_deref())?;
+	prepare_sandbox_directory(&arg.path)?;
+	let user = prepare_etc_files(&arg.path, arg.network, arg.user.as_deref())?;
 	prepare_mount_targets(
-		&manager.rootfs_path,
-		&directory.host_upper_path(),
+		&arg.rootfs_path,
+		&Sandbox::host_upper_path_from_root(&arg.path),
 		&arg.mounts,
 	)?;
 
@@ -177,18 +175,18 @@ pub fn spawn_jailer(
 		.arg("--chdir")
 		.arg("/")
 		.arg("--overlay-src")
-		.arg(&manager.rootfs_path)
+		.arg(&arg.rootfs_path)
 		.arg("--overlay")
-		.arg(directory.host_upper_path())
-		.arg(directory.host_work_path())
+		.arg(Sandbox::host_upper_path_from_root(&arg.path))
+		.arg(Sandbox::host_work_path_from_root(&arg.path))
 		.arg("/")
 		.arg("--dev")
 		.arg("/dev")
 		.arg("--proc")
 		.arg("/proc")
 		.arg("--bind")
-		.arg(directory.host_tmp_path())
-		.arg(directory.guest_tmp_path());
+		.arg(Sandbox::host_tmp_path_from_root(&arg.path))
+		.arg(Sandbox::guest_tmp_path_from_root(&arg.path));
 	if arg.network {
 		command.arg("--share-net");
 	}
@@ -201,27 +199,29 @@ pub fn spawn_jailer(
 		.arg("HOME")
 		.arg(&user.home)
 		.arg("--ro-bind")
-		.arg(directory.host_passwd_path())
+		.arg(Sandbox::host_passwd_path_from_root(&arg.path))
 		.arg("/etc/passwd")
 		.arg("--ro-bind")
-		.arg(directory.host_nsswitch_path())
+		.arg(Sandbox::host_nsswitch_path_from_root(&arg.path))
 		.arg("/etc/nsswitch.conf")
 		.arg("--ro-bind")
-		.arg(&manager.artifacts_path)
-		.arg(directory.guest_artifacts_path())
+		.arg(&arg.artifacts_path)
+		.arg(Sandbox::guest_artifacts_path_from_host_artifacts_path(
+			&arg.artifacts_path,
+		))
 		.arg("--ro-bind")
-		.arg(&manager.tangram_path)
-		.arg(directory.guest_libexec_tangram_path())
+		.arg(&arg.tangram_path)
+		.arg(Sandbox::guest_libexec_tangram_path())
 		.arg("--bind")
-		.arg(directory.host_output_path())
-		.arg(directory.guest_output_path())
+		.arg(Sandbox::host_output_path_from_root(&arg.path))
+		.arg(Sandbox::guest_output_path_from_root(&arg.path))
 		.arg("--bind")
-		.arg(directory.host_socket_path())
-		.arg(directory.guest_socket_path());
-	if arg.network && directory.host_resolv_conf_path().exists() {
+		.arg(Sandbox::host_socket_path_from_root(&arg.path))
+		.arg(Sandbox::guest_socket_path_from_root(&arg.path));
+	if arg.network && Sandbox::host_resolv_conf_path_from_root(&arg.path).exists() {
 		command
 			.arg("--ro-bind")
-			.arg(directory.host_resolv_conf_path())
+			.arg(Sandbox::host_resolv_conf_path_from_root(&arg.path))
 			.arg("/etc/resolv.conf");
 	}
 	for mount in &arg.mounts {
@@ -235,7 +235,9 @@ pub fn spawn_jailer(
 			.arg(&mount.target);
 	}
 
-	command.arg(directory.guest_tangram_path());
+	command.arg(Sandbox::guest_tangram_path_from_host_tangram_path(
+		&arg.tangram_path,
+	));
 	crate::append_run_args(&mut command, run_arg, ready_fd);
 	command
 		.stdin(std::process::Stdio::null())
@@ -247,15 +249,15 @@ pub fn spawn_jailer(
 		.map_err(|source| tg::error!(!source, "failed to spawn bwrap"))
 }
 
-fn prepare_sandbox_directory(directory: &Directory) -> tg::Result<()> {
+fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 	for path in [
-		directory.host_output_path(),
-		directory.host_socket_path(),
-		directory.host_scratch_path(),
-		directory.host_tmp_path(),
-		directory.host_etc_path(),
-		directory.host_upper_path(),
-		directory.host_work_path(),
+		Sandbox::host_output_path_from_root(sandbox_path),
+		Sandbox::host_socket_path_from_root(sandbox_path),
+		Sandbox::host_scratch_path_from_root(sandbox_path),
+		Sandbox::host_tmp_path_from_root(sandbox_path),
+		Sandbox::host_etc_path_from_root(sandbox_path),
+		Sandbox::host_upper_path_from_root(sandbox_path),
+		Sandbox::host_work_path_from_root(sandbox_path),
 	] {
 		std::fs::create_dir_all(&path).map_err(
 			|source| tg::error!(!source, path = %path.display(), "failed to create the sandbox path"),
@@ -263,10 +265,11 @@ fn prepare_sandbox_directory(directory: &Directory) -> tg::Result<()> {
 	}
 	let permissions =
 		<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o1777);
-	std::fs::set_permissions(directory.host_tmp_path(), permissions).map_err(|source| {
+	let tmp_path = Sandbox::host_tmp_path_from_root(sandbox_path);
+	std::fs::set_permissions(&tmp_path, permissions).map_err(|source| {
 		tg::error!(
 			!source,
-			path = %directory.host_tmp_path().display(),
+			path = %tmp_path.display(),
 			"failed to set sandbox path permissions"
 		)
 	})?;
@@ -396,13 +399,13 @@ fn map_guest_path(root_path: &Path, guest_path: &Path) -> tg::Result<PathBuf> {
 	Ok(root_path.join(suffix))
 }
 
-fn prepare_etc_files(directory: &Directory, network: bool, user: Option<&str>) -> tg::Result<User> {
+fn prepare_etc_files(sandbox_path: &Path, network: bool, user: Option<&str>) -> tg::Result<User> {
 	let user = resolve_user(user)?;
 	let passwd = render_passwd(&user);
-	std::fs::write(directory.host_passwd_path(), passwd)
+	std::fs::write(Sandbox::host_passwd_path_from_root(sandbox_path), passwd)
 		.map_err(|source| tg::error!(!source, "failed to write /etc/passwd"))?;
 	std::fs::write(
-		directory.host_nsswitch_path(),
+		Sandbox::host_nsswitch_path_from_root(sandbox_path),
 		indoc!(
 			"
 			passwd: files compat
@@ -413,8 +416,11 @@ fn prepare_etc_files(directory: &Directory, network: bool, user: Option<&str>) -
 	)
 	.map_err(|source| tg::error!(!source, "failed to write /etc/nsswitch.conf"))?;
 	if network {
-		std::fs::copy("/etc/resolv.conf", directory.host_resolv_conf_path())
-			.map_err(|source| tg::error!(!source, "failed to stage /etc/resolv.conf"))?;
+		std::fs::copy(
+			"/etc/resolv.conf",
+			Sandbox::host_resolv_conf_path_from_root(sandbox_path),
+		)
+		.map_err(|source| tg::error!(!source, "failed to stage /etc/resolv.conf"))?;
 	}
 	Ok(user)
 }

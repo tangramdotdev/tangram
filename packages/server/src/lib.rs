@@ -9,7 +9,7 @@ use {
 	std::{
 		ops::Deref,
 		os::fd::AsRawFd as _,
-		path::PathBuf,
+		path::{Path, PathBuf},
 		sync::{Arc, Mutex},
 	},
 	tangram_client::prelude::*,
@@ -97,11 +97,13 @@ pub struct State {
 	register: Database,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	remote_list_tags_tasks: RemoteListTagsTasks,
-	sandbox_manager: tangram_sandbox::Manager,
+	sandbox_rootfs: PathBuf,
+	sandboxes: Sandboxes,
 	sandbox_permits: SandboxPermits,
 	sandbox_semaphore: Arc<tokio::sync::Semaphore>,
 	sandbox_tasks: SandboxTasks,
 	store: Store,
+	tangram_path: PathBuf,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
 	vfs: Mutex<Option<self::vfs::Server>>,
@@ -138,6 +140,8 @@ struct Http {
 
 type SandboxPermits =
 	DashMap<tg::sandbox::Id, Arc<tokio::sync::Mutex<Option<SandboxPermit>>>, tg::id::BuildHasher>;
+
+type Sandboxes = DashMap<tg::sandbox::Id, tangram_sandbox::Sandbox, tg::id::BuildHasher>;
 
 struct SandboxPermit(
 	#[expect(dead_code)]
@@ -297,6 +301,7 @@ impl Server {
 		});
 
 		// Create the sandbox permits and semaphore.
+		let sandboxes = DashMap::default();
 		let sandbox_permits = DashMap::default();
 		let permits = config
 			.runner
@@ -545,14 +550,14 @@ impl Server {
 		// Create the remote list tags tasks.
 		let remote_list_tags_tasks = tangram_futures::task::Map::default();
 
-		// Create the sandbox rootfs path and manager.
+		// Create the sandbox rootfs.
 		let sandbox_rootfs_path = path.join("rootfs");
 		let tangram_path = tangram_util::env::current_exe()
 			.map_err(|source| tg::error!(!source, "failed to get the tangram executable path"))?;
-		let sandbox_manager = tangram_sandbox::Manager::new(tangram_sandbox::ManagerArg {
-			artifacts_path: path.join("artifacts"),
-			rootfs_path: sandbox_rootfs_path.clone(),
-			tangram_path,
+		let sandbox_rootfs = sandbox_rootfs_path.clone();
+		tangram_sandbox::prepare_rootfs(&tangram_sandbox::PrepareRootfsArg {
+			path: sandbox_rootfs.clone(),
+			tangram_path: tangram_path.clone(),
 		})?;
 
 		// Create the store.
@@ -627,11 +632,13 @@ impl Server {
 			register,
 			remotes,
 			remote_list_tags_tasks,
-			sandbox_manager,
+			sandbox_rootfs,
+			sandboxes,
 			sandbox_permits,
 			sandbox_semaphore,
 			sandbox_tasks,
 			store,
+			tangram_path,
 			temps,
 			version,
 			vfs,
@@ -1134,6 +1141,48 @@ impl Server {
 	#[must_use]
 	pub fn url(&self) -> Option<&Uri> {
 		self.http.as_ref().map(|http| &http.url)
+	}
+
+	#[must_use]
+	pub(crate) fn get_active_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> Option<tangram_sandbox::Sandbox> {
+		self.sandboxes
+			.get(id)
+			.map(|sandbox| sandbox.value().clone())
+	}
+
+	pub(crate) fn host_path_for_guest_path(
+		&self,
+		context: &Context,
+		path: &Path,
+	) -> tg::Result<PathBuf> {
+		let Some(id) = &context.sandbox else {
+			return Ok(path.to_owned());
+		};
+		let sandbox = self
+			.get_active_sandbox(id)
+			.ok_or_else(|| tg::error!(%id, "failed to get the sandbox"))?;
+		sandbox
+			.host_path_for_guest_path(path)
+			.ok_or_else(|| tg::error!(path = %path.display(), "no host path for guest path"))
+	}
+
+	pub(crate) fn guest_path_for_host_path(
+		&self,
+		context: &Context,
+		path: &Path,
+	) -> tg::Result<PathBuf> {
+		let Some(id) = &context.sandbox else {
+			return Ok(path.to_owned());
+		};
+		let sandbox = self
+			.get_active_sandbox(id)
+			.ok_or_else(|| tg::error!(%id, "failed to get the sandbox"))?;
+		sandbox
+			.guest_path_for_host_path(path)
+			.ok_or_else(|| tg::error!(path = %path.display(), "no guest path for host path"))
 	}
 
 	#[must_use]

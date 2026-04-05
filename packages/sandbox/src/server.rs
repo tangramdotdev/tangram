@@ -1,5 +1,5 @@
 use {
-	crate::{Command, common},
+	crate::{Command, pty},
 	futures::{FutureExt as _, future},
 	std::{convert::Infallible, ops::Deref, sync::Arc},
 	tangram_client::prelude::*,
@@ -38,7 +38,7 @@ struct Process {
 	stdin: Option<Arc<Mutex<tokio::process::ChildStdin>>>,
 	stdout: Option<Arc<Mutex<tokio::process::ChildStdout>>>,
 	stderr: Option<Arc<Mutex<tokio::process::ChildStderr>>>,
-	pty: Option<Arc<common::Pty>>,
+	pty: Option<Arc<pty::Pty>>,
 	status: Option<tg::Result<u8>>,
 }
 

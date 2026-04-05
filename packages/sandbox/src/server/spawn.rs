@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Stdio,
-		common::Pty,
+		pty::Pty,
 		server::{Process, Server},
 	},
 	std::{path::Path, sync::Arc},
@@ -61,7 +61,7 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to clone the tty fd"))?;
 			unsafe {
 				command.pre_exec(move || {
-					crate::common::start_session(&tty, stdin_is_tty, stdout_is_tty, stderr_is_tty);
+					crate::util::start_session(&tty, stdin_is_tty, stdout_is_tty, stderr_is_tty);
 					Ok(())
 				});
 			}
@@ -184,7 +184,7 @@ fn resolve_executable(command: &crate::Command) -> std::path::PathBuf {
 	command
 		.env
 		.get("PATH")
-		.and_then(|path| crate::common::which(Path::new(path), &command.executable))
+		.and_then(|path| crate::util::which(Path::new(path), &command.executable))
 		.unwrap_or_else(|| command.executable.clone())
 }
 

@@ -1,9 +1,5 @@
 use {
-	crate::{
-		SandboxPermit, Server,
-		context::{Context, PathMap},
-		temp::Temp,
-	},
+	crate::{SandboxPermit, Server, context::Context, temp::Temp},
 	futures::{
 		FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
 		stream::{self, BoxStream},
@@ -145,20 +141,23 @@ impl Server {
 		tokio::fs::create_dir_all(temp.path())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
-		let sandbox_directory = tangram_sandbox::Directory::new(temp.path().to_owned());
 		let sandbox_arg = tangram_sandbox::SpawnArg {
+			artifacts_path: self.artifacts_path(),
 			hostname: state.hostname.clone(),
 			mounts: state.mounts.clone(),
 			network: state.network,
 			path: temp.path().to_owned(),
+			rootfs_path: self.sandbox_rootfs.clone(),
+			tangram_path: self.tangram_path.clone(),
 			user: state.user.clone(),
 		};
-		let sandbox = self
-			.sandbox_manager
-			.spawn(sandbox_arg)
+		let sandbox = tangram_sandbox::Sandbox::new(sandbox_arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to create the sandbox"))?;
-		let sandbox = Arc::new(sandbox);
+		self.sandboxes.insert(id.clone(), sandbox.clone());
+		scopeguard::defer! {
+			self.sandboxes.remove(id);
+		}
 
 		let heartbeat_task = Task::spawn({
 			let server = self.clone();
@@ -245,7 +244,6 @@ impl Server {
 			let server = self.clone();
 			let process = tg::Process::new(process.clone(), None, remote.clone(), None, None, None);
 			let sandbox = sandbox.clone();
-			let sandbox_directory = sandbox_directory.clone();
 			let sender = sender.clone();
 			process_tasks
 				.spawn(process.id().clone(), move |stopper| async move {
@@ -255,7 +253,7 @@ impl Server {
 							sender.send(process_id).ok();
 						});
 					server
-						.process_task(&process, sandbox, sandbox_directory, stopper)
+						.process_task(&process, sandbox, stopper)
 						.await
 						.inspect_err(|error| {
 							tracing::error!(error = %error.trace(), process = %process.id(), "the process task failed");
@@ -290,7 +288,6 @@ impl Server {
 					let server = self.clone();
 					let process = tg::Process::new(payload.id.clone(), None, None, None, None, None);
 					let sandbox = sandbox.clone();
-					let sandbox_directory = sandbox_directory.clone();
 					let sender = sender.clone();
 					process_tasks.spawn(payload.id.clone(), move |stopper| async move {
 						let process_id = process.id().clone();
@@ -298,7 +295,7 @@ impl Server {
 							sender.send(process_id).ok();
 						});
 						server
-							.process_task(&process, sandbox, sandbox_directory, stopper)
+							.process_task(&process, sandbox, stopper)
 							.await
 							.inspect_err(|error| {
 								tracing::error!(error = %error.trace(), process = %process.id(), "the process task failed");
@@ -315,7 +312,6 @@ impl Server {
 					let server = self.clone();
 					let process = tg::Process::new(output.process.clone(), None, remote.clone(), None, None, None);
 					let sandbox = sandbox.clone();
-					let sandbox_directory = sandbox_directory.clone();
 					let sender = sender.clone();
 					process_tasks.spawn(output.process.clone(), move |stopper| async move {
 						let process_id = process.id().clone();
@@ -323,7 +319,7 @@ impl Server {
 							sender.send(process_id).ok();
 						});
 						server
-							.process_task(&process, sandbox, sandbox_directory, stopper)
+							.process_task(&process, sandbox, stopper)
 							.await
 							.inspect_err(|error| {
 								tracing::error!(error = %error.trace(), process = %process.id(), "the process task failed");
@@ -500,18 +496,14 @@ impl Server {
 	async fn process_task(
 		&self,
 		process: &tg::Process,
-		sandbox: Arc<tangram_sandbox::Sandbox>,
-		sandbox_directory: tangram_sandbox::Directory,
+		sandbox: tangram_sandbox::Sandbox,
 		stopper: Stopper,
 	) -> tg::Result<()> {
 		let _clean_guard = self.acquire_clean_guard().await;
 
-		let wait = match self
-			.run(process, sandbox, sandbox_directory, stopper)
-			.await
-			.map_err(
-				|source| tg::error!(!source, process = %process.id(), "failed to run the process"),
-			) {
+		let wait = match self.run(process, sandbox, stopper).await.map_err(
+			|source| tg::error!(!source, process = %process.id(), "failed to run the process"),
+		) {
 			Ok(output) => output,
 			Err(error) => Output {
 				error: Some(error),
@@ -592,8 +584,7 @@ impl Server {
 	async fn run(
 		&self,
 		process: &tg::Process,
-		sandbox: Arc<tangram_sandbox::Sandbox>,
-		sandbox_directory: tangram_sandbox::Directory,
+		sandbox: tangram_sandbox::Sandbox,
 		stopper: Stopper,
 	) -> tg::Result<Output> {
 		let id = process.id();
@@ -602,19 +593,6 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to load the process"))?;
 		let remote = process.remote();
-		let sandbox_mounts = if cfg!(target_os = "linux") {
-			if let Some(sandbox) = state.sandbox.as_ref() {
-				self.try_get_sandbox_local(sandbox)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the sandbox"))?
-					.map(|sandbox| sandbox.mounts)
-					.unwrap_or_default()
-			} else {
-				Vec::new()
-			}
-		} else {
-			Vec::new()
-		};
 
 		let command = process
 			.command(self)
@@ -662,53 +640,9 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to cache the children"))?;
 
-		// Determine whether to use a chroot.
-		let chroot = cfg!(target_os = "linux");
-
-		let mut path_maps = Vec::new();
-		let host_artifacts_path = self.artifacts_path();
-
-		// Get the artifacts path.
-		let guest_artifacts_path = if chroot {
-			let host = host_artifacts_path.clone();
-			let guest = sandbox_directory.guest_artifacts_path();
-			path_maps.push(PathMap {
-				host: host.clone(),
-				guest: guest.clone(),
-			});
-			guest
-		} else {
-			host_artifacts_path.clone()
-		};
-
-		// Get the output path.
-		let (host_output_path, guest_output_path) = if chroot {
-			let host = sandbox_directory.host_output_path();
-			let guest = sandbox_directory.guest_output_path();
-			path_maps.push(PathMap {
-				host: host.clone(),
-				guest: guest.clone(),
-			});
-			(host, guest.join(id.to_string()))
-		} else {
-			(
-				sandbox_directory.host_output_path(),
-				sandbox_directory.host_output_path_for_process(id),
-			)
-		};
-
-		if chroot {
-			path_maps.push(PathMap {
-				host: sandbox_directory.host_tmp_path(),
-				guest: sandbox_directory.guest_tmp_path(),
-			});
-			for mount in &sandbox_mounts {
-				path_maps.push(PathMap {
-					host: mount.source.clone(),
-					guest: mount.target.clone(),
-				});
-			}
-		}
+		let guest_artifacts_path = sandbox.guest_artifacts_path();
+		let guest_output_path = sandbox.guest_output_path_for_process(id);
+		let host_output_path = sandbox.host_output_path_for_process(id);
 
 		// Render the args.
 		let mut args = match command.host.as_str() {
@@ -727,35 +661,19 @@ impl Server {
 		let mut env = render_env(&command.env, &guest_artifacts_path, &guest_output_path)?;
 
 		#[cfg(target_os = "macos")]
-		env.entry("TMPDIR".to_owned()).or_insert_with(|| {
-			sandbox_directory
-				.host_scratch_path()
-				.to_string_lossy()
-				.into_owned()
-		});
+		env.entry("TMPDIR".to_owned())
+			.or_insert_with(|| sandbox.host_scratch_path().to_string_lossy().into_owned());
 
 		// Render the executable.
 		let executable = match command.host.as_str() {
 			"builtin" => {
-				#[cfg(target_os = "linux")]
-				let executable = sandbox_directory.guest_tangram_path();
-
-				#[cfg(target_os = "macos")]
-				let executable = self.sandbox_manager.tangram_path().to_owned();
-
 				args.insert(0, "builtin".to_owned());
 				args.insert(1, command.executable.to_string());
 
-				executable
+				sandbox.guest_tangram_path()
 			},
 
 			"js" => {
-				#[cfg(target_os = "linux")]
-				let executable = sandbox_directory.guest_tangram_path();
-
-				#[cfg(target_os = "macos")]
-				let executable = self.sandbox_manager.tangram_path().to_owned();
-
 				args.insert(0, "js".to_owned());
 				match &self.config.runner.as_ref().unwrap().js.engine {
 					crate::config::JsEngine::Auto => {
@@ -770,7 +688,7 @@ impl Server {
 				}
 				args.insert(1, command.executable.to_string());
 
-				executable
+				sandbox.guest_tangram_path()
 			},
 
 			_ => match &command.executable {
@@ -794,18 +712,16 @@ impl Server {
 			guest_output_path.to_str().unwrap().to_owned(),
 		);
 
-		// Create the guest uri.
-		#[cfg(target_os = "linux")]
-		let socket_guest_path = sandbox_directory.guest_socket_path_for_process(id);
+		let host_socket_path = sandbox.host_socket_path_for_process(id);
+		let guest_socket_path = sandbox.guest_socket_path_for_process(id);
 
 		#[cfg(target_os = "macos")]
 		let (listener, guest_uri) = {
 			const MAX_SOCKET_PATH_LEN: usize = 100;
-			let socket_path = sandbox_directory.host_socket_path_for_process(id);
-			tokio::fs::create_dir_all(socket_path.parent().unwrap())
+			tokio::fs::create_dir_all(host_socket_path.parent().unwrap())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
-			let socket_path_str = socket_path.to_str().unwrap();
+			let socket_path_str = host_socket_path.to_str().unwrap();
 			let mut url = if socket_path_str.len() <= MAX_SOCKET_PATH_LEN {
 				tangram_uri::Uri::builder()
 					.scheme("http+unix")
@@ -833,20 +749,18 @@ impl Server {
 
 		#[cfg(target_os = "linux")]
 		let (listener, guest_uri) = {
-			let socket_path = sandbox_directory.host_socket_path_for_process(id);
-			tokio::fs::create_dir_all(socket_path.parent().unwrap())
+			tokio::fs::create_dir_all(host_socket_path.parent().unwrap())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
-			let socket_guest_path = socket_guest_path.to_str().unwrap();
 			let url = tangram_uri::Uri::builder()
 				.scheme("http+unix")
-				.authority(socket_path.to_str().unwrap())
+				.authority(host_socket_path.to_str().unwrap())
 				.path("")
 				.build()
 				.unwrap();
 			let guest_url = tangram_uri::Uri::builder()
 				.scheme("http+unix")
-				.authority(socket_guest_path)
+				.authority(guest_socket_path.to_str().unwrap())
 				.path("")
 				.build()
 				.unwrap();
@@ -864,11 +778,10 @@ impl Server {
 		let context = Context {
 			process: Some(Arc::new(crate::context::Process {
 				id: process.id().clone(),
-				path_maps: chroot.then_some(path_maps),
 				remote: remote.cloned(),
 				retry: state.retry,
-				sandbox: state.sandbox.clone(),
 			})),
+			sandbox: state.sandbox.clone(),
 			..Default::default()
 		};
 		let serve_task = Task::spawn({
@@ -1051,7 +964,7 @@ impl Server {
 		};
 
 		// Get the output path.
-		let path = host_output_path.join(id.to_string());
+		let path = host_output_path;
 		let exists = tokio::fs::try_exists(&path).await.map_err(|source| {
 			tg::error!(!source, "failed to determine if the output path exists")
 		})?;
@@ -1086,13 +999,7 @@ impl Server {
 
 		// Check in the output.
 		if output.value.is_none() && exists {
-			let path = if let Some(process) = &context.process {
-				process.guest_path_for_host_path(&path).ok_or_else(
-					|| tg::error!(path = %path.display(), "no guest path for host path"),
-				)?
-			} else {
-				path.clone()
-			};
+			let path = self.guest_path_for_host_path(&context, &path)?;
 			let arg = tg::checkin::Arg {
 				options: tg::checkin::Options {
 					destructive: true,

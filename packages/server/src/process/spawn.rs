@@ -42,10 +42,7 @@ impl Server {
 			}
 			arg.retry = process.retry;
 		}
-		let parent_sandbox = context
-			.process
-			.as_ref()
-			.and_then(|process| process.sandbox.clone());
+		let parent_sandbox = context.sandbox.clone();
 
 		if arg.sandbox.is_none() {
 			return Err(tg::error!(

@@ -120,7 +120,7 @@ impl Server {
 #[derive(Clone)]
 enum InputHandle {
 	Null,
-	Pty(Arc<crate::common::Pty>),
+	Pty(Arc<crate::pty::Pty>),
 	Stdin(Arc<Mutex<ChildStdin>>),
 }
 

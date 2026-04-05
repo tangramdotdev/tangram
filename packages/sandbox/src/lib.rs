@@ -11,11 +11,12 @@ use {
 	tangram_client::prelude::*,
 };
 
-mod common;
 #[cfg(target_os = "macos")]
 mod darwin;
 #[cfg(target_os = "linux")]
 mod linux;
+mod pty;
+mod util;
 
 mod client;
 mod server;
@@ -24,23 +25,15 @@ mod server;
 const ROOTFS: include_dir::Dir<'static> = include_dir::include_dir!("$OUT_DIR/rootfs");
 
 #[derive(Clone)]
-pub struct Manager(Arc<ManagerState>);
+pub struct Sandbox(Arc<State>);
 
-pub struct ManagerState {
+pub struct State {
 	artifacts_path: PathBuf,
-	library_paths: Vec<PathBuf>,
-	rootfs_path: PathBuf,
-	tangram_path: PathBuf,
-}
-
-#[derive(Clone)]
-pub struct Directory(PathBuf);
-
-pub struct Sandbox(Arc<SandboxState>);
-
-pub struct SandboxState {
 	client: Client,
+	mounts: Vec<tg::sandbox::Mount>,
+	path: PathBuf,
 	_process: tokio::process::Child,
+	tangram_path: PathBuf,
 }
 
 pub struct Process {
@@ -48,18 +41,20 @@ pub struct Process {
 }
 
 #[derive(Clone, Debug)]
-pub struct ManagerArg {
-	pub artifacts_path: PathBuf,
-	pub rootfs_path: PathBuf,
+pub struct PrepareRootfsArg {
+	pub path: PathBuf,
 	pub tangram_path: PathBuf,
 }
 
 #[derive(Clone, Debug)]
 pub struct SpawnArg {
+	pub artifacts_path: PathBuf,
 	pub hostname: Option<String>,
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: bool,
 	pub path: PathBuf,
+	pub rootfs_path: PathBuf,
+	pub tangram_path: PathBuf,
 	pub user: Option<String>,
 }
 
@@ -88,55 +83,17 @@ pub enum Stdio {
 	Tty,
 }
 
-impl Manager {
-	pub fn new(arg: ManagerArg) -> tg::Result<Self> {
-		let library_paths = prepare_runtime_libraries(&arg)?;
-		let state = ManagerState {
-			artifacts_path: arg.artifacts_path,
-			library_paths,
-			rootfs_path: arg.rootfs_path,
-			tangram_path: arg.tangram_path,
-		};
-		Ok(Self(Arc::new(state)))
-	}
-
-	#[must_use]
-	pub fn tangram_path(&self) -> &Path {
-		&self.0.tangram_path
-	}
-
-	pub async fn spawn(&self, arg: SpawnArg) -> tg::Result<Sandbox> {
-		validate_mounts(&arg.mounts)?;
-		Sandbox::new(self, arg).await
-	}
-}
-
-fn validate_mounts(mounts: &[tg::sandbox::Mount]) -> tg::Result<()> {
-	let mut targets = BTreeSet::new();
-	for mount in mounts {
-		if mount.target == Path::new("/") {
-			return Err(tg::error!(
-				target = %mount.target.display(),
-				"mounting to / is not supported"
-			));
-		}
-		if !targets.insert(mount.target.clone()) {
-			return Err(tg::error!(
-				target = %mount.target.display(),
-				"duplicate mount targets are not supported"
-			));
-		}
-	}
-	Ok(())
+pub fn prepare_rootfs(arg: &PrepareRootfsArg) -> tg::Result<()> {
+	prepare_runtime_libraries(arg)
 }
 
 impl Sandbox {
-	async fn new(manager: &Manager, arg: SpawnArg) -> tg::Result<Self> {
-		let directory = Directory::new(arg.path.clone());
+	pub async fn new(arg: SpawnArg) -> tg::Result<Self> {
+		validate_mounts(&arg.mounts)?;
 		let run_arg = RunArg {
-			library_paths: manager.library_paths.clone(),
+			library_paths: library_paths(&arg.rootfs_path),
 			path: arg.path.clone(),
-			tangram_path: manager.tangram_path.clone(),
+			tangram_path: arg.tangram_path.clone(),
 		};
 
 		let (mut ready_reader, ready_writer) = std::io::pipe()
@@ -164,10 +121,10 @@ impl Sandbox {
 		let ready_fd = ready_writer.as_raw_fd();
 
 		#[cfg(target_os = "linux")]
-		let mut process = crate::linux::spawn_jailer(manager, &arg, &run_arg, ready_fd)?;
+		let mut process = crate::linux::spawn_jailer(&arg, &run_arg, ready_fd)?;
 
 		#[cfg(target_os = "macos")]
-		let mut process = crate::darwin::spawn_jailer(manager, &arg, &run_arg, ready_fd)?;
+		let mut process = crate::darwin::spawn_jailer(&arg, &run_arg, ready_fd)?;
 
 		drop(ready_writer);
 
@@ -202,8 +159,9 @@ impl Sandbox {
 			},
 		};
 
+		let host_listen_path = Sandbox::host_listen_path_from_root(&arg.path);
 		let client = if port == 0 {
-			Client::new_unix(directory.host_listen_path())
+			Client::new_unix(host_listen_path)
 		} else {
 			Client::new_tcp(port)
 		};
@@ -212,9 +170,13 @@ impl Sandbox {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to connect to the sandbox"))?;
 
-		Ok(Self(Arc::new(SandboxState {
+		Ok(Self(Arc::new(State {
+			artifacts_path: arg.artifacts_path,
 			client,
+			mounts: arg.mounts,
+			path: arg.path,
 			_process: process,
+			tangram_path: arg.tangram_path,
 		})))
 	}
 
@@ -285,7 +247,6 @@ impl Sandbox {
 pub fn run(arg: &RunArg, ready_fd: Option<RawFd>) -> tg::Result<()> {
 	use std::{io::Write as _, os::fd::FromRawFd as _};
 
-	let directory = Directory::new(arg.path.clone());
 	let runtime = tokio::runtime::Builder::new_current_thread()
 		.enable_all()
 		.build()
@@ -294,7 +255,7 @@ pub fn run(arg: &RunArg, ready_fd: Option<RawFd>) -> tg::Result<()> {
 	let (listener, port): (_, u16) = {
 		#[cfg(target_os = "linux")]
 		{
-			let path = directory.guest_listen_path();
+			let path = Sandbox::guest_listen_path_from_root(&arg.path);
 			let listener = std::os::unix::net::UnixListener::bind(&path)
 				.map_err(|source| tg::error!(!source, path = %path.display(), "failed to bind"))?;
 			listener
@@ -305,9 +266,9 @@ pub fn run(arg: &RunArg, ready_fd: Option<RawFd>) -> tg::Result<()> {
 
 		#[cfg(target_os = "macos")]
 		{
-			std::fs::create_dir_all(directory.host_socket_path())
+			std::fs::create_dir_all(Sandbox::host_socket_path_from_root(&arg.path))
 				.map_err(|source| tg::error!(!source, "failed to create the socket directory"))?;
-			let listen_path = directory.host_listen_path();
+			let listen_path = Sandbox::host_listen_path_from_root(&arg.path);
 			const MAX_SOCKET_PATH_LEN: usize = 100;
 			if listen_path
 				.to_str()
@@ -365,7 +326,7 @@ pub fn run(arg: &RunArg, ready_fd: Option<RawFd>) -> tg::Result<()> {
 	Ok(())
 }
 
-fn prepare_runtime_libraries(arg: &ManagerArg) -> tg::Result<Vec<PathBuf>> {
+fn prepare_runtime_libraries(arg: &PrepareRootfsArg) -> tg::Result<()> {
 	#[cfg(target_os = "linux")]
 	{
 		crate::linux::prepare_runtime_libraries(arg)
@@ -373,6 +334,19 @@ fn prepare_runtime_libraries(arg: &ManagerArg) -> tg::Result<Vec<PathBuf>> {
 	#[cfg(target_os = "macos")]
 	{
 		crate::darwin::prepare_runtime_libraries(arg)
+	}
+}
+
+fn library_paths(rootfs_path: &Path) -> Vec<PathBuf> {
+	#[cfg(target_os = "linux")]
+	{
+		let _ = rootfs_path;
+		Vec::new()
+	}
+	#[cfg(target_os = "macos")]
+	{
+		let path = rootfs_path.join("lib");
+		path.exists().then_some(path).into_iter().collect()
 	}
 }
 
@@ -453,7 +427,7 @@ fn command_resolves_to_path(command: &Command, target: &Path) -> bool {
 		let Some(path) = command.env.get("PATH") else {
 			return false;
 		};
-		let Some(resolved) = crate::common::which(Path::new(path), &command.executable) else {
+		let Some(resolved) = crate::util::which(Path::new(path), &command.executable) else {
 			return false;
 		};
 		resolved
@@ -498,10 +472,288 @@ fn set_rootfs_permissions(
 	Ok(())
 }
 
-impl Directory {
+impl Sandbox {
 	#[must_use]
-	pub fn new(path: PathBuf) -> Self {
-		Self(path)
+	pub fn host_path_for_guest_path(&self, path: &Path) -> Option<PathBuf> {
+		#[cfg(target_os = "macos")]
+		{
+			Some(path.to_owned())
+		}
+		#[cfg(target_os = "linux")]
+		{
+			let mut path_maps = self
+				.0
+				.mounts
+				.iter()
+				.map(|mount| (mount.target.clone(), mount.source.clone()))
+				.collect::<Vec<_>>();
+			path_maps.extend([
+				(self.guest_socket_path(), self.host_socket_path()),
+				(
+					self.guest_tmp_path(),
+					Self::host_tmp_path_from_root(&self.0.path),
+				),
+				(self.guest_output_path(), self.host_output_path()),
+				(self.guest_artifacts_path(), self.0.artifacts_path.clone()),
+			]);
+			Self::map_path(
+				path,
+				path_maps
+					.iter()
+					.map(|(guest, host)| (guest.as_path(), host.as_path())),
+			)
+		}
+	}
+
+	#[must_use]
+	pub fn guest_artifacts_path(&self) -> PathBuf {
+		Self::guest_artifacts_path_from_host_artifacts_path(&self.0.artifacts_path)
+	}
+
+	#[must_use]
+	pub fn guest_output_path(&self) -> PathBuf {
+		Self::guest_output_path_from_root(&self.0.path)
+	}
+
+	#[must_use]
+	pub fn guest_output_path_for_process(&self, id: &tg::process::Id) -> PathBuf {
+		self.guest_output_path().join(id.to_string())
+	}
+
+	#[must_use]
+	pub fn guest_path_for_host_path(&self, path: &Path) -> Option<PathBuf> {
+		#[cfg(target_os = "macos")]
+		{
+			Some(path.to_owned())
+		}
+		#[cfg(target_os = "linux")]
+		{
+			let mut path_maps = self
+				.0
+				.mounts
+				.iter()
+				.map(|mount| (mount.source.clone(), mount.target.clone()))
+				.collect::<Vec<_>>();
+			path_maps.extend([
+				(self.host_socket_path(), self.guest_socket_path()),
+				(
+					Self::host_tmp_path_from_root(&self.0.path),
+					self.guest_tmp_path(),
+				),
+				(self.host_output_path(), self.guest_output_path()),
+				(self.0.artifacts_path.clone(), self.guest_artifacts_path()),
+			]);
+			Self::map_path(
+				path,
+				path_maps
+					.iter()
+					.map(|(host, guest)| (host.as_path(), guest.as_path())),
+			)
+		}
+	}
+
+	#[must_use]
+	pub fn guest_socket_path(&self) -> PathBuf {
+		Self::guest_socket_path_from_root(&self.0.path)
+	}
+
+	#[must_use]
+	pub fn guest_socket_path_for_process(&self, id: &tg::process::Id) -> PathBuf {
+		self.guest_socket_path()
+			.join(Self::socket_name_for_process(id))
+	}
+
+	#[must_use]
+	pub fn guest_tangram_path(&self) -> PathBuf {
+		Self::guest_tangram_path_from_host_tangram_path(&self.0.tangram_path)
+	}
+
+	#[must_use]
+	pub fn guest_tmp_path(&self) -> PathBuf {
+		Self::guest_tmp_path_from_root(&self.0.path)
+	}
+
+	#[must_use]
+	pub fn host_output_path(&self) -> PathBuf {
+		Self::host_output_path_from_root(&self.0.path)
+	}
+
+	#[must_use]
+	pub fn host_output_path_for_process(&self, id: &tg::process::Id) -> PathBuf {
+		self.host_output_path().join(id.to_string())
+	}
+
+	#[must_use]
+	pub fn host_scratch_path(&self) -> PathBuf {
+		Self::host_scratch_path_from_root(&self.0.path)
+	}
+
+	#[must_use]
+	pub fn host_socket_path(&self) -> PathBuf {
+		Self::host_socket_path_from_root(&self.0.path)
+	}
+
+	#[must_use]
+	pub fn host_socket_path_for_process(&self, id: &tg::process::Id) -> PathBuf {
+		self.host_socket_path()
+			.join(Self::socket_name_for_process(id))
+	}
+}
+
+impl Sandbox {
+	#[must_use]
+	pub(crate) fn guest_artifacts_path_from_host_artifacts_path(artifacts_path: &Path) -> PathBuf {
+		#[cfg(target_os = "linux")]
+		{
+			let _ = artifacts_path;
+			"/opt/tangram/artifacts".into()
+		}
+		#[cfg(target_os = "macos")]
+		{
+			artifacts_path.to_owned()
+		}
+	}
+
+	#[must_use]
+	pub(crate) fn guest_libexec_tangram_path() -> PathBuf {
+		"/opt/tangram/libexec/tangram".into()
+	}
+
+	#[must_use]
+	pub(crate) fn guest_listen_path_from_root(root_path: &Path) -> PathBuf {
+		Self::guest_socket_path_from_root(root_path).join("ctl")
+	}
+
+	#[must_use]
+	pub(crate) fn guest_output_path_from_root(root_path: &Path) -> PathBuf {
+		#[cfg(target_os = "linux")]
+		{
+			let _ = root_path;
+			"/opt/tangram/output".into()
+		}
+		#[cfg(target_os = "macos")]
+		{
+			Self::host_output_path_from_root(root_path)
+		}
+	}
+
+	#[must_use]
+	pub(crate) fn guest_socket_path_from_root(root_path: &Path) -> PathBuf {
+		#[cfg(target_os = "linux")]
+		{
+			let _ = root_path;
+			"/opt/tangram/socket".into()
+		}
+		#[cfg(target_os = "macos")]
+		{
+			Self::host_socket_path_from_root(root_path)
+		}
+	}
+
+	#[must_use]
+	pub(crate) fn guest_tangram_path_from_host_tangram_path(tangram_path: &Path) -> PathBuf {
+		#[cfg(target_os = "linux")]
+		{
+			let _ = tangram_path;
+			"/opt/tangram/bin/tangram".into()
+		}
+		#[cfg(target_os = "macos")]
+		{
+			tangram_path.to_owned()
+		}
+	}
+
+	#[must_use]
+	pub(crate) fn guest_tmp_path_from_root(root_path: &Path) -> PathBuf {
+		#[cfg(target_os = "linux")]
+		{
+			let _ = root_path;
+			"/tmp".into()
+		}
+		#[cfg(target_os = "macos")]
+		{
+			Self::host_tmp_path_from_root(root_path)
+		}
+	}
+
+	#[must_use]
+	pub(crate) fn host_etc_path_from_root(root_path: &Path) -> PathBuf {
+		root_path.join("etc")
+	}
+
+	#[must_use]
+	pub(crate) fn host_listen_path_from_root(root_path: &Path) -> PathBuf {
+		Self::host_socket_path_from_root(root_path).join("ctl")
+	}
+
+	#[must_use]
+	pub(crate) fn host_nsswitch_path_from_root(root_path: &Path) -> PathBuf {
+		Self::host_etc_path_from_root(root_path).join("nsswitch.conf")
+	}
+
+	#[must_use]
+	pub(crate) fn host_output_path_from_root(root_path: &Path) -> PathBuf {
+		root_path.join("output")
+	}
+
+	#[must_use]
+	pub(crate) fn host_passwd_path_from_root(root_path: &Path) -> PathBuf {
+		Self::host_etc_path_from_root(root_path).join("passwd")
+	}
+
+	#[cfg(target_os = "macos")]
+	#[must_use]
+	pub(crate) fn host_profile_path_from_root(root_path: &Path) -> PathBuf {
+		root_path.join("sandbox.sb")
+	}
+
+	#[must_use]
+	pub(crate) fn host_resolv_conf_path_from_root(root_path: &Path) -> PathBuf {
+		Self::host_etc_path_from_root(root_path).join("resolv.conf")
+	}
+
+	#[must_use]
+	pub(crate) fn host_scratch_path_from_root(root_path: &Path) -> PathBuf {
+		root_path.join("scratch")
+	}
+
+	#[must_use]
+	pub(crate) fn host_socket_path_from_root(root_path: &Path) -> PathBuf {
+		root_path.join("s")
+	}
+
+	#[must_use]
+	pub(crate) fn host_tmp_path_from_root(root_path: &Path) -> PathBuf {
+		root_path.join("tmp")
+	}
+
+	#[must_use]
+	pub(crate) fn host_upper_path_from_root(root_path: &Path) -> PathBuf {
+		root_path.join("upper")
+	}
+
+	#[must_use]
+	pub(crate) fn host_work_path_from_root(root_path: &Path) -> PathBuf {
+		root_path.join("work")
+	}
+
+	fn map_path<'a>(
+		path: &Path,
+		path_maps: impl Iterator<Item = (&'a Path, &'a Path)>,
+	) -> Option<PathBuf> {
+		let mut best: Option<(&Path, &Path, usize)> = None;
+		for (from, to) in path_maps {
+			if !path.starts_with(from) {
+				continue;
+			}
+			let len = from.components().count();
+			if best.is_none_or(|(_, _, best_len)| len >= best_len) {
+				best = Some((from, to, len));
+			}
+		}
+		let (from, to, _) = best?;
+		let suffix = path.strip_prefix(from).unwrap();
+		Some(to.join(suffix))
 	}
 
 	fn socket_name_for_process(id: &tg::process::Id) -> String {
@@ -513,123 +765,25 @@ impl Directory {
 			id.to_owned()
 		}
 	}
+}
 
-	#[must_use]
-	pub fn host_etc_path(&self) -> PathBuf {
-		self.0.join("etc")
+fn validate_mounts(mounts: &[tg::sandbox::Mount]) -> tg::Result<()> {
+	let mut targets = BTreeSet::new();
+	for mount in mounts {
+		if mount.target == Path::new("/") {
+			return Err(tg::error!(
+				target = %mount.target.display(),
+				"mounting to / is not supported"
+			));
+		}
+		if !targets.insert(mount.target.clone()) {
+			return Err(tg::error!(
+				target = %mount.target.display(),
+				"duplicate mount targets are not supported"
+			));
+		}
 	}
-
-	#[must_use]
-	pub fn host_listen_path(&self) -> PathBuf {
-		self.host_socket_path().join("ctl")
-	}
-
-	#[must_use]
-	pub fn host_nsswitch_path(&self) -> PathBuf {
-		self.host_etc_path().join("nsswitch.conf")
-	}
-
-	#[must_use]
-	pub fn host_output_path(&self) -> PathBuf {
-		self.0.join("output")
-	}
-
-	#[must_use]
-	pub fn host_output_path_for_process(&self, id: &tg::process::Id) -> PathBuf {
-		self.host_output_path().join(id.to_string())
-	}
-
-	#[must_use]
-	pub fn host_passwd_path(&self) -> PathBuf {
-		self.host_etc_path().join("passwd")
-	}
-
-	#[must_use]
-	pub fn host_profile_path(&self) -> PathBuf {
-		self.0.join("sandbox.sb")
-	}
-
-	#[must_use]
-	pub fn host_resolv_conf_path(&self) -> PathBuf {
-		self.host_etc_path().join("resolv.conf")
-	}
-
-	#[must_use]
-	pub fn host_scratch_path(&self) -> PathBuf {
-		self.0.join("scratch")
-	}
-
-	#[must_use]
-	pub fn host_tmp_path(&self) -> PathBuf {
-		self.0.join("tmp")
-	}
-
-	#[must_use]
-	pub fn host_socket_path(&self) -> PathBuf {
-		self.0.join("s")
-	}
-
-	#[must_use]
-	pub fn host_upper_path(&self) -> PathBuf {
-		self.0.join("upper")
-	}
-
-	#[must_use]
-	pub fn host_work_path(&self) -> PathBuf {
-		self.0.join("work")
-	}
-
-	#[must_use]
-	pub fn host_socket_path_for_process(&self, id: &tg::process::Id) -> PathBuf {
-		self.host_socket_path()
-			.join(Self::socket_name_for_process(id))
-	}
-
-	#[must_use]
-	pub fn guest_artifacts_path(&self) -> PathBuf {
-		"/opt/tangram/artifacts".into()
-	}
-
-	#[must_use]
-	pub fn guest_listen_path(&self) -> PathBuf {
-		self.guest_socket_path().join("ctl")
-	}
-
-	#[must_use]
-	pub fn guest_output_path(&self) -> PathBuf {
-		"/opt/tangram/output".into()
-	}
-
-	#[must_use]
-	pub fn guest_output_path_for_process(&self, id: &tg::process::Id) -> PathBuf {
-		self.guest_output_path().join(id.to_string())
-	}
-
-	#[must_use]
-	pub fn guest_socket_path(&self) -> PathBuf {
-		"/opt/tangram/socket".into()
-	}
-
-	#[must_use]
-	pub fn guest_socket_path_for_process(&self, id: &tg::process::Id) -> PathBuf {
-		self.guest_socket_path()
-			.join(Self::socket_name_for_process(id))
-	}
-
-	#[must_use]
-	pub fn guest_tangram_path(&self) -> PathBuf {
-		"/opt/tangram/bin/tangram".into()
-	}
-
-	#[must_use]
-	pub fn guest_tmp_path(&self) -> PathBuf {
-		"/tmp".into()
-	}
-
-	#[must_use]
-	pub fn guest_libexec_tangram_path(&self) -> PathBuf {
-		"/opt/tangram/libexec/tangram".into()
-	}
+	Ok(())
 }
 
 impl std::fmt::Display for Stdio {
@@ -655,16 +809,8 @@ impl std::str::FromStr for Stdio {
 	}
 }
 
-impl std::ops::Deref for Manager {
-	type Target = ManagerState;
-
-	fn deref(&self) -> &Self::Target {
-		&self.0
-	}
-}
-
 impl std::ops::Deref for Sandbox {
-	type Target = SandboxState;
+	type Target = State;
 
 	fn deref(&self) -> &Self::Target {
 		&self.0

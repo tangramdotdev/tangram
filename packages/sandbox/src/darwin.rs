@@ -1,5 +1,5 @@
 use {
-	crate::{Directory, Manager, ManagerArg, RunArg, SpawnArg},
+	crate::{PrepareRootfsArg, RunArg, Sandbox, SpawnArg},
 	indoc::writedoc,
 	num::ToPrimitive as _,
 	std::{
@@ -13,30 +13,34 @@ use {
 };
 
 pub fn spawn_jailer(
-	manager: &Manager,
 	arg: &SpawnArg,
 	run_arg: &RunArg,
 	ready_fd: RawFd,
 ) -> tg::Result<tokio::process::Child> {
-	let directory = Directory::new(arg.path.clone());
 	for path in [
-		directory.host_output_path(),
-		directory.host_socket_path(),
-		directory.host_scratch_path(),
-		directory.host_profile_path().parent().unwrap().to_owned(),
+		Sandbox::host_output_path_from_root(&arg.path),
+		Sandbox::host_socket_path_from_root(&arg.path),
+		Sandbox::host_scratch_path_from_root(&arg.path),
+		Sandbox::host_profile_path_from_root(&arg.path)
+			.parent()
+			.unwrap()
+			.to_owned(),
 	] {
 		std::fs::create_dir_all(&path).map_err(
 			|source| tg::error!(!source, path = %path.display(), "failed to create the sandbox path"),
 		)?;
 	}
-	let profile = create_sandbox_profile(manager, arg);
-	std::fs::write(directory.host_profile_path(), profile.as_bytes())
-		.map_err(|source| tg::error!(!source, "failed to write the sandbox profile"))?;
+	let profile = create_sandbox_profile(arg);
+	std::fs::write(
+		Sandbox::host_profile_path_from_root(&arg.path),
+		profile.as_bytes(),
+	)
+	.map_err(|source| tg::error!(!source, "failed to write the sandbox profile"))?;
 	let mut command = tokio::process::Command::new("sandbox-exec");
 	command
 		.arg("-f")
-		.arg(directory.host_profile_path())
-		.arg(&manager.tangram_path);
+		.arg(Sandbox::host_profile_path_from_root(&arg.path))
+		.arg(&arg.tangram_path);
 	crate::append_run_args(&mut command, run_arg, ready_fd);
 	command
 		.stdin(std::process::Stdio::null())
@@ -79,15 +83,15 @@ pub fn prepare_command_for_spawn(
 	Ok(())
 }
 
-pub fn prepare_runtime_libraries(arg: &ManagerArg) -> tg::Result<Vec<std::path::PathBuf>> {
-	std::fs::remove_dir_all(&arg.rootfs_path).ok();
-	std::fs::create_dir_all(&arg.rootfs_path)
+pub fn prepare_runtime_libraries(arg: &PrepareRootfsArg) -> tg::Result<()> {
+	std::fs::remove_dir_all(&arg.path).ok();
+	std::fs::create_dir_all(&arg.path)
 		.map_err(|source| tg::error!(!source, "failed to create the sandbox directory"))?;
 	let libraries = collect_dynamic_libraries(&arg.tangram_path)?;
 	if libraries.is_empty() {
-		return Ok(Vec::new());
+		return Ok(());
 	}
-	let libraries_path = arg.rootfs_path.join("lib");
+	let libraries_path = arg.path.join("lib");
 	std::fs::create_dir_all(&libraries_path).map_err(|source| {
 		tg::error!(!source, "failed to create the sandbox libraries directory")
 	})?;
@@ -113,7 +117,7 @@ pub fn prepare_runtime_libraries(arg: &ManagerArg) -> tg::Result<Vec<std::path::
 			})?;
 		}
 	}
-	Ok(vec![libraries_path])
+	Ok(())
 }
 
 fn collect_dynamic_libraries(executable: &Path) -> tg::Result<Vec<std::path::PathBuf>> {
@@ -363,9 +367,8 @@ fn is_system_library_path(path: &Path) -> bool {
 		|| path.starts_with("/System/Volumes/Preboot/Cryptexes/OS/usr/lib/")
 }
 
-fn create_sandbox_profile(manager: &Manager, arg: &SpawnArg) -> CString {
-	let directory = crate::Directory::new(arg.path.clone());
-	let tangram_parent = manager.tangram_path.parent();
+fn create_sandbox_profile(arg: &SpawnArg) -> CString {
+	let tangram_parent = arg.tangram_path.parent();
 	let home_path = std::env::var_os("HOME").map(std::path::PathBuf::from);
 	let mut profile = String::new();
 	writedoc!(
@@ -507,13 +510,16 @@ fn create_sandbox_profile(manager: &Manager, arg: &SpawnArg) -> CString {
 			(subpath "{}")
 			(subpath "{}"))
 	"#,
-		manager.tangram_path.display(),
-		manager.rootfs_path.join("lib").display(),
-		directory.host_socket_path().display(),
-		directory.host_listen_path().display(),
-		directory.host_socket_path().display(),
-		directory.host_output_path().display(),
-		directory.host_scratch_path().parent().unwrap().display(),
+		arg.tangram_path.display(),
+		arg.rootfs_path.join("lib").display(),
+		Sandbox::host_socket_path_from_root(&arg.path).display(),
+		Sandbox::host_listen_path_from_root(&arg.path).display(),
+		Sandbox::host_socket_path_from_root(&arg.path).display(),
+		Sandbox::host_output_path_from_root(&arg.path).display(),
+		Sandbox::host_scratch_path_from_root(&arg.path)
+			.parent()
+			.unwrap()
+			.display(),
 	)
 	.unwrap();
 
