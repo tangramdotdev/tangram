@@ -88,8 +88,9 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to get the current directory"))?;
 
 		// Get the env.
-		let env: tg::value::data::Map = std::env::vars()
-			.map(|(key, value)| (key, tg::value::Data::String(value)))
+		let env = tg::process::env()?
+			.into_iter()
+			.map(|(key, value)| (key, value.to_data()))
 			.collect();
 
 		// Get the executable.

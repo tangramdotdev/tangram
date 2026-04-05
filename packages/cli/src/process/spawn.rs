@@ -496,7 +496,7 @@ impl Cli {
 		// Set the env.
 		let mut env = tg::value::Map::new();
 		if !sandbox {
-			env.extend(std::env::vars().map(|(key, value)| (key, value.into())));
+			env.extend(tg::process::env()?);
 			env.remove("TANGRAM_OUTPUT");
 			if !env.contains_key("TANGRAM_URL")
 				&& let tg::Either::Left(client) = &handle

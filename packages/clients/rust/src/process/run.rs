@@ -40,9 +40,7 @@ impl tg::Process {
 		let env = if sandboxed {
 			arg.env
 		} else {
-			let mut env = std::env::vars()
-				.map(|(key, value)| (key, value.into()))
-				.collect::<tg::value::Map>();
+			let mut env = tg::process::env()?;
 			env.remove("TANGRAM_OUTPUT");
 			env
 		};

@@ -1495,7 +1495,15 @@ fn render_env(
 	artifacts_path: &Path,
 	output_path: &Path,
 ) -> tg::Result<BTreeMap<String, String>> {
-	let mut output = BTreeMap::new();
+	for key in env.keys() {
+		if key.starts_with(tg::process::env::PREFIX) {
+			return Err(tg::error!(
+				key = %key,
+				"env vars prefixed with TANGRAM_ENV_ are reserved"
+			));
+		}
+	}
+	let mut resolved = tg::value::data::Map::new();
 	for (key, value) in env {
 		let mutation = match value {
 			tg::value::Data::Mutation(value) => value.clone(),
@@ -1503,16 +1511,23 @@ fn render_env(
 				value: Box::new(value.clone()),
 			},
 		};
-		mutation.apply(&mut output, key)?;
+		mutation.apply(&mut resolved, key)?;
 	}
-	let output = output
+	let mut output = resolved
 		.iter()
 		.map(|(key, value)| {
 			let key = key.clone();
 			let value = render_value_string(value, artifacts_path, output_path)?;
 			Ok::<_, tg::Error>((key, value))
 		})
-		.collect::<tg::Result<_>>()?;
+		.collect::<tg::Result<BTreeMap<_, _>>>()?;
+	for (key, value) in &resolved {
+		if matches!(value, tg::value::Data::String(_)) {
+			continue;
+		}
+		let value = tg::Value::try_from_data(value.clone()).unwrap().to_string();
+		output.insert(format!("{}{key}", tg::process::env::PREFIX), value);
+	}
 	Ok(output)
 }
 
