@@ -1,11 +1,11 @@
 use {crate::Cli, tangram_client::prelude::*};
 
 pub mod activate;
-pub mod common;
 pub mod completion;
 pub mod deactivate;
 pub mod directory;
 pub mod integration;
+pub mod util;
 
 /// Manage shell integration.
 #[derive(Clone, Debug, clap::Args)]

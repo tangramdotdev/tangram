@@ -2,8 +2,8 @@ use {crate::Cli, tangram_client::prelude::*};
 
 pub mod create;
 pub mod delete;
+pub mod init;
 pub mod list;
-pub mod run;
 
 /// Manage sandboxes.
 #[derive(Clone, Debug, clap::Args)]
@@ -21,7 +21,7 @@ pub enum Command {
 	#[command(alias = "ls")]
 	List(self::list::Args),
 	#[command(hide = true)]
-	Run(self::run::Args),
+	Init(self::init::Args),
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -116,7 +116,7 @@ impl Cli {
 			Command::List(args) => {
 				self.command_sandbox_list(args).await?;
 			},
-			Command::Run(_) => {
+			Command::Init(_) => {
 				unreachable!()
 			},
 		}

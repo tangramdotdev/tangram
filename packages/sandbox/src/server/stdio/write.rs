@@ -1,11 +1,11 @@
 use {
-	crate::{common::InputStream, server::Server},
+	crate::{Stdio, server::Server},
 	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
-	std::pin::pin,
+	std::{pin::pin, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tokio::io::AsyncWriteExt as _,
+	tokio::{io::AsyncWriteExt as _, process::ChildStdin, sync::Mutex},
 	tokio_stream::wrappers::ReceiverStream,
 };
 
@@ -19,57 +19,50 @@ impl Server {
 		if arg.streams.as_slice() != [tg::process::stdio::Stream::Stdin] {
 			return Err(tg::error!("expected stdin for a stdio write"));
 		}
+		let stdin = input_handle(self, &id)?;
 		let (sender, receiver) =
 			tokio::sync::mpsc::channel::<tg::Result<tg::process::stdio::write::Event>>(1);
-		let task =
-			Task::spawn({
-				let server = self.clone();
-				move |_| async move {
-					let mut input = pin!(input);
-					while let Some(event) = input.next().await {
-						let event = match event {
-							Ok(event) => event,
-							Err(error) => {
-								sender.send(Err(error)).await.ok();
+		let task = Task::spawn({
+			move |_| async move {
+				let mut input = pin!(input);
+				while let Some(event) = input.next().await {
+					let event = match event {
+						Ok(event) => event,
+						Err(error) => {
+							sender.send(Err(error)).await.ok();
+							return;
+						},
+					};
+					match event {
+						tg::process::stdio::read::Event::Chunk(chunk) => {
+							let result = match &stdin {
+								InputHandle::Null => break,
+								InputHandle::Pty(pty) => {
+									let mut pty = &**pty;
+									pty.write_all(&chunk.bytes).await
+								},
+								InputHandle::Stdin(stdin) => {
+									let mut stdin = stdin.lock().await;
+									stdin.write_all(&chunk.bytes).await
+								},
+							};
+							if let Err(source) = result {
+								sender
+									.send(Err(tg::error!(!source, "failed to write stdin")))
+									.await
+									.ok();
 								return;
-							},
-						};
-						let stdin = match server.processes.get(&id) {
-							Some(process) => process.stdin.clone(),
-							None => break,
-						};
-						let mut stdin = stdin.lock().await;
-						match event {
-							tg::process::stdio::read::Event::Chunk(chunk) => match &mut *stdin {
-								InputStream::Null => break,
-								InputStream::Pipe(pipe) => {
-									if let Err(error) =
-										pipe.write_all(&chunk.bytes).await.map_err(|source| {
-											tg::error!(!source, "failed to write stdin")
-										}) {
-										sender.send(Err(error)).await.ok();
-										return;
-									}
-								},
-								InputStream::Pty(pty) => {
-									if let Err(error) =
-										pty.write_all(&chunk.bytes).await.map_err(|source| {
-											tg::error!(!source, "failed to write stdin")
-										}) {
-										sender.send(Err(error)).await.ok();
-										return;
-									}
-								},
-							},
-							tg::process::stdio::read::Event::End => break,
-						}
+							}
+						},
+						tg::process::stdio::read::Event::End => break,
 					}
-					sender
-						.send(Ok(tg::process::stdio::write::Event::End))
-						.await
-						.ok();
 				}
-			});
+				sender
+					.send(Ok(tg::process::stdio::write::Event::End))
+					.await
+					.ok();
+			}
+		});
 		Ok(ReceiverStream::new(receiver).attach(task).boxed())
 	}
 
@@ -121,5 +114,32 @@ impl Server {
 			.body(BoxBody::with_sse_stream(stream))
 			.unwrap();
 		Ok(response)
+	}
+}
+
+#[derive(Clone)]
+enum InputHandle {
+	Null,
+	Pty(Arc<crate::pty::Pty>),
+	Stdin(Arc<Mutex<ChildStdin>>),
+}
+
+fn input_handle(server: &Server, id: &tg::process::Id) -> tg::Result<InputHandle> {
+	let process = server
+		.processes
+		.get(id)
+		.ok_or_else(|| tg::error!(process = %id, "not found"))?;
+	match process.command.stdin {
+		Stdio::Null => Ok(InputHandle::Null),
+		Stdio::Pipe => process
+			.stdin
+			.clone()
+			.map(InputHandle::Stdin)
+			.ok_or_else(|| tg::error!(process = %id, "stdin is not available")),
+		Stdio::Tty => process
+			.pty
+			.clone()
+			.map(InputHandle::Pty)
+			.ok_or_else(|| tg::error!(process = %id, "stdin is not available")),
 	}
 }

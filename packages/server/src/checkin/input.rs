@@ -570,12 +570,8 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to read the symlink"))?;
 
 		// If the target is absolute, then get the host path if necessary.
-		if target.is_absolute()
-			&& let Some(process) = &state.context.process
-		{
-			target = process.host_path_for_guest_path(&target).ok_or_else(
-				|| tg::error!(target = %target.display(), "no host path for guest path"),
-			)?;
+		if target.is_absolute() {
+			target = self.host_path_for_guest_path(state.context, &target)?;
 		}
 
 		// Canonicalize the target.

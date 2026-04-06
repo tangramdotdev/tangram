@@ -1,5 +1,5 @@
 use {
-	crate::{common::OutputStream, server::Server},
+	crate::{Stdio, server::Server},
 	bytes::Bytes,
 	futures::{StreamExt as _, stream::BoxStream},
 	tangram_client::prelude::*,
@@ -35,17 +35,11 @@ impl Server {
 		let streams = if streams.contains(&tg::process::stdio::Stream::Stdout)
 			&& streams.contains(&tg::process::stdio::Stream::Stderr)
 		{
-			if let Some((stdout, stderr)) = match self.processes.get(&id) {
-				Some(process) => Some((process.stdout.clone(), process.stderr.clone())),
-				None => None,
-			} {
-				let stdout_is_tty = matches!(&*stdout.lock().await, OutputStream::Pty(_));
-				let stderr_is_tty = matches!(&*stderr.lock().await, OutputStream::Pty(_));
-				if stdout_is_tty && stderr_is_tty {
-					vec![tg::process::stdio::Stream::Stdout]
-				} else {
-					streams
-				}
+			if self.processes.get(&id).is_some_and(|process| {
+				matches!(process.command.stdout, Stdio::Tty)
+					&& matches!(process.command.stderr, Stdio::Tty)
+			}) {
+				vec![tg::process::stdio::Stream::Stdout]
 			} else {
 				streams
 			}
@@ -58,14 +52,7 @@ impl Server {
 			tokio::sync::mpsc::channel::<tg::Result<tg::process::stdio::read::Event>>(1);
 		let mut stream = ReceiverStream::new(receiver).boxed();
 		for stream_ in streams.iter().copied() {
-			let output = match self.processes.get(&id) {
-				Some(process) => match stream_ {
-					tg::process::stdio::Stream::Stdout => process.stdout.clone(),
-					tg::process::stdio::Stream::Stderr => process.stderr.clone(),
-					tg::process::stdio::Stream::Stdin => unreachable!(),
-				},
-				None => return Err(tg::error!(process = %id, "not found")),
-			};
+			let output = output_handle(self, &id, stream_)?;
 			let task = Task::spawn({
 				let output = output.clone();
 				let output_sender = output_sender.clone();
@@ -73,10 +60,7 @@ impl Server {
 					loop {
 						let result = match stream_ {
 							tg::process::stdio::Stream::Stdout
-							| tg::process::stdio::Stream::Stderr => {
-								let mut output = output.lock().await;
-								read_output_chunk(&mut output).await
-							},
+							| tg::process::stdio::Stream::Stderr => read_output_chunk(&output).await,
 							tg::process::stdio::Stream::Stdin => {
 								unreachable!();
 							},
@@ -188,12 +172,61 @@ impl Server {
 	}
 }
 
-async fn read_output_chunk(output: &mut OutputStream) -> std::io::Result<Option<Bytes>> {
+#[derive(Clone)]
+enum OutputHandle {
+	Null,
+	Pty(std::sync::Arc<crate::pty::Pty>),
+	Stderr(std::sync::Arc<tokio::sync::Mutex<tokio::process::ChildStderr>>),
+	Stdout(std::sync::Arc<tokio::sync::Mutex<tokio::process::ChildStdout>>),
+}
+
+fn output_handle(
+	server: &Server,
+	id: &tg::process::Id,
+	stream: tg::process::stdio::Stream,
+) -> tg::Result<OutputHandle> {
+	let process = server
+		.processes
+		.get(id)
+		.ok_or_else(|| tg::error!(process = %id, "not found"))?;
+	match stream {
+		tg::process::stdio::Stream::Stdout => match process.command.stdout {
+			Stdio::Null => Ok(OutputHandle::Null),
+			Stdio::Pipe => process
+				.stdout
+				.clone()
+				.map(OutputHandle::Stdout)
+				.ok_or_else(|| tg::error!(process = %id, "stdout is not available")),
+			Stdio::Tty => process
+				.pty
+				.clone()
+				.map(OutputHandle::Pty)
+				.ok_or_else(|| tg::error!(process = %id, "stdout is not available")),
+		},
+		tg::process::stdio::Stream::Stderr => match process.command.stderr {
+			Stdio::Null => Ok(OutputHandle::Null),
+			Stdio::Pipe => process
+				.stderr
+				.clone()
+				.map(OutputHandle::Stderr)
+				.ok_or_else(|| tg::error!(process = %id, "stderr is not available")),
+			Stdio::Tty => process
+				.pty
+				.clone()
+				.map(OutputHandle::Pty)
+				.ok_or_else(|| tg::error!(process = %id, "stderr is not available")),
+		},
+		tg::process::stdio::Stream::Stdin => unreachable!(),
+	}
+}
+
+async fn read_output_chunk(output: &OutputHandle) -> std::io::Result<Option<Bytes>> {
 	match output {
-		OutputStream::Null => Ok(None),
-		OutputStream::Pipe(pipe) => {
+		OutputHandle::Null => Ok(None),
+		OutputHandle::Stdout(stdout) => {
 			let mut buffer = vec![0u8; 1 << 14];
-			match pipe.read(&mut buffer).await {
+			let mut stdout = stdout.lock().await;
+			match stdout.read(&mut buffer).await {
 				Ok(0) => Ok(None),
 				Ok(n) => {
 					buffer.truncate(n);
@@ -202,8 +235,21 @@ async fn read_output_chunk(output: &mut OutputStream) -> std::io::Result<Option<
 				Err(error) => Err(error),
 			}
 		},
-		OutputStream::Pty(pty) => {
+		OutputHandle::Stderr(stderr) => {
 			let mut buffer = vec![0u8; 1 << 14];
+			let mut stderr = stderr.lock().await;
+			match stderr.read(&mut buffer).await {
+				Ok(0) => Ok(None),
+				Ok(n) => {
+					buffer.truncate(n);
+					Ok(Some(buffer.into()))
+				},
+				Err(error) => Err(error),
+			}
+		},
+		OutputHandle::Pty(pty) => {
+			let mut buffer = vec![0u8; 1 << 14];
+			let mut pty = &**pty;
 			match pty.read(&mut buffer).await {
 				Ok(0) => Ok(None),
 				Ok(n) => {
