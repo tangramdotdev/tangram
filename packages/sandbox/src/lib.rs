@@ -59,7 +59,7 @@ pub struct SpawnArg {
 }
 
 #[derive(Clone, Debug)]
-pub struct RunArg {
+pub struct InitArg {
 	pub library_paths: Vec<PathBuf>,
 	pub path: PathBuf,
 	pub tangram_path: PathBuf,
@@ -90,7 +90,7 @@ pub fn prepare_rootfs(arg: &PrepareRootfsArg) -> tg::Result<()> {
 impl Sandbox {
 	pub async fn new(arg: SpawnArg) -> tg::Result<Self> {
 		validate_mounts(&arg.mounts)?;
-		let run_arg = RunArg {
+		let init_arg = InitArg {
 			library_paths: library_paths(&arg.rootfs_path),
 			path: arg.path.clone(),
 			tangram_path: arg.tangram_path.clone(),
@@ -121,10 +121,10 @@ impl Sandbox {
 		let ready_fd = ready_writer.as_raw_fd();
 
 		#[cfg(target_os = "linux")]
-		let mut process = crate::linux::spawn_jailer(&arg, &run_arg, ready_fd)?;
+		let mut process = crate::linux::spawn_jailer(&arg, &init_arg, ready_fd)?;
 
 		#[cfg(target_os = "macos")]
-		let mut process = crate::darwin::spawn_jailer(&arg, &run_arg, ready_fd)?;
+		let mut process = crate::darwin::spawn_jailer(&arg, &init_arg, ready_fd)?;
 
 		drop(ready_writer);
 
@@ -244,7 +244,7 @@ impl Sandbox {
 	}
 }
 
-pub fn run(arg: &RunArg, ready_fd: Option<RawFd>) -> tg::Result<()> {
+pub fn init(arg: &InitArg, ready_fd: Option<RawFd>) -> tg::Result<()> {
 	use std::{io::Write as _, os::fd::FromRawFd as _};
 
 	let runtime = tokio::runtime::Builder::new_current_thread()
@@ -350,10 +350,10 @@ fn library_paths(rootfs_path: &Path) -> Vec<PathBuf> {
 	}
 }
 
-fn append_run_args(command: &mut tokio::process::Command, arg: &RunArg, ready_fd: RawFd) {
+fn append_init_args(command: &mut tokio::process::Command, arg: &InitArg, ready_fd: RawFd) {
 	command
 		.arg("sandbox")
-		.arg("run")
+		.arg("init")
 		.arg("--path")
 		.arg(&arg.path)
 		.arg("--ready-fd")

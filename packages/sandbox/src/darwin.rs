@@ -1,5 +1,5 @@
 use {
-	crate::{PrepareRootfsArg, RunArg, Sandbox, SpawnArg},
+	crate::{InitArg, PrepareRootfsArg, Sandbox, SpawnArg},
 	indoc::writedoc,
 	num::ToPrimitive as _,
 	std::{
@@ -14,7 +14,7 @@ use {
 
 pub fn spawn_jailer(
 	arg: &SpawnArg,
-	run_arg: &RunArg,
+	init_arg: &InitArg,
 	ready_fd: RawFd,
 ) -> tg::Result<tokio::process::Child> {
 	for path in [
@@ -41,7 +41,7 @@ pub fn spawn_jailer(
 		.arg("-f")
 		.arg(Sandbox::host_profile_path_from_root(&arg.path))
 		.arg(&arg.tangram_path);
-	crate::append_run_args(&mut command, run_arg, ready_fd);
+	crate::append_init_args(&mut command, init_arg, ready_fd);
 	command
 		.stdin(std::process::Stdio::null())
 		.stdout(std::process::Stdio::inherit())

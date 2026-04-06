@@ -1,5 +1,5 @@
 use {
-	crate::{PrepareRootfsArg, RunArg, Sandbox, SpawnArg},
+	crate::{InitArg, PrepareRootfsArg, Sandbox, SpawnArg},
 	indoc::indoc,
 	std::{
 		ffi::{CStr, CString, OsStr},
@@ -149,7 +149,7 @@ pub fn prepare_command_for_spawn(
 
 pub fn spawn_jailer(
 	arg: &SpawnArg,
-	run_arg: &RunArg,
+	init_arg: &InitArg,
 	ready_fd: RawFd,
 ) -> tg::Result<tokio::process::Child> {
 	prepare_sandbox_directory(&arg.path)?;
@@ -238,7 +238,7 @@ pub fn spawn_jailer(
 	command.arg(Sandbox::guest_tangram_path_from_host_tangram_path(
 		&arg.tangram_path,
 	));
-	crate::append_run_args(&mut command, run_arg, ready_fd);
+	crate::append_init_args(&mut command, init_arg, ready_fd);
 	command
 		.stdin(std::process::Stdio::null())
 		.stdout(std::process::Stdio::inherit())
