@@ -17,8 +17,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 
-		// Get the process. All fields from the processes table must be Option because the LEFT JOIN
-		// returns NULL for all columns when a process doesn't exist.
+		// Get the process.
 		#[derive(db::postgres::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]

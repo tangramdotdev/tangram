@@ -107,8 +107,7 @@ impl Server {
 		// Create the lock.
 		let lock = tg::graph::Data { nodes };
 
-		// Strip the lock. Pass false for local_dependencies since checkout always includes
-		// dependencies with local option in the lock.
+		// Strip the lock.
 		let lock = Self::strip_lock(lock, false);
 
 		Ok(lock)
