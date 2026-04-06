@@ -45,6 +45,11 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to authorize"))?;
 
+		// Guard against concurrent cleans.
+		let _clean_guard = self
+			.try_acquire_clean_guard()
+			.map_err(|source| tg::error!(!source, "failed to acquire clean guard"))?;
+
 		// Insert the tag into the database.
 		match &self.database {
 			#[cfg(feature = "postgres")]
