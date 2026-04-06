@@ -845,15 +845,33 @@ impl Server {
 		};
 
 		// Spawn the signal task.
+		let arg = tg::process::signal::get::Arg {
+			local: None,
+			remotes: remote.map(|r| vec![r.clone()]),
+		};
+		let stream = self
+			.try_get_process_signal_stream(id, arg)
+			.await
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					process = %id,
+					"failed to get the process's signal stream"
+				)
+			})?
+			.ok_or_else(
+				|| tg::error!(process = %id, "expected the process's signal stream to exist"),
+			)?
+			.boxed();
+
 		let signal_task = tokio::spawn({
 			let server = self.clone();
 			let sandbox = sandbox.clone();
 			let sandbox_process = sandbox_process.clone();
 			let id = id.clone();
-			let remote = remote.cloned();
 			async move {
 				server
-					.signal_task(&sandbox, &sandbox_process, &id, remote.as_ref())
+					.signal_task(&sandbox, &sandbox_process, &id, stream)
 					.await
 					.inspect_err(|source| tracing::error!(?source, "the signal task failed"))
 					.ok();
@@ -1127,27 +1145,8 @@ impl Server {
 		sandbox: &tangram_sandbox::Sandbox,
 		sandbox_process: &tangram_sandbox::Process,
 		id: &tg::process::Id,
-		remote: Option<&String>,
+		mut stream: BoxStream<'static, tg::Result<tg::process::signal::get::Event>>,
 	) -> tg::Result<()> {
-		// Get the signal stream for the process.
-		let arg = tg::process::signal::get::Arg {
-			local: None,
-			remotes: remote.map(|r| vec![r.clone()]),
-		};
-		let mut stream = self
-			.try_get_process_signal_stream(id, arg)
-			.await
-			.map_err(|source| {
-				tg::error!(
-					!source,
-					process = %id,
-					"failed to get the process's signal stream"
-				)
-			})?
-			.ok_or_else(
-				|| tg::error!(process = %id, "expected the process's signal stream to exist"),
-			)?;
-
 		// Handle the events.
 		while let Some(event) = stream.try_next().await.map_err(
 			|source| tg::error!(!source, process = %id, "failed to get the next signal event"),

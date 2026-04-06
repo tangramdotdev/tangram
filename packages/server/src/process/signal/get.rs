@@ -6,7 +6,7 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_messenger::prelude::*,
+	tangram_messenger::{self as messenger, prelude::*},
 };
 
 impl Server {
@@ -69,10 +69,20 @@ impl Server {
 
 		let stream = self
 			.messenger
-			.subscribe::<tangram_messenger::payload::Json<tg::process::signal::get::Event>>(
-				format!("processes.{id}.signal"),
-				None,
-			)
+			.get_stream(format!("processes.{id}.signal"))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the signal stream"))?;
+		let config = messenger::ConsumerConfig {
+			ack_policy: messenger::AckPolicy::None,
+			deliver_policy: messenger::DeliverPolicy::All,
+			..messenger::ConsumerConfig::default()
+		};
+		let consumer = stream
+			.create_consumer(None, config)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the consumer"))?;
+		let stream = consumer
+			.subscribe::<tangram_messenger::payload::Json<tg::process::signal::get::Event>>()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the stream"))?
 			.map(|result| {
