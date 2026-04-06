@@ -113,6 +113,12 @@ impl Server {
 		for (message, acker) in messages {
 			let process = message.id;
 
+			// Delete the signal stream.
+			self.delete_process_signal_stream(&process)
+				.await
+				.inspect_err(|error| tracing::error!(error = %error.trace(), %process, "failed to delete the signal stream"))
+				.ok();
+
 			// Compact the log.
 			self.compact_process_log(&process)
 				.boxed()
