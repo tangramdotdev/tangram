@@ -16,4 +16,7 @@ success $output
 
 # Wait for the process to finish.
 let output = tg wait $process | from json
-snapshot -n wait $output ''
+snapshot -n wait $output '
+	exit: 137
+
+'
