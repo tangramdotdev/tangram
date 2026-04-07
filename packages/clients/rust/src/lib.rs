@@ -23,7 +23,6 @@ pub use {
 		handle::Handle,
 		health::Health,
 		id::Id,
-		location::Location,
 		module::Module,
 		mutation::Mutation,
 		object::Handle as Object,
@@ -66,7 +65,6 @@ pub mod handle;
 pub mod health;
 pub mod id;
 pub mod index;
-pub mod location;
 pub mod module;
 pub mod mutation;
 pub mod object;

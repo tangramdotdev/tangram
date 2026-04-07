@@ -961,7 +961,7 @@ fn parse_diagnostic(value: &tg::Value) -> tg::Result<tg::Diagnostic> {
 	})
 }
 
-fn parse_location(value: &tg::Value) -> tg::Result<tg::Location> {
+fn parse_location(value: &tg::Value) -> tg::Result<tg::module::Location> {
 	let value = value
 		.try_unwrap_map_ref()
 		.map_err(|_| tg::error!("expected map for location"))?;
@@ -982,7 +982,7 @@ fn parse_location(value: &tg::Value) -> tg::Result<tg::Location> {
 	}
 	let module = module.ok_or_else(|| tg::error!("missing module field"))?;
 	let range = range.ok_or_else(|| tg::error!("missing range field"))?;
-	Ok(tg::Location { module, range })
+	Ok(tg::module::Location { module, range })
 }
 
 fn parse_range(value: &tg::Value) -> tg::Result<tg::Range> {

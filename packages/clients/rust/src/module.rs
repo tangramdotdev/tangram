@@ -3,12 +3,13 @@ use {
 	std::path::{Path, PathBuf},
 };
 
-pub use self::{data::Module as Data, import::Import};
-
 pub mod data;
 pub mod import;
 pub mod load;
+pub mod location;
 pub mod resolve;
+
+pub use self::{data::Module as Data, import::Import, location::Location};
 
 #[derive(Clone, Debug)]
 pub struct Module {

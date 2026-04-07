@@ -172,4 +172,42 @@ export namespace Module {
 			return tg.Graph.Data.Edge.children(item);
 		};
 	}
+
+	export type Location = {
+		module: tg.Module;
+		range: tg.Range;
+	};
+
+	export namespace Location {
+		export type Data = {
+			module: tg.Module.Data;
+			range: tg.Range;
+		};
+
+		export let toData = (
+			value: tg.Module.Location,
+		): tg.Module.Location.Data => {
+			return {
+				module: tg.Module.toData(value.module),
+				range: value.range,
+			};
+		};
+
+		export let fromData = (
+			data: tg.Module.Location.Data,
+		): tg.Module.Location => {
+			return {
+				module: tg.Module.fromData(data.module),
+				range: data.range,
+			};
+		};
+
+		export namespace Data {
+			export let children = (
+				data: tg.Module.Location.Data,
+			): Array<tg.Object.Id> => {
+				return tg.Module.Data.children(data.module);
+			};
+		}
+	}
 }

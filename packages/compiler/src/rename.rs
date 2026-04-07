@@ -8,7 +8,7 @@ pub struct Request {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Response {
-	pub locations: Option<Vec<tg::location::Data>>,
+	pub locations: Option<Vec<tg::module::location::Data>>,
 }
 
 impl Compiler {
@@ -80,7 +80,7 @@ impl Compiler {
 		&self,
 		module: &tg::module::Data,
 		position: tg::Position,
-	) -> tg::Result<Option<Vec<tg::Location>>> {
+	) -> tg::Result<Option<Vec<tg::module::Location>>> {
 		// Create the request.
 		let request = super::Request::Rename(Request {
 			module: module.clone(),

@@ -1089,6 +1089,18 @@ declare namespace tg {
 			kind: tg.Module.Kind;
 			referent: tg.Referent.Data<string>;
 		};
+
+		export type Location = {
+			module: tg.Module;
+			range: tg.Range;
+		};
+
+		export namespace Location {
+			export type Data = {
+				module: tg.Module.Data;
+				range: tg.Range;
+			};
+		}
 	}
 
 	export type Position = {
@@ -1101,20 +1113,8 @@ declare namespace tg {
 		end: tg.Position;
 	};
 
-	export type Location = {
-		module: tg.Module;
-		range: tg.Range;
-	};
-
-	export namespace Location {
-		export type Data = {
-			module: tg.Module.Data;
-			range: tg.Range;
-		};
-	}
-
 	export type Diagnostic = {
-		location?: tg.Location;
+		location?: tg.Module.Location;
 		message: string;
 		severity: tg.Diagnostic.Severity;
 	};
@@ -1123,7 +1123,7 @@ declare namespace tg {
 		export type Severity = "error" | "warning" | "info" | "hint";
 
 		export type Data = {
-			location?: tg.Location.Data;
+			location?: tg.Module.Location.Data;
 			message: string;
 			severity: tg.Diagnostic.Severity;
 		};

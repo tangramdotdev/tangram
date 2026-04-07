@@ -415,8 +415,8 @@ where
 		}
 	}
 
-	async fn print_location(&mut self, location: &tg::Location, message: &str) {
-		let tg::Location { module, range } = location;
+	async fn print_location(&mut self, location: &tg::module::Location, message: &str) {
+		let tg::module::Location { module, range } = location;
 		match &module.referent.item {
 			tg::module::Item::Edge(edge) => {
 				let mut title = String::new();

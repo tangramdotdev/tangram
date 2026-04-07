@@ -6,7 +6,7 @@ pub mod data;
 
 #[derive(Clone, Debug)]
 pub struct Diagnostic {
-	pub location: Option<tg::Location>,
+	pub location: Option<tg::module::Location>,
 	pub severity: Severity,
 	pub message: String,
 }
@@ -16,7 +16,7 @@ impl Diagnostic {
 	pub fn children(&self) -> Vec<tg::Object> {
 		self.location
 			.as_ref()
-			.map(tg::Location::children)
+			.map(tg::module::Location::children)
 			.into_iter()
 			.flatten()
 			.collect()
@@ -24,7 +24,7 @@ impl Diagnostic {
 
 	#[must_use]
 	pub fn to_data(&self) -> data::Diagnostic {
-		let location = self.location.as_ref().map(tg::Location::to_data);
+		let location = self.location.as_ref().map(tg::module::Location::to_data);
 		let severity = self.severity;
 		let message = self.message.clone();
 		data::Diagnostic {

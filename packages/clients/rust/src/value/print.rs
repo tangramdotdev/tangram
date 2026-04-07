@@ -637,7 +637,7 @@ where
 		self.finish_map()
 	}
 
-	fn location(&mut self, location: &tg::Location) -> Result {
+	fn location(&mut self, location: &tg::module::Location) -> Result {
 		self.start_map()?;
 		self.map_entry("module", |s| s.module(&location.module))?;
 		self.map_entry("range", |s| s.range(&location.range))?;
