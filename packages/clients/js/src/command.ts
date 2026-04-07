@@ -21,14 +21,14 @@ export function command(...args: tg.Args<tg.Command.Arg>): tg.Command.Builder;
 export function command(...args: any): any {
 	if (typeof args[0] === "function") {
 		let executable = tg.Command.Executable.fromData(tg.host.magic(args[0]));
-		if (
-			"module" in executable &&
-			!(
-				executable.module.referent.options.tag ||
-				executable.module.referent.options.id
-			)
-		) {
-			executable.module.referent.options.path = undefined;
+		if ("module" in executable) {
+			let options = executable.module.referent.options;
+			if (!(options?.tag || options?.id)) {
+				executable.module.referent.options = {
+					...options,
+					path: undefined,
+				};
+			}
 		}
 		return new tg.Command.Builder({
 			host: "js",

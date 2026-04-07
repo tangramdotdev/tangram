@@ -2,7 +2,7 @@ import * as tg from "./index.ts";
 
 export type Referent<T> = {
 	item: T;
-	options: tg.Referent.Options;
+	options?: tg.Referent.Options | undefined;
 };
 
 export namespace Referent {

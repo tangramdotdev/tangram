@@ -313,8 +313,7 @@ export class Process {
 			if (
 				typeof arg.command === "object" &&
 				arg.command !== null &&
-				"item" in arg.command &&
-				"options" in arg.command
+				"item" in arg.command
 			) {
 				command_ = tg.Command.expect(arg.command.item);
 				options = { ...arg.command.options };
