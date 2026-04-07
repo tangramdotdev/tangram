@@ -150,14 +150,20 @@ impl Server {
 		}
 
 		// Get a register connection.
-		let connection = self
+		let mut connection = self
 			.register
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 
+		// Begin a transaction.
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "faile to acquire a transaction"))?;
+
 		// Update the process.
-		let p = connection.p();
+		let p = transaction.p();
 		let statement = formatdoc!(
 			"
 				update processes
@@ -196,7 +202,7 @@ impl Server {
 			now,
 			id.to_string(),
 		];
-		let n = connection
+		let n = transaction
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -211,7 +217,7 @@ impl Server {
 			"
 		);
 		let params = db::params![id.to_string()];
-		connection
+		transaction
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
@@ -225,12 +231,17 @@ impl Server {
 			"
 		);
 		let params = db::params![id.to_string()];
-		connection
+		transaction
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Drop the connection.
+		// Commit the transaction.
+		transaction
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
 		drop(connection);
 
 		// Publish the finalize message.
