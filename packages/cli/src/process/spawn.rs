@@ -498,6 +498,7 @@ impl Cli {
 		if !sandbox {
 			env.extend(tg::process::env()?);
 			env.remove("TANGRAM_OUTPUT");
+			env.remove("TANGRAM_PROCESS");
 			if !env.contains_key("TANGRAM_URL")
 				&& let tg::Either::Left(client) = &handle
 			{

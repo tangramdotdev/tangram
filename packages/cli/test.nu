@@ -22,8 +22,8 @@ def main [
 	# Clean up leftover test resources if requested.
 	if $clean {
 		for entry in (ls ($nu.temp-dir? | default $nu.temp-path?) | where name =~ 'tangram_test_' and type == dir) {
-			print -e $"Removing temp directory: ($entry.name)"
 			remove_temp_directory $entry.name
+			print -e $"removed ($entry.name)"
 		}
 
 		let preserved_dbs = ['postgres', 'template0', 'template1', 'register']

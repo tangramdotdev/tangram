@@ -25,6 +25,7 @@ scylla = ["tangram_store/scylla"]
 tls = ["dep:rustls", "dep:rustls-pemfile", "dep:tokio-rustls"]
 typescript = ["tangram_compiler/typescript"]
 v8 = ["tangram_js/v8"]
+vsock = ["dep:tokio-vsock", "tangram_client/vsock", "tangram_sandbox/vsock"]
 
 [lib]
 doctest = false
@@ -60,8 +61,8 @@ mime = { workspace = true }
 notify = { workspace = true }
 num = { workspace = true }
 opentelemetry = { workspace = true }
-oauth2 = { workspace = true }
 octocrab = { workspace = true }
+oauth2 = { workspace = true }
 petgraph = { workspace = true }
 reflink-copy = { workspace = true }
 reqwest = { workspace = true }
@@ -95,6 +96,7 @@ tokio-postgres = { workspace = true, optional = true }
 tokio-rustls = { workspace = true, optional = true }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
+tokio-vsock = { workspace = true, optional = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }

@@ -16,6 +16,9 @@ test = false
 [lints]
 workspace = true
 
+[features]
+vsock = ["dep:tokio-vsock"]
+
 [dependencies]
 bytes = { workspace = true }
 dashmap = { workspace = true }
@@ -37,9 +40,11 @@ serde_with = { workspace = true }
 tangram_client = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
+tangram_uri = { workspace = true }
 tangram_util = { workspace = true }
 tokio = { workspace = true }
-tokio-util = { workspace = true }
 tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
+tokio-vsock = { workspace = true, optional = true }
 tower = { workspace = true }
 tracing = { workspace = true }

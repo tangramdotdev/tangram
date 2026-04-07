@@ -66,6 +66,7 @@ impl Server {
 			peer_config.url.clone(),
 			Some(self.version.clone()),
 			peer_config.token.clone(),
+			None,
 			reconnect,
 			retry,
 		);

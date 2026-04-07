@@ -120,6 +120,8 @@ impl Server {
 				command: arg.command,
 				notify: Arc::new(tokio::sync::Notify::new()),
 				pid,
+				remote: arg.remote,
+				retry: arg.retry,
 				stdin,
 				stdout,
 				stderr,

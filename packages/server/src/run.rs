@@ -151,6 +151,9 @@ impl Server {
 			tangram_path: self.tangram_path.clone(),
 			user: state.user.clone(),
 		};
+		let (listener, guest_uri) = Self::create_sandbox_tangram_listener(temp.path())
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to create the tangram listener"))?;
 		let sandbox = tangram_sandbox::Sandbox::new(sandbox_arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to create the sandbox"))?;
@@ -158,6 +161,16 @@ impl Server {
 		scopeguard::defer! {
 			self.sandboxes.remove(id);
 		}
+		let serve_task = Task::spawn({
+			let server = self.clone();
+			let context = Context {
+				sandbox: Some(id.clone()),
+				..Default::default()
+			};
+			|stop| async move {
+				server.serve(listener, context, stop).await;
+			}
+		});
 
 		let heartbeat_task = Task::spawn({
 			let server = self.clone();
@@ -244,6 +257,7 @@ impl Server {
 			let server = self.clone();
 			let process = tg::Process::new(process.clone(), None, remote.clone(), None, None, None);
 			let sandbox = sandbox.clone();
+			let guest_uri = guest_uri.clone();
 			let sender = sender.clone();
 			process_tasks
 				.spawn(process.id().clone(), move |stopper| async move {
@@ -253,7 +267,7 @@ impl Server {
 							sender.send(process_id).ok();
 						});
 					server
-						.process_task(&process, sandbox, stopper)
+						.process_task(&process, sandbox, guest_uri, stopper)
 						.await
 						.inspect_err(|error| {
 							tracing::error!(error = %error.trace(), process = %process.id(), "the process task failed");
@@ -288,6 +302,7 @@ impl Server {
 					let server = self.clone();
 					let process = tg::Process::new(payload.id.clone(), None, None, None, None, None);
 					let sandbox = sandbox.clone();
+					let guest_uri = guest_uri.clone();
 					let sender = sender.clone();
 					process_tasks.spawn(payload.id.clone(), move |stopper| async move {
 						let process_id = process.id().clone();
@@ -295,7 +310,7 @@ impl Server {
 							sender.send(process_id).ok();
 						});
 						server
-							.process_task(&process, sandbox, stopper)
+							.process_task(&process, sandbox, guest_uri, stopper)
 							.await
 							.inspect_err(|error| {
 								tracing::error!(error = %error.trace(), process = %process.id(), "the process task failed");
@@ -312,6 +327,7 @@ impl Server {
 					let server = self.clone();
 					let process = tg::Process::new(output.process.clone(), None, remote.clone(), None, None, None);
 					let sandbox = sandbox.clone();
+					let guest_uri = guest_uri.clone();
 					let sender = sender.clone();
 					process_tasks.spawn(output.process.clone(), move |stopper| async move {
 						let process_id = process.id().clone();
@@ -319,7 +335,7 @@ impl Server {
 							sender.send(process_id).ok();
 						});
 						server
-							.process_task(&process, sandbox, stopper)
+							.process_task(&process, sandbox, guest_uri, stopper)
 							.await
 							.inspect_err(|error| {
 								tracing::error!(error = %error.trace(), process = %process.id(), "the process task failed");
@@ -368,6 +384,11 @@ impl Server {
 		process_tasks.stop_all();
 		drop(sender);
 		process_tasks.wait().await;
+		serve_task.stop();
+		serve_task
+			.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "the serve task panicked"))?;
 		heartbeat_task.stop();
 		heartbeat_task
 			.wait()
@@ -497,13 +518,17 @@ impl Server {
 		&self,
 		process: &tg::Process,
 		sandbox: tangram_sandbox::Sandbox,
+		guest_uri: tangram_uri::Uri,
 		stopper: Stopper,
 	) -> tg::Result<()> {
 		let _clean_guard = self.acquire_clean_guard().await;
 
-		let wait = match self.run(process, sandbox, stopper).await.map_err(
-			|source| tg::error!(!source, process = %process.id(), "failed to run the process"),
-		) {
+		let wait = match self
+			.run(process, sandbox, &guest_uri, stopper)
+			.await
+			.map_err(
+				|source| tg::error!(!source, process = %process.id(), "failed to run the process"),
+			) {
 			Ok(output) => output,
 			Err(error) => Output {
 				error: Some(error),
@@ -585,6 +610,7 @@ impl Server {
 		&self,
 		process: &tg::Process,
 		sandbox: tangram_sandbox::Sandbox,
+		guest_uri: &tangram_uri::Uri,
 		stopper: Stopper,
 	) -> tg::Result<Output> {
 		let id = process.id();
@@ -712,85 +738,9 @@ impl Server {
 			guest_output_path.to_str().unwrap().to_owned(),
 		);
 
-		let host_socket_path = sandbox.host_socket_path_for_process(id);
-		let guest_socket_path = sandbox.guest_socket_path_for_process(id);
-
-		#[cfg(target_os = "macos")]
-		let (listener, guest_uri) = {
-			const MAX_SOCKET_PATH_LEN: usize = 100;
-			tokio::fs::create_dir_all(host_socket_path.parent().unwrap())
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
-			let socket_path_str = host_socket_path.to_str().unwrap();
-			let mut url = if socket_path_str.len() <= MAX_SOCKET_PATH_LEN {
-				tangram_uri::Uri::builder()
-					.scheme("http+unix")
-					.authority(socket_path_str)
-					.path("")
-					.build()
-					.unwrap()
-			} else {
-				"http://localhost:0".parse::<tangram_uri::Uri>().unwrap()
-			};
-			let listener = Server::listen(&url)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to listen"))?;
-			if let tokio_util::either::Either::Right(ref tcp) = listener {
-				let port = tcp
-					.local_addr()
-					.map_err(|source| tg::error!(!source, "failed to get listener address"))?
-					.port();
-				url = format!("http://localhost:{port}")
-					.parse::<tangram_uri::Uri>()
-					.unwrap();
-			}
-			(listener, url)
-		};
-
-		#[cfg(target_os = "linux")]
-		let (listener, guest_uri) = {
-			tokio::fs::create_dir_all(host_socket_path.parent().unwrap())
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
-			let url = tangram_uri::Uri::builder()
-				.scheme("http+unix")
-				.authority(host_socket_path.to_str().unwrap())
-				.path("")
-				.build()
-				.unwrap();
-			let guest_url = tangram_uri::Uri::builder()
-				.scheme("http+unix")
-				.authority(guest_socket_path.to_str().unwrap())
-				.path("")
-				.build()
-				.unwrap();
-			let listener = Server::listen(&url)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to listen"))?;
-			(listener, guest_url)
-		};
-
 		// Set `$TANGRAM_URL`.
 		env.insert("TANGRAM_URL".to_owned(), guest_uri.to_string());
-
-		// Serve.
-		let server = self.clone();
-		let context = Context {
-			process: Some(Arc::new(crate::context::Process {
-				id: process.id().clone(),
-				remote: remote.cloned(),
-				retry: state.retry,
-			})),
-			sandbox: state.sandbox.clone(),
-			..Default::default()
-		};
-		let serve_task = Task::spawn({
-			let context = context.clone();
-			|stop| async move {
-				server.serve(listener, context, stop).await;
-			}
-		});
-		let serve_task = Some((serve_task, guest_uri));
+		env.insert("TANGRAM_PROCESS".to_owned(), id.to_string());
 
 		let sandbox_stdin = match state.stdin {
 			tg::process::Stdio::Null => tangram_sandbox::Stdio::Null,
@@ -828,7 +778,13 @@ impl Server {
 			stderr: sandbox_stderr,
 		};
 		let sandbox_process = sandbox
-			.spawn(sandbox_command, id.clone(), state.tty)
+			.spawn(
+				sandbox_command,
+				id.clone(),
+				state.tty,
+				remote.cloned(),
+				state.retry,
+			)
 			.await
 			.map_err(
 				|source| tg::error!(!source, %id, "failed to spawn the process in the sandbox"),
@@ -940,20 +896,21 @@ impl Server {
 				.and_then(|r| r.map_err(|source| tg::error!(!source, "failed to send output")))?;
 		}
 
-		// Stop and await the serve task.
-		if let Some((task, _)) = serve_task {
-			task.stop();
-			task.wait()
-				.await
-				.map_err(|source| tg::error!(!source, "the serve task panicked"))?;
-		}
-
 		if stopped {
 			return Err(tg::error!(
 				code = tg::error::Code::Cancellation,
 				"the process was canceled"
 			));
 		}
+		let context = Context {
+			process: Some(Arc::new(crate::context::Process {
+				id: id.clone(),
+				remote: remote.cloned(),
+				retry: state.retry,
+			})),
+			sandbox: state.sandbox.clone(),
+			..Default::default()
+		};
 
 		// Create the output.
 		let mut output = Output {
@@ -1053,6 +1010,96 @@ impl Server {
 			Err(tg::error!(
 				"cannot checksum a value that is not a blob or an artifact"
 			))
+		}
+	}
+}
+
+impl Server {
+	async fn create_sandbox_tangram_listener(
+		root_path: &Path,
+	) -> tg::Result<(crate::http::Listener, tangram_uri::Uri)> {
+		#[cfg(target_os = "linux")]
+		let host_socket_path = root_path.join("upper/opt/tangram/socket");
+		#[cfg(target_os = "macos")]
+		let host_socket_path = root_path.join("tg");
+
+		#[cfg(target_os = "linux")]
+		let guest_socket_path = Path::new("/opt/tangram/socket").to_owned();
+		#[cfg(target_os = "macos")]
+		let guest_socket_path = host_socket_path.clone();
+
+		#[cfg(target_os = "macos")]
+		{
+			const MAX_SOCKET_PATH_LEN: usize = 100;
+			tokio::fs::create_dir_all(host_socket_path.parent().unwrap())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
+			let socket_path_str = host_socket_path.to_str().unwrap();
+			let url = if socket_path_str.len() <= MAX_SOCKET_PATH_LEN {
+				tangram_uri::Uri::builder()
+					.scheme("http+unix")
+					.authority(socket_path_str)
+					.path("")
+					.build()
+					.unwrap()
+			} else {
+				"http://localhost:0".parse::<tangram_uri::Uri>().unwrap()
+			};
+			let listener = Server::listen(&url)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to listen"))?;
+			let guest_uri = match &listener {
+				crate::http::Listener::Unix(_) => tangram_uri::Uri::builder()
+					.scheme("http+unix")
+					.authority(guest_socket_path.to_str().unwrap())
+					.path("")
+					.build()
+					.unwrap(),
+				crate::http::Listener::Tcp(tcp) => {
+					let port = tcp
+						.local_addr()
+						.map_err(|source| {
+							tg::error!(!source, "failed to get the listener address")
+						})?
+						.port();
+					format!("http://localhost:{port}")
+						.parse::<tangram_uri::Uri>()
+						.unwrap()
+				},
+				#[cfg(feature = "vsock")]
+				crate::http::Listener::Vsock(vsock) => {
+					let addr = vsock.local_addr().map_err(|source| {
+						tg::error!(!source, "failed to get the listener address")
+					})?;
+					format!("http+vsock://{}:{}", addr.cid(), addr.port())
+						.parse::<tangram_uri::Uri>()
+						.unwrap()
+				},
+			};
+			return Ok((listener, guest_uri));
+		}
+
+		#[cfg(target_os = "linux")]
+		{
+			tokio::fs::create_dir_all(host_socket_path.parent().unwrap())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
+			let url = tangram_uri::Uri::builder()
+				.scheme("http+unix")
+				.authority(host_socket_path.to_str().unwrap())
+				.path("")
+				.build()
+				.unwrap();
+			let guest_url = tangram_uri::Uri::builder()
+				.scheme("http+unix")
+				.authority(guest_socket_path.to_str().unwrap())
+				.path("")
+				.build()
+				.unwrap();
+			let listener = Server::listen(&url)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to listen"))?;
+			Ok((listener, guest_url))
 		}
 	}
 }

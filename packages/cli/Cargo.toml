@@ -30,6 +30,7 @@ scylla = ["tangram_server/scylla"]
 tls = ["tangram_client/tls", "tangram_server/tls"]
 typescript = ["tangram_server/typescript", "v8"]
 v8 = ["dep:v8", "js", "tangram_server/v8", "tangram_js/v8"]
+vsock = ["tangram_client/vsock", "tangram_sandbox/vsock", "tangram_server/vsock"]
 
 [lints]
 workspace = true
@@ -51,9 +52,9 @@ derive_more = { workspace = true }
 foundationdb = { workspace = true, optional = true }
 futures = { workspace = true }
 opentelemetry = { workspace = true }
-opentelemetry_sdk = { workspace = true }
 opentelemetry-appender-tracing = { workspace = true }
 opentelemetry-otlp = { workspace = true }
+opentelemetry_sdk = { workspace = true }
 indexmap = { workspace = true }
 indoc = { workspace = true }
 libc = { workspace = true }
@@ -78,8 +79,8 @@ tangram_server = { workspace = true }
 tangram_uri = { workspace = true }
 tangram_util = { workspace = true }
 tokio = { workspace = true }
-tokio-util = { workspace = true }
 tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }

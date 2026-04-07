@@ -12,6 +12,7 @@ version = { workspace = true }
 
 [features]
 tls = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
+vsock = ["dep:tokio-vsock"]
 
 [lib]
 doctest = false
@@ -65,6 +66,7 @@ tokio = { workspace = true }
 tokio-rustls = { workspace = true, optional = true }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
+tokio-vsock = { workspace = true, optional = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }

@@ -642,7 +642,7 @@ impl Cli {
 			});
 
 		// Create the client.
-		tg::Client::new(url, Some(version()), token, reconnect, retry)
+		tg::Client::new(url, Some(version()), token, None, reconnect, retry)
 	}
 
 	async fn server(&self) -> tg::Result<Server> {

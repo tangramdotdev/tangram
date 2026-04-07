@@ -5,21 +5,19 @@ use {
 	std::{
 		ffi::{CStr, CString},
 		fmt::Write,
-		os::fd::RawFd,
 		os::unix::ffi::OsStrExt as _,
 		path::Path,
 	},
 	tangram_client::prelude::*,
 };
 
-pub fn spawn_jailer(
-	arg: &SpawnArg,
-	init_arg: &InitArg,
-	ready_fd: RawFd,
-) -> tg::Result<tokio::process::Child> {
+pub fn spawn_jailer(arg: &SpawnArg, init_arg: &InitArg) -> tg::Result<tokio::process::Child> {
 	for path in [
 		Sandbox::host_output_path_from_root(&arg.path),
-		Sandbox::host_socket_path_from_root(&arg.path),
+		Sandbox::host_tangram_socket_path_from_root(&arg.path)
+			.parent()
+			.unwrap()
+			.to_owned(),
 		Sandbox::host_scratch_path_from_root(&arg.path),
 		Sandbox::host_profile_path_from_root(&arg.path)
 			.parent()
@@ -41,7 +39,7 @@ pub fn spawn_jailer(
 		.arg("-f")
 		.arg(Sandbox::host_profile_path_from_root(&arg.path))
 		.arg(&arg.tangram_path);
-	crate::append_init_args(&mut command, init_arg, ready_fd);
+	crate::append_init_args(&mut command, init_arg);
 	command
 		.stdin(std::process::Stdio::null())
 		.stdout(std::process::Stdio::inherit())
@@ -512,9 +510,9 @@ fn create_sandbox_profile(arg: &SpawnArg) -> CString {
 	"#,
 		arg.tangram_path.display(),
 		arg.rootfs_path.join("lib").display(),
-		Sandbox::host_socket_path_from_root(&arg.path).display(),
+		Sandbox::host_tangram_socket_path_from_root(&arg.path).display(),
 		Sandbox::host_listen_path_from_root(&arg.path).display(),
-		Sandbox::host_socket_path_from_root(&arg.path).display(),
+		Sandbox::host_tangram_socket_path_from_root(&arg.path).display(),
 		Sandbox::host_output_path_from_root(&arg.path).display(),
 		Sandbox::host_scratch_path_from_root(&arg.path)
 			.parent()

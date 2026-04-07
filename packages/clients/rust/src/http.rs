@@ -11,7 +11,6 @@ use {
 	tangram_http::request::Ext as _,
 	tangram_uri::Uri,
 	time::format_description::well_known::Rfc3339,
-	tokio::net::{TcpStream, UnixStream},
 	tower::{Service as _, util::BoxCloneSyncService},
 	tower_http::ServiceBuilderExt as _,
 };
@@ -38,6 +37,7 @@ impl tg::Client {
 		url: Uri,
 		version: String,
 		token: Option<String>,
+		process: Option<tg::process::Id>,
 		reconnect: &tangram_futures::retry::Options,
 	) -> (Sender, Service) {
 		let sender = Arc::new(tokio::sync::Mutex::new(
@@ -103,6 +103,12 @@ impl tg::Client {
 				tower_http::set_header::SetRequestHeaderLayer::if_not_present(
 					http::header::AUTHORIZATION,
 					http::HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
+				)
+			}))
+			.option_layer(process.map(|process| {
+				tower_http::set_header::SetRequestHeaderLayer::if_not_present(
+					http::HeaderName::from_static("x-tg-process"),
+					http::HeaderValue::from_str(&process.to_string()).unwrap(),
 				)
 			}))
 			.layer(
@@ -183,6 +189,23 @@ impl tg::Client {
 					Self::connect_tcp_tls_h1(host, port).await
 				}
 			},
+			Some("http+vsock") => {
+				#[cfg(not(feature = "vsock"))]
+				{
+					Err(tg::error!("vsock is not enabled"))
+				}
+				#[cfg(feature = "vsock")]
+				{
+					let cid = url
+						.host()
+						.ok_or_else(|| tg::error!(%url, "invalid url"))?
+						.parse::<u32>()
+						.map_err(|source| tg::error!(!source, %url, "invalid url"))?;
+					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+					let addr = tokio_vsock::VsockAddr::new(cid, u32::from(port));
+					Self::connect_vsock_h1(addr).await
+				}
+			},
 			_ => Err(tg::error!(%url, "invalid url")),
 		}
 	}
@@ -219,6 +242,23 @@ impl tg::Client {
 					Self::connect_tcp_tls_h2(host, port).await
 				}
 			},
+			Some("http+vsock") => {
+				#[cfg(not(feature = "vsock"))]
+				{
+					Err(tg::error!("vsock is not enabled"))
+				}
+				#[cfg(feature = "vsock")]
+				{
+					let cid = url
+						.host()
+						.ok_or_else(|| tg::error!(%url, "invalid url"))?
+						.parse::<u32>()
+						.map_err(|source| tg::error!(!source, %url, "invalid url"))?;
+					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+					let addr = tokio_vsock::VsockAddr::new(cid, u32::from(port));
+					Self::connect_vsock_h2(addr).await
+				}
+			},
 			_ => Err(tg::error!(%url, "invalid url")),
 		}
 	}
@@ -227,7 +267,7 @@ impl tg::Client {
 		path: &Path,
 	) -> tg::Result<hyper::client::conn::http1::SendRequest<tangram_http::body::Boxed>> {
 		// Connect via UNIX.
-		let stream = UnixStream::connect(path)
+		let stream = tokio::net::UnixStream::connect(path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?;
 
@@ -261,7 +301,7 @@ impl tg::Client {
 		path: &Path,
 	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>> {
 		// Connect via UNIX.
-		let stream = UnixStream::connect(path)
+		let stream = tokio::net::UnixStream::connect(path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?;
 
@@ -300,10 +340,11 @@ impl tg::Client {
 	) -> tg::Result<hyper::client::conn::http1::SendRequest<tangram_http::body::Boxed>> {
 		// Connect via TCP.
 		let addr = format!("{host}:{port}");
-		let stream = tokio::time::timeout(Duration::from_secs(1), TcpStream::connect(addr))
-			.await
-			.map_err(|_| tg::error!("connection timeout"))?
-			.map_err(|source| tg::error!(!source, "failed to create the TCP connection"))?;
+		let stream =
+			tokio::time::timeout(Duration::from_secs(1), tokio::net::TcpStream::connect(addr))
+				.await
+				.map_err(|_| tg::error!("connection timeout"))?
+				.map_err(|source| tg::error!(!source, "failed to create the TCP connection"))?;
 
 		// Perform the HTTP handshake.
 		let io = hyper_util::rt::TokioIo::new(stream);
@@ -337,10 +378,11 @@ impl tg::Client {
 	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>> {
 		// Connect via TCP.
 		let addr = format!("{host}:{port}");
-		let stream = tokio::time::timeout(Duration::from_secs(1), TcpStream::connect(addr))
-			.await
-			.map_err(|_| tg::error!("connection timeout"))?
-			.map_err(|source| tg::error!(!source, "failed to create the TCP connection"))?;
+		let stream =
+			tokio::time::timeout(Duration::from_secs(1), tokio::net::TcpStream::connect(addr))
+				.await
+				.map_err(|_| tg::error!("connection timeout"))?
+				.map_err(|source| tg::error!(!source, "failed to create the TCP connection"))?;
 
 		// Perform the HTTP handshake.
 		let executor = hyper_util::rt::TokioExecutor::new();
@@ -470,10 +512,11 @@ impl tg::Client {
 	) -> tg::Result<tokio_rustls::client::TlsStream<tokio::net::TcpStream>> {
 		// Connect via TCP.
 		let addr = format!("{host}:{port}");
-		let stream = tokio::time::timeout(Duration::from_secs(1), TcpStream::connect(addr))
-			.await
-			.map_err(|_| tg::error!("connection timeout"))?
-			.map_err(|source| tg::error!(!source, "failed to create the TCP connection"))?;
+		let stream =
+			tokio::time::timeout(Duration::from_secs(1), tokio::net::TcpStream::connect(addr))
+				.await
+				.map_err(|_| tg::error!("connection timeout"))?
+				.map_err(|source| tg::error!(!source, "failed to create the TCP connection"))?;
 
 		// Create the connector.
 		let mut root_store = rustls::RootCertStore::empty();
@@ -500,6 +543,87 @@ impl tg::Client {
 			.map_err(|source| tg::error!(!source, "failed to connect"))?;
 
 		Ok(stream)
+	}
+
+	#[cfg(feature = "vsock")]
+	async fn connect_vsock_h1(
+		addr: tokio_vsock::VsockAddr,
+	) -> tg::Result<hyper::client::conn::http1::SendRequest<tangram_http::body::Boxed>> {
+		// Connect via virtio-vsock.
+		let stream = tokio::time::timeout(
+			Duration::from_secs(1),
+			tokio_vsock::VsockStream::connect(addr),
+		)
+		.await
+		.map_err(|source| tg::error!(!source, "timed out connecting to the socket"))?
+		.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?;
+
+		// Perform the HTTP handshake.
+		let io = hyper_util::rt::TokioIo::new(stream);
+		let (mut sender, connection) = hyper::client::conn::http1::handshake(io)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to perform the HTTP handshake"))?;
+
+		// Spawn the connection.
+		tokio::spawn(async move {
+			connection
+				.with_upgrades()
+				.await
+				.inspect_err(|error| {
+					tracing::error!(error = ?error, "the connection failed");
+				})
+				.ok();
+		});
+
+		// Wait for the sender to be ready.
+		sender
+			.ready()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to ready the sender"))?;
+
+		Ok(sender)
+	}
+
+	#[cfg(feature = "vsock")]
+	pub(crate) async fn connect_vsock_h2(
+		addr: tokio_vsock::VsockAddr,
+	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>> {
+		// Connect via virtio-vsock.
+		let stream = tokio::time::timeout(
+			Duration::from_secs(1),
+			tokio_vsock::VsockStream::connect(addr),
+		)
+		.await
+		.map_err(|source| tg::error!(!source, "timed out connecting to the socket"))?
+		.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?;
+
+		// Perform the HTTP handshake.
+		let executor = hyper_util::rt::TokioExecutor::new();
+		let io = hyper_util::rt::TokioIo::new(stream);
+		let (mut sender, connection) = hyper::client::conn::http2::Builder::new(executor)
+			.max_concurrent_streams(None)
+			.max_concurrent_reset_streams(usize::MAX)
+			.handshake(io)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to perform the HTTP handshake"))?;
+
+		// Spawn the connection.
+		tokio::spawn(async move {
+			connection
+				.await
+				.inspect_err(|error| {
+					tracing::error!(error = ?error, "the connection failed");
+				})
+				.ok();
+		});
+
+		// Wait for the sender to be ready.
+		sender
+			.ready()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to ready the sender"))?;
+
+		Ok(sender)
 	}
 
 	pub(crate) async fn send<B>(

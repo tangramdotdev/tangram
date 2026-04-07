@@ -4,7 +4,7 @@ use {
 	std::{
 		ffi::{CStr, CString, OsStr},
 		fmt::Write as _,
-		os::{fd::RawFd, unix::ffi::OsStrExt as _},
+		os::unix::ffi::OsStrExt as _,
 		path::{Path, PathBuf},
 	},
 	tangram_client::prelude::*,
@@ -147,11 +147,7 @@ pub fn prepare_command_for_spawn(
 	)
 }
 
-pub fn spawn_jailer(
-	arg: &SpawnArg,
-	init_arg: &InitArg,
-	ready_fd: RawFd,
-) -> tg::Result<tokio::process::Child> {
+pub fn spawn_jailer(arg: &SpawnArg, init_arg: &InitArg) -> tg::Result<tokio::process::Child> {
 	prepare_sandbox_directory(&arg.path)?;
 	let user = prepare_etc_files(&arg.path, arg.network, arg.user.as_deref())?;
 	prepare_mount_targets(
@@ -166,8 +162,6 @@ pub fn spawn_jailer(
 		.arg("--as-pid-1")
 		.arg("--die-with-parent")
 		.arg("--new-session")
-		.arg("--sync-fd")
-		.arg(ready_fd.to_string())
 		.arg("--uid")
 		.arg(user.uid.to_string())
 		.arg("--gid")
@@ -213,11 +207,14 @@ pub fn spawn_jailer(
 		.arg(&arg.tangram_path)
 		.arg(Sandbox::guest_libexec_tangram_path())
 		.arg("--bind")
-		.arg(Sandbox::host_output_path_from_root(&arg.path))
-		.arg(Sandbox::guest_output_path_from_root(&arg.path))
+		.arg(Sandbox::host_listen_path_from_root(&arg.path))
+		.arg(Sandbox::guest_listen_path_from_root(&arg.path))
 		.arg("--bind")
-		.arg(Sandbox::host_socket_path_from_root(&arg.path))
-		.arg(Sandbox::guest_socket_path_from_root(&arg.path));
+		.arg(Sandbox::host_tangram_socket_path_from_root(&arg.path))
+		.arg(Sandbox::guest_tangram_socket_path_from_root(&arg.path))
+		.arg("--bind")
+		.arg(Sandbox::host_output_path_from_root(&arg.path))
+		.arg(Sandbox::guest_output_path_from_root(&arg.path));
 	if arg.network && Sandbox::host_resolv_conf_path_from_root(&arg.path).exists() {
 		command
 			.arg("--ro-bind")
@@ -238,7 +235,7 @@ pub fn spawn_jailer(
 	command.arg(Sandbox::guest_tangram_path_from_host_tangram_path(
 		&arg.tangram_path,
 	));
-	crate::append_init_args(&mut command, init_arg, ready_fd);
+	crate::append_init_args(&mut command, init_arg);
 	command
 		.stdin(std::process::Stdio::null())
 		.stdout(std::process::Stdio::inherit())
@@ -252,7 +249,6 @@ pub fn spawn_jailer(
 fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 	for path in [
 		Sandbox::host_output_path_from_root(sandbox_path),
-		Sandbox::host_socket_path_from_root(sandbox_path),
 		Sandbox::host_scratch_path_from_root(sandbox_path),
 		Sandbox::host_tmp_path_from_root(sandbox_path),
 		Sandbox::host_etc_path_from_root(sandbox_path),
@@ -273,6 +269,15 @@ fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 			"failed to set sandbox path permissions"
 		)
 	})?;
+	let upper_path = Sandbox::host_upper_path_from_root(sandbox_path);
+	let tangram_path = upper_path.join("opt/tangram");
+	std::fs::create_dir_all(&tangram_path).map_err(|source| {
+		tg::error!(
+			!source,
+			path = %tangram_path.display(),
+			"failed to create the sandbox path"
+		)
+	})?;
 	Ok(())
 }
 
@@ -280,19 +285,21 @@ fn prepare_rootfs_mountpoints(rootfs_path: &Path) -> tg::Result<()> {
 	for path in [
 		Path::new("/dev"),
 		Path::new("/proc"),
+		Path::new("/opt/tangram"),
 		Path::new("/tmp"),
 		Path::new("/opt/tangram/artifacts"),
 		Path::new("/opt/tangram/libexec"),
 		Path::new("/opt/tangram/output"),
-		Path::new("/opt/tangram/socket"),
 	] {
 		create_guest_directory(rootfs_path, path)?;
 	}
 	for path in [
+		Path::new("/socket"),
 		Path::new("/etc/passwd"),
 		Path::new("/etc/nsswitch.conf"),
 		Path::new("/etc/resolv.conf"),
 		Path::new("/opt/tangram/libexec/tangram"),
+		Path::new("/opt/tangram/socket"),
 	] {
 		create_guest_file(rootfs_path, path)?;
 	}

@@ -42,6 +42,7 @@ impl tg::Process {
 		} else {
 			let mut env = tg::process::env()?;
 			env.remove("TANGRAM_OUTPUT");
+			env.remove("TANGRAM_PROCESS");
 			env
 		};
 		builder = builder.env(env);
