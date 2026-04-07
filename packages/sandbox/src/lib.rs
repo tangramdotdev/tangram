@@ -98,15 +98,15 @@ impl Sandbox {
 			url,
 		};
 
+		#[cfg(target_os = "macos")]
+		let mut process = crate::darwin::spawn_jailer(&arg, &init_arg)?;
+
 		#[cfg(target_os = "linux")]
 		let mut process = crate::linux::spawn_jailer(&arg, &init_arg)?;
 
-		#[cfg(target_os = "macos")]
-		let mut process = crate::darwin::spawn_jailer(&arg, &init_arg)?;
-		let client = Client::new();
-		match tokio::time::timeout(Duration::from_secs(5), async {
+		let client = match tokio::time::timeout(Duration::from_secs(5), async {
 			tokio::select! {
-				result = Self::accept(&listener, &client) => result,
+				result = Client::with_listener(&listener) => result,
 				result = process.wait() => {
 					let status = result
 						.map_err(|source| tg::error!(!source, "failed to wait for the sandbox process"))?;
@@ -116,7 +116,7 @@ impl Sandbox {
 		})
 		.await
 		{
-			Ok(Ok(())) => {},
+			Ok(Ok(client)) => client,
 			Ok(Err(source)) => {
 				process.start_kill().ok();
 				process.wait().await.ok();
@@ -130,44 +130,18 @@ impl Sandbox {
 					"timed out waiting for the sandbox to connect"
 				));
 			},
-		}
+		};
 
-		Ok(Self(Arc::new(State {
+		let sandbox = Self(Arc::new(State {
 			artifacts_path: arg.artifacts_path,
 			client,
 			mounts: arg.mounts,
 			path: arg.path,
 			_process: process,
 			tangram_path: arg.tangram_path,
-		})))
-	}
+		}));
 
-	async fn accept(listener: &crate::server::Listener, client: &Client) -> tg::Result<()> {
-		match listener {
-			crate::server::Listener::Unix(listener) => {
-				let (stream, _) = listener
-					.accept()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to accept the connection"))?;
-				client.accept(stream).await
-			},
-			#[cfg(target_os = "macos")]
-			crate::server::Listener::Tcp(listener) => {
-				let (stream, _) = listener
-					.accept()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to accept the connection"))?;
-				client.accept(stream).await
-			},
-			#[cfg(feature = "vsock")]
-			crate::server::Listener::Vsock(listener) => {
-				let (stream, _) = listener
-					.accept()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to accept the connection"))?;
-				client.accept(stream).await
-			},
-		}
+		Ok(sandbox)
 	}
 
 	async fn listen(root_path: &Path) -> tg::Result<(crate::server::Listener, Uri)> {
@@ -175,15 +149,6 @@ impl Sandbox {
 		tokio::fs::create_dir_all(host_path.parent().unwrap())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
-
-		#[cfg(target_os = "linux")]
-		{
-			std::fs::remove_file(&host_path).ok();
-			let host_url = Self::unix_url(&host_path)?;
-			let listener = crate::server::Server::listen(&host_url).await?;
-			let url = Self::unix_url(&Self::guest_listen_path_from_root(root_path))?;
-			Ok((listener, url))
-		}
 
 		#[cfg(target_os = "macos")]
 		{
@@ -193,9 +158,19 @@ impl Sandbox {
 				.ok_or_else(|| tg::error!("invalid path"))?;
 			if host_path_string.len() <= MAX_SOCKET_PATH_LEN {
 				std::fs::remove_file(&host_path).ok();
-				let host_url = Self::unix_url(&host_path)?;
+				let host_url = Uri::builder()
+					.scheme("http+unix")
+					.authority(host_path_string)
+					.path("")
+					.build()
+					.map_err(|source| tg::error!(source = source, "failed to build the URL"))?;
 				let listener = crate::server::Server::listen(&host_url).await?;
-				let url = Self::unix_url(&host_path)?;
+				let url = Uri::builder()
+					.scheme("http+unix")
+					.authority(host_path_string)
+					.path("")
+					.build()
+					.map_err(|source| tg::error!(source = source, "failed to build the URL"))?;
 				Ok((listener, url))
 			} else {
 				let host_url = "http://localhost:0"
@@ -215,15 +190,34 @@ impl Sandbox {
 				Ok((listener, url))
 			}
 		}
-	}
 
-	fn unix_url(path: &Path) -> tg::Result<Uri> {
-		Uri::builder()
-			.scheme("http+unix")
-			.authority(path.to_str().ok_or_else(|| tg::error!("invalid path"))?)
-			.path("")
-			.build()
-			.map_err(|source| tg::error!(source = source, "failed to build the URL"))
+		#[cfg(target_os = "linux")]
+		{
+			std::fs::remove_file(&host_path).ok();
+			let host_url = Uri::builder()
+				.scheme("http+unix")
+				.authority(
+					host_path
+						.to_str()
+						.ok_or_else(|| tg::error!("invalid path"))?,
+				)
+				.path("")
+				.build()
+				.map_err(|source| tg::error!(source = source, "failed to build the URL"))?;
+			let listener = crate::server::Server::listen(&host_url).await?;
+			let guest_path = Self::guest_listen_path_from_root(root_path);
+			let url = Uri::builder()
+				.scheme("http+unix")
+				.authority(
+					guest_path
+						.to_str()
+						.ok_or_else(|| tg::error!("invalid path"))?,
+				)
+				.path("")
+				.build()
+				.map_err(|source| tg::error!(source = source, "failed to build the URL"))?;
+			Ok((listener, url))
+		}
 	}
 
 	pub async fn spawn(
@@ -316,47 +310,7 @@ pub fn init(arg: &InitArg) -> tg::Result<()> {
 			library_paths: arg.library_paths.clone(),
 			tangram_path: arg.tangram_path.clone(),
 		});
-		match arg.url.scheme() {
-			Some("http+unix") => {
-				let path = arg
-					.url
-					.host()
-					.ok_or_else(|| tg::error!(url = %arg.url, "invalid url"))?;
-				let stream = tokio::net::UnixStream::connect(path)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?;
-				server.serve_stream(stream).await;
-			},
-			Some("http") => {
-				let host = arg
-					.url
-					.host()
-					.ok_or_else(|| tg::error!(url = %arg.url, "invalid url"))?;
-				let port = arg
-					.url
-					.port_or_known_default()
-					.ok_or_else(|| tg::error!(url = %arg.url, "invalid url"))?;
-				let stream = tokio::net::TcpStream::connect((host, port))
-					.await
-					.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?;
-				server.serve_stream(stream).await;
-			},
-			Some("http+vsock") => {
-				#[cfg(not(feature = "vsock"))]
-				{
-					return Err(tg::error!("vsock is not enabled"));
-				}
-				#[cfg(feature = "vsock")]
-				{
-					let addr = vsock_addr_from_url(&arg.url)?;
-					let stream = tokio_vsock::VsockStream::connect(addr)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?;
-					server.serve_stream(stream).await;
-				}
-			},
-			_ => return Err(tg::error!(url = %arg.url, "invalid url")),
-		}
+		server.serve_url(&arg.url).await?;
 		Ok::<_, tg::Error>(())
 	})?;
 
@@ -364,26 +318,26 @@ pub fn init(arg: &InitArg) -> tg::Result<()> {
 }
 
 fn prepare_runtime_libraries(arg: &PrepareRootfsArg) -> tg::Result<()> {
-	#[cfg(target_os = "linux")]
-	{
-		crate::linux::prepare_runtime_libraries(arg)
-	}
 	#[cfg(target_os = "macos")]
 	{
 		crate::darwin::prepare_runtime_libraries(arg)
 	}
+	#[cfg(target_os = "linux")]
+	{
+		crate::linux::prepare_runtime_libraries(arg)
+	}
 }
 
 fn library_paths(rootfs_path: &Path) -> Vec<PathBuf> {
-	#[cfg(target_os = "linux")]
-	{
-		let _ = rootfs_path;
-		Vec::new()
-	}
 	#[cfg(target_os = "macos")]
 	{
 		let path = rootfs_path.join("lib");
 		path.exists().then_some(path).into_iter().collect()
+	}
+	#[cfg(target_os = "linux")]
+	{
+		let _ = rootfs_path;
+		Vec::new()
 	}
 }
 
@@ -402,42 +356,23 @@ fn append_init_args(command: &mut tokio::process::Command, arg: &InitArg) {
 	}
 }
 
-#[cfg(feature = "vsock")]
-fn vsock_addr_from_url(url: &Uri) -> tg::Result<tokio_vsock::VsockAddr> {
-	let cid = url
-		.host()
-		.ok_or_else(|| tg::error!(%url, "invalid url"))?
-		.parse::<u32>()
-		.map_err(|source| tg::error!(!source, %url, "invalid url"))?;
-	let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-	Ok(tokio_vsock::VsockAddr::new(cid, u32::from(port)))
-}
-
 fn prepare_command_for_spawn(
 	command: &mut Command,
 	tangram_path: &Path,
 	library_paths: &[PathBuf],
 ) -> tg::Result<()> {
-	#[cfg(target_os = "linux")]
-	set_home_for_command(command);
 	#[cfg(target_os = "macos")]
 	set_home_for_command(command)?;
 	#[cfg(target_os = "linux")]
-	{
-		crate::linux::prepare_command_for_spawn(command, tangram_path, library_paths)
-	}
+	set_home_for_command(command);
 	#[cfg(target_os = "macos")]
 	{
 		crate::darwin::prepare_command_for_spawn(command, tangram_path, library_paths)
 	}
-}
-
-#[cfg(target_os = "linux")]
-fn set_home_for_command(command: &mut Command) {
-	if command.env.contains_key("HOME") {
-		return;
+	#[cfg(target_os = "linux")]
+	{
+		crate::linux::prepare_command_for_spawn(command, tangram_path, library_paths)
 	}
-	command.env.insert("HOME".to_owned(), "/root".to_owned());
 }
 
 #[cfg(target_os = "macos")]
@@ -449,6 +384,14 @@ fn set_home_for_command(command: &mut Command) -> tg::Result<()> {
 		.map_err(|source| tg::error!(!source, "failed to get the home directory"))?;
 	command.env.insert("HOME".to_owned(), home);
 	Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn set_home_for_command(command: &mut Command) {
+	if command.env.contains_key("HOME") {
+		return;
+	}
+	command.env.insert("HOME".to_owned(), "/root".to_owned());
 }
 
 fn append_directories_to_path(command: &mut Command, directories: &[&Path]) -> tg::Result<()> {
@@ -527,6 +470,7 @@ impl Sandbox {
 		{
 			Some(path.to_owned())
 		}
+
 		#[cfg(target_os = "linux")]
 		{
 			let mut path_maps = self
@@ -581,6 +525,7 @@ impl Sandbox {
 		{
 			Some(path.to_owned())
 		}
+
 		#[cfg(target_os = "linux")]
 		{
 			let mut path_maps = self
@@ -653,14 +598,14 @@ impl Sandbox {
 impl Sandbox {
 	#[must_use]
 	pub(crate) fn guest_artifacts_path_from_host_artifacts_path(artifacts_path: &Path) -> PathBuf {
+		#[cfg(target_os = "macos")]
+		{
+			artifacts_path.to_owned()
+		}
 		#[cfg(target_os = "linux")]
 		{
 			let _ = artifacts_path;
 			"/opt/tangram/artifacts".into()
-		}
-		#[cfg(target_os = "macos")]
-		{
-			artifacts_path.to_owned()
 		}
 	}
 
@@ -671,66 +616,66 @@ impl Sandbox {
 
 	#[must_use]
 	pub(crate) fn guest_listen_path_from_root(root_path: &Path) -> PathBuf {
+		#[cfg(target_os = "macos")]
+		{
+			Self::host_listen_path_from_root(root_path)
+		}
 		#[cfg(target_os = "linux")]
 		{
 			let _ = root_path;
 			"/socket".into()
 		}
-		#[cfg(target_os = "macos")]
-		{
-			Self::host_listen_path_from_root(root_path)
-		}
 	}
 
 	#[must_use]
 	pub(crate) fn guest_output_path_from_root(root_path: &Path) -> PathBuf {
+		#[cfg(target_os = "macos")]
+		{
+			Self::host_output_path_from_root(root_path)
+		}
 		#[cfg(target_os = "linux")]
 		{
 			let _ = root_path;
 			"/opt/tangram/output".into()
 		}
-		#[cfg(target_os = "macos")]
-		{
-			Self::host_output_path_from_root(root_path)
-		}
 	}
 
 	#[must_use]
 	pub(crate) fn guest_tangram_socket_path_from_root(root_path: &Path) -> PathBuf {
+		#[cfg(target_os = "macos")]
+		{
+			Self::host_tangram_socket_path_from_root(root_path)
+		}
 		#[cfg(target_os = "linux")]
 		{
 			let _ = root_path;
 			"/opt/tangram/socket".into()
 		}
-		#[cfg(target_os = "macos")]
-		{
-			Self::host_tangram_socket_path_from_root(root_path)
-		}
 	}
 
 	#[must_use]
 	pub(crate) fn guest_tangram_path_from_host_tangram_path(tangram_path: &Path) -> PathBuf {
+		#[cfg(target_os = "macos")]
+		{
+			tangram_path.to_owned()
+		}
 		#[cfg(target_os = "linux")]
 		{
 			let _ = tangram_path;
 			"/opt/tangram/bin/tangram".into()
 		}
-		#[cfg(target_os = "macos")]
-		{
-			tangram_path.to_owned()
-		}
 	}
 
 	#[must_use]
 	pub(crate) fn guest_tmp_path_from_root(root_path: &Path) -> PathBuf {
+		#[cfg(target_os = "macos")]
+		{
+			Self::host_tmp_path_from_root(root_path)
+		}
 		#[cfg(target_os = "linux")]
 		{
 			let _ = root_path;
 			"/tmp".into()
-		}
-		#[cfg(target_os = "macos")]
-		{
-			Self::host_tmp_path_from_root(root_path)
 		}
 	}
 
@@ -777,13 +722,13 @@ impl Sandbox {
 
 	#[must_use]
 	pub(crate) fn host_tangram_socket_path_from_root(root_path: &Path) -> PathBuf {
-		#[cfg(target_os = "linux")]
-		{
-			Self::host_upper_path_from_root(root_path).join("opt/tangram/socket")
-		}
 		#[cfg(target_os = "macos")]
 		{
 			root_path.join("tg")
+		}
+		#[cfg(target_os = "linux")]
+		{
+			Self::host_upper_path_from_root(root_path).join("opt/tangram/socket")
 		}
 	}
 

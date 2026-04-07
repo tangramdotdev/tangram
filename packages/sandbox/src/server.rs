@@ -1,5 +1,6 @@
 use {
 	crate::{Command, pty},
+	dashmap::DashMap,
 	futures::{FutureExt as _, future},
 	std::{convert::Infallible, ops::Deref, path::Path, sync::Arc},
 	tangram_client::prelude::*,
@@ -9,6 +10,7 @@ use {
 		response::{Ext as _, builder::Ext as _},
 	},
 	tangram_uri::Uri,
+	tokio::io::{AsyncRead, AsyncWrite},
 };
 
 mod get;
@@ -28,7 +30,7 @@ pub struct Server(Arc<State>);
 
 pub struct State {
 	library_paths: Vec<std::path::PathBuf>,
-	processes: dashmap::DashMap<tg::process::Id, Process>,
+	processes: DashMap<tg::process::Id, Process>,
 	tangram_path: std::path::PathBuf,
 }
 
@@ -47,7 +49,6 @@ struct Process {
 
 pub enum Listener {
 	Unix(tokio::net::UnixListener),
-	#[cfg(target_os = "macos")]
 	Tcp(tokio::net::TcpListener),
 	#[cfg(feature = "vsock")]
 	Vsock(tokio_vsock::VsockListener),
@@ -55,28 +56,16 @@ pub enum Listener {
 
 enum Stream {
 	Unix(tokio::net::UnixStream),
-	#[cfg(target_os = "macos")]
 	Tcp(tokio::net::TcpStream),
 	#[cfg(feature = "vsock")]
 	Vsock(tokio_vsock::VsockStream),
 }
 
 impl Server {
-	#[cfg(feature = "vsock")]
-	fn parse_vsock_addr(url: &Uri) -> tg::Result<tokio_vsock::VsockAddr> {
-		let cid = url
-			.host()
-			.ok_or_else(|| tg::error!(%url, "invalid url"))?
-			.parse::<u32>()
-			.map_err(|source| tg::error!(!source, %url, "invalid url"))?;
-		let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-		Ok(tokio_vsock::VsockAddr::new(cid, u32::from(port)))
-	}
-
 	pub fn new(arg: Arg) -> Self {
 		Self(Arc::new(State {
 			library_paths: arg.library_paths,
-			processes: dashmap::DashMap::default(),
+			processes: DashMap::default(),
 			tangram_path: arg.tangram_path,
 		}))
 	}
@@ -91,7 +80,6 @@ impl Server {
 				)?;
 				Listener::Unix(listener)
 			},
-			#[cfg(target_os = "macos")]
 			Some("http") => {
 				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let port = url
@@ -109,7 +97,13 @@ impl Server {
 				}
 				#[cfg(feature = "vsock")]
 				{
-					let addr = Self::parse_vsock_addr(url)?;
+					let cid = url
+						.host()
+						.ok_or_else(|| tg::error!(%url, "invalid url"))?
+						.parse::<u32>()
+						.map_err(|source| tg::error!(!source, %url, "invalid url"))?;
+					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+					let addr = tokio_vsock::VsockAddr::new(cid, u32::from(port));
 					let listener = tokio_vsock::VsockListener::bind(addr)
 						.map_err(|source| tg::error!(!source, "failed to bind"))?;
 					Listener::Vsock(listener)
@@ -130,7 +124,6 @@ impl Server {
 					};
 					Stream::Unix(stream)
 				},
-				#[cfg(target_os = "macos")]
 				Listener::Tcp(listener) => {
 					let Ok((stream, _)) = listener.accept().await else {
 						continue;
@@ -149,7 +142,6 @@ impl Server {
 			tokio::spawn(async move {
 				match stream {
 					Stream::Unix(stream) => server.serve_stream(stream).await,
-					#[cfg(target_os = "macos")]
 					Stream::Tcp(stream) => server.serve_stream(stream).await,
 					#[cfg(feature = "vsock")]
 					Stream::Vsock(stream) => server.serve_stream(stream).await,
@@ -158,9 +150,64 @@ impl Server {
 		}
 	}
 
+	pub async fn serve_url(&self, url: &Uri) -> tg::Result<()> {
+		let stream = match url.scheme() {
+			Some("http+unix") => {
+				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+				Stream::Unix(
+					tokio::net::UnixStream::connect(path)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?,
+				)
+			},
+			Some("http") => {
+				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+				let port = url
+					.port_or_known_default()
+					.ok_or_else(|| tg::error!(%url, "invalid url"))?;
+				Stream::Tcp(
+					tokio::net::TcpStream::connect((host, port))
+						.await
+						.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?,
+				)
+			},
+			Some("http+vsock") => {
+				#[cfg(not(feature = "vsock"))]
+				{
+					return Err(tg::error!("vsock is not enabled"));
+				}
+				#[cfg(feature = "vsock")]
+				{
+					let cid = url
+						.host()
+						.ok_or_else(|| tg::error!(%url, "invalid url"))?
+						.parse::<u32>()
+						.map_err(|source| tg::error!(!source, %url, "invalid url"))?;
+					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+					let addr = tokio_vsock::VsockAddr::new(cid, u32::from(port));
+					Stream::Vsock(
+						tokio_vsock::VsockStream::connect(addr)
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to connect to the socket")
+							})?,
+					)
+				}
+			},
+			_ => return Err(tg::error!(%url, "invalid url")),
+		};
+		match stream {
+			Stream::Unix(stream) => self.serve_stream(stream).await,
+			Stream::Tcp(stream) => self.serve_stream(stream).await,
+			#[cfg(feature = "vsock")]
+			Stream::Vsock(stream) => self.serve_stream(stream).await,
+		}
+		Ok(())
+	}
+
 	pub async fn serve_stream<S>(&self, stream: S)
 	where
-		S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin + 'static,
+		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 	{
 		let service = tower::service_fn({
 			let server = self.clone();

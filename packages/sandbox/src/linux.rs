@@ -155,7 +155,6 @@ pub fn spawn_jailer(arg: &SpawnArg, init_arg: &InitArg) -> tg::Result<tokio::pro
 		&Sandbox::host_upper_path_from_root(&arg.path),
 		&arg.mounts,
 	)?;
-
 	let mut command = tokio::process::Command::new("bwrap");
 	command
 		.arg("--unshare-all")
@@ -187,7 +186,6 @@ pub fn spawn_jailer(arg: &SpawnArg, init_arg: &InitArg) -> tg::Result<tokio::pro
 	if let Some(hostname) = &arg.hostname {
 		command.arg("--hostname").arg(hostname);
 	}
-
 	command
 		.arg("--setenv")
 		.arg("HOME")
@@ -231,7 +229,6 @@ pub fn spawn_jailer(arg: &SpawnArg, init_arg: &InitArg) -> tg::Result<tokio::pro
 			.arg(&mount.source)
 			.arg(&mount.target);
 	}
-
 	command.arg(Sandbox::guest_tangram_path_from_host_tangram_path(
 		&arg.tangram_path,
 	));
