@@ -11,7 +11,7 @@ pub struct Args {
 	pub path: PathBuf,
 
 	#[arg(long)]
-	pub ready_fd: Option<i32>,
+	pub url: tangram_uri::Uri,
 
 	#[arg(long)]
 	pub tangram_path: PathBuf,
@@ -24,8 +24,9 @@ impl Cli {
 			library_paths: args.library_paths,
 			path: args.path,
 			tangram_path: args.tangram_path,
+			url: args.url,
 		};
-		let result = tangram_sandbox::init(&config, args.ready_fd);
+		let result = tangram_sandbox::init(&config);
 		if let Err(error) = result {
 			Cli::print_error_basic(tg::Referent::with_item(error));
 			return std::process::ExitCode::FAILURE;

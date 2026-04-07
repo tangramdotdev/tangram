@@ -2,13 +2,12 @@ use {
 	crate::client::Client,
 	std::{
 		collections::{BTreeMap, BTreeSet},
-		io::Read as _,
-		os::fd::{AsRawFd as _, RawFd},
 		path::{Path, PathBuf},
 		sync::Arc,
 		time::Duration,
 	},
 	tangram_client::prelude::*,
+	tangram_uri::Uri,
 };
 
 #[cfg(target_os = "macos")]
@@ -30,6 +29,7 @@ pub struct Sandbox(Arc<State>);
 pub struct State {
 	artifacts_path: PathBuf,
 	client: Client,
+	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	mounts: Vec<tg::sandbox::Mount>,
 	path: PathBuf,
 	_process: tokio::process::Child,
@@ -63,6 +63,7 @@ pub struct InitArg {
 	pub library_paths: Vec<PathBuf>,
 	pub path: PathBuf,
 	pub tangram_path: PathBuf,
+	pub url: Uri,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -90,94 +91,126 @@ pub fn prepare_rootfs(arg: &PrepareRootfsArg) -> tg::Result<()> {
 impl Sandbox {
 	pub async fn new(arg: SpawnArg) -> tg::Result<Self> {
 		validate_mounts(&arg.mounts)?;
+		let (listener, url) = Self::listen(&arg.path).await?;
 		let init_arg = InitArg {
 			library_paths: library_paths(&arg.rootfs_path),
 			path: arg.path.clone(),
 			tangram_path: arg.tangram_path.clone(),
+			url,
 		};
-
-		let (mut ready_reader, ready_writer) = std::io::pipe()
-			.map_err(|source| tg::error!(!source, "failed to create the sandbox ready pipe"))?;
-		let flags = unsafe { libc::fcntl(ready_writer.as_raw_fd(), libc::F_GETFD) };
-		if flags < 0 {
-			return Err(tg::error!(
-				source = std::io::Error::last_os_error(),
-				"failed to get the ready pipe flags"
-			));
-		}
-		let ret = unsafe {
-			libc::fcntl(
-				ready_writer.as_raw_fd(),
-				libc::F_SETFD,
-				flags & !libc::FD_CLOEXEC,
-			)
-		};
-		if ret < 0 {
-			return Err(tg::error!(
-				source = std::io::Error::last_os_error(),
-				"failed to set the ready pipe flags"
-			));
-		}
-		let ready_fd = ready_writer.as_raw_fd();
-
-		#[cfg(target_os = "linux")]
-		let mut process = crate::linux::spawn_jailer(&arg, &init_arg, ready_fd)?;
 
 		#[cfg(target_os = "macos")]
-		let mut process = crate::darwin::spawn_jailer(&arg, &init_arg, ready_fd)?;
+		let mut process = crate::darwin::spawn_jailer(&arg, &init_arg)?;
 
-		drop(ready_writer);
+		#[cfg(target_os = "linux")]
+		let mut process = crate::linux::spawn_jailer(&arg, &init_arg)?;
 
-		let task = tokio::task::spawn_blocking(move || {
-			let mut bytes = [0u8; 3];
-			ready_reader.read_exact(&mut bytes)?;
-			Ok::<_, std::io::Error>(bytes)
-		});
-		let ready = tokio::time::timeout(Duration::from_secs(5), task)
-			.await
-			.map_err(|source| tg::error!(!source, "timed out waiting for the sandbox ready signal"))
-			.and_then(|output| {
-				output.map_err(|source| tg::error!(!source, "the sandbox ready task panicked"))
-			})
-			.and_then(|output| {
-				output.map_err(|source| {
-					tg::error!(!source, "failed to read the sandbox ready signal")
-				})
-			})
-			.and_then(|bytes| {
-				if bytes[0] != 0x00 {
-					return Err(tg::error!("received an invalid ready byte {}", bytes[0]));
-				}
-				Ok(u16::from_be_bytes([bytes[1], bytes[2]]))
-			});
-		let port = match ready {
-			Ok(port) => port,
-			Err(source) => {
+		let client = match tokio::time::timeout(Duration::from_secs(5), async {
+			tokio::select! {
+				result = Client::with_listener(&listener) => result,
+				result = process.wait() => {
+					let status = result
+						.map_err(|source| tg::error!(!source, "failed to wait for the sandbox process"))?;
+					Err(tg::error!(status = %status, "the sandbox init process exited before connecting"))
+				},
+			}
+		})
+		.await
+		{
+			Ok(Ok(client)) => client,
+			Ok(Err(source)) => {
 				process.start_kill().ok();
 				process.wait().await.ok();
 				return Err(tg::error!(!source, "failed to start the sandbox"));
 			},
+			Err(source) => {
+				process.start_kill().ok();
+				process.wait().await.ok();
+				return Err(tg::error!(
+					!source,
+					"timed out waiting for the sandbox to connect"
+				));
+			},
 		};
 
-		let host_listen_path = Sandbox::host_listen_path_from_root(&arg.path);
-		let client = if port == 0 {
-			Client::new_unix(host_listen_path)
-		} else {
-			Client::new_tcp(port)
-		};
-		client
-			.connect()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to connect to the sandbox"))?;
-
-		Ok(Self(Arc::new(State {
+		let sandbox = Self(Arc::new(State {
 			artifacts_path: arg.artifacts_path,
 			client,
 			mounts: arg.mounts,
 			path: arg.path,
 			_process: process,
 			tangram_path: arg.tangram_path,
-		})))
+		}));
+
+		Ok(sandbox)
+	}
+
+	async fn listen(root_path: &Path) -> tg::Result<(crate::server::Listener, Uri)> {
+		let host_path = Self::host_listen_path_from_root(root_path);
+		tokio::fs::create_dir_all(host_path.parent().unwrap())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
+
+		let host_path_string = host_path
+			.to_str()
+			.ok_or_else(|| tg::error!("invalid path"))?;
+		let max_socket_path_len = if cfg!(target_os = "macos") {
+			100
+		} else {
+			usize::MAX
+		};
+
+		if host_path_string.len() <= max_socket_path_len {
+			std::fs::remove_file(&host_path).ok();
+			let host_url = Uri::builder()
+				.scheme("http+unix")
+				.authority(host_path_string)
+				.path("")
+				.build()
+				.map_err(|source| tg::error!(source = source, "failed to build the URL"))?;
+			let listener = crate::server::Server::listen(&host_url).await?;
+			let url = {
+				#[cfg(target_os = "linux")]
+				{
+					let guest_path = Self::guest_listen_path_from_root(root_path);
+					let guest_path = guest_path
+						.to_str()
+						.ok_or_else(|| tg::error!("invalid path"))?;
+					Uri::builder()
+						.scheme("http+unix")
+						.authority(guest_path)
+						.path("")
+						.build()
+						.map_err(|source| tg::error!(source = source, "failed to build the URL"))?
+				}
+				#[cfg(not(target_os = "linux"))]
+				{
+					Uri::builder()
+						.scheme("http+unix")
+						.authority(host_path_string)
+						.path("")
+						.build()
+						.map_err(|source| tg::error!(source = source, "failed to build the URL"))?
+				}
+			};
+			Ok((listener, url))
+		} else {
+			let host_url = "http://localhost:0"
+				.parse()
+				.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
+			let listener = crate::server::Server::listen(&host_url).await?;
+			let port = match &listener {
+				crate::server::Listener::Tcp(listener) => listener
+					.local_addr()
+					.map_err(|source| tg::error!(!source, "failed to get the local address"))?
+					.port(),
+				_ => unreachable!(),
+			};
+			let url = format!("http://localhost:{port}")
+				.parse()
+				.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
+			Ok((listener, url))
+		}
 	}
 
 	pub async fn spawn(
@@ -185,8 +218,16 @@ impl Sandbox {
 		command: Command,
 		id: tg::process::Id,
 		tty: Option<tg::process::Tty>,
+		remote: Option<String>,
+		retry: bool,
 	) -> tg::Result<Process> {
-		let arg = crate::client::spawn::Arg { command, id, tty };
+		let arg = crate::client::spawn::Arg {
+			command,
+			id,
+			remote,
+			retry,
+			tty,
+		};
 		let output = self.0.client.spawn(arg).await?;
 		Ok(Process { id: output.id })
 	}
@@ -242,122 +283,65 @@ impl Sandbox {
 			Ok(output.status)
 		})
 	}
+
+	pub async fn try_get_process(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<crate::client::get::Output>> {
+		self.0.client.try_get_process(id).await
+	}
 }
 
-pub fn init(arg: &InitArg, ready_fd: Option<RawFd>) -> tg::Result<()> {
-	use std::{io::Write as _, os::fd::FromRawFd as _};
-
+pub fn init(arg: &InitArg) -> tg::Result<()> {
 	let runtime = tokio::runtime::Builder::new_current_thread()
 		.enable_all()
 		.build()
 		.map_err(|source| tg::error!(!source, "failed to create the runtime"))?;
 
-	let (listener, port): (_, u16) = {
-		#[cfg(target_os = "linux")]
-		{
-			let path = Sandbox::guest_listen_path_from_root(&arg.path);
-			let listener = std::os::unix::net::UnixListener::bind(&path)
-				.map_err(|source| tg::error!(!source, path = %path.display(), "failed to bind"))?;
-			listener
-				.set_nonblocking(true)
-				.map_err(|source| tg::error!(!source, "failed to set nonblocking mode"))?;
-			(tokio_util::either::Either::Left(listener), 0)
-		}
-
-		#[cfg(target_os = "macos")]
-		{
-			std::fs::create_dir_all(Sandbox::host_socket_path_from_root(&arg.path))
-				.map_err(|source| tg::error!(!source, "failed to create the socket directory"))?;
-			let listen_path = Sandbox::host_listen_path_from_root(&arg.path);
-			const MAX_SOCKET_PATH_LEN: usize = 100;
-			if listen_path
-				.to_str()
-				.is_none_or(|string| string.len() > MAX_SOCKET_PATH_LEN)
-			{
-				let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-					.map_err(|source| tg::error!(!source, "failed to bind"))?;
-				listener
-					.set_nonblocking(true)
-					.map_err(|source| tg::error!(!source, "failed to set nonblocking mode"))?;
-				let port = listener
-					.local_addr()
-					.map_err(|source| tg::error!(!source, "failed to get the local address"))?
-					.port();
-				(tokio_util::either::Either::Right(listener), port)
-			} else {
-				let listener = std::os::unix::net::UnixListener::bind(&listen_path).map_err(
-					|source| tg::error!(!source, path = %listen_path.display(), "failed to bind"),
-				)?;
-				listener
-					.set_nonblocking(true)
-					.map_err(|source| tg::error!(!source, "failed to set nonblocking mode"))?;
-				(tokio_util::either::Either::Left(listener), 0)
-			}
-		}
-	};
-
-	if let Some(fd) = ready_fd {
-		let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
-		let port_bytes = port.to_be_bytes();
-		file.write_all(&[0x00, port_bytes[0], port_bytes[1]])
-			.map_err(|source| tg::error!(!source, "failed to write the ready signal"))?;
-	}
-
 	runtime.block_on(async move {
-		let listener = match listener {
-			tokio_util::either::Either::Left(listener) => {
-				let listener = tokio::net::UnixListener::from_std(listener)
-					.map_err(|source| tg::error!(!source, "failed to create the unix listener"))?;
-				tokio_util::either::Either::Left(listener)
-			},
-			tokio_util::either::Either::Right(listener) => {
-				let listener = tokio::net::TcpListener::from_std(listener)
-					.map_err(|source| tg::error!(!source, "failed to create the tcp listener"))?;
-				tokio_util::either::Either::Right(listener)
-			},
-		};
 		let server = crate::server::Server::new(crate::server::Arg {
 			library_paths: arg.library_paths.clone(),
 			tangram_path: arg.tangram_path.clone(),
 		});
-		server.serve(listener).await;
+		server.serve_url(&arg.url).await?;
 		Ok::<_, tg::Error>(())
 	})?;
+
 	Ok(())
 }
 
 fn prepare_runtime_libraries(arg: &PrepareRootfsArg) -> tg::Result<()> {
-	#[cfg(target_os = "linux")]
-	{
-		crate::linux::prepare_runtime_libraries(arg)
-	}
 	#[cfg(target_os = "macos")]
 	{
 		crate::darwin::prepare_runtime_libraries(arg)
 	}
+	#[cfg(target_os = "linux")]
+	{
+		crate::linux::prepare_runtime_libraries(arg)
+	}
 }
 
 fn library_paths(rootfs_path: &Path) -> Vec<PathBuf> {
-	#[cfg(target_os = "linux")]
-	{
-		let _ = rootfs_path;
-		Vec::new()
-	}
 	#[cfg(target_os = "macos")]
 	{
 		let path = rootfs_path.join("lib");
 		path.exists().then_some(path).into_iter().collect()
 	}
+	#[cfg(target_os = "linux")]
+	{
+		let _ = rootfs_path;
+		Vec::new()
+	}
 }
 
-fn append_init_args(command: &mut tokio::process::Command, arg: &InitArg, ready_fd: RawFd) {
+fn append_init_args(command: &mut tokio::process::Command, arg: &InitArg) {
 	command
 		.arg("sandbox")
 		.arg("init")
 		.arg("--path")
 		.arg(&arg.path)
-		.arg("--ready-fd")
-		.arg(ready_fd.to_string())
+		.arg("--url")
+		.arg(arg.url.to_string())
 		.arg("--tangram-path")
 		.arg(&arg.tangram_path);
 	for path in &arg.library_paths {
@@ -370,26 +354,18 @@ fn prepare_command_for_spawn(
 	tangram_path: &Path,
 	library_paths: &[PathBuf],
 ) -> tg::Result<()> {
-	#[cfg(target_os = "linux")]
-	set_home_for_command(command);
 	#[cfg(target_os = "macos")]
 	set_home_for_command(command)?;
 	#[cfg(target_os = "linux")]
-	{
-		crate::linux::prepare_command_for_spawn(command, tangram_path, library_paths)
-	}
+	set_home_for_command(command);
 	#[cfg(target_os = "macos")]
 	{
 		crate::darwin::prepare_command_for_spawn(command, tangram_path, library_paths)
 	}
-}
-
-#[cfg(target_os = "linux")]
-fn set_home_for_command(command: &mut Command) {
-	if command.env.contains_key("HOME") {
-		return;
+	#[cfg(target_os = "linux")]
+	{
+		crate::linux::prepare_command_for_spawn(command, tangram_path, library_paths)
 	}
-	command.env.insert("HOME".to_owned(), "/root".to_owned());
 }
 
 #[cfg(target_os = "macos")]
@@ -401,6 +377,14 @@ fn set_home_for_command(command: &mut Command) -> tg::Result<()> {
 		.map_err(|source| tg::error!(!source, "failed to get the home directory"))?;
 	command.env.insert("HOME".to_owned(), home);
 	Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn set_home_for_command(command: &mut Command) {
+	if command.env.contains_key("HOME") {
+		return;
+	}
+	command.env.insert("HOME".to_owned(), "/root".to_owned());
 }
 
 fn append_directories_to_path(command: &mut Command, directories: &[&Path]) -> tg::Result<()> {
@@ -479,6 +463,7 @@ impl Sandbox {
 		{
 			Some(path.to_owned())
 		}
+
 		#[cfg(target_os = "linux")]
 		{
 			let mut path_maps = self
@@ -488,7 +473,14 @@ impl Sandbox {
 				.map(|mount| (mount.target.clone(), mount.source.clone()))
 				.collect::<Vec<_>>();
 			path_maps.extend([
-				(self.guest_socket_path(), self.host_socket_path()),
+				(
+					Self::guest_listen_path_from_root(&self.0.path),
+					Self::host_listen_path_from_root(&self.0.path),
+				),
+				(
+					self.guest_tangram_socket_path(),
+					self.host_tangram_socket_path(),
+				),
 				(
 					self.guest_tmp_path(),
 					Self::host_tmp_path_from_root(&self.0.path),
@@ -526,6 +518,7 @@ impl Sandbox {
 		{
 			Some(path.to_owned())
 		}
+
 		#[cfg(target_os = "linux")]
 		{
 			let mut path_maps = self
@@ -535,7 +528,14 @@ impl Sandbox {
 				.map(|mount| (mount.source.clone(), mount.target.clone()))
 				.collect::<Vec<_>>();
 			path_maps.extend([
-				(self.host_socket_path(), self.guest_socket_path()),
+				(
+					Self::host_listen_path_from_root(&self.0.path),
+					Self::guest_listen_path_from_root(&self.0.path),
+				),
+				(
+					self.host_tangram_socket_path(),
+					self.guest_tangram_socket_path(),
+				),
 				(
 					Self::host_tmp_path_from_root(&self.0.path),
 					self.guest_tmp_path(),
@@ -553,14 +553,8 @@ impl Sandbox {
 	}
 
 	#[must_use]
-	pub fn guest_socket_path(&self) -> PathBuf {
-		Self::guest_socket_path_from_root(&self.0.path)
-	}
-
-	#[must_use]
-	pub fn guest_socket_path_for_process(&self, id: &tg::process::Id) -> PathBuf {
-		self.guest_socket_path()
-			.join(Self::socket_name_for_process(id))
+	pub fn guest_tangram_socket_path(&self) -> PathBuf {
+		Self::guest_tangram_socket_path_from_root(&self.0.path)
 	}
 
 	#[must_use]
@@ -589,90 +583,94 @@ impl Sandbox {
 	}
 
 	#[must_use]
-	pub fn host_socket_path(&self) -> PathBuf {
-		Self::host_socket_path_from_root(&self.0.path)
-	}
-
-	#[must_use]
-	pub fn host_socket_path_for_process(&self, id: &tg::process::Id) -> PathBuf {
-		self.host_socket_path()
-			.join(Self::socket_name_for_process(id))
+	pub fn host_tangram_socket_path(&self) -> PathBuf {
+		Self::host_tangram_socket_path_from_root(&self.0.path)
 	}
 }
 
 impl Sandbox {
 	#[must_use]
 	pub(crate) fn guest_artifacts_path_from_host_artifacts_path(artifacts_path: &Path) -> PathBuf {
+		#[cfg(target_os = "macos")]
+		{
+			artifacts_path.to_owned()
+		}
 		#[cfg(target_os = "linux")]
 		{
 			let _ = artifacts_path;
 			"/opt/tangram/artifacts".into()
 		}
-		#[cfg(target_os = "macos")]
-		{
-			artifacts_path.to_owned()
-		}
 	}
 
 	#[must_use]
+	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	pub(crate) fn guest_libexec_tangram_path() -> PathBuf {
 		"/opt/tangram/libexec/tangram".into()
 	}
 
 	#[must_use]
+	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	pub(crate) fn guest_listen_path_from_root(root_path: &Path) -> PathBuf {
-		Self::guest_socket_path_from_root(root_path).join("ctl")
+		#[cfg(target_os = "macos")]
+		{
+			Self::host_listen_path_from_root(root_path)
+		}
+		#[cfg(target_os = "linux")]
+		{
+			let _ = root_path;
+			"/socket".into()
+		}
 	}
 
 	#[must_use]
 	pub(crate) fn guest_output_path_from_root(root_path: &Path) -> PathBuf {
+		#[cfg(target_os = "macos")]
+		{
+			Self::host_output_path_from_root(root_path)
+		}
 		#[cfg(target_os = "linux")]
 		{
 			let _ = root_path;
 			"/opt/tangram/output".into()
 		}
-		#[cfg(target_os = "macos")]
-		{
-			Self::host_output_path_from_root(root_path)
-		}
 	}
 
 	#[must_use]
-	pub(crate) fn guest_socket_path_from_root(root_path: &Path) -> PathBuf {
+	pub(crate) fn guest_tangram_socket_path_from_root(root_path: &Path) -> PathBuf {
+		#[cfg(target_os = "macos")]
+		{
+			Self::host_tangram_socket_path_from_root(root_path)
+		}
 		#[cfg(target_os = "linux")]
 		{
 			let _ = root_path;
 			"/opt/tangram/socket".into()
 		}
-		#[cfg(target_os = "macos")]
-		{
-			Self::host_socket_path_from_root(root_path)
-		}
 	}
 
 	#[must_use]
 	pub(crate) fn guest_tangram_path_from_host_tangram_path(tangram_path: &Path) -> PathBuf {
+		#[cfg(target_os = "macos")]
+		{
+			tangram_path.to_owned()
+		}
 		#[cfg(target_os = "linux")]
 		{
 			let _ = tangram_path;
 			"/opt/tangram/bin/tangram".into()
 		}
-		#[cfg(target_os = "macos")]
-		{
-			tangram_path.to_owned()
-		}
 	}
 
 	#[must_use]
 	pub(crate) fn guest_tmp_path_from_root(root_path: &Path) -> PathBuf {
+		#[cfg(target_os = "macos")]
+		{
+			Self::host_tmp_path_from_root(root_path)
+		}
 		#[cfg(target_os = "linux")]
 		{
 			let _ = root_path;
 			"/tmp".into()
-		}
-		#[cfg(target_os = "macos")]
-		{
-			Self::host_tmp_path_from_root(root_path)
 		}
 	}
 
@@ -683,10 +681,11 @@ impl Sandbox {
 
 	#[must_use]
 	pub(crate) fn host_listen_path_from_root(root_path: &Path) -> PathBuf {
-		Self::host_socket_path_from_root(root_path).join("ctl")
+		root_path.join("socket")
 	}
 
 	#[must_use]
+	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	pub(crate) fn host_nsswitch_path_from_root(root_path: &Path) -> PathBuf {
 		Self::host_etc_path_from_root(root_path).join("nsswitch.conf")
 	}
@@ -697,6 +696,7 @@ impl Sandbox {
 	}
 
 	#[must_use]
+	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	pub(crate) fn host_passwd_path_from_root(root_path: &Path) -> PathBuf {
 		Self::host_etc_path_from_root(root_path).join("passwd")
 	}
@@ -708,6 +708,7 @@ impl Sandbox {
 	}
 
 	#[must_use]
+	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	pub(crate) fn host_resolv_conf_path_from_root(root_path: &Path) -> PathBuf {
 		Self::host_etc_path_from_root(root_path).join("resolv.conf")
 	}
@@ -718,8 +719,15 @@ impl Sandbox {
 	}
 
 	#[must_use]
-	pub(crate) fn host_socket_path_from_root(root_path: &Path) -> PathBuf {
-		root_path.join("s")
+	pub(crate) fn host_tangram_socket_path_from_root(root_path: &Path) -> PathBuf {
+		#[cfg(target_os = "macos")]
+		{
+			root_path.join("tg")
+		}
+		#[cfg(target_os = "linux")]
+		{
+			Self::host_upper_path_from_root(root_path).join("opt/tangram/socket")
+		}
 	}
 
 	#[must_use]
@@ -728,15 +736,18 @@ impl Sandbox {
 	}
 
 	#[must_use]
+	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	pub(crate) fn host_upper_path_from_root(root_path: &Path) -> PathBuf {
 		root_path.join("upper")
 	}
 
 	#[must_use]
+	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	pub(crate) fn host_work_path_from_root(root_path: &Path) -> PathBuf {
 		root_path.join("work")
 	}
 
+	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	fn map_path<'a>(
 		path: &Path,
 		path_maps: impl Iterator<Item = (&'a Path, &'a Path)>,
@@ -754,16 +765,6 @@ impl Sandbox {
 		let (from, to, _) = best?;
 		let suffix = path.strip_prefix(from).unwrap();
 		Some(to.join(suffix))
-	}
-
-	fn socket_name_for_process(id: &tg::process::Id) -> String {
-		let id = id.to_string();
-		let id = id.strip_prefix("pcs_").unwrap_or(&id);
-		if id.len() > 16 {
-			id[id.len() - 16..].to_owned()
-		} else {
-			id.to_owned()
-		}
 	}
 }
 

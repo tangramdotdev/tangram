@@ -112,6 +112,8 @@ pub struct State {
 	sender: self::http::Sender,
 	service: self::http::Service,
 	#[expect(dead_code)]
+	process: Option<tg::process::Id>,
+	#[expect(dead_code)]
 	token: Option<String>,
 	version: String,
 }
@@ -122,20 +124,27 @@ impl Client {
 		url: Uri,
 		version: Option<String>,
 		token: Option<String>,
+		process: Option<tg::process::Id>,
 		reconnect: Option<tangram_futures::retry::Options>,
 		retry: Option<tangram_futures::retry::Options>,
 	) -> Self {
 		let version = version.unwrap_or(env!("CARGO_PKG_VERSION").to_owned());
 		let reconnect = reconnect.unwrap_or_default();
 		let retry = retry.unwrap_or_default();
-		let (sender, service) =
-			Self::service(url.clone(), version.clone(), token.clone(), &reconnect);
+		let (sender, service) = Self::service(
+			url.clone(),
+			version.clone(),
+			token.clone(),
+			process.clone(),
+			&reconnect,
+		);
 		Self(Arc::new(State {
 			url,
 			reconnect,
 			retry,
 			sender,
 			service,
+			process,
 			token,
 			version,
 		}))
@@ -157,8 +166,16 @@ impl Client {
 				.build()
 				.map_err(|error| tg::error!(source = error, "failed to build the URL"))?
 		};
+		let process = std::env::var("TANGRAM_PROCESS")
+			.ok()
+			.map(|value| {
+				value
+					.parse()
+					.map_err(|source| tg::error!(!source, "failed to parse TANGRAM_PROCESS"))
+			})
+			.transpose()?;
 		let token = std::env::var("TANGRAM_TOKEN").ok();
-		Ok(Self::new(url, None, token, None, None))
+		Ok(Self::new(url, None, token, process, None, None))
 	}
 
 	#[must_use]

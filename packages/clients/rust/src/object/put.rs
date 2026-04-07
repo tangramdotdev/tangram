@@ -32,11 +32,7 @@ impl tg::Client {
 		let method = http::Method::PUT;
 		let query = serde_urlencoded::to_string(&arg)
 			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
-		let uri = if query.is_empty() {
-			format!("/objects/{id}")
-		} else {
-			format!("/objects/{id}?{query}")
-		};
+		let uri = format!("/objects/{id}?{query}");
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

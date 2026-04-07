@@ -75,6 +75,7 @@ impl Server {
 			output.url,
 			Some(self.version.clone()),
 			token,
+			None,
 			reconnect,
 			retry,
 		);

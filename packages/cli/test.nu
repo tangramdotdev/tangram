@@ -22,8 +22,8 @@ def main [
 	# Clean up leftover test resources if requested.
 	if $clean {
 		for entry in (ls ($nu.temp-dir? | default $nu.temp-path?) | where name =~ 'tangram_test_' and type == dir) {
-			print -e $"Removing temp directory: ($entry.name)"
 			remove_temp_directory $entry.name
+			print -e $"removed ($entry.name)"
 		}
 
 		let preserved_dbs = ['postgres', 'template0', 'template1', 'register']
@@ -118,8 +118,21 @@ def main [
 				}
 				$config | to json | save -f ($temp_path | path join "config.json")
 			}
+			let dyld_fallback_library_path = if $nu.os-info.name == 'macos' {
+				[
+					'/opt/homebrew/lib'
+					'/usr/local/lib'
+					($env.DYLD_FALLBACK_LIBRARY_PATH? | default '')
+				]
+				| where { |path| $path != '' }
+				| str join (char esep)
+			} else {
+				$env.DYLD_FALLBACK_LIBRARY_PATH? | default ''
+			}
 			let output = with-env {
 				SHELL: "/bin/sh",
+				DYLD_LIBRARY_PATH: $dyld_fallback_library_path,
+				DYLD_FALLBACK_LIBRARY_PATH: $dyld_fallback_library_path,
 				TANGRAM_CONFIG: ($temp_path | path join "config.json"),
 				TANGRAM_MODE: client,
 				TANGRAM_TEST_CLOUD: (if $cloud { "1" } else { "" }),
@@ -843,6 +856,8 @@ export def --env spawn [
 					done
 					kill -9 -$SELF_PID
 				\) &
+				export DYLD_LIBRARY_PATH=\"($env.DYLD_LIBRARY_PATH? | default '')\"
+				export DYLD_FALLBACK_LIBRARY_PATH=\"($env.DYLD_FALLBACK_LIBRARY_PATH? | default '')\"
 				exec 3>\"($ready_path)\"
 				tangram -c ($config_path) -d ($directory_path) -u ($url) serve --ready-fd 3
 			" e>| lines | each { |line| print -e $"($name | default 'server'): ($line)\r" }
