@@ -39,6 +39,10 @@ impl Server {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
+
+		// Guard against concurrent cleans.
+		let _clean_guard = self.try_acquire_clean_guard()?;
+
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Insert the process into the sandbox store.

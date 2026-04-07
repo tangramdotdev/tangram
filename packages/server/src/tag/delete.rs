@@ -39,6 +39,9 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 
+		// Guard against concurrent cleans.
+		let _clean_guard = self.try_acquire_clean_guard()?;
+
 		// Delete the tag from the database.
 		let output = match &self.database {
 			#[cfg(feature = "postgres")]

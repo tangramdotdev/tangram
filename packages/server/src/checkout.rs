@@ -50,6 +50,9 @@ impl Server {
 			*path = self.host_path_for_guest_path(context, path)?;
 		}
 
+		// Guard against concurrent cleans.
+		let _clean_guard = self.try_acquire_clean_guard()?;
+
 		// If the path is not provided, then cache.
 		if arg.path.is_none() {
 			let path = self.artifacts_path().join(arg.artifact.to_string());

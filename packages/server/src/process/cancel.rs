@@ -46,6 +46,9 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<()> {
+		// Guard against concurrent cleans.
+		let _clean_guard = self.try_acquire_clean_guard()?;
+
 		// Get a sandbox store connection.
 		let mut connection = self
 			.sandbox_store

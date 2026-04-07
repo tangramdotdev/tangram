@@ -40,6 +40,9 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 
+		// Guard against concurrent cleans.
+		let _clean_guard = self.try_acquire_clean_guard()?;
+
 		// Authorize.
 		self.authorize(context)
 			.await

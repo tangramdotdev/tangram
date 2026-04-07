@@ -42,6 +42,9 @@ impl Server {
 	}
 
 	async fn touch_object_local(&self, id: &tg::object::Id) -> tg::Result<()> {
+		// Guard against concurrent cleans.
+		let _clean_guard = self.try_acquire_clean_guard()?;
+
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		self.index
 			.touch_object(id, touched_at)
