@@ -18,10 +18,10 @@ pub enum Command {
 	Create(self::create::Args),
 	#[command(alias = "remove", alias = "rm")]
 	Delete(self::delete::Args),
-	#[command(alias = "ls")]
-	List(self::list::Args),
 	#[command(hide = true)]
 	Init(self::init::Args),
+	#[command(alias = "ls")]
+	List(self::list::Args),
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -113,11 +113,11 @@ impl Cli {
 			Command::Delete(args) => {
 				self.command_sandbox_delete(args).await?;
 			},
-			Command::List(args) => {
-				self.command_sandbox_list(args).await?;
-			},
 			Command::Init(_) => {
 				unreachable!()
+			},
+			Command::List(args) => {
+				self.command_sandbox_list(args).await?;
 			},
 		}
 		Ok(())
