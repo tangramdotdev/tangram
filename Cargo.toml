@@ -96,6 +96,7 @@ http-body = "1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["server-auto", "service", "tokio"] }
+icu_calendar = "=2.1.1"
 im = "15"
 include_dir = "0.7"
 indexmap = "2"

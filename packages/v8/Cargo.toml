@@ -20,6 +20,7 @@ workspace = true
 [dependencies]
 bytes = { workspace = true }
 derive_more = { workspace = true }
+icu_calendar = { workspace = true }
 num = { workspace = true }
 serde = { workspace = true }
 tangram_client = { workspace = true }
