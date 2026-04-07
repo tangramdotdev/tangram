@@ -37,9 +37,26 @@ pub fn spawn_jailer(arg: &SpawnArg, init_arg: &InitArg) -> tg::Result<tokio::pro
 	let mut command = tokio::process::Command::new("sandbox-exec");
 	command
 		.arg("-f")
-		.arg(Sandbox::host_profile_path_from_root(&arg.path))
-		.arg(&arg.tangram_path);
-	crate::append_init_args(&mut command, init_arg);
+		.arg(Sandbox::host_profile_path_from_root(&arg.path));
+	if init_arg.library_paths.is_empty() {
+		command.arg(&arg.tangram_path);
+		crate::append_init_args(&mut command, init_arg);
+	} else {
+		let mut paths = init_arg.library_paths.clone();
+		if let Some(existing) = std::env::var_os("DYLD_LIBRARY_PATH") {
+			paths.extend(std::env::split_paths(&existing));
+		}
+		let path = std::env::join_paths(paths)
+			.map_err(|source| tg::error!(!source, "failed to build `DYLD_LIBRARY_PATH`"))?;
+		command
+			.arg("/bin/sh")
+			.arg("-c")
+			.arg(r#"export DYLD_LIBRARY_PATH="$1"; shift; exec "$@""#)
+			.arg("sh")
+			.arg(path)
+			.arg(&arg.tangram_path);
+		crate::append_init_args(&mut command, init_arg);
+	}
 	command
 		.stdin(std::process::Stdio::null())
 		.stdout(std::process::Stdio::inherit())

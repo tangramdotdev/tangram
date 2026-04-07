@@ -29,6 +29,7 @@ pub struct Sandbox(Arc<State>);
 pub struct State {
 	artifacts_path: PathBuf,
 	client: Client,
+	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	mounts: Vec<tg::sandbox::Mount>,
 	path: PathBuf,
 	_process: tokio::process::Child,
@@ -150,72 +151,64 @@ impl Sandbox {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
 
-		#[cfg(target_os = "macos")]
-		{
-			const MAX_SOCKET_PATH_LEN: usize = 100;
-			let host_path_string = host_path
-				.to_str()
-				.ok_or_else(|| tg::error!("invalid path"))?;
-			if host_path_string.len() <= MAX_SOCKET_PATH_LEN {
-				std::fs::remove_file(&host_path).ok();
-				let host_url = Uri::builder()
-					.scheme("http+unix")
-					.authority(host_path_string)
-					.path("")
-					.build()
-					.map_err(|source| tg::error!(source = source, "failed to build the URL"))?;
-				let listener = crate::server::Server::listen(&host_url).await?;
-				let url = Uri::builder()
-					.scheme("http+unix")
-					.authority(host_path_string)
-					.path("")
-					.build()
-					.map_err(|source| tg::error!(source = source, "failed to build the URL"))?;
-				Ok((listener, url))
-			} else {
-				let host_url = "http://localhost:0"
-					.parse()
-					.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
-				let listener = crate::server::Server::listen(&host_url).await?;
-				let crate::server::Listener::Tcp(listener) = &listener else {
-					unreachable!();
-				};
-				let port = listener
-					.local_addr()
-					.map_err(|source| tg::error!(!source, "failed to get the local address"))?
-					.port();
-				let url = format!("http://localhost:{port}")
-					.parse()
-					.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
-				Ok((listener, url))
-			}
-		}
+		let host_path_string = host_path
+			.to_str()
+			.ok_or_else(|| tg::error!("invalid path"))?;
+		let max_socket_path_len = if cfg!(target_os = "macos") {
+			100
+		} else {
+			usize::MAX
+		};
 
-		#[cfg(target_os = "linux")]
-		{
+		if host_path_string.len() <= max_socket_path_len {
 			std::fs::remove_file(&host_path).ok();
 			let host_url = Uri::builder()
 				.scheme("http+unix")
-				.authority(
-					host_path
-						.to_str()
-						.ok_or_else(|| tg::error!("invalid path"))?,
-				)
+				.authority(host_path_string)
 				.path("")
 				.build()
 				.map_err(|source| tg::error!(source = source, "failed to build the URL"))?;
 			let listener = crate::server::Server::listen(&host_url).await?;
-			let guest_path = Self::guest_listen_path_from_root(root_path);
-			let url = Uri::builder()
-				.scheme("http+unix")
-				.authority(
-					guest_path
+			let url = {
+				#[cfg(target_os = "linux")]
+				{
+					let guest_path = Self::guest_listen_path_from_root(root_path);
+					let guest_path = guest_path
 						.to_str()
-						.ok_or_else(|| tg::error!("invalid path"))?,
-				)
-				.path("")
-				.build()
-				.map_err(|source| tg::error!(source = source, "failed to build the URL"))?;
+						.ok_or_else(|| tg::error!("invalid path"))?;
+					Uri::builder()
+						.scheme("http+unix")
+						.authority(guest_path)
+						.path("")
+						.build()
+						.map_err(|source| tg::error!(source = source, "failed to build the URL"))?
+				}
+				#[cfg(not(target_os = "linux"))]
+				{
+					Uri::builder()
+						.scheme("http+unix")
+						.authority(host_path_string)
+						.path("")
+						.build()
+						.map_err(|source| tg::error!(source = source, "failed to build the URL"))?
+				}
+			};
+			Ok((listener, url))
+		} else {
+			let host_url = "http://localhost:0"
+				.parse()
+				.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
+			let listener = crate::server::Server::listen(&host_url).await?;
+			let port = match &listener {
+				crate::server::Listener::Tcp(listener) => listener
+					.local_addr()
+					.map_err(|source| tg::error!(!source, "failed to get the local address"))?
+					.port(),
+				_ => unreachable!(),
+			};
+			let url = format!("http://localhost:{port}")
+				.parse()
+				.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
 			Ok((listener, url))
 		}
 	}
@@ -610,11 +603,13 @@ impl Sandbox {
 	}
 
 	#[must_use]
+	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	pub(crate) fn guest_libexec_tangram_path() -> PathBuf {
 		"/opt/tangram/libexec/tangram".into()
 	}
 
 	#[must_use]
+	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	pub(crate) fn guest_listen_path_from_root(root_path: &Path) -> PathBuf {
 		#[cfg(target_os = "macos")]
 		{
@@ -690,6 +685,7 @@ impl Sandbox {
 	}
 
 	#[must_use]
+	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	pub(crate) fn host_nsswitch_path_from_root(root_path: &Path) -> PathBuf {
 		Self::host_etc_path_from_root(root_path).join("nsswitch.conf")
 	}
@@ -700,6 +696,7 @@ impl Sandbox {
 	}
 
 	#[must_use]
+	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	pub(crate) fn host_passwd_path_from_root(root_path: &Path) -> PathBuf {
 		Self::host_etc_path_from_root(root_path).join("passwd")
 	}
@@ -711,6 +708,7 @@ impl Sandbox {
 	}
 
 	#[must_use]
+	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	pub(crate) fn host_resolv_conf_path_from_root(root_path: &Path) -> PathBuf {
 		Self::host_etc_path_from_root(root_path).join("resolv.conf")
 	}
@@ -738,15 +736,18 @@ impl Sandbox {
 	}
 
 	#[must_use]
+	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	pub(crate) fn host_upper_path_from_root(root_path: &Path) -> PathBuf {
 		root_path.join("upper")
 	}
 
 	#[must_use]
+	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	pub(crate) fn host_work_path_from_root(root_path: &Path) -> PathBuf {
 		root_path.join("work")
 	}
 
+	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	fn map_path<'a>(
 		path: &Path,
 		path_maps: impl Iterator<Item = (&'a Path, &'a Path)>,
