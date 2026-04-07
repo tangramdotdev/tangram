@@ -29,7 +29,6 @@ pub enum Lock {
 #[serde_as]
 #[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	#[serde(flatten)]
 	pub options: Options,
 
 	pub path: PathBuf,
