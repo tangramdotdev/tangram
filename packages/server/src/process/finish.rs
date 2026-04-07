@@ -155,6 +155,8 @@ impl Server {
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
+
+		// Begin a transaction.
 		let transaction = connection
 			.transaction()
 			.await
@@ -239,6 +241,7 @@ impl Server {
 			.commit()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
 		drop(connection);
 
 		// Publish the finalize message.
