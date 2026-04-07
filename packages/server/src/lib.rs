@@ -497,12 +497,18 @@ impl Server {
 			},
 		};
 
-		// Create the finalize stream if the messenger is memory.
+		// Create the process streams if the messenger is memory.
 		if messenger.is_memory() {
 			let stream_config = tangram_messenger::StreamConfig {
 				retention: tangram_messenger::RetentionPolicy::WorkQueue,
 				..tangram_messenger::StreamConfig::default()
 			};
+			messenger
+				.create_stream("processes_signals".to_owned(), stream_config.clone())
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to create the sandbox process queue stream")
+				})?;
 			messenger
 				.create_stream("processes_finalize_queue".to_owned(), stream_config)
 				.await

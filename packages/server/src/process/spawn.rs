@@ -1001,11 +1001,6 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to update the token count"))?;
 
-		// Create the signal stream.
-		self.create_process_signal_stream(&id)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the process signal stream"))?;
-
 		Ok(LocalOutput {
 			cached: false,
 			id,

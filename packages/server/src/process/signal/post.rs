@@ -2,7 +2,7 @@ use {
 	crate::{Context, Server},
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tangram_messenger::{self as messenger, prelude::*},
+	tangram_messenger::prelude::*,
 };
 
 impl Server {
@@ -57,7 +57,11 @@ impl Server {
 		let payload =
 			tangram_messenger::payload::Json(tg::process::signal::get::Event::Signal(signal));
 		self.messenger
-			.stream_publish(format!("processes.{id}.signal"), "signal".into(), payload)
+			.stream_publish(
+				"processes_signals".into(),
+				format!("processes.{id}.signal"),
+				payload,
+			)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to publish the message"))?
 			.await
@@ -127,35 +131,6 @@ impl Server {
 			return Ok(true);
 		}
 		Ok(false)
-	}
-
-	pub(crate) async fn create_process_signal_stream(
-		&self,
-		id: &tg::process::Id,
-	) -> tg::Result<()> {
-		let config = messenger::StreamConfig {
-			retention: messenger::RetentionPolicy::Interest,
-			..messenger::StreamConfig::default()
-		};
-		self.messenger
-			.create_stream(format!("processes.{id}.signal"), config)
-			.await
-			.map_err(
-				|source| tg::error!(!source, process = %id, "failed to create the signal stream"),
-			)?;
-		Ok(())
-	}
-
-	pub(crate) async fn delete_process_signal_stream(
-		&self,
-		id: &tg::process::Id,
-	) -> tg::Result<()> {
-		self.messenger
-			.delete_stream(format!("processes.{id}.signal"))
-			.await
-			.map_err(
-				|source| tg::error!(!source, process = %id, "failed to delete the signal stream"),
-			)
 	}
 
 	pub(crate) async fn handle_post_process_signal_request(

@@ -4,6 +4,7 @@ cockroach sql --insecure --host=localhost:26257 -d database -f packages/server/s
 createdb -U postgres -h localhost register
 psql -U postgres -h localhost -d register -f packages/server/src/register/postgres.sql
 
+nats stream create processes_signals --retention work --subjects processes.*.signal --defaults
 nats stream create processes_finalize_queue --retention work --subjects processes.finalize.queue --defaults
 nats stream create sandboxes_queue --discard new --retention work --subjects sandboxes.queue --defaults
 nats stream create sandboxes_processes_queue --discard new --retention work --subjects sandboxes.*.processes.queue --defaults
