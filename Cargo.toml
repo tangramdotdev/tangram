@@ -206,6 +206,7 @@ zstd = "0.13"
 [workspace.metadata.cargo-shear]
 ignored = [
   "comfy-table",
+  "icu_calendar",
   "liblzma",
   "oauth2",
   "octocrab",

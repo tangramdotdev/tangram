@@ -44,7 +44,6 @@ tangram_uri = { workspace = true }
 tangram_util = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
-tokio-util = { workspace = true }
 tokio-vsock = { workspace = true, optional = true }
 tower = { workspace = true }
 tracing = { workspace = true }

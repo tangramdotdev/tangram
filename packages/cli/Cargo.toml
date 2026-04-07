@@ -79,7 +79,6 @@ tangram_server = { workspace = true }
 tangram_uri = { workspace = true }
 tangram_util = { workspace = true }
 tokio = { workspace = true }
-tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
