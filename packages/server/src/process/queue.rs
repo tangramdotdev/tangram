@@ -38,13 +38,12 @@ impl Server {
 			.get_stream("sandboxes_processes_queue".into())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the stream"))?;
+		let consumer_name = sandbox.to_string();
 		let consumer_config = tangram_messenger::ConsumerConfig {
-			deliver_policy: tangram_messenger::DeliverPolicy::All,
-			ack_policy: tangram_messenger::AckPolicy::Explicit,
-			durable_name: None,
+			durable_name: Some(consumer_name.clone()),
 			filter_subjects: vec![format!("sandboxes.{sandbox}.processes.queue")],
+			..Default::default()
 		};
-		let consumer_name = format!("sandboxes_processes_queue_{sandbox}");
 		let consumer = stream
 			.get_or_create_consumer(Some(consumer_name), consumer_config)
 			.await

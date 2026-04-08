@@ -50,8 +50,8 @@ pub struct StreamInfo {
 
 #[derive(Clone, Debug, Default)]
 pub struct ConsumerConfig {
-	pub deliver_policy: DeliverPolicy,
 	pub ack_policy: AckPolicy,
+	pub deliver_policy: DeliverPolicy,
 	pub durable_name: Option<String>,
 	pub filter_subjects: Vec<String>,
 }

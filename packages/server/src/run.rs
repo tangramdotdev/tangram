@@ -189,13 +189,12 @@ impl Server {
 				.get_stream("sandboxes_processes_queue".to_owned())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the process queue stream"))?;
+			let consumer_name = id.to_string();
 			let consumer_config = tangram_messenger::ConsumerConfig {
-				deliver_policy: tangram_messenger::DeliverPolicy::All,
-				ack_policy: tangram_messenger::AckPolicy::Explicit,
-				durable_name: None,
+				durable_name: Some(consumer_name.clone()),
 				filter_subjects: vec![format!("sandboxes.{id}.processes.queue")],
+				..Default::default()
 			};
-			let consumer_name = format!("sandboxes_processes_queue_{id}");
 			let consumer = stream
 				.get_or_create_consumer(Some(consumer_name), consumer_config)
 				.await
@@ -845,33 +844,15 @@ impl Server {
 		};
 
 		// Spawn the signal task.
-		let arg = tg::process::signal::get::Arg {
-			local: None,
-			remotes: remote.map(|r| vec![r.clone()]),
-		};
-		let stream = self
-			.try_get_process_signal_stream(id, arg)
-			.await
-			.map_err(|source| {
-				tg::error!(
-					!source,
-					process = %id,
-					"failed to get the process's signal stream"
-				)
-			})?
-			.ok_or_else(
-				|| tg::error!(process = %id, "expected the process's signal stream to exist"),
-			)?
-			.boxed();
-
 		let signal_task = tokio::spawn({
 			let server = self.clone();
 			let sandbox = sandbox.clone();
 			let sandbox_process = sandbox_process.clone();
 			let id = id.clone();
+			let remote = remote.cloned();
 			async move {
 				server
-					.signal_task(&sandbox, &sandbox_process, &id, stream)
+					.signal_task(&sandbox, &sandbox_process, &id, remote.as_ref())
 					.await
 					.inspect_err(|source| tracing::error!(?source, "the signal task failed"))
 					.ok();
@@ -1145,8 +1126,27 @@ impl Server {
 		sandbox: &tangram_sandbox::Sandbox,
 		sandbox_process: &tangram_sandbox::Process,
 		id: &tg::process::Id,
-		mut stream: BoxStream<'static, tg::Result<tg::process::signal::get::Event>>,
+		remote: Option<&String>,
 	) -> tg::Result<()> {
+		// Get the signal stream for the process.
+		let arg = tg::process::signal::get::Arg {
+			local: None,
+			remotes: remote.map(|r| vec![r.clone()]),
+		};
+		let mut stream = self
+			.try_get_process_signal_stream(id, arg)
+			.await
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					process = %id,
+					"failed to get the process's signal stream"
+				)
+			})?
+			.ok_or_else(
+				|| tg::error!(process = %id, "expected the process's signal stream to exist"),
+			)?;
+
 		// Handle the events.
 		while let Some(event) = stream.try_next().await.map_err(
 			|source| tg::error!(!source, process = %id, "failed to get the next signal event"),

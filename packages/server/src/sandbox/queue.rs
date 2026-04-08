@@ -40,14 +40,13 @@ impl Server {
 			.get_stream("sandboxes_queue".into())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the stream"))?;
+		let consumer_name = "default".to_owned();
 		let consumer_config = messenger::ConsumerConfig {
-			deliver_policy: messenger::DeliverPolicy::All,
-			ack_policy: messenger::AckPolicy::Explicit,
-			durable_name: None,
-			filter_subjects: Vec::new(),
+			durable_name: Some(consumer_name.clone()),
+			..Default::default()
 		};
 		let consumer = stream
-			.get_or_create_consumer(Some("sandboxes_queue".to_owned()), consumer_config)
+			.get_or_create_consumer(Some(consumer_name), consumer_config)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the consumer"))?;
 		let messages = consumer.subscribe::<Message>().await.map_err(|source| {
