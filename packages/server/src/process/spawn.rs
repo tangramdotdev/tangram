@@ -163,12 +163,11 @@ impl Server {
 		// Determine if the process is cacheable.
 		let cacheable = matches!(
 			arg.sandbox.as_ref(),
-			Some(tg::Either::Left(arg)) if arg.mounts.is_empty() && !arg.network
+			Some(tg::Either::Left(sandbox)) if (sandbox.mounts.is_empty() && !sandbox.network) || arg.checksum.is_some()
 		) && arg.stdin.is_null()
 			&& arg.stdout.is_log()
 			&& arg.stderr.is_log()
 			&& tty.is_none();
-		let cacheable = cacheable || arg.checksum.is_some();
 
 		// Get or create a local process.
 		let mut output = if cacheable
