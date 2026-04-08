@@ -1,5 +1,5 @@
 use {
-	crate::{InitArg, PrepareRootfsArg, Sandbox, SpawnArg},
+	crate::{Command, InitArg, PrepareRootfsArg, Sandbox, SpawnArg},
 	indoc::writedoc,
 	num::ToPrimitive as _,
 	std::{
@@ -369,7 +369,7 @@ pub fn prepare_command_for_spawn(
 	paths.push(Path::new("/bin"));
 	crate::append_directories_to_path(command, &paths)?;
 
-	if library_paths.is_empty() || !crate::command_resolves_to_path(command, tangram_path) {
+	if library_paths.is_empty() || !command_resolves_to_path(command, tangram_path) {
 		return Ok(());
 	}
 	let mut paths = library_paths.to_vec();
@@ -394,7 +394,7 @@ fn command_resolves_to_path(command: &Command, target: &Path) -> bool {
 		let Some(path) = command.env.get("PATH") else {
 			return false;
 		};
-		let Some(resolved) = crate::util::which(Path::new(root), &command.executable) else {
+		let Some(resolved) = crate::util::which(Path::new(path), &command.executable) else {
 			return false;
 		};
 		resolved

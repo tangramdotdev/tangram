@@ -325,7 +325,7 @@ fn library_paths(rootfs_path: &Path) -> Vec<PathBuf> {
 	#[cfg(target_os = "macos")]
 	{
 		let path = rootfs_path.join("lib");
-		root.exists().then_some(root).into_iter().collect()
+		path.exists().then_some(path).into_iter().collect()
 	}
 	#[cfg(target_os = "linux")]
 	{

@@ -323,12 +323,7 @@ impl Server {
 				let remote = remote.cloned();
 				|_| async move {
 					server
-						.run_stdout_stderr_task(
-							&sandbox,
-							&sandbox_process,
-							&id,
-							remote,
-						)
+						.run_stdout_stderr_task(&sandbox, &sandbox_process, &id, remote)
 						.await
 				}
 			}))

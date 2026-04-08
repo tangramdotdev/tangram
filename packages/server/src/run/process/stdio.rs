@@ -122,7 +122,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read process stdio from sandbox"))?
 			.boxed();
-		self.write_process_stdio_all(&id, arg, stream)
+		self.write_process_stdio_all(id, arg, stream)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write stdio"))?;
 		Ok(())
