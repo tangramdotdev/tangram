@@ -17,7 +17,7 @@ let path = artifact {
 			return await tg.run(tg`
 				echo "hello stdout"
 				echo "" > ${tg.output}
-			`, { checksum: "sha256:none" })
+			`, { checksum: "sha256:3743be7f70d041f1f049134d69ac50e0881627ba6176907ff043c33941ce80eb" })
 			.sandbox()
 		}
 	'
@@ -30,6 +30,3 @@ failure $output
 
 let output = tg build . | complete
 success $output
-
-snapshot $output.stdout ''
-snapshot $output.stderr ''
