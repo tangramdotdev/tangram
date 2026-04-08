@@ -328,8 +328,6 @@ impl Server {
 							&sandbox_process,
 							&id,
 							remote,
-							stdout,
-							stderr,
 						)
 						.await
 				}
