@@ -5,15 +5,15 @@ let server = spawn
 let path = artifact {
 	tangram.ts: '
 		export const outer = async () => {
-            return tg.build(inner);
-        }
+			return tg.build(inner);
+		}
 
-        export const inner = async () => {
-            tg.run(tg`
-                echo "hello stdout"
-                echo "" > ${tg.output}
-            `)
-        }
+		export const inner = async () => {
+			tg.run(tg`
+				echo "hello stdout"
+				echo "" > ${tg.output}
+			`)
+		}
 	'
 }
 
