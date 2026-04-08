@@ -161,10 +161,14 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		// Determine if the process is cacheable.
-		let cacheable = matches!(
-			arg.sandbox.as_ref(),
-			Some(tg::Either::Left(sandbox)) if (sandbox.mounts.is_empty() && !sandbox.network) || arg.checksum.is_some()
-		) && arg.stdin.is_null()
+		let cacheable = if let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
+			sandbox.mounts.is_empty() && !sandbox.network
+		} else {
+			false
+		};
+		let cacheable = cacheable || arg.checksum.is_some();
+		let cacheable = cacheable
+			&& arg.stdin.is_null()
 			&& arg.stdout.is_log()
 			&& arg.stderr.is_log()
 			&& tty.is_none();
