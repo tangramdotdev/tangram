@@ -15,6 +15,7 @@ mod reader;
 mod writer;
 
 pub use self::{reader::Reader, writer::Writer};
+
 pub mod read;
 pub mod write;
 
@@ -167,7 +168,7 @@ where
 		let handle = handle.clone();
 		let id = id.clone();
 		let remote = remote.clone();
-		stdout_stderr_task_task(&handle, id, remote, stdout, stderr).await
+		stdout_stderr_task(&handle, id, remote, stdout, stderr).await
 	} else {
 		Ok(())
 	};
@@ -269,7 +270,7 @@ where
 	Ok(())
 }
 
-async fn stdout_stderr_task_task<H>(
+async fn stdout_stderr_task<H>(
 	handle: &H,
 	id: tg::process::Id,
 	remote: Option<String>,

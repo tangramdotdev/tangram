@@ -157,7 +157,7 @@ impl Server {
 		loop {
 			// Get the process's status.
 			let status = self
-				.try_get_current_process_status_local(id)
+				.try_get_process_status_local(id)
 				.await?
 				.ok_or_else(|| tg::error!(process = %id, "process does not exist"))?;
 

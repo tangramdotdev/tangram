@@ -4,7 +4,7 @@ use {
 		pty::Pty,
 		server::{Process, Server},
 	},
-	std::sync::Arc,
+	std::{os::unix::process::ExitStatusExt as _, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody,
@@ -66,10 +66,11 @@ impl Server {
 			.unwrap_or_else(|| arg.command.executable.clone());
 		let mut command = tokio::process::Command::new(&executable);
 		command
-			.env_clear()
-			.args(&arg.command.args)
-			.envs(&arg.command.env)
+			.kill_on_drop(true)
 			.current_dir(&arg.command.cwd)
+			.env_clear()
+			.envs(&arg.command.env)
+			.args(&arg.command.args)
 			.stdin(child_stdio(arg.command.stdin, pty.as_ref())?)
 			.stdout(child_stdio(arg.command.stdout, pty.as_ref())?)
 			.stderr(child_stdio(arg.command.stderr, pty.as_ref())?);
@@ -142,14 +143,13 @@ impl Server {
 			pty.take_slave();
 		}
 
+		// Spawn the task.
 		let task = tangram_futures::task::Shared::spawn(move |_| async move {
 			child
 				.wait()
 				.await
 				.map_err(|source| tg::error!(!source, "failed to wait for the process"))
 				.map(|status| {
-					use std::os::unix::process::ExitStatusExt as _;
-
 					status
 						.code()
 						.or(status.signal().map(|signal| 128 + signal))
@@ -159,20 +159,19 @@ impl Server {
 				})
 		});
 
-		self.processes.insert(
-			arg.id.clone(),
-			Process {
-				command: arg.command,
-				pid,
-				remote: arg.remote,
-				retry: arg.retry,
-				stdin,
-				stdout,
-				stderr,
-				pty: pty.map(Arc::new),
-				task,
-			},
-		);
+		// Insert the process.
+		let process = Process {
+			command: arg.command,
+			pid,
+			remote: arg.remote,
+			retry: arg.retry,
+			stdin,
+			stdout,
+			stderr,
+			pty: pty.map(Arc::new),
+			task,
+		};
+		self.processes.insert(arg.id.clone(), process);
 
 		Ok(crate::client::spawn::Output {})
 	}
@@ -200,15 +199,22 @@ impl Server {
 
 fn child_stdio(stdio: Stdio, pty: Option<&Pty>) -> tg::Result<std::process::Stdio> {
 	match stdio {
-		Stdio::Null => Ok(std::process::Stdio::null()),
-		Stdio::Pipe => Ok(std::process::Stdio::piped()),
+		Stdio::Null => {
+			let stdio = std::process::Stdio::null();
+			Ok(stdio)
+		},
+		Stdio::Pipe => {
+			let stdio = std::process::Stdio::piped();
+			Ok(stdio)
+		},
 		Stdio::Tty => {
 			let fd = pty
 				.and_then(Pty::slave)
 				.ok_or_else(|| tg::error!("expected a tty arg"))?
 				.try_clone()
 				.map_err(|source| tg::error!(!source, "failed to clone the tty fd"))?;
-			Ok(std::process::Stdio::from(fd))
+			let stdio = std::process::Stdio::from(fd);
+			Ok(stdio)
 		},
 	}
 }

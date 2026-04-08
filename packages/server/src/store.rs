@@ -1,6 +1,6 @@
 #[cfg(feature = "lmdb")]
 use std::path::Path;
-use {tangram_client::prelude::*, tangram_store as store};
+use {std::collections::BTreeSet, tangram_client::prelude::*, tangram_store as store};
 
 pub use store::{
 	CachePointer, DeleteObjectArg, DeleteProcessLogArg, PutObjectArg, PutProcessLogArg,
@@ -318,14 +318,14 @@ impl store::Store for Store {
 	async fn try_get_process_log_length(
 		&self,
 		id: &tg::process::Id,
-		stream: Option<tg::process::stdio::Stream>,
+		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<u64>> {
 		match self {
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.try_get_process_log_length(id, stream).await,
-			Self::Memory(memory) => Ok(memory.try_get_process_log_length(id, stream)),
+			Self::Lmdb(lmdb) => lmdb.try_get_process_log_length(id, streams).await,
+			Self::Memory(memory) => Ok(memory.try_get_process_log_length(id, streams)),
 			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.try_get_process_log_length(id, stream).await,
+			Self::Scylla(scylla) => scylla.try_get_process_log_length(id, streams).await,
 		}
 	}
 

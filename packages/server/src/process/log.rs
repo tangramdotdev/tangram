@@ -10,7 +10,7 @@ use {
 	indoc::formatdoc,
 	num::ToPrimitive as _,
 	std::{
-		collections::VecDeque,
+		collections::{BTreeSet, VecDeque},
 		io::{Cursor, SeekFrom},
 	},
 	tangram_client::{self as tg, Handle as _},
@@ -121,7 +121,10 @@ impl Server {
 				process: process.clone(),
 				position: 0,
 				length: u64::MAX,
-				stream: None,
+				streams: BTreeSet::from([
+					tg::process::stdio::Stream::Stdout,
+					tg::process::stdio::Stream::Stderr,
+				]),
 			})
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the log entries"))?;
@@ -205,8 +208,17 @@ impl Server {
 		position: Option<SeekFrom>,
 		length: Option<i64>,
 		size: Option<u64>,
-		stream: Option<tg::process::stdio::Stream>,
+		streams: BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>> {
+		if streams.is_empty() {
+			return Err(tg::error!("expected at least one log stream"));
+		}
+		if streams.len() > 2 {
+			return Err(tg::error!("invalid log streams"));
+		}
+		if streams.contains(&tg::process::stdio::Stream::Stdin) {
+			return Err(tg::error!("invalid stdio stream"));
+		}
 		let output = self
 			.try_get_process_local(id, false)
 			.await?
@@ -235,7 +247,7 @@ impl Server {
 			},
 			SeekFrom::End(offset) => {
 				let length = inner
-					.try_get_process_log_length(stream)
+					.try_get_process_log_length(&streams)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get the log length"))?
 					.unwrap_or_default();
@@ -251,7 +263,7 @@ impl Server {
 			None
 		} else {
 			inner
-				.try_get_process_log_length(stream)
+				.try_get_process_log_length(&streams)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the log length"))?
 		};
@@ -263,7 +275,7 @@ impl Server {
 			position: u64,
 			reverse: bool,
 			size: u64,
-			stream: Option<tg::process::stdio::Stream>,
+			streams: BTreeSet<tg::process::stdio::Stream>,
 			total_length: Option<u64>,
 		}
 
@@ -274,7 +286,7 @@ impl Server {
 			position,
 			reverse: length.is_some_and(|length| length < 0),
 			size: size.unwrap_or(4096),
-			stream,
+			streams,
 			total_length: length.map(i64::unsigned_abs),
 		};
 
@@ -304,7 +316,7 @@ impl Server {
 
 				state.entries = state
 					.inner
-					.try_read_process_log(position, length, state.stream)
+					.try_read_process_log(position, length, &state.streams)
 					.await?
 					.into();
 
@@ -329,7 +341,7 @@ impl Server {
 
 					state.entries = state
 						.inner
-						.try_read_process_log(position, length, state.stream)
+						.try_read_process_log(position, length, &state.streams)
 						.await?
 						.into();
 				}
@@ -341,7 +353,7 @@ impl Server {
 				};
 				state.position = boundary
 					.map(|entry| {
-						let position = entry_position(entry, state.stream);
+						let position = entry_position(entry, &state.streams);
 						if state.reverse {
 							position
 						} else {
@@ -358,7 +370,7 @@ impl Server {
 			}) else {
 				return Ok(None);
 			};
-			let position = entry_position(&entry, state.stream);
+			let position = entry_position(&entry, &state.streams);
 			let chunk = tg::process::stdio::Chunk {
 				bytes: entry.bytes.into_owned().into(),
 				position: Some(position),
@@ -377,21 +389,21 @@ impl Inner {
 		&mut self,
 		position: u64,
 		length: u64,
-		stream: Option<tg::process::stdio::Stream>,
+		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Vec<tangram_store::ProcessLogEntry<'static>>> {
 		match self {
-			Inner::Blob(inner) => inner.try_read_process_log(position, length, stream).await,
-			Inner::Store(inner) => inner.try_read_process_log(position, length, stream).await,
+			Inner::Blob(inner) => inner.try_read_process_log(position, length, streams).await,
+			Inner::Store(inner) => inner.try_read_process_log(position, length, streams).await,
 		}
 	}
 
 	async fn try_get_process_log_length(
 		&mut self,
-		stream: Option<tg::process::stdio::Stream>,
+		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<u64>> {
 		match self {
-			Inner::Blob(inner) => inner.try_get_process_log_length(stream).await,
-			Inner::Store(inner) => inner.try_get_process_log_length(stream).await,
+			Inner::Blob(inner) => inner.try_get_process_log_length(streams).await,
+			Inner::Store(inner) => inner.try_get_process_log_length(streams).await,
 		}
 	}
 }
@@ -401,35 +413,41 @@ impl BlobInner {
 		&mut self,
 		position: u64,
 		mut length: u64,
-		stream: Option<tg::process::stdio::Stream>,
+		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Vec<tangram_store::ProcessLogEntry<'static>>> {
-		self.entry = match stream {
-			None => {
-				let index = self
-					.index
-					.entries
-					.partition_point(|entry| entry.combined_position <= position);
-				index.saturating_sub(1)
-			},
-			Some(tg::process::stdio::Stream::Stdout) => {
-				let index = self.index.stdout.partition_point(|&index| {
-					self.index.entries[index as usize].stream_position <= position
-				});
-				index
-					.checked_sub(1)
-					.map_or(0, |index| self.index.stdout[index] as usize)
-			},
-			Some(tg::process::stdio::Stream::Stderr) => {
-				let index = self.index.stderr.partition_point(|&index| {
-					self.index.entries[index as usize].stream_position <= position
-				});
-				index
-					.checked_sub(1)
-					.map_or(0, |index| self.index.stderr[index] as usize)
-			},
-			Some(tg::process::stdio::Stream::Stdin) => {
-				return Err(tg::error!("invalid stdio stream"));
-			},
+		self.entry = if streams.len() > 1 {
+			let index = self
+				.index
+				.entries
+				.partition_point(|entry| entry.combined_position <= position);
+			index.saturating_sub(1)
+		} else {
+			let stream = streams
+				.iter()
+				.next()
+				.copied()
+				.ok_or_else(|| tg::error!("expected at least one log stream"))?;
+			match stream {
+				tg::process::stdio::Stream::Stdout => {
+					let index = self.index.stdout.partition_point(|&index| {
+						self.index.entries[index as usize].stream_position <= position
+					});
+					index
+						.checked_sub(1)
+						.map_or(0, |index| self.index.stdout[index] as usize)
+				},
+				tg::process::stdio::Stream::Stderr => {
+					let index = self.index.stderr.partition_point(|&index| {
+						self.index.entries[index as usize].stream_position <= position
+					});
+					index
+						.checked_sub(1)
+						.map_or(0, |index| self.index.stderr[index] as usize)
+				},
+				tg::process::stdio::Stream::Stdin => {
+					return Err(tg::error!("invalid stdio stream"));
+				},
+			}
 		};
 
 		let mut output = Vec::with_capacity(16);
@@ -437,12 +455,12 @@ impl BlobInner {
 			let mut entry = self.read_entry().await?;
 			self.entry += 1;
 
-			if stream.is_some_and(|stream| stream != entry.stream) {
+			if !streams.contains(&entry.stream) {
 				continue;
 			}
 
 			let offset = position
-				.saturating_sub(entry_position(&entry, stream))
+				.saturating_sub(entry_position(&entry, streams))
 				.to_usize()
 				.unwrap();
 			let take = entry
@@ -464,19 +482,23 @@ impl BlobInner {
 
 	async fn try_get_process_log_length(
 		&mut self,
-		stream: Option<tg::process::stdio::Stream>,
+		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<u64>> {
-		let last_index = match stream {
-			None => self.index.entries.len().checked_sub(1),
-			Some(tg::process::stdio::Stream::Stdout) => {
-				self.index.stdout.last().map(|&i| i as usize)
-			},
-			Some(tg::process::stdio::Stream::Stderr) => {
-				self.index.stderr.last().map(|&i| i as usize)
-			},
-			Some(tg::process::stdio::Stream::Stdin) => {
-				return Err(tg::error!("invalid stdio stream"));
-			},
+		let last_index = if streams.len() > 1 {
+			self.index.entries.len().checked_sub(1)
+		} else {
+			let stream = streams
+				.iter()
+				.next()
+				.copied()
+				.ok_or_else(|| tg::error!("expected at least one log stream"))?;
+			match stream {
+				tg::process::stdio::Stream::Stdout => self.index.stdout.last().map(|&i| i as usize),
+				tg::process::stdio::Stream::Stderr => self.index.stderr.last().map(|&i| i as usize),
+				tg::process::stdio::Stream::Stdin => {
+					return Err(tg::error!("invalid stdio stream"));
+				},
+			}
 		};
 		let Some(last_index) = last_index else {
 			return Ok(Some(0));
@@ -487,7 +509,7 @@ impl BlobInner {
 		let entry = self.read_entry().await?;
 		self.entry = saved;
 
-		let position = entry_position(&entry, stream);
+		let position = entry_position(&entry, streams);
 		Ok(Some(position + entry.bytes.len().to_u64().unwrap()))
 	}
 
@@ -513,13 +535,13 @@ impl StoreInner {
 		&self,
 		position: u64,
 		length: u64,
-		stream: Option<tg::process::stdio::Stream>,
+		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Vec<tangram_store::ProcessLogEntry<'static>>> {
 		let arg = tangram_store::ReadProcessLogArg {
 			length,
 			position,
 			process: self.process.clone(),
-			stream,
+			streams: streams.clone(),
 		};
 		self.server
 			.store
@@ -530,11 +552,11 @@ impl StoreInner {
 
 	async fn try_get_process_log_length(
 		&self,
-		stream: Option<tg::process::stdio::Stream>,
+		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<u64>> {
 		self.server
 			.store
-			.try_get_process_log_length(&self.process, stream)
+			.try_get_process_log_length(&self.process, streams)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read the log"))
 	}
@@ -542,11 +564,11 @@ impl StoreInner {
 
 fn entry_position(
 	entry: &tangram_store::ProcessLogEntry<'_>,
-	stream: Option<tg::process::stdio::Stream>,
+	streams: &BTreeSet<tg::process::stdio::Stream>,
 ) -> u64 {
-	if stream.is_some() {
-		entry.stream_position
-	} else {
+	if streams.len() > 1 {
 		entry.position
+	} else {
+		entry.stream_position
 	}
 }

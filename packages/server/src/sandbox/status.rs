@@ -95,7 +95,7 @@ impl Server {
 			.then(move |()| {
 				let server = server.clone();
 				let id = id.clone();
-				async move { server.get_current_sandbox_status_local(&id).await }
+				async move { server.get_sandbox_status_local(&id).await }
 			})
 			.try_filter(move |status| {
 				future::ready(match (previous.as_mut(), *status) {
@@ -123,16 +123,16 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	pub(crate) async fn get_current_sandbox_status_local(
+	pub(crate) async fn get_sandbox_status_local(
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<tg::sandbox::Status> {
-		self.try_get_current_sandbox_status_local(id)
+		self.try_get_sandbox_status_local(id)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the sandbox"))
 	}
 
-	pub(crate) async fn try_get_current_sandbox_status_local(
+	pub(crate) async fn try_get_sandbox_status_local(
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::Status>> {

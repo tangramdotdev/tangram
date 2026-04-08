@@ -87,8 +87,8 @@ impl Server {
 				let future = server.write_process_stdio_local_task(&id, &streams, input);
 				let result = if let Some(stopper) = stopper {
 					let future = pin!(future);
-					let stopper_wait = pin!(stopper.wait());
-					match future::select(future, stopper_wait).await {
+					let stopper = pin!(stopper.wait());
+					match future::select(future, stopper).await {
 						future::Either::Left((result, _)) => result,
 						future::Either::Right(((), future)) => {
 							sender

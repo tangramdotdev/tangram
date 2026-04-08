@@ -7,7 +7,10 @@ use {
 	futures::{FutureExt as _, TryStreamExt as _},
 	indoc::indoc,
 	num::ToPrimitive as _,
-	std::{borrow::Cow, collections::HashMap},
+	std::{
+		borrow::Cow,
+		collections::{BTreeSet, HashMap},
+	},
 	tangram_client::prelude::*,
 };
 
@@ -573,10 +576,23 @@ impl crate::Store for Store {
 		&self,
 		arg: ReadProcessLogArg,
 	) -> tg::Result<Vec<crate::ProcessLogEntry<'static>>> {
+		if arg.streams.is_empty() {
+			return Err(tg::error!("expected at least one log stream"));
+		}
+		if arg.streams.len() > 2 {
+			return Err(tg::error!("invalid log streams"));
+		}
+		if arg.streams.contains(&tg::process::stdio::Stream::Stdin) {
+			return Err(tg::error!("invalid stdio stream"));
+		}
 		let process = arg.process.to_bytes().to_vec();
+		let combined = arg.streams.len() > 1;
 
 		// Find the starting position.
-		let start = if let Some(stream) = arg.stream {
+		let start = if combined {
+			Some(arg.position)
+		} else {
+			let stream = arg.streams.iter().next().copied().unwrap();
 			let stream = match stream {
 				tg::process::stdio::Stream::Stdout => 1i32,
 				tg::process::stdio::Stream::Stderr => 2i32,
@@ -602,8 +618,6 @@ impl crate::Store for Store {
 				.maybe_first_row::<StreamRow>()
 				.map_err(|source| tg::error!(!source, "failed to get the row"))?
 				.map(|row| row.position.to_u64().unwrap())
-		} else {
-			Some(arg.position)
 		};
 		let Some(start) = start else {
 			return Ok(Vec::new());
@@ -649,15 +663,15 @@ impl crate::Store for Store {
 			};
 
 			// Skip entries that do not match the stream filter.
-			if arg.stream.is_some_and(|stream| stream != chunk_stream) {
+			if !arg.streams.contains(&chunk_stream) {
 				continue;
 			}
 
 			// Get the position based on stream filter.
-			let position = if arg.stream.is_some() {
-				row.stream_position.to_u64().unwrap()
-			} else {
+			let position = if combined {
 				row.position.to_u64().unwrap()
+			} else {
+				row.stream_position.to_u64().unwrap()
 			};
 
 			let offset = arg.position.saturating_sub(position);
@@ -714,93 +728,100 @@ impl crate::Store for Store {
 	async fn try_get_process_log_length(
 		&self,
 		id: &tg::process::Id,
-		stream: Option<tg::process::stdio::Stream>,
+		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<u64>> {
+		if streams.is_empty() {
+			return Err(tg::error!("expected at least one log stream"));
+		}
+		if streams.len() > 2 {
+			return Err(tg::error!("invalid log streams"));
+		}
+		if streams.contains(&tg::process::stdio::Stream::Stdin) {
+			return Err(tg::error!("invalid stdio stream"));
+		}
 		let process = id.to_bytes().to_vec();
 
-		match stream {
-			None => {
-				// Combined length: get last combined entry.
-				#[derive(scylla::DeserializeRow)]
-				struct Row {
-					position: i64,
-					bytes: Vec<u8>,
-				}
-				let params = (&process,);
-				let result = self
-					.session
-					.execute_unpaged(&self.get_last_combined_statement, params)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the query"))?
-					.into_rows_result()
-					.map_err(|source| tg::error!(!source, "failed to get the rows"))?;
-				let Some(row) = result
-					.maybe_first_row::<Row>()
-					.map_err(|source| tg::error!(!source, "failed to get the row"))?
-				else {
-					return Ok(None);
-				};
-				Ok(Some(
-					row.position.to_u64().unwrap() + row.bytes.len().to_u64().unwrap(),
-				))
-			},
-			Some(stream) => {
-				// Stream length: get last stream index entry, then look up combined entry.
-				let stream = match stream {
-					tg::process::stdio::Stream::Stdout => 1i32,
-					tg::process::stdio::Stream::Stderr => 2i32,
-					tg::process::stdio::Stream::Stdin => {
-						return Err(tg::error!("invalid stdio stream"));
-					},
-				};
+		if streams.len() > 1 {
+			// Combined length: get last combined entry.
+			#[derive(scylla::DeserializeRow)]
+			struct Row {
+				position: i64,
+				bytes: Vec<u8>,
+			}
+			let params = (&process,);
+			let result = self
+				.session
+				.execute_unpaged(&self.get_last_combined_statement, params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the query"))?
+				.into_rows_result()
+				.map_err(|source| tg::error!(!source, "failed to get the rows"))?;
+			let Some(row) = result
+				.maybe_first_row::<Row>()
+				.map_err(|source| tg::error!(!source, "failed to get the row"))?
+			else {
+				return Ok(None);
+			};
+			Ok(Some(
+				row.position.to_u64().unwrap() + row.bytes.len().to_u64().unwrap(),
+			))
+		} else {
+			let stream = streams.iter().next().copied().unwrap();
+			// Stream length: get last stream index entry, then look up combined entry.
+			let stream = match stream {
+				tg::process::stdio::Stream::Stdout => 1i32,
+				tg::process::stdio::Stream::Stderr => 2i32,
+				tg::process::stdio::Stream::Stdin => {
+					return Err(tg::error!("invalid stdio stream"));
+				},
+			};
 
-				#[derive(scylla::DeserializeRow)]
-				struct StreamRow {
-					#[allow(dead_code)]
-					stream_position: i64,
-					position: i64,
-				}
-				let params = (&process, stream);
-				let result = self
-					.session
-					.execute_unpaged(&self.get_last_stream_statement, params)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the query"))?
-					.into_rows_result()
-					.map_err(|source| tg::error!(!source, "failed to get the rows"))?;
-				let Some(index_row) = result
-					.maybe_first_row::<StreamRow>()
-					.map_err(|source| tg::error!(!source, "failed to get the row"))?
-				else {
-					return Ok(None);
-				};
+			#[derive(scylla::DeserializeRow)]
+			struct StreamRow {
+				#[allow(dead_code)]
+				stream_position: i64,
+				position: i64,
+			}
+			let params = (&process, stream);
+			let result = self
+				.session
+				.execute_unpaged(&self.get_last_stream_statement, params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the query"))?
+				.into_rows_result()
+				.map_err(|source| tg::error!(!source, "failed to get the rows"))?;
+			let Some(index_row) = result
+				.maybe_first_row::<StreamRow>()
+				.map_err(|source| tg::error!(!source, "failed to get the row"))?
+			else {
+				return Ok(None);
+			};
 
-				// Look up the entry to get stream_position and bytes length.
-				#[derive(scylla::DeserializeRow)]
-				struct EntryRow {
-					stream_position: i64,
-					bytes: Vec<u8>,
-				}
-				let params = (&process, index_row.position);
-				let result = self
-					.session
-					.execute_unpaged(&self.get_combined_statement, params)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the query"))?
-					.into_rows_result()
-					.map_err(|source| tg::error!(!source, "failed to get the rows"))?;
-				let Some(entry_row) = result
-					.maybe_first_row::<EntryRow>()
-					.map_err(|source| tg::error!(!source, "failed to get the row"))?
-				else {
-					return Ok(None);
-				};
+			// Look up the entry to get stream_position and bytes length.
+			#[derive(scylla::DeserializeRow)]
+			struct EntryRow {
+				stream_position: i64,
+				bytes: Vec<u8>,
+			}
+			let params = (&process, index_row.position);
+			let result = self
+				.session
+				.execute_unpaged(&self.get_combined_statement, params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the query"))?
+				.into_rows_result()
+				.map_err(|source| tg::error!(!source, "failed to get the rows"))?;
+			let Some(entry_row) = result
+				.maybe_first_row::<EntryRow>()
+				.map_err(|source| tg::error!(!source, "failed to get the row"))?
+			else {
+				return Ok(None);
+			};
 
-				Ok(Some(
-					entry_row.stream_position.to_u64().unwrap()
-						+ entry_row.bytes.len().to_u64().unwrap(),
-				))
-			},
+			Ok(Some(
+				entry_row.stream_position.to_u64().unwrap()
+					+ entry_row.bytes.len().to_u64().unwrap(),
+			))
 		}
 	}
 

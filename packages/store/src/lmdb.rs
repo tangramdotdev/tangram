@@ -7,7 +7,7 @@ use {
 	foundationdb_tuple::TuplePack as _,
 	heed as lmdb,
 	num::ToPrimitive as _,
-	std::borrow::Cow,
+	std::{borrow::Cow, collections::BTreeSet},
 	tangram_client::prelude::*,
 };
 
@@ -724,13 +724,26 @@ impl crate::Store for Store {
 			let db = self.db;
 			let env = self.env.clone();
 			move || {
+				if arg.streams.is_empty() {
+					return Err(tg::error!("expected at least one log stream"));
+				}
+				if arg.streams.len() > 2 {
+					return Err(tg::error!("invalid log streams"));
+				}
+				if arg.streams.contains(&tg::process::stdio::Stream::Stdin) {
+					return Err(tg::error!("invalid stdio stream"));
+				}
 				let transaction = env
 					.read_txn()
 					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 				let id = &arg.process;
+				let combined = arg.streams.len() > 1;
 
 				// Find the starting combined position.
-				let start_position = if let Some(stream) = arg.stream {
+				let start_position = if combined {
+					arg.position
+				} else {
+					let stream = arg.streams.iter().next().copied().unwrap();
 					// For stream-specific reads, look up the stream index.
 					let stream_start_key = Key::ProcessLogStreamPosition(id, stream, 0);
 					let stream_start = stream_start_key.pack_to_vec();
@@ -761,9 +774,6 @@ impl crate::Store for Store {
 							.try_into()
 							.map_err(|_| tg::error!("expected 8 bytes"))?,
 					)
-				} else {
-					// For combined reads, the position is the combined position.
-					arg.position
 				};
 
 				// Seek to the starting entry.
@@ -819,15 +829,15 @@ impl crate::Store for Store {
 					)?;
 
 					// Skip chunks that do not match the stream filter.
-					if arg.stream.is_some_and(|stream| stream != chunk.stream) {
+					if !arg.streams.contains(&chunk.stream) {
 						continue;
 					}
 
 					// Get the position based on stream filter.
-					let position = if arg.stream.is_some() {
-						chunk.stream_position
-					} else {
+					let position = if combined {
 						chunk.position
+					} else {
+						chunk.stream_position
 					};
 
 					let offset = arg.position.saturating_sub(position);
@@ -893,18 +903,29 @@ impl crate::Store for Store {
 	async fn try_get_process_log_length(
 		&self,
 		id: &tg::process::Id,
-		stream: Option<tg::process::stdio::Stream>,
+		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<u64>> {
 		tokio::task::spawn_blocking({
 			let db = self.db;
 			let env = self.env.clone();
 			let id = id.clone();
+			let streams = streams.clone();
 			move || {
+				if streams.is_empty() {
+					return Err(tg::error!("expected at least one log stream"));
+				}
+				if streams.len() > 2 {
+					return Err(tg::error!("invalid log streams"));
+				}
+				if streams.contains(&tg::process::stdio::Stream::Stdin) {
+					return Err(tg::error!("invalid stdio stream"));
+				}
 				let transaction = env
 					.read_txn()
 					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
-				let length = if let Some(stream) = stream {
+				let length = if streams.len() == 1 {
+					let stream = streams.iter().next().copied().unwrap();
 					// For stream-specific queries, find the last stream position entry.
 					let start_key = Key::ProcessLogStreamPosition(&id, stream, 0);
 					let start = start_key.pack_to_vec();
@@ -1081,7 +1102,7 @@ mod tests {
 				process: process.clone(),
 				position: 0,
 				length: 11,
-				stream: Some(tg::process::stdio::Stream::Stdout),
+				streams: BTreeSet::from([tg::process::stdio::Stream::Stdout]),
 			})
 			.await
 			.unwrap();
@@ -1093,7 +1114,7 @@ mod tests {
 				process: process.clone(),
 				position: 6,
 				length: 5,
-				stream: Some(tg::process::stdio::Stream::Stdout),
+				streams: BTreeSet::from([tg::process::stdio::Stream::Stdout]),
 			})
 			.await
 			.unwrap();
@@ -1145,7 +1166,7 @@ mod tests {
 				process: process.clone(),
 				position: 0,
 				length: 11,
-				stream: Some(tg::process::stdio::Stream::Stdout),
+				streams: BTreeSet::from([tg::process::stdio::Stream::Stdout]),
 			})
 			.await
 			.unwrap();
@@ -1197,7 +1218,7 @@ mod tests {
 				process: process.clone(),
 				position: 2,
 				length: 4,
-				stream: Some(tg::process::stdio::Stream::Stdout),
+				streams: BTreeSet::from([tg::process::stdio::Stream::Stdout]),
 			})
 			.await
 			.unwrap();
@@ -1209,7 +1230,7 @@ mod tests {
 				process: process.clone(),
 				position: 6,
 				length: 4,
-				stream: Some(tg::process::stdio::Stream::Stdout),
+				streams: BTreeSet::from([tg::process::stdio::Stream::Stdout]),
 			})
 			.await
 			.unwrap();
@@ -1221,7 +1242,7 @@ mod tests {
 				process: process.clone(),
 				position: 2,
 				length: 8,
-				stream: Some(tg::process::stdio::Stream::Stdout),
+				streams: BTreeSet::from([tg::process::stdio::Stream::Stdout]),
 			})
 			.await
 			.unwrap();
@@ -1273,7 +1294,10 @@ mod tests {
 				process: process.clone(),
 				position: 0,
 				length: 12,
-				stream: None,
+				streams: BTreeSet::from([
+					tg::process::stdio::Stream::Stdout,
+					tg::process::stdio::Stream::Stderr,
+				]),
 			})
 			.await
 			.unwrap();
@@ -1285,7 +1309,7 @@ mod tests {
 				process: process.clone(),
 				position: 0,
 				length: 8,
-				stream: Some(tg::process::stdio::Stream::Stdout),
+				streams: BTreeSet::from([tg::process::stdio::Stream::Stdout]),
 			})
 			.await
 			.unwrap();
@@ -1297,7 +1321,7 @@ mod tests {
 				process: process.clone(),
 				position: 0,
 				length: 4,
-				stream: Some(tg::process::stdio::Stream::Stderr),
+				streams: BTreeSet::from([tg::process::stdio::Stream::Stderr]),
 			})
 			.await
 			.unwrap();
@@ -1340,7 +1364,10 @@ mod tests {
 				process: process.clone(),
 				position: 0,
 				length: 10,
-				stream: None,
+				streams: BTreeSet::from([
+					tg::process::stdio::Stream::Stdout,
+					tg::process::stdio::Stream::Stderr,
+				]),
 			})
 			.await
 			.unwrap();
@@ -1360,7 +1387,10 @@ mod tests {
 				process: process.clone(),
 				position: 0,
 				length: 10,
-				stream: None,
+				streams: BTreeSet::from([
+					tg::process::stdio::Stream::Stdout,
+					tg::process::stdio::Stream::Stderr,
+				]),
 			})
 			.await
 			.unwrap();
@@ -1409,21 +1439,33 @@ mod tests {
 		// Check lengths.
 		assert_eq!(
 			store
-				.try_get_process_log_length(&process, None)
+				.try_get_process_log_length(
+					&process,
+					&BTreeSet::from([
+						tg::process::stdio::Stream::Stdout,
+						tg::process::stdio::Stream::Stderr,
+					]),
+				)
 				.await
 				.unwrap(),
 			Some(13)
 		); // 5 + 3 + 5
 		assert_eq!(
 			store
-				.try_get_process_log_length(&process, Some(tg::process::stdio::Stream::Stdout))
+				.try_get_process_log_length(
+					&process,
+					&BTreeSet::from([tg::process::stdio::Stream::Stdout]),
+				)
 				.await
 				.unwrap(),
 			Some(10)
 		); // 5 + 5
 		assert_eq!(
 			store
-				.try_get_process_log_length(&process, Some(tg::process::stdio::Stream::Stderr))
+				.try_get_process_log_length(
+					&process,
+					&BTreeSet::from([tg::process::stdio::Stream::Stderr]),
+				)
 				.await
 				.unwrap(),
 			Some(3)
@@ -1457,7 +1499,7 @@ mod tests {
 				process: process.clone(),
 				position: 5,
 				length: 10,
-				stream: Some(tg::process::stdio::Stream::Stdout),
+				streams: BTreeSet::from([tg::process::stdio::Stream::Stdout]),
 			})
 			.await
 			.unwrap();
@@ -1480,7 +1522,10 @@ mod tests {
 				process,
 				position: 0,
 				length: 10,
-				stream: None,
+				streams: BTreeSet::from([
+					tg::process::stdio::Stream::Stdout,
+					tg::process::stdio::Stream::Stderr,
+				]),
 			})
 			.await
 			.unwrap();

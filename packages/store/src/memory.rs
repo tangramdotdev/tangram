@@ -5,7 +5,10 @@ use {
 	},
 	dashmap::DashMap,
 	num::ToPrimitive as _,
-	std::{borrow::Cow, collections::BTreeMap},
+	std::{
+		borrow::Cow,
+		collections::{BTreeMap, BTreeSet},
+	},
 	tangram_client::prelude::*,
 };
 
@@ -88,9 +91,18 @@ impl Store {
 		let Some(logs) = self.process_logs.get(&arg.process) else {
 			return Vec::new();
 		};
+		if arg.streams.is_empty() {
+			return Vec::new();
+		}
+		let combined = arg.streams.len() > 1;
 
 		// Find the starting position.
-		let start_position = if let Some(stream) = arg.stream {
+		let start_position = if combined {
+			arg.position
+		} else {
+			let Some(stream) = arg.streams.iter().next().copied() else {
+				return Vec::new();
+			};
 			let pointer = logs
 				.stream_positions
 				.range(..=(stream, arg.position))
@@ -101,8 +113,6 @@ impl Store {
 				return Vec::new();
 			};
 			position
-		} else {
-			arg.position
 		};
 
 		// Collect all entries starting from the position.
@@ -122,15 +132,15 @@ impl Store {
 			}
 
 			// Skip chunks that do not match the stream filter.
-			if arg.stream.is_some_and(|stream| stream != chunk.stream) {
+			if !arg.streams.contains(&chunk.stream) {
 				continue;
 			}
 
 			// Get the position based on the stream filter.
-			let position = if arg.stream.is_some() {
-				chunk.stream_position
-			} else {
+			let position = if combined {
 				chunk.position
+			} else {
+				chunk.stream_position
 			};
 
 			let offset = arg.position.saturating_sub(position);
@@ -187,10 +197,14 @@ impl Store {
 	pub fn try_get_process_log_length(
 		&self,
 		id: &tg::process::Id,
-		stream: Option<tg::process::stdio::Stream>,
+		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> Option<u64> {
+		if streams.is_empty() {
+			return None;
+		}
 		let process_logs = self.process_logs.get(id)?;
-		if let Some(stream) = stream {
+		if streams.len() == 1 {
+			let stream = streams.iter().next().copied()?;
 			let last_position = process_logs
 				.stream_positions
 				.range((stream, 0)..(stream, u64::MAX))
@@ -311,9 +325,9 @@ impl crate::Store for Store {
 	async fn try_get_process_log_length(
 		&self,
 		id: &tg::process::Id,
-		stream: Option<tg::process::stdio::Stream>,
+		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<u64>> {
-		Ok(self.try_get_process_log_length(id, stream))
+		Ok(self.try_get_process_log_length(id, streams))
 	}
 
 	async fn put_process_log(&self, arg: PutProcessLogArg) -> tg::Result<()> {
@@ -363,7 +377,7 @@ mod tests {
 			process: process.clone(),
 			position: 0,
 			length: 11,
-			stream: Some(tg::process::stdio::Stream::Stdout),
+			streams: BTreeSet::from([tg::process::stdio::Stream::Stdout]),
 		});
 		assert_eq!(collect_bytes(result), Bytes::from("hello world"));
 
@@ -372,7 +386,7 @@ mod tests {
 			process: process.clone(),
 			position: 6,
 			length: 5,
-			stream: Some(tg::process::stdio::Stream::Stdout),
+			streams: BTreeSet::from([tg::process::stdio::Stream::Stdout]),
 		});
 		assert_eq!(collect_bytes(result), Bytes::from("world"));
 	}
@@ -407,7 +421,7 @@ mod tests {
 			process: process.clone(),
 			position: 0,
 			length: 11,
-			stream: Some(tg::process::stdio::Stream::Stdout),
+			streams: BTreeSet::from([tg::process::stdio::Stream::Stdout]),
 		});
 		assert_eq!(collect_bytes(result), Bytes::from("hello world"));
 	}
@@ -442,7 +456,7 @@ mod tests {
 			process: process.clone(),
 			position: 2,
 			length: 4,
-			stream: Some(tg::process::stdio::Stream::Stdout),
+			streams: BTreeSet::from([tg::process::stdio::Stream::Stdout]),
 		});
 		assert_eq!(collect_bytes(result), Bytes::from("AABB"));
 
@@ -451,7 +465,7 @@ mod tests {
 			process: process.clone(),
 			position: 6,
 			length: 4,
-			stream: Some(tg::process::stdio::Stream::Stdout),
+			streams: BTreeSet::from([tg::process::stdio::Stream::Stdout]),
 		});
 		assert_eq!(collect_bytes(result), Bytes::from("BBCC"));
 
@@ -460,7 +474,7 @@ mod tests {
 			process: process.clone(),
 			position: 2,
 			length: 8,
-			stream: Some(tg::process::stdio::Stream::Stdout),
+			streams: BTreeSet::from([tg::process::stdio::Stream::Stdout]),
 		});
 		assert_eq!(collect_bytes(result), Bytes::from("AABBBBCC"));
 	}
@@ -495,7 +509,10 @@ mod tests {
 			process: process.clone(),
 			position: 0,
 			length: 12,
-			stream: None,
+			streams: BTreeSet::from([
+				tg::process::stdio::Stream::Stdout,
+				tg::process::stdio::Stream::Stderr,
+			]),
 		});
 		assert_eq!(collect_bytes(result), Bytes::from("out1err1out2"));
 
@@ -504,7 +521,7 @@ mod tests {
 			process: process.clone(),
 			position: 0,
 			length: 8,
-			stream: Some(tg::process::stdio::Stream::Stdout),
+			streams: BTreeSet::from([tg::process::stdio::Stream::Stdout]),
 		});
 		assert_eq!(collect_bytes(result), Bytes::from("out1out2"));
 
@@ -513,7 +530,7 @@ mod tests {
 			process: process.clone(),
 			position: 0,
 			length: 4,
-			stream: Some(tg::process::stdio::Stream::Stderr),
+			streams: BTreeSet::from([tg::process::stdio::Stream::Stderr]),
 		});
 		assert_eq!(collect_bytes(result), Bytes::from("err1"));
 	}
@@ -542,7 +559,10 @@ mod tests {
 			process: process.clone(),
 			position: 0,
 			length: 10,
-			stream: None,
+			streams: BTreeSet::from([
+				tg::process::stdio::Stream::Stdout,
+				tg::process::stdio::Stream::Stderr,
+			]),
 		});
 		assert_eq!(collect_bytes(result), Bytes::from("helloworld"));
 
@@ -556,7 +576,10 @@ mod tests {
 			process: process.clone(),
 			position: 0,
 			length: 10,
-			stream: None,
+			streams: BTreeSet::from([
+				tg::process::stdio::Stream::Stdout,
+				tg::process::stdio::Stream::Stderr,
+			]),
 		});
 		assert!(result.is_empty());
 	}
@@ -587,13 +610,28 @@ mod tests {
 		});
 
 		// Check lengths.
-		assert_eq!(store.try_get_process_log_length(&process, None), Some(13)); // 5 + 3 + 5
 		assert_eq!(
-			store.try_get_process_log_length(&process, Some(tg::process::stdio::Stream::Stdout)),
+			store.try_get_process_log_length(
+				&process,
+				&BTreeSet::from([
+					tg::process::stdio::Stream::Stdout,
+					tg::process::stdio::Stream::Stderr,
+				])
+			),
+			Some(13)
+		); // 5 + 3 + 5
+		assert_eq!(
+			store.try_get_process_log_length(
+				&process,
+				&BTreeSet::from([tg::process::stdio::Stream::Stdout])
+			),
 			Some(10)
 		); // 5 + 5
 		assert_eq!(
-			store.try_get_process_log_length(&process, Some(tg::process::stdio::Stream::Stderr)),
+			store.try_get_process_log_length(
+				&process,
+				&BTreeSet::from([tg::process::stdio::Stream::Stderr])
+			),
 			Some(3)
 		);
 	}
@@ -616,7 +654,7 @@ mod tests {
 			process: process.clone(),
 			position: 5,
 			length: 10,
-			stream: Some(tg::process::stdio::Stream::Stdout),
+			streams: BTreeSet::from([tg::process::stdio::Stream::Stdout]),
 		});
 		assert_eq!(collect_bytes(result), Bytes::new());
 	}
@@ -631,7 +669,10 @@ mod tests {
 			process,
 			position: 0,
 			length: 10,
-			stream: None,
+			streams: BTreeSet::from([
+				tg::process::stdio::Stream::Stdout,
+				tg::process::stdio::Stream::Stderr,
+			]),
 		});
 		assert!(result.is_empty());
 	}

@@ -6,6 +6,7 @@ use {
 		StreamExt as _, future,
 		stream::{self, BoxStream},
 	},
+	itertools::Itertools as _,
 	num::ToPrimitive as _,
 	std::{collections::BTreeSet, io::SeekFrom, pin::pin, time::Duration},
 	tangram_client::prelude::*,
@@ -23,9 +24,9 @@ use {
 };
 
 enum Source {
-	Empty,
-	Log(Option<tg::process::stdio::Stream>),
+	Log(BTreeSet<tg::process::stdio::Stream>),
 	Messenger(BTreeSet<tg::process::stdio::Stream>),
+	Null,
 }
 
 impl Server {
@@ -38,6 +39,7 @@ impl Server {
 		if arg.streams.is_empty() {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
+
 		if Self::local(arg.local, arg.remotes.as_ref())
 			&& let Some(event_stream) = self
 				.try_read_process_stdio_local(id, arg.clone())
@@ -46,6 +48,7 @@ impl Server {
 		{
 			return Ok(Some(event_stream));
 		}
+
 		let peers = self
 			.peers(arg.local, arg.remotes.clone())
 			.await
@@ -57,6 +60,7 @@ impl Server {
 		{
 			return Ok(Some(event_stream));
 		}
+
 		let remotes = self
 			.remotes(arg.local, arg.remotes.clone())
 			.await
@@ -68,6 +72,7 @@ impl Server {
 		{
 			return Ok(Some(event_stream));
 		}
+
 		Ok(None)
 	}
 
@@ -85,7 +90,6 @@ impl Server {
 		};
 		let source = Self::get_process_stdio_source(&output.data, &arg)?;
 		let stream = match source {
-			Source::Empty => stream::once(future::ok(tg::process::stdio::read::Event::End)).boxed(),
 			Source::Log(stream) => {
 				self.try_read_process_stdio_log_local(id, arg, stream)
 					.await?
@@ -94,6 +98,7 @@ impl Server {
 				self.try_read_process_stdio_messenger_local(id, &streams)
 					.await?
 			},
+			Source::Null => stream::once(future::ok(tg::process::stdio::read::Event::End)).boxed(),
 		};
 		Ok(Some(stream))
 	}
@@ -102,14 +107,14 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
-		stream: Option<tg::process::stdio::Stream>,
+		streams: BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>> {
 		let (sender, receiver) = async_channel::unbounded();
 		let server = self.clone();
 		let id = id.clone();
 		let task = Task::spawn(move |_| async move {
 			let result = server
-				.try_read_process_stdio_log_local_task(&id, arg, stream, sender.clone())
+				.try_read_process_stdio_log_local_task(&id, arg, streams, sender.clone())
 				.await;
 			if let Err(error) = result {
 				sender.try_send(Err(error)).ok();
@@ -122,7 +127,7 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 		mut arg: tg::process::stdio::read::Arg,
-		stream: Option<tg::process::stdio::Stream>,
+		streams: BTreeSet<tg::process::stdio::Stream>,
 		sender: async_channel::Sender<tg::Result<tg::process::stdio::read::Event>>,
 	) -> tg::Result<()> {
 		let subject = format!("processes.{id}.log");
@@ -150,12 +155,12 @@ impl Server {
 		let mut events = stream::select_all([log, status, interval]).boxed();
 		'outer: loop {
 			let status = self
-				.get_current_process_status_local(id)
+				.get_process_status_local(id)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the process status"))?;
 
 			let mut stream = self
-				.process_log_stream(id, arg.position, arg.length, arg.size, stream)
+				.process_log_stream(id, arg.position, arg.length, arg.size, streams.clone())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the log stream"))?;
 			while let Some(chunk) = stream.next().await {
@@ -214,8 +219,10 @@ impl Server {
 			.get_stream("processes_stdio".to_owned())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the stdio stream"))?;
+		let consumer_name = format!("{id}_{}", streams.iter().join("_"));
 		let consumer_config = tangram_messenger::ConsumerConfig {
 			ack_policy: tangram_messenger::AckPolicy::None,
+			durable_name: Some(consumer_name.clone()),
 			filter_subjects: streams
 				.iter()
 				.map(|stream| format!("processes.stdio.{id}.{stream}"))
@@ -223,7 +230,7 @@ impl Server {
 			..Default::default()
 		};
 		let consumer = stream
-			.create_consumer(None, consumer_config)
+			.get_or_create_consumer(Some(consumer_name), consumer_config)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create a stdio consumer"))?;
 		let (sender, receiver) =
@@ -357,6 +364,46 @@ impl Server {
 		Ok(None)
 	}
 
+	fn get_process_stdio_source(
+		data: &tg::process::Data,
+		arg: &tg::process::stdio::read::Arg,
+	) -> tg::Result<Source> {
+		let mut log_streams = BTreeSet::new();
+		let mut messenger_streams = BTreeSet::new();
+		for stream in &arg.streams {
+			let stdio = process_stdio(data, *stream);
+			match stdio {
+				tg::process::Stdio::Log => {
+					log_streams.insert(validate_log_stream(*stream)?);
+				},
+				tg::process::Stdio::Pipe | tg::process::Stdio::Tty => {
+					messenger_streams.insert(*stream);
+				},
+				tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit => {
+					return Err(tg::error!("invalid stdio"));
+				},
+				tg::process::Stdio::Null => (),
+			}
+		}
+		if !log_streams.is_empty() && !messenger_streams.is_empty() {
+			return Err(tg::error!(
+				"cannot read logged and live stdio in a single request"
+			));
+		}
+		if !messenger_streams.is_empty() {
+			if arg.position.is_some() || arg.length.is_some() || arg.size.is_some() {
+				return Err(tg::error!(
+					"position, length, and size are only valid for logged stdio"
+				));
+			}
+			return Ok(Source::Messenger(messenger_streams));
+		}
+		if log_streams.is_empty() {
+			return Ok(Source::Null);
+		}
+		Ok(Source::Log(log_streams))
+	}
+
 	pub(crate) async fn handle_post_process_stdio_read_request(
 		&self,
 		request: http::Request<BoxBody>,
@@ -399,11 +446,11 @@ impl Server {
 		};
 
 		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
-		let stopper_wait = async move { stopper.wait().await };
-		let event_stream = event_stream.take_until(stopper_wait);
+		let stopper = async move { stopper.wait().await };
+		let stream = event_stream.take_until(stopper);
 
 		let content_type = mime::TEXT_EVENT_STREAM;
-		let stream = event_stream.map(|result| match result {
+		let stream = stream.map(|result| match result {
 			Ok(event) => event.try_into(),
 			Err(error) => error.try_into(),
 		});
@@ -415,50 +462,5 @@ impl Server {
 			.unwrap();
 
 		Ok(response)
-	}
-
-	fn get_process_stdio_source(
-		data: &tg::process::Data,
-		arg: &tg::process::stdio::read::Arg,
-	) -> tg::Result<Source> {
-		let mut log_streams = BTreeSet::new();
-		let mut messenger_streams = BTreeSet::new();
-		for stream in &arg.streams {
-			let stdio = process_stdio(data, *stream);
-			match stdio {
-				tg::process::Stdio::Log => {
-					log_streams.insert(validate_log_stream(*stream)?);
-				},
-				tg::process::Stdio::Null => (),
-				tg::process::Stdio::Pipe | tg::process::Stdio::Tty => {
-					messenger_streams.insert(*stream);
-				},
-				tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit => {
-					return Err(tg::error!("invalid stdio"));
-				},
-			}
-		}
-		if !log_streams.is_empty() && !messenger_streams.is_empty() {
-			return Err(tg::error!(
-				"cannot read logged and live stdio in a single request"
-			));
-		}
-		if !messenger_streams.is_empty() {
-			if arg.position.is_some() || arg.length.is_some() || arg.size.is_some() {
-				return Err(tg::error!(
-					"position, length, and size are only valid for logged stdio"
-				));
-			}
-			return Ok(Source::Messenger(messenger_streams));
-		}
-		if log_streams.is_empty() {
-			return Ok(Source::Empty);
-		}
-		let stream = if log_streams.len() == 2 {
-			None
-		} else {
-			log_streams.into_iter().next()
-		};
-		Ok(Source::Log(stream))
 	}
 }

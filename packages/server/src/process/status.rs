@@ -94,7 +94,7 @@ impl Server {
 			.then(move |()| {
 				let server = server.clone();
 				let id = id.clone();
-				async move { server.get_current_process_status_local(&id).await }
+				async move { server.get_process_status_local(&id).await }
 			})
 			.try_filter(move |status| {
 				future::ready(match (previous.as_mut(), *status) {
@@ -122,16 +122,16 @@ impl Server {
 		Ok(Some(stream.boxed()))
 	}
 
-	pub(crate) async fn get_current_process_status_local(
+	pub(crate) async fn get_process_status_local(
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<tg::process::Status> {
-		self.try_get_current_process_status_local(id)
+		self.try_get_process_status_local(id)
 			.await?
 			.ok_or_else(|| tg::error!("failed to find the process"))
 	}
 
-	pub(crate) async fn try_get_current_process_status_local(
+	pub(crate) async fn try_get_process_status_local(
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Status>> {

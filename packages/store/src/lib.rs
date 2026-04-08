@@ -1,4 +1,8 @@
-use {bytes::Bytes, std::borrow::Cow, std::path::PathBuf, tangram_client::prelude::*};
+use {
+	bytes::Bytes,
+	std::{borrow::Cow, collections::BTreeSet, path::PathBuf},
+	tangram_client::prelude::*,
+};
 
 #[cfg(feature = "lmdb")]
 pub mod lmdb;
@@ -30,7 +34,7 @@ pub struct ReadProcessLogArg {
 	pub length: u64,
 	pub position: u64,
 	pub process: tg::process::Id,
-	pub stream: Option<tg::process::stdio::Stream>,
+	pub streams: BTreeSet<tg::process::stdio::Stream>,
 }
 
 #[derive(Clone, Debug)]
@@ -138,7 +142,7 @@ pub trait Store {
 	fn try_get_process_log_length(
 		&self,
 		id: &tg::process::Id,
-		stream: Option<tg::process::stdio::Stream>,
+		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> impl std::future::Future<Output = tg::Result<Option<u64>>> + Send;
 
 	fn put_process_log(

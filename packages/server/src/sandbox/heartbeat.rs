@@ -71,7 +71,7 @@ impl Server {
 			return Err(tg::error!("failed to find the sandbox"));
 		}
 		drop(connection);
-		let status = self.get_current_sandbox_status_local(id).await?;
+		let status = self.get_sandbox_status_local(id).await?;
 		Ok(tg::sandbox::heartbeat::Output { status })
 	}
 
