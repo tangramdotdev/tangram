@@ -1,12 +1,14 @@
 use {
 	crate::{Context, Server},
-	futures::{StreamExt as _, stream::BoxStream},
+	futures::{StreamExt as _, TryStreamExt, future, stream::BoxStream},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 	tangram_http::{
-		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+		body::Boxed as BoxBody,
+		request::Ext as _,
+		response::{Ext as _, builder::Ext as _},
 	},
-	tangram_messenger::prelude::*,
+	tangram_messenger::{self as messenger, prelude::*},
 };
 
 impl Server {
@@ -69,17 +71,29 @@ impl Server {
 
 		let stream = self
 			.messenger
-			.subscribe::<tangram_messenger::payload::Json<tg::process::signal::get::Event>>(
-				format!("processes.{id}.signal"),
-				None,
-			)
+			.get_stream("processes_signals".to_owned())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the signal stream"))?;
+
+		let consumer_name = id.to_string();
+		let subject = format!("processes.{id}.signal");
+		let config = messenger::ConsumerConfig {
+			ack_policy: messenger::AckPolicy::None,
+			durable_name: Some(consumer_name.clone()),
+			filter_subjects: vec![subject],
+			..Default::default()
+		};
+		let consumer = stream
+			.get_or_create_consumer(Some(consumer_name), config)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the consumer"))?;
+
+		let stream = consumer
+			.subscribe::<tangram_messenger::payload::Json<tg::process::signal::get::Event>>()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the stream"))?
-			.map(|result| {
-				let message =
-					result.map_err(|source| tg::error!(!source, "failed to get message"))?;
-				Ok(message.payload.0)
-			})
+			.and_then(move |message| future::ok(message.split().0.0))
+			.map_err(|source| tg::error!(!source, "failed to get the message"))
 			.boxed();
 
 		Ok(Some(stream))

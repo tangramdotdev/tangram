@@ -497,45 +497,68 @@ impl Server {
 			},
 		};
 
-		// Create the finalize stream if the messenger is memory.
+		// Create the streams if the messenger is memory.
 		if messenger.is_memory() {
-			let stream_config = tangram_messenger::StreamConfig {
-				retention: tangram_messenger::RetentionPolicy::WorkQueue,
-				..tangram_messenger::StreamConfig::default()
-			};
-			messenger
-				.create_stream("processes_finalize_queue".to_owned(), stream_config)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the finalize stream"))?;
-		}
-
-		// Create the sandbox and process queue streams if the messenger is memory.
-		if messenger.is_memory() {
+			let stream_name = "processes_finalize_queue".to_owned();
 			let stream_config = tangram_messenger::StreamConfig {
 				discard: tangram_messenger::DiscardPolicy::New,
-				max_bytes: None,
-				max_messages: None,
 				retention: tangram_messenger::RetentionPolicy::WorkQueue,
+				..Default::default()
 			};
 			messenger
-				.create_stream("sandboxes_queue".to_owned(), stream_config.clone())
+				.create_stream(stream_name, stream_config)
 				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to create the sandbox queue stream")
-				})?;
+				.map_err(|source| tg::error!(!source, "failed to create the finalize stream"))?;
+
+			let stream_name = "processes_signals".to_owned();
+			let stream_config = tangram_messenger::StreamConfig {
+				discard: tangram_messenger::DiscardPolicy::New,
+				retention: tangram_messenger::RetentionPolicy::WorkQueue,
+				..Default::default()
+			};
 			messenger
-				.create_stream(
-					"sandboxes_processes_queue".to_owned(),
-					stream_config.clone(),
-				)
+				.create_stream(stream_name, stream_config)
 				.await
 				.map_err(|source| {
 					tg::error!(!source, "failed to create the sandbox process queue stream")
 				})?;
+
+			let stream_name = "processes_stdio".to_owned();
+			let stream_config = tangram_messenger::StreamConfig {
+				discard: tangram_messenger::DiscardPolicy::New,
+				retention: tangram_messenger::RetentionPolicy::WorkQueue,
+				..Default::default()
+			};
 			messenger
-				.create_stream("processes_stdio".to_owned(), stream_config)
+				.create_stream(stream_name, stream_config)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create stdio stream"))?;
+
+			let stream_name = "sandboxes_processes_queue".to_owned();
+			let stream_config = tangram_messenger::StreamConfig {
+				discard: tangram_messenger::DiscardPolicy::New,
+				retention: tangram_messenger::RetentionPolicy::WorkQueue,
+				..Default::default()
+			};
+			messenger
+				.create_stream(stream_name, stream_config)
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to create the sandbox process queue stream")
+				})?;
+
+			let stream_name = "sandboxes_queue".to_owned();
+			let stream_config = tangram_messenger::StreamConfig {
+				discard: tangram_messenger::DiscardPolicy::New,
+				retention: tangram_messenger::RetentionPolicy::WorkQueue,
+				..Default::default()
+			};
+			messenger
+				.create_stream(stream_name, stream_config)
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to create the sandbox queue stream")
+				})?;
 		}
 
 		// Create the peers.

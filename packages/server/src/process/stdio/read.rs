@@ -218,13 +218,12 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the stdio stream"))?;
 		let consumer_config = tangram_messenger::ConsumerConfig {
-			deliver_policy: tangram_messenger::DeliverPolicy::All,
 			ack_policy: tangram_messenger::AckPolicy::None,
-			durable_name: None,
 			filter_subjects: streams
 				.iter()
 				.map(|stream| format!("processes.stdio.{id}.{stream}"))
 				.collect(),
+			..Default::default()
 		};
 		let consumer = stream
 			.create_consumer(None, consumer_config)

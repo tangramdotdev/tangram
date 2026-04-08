@@ -57,13 +57,18 @@ impl Server {
 		let payload =
 			tangram_messenger::payload::Json(tg::process::signal::get::Event::Signal(signal));
 		self.messenger
-			.publish(format!("processes.{id}.signal"), payload)
+			.stream_publish(
+				"processes_signals".into(),
+				format!("processes.{id}.signal"),
+				payload,
+			)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to signal the process"))?;
+			.map_err(|source| tg::error!(!source, "failed to publish the message"))?
+			.await
+			.map_err(|source| tg::error!(!source, "signal messaged not ack'd"))?;
 
 		Ok(())
 	}
-
 	async fn post_process_signal_peer(
 		&self,
 		id: &tg::process::Id,
