@@ -74,29 +74,26 @@ impl Server {
 			.get_stream(format!("processes_signals"))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the signal stream"))?;
+		let name = format!("{id}_signal");
+		let subject = format!("processes.{id}.signal");
 		let config = messenger::ConsumerConfig {
 			deliver_policy: messenger::DeliverPolicy::All,
+			filter_subjects: vec![subject.clone()],
 			..messenger::ConsumerConfig::default()
 		};
 		let consumer = stream
-			.get_or_create_consumer(Some("processes_signals".into()), config)
+			.get_or_create_consumer(Some(name), config)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the consumer"))?;
-		let subject = format!("processes.{id}.signal");
+
 		let stream = consumer
 			.subscribe::<tangram_messenger::payload::Json<tg::process::signal::get::Event>>()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the stream"))?
-			.try_filter_map(move |message| {
-				let matches = message.subject == subject;
-				async move {
-					if !matches {
-						return Ok(None);
-					}
-					let (payload, acker) = message.split();
-					acker.ack().await?;
-					Ok(Some(payload.0))
-				}
+			.and_then(move |message| async move {
+				let (payload, acker) = message.split();
+				acker.ack().await?;
+				Ok(payload.0)
 			})
 			.map_err(|source| tg::error!(!source, "failed to get the message"))
 			.boxed();
