@@ -22,12 +22,16 @@ impl Server {
 		_context: &Context,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::status::Arg,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
+	) -> tg::Result<
+		Option<
+			impl futures::Stream<Item = tg::Result<tg::sandbox::status::Event>> + Send + 'static + use<>,
+		>,
+	> {
 		if Self::local(arg.local, arg.remotes.as_ref())
 			&& let Some(status) = self.try_get_sandbox_status_stream_local(id).await.map_err(
 				|source| tg::error!(!source, %id, "failed to get the sandbox status stream"),
 			)? {
-			return Ok(Some(status));
+			return Ok(Some(status.left_stream()));
 		}
 
 		let peers = self
@@ -37,7 +41,7 @@ impl Server {
 		if let Some(status) = self.try_get_sandbox_status_peer(id, &peers).await.map_err(
 			|source| tg::error!(!source, %id, "failed to get the sandbox status from the peer"),
 		)? {
-			return Ok(Some(status));
+			return Ok(Some(status.right_stream()));
 		}
 
 		let remotes = self
@@ -50,7 +54,7 @@ impl Server {
 			.map_err(
 				|source| tg::error!(!source, %id, "failed to get the sandbox status from the remote"),
 			)? {
-			return Ok(Some(status));
+			return Ok(Some(status.right_stream()));
 		}
 
 		Ok(None)
@@ -59,7 +63,11 @@ impl Server {
 	pub(crate) async fn try_get_sandbox_status_stream_local(
 		&self,
 		id: &tg::sandbox::Id,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
+	) -> tg::Result<
+		Option<
+			impl futures::Stream<Item = tg::Result<tg::sandbox::status::Event>> + Send + 'static + use<>,
+		>,
+	> {
 		if !self
 			.get_sandbox_exists_local(id)
 			.await
@@ -112,7 +120,7 @@ impl Server {
 			.map_ok(tg::sandbox::status::Event::Status)
 			.chain(stream::once(future::ok(tg::sandbox::status::Event::End)));
 
-		Ok(Some(stream.boxed()))
+		Ok(Some(stream))
 	}
 
 	pub(crate) async fn get_current_sandbox_status_local(

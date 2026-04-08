@@ -1,7 +1,7 @@
 use {
 	super::Arg,
 	crate::client::Client,
-	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
+	futures::{Stream, TryStreamExt as _, future},
 	tangram_client::prelude::*,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
@@ -11,7 +11,8 @@ impl Client {
 		&self,
 		id: &tg::process::Id,
 		arg: Arg,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static>
+	{
 		let method = http::Method::GET;
 		let query = serde_urlencoded::to_string(&arg)
 			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
@@ -45,8 +46,7 @@ impl Client {
 						event.try_into()
 					},
 				)
-			})
-			.boxed();
+			});
 		Ok(stream)
 	}
 }

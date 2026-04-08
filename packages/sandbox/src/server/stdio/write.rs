@@ -1,19 +1,23 @@
 use {
 	crate::{Stdio, server::Server},
-	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
-	std::{pin::pin, sync::Arc},
+	futures::{
+		Stream, StreamExt as _, TryStreamExt as _, future,
+		stream::{self},
+	},
+	std::{
+		pin::{Pin, pin},
+		sync::Arc,
+		task::{Context, Poll},
+	},
 	tangram_client::prelude::*,
-	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tokio::{io::AsyncWriteExt as _, process::ChildStdin, sync::Mutex},
-	tokio_stream::wrappers::ReceiverStream,
+	tokio::io::{AsyncWrite, AsyncWriteExt as _},
 };
 
-#[derive(Clone)]
-enum Destination {
-	Null,
+enum Writer {
+	Null(tokio::io::Sink),
 	Pty(Arc<crate::pty::Pty>),
-	Stdin(Arc<Mutex<ChildStdin>>),
+	Stdin(tokio::sync::OwnedMutexGuard<tokio::process::ChildStdin>),
 }
 
 impl Server {
@@ -21,74 +25,68 @@ impl Server {
 		&self,
 		id: tg::process::Id,
 		arg: crate::client::stdio::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>> {
+		stream: impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>
+	{
 		if arg.streams.as_slice() != [tg::process::stdio::Stream::Stdin] {
 			return Err(tg::error!("expected stdin for a stdio write"));
 		}
-		let stdin = {
-			let process = self
-				.processes
-				.get(&id)
-				.ok_or_else(|| tg::error!(process = %id, "not found"))?;
-			match process.command.stdin {
-				Stdio::Null => Destination::Null,
-				Stdio::Pipe => process
-					.stdin
-					.clone()
-					.map(Destination::Stdin)
-					.ok_or_else(|| tg::error!(process = %id, "stdin is not available"))?,
-				Stdio::Tty => process
-					.pty
-					.clone()
-					.map(Destination::Pty)
-					.ok_or_else(|| tg::error!(process = %id, "stdin is not available"))?,
-			}
+
+		let process = self
+			.processes
+			.get(&id)
+			.ok_or_else(|| tg::error!(process = %id, "failed to find the process"))?;
+		let stdin_mode = process.command.stdin;
+		let stdin = process.stdin.clone();
+		let pty = process.pty.clone();
+		drop(process);
+
+		let mut writer = match stdin_mode {
+			Stdio::Null => {
+				let writer = tokio::io::sink();
+				Writer::Null(writer)
+			},
+			Stdio::Pipe => {
+				let writer = stdin
+					.ok_or_else(|| tg::error!(process = %id, "stdin is not available"))?
+					.lock_owned()
+					.await;
+				Writer::Stdin(writer)
+			},
+			Stdio::Tty => {
+				let writer =
+					pty.ok_or_else(|| tg::error!(process = %id, "stdin is not available"))?;
+				Writer::Pty(writer)
+			},
 		};
-		let (sender, receiver) =
-			tokio::sync::mpsc::channel::<tg::Result<tg::process::stdio::write::Event>>(1);
-		let task = Task::spawn({
-			move |_| async move {
-				let mut input = pin!(input);
-				while let Some(event) = input.next().await {
-					let event = match event {
-						Ok(event) => event,
-						Err(error) => {
-							sender.send(Err(error)).await.ok();
-							return;
-						},
-					};
-					match event {
-						tg::process::stdio::read::Event::Chunk(chunk) => {
-							let result = match &stdin {
-								Destination::Null => break,
-								Destination::Pty(pty) => {
-									let mut pty = &**pty;
-									pty.write_all(&chunk.bytes).await
-								},
-								Destination::Stdin(stdin) => {
-									let mut stdin = stdin.lock().await;
-									stdin.write_all(&chunk.bytes).await
-								},
-							};
-							if let Err(source) = result {
-								sender
-									.send(Err(tg::error!(!source, "failed to write stdin")))
-									.await
-									.ok();
-								return;
-							}
-						},
-						tg::process::stdio::read::Event::End => break,
-					}
+
+		let output = stream::once(async move {
+			let mut stream = pin!(stream);
+			while let Some(event) = stream
+				.try_next()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to read a stdio event"))?
+			{
+				match event {
+					tg::process::stdio::read::Event::Chunk(chunk) => {
+						writer
+							.write_all(&chunk.bytes)
+							.await
+							.map_err(|source| tg::error!(!source, "failed to write stdin"))?;
+					},
+					tg::process::stdio::read::Event::End => {
+						writer
+							.shutdown()
+							.await
+							.map_err(|source| tg::error!(!source, "failed to close stdin"))?;
+						break;
+					},
 				}
-				sender
-					.send(Ok(tg::process::stdio::write::Event::End))
-					.await
-					.ok();
 			}
+			Ok(tg::process::stdio::write::Event::End)
 		});
-		Ok(ReceiverStream::new(receiver).attach(task).boxed())
+
+		Ok(output)
 	}
 
 	pub(crate) async fn handle_write_stdio_request(
@@ -106,7 +104,7 @@ impl Server {
 			.unwrap_or(crate::client::stdio::Arg {
 				streams: Vec::new(),
 			});
-		let input = request
+		let stream = request
 			.sse()
 			.map_err(|source| tg::error!(!source, "failed to read an event"))
 			.and_then(|event| {
@@ -122,7 +120,7 @@ impl Server {
 			})
 			.boxed();
 		let output = self
-			.write_stdio(id, arg, input)
+			.write_stdio(id, arg, stream)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to handle stdio"))?;
 		let stream = output.map(
@@ -139,5 +137,44 @@ impl Server {
 			.body(BoxBody::with_sse_stream(stream))
 			.unwrap();
 		Ok(response)
+	}
+}
+
+impl AsyncWrite for Writer {
+	fn poll_write(
+		self: Pin<&mut Self>,
+		cx: &mut Context<'_>,
+		buf: &[u8],
+	) -> Poll<std::io::Result<usize>> {
+		match self.get_mut() {
+			Self::Null(writer) => Pin::new(writer).poll_write(cx, buf),
+			Self::Pty(pty) => {
+				let mut pty = pty.as_ref();
+				Pin::new(&mut pty).poll_write(cx, buf)
+			},
+			Self::Stdin(stdin) => Pin::new(&mut **stdin).poll_write(cx, buf),
+		}
+	}
+
+	fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+		match self.get_mut() {
+			Self::Null(writer) => Pin::new(writer).poll_flush(cx),
+			Self::Pty(pty) => {
+				let mut pty = pty.as_ref();
+				Pin::new(&mut pty).poll_flush(cx)
+			},
+			Self::Stdin(stdin) => Pin::new(&mut **stdin).poll_flush(cx),
+		}
+	}
+
+	fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+		match self.get_mut() {
+			Self::Null(writer) => Pin::new(writer).poll_shutdown(cx),
+			Self::Pty(pty) => {
+				let mut pty = pty.as_ref();
+				Pin::new(&mut pty).poll_shutdown(cx)
+			},
+			Self::Stdin(stdin) => Pin::new(&mut **stdin).poll_shutdown(cx),
+		}
 	}
 }

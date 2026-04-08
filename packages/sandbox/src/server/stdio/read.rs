@@ -1,21 +1,25 @@
 use {
 	crate::{Stdio, server::Server},
-	bytes::Bytes,
-	futures::{StreamExt as _, stream::BoxStream},
-	std::sync::Arc,
+	futures::{
+		Stream, StreamExt as _, future,
+		stream::{self},
+	},
+	std::{
+		pin::Pin,
+		sync::Arc,
+		task::{Context, Poll},
+	},
 	tangram_client::prelude::*,
-	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tokio::io::AsyncReadExt as _,
-	tokio_stream::wrappers::ReceiverStream,
+	tokio::io::{AsyncRead, ReadBuf},
+	tokio_util::io::ReaderStream,
 };
 
-#[derive(Clone)]
-enum Source {
-	Null,
-	Pty(std::sync::Arc<crate::pty::Pty>),
-	Stderr(Arc<tokio::sync::Mutex<tokio::process::ChildStderr>>),
-	Stdout(Arc<tokio::sync::Mutex<tokio::process::ChildStdout>>),
+enum Reader {
+	Null(tokio::io::Empty),
+	Pty(Arc<crate::pty::Pty>),
+	Stderr(tokio::sync::OwnedMutexGuard<tokio::process::ChildStderr>),
+	Stdout(tokio::sync::OwnedMutexGuard<tokio::process::ChildStdout>),
 }
 
 impl Server {
@@ -23,126 +27,99 @@ impl Server {
 		&self,
 		id: tg::process::Id,
 		arg: crate::client::stdio::Arg,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static>
+	{
 		if arg.streams.is_empty() {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
-		let streams = arg
-			.streams
-			.iter()
-			.filter(|stream| {
-				matches!(
-					stream,
-					tg::process::stdio::Stream::Stdout | tg::process::stdio::Stream::Stderr
-				)
-			})
-			.copied()
-			.collect::<Vec<_>>();
+		let mut streams = Vec::new();
+		for stream in arg.streams {
+			if matches!(
+				stream,
+				tg::process::stdio::Stream::Stdout | tg::process::stdio::Stream::Stderr
+			) && !streams.contains(&stream)
+			{
+				streams.push(stream);
+			}
+		}
 		if streams.is_empty() {
 			return Err(tg::error!("expected stdout or stderr for a stdio read"));
 		}
+
+		let process = self
+			.processes
+			.get(&id)
+			.ok_or_else(|| tg::error!(process = %id, "not found"))?;
+		let stdout_mode = process.command.stdout;
+		let stderr_mode = process.command.stderr;
+		let stdout = process.stdout.clone();
+		let stderr = process.stderr.clone();
+		let pty = process.pty.clone();
+		drop(process);
+
 		let streams = if streams.contains(&tg::process::stdio::Stream::Stdout)
 			&& streams.contains(&tg::process::stdio::Stream::Stderr)
+			&& matches!(stdout_mode, Stdio::Tty)
+			&& matches!(stderr_mode, Stdio::Tty)
 		{
-			if self.processes.get(&id).is_some_and(|process| {
-				matches!(process.command.stdout, Stdio::Tty)
-					&& matches!(process.command.stderr, Stdio::Tty)
-			}) {
-				vec![tg::process::stdio::Stream::Stdout]
-			} else {
-				streams
-			}
+			vec![tg::process::stdio::Stream::Stdout]
 		} else {
 			streams
 		};
-		let (sender, receiver) =
-			tokio::sync::mpsc::channel::<tg::Result<tg::process::stdio::read::Event>>(1);
-		let (output_sender, mut output_receiver) =
-			tokio::sync::mpsc::channel::<tg::Result<tg::process::stdio::read::Event>>(1);
-		let mut stream = ReceiverStream::new(receiver).boxed();
-		for stream_ in streams.iter().copied() {
-			let output = output_handle(self, &id, stream_)?;
-			let task = Task::spawn({
-				let output = output.clone();
-				let output_sender = output_sender.clone();
-				move |_| async move {
-					loop {
-						let result = match stream_ {
-							tg::process::stdio::Stream::Stdout
-							| tg::process::stdio::Stream::Stderr => read_output_chunk(&output).await,
-							tg::process::stdio::Stream::Stdin => {
-								unreachable!();
-							},
-						};
-						match result {
-							Ok(Some(bytes)) => {
-								let event = Ok(tg::process::stdio::read::Event::Chunk(
-									tg::process::stdio::Chunk {
-										bytes,
-										position: None,
-										stream: stream_,
-									},
-								));
-								if output_sender.send(event).await.is_err() {
-									break;
-								}
-							},
-							Ok(None) => {
-								output_sender
-									.send(Ok(tg::process::stdio::read::Event::End))
-									.await
-									.ok();
-								break;
-							},
-							Err(error) => {
-								output_sender
-									.send(Err(tg::error!(!error, "failed to read process stdio")))
-									.await
-									.ok();
-								break;
-							},
-						}
-					}
-				}
-			});
-			stream = stream.attach(task).boxed();
+
+		let mut outputs = Vec::with_capacity(streams.len());
+		for stream_ in streams {
+			let reader = match stream_ {
+				tg::process::stdio::Stream::Stdout => match stdout_mode {
+					Stdio::Null => Reader::Null(tokio::io::empty()),
+					Stdio::Pipe => Reader::Stdout(
+						stdout
+							.clone()
+							.ok_or_else(|| tg::error!(process = %id, "stdout is not available"))?
+							.lock_owned()
+							.await,
+					),
+					Stdio::Tty => Reader::Pty(
+						pty.clone()
+							.ok_or_else(|| tg::error!(process = %id, "stdout is not available"))?,
+					),
+				},
+				tg::process::stdio::Stream::Stderr => match stderr_mode {
+					Stdio::Null => Reader::Null(tokio::io::empty()),
+					Stdio::Pipe => Reader::Stderr(
+						stderr
+							.clone()
+							.ok_or_else(|| tg::error!(process = %id, "stderr is not available"))?
+							.lock_owned()
+							.await,
+					),
+					Stdio::Tty => Reader::Pty(
+						pty.clone()
+							.ok_or_else(|| tg::error!(process = %id, "stderr is not available"))?,
+					),
+				},
+				tg::process::stdio::Stream::Stdin => unreachable!(),
+			};
+			let stream =
+				ReaderStream::new(reader).map(move |result: std::io::Result<bytes::Bytes>| {
+					result
+						.map(|bytes| {
+							tg::process::stdio::read::Event::Chunk(tg::process::stdio::Chunk {
+								bytes,
+								position: None,
+								stream: stream_,
+							})
+						})
+						.map_err(|error| tg::error!(!error, "failed to read process stdio"))
+				});
+			outputs.push(stream);
 		}
-		drop(output_sender);
-		let task = Task::spawn({
-			let total = streams.len();
-			move |_| async move {
-				let mut ended = 0;
-				while let Some(event) = output_receiver.recv().await {
-					match event {
-						Ok(tg::process::stdio::read::Event::Chunk(chunk)) => {
-							if sender
-								.send(Ok(tg::process::stdio::read::Event::Chunk(chunk)))
-								.await
-								.is_err()
-							{
-								break;
-							}
-						},
-						Ok(tg::process::stdio::read::Event::End) => {
-							ended += 1;
-							if ended == total {
-								sender
-									.send(Ok(tg::process::stdio::read::Event::End))
-									.await
-									.ok();
-								break;
-							}
-						},
-						Err(error) => {
-							if sender.send(Err(error)).await.is_err() {
-								break;
-							}
-						},
-					}
-				}
-			}
-		});
-		Ok(stream.attach(task).boxed())
+
+		let stream = stream::select_all(outputs).chain(stream::once(future::ok(
+			tg::process::stdio::read::Event::End,
+		)));
+
+		Ok(stream)
 	}
 
 	pub(crate) async fn handle_read_stdio_request(
@@ -181,85 +158,25 @@ impl Server {
 	}
 }
 
-fn output_handle(
-	server: &Server,
-	id: &tg::process::Id,
-	stream: tg::process::stdio::Stream,
-) -> tg::Result<Source> {
-	let process = server
-		.processes
-		.get(id)
-		.ok_or_else(|| tg::error!(process = %id, "not found"))?;
-	match stream {
-		tg::process::stdio::Stream::Stdout => match process.command.stdout {
-			Stdio::Null => Ok(Source::Null),
-			Stdio::Pipe => process
-				.stdout
-				.clone()
-				.map(Source::Stdout)
-				.ok_or_else(|| tg::error!(process = %id, "stdout is not available")),
-			Stdio::Tty => process
-				.pty
-				.clone()
-				.map(Source::Pty)
-				.ok_or_else(|| tg::error!(process = %id, "stdout is not available")),
-		},
-		tg::process::stdio::Stream::Stderr => match process.command.stderr {
-			Stdio::Null => Ok(Source::Null),
-			Stdio::Pipe => process
-				.stderr
-				.clone()
-				.map(Source::Stderr)
-				.ok_or_else(|| tg::error!(process = %id, "stderr is not available")),
-			Stdio::Tty => process
-				.pty
-				.clone()
-				.map(Source::Pty)
-				.ok_or_else(|| tg::error!(process = %id, "stderr is not available")),
-		},
-		tg::process::stdio::Stream::Stdin => unreachable!(),
-	}
-}
-
-async fn read_output_chunk(output: &Source) -> std::io::Result<Option<Bytes>> {
-	match output {
-		Source::Null => Ok(None),
-		Source::Stdout(stdout) => {
-			let mut buffer = vec![0u8; 1 << 14];
-			let mut stdout = stdout.lock().await;
-			match stdout.read(&mut buffer).await {
-				Ok(0) => Ok(None),
-				Ok(n) => {
-					buffer.truncate(n);
-					Ok(Some(buffer.into()))
-				},
-				Err(error) => Err(error),
-			}
-		},
-		Source::Stderr(stderr) => {
-			let mut buffer = vec![0u8; 1 << 14];
-			let mut stderr = stderr.lock().await;
-			match stderr.read(&mut buffer).await {
-				Ok(0) => Ok(None),
-				Ok(n) => {
-					buffer.truncate(n);
-					Ok(Some(buffer.into()))
-				},
-				Err(error) => Err(error),
-			}
-		},
-		Source::Pty(pty) => {
-			let mut buffer = vec![0u8; 1 << 14];
-			let mut pty = &**pty;
-			match pty.read(&mut buffer).await {
-				Ok(0) => Ok(None),
-				Ok(n) => {
-					buffer.truncate(n);
-					Ok(Some(buffer.into()))
-				},
-				Err(error) if error.raw_os_error() == Some(libc::EIO) => Ok(None),
-				Err(error) => Err(error),
-			}
-		},
+impl AsyncRead for Reader {
+	fn poll_read(
+		self: Pin<&mut Self>,
+		cx: &mut Context<'_>,
+		buf: &mut ReadBuf<'_>,
+	) -> Poll<std::io::Result<()>> {
+		match self.get_mut() {
+			Self::Null(reader) => Pin::new(reader).poll_read(cx, buf),
+			Self::Pty(pty) => {
+				let mut pty = pty.as_ref();
+				match Pin::new(&mut pty).poll_read(cx, buf) {
+					Poll::Ready(Err(error)) if error.raw_os_error() == Some(libc::EIO) => {
+						Poll::Ready(Ok(()))
+					},
+					poll => poll,
+				}
+			},
+			Self::Stderr(stderr) => Pin::new(&mut **stderr).poll_read(cx, buf),
+			Self::Stdout(stdout) => Pin::new(&mut **stdout).poll_read(cx, buf),
+		}
 	}
 }

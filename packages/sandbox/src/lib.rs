@@ -1,5 +1,6 @@
 use {
 	crate::client::Client,
+	futures::Stream,
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		path::{Path, PathBuf},
@@ -247,9 +248,8 @@ impl Sandbox {
 		&self,
 		process: &Process,
 		streams: Vec<tg::process::stdio::Stream>,
-	) -> tg::Result<
-		impl futures::Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static,
-	> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static>
+	{
 		let arg = crate::client::stdio::Arg { streams };
 		self.0.client.read_stdio(&process.id, arg).await
 	}
@@ -258,10 +258,9 @@ impl Sandbox {
 		&self,
 		process: &Process,
 		streams: Vec<tg::process::stdio::Stream>,
-		input: futures::stream::BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
-	) -> tg::Result<
-		impl futures::Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static,
-	> {
+		input: impl Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>
+	{
 		let arg = crate::client::stdio::Arg { streams };
 		self.0.client.write_stdio(&process.id, arg, input).await
 	}

@@ -7243,6 +7243,7 @@ dependencies = [
  "tangram_util",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "tokio-vsock",
  "tower",
  "tracing",
