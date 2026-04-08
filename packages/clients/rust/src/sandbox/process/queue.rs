@@ -1,12 +1,22 @@
 use {
 	crate::prelude::*,
 	futures::{StreamExt as _, TryStreamExt as _, future},
+	serde_with::serde_as,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_util::serde::CommaSeparatedString,
 };
 
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Arg {}
+pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub local: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<CommaSeparatedString>")]
+	pub remotes: Option<Vec<String>>,
+}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
@@ -14,11 +24,11 @@ pub struct Output {
 }
 
 impl tg::Client {
-	pub async fn try_dequeue_process(
+	pub async fn try_dequeue_sandbox_process(
 		&self,
 		sandbox: &tg::sandbox::Id,
-		arg: tg::process::queue::Arg,
-	) -> tg::Result<Option<tg::process::queue::Output>> {
+		arg: tg::sandbox::process::queue::Arg,
+	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
 		let method = http::Method::POST;
 		let uri = format!("/sandboxes/{sandbox}/processes/dequeue");
 		let request = http::request::Builder::default()
@@ -77,10 +87,10 @@ impl tg::Client {
 	}
 }
 
-impl TryFrom<tg::process::queue::Output> for tangram_http::sse::Event {
+impl TryFrom<tg::sandbox::process::queue::Output> for tangram_http::sse::Event {
 	type Error = tg::Error;
 
-	fn try_from(value: tg::process::queue::Output) -> Result<Self, Self::Error> {
+	fn try_from(value: tg::sandbox::process::queue::Output) -> Result<Self, Self::Error> {
 		let data = serde_json::to_string(&value)
 			.map_err(|source| tg::error!(!source, "failed to serialize the event"))?;
 		let event = tangram_http::sse::Event {
@@ -91,7 +101,7 @@ impl TryFrom<tg::process::queue::Output> for tangram_http::sse::Event {
 	}
 }
 
-impl TryFrom<tangram_http::sse::Event> for tg::process::queue::Output {
+impl TryFrom<tangram_http::sse::Event> for tg::sandbox::process::queue::Output {
 	type Error = tg::Error;
 
 	fn try_from(value: tangram_http::sse::Event) -> Result<Self, Self::Error> {

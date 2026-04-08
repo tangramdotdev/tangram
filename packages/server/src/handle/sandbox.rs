@@ -63,6 +63,14 @@ impl tg::handle::Sandbox for Shared {
 	> {
 		self.0.try_get_sandbox_status_stream(id, arg).await
 	}
+
+	async fn try_dequeue_sandbox_process(
+		&self,
+		sandbox: &tg::sandbox::Id,
+		arg: tg::sandbox::process::queue::Arg,
+	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
+		self.0.try_dequeue_sandbox_process(sandbox, arg).await
+	}
 }
 
 impl tg::handle::Sandbox for Server {
@@ -130,6 +138,15 @@ impl tg::handle::Sandbox for Server {
 		Option<impl Stream<Item = tg::Result<tg::sandbox::status::Event>> + Send + 'static>,
 	> {
 		self.try_get_sandbox_status_stream_with_context(&Context::default(), id, arg)
+			.await
+	}
+
+	async fn try_dequeue_sandbox_process(
+		&self,
+		sandbox: &tg::sandbox::Id,
+		arg: tg::sandbox::process::queue::Arg,
+	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
+		self.try_dequeue_sandbox_process_with_context(&Context::default(), sandbox, arg)
 			.await
 	}
 }

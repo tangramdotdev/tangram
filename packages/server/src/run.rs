@@ -1,24 +1,20 @@
 use {
 	crate::{SandboxPermit, Server, context::Context, temp::Temp},
 	futures::{
-		FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
-		stream::{self, BoxStream},
+		FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future, stream,
 	},
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		path::Path,
 		pin::pin,
-		sync::{Arc, Mutex},
+		sync::Arc,
 		time::Duration,
 	},
 	tangram_client::prelude::*,
 	tangram_futures::{
-		read::Ext as _,
 		stream::TryExt as _,
 		task::{Stopper, Task},
 	},
-	tangram_messenger::prelude::*,
-	tokio::io::AsyncReadExt as _,
 	tokio_stream::wrappers::ReceiverStream,
 	tokio_util::io::ReaderStream,
 };
@@ -32,6 +28,9 @@ pub struct Output {
 	pub exit: u8,
 	pub value: Option<tg::Value>,
 }
+
+type ProcessTaskMap =
+	tangram_futures::task::Map<tg::process::Id, tg::Result<()>, (), tg::id::BuildHasher>;
 
 impl Server {
 	pub(crate) async fn runner_task(&self) {
@@ -107,23 +106,18 @@ impl Server {
 		permit: SandboxPermit,
 		process: Option<tg::process::Id>,
 	) -> tg::Result<()> {
-		let remote_client = if let Some(remote) = &remote {
-			Some(self.get_remote_client(remote.clone()).await.map_err(
-				|source| tg::error!(!source, %id, %remote, "failed to get the remote client"),
-			)?)
-		} else {
-			None
-		};
-		let state = if let Some(client) = remote_client.as_ref() {
-			client
-				.try_get_sandbox(id, tg::sandbox::get::Arg::default())
-				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox"))?
-		} else {
-			self.try_get_sandbox_local(id)
-				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox"))?
-		};
+		// Get the sandbox.
+		let remotes = remote.as_ref().map(|remote| vec![remote.clone()]);
+		let state = self
+			.try_get_sandbox(
+				id,
+				tg::sandbox::get::Arg {
+					local: None,
+					remotes: remotes.clone(),
+				},
+			)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox"))?;
 		let Some(state) = state else {
 			return Ok(());
 		};
@@ -131,16 +125,25 @@ impl Server {
 			return Ok(());
 		}
 
+		// Associate the permit with the sandbox.
 		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
 		self.sandbox_permits.insert(id.clone(), permit);
 		scopeguard::defer! {
 			self.sandbox_permits.remove(id);
 		}
 
+		// Create the temp.
 		let temp = Temp::new(self);
 		tokio::fs::create_dir_all(temp.path())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
+
+		// Create the listener.
+		let (listener, guest_uri) = Self::run_create_listener(temp.path())
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to create the tangram listener"))?;
+
+		// Create the sandbox.
 		let sandbox_arg = tangram_sandbox::SpawnArg {
 			artifacts_path: self.artifacts_path(),
 			hostname: state.hostname.clone(),
@@ -151,9 +154,6 @@ impl Server {
 			tangram_path: self.tangram_path.clone(),
 			user: state.user.clone(),
 		};
-		let (listener, guest_uri) = Self::create_sandbox_tangram_listener(temp.path())
-			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to create the tangram listener"))?;
 		let sandbox = tangram_sandbox::Sandbox::new(sandbox_arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to create the sandbox"))?;
@@ -161,6 +161,8 @@ impl Server {
 		scopeguard::defer! {
 			self.sandboxes.remove(id);
 		}
+
+		// Spawn the serve task.
 		let serve_task = Task::spawn({
 			let server = self.clone();
 			let context = Context {
@@ -172,6 +174,7 @@ impl Server {
 			}
 		});
 
+		// Spawn the heartbeat task.
 		let heartbeat_task = Task::spawn({
 			let server = self.clone();
 			let id = id.clone();
@@ -183,199 +186,91 @@ impl Server {
 			}
 		});
 
-		let mut messages = if remote.is_none() {
-			let stream = self
-				.messenger
-				.get_stream("sandboxes_processes_queue".to_owned())
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the process queue stream"))?;
-			let consumer_name = id.to_string();
-			let consumer_config = tangram_messenger::ConsumerConfig {
-				durable_name: Some(consumer_name.clone()),
-				filter_subjects: vec![format!("sandboxes.{id}.processes.queue")],
-				..Default::default()
-			};
-			let consumer = stream
-				.get_or_create_consumer(Some(consumer_name), consumer_config)
-				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to create a process queue consumer")
-				})?;
-			Some(
-				consumer
-					.subscribe::<crate::process::queue::Message>()
-					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to subscribe to the process queue")
-					})?
-					.boxed(),
-			)
-		} else {
-			None
-		};
-
-		let status = if let Some(client) = remote_client.as_ref() {
-			Some(Self::get_remote_sandbox_status_stream(
+		// Get the sandbox status stream.
+		let status = self
+			.try_get_sandbox_status_stream(
 				id,
-				remote.as_deref(),
-				client.clone(),
-			))
-		} else {
-			self.try_get_sandbox_status_stream_local(id)
-				.await
-				.map_err(
-					|source| tg::error!(!source, %id, "failed to get the sandbox status stream"),
-				)?
-				.map(|stream| {
-					stream
-						.try_filter_map(|event| async move {
-							match event {
-								tg::sandbox::status::Event::Status(status) => Ok(Some(status)),
-								tg::sandbox::status::Event::End => Ok(None),
-							}
-						})
-						.boxed()
-				})
-		}
-		.ok_or_else(|| tg::error!("failed to get the sandbox status stream"))?;
+				tg::sandbox::status::Arg {
+					local: None,
+					remotes: remotes.clone(),
+				},
+			)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox status stream"))?
+			.map(|stream| {
+				stream
+					.try_filter_map(|event| async move {
+						match event {
+							tg::sandbox::status::Event::Status(status) => Ok(Some(status)),
+							tg::sandbox::status::Event::End => Ok(None),
+						}
+					})
+					.boxed()
+			})
+			.ok_or_else(|| tg::error!("failed to get the sandbox status stream"))?;
 		let mut status = pin!(status);
 
-		let process_tasks = tangram_futures::task::Map::<
-			tg::process::Id,
-			tg::Result<()>,
-			(),
-			tg::id::BuildHasher,
-		>::default();
+		let process_tasks = ProcessTaskMap::default();
 		let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<tg::process::Id>();
+
 		let ttl = (state.ttl != i64::MAX as u64).then(|| Duration::from_secs(state.ttl));
-		let mut idle = Box::pin(tokio::time::sleep(Duration::MAX));
-		let mut idle_armed = false;
-		let mut active_processes = 0usize;
+		let mut timer = None;
+
 		if let Some(process) = process {
-			active_processes += 1;
-			let server = self.clone();
-			let process = tg::Process::new(process.clone(), None, remote.clone(), None, None, None);
-			let sandbox = sandbox.clone();
-			let guest_uri = guest_uri.clone();
-			let sender = sender.clone();
-			process_tasks
-				.spawn(process.id().clone(), move |stopper| async move {
-					let process_id = process.id().clone();
-					let _guard =
-						scopeguard::guard((sender, process_id.clone()), |(sender, process_id)| {
-							sender.send(process_id).ok();
-						});
-					server
-						.process_task(&process, sandbox, guest_uri, stopper)
-						.await
-						.inspect_err(|error| {
-							tracing::error!(error = %error.trace(), process = %process.id(), "the process task failed");
-						})
-				})
-				.detach();
+			self.spawn_sandbox_process_task(
+				&process_tasks,
+				&sender,
+				process.clone(),
+				remote.as_ref(),
+				&sandbox,
+				&guest_uri,
+			);
 		} else if let Some(ttl) = ttl {
-			idle.as_mut().reset(tokio::time::Instant::now() + ttl);
-			idle_armed = true;
+			timer.replace(tokio::time::sleep(ttl).boxed());
 		}
 
 		loop {
+			let timer_future = timer.as_mut().map_or_else(
+				|| future::pending().left_future(),
+				|timer| timer.as_mut().right_future(),
+			);
 			tokio::select! {
-				message = async { messages.as_mut().unwrap().try_next().await }, if messages.is_some() => {
-					let Some(message) = message.map_err(|source| tg::error!(!source, "failed to read the process queue"))? else {
-						break;
-					};
-					let (payload, acker) = message.split();
-					let started = self
-						.try_start_process_local(&payload.id)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to start the process"))?;
-					acker
-						.ack()
-						.await
-						.map_err(|source| tg::error!(!source, "failed to ack the process queue message"))?;
-					if !started {
-						continue;
-					}
-					active_processes += 1;
-					idle_armed = false;
-					let server = self.clone();
-					let process = tg::Process::new(payload.id.clone(), None, None, None, None, None);
-					let sandbox = sandbox.clone();
-					let guest_uri = guest_uri.clone();
-					let sender = sender.clone();
-					process_tasks.spawn(payload.id.clone(), move |stopper| async move {
-						let process_id = process.id().clone();
-						let _guard = scopeguard::guard((sender, process_id.clone()), |(sender, process_id)| {
-							sender.send(process_id).ok();
-						});
-						server
-							.process_task(&process, sandbox, guest_uri, stopper)
-							.await
-							.inspect_err(|error| {
-								tracing::error!(error = %error.trace(), process = %process.id(), "the process task failed");
-							})
-					}).detach();
-				},
-				output = async {
-					let client = remote_client.as_ref().unwrap();
-					self.dequeue_process_remote(client, id, remote.as_deref()).await
-				}, if remote_client.is_some() => {
+				output = self.dequeue_sandbox_process(id, remote.as_deref()) => {
 					let output = output.map_err(|source| tg::error!(!source, "failed to dequeue a process"))?;
-					active_processes += 1;
-					idle_armed = false;
-					let server = self.clone();
-					let process = tg::Process::new(output.process.clone(), None, remote.clone(), None, None, None);
-					let sandbox = sandbox.clone();
-					let guest_uri = guest_uri.clone();
-					let sender = sender.clone();
-					process_tasks.spawn(output.process.clone(), move |stopper| async move {
-						let process_id = process.id().clone();
-						let _guard = scopeguard::guard((sender, process_id.clone()), |(sender, process_id)| {
-							sender.send(process_id).ok();
-						});
-						server
-							.process_task(&process, sandbox, guest_uri, stopper)
-							.await
-							.inspect_err(|error| {
-								tracing::error!(error = %error.trace(), process = %process.id(), "the process task failed");
-							})
-					}).detach();
+					timer.take();
+					self.spawn_sandbox_process_task(
+						&process_tasks,
+						&sender,
+						output.process.clone(),
+						remote.as_ref(),
+						&sandbox,
+						&guest_uri,
+					);
 				},
-				event = status.try_next() => {
-					let Some(status) = event.map_err(|source| tg::error!(!source, "failed to read the sandbox status"))? else {
+				result = status.try_next() => {
+					let option = result.map_err(|source| tg::error!(!source, "failed to read the sandbox status"))?;
+					let Some(status) = option else {
 						break;
 					};
 					if status.is_finished() {
 						break;
 					}
 				},
-				id_ = receiver.recv() => {
-					let Some(_) = id_ else {
+				id = receiver.recv() => {
+					let Some(_) = id else {
 						break;
 					};
-					active_processes = active_processes.saturating_sub(1);
-					if active_processes == 0
-						&& let Some(ttl) = ttl
-					{
-						idle.as_mut().reset(tokio::time::Instant::now() + ttl);
-						idle_armed = true;
+					if process_tasks.is_empty() && let Some(ttl) = ttl {
+						timer.replace(tokio::time::sleep(ttl).boxed());
 					}
 				},
-				() = async {
-					if idle_armed {
-						idle.as_mut().await;
-					} else {
-						future::pending::<()>().await;
-					}
-				} => {
-					if let Some(client) = remote_client.as_ref() {
-						let _ = client
-							.finish_sandbox(id, tg::sandbox::finish::Arg::default())
-							.await;
-					} else {
-						let _ = self.try_finish_sandbox_local(id).await;
-					}
-					idle_armed = false;
+				() = timer_future => {
+					let arg = tg::sandbox::finish::Arg {
+						local: None,
+						remotes: remotes.clone(),
+					};
+					self.finish_sandbox(id, arg).await.ok();
+					timer.take();
 				},
 			}
 		}
@@ -383,17 +278,20 @@ impl Server {
 		process_tasks.stop_all();
 		drop(sender);
 		process_tasks.wait().await;
+
 		serve_task.stop();
 		serve_task
 			.wait()
 			.await
 			.map_err(|source| tg::error!(!source, "the serve task panicked"))?;
+
 		heartbeat_task.stop();
 		heartbeat_task
 			.wait()
 			.await
 			.map_err(|source| tg::error!(!source, "the heartbeat task panicked"))?
 			.map_err(|source| tg::error!(!source, "the heartbeat task failed"))?;
+
 		self.finish_unfinished_processes_in_sandbox(
 			id,
 			remote.as_deref(),
@@ -409,74 +307,48 @@ impl Server {
 		Ok(())
 	}
 
-	fn get_remote_sandbox_status_stream(
-		id: &tg::sandbox::Id,
-		remote: Option<&str>,
-		client: tg::Client,
-	) -> BoxStream<'static, tg::Result<tg::sandbox::Status>> {
-		struct State {
-			end: bool,
-			stream: Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>,
-		}
-		let id = id.clone();
-		let remote = remote.map(ToOwned::to_owned);
-		let state = Arc::new(Mutex::new(State {
-			end: false,
-			stream: None,
-		}));
-		stream::try_unfold(state.clone(), move |state| {
-			let client = client.clone();
-			let id = id.clone();
-			let remote = remote.clone();
-			async move {
-				loop {
-					if state.lock().unwrap().end {
-						return Ok(None);
-					}
-					let mut stream = if let Some(stream) = state.lock().unwrap().stream.take() {
-						stream
-					} else {
-						match client
-							.try_get_sandbox_status_stream(&id, tg::sandbox::status::Arg::default())
-							.await
-						{
-							Ok(Some(stream)) => stream.boxed(),
-							Ok(None) => continue,
-							Err(error) => {
-								tracing::trace!(error = %error.trace(), sandbox = %id, remote = ?remote, "failed to get the sandbox status stream");
-								continue;
-							},
-						}
-					};
-					match stream.try_next().await {
-						Ok(Some(tg::sandbox::status::Event::Status(status))) => {
-							let mut lock = state.lock().unwrap();
-							lock.end = status.is_finished();
-							if !lock.end {
-								lock.stream = Some(stream);
-							}
-							return Ok(Some((status, state.clone())));
-						},
-						Ok(Some(tg::sandbox::status::Event::End) | None) => (),
-						Err(error) => {
-							tracing::trace!(error = %error.trace(), sandbox = %id, remote = ?remote, "failed to read the sandbox status");
-						},
-					}
-				}
-			}
-		})
-		.boxed()
+	fn spawn_sandbox_process_task(
+		&self,
+		process_tasks: &ProcessTaskMap,
+		sender: &tokio::sync::mpsc::UnboundedSender<tg::process::Id>,
+		process: tg::process::Id,
+		remote: Option<&String>,
+		sandbox: &tangram_sandbox::Sandbox,
+		guest_uri: &tangram_uri::Uri,
+	) {
+		let server = self.clone();
+		let sender = sender.clone();
+		let process = tg::Process::new(process, None, remote.cloned(), None, None, None);
+		let sandbox = sandbox.clone();
+		let guest_uri = guest_uri.clone();
+		process_tasks
+			.spawn(process.id().clone(), move |stopper| async move {
+				let process_id = process.id().clone();
+				let _guard =
+					scopeguard::guard((sender, process_id.clone()), |(sender, process_id)| {
+						sender.send(process_id).ok();
+					});
+				server
+					.process_task(&process, sandbox, guest_uri, stopper)
+					.await
+					.inspect_err(|error| {
+						tracing::error!(error = %error.trace(), process = %process.id(), "the process task failed");
+					})
+			})
+			.detach();
 	}
 
-	async fn dequeue_process_remote(
+	async fn dequeue_sandbox_process(
 		&self,
-		client: &tg::Client,
 		id: &tg::sandbox::Id,
 		remote: Option<&str>,
-	) -> tg::Result<tg::process::queue::Output> {
+	) -> tg::Result<tg::sandbox::process::queue::Output> {
 		loop {
-			let arg = tg::process::queue::Arg::default();
-			match client.try_dequeue_process(id, arg).await {
+			let arg = tg::sandbox::process::queue::Arg {
+				local: None,
+				remotes: remote.map(|remote| vec![remote.to_owned()]),
+			};
+			match self.try_dequeue_sandbox_process(id, arg).await {
 				Ok(Some(output)) => return Ok(output),
 				Ok(None) => (),
 				Err(error) => {
@@ -495,7 +367,7 @@ impl Server {
 		let config = self.config.runner.clone().unwrap_or_default();
 		loop {
 			let arg = tg::sandbox::heartbeat::Arg {
-				local: remote.is_none().then_some(true),
+				local: None,
 				remotes: remote.map(|remote| vec![remote.to_owned()]),
 			};
 			let result = self.heartbeat_sandbox(id, arg).await;
@@ -798,10 +670,11 @@ impl Server {
 			let sandbox = sandbox.clone();
 			let sandbox_process = sandbox_process.clone();
 			let id = id.clone();
+			let remote = remote.cloned();
 			let stdin_blob = command.stdin.clone().map(tg::Blob::with_id);
 			|_| async move {
 				server
-					.stdin_task(&sandbox, &sandbox_process, &id, stdin, stdin_blob)
+					.stdin_task(&sandbox, &sandbox_process, &id, remote, stdin, stdin_blob)
 					.await
 			}
 		});
@@ -1011,10 +884,8 @@ impl Server {
 			))
 		}
 	}
-}
 
-impl Server {
-	async fn create_sandbox_tangram_listener(
+	async fn run_create_listener(
 		root_path: &Path,
 	) -> tg::Result<(crate::http::Listener, tangram_uri::Uri)> {
 		let host_socket_path = if cfg!(target_os = "linux") {
@@ -1085,9 +956,7 @@ impl Server {
 		};
 		Ok((listener, guest_uri))
 	}
-}
 
-impl Server {
 	async fn cache_children(&self, process: &tg::Process) -> tg::Result<()> {
 		// Do nothing if the VFS is enabled.
 		if self.vfs.lock().unwrap().is_some() {
@@ -1172,72 +1041,68 @@ impl Server {
 		sandbox: &tangram_sandbox::Sandbox,
 		sandbox_process: &tangram_sandbox::Process,
 		id: &tg::process::Id,
-		stdin_mode: tg::process::Stdio,
-		stdin_blob: Option<tg::Blob>,
+		remote: Option<String>,
+		mode: tg::process::Stdio,
+		blob: Option<tg::Blob>,
 	) -> tg::Result<()> {
-		let blob_reader = if let Some(blob) = stdin_blob {
-			Some(
-				blob.read(self, tg::read::Options::default())
-					.await
-					.map(|reader| Box::pin(reader) as tangram_futures::BoxAsyncRead<'static>)
-					.map_err(|source| tg::error!(!source, "failed to read process stdin blob"))?,
-			)
-		} else {
-			None
-		};
-		let stdin_reader = if matches!(
-			stdin_mode,
-			tg::process::Stdio::Pipe | tg::process::Stdio::Tty
-		) {
-			let streams = [tg::process::stdio::Stream::Stdin]
-				.into_iter()
-				.collect::<BTreeSet<_>>();
-			let event_stream = self
-				.try_read_process_stdio_messenger_local(id, &streams)
+		// Create a blob stream if necessary.
+		let blob_stream = if let Some(blob) = blob {
+			let reader = blob
+				.read(self, tg::read::Options::default())
 				.await
-				.map_err(|source| tg::error!(!source, "failed to read process stdin stream"))?;
-			let bytes_stream = event_stream
-				.try_filter_map(|event| {
-					futures::future::ready(Ok(match event {
-						tg::process::stdio::read::Event::Chunk(chunk) => Some(chunk.bytes),
-						tg::process::stdio::read::Event::End => None,
-					}))
-				})
-				.map_err(std::io::Error::other)
-				.boxed();
-			Some(Box::pin(tokio_util::io::StreamReader::new(bytes_stream))
-				as tangram_futures::BoxAsyncRead<'static>)
-		} else {
-			None
-		};
-		let reader: Option<tangram_futures::BoxAsyncRead<'static>> =
-			match (blob_reader, stdin_reader) {
-				(Some(blob_reader), Some(stdin_reader)) => {
-					Some(blob_reader.chain(stdin_reader).boxed())
-				},
-				(Some(blob_reader), None) => Some(blob_reader),
-				(None, Some(stdin_reader)) => Some(stdin_reader),
-				(None, None) => None,
-			};
-		if let Some(reader) = reader {
-			let input = ReaderStream::new(reader)
-				.filter_map(|result| {
-					futures::future::ready(match result {
-						Ok(bytes) if bytes.is_empty() => None,
-						Ok(bytes) => Some(Ok(tg::process::stdio::read::Event::Chunk(
-							tg::process::stdio::Chunk {
-								bytes,
-								position: None,
-								stream: tg::process::stdio::Stream::Stdin,
-							},
-						))),
-						Err(error) => Some(Err(tg::error!(!error, "failed to read process stdin"))),
+				.map_err(|source| tg::error!(!source, "failed to read process stdin blob"))?;
+			let stream = ReaderStream::new(reader)
+				.map_ok(|bytes| {
+					tg::process::stdio::read::Event::Chunk(tg::process::stdio::Chunk {
+						bytes,
+						position: None,
+						stream: tg::process::stdio::Stream::Stdin,
 					})
 				})
-				.chain(futures::stream::once(future::ok(
-					tg::process::stdio::read::Event::End,
-				)))
+				.map_err(|error| tg::error!(!error, "failed to read from the blob"))
 				.boxed();
+			Some(stream)
+		} else {
+			None
+		};
+
+		// Create the stdio stream if necessary.
+		let stream = if matches!(mode, tg::process::Stdio::Pipe | tg::process::Stdio::Tty) {
+			let arg = tg::process::stdio::read::Arg {
+				local: None,
+				remotes: remote.map(|remote| vec![remote]),
+				streams: vec![tg::process::stdio::Stream::Stdin],
+				..Default::default()
+			};
+			let stream = self
+				.try_read_process_stdio_all(id, arg)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to read process stdin stream"))?
+				.ok_or_else(
+					|| tg::error!(process = %id, "expected the process stdin stream to exist"),
+				)?
+				.boxed();
+			Some(stream)
+		} else {
+			None
+		};
+
+		// Chain the blob stream and stdio stream if necessary.
+		let input = match (blob_stream, stream) {
+			(Some(blob_stream), Some(stream)) => Some(blob_stream.chain(stream).boxed()),
+			(Some(blob_stream), None) => Some(
+				blob_stream
+					.chain(stream::once(future::ok(
+						tg::process::stdio::read::Event::End,
+					)))
+					.boxed(),
+			),
+			(None, Some(stream)) => Some(stream),
+			(None, None) => None,
+		};
+
+		// Write.
+		if let Some(input) = input {
 			let output = sandbox
 				.write_stdio(
 					sandbox_process,
@@ -1256,6 +1121,7 @@ impl Server {
 				}
 			}
 		}
+
 		Ok(())
 	}
 
@@ -1268,6 +1134,7 @@ impl Server {
 		stdout: tg::process::Stdio,
 		stderr: tg::process::Stdio,
 	) -> tg::Result<()> {
+		// Create the read stream.
 		let stream = sandbox
 			.read_stdio(
 				sandbox_process,
@@ -1278,7 +1145,9 @@ impl Server {
 			)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read process stdio from sandbox"))?;
-		let stdout_forward = if matches!(
+
+		// Create the stdout task.
+		let stdout = if matches!(
 			stdout,
 			tg::process::Stdio::Log | tg::process::Stdio::Pipe | tg::process::Stdio::Tty
 		) {
@@ -1302,7 +1171,9 @@ impl Server {
 		} else {
 			None
 		};
-		let stderr_forward = if matches!(
+
+		// Create the stderr task.
+		let stderr = if matches!(
 			stderr,
 			tg::process::Stdio::Log | tg::process::Stdio::Pipe | tg::process::Stdio::Tty
 		) {
@@ -1326,6 +1197,8 @@ impl Server {
 		} else {
 			None
 		};
+
+		// Consume the stream and send the events.
 		let mut stream = pin!(stream);
 		while let Some(event) = stream
 			.try_next()
@@ -1338,13 +1211,15 @@ impl Server {
 						continue;
 					}
 					let sender = match chunk.stream {
+						tg::process::stdio::Stream::Stdin => {
+							return Err(tg::error!("unexpected stdin chunk"));
+						},
 						tg::process::stdio::Stream::Stdout => {
-							stdout_forward.as_ref().map(|(sender, _)| sender)
+							stdout.as_ref().map(|(sender, _)| sender)
 						},
 						tg::process::stdio::Stream::Stderr => {
-							stderr_forward.as_ref().map(|(sender, _)| sender)
+							stderr.as_ref().map(|(sender, _)| sender)
 						},
-						tg::process::stdio::Stream::Stdin => None,
 					};
 					if let Some(sender) = sender {
 						sender
@@ -1360,7 +1235,9 @@ impl Server {
 				},
 			}
 		}
-		if let Some((sender, task)) = stdout_forward {
+
+		// Send the end events and await the tasks.
+		if let Some((sender, task)) = stdout {
 			sender
 				.send(Ok(tg::process::stdio::read::Event::End))
 				.await
@@ -1370,7 +1247,7 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "the stdout task panicked"))??;
 		}
-		if let Some((sender, task)) = stderr_forward {
+		if let Some((sender, task)) = stderr {
 			sender
 				.send(Ok(tg::process::stdio::read::Event::End))
 				.await

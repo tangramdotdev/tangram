@@ -23,16 +23,54 @@ pub struct Message {
 }
 
 impl Server {
-	pub(crate) async fn try_dequeue_process_with_context(
+	pub(crate) async fn try_dequeue_sandbox_process_with_context(
 		&self,
 		context: &Context,
 		sandbox: &tg::sandbox::Id,
-		_arg: tg::process::queue::Arg,
-	) -> tg::Result<Option<tg::process::queue::Output>> {
+		arg: tg::sandbox::process::queue::Arg,
+	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
+		if Self::local(arg.local, arg.remotes.as_ref())
+			&& self
+				.get_sandbox_exists_local(sandbox)
+				.await
+				.map_err(|source| tg::error!(!source, %sandbox, "failed to get the sandbox"))?
+		{
+			return self.try_dequeue_sandbox_process_local(sandbox).await;
+		}
+
+		let peers = self
+			.peers(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
+		if let Some(output) = self
+			.try_dequeue_sandbox_process_peer(sandbox, &peers)
+			.await?
+		{
+			return Ok(Some(output));
+		}
+
+		let remotes = self
+			.remotes(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
+		if let Some(output) = self
+			.try_dequeue_sandbox_process_remote(sandbox, &remotes)
+			.await?
+		{
+			return Ok(Some(output));
+		}
+
+		Ok(None)
+	}
+
+	async fn try_dequeue_sandbox_process_local(
+		&self,
+		sandbox: &tg::sandbox::Id,
+	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
 		let stream = self
 			.messenger
 			.get_stream("sandboxes_processes_queue".into())
@@ -76,7 +114,7 @@ impl Server {
 				continue;
 			}
 
-			let output = tg::process::queue::Output {
+			let output = tg::sandbox::process::queue::Output {
 				process: payload.id,
 			};
 
@@ -85,7 +123,69 @@ impl Server {
 		Ok(None)
 	}
 
-	pub(crate) async fn handle_dequeue_process_request(
+	async fn try_dequeue_sandbox_process_peer(
+		&self,
+		sandbox: &tg::sandbox::Id,
+		peers: &[String],
+	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
+		for peer in peers {
+			let client = self.get_peer_client(peer.clone()).await.map_err(
+				|source| tg::error!(!source, %sandbox, peer = %peer, "failed to get the peer client"),
+			)?;
+			let output = client
+				.try_get_sandbox(sandbox, tg::sandbox::get::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %sandbox, peer = %peer, "failed to get the sandbox"),
+				)?;
+			if output.is_none() {
+				continue;
+			}
+			let output = client
+				.try_dequeue_sandbox_process(sandbox, tg::sandbox::process::queue::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %sandbox, peer = %peer, "failed to dequeue the process"),
+				)?;
+			if output.is_some() {
+				return Ok(output);
+			}
+		}
+		Ok(None)
+	}
+
+	async fn try_dequeue_sandbox_process_remote(
+		&self,
+		sandbox: &tg::sandbox::Id,
+		remotes: &[String],
+	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
+		for remote in remotes {
+			let client = self.get_remote_client(remote.clone()).await.map_err(
+				|source| tg::error!(!source, %sandbox, remote = %remote, "failed to get the remote client"),
+			)?;
+			let output = client
+				.try_get_sandbox(sandbox, tg::sandbox::get::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %sandbox, remote = %remote, "failed to get the sandbox"),
+				)?;
+			if output.is_none() {
+				continue;
+			}
+			let output = client
+				.try_dequeue_sandbox_process(sandbox, tg::sandbox::process::queue::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, %sandbox, remote = %remote, "failed to dequeue the process"),
+				)?;
+			if output.is_some() {
+				return Ok(output);
+			}
+		}
+		Ok(None)
+	}
+
+	pub(crate) async fn handle_dequeue_sandbox_process_request(
 		&self,
 		request: http::Request<BoxBody>,
 		context: &Context,
@@ -113,7 +213,7 @@ impl Server {
 		let context = context.clone();
 		let future = async move {
 			handle
-				.try_dequeue_process_with_context(&context, &sandbox, arg)
+				.try_dequeue_sandbox_process_with_context(&context, &sandbox, arg)
 				.await
 		};
 		let stream = stream::once(future).filter_map(|option| future::ready(option.transpose()));

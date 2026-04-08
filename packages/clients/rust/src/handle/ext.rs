@@ -128,15 +128,17 @@ pub trait Ext: tg::Handle {
 		})
 	}
 
-	fn dequeue_process(
+	fn dequeue_sandbox_process(
 		&self,
 		sandbox: &tg::sandbox::Id,
-		arg: tg::process::queue::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::queue::Output>> + Send {
-		self.try_dequeue_process(sandbox, arg).map(|result| {
-			result
-				.and_then(|option| option.ok_or_else(|| tg::error!("failed to dequeue a process")))
-		})
+		arg: tg::sandbox::process::queue::Arg,
+	) -> impl Future<Output = tg::Result<tg::sandbox::process::queue::Output>> + Send {
+		self.try_dequeue_sandbox_process(sandbox, arg)
+			.map(|result| {
+				result.and_then(|option| {
+					option.ok_or_else(|| tg::error!("failed to dequeue a process"))
+				})
+			})
 	}
 
 	fn dequeue_sandbox(

@@ -57,6 +57,12 @@ pub trait Sandbox: Send + Sync + 'static {
 			>,
 		>,
 	>;
+
+	fn try_dequeue_sandbox_process<'a>(
+		&'a self,
+		sandbox: &'a tg::sandbox::Id,
+		arg: tg::sandbox::process::queue::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::sandbox::process::queue::Output>>>;
 }
 
 impl<T> Sandbox for T
@@ -137,5 +143,13 @@ where
 				.map(|stream| Box::pin(stream) as _))
 		}
 		.boxed()
+	}
+
+	fn try_dequeue_sandbox_process<'a>(
+		&'a self,
+		sandbox: &'a tg::sandbox::Id,
+		arg: tg::sandbox::process::queue::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::sandbox::process::queue::Output>>> {
+		self.try_dequeue_sandbox_process(sandbox, arg).boxed()
 	}
 }

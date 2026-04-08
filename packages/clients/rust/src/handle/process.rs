@@ -44,12 +44,6 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::process::cancel::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn try_dequeue_process(
-		&self,
-		sandbox: &tg::sandbox::Id,
-		arg: tg::process::queue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::process::queue::Output>>> + Send;
-
 	fn signal_process(
 		&self,
 		id: &tg::process::Id,
@@ -207,14 +201,6 @@ impl tg::handle::Process for tg::Client {
 		arg: tg::process::cancel::Arg,
 	) -> impl Future<Output = tg::Result<()>> {
 		self.cancel_process(id, arg)
-	}
-
-	fn try_dequeue_process(
-		&self,
-		sandbox: &tg::sandbox::Id,
-		arg: tg::process::queue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::process::queue::Output>>> {
-		self.try_dequeue_process(sandbox, arg)
 	}
 
 	fn signal_process(

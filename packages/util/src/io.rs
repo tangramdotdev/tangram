@@ -69,12 +69,12 @@ fn stdin_thread(sender: &tokio::sync::mpsc::Sender<std::io::Result<Bytes>>, stop
 				},
 				Ok(None) => break,
 				Err(error) => {
-					let _ = sender.blocking_send(Err(error));
+					sender.blocking_send(Err(error)).ok();
 					break;
 				},
 			},
 			Err(error) => {
-				let _ = sender.blocking_send(Err(error));
+				sender.blocking_send(Err(error)).ok();
 				break;
 			},
 		}

@@ -236,6 +236,16 @@ where
 		})
 	}
 
+	#[must_use]
+	pub fn len(&self) -> usize {
+		self.0.len()
+	}
+
+	#[must_use]
+	pub fn is_empty(&self) -> bool {
+		self.0.is_empty()
+	}
+
 	pub fn abort(&self, key: &K) {
 		if let Some(task) = self.0.get(key) {
 			task.abort();

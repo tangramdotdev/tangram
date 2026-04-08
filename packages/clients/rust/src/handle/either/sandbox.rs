@@ -97,4 +97,15 @@ where
 				.right_future(),
 		}
 	}
+
+	fn try_dequeue_sandbox_process(
+		&self,
+		sandbox: &tg::sandbox::Id,
+		arg: tg::sandbox::process::queue::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::sandbox::process::queue::Output>>> {
+		match self {
+			tg::Either::Left(s) => s.try_dequeue_sandbox_process(sandbox, arg).left_future(),
+			tg::Either::Right(s) => s.try_dequeue_sandbox_process(sandbox, arg).right_future(),
+		}
+	}
 }

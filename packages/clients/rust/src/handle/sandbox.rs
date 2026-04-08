@@ -45,6 +45,12 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 			Option<impl Stream<Item = tg::Result<tg::sandbox::status::Event>> + Send + 'static>,
 		>,
 	> + Send;
+
+	fn try_dequeue_sandbox_process(
+		&self,
+		sandbox: &tg::sandbox::Id,
+		arg: tg::sandbox::process::queue::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::sandbox::process::queue::Output>>> + Send;
 }
 
 impl tg::handle::Sandbox for tg::Client {
@@ -107,5 +113,13 @@ impl tg::handle::Sandbox for tg::Client {
 		>,
 	> {
 		self.try_get_sandbox_status_stream(id, arg)
+	}
+
+	fn try_dequeue_sandbox_process(
+		&self,
+		sandbox: &tg::sandbox::Id,
+		arg: tg::sandbox::process::queue::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::sandbox::process::queue::Output>>> {
+		self.try_dequeue_sandbox_process(sandbox, arg)
 	}
 }

@@ -925,10 +925,10 @@ impl crate::Store for Store {
 				stream_position.to_i64().unwrap(),
 				position.to_i64().unwrap(),
 			);
-			let _ = self
-				.session
+			self.session
 				.execute_unpaged(&self.put_stream_statement, params)
-				.await;
+				.await
+				.ok();
 
 			return Ok(());
 		}

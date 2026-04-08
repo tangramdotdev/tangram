@@ -462,9 +462,6 @@ impl Server {
 			(http::Method::POST, ["processes", process, "cancel"]) => self
 				.handle_cancel_process_request(request, &context, process)
 				.boxed(),
-			(http::Method::POST, ["sandboxes", sandbox, "processes", "dequeue"]) => self
-				.handle_dequeue_process_request(request, &context, sandbox)
-				.boxed(),
 			(http::Method::POST, ["processes", process, "signal"]) => self
 				.handle_post_process_signal_request(request, &context, process)
 				.boxed(),
@@ -514,6 +511,9 @@ impl Server {
 				.boxed(),
 			(http::Method::DELETE, ["sandboxes", sandbox]) => self
 				.handle_delete_sandbox_request(request, &context, sandbox)
+				.boxed(),
+			(http::Method::POST, ["sandboxes", sandbox, "processes", "dequeue"]) => self
+				.handle_dequeue_sandbox_process_request(request, &context, sandbox)
 				.boxed(),
 			(http::Method::POST, ["sandboxes", sandbox, "finish"]) => self
 				.handle_finish_sandbox_request(request, &context, sandbox)

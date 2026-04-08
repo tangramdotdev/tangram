@@ -43,12 +43,6 @@ pub trait Process: Send + Sync + 'static {
 		arg: tg::process::cancel::Arg,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
-	fn try_dequeue_process<'a>(
-		&'a self,
-		sandbox: &'a tg::sandbox::Id,
-		arg: tg::process::queue::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::process::queue::Output>>>;
-
 	fn signal_process<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
@@ -187,14 +181,6 @@ where
 		arg: tg::process::cancel::Arg,
 	) -> BoxFuture<'a, tg::Result<()>> {
 		self.cancel_process(id, arg).boxed()
-	}
-
-	fn try_dequeue_process<'a>(
-		&'a self,
-		sandbox: &'a tg::sandbox::Id,
-		arg: tg::process::queue::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<tg::process::queue::Output>>> {
-		self.try_dequeue_process(sandbox, arg).boxed()
 	}
 
 	fn signal_process<'a>(

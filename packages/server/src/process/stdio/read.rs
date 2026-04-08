@@ -22,7 +22,7 @@ use {
 	tokio_stream::wrappers::IntervalStream,
 };
 
-enum ReadBacking {
+enum Source {
 	Empty,
 	Log(Option<tg::process::stdio::Stream>),
 	Messenger(BTreeSet<tg::process::stdio::Stream>),
@@ -83,17 +83,14 @@ impl Server {
 		let Some(output) = output else {
 			return Ok(None);
 		};
-
-		let backing = classify_read_process_stdio(&output.data, &arg)?;
-		let stream = match backing {
-			ReadBacking::Empty => {
-				stream::once(future::ok(tg::process::stdio::read::Event::End)).boxed()
-			},
-			ReadBacking::Log(stream) => {
+		let source = Self::get_process_stdio_source(&output.data, &arg)?;
+		let stream = match source {
+			Source::Empty => stream::once(future::ok(tg::process::stdio::read::Event::End)).boxed(),
+			Source::Log(stream) => {
 				self.try_read_process_stdio_log_local(id, arg, stream)
 					.await?
 			},
-			ReadBacking::Messenger(streams) => {
+			Source::Messenger(streams) => {
 				self.try_read_process_stdio_messenger_local(id, &streams)
 					.await?
 			},
@@ -419,59 +416,49 @@ impl Server {
 
 		Ok(response)
 	}
-}
 
-fn classify_read_process_stdio(
-	data: &tg::process::Data,
-	arg: &tg::process::stdio::read::Arg,
-) -> tg::Result<ReadBacking> {
-	let mut log_streams = BTreeSet::new();
-	let mut messenger_streams = BTreeSet::new();
-	for stream in &arg.streams {
-		let stdio = process_stdio(data, *stream);
-		match stream {
-			tg::process::stdio::Stream::Stdin => {
-				return Err(tg::error!("reading stdin is invalid"));
-			},
-			tg::process::stdio::Stream::Stdout | tg::process::stdio::Stream::Stderr => (),
+	fn get_process_stdio_source(
+		data: &tg::process::Data,
+		arg: &tg::process::stdio::read::Arg,
+	) -> tg::Result<Source> {
+		let mut log_streams = BTreeSet::new();
+		let mut messenger_streams = BTreeSet::new();
+		for stream in &arg.streams {
+			let stdio = process_stdio(data, *stream);
+			match stdio {
+				tg::process::Stdio::Log => {
+					log_streams.insert(validate_log_stream(*stream)?);
+				},
+				tg::process::Stdio::Null => (),
+				tg::process::Stdio::Pipe | tg::process::Stdio::Tty => {
+					messenger_streams.insert(*stream);
+				},
+				tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit => {
+					return Err(tg::error!("invalid stdio"));
+				},
+			}
 		}
-		match stdio {
-			tg::process::Stdio::Log => {
-				log_streams.insert(validate_log_stream(*stream)?);
-			},
-			tg::process::Stdio::Null => (),
-			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => {
-				messenger_streams.insert(*stream);
-			},
-			tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit => {
-				return Err(tg::error!("invalid stdio"));
-			},
-		}
-	}
-	if !log_streams.is_empty() && !messenger_streams.is_empty() {
-		return Err(tg::error!(
-			"cannot read logged and live stdio in a single request"
-		));
-	}
-	if !messenger_streams.is_empty() {
-		if has_ranged_stdio_read_arg(arg) {
+		if !log_streams.is_empty() && !messenger_streams.is_empty() {
 			return Err(tg::error!(
-				"position, length, and size are only valid for logged stdio"
+				"cannot read logged and live stdio in a single request"
 			));
 		}
-		return Ok(ReadBacking::Messenger(messenger_streams));
+		if !messenger_streams.is_empty() {
+			if arg.position.is_some() || arg.length.is_some() || arg.size.is_some() {
+				return Err(tg::error!(
+					"position, length, and size are only valid for logged stdio"
+				));
+			}
+			return Ok(Source::Messenger(messenger_streams));
+		}
+		if log_streams.is_empty() {
+			return Ok(Source::Empty);
+		}
+		let stream = if log_streams.len() == 2 {
+			None
+		} else {
+			log_streams.into_iter().next()
+		};
+		Ok(Source::Log(stream))
 	}
-	if log_streams.is_empty() {
-		return Ok(ReadBacking::Empty);
-	}
-	let stream = if log_streams.len() == 2 {
-		None
-	} else {
-		log_streams.into_iter().next()
-	};
-	Ok(ReadBacking::Log(stream))
-}
-
-fn has_ranged_stdio_read_arg(arg: &tg::process::stdio::read::Arg) -> bool {
-	arg.position.is_some() || arg.length.is_some() || arg.size.is_some()
 }

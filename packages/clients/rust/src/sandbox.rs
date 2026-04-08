@@ -9,5 +9,6 @@ pub mod finish;
 pub mod get;
 pub mod heartbeat;
 pub mod list;
+pub mod process;
 pub mod queue;
 pub mod status;

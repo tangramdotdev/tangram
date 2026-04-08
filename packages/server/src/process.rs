@@ -15,7 +15,6 @@ pub(crate) mod list;
 pub(crate) mod log;
 pub(crate) mod metadata;
 pub(crate) mod put;
-pub(crate) mod queue;
 pub(crate) mod signal;
 pub(crate) mod spawn;
 pub(crate) mod status;

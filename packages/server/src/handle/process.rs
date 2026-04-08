@@ -55,14 +55,6 @@ impl tg::handle::Process for Shared {
 		self.0.cancel_process(id, arg).await
 	}
 
-	async fn try_dequeue_process(
-		&self,
-		sandbox: &tg::sandbox::Id,
-		arg: tg::process::queue::Arg,
-	) -> tg::Result<Option<tg::process::queue::Output>> {
-		self.0.try_dequeue_process(sandbox, arg).await
-	}
-
 	async fn signal_process(
 		&self,
 		id: &tg::process::Id,
@@ -232,15 +224,6 @@ impl tg::handle::Process for Server {
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<()> {
 		self.cancel_process_with_context(&Context::default(), id, arg)
-			.await
-	}
-
-	async fn try_dequeue_process(
-		&self,
-		sandbox: &tg::sandbox::Id,
-		arg: tg::process::queue::Arg,
-	) -> tg::Result<Option<tg::process::queue::Output>> {
-		self.try_dequeue_process_with_context(&Context::default(), sandbox, arg)
 			.await
 	}
 

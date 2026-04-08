@@ -71,4 +71,16 @@ impl tg::handle::Sandbox for Handle {
 			)
 		}
 	}
+
+	fn try_dequeue_sandbox_process(
+		&self,
+		sandbox: &tg::sandbox::Id,
+		arg: tg::sandbox::process::queue::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::sandbox::process::queue::Output>>> {
+		unsafe {
+			std::mem::transmute::<_, BoxFuture<'_, _>>(
+				self.0.try_dequeue_sandbox_process(sandbox, arg),
+			)
+		}
+	}
 }

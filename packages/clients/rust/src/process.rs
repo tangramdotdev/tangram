@@ -24,7 +24,6 @@ pub mod id;
 pub mod list;
 pub mod metadata;
 pub mod put;
-pub mod queue;
 pub mod run;
 pub mod signal;
 pub mod spawn;

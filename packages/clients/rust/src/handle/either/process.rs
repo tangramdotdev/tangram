@@ -84,17 +84,6 @@ where
 		}
 	}
 
-	fn try_dequeue_process(
-		&self,
-		sandbox: &tg::sandbox::Id,
-		arg: tg::process::queue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::process::queue::Output>>> {
-		match self {
-			tg::Either::Left(s) => s.try_dequeue_process(sandbox, arg).left_future(),
-			tg::Either::Right(s) => s.try_dequeue_process(sandbox, arg).right_future(),
-		}
-	}
-
 	fn signal_process(
 		&self,
 		id: &tg::process::Id,

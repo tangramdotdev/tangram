@@ -255,7 +255,7 @@ impl Server {
 					);
 				}
 			} else {
-				let payload = crate::process::queue::Message {
+				let payload = crate::sandbox::process::queue::Message {
 					id: output.id.clone(),
 				};
 				self.messenger

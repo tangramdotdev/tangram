@@ -229,9 +229,14 @@ impl Server {
 			.max_concurrent_streams(None)
 			.max_pending_accept_reset_streams(None)
 			.max_local_error_reset_streams(None);
-		let _ = builder
+		let result = builder
 			.serve_connection_with_upgrades(stream, service)
 			.await;
+		result
+			.inspect_err(|error| {
+				tracing::trace!(?error, "connection failed");
+			})
+			.ok();
 	}
 
 	async fn handle_request(&self, request: http::Request<BoxBody>) -> http::Response<BoxBody> {
