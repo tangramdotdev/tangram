@@ -36,7 +36,6 @@ pub struct State {
 
 struct Process {
 	command: Command,
-	notify: Arc<tokio::sync::Notify>,
 	pid: libc::pid_t,
 	remote: Option<String>,
 	retry: bool,
@@ -44,7 +43,7 @@ struct Process {
 	stdout: Option<Arc<tokio::sync::Mutex<tokio::process::ChildStdout>>>,
 	stderr: Option<Arc<tokio::sync::Mutex<tokio::process::ChildStderr>>>,
 	pty: Option<Arc<pty::Pty>>,
-	status: Option<tg::Result<u8>>,
+	task: tangram_futures::task::Shared<tg::Result<u8>>,
 }
 
 pub enum Listener {
@@ -244,7 +243,9 @@ impl Server {
 		let path = request.uri().path().to_owned();
 		let path_components = path.split('/').skip(1).collect::<Vec<_>>();
 		let response = match (method, path_components.as_slice()) {
-			(http::Method::POST, ["spawn"]) => self.handle_spawn_request(request).boxed(),
+			(http::Method::POST, ["processes", "spawn"]) => {
+				self.handle_spawn_request(request).boxed()
+			},
 			(http::Method::GET, ["processes", process]) => {
 				self.handle_get_process_request(request, process).boxed()
 			},

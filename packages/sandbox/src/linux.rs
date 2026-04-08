@@ -25,7 +25,7 @@ pub fn prepare_runtime_libraries(arg: &PrepareRootfsArg) -> tg::Result<()> {
 	crate::ROOTFS
 		.extract(&arg.path)
 		.map_err(|source| tg::error!(!source, "failed to extract the sandbox rootfs"))?;
-	crate::set_rootfs_permissions(&arg.path, &crate::ROOTFS, &permissions)?;
+	set_rootfs_permissions(&arg.path, &crate::ROOTFS, &permissions)?;
 	prepare_rootfs_mountpoints(&arg.path)?;
 
 	let lib_path = arg.path.join("opt/tangram/lib");
@@ -132,11 +132,39 @@ pub fn prepare_runtime_libraries(arg: &PrepareRootfsArg) -> tg::Result<()> {
 	Ok(())
 }
 
+fn set_rootfs_permissions(
+	rootfs_path: &Path,
+	directory: &include_dir::Dir<'_>,
+	permissions: &std::fs::Permissions,
+) -> tg::Result<()> {
+	for entry in directory.entries() {
+		match entry {
+			include_dir::DirEntry::Dir(directory) => {
+				set_rootfs_permissions(rootfs_path, directory, permissions)?;
+			},
+			include_dir::DirEntry::File(file) => {
+				let path = rootfs_path.join(file.path());
+				std::fs::set_permissions(&path, permissions.clone()).map_err(|source| {
+					tg::error!(
+						!source,
+						path = %path.display(),
+						"failed to set sandbox file permissions"
+					)
+				})?;
+			},
+		}
+	}
+	Ok(())
+}
+
 pub fn prepare_command_for_spawn(
 	command: &mut crate::Command,
 	_tangram_path: &Path,
 	_library_paths: &[PathBuf],
 ) -> tg::Result<()> {
+	if !command.env.contains_key("HOME") {
+		command.env.insert("HOME".to_owned(), "/root".to_owned());
+	}
 	crate::append_directories_to_path(
 		command,
 		&[

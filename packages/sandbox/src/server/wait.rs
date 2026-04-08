@@ -7,21 +7,18 @@ use {
 
 impl Server {
 	pub async fn wait(&self, id: tg::process::Id) -> tg::Result<crate::client::wait::Output> {
-		use std::sync::Arc;
-		loop {
-			let child = self
-				.processes
-				.get_mut(&id)
-				.ok_or_else(|| tg::error!(process = %id, "not found"))?;
-			if let Some(status) = &child.status {
-				return Ok(crate::client::wait::Output {
-					status: status.clone()?,
-				});
-			}
-			let notify = Arc::clone(&child.notify);
-			drop(child);
-			notify.notified().await;
-		}
+		let task = self
+			.processes
+			.get(&id)
+			.ok_or_else(|| tg::error!(process = %id, "not found"))?
+			.task
+			.clone();
+		let status = task
+			.wait()
+			.await
+			.map_err(|source| tg::error!(!source, process = %id, "the process task panicked"))??;
+		let output = crate::client::wait::Output { status };
+		Ok(output)
 	}
 
 	pub(crate) async fn handle_wait_request(

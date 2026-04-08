@@ -15,14 +15,12 @@ pub struct Arg {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Output {
-	pub id: tg::process::Id,
-}
+pub struct Output {}
 
 impl Client {
 	pub async fn spawn(&self, arg: Arg) -> tg::Result<Output> {
 		let method = http::Method::POST;
-		let uri = "/spawn";
+		let uri = "/processes/spawn";
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

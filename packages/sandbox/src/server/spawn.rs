@@ -4,7 +4,7 @@ use {
 		pty::Pty,
 		server::{Process, Server},
 	},
-	std::{path::Path, sync::Arc},
+	std::sync::Arc,
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody,
@@ -17,14 +17,27 @@ use {
 impl Server {
 	pub async fn spawn(
 		&self,
-		arg: crate::client::spawn::Arg,
+		mut arg: crate::client::spawn::Arg,
 	) -> tg::Result<crate::client::spawn::Output> {
-		let mut arg = arg;
-		crate::prepare_command_for_spawn(
-			&mut arg.command,
-			&self.tangram_path,
-			&self.library_paths,
-		)?;
+		// Apply host specific modifications to the command.
+		#[cfg(target_os = "macos")]
+		{
+			crate::darwin::prepare_command_for_spawn(
+				&mut arg.command,
+				&self.tangram_path,
+				&self.library_paths,
+			)?;
+		}
+		#[cfg(target_os = "linux")]
+		{
+			crate::linux::prepare_command_for_spawn(
+				&mut arg.command,
+				&self.tangram_path,
+				&self.library_paths,
+			)?;
+		}
+
+		// Validate the cwd.
 		if !arg.command.cwd.is_absolute() {
 			return Err(tg::error!(
 				cwd = %arg.command.cwd.display(),
@@ -32,16 +45,25 @@ impl Server {
 			));
 		}
 
+		// Create the pty if necessary.
 		let stdin_is_tty = matches!(arg.command.stdin, Stdio::Tty);
 		let stdout_is_tty = matches!(arg.command.stdout, Stdio::Tty);
 		let stderr_is_tty = matches!(arg.command.stderr, Stdio::Tty);
-		let uses_tty = stdin_is_tty || stdout_is_tty || stderr_is_tty;
+		let tty = stdin_is_tty || stdout_is_tty || stderr_is_tty;
 		let mut pty = arg.tty.map(Pty::new).transpose()?;
-		if uses_tty && pty.is_none() {
+		if tty && pty.is_none() {
 			return Err(tg::error!("expected a tty arg"));
 		}
 
-		let executable = resolve_executable(&arg.command);
+		// Create the command.
+		let executable = arg
+			.command
+			.env
+			.get("PATH")
+			.and_then(|path| {
+				crate::util::which(std::path::Path::new(path), &arg.command.executable)
+			})
+			.unwrap_or_else(|| arg.command.executable.clone());
 		let mut command = tokio::process::Command::new(&executable);
 		command
 			.env_clear()
@@ -52,7 +74,8 @@ impl Server {
 			.stdout(child_stdio(arg.command.stdout, pty.as_ref())?)
 			.stderr(child_stdio(arg.command.stderr, pty.as_ref())?);
 
-		if uses_tty {
+		// Set the pre_exec to start the session if there is a tty.
+		if tty {
 			let tty = pty
 				.as_ref()
 				.and_then(Pty::slave)
@@ -67,6 +90,7 @@ impl Server {
 			}
 		}
 
+		// Spawn.
 		let mut child = command.spawn().map_err(|source| {
 			tg::error!(
 				!source,
@@ -74,11 +98,14 @@ impl Server {
 				"failed to spawn the child process"
 			)
 		})?;
+
+		// Get the pid.
 		let pid = child
 			.id()
 			.and_then(|pid| i32::try_from(pid).ok())
 			.ok_or_else(|| tg::error!("failed to get the process id"))?;
 
+		// Get stdio.
 		let stdin = match arg.command.stdin {
 			Stdio::Null | Stdio::Tty => None,
 			Stdio::Pipe => {
@@ -110,15 +137,32 @@ impl Server {
 			},
 		};
 
+		// Get the pty.
 		if let Some(pty) = &mut pty {
 			pty.take_slave();
 		}
-		let id = arg.id.clone();
+
+		let task = tangram_futures::task::Shared::spawn(move |_| async move {
+			child
+				.wait()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to wait for the process"))
+				.map(|status| {
+					use std::os::unix::process::ExitStatusExt as _;
+
+					status
+						.code()
+						.or(status.signal().map(|signal| 128 + signal))
+						.unwrap_or(1)
+						.try_into()
+						.unwrap_or(u8::MAX)
+				})
+		});
+
 		self.processes.insert(
-			id.clone(),
+			arg.id.clone(),
 			Process {
 				command: arg.command,
-				notify: Arc::new(tokio::sync::Notify::new()),
 				pid,
 				remote: arg.remote,
 				retry: arg.retry,
@@ -126,24 +170,11 @@ impl Server {
 				stdout,
 				stderr,
 				pty: pty.map(Arc::new),
-				status: None,
+				task,
 			},
 		);
-		let server = self.clone();
-		let process_id = id.clone();
-		tokio::spawn(async move {
-			let status = child
-				.wait()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to wait for the process"))
-				.map(exit_status_to_code);
-			if let Some(mut process) = server.processes.get_mut(&process_id) {
-				process.status.replace(status);
-				process.notify.notify_waiters();
-			}
-		});
 
-		Ok(crate::client::spawn::Output { id })
+		Ok(crate::client::spawn::Output {})
 	}
 
 	pub(crate) async fn handle_spawn_request(
@@ -180,23 +211,4 @@ fn child_stdio(stdio: Stdio, pty: Option<&Pty>) -> tg::Result<std::process::Stdi
 			Ok(std::process::Stdio::from(fd))
 		},
 	}
-}
-
-fn resolve_executable(command: &crate::Command) -> std::path::PathBuf {
-	command
-		.env
-		.get("PATH")
-		.and_then(|path| crate::util::which(Path::new(path), &command.executable))
-		.unwrap_or_else(|| command.executable.clone())
-}
-
-fn exit_status_to_code(status: std::process::ExitStatus) -> u8 {
-	use std::os::unix::process::ExitStatusExt as _;
-
-	status
-		.code()
-		.or(status.signal().map(|signal| 128 + signal))
-		.unwrap_or(1)
-		.try_into()
-		.unwrap_or(u8::MAX)
 }

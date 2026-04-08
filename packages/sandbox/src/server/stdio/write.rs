@@ -9,6 +9,13 @@ use {
 	tokio_stream::wrappers::ReceiverStream,
 };
 
+#[derive(Clone)]
+enum Destination {
+	Null,
+	Pty(Arc<crate::pty::Pty>),
+	Stdin(Arc<Mutex<ChildStdin>>),
+}
+
 impl Server {
 	pub async fn write_stdio(
 		&self,
@@ -19,7 +26,25 @@ impl Server {
 		if arg.streams.as_slice() != [tg::process::stdio::Stream::Stdin] {
 			return Err(tg::error!("expected stdin for a stdio write"));
 		}
-		let stdin = input_handle(self, &id)?;
+		let stdin = {
+			let process = self
+				.processes
+				.get(&id)
+				.ok_or_else(|| tg::error!(process = %id, "not found"))?;
+			match process.command.stdin {
+				Stdio::Null => Destination::Null,
+				Stdio::Pipe => process
+					.stdin
+					.clone()
+					.map(Destination::Stdin)
+					.ok_or_else(|| tg::error!(process = %id, "stdin is not available"))?,
+				Stdio::Tty => process
+					.pty
+					.clone()
+					.map(Destination::Pty)
+					.ok_or_else(|| tg::error!(process = %id, "stdin is not available"))?,
+			}
+		};
 		let (sender, receiver) =
 			tokio::sync::mpsc::channel::<tg::Result<tg::process::stdio::write::Event>>(1);
 		let task = Task::spawn({
@@ -36,12 +61,12 @@ impl Server {
 					match event {
 						tg::process::stdio::read::Event::Chunk(chunk) => {
 							let result = match &stdin {
-								InputHandle::Null => break,
-								InputHandle::Pty(pty) => {
+								Destination::Null => break,
+								Destination::Pty(pty) => {
 									let mut pty = &**pty;
 									pty.write_all(&chunk.bytes).await
 								},
-								InputHandle::Stdin(stdin) => {
+								Destination::Stdin(stdin) => {
 									let mut stdin = stdin.lock().await;
 									stdin.write_all(&chunk.bytes).await
 								},
@@ -114,32 +139,5 @@ impl Server {
 			.body(BoxBody::with_sse_stream(stream))
 			.unwrap();
 		Ok(response)
-	}
-}
-
-#[derive(Clone)]
-enum InputHandle {
-	Null,
-	Pty(Arc<crate::pty::Pty>),
-	Stdin(Arc<Mutex<ChildStdin>>),
-}
-
-fn input_handle(server: &Server, id: &tg::process::Id) -> tg::Result<InputHandle> {
-	let process = server
-		.processes
-		.get(id)
-		.ok_or_else(|| tg::error!(process = %id, "not found"))?;
-	match process.command.stdin {
-		Stdio::Null => Ok(InputHandle::Null),
-		Stdio::Pipe => process
-			.stdin
-			.clone()
-			.map(InputHandle::Stdin)
-			.ok_or_else(|| tg::error!(process = %id, "stdin is not available")),
-		Stdio::Tty => process
-			.pty
-			.clone()
-			.map(InputHandle::Pty)
-			.ok_or_else(|| tg::error!(process = %id, "stdin is not available")),
 	}
 }
