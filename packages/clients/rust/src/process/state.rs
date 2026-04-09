@@ -14,7 +14,7 @@ pub struct State {
 	pub log: Option<tg::Blob>,
 	pub output: Option<tg::Value>,
 	pub retry: bool,
-	pub sandbox: Option<tg::sandbox::Id>,
+	pub sandbox: tg::sandbox::Id,
 	pub started_at: Option<i64>,
 	pub status: tg::process::Status,
 	pub stderr: tg::process::Stdio,

@@ -185,7 +185,7 @@ impl Server {
 				data.host,
 				data.log.as_ref().map(ToString::to_string),
 				output_json,
-				data.sandbox.as_ref().map(ToString::to_string),
+				data.sandbox.to_string(),
 				tty_json,
 				data.retry,
 				data.started_at,

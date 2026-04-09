@@ -1,26 +1,18 @@
 use {
-	crate::{Context, Server},
-	bytes::Bytes,
-	futures::{StreamExt as _, TryStreamExt as _, future, stream},
-	std::pin::pin,
+	crate::{Context, Server, database::Database},
+	futures::{StreamExt as _, future, stream},
+	std::{pin::pin, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tangram_messenger::{self as messenger, prelude::*},
+	tangram_messenger::prelude::*,
+	tokio_stream::wrappers::IntervalStream,
 };
 
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct Message {
-	#[tangram_serialize(id = 0)]
-	pub id: tg::process::Id,
-}
+#[cfg(feature = "postgres")]
+mod postgres;
+#[cfg(feature = "sqlite")]
+mod sqlite;
 
 impl Server {
 	pub(crate) async fn try_dequeue_sandbox_process_with_context(
@@ -71,54 +63,37 @@ impl Server {
 		&self,
 		sandbox: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
-		let stream = self
+		let subject = format!("sandboxes.{sandbox}.processes.created");
+		let created = self
 			.messenger
-			.get_stream("sandboxes_processes_queue".into())
+			.subscribe::<()>(subject, None)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the stream"))?;
-		let consumer_name = sandbox.to_string();
-		let consumer_config = tangram_messenger::ConsumerConfig {
-			durable_name: Some(consumer_name.clone()),
-			filter_subjects: vec![format!("sandboxes.{sandbox}.processes.queue")],
-			..Default::default()
-		};
-		let consumer = stream
-			.get_or_create_consumer(Some(consumer_name), consumer_config)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the consumer"))?;
-		let messages = consumer.subscribe::<Message>().await.map_err(|source| {
-			tg::error!(!source, "failed to subscribe to the process queue stream")
-		})?;
-
-		let mut messages = pin!(messages);
-
-		while let Some(message) = messages
-			.try_next()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to dequeue a process"))?
-		{
-			let (payload, acker) = message.split();
-
-			// Attempt to start the process.
-			let started = self
-				.try_start_process_local(&payload.id)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to start the process"))?;
-
-			// Ack the message unconditionally to avoid redelivery.
-			acker
-				.ack()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to ack the message"))?;
-			if !started {
-				continue;
-			}
-
-			let output = tg::sandbox::process::queue::Output {
-				process: payload.id,
+			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+			.map(|_| ());
+		let interval = Duration::from_secs(1);
+		let interval = IntervalStream::new(tokio::time::interval(interval)).map(|_| ());
+		let stream = stream::select(created, interval);
+		let mut stream = pin!(stream);
+		while let Some(()) = stream.next().await {
+			let output = match &self.register {
+				#[cfg(feature = "postgres")]
+				Database::Postgres(register) => {
+					self.try_dequeue_sandbox_process_postgres(register, sandbox)
+						.await?
+				},
+				#[cfg(feature = "sqlite")]
+				Database::Sqlite(register) => {
+					self.try_dequeue_sandbox_process_sqlite(register, sandbox)
+						.await?
+				},
 			};
-
-			return Ok(Some(output));
+			if let Some(output) = output {
+				self.messenger
+					.publish(format!("processes.{}.status", output.process), ())
+					.await
+					.ok();
+				return Ok(Some(output));
+			}
 		}
 		Ok(None)
 	}
@@ -185,6 +160,26 @@ impl Server {
 		Ok(None)
 	}
 
+	pub(crate) fn spawn_publish_sandbox_processes_created_message_task(
+		&self,
+		sandbox: &tg::sandbox::Id,
+	) {
+		let subject = format!("sandboxes.{sandbox}.processes.created");
+		tokio::spawn({
+			let server = self.clone();
+			async move {
+				server
+					.messenger
+					.publish(subject, ())
+					.await
+					.inspect_err(|error| {
+						tracing::error!(%error, "failed to publish the sandbox process created message");
+					})
+					.ok();
+			}
+		});
+	}
+
 	pub(crate) async fn handle_dequeue_sandbox_process_request(
 		&self,
 		request: http::Request<BoxBody>,
@@ -249,41 +244,5 @@ impl Server {
 		let response = response.body(body).unwrap();
 
 		Ok(response)
-	}
-}
-
-impl Message {
-	pub fn serialize(&self) -> tg::Result<Bytes> {
-		let mut bytes = Vec::new();
-		bytes.push(0);
-		tangram_serialize::to_writer(&mut bytes, self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
-		Ok(bytes.into())
-	}
-
-	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
-		let bytes = bytes.into();
-		let bytes = bytes.as_ref();
-		if bytes.is_empty() {
-			return Err(tg::error!("missing format byte"));
-		}
-		let format = bytes[0];
-		match format {
-			0 => tangram_serialize::from_slice(&bytes[1..])
-				.map_err(|source| tg::error!(!source, "failed to deserialize the message")),
-			b'{' => serde_json::from_slice(bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the message")),
-			_ => Err(tg::error!("invalid format")),
-		}
-	}
-}
-
-impl messenger::Payload for Message {
-	fn serialize(&self) -> Result<Bytes, messenger::Error> {
-		Message::serialize(self).map_err(messenger::Error::other)
-	}
-
-	fn deserialize(bytes: Bytes) -> Result<Self, messenger::Error> {
-		Message::deserialize(bytes).map_err(messenger::Error::other)
 	}
 }

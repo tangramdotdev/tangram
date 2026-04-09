@@ -4,7 +4,6 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tangram_messenger::prelude::*,
 };
 
 impl Server {
@@ -67,17 +66,7 @@ impl Server {
 		drop(connection);
 
 		self.publish_sandbox_status(&id);
-		let subject = "sandboxes.queue".to_owned();
-		let payload = crate::sandbox::queue::Message {
-			id: id.clone(),
-			process: None,
-		};
-		self.messenger
-			.stream_publish("sandboxes_queue".to_owned(), subject, payload)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to enqueue the sandbox"))?
-			.await
-			.map_err(|source| tg::error!(!source, "failed to enqueue the sandbox"))?;
+		self.spawn_publish_sandboxes_created_message_task();
 
 		Ok(tg::sandbox::create::Output { id })
 	}

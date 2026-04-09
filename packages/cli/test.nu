@@ -39,7 +39,7 @@ def main [
 			try { cockroach sql --insecure --host=localhost:26257 -e $'drop database if exists ($db) cascade' }
 		}
 
-		let preserved_streams = ['processes_finalize_queue', 'processes_signals', 'processes_stdio', 'sandboxes_processes_queue', 'sandboxes_queue']
+		let preserved_streams = ['processes_finalize_queue', 'processes_signals', 'processes_stdio']
 		let streams = nats stream ls -n | lines | where { $in not-in $preserved_streams }
 		for stream in $streams {
 			print -e $"deleting nats stream ($stream)"
@@ -771,8 +771,6 @@ export def --env spawn [
 		nats stream create $'processes_finalize_queue_($id)' --discard new --retention work --subjects $'($id).processes.finalize.queue' --defaults
 		nats stream create $'processes_signals_($id)' --discard new --retention work --subjects $'($id).processes.*.signal' --defaults
 		nats stream create $'processes_stdio_($id)' --discard new --retention work --subjects $'($id).processes.stdio.*.*' --defaults
-		nats stream create $'sandboxes_processes_queue_($id)' --discard new --retention work --subjects $'($id).sandboxes.*.processes.queue' --defaults
-		nats stream create $'sandboxes_queue_($id)' --discard new --retention work --subjects $'($id).sandboxes.queue' --defaults
 
 		cqlsh -e $"create keyspace \"store_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
 		cqlsh -k $'store_($id)' -f ($repository_path | path join packages/store/src/scylla.cql)
@@ -922,8 +920,6 @@ def clean_databases [id: string] {
 	try { nats stream rm -f $'processes_finalize_queue_($id)' }
 	try { nats stream rm -f $'processes_signals_($id)' }
 	try { nats stream rm -f $'processes_stdio_($id)' }
-	try { nats stream rm -f $'sandboxes_processes_queue_($id)' }
-	try { nats stream rm -f $'sandboxes_queue_($id)' }
 
 	# Drop the scylla keyspace.
 	try { cqlsh -e $"drop keyspace \"store_($id)\";" }

@@ -1,6 +1,7 @@
 use {
 	crate::Server,
 	indoc::indoc,
+	std::collections::HashMap,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
@@ -17,36 +18,36 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
 
-		// Get the process.
+		// Get the processes.
 		#[derive(db::postgres::row::Deserialize)]
 		struct Row {
-			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
-			id: Option<tg::process::Id>,
+			#[tangram_database(as = "db::postgres::value::FromStr")]
+			id: tg::process::Id,
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
 			actual_checksum: Option<tg::Checksum>,
-			cacheable: Option<bool>,
-			#[tangram_database(as = "Option<db::value::Json<Vec<tg::process::data::Child>>>")]
-			children: Option<Vec<tg::process::data::Child>>,
-			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
-			command: Option<tg::command::Id>,
-			created_at: Option<i64>,
+			cacheable: bool,
+			#[tangram_database(as = "db::value::Json<Vec<tg::process::data::Child>>")]
+			children: Vec<tg::process::data::Child>,
+			#[tangram_database(as = "db::postgres::value::FromStr")]
+			command: tg::command::Id,
+			created_at: i64,
 			error: Option<String>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			exit: Option<u8>,
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
 			expected_checksum: Option<tg::Checksum>,
 			finished_at: Option<i64>,
-			host: Option<String>,
+			host: String,
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
 			log: Option<tg::blob::Id>,
 			#[tangram_database(as = "Option<db::value::Json<tg::value::Data>>")]
 			output: Option<tg::value::Data>,
-			retry: Option<bool>,
-			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
-			sandbox: Option<tg::sandbox::Id>,
+			retry: bool,
+			#[tangram_database(as = "db::postgres::value::FromStr")]
+			sandbox: tg::sandbox::Id,
 			started_at: Option<i64>,
-			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
-			status: Option<tg::process::Status>,
+			#[tangram_database(as = "db::postgres::value::FromStr")]
+			status: tg::process::Status,
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
 			stderr: Option<tg::process::Stdio>,
 			#[tangram_database(as = "Option<db::postgres::value::FromStr>")]
@@ -62,7 +63,7 @@ impl Server {
 					processes.id,
 					actual_checksum,
 					cacheable,
-					(select coalesce(json_agg(json_build_object('cached', cached, 'process', child, 'options', options::json) order by position), '[]'::json) from process_children where process = ids.id) as children,
+					(select coalesce(json_agg(json_build_object('cached', cached, 'process', child, 'options', options::json) order by position), '[]'::json) from process_children where process = processes.id) as children,
 					command,
 					created_at,
 					error,
@@ -80,8 +81,8 @@ impl Server {
 					stdin,
 					stdout,
 					tty
-				from unnest($1::text[]) as ids (id)
-				left join processes on processes.id = ids.id;
+				from processes
+				where processes.id = any($1::text[]);
 			"
 		);
 		let outputs = connection
@@ -99,32 +100,6 @@ impl Server {
 			})
 			.map(|row| {
 				let row = row?;
-				// If id is None, the process does not exist in the register.
-				let Some(id) = row.id else {
-					return Ok(None);
-				};
-				// Unwrap required fields. These should always be present if the process exists.
-				let cacheable = row
-					.cacheable
-					.ok_or_else(|| tg::error!(%id, "missing cacheable field"))?;
-				let children = row
-					.children
-					.ok_or_else(|| tg::error!(%id, "missing children field"))?;
-				let command = row
-					.command
-					.ok_or_else(|| tg::error!(%id, "missing command field"))?;
-				let created_at = row
-					.created_at
-					.ok_or_else(|| tg::error!(%id, "missing created_at field"))?;
-				let host = row
-					.host
-					.ok_or_else(|| tg::error!(%id, "missing host field"))?;
-				let retry = row
-					.retry
-					.ok_or_else(|| tg::error!(%id, "missing retry field"))?;
-				let status = row
-					.status
-					.ok_or_else(|| tg::error!(%id, "missing status field"))?;
 				let error = row
 					.error
 					.map(|s| {
@@ -143,34 +118,36 @@ impl Server {
 					.transpose()?;
 				let data = tg::process::Data {
 					actual_checksum: row.actual_checksum,
-					cacheable,
-					children: Some(children),
-					command,
-					created_at,
+					cacheable: row.cacheable,
+					children: Some(row.children),
+					command: row.command,
+					created_at: row.created_at,
 					error,
 					exit: row.exit,
 					expected_checksum: row.expected_checksum,
 					finished_at: row.finished_at,
-					host,
+					host: row.host,
 					log: row.log,
 					output: row.output,
-					retry,
+					retry: row.retry,
 					sandbox: row.sandbox,
 					started_at: row.started_at,
-					status,
+					status: row.status,
 					stderr: row.stderr.unwrap_or(tg::process::Stdio::Null),
 					stdin: row.stdin.unwrap_or(tg::process::Stdio::Null),
 					stdout: row.stdout.unwrap_or(tg::process::Stdio::Null),
 					tty: row.tty,
 				};
 				let output = tg::process::get::Output {
-					id,
+					id: row.id.clone(),
 					data,
 					metadata: None,
 				};
-				Ok(Some(output))
+				Ok((row.id, output))
 			})
-			.collect::<tg::Result<_>>()?;
+			.collect::<tg::Result<HashMap<_, _>>>()?;
+
+		let outputs = ids.iter().map(|id| outputs.get(id).cloned()).collect();
 
 		Ok(outputs)
 	}

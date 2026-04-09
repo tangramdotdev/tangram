@@ -53,7 +53,7 @@ impl Server {
 		let mut logs: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut outputs: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut retries: Vec<bool> = Vec::with_capacity(items.len());
-		let mut sandboxes: Vec<Option<String>> = Vec::with_capacity(items.len());
+		let mut sandboxes: Vec<String> = Vec::with_capacity(items.len());
 		let mut started_ats: Vec<Option<i64>> = Vec::with_capacity(items.len());
 		let mut statuses = Vec::with_capacity(items.len());
 		let mut stderrs: Vec<Option<String>> = Vec::with_capacity(items.len());
@@ -94,7 +94,7 @@ impl Server {
 					.map(|output| serde_json::to_string(output).unwrap()),
 			);
 			retries.push(data.retry);
-			sandboxes.push(data.sandbox.as_ref().map(ToString::to_string));
+			sandboxes.push(data.sandbox.to_string());
 			started_ats.push(data.started_at);
 			statuses.push(data.status.to_string());
 			stderrs.push((!data.stderr.is_null()).then(|| data.stderr.to_string()));

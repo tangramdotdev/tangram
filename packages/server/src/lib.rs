@@ -533,32 +533,6 @@ impl Server {
 				.create_stream(stream_name, stream_config)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create stdio stream"))?;
-
-			let stream_name = "sandboxes_processes_queue".to_owned();
-			let stream_config = tangram_messenger::StreamConfig {
-				discard: tangram_messenger::DiscardPolicy::New,
-				retention: tangram_messenger::RetentionPolicy::WorkQueue,
-				..Default::default()
-			};
-			messenger
-				.create_stream(stream_name, stream_config)
-				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to create the sandbox process queue stream")
-				})?;
-
-			let stream_name = "sandboxes_queue".to_owned();
-			let stream_config = tangram_messenger::StreamConfig {
-				discard: tangram_messenger::DiscardPolicy::New,
-				retention: tangram_messenger::RetentionPolicy::WorkQueue,
-				..Default::default()
-			};
-			messenger
-				.create_stream(stream_name, stream_config)
-				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to create the sandbox queue stream")
-				})?;
 		}
 
 		// Create the peers.

@@ -246,9 +246,7 @@ impl Server {
 		output
 			.data
 			.into_iter()
-			.filter(|output| {
-				output.data.sandbox.as_ref() == Some(id) && !output.data.status.is_finished()
-			})
+			.filter(|output| &output.data.sandbox == id && !output.data.status.is_finished())
 			.map(|output| {
 				let server = self.clone();
 				let error = error.clone();

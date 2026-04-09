@@ -19,7 +19,7 @@ struct LocalOutput {
 	id: tg::process::Id,
 	#[debug(ignore)]
 	permit: Option<SandboxPermit>,
-	sandbox: Option<tg::sandbox::Id>,
+	sandbox: tg::sandbox::Id,
 	sandbox_status: Option<tg::sandbox::Status>,
 	status: tg::process::Status,
 	token: Option<String>,
@@ -235,21 +235,13 @@ impl Server {
 		// If the process is unfinished, then enqueue it on its sandbox process queue.
 		if let Some(output) = &mut output
 			&& !output.status.is_finished()
-			&& let Some(sandbox) = &output.sandbox
 		{
+			let sandbox = &output.sandbox;
 			if let Some(permit) = output.permit.take() {
 				self.spawn_sandbox_task(sandbox, None, permit, Some(output.id.clone()));
 			} else if output.sandbox_status == Some(tg::sandbox::Status::Created) {
-				let payload = crate::sandbox::queue::Message {
-					id: sandbox.clone(),
-					process: Some(output.id.clone()),
-				};
-				self.messenger
-					.stream_publish("sandboxes_queue".into(), "sandboxes.queue".into(), payload)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to enqueue the sandbox"))?
-					.await
-					.map_err(|source| tg::error!(!source, "failed to enqueue the sandbox"))?;
+				self.spawn_publish_sandbox_processes_created_message_task(sandbox);
+				self.spawn_publish_sandboxes_created_message_task();
 				if matches!(arg.sandbox, Some(tg::Either::Left(_))) {
 					self.spawn_process_parent_permit_task(
 						parent_sandbox.as_ref(),
@@ -258,19 +250,7 @@ impl Server {
 					);
 				}
 			} else {
-				let payload = crate::sandbox::process::queue::Message {
-					id: output.id.clone(),
-				};
-				self.messenger
-					.stream_publish(
-						"sandboxes_processes_queue".into(),
-						format!("sandboxes.{sandbox}.processes.queue"),
-						payload,
-					)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to enqueue the process"))?
-					.await
-					.map_err(|source| tg::error!(!source, "failed to enqueue the process"))?;
+				self.spawn_publish_sandbox_processes_created_message_task(sandbox);
 			}
 		}
 
@@ -424,8 +404,8 @@ impl Server {
 			exit: Option<u8>,
 			#[tangram_database(as = "Option<db::value::Json<tg::value::Data>>")]
 			output: Option<tg::value::Data>,
-			#[tangram_database(as = "Option<db::value::FromStr>")]
-			sandbox: Option<tg::sandbox::Id>,
+			#[tangram_database(as = "db::value::FromStr")]
+			sandbox: tg::sandbox::Id,
 			#[tangram_database(as = "Option<db::value::FromStr>")]
 			sandbox_status: Option<tg::sandbox::Status>,
 			#[tangram_database(as = "db::value::FromStr")]
@@ -529,22 +509,20 @@ impl Server {
 				return Ok(None);
 			}
 
-			if let Some(sandbox) = sandbox.as_ref() {
-				let statement = formatdoc!(
-					"
-						update sandboxes
-						set heartbeat_at = heartbeat_at
-						where id = {p}1 and status != 'finished';
-					"
-				);
-				let params = db::params![sandbox.to_string()];
-				let n = transaction
-					.execute(statement.into(), params)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-				if n == 0 {
-					return Ok(None);
-				}
+			let statement = formatdoc!(
+				"
+					update sandboxes
+					set heartbeat_at = heartbeat_at
+					where id = {p}1 and status != 'finished';
+				"
+			);
+			let params = db::params![sandbox.to_string()];
+			let n = transaction
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			if n == 0 {
+				return Ok(None);
 			}
 
 			let status = self
@@ -611,8 +589,8 @@ impl Server {
 			actual_checksum: tg::Checksum,
 			#[tangram_database(as = "Option<db::value::Json<tg::value::Data>>")]
 			output: Option<tg::value::Data>,
-			#[tangram_database(as = "Option<db::value::FromStr>")]
-			sandbox: Option<tg::sandbox::Id>,
+			#[tangram_database(as = "db::value::FromStr")]
+			sandbox: tg::sandbox::Id,
 			#[tangram_database(as = "Option<db::value::FromStr>")]
 			sandbox_status: Option<tg::sandbox::Status>,
 		}
@@ -813,7 +791,7 @@ impl Server {
 			now,
 			host,
 			output.clone().map(db::value::Json),
-			sandbox.as_ref().map(ToString::to_string),
+			sandbox.to_string(),
 			tty.map(db::value::Json),
 			arg.retry,
 			status.to_string(),
@@ -860,7 +838,7 @@ impl Server {
 		let parent_sandbox = parent_sandbox.cloned();
 
 		let (sandbox, sandbox_status, permit) = match &arg.sandbox {
-			None => (None, None, None),
+			None => return Err(tg::error!("expected the sandbox to be set")),
 			Some(tg::Either::Left(arg)) => {
 				let permit = self.try_acquire_sandbox_permit(parent_sandbox.as_ref());
 				let status = if permit.is_some() {
@@ -871,7 +849,7 @@ impl Server {
 				let sandbox = self
 					.create_local_sandbox_with_transaction(transaction, arg, status)
 					.await?;
-				(Some(sandbox), Some(status), permit)
+				(sandbox, status, permit)
 			},
 			Some(tg::Either::Right(sandbox)) => {
 				let status = self
@@ -881,7 +859,7 @@ impl Server {
 				if status.is_finished() {
 					return Err(tg::error!("the sandbox is finished"));
 				}
-				(Some(sandbox.clone()), Some(status), None)
+				(sandbox.clone(), status, None)
 			},
 		};
 
@@ -970,7 +948,7 @@ impl Server {
 			1,
 			arg.checksum.as_ref().map(ToString::to_string),
 			host,
-			sandbox.as_ref().map(ToString::to_string),
+			sandbox.to_string(),
 			started_at,
 			tty.map(db::value::Json),
 			arg.retry,
@@ -1009,7 +987,7 @@ impl Server {
 			id,
 			permit,
 			sandbox,
-			sandbox_status,
+			sandbox_status: Some(sandbox_status),
 			status,
 			token: Some(token),
 			wait: None,

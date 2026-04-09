@@ -77,14 +77,14 @@ impl Server {
 			"
 				select sandbox as id, null as code, 'maximum depth exceeded' as message
 				from processes
-				where sandbox is not null and status != 'finished' and depth > {p}1
+				where status != 'finished' and depth > {p}1
 				group by sandbox
 
 				union all
 
 				select sandbox as id, 'cancellation' as code, 'the process was canceled' as message
 				from processes
-				where sandbox is not null and status != 'finished'
+				where status != 'finished'
 				group by sandbox
 				having sum(case when token_count > 0 then 1 else 0 end) = 0
 

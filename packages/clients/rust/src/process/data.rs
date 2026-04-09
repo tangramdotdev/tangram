@@ -54,9 +54,8 @@ pub struct Data {
 	#[tangram_serialize(id = 10, default, skip_serializing_if = "Option::is_none")]
 	pub log: Option<tg::blob::Id>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 11, default, skip_serializing_if = "Option::is_none")]
-	pub sandbox: Option<tg::sandbox::Id>,
+	#[tangram_serialize(id = 11)]
+	pub sandbox: tg::sandbox::Id,
 
 	#[serde(
 		default,

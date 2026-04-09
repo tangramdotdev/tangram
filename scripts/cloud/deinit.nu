@@ -7,8 +7,6 @@ fdbcli -C $cluster_path --exec 'writemode on; clearrange "" \xff' | ignore
 nats stream rm -f processes_finalize_queue | ignore
 nats stream rm -f processes_signals | ignore
 nats stream rm -f processes_stdio | ignore
-nats stream rm -f sandboxes_processes_queue | ignore
-nats stream rm -f sandboxes_queue | ignore
 
 dropdb -U postgres -h localhost register | ignore
 

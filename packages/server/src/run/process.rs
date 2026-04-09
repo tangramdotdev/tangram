@@ -413,7 +413,7 @@ impl Server {
 				remote: remote.cloned(),
 				retry: state.retry,
 			})),
-			sandbox: state.sandbox.clone(),
+			sandbox: Some(state.sandbox.clone()),
 			..Default::default()
 		};
 

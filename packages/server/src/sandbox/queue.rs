@@ -1,97 +1,140 @@
 use {
-	crate::{Context, Server},
-	bytes::Bytes,
-	futures::{StreamExt as _, TryStreamExt as _, future, stream},
-	std::pin::pin,
+	crate::{Context, Server, database::Database},
+	futures::{StreamExt as _, future, stream},
+	std::{pin::pin, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tangram_messenger::{self as messenger, prelude::*},
+	tangram_messenger::prelude::*,
+	tokio_stream::wrappers::IntervalStream,
 };
 
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct Message {
-	#[tangram_serialize(id = 0)]
-	pub id: tg::sandbox::Id,
-
-	#[tangram_serialize(id = 1)]
-	pub process: Option<tg::process::Id>,
-}
+#[cfg(feature = "postgres")]
+mod postgres;
+#[cfg(feature = "sqlite")]
+mod sqlite;
 
 impl Server {
 	pub(crate) async fn try_dequeue_sandbox_with_context(
 		&self,
 		context: &Context,
-		_arg: tg::sandbox::queue::Arg,
+		arg: tg::sandbox::queue::Arg,
 	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
-		let stream = self
+		if Self::local(arg.local, arg.remotes.as_ref()) {
+			return self.try_dequeue_sandbox_local().await;
+		}
+
+		let peers = self
+			.peers(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
+		if let Some(output) = self.try_dequeue_sandbox_peer(&peers).await? {
+			return Ok(Some(output));
+		}
+
+		let remotes = self
+			.remotes(arg.local, arg.remotes.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
+		if let Some(output) = self.try_dequeue_sandbox_remote(&remotes).await? {
+			return Ok(Some(output));
+		}
+
+		Ok(None)
+	}
+
+	async fn try_dequeue_sandbox_local(&self) -> tg::Result<Option<tg::sandbox::queue::Output>> {
+		let created = self
 			.messenger
-			.get_stream("sandboxes_queue".into())
+			.subscribe::<()>("sandboxes.created".into(), None)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the stream"))?;
-		let consumer_name = "default".to_owned();
-		let consumer_config = messenger::ConsumerConfig {
-			durable_name: Some(consumer_name.clone()),
-			..Default::default()
-		};
-		let consumer = stream
-			.get_or_create_consumer(Some(consumer_name), consumer_config)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the consumer"))?;
-		let messages = consumer.subscribe::<Message>().await.map_err(|source| {
-			tg::error!(!source, "failed to subscribe to the sandbox queue stream")
-		})?;
-		let mut messages = pin!(messages);
-		while let Some(message) = messages
-			.try_next()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to dequeue a sandbox"))?
-		{
-			let (payload, acker) = message.split();
-			let started = self
-				.try_start_sandbox_local(&payload.id)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to start the sandbox"))?;
-			let process = if started {
-				if let Some(process) = payload.process.clone() {
-					let started = self
-						.try_start_process_local(&process)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to start the process"))?;
-					if !started {
-						return Err(tg::error!("failed to start the process"));
-					}
-					Some(process)
-				} else {
-					None
-				}
-			} else {
-				None
+			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+			.map(|_| ());
+		let interval = Duration::from_secs(1);
+		let interval = IntervalStream::new(tokio::time::interval(interval)).map(|_| ());
+		let stream = stream::select(created, interval);
+		let mut stream = pin!(stream);
+		while let Some(()) = stream.next().await {
+			let output = match &self.register {
+				#[cfg(feature = "postgres")]
+				Database::Postgres(register) => self.try_dequeue_sandbox_postgres(register).await?,
+				#[cfg(feature = "sqlite")]
+				Database::Sqlite(register) => self.try_dequeue_sandbox_sqlite(register).await?,
 			};
-			acker
-				.ack()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to ack the message"))?;
-			if !started {
-				continue;
+			if let Some(output) = output {
+				self.publish_sandbox_status(&output.sandbox);
+				if let Some(process) = &output.process {
+					self.messenger
+						.publish(format!("processes.{process}.status"), ())
+						.await
+						.ok();
+				}
+				return Ok(Some(output));
 			}
-			return Ok(Some(tg::sandbox::queue::Output {
-				sandbox: payload.id,
-				process,
-			}));
 		}
 		Ok(None)
+	}
+
+	async fn try_dequeue_sandbox_peer(
+		&self,
+		peers: &[String],
+	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
+		for peer in peers {
+			let client = self.get_peer_client(peer.clone()).await.map_err(
+				|source| tg::error!(!source, peer = %peer, "failed to get the peer client"),
+			)?;
+			let output = client
+				.try_dequeue_sandbox(tg::sandbox::queue::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, peer = %peer, "failed to dequeue the sandbox"),
+				)?;
+			if output.is_some() {
+				return Ok(output);
+			}
+		}
+		Ok(None)
+	}
+
+	async fn try_dequeue_sandbox_remote(
+		&self,
+		remotes: &[String],
+	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
+		for remote in remotes {
+			let client = self.get_remote_client(remote.clone()).await.map_err(
+				|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
+			)?;
+			let output = client
+				.try_dequeue_sandbox(tg::sandbox::queue::Arg::default())
+				.await
+				.map_err(
+					|source| tg::error!(!source, remote = %remote, "failed to dequeue the sandbox"),
+				)?;
+			if output.is_some() {
+				return Ok(output);
+			}
+		}
+		Ok(None)
+	}
+
+	pub(crate) fn spawn_publish_sandboxes_created_message_task(&self) {
+		tokio::spawn({
+			let server = self.clone();
+			async move {
+				server
+					.messenger
+					.publish("sandboxes.created".into(), ())
+					.await
+					.inspect_err(|error| {
+						tracing::error!(%error, "failed to publish the sandbox created message");
+					})
+					.ok();
+			}
+		});
 	}
 
 	pub(crate) async fn handle_dequeue_sandbox_request(
@@ -135,40 +178,5 @@ impl Server {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}
 		Ok(response.body(body).unwrap())
-	}
-}
-
-impl Message {
-	pub fn serialize(&self) -> tg::Result<Bytes> {
-		let mut bytes = Vec::new();
-		bytes.push(0);
-		tangram_serialize::to_writer(&mut bytes, self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
-		Ok(bytes.into())
-	}
-
-	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
-		let bytes = bytes.into();
-		let bytes = bytes.as_ref();
-		if bytes.is_empty() {
-			return Err(tg::error!("missing format byte"));
-		}
-		match bytes[0] {
-			0 => tangram_serialize::from_slice(&bytes[1..])
-				.map_err(|source| tg::error!(!source, "failed to deserialize the message")),
-			b'{' => serde_json::from_slice(bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the message")),
-			_ => Err(tg::error!("invalid format")),
-		}
-	}
-}
-
-impl messenger::Payload for Message {
-	fn serialize(&self) -> Result<Bytes, messenger::Error> {
-		Message::serialize(self).map_err(messenger::Error::other)
-	}
-
-	fn deserialize(bytes: Bytes) -> Result<Self, messenger::Error> {
-		Message::deserialize(bytes).map_err(messenger::Error::other)
 	}
 }

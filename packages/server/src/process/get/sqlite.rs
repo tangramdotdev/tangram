@@ -63,7 +63,7 @@ impl Server {
 			output: Option<String>,
 			#[tangram_database(as = "db::sqlite::value::TryFrom<i64>")]
 			retry: u64,
-			sandbox: Option<String>,
+			sandbox: String,
 			started_at: Option<i64>,
 			status: String,
 			stderr: Option<String>,
@@ -154,8 +154,7 @@ impl Server {
 		let retry = row.retry != 0;
 		let sandbox = row
 			.sandbox
-			.map(|sandbox| sandbox.parse())
-			.transpose()
+			.parse()
 			.map_err(|source| tg::error!(!source, %id, "failed to parse the sandbox"))?;
 		let status = row
 			.status

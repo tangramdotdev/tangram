@@ -14,7 +14,7 @@ create table processes (
 	log text,
 	output text,
 	retry boolean not null,
-	sandbox text,
+	sandbox text not null,
 	started_at int8,
 	status text not null,
 	stderr text,
@@ -29,7 +29,9 @@ create index processes_command_index on processes (command);
 
 create index processes_depth_index on processes (depth) where status = 'started';
 
-create index processes_sandbox_index on processes (sandbox) where sandbox is not null;
+create index processes_sandbox_index on processes (sandbox);
+
+create index processes_queue_index on processes (sandbox, created_at, id) where status = 'created';
 
 create index processes_status_index on processes (status);
 
@@ -52,6 +54,8 @@ create table sandboxes (
 create index sandboxes_heartbeat_at_index on sandboxes (heartbeat_at) where status = 'started';
 
 create index sandboxes_status_index on sandboxes (status);
+
+create index sandboxes_queue_index on sandboxes (created_at, id) where status = 'created';
 
 create or replace procedure update_parent_depths(
 	changed_process_ids text[]

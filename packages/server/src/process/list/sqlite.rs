@@ -48,8 +48,8 @@ impl Server {
 			#[tangram_database(as = "Option<db::value::Json<tg::value::Data>>")]
 			output: Option<tg::value::Data>,
 			retry: bool,
-			#[tangram_database(as = "Option<db::sqlite::value::FromStr>")]
-			sandbox: Option<tg::sandbox::Id>,
+			#[tangram_database(as = "db::sqlite::value::FromStr")]
+			sandbox: tg::sandbox::Id,
 			started_at: Option<i64>,
 			#[tangram_database(as = "db::sqlite::value::FromStr")]
 			status: tg::process::Status,
