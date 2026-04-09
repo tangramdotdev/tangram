@@ -11,8 +11,8 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [features]
-lmdb = ["dep:heed"]
-scylla = ["dep:scylla"]
+foundationdb = ["dep:foundationdb", "dep:foundationdb-tuple"]
+lmdb = ["dep:heed", "dep:foundationdb-tuple"]
 
 [lib]
 doctest = false
@@ -26,14 +26,11 @@ tempfile = { workspace = true }
 [dependencies]
 bytes = { workspace = true }
 dashmap = { workspace = true }
-foundationdb-tuple = { workspace = true }
+foundationdb = { workspace = true, optional = true }
+foundationdb-tuple = { workspace = true, optional = true }
 futures = { workspace = true }
 heed = { workspace = true, optional = true }
-indoc = { workspace = true }
 num = { workspace = true }
-scylla = { workspace = true, optional = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
 tangram_client = { workspace = true }
 tangram_serialize = { workspace = true }
 tokio = { workspace = true }

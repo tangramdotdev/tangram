@@ -568,7 +568,7 @@ impl foundationdb_tuple::TuplePack for Key<'_> {
 		tuple_depth: foundationdb_tuple::TupleDepth,
 	) -> std::io::Result<foundationdb_tuple::VersionstampOffset> {
 		match self {
-			Key::Object(id) => (0, id.to_bytes().as_ref()).pack(w, tuple_depth),
+			Key::Object(id) => id.to_bytes().as_ref().pack(w, tuple_depth),
 		}
 	}
 }

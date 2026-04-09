@@ -262,10 +262,10 @@ pub fn spawn_jailer(arg: &SpawnArg, init_arg: &InitArg) -> tg::Result<tokio::pro
 	));
 	crate::append_init_args(&mut command, init_arg);
 	command
+		.kill_on_drop(true)
 		.stdin(std::process::Stdio::null())
 		.stdout(std::process::Stdio::inherit())
-		.stderr(std::process::Stdio::inherit())
-		.kill_on_drop(true);
+		.stderr(std::process::Stdio::inherit());
 	command
 		.spawn()
 		.map_err(|source| tg::error!(!source, "failed to spawn bwrap"))

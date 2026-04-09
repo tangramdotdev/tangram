@@ -8,16 +8,27 @@ pub use log_store::{DeleteProcessLogArg, PutProcessLogArg, ReadProcessLogArg};
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Store {
+	#[cfg(feature = "foundationdb")]
+	Fdb(log_store::fdb::Store),
+
 	#[cfg(feature = "lmdb")]
 	Lmdb(log_store::lmdb::Store),
 
 	Memory(log_store::memory::Store),
-
-	#[cfg(feature = "scylla")]
-	Scylla(log_store::scylla::Store),
 }
 
 impl Store {
+	#[cfg(feature = "foundationdb")]
+	pub fn new_fdb(config: &crate::config::LogFdbStore) -> tg::Result<Self> {
+		let options = log_store::fdb::Options {
+			cluster: config.cluster.clone(),
+			prefix: config.prefix.clone(),
+		};
+		let fdb = log_store::fdb::Store::new(&options)
+			.map_err(|source| tg::error!(!source, "failed to create the foundationdb store"))?;
+		Ok(Self::Fdb(fdb))
+	}
+
 	#[cfg(feature = "lmdb")]
 	pub fn new_lmdb(directory: &Path, config: &crate::config::LogLmdbStore) -> tg::Result<Self> {
 		let path = directory.join(&config.path);
@@ -34,33 +45,6 @@ impl Store {
 	pub fn new_memory() -> Self {
 		Self::Memory(log_store::memory::Store::new())
 	}
-
-	#[cfg(feature = "scylla")]
-	pub async fn new_scylla(config: &crate::config::LogScyllaStore) -> tg::Result<Self> {
-		let config = log_store::scylla::Config {
-			addr: config.addr.clone(),
-			connections: config.connections,
-			keyspace: config.keyspace.clone(),
-			password: config.password.clone(),
-			speculative_execution: config.speculative_execution.as_ref().map(|se| match se {
-				crate::config::LogScyllaStoreSpeculativeExecution::Percentile(p) => {
-					log_store::scylla::SpeculativeExecution::Percentile {
-						max_retry_count: p.max_retry_count,
-						percentile: p.percentile,
-					}
-				},
-				crate::config::LogScyllaStoreSpeculativeExecution::Simple(s) => {
-					log_store::scylla::SpeculativeExecution::Simple {
-						max_retry_count: s.max_retry_count,
-						retry_interval: std::time::Duration::from_millis(s.retry_interval),
-					}
-				},
-			}),
-			username: config.username.clone(),
-		};
-		let scylla = log_store::scylla::Store::new(&config).await?;
-		Ok(Self::Scylla(scylla))
-	}
 }
 
 impl log_store::Store for Store {
@@ -69,11 +53,11 @@ impl log_store::Store for Store {
 		arg: ReadProcessLogArg,
 	) -> tg::Result<Vec<log_store::ProcessLogEntry<'static>>> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => fdb.try_read_process_log(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => lmdb.try_read_process_log(arg).await,
 			Self::Memory(memory) => memory.try_read_process_log(arg).await,
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.try_read_process_log(arg).await,
 		}
 	}
 
@@ -83,37 +67,37 @@ impl log_store::Store for Store {
 		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<u64>> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => fdb.try_get_process_log_length(id, streams).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => lmdb.try_get_process_log_length(id, streams).await,
 			Self::Memory(memory) => Ok(memory.try_get_process_log_length(id, streams)),
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.try_get_process_log_length(id, streams).await,
 		}
 	}
 
 	async fn put_process_log(&self, arg: PutProcessLogArg) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => fdb.put_process_log(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => lmdb.put_process_log(arg).await,
 			Self::Memory(memory) => {
 				memory.put_process_log(arg);
 				Ok(())
 			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.put_process_log(arg).await,
 		}
 	}
 
 	async fn delete_process_log(&self, arg: DeleteProcessLogArg) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(fdb) => fdb.delete_process_log(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => lmdb.delete_process_log(arg).await,
 			Self::Memory(memory) => {
 				memory.delete_process_log(arg);
 				Ok(())
 			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.delete_process_log(arg).await,
 		}
 	}
 }

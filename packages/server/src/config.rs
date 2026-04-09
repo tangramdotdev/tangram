@@ -418,9 +418,17 @@ pub struct ObjectScyllaStoreSimpleSpeculativeExecution {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum LogStore {
+	Fdb(LogFdbStore),
 	Lmdb(LogLmdbStore),
 	Memory,
-	Scylla(LogScyllaStore),
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct LogFdbStore {
+	pub cluster: PathBuf,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub prefix: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -428,42 +436,6 @@ pub enum LogStore {
 pub struct LogLmdbStore {
 	pub map_size: usize,
 	pub path: PathBuf,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct LogScyllaStore {
-	pub addr: String,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub connections: Option<usize>,
-	pub keyspace: String,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub password: Option<String>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub speculative_execution: Option<LogScyllaStoreSpeculativeExecution>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub username: Option<String>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
-pub enum LogScyllaStoreSpeculativeExecution {
-	Percentile(LogScyllaStorePercentileSpeculativeExecution),
-	Simple(LogScyllaStoreSimpleSpeculativeExecution),
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct LogScyllaStorePercentileSpeculativeExecution {
-	pub max_retry_count: usize,
-	pub percentile: f64,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct LogScyllaStoreSimpleSpeculativeExecution {
-	pub max_retry_count: usize,
-	pub retry_interval: u64,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -858,6 +830,15 @@ impl Default for ObjectLmdbStore {
 impl Default for LogStore {
 	fn default() -> Self {
 		Self::Lmdb(LogLmdbStore::default())
+	}
+}
+
+impl Default for LogFdbStore {
+	fn default() -> Self {
+		Self {
+			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
+			prefix: None,
+		}
 	}
 }
 

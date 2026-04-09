@@ -544,6 +544,20 @@ impl Server {
 
 		// Create the log store.
 		let log_store = match &config.log_store {
+			config::LogStore::Fdb(options) => {
+				#[cfg(not(feature = "foundationdb"))]
+				{
+					let _ = options;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with foundationdb support"
+					));
+				}
+				#[cfg(feature = "foundationdb")]
+				{
+					self::log::Store::new_fdb(options)
+						.map_err(|error| tg::error!(!error, "failed to create the log store"))?
+				}
+			},
 			config::LogStore::Lmdb(lmdb) => {
 				#[cfg(not(feature = "lmdb"))]
 				{
@@ -558,24 +572,7 @@ impl Server {
 						.map_err(|error| tg::error!(!error, "failed to create the log store"))?
 				}
 			},
-
 			config::LogStore::Memory => self::log::Store::new_memory(),
-
-			config::LogStore::Scylla(scylla) => {
-				#[cfg(not(feature = "scylla"))]
-				{
-					let _ = scylla;
-					return Err(tg::error!(
-						"this version of tangram was not compiled with scylla support"
-					));
-				}
-				#[cfg(feature = "scylla")]
-				{
-					self::log::Store::new_scylla(scylla)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to create the log store"))?
-				}
-			},
 		};
 
 		// Create the object store.

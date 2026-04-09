@@ -4,11 +4,11 @@ use {
 	tangram_client::prelude::*,
 };
 
+#[cfg(feature = "foundationdb")]
+pub mod fdb;
 #[cfg(feature = "lmdb")]
 pub mod lmdb;
 pub mod memory;
-#[cfg(feature = "scylla")]
-pub mod scylla;
 
 pub mod prelude {
 	pub use super::Store as _;

@@ -790,10 +790,9 @@ export def --env spawn [
 				prefix: $'index_($id)',
 			},
 			log_store: {
-				addr: 'localhost:9042',
-				connections: 1,
-				keyspace: $'logs_($id)',
-				kind: 'scylla',
+				cluster: $cluster,
+				kind: 'fdb',
+				prefix: $'logs_($id)',
 			},
 			messenger: {
 				id: $id,
@@ -923,7 +922,7 @@ def clean_databases [id: string] {
 	# Clear the fdb key range.
 	let cluster = mktemp -t
 	"docker:docker@localhost:4500" | save -f $cluster
-	try { fdbcli -C $cluster --exec $'writemode on; clearrange "index_($id)" "index_($id)\xff"' }
+	try { fdbcli -C $cluster --exec $'writemode on; clearrange "index_($id)" "index_($id)\xff"; clearrange "logs_($id)" "logs_($id)\xff"' }
 
 	# Remove the NATS streams.
 	try { nats stream rm -f $'processes_signals_($id)' }

@@ -609,13 +609,7 @@ impl foundationdb_tuple::TuplePack for Key<'_> {
 	) -> std::io::Result<foundationdb_tuple::VersionstampOffset> {
 		match self {
 			Key::ProcessLogEntry(id, position) => {
-				(1, id.to_bytes().as_ref(), 0, *position).pack(w, tuple_depth)
-			},
-			Key::ProcessLogStreamPosition(id, tg::process::stdio::Stream::Stdout, position) => {
-				(1, id.to_bytes().as_ref(), 1, *position).pack(w, tuple_depth)
-			},
-			Key::ProcessLogStreamPosition(id, tg::process::stdio::Stream::Stderr, position) => {
-				(1, id.to_bytes().as_ref(), 2, *position).pack(w, tuple_depth)
+				(id.to_bytes().as_ref(), 0, *position).pack(w, tuple_depth)
 			},
 			Key::ProcessLogStreamPosition(id, tg::process::stdio::Stream::Stdin, position) => {
 				let _ = (id, position);
@@ -623,6 +617,12 @@ impl foundationdb_tuple::TuplePack for Key<'_> {
 					std::io::ErrorKind::InvalidInput,
 					"invalid stdio stream",
 				))
+			},
+			Key::ProcessLogStreamPosition(id, tg::process::stdio::Stream::Stdout, position) => {
+				(id.to_bytes().as_ref(), 1, *position).pack(w, tuple_depth)
+			},
+			Key::ProcessLogStreamPosition(id, tg::process::stdio::Stream::Stderr, position) => {
+				(id.to_bytes().as_ref(), 2, *position).pack(w, tuple_depth)
 			},
 		}
 	}
