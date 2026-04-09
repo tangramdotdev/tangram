@@ -2,6 +2,7 @@ use {
 	crate::prelude::*,
 	serde_with::{DisplayFromStr, PickFirst, serde_as},
 	tangram_http::response::Ext as _,
+	tangram_uri::Uri,
 	tokio::io::AsyncRead,
 };
 
@@ -25,9 +26,12 @@ impl tg::Client {
 		reader: impl AsyncRead + Send + 'static,
 	) -> tg::Result<tg::write::Output> {
 		let method = http::Method::POST;
-		let query = serde_urlencoded::to_string(&arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
-		let uri = format!("/write?{query}");
+		let uri = Uri::builder()
+			.path("/write")
+			.query_params(&arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
+			.build()
+			.unwrap();
 		let body = tangram_http::body::Boxed::with_reader(reader);
 		let request = http::request::Builder::default()
 			.method(method)

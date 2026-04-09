@@ -15,9 +15,9 @@ pub struct Args {
 	#[arg(default_value = "false", long)]
 	pub dry_run: bool,
 
-	/// The reference to publish.
-	#[arg(index = 1)]
-	pub reference: Option<tg::Reference>,
+	/// The path to publish.
+	#[arg(default_value = ".", index = 1)]
+	pub path: PathBuf,
 
 	/// The remote to publish to.
 	#[arg(long, short)]
@@ -67,15 +67,22 @@ impl Cli {
 	pub async fn command_publish(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 
-		// Get the reference.
-		let reference = args.reference.unwrap_or_else(|| ".".parse().unwrap());
-		if reference.export().is_some() {
-			return Err(tg::error!("cannot publish a reference with an export"));
-		}
-		let referent = self
-			.get_reference_with_arg(&reference, tg::get::Arg::default(), false)
-			.await?
-			.try_map(|item| item.left().ok_or_else(|| tg::error!("expected an object")))?;
+		// Check in the root package.
+		let absolute_path = tangram_util::fs::canonicalize_parent(&args.path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
+		let arg = tg::checkin::Arg {
+			options: tg::checkin::Options::default(),
+			path: absolute_path.clone(),
+			updates: Vec::new(),
+		};
+		let artifact = tg::checkin(&handle, arg).await.map_err(
+			|source| tg::error!(!source, path = %absolute_path.display(), "failed to check in the root package"),
+		)?;
+		let referent = tg::Referent::new(
+			artifact.into(),
+			tg::referent::Options::with_path(args.path.clone()),
+		);
 
 		// Create the state.
 		let mut state = State::default();
@@ -119,21 +126,26 @@ impl Cli {
 		for step in plan {
 			match step {
 				Step::Item(item) => {
-					let id = if let Some(path) = &item.path {
+					let Item {
+						referent,
+						path,
+						tag,
+					} = item;
+					let id = if let Some(path) = path {
 						publish_checkin(&handle, path, true).await?
 					} else {
-						item.referent.item.clone()
+						referent.item
 					};
 					items.push(tg::Either::Left(id.clone()));
-					tags.push((item.tag.clone(), id.clone()));
+					tags.push((tag.clone(), id.clone()));
 					let arg = tg::tag::put::Arg {
 						force: true,
 						item: tg::Either::Left(id),
 						local: None,
 						remotes: None,
 					};
-					handle.put_tag(&item.tag, arg).await.map_err(
-						|source| tg::error!(!source, tag = %item.tag, "failed to put local tag"),
+					handle.put_tag(&tag, arg).await.map_err(
+						|source| tg::error!(!source, tag = %tag, "failed to put local tag"),
 					)?;
 				},
 
@@ -141,7 +153,7 @@ impl Cli {
 					for item in &cycle_items {
 						let path = item
 							.path
-							.as_ref()
+							.clone()
 							.ok_or_else(|| tg::error!("cycle items must have paths"))?;
 						let id = publish_checkin(&handle, path, false).await?;
 						let arg = tg::tag::put::Arg {
@@ -156,21 +168,19 @@ impl Cli {
 					}
 
 					for item in cycle_items {
-						let path = item
-							.path
-							.as_ref()
-							.ok_or_else(|| tg::error!("cycle items must have paths"))?;
+						let Item { path, tag, .. } = item;
+						let path = path.ok_or_else(|| tg::error!("cycle items must have paths"))?;
 						let id = publish_checkin(&handle, path, true).await?;
 						items.push(tg::Either::Left(id.clone()));
-						tags.push((item.tag.clone(), id.clone()));
+						tags.push((tag.clone(), id.clone()));
 						let arg = tg::tag::put::Arg {
 							force: true,
 							item: tg::Either::Left(id),
 							local: None,
 							remotes: None,
 						};
-						handle.put_tag(&item.tag, arg).await.map_err(
-							|source| tg::error!(!source, tag = %item.tag, "failed to put local tag"),
+						handle.put_tag(&tag, arg).await.map_err(
+							|source| tg::error!(!source, tag = %tag, "failed to put local tag"),
 						)?;
 					}
 				},
@@ -537,7 +547,7 @@ where
 			.options
 			.path
 			.as_ref()
-			.is_some_and(|p| p == &PathBuf::from(""))
+			.is_some_and(|p| p.as_os_str().is_empty())
 		{
 			return Err(tg::error!(id = ?directory.id(), "invalid path"));
 		}
@@ -567,10 +577,11 @@ where
 			.options
 			.path
 			.as_ref()
-			.is_some_and(|p| p == &PathBuf::from(""))
+			.is_some_and(|p| p.as_os_str().is_empty())
 		{
 			return Err(tg::error!(id = ?file.id(), "invalid path"));
 		}
+
 		if let Some(tag) = file.tag() {
 			self.tags.push((tag.clone(), file.item().id().into()));
 		}
@@ -613,7 +624,7 @@ where
 			.options
 			.path
 			.as_ref()
-			.is_some_and(|p| p == &PathBuf::from(""))
+			.is_some_and(|p| p.as_os_str().is_empty())
 		{
 			return Err(tg::error!("invalid path"));
 		}
@@ -683,9 +694,10 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a Graph {
 
 async fn publish_checkin(
 	handle: &impl tg::Handle,
-	path: &Path,
+	path: PathBuf,
 	solve: bool,
 ) -> tg::Result<tg::object::Id> {
+	let path_display = path.display().to_string();
 	let options = tg::checkin::Options {
 		local_dependencies: false,
 		lock: None,
@@ -693,12 +705,12 @@ async fn publish_checkin(
 		..tg::checkin::Options::default()
 	};
 	let args = tg::checkin::Arg {
-		path: path.to_owned(),
+		path,
 		options,
 		updates: Vec::new(),
 	};
 	let artifact = tg::checkin(handle, args)
 		.await
-		.map_err(|source| tg::error!(!source, path = %path.display(), "failed to checkin"))?;
+		.map_err(|source| tg::error!(!source, path = %path_display, "failed to checkin"))?;
 	Ok(artifact.id().into())
 }

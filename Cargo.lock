@@ -6297,6 +6297,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_qs"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2316d01592c3382277c5062105510e35e0a6bfb2851e30028485f7af8cf1240"
+dependencies = [
+ "itoa",
+ "percent-encoding",
+ "ryu",
+ "serde",
+]
+
+[[package]]
 name = "serde_repr"
 version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6990,7 +7002,7 @@ dependencies = [
  "scopeguard",
  "serde",
  "serde_json",
- "serde_urlencoded",
+ "serde_qs",
  "serde_with",
  "sha2 0.11.0",
  "tangram_either",
@@ -7124,8 +7136,9 @@ dependencies = [
  "pin-project",
  "serde",
  "serde_json",
- "serde_urlencoded",
+ "serde_qs",
  "tangram_futures",
+ "tangram_uri",
  "tokio",
  "tokio-util",
  "tower",
@@ -7234,7 +7247,6 @@ dependencies = [
  "num",
  "serde",
  "serde_json",
- "serde_urlencoded",
  "serde_with",
  "tangram_client",
  "tangram_futures",
@@ -7368,8 +7380,11 @@ name = "tangram_uri"
 version = "0.0.0"
 dependencies = [
  "derive_more",
+ "http",
  "percent-encoding",
  "regex",
+ "serde",
+ "serde_qs",
  "serde_with",
  "tangram_serialize",
 ]

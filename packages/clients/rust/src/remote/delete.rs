@@ -7,13 +7,11 @@ use {
 impl tg::Client {
 	pub async fn delete_remote(&self, name: &str) -> tg::Result<()> {
 		let method = http::Method::DELETE;
-		let uri = Uri::builder()
-			.path(&format!("/remotes/{name}"))
-			.build()
-			.unwrap();
+		let path = format!("/remotes/{name}");
+		let uri = Uri::builder().path(&path).build().unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
-			.uri(uri.to_string())
+			.uri(uri)
 			.empty()
 			.unwrap();
 		let response = self

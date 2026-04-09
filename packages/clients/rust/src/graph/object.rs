@@ -519,7 +519,7 @@ impl std::fmt::Display for Pointer {
 impl std::str::FromStr for Pointer {
 	type Err = tg::Error;
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		let value = serde_urlencoded::from_str::<BTreeMap<String, String>>(s)
+		let value = serde_qs::from_str::<BTreeMap<String, String>>(s)
 			.map_err(|_| tg::error!("failed to deserialize edge"))?;
 		let graph = value
 			.get("graph")

@@ -157,7 +157,7 @@ impl Client {
 				.ok_or_else(|| tg::error!("failed to get the home directory"))?;
 			let path = path.join(".tangram/socket");
 			let path = path.to_str().ok_or_else(|| tg::error!("invalid path"))?;
-			tangram_uri::Uri::builder()
+			Uri::builder()
 				.scheme("http+unix")
 				.authority(path)
 				.path("")

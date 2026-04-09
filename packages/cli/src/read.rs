@@ -20,16 +20,9 @@ impl Cli {
 
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
 
-		let arg = tg::get::Arg {
-			local: args.local.get(),
-			remotes: args.remotes.get(),
-			..Default::default()
-		};
-
 		for reference in &args.references {
-			let referent = self
-				.get_reference_with_arg(reference, arg.clone(), true)
-				.await?;
+			let arg = tg::get::Arg::default();
+			let referent = self.get_reference_with_arg(reference, arg).await?;
 			let tg::Either::Left(object) = referent.item() else {
 				return Err(tg::error!("expected an object"));
 			};

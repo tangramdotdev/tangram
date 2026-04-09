@@ -4,6 +4,7 @@ use {
 	serde_with::serde_as,
 	std::future,
 	tangram_http::{request::builder::Ext as _, response::Ext as _, sse},
+	tangram_uri::Uri,
 	tangram_util::serde::CommaSeparatedString,
 };
 
@@ -32,9 +33,13 @@ impl tg::Client {
 		arg: Arg,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<Event>> + Send + 'static>> {
 		let method = http::Method::GET;
-		let query = serde_urlencoded::to_string(&arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
-		let uri = format!("/processes/{id}/signal?{query}");
+		let path = format!("/processes/{id}/signal");
+		let uri = Uri::builder()
+			.path(&path)
+			.query_params(&arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
+			.build()
+			.unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

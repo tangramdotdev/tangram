@@ -2,6 +2,7 @@ use {
 	crate::prelude::*,
 	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_uri::Uri,
 	tangram_util::serde::CommaSeparatedString,
 };
 
@@ -51,9 +52,12 @@ pub struct FileDescriptorSemaphore {
 impl tg::Client {
 	pub async fn health(&self, arg: tg::health::Arg) -> tg::Result<Health> {
 		let method = http::Method::GET;
-		let query = serde_urlencoded::to_string(&arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
-		let uri = format!("/health?{query}");
+		let uri = Uri::builder()
+			.path("/health")
+			.query_params(&arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
+			.build()
+			.unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

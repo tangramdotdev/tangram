@@ -8,7 +8,6 @@ use {
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	#[serde(flatten)]
 	pub data: tg::process::Data,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]

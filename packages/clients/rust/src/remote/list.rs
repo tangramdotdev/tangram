@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_uri::Uri,
 };
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -18,9 +19,12 @@ impl tg::Client {
 		arg: tg::remote::list::Arg,
 	) -> tg::Result<tg::remote::list::Output> {
 		let method = http::Method::GET;
-		let query = serde_urlencoded::to_string(&arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
-		let uri = format!("/remotes?{query}");
+		let uri = Uri::builder()
+			.path("/remotes")
+			.query_params(&arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
+			.build()
+			.unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

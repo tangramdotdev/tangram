@@ -3,6 +3,7 @@ use {
 	bytes::Bytes,
 	serde_with::{DisplayFromStr, PickFirst, serde_as},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_uri::Uri,
 	tangram_util::serde::{CommaSeparatedString, is_false},
 };
 
@@ -36,9 +37,13 @@ impl tg::Client {
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let method = http::Method::GET;
-		let query = serde_urlencoded::to_string(&arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
-		let uri = format!("/objects/{id}?{query}");
+		let path = format!("/objects/{id}");
+		let uri = Uri::builder()
+			.path(&path)
+			.query_params(&arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
+			.build()
+			.unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

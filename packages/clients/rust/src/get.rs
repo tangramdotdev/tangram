@@ -3,21 +3,19 @@ use {
 	futures::{Stream, TryStreamExt as _, future},
 	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
-	tangram_util::serde::CommaSeparatedString,
+	tangram_uri::Uri,
+	tangram_util::serde::is_default,
 };
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	#[serde(flatten)]
+	#[serde(default, skip_serializing_if = "is_default")]
 	pub checkin: tg::checkin::Options,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub local: Option<bool>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<CommaSeparatedString>")]
-	pub remotes: Option<Vec<String>>,
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[serde(flatten)]
+	pub options: tg::reference::Options,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -29,37 +27,22 @@ impl tg::Client {
 	pub async fn try_get(
 		&self,
 		reference: &tg::Reference,
-		arg: tg::get::Arg,
+		mut arg: tg::get::Arg,
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + 'static,
 	> {
 		let method = http::Method::GET;
-		let uri = reference.to_uri();
-		let path = uri.path();
-		let path = format!("/_/{path}");
-		let mut query = if let Some(query) = uri.query_raw() {
-			serde_urlencoded::from_str::<Vec<(String, String)>>(query)
-				.map_err(|source| tg::error!(!source, "failed to parse the query"))?
-		} else {
-			Vec::new()
-		};
-		let arg_query = serde_urlencoded::to_string(&arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
-		if !arg_query.is_empty() {
-			let arg_params = serde_urlencoded::from_str::<Vec<(String, String)>>(&arg_query)
-				.map_err(|source| tg::error!(!source, "failed to parse arg query"))?;
-			query.extend(arg_params);
-		}
-		let mut uri = uri.to_builder().path(&path);
-		if !query.is_empty() {
-			let query = serde_urlencoded::to_string(&query)
-				.map_err(|source| tg::error!(!source, "failed to serialize the query"))?;
-			uri = uri.query_raw(&query);
-		}
-		let uri = uri.build().unwrap();
+		arg.options = reference.options().clone();
+		let path = format!("/_/{}", reference.item());
+		let uri = Uri::builder()
+			.path_raw(&path)
+			.query_params(&arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
+			.build()
+			.unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
-			.uri(uri.to_string())
+			.uri(uri)
 			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
 			.empty()
 			.unwrap();

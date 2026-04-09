@@ -2,6 +2,7 @@ use {
 	crate::tg,
 	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_uri::Uri,
 	tangram_util::serde::CommaSeparatedString,
 };
 
@@ -56,9 +57,13 @@ impl tg::Client {
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<()> {
 		let method = http::Method::POST;
-		let query = serde_urlencoded::to_string(&arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
-		let uri = format!("/processes/{id}/cancel?{query}");
+		let path = format!("/processes/{id}/cancel");
+		let uri = Uri::builder()
+			.path(&path)
+			.query_params(&arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
+			.build()
+			.unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)

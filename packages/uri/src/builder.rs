@@ -82,9 +82,18 @@ pub struct Builder {
 	fragment: Option<String>,
 }
 
+pub const QUERY_PARAMS_LENGTH_THRESHOLD: usize = 4096;
+
 #[derive(Clone, Debug, derive_more::Display, derive_more::Error)]
 #[display("invalid uri")]
 pub struct Error;
+
+#[derive(Debug, derive_more::Display, derive_more::Error, derive_more::From)]
+pub enum QueryParamsError {
+	#[display("query params exceed the length threshold")]
+	TooLarge,
+	Serialize(serde_qs::Error),
+}
 
 impl Builder {
 	#[must_use]
@@ -130,6 +139,18 @@ impl Builder {
 		self.query =
 			Some(percent_encoding::utf8_percent_encode(query, QUERY_ENCODE_SET).to_string());
 		self
+	}
+
+	pub fn query_params<T>(mut self, value: &T) -> Result<Self, QueryParamsError>
+	where
+		T: serde::Serialize,
+	{
+		let query = serde_qs::to_string(value)?;
+		if query.len() > QUERY_PARAMS_LENGTH_THRESHOLD {
+			return Err(QueryParamsError::TooLarge);
+		}
+		self.query = (!query.is_empty()).then_some(query);
+		Ok(self)
 	}
 
 	#[must_use]

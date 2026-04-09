@@ -1,25 +1,28 @@
 use std::path::{Path, PathBuf};
 
-pub fn diff(src: &Path, dst: &Path) -> std::io::Result<PathBuf> {
+pub fn diff(src: &Path, dst: &Path) -> std::io::Result<Option<PathBuf>> {
 	if !src.is_absolute() || !dst.is_absolute() {
 		return Err(std::io::Error::other("both paths must be absolute"));
 	}
 	let src_components: Vec<_> = src.components().collect();
 	let dst_components: Vec<_> = dst.components().collect();
-	let common_prefix_len = src_components
+	let common_prefix_components_len = src_components
 		.iter()
 		.zip(dst_components.iter())
 		.take_while(|(a, b)| a == b)
 		.count();
-	let parents_needed = src_components.len() - common_prefix_len;
-	let mut result = PathBuf::new();
+	let parents_needed = src_components.len() - common_prefix_components_len;
+	let mut output = PathBuf::new();
 	for _ in 0..parents_needed {
-		result.push("..");
+		output.push("..");
 	}
-	for component in &dst_components[common_prefix_len..] {
-		result.push(component);
+	for component in &dst_components[common_prefix_components_len..] {
+		output.push(component);
 	}
-	Ok(result)
+	if output.as_os_str().is_empty() {
+		return Ok(None);
+	}
+	Ok(Some(output))
 }
 
 pub fn normalize(src: impl AsRef<Path>) -> PathBuf {

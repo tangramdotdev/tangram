@@ -323,7 +323,9 @@ impl Server {
 						"cannot destructively checkin files or symlinks with path dependencies"
 					));
 				}
-				if path::diff(path, node_path).is_ok_and(|path| path.starts_with("..")) {
+				if path::diff(path, node_path)
+					.is_ok_and(|option| option.is_some_and(|path| path.starts_with("..")))
+				{
 					return Err(tg::error!(
 						"cannot destructively check in an artifact with external path dependencies"
 					));

@@ -20,7 +20,7 @@ let id = tg checkin $path
 let tag = "test-pkg/1.0.0"
 tg tag put $tag $id | complete
 
-tg publish $tag
+tg publish $path
 
 # Verify tag on local.
 let local_tag = tg tag get $tag | from json | get item

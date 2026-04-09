@@ -841,6 +841,7 @@ impl Server {
 			let dst = &target;
 			tangram_util::path::diff(src, dst)
 				.map_err(|source| tg::error!(!source, "failed to diff the paths"))?
+				.ok_or_else(|| tg::error!("expected the paths to differ"))?
 		} else if let Some(path) = &node.path {
 			path.clone()
 		} else {

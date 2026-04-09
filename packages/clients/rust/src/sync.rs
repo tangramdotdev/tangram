@@ -7,6 +7,7 @@ use {
 	tangram_futures::{read::Ext as _, stream::Ext as _, task::Task, write::Ext as _},
 	tangram_http::body::BodyStream,
 	tangram_http::response::Ext as _,
+	tangram_uri::{Uri, builder::QueryParamsError},
 	tangram_util::serde::{CommaSeparatedString, is_default, is_false},
 	tokio::io::AsyncReadExt as _,
 	tokio_stream::wrappers::ReceiverStream,
@@ -287,13 +288,13 @@ impl tg::Client {
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
 		let method = http::Method::POST;
-		let query = serde_urlencoded::to_string(&arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
-		let arg_in_body = query.len() > tangram_http::body::arg::THRESHOLD;
-		let uri = if arg_in_body || query.is_empty() {
-			"/sync".to_owned()
-		} else {
-			format!("/sync?{query}")
+		let (arg_in_body, uri) = match Uri::builder().path("/sync").query_params(&arg) {
+			Ok(builder) => (false, builder.build().unwrap()),
+			Err(QueryParamsError::TooLarge) => {
+				let uri = Uri::builder().path("/sync").build().unwrap();
+				(true, uri)
+			},
+			Err(source) => return Err(tg::error!(!source, "failed to serialize the arg")),
 		};
 
 		// Create the body.

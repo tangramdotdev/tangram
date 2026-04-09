@@ -4,6 +4,7 @@ use {
 	futures::{Stream, StreamExt as _, TryStreamExt as _, future},
 	tangram_client::prelude::*,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_uri::Uri,
 };
 
 impl Client {
@@ -15,9 +16,13 @@ impl Client {
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>
 	{
 		let method = http::Method::POST;
-		let query = serde_urlencoded::to_string(&arg)
-			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?;
-		let uri = format!("/processes/{id}/stdio?{query}");
+		let path = format!("/processes/{id}/stdio");
+		let uri = Uri::builder()
+			.path(&path)
+			.query_params(&arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
+			.build()
+			.unwrap();
 		let stream = stream.map(
 			|result: tg::Result<tg::process::stdio::read::Event>| match result {
 				Ok(event) => event.try_into(),

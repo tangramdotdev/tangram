@@ -1084,7 +1084,7 @@ impl Cli {
 		&mut self,
 		reference: &tg::Reference,
 	) -> tg::Result<tg::Referent<tg::Either<tg::Object, tg::Process>>> {
-		self.get_reference_with_arg(reference, tg::get::Arg::default(), true)
+		self.get_reference_with_arg(reference, tg::get::Arg::default())
 			.boxed()
 			.await
 	}
@@ -1093,7 +1093,6 @@ impl Cli {
 		&mut self,
 		reference: &tg::Reference,
 		arg: tg::get::Arg,
-		relative_paths: bool,
 	) -> tg::Result<tg::Referent<tg::Either<tg::Object, tg::Process>>> {
 		if reference.options() == &tg::reference::Options::default() {
 			match reference.item() {
@@ -1113,11 +1112,13 @@ impl Cli {
 
 		let handle = self.handle().await?;
 
-		// Make the path absolute.
+		// Determine if the path is relative.
 		let relative = reference
 			.item()
 			.try_unwrap_path_ref()
 			.is_ok_and(|path| path.is_relative());
+
+		// Make the path absolute.
 		let mut item = reference.item().clone();
 		let options = reference.options().clone();
 		if let tg::reference::Item::Path(path) = &mut item {
@@ -1138,18 +1139,14 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, %reference, "failed to get the reference"))?;
 
 		// If the reference is a local relative path, then make the referent's path relative to the current working directory.
-		if referent.id().is_none()
-			&& referent.tag().is_none()
-			&& relative
-			&& let Some(path) = referent.path()
-			&& relative_paths
-		{
+		if relative && let Some(path) = referent.path() {
 			let current_dir = std::env::current_dir()
 				.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;
 			let path = tangram_util::path::diff(&current_dir, path)
-				.map_err(|source| tg::error!(!source, "failed to diff the paths"))?;
-			referent.options.path = Some(path);
-		}
+				.map_err(|source| tg::error!(!source, "failed to diff the paths"))?
+				.unwrap_or_default();
+				referent.options.path = Some(path);
+			}
 
 		Ok(referent)
 	}

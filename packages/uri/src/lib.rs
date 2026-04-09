@@ -211,6 +211,22 @@ impl std::fmt::Display for Uri {
 	}
 }
 
+impl TryFrom<&Uri> for http::Uri {
+	type Error = http::uri::InvalidUri;
+
+	fn try_from(value: &Uri) -> Result<Self, Self::Error> {
+		value.as_str().parse()
+	}
+}
+
+impl TryFrom<Uri> for http::Uri {
+	type Error = http::uri::InvalidUri;
+
+	fn try_from(value: Uri) -> Result<Self, Self::Error> {
+		value.string.parse()
+	}
+}
+
 impl std::str::FromStr for Uri {
 	type Err = ParseError;
 

@@ -31,7 +31,7 @@ impl Server {
 				Self::try_get_with_process(process, reference.options())?
 			},
 			tg::reference::Item::Tag(tag) => {
-				self.try_get_with_tag(context, tag, reference.options(), arg)
+				self.try_get_with_tag(context, tag, reference.options())
 					.await?
 			},
 		};
@@ -120,15 +120,14 @@ impl Server {
 		context: &Context,
 		pattern: &tg::tag::Pattern,
 		options: &tg::reference::Options,
-		arg: tg::get::Arg,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
 		let list_arg = tg::tag::list::Arg {
 			cached: false,
 			length: Some(1),
-			local: arg.local,
+			local: None,
 			pattern: pattern.clone(),
 			recursive: false,
-			remotes: arg.remotes.clone(),
+			remotes: options.remote.as_ref().map(|r| vec![r.clone()]),
 			reverse: true,
 			ttl: None,
 		};
@@ -210,12 +209,7 @@ impl Server {
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
 			.unwrap_or_default();
-		let options = request
-			.query_params()
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
-			.unwrap_or_default();
-		let reference = tg::Reference::with_item_and_options(item, options);
+		let reference = tg::Reference::with_item_and_options(item, arg.options.clone());
 
 		let stream = self
 			.try_get_with_context(context, &reference, arg)

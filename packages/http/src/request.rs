@@ -55,7 +55,7 @@ where
 	{
 		self.uri()
 			.query()
-			.map(|query| serde_urlencoded::from_str(query).map_err(Into::into))
+			.map(|query| serde_qs::from_str(query).map_err(Into::into))
 	}
 
 	fn parse_header<T, E>(&self, key: impl http::header::AsHeaderName) -> Option<Result<T, Error>>

@@ -5,11 +5,12 @@ use {
 	num::ToPrimitive as _,
 	serde::de::DeserializeOwned,
 	tangram_futures::{read::Ext as _, write::Ext as _},
+	tangram_uri::builder::QUERY_PARAMS_LENGTH_THRESHOLD,
 	tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _},
 };
 
 pub const HEADER: &str = "x-tg-arg-in-body";
-pub const THRESHOLD: usize = 4096;
+pub const THRESHOLD: usize = QUERY_PARAMS_LENGTH_THRESHOLD;
 
 pub fn get_header(headers: &http::HeaderMap) -> Result<bool> {
 	let Some(value) = headers.get(HEADER) else {

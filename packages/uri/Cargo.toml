@@ -19,7 +19,10 @@ workspace = true
 
 [dependencies]
 derive_more = { workspace = true }
+http = { workspace = true }
 percent-encoding = { workspace = true }
 regex = { workspace = true }
+serde = { workspace = true }
+serde_qs = { workspace = true }
 serde_with = { workspace = true }
 tangram_serialize = { workspace = true }

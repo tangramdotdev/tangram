@@ -614,7 +614,8 @@ impl Server {
 					.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
 				let dst = &absolute_target;
 				let target = tangram_util::path::diff(src, dst)
-					.map_err(|source| tg::error!(!source, "failed to diff the paths"))?;
+					.map_err(|source| tg::error!(!source, "failed to diff the paths"))?
+					.ok_or_else(|| tg::error!("expected the paths to differ"))?;
 				Self::checkin_replace_symlink(state, &path, &target)?;
 			}
 
@@ -662,7 +663,8 @@ impl Server {
 					.ok_or_else(|| tg::error!("expected the path to have a parent"))?;
 				let dst = &absolute_target;
 				let target = tangram_util::path::diff(src, dst)
-					.map_err(|source| tg::error!(!source, "failed to diff the paths"))?;
+					.map_err(|source| tg::error!(!source, "failed to diff the paths"))?
+					.ok_or_else(|| tg::error!("expected the paths to differ"))?;
 				Self::checkin_replace_symlink(state, &path, &target)?;
 			}
 
@@ -802,12 +804,8 @@ impl Server {
 					.as_ref()
 					.unwrap();
 				let path = tangram_util::path::diff(parent_path.parent().unwrap(), path)
-					.map_err(|source| tg::error!(!source, "failed to diff the paths"))?;
-				let path = if path.as_os_str().is_empty() {
-					".".into()
-				} else {
-					path
-				};
+					.map_err(|source| tg::error!(!source, "failed to diff the paths"))?
+					.unwrap_or_else(|| ".".into());
 				let path = if let Some(reference_path) = reference.options().path.as_ref() {
 					path.join(reference_path)
 				} else {
