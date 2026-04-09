@@ -2,6 +2,7 @@ use {crate::Cli, tangram_client::prelude::*};
 
 pub mod create;
 pub mod delete;
+pub mod get;
 pub mod init;
 pub mod list;
 
@@ -18,6 +19,7 @@ pub enum Command {
 	Create(self::create::Args),
 	#[command(alias = "remove", alias = "rm")]
 	Delete(self::delete::Args),
+	Get(self::get::Args),
 	#[command(hide = true)]
 	Init(self::init::Args),
 	#[command(alias = "ls")]
@@ -112,6 +114,9 @@ impl Cli {
 			},
 			Command::Delete(args) => {
 				self.command_sandbox_delete(args).await?;
+			},
+			Command::Get(args) => {
+				self.command_sandbox_get(args).await?;
 			},
 			Command::Init(_) => {
 				unreachable!()
