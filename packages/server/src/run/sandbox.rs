@@ -74,11 +74,18 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to create the tangram listener"))?;
 
-		// Create the sandbox.
+		// Create the sandbox. Include the artifacts directory as a readonly mount.
+		let artifacts_path = self.artifacts_path();
+		let mut mounts = state.mounts.clone();
+		mounts.push(tg::sandbox::Mount {
+			source: artifacts_path.clone(),
+			target: artifacts_path.clone(),
+			readonly: true,
+		});
 		let sandbox_arg = tangram_sandbox::SpawnArg {
-			artifacts_path: self.artifacts_path(),
+			artifacts_path,
 			hostname: state.hostname.clone(),
-			mounts: state.mounts.clone(),
+			mounts,
 			network: state.network,
 			path: temp.path().to_owned(),
 			rootfs_path: self.sandbox_rootfs.clone(),

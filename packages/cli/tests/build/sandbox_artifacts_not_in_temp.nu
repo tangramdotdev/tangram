@@ -19,8 +19,6 @@ let path = artifact {
 
 let id = tg build $path
 let output = tg checkout $id
-snapshot (open $output) '
-	hello
-'
+assert ((open $output | str trim) == "hello")
 
 rm -rf $dir
