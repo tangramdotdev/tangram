@@ -258,15 +258,7 @@ where
 			tg::process::stdio::read::Event::End,
 		)))
 		.boxed();
-	let output = handle.write_process_stdio(&id, arg, input).await?;
-	let mut output = std::pin::pin!(output);
-	while let Some(event) = output.try_next().await? {
-		match event {
-			tg::process::stdio::write::Event::End => break,
-			tg::process::stdio::write::Event::Stop => (),
-		}
-	}
-	Ok(())
+	handle.write_process_stdio_all(&id, arg, input).await
 }
 
 async fn stdout_stderr_task_task<H>(
