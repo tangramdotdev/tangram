@@ -66,7 +66,7 @@ impl Server {
 		let subject = format!("sandboxes.{sandbox}.processes.created");
 		let created = self
 			.messenger
-			.subscribe::<()>(subject, None)
+			.subscribe::<()>(subject, Some("sandbox_processes.dequeue".into()))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ());

@@ -1145,8 +1145,8 @@ impl Cli {
 			let path = tangram_util::path::diff(&current_dir, path)
 				.map_err(|source| tg::error!(!source, "failed to diff the paths"))?
 				.unwrap_or_default();
-				referent.options.path = Some(path);
-			}
+			referent.options.path = Some(path);
+		}
 
 		Ok(referent)
 	}

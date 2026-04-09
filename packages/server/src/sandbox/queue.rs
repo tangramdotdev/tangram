@@ -50,7 +50,7 @@ impl Server {
 	async fn try_dequeue_sandbox_local(&self) -> tg::Result<Option<tg::sandbox::queue::Output>> {
 		let created = self
 			.messenger
-			.subscribe::<()>("sandboxes.created".into(), None)
+			.subscribe::<()>("sandboxes.created".into(), Some("sandboxes.dequeue".into()))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ());
