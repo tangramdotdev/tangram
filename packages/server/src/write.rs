@@ -14,7 +14,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::prelude::*,
-	tangram_store::prelude::*,
+	tangram_object_store::prelude::*,
 	tokio::io::{AsyncRead, AsyncWriteExt as _},
 };
 
@@ -165,13 +165,13 @@ impl Server {
 				Some(Destination::Store { touched_at }) => {
 					let mut bytes = vec![0];
 					bytes.extend_from_slice(&chunk.data);
-					let arg = crate::store::PutObjectArg {
+					let arg = crate::object::store::PutObjectArg {
 						bytes: Some(bytes.into()),
 						cache_pointer: None,
 						id: blob.id.clone().into(),
 						touched_at: *touched_at,
 					};
-					self.store
+					self.object_store
 						.put_object(arg)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to store the leaf"))?;
@@ -259,13 +259,13 @@ impl Server {
 				Some(Destination::Store { touched_at }) => {
 					let mut bytes = vec![0];
 					bytes.extend_from_slice(&chunk.data);
-					let arg = crate::store::PutObjectArg {
+					let arg = crate::object::store::PutObjectArg {
 						bytes: Some(bytes.into()),
 						cache_pointer: None,
 						id: blob.id.clone().into(),
 						touched_at: *touched_at,
 					};
-					self.store
+					self.object_store
 						.put_object_sync(arg)
 						.map_err(|source| tg::error!(!source, "failed to store the leaf"))?;
 				},
@@ -439,7 +439,7 @@ impl Server {
 		touched_at: i64,
 	) -> tg::Result<()> {
 		let arg = Self::write_store_args(blob, cache_pointer.as_ref(), touched_at);
-		self.store
+		self.object_store
 			.put_object_batch(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the objects"))?;
@@ -450,7 +450,7 @@ impl Server {
 		blob: &Output,
 		cache_pointer: Option<&(tg::artifact::Id, Option<PathBuf>)>,
 		touched_at: i64,
-	) -> Vec<crate::store::PutObjectArg> {
+	) -> Vec<crate::object::store::PutObjectArg> {
 		let mut args = Vec::new();
 		let mut stack = vec![blob];
 		while let Some(blob) = stack.pop() {
@@ -461,13 +461,13 @@ impl Server {
 			let cache_pointer =
 				cache_pointer
 					.as_ref()
-					.map(|(artifact, path)| crate::store::CachePointer {
+					.map(|(artifact, path)| crate::object::store::CachePointer {
 						artifact: artifact.clone(),
 						path: path.clone(),
 						position: blob.position,
 						length: blob.length,
 					});
-			args.push(crate::store::PutObjectArg {
+			args.push(crate::object::store::PutObjectArg {
 				bytes: blob.bytes.clone(),
 				cache_pointer,
 				id: blob.id.clone().into(),

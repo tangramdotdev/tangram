@@ -70,11 +70,10 @@ impl Server {
 		};
 
 		// Get the process's children.
-		let connection = self
-			.register
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
+		let connection =
+			self.sandbox_store.connection().await.map_err(|source| {
+				tg::error!(!source, "failed to get a sandbox store connection")
+			})?;
 		let p = connection.p();
 		#[derive(Clone, db::row::Deserialize)]
 		struct Row {
@@ -149,12 +148,12 @@ impl Server {
 			error.remove_internal_locations();
 		}
 
-		// Get a register connection.
+		// Get a sandbox store connection.
 		let mut connection = self
-			.register
+			.sandbox_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection

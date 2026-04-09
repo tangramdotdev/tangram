@@ -147,12 +147,12 @@ impl Server {
 		let command_ = tg::Command::with_id(arg.command.item.clone());
 		let host = command_.host(self).await.ok();
 
-		// Get a register connection.
+		// Get a sandbox store connection.
 		let mut connection = self
-			.register
+			.sandbox_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection
@@ -1220,12 +1220,12 @@ impl Server {
 		options: &tg::referent::Options,
 		token: Option<&String>,
 	) -> tg::Result<()> {
-		// Get a register connection.
+		// Get a sandbox store connection.
 		let mut connection = self
-			.register
+			.sandbox_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection
@@ -1342,7 +1342,7 @@ impl Server {
 			return Err(tg::error!("{message}"));
 		}
 
-		// Add the child to the register.
+		// Add the child to the sandbox store.
 		let statement = formatdoc!(
 			"
 				insert into process_children (process, position, cached, child, options, token)

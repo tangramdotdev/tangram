@@ -11,24 +11,24 @@ let config = {
 		kind: 'postgres',
 		url: 'postgres://root@localhost:26257/database?sslmode=disable',
 	},
-	register: {
-		kind: 'postgres',
-		url: 'postgres://postgres@localhost:5432/register',
-	},
 	http: {
 		url: 'http://localhost:8476'
 	},
-	indexer: true,
 	index: {
-		kind: 'fdb',
 		cluster: $cluster,
+		kind: 'fdb',
 	},
+	indexer: true,
 	messenger: {
 		kind: 'nats',
 		url: 'nats://localhost:4222',
 	},
 	remotes: [],
 	runner: false,
+	sandbox_store: {
+		kind: 'postgres',
+		url: 'postgres://postgres@localhost:5432/sandbox_store',
+	},
 	store: {
 		kind: 'scylla',
 		addr: 'localhost:9042',

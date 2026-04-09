@@ -29,9 +29,6 @@ pub struct Config {
 	#[serde(default)]
 	pub database: Database,
 
-	#[serde(default = "default_register")]
-	pub register: Database,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub directory: Option<PathBuf>,
 
@@ -51,7 +48,13 @@ pub struct Config {
 	pub indexer: Option<Indexer>,
 
 	#[serde(default)]
+	pub log_store: LogStore,
+
+	#[serde(default)]
 	pub messenger: Messenger,
+
+	#[serde(default)]
+	pub object_store: ObjectStore,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub peers: Option<Vec<Peer>>,
@@ -63,8 +66,8 @@ pub struct Config {
 	#[serde(default = "default_runner")]
 	pub runner: Option<Runner>,
 
-	#[serde(default)]
-	pub store: Store,
+	#[serde(default = "default_sandbox_store")]
+	pub sandbox_store: Database,
 
 	#[serde(default)]
 	pub sync: Sync,
@@ -363,22 +366,22 @@ pub struct Runner {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
-pub enum Store {
-	Lmdb(LmdbStore),
+pub enum ObjectStore {
+	Lmdb(ObjectLmdbStore),
 	Memory,
-	Scylla(ScyllaStore),
+	Scylla(ObjectScyllaStore),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
-pub struct LmdbStore {
+pub struct ObjectLmdbStore {
 	pub map_size: usize,
 	pub path: PathBuf,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ScyllaStore {
+pub struct ObjectScyllaStore {
 	pub addr: String,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub connections: Option<usize>,
@@ -386,28 +389,79 @@ pub struct ScyllaStore {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub password: Option<String>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub speculative_execution: Option<ScyllaStoreSpeculativeExecution>,
+	pub speculative_execution: Option<ObjectScyllaStoreSpeculativeExecution>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub username: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
-pub enum ScyllaStoreSpeculativeExecution {
-	Percentile(ScyllaStorePercentileSpeculativeExecution),
-	Simple(ScyllaStoreSimpleSpeculativeExecution),
+pub enum ObjectScyllaStoreSpeculativeExecution {
+	Percentile(ObjectScyllaStorePercentileSpeculativeExecution),
+	Simple(ObjectScyllaStoreSimpleSpeculativeExecution),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ScyllaStorePercentileSpeculativeExecution {
+pub struct ObjectScyllaStorePercentileSpeculativeExecution {
 	pub max_retry_count: usize,
 	pub percentile: f64,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ScyllaStoreSimpleSpeculativeExecution {
+pub struct ObjectScyllaStoreSimpleSpeculativeExecution {
+	pub max_retry_count: usize,
+	pub retry_interval: u64,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
+pub enum LogStore {
+	Lmdb(LogLmdbStore),
+	Memory,
+	Scylla(LogScyllaStore),
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct LogLmdbStore {
+	pub map_size: usize,
+	pub path: PathBuf,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LogScyllaStore {
+	pub addr: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub connections: Option<usize>,
+	pub keyspace: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub password: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub speculative_execution: Option<LogScyllaStoreSpeculativeExecution>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub username: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
+pub enum LogScyllaStoreSpeculativeExecution {
+	Percentile(LogScyllaStorePercentileSpeculativeExecution),
+	Simple(LogScyllaStoreSimpleSpeculativeExecution),
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LogScyllaStorePercentileSpeculativeExecution {
+	pub max_retry_count: usize,
+	pub percentile: f64,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LogScyllaStoreSimpleSpeculativeExecution {
 	pub max_retry_count: usize,
 	pub retry_interval: u64,
 }
@@ -621,17 +675,18 @@ impl Default for Config {
 			checkin: Checkin::default(),
 			cleaner: None,
 			database: Database::default(),
-			register: default_register(),
 			directory: None,
+			finalizer: Some(Finalizer::default()),
 			http: Some(Http::default()),
 			index: Index::default(),
 			indexer: Some(Indexer::default()),
-			finalizer: Some(Finalizer::default()),
+			log_store: LogStore::default(),
 			messenger: Messenger::default(),
+			object_store: ObjectStore::default(),
 			peers: None,
 			remotes: None,
 			runner: Some(Runner::default()),
-			store: Store::default(),
+			sandbox_store: default_sandbox_store(),
 			sync: Sync::default(),
 			tag: Tag::default(),
 			version: None,
@@ -785,17 +840,32 @@ impl Default for Runner {
 	}
 }
 
-impl Default for Store {
+impl Default for ObjectStore {
 	fn default() -> Self {
-		Self::Lmdb(LmdbStore::default())
+		Self::Lmdb(ObjectLmdbStore::default())
 	}
 }
 
-impl Default for LmdbStore {
+impl Default for ObjectLmdbStore {
 	fn default() -> Self {
 		Self {
 			map_size: 1_099_511_627_776,
-			path: PathBuf::from("store"),
+			path: PathBuf::from("objects"),
+		}
+	}
+}
+
+impl Default for LogStore {
+	fn default() -> Self {
+		Self::Lmdb(LogLmdbStore::default())
+	}
+}
+
+impl Default for LogLmdbStore {
+	fn default() -> Self {
+		Self {
+			map_size: 1_099_511_627_776,
+			path: PathBuf::from("logs"),
 		}
 	}
 }
@@ -947,10 +1017,10 @@ fn default_finalizer() -> Option<Finalizer> {
 	Some(Finalizer::default())
 }
 
-fn default_register() -> Database {
+fn default_sandbox_store() -> Database {
 	Database::Sqlite(SqliteDatabase {
 		connections: None,
-		path: PathBuf::from("register"),
+		path: PathBuf::from("sandbox_store"),
 	})
 }
 

@@ -1,8 +1,8 @@
-use {crate::store::Store, std::collections::BTreeMap, tangram_client as tg};
+use {std::collections::BTreeMap, tangram_client as tg};
 
 /// Collect all entries from a directory, recursively flattening branches.
 pub fn collect_directory_entries(
-	store: &Store,
+	store: &crate::object::Store,
 	directory: &tg::graph::data::Directory,
 	graph: Option<&tg::graph::Id>,
 ) -> tg::Result<BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>> {
@@ -22,7 +22,7 @@ pub fn collect_directory_entries(
 
 /// Resolve a directory child edge to its directory data.
 fn resolve_directory_child(
-	store: &Store,
+	store: &crate::object::Store,
 	edge: &tg::graph::data::Edge<tg::directory::Id>,
 	graph: Option<&tg::graph::Id>,
 ) -> tg::Result<tg::graph::data::Directory> {

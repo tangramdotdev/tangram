@@ -5,7 +5,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::prelude::*,
-	tangram_store::prelude::*,
+	tangram_object_store::prelude::*,
 };
 
 impl Server {
@@ -27,14 +27,14 @@ impl Server {
 		let put_args: Vec<_> = arg
 			.objects
 			.iter()
-			.map(|object| crate::store::PutObjectArg {
+			.map(|object| crate::object::store::PutObjectArg {
 				id: object.id.clone(),
 				bytes: Some(object.bytes.clone()),
 				touched_at: now,
 				cache_pointer: None,
 			})
 			.collect();
-		self.store
+		self.object_store
 			.put_object_batch(put_args)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the objects"))?;

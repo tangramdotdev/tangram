@@ -57,11 +57,10 @@ impl Server {
 		&self,
 		config: &crate::config::Watchdog,
 	) -> tg::Result<u64> {
-		let connection = self
-			.register
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
+		let connection =
+			self.sandbox_store.connection().await.map_err(|source| {
+				tg::error!(!source, "failed to get a sandbox store connection")
+			})?;
 		let p = connection.p();
 
 		// Get processes to finish.
@@ -178,10 +177,10 @@ impl Server {
 		id: &tg::sandbox::Id,
 	) -> tg::Result<bool> {
 		let connection = self
-			.register
+			.sandbox_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"

@@ -16,7 +16,7 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
-	tangram_store::prelude::*,
+	tangram_object_store::prelude::*,
 };
 
 impl Server {
@@ -702,7 +702,7 @@ impl Server {
 		}
 
 		// Create the store arg.
-		let store_arg = crate::store::PutObjectArg {
+		let store_arg = crate::object::store::PutObjectArg {
 			bytes: Some(bytes),
 			cache_pointer: None,
 			id: id.clone(),
@@ -797,7 +797,7 @@ impl Server {
 					let id: tg::object::Id = output.id.clone().into();
 
 					// Create and set the cache pointer.
-					let cache_pointer = crate::store::CachePointer {
+					let cache_pointer = crate::object::store::CachePointer {
 						artifact: artifact.clone(),
 						path: path.clone(),
 						position: output.position,
@@ -833,13 +833,13 @@ impl Server {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Store the object.
-		let store_arg = crate::store::PutObjectArg {
+		let store_arg = crate::object::store::PutObjectArg {
 			bytes: Some(bytes),
 			cache_pointer: None,
 			id: id.clone(),
 			touched_at,
 		};
-		self.store
+		self.object_store
 			.put_object(store_arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the reference artifact"))?;
@@ -1253,7 +1253,7 @@ impl Server {
 		}
 
 		// Create the store arg.
-		let store_arg = crate::store::PutObjectArg {
+		let store_arg = crate::object::store::PutObjectArg {
 			bytes: Some(bytes),
 			cache_pointer: None,
 			id: id.clone(),

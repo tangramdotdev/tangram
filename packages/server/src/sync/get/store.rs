@@ -1,10 +1,10 @@
 use {
-	crate::{Server, database::Database, store::Store, sync::get::State},
+	crate::{Server, database::Database, sync::get::State},
 	bytes::Bytes,
 	futures::{StreamExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
-	tangram_store::prelude::*,
+	tangram_object_store::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
 
@@ -40,12 +40,12 @@ impl Server {
 		object_receiver: tokio::sync::mpsc::Receiver<ObjectItem>,
 	) -> tg::Result<()> {
 		// Choose the batch parameters.
-		let store_config = match &self.store {
+		let store_config = match &self.object_store {
 			#[cfg(feature = "lmdb")]
-			Store::Lmdb(_) => &self.config.sync.get.store.lmdb,
-			Store::Memory(_) => &self.config.sync.get.store.memory,
+			crate::object::Store::Lmdb(_) => &self.config.sync.get.store.lmdb,
+			crate::object::Store::Memory(_) => &self.config.sync.get.store.memory,
 			#[cfg(feature = "scylla")]
-			Store::Scylla(_) => &self.config.sync.get.store.scylla,
+			crate::object::Store::Scylla(_) => &self.config.sync.get.store.scylla,
 		};
 		let concurrency = store_config.object_concurrency;
 		let max_objects_per_batch = store_config.object_max_batch;
@@ -107,7 +107,7 @@ impl Server {
 		let args = items
 			.iter()
 			.map(|item| {
-				Ok(crate::store::PutObjectArg {
+				Ok(crate::object::store::PutObjectArg {
 					id: item.id.clone(),
 					bytes: Some(item.bytes.clone()),
 					cache_pointer: None,
@@ -115,7 +115,7 @@ impl Server {
 				})
 			})
 			.collect::<tg::Result<_>>()?;
-		self.store
+		self.object_store
 			.put_object_batch(args)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put objects"))?;
@@ -236,7 +236,7 @@ impl Server {
 		// Write the processes to the database.
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let batch_refs: Vec<_> = batch.iter().map(|(id, data, _)| (id, data)).collect();
-		match &self.register {
+		match &self.sandbox_store {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(database) => {
 				Self::put_process_batch_postgres(&batch_refs, database, now)

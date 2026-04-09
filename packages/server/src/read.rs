@@ -19,7 +19,7 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_store::prelude::*,
+	tangram_object_store::prelude::*,
 	tokio::io::{
 		AsyncBufRead, AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _, AsyncSeek,
 		AsyncSeekExt as _,
@@ -246,7 +246,7 @@ impl Reader {
 	pub async fn new(server: &Server, blob: tg::Blob) -> tg::Result<Self> {
 		let id = blob.id();
 		let object = server
-			.store
+			.object_store
 			.try_get_object(&id.clone().into())
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
@@ -275,7 +275,7 @@ impl Reader {
 	pub fn new_sync(server: &Server, blob: tg::Blob) -> tg::Result<Self> {
 		let id = blob.id();
 		let object = server
-			.store
+			.object_store
 			.try_get_object_sync(&id.clone().into())
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
 		let cache_pointer = object.and_then(|object| object.cache_pointer);

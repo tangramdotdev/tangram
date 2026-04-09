@@ -1,8 +1,6 @@
 use {
-	crate::{
-		Server,
-		store::{DeleteProcessLogArg, ReadProcessLogArg},
-	},
+	self::store::{DeleteProcessLogArg, ReadProcessLogArg},
+	crate::Server,
 	futures::{
 		StreamExt as _,
 		stream::{self, BoxStream},
@@ -16,9 +14,13 @@ use {
 	tangram_client::{self as tg, Handle as _},
 	tangram_database::{self as db, Database as _, Query as _},
 	tangram_futures::{read::Ext as _, write::Ext as _},
-	tangram_store::Store as _,
+	tangram_log_store::Store as _,
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
 };
+
+pub use self::store::Store;
+
+pub mod store;
 
 enum Inner {
 	Blob(BlobInner),
@@ -116,7 +118,7 @@ impl Server {
 		}
 
 		let entries = self
-			.store
+			.log_store
 			.try_read_process_log(ReadProcessLogArg {
 				process: process.clone(),
 				position: 0,
@@ -174,7 +176,7 @@ impl Server {
 		let blob = self.write(arg, Cursor::new(blob_bytes)).await?.blob;
 
 		let connection = self
-			.register
+			.sandbox_store
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get db connection"))?;
@@ -192,7 +194,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		self.store
+		self.log_store
 			.delete_process_log(DeleteProcessLogArg {
 				process: process.clone(),
 			})
@@ -269,7 +271,7 @@ impl Server {
 		};
 
 		struct State {
-			entries: VecDeque<tangram_store::ProcessLogEntry<'static>>,
+			entries: VecDeque<tangram_log_store::ProcessLogEntry<'static>>,
 			inner: Inner,
 			log_length: Option<u64>,
 			position: u64,
@@ -390,7 +392,7 @@ impl Inner {
 		position: u64,
 		length: u64,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
-	) -> tg::Result<Vec<tangram_store::ProcessLogEntry<'static>>> {
+	) -> tg::Result<Vec<tangram_log_store::ProcessLogEntry<'static>>> {
 		match self {
 			Inner::Blob(inner) => inner.try_read_process_log(position, length, streams).await,
 			Inner::Store(inner) => inner.try_read_process_log(position, length, streams).await,
@@ -414,7 +416,7 @@ impl BlobInner {
 		position: u64,
 		mut length: u64,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
-	) -> tg::Result<Vec<tangram_store::ProcessLogEntry<'static>>> {
+	) -> tg::Result<Vec<tangram_log_store::ProcessLogEntry<'static>>> {
 		self.entry = if streams.len() > 1 {
 			let index = self
 				.index
@@ -513,7 +515,7 @@ impl BlobInner {
 		Ok(Some(position + entry.bytes.len().to_u64().unwrap()))
 	}
 
-	async fn read_entry(&mut self) -> tg::Result<tangram_store::ProcessLogEntry<'static>> {
+	async fn read_entry(&mut self) -> tg::Result<tangram_log_store::ProcessLogEntry<'static>> {
 		let entry = self.index.entries[self.entry];
 		self.reader
 			.seek(SeekFrom::Start(entry.blob_position))
@@ -524,8 +526,9 @@ impl BlobInner {
 			.read_exact(&mut bytes)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read the log entry"))?;
-		let entry: tangram_store::ProcessLogEntry<'_> = tangram_serialize::from_slice(&bytes)
-			.map_err(|source| tg::error!(!source, "log blob is corrupted"))?;
+		let entry: tangram_log_store::ProcessLogEntry<'_> =
+			tangram_serialize::from_slice(&bytes)
+				.map_err(|source| tg::error!(!source, "log blob is corrupted"))?;
 		Ok(entry.into_static())
 	}
 }
@@ -536,15 +539,15 @@ impl StoreInner {
 		position: u64,
 		length: u64,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
-	) -> tg::Result<Vec<tangram_store::ProcessLogEntry<'static>>> {
-		let arg = tangram_store::ReadProcessLogArg {
+	) -> tg::Result<Vec<tangram_log_store::ProcessLogEntry<'static>>> {
+		let arg = tangram_log_store::ReadProcessLogArg {
 			length,
 			position,
 			process: self.process.clone(),
 			streams: streams.clone(),
 		};
 		self.server
-			.store
+			.log_store
 			.try_read_process_log(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read the log"))
@@ -555,7 +558,7 @@ impl StoreInner {
 		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<u64>> {
 		self.server
-			.store
+			.log_store
 			.try_get_process_log_length(&self.process, streams)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read the log"))
@@ -563,7 +566,7 @@ impl StoreInner {
 }
 
 fn entry_position(
-	entry: &tangram_store::ProcessLogEntry<'_>,
+	entry: &tangram_log_store::ProcessLogEntry<'_>,
 	streams: &BTreeSet<tg::process::stdio::Stream>,
 ) -> u64 {
 	if streams.len() > 1 {

@@ -46,7 +46,7 @@ type IndexObjectArgs = IndexMap<tg::object::Id, tangram_index::PutObjectArg, tg:
 
 type IndexCacheEntryArgs = Vec<tangram_index::PutCacheEntryArg>;
 
-type StoreArgs = IndexMap<tg::object::Id, crate::store::PutObjectArg, tg::id::BuildHasher>;
+type StoreArgs = IndexMap<tg::object::Id, crate::object::store::PutObjectArg, tg::id::BuildHasher>;
 
 type GraphData = IndexMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>;
 

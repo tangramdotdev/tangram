@@ -12,7 +12,7 @@ use {
 	},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::prelude::*,
-	tangram_store::prelude::*,
+	tangram_object_store::prelude::*,
 };
 
 impl Server {
@@ -246,19 +246,19 @@ impl Server {
 			.objects
 			.iter()
 			.cloned()
-			.map(|id| crate::store::DeleteObjectArg { id, now, ttl })
+			.map(|id| crate::object::store::DeleteObjectArg { id, now, ttl })
 			.collect();
-		self.store
+		self.object_store
 			.delete_object_batch(args)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to delete objects"))?;
 
-		// Get a register connection.
+		// Get a sandbox store connection.
 		let connection = self
-			.register
+			.sandbox_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
 
 		// Delete processes.
 		let p = connection.p();

@@ -10,8 +10,8 @@ use {
 		task::{Stopper, Task},
 	},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_log_store::Store as _,
 	tangram_messenger::prelude::*,
-	tangram_store::Store as _,
 	tokio_stream::wrappers::ReceiverStream,
 };
 
@@ -158,13 +158,13 @@ impl Server {
 							}
 							let timestamp =
 								time::OffsetDateTime::now_utc().unix_timestamp() - started_at;
-							let arg = tangram_store::PutProcessLogArg {
+							let arg = tangram_log_store::PutProcessLogArg {
 								bytes: chunk.bytes,
 								process: id.clone(),
 								stream: validate_log_stream(chunk.stream)?,
 								timestamp,
 							};
-							self.store
+							self.log_store
 								.put_process_log(arg)
 								.await
 								.map_err(|source| tg::error!(!source, "failed to store the log"))?;

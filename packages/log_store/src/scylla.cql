@@ -1,10 +1,3 @@
-create table if not exists objects (
-	id blob primary key,
-	bytes blob,
-	cache_pointer blob,
-	touched_at bigint
-);
-
 create table if not exists process_log_entries (
 	process blob,
 	position bigint,

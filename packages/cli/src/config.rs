@@ -108,7 +108,8 @@ impl Default for Tracing {
 				"tangram_js=info",
 				"tangram_messenger=info",
 				"tangram_server=info",
-				"tangram_store=info",
+				"tangram_log_store=info",
+				"tangram_object_store=info",
 				"tangram_vfs=info",
 			]
 			.join(","),

@@ -75,15 +75,15 @@ impl Server {
 		let stream = stream::select(created, interval);
 		let mut stream = pin!(stream);
 		while let Some(()) = stream.next().await {
-			let output = match &self.register {
+			let output = match &self.sandbox_store {
 				#[cfg(feature = "postgres")]
-				Database::Postgres(register) => {
-					self.try_dequeue_sandbox_process_postgres(register, sandbox)
+				Database::Postgres(sandbox_store) => {
+					self.try_dequeue_sandbox_process_postgres(sandbox_store, sandbox)
 						.await?
 				},
 				#[cfg(feature = "sqlite")]
-				Database::Sqlite(register) => {
-					self.try_dequeue_sandbox_process_sqlite(register, sandbox)
+				Database::Sqlite(sandbox_store) => {
+					self.try_dequeue_sandbox_process_sqlite(sandbox_store, sandbox)
 						.await?
 				},
 			};

@@ -41,17 +41,17 @@ impl Server {
 		}
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
-		// Insert the process into the register.
-		match &self.register {
+		// Insert the process into the sandbox store.
+		match &self.sandbox_store {
 			#[cfg(feature = "postgres")]
-			Database::Postgres(register) => {
-				Self::put_process_postgres(id, &arg, register, now)
+			Database::Postgres(sandbox_store) => {
+				Self::put_process_postgres(id, &arg, sandbox_store, now)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to put the process"))?;
 			},
 			#[cfg(feature = "sqlite")]
-			Database::Sqlite(register) => {
-				Self::put_process_sqlite(id, &arg, register, now)
+			Database::Sqlite(sandbox_store) => {
+				Self::put_process_sqlite(id, &arg, sandbox_store, now)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to put the process"))?;
 			},

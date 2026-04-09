@@ -1,7 +1,5 @@
 use {
-	self::{
-		context::Context, database::Database, index::Index, messenger::Messenger, store::Store,
-	},
+	self::{context::Context, database::Database, index::Index, messenger::Messenger},
 	crate::{temp::Temp, watch::Watch},
 	dashmap::{DashMap, DashSet},
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
@@ -38,6 +36,7 @@ mod handle;
 mod health;
 mod http;
 mod index;
+mod log;
 mod lsp;
 mod messenger;
 mod module;
@@ -47,11 +46,9 @@ mod process;
 mod pull;
 mod push;
 mod read;
-mod register;
 mod remote;
 mod run;
 mod sandbox;
-mod store;
 mod sync;
 mod tag;
 mod temp;
@@ -90,19 +87,20 @@ pub struct State {
 	index_tasks: tangram_futures::task::Set<()>,
 	library: Mutex<Option<Arc<Temp>>>,
 	lock: Mutex<Option<tokio::fs::File>>,
+	log_store: self::log::Store,
 	messenger: Messenger,
+	object_get_tasks: ObjectGetTasks,
+	object_store: self::object::Store,
 	path: PathBuf,
 	peers: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
-	object_get_tasks: ObjectGetTasks,
-	register: Database,
-	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	remote_list_tags_tasks: RemoteListTagsTasks,
-	sandbox_rootfs: PathBuf,
-	sandboxes: Sandboxes,
+	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	sandbox_permits: SandboxPermits,
+	sandbox_rootfs: PathBuf,
 	sandbox_semaphore: Arc<tokio::sync::Semaphore>,
+	sandbox_store: Database,
+	sandboxes: Sandboxes,
 	sandbox_tasks: SandboxTasks,
-	store: Store,
 	tangram_path: PathBuf,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
@@ -250,12 +248,6 @@ impl Server {
 			},
 		}
 
-		// Ensure the logs directory exists.
-		let logs_path = path.join("logs");
-		tokio::fs::create_dir_all(&logs_path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the logs directory"))?;
-
 		// Ensure the temp directory exists.
 		let temp_path = path.join("tmp");
 		tokio::fs::create_dir_all(&temp_path)
@@ -358,8 +350,8 @@ impl Server {
 			},
 		};
 
-		// Create the register.
-		let register = match &config.register {
+		// Create the sandbox store.
+		let sandbox_store = match &config.sandbox_store {
 			self::config::Database::Postgres(options) => {
 				#[cfg(not(feature = "postgres"))]
 				{
@@ -374,10 +366,13 @@ impl Server {
 						connections: options.connections.unwrap_or(parallelism),
 						url: options.url.clone(),
 					};
-					let register = db::postgres::Database::new(options)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to create the register"))?;
-					Database::Postgres(register)
+					let sandbox_store =
+						db::postgres::Database::new(options)
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to create the sandbox store")
+							})?;
+					Database::Postgres(sandbox_store)
 				}
 			},
 			self::config::Database::Sqlite(config) => {
@@ -396,10 +391,11 @@ impl Server {
 						initialize,
 						path: path.join(&config.path),
 					};
-					let register = db::sqlite::Database::new(options)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to create the register"))?;
-					Database::Sqlite(register)
+					let sandbox_store =
+						db::sqlite::Database::new(options).await.map_err(|source| {
+							tg::error!(!source, "failed to create the sandbox store")
+						})?;
+					Database::Sqlite(sandbox_store)
 				}
 			},
 		};
@@ -557,9 +553,9 @@ impl Server {
 			tangram_path: tangram_path.clone(),
 		})?;
 
-		// Create the store.
-		let store = match &config.store {
-			config::Store::Lmdb(lmdb) => {
+		// Create the log store.
+		let log_store = match &config.log_store {
+			config::LogStore::Lmdb(lmdb) => {
 				#[cfg(not(feature = "lmdb"))]
 				{
 					let _ = lmdb;
@@ -569,14 +565,14 @@ impl Server {
 				}
 				#[cfg(feature = "lmdb")]
 				{
-					Store::new_lmdb(&path, lmdb)
-						.map_err(|error| tg::error!(!error, "failed to create the store"))?
+					self::log::Store::new_lmdb(&path, lmdb)
+						.map_err(|error| tg::error!(!error, "failed to create the log store"))?
 				}
 			},
 
-			config::Store::Memory => Store::new_memory(),
+			config::LogStore::Memory => self::log::Store::new_memory(),
 
-			config::Store::Scylla(scylla) => {
+			config::LogStore::Scylla(scylla) => {
 				#[cfg(not(feature = "scylla"))]
 				{
 					let _ = scylla;
@@ -586,9 +582,45 @@ impl Server {
 				}
 				#[cfg(feature = "scylla")]
 				{
-					Store::new_scylla(scylla)
+					self::log::Store::new_scylla(scylla)
 						.await
-						.map_err(|error| tg::error!(!error, "failed to create the store"))?
+						.map_err(|error| tg::error!(!error, "failed to create the log store"))?
+				}
+			},
+		};
+
+		// Create the object store.
+		let object_store = match &config.object_store {
+			config::ObjectStore::Lmdb(lmdb) => {
+				#[cfg(not(feature = "lmdb"))]
+				{
+					let _ = lmdb;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with lmdb support"
+					));
+				}
+				#[cfg(feature = "lmdb")]
+				{
+					self::object::Store::new_lmdb(&path, lmdb)
+						.map_err(|error| tg::error!(!error, "failed to create the object store"))?
+				}
+			},
+
+			config::ObjectStore::Memory => self::object::Store::new_memory(),
+
+			config::ObjectStore::Scylla(scylla) => {
+				#[cfg(not(feature = "scylla"))]
+				{
+					let _ = scylla;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with scylla support"
+					));
+				}
+				#[cfg(feature = "scylla")]
+				{
+					self::object::Store::new_scylla(scylla)
+						.await
+						.map_err(|error| tg::error!(!error, "failed to create the object store"))?
 				}
 			},
 		};
@@ -622,19 +654,20 @@ impl Server {
 			index_tasks,
 			library,
 			lock,
+			log_store,
 			messenger,
+			object_get_tasks,
+			object_store,
 			path,
 			peers,
-			object_get_tasks,
-			register,
-			remotes,
 			remote_list_tags_tasks,
-			sandbox_rootfs,
-			sandboxes,
+			remotes,
 			sandbox_permits,
+			sandbox_rootfs,
 			sandbox_semaphore,
+			sandbox_store,
+			sandboxes,
 			sandbox_tasks,
-			store,
 			tangram_path,
 			temps,
 			version,
@@ -650,12 +683,12 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to migrate the database"))?;
 		}
 
-		// Migrate the register if necessary.
+		// Migrate the sandbox store if necessary.
 		#[cfg(feature = "sqlite")]
-		if let Ok(register) = server.register.try_unwrap_sqlite_ref() {
-			self::register::sqlite::migrate(register)
+		if let Ok(sandbox_store) = server.sandbox_store.try_unwrap_sqlite_ref() {
+			self::sandbox::store::sqlite::migrate(sandbox_store)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to migrate the register"))?;
+				.map_err(|source| tg::error!(!source, "failed to migrate the sandbox store"))?;
 		}
 
 		// Finish unfinished processes if single process mode is enabled.

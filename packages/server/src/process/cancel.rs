@@ -46,12 +46,12 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<()> {
-		// Get a register connection.
+		// Get a sandbox store connection.
 		let mut connection = self
-			.register
+			.sandbox_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection

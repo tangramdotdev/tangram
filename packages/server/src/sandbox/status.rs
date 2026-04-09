@@ -136,11 +136,10 @@ impl Server {
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::Status>> {
-		let connection = self
-			.register
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
+		let connection =
+			self.sandbox_store.connection().await.map_err(|source| {
+				tg::error!(!source, "failed to get a sandbox store connection")
+			})?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"

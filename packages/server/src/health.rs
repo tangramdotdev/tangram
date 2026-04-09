@@ -39,12 +39,10 @@ impl Server {
 		let include_version = include_field("version");
 
 		let processes = if include_processes {
-			// Get a register connection.
-			let connection = self
-				.register
-				.connection()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
+			// Get a sandbox store connection.
+			let connection = self.sandbox_store.connection().await.map_err(|source| {
+				tg::error!(!source, "failed to get a sandbox store connection")
+			})?;
 
 			// Get the process health.
 			let permits = if self.config.runner.is_some() {
@@ -87,7 +85,7 @@ impl Server {
 					database.read_pool().available().to_u64().unwrap()
 						+ database.write_pool().available().to_u64().unwrap()
 				},
-			} + match &self.register {
+			} + match &self.sandbox_store {
 				#[cfg(feature = "postgres")]
 				Database::Postgres(database) => database.pool().available().to_u64().unwrap(),
 				#[cfg(feature = "sqlite")]

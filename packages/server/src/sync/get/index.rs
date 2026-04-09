@@ -5,7 +5,7 @@ use {
 	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
-	tangram_store::prelude::*,
+	tangram_object_store::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
 
@@ -247,7 +247,7 @@ impl Server {
 
 	pub(super) async fn sync_get_index_put(&self, graph: Arc<Mutex<Graph>>) -> tg::Result<()> {
 		// Flush the store.
-		self.store
+		self.object_store
 			.flush()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to flush the store"))?;

@@ -1,5 +1,5 @@
 [package]
-name = "tangram_store"
+name = "tangram_object_store"
 
 description = { workspace = true }
 edition = { workspace = true }

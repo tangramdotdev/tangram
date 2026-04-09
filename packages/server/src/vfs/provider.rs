@@ -16,7 +16,7 @@ use {
 		sync::atomic::{AtomicU64, Ordering},
 	},
 	tangram_client::prelude::*,
-	tangram_store::prelude::*,
+	tangram_object_store::prelude::*,
 	tangram_vfs as vfs,
 };
 
@@ -163,7 +163,7 @@ impl Provider {
 		requests: Vec<vfs::Request>,
 	) -> Vec<std::io::Result<vfs::Response>> {
 		#[cfg(feature = "lmdb")]
-		if let crate::store::Store::Lmdb(store) = &self.server.store {
+		if let crate::object::Store::Lmdb(store) = &self.server.object_store {
 			let transaction = match store.env().read_txn() {
 				Ok(transaction) => transaction,
 				Err(error) => {
@@ -1351,7 +1351,7 @@ impl Provider {
 		let id: tg::object::Id = id.clone().into();
 		let object = self
 			.server
-			.store
+			.object_store
 			.try_get_object(&id)
 			.await
 			.map_err(|error| {
@@ -1802,10 +1802,10 @@ impl Provider {
 		&self,
 		id: &tg::object::Id,
 		transaction: Option<&Transaction<'_>>,
-	) -> std::io::Result<Option<tangram_store::Object<'static>>> {
+	) -> std::io::Result<Option<tangram_object_store::Object<'static>>> {
 		#[cfg(feature = "lmdb")]
-		if let (crate::store::Store::Lmdb(store), Some(transaction)) =
-			(&self.server.store, transaction)
+		if let (crate::object::Store::Lmdb(store), Some(transaction)) =
+			(&self.server.object_store, transaction)
 		{
 			return store
 				.try_get_object_with_transaction(transaction, id)
@@ -1816,7 +1816,7 @@ impl Provider {
 		let _ = transaction;
 
 		self.server
-			.store
+			.object_store
 			.try_get_object_sync(id)
 			.map_err(|error| Self::map_store_sync_error(&error))
 	}
@@ -1827,8 +1827,8 @@ impl Provider {
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Option<(u64, tg::object::Data)>> {
 		#[cfg(feature = "lmdb")]
-		if let (crate::store::Store::Lmdb(store), Some(transaction)) =
-			(&self.server.store, transaction)
+		if let (crate::object::Store::Lmdb(store), Some(transaction)) =
+			(&self.server.object_store, transaction)
 		{
 			return store
 				.try_get_object_data_with_transaction(transaction, id)
@@ -1839,7 +1839,7 @@ impl Provider {
 		let _ = transaction;
 
 		self.server
-			.store
+			.object_store
 			.try_get_object_data_sync(id)
 			.map_err(|error| Self::map_store_sync_error(&error))
 	}

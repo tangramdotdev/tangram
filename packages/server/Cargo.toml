@@ -16,12 +16,12 @@ ignored = ["tangram_js", "tokio-postgres"]
 [features]
 foundationdb = ["tangram_index/foundationdb"]
 js = ["dep:tangram_js"]
-lmdb = ["dep:heed", "tangram_index/lmdb", "tangram_store/lmdb"]
+lmdb = ["dep:heed", "tangram_index/lmdb", "tangram_log_store/lmdb", "tangram_object_store/lmdb"]
 nats = ["dep:async-nats", "tangram_messenger/nats"]
 postgres = ["dep:tokio-postgres", "tangram_database/postgres"]
 quickjs = ["tangram_js/quickjs"]
 sqlite = ["dep:rusqlite", "tangram_database/sqlite"]
-scylla = ["tangram_store/scylla"]
+scylla = ["tangram_log_store/scylla", "tangram_object_store/scylla"]
 tls = ["dep:rustls", "dep:rustls-pemfile", "dep:tokio-rustls"]
 typescript = ["tangram_compiler/typescript"]
 v8 = ["tangram_js/v8"]
@@ -83,10 +83,11 @@ tangram_http = { workspace = true }
 tangram_ignore = { workspace = true }
 tangram_index = { workspace = true }
 tangram_js = { workspace = true, optional = true }
+tangram_log_store = { workspace = true }
 tangram_messenger = { workspace = true }
+tangram_object_store = { workspace = true }
 tangram_sandbox = { workspace = true }
 tangram_serialize = { workspace = true }
-tangram_store = { workspace = true }
 tangram_uri = { workspace = true }
 tangram_util = { workspace = true }
 tangram_vfs = { workspace = true }

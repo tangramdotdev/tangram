@@ -412,7 +412,7 @@ impl Server {
 
 		// Load the graph data.
 		let (_size, data) = self
-			.store
+			.object_store
 			.try_get_object_data_sync(&graph_id.clone().into())
 			.map_err(|source| tg::error!(!source, "failed to get the graph data"))?
 			.ok_or_else(|| tg::error!("failed to load the graph"))?;
@@ -555,7 +555,7 @@ impl Server {
 
 		// Collect all entries, recursively flattening branches.
 		let entries =
-			crate::directory::collect_directory_entries(&self.store, node, graph.as_ref())?;
+			crate::directory::collect_directory_entries(&self.object_store, node, graph.as_ref())?;
 
 		// Recurse into the entries.
 		for (name, mut edge) in entries {
@@ -801,7 +801,7 @@ impl Server {
 					.ok_or_else(|| tg::error!("missing graph"))?
 					.clone();
 				let (_size, data) = self
-					.store
+					.object_store
 					.try_get_object_data_sync(&graph_id.clone().into())
 					.map_err(|source| tg::error!(!source, "failed to get the graph data"))?
 					.ok_or_else(|| tg::error!("failed to load the graph"))?;
@@ -838,7 +838,7 @@ impl Server {
 			tg::graph::data::Edge::Object(id) => {
 				// Load the object.
 				let (_size, data) = self
-					.store
+					.object_store
 					.try_get_object_data_sync(&id.clone().into())
 					.map_err(|source| tg::error!(!source, "failed to get the object data"))?
 					.ok_or_else(|| tg::error!("failed to load the object"))?;
@@ -859,7 +859,7 @@ impl Server {
 							.ok_or_else(|| tg::error!("missing graph"))?
 							.clone();
 						let (_size, data) = self
-							.store
+							.object_store
 							.try_get_object_data_sync(&graph_id.clone().into())
 							.map_err(|source| tg::error!(!source, "failed to get the graph data"))?
 							.ok_or_else(|| tg::error!("failed to load the graph"))?;

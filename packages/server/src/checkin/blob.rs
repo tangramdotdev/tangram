@@ -101,7 +101,7 @@ impl Server {
 
 				// Create the store arg only if needed.
 				let store_arg = if cache_pointers || bytes.is_some() {
-					Some(crate::store::PutObjectArg {
+					Some(crate::object::store::PutObjectArg {
 						bytes,
 						cache_pointer: None,
 						id: id.clone(),

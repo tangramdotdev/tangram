@@ -211,12 +211,11 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<u64> {
-		// Get a register connection.
-		let connection = self
-			.register
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
+		// Get a sandbox store connection.
+		let connection =
+			self.sandbox_store.connection().await.map_err(|source| {
+				tg::error!(!source, "failed to get a sandbox store connection")
+			})?;
 
 		// Get the position.
 		let p = connection.p();
@@ -233,7 +232,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		// Drop the register connection.
+		// Drop the sandbox store connection.
 		drop(connection);
 
 		Ok(position)
@@ -245,12 +244,11 @@ impl Server {
 		position: u64,
 		length: u64,
 	) -> tg::Result<tg::process::children::get::Chunk> {
-		// Get a register connection.
-		let connection = self
-			.register
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
+		// Get a sandbox store connection.
+		let connection =
+			self.sandbox_store.connection().await.map_err(|source| {
+				tg::error!(!source, "failed to get a sandbox store connection")
+			})?;
 
 		// Get the children.
 		#[derive(db::row::Deserialize)]
@@ -285,7 +283,7 @@ impl Server {
 			})
 			.collect();
 
-		// Drop the register connection.
+		// Drop the sandbox store connection.
 		drop(connection);
 
 		// Create the chunk.

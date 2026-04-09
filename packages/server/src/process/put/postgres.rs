@@ -10,26 +10,26 @@ impl Server {
 	pub(crate) async fn put_process_postgres(
 		id: &tg::process::Id,
 		arg: &tg::process::put::Arg,
-		register: &db::postgres::Database,
+		sandbox_store: &db::postgres::Database,
 		touched_at: i64,
 	) -> tg::Result<()> {
-		Self::put_process_batch_postgres(&[(id, &arg.data)], register, touched_at).await
+		Self::put_process_batch_postgres(&[(id, &arg.data)], sandbox_store, touched_at).await
 	}
 
 	pub(crate) async fn put_process_batch_postgres(
 		items: &[(&tg::process::Id, &tg::process::Data)],
-		register: &db::postgres::Database,
+		sandbox_store: &db::postgres::Database,
 		touched_at: i64,
 	) -> tg::Result<()> {
 		if items.is_empty() {
 			return Ok(());
 		}
 
-		// Get a register connection.
-		let mut connection = register
+		// Get a sandbox store connection.
+		let mut connection = sandbox_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection

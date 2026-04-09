@@ -24,14 +24,14 @@ pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 
 	if version > schema_version {
 		return Err(tg::error!(
-			r"The register has run migrations from a newer version of Tangram. Please run `tg self update` to update to the latest version of Tangram."
+			r"The sandbox store has run migrations from a newer version of Tangram. Please run `tg self update` to update to the latest version of Tangram."
 		));
 	}
 
 	if version == 0 {
 		migration_0000(database)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to create the register schema"))?;
+			.map_err(|source| tg::error!(!source, "failed to create the sandbox store schema"))?;
 		let connection = database
 			.write_connection()
 			.await

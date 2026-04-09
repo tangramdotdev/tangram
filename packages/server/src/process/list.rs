@@ -75,11 +75,11 @@ impl Server {
 	}
 
 	pub(crate) async fn list_processes_local(&self) -> tg::Result<Vec<tg::process::get::Output>> {
-		match &self.register {
+		match &self.sandbox_store {
 			#[cfg(feature = "postgres")]
-			Database::Postgres(register) => self.list_processes_postgres(register).await,
+			Database::Postgres(sandbox_store) => self.list_processes_postgres(sandbox_store).await,
 			#[cfg(feature = "sqlite")]
-			Database::Sqlite(register) => self.list_processes_sqlite(register).await,
+			Database::Sqlite(sandbox_store) => self.list_processes_sqlite(sandbox_store).await,
 		}
 	}
 

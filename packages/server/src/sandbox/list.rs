@@ -56,11 +56,10 @@ impl Server {
 			ttl: i64,
 			user: Option<String>,
 		}
-		let connection = self
-			.register
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
+		let connection =
+			self.sandbox_store.connection().await.map_err(|source| {
+				tg::error!(!source, "failed to get a sandbox store connection")
+			})?;
 		let statement = formatdoc!(
 			"
 				select id, hostname, mounts, network, status, ttl, \"user\" as user

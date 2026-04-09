@@ -14,7 +14,7 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_store::prelude::*,
+	tangram_object_store::prelude::*,
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
 };
 
@@ -113,7 +113,7 @@ impl Server {
 
 	async fn try_get_object_bytes_local(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
 		let object = self
-			.store
+			.object_store
 			.try_get_object(id)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
@@ -134,7 +134,7 @@ impl Server {
 		id: &tg::object::Id,
 		cache_file: &mut Option<CacheFile>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		let object = self.store.try_get_object_sync(id)?;
+		let object = self.object_store.try_get_object_sync(id)?;
 		let Some(object) = object else {
 			return Ok(None);
 		};
@@ -223,7 +223,7 @@ impl Server {
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<Bytes>>> {
 		let output = self
-			.store
+			.object_store
 			.try_get_object_batch(ids)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get objects"))?;
@@ -426,7 +426,7 @@ impl Server {
 
 	async fn try_read_cache_pointer(
 		&self,
-		cache_pointer: &tangram_store::CachePointer,
+		cache_pointer: &tangram_object_store::CachePointer,
 	) -> tg::Result<Option<Bytes>> {
 		// Read the leaf from the file.
 		let mut path = self.cache_path().join(cache_pointer.artifact.to_string());
@@ -462,7 +462,7 @@ impl Server {
 
 	fn try_read_cache_pointer_sync(
 		&self,
-		cache_pointer: &tangram_store::CachePointer,
+		cache_pointer: &tangram_object_store::CachePointer,
 		cache_file: &mut Option<CacheFile>,
 	) -> tg::Result<Option<Bytes>> {
 		// Replace the file if necessary.

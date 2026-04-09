@@ -26,8 +26,8 @@ def main [
 			print -e $"removed ($entry.name)"
 		}
 
-		let preserved_dbs = ['postgres', 'template0', 'template1', 'register']
-		let dbs = psql -U postgres -h localhost -t -c "SELECT datname FROM pg_database" | lines | str trim | where { $in starts-with 'register_' }
+		let preserved_dbs = ['postgres', 'template0', 'template1', 'sandbox_store']
+		let dbs = psql -U postgres -h localhost -t -c "SELECT datname FROM pg_database" | lines | str trim | where { $in starts-with 'sandbox_store_' }
 		for db in $dbs {
 			print -e $"dropping postgres database ($db)"
 			try { dropdb -U postgres -h localhost $db }
@@ -46,8 +46,8 @@ def main [
 			try { nats stream rm -f $stream }
 		}
 
-		let preserved_keyspaces = ['system', 'system_auth', 'system_distributed', 'system_distributed_everywhere', 'system_schema', 'system_traces', 'system_views', 'store']
-		let keyspaces = cqlsh -e "SELECT JSON keyspace_name FROM system_schema.keyspaces" | lines | str trim | where { $in starts-with '{' } | each { $in | from json | get keyspace_name } | where { $in starts-with 'store_' }
+		let preserved_keyspaces = ['system', 'system_auth', 'system_distributed', 'system_distributed_everywhere', 'system_schema', 'system_traces', 'system_views', 'objects', 'logs']
+		let keyspaces = cqlsh -e "SELECT JSON keyspace_name FROM system_schema.keyspaces" | lines | str trim | where { $in starts-with '{' } | each { $in | from json | get keyspace_name } | where { $in starts-with 'objects_' or $in starts-with 'logs_' }
 		for keyspace in $keyspaces {
 			print -e $"dropping scylla keyspace ($keyspace)"
 			try { cqlsh -e $"drop keyspace \"($keyspace)\";" e> /dev/null }
@@ -743,11 +743,15 @@ export def --env spawn [
 			kind: 'lmdb',
 			map_size: 10_485_760,
 		},
-		remotes: [],
-		store: {
+		log_store: {
 			kind: 'lmdb',
 			map_size: 10_485_760,
 		},
+		object_store: {
+			kind: 'lmdb',
+			map_size: 10_485_760,
+		},
+		remotes: [],
 		tokio_single_threaded: true,
 		v8_thread_pool_size: 1,
 	}
@@ -762,8 +766,8 @@ export def --env spawn [
 		cockroach sql --insecure --host=localhost:26257 -e $'create database database_($id)'
 		cockroach sql --insecure --host=localhost:26257 -d $'database_($id)' -f ($repository_path | path join packages/server/src/database/postgres.sql)
 
-		createdb -U postgres -h localhost $'register_($id)'
-		psql -U postgres -h localhost -d $'register_($id)' -f ($repository_path | path join packages/server/src/register/postgres.sql)
+		createdb -U postgres -h localhost $'sandbox_store_($id)'
+		psql -U postgres -h localhost -d $'sandbox_store_($id)' -f ($repository_path | path join packages/server/src/sandbox_store/postgres.sql)
 
 		let cluster = mktemp -t
 		"docker:docker@localhost:4500" | save -f $cluster
@@ -772,37 +776,45 @@ export def --env spawn [
 		nats stream create $'processes_signals_($id)' --discard new --retention work --subjects $'($id).processes.*.signal' --defaults
 		nats stream create $'processes_stdio_($id)' --discard new --retention work --subjects $'($id).processes.stdio.*.*' --defaults
 
-		cqlsh -e $"create keyspace \"store_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
-		cqlsh -k $'store_($id)' -f ($repository_path | path join packages/store/src/scylla.cql)
+		cqlsh -e $"create keyspace \"logs_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
+		cqlsh -k $'logs_($id)' -f ($repository_path | path join packages/log_store/src/scylla.cql)
+		cqlsh -e $"create keyspace \"objects_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
+		cqlsh -k $'objects_($id)' -f ($repository_path | path join packages/object_store/src/scylla.cql)
 
 		let config = {
-				database: {
-					kind: 'postgres',
-					connections: 1,
-					url: $'postgres://root@localhost:26257/database_($id)?sslmode=disable',
-				},
-				register: {
-					kind: 'postgres',
-					connections: 1,
-					url: $'postgres://postgres@localhost:5432/register_($id)',
-				},
-				index: {
-					kind: 'fdb',
-					cluster: $cluster,
-					prefix: $'index_($id)',
-				},
+			database: {
+				connections: 1,
+				kind: 'postgres',
+				url: $'postgres://root@localhost:26257/database_($id)?sslmode=disable',
+			},
+			index: {
+				cluster: $cluster,
+				kind: 'fdb',
+				prefix: $'index_($id)',
+			},
+			log_store: {
+				addr: 'localhost:9042',
+				connections: 1,
+				keyspace: $'logs_($id)',
+				kind: 'scylla',
+			},
 			messenger: {
-				kind: 'nats',
 				id: $id,
+				kind: 'nats',
 				url: 'nats://localhost',
 			},
+			object_store: {
+				addr: 'localhost:9042',
+				connections: 1,
+				keyspace: $'objects_($id)',
+				kind: 'scylla',
+			},
 			remotes: [],
-				store: {
-					kind: 'scylla',
-					addr: 'localhost:9042',
-					connections: 1,
-					keyspace: $'store_($id)',
-				},
+			sandbox_store: {
+				connections: 1,
+				kind: 'postgres',
+				url: $'postgres://postgres@localhost:5432/sandbox_store_($id)',
+			},
 			watchdog: {
 				batch_size: 100,
 				interval: 1,
@@ -909,7 +921,7 @@ def clean_databases [id: string] {
 	try { cockroach sql --insecure --host=localhost:26257 -e $'drop database if exists database_($id) cascade' }
 
 	# Drop the Postgres database.
-	try { dropdb -U postgres -h localhost $'register_($id)' }
+	try { dropdb -U postgres -h localhost $'sandbox_store_($id)' }
 
 	# Clear the fdb key range.
 	let cluster = mktemp -t

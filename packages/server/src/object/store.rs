@@ -1,59 +1,56 @@
 #[cfg(feature = "lmdb")]
 use std::path::Path;
-use {std::collections::BTreeSet, tangram_client::prelude::*, tangram_store as store};
+use {tangram_client::prelude::*, tangram_object_store as object_store};
 
-pub use store::{
-	CachePointer, DeleteObjectArg, DeleteProcessLogArg, PutObjectArg, PutProcessLogArg,
-	ReadProcessLogArg,
-};
+pub use object_store::{CachePointer, DeleteObjectArg, PutObjectArg};
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Store {
 	#[cfg(feature = "lmdb")]
-	Lmdb(store::lmdb::Store),
+	Lmdb(object_store::lmdb::Store),
 
-	Memory(store::memory::Store),
+	Memory(object_store::memory::Store),
 
 	#[cfg(feature = "scylla")]
-	Scylla(store::scylla::Store),
+	Scylla(object_store::scylla::Store),
 }
 
 impl Store {
 	#[cfg(feature = "lmdb")]
-	pub fn new_lmdb(directory: &Path, config: &crate::config::LmdbStore) -> tg::Result<Self> {
+	pub fn new_lmdb(directory: &Path, config: &crate::config::ObjectLmdbStore) -> tg::Result<Self> {
 		let path = directory.join(&config.path);
-		let config = store::lmdb::Config {
+		let config = object_store::lmdb::Config {
 			map_size: config.map_size,
 			path: path.clone(),
 		};
-		let lmdb = store::lmdb::Store::new(&config).map_err(
+		let lmdb = object_store::lmdb::Store::new(&config).map_err(
 			|source| tg::error!(!source, path = %path.display(), "failed to create the lmdb store"),
 		)?;
 		Ok(Self::Lmdb(lmdb))
 	}
 
 	pub fn new_memory() -> Self {
-		Self::Memory(store::memory::Store::new())
+		Self::Memory(object_store::memory::Store::new())
 	}
 
 	#[cfg(feature = "scylla")]
-	pub async fn new_scylla(config: &crate::config::ScyllaStore) -> tg::Result<Self> {
-		let config = store::scylla::Config {
+	pub async fn new_scylla(config: &crate::config::ObjectScyllaStore) -> tg::Result<Self> {
+		let config = object_store::scylla::Config {
 			addr: config.addr.clone(),
 			connections: config.connections,
 			keyspace: config.keyspace.clone(),
 			password: config.password.clone(),
 			speculative_execution: config.speculative_execution.as_ref().map(|se| match se {
-				crate::config::ScyllaStoreSpeculativeExecution::Percentile(p) => {
-					store::scylla::SpeculativeExecution::Percentile {
+				crate::config::ObjectScyllaStoreSpeculativeExecution::Percentile(p) => {
+					object_store::scylla::SpeculativeExecution::Percentile {
 						max_retry_count: p.max_retry_count,
 						percentile: p.percentile,
 					}
 				},
-				crate::config::ScyllaStoreSpeculativeExecution::Simple(s) => {
-					store::scylla::SpeculativeExecution::Simple {
+				crate::config::ObjectScyllaStoreSpeculativeExecution::Simple(s) => {
+					object_store::scylla::SpeculativeExecution::Simple {
 						max_retry_count: s.max_retry_count,
 						retry_interval: std::time::Duration::from_millis(s.retry_interval),
 					}
@@ -61,7 +58,7 @@ impl Store {
 			}),
 			username: config.username.clone(),
 		};
-		let scylla = store::scylla::Store::new(&config).await?;
+		let scylla = object_store::scylla::Store::new(&config).await?;
 		Ok(Self::Scylla(scylla))
 	}
 
@@ -72,7 +69,7 @@ impl Store {
 	pub fn try_get_object_sync(
 		&self,
 		id: &tg::object::Id,
-	) -> tg::Result<Option<store::Object<'static>>> {
+	) -> tg::Result<Option<object_store::Object<'static>>> {
 		match self {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => lmdb.try_get_object_sync(id),
@@ -90,7 +87,7 @@ impl Store {
 	pub fn try_get_object_batch_sync(
 		&self,
 		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Option<store::Object<'static>>>> {
+	) -> tg::Result<Vec<Option<object_store::Object<'static>>>> {
 		match self {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => lmdb.try_get_object_batch_sync(ids),
@@ -223,15 +220,15 @@ impl Store {
 	}
 }
 
-impl store::Store for Store {
+impl object_store::Store for Store {
 	async fn try_get_object(
 		&self,
 		id: &tg::object::Id,
-	) -> tg::Result<Option<store::Object<'static>>> {
+	) -> tg::Result<Option<object_store::Object<'static>>> {
 		match self {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => lmdb.try_get_object(id).await,
-			Self::Memory(memory) => store::Store::try_get_object(memory, id).await,
+			Self::Memory(memory) => object_store::Store::try_get_object(memory, id).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla.try_get_object(id).await,
 		}
@@ -240,7 +237,7 @@ impl store::Store for Store {
 	async fn try_get_object_batch(
 		&self,
 		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Option<store::Object<'static>>>> {
+	) -> tg::Result<Vec<Option<object_store::Object<'static>>>> {
 		match self {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(lmdb) => lmdb.try_get_object_batch(ids).await,
@@ -299,59 +296,6 @@ impl store::Store for Store {
 			},
 			#[cfg(feature = "scylla")]
 			Self::Scylla(scylla) => scylla.delete_object_batch(args).await,
-		}
-	}
-
-	async fn try_read_process_log(
-		&self,
-		arg: ReadProcessLogArg,
-	) -> tg::Result<Vec<store::ProcessLogEntry<'static>>> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.try_read_process_log(arg).await,
-			Self::Memory(memory) => memory.try_read_process_log(arg).await,
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.try_read_process_log(arg).await,
-		}
-	}
-
-	async fn try_get_process_log_length(
-		&self,
-		id: &tg::process::Id,
-		streams: &BTreeSet<tg::process::stdio::Stream>,
-	) -> tg::Result<Option<u64>> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.try_get_process_log_length(id, streams).await,
-			Self::Memory(memory) => Ok(memory.try_get_process_log_length(id, streams)),
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.try_get_process_log_length(id, streams).await,
-		}
-	}
-
-	async fn put_process_log(&self, arg: PutProcessLogArg) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.put_process_log(arg).await,
-			Self::Memory(memory) => {
-				memory.put_process_log(arg);
-				Ok(())
-			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.put_process_log(arg).await,
-		}
-	}
-
-	async fn delete_process_log(&self, arg: DeleteProcessLogArg) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.delete_process_log(arg).await,
-			Self::Memory(memory) => {
-				memory.delete_process_log(arg);
-				Ok(())
-			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(scylla) => scylla.delete_process_log(arg).await,
 		}
 	}
 

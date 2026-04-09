@@ -8,6 +8,6 @@ nats stream rm -f processes_finalize_queue | ignore
 nats stream rm -f processes_signals | ignore
 nats stream rm -f processes_stdio | ignore
 
-dropdb -U postgres -h localhost register | ignore
+dropdb -U postgres -h localhost sandbox_store | ignore
 
 cqlsh -e 'drop keyspace store;' | ignore

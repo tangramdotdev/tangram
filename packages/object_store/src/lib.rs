@@ -1,6 +1,6 @@
 use {
 	bytes::Bytes,
-	std::{borrow::Cow, collections::BTreeSet, path::PathBuf},
+	std::{borrow::Cow, path::PathBuf},
 	tangram_client::prelude::*,
 };
 
@@ -27,27 +27,6 @@ pub struct DeleteObjectArg {
 	pub id: tg::object::Id,
 	pub now: i64,
 	pub ttl: u64,
-}
-
-#[derive(Clone, Debug)]
-pub struct ReadProcessLogArg {
-	pub length: u64,
-	pub position: u64,
-	pub process: tg::process::Id,
-	pub streams: BTreeSet<tg::process::stdio::Stream>,
-}
-
-#[derive(Clone, Debug)]
-pub struct PutProcessLogArg {
-	pub bytes: Bytes,
-	pub process: tg::process::Id,
-	pub stream: tg::process::stdio::Stream,
-	pub timestamp: i64,
-}
-
-#[derive(Clone, Debug)]
-pub struct DeleteProcessLogArg {
-	pub process: tg::process::Id,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Serialize, tangram_serialize::Deserialize)]
@@ -85,24 +64,6 @@ pub struct CachePointer {
 	pub position: u64,
 }
 
-#[derive(Clone, Debug, tangram_serialize::Serialize, tangram_serialize::Deserialize)]
-pub struct ProcessLogEntry<'a> {
-	#[tangram_serialize(id = 0)]
-	pub bytes: Cow<'a, [u8]>,
-
-	#[tangram_serialize(id = 1)]
-	pub position: u64,
-
-	#[tangram_serialize(id = 2)]
-	pub stream: tg::process::stdio::Stream,
-
-	#[tangram_serialize(id = 3)]
-	pub stream_position: u64,
-
-	#[tangram_serialize(id = 4)]
-	pub timestamp: i64,
-}
-
 pub trait Store {
 	fn try_get_object(
 		&self,
@@ -132,27 +93,6 @@ pub trait Store {
 	fn delete_object_batch(
 		&self,
 		args: Vec<DeleteObjectArg>,
-	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
-
-	fn try_read_process_log(
-		&self,
-		arg: ReadProcessLogArg,
-	) -> impl std::future::Future<Output = tg::Result<Vec<ProcessLogEntry<'static>>>> + Send;
-
-	fn try_get_process_log_length(
-		&self,
-		id: &tg::process::Id,
-		streams: &BTreeSet<tg::process::stdio::Stream>,
-	) -> impl std::future::Future<Output = tg::Result<Option<u64>>> + Send;
-
-	fn put_process_log(
-		&self,
-		arg: PutProcessLogArg,
-	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
-
-	fn delete_process_log(
-		&self,
-		arg: DeleteProcessLogArg,
 	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
 	fn flush(&self) -> impl std::future::Future<Output = tg::Result<()>> + Send;
@@ -222,19 +162,6 @@ impl CachePointer {
 			b'{' => serde_json::from_slice(bytes)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the cache pointer")),
 			_ => Err(tg::error!("invalid cache pointer format")),
-		}
-	}
-}
-
-impl ProcessLogEntry<'_> {
-	#[must_use]
-	pub fn into_static(self) -> ProcessLogEntry<'static> {
-		ProcessLogEntry {
-			bytes: Cow::Owned(self.bytes.into_owned()),
-			position: self.position,
-			stream: self.stream,
-			stream_position: self.stream_position,
-			timestamp: self.timestamp,
 		}
 	}
 }

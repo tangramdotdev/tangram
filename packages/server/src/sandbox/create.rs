@@ -17,10 +17,10 @@ impl Server {
 		}
 		let id = tg::sandbox::Id::new();
 		let connection = self
-			.register
+			.sandbox_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"

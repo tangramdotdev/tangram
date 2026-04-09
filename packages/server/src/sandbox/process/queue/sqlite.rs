@@ -9,13 +9,13 @@ use {
 impl Server {
 	pub(crate) async fn try_dequeue_sandbox_process_sqlite(
 		&self,
-		register: &db::sqlite::Database,
+		sandbox_store: &db::sqlite::Database,
 		sandbox: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
-		let connection = register
+		let connection = sandbox_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a register connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
 		let sandbox = sandbox.to_string();
 		connection
 			.with(move |connection, _cache| {
