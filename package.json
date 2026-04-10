@@ -29,7 +29,7 @@
 	},
 	"dependencies": {
 		"@types/bun": "^1.3.11",
-		"@typescript/native-preview": "^7.0.0-dev.20260407.1",
+		"@typescript/native-preview": "^7.0.0-dev.20260410.1",
 		"esbuild": "^0.28.0",
 		"oxfmt": "^0.44.0",
 		"oxlint": "^1.59.0",
