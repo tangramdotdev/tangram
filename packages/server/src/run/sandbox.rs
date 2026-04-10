@@ -1,6 +1,6 @@
 use {
 	crate::{SandboxPermit, Server, context::Context, run::ProcessTaskMap, temp::Temp},
-	futures::{FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future},
+	futures::{FutureExt as _, TryFutureExt as _, TryStreamExt as _, future},
 	std::{path::Path, pin::pin, sync::Arc, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
@@ -117,9 +117,8 @@ impl Server {
 			}
 		});
 
-		// Get the sandbox status stream.
 		let status = self
-			.try_get_sandbox_status_stream(
+			.get_sandbox_status(
 				id,
 				tg::sandbox::status::Arg {
 					local: None,
@@ -127,18 +126,9 @@ impl Server {
 				},
 			)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox status stream"))?
-			.map(|stream| {
-				stream
-					.try_filter_map(|event| async move {
-						match event {
-							tg::sandbox::status::Event::Status(status) => Ok(Some(status)),
-							tg::sandbox::status::Event::End => Ok(None),
-						}
-					})
-					.boxed()
-			})
-			.ok_or_else(|| tg::error!("failed to get the sandbox status stream"))?;
+			.map_err(
+				|source| tg::error!(!source, %id, "failed to get the sandbox status stream"),
+			)?;
 		let mut status = pin!(status);
 
 		let process_tasks = ProcessTaskMap::default();
