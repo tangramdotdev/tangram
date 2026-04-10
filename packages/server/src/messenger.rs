@@ -7,31 +7,15 @@ pub enum Messenger {
 	Nats(messenger::nats::Messenger),
 }
 
-#[derive(derive_more::IsVariant)]
-pub enum Stream {
-	Memory(messenger::memory::Stream),
-	#[cfg(feature = "nats")]
-	Nats(messenger::nats::Stream),
-}
-
-#[derive(derive_more::IsVariant)]
-pub enum Consumer {
-	Memory(messenger::memory::Consumer),
-	#[cfg(feature = "nats")]
-	Nats(messenger::nats::Consumer),
-}
-
 impl messenger::Messenger for Messenger {
-	type Stream = Stream;
-
 	async fn publish<T>(&self, subject: String, payload: T) -> Result<(), messenger::Error>
 	where
 		T: messenger::Payload,
 	{
 		match self {
-			Self::Memory(s) => s.publish(subject, payload).await,
+			Self::Memory(messenger) => messenger.publish(subject, payload).await,
 			#[cfg(feature = "nats")]
-			Self::Nats(s) => s.publish(subject, payload).await,
+			Self::Nats(messenger) => messenger.publish(subject, payload).await,
 		}
 	}
 
@@ -40,217 +24,20 @@ impl messenger::Messenger for Messenger {
 		subject: String,
 		group: Option<String>,
 	) -> Result<
-		impl futures::Stream<Item = Result<messenger::Message<T>, messenger::Error>> + 'static,
-		messenger::Error,
-	>
-	where
-		T: messenger::Payload + Clone,
-	{
-		match self {
-			Self::Memory(s) => s
-				.subscribe(subject, group)
-				.await
-				.map(futures::StreamExt::boxed),
-			#[cfg(feature = "nats")]
-			Self::Nats(s) => s
-				.subscribe(subject, group)
-				.await
-				.map(futures::StreamExt::boxed),
-		}
-	}
-
-	async fn get_stream(&self, subject: String) -> Result<Self::Stream, messenger::Error> {
-		match self {
-			Self::Memory(s) => s.get_stream(subject).await.map(Stream::Memory),
-			#[cfg(feature = "nats")]
-			Self::Nats(s) => s.get_stream(subject).await.map(Stream::Nats),
-		}
-	}
-
-	async fn create_stream(
-		&self,
-		subject: String,
-		config: messenger::StreamConfig,
-	) -> Result<Self::Stream, messenger::Error> {
-		match self {
-			Self::Memory(s) => s.create_stream(subject, config).await.map(Stream::Memory),
-			#[cfg(feature = "nats")]
-			Self::Nats(s) => s.create_stream(subject, config).await.map(Stream::Nats),
-		}
-	}
-
-	async fn get_or_create_stream(
-		&self,
-		subject: String,
-		config: messenger::StreamConfig,
-	) -> Result<Self::Stream, messenger::Error> {
-		match self {
-			Self::Memory(s) => s
-				.get_or_create_stream(subject, config)
-				.await
-				.map(Stream::Memory),
-			#[cfg(feature = "nats")]
-			Self::Nats(s) => s
-				.get_or_create_stream(subject, config)
-				.await
-				.map(Stream::Nats),
-		}
-	}
-
-	async fn delete_stream(&self, subject: String) -> Result<(), messenger::Error> {
-		match self {
-			Self::Memory(s) => s.delete_stream(subject).await,
-			#[cfg(feature = "nats")]
-			Self::Nats(s) => s.delete_stream(subject).await,
-		}
-	}
-
-	async fn stream_publish<T>(
-		&self,
-		stream: String,
-		subject: String,
-		payload: T,
-	) -> Result<impl Future<Output = Result<u64, messenger::Error>>, messenger::Error>
-	where
-		T: messenger::Payload,
-	{
-		match self {
-			Self::Memory(s) => s
-				.stream_publish(stream, subject, payload)
-				.await
-				.map(futures::FutureExt::boxed),
-			#[cfg(feature = "nats")]
-			Self::Nats(s) => s
-				.stream_publish(stream, subject, payload)
-				.await
-				.map(futures::FutureExt::boxed),
-		}
-	}
-
-	async fn stream_batch_publish<T>(
-		&self,
-		stream: String,
-		subject: String,
-		payloads: Vec<T>,
-	) -> Result<impl Future<Output = Result<Vec<u64>, messenger::Error>> + Send, messenger::Error>
-	where
-		T: messenger::Payload,
-	{
-		match self {
-			Self::Memory(s) => s
-				.stream_batch_publish(stream, subject, payloads)
-				.await
-				.map(futures::FutureExt::boxed),
-			#[cfg(feature = "nats")]
-			Self::Nats(s) => s
-				.stream_batch_publish(stream, subject, payloads)
-				.await
-				.map(futures::FutureExt::boxed),
-		}
-	}
-}
-
-impl messenger::Stream for Stream {
-	type Consumer = Consumer;
-
-	async fn info(&self) -> Result<messenger::StreamInfo, messenger::Error> {
-		match self {
-			Self::Memory(s) => s.info().await,
-			#[cfg(feature = "nats")]
-			Self::Nats(s) => s.info().await,
-		}
-	}
-
-	async fn get_consumer(&self, name: String) -> Result<Self::Consumer, messenger::Error> {
-		match self {
-			Self::Memory(s) => s.get_consumer(name).await.map(Consumer::Memory),
-			#[cfg(feature = "nats")]
-			Self::Nats(s) => s.get_consumer(name).await.map(Consumer::Nats),
-		}
-	}
-
-	async fn create_consumer(
-		&self,
-		name: Option<String>,
-		config: messenger::ConsumerConfig,
-	) -> Result<Self::Consumer, messenger::Error> {
-		match self {
-			Self::Memory(s) => s.create_consumer(name, config).await.map(Consumer::Memory),
-			#[cfg(feature = "nats")]
-			Self::Nats(s) => s.create_consumer(name, config).await.map(Consumer::Nats),
-		}
-	}
-
-	async fn get_or_create_consumer(
-		&self,
-		name: Option<String>,
-		config: messenger::ConsumerConfig,
-	) -> Result<Self::Consumer, messenger::Error> {
-		match self {
-			Self::Memory(s) => s
-				.get_or_create_consumer(name, config)
-				.await
-				.map(Consumer::Memory),
-			#[cfg(feature = "nats")]
-			Self::Nats(s) => s
-				.get_or_create_consumer(name, config)
-				.await
-				.map(Consumer::Nats),
-		}
-	}
-
-	async fn delete_consumer(&self, name: String) -> Result<(), messenger::Error> {
-		match self {
-			Self::Memory(s) => s.delete_consumer(name).await,
-			#[cfg(feature = "nats")]
-			Self::Nats(s) => s.delete_consumer(name).await,
-		}
-	}
-}
-
-impl messenger::Consumer for Consumer {
-	async fn info(&self) -> Result<messenger::ConsumerInfo, messenger::Error> {
-		match self {
-			Self::Memory(s) => s.info().await,
-			#[cfg(feature = "nats")]
-			Self::Nats(s) => s.info().await,
-		}
-	}
-
-	async fn subscribe<T>(
-		&self,
-	) -> Result<
 		impl futures::Stream<Item = Result<messenger::Message<T>, messenger::Error>> + Send + 'static,
 		messenger::Error,
 	>
 	where
-		T: messenger::Payload + Clone,
+		T: messenger::Payload,
 	{
 		match self {
-			Self::Memory(s) => s.subscribe().await.map(futures::StreamExt::boxed),
-			#[cfg(feature = "nats")]
-			Self::Nats(s) => s.subscribe().await.map(futures::StreamExt::boxed),
-		}
-	}
-
-	async fn batch_subscribe<T>(
-		&self,
-		config: messenger::BatchConfig,
-	) -> Result<
-		impl futures::Stream<Item = Result<messenger::Message<T>, messenger::Error>> + Send + 'static,
-		messenger::Error,
-	>
-	where
-		T: messenger::Payload + Clone,
-	{
-		match self {
-			Self::Memory(s) => s
-				.batch_subscribe(config)
+			Self::Memory(messenger) => messenger
+				.subscribe(subject, group)
 				.await
 				.map(futures::StreamExt::boxed),
 			#[cfg(feature = "nats")]
-			Self::Nats(s) => s
-				.batch_subscribe(config)
+			Self::Nats(messenger) => messenger
+				.subscribe(subject, group)
 				.await
 				.map(futures::StreamExt::boxed),
 		}

@@ -39,12 +39,6 @@ def main [
 			try { cockroach sql --insecure --host=localhost:26257 -e $'drop database if exists ($db) cascade' }
 		}
 
-		let streams = nats stream ls -n | lines
-		for stream in $streams {
-			print -e $"deleting nats stream ($stream)"
-			try { nats stream rm -f $stream }
-		}
-
 		let preserved_keyspaces = ['system', 'system_auth', 'system_distributed', 'system_distributed_everywhere', 'system_schema', 'system_traces', 'system_views', 'object_store']
 		let keyspaces = cqlsh -e "SELECT JSON keyspace_name FROM system_schema.keyspaces" | lines | str trim | where { $in starts-with '{' } | each { $in | from json | get keyspace_name } | where { $in starts-with 'object_store_' }
 		for keyspace in $keyspaces {

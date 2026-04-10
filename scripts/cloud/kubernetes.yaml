@@ -173,8 +173,6 @@ spec:
       containers:
         - name: nats
           image: nats:2.12.3
-          args:
-            - --jetstream
           ports:
             - containerPort: 4222
             - containerPort: 8222
