@@ -1,3 +1,23 @@
+create table sandboxes (
+	created_at integer not null,
+	finished_at integer,
+	heartbeat_at integer,
+	hostname text,
+	id text primary key,
+	mounts text,
+	network integer not null,
+	started_at integer,
+	status text not null,
+	ttl integer not null,
+	"user" text
+);
+
+create index sandboxes_heartbeat_at_index on sandboxes (heartbeat_at) where status = 'started';
+
+create index sandboxes_status_index on sandboxes (status);
+
+create index sandboxes_queue_index on sandboxes (created_at, id) where status = 'created';
+
 create table processes (
 	actual_checksum text,
 	cacheable integer not null,
@@ -36,26 +56,6 @@ create index processes_queue_index on processes (sandbox, created_at, id) where 
 create index processes_status_index on processes (status);
 
 create index processes_token_count_index on processes (token_count) where token_count = 0 and status != 'finished';
-
-create table sandboxes (
-	created_at integer not null,
-	finished_at integer,
-	heartbeat_at integer,
-	hostname text,
-	id text primary key,
-	mounts text,
-	network integer not null,
-	started_at integer,
-	status text not null,
-	ttl integer not null,
-	"user" text
-);
-
-create index sandboxes_heartbeat_at_index on sandboxes (heartbeat_at) where status = 'started';
-
-create index sandboxes_status_index on sandboxes (status);
-
-create index sandboxes_queue_index on sandboxes (created_at, id) where status = 'created';
 
 create table process_tokens (
 	process text not null,

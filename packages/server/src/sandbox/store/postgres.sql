@@ -1,3 +1,23 @@
+create table sandboxes (
+	created_at int8 not null,
+	finished_at int8,
+	heartbeat_at int8,
+	hostname text,
+	id text primary key,
+	mounts text,
+	network boolean not null,
+	started_at int8,
+	status text not null,
+	ttl int8 not null,
+	"user" text
+);
+
+create index sandboxes_heartbeat_at_index on sandboxes (heartbeat_at) where status = 'started';
+
+create index sandboxes_status_index on sandboxes (status);
+
+create index sandboxes_queue_index on sandboxes (created_at, id) where status = 'created';
+
 create table processes (
 	actual_checksum text,
 	cacheable boolean not null,
@@ -37,25 +57,44 @@ create index processes_status_index on processes (status);
 
 create index processes_token_count_index on processes (token_count) where token_count = 0 and status != 'finished';
 
-create table sandboxes (
-	created_at int8 not null,
-	finished_at int8,
-	heartbeat_at int8,
-	hostname text,
-	id text primary key,
-	mounts text,
-	network boolean not null,
-	started_at int8,
-	status text not null,
-	ttl int8 not null,
-	"user" text
+create table process_tokens (
+	process text not null,
+	token text not null
 );
 
-create index sandboxes_heartbeat_at_index on sandboxes (heartbeat_at) where status = 'started';
+create unique index process_tokens_process_token_index on process_tokens (process, token);
 
-create index sandboxes_status_index on sandboxes (status);
+create index process_tokens_process_index on process_tokens (process);
 
-create index sandboxes_queue_index on sandboxes (created_at, id) where status = 'created';
+create index process_tokens_token_index on process_tokens (token);
+
+create table process_children (
+	process text not null,
+	cached boolean not null,
+	child text not null,
+	position int8 not null,
+	options text,
+	token text
+);
+
+create unique index process_children_process_child_index on process_children (process, child);
+
+create index process_children_index on process_children (process, position);
+
+create index process_children_child_process_index on process_children (child, process);
+
+create table process_signals (
+	position bigserial primary key,
+	process text not null,
+	signal text not null
+);
+
+create index process_signals_process_position_index on process_signals (process, position);
+
+create table process_finalize_queue (
+	position bigserial primary key,
+	process text not null unique
+);
 
 create or replace procedure update_parent_depths(
 	changed_process_ids text[]
@@ -96,42 +135,3 @@ begin
 	end loop;
 end;
 $$;
-
-create table process_tokens (
-	process text not null,
-	token text not null
-);
-
-create unique index process_tokens_process_token_index on process_tokens (process, token);
-
-create index process_tokens_process_index on process_tokens (process);
-
-create index process_tokens_token_index on process_tokens (token);
-
-create table process_children (
-	process text not null,
-	cached boolean not null,
-	child text not null,
-	position int8 not null,
-	options text,
-	token text
-);
-
-create unique index process_children_process_child_index on process_children (process, child);
-
-create index process_children_index on process_children (process, position);
-
-create index process_children_child_process_index on process_children (child, process);
-
-create table process_signals (
-	position bigserial primary key,
-	process text not null,
-	signal text not null
-);
-
-create index process_signals_process_position_index on process_signals (process, position);
-
-create table process_finalize_queue (
-	position bigserial primary key,
-	process text not null unique
-);
