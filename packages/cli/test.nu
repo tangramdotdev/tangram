@@ -776,7 +776,7 @@ export def --env spawn [
 		nats stream create $'processes_stdio_($id)' --discard new --retention work --subjects $'($id).processes.stdio.*.*' --defaults
 
 		cqlsh -e $"create keyspace \"object_store_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
-		cqlsh -k $'objects_($id)' -f ($repository_path | path join packages/object_store/src/scylla.cql)
+		cqlsh -k $'objects_($id)' -f ($repository_path | path join packages/stores/object/src/scylla.cql)
 
 		let config = {
 			database: {

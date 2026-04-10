@@ -5,4 +5,4 @@ createdb -U postgres -h localhost sandbox_store
 psql -U postgres -h localhost -d sandbox_store -f packages/server/src/sandbox/store/postgres.sql
 
 cqlsh -e r#'create keyspace object_store with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };'#
-cqlsh -k object_store -f packages/store/src/scylla.cql
+cqlsh -k object_store -f packages/stores/object/src/scylla.cql
