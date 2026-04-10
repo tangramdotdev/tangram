@@ -123,6 +123,14 @@ create index process_children_index on process_children (process, position);
 
 create index process_children_child_process_index on process_children (child, process);
 
+create table process_signals (
+	position bigserial primary key,
+	process text not null,
+	signal text not null
+);
+
+create index process_signals_process_position_index on process_signals (process, position);
+
 create table process_finalize_queue (
 	position bigserial primary key,
 	process text not null unique

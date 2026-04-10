@@ -83,6 +83,14 @@ create unique index process_children_process_position_index on process_children 
 
 create index process_children_child_index on process_children (child);
 
+create table process_signals (
+	position integer primary key autoincrement,
+	process text not null,
+	signal text not null
+);
+
+create index process_signals_process_position_index on process_signals (process, position);
+
 create table process_finalize_queue (
 	position integer primary key autoincrement,
 	process text not null unique

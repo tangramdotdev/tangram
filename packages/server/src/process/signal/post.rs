@@ -1,6 +1,8 @@
 use {
 	crate::{Context, Server},
+	indoc::formatdoc,
 	tangram_client::prelude::*,
+	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_messenger::prelude::*,
 };
@@ -53,19 +55,36 @@ impl Server {
 			return Err(tg::error!(%id, "cannot signal cacheable processes"));
 		}
 
+		// Insert the signal into the sandbox store.
+		let mut connection = self
+			.sandbox_store
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to acquire a transaction"))?;
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				insert into process_signals (process, signal)
+				values ({p}1, {p}2);
+			"
+		);
+		let params = db::params![id.to_string(), signal.to_string()];
+		transaction
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		transaction
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+		drop(connection);
+
 		// Publish the signal message.
-		let payload =
-			tangram_messenger::payload::Json(tg::process::signal::get::Event::Signal(signal));
-		self.messenger
-			.stream_publish(
-				"processes_signals".into(),
-				format!("processes.{id}.signal"),
-				payload,
-			)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to publish the message"))?
-			.await
-			.map_err(|source| tg::error!(!source, "signal messaged not ack'd"))?;
+		self.spawn_publish_process_signal_message_task(id);
 
 		Ok(())
 	}
@@ -174,5 +193,23 @@ impl Server {
 
 		let response = http::Response::builder().body(BoxBody::empty()).unwrap();
 		Ok(response)
+	}
+
+	pub(crate) fn spawn_publish_process_signal_message_task(&self, id: &tg::process::Id) {
+		let id = id.clone();
+		let subject = format!("processes.{id}.signal");
+		tokio::spawn({
+			let server = self.clone();
+			async move {
+				server
+					.messenger
+					.publish(subject, ())
+					.await
+					.inspect_err(|error| {
+						tracing::error!(%error, %id, "failed to publish the process signal message");
+					})
+					.ok();
+			}
+		});
 	}
 }

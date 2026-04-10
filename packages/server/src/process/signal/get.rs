@@ -1,15 +1,28 @@
 use {
-	crate::{Context, Server},
-	futures::{StreamExt as _, TryStreamExt, future, stream::BoxStream},
+	crate::{Context, Server, database::Database},
+	futures::{
+		StreamExt as _,
+		stream::{self, BoxStream},
+	},
+	std::{pin::pin, time::Duration},
 	tangram_client::prelude::*,
-	tangram_futures::task::Stopper,
+	tangram_futures::{
+		stream::Ext as _,
+		task::{Stopper, Task},
+	},
 	tangram_http::{
 		body::Boxed as BoxBody,
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
-	tangram_messenger::{self as messenger, prelude::*},
+	tangram_messenger::prelude::*,
+	tokio_stream::wrappers::IntervalStream,
 };
+
+#[cfg(feature = "postgres")]
+mod postgres;
+#[cfg(feature = "sqlite")]
+mod sqlite;
 
 impl Server {
 	pub(crate) async fn try_get_process_signal_stream_with_context(
@@ -59,44 +72,92 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::signal::get::Event>>>> {
-		// Check if the process exists locally.
-		if self
-			.try_get_process_local(id, false)
+		// Verify the process is local.
+		if !self
+			.get_process_exists_local(id)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the process"))?
-			.is_none()
+			.map_err(|source| tg::error!(!source, "failed to check if the process exists"))?
 		{
 			return Ok(None);
 		}
 
-		let stream = self
-			.messenger
-			.get_stream("processes_signals".to_owned())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the signal stream"))?;
+		// Create the channel.
+		let (sender, receiver) = async_channel::unbounded();
 
-		let consumer_name = id.to_string();
-		let subject = format!("processes.{id}.signal");
-		let config = messenger::ConsumerConfig {
-			ack_policy: messenger::AckPolicy::None,
-			durable_name: Some(consumer_name.clone()),
-			filter_subjects: vec![subject],
-			..Default::default()
-		};
-		let consumer = stream
-			.get_or_create_consumer(Some(consumer_name), config)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the consumer"))?;
+		// Spawn the task.
+		let server = self.clone();
+		let id = id.clone();
+		let task = Task::spawn(|_| async move {
+			let result = server
+				.try_get_process_signal_stream_local_task(&id, sender.clone())
+				.await;
+			if let Err(error) = result {
+				sender.try_send(Err(error)).ok();
+			}
+		});
 
-		let stream = consumer
-			.subscribe::<tangram_messenger::payload::Json<tg::process::signal::get::Event>>()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the stream"))?
-			.and_then(move |message| future::ok(message.split().0.0))
-			.map_err(|source| tg::error!(!source, "failed to get the message"))
-			.boxed();
+		let stream = receiver.attach(task).boxed();
 
 		Ok(Some(stream))
+	}
+
+	async fn try_get_process_signal_stream_local_task(
+		&self,
+		id: &tg::process::Id,
+		sender: async_channel::Sender<tg::Result<tg::process::signal::get::Event>>,
+	) -> tg::Result<()> {
+		let subject = format!("processes.{id}.signal");
+		let group = "processes.signal.dequeue";
+		let wakeup = self
+			.messenger
+			.subscribe::<()>(subject, Some(group.into()))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+			.map(|_| ());
+		let interval =
+			IntervalStream::new(tokio::time::interval(Duration::from_secs(1))).map(|_| ());
+		let stream = stream::select(wakeup, interval);
+		let mut stream = pin!(stream);
+		while let Some(()) = stream.next().await {
+			loop {
+				let signal = match self.try_dequeue_process_signal(id).await {
+					Ok(Some(signal)) => signal,
+					Ok(None) => break,
+					Err(error) => {
+						tracing::error!(
+							error = %error.trace(),
+							%id,
+							"failed to dequeue the process signal"
+						);
+						tokio::time::sleep(Duration::from_secs(1)).await;
+						break;
+					},
+				};
+				let result = sender.try_send(Ok(tg::process::signal::get::Event::Signal(signal)));
+				if result.is_err() {
+					return Ok(());
+				}
+			}
+		}
+		Ok(())
+	}
+
+	async fn try_dequeue_process_signal(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::Signal>> {
+		match &self.sandbox_store {
+			#[cfg(feature = "postgres")]
+			Database::Postgres(sandbox_store) => {
+				self.try_dequeue_process_signal_postgres(sandbox_store, id)
+					.await
+			},
+			#[cfg(feature = "sqlite")]
+			Database::Sqlite(sandbox_store) => {
+				self.try_dequeue_process_signal_sqlite(sandbox_store, id)
+					.await
+			},
+		}
 	}
 
 	async fn try_get_process_signal_stream_peer(

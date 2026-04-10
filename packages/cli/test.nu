@@ -39,7 +39,7 @@ def main [
 			try { cockroach sql --insecure --host=localhost:26257 -e $'drop database if exists ($db) cascade' }
 		}
 
-		let preserved_streams = ['processes_signals', 'processes_stdio']
+		let preserved_streams = ['processes_stdio']
 		let streams = nats stream ls -n | lines | where { $in not-in $preserved_streams }
 		for stream in $streams {
 			print -e $"deleting nats stream ($stream)"
@@ -767,12 +767,11 @@ export def --env spawn [
 		cockroach sql --insecure --host=localhost:26257 -d $'database_($id)' -f ($repository_path | path join packages/server/src/database/postgres.sql)
 
 		createdb -U postgres -h localhost $'sandbox_store_($id)'
-		psql -U postgres -h localhost -d $'sandbox_store_($id)' -f ($repository_path | path join packages/server/src/sandbox_store/postgres.sql)
+		psql -U postgres -h localhost -d $'sandbox_store_($id)' -f ($repository_path | path join packages/server/src/sandbox/store/postgres.sql)
 
 		let cluster = mktemp -t
 		"docker:docker@localhost:4500" | save -f $cluster
 
-		nats stream create $'processes_signals_($id)' --discard new --retention work --subjects $'($id).processes.*.signal' --defaults
 		nats stream create $'processes_stdio_($id)' --discard new --retention work --subjects $'($id).processes.stdio.*.*' --defaults
 
 		cqlsh -e $"create keyspace \"object_store_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
@@ -925,7 +924,6 @@ def clean_databases [id: string] {
 	try { fdbcli -C $cluster --exec $'writemode on; clearrange "index_($id)" "index_($id)\xff"; clearrange "logs_($id)" "logs_($id)\xff"' }
 
 	# Remove the NATS streams.
-	try { nats stream rm -f $'processes_signals_($id)' }
 	try { nats stream rm -f $'processes_stdio_($id)' }
 
 	# Drop the scylla keyspace.
