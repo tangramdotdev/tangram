@@ -11,15 +11,10 @@ impl Server {
 		sandbox_store: &db::postgres::Database,
 		batch_size: usize,
 	) -> tg::Result<Option<Vec<Entry>>> {
-		let mut connection = sandbox_store
+		let connection = sandbox_store
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
-		let transaction = connection
-			.inner_mut()
-			.transaction()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 		#[derive(db::postgres::row::Deserialize)]
 		struct Row {
 			position: i64,
@@ -45,8 +40,10 @@ impl Server {
 				order by position;
 			"
 		);
-		let rows = transaction
-			.query(statement, &[&i64::try_from(batch_size).unwrap()])
+		let batch_size = i64::try_from(batch_size).unwrap();
+		let rows = connection
+			.inner()
+			.query(statement, &[&batch_size])
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		let entries = rows
@@ -66,10 +63,6 @@ impl Server {
 		if entries.is_empty() {
 			return Ok(None);
 		}
-		transaction
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 		Ok(Some(entries))
 	}
 }

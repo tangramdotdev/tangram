@@ -97,15 +97,10 @@ impl Server {
 		id: &tg::process::Id,
 		stream: tg::process::stdio::Stream,
 	) -> tg::Result<()> {
-		let mut connection = sandbox_store
+		let connection = sandbox_store
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
-		let transaction = connection
-			.inner_mut()
-			.transaction()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 		let column = match stream {
 			tg::process::stdio::Stream::Stdin => "stdin_open",
 			tg::process::stdio::Stream::Stdout => "stdout_open",
@@ -119,14 +114,11 @@ impl Server {
 			"
 		);
 		let id = id.to_string();
-		transaction
+		connection
+			.inner()
 			.execute(&statement, &[&id])
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		transaction
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 		Ok(())
 	}
 }

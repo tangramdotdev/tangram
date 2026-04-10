@@ -11,15 +11,10 @@ impl Server {
 		sandbox_store: &db::postgres::Database,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Signal>> {
-		let mut connection = sandbox_store
+		let connection = sandbox_store
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
-		let transaction = connection
-			.inner_mut()
-			.transaction()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 		#[derive(db::postgres::row::Deserialize)]
 		struct Row {
 			position: i64,
@@ -46,7 +41,8 @@ impl Server {
 			"
 		);
 		let id = id.to_string();
-		let row = transaction
+		let row = connection
+			.inner()
 			.query_opt(statement, &[&id])
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
@@ -58,10 +54,6 @@ impl Server {
 		let Some(row) = row else {
 			return Ok(None);
 		};
-		transaction
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 		let _ = row.position;
 		Ok(Some(row.signal))
 	}

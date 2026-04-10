@@ -56,16 +56,12 @@ impl Server {
 		}
 
 		// Insert the signal into the sandbox store.
-		let mut connection = self
+		let connection = self
 			.sandbox_store
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to acquire a transaction"))?;
-		let p = transaction.p();
+		let p = connection.p();
 		let statement = formatdoc!(
 			"
 				insert into process_signals (process, signal)
@@ -73,14 +69,10 @@ impl Server {
 			"
 		);
 		let params = db::params![id.to_string(), signal.to_string()];
-		transaction
+		connection
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		transaction
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 		drop(connection);
 
 		// Publish the signal message.

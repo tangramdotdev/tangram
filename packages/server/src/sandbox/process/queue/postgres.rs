@@ -11,17 +11,10 @@ impl Server {
 		sandbox_store: &db::postgres::Database,
 		sandbox: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
-		let mut connection = sandbox_store
+		let connection = sandbox_store
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
-
-		let transaction = connection
-			.inner_mut()
-			.transaction()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
-
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let statement = indoc!(
 			"
@@ -41,8 +34,10 @@ impl Server {
 				returning id;
 			"
 		);
-		let rows = transaction
-			.query(statement, &[&sandbox.to_string(), &now])
+		let sandbox = sandbox.to_string();
+		let rows = connection
+			.inner()
+			.query(statement, &[&sandbox, &now])
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		let Some(row) = rows.first() else {
@@ -52,11 +47,6 @@ impl Server {
 			.get::<_, String>(0)
 			.parse()
 			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
-
-		transaction
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 
 		let output = tg::sandbox::process::queue::Output { process };
 
