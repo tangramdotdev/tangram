@@ -6,6 +6,14 @@ pub(crate) mod write;
 pub(crate) const MAX_UNREAD_PROCESS_STDIO_BYTES: u64 = 1024 * 1024;
 
 impl Server {
+	pub(crate) fn spawn_publish_process_stdio_close_message_task(
+		&self,
+		id: &tg::process::Id,
+		stream: tg::process::stdio::Stream,
+	) {
+		self.spawn_publish_process_stdio_message_task(id, stream, "close");
+	}
+
 	pub(crate) fn spawn_publish_process_stdio_read_message_task(
 		&self,
 		id: &tg::process::Id,

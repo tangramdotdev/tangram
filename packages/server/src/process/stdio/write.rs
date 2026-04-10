@@ -236,6 +236,9 @@ impl Server {
 		stream: tg::process::stdio::Stream,
 		bytes: Bytes,
 	) -> tg::Result<()> {
+		let mut wakeups = self
+			.subscribe_process_stdio_write_wakeups_local(id, stream)
+			.await?;
 		loop {
 			match self
 				.try_write_process_stdio(id, stream, bytes.clone())
@@ -246,7 +249,7 @@ impl Server {
 					return Ok(());
 				},
 				WriteOutput::Full => {
-					self.wait_for_process_stdio_read_local(id, stream).await?;
+					wakeups.next().await;
 				},
 				WriteOutput::Closed => {
 					let error = tg::error!(%id, %stream, "the process stdio is closed");
@@ -256,13 +259,20 @@ impl Server {
 		}
 	}
 
-	async fn wait_for_process_stdio_read_local(
+	async fn subscribe_process_stdio_write_wakeups_local(
 		&self,
 		id: &tg::process::Id,
 		stream: tg::process::stdio::Stream,
-	) -> tg::Result<()> {
+	) -> tg::Result<BoxStream<'static, ()>> {
 		let subject = format!("processes.{id}.{stream}.read");
-		let stream_ = self
+		let read = self
+			.messenger
+			.subscribe::<()>(subject, Some("processes.stdio.write".into()))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+			.map(|_| ());
+		let subject = format!("processes.{id}.{stream}.close");
+		let close = self
 			.messenger
 			.subscribe::<()>(subject, Some("processes.stdio.write".into()))
 			.await
@@ -271,9 +281,8 @@ impl Server {
 		let start = tokio::time::Instant::now() + Duration::from_secs(1);
 		let interval = IntervalStream::new(tokio::time::interval_at(start, Duration::from_secs(1)))
 			.map(|_| ());
-		let mut stream = pin!(stream::select(stream_, interval));
-		stream.next().await;
-		Ok(())
+		let stream = stream::select_all([read.boxed(), close.boxed(), interval.boxed()]).boxed();
+		Ok(stream)
 	}
 
 	async fn try_write_process_stdio(
@@ -302,8 +311,7 @@ impl Server {
 		stream: tg::process::stdio::Stream,
 	) -> tg::Result<()> {
 		self.try_close_process_stdio(id, stream).await?;
-		self.spawn_publish_process_stdio_read_message_task(id, stream);
-		self.spawn_publish_process_stdio_write_message_task(id, stream);
+		self.spawn_publish_process_stdio_close_message_task(id, stream);
 		Ok(())
 	}
 

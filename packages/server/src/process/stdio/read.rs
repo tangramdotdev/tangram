@@ -235,24 +235,33 @@ impl Server {
 		streams: BTreeSet<tg::process::stdio::Stream>,
 		sender: async_channel::Sender<tg::Result<tg::process::stdio::read::Event>>,
 	) -> tg::Result<()> {
-		let mut streams_ = Vec::with_capacity(streams.len() + 1);
+		let mut wakeups = Vec::with_capacity(streams.len() * 2 + 1);
 		for stream in &streams {
 			let subject = format!("processes.{id}.{stream}.write");
-			let stream = self
+			let wakeup = self
 				.messenger
 				.subscribe::<()>(subject, Some("processes.stdio.read".into()))
 				.await
 				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 				.map(|_| ())
 				.boxed();
-			streams_.push(stream);
+			wakeups.push(wakeup);
+			let subject = format!("processes.{id}.{stream}.close");
+			let wakeup = self
+				.messenger
+				.subscribe::<()>(subject, Some("processes.stdio.read".into()))
+				.await
+				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+				.map(|_| ())
+				.boxed();
+			wakeups.push(wakeup);
 		}
 		let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(1)))
 			.map(|_| ())
 			.boxed();
-		streams_.push(interval);
-		let mut streams_ = stream::select_all(streams_).boxed();
-		while let Some(()) = streams_.next().await {
+		wakeups.push(interval);
+		let mut wakeups = stream::select_all(wakeups).boxed();
+		while let Some(()) = wakeups.next().await {
 			loop {
 				match self.try_read_process_stdio_pipe_event(id, &streams).await {
 					Ok(Some(event)) => {

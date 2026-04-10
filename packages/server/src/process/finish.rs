@@ -282,23 +282,22 @@ impl Server {
 		// Publish the finalize message.
 		self.spawn_publish_process_finalize_message_task();
 
-		// Wake any readers waiting on stdio that was closed by finishing the process.
-		if open.as_ref().is_some_and(|row| row.stderr == Some(true)) {
-			self.spawn_publish_process_stdio_write_message_task(
-				id,
-				tg::process::stdio::Stream::Stderr,
-			);
-		}
 		if open.as_ref().is_some_and(|row| row.stdin == Some(true)) {
-			self.spawn_publish_process_stdio_write_message_task(
+			self.spawn_publish_process_stdio_close_message_task(
 				id,
 				tg::process::stdio::Stream::Stdin,
 			);
 		}
 		if open.as_ref().is_some_and(|row| row.stdout == Some(true)) {
-			self.spawn_publish_process_stdio_write_message_task(
+			self.spawn_publish_process_stdio_close_message_task(
 				id,
 				tg::process::stdio::Stream::Stdout,
+			);
+		}
+		if open.as_ref().is_some_and(|row| row.stderr == Some(true)) {
+			self.spawn_publish_process_stdio_close_message_task(
+				id,
+				tg::process::stdio::Stream::Stderr,
 			);
 		}
 
