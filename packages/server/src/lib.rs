@@ -13,7 +13,6 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::task::Task,
-	tangram_messenger::prelude::*,
 	tangram_uri::Uri,
 	tangram_util::fs::remove,
 	tokio::io::AsyncWriteExt as _,
@@ -492,20 +491,6 @@ impl Server {
 				}
 			},
 		};
-
-		// Create the streams if the messenger is memory.
-		if messenger.is_memory() {
-			let stream_name = "processes_stdio".to_owned();
-			let stream_config = tangram_messenger::StreamConfig {
-				discard: tangram_messenger::DiscardPolicy::New,
-				retention: tangram_messenger::RetentionPolicy::WorkQueue,
-				..Default::default()
-			};
-			messenger
-				.create_stream(stream_name, stream_config)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create stdio stream"))?;
-		}
 
 		// Create the peers.
 		let peers = DashMap::default();

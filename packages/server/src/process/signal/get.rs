@@ -108,7 +108,7 @@ impl Server {
 	) -> tg::Result<()> {
 		let subject = format!("processes.{id}.signal");
 		let group = "processes.signal.dequeue";
-		let wakeup = self
+		let stream = self
 			.messenger
 			.subscribe::<()>(subject, Some(group.into()))
 			.await
@@ -116,7 +116,7 @@ impl Server {
 			.map(|_| ());
 		let interval =
 			IntervalStream::new(tokio::time::interval(Duration::from_secs(1))).map(|_| ());
-		let stream = stream::select(wakeup, interval);
+		let stream = stream::select(stream, interval);
 		let mut stream = pin!(stream);
 		while let Some(()) = stream.next().await {
 			loop {

@@ -38,8 +38,11 @@ create table processes (
 	started_at int8,
 	status text not null,
 	stderr text,
+	stderr_open boolean,
 	stdin text,
+	stdin_open boolean,
 	stdout text,
+	stdout_open boolean,
 	token_count int8 not null,
 	touched_at int8,
 	tty text
@@ -90,6 +93,15 @@ create table process_signals (
 );
 
 create index process_signals_process_position_index on process_signals (process, position);
+
+create table process_stdio (
+	process text not null,
+	stream text not null,
+	position bigserial primary key,
+	bytes bytea not null
+);
+
+create index process_stdio_process_stream_position_index on process_stdio (process, stream, position);
 
 create table process_finalize_queue (
 	position bigserial primary key,

@@ -1,14 +1,11 @@
 use {
-	super::{process_stdio, validate_log_stream},
-	crate::{Context, Server},
-	bytes::Bytes,
+	crate::{Context, Server, database::Database},
 	futures::{
 		StreamExt as _, future,
 		stream::{self, BoxStream},
 	},
-	itertools::Itertools as _,
 	num::ToPrimitive as _,
-	std::{collections::BTreeSet, io::SeekFrom, pin::pin, time::Duration},
+	std::{collections::BTreeSet, io::SeekFrom, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::{
 		stream::Ext as _,
@@ -23,9 +20,14 @@ use {
 	tokio_stream::wrappers::IntervalStream,
 };
 
+#[cfg(feature = "postgres")]
+mod postgres;
+#[cfg(feature = "sqlite")]
+mod sqlite;
+
 enum Source {
+	Pipe(BTreeSet<tg::process::stdio::Stream>),
 	Log(BTreeSet<tg::process::stdio::Stream>),
-	Messenger(BTreeSet<tg::process::stdio::Stream>),
 	Null,
 }
 
@@ -90,12 +92,9 @@ impl Server {
 		};
 		let source = Self::get_process_stdio_source(&output.data, &arg)?;
 		let stream = match source {
-			Source::Log(stream) => {
-				self.try_read_process_stdio_log_local(id, arg, stream)
-					.await?
-			},
-			Source::Messenger(streams) => {
-				self.try_read_process_stdio_messenger_local(id, &streams)
+			Source::Pipe(streams) => self.try_read_process_stdio_pipe_local(id, &streams).await?,
+			Source::Log(streams) => {
+				self.try_read_process_stdio_log_local(id, arg, streams)
 					.await?
 			},
 			Source::Null => stream::once(future::ok(tg::process::stdio::read::Event::End)).boxed(),
@@ -209,95 +208,98 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn try_read_process_stdio_messenger_local(
+	pub(crate) async fn try_read_process_stdio_pipe_local(
 		&self,
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>> {
-		let stream = self
-			.messenger
-			.get_stream("processes_stdio".to_owned())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the stdio stream"))?;
-		let consumer_name = format!("{id}_{}", streams.iter().join("_"));
-		let consumer_config = tangram_messenger::ConsumerConfig {
-			ack_policy: tangram_messenger::AckPolicy::None,
-			durable_name: Some(consumer_name.clone()),
-			filter_subjects: streams
-				.iter()
-				.map(|stream| format!("processes.stdio.{id}.{stream}"))
-				.collect(),
-			..Default::default()
-		};
-		let consumer = stream
-			.get_or_create_consumer(Some(consumer_name), consumer_config)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create a stdio consumer"))?;
 		let (sender, receiver) =
 			async_channel::unbounded::<tg::Result<tg::process::stdio::read::Event>>();
+		let server = self.clone();
+		let id = id.clone();
 		let streams = streams.clone();
 		let task = Task::spawn(move |_| async move {
-			let stream = consumer
-				.subscribe::<Bytes>()
+			let result = server
+				.try_read_process_stdio_pipe_local_task(&id, streams, sender.clone())
+				.await;
+			if let Err(error) = result {
+				sender.try_send(Err(error)).ok();
+			}
+		});
+		Ok(receiver.attach(task).boxed())
+	}
+
+	async fn try_read_process_stdio_pipe_local_task(
+		&self,
+		id: &tg::process::Id,
+		streams: BTreeSet<tg::process::stdio::Stream>,
+		sender: async_channel::Sender<tg::Result<tg::process::stdio::read::Event>>,
+	) -> tg::Result<()> {
+		let mut streams_ = Vec::with_capacity(streams.len() + 1);
+		for stream in &streams {
+			let subject = format!("processes.{id}.{stream}.write");
+			let stream = self
+				.messenger
+				.subscribe::<()>(subject, Some("processes.stdio.read".into()))
 				.await
-				.map_err(|source| tg::error!(!source, "failed to subscribe to stdio"))?;
-			let mut stream = pin!(stream.map(|result| {
-				result
-					.map(|message| (message.subject, message.payload))
-					.map_err(|source| tg::error!(!source, "failed to read stdio"))
-			}));
-			let mut ended = BTreeSet::new();
-			while let Some(result) = stream.next().await {
-				let event = match result {
-					Ok((subject, bytes)) => {
-						let event =
-							serde_json::from_slice::<tg::process::stdio::read::Event>(&bytes)
-								.map_err(|source| {
-									tg::error!(!source, "failed to deserialize the stdio event")
-								})?;
-						(subject, event)
+				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+				.map(|_| ())
+				.boxed();
+			streams_.push(stream);
+		}
+		let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(1)))
+			.map(|_| ())
+			.boxed();
+		streams_.push(interval);
+		let mut streams_ = stream::select_all(streams_).boxed();
+		while let Some(()) = streams_.next().await {
+			loop {
+				match self.try_read_process_stdio_pipe_event(id, &streams).await {
+					Ok(Some(event)) => {
+						let end = matches!(event, tg::process::stdio::read::Event::End);
+						if let tg::process::stdio::read::Event::Chunk(chunk) = &event {
+							self.spawn_publish_process_stdio_read_message_task(id, chunk.stream);
+						}
+						if sender.try_send(Ok(event)).is_err() {
+							return Ok(());
+						}
+						if end {
+							return Ok(());
+						}
 					},
+					Ok(None) => break,
 					Err(error) => {
-						sender.send(Err(error)).await.ok();
+						tracing::error!(
+							error = %error.trace(),
+							%id,
+							"failed to read the process stdio event"
+						);
+						tokio::time::sleep(Duration::from_secs(1)).await;
 						break;
-					},
-				};
-				match event {
-					(_, tg::process::stdio::read::Event::Chunk(chunk)) => {
-						if sender
-							.send(Ok(tg::process::stdio::read::Event::Chunk(chunk)))
-							.await
-							.is_err()
-						{
-							break;
-						}
-					},
-					(subject, tg::process::stdio::read::Event::End) => {
-						let stream = subject
-							.rsplit('.')
-							.next()
-							.ok_or_else(|| tg::error!(%subject, "failed to parse the subject"))?
-							.parse::<tg::process::stdio::Stream>()
-							.map_err(
-								|source| tg::error!(!source, %subject, "failed to parse the subject"),
-							)?;
-						ended.insert(stream);
-						if ended == streams {
-							if sender
-								.send(Ok(tg::process::stdio::read::Event::End))
-								.await
-								.is_err()
-							{
-								break;
-							}
-							break;
-						}
 					},
 				}
 			}
-			Ok::<_, tg::Error>(())
-		});
-		Ok(receiver.attach(task).boxed())
+		}
+		Ok(())
+	}
+
+	async fn try_read_process_stdio_pipe_event(
+		&self,
+		id: &tg::process::Id,
+		streams: &BTreeSet<tg::process::stdio::Stream>,
+	) -> tg::Result<Option<tg::process::stdio::read::Event>> {
+		match &self.sandbox_store {
+			#[cfg(feature = "postgres")]
+			Database::Postgres(sandbox_store) => {
+				self.try_read_process_stdio_pipe_event_postgres(sandbox_store, id, streams)
+					.await
+			},
+			#[cfg(feature = "sqlite")]
+			Database::Sqlite(sandbox_store) => {
+				self.try_read_process_stdio_pipe_event_sqlite(sandbox_store, id, streams)
+					.await
+			},
+		}
 	}
 
 	async fn try_read_process_stdio_peer(
@@ -369,15 +371,22 @@ impl Server {
 		arg: &tg::process::stdio::read::Arg,
 	) -> tg::Result<Source> {
 		let mut log_streams = BTreeSet::new();
-		let mut messenger_streams = BTreeSet::new();
+		let mut pipe_streams = BTreeSet::new();
 		for stream in &arg.streams {
-			let stdio = process_stdio(data, *stream);
+			let stdio = match stream {
+				tg::process::stdio::Stream::Stdin => &data.stdin,
+				tg::process::stdio::Stream::Stdout => &data.stdout,
+				tg::process::stdio::Stream::Stderr => &data.stderr,
+			};
 			match stdio {
 				tg::process::Stdio::Log => {
-					log_streams.insert(validate_log_stream(*stream)?);
+					if matches!(stream, tg::process::stdio::Stream::Stdin) {
+						return Err(tg::error!("invalid stdio stream"));
+					}
+					log_streams.insert(*stream);
 				},
 				tg::process::Stdio::Pipe | tg::process::Stdio::Tty => {
-					messenger_streams.insert(*stream);
+					pipe_streams.insert(*stream);
 				},
 				tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit => {
 					return Err(tg::error!("invalid stdio"));
@@ -385,18 +394,18 @@ impl Server {
 				tg::process::Stdio::Null => (),
 			}
 		}
-		if !log_streams.is_empty() && !messenger_streams.is_empty() {
+		if !log_streams.is_empty() && !pipe_streams.is_empty() {
 			return Err(tg::error!(
-				"cannot read logged and live stdio in a single request"
+				"cannot read logged and piped stdio in a single request"
 			));
 		}
-		if !messenger_streams.is_empty() {
+		if !pipe_streams.is_empty() {
 			if arg.position.is_some() || arg.length.is_some() || arg.size.is_some() {
 				return Err(tg::error!(
 					"position, length, and size are only valid for logged stdio"
 				));
 			}
-			return Ok(Source::Messenger(messenger_streams));
+			return Ok(Source::Pipe(pipe_streams));
 		}
 		if log_streams.is_empty() {
 			return Ok(Source::Null);

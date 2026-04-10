@@ -1,24 +1,54 @@
-use tangram_client::prelude::*;
+use {crate::Server, tangram_client::prelude::*, tangram_messenger::prelude::*};
 
 pub(crate) mod read;
 pub(crate) mod write;
 
-fn process_stdio(
-	data: &tg::process::Data,
-	stream: tg::process::stdio::Stream,
-) -> &tg::process::Stdio {
-	match stream {
-		tg::process::stdio::Stream::Stdin => &data.stdin,
-		tg::process::stdio::Stream::Stdout => &data.stdout,
-		tg::process::stdio::Stream::Stderr => &data.stderr,
-	}
-}
+pub(crate) const MAX_UNREAD_PROCESS_STDIO_BYTES: u64 = 1024 * 1024;
 
-fn validate_log_stream(
-	stream: tg::process::stdio::Stream,
-) -> tg::Result<tg::process::stdio::Stream> {
-	match stream {
-		tg::process::stdio::Stream::Stdout | tg::process::stdio::Stream::Stderr => Ok(stream),
-		tg::process::stdio::Stream::Stdin => Err(tg::error!("invalid stdio stream")),
+impl Server {
+	pub(crate) fn spawn_publish_process_stdio_read_message_task(
+		&self,
+		id: &tg::process::Id,
+		stream: tg::process::stdio::Stream,
+	) {
+		self.spawn_publish_process_stdio_message_task(id, stream, "read");
+	}
+
+	pub(crate) fn spawn_publish_process_stdio_write_message_task(
+		&self,
+		id: &tg::process::Id,
+		stream: tg::process::stdio::Stream,
+	) {
+		self.spawn_publish_process_stdio_message_task(id, stream, "write");
+	}
+
+	fn spawn_publish_process_stdio_message_task(
+		&self,
+		id: &tg::process::Id,
+		stream: tg::process::stdio::Stream,
+		action: &str,
+	) {
+		let id = id.clone();
+		let action = action.to_owned();
+		let subject = format!("processes.{id}.{stream}.{action}");
+		tokio::spawn({
+			let server = self.clone();
+			async move {
+				server
+					.messenger
+					.publish(subject, ())
+					.await
+					.inspect_err(|error| {
+						tracing::error!(
+							%error,
+							%id,
+							%stream,
+							%action,
+							"failed to publish the process stdio message"
+						);
+					})
+					.ok();
+			}
+		});
 	}
 }

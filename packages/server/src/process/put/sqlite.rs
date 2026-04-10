@@ -81,8 +81,11 @@ impl Server {
 					started_at,
 					status,
 					stderr,
+					stderr_open,
 					stdin,
+					stdin_open,
 					stdout,
+					stdout_open,
 					token_count,
 					touched_at
 				)
@@ -109,7 +112,10 @@ impl Server {
 					?20,
 					?21,
 					?22,
-					?23
+					?23,
+					?24,
+					?25,
+					?26
 				)
 				on conflict (id) do update set
 					actual_checksum = ?2,
@@ -130,10 +136,13 @@ impl Server {
 					started_at = ?17,
 					status = ?18,
 					stderr = ?19,
-					stdin = ?20,
-					stdout = ?21,
-					token_count = ?22,
-					touched_at = ?23
+					stderr_open = ?20,
+					stdin = ?21,
+					stdin_open = ?22,
+					stdout = ?23,
+					stdout_open = ?24,
+					token_count = ?25,
+					touched_at = ?26
 			"
 		);
 		let mut process_stmt = cache
@@ -170,6 +179,33 @@ impl Server {
 				.tty
 				.as_ref()
 				.map(|tty| serde_json::to_string(tty).unwrap());
+			let stderr_open = match &data.stderr {
+				tg::process::Stdio::Pipe | tg::process::Stdio::Tty => {
+					Some(!data.status.is_finished())
+				},
+				tg::process::Stdio::Blob(_)
+				| tg::process::Stdio::Inherit
+				| tg::process::Stdio::Log
+				| tg::process::Stdio::Null => None,
+			};
+			let stdin_open = match &data.stdin {
+				tg::process::Stdio::Pipe | tg::process::Stdio::Tty => {
+					Some(!data.status.is_finished())
+				},
+				tg::process::Stdio::Blob(_)
+				| tg::process::Stdio::Inherit
+				| tg::process::Stdio::Log
+				| tg::process::Stdio::Null => None,
+			};
+			let stdout_open = match &data.stdout {
+				tg::process::Stdio::Pipe | tg::process::Stdio::Tty => {
+					Some(!data.status.is_finished())
+				},
+				tg::process::Stdio::Blob(_)
+				| tg::process::Stdio::Inherit
+				| tg::process::Stdio::Log
+				| tg::process::Stdio::Null => None,
+			};
 
 			let params = sqlite::params![
 				id.to_string(),
@@ -191,8 +227,11 @@ impl Server {
 				data.started_at,
 				data.status.to_string(),
 				(!data.stderr.is_null()).then(|| data.stderr.to_string()),
+				stderr_open,
 				(!data.stdin.is_null()).then(|| data.stdin.to_string()),
+				stdin_open,
 				(!data.stdout.is_null()).then(|| data.stdout.to_string()),
+				stdout_open,
 				0,
 				touched_at
 			];

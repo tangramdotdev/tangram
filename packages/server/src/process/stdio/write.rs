@@ -1,9 +1,11 @@
 use {
-	super::{process_stdio, validate_log_stream},
-	crate::{Context, Server},
+	crate::{Context, Server, database::Database},
 	bytes::Bytes,
-	futures::{StreamExt as _, TryFutureExt as _, TryStreamExt as _, future, stream::BoxStream},
-	std::{collections::BTreeSet, pin::pin},
+	futures::{
+		StreamExt as _, TryStreamExt as _, future,
+		stream::{self, BoxStream},
+	},
+	std::{collections::BTreeSet, pin::pin, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::{
 		stream::Ext as _,
@@ -12,13 +14,24 @@ use {
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_log_store::Store as _,
 	tangram_messenger::prelude::*,
-	tokio_stream::wrappers::ReceiverStream,
+	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
+
+#[cfg(feature = "postgres")]
+mod postgres;
+#[cfg(feature = "sqlite")]
+mod sqlite;
 
 enum Destination {
 	Log,
-	Messenger,
+	Pipe,
 	Null,
+}
+
+pub(crate) enum WriteOutput {
+	Written,
+	Full,
+	Closed,
 }
 
 impl Server {
@@ -156,7 +169,7 @@ impl Server {
 						));
 					}
 					chunk.position = None;
-					match classify_write_process_stdio_stream(&data, chunk.stream)? {
+					match get_destination(&data, chunk.stream)? {
 						Destination::Log => {
 							let started_at = started_at
 								.ok_or_else(|| tg::error!("expected the process to be started"))?;
@@ -165,10 +178,16 @@ impl Server {
 							}
 							let timestamp =
 								time::OffsetDateTime::now_utc().unix_timestamp() - started_at;
+							let stream =
+								if matches!(chunk.stream, tg::process::stdio::Stream::Stdin) {
+									return Err(tg::error!("invalid stdio stream"));
+								} else {
+									chunk.stream
+								};
 							let arg = tangram_log_store::PutProcessLogArg {
 								bytes: chunk.bytes,
 								process: id.clone(),
-								stream: validate_log_stream(chunk.stream)?,
+								stream,
 								timestamp,
 							};
 							self.log_store
@@ -190,48 +209,121 @@ impl Server {
 								}
 							});
 						},
-						Destination::Messenger => {
-							let subject = format!("processes.stdio.{id}.{}", chunk.stream);
-							let payload =
-								serde_json::to_vec(&tg::process::stdio::read::Event::Chunk(chunk))
-									.map(Bytes::from)
-									.map_err(|source| {
-										tg::error!(!source, "failed to serialize the stdio event")
-									})?;
-							self.messenger
-								.stream_publish("processes_stdio".to_owned(), subject, payload)
-								.and_then(|result| result)
-								.await
-								.map_err(|source| tg::error!(!source, "failed to publish stdio"))?;
+						Destination::Pipe => {
+							self.write_process_stdio_chunk_local(id, chunk.stream, chunk.bytes)
+								.await?;
 						},
 						Destination::Null => (),
 					}
 				},
 				tg::process::stdio::read::Event::End => {
-					let payload = serde_json::to_vec(&tg::process::stdio::read::Event::End)
-						.map(Bytes::from)
-						.map_err(|source| {
-							tg::error!(!source, "failed to serialize the stdio event")
-						})?;
 					for stream in &streams {
-						if !matches!(
-							classify_write_process_stdio_stream(&data, *stream)?,
-							Destination::Messenger
-						) {
+						if !matches!(get_destination(&data, *stream)?, Destination::Pipe) {
 							continue;
 						}
-						let subject = format!("processes.stdio.{id}.{stream}");
-						self.messenger
-							.stream_publish("processes_stdio".to_owned(), subject, payload.clone())
-							.and_then(|result| result)
-							.await
-							.map_err(|source| tg::error!(!source, "failed to publish stdio"))?;
+						self.close_process_stdio_local(id, *stream).await?;
 					}
 					return Ok(());
 				},
 			}
 		}
 		Ok(())
+	}
+
+	async fn write_process_stdio_chunk_local(
+		&self,
+		id: &tg::process::Id,
+		stream: tg::process::stdio::Stream,
+		bytes: Bytes,
+	) -> tg::Result<()> {
+		loop {
+			match self
+				.try_write_process_stdio(id, stream, bytes.clone())
+				.await?
+			{
+				WriteOutput::Written => {
+					self.spawn_publish_process_stdio_write_message_task(id, stream);
+					return Ok(());
+				},
+				WriteOutput::Full => {
+					self.wait_for_process_stdio_read_local(id, stream).await?;
+				},
+				WriteOutput::Closed => {
+					let error = tg::error!(%id, %stream, "the process stdio is closed");
+					return Err(error);
+				},
+			}
+		}
+	}
+
+	async fn wait_for_process_stdio_read_local(
+		&self,
+		id: &tg::process::Id,
+		stream: tg::process::stdio::Stream,
+	) -> tg::Result<()> {
+		let subject = format!("processes.{id}.{stream}.read");
+		let stream_ = self
+			.messenger
+			.subscribe::<()>(subject, Some("processes.stdio.write".into()))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+			.map(|_| ());
+		let start = tokio::time::Instant::now() + Duration::from_secs(1);
+		let interval = IntervalStream::new(tokio::time::interval_at(start, Duration::from_secs(1)))
+			.map(|_| ());
+		let mut stream = pin!(stream::select(stream_, interval));
+		stream.next().await;
+		Ok(())
+	}
+
+	async fn try_write_process_stdio(
+		&self,
+		id: &tg::process::Id,
+		stream: tg::process::stdio::Stream,
+		bytes: Bytes,
+	) -> tg::Result<WriteOutput> {
+		match &self.sandbox_store {
+			#[cfg(feature = "postgres")]
+			Database::Postgres(sandbox_store) => {
+				self.try_write_process_stdio_postgres(sandbox_store, id, stream, bytes)
+					.await
+			},
+			#[cfg(feature = "sqlite")]
+			Database::Sqlite(sandbox_store) => {
+				self.try_write_process_stdio_sqlite(sandbox_store, id, stream, bytes)
+					.await
+			},
+		}
+	}
+
+	async fn close_process_stdio_local(
+		&self,
+		id: &tg::process::Id,
+		stream: tg::process::stdio::Stream,
+	) -> tg::Result<()> {
+		self.try_close_process_stdio(id, stream).await?;
+		self.spawn_publish_process_stdio_read_message_task(id, stream);
+		self.spawn_publish_process_stdio_write_message_task(id, stream);
+		Ok(())
+	}
+
+	async fn try_close_process_stdio(
+		&self,
+		id: &tg::process::Id,
+		stream: tg::process::stdio::Stream,
+	) -> tg::Result<()> {
+		match &self.sandbox_store {
+			#[cfg(feature = "postgres")]
+			Database::Postgres(sandbox_store) => {
+				self.try_close_process_stdio_postgres(sandbox_store, id, stream)
+					.await
+			},
+			#[cfg(feature = "sqlite")]
+			Database::Sqlite(sandbox_store) => {
+				self.try_close_process_stdio_sqlite(sandbox_store, id, stream)
+					.await
+			},
+		}
 	}
 
 	async fn try_get_process_stdio_write_peer(
@@ -386,23 +478,35 @@ impl Server {
 	}
 }
 
-fn classify_write_process_stdio_stream(
+fn get_destination(
 	data: &tg::process::Data,
 	stream: tg::process::stdio::Stream,
 ) -> tg::Result<Destination> {
-	let stdio = process_stdio(data, stream);
+	let stdio = match stream {
+		tg::process::stdio::Stream::Stdin => &data.stdin,
+		tg::process::stdio::Stream::Stdout => &data.stdout,
+		tg::process::stdio::Stream::Stderr => &data.stderr,
+	};
 	match stream {
 		tg::process::stdio::Stream::Stdin => match stdio {
 			tg::process::Stdio::Null => Ok(Destination::Null),
-			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Ok(Destination::Messenger),
+			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Ok(Destination::Pipe),
 			tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit | tg::process::Stdio::Log => {
 				Err(tg::error!("invalid stdio"))
 			},
 		},
-		tg::process::stdio::Stream::Stdout | tg::process::stdio::Stream::Stderr => match stdio {
+		tg::process::stdio::Stream::Stdout => match stdio {
 			tg::process::Stdio::Log => Ok(Destination::Log),
 			tg::process::Stdio::Null => Ok(Destination::Null),
-			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Ok(Destination::Messenger),
+			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Ok(Destination::Pipe),
+			tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit => {
+				Err(tg::error!("invalid stdio"))
+			},
+		},
+		tg::process::stdio::Stream::Stderr => match stdio {
+			tg::process::Stdio::Log => Ok(Destination::Log),
+			tg::process::Stdio::Null => Ok(Destination::Null),
+			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Ok(Destination::Pipe),
 			tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit => {
 				Err(tg::error!("invalid stdio"))
 			},

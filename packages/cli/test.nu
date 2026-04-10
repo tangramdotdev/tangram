@@ -39,8 +39,7 @@ def main [
 			try { cockroach sql --insecure --host=localhost:26257 -e $'drop database if exists ($db) cascade' }
 		}
 
-		let preserved_streams = ['processes_stdio']
-		let streams = nats stream ls -n | lines | where { $in not-in $preserved_streams }
+		let streams = nats stream ls -n | lines
 		for stream in $streams {
 			print -e $"deleting nats stream ($stream)"
 			try { nats stream rm -f $stream }
@@ -772,8 +771,6 @@ export def --env spawn [
 		let cluster = mktemp -t
 		"docker:docker@localhost:4500" | save -f $cluster
 
-		nats stream create $'processes_stdio_($id)' --discard new --retention work --subjects $'($id).processes.stdio.*.*' --defaults
-
 		cqlsh -e $"create keyspace \"object_store_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
 		cqlsh -k $'objects_($id)' -f ($repository_path | path join packages/stores/object/src/scylla.cql)
 
@@ -922,9 +919,6 @@ def clean_databases [id: string] {
 	let cluster = mktemp -t
 	"docker:docker@localhost:4500" | save -f $cluster
 	try { fdbcli -C $cluster --exec $'writemode on; clearrange "index_($id)" "index_($id)\xff"; clearrange "logs_($id)" "logs_($id)\xff"' }
-
-	# Remove the NATS streams.
-	try { nats stream rm -f $'processes_stdio_($id)' }
 
 	# Drop the scylla keyspace.
 	try { cqlsh -e $"drop keyspace \"object_store_($id)\";" }

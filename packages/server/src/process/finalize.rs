@@ -26,7 +26,7 @@ impl Server {
 		let batch_size = config.message_batch_size.max(1);
 		let subject = "processes.finalize.queue";
 		let group = "processes.finalize";
-		let wakeup = self
+		let stream = self
 			.messenger
 			.subscribe::<()>(subject.into(), Some(group.into()))
 			.await
@@ -34,7 +34,7 @@ impl Server {
 			.map(|_| ());
 		let interval = config.message_batch_timeout.max(Duration::from_millis(1));
 		let interval = IntervalStream::new(tokio::time::interval(interval)).map(|_| ());
-		let stream = stream::select(wakeup, interval);
+		let stream = stream::select(stream, interval);
 		let mut stream = pin!(stream);
 		while let Some(()) = stream.next().await {
 			loop {

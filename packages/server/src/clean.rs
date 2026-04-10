@@ -315,6 +315,19 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to delete process_signals"))?;
 
+			// Delete the process stdio.
+			let statement = formatdoc!(
+				"
+					delete from process_stdio
+					where process = {p}1;
+				"
+			);
+			let params = db::params![id.to_string()];
+			connection
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to delete process_stdio"))?;
+
 			// Delete the process.
 			let statement = formatdoc!(
 				"

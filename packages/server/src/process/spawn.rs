@@ -694,6 +694,27 @@ impl Server {
 		}
 
 		let status = tg::process::Status::Finished;
+		let stderr_open = match &arg.stderr {
+			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Some(!status.is_finished()),
+			tg::process::Stdio::Blob(_)
+			| tg::process::Stdio::Inherit
+			| tg::process::Stdio::Log
+			| tg::process::Stdio::Null => None,
+		};
+		let stdin_open = match &arg.stdin {
+			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Some(!status.is_finished()),
+			tg::process::Stdio::Blob(_)
+			| tg::process::Stdio::Inherit
+			| tg::process::Stdio::Log
+			| tg::process::Stdio::Null => None,
+		};
+		let stdout_open = match &arg.stdout {
+			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Some(!status.is_finished()),
+			tg::process::Stdio::Blob(_)
+			| tg::process::Stdio::Inherit
+			| tg::process::Stdio::Log
+			| tg::process::Stdio::Null => None,
+		};
 
 		// Insert the process.
 		let statement = formatdoc!(
@@ -715,6 +736,9 @@ impl Server {
 					tty,
 					retry,
 					status,
+					stderr_open,
+					stdin_open,
+					stdout_open,
 					token_count,
 					touched_at
 				)
@@ -736,7 +760,10 @@ impl Server {
 					{p}15,
 					{p}16,
 					{p}17,
-					{p}18
+					{p}18,
+					{p}19,
+					{p}20,
+					{p}21
 				)
 				on conflict (id) do update set
 					actual_checksum = {p}2,
@@ -754,8 +781,11 @@ impl Server {
 					tty = {p}14,
 					retry = {p}15,
 					status = {p}16,
-					token_count = {p}17,
-					touched_at = {p}18;
+					stderr_open = {p}17,
+					stdin_open = {p}18,
+					stdout_open = {p}19,
+					token_count = {p}20,
+					touched_at = {p}21;
 			"
 		);
 		let now: i64 = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -795,6 +825,9 @@ impl Server {
 			tty.map(db::value::Json),
 			arg.retry,
 			status.to_string(),
+			stderr_open,
+			stdin_open,
+			stdout_open,
 			0,
 			now,
 		];
@@ -868,6 +901,27 @@ impl Server {
 		} else {
 			tg::process::Status::Created
 		};
+		let stderr_open = match &arg.stderr {
+			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Some(!status.is_finished()),
+			tg::process::Stdio::Blob(_)
+			| tg::process::Stdio::Inherit
+			| tg::process::Stdio::Log
+			| tg::process::Stdio::Null => None,
+		};
+		let stdin_open = match &arg.stdin {
+			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Some(!status.is_finished()),
+			tg::process::Stdio::Blob(_)
+			| tg::process::Stdio::Inherit
+			| tg::process::Stdio::Log
+			| tg::process::Stdio::Null => None,
+		};
+		let stdout_open = match &arg.stdout {
+			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Some(!status.is_finished()),
+			tg::process::Stdio::Blob(_)
+			| tg::process::Stdio::Inherit
+			| tg::process::Stdio::Log
+			| tg::process::Stdio::Null => None,
+		};
 
 		// Insert the process.
 		let statement = formatdoc!(
@@ -886,8 +940,11 @@ impl Server {
 					retry,
 					status,
 					stderr,
+					stderr_open,
 					stdin,
+					stdin_open,
 					stdout,
+					stdout_open,
 					token_count,
 					touched_at
 				)
@@ -908,7 +965,10 @@ impl Server {
 						{p}14,
 						{p}15,
 						{p}16,
-						{p}17
+						{p}17,
+						{p}18,
+						{p}19,
+						{p}20
 					)
 					on conflict (id) do update set
 						cacheable = {p}2,
@@ -923,10 +983,13 @@ impl Server {
 						retry = {p}11,
 						status = {p}12,
 						stderr = {p}13,
-						stdin = {p}14,
-						stdout = {p}15,
-						token_count = {p}16,
-						touched_at = {p}17;
+						stderr_open = {p}14,
+						stdin = {p}15,
+						stdin_open = {p}16,
+						stdout = {p}17,
+						stdout_open = {p}18,
+						token_count = {p}19,
+						touched_at = {p}20;
 				"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -954,8 +1017,11 @@ impl Server {
 			arg.retry,
 			status.to_string(),
 			(!arg.stderr.is_null()).then(|| arg.stderr.to_string()),
+			stderr_open,
 			(!arg.stdin.is_null()).then(|| arg.stdin.to_string()),
+			stdin_open,
 			(!arg.stdout.is_null()).then(|| arg.stdout.to_string()),
+			stdout_open,
 			0,
 			now,
 		];

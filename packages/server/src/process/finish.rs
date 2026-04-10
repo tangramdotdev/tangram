@@ -161,8 +161,28 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "faile to acquire a transaction"))?;
 
-		// Update the process.
+		// Get the current open stdio flags so the corresponding readers can be woken after commit.
 		let p = transaction.p();
+		#[derive(db::row::Deserialize)]
+		struct OpenRow {
+			stderr: Option<bool>,
+			stdin: Option<bool>,
+			stdout: Option<bool>,
+		}
+		let statement = formatdoc!(
+			"
+				select stderr_open as stderr, stdin_open as stdin, stdout_open as stdout
+				from processes
+				where id = {p}1 and status != 'finished';
+			"
+		);
+		let params = db::params![id.to_string()];
+		let open = transaction
+			.query_optional_into::<OpenRow>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Update the process.
 		let statement = formatdoc!(
 			"
 				update processes
@@ -175,6 +195,9 @@ impl Server {
 					output = {p}5,
 					exit = {p}6,
 					status = {p}7,
+					stderr_open = case when stderr_open is null then null else false end,
+					stdin_open = case when stdin_open is null then null else false end,
+					stdout_open = case when stdout_open is null then null else false end,
 					touched_at = {p}8
 				where
 					id = {p}9 and
@@ -258,6 +281,26 @@ impl Server {
 
 		// Publish the finalize message.
 		self.spawn_publish_process_finalize_message_task();
+
+		// Wake any readers waiting on stdio that was closed by finishing the process.
+		if open.as_ref().is_some_and(|row| row.stderr == Some(true)) {
+			self.spawn_publish_process_stdio_write_message_task(
+				id,
+				tg::process::stdio::Stream::Stderr,
+			);
+		}
+		if open.as_ref().is_some_and(|row| row.stdin == Some(true)) {
+			self.spawn_publish_process_stdio_write_message_task(
+				id,
+				tg::process::stdio::Stream::Stdin,
+			);
+		}
+		if open.as_ref().is_some_and(|row| row.stdout == Some(true)) {
+			self.spawn_publish_process_stdio_write_message_task(
+				id,
+				tg::process::stdio::Stream::Stdout,
+			);
+		}
 
 		// Publish the status.
 		tokio::spawn({
