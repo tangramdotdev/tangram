@@ -278,8 +278,9 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ());
-		let start = tokio::time::Instant::now() + Duration::from_secs(1);
-		let interval = IntervalStream::new(tokio::time::interval_at(start, Duration::from_secs(1)))
+		let interval = Duration::from_secs(1);
+		let interval = IntervalStream::new(tokio::time::interval(interval))
+			.skip(1)
 			.map(|_| ());
 		let stream = stream::select_all([read.boxed(), close.boxed(), interval.boxed()]).boxed();
 		Ok(stream)

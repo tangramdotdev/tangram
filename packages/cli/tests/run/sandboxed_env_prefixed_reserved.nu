@@ -7,7 +7,7 @@ let path = artifact {
 		export default async function () {
 			return await tg.run(tg.file()).env({
 				TANGRAM_ENV_FOO: 5,
-			});
+			}).sandbox();
 		}
 	',
 }
