@@ -94,8 +94,19 @@ impl Server {
 							sender
 								.send(Ok(tg::process::stdio::write::Event::Stop))
 								.await
+								.inspect_err(
+									|error| tracing::error!(%error, "failed to send stop event"),
+								)
 								.ok();
-							future.await
+							let result = future.await;
+							sender
+								.send(Ok(tg::process::stdio::write::Event::End))
+								.await
+								.inspect_err(
+									|error| tracing::error!(%error, "failed to send end event"),
+								)
+								.ok();
+							result
 						},
 					}
 				} else {
@@ -104,10 +115,6 @@ impl Server {
 				if let Err(error) = result {
 					sender.send(Err(error)).await.ok();
 				}
-				sender
-					.send(Ok(tg::process::stdio::write::Event::End))
-					.await
-					.ok();
 				Ok::<_, tg::Error>(())
 			}
 		});

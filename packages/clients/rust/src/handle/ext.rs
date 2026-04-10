@@ -8,9 +8,10 @@ use {
 	std::{
 		io::SeekFrom,
 		ops::ControlFlow,
+		pin::pin,
 		sync::{Arc, Mutex},
 	},
-	tangram_futures::task::Task,
+	tangram_futures::{stream::Ext as _, task::Task},
 };
 
 pub trait Ext: tg::Handle {
@@ -618,99 +619,141 @@ pub trait Ext: tg::Handle {
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		async move {
-			// Create a channel for notifications.
-			let (notification_sender, notification_receiver) = async_channel::bounded(1);
+			// Create a channel for buffering events from the input.
+			let (event_sender, event_receiver) = async_channel::bounded(1);
 
-			// Create a channel for the events.
-			let (event_sender, event_receiver) =
-				async_channel::bounded::<tg::Result<tg::process::stdio::read::Event>>(16);
+			// Create a channel for notifying the input task when a stop signal has been received.
+			let (stop_sender, mut stop_receiver) =
+				tokio::sync::mpsc::channel::<tokio::sync::oneshot::Receiver<()>>(1);
 
-			// Spawn a task to forward events from the input stream to the event channel.
-			let send_task = Task::spawn(move |_stopper| async move {
-				let mut input = std::pin::pin!(input);
-				while let Some(event) = input.next().await {
-					if event_sender.send(event).await.is_err() {
-						break;
+			// Create the input task. This will read events from the input stream and write them to the event channel.
+			let input_task = Task::spawn({
+				move |_| async move {
+					let input = input.peekable();
+					let mut input = pin!(input);
+					loop {
+						let event = pin!(input.as_mut().peek());
+						let stop = pin!(stop_receiver.recv());
+						match future::select(event, stop).await {
+							future::Either::Left((event, _)) => {
+								// Try to send the event. Exit the loop if it's the end of the input.
+								let Some(event) = event.cloned() else {
+									break;
+								};
+								input.next().await;
+								if event_sender.send(Some(event)).await.is_err() {
+									break;
+								}
+							},
+							future::Either::Right((end_receiver, _)) => {
+								// Try to send the sentinel. Exit the loop if the channel was closed.
+								let Some(end_receiver) = end_receiver else {
+									break;
+								};
+								if event_sender.send(None).await.is_err() {
+									break;
+								}
+								end_receiver.await.ok();
+							},
+						}
 					}
-
-					// Check if there is a pending notification. This is done instead of a select() to avoid cancelling the input stream future.
-					match notification_receiver.try_recv() {
-						Ok(()) => {
-							if notification_receiver.recv().await.is_err() {
-								break;
-							}
-						},
-						Err(async_channel::TryRecvError::Empty) => (),
-						Err(async_channel::TryRecvError::Closed) => break,
-					}
+					Ok::<_, tg::Error>(())
 				}
-				notification_receiver.close();
 			});
 
-			// Write input events in a retry loop.
+			// Create the output task.
+			let id = id.clone();
 			let handle = self.clone();
-			let result =
-				tangram_futures::retry(&tangram_futures::retry::Options::default(), move || {
-					let event_receiver = event_receiver.clone();
-					let notification_sender = notification_sender.clone();
-					let arg = arg.clone();
-					let handle = handle.clone();
-					async move {
-						let events = event_receiver.clone().boxed();
-						let result = handle
-							.write_process_stdio(id, arg, events)
-							.await
-							.map(futures::StreamExt::boxed);
-						let mut output = match result {
-							Ok(output) => output,
-							Err(error) => return Ok(ControlFlow::Continue(error)),
-						};
-						match output.next().await {
-							Some(Ok(tg::process::stdio::write::Event::Stop)) => {
-								if notification_sender.send(()).await.is_err() {
-									return Ok(ControlFlow::Break(()));
-								}
-								while let Some(event) = output.next().await {
-									match event {
-										Ok(tg::process::stdio::write::Event::Stop) => (),
-										Ok(tg::process::stdio::write::Event::End) => {
-											if notification_sender.send(()).await.is_err() {
+			let output_task = Task::spawn(async move |_| {
+				let options = tangram_futures::retry::Options::default();
+				// In a retry loop, attempt to drain input.
+				tangram_futures::retry(&options, {
+					|| {
+						let arg = arg.clone();
+						let event_receiver = event_receiver.clone();
+						let handle = handle.clone();
+						let id = id.clone();
+						let stop_sender = stop_sender.clone();
+						async move {
+							// The input stream is chunked around `Stop` boundaries using `None` as a sentinel value.
+							let input = event_receiver
+								.take_while(|opt| future::ready(opt.is_some()))
+								.take_while_inclusive(|result| {
+									future::ready(result.as_ref().is_some_and(Result::is_ok))
+								})
+								.filter_map(future::ready)
+								.boxed();
+
+							// Try to create the output stream.
+							let mut output = match handle.write_process_stdio(&id, arg, input).await
+							{
+								Ok(stream) => stream.boxed(),
+								// Retry if write returned an error.
+								Err(error) => {
+									return Ok(ControlFlow::Continue(tg::error!(
+										!error,
+										"failed to get the stdio stream"
+									)));
+								},
+							};
+
+							// Drain the output stream.
+							let mut end_sender = None;
+							while let Some(output) = output.next().await {
+								match output {
+									Ok(tg::process::stdio::write::Event::Stop) => {
+										// Skip duplicate stop events.
+										if end_sender.is_some() {
+											continue;
+										}
+
+										// Create the end event channel.
+										let (tx, rx) = tokio::sync::oneshot::channel();
+										end_sender.replace(tx);
+
+										// Send the end event notification, breaking out if this fails.
+										if stop_sender.send(rx).await.is_err() {
+											return Ok(ControlFlow::Break(()));
+										}
+									},
+
+									Ok(tg::process::stdio::write::Event::End) => {
+										// If an end sender was created by receiving a previous stop, use it.
+										if let Some(end_sender) = end_sender.take() {
+											if end_sender.send(()).is_err() {
 												return Ok(ControlFlow::Break(()));
 											}
+
+											// Retry.
 											return Ok(ControlFlow::Continue(tg::error!(
-												"the stream ended early"
+												"retrying stdio"
 											)));
-										},
-										Err(error) => {
-											return Ok(ControlFlow::Continue(error));
-										},
-									}
+										}
+										break;
+									},
+
+									Err(error) => {
+										// Retry if the server returned an error.
+										return Ok(ControlFlow::Continue(tg::error!(
+											!error,
+											"stdio stream returned an error"
+										)));
+									},
 								}
-								return Err(tg::error!("expected an end event"));
-							},
-							Some(Ok(tg::process::stdio::write::Event::End)) => {
-								notification_sender.close();
-								return Ok(ControlFlow::Break(()));
-							},
-							Some(Err(error)) => {
-								return Ok(ControlFlow::Continue(error));
-							},
-							None => (),
+							}
+
+							Ok(ControlFlow::Break(()))
 						}
-						Ok(ControlFlow::Continue(tg::error!(
-							"expected an output event"
-						)))
 					}
 				})
 				.await
-				.map_err(|source| tg::error!(!source, "failed to write process stdio"));
+			});
 
-			send_task
-				.wait()
-				.await
-				.map_err(|source| tg::error!(!source, "the send task panicked"))?;
-
-			result
+			// Wait for both tasks.
+			let (input, output) = future::join(input_task.wait(), output_task.wait()).await;
+			input.map_err(|source| tg::error!(!source, "the input task panicked"))??;
+			output.map_err(|source| tg::error!(!source, "the output task panicked"))??;
+			Ok(())
 		}
 	}
 }
