@@ -235,6 +235,19 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
+		// Enqueue the process for finalization.
+		let statement = formatdoc!(
+			"
+				insert into process_finalize_queue (process)
+				values ({p}1);
+			"
+		);
+		let params = db::params![id.to_string()];
+		transaction
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
 		// Commit the transaction.
 		transaction
 			.commit()
@@ -244,23 +257,7 @@ impl Server {
 		drop(connection);
 
 		// Publish the finalize message.
-		tokio::spawn({
-			let server = self.clone();
-			let id = id.clone();
-			async move {
-				let message = crate::process::finalize::Message { id: id.clone() };
-				server
-					.messenger
-					.stream_publish(
-						"processes_finalize_queue".to_owned(),
-						"processes.finalize.queue".to_owned(),
-						message,
-					)
-					.await
-					.inspect_err(|error| tracing::error!(%error, %id, "failed to publish"))
-					.ok();
-			}
-		});
+		self.spawn_publish_process_finalize_message_task();
 
 		// Publish the status.
 		tokio::spawn({

@@ -82,3 +82,8 @@ create unique index process_children_process_child_index on process_children (pr
 create unique index process_children_process_position_index on process_children (process, position);
 
 create index process_children_child_index on process_children (child);
+
+create table process_finalize_queue (
+	position integer primary key autoincrement,
+	process text not null unique
+);

@@ -250,13 +250,6 @@ impl Server {
 	}
 
 	async fn index_task(&self, progress: &crate::progress::Handle<()>) -> tg::Result<()> {
-		// Get the finalize stream.
-		let finalize_stream = self
-			.messenger
-			.get_stream("processes_finalize_queue".to_owned())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the finalize stream"))?;
-
 		// Subscribe to finalizer progress.
 		let finalizer_progress_stream = self
 			.messenger
@@ -267,34 +260,30 @@ impl Server {
 		let mut finalizer_progress_stream =
 			stream::select(finalizer_progress_stream.map(|_| ()), interval.map(|_| ()));
 
-		// Wait for the finalize stream's first sequence to reach the current last sequence.
-		let info = finalize_stream
-			.info()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the finalize stream info"))?;
-		let mut first_sequence = info.first_sequence;
-		let last_sequence = info.last_sequence;
-		let total = info.last_sequence.saturating_sub(info.first_sequence);
-		if last_sequence > 0 {
-			progress.start(
-				"finalize".to_owned(),
-				"finalize".to_owned(),
-				tg::progress::IndicatorFormat::Normal,
-				Some(0),
-				Some(total),
-			);
-			loop {
-				let info = finalize_stream.info().await.map_err(|source| {
-					tg::error!(!source, "failed to get the finalize stream info")
-				})?;
-				progress.increment("finalize", info.first_sequence - first_sequence);
-				first_sequence = info.first_sequence;
-				if first_sequence > last_sequence {
-					break;
+		// Wait for the existing finalize queue entries to be handled.
+		if let Some(position) = self.try_get_process_finalize_queue_max_position().await? {
+			let mut remaining = self
+				.get_process_finalize_queue_count_until_position(position)
+				.await?;
+			if remaining > 0 {
+				let total = remaining;
+				progress.start(
+					"finalize".to_owned(),
+					"finalize".to_owned(),
+					tg::progress::IndicatorFormat::Normal,
+					Some(0),
+					Some(total),
+				);
+				while remaining > 0 {
+					finalizer_progress_stream.next().await;
+					let next_remaining = self
+						.get_process_finalize_queue_count_until_position(position)
+						.await?;
+					progress.increment("finalize", remaining.saturating_sub(next_remaining));
+					remaining = next_remaining;
 				}
-				finalizer_progress_stream.next().await;
+				progress.finish("finalize");
 			}
-			progress.finish("finalize");
 		}
 
 		// Wait for outstanding index tasks to finish.

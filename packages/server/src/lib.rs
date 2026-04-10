@@ -495,17 +495,6 @@ impl Server {
 
 		// Create the streams if the messenger is memory.
 		if messenger.is_memory() {
-			let stream_name = "processes_finalize_queue".to_owned();
-			let stream_config = tangram_messenger::StreamConfig {
-				discard: tangram_messenger::DiscardPolicy::New,
-				retention: tangram_messenger::RetentionPolicy::WorkQueue,
-				..Default::default()
-			};
-			messenger
-				.create_stream(stream_name, stream_config)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the finalize stream"))?;
-
 			let stream_name = "processes_signals".to_owned();
 			let stream_config = tangram_messenger::StreamConfig {
 				discard: tangram_messenger::DiscardPolicy::New,

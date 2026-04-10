@@ -1,5 +1,6 @@
 use {
 	crate::{Context, Server, database::Database},
+	indoc::indoc,
 	num::ToPrimitive as _,
 	std::time::Duration,
 	tangram_client::prelude::*,
@@ -55,12 +56,13 @@ impl Server {
 				created: u64,
 				started: u64,
 			}
-			let statement = "
-				select
-					(select count(*) from processes where status = 'created') as created,
-					(select count(*) from processes where status = 'started') as started;
-			"
-			.to_owned();
+			let statement = indoc!(
+				"
+					select
+						(select count(*) from processes where status = 'created') as created,
+						(select count(*) from processes where status = 'started') as started;
+				"
+			);
 			let params = db::params![];
 			let Row { created, started } = connection
 				.query_one_into::<Row>(statement.into(), params)

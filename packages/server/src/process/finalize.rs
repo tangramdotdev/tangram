@@ -1,136 +1,196 @@
 use {
-	crate::Server,
-	bytes::Bytes,
-	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future},
-	num::ToPrimitive as _,
+	crate::{Server, database::Database},
+	futures::{StreamExt as _, stream},
+	indoc::{formatdoc, indoc},
 	std::{collections::BTreeSet, pin::pin, time::Duration},
 	tangram_client::prelude::*,
+	tangram_database::{self as db, prelude::*},
 	tangram_index::prelude::*,
-	tangram_messenger::{self as messenger, prelude::*},
+	tangram_messenger::prelude::*,
+	tokio_stream::wrappers::IntervalStream,
 };
 
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct Message {
-	#[tangram_serialize(id = 0)]
-	pub(crate) id: tg::process::Id,
+#[cfg(feature = "postgres")]
+mod postgres;
+#[cfg(feature = "sqlite")]
+mod sqlite;
+
+#[derive(Clone, Debug)]
+pub(crate) struct Entry {
+	pub(crate) position: i64,
+	pub(crate) process: tg::process::Id,
 }
 
 impl Server {
 	pub(crate) async fn finalizer_task(&self, config: &crate::config::Finalizer) -> tg::Result<()> {
-		// Get the message stream.
-		let stream = self.finalizer_create_message_stream(config).await?;
+		let batch_size = config.message_batch_size.max(1);
+		let subject = "processes.finalize.queue";
+		let group = "processes.finalize";
+		let wakeup = self
+			.messenger
+			.subscribe::<()>(subject.into(), Some(group.into()))
+			.await
+			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+			.map(|_| ());
+		let interval = config.message_batch_timeout.max(Duration::from_millis(1));
+		let interval = IntervalStream::new(tokio::time::interval(interval)).map(|_| ());
+		let stream = stream::select(wakeup, interval);
 		let mut stream = pin!(stream);
-
-		loop {
-			// Handle the result.
-			let message = match stream.try_next().await {
-				Ok(Some(messages)) => messages,
-				Ok(None) => {
-					panic!("the stream ended")
-				},
-				Err(error) => {
-					tracing::error!(error = %error.trace(), "failed to get a batch of messages");
+		while let Some(()) = stream.next().await {
+			loop {
+				let entries = match self.finalizer_try_dequeue_batch(batch_size).await {
+					Ok(Some(entries)) => entries,
+					Ok(None) => break,
+					Err(error) => {
+						tracing::error!(error = %error.trace(), "failed to dequeue finalize entries");
+						tokio::time::sleep(Duration::from_secs(1)).await;
+						break;
+					},
+				};
+				let result = self.finalizer_handle_entries(entries).await;
+				if let Err(error) = result {
+					tracing::error!(error = %error.trace(), "failed to handle finalize entries");
 					tokio::time::sleep(Duration::from_secs(1)).await;
-					continue;
-				},
-			};
-
-			// Handle the message.
-			let result = self.finalizer_handle_message(config, message).await;
-			if let Err(error) = result {
-				tracing::error!(error = %error.trace(), "failed to handle the messages");
-				tokio::time::sleep(Duration::from_secs(1)).await;
-			} else {
-				// Publish finalizer progress.
+					break;
+				}
 				self.messenger
 					.publish("finalizer_progress".to_owned(), ())
 					.await
 					.ok();
 			}
 		}
+		Ok(())
 	}
 
-	async fn finalizer_create_message_stream(
+	async fn finalizer_try_dequeue_batch(
 		&self,
-		config: &crate::config::Finalizer,
-	) -> tg::Result<impl Stream<Item = tg::Result<Vec<(Message, messenger::Acker)>>>> {
-		let stream = self
-			.messenger
-			.get_stream("processes_finalize_queue".to_owned())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the finalize stream"))?;
-		let consumer_name = "default".to_owned();
-		let consumer_config = messenger::ConsumerConfig {
-			durable_name: Some(consumer_name.clone()),
-			..Default::default()
-		};
-		let consumer = stream
-			.get_or_create_consumer(Some(consumer_name), consumer_config)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the finalize consumer"))?;
-		let batch_config = messenger::BatchConfig {
-			max_bytes: None,
-			max_messages: Some(config.message_batch_size.to_u64().unwrap()),
-			timeout: Some(config.message_batch_timeout),
-		};
-		let stream = consumer
-			.batch_subscribe::<Message>(batch_config)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe to the stream"))?
-			.boxed()
-			.map_err(|source| tg::error!(!source, "failed to get a message from the stream"))
-			.map_ok(|message| {
-				let (message, acker) = message.split();
-				(message, acker)
-			})
-			.inspect_err(|error| {
-				tracing::error!(error = %error.trace());
-			})
-			.filter_map(|result| future::ready(result.ok()));
-		let stream = tokio_stream::StreamExt::chunks_timeout(
-			stream,
-			config.message_batch_size,
-			config.message_batch_timeout,
-		)
-		.map(Ok);
-		Ok(stream)
+		batch_size: usize,
+	) -> tg::Result<Option<Vec<Entry>>> {
+		match &self.sandbox_store {
+			#[cfg(feature = "postgres")]
+			Database::Postgres(sandbox_store) => {
+				self.finalizer_try_dequeue_batch_postgres(sandbox_store, batch_size)
+					.await
+			},
+			#[cfg(feature = "sqlite")]
+			Database::Sqlite(sandbox_store) => {
+				self.finalizer_try_dequeue_batch_sqlite(sandbox_store, batch_size)
+					.await
+			},
+		}
 	}
 
-	async fn finalizer_handle_message(
-		&self,
-		_config: &crate::config::Finalizer,
-		messages: Vec<(Message, messenger::Acker)>,
-	) -> tg::Result<()> {
-		// Handle the messages.
-		for (message, acker) in messages {
-			let process = message.id;
-
-			// Compact the log.
-			self.compact_process_log(&process)
-				.boxed()
-				.await
-				.inspect_err(
-					|error| tracing::error!(error = %error.trace(), %process, "failed to compact log"),
-				)
-				.ok();
-
-			// Spawn the index task.
-			self.finalizer_spawn_index_task(&process).await?;
-
-			// Acknowledge the message.
-			acker
-				.ack()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to acknowledge the message"))?;
+	async fn finalizer_handle_entries(&self, entries: Vec<Entry>) -> tg::Result<()> {
+		for (index, entry) in entries.iter().enumerate() {
+			let result = self.finalizer_handle_entry(&entry.process).await;
+			if let Err(error) = result {
+				self.requeue_process_finalize_entries(&entries[index..])
+					.await
+					.map_err(|source| {
+						tg::error!(!source, "failed to requeue the process finalize entries")
+					})?;
+				return Err(tg::error!(
+					!error,
+					process = %entry.process,
+					"failed to handle the process finalize entry"
+				));
+			}
 		}
 		Ok(())
+	}
+
+	async fn finalizer_handle_entry(&self, process: &tg::process::Id) -> tg::Result<()> {
+		self.compact_process_log(process)
+			.await
+			.inspect_err(
+				|error| tracing::error!(error = %error.trace(), %process, "failed to compact log"),
+			)
+			.ok();
+		self.finalizer_spawn_index_task(process).await?;
+		Ok(())
+	}
+
+	async fn requeue_process_finalize_entries(&self, entries: &[Entry]) -> tg::Result<()> {
+		if entries.is_empty() {
+			return Ok(());
+		}
+		let mut connection = self
+			.sandbox_store
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to acquire a transaction"))?;
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				insert into process_finalize_queue (position, process)
+				values ({p}1, {p}2);
+			"
+		);
+		for entry in entries {
+			let params = db::params![entry.position, entry.process.to_string()];
+			transaction
+				.execute(statement.clone().into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		}
+		transaction
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+		Ok(())
+	}
+
+	pub(crate) async fn try_get_process_finalize_queue_max_position(
+		&self,
+	) -> tg::Result<Option<i64>> {
+		let connection =
+			self.sandbox_store.connection().await.map_err(|source| {
+				tg::error!(!source, "failed to get a sandbox store connection")
+			})?;
+		let statement = indoc!(
+			"
+				select position
+				from process_finalize_queue
+				order by position desc
+				limit 1;
+			"
+		);
+		let params = db::params![];
+		let position = connection
+			.query_optional_value_into::<i64>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		drop(connection);
+		Ok(position)
+	}
+
+	pub(crate) async fn get_process_finalize_queue_count_until_position(
+		&self,
+		position: i64,
+	) -> tg::Result<u64> {
+		let connection =
+			self.sandbox_store.connection().await.map_err(|source| {
+				tg::error!(!source, "failed to get a sandbox store connection")
+			})?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select count(*)
+				from process_finalize_queue
+				where position <= {p}1;
+			"
+		);
+		let params = db::params![position];
+		let count = connection
+			.query_one_value_into::<i64>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		drop(connection);
+		Ok(u64::try_from(count).unwrap())
 	}
 
 	async fn finalizer_spawn_index_task(&self, id: &tg::process::Id) -> tg::Result<()> {
@@ -217,40 +277,20 @@ impl Server {
 			.detach();
 		Ok(())
 	}
-}
 
-impl Message {
-	pub fn serialize(&self) -> tg::Result<Bytes> {
-		let mut bytes = Vec::new();
-		bytes.push(0);
-		tangram_serialize::to_writer(&mut bytes, self)
-			.map_err(|source| tg::error!(!source, "failed to serialize the message"))?;
-		Ok(bytes.into())
-	}
-
-	pub fn deserialize<'a>(bytes: impl Into<tg::bytes::Cow<'a>>) -> tg::Result<Self> {
-		let bytes = bytes.into();
-		let bytes = bytes.as_ref();
-		if bytes.is_empty() {
-			return Err(tg::error!("missing format byte"));
-		}
-		let format = bytes[0];
-		match format {
-			0 => tangram_serialize::from_slice(&bytes[1..])
-				.map_err(|source| tg::error!(!source, "failed to deserialize the message")),
-			b'{' => serde_json::from_slice(bytes)
-				.map_err(|source| tg::error!(!source, "failed to deserialize the message")),
-			_ => Err(tg::error!("invalid format")),
-		}
-	}
-}
-
-impl messenger::Payload for Message {
-	fn serialize(&self) -> Result<Bytes, messenger::Error> {
-		Message::serialize(self).map_err(messenger::Error::other)
-	}
-
-	fn deserialize(bytes: Bytes) -> Result<Self, messenger::Error> {
-		Message::deserialize(bytes).map_err(messenger::Error::other)
+	pub(crate) fn spawn_publish_process_finalize_message_task(&self) {
+		tokio::spawn({
+			let server = self.clone();
+			async move {
+				server
+					.messenger
+					.publish("processes.finalize.queue".into(), ())
+					.await
+					.inspect_err(|error| {
+						tracing::error!(%error, "failed to publish the process finalize message");
+					})
+					.ok();
+			}
+		});
 	}
 }

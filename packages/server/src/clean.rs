@@ -289,6 +289,19 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to delete process_tokens"))?;
 
+			// Delete the entry from the finalize queue if it exists.
+			let statement = formatdoc!(
+				"
+					delete from process_finalize_queue
+					where process = {p}1;
+				"
+			);
+			let params = db::params![id.to_string()];
+			connection
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to delete process_finalize_queue"))?;
+
 			// Delete the process.
 			let statement = formatdoc!(
 				"
