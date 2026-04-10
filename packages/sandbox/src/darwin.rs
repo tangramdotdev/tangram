@@ -442,6 +442,9 @@ fn create_sandbox_profile(arg: &SpawnArg) -> CString {
 			;; Allow most process operations, except for `process-exec`. `process-exec` will let you execute binaries without having been granted the corresponding `file-read*` permission.
 			(allow process-fork process-info*)
 
+			;; Allow signaling child processes spawned by the sandbox server.
+			(allow signal (target children))
+
 			;; Allow limited exploration of the root.
 			(allow file-read* file-test-existence
 				(literal "/"))
