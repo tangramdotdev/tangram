@@ -15,6 +15,7 @@ impl Server {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
+
 		let id = tg::sandbox::Id::new();
 		let connection = self
 			.sandbox_store

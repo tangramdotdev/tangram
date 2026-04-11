@@ -141,8 +141,6 @@ impl Server {
 		}
 
 		// Guard against concurrent cleans.
-		let _clean_guard = self.try_acquire_clean_guard()?;
-
 		// Get the host.
 		let command_ = tg::Command::with_id(arg.command.item.clone());
 		let host = command_.host(self).await.ok();

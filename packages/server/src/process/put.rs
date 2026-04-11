@@ -39,6 +39,7 @@ impl Server {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
+
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Insert the process into the sandbox store.
