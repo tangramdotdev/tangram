@@ -25,8 +25,6 @@ impl Server {
 		guest_uri: tangram_uri::Uri,
 		stopper: Stopper,
 	) -> tg::Result<()> {
-		let _clean_guard = self.acquire_clean_guard().await;
-
 		let wait = match self
 			.run_process(process, sandbox, &guest_uri, stopper)
 			.await

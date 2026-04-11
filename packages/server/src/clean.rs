@@ -32,14 +32,6 @@ impl Server {
 
 		let progress = crate::progress::Handle::new();
 
-		// Acquire the clean lock exclusively.
-		let mut guard = self.clean_lock.try_write().ok();
-		if guard.is_none() {
-			progress.spinner("tasks", "waiting for tasks");
-			guard.replace(self.clean_lock.write().await);
-			progress.finish("tasks");
-		}
-
 		let task = Task::spawn({
 			let server = self.clone();
 			let progress = progress.clone();
