@@ -229,6 +229,7 @@ where
 		loop {
 			// Poll the promises.
 			let poll = state.promises.borrow_mut().poll_next_unpin(cx);
+			let done = matches!(&poll, Poll::Ready(None));
 
 			match poll {
 				// If no promises are ready, then return pending.
@@ -349,6 +350,11 @@ where
 			if let Some(result) = result {
 				return Poll::Ready(result);
 			}
+
+			// If the value is still pending and there are no remaining promises, then remain pending indefinitely.
+			if done {
+				return Poll::Pending;
+			}
 		}
 	});
 	let mut rejection = state.rejection.subscribe();
@@ -418,14 +424,14 @@ extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
 	let state = context.get_slot::<State>().unwrap().clone();
 
 	match message.get_event() {
-		v8::PromiseRejectEvent::PromiseRejectWithNoHandler => {
+		v8::PromiseRejectEvent::PromiseRejectWithNoHandler
+		| v8::PromiseRejectEvent::PromiseHandlerAddedAfterReject => {
 			let exception = message.get_promise().result(scope);
 			let error = error::from_exception(&state, scope, exception)
 				.unwrap_or_else(|| tg::error!("failed to get the exception"));
 			state.rejection.send_replace(Some(error));
 		},
-		v8::PromiseRejectEvent::PromiseHandlerAddedAfterReject
-		| v8::PromiseRejectEvent::PromiseRejectAfterResolved
+		v8::PromiseRejectEvent::PromiseRejectAfterResolved
 		| v8::PromiseRejectEvent::PromiseResolveAfterResolved => {},
 	}
 }
