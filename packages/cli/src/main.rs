@@ -307,11 +307,19 @@ fn main() -> std::process::ExitCode {
 		}) => {
 			return Cli::command_sandbox_init(args);
 		},
+		#[cfg(target_os = "linux")]
 		Command::Sandbox(self::sandbox::Args {
-			command: self::sandbox::Command::Run(args),
+			command: self::sandbox::Command::Container(args),
 			..
 		}) => {
-			return Cli::command_sandbox_run(args);
+			return Cli::command_sandbox_container(args);
+		},
+		#[cfg(target_os = "macos")]
+		Command::Sandbox(self::sandbox::Args {
+			command: self::sandbox::Command::Seatbelt(args),
+			..
+		}) => {
+			return Cli::command_sandbox_seatbelt(args);
 		},
 		_ => (),
 	}

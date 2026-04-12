@@ -25,7 +25,7 @@ pub fn spawn(arg: &crate::Arg, init_arg: &crate::init::Arg) -> tg::Result<tokio:
 		crate::root::ensure_mount_target(&arg.rootfs_path, &upper_path, mount)?;
 	}
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
-	command.arg("sandbox").arg("run");
+	command.arg("sandbox").arg("container");
 	command
 		.arg("--unshare-all")
 		.arg("--as-pid-1")
@@ -120,7 +120,7 @@ pub fn spawn(arg: &crate::Arg, init_arg: &crate::init::Arg) -> tg::Result<tokio:
 		.stderr(std::process::Stdio::inherit());
 	command
 		.spawn()
-		.map_err(|source| tg::error!(!source, "failed to spawn sandbox run"))
+		.map_err(|source| tg::error!(!source, "failed to spawn sandbox container"))
 }
 
 fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {

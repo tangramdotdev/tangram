@@ -70,15 +70,15 @@ pub struct Args {
 }
 
 impl Args {
-	fn into_arg(self) -> tangram_sandbox::run::Arg {
+	fn into_arg(self) -> tangram_sandbox::container::Arg {
 		let binds = chunk_pairs(self.binds)
 			.into_iter()
-			.map(|[source, target]| tangram_sandbox::run::Bind { source, target })
+			.map(|[source, target]| tangram_sandbox::container::Bind { source, target })
 			.collect();
 		let overlays = chunk_triples(self.overlays)
 			.into_iter()
 			.map(
-				|[upperdir, workdir, target]| tangram_sandbox::run::Overlay {
+				|[upperdir, workdir, target]| tangram_sandbox::container::Overlay {
 					target,
 					upperdir,
 					workdir,
@@ -87,13 +87,13 @@ impl Args {
 			.collect();
 		let ro_binds = chunk_pairs(self.ro_binds)
 			.into_iter()
-			.map(|[source, target]| tangram_sandbox::run::Bind { source, target })
+			.map(|[source, target]| tangram_sandbox::container::Bind { source, target })
 			.collect();
 		let setenvs = chunk_pairs(self.setenvs)
 			.into_iter()
-			.map(|[key, value]| tangram_sandbox::run::SetEnv { key, value })
+			.map(|[key, value]| tangram_sandbox::container::SetEnv { key, value })
 			.collect();
-		tangram_sandbox::run::Arg {
+		tangram_sandbox::container::Arg {
 			as_pid_1: self.as_pid_1,
 			binds,
 			cgroup: self.cgroup,
@@ -120,9 +120,9 @@ impl Args {
 
 impl Cli {
 	#[must_use]
-	pub fn command_sandbox_run(args: Args) -> std::process::ExitCode {
+	pub fn command_sandbox_container(args: Args) -> std::process::ExitCode {
 		let arg = args.into_arg();
-		match tangram_sandbox::run(&arg) {
+		match tangram_sandbox::container::run(&arg) {
 			Ok(code) => code,
 			Err(error) => {
 				Cli::print_error_basic(tg::Referent::with_item(error));

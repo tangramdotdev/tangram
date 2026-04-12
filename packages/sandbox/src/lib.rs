@@ -12,15 +12,18 @@ use {
 };
 
 mod client;
+#[cfg(target_os = "linux")]
+pub mod container;
 pub mod init;
 mod pty;
 pub mod root;
-pub mod run;
+#[cfg(target_os = "macos")]
+pub mod seatbelt;
 mod server;
 mod spawn;
 mod util;
 
-pub use self::{init::init, run::run, spawn::spawn};
+pub use self::{init::init, spawn::spawn};
 
 #[derive(Clone)]
 pub struct Sandbox(Arc<State>);

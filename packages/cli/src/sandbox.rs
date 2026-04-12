@@ -1,11 +1,14 @@
 use {crate::Cli, tangram_client::prelude::*};
 
+#[cfg(target_os = "linux")]
+pub mod container;
 pub mod create;
 pub mod delete;
 pub mod get;
 pub mod init;
 pub mod list;
-pub mod run;
+#[cfg(target_os = "macos")]
+pub mod seatbelt;
 
 /// Manage sandboxes.
 #[derive(Clone, Debug, clap::Args)]
@@ -17,6 +20,9 @@ pub struct Args {
 
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
+	#[cfg(target_os = "linux")]
+	#[command(hide = true)]
+	Container(self::container::Args),
 	Create(self::create::Args),
 	#[command(alias = "remove", alias = "rm")]
 	Delete(self::delete::Args),
@@ -25,8 +31,9 @@ pub enum Command {
 	Init(self::init::Args),
 	#[command(alias = "ls")]
 	List(self::list::Args),
+	#[cfg(target_os = "macos")]
 	#[command(hide = true)]
-	Run(self::run::Args),
+	Seatbelt(self::seatbelt::Args),
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -112,6 +119,10 @@ impl Options {
 impl Cli {
 	pub async fn command_sandbox(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
+			#[cfg(target_os = "linux")]
+			Command::Container(_) => {
+				unreachable!()
+			},
 			Command::Create(args) => {
 				self.command_sandbox_create(args).await?;
 			},
@@ -121,7 +132,11 @@ impl Cli {
 			Command::Get(args) => {
 				self.command_sandbox_get(args).await?;
 			},
-			Command::Init(_) | Command::Run(_) => {
+			Command::Init(_) => {
+				unreachable!()
+			},
+			#[cfg(target_os = "macos")]
+			Command::Seatbelt(_) => {
 				unreachable!()
 			},
 			Command::List(args) => {
