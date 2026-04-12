@@ -11,7 +11,7 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [features]
-tls = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
+tls = ["dep:rustls", "dep:rustls-platform-verifier", "dep:tokio-rustls"]
 vsock = ["dep:tokio-vsock"]
 
 [lib]
@@ -48,6 +48,7 @@ mime = { workspace = true }
 num = { workspace = true }
 regex = { workspace = true }
 rustls = { workspace = true, optional = true }
+rustls-platform-verifier = { workspace = true, optional = true }
 scopeguard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -71,6 +72,5 @@ tower = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
-webpki-roots = { workspace = true, optional = true }
 winnow = { workspace = true }
 xattr = { workspace = true }

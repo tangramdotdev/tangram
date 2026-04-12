@@ -136,6 +136,7 @@ reqwest = { version = "0.13", features = ["json", "stream"] }
 rusqlite = { version = "0.39", default-features = false, features = ["bundled", "functions"] }
 rustix = { version = "1", features = ["fs"] }
 rustls = "0.23"
+rustls-platform-verifier = "0.6"
 rustls-pemfile = "2"
 scopeguard = "1"
 scylla = { version = "1", features = ["metrics"] }
@@ -198,7 +199,6 @@ uuid = { version = "1", features = ["v7"] }
 v8 = { git = "https://github.com/tangramdotdev/rusty_v8" }
 waitpid-any = "0.3"
 webbrowser = "1"
-webpki-roots = "1"
 winnow = "1"
 xattr = { version = "1" }
 zed_extension_api = "0.7"

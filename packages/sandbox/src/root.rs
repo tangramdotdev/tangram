@@ -207,6 +207,19 @@ impl Sandbox {
 	}
 
 	#[must_use]
+	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
+	pub(crate) fn guest_ssl_cert_dir() -> PathBuf {
+		#[cfg(target_os = "macos")]
+		{
+			"/etc/ssl/certs".into()
+		}
+		#[cfg(target_os = "linux")]
+		{
+			"/opt/tangram/etc/ssl/certs".into()
+		}
+	}
+
+	#[must_use]
 	pub(crate) fn guest_tangram_socket_path_from_root(root_path: &Path) -> PathBuf {
 		#[cfg(target_os = "macos")]
 		{

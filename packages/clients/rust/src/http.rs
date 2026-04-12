@@ -1,3 +1,5 @@
+#[cfg(feature = "tls")]
+use rustls_platform_verifier::BuilderVerifierExt as _;
 use {
 	crate::prelude::*,
 	std::{
@@ -519,14 +521,13 @@ impl tg::Client {
 				.map_err(|source| tg::error!(!source, "failed to create the TCP connection"))?;
 
 		// Create the connector.
-		let mut root_store = rustls::RootCertStore::empty();
-		root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 		let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(
 			rustls::crypto::aws_lc_rs::default_provider(),
 		))
 		.with_safe_default_protocol_versions()
 		.unwrap()
-		.with_root_certificates(root_store)
+		.with_platform_verifier()
+		.map_err(|source| tg::error!(!source, "failed to create the tls config"))?
 		.with_no_client_auth();
 		config.alpn_protocols = protocols;
 		let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
