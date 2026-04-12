@@ -20,9 +20,7 @@ mod server;
 mod spawn;
 mod util;
 
-#[cfg(target_os = "linux")]
-pub use self::run::run;
-pub use self::{init::init, spawn::spawn};
+pub use self::{init::init, run::run, spawn::spawn};
 
 #[derive(Clone)]
 pub struct Sandbox(Arc<State>);
@@ -112,7 +110,6 @@ impl Sandbox {
 			url,
 		};
 
-		#[cfg(target_os = "linux")]
 		let mut process = spawn(&arg, &init_arg)?;
 
 		let client = match tokio::time::timeout(Duration::from_secs(5), async {

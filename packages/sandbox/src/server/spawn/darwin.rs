@@ -1,3 +1,5 @@
+use {crate::Command, std::path::Path, tangram_client::prelude::*};
+
 pub fn prepare_command_for_spawn(
 	command: &mut crate::Command,
 	tangram_path: &Path,
@@ -14,7 +16,7 @@ pub fn prepare_command_for_spawn(
 	}
 	paths.push(Path::new("/usr/bin"));
 	paths.push(Path::new("/bin"));
-	crate::append_directories_to_path(command, &paths)?;
+	super::append_directories_to_path(command, &paths)?;
 
 	if library_paths.is_empty() || !command_resolves_to_path(command, tangram_path) {
 		return Ok(());
