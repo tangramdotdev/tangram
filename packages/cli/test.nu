@@ -169,7 +169,7 @@ def main [
 			}
 
 			# Kill any background jobs started by the test, such as server processes.
-			for job in (job list | where { ($in.tag? | default '') == 'server' }) {
+			for job in (job list | where { ($in.description? | default '') == 'server' }) {
 				let exit_path = server_exit_path $temp_path $job.id
 				for pid in ($job.pids? | default []) {
 					try { ^kill -KILL $pid }
@@ -830,7 +830,7 @@ export def --env spawn [
 	try { mkdir $server_exit_directory_path }
 
 	# Spawn the server.
-	job spawn -t server {
+	job spawn -d server {
 		let server_job_id = job id
 		let exit_path = $server_exit_directory_path | path join $'($server_job_id).exit'
 		do -i {
