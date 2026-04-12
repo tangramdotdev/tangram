@@ -1,9 +1,9 @@
-#[cfg(target_os = "macos")]
-mod darwin;
 #[cfg(target_os = "linux")]
-mod linux;
+mod container;
+#[cfg(target_os = "macos")]
+mod seatbelt;
 
-#[cfg(target_os = "macos")]
-pub use self::darwin::*;
 #[cfg(target_os = "linux")]
-pub use self::linux::*;
+pub use self::container::*;
+#[cfg(target_os = "macos")]
+pub use self::seatbelt::*;
