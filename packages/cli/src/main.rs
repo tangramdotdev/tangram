@@ -307,6 +307,12 @@ fn main() -> std::process::ExitCode {
 		}) => {
 			return Cli::command_sandbox_init(args);
 		},
+		Command::Sandbox(self::sandbox::Args {
+			command: self::sandbox::Command::Run(args),
+			..
+		}) => {
+			return Cli::command_sandbox_run(args);
+		},
 		_ => (),
 	}
 

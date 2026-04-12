@@ -5,6 +5,7 @@ pub mod delete;
 pub mod get;
 pub mod init;
 pub mod list;
+pub mod run;
 
 /// Manage sandboxes.
 #[derive(Clone, Debug, clap::Args)]
@@ -24,6 +25,8 @@ pub enum Command {
 	Init(self::init::Args),
 	#[command(alias = "ls")]
 	List(self::list::Args),
+	#[command(hide = true)]
+	Run(self::run::Args),
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -118,7 +121,7 @@ impl Cli {
 			Command::Get(args) => {
 				self.command_sandbox_get(args).await?;
 			},
-			Command::Init(_) => {
+			Command::Init(_) | Command::Run(_) => {
 				unreachable!()
 			},
 			Command::List(args) => {

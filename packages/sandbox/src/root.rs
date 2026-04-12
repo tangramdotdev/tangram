@@ -4,6 +4,31 @@ use {
 	tangram_client::prelude::*,
 };
 
+#[cfg(target_os = "macos")]
+mod darwin;
+#[cfg(target_os = "linux")]
+mod linux;
+
+#[cfg(target_os = "linux")]
+pub(crate) use self::linux::ensure_mount_target;
+
+#[derive(Clone, Debug)]
+pub struct Arg {
+	pub path: PathBuf,
+	pub tangram_path: PathBuf,
+}
+
+pub fn prepare(arg: &Arg) -> tg::Result<()> {
+	#[cfg(target_os = "macos")]
+	{
+		self::darwin::prepare_runtime_libraries(arg)
+	}
+	#[cfg(target_os = "linux")]
+	{
+		self::linux::prepare_runtime_libraries(arg)
+	}
+}
+
 impl Sandbox {
 	#[must_use]
 	pub fn host_path_for_guest_path(&self, path: &Path) -> Option<PathBuf> {

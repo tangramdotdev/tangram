@@ -502,7 +502,7 @@ impl Server {
 		let tangram_path = tangram_util::env::current_exe()
 			.map_err(|source| tg::error!(!source, "failed to get the tangram executable path"))?;
 		let sandbox_rootfs = sandbox_rootfs_path.clone();
-		tangram_sandbox::prepare_rootfs(&tangram_sandbox::PrepareRootfsArg {
+		tangram_sandbox::root::prepare(&tangram_sandbox::root::Arg {
 			path: sandbox_rootfs.clone(),
 			tangram_path: tangram_path.clone(),
 		})?;

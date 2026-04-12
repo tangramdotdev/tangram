@@ -20,7 +20,7 @@ pub struct Args {
 impl Cli {
 	#[must_use]
 	pub fn command_sandbox_init(args: Args) -> std::process::ExitCode {
-		let config = tangram_sandbox::InitArg {
+		let config = tangram_sandbox::init::Arg {
 			library_paths: args.library_paths,
 			path: args.path,
 			tangram_path: args.tangram_path,

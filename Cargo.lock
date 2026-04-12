@@ -7307,6 +7307,7 @@ dependencies = [
  "tangram_http",
  "tangram_uri",
  "tangram_util",
+ "tempfile",
  "tokio",
  "tokio-stream",
  "tokio-util",

@@ -5,7 +5,7 @@ use {
 		pin::Pin,
 		task::{Context, Poll, ready},
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tokio::io::{AsyncRead, AsyncWrite, ReadBuf, unix::AsyncFd},
 };
 
