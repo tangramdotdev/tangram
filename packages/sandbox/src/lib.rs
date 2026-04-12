@@ -11,19 +11,18 @@ use {
 	tangram_uri::Uri,
 };
 
-#[cfg(target_os = "macos")]
-mod darwin;
-#[cfg(target_os = "linux")]
-mod linux;
+mod client;
+pub mod init;
 mod pty;
-mod root;
+pub mod root;
+pub mod run;
+mod server;
+mod spawn;
 mod util;
 
-mod client;
-mod server;
-
 #[cfg(target_os = "linux")]
-const ROOTFS: include_dir::Dir<'static> = include_dir::include_dir!("$OUT_DIR/rootfs");
+pub use self::run::run;
+pub use self::{init::init, spawn::spawn};
 
 #[derive(Clone)]
 pub struct Sandbox(Arc<State>);
@@ -34,7 +33,8 @@ pub struct State {
 	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	mounts: Vec<tg::sandbox::Mount>,
 	path: PathBuf,
-	_process: tokio::process::Child,
+	#[expect(dead_code)]
+	process: tokio::process::Child,
 	tangram_path: PathBuf,
 }
 
@@ -43,13 +43,7 @@ pub struct Process {
 }
 
 #[derive(Clone, Debug)]
-pub struct PrepareRootfsArg {
-	pub path: PathBuf,
-	pub tangram_path: PathBuf,
-}
-
-#[derive(Clone, Debug)]
-pub struct SpawnArg {
+pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub hostname: Option<String>,
 	pub mounts: Vec<tg::sandbox::Mount>,
@@ -58,14 +52,6 @@ pub struct SpawnArg {
 	pub rootfs_path: PathBuf,
 	pub tangram_path: PathBuf,
 	pub user: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-pub struct InitArg {
-	pub library_paths: Vec<PathBuf>,
-	pub path: PathBuf,
-	pub tangram_path: PathBuf,
-	pub url: Uri,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -86,26 +72,48 @@ pub enum Stdio {
 	Tty,
 }
 
-pub fn prepare_rootfs(arg: &PrepareRootfsArg) -> tg::Result<()> {
-	prepare_runtime_libraries(arg)
-}
-
 impl Sandbox {
-	pub async fn new(arg: SpawnArg) -> tg::Result<Self> {
-		validate_mounts(&arg.mounts)?;
+	pub async fn new(arg: Arg) -> tg::Result<Self> {
+		// Validate the mounts.
+		let mut targets = BTreeSet::new();
+		for mount in &arg.mounts {
+			if mount.target == Path::new("/") {
+				return Err(tg::error!(
+					target = %mount.target.display(),
+					"mounting to / is not supported"
+				));
+			}
+			if !targets.insert(mount.target.clone()) {
+				return Err(tg::error!(
+					target = %mount.target.display(),
+					"duplicate mount targets are not supported"
+				));
+			}
+		}
+
+		// Get the library paths.
+		let library_paths = {
+			#[cfg(target_os = "macos")]
+			{
+				let path = arg.rootfs_path.join("lib");
+				path.exists().then_some(path).into_iter().collect()
+			}
+			#[cfg(target_os = "linux")]
+			{
+				Vec::new()
+			}
+		};
+
 		let (listener, url) = Self::listen(&arg.path).await?;
-		let init_arg = InitArg {
-			library_paths: library_paths(&arg.rootfs_path),
+		let init_arg = self::init::Arg {
+			library_paths,
 			path: arg.path.clone(),
 			tangram_path: arg.tangram_path.clone(),
 			url,
 		};
 
-		#[cfg(target_os = "macos")]
-		let mut process = crate::darwin::spawn_jailer(&arg, &init_arg)?;
-
 		#[cfg(target_os = "linux")]
-		let mut process = crate::linux::spawn_jailer(&arg, &init_arg)?;
+		let mut process = spawn(&arg, &init_arg)?;
 
 		let client = match tokio::time::timeout(Duration::from_secs(5), async {
 			tokio::select! {
@@ -140,7 +148,7 @@ impl Sandbox {
 			client,
 			mounts: arg.mounts,
 			path: arg.path,
-			_process: process,
+			process,
 			tangram_path: arg.tangram_path,
 		}));
 
@@ -292,49 +300,7 @@ impl Sandbox {
 	}
 }
 
-pub fn init(arg: &InitArg) -> tg::Result<()> {
-	let runtime = tokio::runtime::Builder::new_current_thread()
-		.enable_all()
-		.build()
-		.map_err(|source| tg::error!(!source, "failed to create the runtime"))?;
-
-	runtime.block_on(async move {
-		let server = crate::server::Server::new(crate::server::Arg {
-			library_paths: arg.library_paths.clone(),
-			tangram_path: arg.tangram_path.clone(),
-		});
-		server.serve_url(&arg.url).await?;
-		Ok::<_, tg::Error>(())
-	})?;
-
-	Ok(())
-}
-
-fn prepare_runtime_libraries(arg: &PrepareRootfsArg) -> tg::Result<()> {
-	#[cfg(target_os = "macos")]
-	{
-		crate::darwin::prepare_runtime_libraries(arg)
-	}
-	#[cfg(target_os = "linux")]
-	{
-		crate::linux::prepare_runtime_libraries(arg)
-	}
-}
-
-fn library_paths(rootfs_path: &Path) -> Vec<PathBuf> {
-	#[cfg(target_os = "macos")]
-	{
-		let path = rootfs_path.join("lib");
-		path.exists().then_some(path).into_iter().collect()
-	}
-	#[cfg(target_os = "linux")]
-	{
-		let _ = rootfs_path;
-		Vec::new()
-	}
-}
-
-fn append_init_args(command: &mut tokio::process::Command, arg: &InitArg) {
+fn append_init_args(command: &mut tokio::process::Command, arg: &self::init::Arg) {
 	command
 		.arg("sandbox")
 		.arg("init")
@@ -347,41 +313,6 @@ fn append_init_args(command: &mut tokio::process::Command, arg: &InitArg) {
 	for path in &arg.library_paths {
 		command.arg("--library-path").arg(path);
 	}
-}
-
-fn append_directories_to_path(command: &mut Command, directories: &[&Path]) -> tg::Result<()> {
-	let mut paths = command
-		.env
-		.get("PATH")
-		.map(|path| std::env::split_paths(path).collect::<Vec<_>>())
-		.unwrap_or_default();
-	paths.extend(directories.iter().map(|path| path.to_path_buf()));
-	let path = std::env::join_paths(paths)
-		.map_err(|source| tg::error!(!source, "failed to build `PATH`"))?;
-	let path = path
-		.to_str()
-		.ok_or_else(|| tg::error!("failed to encode `PATH` as valid UTF-8"))?;
-	command.env.insert("PATH".to_owned(), path.to_owned());
-	Ok(())
-}
-
-fn validate_mounts(mounts: &[tg::sandbox::Mount]) -> tg::Result<()> {
-	let mut targets = BTreeSet::new();
-	for mount in mounts {
-		if mount.target == Path::new("/") {
-			return Err(tg::error!(
-				target = %mount.target.display(),
-				"mounting to / is not supported"
-			));
-		}
-		if !targets.insert(mount.target.clone()) {
-			return Err(tg::error!(
-				target = %mount.target.display(),
-				"duplicate mount targets are not supported"
-			));
-		}
-	}
-	Ok(())
 }
 
 impl std::fmt::Display for Stdio {

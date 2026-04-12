@@ -82,7 +82,7 @@ impl Server {
 			target: artifacts_path.clone(),
 			readonly: true,
 		});
-		let sandbox_arg = tangram_sandbox::SpawnArg {
+		let arg = tangram_sandbox::Arg {
 			artifacts_path,
 			hostname: state.hostname.clone(),
 			mounts,
@@ -92,7 +92,7 @@ impl Server {
 			tangram_path: self.tangram_path.clone(),
 			user: state.user.clone(),
 		};
-		let sandbox = tangram_sandbox::Sandbox::new(sandbox_arg)
+		let sandbox = tangram_sandbox::Sandbox::new(arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to create the sandbox"))?;
 		self.sandboxes.insert(id.clone(), sandbox.clone());

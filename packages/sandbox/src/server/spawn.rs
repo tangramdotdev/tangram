@@ -1,10 +1,17 @@
 use {
 	crate::{
-		Stdio,
+		Command, Stdio, abort_errno,
 		pty::Pty,
 		server::{Process, Server},
 	},
-	std::{os::unix::process::ExitStatusExt as _, sync::Arc},
+	std::{
+		os::{
+			fd::{AsRawFd as _, OwnedFd},
+			unix::process::ExitStatusExt as _,
+		},
+		path::Path,
+		sync::Arc,
+	},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody,
@@ -14,6 +21,11 @@ use {
 	tokio::sync::Mutex,
 };
 
+#[cfg(target_os = "macos")]
+mod darwin;
+#[cfg(target_os = "linux")]
+mod linux;
+
 impl Server {
 	pub async fn spawn(
 		&self,
@@ -22,7 +34,7 @@ impl Server {
 		// Apply host specific modifications to the command.
 		#[cfg(target_os = "macos")]
 		{
-			crate::darwin::prepare_command_for_spawn(
+			self::darwin::prepare_command_for_spawn(
 				&mut arg.command,
 				&self.tangram_path,
 				&self.library_paths,
@@ -30,7 +42,7 @@ impl Server {
 		}
 		#[cfg(target_os = "linux")]
 		{
-			crate::linux::prepare_command_for_spawn(
+			self::linux::prepare_command_for_spawn(
 				&mut arg.command,
 				&self.tangram_path,
 				&self.library_paths,
@@ -85,7 +97,7 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to clone the tty fd"))?;
 			unsafe {
 				command.pre_exec(move || {
-					crate::util::start_session(&tty, stdin_is_tty, stdout_is_tty, stderr_is_tty);
+					start_session(&tty, stdin_is_tty, stdout_is_tty, stderr_is_tty);
 					Ok(())
 				});
 			}
@@ -197,6 +209,22 @@ impl Server {
 	}
 }
 
+fn append_directories_to_path(command: &mut Command, directories: &[&Path]) -> tg::Result<()> {
+	let mut paths = command
+		.env
+		.get("PATH")
+		.map(|path| std::env::split_paths(path).collect::<Vec<_>>())
+		.unwrap_or_default();
+	paths.extend(directories.iter().map(|path| path.to_path_buf()));
+	let path = std::env::join_paths(paths)
+		.map_err(|source| tg::error!(!source, "failed to build `PATH`"))?;
+	let path = path
+		.to_str()
+		.ok_or_else(|| tg::error!("failed to encode `PATH` as valid UTF-8"))?;
+	command.env.insert("PATH".to_owned(), path.to_owned());
+	Ok(())
+}
+
 fn child_stdio(stdio: Stdio, pty: Option<&Pty>) -> tg::Result<std::process::Stdio> {
 	match stdio {
 		Stdio::Null => {
@@ -216,5 +244,49 @@ fn child_stdio(stdio: Stdio, pty: Option<&Pty>) -> tg::Result<std::process::Stdi
 			let stdio = std::process::Stdio::from(fd);
 			Ok(stdio)
 		},
+	}
+}
+
+fn start_session(tty: &OwnedFd, stdin: bool, stdout: bool, stderr: bool) {
+	unsafe {
+		let current_tty = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
+		if current_tty >= 0 {
+			#[cfg_attr(target_os = "linux", expect(clippy::useless_conversion))]
+			libc::ioctl(
+				current_tty,
+				libc::TIOCNOTTY.into(),
+				std::ptr::null_mut::<()>(),
+			);
+			libc::close(current_tty);
+		}
+
+		let ret = libc::setsid();
+		if ret < 0 {
+			abort_errno!("setsid() failed");
+		}
+
+		let fd = tty.as_raw_fd();
+		#[cfg_attr(target_os = "linux", expect(clippy::useless_conversion))]
+		let ret = libc::ioctl(fd, libc::TIOCSCTTY.into(), 0);
+		if ret < 0 {
+			abort_errno!("failed to set the controlling terminal");
+		}
+
+		if stdin {
+			libc::dup2(fd, libc::STDIN_FILENO);
+		}
+		if stdout {
+			libc::dup2(fd, libc::STDOUT_FILENO);
+		}
+		if stderr {
+			libc::dup2(fd, libc::STDERR_FILENO);
+		}
+
+		if fd > libc::STDERR_FILENO {
+			let flags = libc::fcntl(fd, libc::F_GETFD);
+			if flags >= 0 {
+				libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);
+			}
+		}
 	}
 }

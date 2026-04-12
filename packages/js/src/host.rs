@@ -16,7 +16,7 @@ use {
 		},
 		time::Duration,
 	},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 	tokio::io::{Interest, unix::AsyncFd},
 };

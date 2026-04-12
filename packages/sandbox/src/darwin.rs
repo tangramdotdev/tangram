@@ -4,7 +4,7 @@ use {
 	num::ToPrimitive as _,
 	std::{
 		ffi::{CStr, CString},
-		fmt::Write,
+		fmt::Write as _,
 		os::unix::ffi::OsStrExt as _,
 		path::Path,
 	},
@@ -295,7 +295,7 @@ fn is_system_library_path(path: &Path) -> bool {
 		|| path.starts_with("/System/Volumes/Preboot/Cryptexes/OS/usr/lib/")
 }
 
-pub fn spawn_jailer(arg: &SpawnArg, init_arg: &InitArg) -> tg::Result<tokio::process::Child> {
+pub fn spawn_isolator(arg: &SpawnArg, init_arg: &InitArg) -> tg::Result<tokio::process::Child> {
 	for path in [
 		Sandbox::host_output_path_from_root(&arg.path),
 		Sandbox::host_tangram_socket_path_from_root(&arg.path)
@@ -349,67 +349,6 @@ pub fn spawn_jailer(arg: &SpawnArg, init_arg: &InitArg) -> tg::Result<tokio::pro
 	command
 		.spawn()
 		.map_err(|source| tg::error!(!source, "failed to spawn sandbox-exec"))
-}
-
-pub fn prepare_command_for_spawn(
-	command: &mut crate::Command,
-	tangram_path: &Path,
-	library_paths: &[std::path::PathBuf],
-) -> tg::Result<()> {
-	if !command.env.contains_key("HOME") {
-		let home = std::env::var("HOME")
-			.map_err(|source| tg::error!(!source, "failed to get the home directory"))?;
-		command.env.insert("HOME".to_owned(), home);
-	}
-	let mut paths = Vec::new();
-	if let Some(parent) = tangram_path.parent() {
-		paths.push(parent);
-	}
-	paths.push(Path::new("/usr/bin"));
-	paths.push(Path::new("/bin"));
-	crate::append_directories_to_path(command, &paths)?;
-
-	if library_paths.is_empty() || !command_resolves_to_path(command, tangram_path) {
-		return Ok(());
-	}
-	let mut paths = library_paths.to_vec();
-	if let Some(existing) = command.env.get("DYLD_LIBRARY_PATH") {
-		paths.extend(std::env::split_paths(existing));
-	}
-	let path = std::env::join_paths(paths)
-		.map_err(|source| tg::error!(!source, "failed to build `DYLD_LIBRARY_PATH`"))?;
-	let path = path
-		.to_str()
-		.ok_or_else(|| tg::error!("failed to encode `DYLD_LIBRARY_PATH` as valid UTF-8"))?;
-	command
-		.env
-		.insert("DYLD_LIBRARY_PATH".to_owned(), path.to_owned());
-	Ok(())
-}
-
-fn command_resolves_to_path(command: &Command, target: &Path) -> bool {
-	let resolved = if command.executable.is_absolute() {
-		command.executable.clone()
-	} else {
-		let Some(path) = command.env.get("PATH") else {
-			return false;
-		};
-		let Some(resolved) = crate::util::which(Path::new(path), &command.executable) else {
-			return false;
-		};
-		resolved
-	};
-	canonicalized_paths_match(&resolved, target)
-}
-
-fn canonicalized_paths_match(lhs: &Path, rhs: &Path) -> bool {
-	let Ok(lhs) = std::fs::canonicalize(lhs) else {
-		return false;
-	};
-	let Ok(rhs) = std::fs::canonicalize(rhs) else {
-		return false;
-	};
-	lhs == rhs
 }
 
 fn create_sandbox_profile(arg: &SpawnArg) -> CString {

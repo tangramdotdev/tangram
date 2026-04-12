@@ -1,4 +1,4 @@
-use {std::collections::BTreeMap, tangram_client as tg};
+use {std::collections::BTreeMap, tangram_client::prelude::*};
 
 /// Collect all entries from a directory, recursively flattening branches.
 pub fn collect_directory_entries(

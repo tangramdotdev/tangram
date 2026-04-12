@@ -2,7 +2,7 @@ use {
 	super::graph::{Graph, Variant},
 	crate::Server,
 	std::{collections::BTreeMap, path::Path},
-	tangram_client as tg,
+	tangram_client::prelude::*,
 };
 
 pub type Paths = BTreeMap<(usize, tg::Reference), tg::graph::data::Edge<tg::object::Id>>;
