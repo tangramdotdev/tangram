@@ -5,10 +5,10 @@ pub mod container;
 pub mod create;
 pub mod delete;
 pub mod get;
-pub mod init;
 pub mod list;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
+pub mod serve;
 
 /// Manage sandboxes.
 #[derive(Clone, Debug, clap::Args)]
@@ -28,7 +28,7 @@ pub enum Command {
 	Delete(self::delete::Args),
 	Get(self::get::Args),
 	#[command(hide = true)]
-	Init(self::init::Args),
+	Serve(self::serve::Args),
 	#[command(alias = "ls")]
 	List(self::list::Args),
 	#[cfg(target_os = "macos")]
@@ -132,7 +132,7 @@ impl Cli {
 			Command::Get(args) => {
 				self.command_sandbox_get(args).await?;
 			},
-			Command::Init(_) => {
+			Command::Serve(_) => {
 				unreachable!()
 			},
 			#[cfg(target_os = "macos")]

@@ -17,15 +17,21 @@ struct User {
 	uid: libc::uid_t,
 }
 
-pub fn spawn(arg: &crate::Arg, init_arg: &crate::init::Arg) -> tg::Result<tokio::process::Child> {
+pub(crate) fn spawn(
+	arg: &crate::Arg,
+	serve_arg: &crate::serve::Arg,
+) -> tg::Result<tokio::process::Child> {
 	prepare_sandbox_directory(&arg.path)?;
 	let user = prepare_etc_files(&arg.path, arg.network, arg.user.as_deref())?;
 	let upper_path = Sandbox::host_upper_path_from_root(&arg.path);
 	for mount in &arg.mounts {
 		crate::root::ensure_mount_target(&arg.rootfs_path, &upper_path, mount)?;
 	}
+	let init_arg = super::init::Arg {
+		serve: serve_arg.clone(),
+	};
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
-	command.arg("sandbox").arg("container");
+	command.arg("sandbox").arg("container").arg("run");
 	command
 		.arg("--unshare-all")
 		.arg("--as-pid-1")
@@ -114,8 +120,17 @@ pub fn spawn(arg: &crate::Arg, init_arg: &crate::init::Arg) -> tg::Result<tokio:
 		.arg("--")
 		.arg(Sandbox::guest_tangram_path_from_host_tangram_path(
 			&arg.tangram_path,
-		));
-	crate::append_init_args(&mut command, init_arg);
+		))
+		.arg("sandbox")
+		.arg("container")
+		.arg("init")
+		.arg("--url")
+		.arg(init_arg.serve.url.to_string())
+		.arg("--tangram-path")
+		.arg(&init_arg.serve.tangram_path);
+	for path in &init_arg.serve.library_paths {
+		command.arg("--library-path").arg(path);
+	}
 	command
 		.kill_on_drop(true)
 		.stdin(std::process::Stdio::null())

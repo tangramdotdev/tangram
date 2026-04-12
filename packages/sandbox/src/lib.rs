@@ -12,18 +12,16 @@ use {
 };
 
 mod client;
+mod pty;
+mod server;
+mod util;
+
 #[cfg(target_os = "linux")]
 pub mod container;
-pub mod init;
-mod pty;
 pub mod root;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
-mod server;
-mod spawn;
-mod util;
-
-pub use self::{init::init, spawn::spawn};
+pub mod serve;
 
 #[derive(Clone)]
 pub struct Sandbox(Arc<State>);
@@ -106,14 +104,16 @@ impl Sandbox {
 		};
 
 		let (listener, url) = Self::listen(&arg.path).await?;
-		let init_arg = self::init::Arg {
+		let serve_arg = self::serve::Arg {
 			library_paths,
-			path: arg.path.clone(),
-			tangram_path: arg.tangram_path.clone(),
+			tangram_path: Self::guest_tangram_path_from_host_tangram_path(&arg.tangram_path),
 			url,
 		};
 
-		let mut process = spawn(&arg, &init_arg)?;
+		#[cfg(target_os = "linux")]
+		let mut process = self::container::spawn(&arg, &serve_arg)?;
+		#[cfg(target_os = "macos")]
+		let mut process = self::seatbelt::spawn(&arg, &serve_arg)?;
 
 		let client = match tokio::time::timeout(Duration::from_secs(5), async {
 			tokio::select! {
@@ -121,7 +121,7 @@ impl Sandbox {
 				result = process.wait() => {
 					let status = result
 						.map_err(|source| tg::error!(!source, "failed to wait for the sandbox process"))?;
-					Err(tg::error!(status = %status, "the sandbox init process exited before connecting"))
+					Err(tg::error!(status = %status, "the sandbox process exited before connecting"))
 				},
 			}
 		})
@@ -297,21 +297,6 @@ impl Sandbox {
 		id: &tg::process::Id,
 	) -> tg::Result<Option<crate::client::get::Output>> {
 		self.0.client.try_get_process(id).await
-	}
-}
-
-fn append_init_args(command: &mut tokio::process::Command, arg: &self::init::Arg) {
-	command
-		.arg("sandbox")
-		.arg("init")
-		.arg("--path")
-		.arg(&arg.path)
-		.arg("--url")
-		.arg(arg.url.to_string())
-		.arg("--tangram-path")
-		.arg(&arg.tangram_path);
-	for path in &arg.library_paths {
-		command.arg("--library-path").arg(path);
 	}
 }
 

@@ -3,12 +3,11 @@ use {std::path::PathBuf, tangram_client::prelude::*, tangram_uri::Uri};
 #[derive(Clone, Debug)]
 pub struct Arg {
 	pub library_paths: Vec<PathBuf>,
-	pub path: PathBuf,
 	pub tangram_path: PathBuf,
 	pub url: Uri,
 }
 
-pub fn init(arg: &Arg) -> tg::Result<()> {
+pub fn run(arg: &Arg) -> tg::Result<()> {
 	let runtime = tokio::runtime::Builder::new_current_thread()
 		.enable_all()
 		.build()

@@ -5,7 +5,10 @@ use {
 	tangram_client::prelude::*,
 };
 
-pub fn spawn(arg: &crate::Arg, init_arg: &crate::init::Arg) -> tg::Result<tokio::process::Child> {
+pub(crate) fn spawn(
+	arg: &crate::Arg,
+	serve_arg: &crate::serve::Arg,
+) -> tg::Result<tokio::process::Child> {
 	for path in [
 		Sandbox::host_output_path_from_root(&arg.path),
 		Sandbox::host_tangram_socket_path_from_root(&arg.path)
@@ -32,11 +35,23 @@ pub fn spawn(arg: &crate::Arg, init_arg: &crate::init::Arg) -> tg::Result<tokio:
 	command
 		.arg("sandbox")
 		.arg("seatbelt")
+		.arg("run")
 		.arg("--profile")
 		.arg(Sandbox::host_profile_path_from_root(&arg.path));
-	command.arg("--").arg(&arg.tangram_path);
-	if !init_arg.library_paths.is_empty() {
-		let mut paths = init_arg.library_paths.clone();
+	command
+		.arg("--")
+		.arg(&arg.tangram_path)
+		.arg("sandbox")
+		.arg("serve")
+		.arg("--url")
+		.arg(serve_arg.url.to_string())
+		.arg("--tangram-path")
+		.arg(&serve_arg.tangram_path);
+	for path in &serve_arg.library_paths {
+		command.arg("--library-path").arg(path);
+	}
+	if !serve_arg.library_paths.is_empty() {
+		let mut paths = serve_arg.library_paths.clone();
 		if let Some(existing) = std::env::var_os("DYLD_LIBRARY_PATH") {
 			paths.extend(std::env::split_paths(&existing));
 		}
@@ -44,7 +59,6 @@ pub fn spawn(arg: &crate::Arg, init_arg: &crate::init::Arg) -> tg::Result<tokio:
 			.map_err(|source| tg::error!(!source, "failed to build `DYLD_LIBRARY_PATH`"))?;
 		command.env("DYLD_LIBRARY_PATH", path);
 	}
-	crate::append_init_args(&mut command, init_arg);
 	command
 		.kill_on_drop(true)
 		.stdin(std::process::Stdio::null())

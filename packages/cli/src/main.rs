@@ -302,10 +302,10 @@ fn main() -> std::process::ExitCode {
 			return Cli::command_js(&matches, args);
 		},
 		Command::Sandbox(self::sandbox::Args {
-			command: self::sandbox::Command::Init(args),
+			command: self::sandbox::Command::Serve(args),
 			..
 		}) => {
-			return Cli::command_sandbox_init(args);
+			return Cli::command_sandbox_serve(args);
 		},
 		#[cfg(target_os = "linux")]
 		Command::Sandbox(self::sandbox::Args {
