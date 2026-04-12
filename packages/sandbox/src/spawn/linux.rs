@@ -20,11 +20,10 @@ struct User {
 pub fn spawn(arg: &crate::Arg, init_arg: &crate::init::Arg) -> tg::Result<tokio::process::Child> {
 	prepare_sandbox_directory(&arg.path)?;
 	let user = prepare_etc_files(&arg.path, arg.network, arg.user.as_deref())?;
-	prepare_mount_targets(
-		&arg.rootfs_path,
-		&Sandbox::host_upper_path_from_root(&arg.path),
-		&arg.mounts,
-	)?;
+	let upper_path = Sandbox::host_upper_path_from_root(&arg.path);
+	for mount in &arg.mounts {
+		crate::root::ensure_mount_target(&arg.rootfs_path, &upper_path, mount)?;
+	}
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	command.arg("sandbox").arg("run");
 	command
@@ -159,48 +158,6 @@ fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 	Ok(())
 }
 
-fn prepare_mount_targets(
-	rootfs_path: &Path,
-	upper_path: &Path,
-	mounts: &[tg::sandbox::Mount],
-) -> tg::Result<()> {
-	for mount in mounts {
-		let source_metadata = std::fs::metadata(&mount.source).map_err(|source| {
-			tg::error!(
-				!source,
-				source = %mount.source.display(),
-				"failed to stat the mount source"
-			)
-		})?;
-		let target_path = map_guest_path(rootfs_path, &mount.target)?;
-		if let Ok(target_metadata) = std::fs::metadata(&target_path) {
-			if source_metadata.is_dir() != target_metadata.is_dir() {
-				let expected = if source_metadata.is_dir() {
-					"a directory"
-				} else {
-					"a file"
-				};
-				let found = if target_metadata.is_dir() {
-					"a directory"
-				} else {
-					"a file"
-				};
-				return Err(tg::error!(
-					path = %mount.target.display(),
-					"expected mount target to be {expected}, but found {found}"
-				));
-			}
-			continue;
-		}
-		if source_metadata.is_dir() {
-			create_guest_directory(upper_path, &mount.target)?;
-		} else {
-			create_guest_file(upper_path, &mount.target)?;
-		}
-	}
-	Ok(())
-}
-
 fn prepare_etc_files(sandbox_path: &Path, network: bool, user: Option<&str>) -> tg::Result<User> {
 	let user = resolve_user(user)?;
 	let passwd = render_passwd(&user);
@@ -274,62 +231,4 @@ fn resolve_user(name: Option<&str>) -> tg::Result<User> {
 		uid: passwd.pw_uid,
 	};
 	Ok(user)
-}
-
-fn create_guest_directory(root_path: &Path, guest_path: &Path) -> tg::Result<()> {
-	let path = map_guest_path(root_path, guest_path)?;
-	std::fs::create_dir_all(&path).map_err(|source| {
-		tg::error!(
-			!source,
-			path = %path.display(),
-			"failed to create a guest directory"
-		)
-	})?;
-	Ok(())
-}
-
-fn create_guest_file(root_path: &Path, guest_path: &Path) -> tg::Result<()> {
-	let path = map_guest_path(root_path, guest_path)?;
-	if let Ok(metadata) = std::fs::metadata(&path) {
-		if metadata.is_dir() {
-			return Err(tg::error!(
-				path = %path.display(),
-				"expected a guest file, but found a directory"
-			));
-		}
-		return Ok(());
-	}
-	if let Some(parent) = path.parent() {
-		std::fs::create_dir_all(parent).map_err(|source| {
-			tg::error!(
-				!source,
-				path = %parent.display(),
-				"failed to create a guest parent directory"
-			)
-		})?;
-	}
-	std::fs::OpenOptions::new()
-		.create(true)
-		.write(true)
-		.truncate(false)
-		.open(&path)
-		.map_err(|source| {
-			tg::error!(
-				!source,
-				path = %path.display(),
-				"failed to create a guest file"
-			)
-		})?;
-	Ok(())
-}
-
-fn map_guest_path(root_path: &Path, guest_path: &Path) -> tg::Result<PathBuf> {
-	let suffix = guest_path.strip_prefix("/").map_err(|source| {
-		tg::error!(
-			!source,
-			path = %guest_path.display(),
-			"expected an absolute guest path"
-		)
-	})?;
-	Ok(root_path.join(suffix))
 }

@@ -58,4 +58,3 @@ fn canonicalized_paths_match(lhs: &Path, rhs: &Path) -> bool {
 	};
 	lhs == rhs
 }
-

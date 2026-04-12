@@ -9,6 +9,9 @@ mod darwin;
 #[cfg(target_os = "linux")]
 mod linux;
 
+#[cfg(target_os = "linux")]
+pub(crate) use self::linux::ensure_mount_target;
+
 #[derive(Clone, Debug)]
 pub struct Arg {
 	pub path: PathBuf,
