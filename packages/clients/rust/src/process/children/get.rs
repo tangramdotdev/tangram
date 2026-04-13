@@ -40,7 +40,7 @@ pub struct Chunk {
 	pub data: Vec<tg::process::data::Child>,
 }
 
-impl tg::Process {
+impl<O> tg::Process<O> {
 	pub async fn children<H>(
 		&self,
 		handle: &H,

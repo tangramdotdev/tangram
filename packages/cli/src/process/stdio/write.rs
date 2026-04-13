@@ -24,7 +24,8 @@ pub struct Args {
 impl Cli {
 	pub async fn command_process_stdio_write(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let process = tg::Process::new(args.process.clone(), None, None, None, None, None);
+		let process =
+			tg::Process::<tg::Value>::new(args.process.clone(), None, None, None, None, None);
 		let [stream] = args.streams.as_slice() else {
 			return Err(tg::error!("expected exactly one stdio stream"));
 		};

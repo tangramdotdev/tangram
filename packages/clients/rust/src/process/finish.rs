@@ -27,7 +27,7 @@ pub struct Arg {
 	pub remotes: Option<Vec<String>>,
 }
 
-impl tg::Process {
+impl<O> tg::Process<O> {
 	pub async fn finish<H>(&self, handle: &H, arg: tg::process::finish::Arg) -> tg::Result<()>
 	where
 		H: tg::Handle,

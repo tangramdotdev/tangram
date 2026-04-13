@@ -112,7 +112,7 @@ impl tg::Client {
 	}
 }
 
-impl tg::Process {
+impl<O> tg::Process<O> {
 	pub async fn try_read_stdio_all<H>(
 		&self,
 		handle: &H,

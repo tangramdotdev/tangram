@@ -196,11 +196,6 @@ pub struct Tty {
 	pub(crate) no_tty: Option<bool>,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct Output {
-	pub process: tg::Referent<tg::Process>,
-}
-
 impl Tty {
 	pub fn new_disabled() -> Self {
 		Self {
@@ -256,15 +251,15 @@ impl Cli {
 
 		if args.verbose {
 			let output = tg::process::spawn::Output {
-				cached: output.process.item().cached().unwrap_or(false),
-				process: output.process.item().id().clone(),
-				remote: output.process.item().remote().cloned(),
-				token: output.process.item().token().cloned(),
+				cached: output.item().cached().unwrap_or(false),
+				process: output.item().id().clone(),
+				remote: output.item().remote().cloned(),
+				token: output.item().token().cloned(),
 				wait: None,
 			};
 			self.print_serde(output, args.print).await?;
 		} else {
-			Self::print_display(output.process.item().id());
+			Self::print_display(output.item().id());
 		}
 
 		Ok(())
@@ -275,7 +270,7 @@ impl Cli {
 		options: Options,
 		reference: tg::Reference,
 		trailing: Vec<String>,
-	) -> tg::Result<Output> {
+	) -> tg::Result<tg::Referent<tg::Process>> {
 		let handle = self.handle().await?;
 
 		// Determine whether to sandbox.
@@ -678,6 +673,6 @@ impl Cli {
 
 		let process = referent.replace(process).0;
 
-		Ok(Output { process })
+		Ok(process)
 	}
 }

@@ -76,8 +76,8 @@ pub struct Output {
 	pub wait: Option<tg::process::wait::Output>,
 }
 
-impl tg::Process {
-	pub async fn spawn<H>(handle: &H, arg: tg::process::spawn::Arg) -> tg::Result<tg::Process>
+impl<O: 'static> tg::Process<O> {
+	pub async fn spawn<H>(handle: &H, arg: tg::process::spawn::Arg) -> tg::Result<tg::Process<O>>
 	where
 		H: tg::Handle,
 	{
@@ -98,7 +98,7 @@ impl tg::Process {
 	) -> tg::Result<T>
 	where
 		H: tg::Handle,
-		F: FnOnce(BoxStream<'static, tg::Result<tg::progress::Event<tg::Process>>>) -> Fut,
+		F: FnOnce(BoxStream<'static, tg::Result<tg::progress::Event<tg::Process<O>>>>) -> Fut,
 		Fut: Future<Output = tg::Result<T>>,
 	{
 		let handle = handle.clone();
@@ -264,7 +264,7 @@ impl tg::Process {
 									tg::process::stdio::Stream::Stdout,
 								)
 							};
-							let process = Self(Arc::new(super::Inner {
+							let inner = Arc::new(super::Inner {
 								cached: Some(output.cached),
 								id,
 								metadata: RwLock::new(None),
@@ -278,7 +278,8 @@ impl tg::Process {
 								token: output.token,
 								wait: Mutex::new(wait),
 								pid: None,
-							}));
+							});
+							let process = Self(inner, std::marker::PhantomData);
 							tg::progress::Event::Output(process)
 						},
 						tg::progress::Event::Log(log) => tg::progress::Event::Log(log),
@@ -300,7 +301,7 @@ impl tg::Process {
 	async fn spawn_unsandboxed<H>(
 		handle: &H,
 		arg: tg::process::spawn::Arg,
-	) -> tg::Result<tg::Process>
+	) -> tg::Result<tg::Process<O>>
 	where
 		H: tg::Handle,
 	{
@@ -397,7 +398,7 @@ impl tg::Process {
 		});
 		task.detach();
 
-		Ok(super::Process(Arc::new(super::Inner {
+		let inner = Arc::new(super::Inner {
 			cached: Some(false),
 			id,
 			metadata: RwLock::new(None),
@@ -411,7 +412,9 @@ impl tg::Process {
 			task: Some(task),
 			token: None,
 			wait: Mutex::new(None),
-		})))
+		});
+		let process = Self(inner, std::marker::PhantomData);
+		Ok(process)
 	}
 
 	async fn wait_unsandboxed<H>(

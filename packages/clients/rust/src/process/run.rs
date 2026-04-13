@@ -4,13 +4,15 @@ pub async fn run<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<tg::Value>
 where
 	H: tg::Handle,
 {
-	tg::Process::run(handle, arg).await
+	tg::Process::<tg::Value>::run(handle, arg).await
 }
 
-impl tg::Process {
-	pub async fn run<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<tg::Value>
+impl<O> tg::Process<O> {
+	pub async fn run<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<O>
 	where
 		H: tg::Handle,
+		O: TryFrom<tg::Value> + 'static,
+		O::Error: std::error::Error + Send + Sync + 'static,
 	{
 		let sandbox = arg.sandbox.clone();
 		let sandboxed = sandbox.is_some();
@@ -88,7 +90,7 @@ impl tg::Process {
 			stdout,
 			tty: arg.tty,
 		};
-		let process = tg::Process::spawn_with_progress(handle, arg, |stream| {
+		let process = tg::Process::<O>::spawn_with_progress(handle, arg, |stream| {
 			let writer = std::io::stderr();
 			let is_tty = progress && writer.is_terminal();
 			tg::progress::write_progress_stream(handle, stream, writer, is_tty)

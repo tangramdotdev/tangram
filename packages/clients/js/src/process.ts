@@ -1,61 +1,5 @@
 import * as tg from "./index.ts";
 
-let isSandboxArg = (value: unknown): value is tg.Sandbox.Arg => {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-};
-
-let normalizeSandbox = (
-	arg: Pick<tg.Process.ArgObject, "mounts" | "network" | "sandbox">,
-): Exclude<tg.Handle.SpawnArg["sandbox"], undefined> | undefined => {
-	let mounts = arg.mounts ?? [];
-	let hasNetwork = "network" in arg;
-	let network = arg.network ?? false;
-	let sandbox = arg.sandbox;
-	if (typeof sandbox === "string") {
-		if (mounts.length > 0 || hasNetwork) {
-			throw new Error(
-				"mounts and network are not supported for existing sandboxes",
-			);
-		}
-		return sandbox;
-	}
-	if (sandbox === undefined || sandbox === false) {
-		if (mounts.length === 0 && !hasNetwork) {
-			return undefined;
-		}
-		sandbox = { network: false };
-	}
-	if (sandbox === true) {
-		sandbox = { network: false };
-	}
-	let output: tg.Handle.SandboxArg = { network: false };
-	if (isSandboxArg(sandbox)) {
-		if (sandbox.hostname !== undefined) {
-			output.hostname = sandbox.hostname;
-		}
-		if (sandbox.mounts !== undefined) {
-			output.mounts = sandbox.mounts.map(tg.Sandbox.Mount.toDataString);
-		}
-		output.network = sandbox.network ?? false;
-		if (sandbox.ttl !== undefined) {
-			output.ttl = sandbox.ttl;
-		}
-		if (sandbox.user !== undefined) {
-			output.user = sandbox.user;
-		}
-	}
-	if (mounts.length > 0) {
-		output.mounts = [
-			...(output.mounts ?? []),
-			...mounts.map(tg.Sandbox.Mount.toDataString),
-		];
-	}
-	if (hasNetwork) {
-		output.network = network;
-	}
-	return output;
-};
-
 export let process: {
 	args: Array<tg.Value>;
 	cwd: string;
@@ -67,7 +11,7 @@ export let setProcess = (newProcess: typeof process) => {
 	Object.assign(process, newProcess);
 };
 
-export class Process {
+export class Process<O extends tg.Value = tg.Value> {
 	#id: tg.Process.Id;
 	#options: tg.Referent.Options;
 	#pid: number | undefined;
@@ -288,7 +232,9 @@ export class Process {
 		});
 	}
 
-	static async new(...args: tg.Args<tg.Process.Arg>): Promise<tg.Process> {
+	static async new<O extends tg.Value = tg.Value>(
+		...args: tg.Args<tg.Process.Arg>
+	): Promise<tg.Process<O>> {
 		let arg = await tg.Process.arg(...args);
 
 		let sandbox = normalizeSandbox(arg);
@@ -399,18 +345,20 @@ export class Process {
 			stdout: stdout ?? "inherit",
 			tty,
 		};
-		let process: tg.Process;
+		let process: tg.Process<O>;
 		if (sandbox === undefined) {
-			process = await this.spawnUnsandboxed(spawnArg);
+			process = await this.spawnUnsandboxed<O>(spawnArg);
 		} else {
-			process = await this.spawnSandboxed(spawnArg);
+			process = await this.spawnSandboxed<O>(spawnArg);
 		}
 		process.#options = options;
 
 		return process;
 	}
 
-	static async spawnUnsandboxed(arg: tg.Handle.SpawnArg): Promise<tg.Process> {
+	static async spawnUnsandboxed<O extends tg.Value = tg.Value>(
+		arg: tg.Handle.SpawnArg,
+	): Promise<tg.Process<O>> {
 		if (arg.tty !== undefined) {
 			throw new Error("tty is not supported for unsandboxed processes");
 		}
@@ -471,7 +419,7 @@ export class Process {
 			tempDir,
 			outputPath,
 		);
-		return new tg.Process({
+		return new tg.Process<O>({
 			id,
 			pid,
 			promise,
@@ -565,7 +513,9 @@ export class Process {
 		return wait!;
 	}
 
-	static async spawnSandboxed(arg: tg.Handle.SpawnArg): Promise<tg.Process> {
+	static async spawnSandboxed<O extends tg.Value = tg.Value>(
+		arg: tg.Handle.SpawnArg,
+	): Promise<tg.Process<O>> {
 		let noTty = arg.tty === false;
 		let tty: tg.Process.Tty | undefined;
 		if (arg.tty === true) {
@@ -655,7 +605,7 @@ export class Process {
 						tty !== undefined,
 					)
 				: undefined;
-		let process = new tg.Process({
+		let process = new tg.Process<O>({
 			id: output.process,
 			remote: output.remote,
 			state: undefined,
@@ -866,7 +816,7 @@ export class Process {
 		return wait;
 	}
 
-	async output(): Promise<tg.Value> {
+	async output(): Promise<O> {
 		let wait = await this.wait();
 
 		if (wait.error !== undefined) {
@@ -926,7 +876,7 @@ export class Process {
 
 		let output = wait.output;
 
-		return output;
+		return output as O;
 	}
 
 	async setTtySize(size: tg.Process.Tty.Size): Promise<void> {
@@ -1127,7 +1077,7 @@ export namespace Process {
 		async #thenInner(): Promise<tg.Process.Builder.Output<M, O>> {
 			let arg = await tg.Process.arg(...this.#args);
 			this.#validate?.(arg);
-			let process = await tg.Process.new(arg);
+			let process = await tg.Process.new<O>(arg);
 			switch (this.#mode) {
 				case "run": {
 					return (await process.output()) as tg.Process.Builder.Output<M, O>;
@@ -1145,7 +1095,7 @@ export namespace Process {
 		export type Output<
 			M extends tg.Process.Builder.Mode,
 			O extends tg.Value,
-		> = M extends "spawn" ? tg.Process : O;
+		> = M extends "spawn" ? tg.Process<O> : O;
 	}
 
 	export type ConstructorArg = {
@@ -2030,3 +1980,59 @@ function renderStdio(
 		}
 	}
 }
+
+let isSandboxArg = (value: unknown): value is tg.Sandbox.Arg => {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+};
+
+let normalizeSandbox = (
+	arg: Pick<tg.Process.ArgObject, "mounts" | "network" | "sandbox">,
+): Exclude<tg.Handle.SpawnArg["sandbox"], undefined> | undefined => {
+	let mounts = arg.mounts ?? [];
+	let hasNetwork = "network" in arg;
+	let network = arg.network ?? false;
+	let sandbox = arg.sandbox;
+	if (typeof sandbox === "string") {
+		if (mounts.length > 0 || hasNetwork) {
+			throw new Error(
+				"mounts and network are not supported for existing sandboxes",
+			);
+		}
+		return sandbox;
+	}
+	if (sandbox === undefined || sandbox === false) {
+		if (mounts.length === 0 && !hasNetwork) {
+			return undefined;
+		}
+		sandbox = { network: false };
+	}
+	if (sandbox === true) {
+		sandbox = { network: false };
+	}
+	let output: tg.Handle.SandboxArg = { network: false };
+	if (isSandboxArg(sandbox)) {
+		if (sandbox.hostname !== undefined) {
+			output.hostname = sandbox.hostname;
+		}
+		if (sandbox.mounts !== undefined) {
+			output.mounts = sandbox.mounts.map(tg.Sandbox.Mount.toDataString);
+		}
+		output.network = sandbox.network ?? false;
+		if (sandbox.ttl !== undefined) {
+			output.ttl = sandbox.ttl;
+		}
+		if (sandbox.user !== undefined) {
+			output.user = sandbox.user;
+		}
+	}
+	if (mounts.length > 0) {
+		output.mounts = [
+			...(output.mounts ?? []),
+			...mounts.map(tg.Sandbox.Mount.toDataString),
+		];
+	}
+	if (hasNetwork) {
+		output.network = network;
+	}
+	return output;
+};

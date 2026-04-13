@@ -4,13 +4,15 @@ pub async fn build<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<tg::Value
 where
 	H: tg::Handle,
 {
-	tg::Process::build(handle, arg).await
+	tg::Process::<tg::Value>::build(handle, arg).await
 }
 
-impl tg::Process {
-	pub async fn build<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<tg::Value>
+impl<O> tg::Process<O> {
+	pub async fn build<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<O>
 	where
 		H: tg::Handle,
+		O: TryFrom<tg::Value> + 'static,
+		O::Error: std::error::Error + Send + Sync + 'static,
 	{
 		let sandbox = arg.sandbox.clone().unwrap_or_else(|| {
 			tg::Either::Left(tg::sandbox::create::Arg {
@@ -36,6 +38,6 @@ impl tg::Process {
 			sandbox: Some(sandbox),
 			..arg
 		};
-		tg::run(handle, arg).await
+		tg::Process::<O>::run(handle, arg).await
 	}
 }

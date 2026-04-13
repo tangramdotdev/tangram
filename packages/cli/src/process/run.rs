@@ -176,7 +176,8 @@ impl Cli {
 			.spawn(options.spawn, reference, trailing)
 			.boxed()
 			.await?;
-		let process = output.process;
+		let process = output;
+		let sandboxed = process.item().pid().is_none();
 
 		// If the detach flag is set, then return the process ID.
 		if options.detach {
@@ -197,7 +198,7 @@ impl Cli {
 		}
 
 		// Print the process.
-		if !self.args.quiet {
+		if !self.args.quiet && sandboxed {
 			let mut message = process.item().id().to_string();
 			if let Some(token) = process.item().token() {
 				write!(message, " {token}").unwrap();

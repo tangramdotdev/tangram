@@ -19,7 +19,7 @@ pub struct Arg {
 	pub token: String,
 }
 
-impl tg::Process {
+impl<O> tg::Process<O> {
 	pub async fn cancel<H>(&self, handle: &H) -> tg::Result<()>
 	where
 		H: tg::Handle,

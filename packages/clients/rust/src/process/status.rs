@@ -45,7 +45,7 @@ pub enum Event {
 	End,
 }
 
-impl tg::Process {
+impl<O> tg::Process<O> {
 	pub async fn status<H>(
 		&self,
 		handle: &H,

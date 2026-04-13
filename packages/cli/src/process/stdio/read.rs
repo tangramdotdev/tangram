@@ -39,7 +39,8 @@ struct PositionArg {
 impl Cli {
 	pub async fn command_process_stdio_read(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let process = tg::Process::new(args.process.clone(), None, None, None, None, None);
+		let process =
+			tg::Process::<tg::Value>::new(args.process.clone(), None, None, None, None, None);
 		let streams = if args.streams.is_empty() {
 			vec![
 				tg::process::stdio::Stream::Stdout,

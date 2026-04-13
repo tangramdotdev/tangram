@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	std::{
+		marker::PhantomData,
 		ops::Deref,
 		path::PathBuf,
 		sync::{Arc, Mutex, RwLock},
@@ -35,7 +36,7 @@ pub mod tty;
 pub mod wait;
 
 #[derive(Clone, Debug)]
-pub struct Process(Arc<Inner>);
+pub struct Process<O = tg::Value>(Arc<Inner>, PhantomData<fn() -> O>);
 
 #[derive(derive_more::Debug)]
 pub struct Inner {
@@ -78,7 +79,7 @@ pub struct Arg {
 	pub user: Option<String>,
 }
 
-impl Process {
+impl<O> Process<O> {
 	#[must_use]
 	pub fn new(
 		id: Id,
@@ -105,7 +106,7 @@ impl Process {
 			remote.clone(),
 			tg::process::stdio::Stream::Stdout,
 		);
-		Self(Arc::new(Inner {
+		let inner = Arc::new(Inner {
 			cached,
 			id,
 			metadata,
@@ -119,7 +120,8 @@ impl Process {
 			task: None,
 			token,
 			wait: Mutex::new(None),
-		}))
+		});
+		Self(inner, PhantomData)
 	}
 
 	#[must_use]
@@ -155,6 +157,11 @@ impl Process {
 	#[must_use]
 	pub fn metadata(&self) -> &RwLock<Option<Arc<Metadata>>> {
 		&self.metadata
+	}
+
+	#[must_use]
+	pub fn pid(&self) -> Option<u32> {
+		self.0.pid
 	}
 
 	#[must_use]
@@ -206,7 +213,7 @@ impl Process {
 	pub async fn command<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<impl Deref<Target = tg::Command> + use<H>>
+	) -> tg::Result<impl Deref<Target = tg::Command> + use<H, O>>
 	where
 		H: tg::Handle,
 	{
@@ -275,17 +282,21 @@ impl Process {
 		Ok(wait)
 	}
 
-	pub async fn output<H>(&self, handle: &H) -> tg::Result<tg::Value>
+	pub async fn output<H>(&self, handle: &H) -> tg::Result<O>
 	where
 		H: tg::Handle,
+		O: TryFrom<tg::Value>,
+		O::Error: std::error::Error + Send + Sync + 'static,
 	{
 		let wait = self.wait(handle, tg::process::wait::Arg::default()).await?;
 		let output = wait.into_output()?;
-		Ok(output)
+		output
+			.try_into()
+			.map_err(|source| tg::error!(source = source, "failed to convert the process output"))
 	}
 }
 
-impl Deref for Process {
+impl<O> Deref for Process<O> {
 	type Target = Inner;
 
 	fn deref(&self) -> &Self::Target {

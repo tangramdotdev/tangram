@@ -1263,7 +1263,7 @@ declare namespace tg {
 	export let run: typeof tg.Process.run;
 	export let spawn: typeof tg.Process.spawn;
 
-	export class Process {
+	export class Process<O extends tg.Value = tg.Value> {
 		#__brand;
 
 		static build<
@@ -1342,7 +1342,7 @@ declare namespace tg {
 		reload(): Promise<void>;
 
 		/** Wait for this process to exit and return the output. */
-		output(): Promise<tg.Value>;
+		output(): Promise<O>;
 
 		/** Set this process's tty size. */
 		setTtySize(size: tg.Process.Tty.Size): Promise<void>;
@@ -1727,7 +1727,7 @@ declare namespace tg {
 			export type Output<
 				M extends tg.Process.Builder.Mode,
 				O extends tg.Value,
-			> = M extends "spawn" ? tg.Process : O;
+			> = M extends "spawn" ? tg.Process<O> : O;
 		}
 	}
 
