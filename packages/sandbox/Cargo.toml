@@ -33,6 +33,7 @@ indoc = { workspace = true }
 libc = { workspace = true }
 mime = { workspace = true }
 num = { workspace = true }
+rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true }
@@ -46,3 +47,6 @@ tokio-util = { workspace = true }
 tokio-vsock = { workspace = true, optional = true }
 tower = { workspace = true }
 tracing = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+neli = { workspace = true }

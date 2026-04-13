@@ -1,6 +1,6 @@
 use {
 	serde_with::{DurationSecondsWithFrac, serde_as},
-	std::{path::PathBuf, time::Duration},
+	std::{net::Ipv4Addr, path::PathBuf, time::Duration},
 	tangram_uri::Uri,
 	tangram_util::serde::BoolOptionDefault,
 };
@@ -572,10 +572,13 @@ pub struct Sandbox {
 
 	pub isolation: SandboxIsolation,
 
+	#[serde(default = "default_networks", skip_serializing_if = "Vec::is_empty")]
+	pub networks: Vec<SandboxNetwork>,
+
 	pub nice: u8,
 }
 
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum SandboxIsolation {
 	Container(ContainerSandboxIsolation),
@@ -585,17 +588,53 @@ pub enum SandboxIsolation {
 	Vm(VmSandboxIsolation),
 }
 
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+pub struct SandboxNetwork {
+	pub ip: IpRange,
+}
+
+#[derive(
+	Clone, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
+)]
+pub struct IpRange {
+	pub min: Ipv4Addr,
+	pub max: Ipv4Addr,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
-pub struct ContainerSandboxIsolation {}
+pub struct ContainerSandboxIsolation {
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub network: Option<ContainerNetwork>,
+}
+
+#[derive(Clone, Debug, Default, derive_more::IsVariant, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum ContainerNetwork {
+	#[default]
+	Host,
+	Bridge(Bridge),
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct Bridge {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ip: Option<Ipv4Addr>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub name: Option<String>,
+}
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct SeatbeltSandboxIsolation {}
 
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
-pub struct VmSandboxIsolation {}
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct VmSandboxIsolation {
+	pub kernel_path: PathBuf,
+}
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
@@ -1070,6 +1109,14 @@ impl Default for Runner {
 	}
 }
 
+impl Default for ContainerSandboxIsolation {
+	fn default() -> Self {
+		Self {
+			network: Some(ContainerNetwork::Host),
+		}
+	}
+}
+
 impl Default for Sandbox {
 	fn default() -> Self {
 		Self {
@@ -1084,6 +1131,7 @@ impl Default for Sandbox {
 					SandboxIsolation::Seatbelt(SeatbeltSandboxIsolation::default())
 				}
 			},
+			networks: default_networks(),
 			nice: 5,
 		}
 	}
@@ -1219,9 +1267,70 @@ impl Default for Write {
 	}
 }
 
+mod ip_range {
+	use {super::IpRange, std::net::Ipv4Addr, tangram_client as tg};
+
+	impl std::fmt::Display for IpRange {
+		fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+			write!(f, "{}-{}", self.min, self.max)
+		}
+	}
+
+	impl std::str::FromStr for IpRange {
+		type Err = tg::Error;
+
+		fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
+			if let Some((min, max)) = s.split_once('-') {
+				let min = min
+					.trim()
+					.parse()
+					.map_err(|source| tg::error!(!source, "invalid minimum address"))?;
+				let max = max
+					.trim()
+					.parse()
+					.map_err(|source| tg::error!(!source, "invalid maximum address"))?;
+				Ok(IpRange { min, max })
+			} else if let Some((addr, prefix)) = s.split_once('/') {
+				let addr: Ipv4Addr = addr
+					.trim()
+					.parse()
+					.map_err(|source| tg::error!(!source, "invalid address"))?;
+				let prefix: u8 = prefix
+					.trim()
+					.parse()
+					.map_err(|source| tg::error!(!source, "invalid prefix"))?;
+				if prefix > 32 {
+					return Err(tg::error!(%prefix, "invalid prefix"));
+				}
+				let bits = u32::from(addr);
+				let mask = if prefix == 0 {
+					0
+				} else {
+					u32::MAX << (32 - prefix)
+				};
+				let min = Ipv4Addr::from(bits & mask);
+				let max = Ipv4Addr::from((bits & mask) | !mask);
+				Ok(IpRange { min, max })
+			} else {
+				Err(tg::error!(%s, "invalid IP range"))
+			}
+		}
+	}
+}
+
 #[expect(clippy::unnecessary_wraps)]
 fn default_finalizer() -> Option<Finalizer> {
 	Some(Finalizer::default())
+}
+
+fn default_networks() -> Vec<SandboxNetwork> {
+	vec![SandboxNetwork {
+		ip: "172.18.0.4-172.31.255.255".parse().unwrap(),
+	}]
+}
+
+pub(crate) fn default_bridge_ip() -> Ipv4Addr {
+	Ipv4Addr::new(172, 18, 0, 1)
 }
 
 fn default_process_store() -> Database {

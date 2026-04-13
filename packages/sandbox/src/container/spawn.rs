@@ -4,7 +4,7 @@ use {
 	std::{
 		ffi::{CStr, CString, OsStr},
 		fmt::Write as _,
-		os::unix::ffi::OsStrExt as _,
+		os::{fd::AsRawFd as _, unix::ffi::OsStrExt as _},
 		path::{Path, PathBuf},
 	},
 	tangram_client::prelude::*,
@@ -17,12 +17,40 @@ struct User {
 	uid: libc::uid_t,
 }
 
-pub(crate) fn spawn(
+pub(crate) async fn spawn(
 	arg: &crate::Arg,
 	serve_arg: &crate::serve::Arg,
 ) -> tg::Result<tokio::process::Child> {
+	let crate::Isolation::Container(container) = &arg.isolation else {
+		unreachable!()
+	};
+	let network_arg = if arg.network {
+		match &container.network {
+			None => None,
+			Some(crate::Network::Host) => Some("host".to_owned()),
+			Some(crate::Network::Bridge(bridge)) => {
+				let name = bridge.name.as_deref().unwrap_or("tangram0");
+				Some(format!("bridge={name}"))
+			},
+		}
+	} else {
+		None
+	};
+	let mut bridge = if arg.network
+		&& let Some(crate::Network::Bridge(bridge)) = &container.network
+	{
+		let id = arg.id.clone();
+		let bridge_name = bridge.name.as_deref().unwrap_or("tangram0").to_owned();
+		Some(
+			tokio::task::spawn_blocking(move || crate::network::Bridge::new(&id, &bridge_name))
+				.await
+				.map_err(|source| tg::error!(!source, "the bridge creation task panicked"))??,
+		)
+	} else {
+		None
+	};
 	prepare_sandbox_directory(&arg.path)?;
-	let user = prepare_etc_files(&arg.path, arg.network, arg.user.as_deref())?;
+	let user = prepare_etc_files(&arg.path, container.network.as_ref(), arg.user.as_deref())?;
 	let upper_path = Sandbox::host_upper_path_from_root(&arg.path);
 	for mount in &arg.mounts {
 		crate::root::ensure_mount_target(&arg.rootfs_path, &upper_path, mount)?;
@@ -34,6 +62,8 @@ pub(crate) fn spawn(
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	command.arg("sandbox").arg("container").arg("run");
 	command
+		.arg("--id")
+		.arg(arg.id.to_string())
 		.arg("--unshare-all")
 		.arg("--as-pid-1")
 		.arg("--die-with-parent")
@@ -59,8 +89,21 @@ pub(crate) fn spawn(
 		.arg("--bind")
 		.arg(Sandbox::host_tmp_path_from_root(&arg.path))
 		.arg(Sandbox::guest_tmp_path_from_root(&arg.path));
-	if arg.network {
-		command.arg("--share-net");
+	if let Some(network_arg) = &network_arg {
+		command.arg("--network").arg(network_arg);
+	}
+	if let Some(bridge) = bridge.as_ref() {
+		command
+			.arg("--bridge-fd")
+			.arg(bridge.guest_pipe.as_ref().unwrap().as_raw_fd().to_string());
+	}
+	if arg.network
+		&& let Some(crate::Network::Bridge(bridge)) = &container.network
+	{
+		command.arg("--bridge-ip").arg(bridge.ip.to_string());
+	}
+	if let Some(guest_ip) = arg.guest_ip {
+		command.arg("--guest-ip").arg(guest_ip.to_string());
 	}
 	if let Some(hostname) = &arg.hostname {
 		command.arg("--hostname").arg(hostname);
@@ -104,10 +147,11 @@ pub(crate) fn spawn(
 			.arg(Sandbox::host_listen_path_from_root(&arg.path))
 			.arg(Sandbox::guest_listen_path_from_root(&arg.path));
 	}
-	if arg.network && Sandbox::host_resolv_conf_path_from_root(&arg.path).exists() {
+	let resolv_conf_path = Sandbox::host_resolv_conf_path_from_root(&arg.path);
+	if resolv_conf_path.exists() {
 		command
 			.arg("--ro-bind")
-			.arg(Sandbox::host_resolv_conf_path_from_root(&arg.path))
+			.arg(&resolv_conf_path)
 			.arg("/etc/resolv.conf");
 	}
 	for mount in &arg.mounts {
@@ -148,10 +192,20 @@ pub(crate) fn spawn(
 	command
 		.kill_on_drop(true)
 		.stdin(std::process::Stdio::piped())
-		.stdout(std::process::Stdio::piped());
-	command
+		.stdout(std::process::Stdio::piped())
+		.stderr(std::process::Stdio::inherit());
+	let child = command
 		.spawn()
-		.map_err(|source| tg::error!(!source, "failed to spawn sandbox container"))
+		.map_err(|source| tg::error!(!source, "failed to spawn sandbox container"))?;
+	if let Some(bridge) = bridge.as_mut() {
+		drop(bridge.guest_pipe.take());
+		let pid = child
+			.id()
+			.ok_or_else(|| tg::error!("no child pid available"))?;
+		let pid = i32::try_from(pid).map_err(|source| tg::error!(!source, "invalid child pid"))?;
+		bridge.connect(pid).await?;
+	}
+	Ok(child)
 }
 
 fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
@@ -189,7 +243,11 @@ fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
 	Ok(())
 }
 
-fn prepare_etc_files(sandbox_path: &Path, network: bool, user: Option<&str>) -> tg::Result<User> {
+fn prepare_etc_files(
+	sandbox_path: &Path,
+	network: Option<&crate::Network>,
+	user: Option<&str>,
+) -> tg::Result<User> {
 	let user = resolve_user(user)?;
 	let passwd = render_passwd(&user);
 	std::fs::write(Sandbox::host_passwd_path_from_root(sandbox_path), passwd)
@@ -206,12 +264,18 @@ fn prepare_etc_files(sandbox_path: &Path, network: bool, user: Option<&str>) -> 
 		nsswitch,
 	)
 	.map_err(|source| tg::error!(!source, "failed to write /etc/nsswitch.conf"))?;
-	if network {
-		std::fs::copy(
-			"/etc/resolv.conf",
-			Sandbox::host_resolv_conf_path_from_root(sandbox_path),
-		)
-		.map_err(|source| tg::error!(!source, "failed to stage /etc/resolv.conf"))?;
+	match network {
+		Some(crate::Network::Bridge(_)) => {
+			let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
+			std::fs::write(path, "nameserver 1.1.1.1\nnameserver 8.8.8.8\n")
+				.map_err(|source| tg::error!(!source, "failed to stage /etc/resolv.conf"))?;
+		},
+		Some(crate::Network::Host) if Path::new("/etc/resolv.conf").exists() => {
+			let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
+			std::fs::copy("/etc/resolv.conf", path)
+				.map_err(|source| tg::error!(!source, "failed to stage /etc/resolv.conf"))?;
+		},
+		_ => (),
 	}
 	Ok(user)
 }

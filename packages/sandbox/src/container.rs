@@ -1,5 +1,5 @@
 mod cgroup;
-mod mount;
+pub(crate) mod mount;
 mod spawn;
 mod util;
 mod validate;
