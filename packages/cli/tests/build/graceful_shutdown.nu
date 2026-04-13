@@ -45,7 +45,7 @@ let path = artifact {
 }
 
 let id = tg --url $local.url build --remote -d $path
-# tg --url $remote.url server restart
+tg --url $remote.url server restart
 let output = tg --url $local.url wait $id
 let stdout = tg --url $local.url log $id --stream=stdout
 snapshot $stdout '
