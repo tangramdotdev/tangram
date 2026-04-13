@@ -57,7 +57,7 @@ pub struct Config {
 	pub object_store: ObjectStore,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub peers: Option<Vec<Peer>>,
+	pub regions: Option<Vec<Region>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remotes: Option<Vec<Remote>>,
@@ -323,7 +323,7 @@ pub struct Remote {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct Peer {
+pub struct Region {
 	pub name: String,
 	pub url: Uri,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -655,7 +655,7 @@ impl Default for Config {
 			log_store: LogStore::default(),
 			messenger: Messenger::default(),
 			object_store: ObjectStore::default(),
-			peers: None,
+			regions: None,
 			remotes: None,
 			runner: Some(Runner::default()),
 			sandbox_store: default_sandbox_store(),

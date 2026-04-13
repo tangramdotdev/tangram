@@ -25,19 +25,22 @@ pub trait Sandbox: Send + Sync + 'static {
 		arg: tg::sandbox::list::Arg,
 	) -> BoxFuture<'_, tg::Result<tg::sandbox::list::Output>>;
 
-	fn delete_sandbox<'a>(&'a self, id: &'a tg::sandbox::Id) -> BoxFuture<'a, tg::Result<()>>;
+	fn try_delete_sandbox<'a>(
+		&'a self,
+		id: &'a tg::sandbox::Id,
+	) -> BoxFuture<'a, tg::Result<Option<()>>>;
 
-	fn finish_sandbox<'a>(
+	fn try_finish_sandbox<'a>(
 		&'a self,
 		id: &'a tg::sandbox::Id,
 		arg: tg::sandbox::finish::Arg,
-	) -> BoxFuture<'a, tg::Result<()>>;
+	) -> BoxFuture<'a, tg::Result<Option<()>>>;
 
-	fn heartbeat_sandbox<'a>(
+	fn try_heartbeat_sandbox<'a>(
 		&'a self,
 		id: &'a tg::sandbox::Id,
 		arg: tg::sandbox::heartbeat::Arg,
-	) -> BoxFuture<'a, tg::Result<tg::sandbox::heartbeat::Output>>;
+	) -> BoxFuture<'a, tg::Result<Option<tg::sandbox::heartbeat::Output>>>;
 
 	fn try_get_sandbox_status_stream<'a>(
 		&'a self,
@@ -98,24 +101,27 @@ where
 		self.list_sandboxes(arg).boxed()
 	}
 
-	fn delete_sandbox<'a>(&'a self, id: &'a tg::sandbox::Id) -> BoxFuture<'a, tg::Result<()>> {
-		self.delete_sandbox(id).boxed()
+	fn try_delete_sandbox<'a>(
+		&'a self,
+		id: &'a tg::sandbox::Id,
+	) -> BoxFuture<'a, tg::Result<Option<()>>> {
+		self.try_delete_sandbox(id).boxed()
 	}
 
-	fn finish_sandbox<'a>(
+	fn try_finish_sandbox<'a>(
 		&'a self,
 		id: &'a tg::sandbox::Id,
 		arg: tg::sandbox::finish::Arg,
-	) -> BoxFuture<'a, tg::Result<()>> {
-		self.finish_sandbox(id, arg).boxed()
+	) -> BoxFuture<'a, tg::Result<Option<()>>> {
+		self.try_finish_sandbox(id, arg).boxed()
 	}
 
-	fn heartbeat_sandbox<'a>(
+	fn try_heartbeat_sandbox<'a>(
 		&'a self,
 		id: &'a tg::sandbox::Id,
 		arg: tg::sandbox::heartbeat::Arg,
-	) -> BoxFuture<'a, tg::Result<tg::sandbox::heartbeat::Output>> {
-		self.heartbeat_sandbox(id, arg).boxed()
+	) -> BoxFuture<'a, tg::Result<Option<tg::sandbox::heartbeat::Output>>> {
+		self.try_heartbeat_sandbox(id, arg).boxed()
 	}
 
 	fn try_get_sandbox_status_stream<'a>(

@@ -51,20 +51,20 @@ impl tg::handle::Process for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.put_process(id, arg)) }
 	}
 
-	fn cancel_process(
+	fn try_cancel_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.cancel_process(id, arg)) }
+	) -> impl Future<Output = tg::Result<Option<()>>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_cancel_process(id, arg)) }
 	}
 
-	fn signal_process(
+	fn try_signal_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.signal_process(id, arg)) }
+	) -> impl Future<Output = tg::Result<Option<()>>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_signal_process(id, arg)) }
 	}
 
 	fn try_get_process_signal_stream(
@@ -137,12 +137,14 @@ impl tg::handle::Process for Handle {
 		}
 	}
 
-	fn set_process_tty_size(
+	fn try_set_process_tty_size(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::tty::size::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.set_process_tty_size(id, arg)) }
+	) -> impl Future<Output = tg::Result<Option<()>>> {
+		unsafe {
+			std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_set_process_tty_size(id, arg))
+		}
 	}
 
 	fn try_read_process_stdio(
@@ -163,37 +165,39 @@ impl tg::handle::Process for Handle {
 		}
 	}
 
-	fn write_process_stdio(
+	fn try_write_process_stdio(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static,
+			Option<
+				impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static,
+			>,
 		>,
 	> {
 		unsafe {
-			std::mem::transmute::<_, BoxFuture<'_, tg::Result<BoxStream<_>>>>(
-				self.0.write_process_stdio(id, arg, stream),
+			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
+				self.0.try_write_process_stdio(id, arg, stream),
 			)
 		}
 	}
 
-	fn touch_process(
+	fn try_touch_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::touch::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.touch_process(id, arg)) }
+	) -> impl Future<Output = tg::Result<Option<()>>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_touch_process(id, arg)) }
 	}
 
-	fn finish_process(
+	fn try_finish_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.finish_process(id, arg)) }
+	) -> impl Future<Output = tg::Result<Option<()>>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_finish_process(id, arg)) }
 	}
 
 	fn try_wait_process_future(

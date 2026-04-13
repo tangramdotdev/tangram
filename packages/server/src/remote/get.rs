@@ -3,7 +3,9 @@ use {
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 	tangram_uri::Uri,
 };
 
@@ -68,8 +70,9 @@ impl Server {
 		else {
 			return Ok(http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)
-				.body(BoxBody::empty())
-				.unwrap());
+				.empty()
+				.unwrap()
+				.boxed_body());
 		};
 
 		// Create the response.

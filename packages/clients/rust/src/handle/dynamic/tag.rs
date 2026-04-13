@@ -20,10 +20,10 @@ impl tg::handle::Tag for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.post_tag_batch(arg)) }
 	}
 
-	fn delete_tag(
+	fn delete_tags(
 		&self,
 		arg: tg::tag::delete::Arg,
 	) -> impl Future<Output = tg::Result<tg::tag::delete::Output>> {
-		self.0.delete_tag(arg)
+		self.0.delete_tags(arg)
 	}
 }

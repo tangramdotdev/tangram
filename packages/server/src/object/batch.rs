@@ -3,7 +3,9 @@ use {
 	num::ToPrimitive as _,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
-	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 	tangram_index::prelude::*,
 	tangram_object_store::prelude::*,
 };
@@ -140,7 +142,7 @@ impl Server {
 			},
 		}
 
-		let response = http::Response::builder().body(BoxBody::empty()).unwrap();
+		let response = http::Response::builder().empty().unwrap().boxed_body();
 
 		Ok(response)
 	}

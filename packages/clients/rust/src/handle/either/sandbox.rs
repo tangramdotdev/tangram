@@ -46,32 +46,35 @@ where
 		}
 	}
 
-	fn delete_sandbox(&self, id: &tg::sandbox::Id) -> impl Future<Output = tg::Result<()>> {
+	fn try_delete_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> impl Future<Output = tg::Result<Option<()>>> {
 		match self {
-			tg::Either::Left(s) => s.delete_sandbox(id).left_future(),
-			tg::Either::Right(s) => s.delete_sandbox(id).right_future(),
+			tg::Either::Left(s) => s.try_delete_sandbox(id).left_future(),
+			tg::Either::Right(s) => s.try_delete_sandbox(id).right_future(),
 		}
 	}
 
-	fn finish_sandbox(
+	fn try_finish_sandbox(
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::finish::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	) -> impl Future<Output = tg::Result<Option<()>>> {
 		match self {
-			tg::Either::Left(s) => s.finish_sandbox(id, arg).left_future(),
-			tg::Either::Right(s) => s.finish_sandbox(id, arg).right_future(),
+			tg::Either::Left(s) => s.try_finish_sandbox(id, arg).left_future(),
+			tg::Either::Right(s) => s.try_finish_sandbox(id, arg).right_future(),
 		}
 	}
 
-	fn heartbeat_sandbox(
+	fn try_heartbeat_sandbox(
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::heartbeat::Arg,
-	) -> impl Future<Output = tg::Result<tg::sandbox::heartbeat::Output>> {
+	) -> impl Future<Output = tg::Result<Option<tg::sandbox::heartbeat::Output>>> {
 		match self {
-			tg::Either::Left(s) => s.heartbeat_sandbox(id, arg).left_future(),
-			tg::Either::Right(s) => s.heartbeat_sandbox(id, arg).right_future(),
+			tg::Either::Left(s) => s.try_heartbeat_sandbox(id, arg).left_future(),
+			tg::Either::Right(s) => s.try_heartbeat_sandbox(id, arg).right_future(),
 		}
 	}
 

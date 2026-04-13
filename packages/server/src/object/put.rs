@@ -17,25 +17,24 @@ impl Server {
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
 	) -> tg::Result<()> {
-		// Forward to remote if requested.
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self
-				.get_remote_client(remote)
-				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
-			let arg = tg::object::put::Arg {
-				bytes: arg.bytes,
-				metadata: arg.metadata,
-				local: None,
-				remotes: None,
-			};
-			client
-				.put_object(id, arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to put the object on remote"))?;
-			return Ok(());
+		if Self::local(arg.local, arg.remotes.as_ref()) {
+			return self.put_object_local(id, arg).await;
 		}
 
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			return self.put_object_remote(id, arg, remote).await;
+		}
+
+		Err(tg::error!(
+			"failed to determine whether to use local or a remote"
+		))
+	}
+
+	async fn put_object_local(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::put::Arg,
+	) -> tg::Result<()> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		let put_arg = crate::object::store::PutObjectArg {
@@ -112,6 +111,29 @@ impl Server {
 			})
 			.detach();
 
+		Ok(())
+	}
+
+	async fn put_object_remote(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::put::Arg,
+		remote: String,
+	) -> tg::Result<()> {
+		let client = self
+			.get_remote_client(remote)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
+		let arg = tg::object::put::Arg {
+			bytes: arg.bytes,
+			metadata: arg.metadata,
+			local: None,
+			remotes: None,
+		};
+		client
+			.put_object(id, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to put the object on remote"))?;
 		Ok(())
 	}
 

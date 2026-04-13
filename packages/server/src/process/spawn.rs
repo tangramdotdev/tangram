@@ -83,6 +83,76 @@ impl Server {
 		parent_sandbox: Option<tg::sandbox::Id>,
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
+		if Self::local(arg.local, arg.remotes.as_ref()) {
+			return self.try_spawn_process_local(arg, parent_sandbox).await;
+		}
+
+		if let Some(name) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			return self.try_spawn_process_remote(arg, progress, name).await;
+		}
+
+		Err(tg::error!(
+			"failed to determine whether to use local or a remote"
+		))
+	}
+
+	async fn try_spawn_process_remote(
+		&self,
+		arg: tg::process::spawn::Arg,
+		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
+		name: String,
+	) -> tg::Result<Option<tg::process::spawn::Output>> {
+		// Push the command.
+		let push_arg = tg::push::Arg {
+			commands: true,
+			items: vec![tg::Either::Left(arg.command.item().clone().into())],
+			remote: Some(name.clone()),
+			..Default::default()
+		};
+		let stream = self
+			.push(push_arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to push the command"))?;
+		let mut stream = pin!(stream);
+		while let Some(event) = stream.try_next().await? {
+			if event.is_output() {
+				break;
+			}
+			progress.forward(Ok(event));
+		}
+
+		let remote = self
+			.get_remote_client(name.clone())
+			.await
+			.map_err(|source| tg::error!(!source, %name, "failed to get the remote client"))?;
+
+		let arg = tg::process::spawn::Arg {
+			local: None,
+			remotes: None,
+			..arg
+		};
+
+		// Spawn the process.
+		let stream = remote
+			.try_spawn_process(arg)
+			.await
+			.map_err(|source| tg::error!(!source, %name, "failed to spawn process on remote"))?;
+		let mut stream = pin!(stream);
+
+		// Forward any events.
+		while let Some(event) = stream.next().await {
+			if let Some(output) = progress.forward(event) {
+				return Ok(output);
+			}
+		}
+		Err(tg::error!("expected an output"))
+	}
+
+	async fn try_spawn_process_local(
+		&self,
+		arg: tg::process::spawn::Arg,
+		parent_sandbox: Option<tg::sandbox::Id>,
+	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		let tty = match arg.tty.as_ref() {
 			None => None,
 			Some(tty) => Some(
@@ -92,53 +162,6 @@ impl Server {
 					.ok_or_else(|| tg::error!("invalid tty"))?,
 			),
 		};
-
-		// Forward to remote if requested.
-		if let Some(name) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			// Push the command.
-			let push_arg = tg::push::Arg {
-				commands: true,
-				items: vec![tg::Either::Left(arg.command.item().clone().into())],
-				remote: Some(name.clone()),
-				..Default::default()
-			};
-			let stream = self
-				.push(push_arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to push the command"))?;
-			let mut stream = pin!(stream);
-			while let Some(event) = stream.try_next().await? {
-				if event.is_output() {
-					break;
-				}
-				progress.forward(Ok(event));
-			}
-
-			let remote = self
-				.get_remote_client(name.clone())
-				.await
-				.map_err(|source| tg::error!(!source, %name, "failed to get the remote client"))?;
-
-			let arg = tg::process::spawn::Arg {
-				local: None,
-				remotes: None,
-				..arg
-			};
-
-			// Spawn the process.
-			let stream = remote.try_spawn_process(arg).await.map_err(
-				|source| tg::error!(!source, %name, "failed to spawn process on remote"),
-			)?;
-			let mut stream = pin!(stream);
-
-			// Forward any events.
-			while let Some(event) = stream.next().await {
-				if let Some(output) = progress.forward(event) {
-					return Ok(output);
-				}
-			}
-			return Err(tg::error!("expected an output"));
-		}
 
 		// Guard against concurrent cleans.
 		// Get the host.
@@ -286,18 +309,6 @@ impl Server {
 					return Ok::<_, tg::Error>(None);
 				}
 				if cacheable && matches!(arg.cached, None | Some(true)) {
-					let peers = self
-						.peers(None, None)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
-					if let Some(output) = self
-						.try_get_cached_process_peer(&arg, &peers)
-						.await
-						.map_err(|source| {
-							tg::error!(!source, "failed to get a cached peer process")
-						})? {
-						return Ok(Some(output));
-					}
 					let remotes = self
 						.remotes(None, None)
 						.await
@@ -1181,58 +1192,6 @@ impl Server {
 			.try_acquire_owned()
 			.ok()
 			.map(|permit| SandboxPermit(tg::Either::Left(permit)))
-	}
-
-	async fn try_get_cached_process_peer(
-		&self,
-		arg: &tg::process::spawn::Arg,
-		peers: &[String],
-	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		if peers.is_empty() {
-			return Ok(None);
-		}
-		let clients = peers
-			.iter()
-			.map(|peer| async move {
-				let client = self.get_peer_client(peer.clone()).await.map_err(
-					|source| tg::error!(!source, peer = %peer, "failed to get the peer client"),
-				)?;
-				Ok::<_, tg::Error>((peer.clone(), client))
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
-			.await?;
-		let streams = clients
-			.into_iter()
-			.map(|(_peer, client)| {
-				let arg = arg.clone();
-				async move {
-					let arg = tg::process::spawn::Arg {
-						cached: Some(true),
-						local: None,
-						parent: None,
-						remotes: None,
-						..arg.clone()
-					};
-					let stream = client.spawn_process(arg).await?.boxed();
-					Ok::<_, tg::Error>(stream)
-				}
-			})
-			.collect::<FuturesUnordered<_>>()
-			.collect::<Vec<_>>()
-			.await
-			.into_iter()
-			.filter_map(std::result::Result::ok)
-			.collect::<Vec<_>>();
-
-		let stream = stream::iter(streams).flatten();
-		let mut stream = pin!(stream);
-		while let Some(event) = stream.next().await {
-			if let Ok(tg::progress::Event::Output(output)) = event {
-				return Ok(Some(output));
-			}
-		}
-		Ok(None)
 	}
 
 	async fn try_get_cached_process_remote(

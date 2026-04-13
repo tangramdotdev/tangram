@@ -2,8 +2,8 @@ use {
 	crate::{Context, Server},
 	bytes::Bytes,
 	futures::{
-		future,
-		stream::{FuturesOrdered, TryStreamExt as _},
+		StreamExt as _, future,
+		stream::{FuturesOrdered, FuturesUnordered, TryStreamExt as _},
 	},
 	num::ToPrimitive as _,
 	std::{
@@ -25,15 +25,8 @@ pub struct CacheFile {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub(crate) enum ObjectGetTaskKind {
-	Peer,
-	Remote,
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct ObjectGetTaskKey {
-	pub kind: ObjectGetTaskKind,
-	pub name: String,
+	pub remote: String,
 	pub id: tg::object::Id,
 	pub metadata: bool,
 }
@@ -54,18 +47,6 @@ impl Server {
 			if let Some(output) = output {
 				return Ok(Some(output));
 			}
-		}
-
-		let peers = self
-			.peers(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
-		if let Some(output) = self
-			.try_get_object_peer(id, &peers, arg.metadata)
-			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the object from the peer"))?
-		{
-			return Ok(Some(output));
 		}
 
 		let remotes = self
@@ -165,10 +146,6 @@ impl Server {
 			.try_get_object_batch_local(ids, metadata)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the objects locally"))?;
-		let peers = self
-			.peers(None, None)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
 		let remotes = self
 			.remotes(None, None)
 			.await
@@ -177,10 +154,6 @@ impl Server {
 			.map(|(id, output)| async {
 				if let Some(output) = output {
 					return Ok(Some(output));
-				}
-				let output = self.try_get_object_peer(id, &peers, metadata).await?;
-				if output.is_some() {
-					return Ok(output);
 				}
 				let output = self.try_get_object_remote(id, &remotes, metadata).await?;
 				Ok::<_, tg::Error>(output)
@@ -247,61 +220,6 @@ impl Server {
 		Ok(output)
 	}
 
-	async fn try_get_object_peer(
-		&self,
-		id: &tg::object::Id,
-		peers: &[String],
-		metadata: bool,
-	) -> tg::Result<Option<tg::object::get::Output>> {
-		if peers.is_empty() {
-			return Ok(None);
-		}
-		let mut error = None;
-		let mut output = None;
-		for peer in peers {
-			let key = ObjectGetTaskKey {
-				kind: ObjectGetTaskKind::Peer,
-				name: peer.clone(),
-				id: id.clone(),
-				metadata,
-			};
-			match self.try_get_object_peer_task(key).await {
-				Ok(Some(peer_output)) => {
-					output.replace(peer_output);
-					break;
-				},
-				Ok(None) => (),
-				Err(source) => {
-					error.replace(source);
-				},
-			}
-		}
-		let Some(output) = output else {
-			if let Some(error) = error {
-				return Err(error);
-			}
-			return Ok(None);
-		};
-
-		tokio::spawn({
-			let server = self.clone();
-			let id = id.clone();
-			let output = output.clone();
-			async move {
-				let arg = tg::object::put::Arg {
-					bytes: output.bytes.clone(),
-					metadata: output.metadata.clone(),
-					local: None,
-					remotes: None,
-				};
-				server.put_object(&id, arg).await?;
-				Ok::<_, tg::Error>(())
-			}
-		});
-
-		Ok(Some(output))
-	}
-
 	async fn try_get_object_remote(
 		&self,
 		id: &tg::object::Id,
@@ -311,30 +229,31 @@ impl Server {
 		if remotes.is_empty() {
 			return Ok(None);
 		}
-		let mut error = None;
-		let mut output = None;
-		for remote in remotes {
-			let key = ObjectGetTaskKey {
-				kind: ObjectGetTaskKind::Remote,
-				name: remote.clone(),
-				id: id.clone(),
-				metadata,
-			};
-			match self.try_get_object_remote_task(key).await {
+		let mut futures = remotes
+			.iter()
+			.map(|remote| {
+				let key = ObjectGetTaskKey {
+					remote: remote.clone(),
+					id: id.clone(),
+					metadata,
+				};
+				self.try_get_object_remote_task(key)
+			})
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
 				Ok(Some(remote_output)) => {
-					output.replace(remote_output);
+					result = Ok(Some(remote_output));
 					break;
 				},
 				Ok(None) => (),
 				Err(source) => {
-					error.replace(source);
+					result = Err(source);
 				},
 			}
 		}
-		let Some(output) = output else {
-			if let Some(error) = error {
-				return Err(error);
-			}
+		let Some(output) = result? else {
 			return Ok(None);
 		};
 
@@ -355,40 +274,6 @@ impl Server {
 		});
 
 		Ok(Some(output))
-	}
-
-	async fn try_get_object_peer_task(
-		&self,
-		key: ObjectGetTaskKey,
-	) -> tg::Result<Option<tg::object::get::Output>> {
-		let task = self.object_get_tasks.get_or_spawn_detached(key.clone(), {
-			let server = self.clone();
-			move |_stop| async move { server.try_get_object_peer_task_inner(key).await }
-		});
-		task.wait()
-			.await
-			.map_err(|source| tg::error!(!source, "the peer get object task panicked"))?
-	}
-
-	async fn try_get_object_peer_task_inner(
-		&self,
-		key: ObjectGetTaskKey,
-	) -> tg::Result<Option<tg::object::get::Output>> {
-		let ObjectGetTaskKey {
-			name, id, metadata, ..
-		} = key;
-		let client = self
-			.get_peer_client(name.clone())
-			.await
-			.map_err(|source| tg::error!(!source, peer = %name, "failed to get the peer client"))?;
-		let arg = tg::object::get::Arg {
-			metadata,
-			..Default::default()
-		};
-		client
-			.try_get_object(&id, arg)
-			.await
-			.map_err(|source| tg::error!(!source, %id, peer = %name, "failed to get the object"))
 	}
 
 	async fn try_get_object_remote_task(
@@ -409,19 +294,20 @@ impl Server {
 		key: ObjectGetTaskKey,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let ObjectGetTaskKey {
-			name, id, metadata, ..
+			remote,
+			id,
+			metadata,
 		} = key;
-		let client = self.get_remote_client(name.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %name, "failed to get the remote client"),
+		let client = self.get_remote_client(remote.clone()).await.map_err(
+			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::object::get::Arg {
 			metadata,
 			..Default::default()
 		};
-		client
-			.try_get_object(&id, arg)
-			.await
-			.map_err(|source| tg::error!(!source, %id, remote = %name, "failed to get the object"))
+		client.try_get_object(&id, arg).await.map_err(
+			|source| tg::error!(!source, %id, remote = %remote, "failed to get the object"),
+		)
 	}
 
 	async fn try_read_cache_pointer(

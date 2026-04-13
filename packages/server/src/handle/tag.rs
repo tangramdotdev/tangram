@@ -16,8 +16,8 @@ impl tg::handle::Tag for Shared {
 		self.0.post_tag_batch(arg).await
 	}
 
-	async fn delete_tag(&self, arg: tg::tag::delete::Arg) -> tg::Result<tg::tag::delete::Output> {
-		self.0.delete_tag(arg).await
+	async fn delete_tags(&self, arg: tg::tag::delete::Arg) -> tg::Result<tg::tag::delete::Output> {
+		self.0.delete_tags(arg).await
 	}
 }
 
@@ -36,7 +36,8 @@ impl tg::handle::Tag for Server {
 			.await
 	}
 
-	async fn delete_tag(&self, arg: tg::tag::delete::Arg) -> tg::Result<tg::tag::delete::Output> {
-		self.delete_tag_with_context(&Context::default(), arg).await
+	async fn delete_tags(&self, arg: tg::tag::delete::Arg) -> tg::Result<tg::tag::delete::Output> {
+		self.delete_tags_with_context(&Context::default(), arg)
+			.await
 	}
 }

@@ -29,7 +29,7 @@ impl Cli {
 			recursive: args.recursive,
 			remotes: args.remotes.get(),
 		};
-		let output = handle.delete_tag(arg).await.map_err(
+		let output = handle.delete_tags(arg).await.map_err(
 			|source| tg::error!(!source, pattern = %args.pattern, "failed to delete the tag"),
 		)?;
 		self.print_serde(output, args.print).await?;

@@ -17,7 +17,15 @@ pub trait Remote: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::remote::put::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn delete_remote(&self, name: &str) -> impl Future<Output = tg::Result<()>> + Send;
+	fn delete_remote(&self, name: &str) -> impl Future<Output = tg::Result<()>> + Send {
+		async move {
+			self.try_delete_remote(name)
+				.await?
+				.ok_or_else(|| tg::error!("failed to find the remote"))
+		}
+	}
+
+	fn try_delete_remote(&self, name: &str) -> impl Future<Output = tg::Result<Option<()>>> + Send;
 }
 
 impl tg::handle::Remote for tg::Client {
@@ -43,7 +51,7 @@ impl tg::handle::Remote for tg::Client {
 		self.put_remote(name, arg)
 	}
 
-	fn delete_remote(&self, name: &str) -> impl Future<Output = tg::Result<()>> {
-		self.delete_remote(name)
+	fn try_delete_remote(&self, name: &str) -> impl Future<Output = tg::Result<Option<()>>> {
+		self.try_delete_remote(name)
 	}
 }

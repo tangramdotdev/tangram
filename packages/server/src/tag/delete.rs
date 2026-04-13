@@ -11,33 +11,37 @@ mod postgres;
 mod sqlite;
 
 impl Server {
-	pub(crate) async fn delete_tag_with_context(
+	pub(crate) async fn delete_tags_with_context(
 		&self,
 		context: &Context,
 		arg: tg::tag::delete::Arg,
 	) -> tg::Result<tg::tag::delete::Output> {
-		// Forward to remote if requested.
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self
-				.get_remote_client(remote)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
-			let arg = tg::tag::delete::Arg {
-				local: None,
-				pattern: arg.pattern,
-				recursive: arg.recursive,
-				remotes: None,
-			};
-			let output = client
-				.delete_tag(arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to delete the tag on remote"))?;
-			return Ok(output);
-		}
-
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
+
+		if Self::local(arg.local, arg.remotes.as_ref()) {
+			return self.delete_tags_local(context, arg).await;
+		}
+
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			return self.delete_tags_remote(arg, remote).await;
+		}
+
+		Err(tg::error!(
+			"failed to determine whether to use local or a remote"
+		))
+	}
+
+	async fn delete_tags_local(
+		&self,
+		context: &Context,
+		arg: tg::tag::delete::Arg,
+	) -> tg::Result<tg::tag::delete::Output> {
+		// Authorize.
+		self.authorize(context)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to authorize"))?;
 
 		// Delete the tag from the database.
 		let output = match &self.database {
@@ -67,6 +71,28 @@ impl Server {
 		Ok(output)
 	}
 
+	async fn delete_tags_remote(
+		&self,
+		arg: tg::tag::delete::Arg,
+		remote: String,
+	) -> tg::Result<tg::tag::delete::Output> {
+		let client = self
+			.get_remote_client(remote)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
+		let arg = tg::tag::delete::Arg {
+			local: None,
+			pattern: arg.pattern,
+			recursive: arg.recursive,
+			remotes: None,
+		};
+		let output = client
+			.delete_tags(arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to delete the tag on remote"))?;
+		Ok(output)
+	}
+
 	pub(crate) async fn handle_delete_tag_request(
 		&self,
 		request: http::Request<BoxBody>,
@@ -86,7 +112,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Delete the tag.
-		let output = self.delete_tag_with_context(context, arg).await?;
+		let output = self.delete_tags_with_context(context, arg).await?;
 
 		// Create the response.
 		let (content_type, body) = match accept

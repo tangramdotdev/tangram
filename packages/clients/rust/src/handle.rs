@@ -1,6 +1,6 @@
 use {
 	crate::prelude::*,
-	futures::{Stream, stream::BoxStream},
+	futures::{Stream, StreamExt as _, stream::BoxStream},
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
 
@@ -126,6 +126,48 @@ pub trait Handle:
 	) -> impl Future<
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
 	> + Send;
+
+	fn get(
+		&self,
+		reference: &tg::Reference,
+		arg: tg::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<
+				Item = tg::Result<
+					tg::progress::Event<tg::Referent<tg::Either<tg::Object, tg::Process>>>,
+				>,
+			> + Send
+			+ 'static,
+		>,
+	> + Send {
+		async move {
+			let stream = self.try_get(reference, arg).await?;
+			let reference = reference.clone();
+			let stream = stream.map(move |event_result| {
+				event_result.and_then(|event| match event {
+					tg::progress::Event::Log(log) => Ok(tg::progress::Event::Log(log)),
+					tg::progress::Event::Diagnostic(diagnostic) => {
+						Ok(tg::progress::Event::Diagnostic(diagnostic))
+					},
+					tg::progress::Event::Indicators(indicators) => {
+						Ok(tg::progress::Event::Indicators(indicators))
+					},
+					tg::progress::Event::Output(output) => output
+						.map(|output| {
+							let referent = output.referent.map(|item| {
+								item.map_left(tg::Object::with_id).map_right(|id| {
+									tg::Process::new(id, None, None, None, None, None)
+								})
+							});
+							tg::progress::Event::Output(referent)
+						})
+						.ok_or_else(|| tg::error!(%reference, "failed to get the reference")),
+				})
+			});
+			Ok(stream)
+		}
+	}
 
 	fn try_get(
 		&self,

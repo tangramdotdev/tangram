@@ -9,7 +9,18 @@ pub trait Watch: Clone + Unpin + Send + Sync + 'static {
 	fn delete_watch(
 		&self,
 		arg: tg::watch::delete::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send;
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		async move {
+			self.try_delete_watch(arg)
+				.await?
+				.ok_or_else(|| tg::error!("failed to find the watch"))
+		}
+	}
+
+	fn try_delete_watch(
+		&self,
+		arg: tg::watch::delete::Arg,
+	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
 
 	fn touch_watch(
 		&self,
@@ -25,8 +36,11 @@ impl tg::handle::Watch for tg::Client {
 		self.list_watches(arg)
 	}
 
-	fn delete_watch(&self, arg: tg::watch::delete::Arg) -> impl Future<Output = tg::Result<()>> {
-		self.delete_watch(arg)
+	fn try_delete_watch(
+		&self,
+		arg: tg::watch::delete::Arg,
+	) -> impl Future<Output = tg::Result<Option<()>>> {
+		self.try_delete_watch(arg)
 	}
 
 	fn touch_watch(

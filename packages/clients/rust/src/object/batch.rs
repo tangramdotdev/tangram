@@ -24,7 +24,7 @@ pub struct Arg {
 	#[tangram_serialize(id = 1)]
 	pub objects: Vec<Object>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde(alias = "remote", default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<CommaSeparatedString>")]
 	#[tangram_serialize(id = 2)]
 	pub remotes: Option<Vec<String>>,

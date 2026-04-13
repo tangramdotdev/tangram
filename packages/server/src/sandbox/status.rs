@@ -2,7 +2,7 @@ use {
 	crate::{Context, Server},
 	futures::{
 		StreamExt as _, TryStreamExt as _, future,
-		stream::{self, BoxStream},
+		stream::{self, BoxStream, FuturesUnordered},
 	},
 	indoc::formatdoc,
 	std::time::Duration,
@@ -32,16 +32,6 @@ impl Server {
 				|source| tg::error!(!source, %id, "failed to get the sandbox status stream"),
 			)? {
 			return Ok(Some(status.left_stream()));
-		}
-
-		let peers = self
-			.peers(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
-		if let Some(status) = self.try_get_sandbox_status_peer(id, &peers).await.map_err(
-			|source| tg::error!(!source, %id, "failed to get the sandbox status from the peer"),
-		)? {
-			return Ok(Some(status.right_stream()));
 		}
 
 		let remotes = self
@@ -164,32 +154,6 @@ impl Server {
 		Ok(Some(status))
 	}
 
-	async fn try_get_sandbox_status_peer(
-		&self,
-		id: &tg::sandbox::Id,
-		peers: &[String],
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
-		if peers.is_empty() {
-			return Ok(None);
-		}
-		for peer in peers {
-			let client = self.get_peer_client(peer.clone()).await.map_err(
-				|source| tg::error!(!source, %id, peer = %peer, "failed to get the peer client"),
-			)?;
-			let stream = client
-				.try_get_sandbox_status_stream(id, tg::sandbox::status::Arg::default())
-				.await
-				.map_err(
-					|source| tg::error!(!source, %id, peer = %peer, "failed to get the sandbox status"),
-				)?
-				.map(futures::StreamExt::boxed);
-			if let Some(stream) = stream {
-				return Ok(Some(stream));
-			}
-		}
-		Ok(None)
-	}
-
 	async fn try_get_sandbox_status_remote(
 		&self,
 		id: &tg::sandbox::Id,
@@ -198,22 +162,54 @@ impl Server {
 		if remotes.is_empty() {
 			return Ok(None);
 		}
-		for remote in remotes {
-			let client = self.get_remote_client(remote.clone()).await.map_err(
-				|source| tg::error!(!source, %id, remote = %remote, "failed to get the remote client"),
-			)?;
-			let stream = client
-				.try_get_sandbox_status_stream(id, tg::sandbox::status::Arg::default())
-				.await
-				.map_err(
-					|source| tg::error!(!source, %id, remote = %remote, "failed to get the sandbox status"),
-				)?
-				.map(futures::StreamExt::boxed);
-			if let Some(stream) = stream {
-				return Ok(Some(stream));
+		let mut futures = remotes
+			.iter()
+			.map(|remote| {
+				let remote = remote.clone();
+				async move {
+					let client =
+						self.get_remote_client(remote.clone())
+							.await
+							.map_err(|source| {
+								tg::error!(
+									!source,
+									%id,
+									remote = %remote,
+									"failed to get the remote client"
+								)
+							})?;
+					client
+						.try_get_sandbox_status_stream(id, tg::sandbox::status::Arg::default())
+						.await
+						.map_err(|source| {
+							tg::error!(
+								!source,
+								%id,
+								remote = %remote,
+								"failed to get the sandbox status"
+							)
+						})
+						.map(|stream| stream.map(futures::StreamExt::boxed))
+				}
+			})
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(stream)) => {
+					result = Ok(Some(stream));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
 			}
 		}
-		Ok(None)
+		let Some(stream) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(stream))
 	}
 
 	pub(crate) async fn handle_get_sandbox_status_request(

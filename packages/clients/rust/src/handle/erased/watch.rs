@@ -9,7 +9,10 @@ pub trait Watch: Send + Sync + 'static {
 		arg: tg::watch::list::Arg,
 	) -> BoxFuture<'_, tg::Result<tg::watch::list::Output>>;
 
-	fn delete_watch(&self, arg: tg::watch::delete::Arg) -> BoxFuture<'_, tg::Result<()>>;
+	fn try_delete_watch(
+		&self,
+		arg: tg::watch::delete::Arg,
+	) -> BoxFuture<'_, tg::Result<Option<()>>>;
 	fn touch_watch(&self, arg: tg::watch::touch::Arg) -> BoxFuture<'_, tg::Result<()>>;
 }
 
@@ -24,8 +27,11 @@ where
 		self.list_watches(arg).boxed()
 	}
 
-	fn delete_watch(&self, arg: tg::watch::delete::Arg) -> BoxFuture<'_, tg::Result<()>> {
-		self.delete_watch(arg).boxed()
+	fn try_delete_watch(
+		&self,
+		arg: tg::watch::delete::Arg,
+	) -> BoxFuture<'_, tg::Result<Option<()>>> {
+		self.try_delete_watch(arg).boxed()
 	}
 
 	fn touch_watch(&self, arg: tg::watch::touch::Arg) -> BoxFuture<'_, tg::Result<()>> {

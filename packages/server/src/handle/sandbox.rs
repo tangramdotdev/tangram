@@ -34,24 +34,24 @@ impl tg::handle::Sandbox for Shared {
 		self.0.list_sandboxes(arg).await
 	}
 
-	async fn delete_sandbox(&self, id: &tg::sandbox::Id) -> tg::Result<()> {
-		self.0.delete_sandbox(id).await
+	async fn try_delete_sandbox(&self, id: &tg::sandbox::Id) -> tg::Result<Option<()>> {
+		self.0.try_delete_sandbox(id).await
 	}
 
-	async fn finish_sandbox(
+	async fn try_finish_sandbox(
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::finish::Arg,
-	) -> tg::Result<()> {
-		self.0.finish_sandbox(id, arg).await
+	) -> tg::Result<Option<()>> {
+		self.0.try_finish_sandbox(id, arg).await
 	}
 
-	async fn heartbeat_sandbox(
+	async fn try_heartbeat_sandbox(
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::heartbeat::Arg,
-	) -> tg::Result<tg::sandbox::heartbeat::Output> {
-		self.0.heartbeat_sandbox(id, arg).await
+	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
+		self.0.try_heartbeat_sandbox(id, arg).await
 	}
 
 	async fn try_get_sandbox_status_stream(
@@ -107,26 +107,26 @@ impl tg::handle::Sandbox for Server {
 			.await
 	}
 
-	async fn delete_sandbox(&self, id: &tg::sandbox::Id) -> tg::Result<()> {
-		self.delete_sandbox_with_context(&Context::default(), id)
+	async fn try_delete_sandbox(&self, id: &tg::sandbox::Id) -> tg::Result<Option<()>> {
+		self.try_delete_sandbox_with_context(&Context::default(), id)
 			.await
 	}
 
-	async fn finish_sandbox(
+	async fn try_finish_sandbox(
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::finish::Arg,
-	) -> tg::Result<()> {
-		self.finish_sandbox_with_context(&Context::default(), id, arg)
+	) -> tg::Result<Option<()>> {
+		self.try_finish_sandbox_with_context(&Context::default(), id, arg)
 			.await
 	}
 
-	async fn heartbeat_sandbox(
+	async fn try_heartbeat_sandbox(
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::heartbeat::Arg,
-	) -> tg::Result<tg::sandbox::heartbeat::Output> {
-		self.heartbeat_sandbox_with_context(&Context::default(), id, arg)
+	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
+		self.try_heartbeat_sandbox_with_context(&Context::default(), id, arg)
 			.await
 	}
 

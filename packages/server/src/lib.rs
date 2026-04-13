@@ -35,16 +35,17 @@ mod handle;
 mod health;
 mod http;
 mod index;
+mod location;
 mod log;
 mod lsp;
 mod messenger;
 mod module;
 mod object;
-mod peer;
 mod process;
 mod pull;
 mod push;
 mod read;
+mod region;
 mod remote;
 mod run;
 mod sandbox;
@@ -90,7 +91,7 @@ pub struct State {
 	object_get_tasks: ObjectGetTasks,
 	object_store: self::object::Store,
 	path: PathBuf,
-	peers: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
+	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	remote_list_tags_tasks: RemoteListTagsTasks,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	sandbox_permits: SandboxPermits,
@@ -485,8 +486,8 @@ impl Server {
 			},
 		};
 
-		// Create the peers.
-		let peers = DashMap::default();
+		// Create the regions.
+		let regions = DashMap::default();
 
 		// Create the object get tasks.
 		let object_get_tasks = tangram_futures::task::Map::default();
@@ -609,7 +610,7 @@ impl Server {
 			object_get_tasks,
 			object_store,
 			path,
-			peers,
+			regions,
 			remote_list_tags_tasks,
 			remotes,
 			sandbox_permits,
@@ -1234,7 +1235,7 @@ impl Server {
 		}
 	}
 
-	pub async fn peers(
+	pub async fn regions(
 		&self,
 		local: Option<bool>,
 		remotes: Option<Vec<String>>,
@@ -1242,10 +1243,14 @@ impl Server {
 		if !Self::local(local, remotes.as_ref()) {
 			return Ok(Vec::new());
 		}
-		let peers = self.config.peers.as_ref().map_or_else(Vec::new, |peers| {
-			peers.iter().map(|peer| peer.name.clone()).collect()
-		});
-		Ok(peers)
+		let regions = self
+			.config
+			.regions
+			.as_ref()
+			.map_or_else(Vec::new, |regions| {
+				regions.iter().map(|region| region.name.clone()).collect()
+			});
+		Ok(regions)
 	}
 
 	pub async fn remotes(

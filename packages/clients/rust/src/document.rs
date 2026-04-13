@@ -13,7 +13,7 @@ pub struct Arg {
 
 	pub module: tg::module::Data,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde(alias = "remote", default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<CommaSeparatedString>")]
 	pub remotes: Option<Vec<String>>,
 }

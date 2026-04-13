@@ -18,27 +18,28 @@ impl Server {
 		context: &Context,
 		arg: tg::tag::batch::Arg,
 	) -> tg::Result<()> {
-		// Forward to remote if requested.
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self
-				.get_remote_client(remote)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
-			let arg = tg::tag::batch::Arg {
-				local: None,
-				remotes: None,
-				tags: arg.tags,
-			};
-			client.post_tag_batch(arg).await.map_err(|source| {
-				tg::error!(!source, "failed to post the tag batch on the remote")
-			})?;
-			return Ok(());
-		}
-
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
+		if Self::local(arg.local, arg.remotes.as_ref()) {
+			return self.post_tag_batch_local(context, arg).await;
+		}
+
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			return self.post_tag_batch_remote(arg, remote).await;
+		}
+
+		Err(tg::error!(
+			"failed to determine whether to use local or a remote"
+		))
+	}
+
+	async fn post_tag_batch_local(
+		&self,
+		context: &Context,
+		arg: tg::tag::batch::Arg,
+	) -> tg::Result<()> {
 		// Authorize.
 		self.authorize(context)
 			.await
@@ -73,6 +74,27 @@ impl Server {
 			.put_tags(&put_tag_args)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to index the tags"))?;
+		Ok(())
+	}
+
+	async fn post_tag_batch_remote(
+		&self,
+		arg: tg::tag::batch::Arg,
+		remote: String,
+	) -> tg::Result<()> {
+		let client = self
+			.get_remote_client(remote)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
+		let arg = tg::tag::batch::Arg {
+			local: None,
+			remotes: None,
+			tags: arg.tags,
+		};
+		client
+			.post_tag_batch(arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to post the tag batch on the remote"))?;
 		Ok(())
 	}
 

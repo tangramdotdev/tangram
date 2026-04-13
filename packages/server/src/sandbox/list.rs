@@ -11,7 +11,7 @@ impl Server {
 	pub(crate) async fn list_sandboxes_with_context(
 		&self,
 		context: &Context,
-		_arg: tg::sandbox::list::Arg,
+		arg: tg::sandbox::list::Arg,
 	) -> tg::Result<tg::sandbox::list::Output> {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
@@ -19,19 +19,12 @@ impl Server {
 
 		let mut output = tg::sandbox::list::Output { data: Vec::new() };
 
-		output.data.extend(self.list_sandboxes_local().await?);
-
-		let peers = self
-			.peers(None, None)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
-		let peer_outputs = self.list_sandboxes_peer(&peers).await?;
-		output
-			.data
-			.extend(peer_outputs.into_iter().flat_map(|output| output.data));
+		if Self::local(arg.local, arg.remotes.as_ref()) {
+			output.data.extend(self.list_sandboxes_local().await?);
+		}
 
 		let remotes = self
-			.remotes(None, None)
+			.remotes(arg.local, arg.remotes.clone())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
 		let remote_outputs = self.list_sandboxes_remote(&remotes).await?;
@@ -103,30 +96,6 @@ impl Server {
 			})
 			.collect::<tg::Result<_>>()?;
 		Ok(data)
-	}
-
-	async fn list_sandboxes_peer(
-		&self,
-		peers: &[String],
-	) -> tg::Result<Vec<tg::sandbox::list::Output>> {
-		let peer_outputs = peers
-			.iter()
-			.map(|peer| async move {
-				let client = self.get_peer_client(peer.clone()).await.map_err(
-					|source| tg::error!(!source, peer = %peer, "failed to get the peer client"),
-				)?;
-				let output = client
-					.list_sandboxes(tg::sandbox::list::Arg::default())
-					.await
-					.map_err(
-						|source| tg::error!(!source, peer = %peer, "failed to list the sandboxes"),
-					)?;
-				Ok::<_, tg::Error>(output)
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
-			.await?;
-		Ok(peer_outputs)
 	}
 
 	async fn list_sandboxes_remote(

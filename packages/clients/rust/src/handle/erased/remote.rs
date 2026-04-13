@@ -20,7 +20,7 @@ pub trait Remote: Send + Sync + 'static {
 		arg: tg::remote::put::Arg,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
-	fn delete_remote<'a>(&'a self, name: &'a str) -> BoxFuture<'a, tg::Result<()>>;
+	fn try_delete_remote<'a>(&'a self, name: &'a str) -> BoxFuture<'a, tg::Result<Option<()>>>;
 }
 
 impl<T> Remote for T
@@ -49,7 +49,7 @@ where
 		self.put_remote(name, arg).boxed()
 	}
 
-	fn delete_remote<'a>(&'a self, name: &'a str) -> BoxFuture<'a, tg::Result<()>> {
-		self.delete_remote(name).boxed()
+	fn try_delete_remote<'a>(&'a self, name: &'a str) -> BoxFuture<'a, tg::Result<Option<()>>> {
+		self.try_delete_remote(name).boxed()
 	}
 }

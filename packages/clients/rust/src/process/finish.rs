@@ -22,7 +22,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub output: Option<tg::value::Data>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde(alias = "remote", default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<CommaSeparatedString>")]
 	pub remotes: Option<Vec<String>>,
 }
@@ -39,11 +39,11 @@ impl<O> tg::Process<O> {
 }
 
 impl tg::Client {
-	pub async fn finish_process(
+	pub async fn try_finish_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<Option<()>> {
 		let method = http::Method::POST;
 		let uri = format!("/processes/{id}/finish");
 		let request = http::request::Builder::default()
@@ -60,12 +60,15 @@ impl tg::Client {
 			.send_with_retry(request)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+		if response.status() == http::StatusCode::NOT_FOUND {
+			return Ok(None);
+		}
 		if !response.status().is_success() {
 			let error = response.json().await.map_err(|source| {
 				tg::error!(!source, "failed to deserialize the error response")
 			})?;
 			return Err(error);
 		}
-		Ok(())
+		Ok(Some(()))
 	}
 }

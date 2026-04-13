@@ -1,7 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{
-		FutureExt as _, Stream, StreamExt as _, TryFutureExt as _, TryStreamExt as _, future,
+		FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future,
 		stream::{self, BoxStream},
 	},
 	num::ToPrimitive as _,
@@ -97,61 +97,6 @@ pub trait Ext: tg::Handle {
 		}
 	}
 
-	fn get_process_metadata(
-		&self,
-		id: &tg::process::Id,
-	) -> impl Future<Output = tg::Result<tg::process::Metadata>> + Send {
-		let arg = tg::process::metadata::Arg::default();
-		self.try_get_process_metadata(id, arg).map(move |result| {
-			result.and_then(|option| {
-				option.ok_or_else(|| tg::error!(?id, "failed to get the process metadata"))
-			})
-		})
-	}
-
-	fn get_process(
-		&self,
-		id: &tg::process::Id,
-	) -> impl Future<Output = tg::Result<tg::process::get::Output>> + Send {
-		let arg = tg::process::get::Arg::default();
-		self.try_get_process(id, arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the process")))
-		})
-	}
-
-	fn get_sandbox(
-		&self,
-		id: &tg::sandbox::Id,
-	) -> impl Future<Output = tg::Result<tg::sandbox::get::Output>> + Send {
-		let arg = tg::sandbox::get::Arg::default();
-		self.try_get_sandbox(id, arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the sandbox")))
-		})
-	}
-
-	fn dequeue_sandbox_process(
-		&self,
-		sandbox: &tg::sandbox::Id,
-		arg: tg::sandbox::process::queue::Arg,
-	) -> impl Future<Output = tg::Result<tg::sandbox::process::queue::Output>> + Send {
-		self.try_dequeue_sandbox_process(sandbox, arg)
-			.map(|result| {
-				result.and_then(|option| {
-					option.ok_or_else(|| tg::error!("failed to dequeue a process"))
-				})
-			})
-	}
-
-	fn dequeue_sandbox(
-		&self,
-		arg: tg::sandbox::queue::Arg,
-	) -> impl Future<Output = tg::Result<tg::sandbox::queue::Output>> + Send {
-		self.try_dequeue_sandbox(arg).map(|result| {
-			result
-				.and_then(|option| option.ok_or_else(|| tg::error!("failed to dequeue a sandbox")))
-		})
-	}
-
 	fn get_sandbox_status(
 		&self,
 		id: &tg::sandbox::Id,
@@ -160,7 +105,7 @@ pub trait Ext: tg::Handle {
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::sandbox::Status>> + Send + 'static>,
 	> + Send {
 		self.try_get_sandbox_status(id, arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the sandbox")))
+			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to find the sandbox")))
 		})
 	}
 
@@ -206,7 +151,7 @@ pub trait Ext: tg::Handle {
 						handle
 							.try_get_sandbox_status_stream(&id, arg)
 							.await?
-							.ok_or_else(|| tg::error!("the stream was not found"))?
+							.ok_or_else(|| tg::error!("failed to find the sandbox"))?
 							.boxed()
 					};
 					Ok::<_, tg::Error>(Some((stream, state)))
@@ -239,7 +184,7 @@ pub trait Ext: tg::Handle {
 		Output = tg::Result<impl Stream<Item = tg::Result<tg::process::Status>> + Send + 'static>,
 	> + Send {
 		self.try_get_process_status(id, arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the process")))
+			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to find the process")))
 		})
 	}
 
@@ -285,7 +230,7 @@ pub trait Ext: tg::Handle {
 						handle
 							.try_get_process_status_stream(&id, arg)
 							.await?
-							.ok_or_else(|| tg::error!("the stream was not found"))?
+							.ok_or_else(|| tg::error!("failed to find the process"))?
 							.boxed()
 					};
 					Ok::<_, tg::Error>(Some((stream, state)))
@@ -320,7 +265,7 @@ pub trait Ext: tg::Handle {
 		>,
 	> + Send {
 		self.try_get_process_children(id, arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the process")))
+			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to find the process")))
 		})
 	}
 
@@ -372,7 +317,7 @@ pub trait Ext: tg::Handle {
 						handle
 							.try_get_process_children_stream(&id, arg)
 							.await?
-							.ok_or_else(|| tg::error!("the stream was not found"))?
+							.ok_or_else(|| tg::error!("failed to find the process"))?
 							.boxed()
 					};
 					Ok::<_, tg::Error>(Some((stream, state)))
@@ -412,20 +357,6 @@ pub trait Ext: tg::Handle {
 		}
 	}
 
-	fn wait_process_future(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::wait::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
-		>,
-	> + Send {
-		self.try_wait_process_future(id, arg).map(|result| {
-			result.and_then(|option| option.ok_or_else(|| tg::error!("failed to get the process")))
-		})
-	}
-
 	fn wait_process(
 		&self,
 		id: &tg::process::Id,
@@ -440,93 +371,6 @@ pub trait Ext: tg::Handle {
 				future = self.wait_process_future(id, arg.clone()).await?;
 			}
 		}
-	}
-
-	fn get_object_metadata(
-		&self,
-		id: &tg::object::Id,
-	) -> impl Future<Output = tg::Result<tg::object::Metadata>> + Send {
-		let arg = tg::object::metadata::Arg::default();
-		self.try_get_object_metadata(id, arg).map(move |result| {
-			result.and_then(|option| {
-				option.ok_or_else(|| tg::error!(%id, "failed to get the object metadata"))
-			})
-		})
-	}
-
-	fn get_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::get::Arg,
-	) -> impl Future<Output = tg::Result<tg::object::get::Output>> + Send {
-		self.try_get_object(id, arg).map(|result| {
-			result.and_then(|option| {
-				option.ok_or_else(|| tg::error!(%id, "failed to find the object"))
-			})
-		})
-	}
-
-	fn spawn_process(
-		&self,
-		arg: tg::process::spawn::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<tg::process::spawn::Output>>>
-			+ Send
-			+ 'static,
-		>,
-	> {
-		self.try_spawn_process(arg).map_ok(|stream| {
-			stream.and_then(|event| {
-				future::ready(
-					event.try_map_output(|item| {
-						item.ok_or_else(|| tg::error!("expected a process"))
-					}),
-				)
-			})
-		})
-	}
-
-	fn get(
-		&self,
-		reference: &tg::Reference,
-		arg: tg::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<
-				Item = tg::Result<
-					tg::progress::Event<tg::Referent<tg::Either<tg::Object, tg::Process>>>,
-				>,
-			> + Send
-			+ 'static,
-		>,
-	> + Send {
-		self.try_get(reference, arg).map(|result| {
-			result.map(|stream| {
-				let reference = reference.clone();
-				stream.map(move |event_result| {
-					event_result.and_then(|event| match event {
-						tg::progress::Event::Log(log) => Ok(tg::progress::Event::Log(log)),
-						tg::progress::Event::Diagnostic(diagnostic) => {
-							Ok(tg::progress::Event::Diagnostic(diagnostic))
-						},
-						tg::progress::Event::Indicators(indicators) => {
-							Ok(tg::progress::Event::Indicators(indicators))
-						},
-						tg::progress::Event::Output(output) => output
-							.map(|output| {
-								let referent = output.referent.map(|item| {
-									item.map_left(tg::Object::with_id).map_right(|id| {
-										tg::Process::new(id, None, None, None, None, None)
-									})
-								});
-								tg::progress::Event::Output(referent)
-							})
-							.ok_or_else(|| tg::error!(%reference, "failed to get the reference")),
-					})
-				})
-			})
-		})
 	}
 
 	fn try_read_process_stdio_all(
@@ -572,7 +416,7 @@ pub trait Ext: tg::Handle {
 							.handle
 							.try_read_process_stdio(&state.id, state.arg.clone())
 							.await?
-							.ok_or_else(|| tg::error!("the stream was not found"))?
+							.ok_or_else(|| tg::error!("failed to find the process"))?
 							.boxed()
 					};
 					match stream.next().await.transpose()? {

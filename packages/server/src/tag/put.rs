@@ -1,7 +1,9 @@
 use {
 	crate::{Context, Server, database::Database},
 	tangram_client::prelude::*,
-	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 	tangram_index::prelude::*,
 };
 
@@ -17,29 +19,29 @@ impl Server {
 		tag: &tg::Tag,
 		arg: tg::tag::put::Arg,
 	) -> tg::Result<()> {
-		// Forward to remote if requested.
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self
-				.get_remote_client(remote)
-				.await
-				.map_err(|source| tg::error!(!source, %tag, "failed to get the remote client"))?;
-			let arg = tg::tag::put::Arg {
-				force: arg.force,
-				item: arg.item,
-				local: None,
-				remotes: None,
-			};
-			client
-				.put_tag(tag, arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to put the tag on remote"))?;
-			return Ok(());
-		}
-
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
+		if Self::local(arg.local, arg.remotes.as_ref()) {
+			return self.put_tag_local(context, tag, arg).await;
+		}
+
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			return self.put_tag_remote(tag, arg, remote).await;
+		}
+
+		Err(tg::error!(
+			"failed to determine whether to use local or a remote"
+		))
+	}
+
+	async fn put_tag_local(
+		&self,
+		context: &Context,
+		tag: &tg::Tag,
+		arg: tg::tag::put::Arg,
+	) -> tg::Result<()> {
 		// Authorize.
 		self.authorize(context)
 			.await
@@ -70,6 +72,29 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to index the tag"))?;
 
+		Ok(())
+	}
+
+	async fn put_tag_remote(
+		&self,
+		tag: &tg::Tag,
+		arg: tg::tag::put::Arg,
+		remote: String,
+	) -> tg::Result<()> {
+		let client = self
+			.get_remote_client(remote)
+			.await
+			.map_err(|source| tg::error!(!source, %tag, "failed to get the remote client"))?;
+		let arg = tg::tag::put::Arg {
+			force: arg.force,
+			item: arg.item,
+			local: None,
+			remotes: None,
+		};
+		client
+			.put_tag(tag, arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to put the tag on remote"))?;
 		Ok(())
 	}
 
@@ -111,7 +136,7 @@ impl Server {
 			},
 		}
 
-		let response = http::Response::builder().body(BoxBody::empty()).unwrap();
+		let response = http::Response::builder().empty().unwrap().boxed_body();
 		Ok(response)
 	}
 }

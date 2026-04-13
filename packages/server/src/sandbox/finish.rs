@@ -1,116 +1,57 @@
 use {
 	crate::{Context, Server},
 	tangram_client::prelude::*,
-	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 };
 
 impl Server {
-	pub(crate) async fn finish_sandbox_with_context(
+	pub(crate) async fn try_finish_sandbox_with_context(
 		&self,
 		context: &Context,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::finish::Arg,
-	) -> tg::Result<()> {
-		if Self::local(arg.local, arg.remotes.as_ref())
-			&& self
-				.get_sandbox_exists_local(id)
-				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox"))?
-		{
-			return self.finish_sandbox_local(context, id).await;
-		}
-
-		let peers = self
-			.peers(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
-		if self.finish_sandbox_peer(id, &peers).await? {
-			return Ok(());
-		}
-
-		let remotes = self
-			.remotes(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
-		if self.finish_sandbox_remote(id, &remotes).await? {
-			return Ok(());
-		}
-
-		Err(tg::error!("failed to find the sandbox"))
-	}
-
-	async fn finish_sandbox_local(
-		&self,
-		context: &Context,
-		id: &tg::sandbox::Id,
-	) -> tg::Result<()> {
+	) -> tg::Result<Option<()>> {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
-		let finished = self.try_finish_sandbox_local(id).await?;
-		if !finished && !self.get_sandbox_exists_local(id).await? {
-			return Err(tg::error!("failed to find the sandbox"));
+		if Self::local(arg.local, arg.remotes.as_ref()) {
+			return self.finish_sandbox_local(id).await;
 		}
-		Ok(())
+
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			return self.finish_sandbox_remote(id, remote).await;
+		}
+
+		Ok(None)
 	}
 
-	async fn finish_sandbox_peer(
-		&self,
-		id: &tg::sandbox::Id,
-		peers: &[String],
-	) -> tg::Result<bool> {
-		for peer in peers {
-			let client = self.get_peer_client(peer.clone()).await.map_err(
-				|source| tg::error!(!source, %id, peer = %peer, "failed to get the peer client"),
-			)?;
-			let output = client
-				.try_get_sandbox(id, tg::sandbox::get::Arg::default())
-				.await
-				.map_err(
-					|source| tg::error!(!source, %id, peer = %peer, "failed to get the sandbox"),
-				)?;
-			if output.is_none() {
-				continue;
-			}
-			client
-				.finish_sandbox(id, tg::sandbox::finish::Arg::default())
-				.await
-				.map_err(
-					|source| tg::error!(!source, %id, peer = %peer, "failed to finish the sandbox"),
-				)?;
-			return Ok(true);
+	async fn finish_sandbox_local(&self, id: &tg::sandbox::Id) -> tg::Result<Option<()>> {
+		let finished = self.try_finish_sandbox_local(id).await?;
+		if !finished && !self.get_sandbox_exists_local(id).await? {
+			return Ok(None);
 		}
-		Ok(false)
+		Ok(Some(()))
 	}
 
 	async fn finish_sandbox_remote(
 		&self,
 		id: &tg::sandbox::Id,
-		remotes: &[String],
-	) -> tg::Result<bool> {
-		for remote in remotes {
-			let client = self.get_remote_client(remote.clone()).await.map_err(
-				|source| tg::error!(!source, %id, remote = %remote, "failed to get the remote client"),
-			)?;
-			let output = client
-				.try_get_sandbox(id, tg::sandbox::get::Arg::default())
-				.await
-				.map_err(
-					|source| tg::error!(!source, %id, remote = %remote, "failed to get the sandbox"),
-				)?;
-			if output.is_none() {
-				continue;
-			}
-			client
-				.finish_sandbox(id, tg::sandbox::finish::Arg::default())
-				.await
-				.map_err(
-					|source| tg::error!(!source, %id, remote = %remote, "failed to finish the sandbox"),
-				)?;
-			return Ok(true);
-		}
-		Ok(false)
+		remote: String,
+	) -> tg::Result<Option<()>> {
+		let client = self
+			.get_remote_client(remote)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
+		let arg = tg::sandbox::finish::Arg {
+			local: None,
+			remotes: None,
+		};
+		client.try_finish_sandbox(id, arg).await.map_err(
+			|source| tg::error!(!source, %id, "failed to finish the sandbox on the remote"),
+		)
 	}
 
 	pub(crate) async fn handle_finish_sandbox_request(
@@ -131,9 +72,17 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
-		self.finish_sandbox_with_context(context, &id, arg)
+		let Some(()) = self
+			.try_finish_sandbox_with_context(context, &id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to finish the sandbox"))?;
+			.map_err(|source| tg::error!(!source, %id, "failed to finish the sandbox"))?
+		else {
+			return Ok(http::Response::builder()
+				.not_found()
+				.empty()
+				.unwrap()
+				.boxed_body());
+		};
 
 		match accept
 			.as_ref()
@@ -145,6 +94,6 @@ impl Server {
 			},
 		}
 
-		Ok(http::Response::builder().body(BoxBody::empty()).unwrap())
+		Ok(http::Response::builder().empty().unwrap().boxed_body())
 	}
 }

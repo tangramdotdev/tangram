@@ -3,49 +3,34 @@ use {
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 };
 
 impl Server {
-	pub async fn cancel_process_with_context(
+	pub async fn try_cancel_process_with_context(
 		&self,
 		_context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
-	) -> tg::Result<()> {
-		if Self::local(arg.local, arg.remotes.as_ref())
-			&& self
-				.get_process_exists_local(id)
-				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
-		{
+	) -> tg::Result<Option<()>> {
+		if Self::local(arg.local, arg.remotes.as_ref()) {
 			return self.cancel_process_local(id, arg).await;
 		}
 
-		let peers = self
-			.peers(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
-		if self.cancel_process_peer(id, &arg, &peers).await? {
-			return Ok(());
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			return self.cancel_process_remote(id, arg, remote).await;
 		}
 
-		let remotes = self
-			.remotes(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
-		if self.cancel_process_remote(id, &arg, &remotes).await? {
-			return Ok(());
-		}
-
-		Err(tg::error!("failed to find the process"))
+		Ok(None)
 	}
 
 	async fn cancel_process_local(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<Option<()>> {
 		// Get a sandbox store connection.
 		let mut connection = self
 			.sandbox_store
@@ -68,7 +53,7 @@ impl Server {
 				.rollback()
 				.await
 				.map_err(|source| tg::error!(!source, "failed to roll back the transaction"))?;
-			return Err(tg::error!("failed to find the process"));
+			return Ok(None);
 		};
 
 		// Delete the process token.
@@ -112,71 +97,27 @@ impl Server {
 			self.spawn_publish_watchdog_message_task();
 		}
 
-		Ok(())
-	}
-
-	async fn cancel_process_peer(
-		&self,
-		id: &tg::process::Id,
-		arg: &tg::process::cancel::Arg,
-		peers: &[String],
-	) -> tg::Result<bool> {
-		for peer in peers {
-			let client = self.get_peer_client(peer.clone()).await.map_err(
-				|source| tg::error!(!source, %id, peer = %peer, "failed to get the peer client"),
-			)?;
-			let output = client
-				.try_get_process(id, tg::process::get::Arg::default())
-				.await
-				.map_err(
-					|source| tg::error!(!source, %id, peer = %peer, "failed to get the process"),
-				)?;
-			if output.is_none() {
-				continue;
-			}
-			let arg = tg::process::cancel::Arg {
-				local: None,
-				remotes: None,
-				token: arg.token.clone(),
-			};
-			client.cancel_process(id, arg).await.map_err(
-				|source| tg::error!(!source, %id, peer = %peer, "failed to cancel the process"),
-			)?;
-			return Ok(true);
-		}
-		Ok(false)
+		Ok(Some(()))
 	}
 
 	async fn cancel_process_remote(
 		&self,
 		id: &tg::process::Id,
-		arg: &tg::process::cancel::Arg,
-		remotes: &[String],
-	) -> tg::Result<bool> {
-		for remote in remotes {
-			let client = self.get_remote_client(remote.clone()).await.map_err(
-				|source| tg::error!(!source, %id, remote = %remote, "failed to get the remote client"),
-			)?;
-			let output = client
-				.try_get_process(id, tg::process::get::Arg::default())
-				.await
-				.map_err(
-					|source| tg::error!(!source, %id, remote = %remote, "failed to get the process"),
-				)?;
-			if output.is_none() {
-				continue;
-			}
-			let arg = tg::process::cancel::Arg {
-				local: None,
-				remotes: None,
-				token: arg.token.clone(),
-			};
-			client.cancel_process(id, arg).await.map_err(
-				|source| tg::error!(!source, %id, remote = %remote, "failed to cancel the process"),
-			)?;
-			return Ok(true);
-		}
-		Ok(false)
+		arg: tg::process::cancel::Arg,
+		remote: String,
+	) -> tg::Result<Option<()>> {
+		let client = self
+			.get_remote_client(remote)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
+		let arg = tg::process::cancel::Arg {
+			local: None,
+			remotes: None,
+			token: arg.token,
+		};
+		client.try_cancel_process(id, arg).await.map_err(
+			|source| tg::error!(!source, %id, "failed to cancel the process on the remote"),
+		)
 	}
 
 	pub(crate) async fn handle_cancel_process_request(
@@ -203,8 +144,17 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
 			.ok_or_else(|| tg::error!("query parameters required"))?;
 
-		// Cancel the process.
-		self.cancel_process_with_context(context, &id, arg).await?;
+		let Some(()) = self
+			.try_cancel_process_with_context(context, &id, arg)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to cancel the process"))?
+		else {
+			return Ok(http::Response::builder()
+				.not_found()
+				.empty()
+				.unwrap()
+				.boxed_body());
+		};
 
 		// Create the response.
 		match accept
@@ -217,7 +167,7 @@ impl Server {
 			},
 		}
 
-		let response = http::Response::builder().body(BoxBody::empty()).unwrap();
+		let response = http::Response::builder().empty().unwrap().boxed_body();
 
 		Ok(response)
 	}

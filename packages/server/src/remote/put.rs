@@ -3,7 +3,9 @@ use {
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 };
 
 impl Server {
@@ -74,7 +76,7 @@ impl Server {
 			},
 		}
 
-		let response = http::Response::builder().body(BoxBody::empty()).unwrap();
+		let response = http::Response::builder().empty().unwrap().boxed_body();
 		Ok(response)
 	}
 }

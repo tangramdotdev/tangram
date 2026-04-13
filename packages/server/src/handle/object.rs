@@ -24,12 +24,12 @@ impl tg::handle::Object for Shared {
 		self.0.put_object(id, arg).await
 	}
 
-	async fn touch_object(
+	async fn try_touch_object(
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::touch::Arg,
-	) -> tg::Result<()> {
-		self.0.touch_object(id, arg).await
+	) -> tg::Result<Option<()>> {
+		self.0.try_touch_object(id, arg).await
 	}
 
 	async fn post_object_batch(&self, arg: tg::object::batch::Arg) -> tg::Result<()> {
@@ -61,12 +61,12 @@ impl tg::handle::Object for Server {
 			.await
 	}
 
-	async fn touch_object(
+	async fn try_touch_object(
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::touch::Arg,
-	) -> tg::Result<()> {
-		self.touch_object_with_context(&Context::default(), id, arg)
+	) -> tg::Result<Option<()>> {
+		self.try_touch_object_with_context(&Context::default(), id, arg)
 			.await
 	}
 

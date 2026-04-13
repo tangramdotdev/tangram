@@ -15,10 +15,13 @@ where
 		}
 	}
 
-	fn delete_watch(&self, arg: tg::watch::delete::Arg) -> impl Future<Output = tg::Result<()>> {
+	fn try_delete_watch(
+		&self,
+		arg: tg::watch::delete::Arg,
+	) -> impl Future<Output = tg::Result<Option<()>>> {
 		match self {
-			tg::Either::Left(s) => s.delete_watch(arg).left_future(),
-			tg::Either::Right(s) => s.delete_watch(arg).right_future(),
+			tg::Either::Left(s) => s.try_delete_watch(arg).left_future(),
+			tg::Either::Right(s) => s.try_delete_watch(arg).right_future(),
 		}
 	}
 

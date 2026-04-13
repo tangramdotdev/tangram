@@ -3,7 +3,9 @@ use {
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 };
 
 impl Server {
@@ -101,8 +103,9 @@ impl Server {
 		let Some(token) = request.token(None) else {
 			let response = http::Response::builder()
 				.status(http::StatusCode::UNAUTHORIZED)
-				.body(BoxBody::empty())
-				.unwrap();
+				.empty()
+				.unwrap()
+				.boxed_body();
 			return Ok(response);
 		};
 
@@ -110,8 +113,9 @@ impl Server {
 		let Some(output) = self.get_user_with_context(context, token).await? else {
 			let response = http::Response::builder()
 				.status(http::StatusCode::UNAUTHORIZED)
-				.body(BoxBody::empty())
-				.unwrap();
+				.empty()
+				.unwrap()
+				.boxed_body();
 			return Ok(response);
 		};
 

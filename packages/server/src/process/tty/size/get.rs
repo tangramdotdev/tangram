@@ -1,6 +1,9 @@
 use {
 	crate::{Context, Server},
-	futures::{StreamExt as _, stream::BoxStream},
+	futures::{
+		StreamExt as _,
+		stream::{BoxStream, FuturesUnordered},
+	},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 	tangram_http::{
@@ -22,18 +25,6 @@ impl Server {
 				.try_get_process_tty_size_stream_local(id)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the process tty stream"))?
-		{
-			return Ok(Some(stream));
-		}
-
-		// Try peers.
-		let peers = self
-			.peers(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
-		if let Some(stream) = self
-			.try_get_process_tty_size_stream_peer(id, arg.clone(), &peers)
-			.await?
 		{
 			return Ok(Some(stream));
 		}
@@ -85,60 +76,6 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	async fn try_get_process_tty_size_stream_peer(
-		&self,
-		id: &tg::process::Id,
-		_arg: tg::process::tty::size::get::Arg,
-		peers: &[String],
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::tty::size::get::Event>>>> {
-		if peers.is_empty() {
-			return Ok(None);
-		}
-		let arg = tg::process::tty::size::get::Arg {
-			local: None,
-			remotes: None,
-		};
-		let mut error = None;
-		let mut stream = None;
-		for peer in peers {
-			let client = match self.get_peer_client(peer.clone()).await {
-				Ok(client) => client,
-				Err(source) => {
-					error.replace(tg::error!(
-						!source,
-						peer = %peer,
-						"failed to get the peer client"
-					));
-					continue;
-				},
-			};
-			match client
-				.try_get_process_tty_size_stream(id, arg.clone())
-				.await
-			{
-				Ok(Some(peer_stream)) => {
-					stream.replace(peer_stream.boxed());
-					break;
-				},
-				Ok(None) => (),
-				Err(source) => {
-					error.replace(tg::error!(
-						!source,
-						peer = %peer,
-						"failed to get the process tty stream"
-					));
-				},
-			}
-		}
-		if let Some(stream) = stream {
-			return Ok(Some(stream));
-		}
-		if let Some(error) = error {
-			return Err(error);
-		}
-		Ok(None)
-	}
-
 	async fn try_get_process_tty_size_stream_remote(
 		&self,
 		id: &tg::process::Id,
@@ -152,45 +89,53 @@ impl Server {
 			local: None,
 			remotes: None,
 		};
-		let mut error = None;
-		let mut stream = None;
-		for remote in remotes {
-			let client = match self.get_remote_client(remote.clone()).await {
-				Ok(client) => client,
-				Err(source) => {
-					error.replace(tg::error!(
-						!source,
-						remote = %remote,
-						"failed to get the remote client"
-					));
-					continue;
-				},
-			};
-			match client
-				.try_get_process_tty_size_stream(id, arg.clone())
-				.await
-			{
-				Ok(Some(remote_stream)) => {
-					stream.replace(remote_stream.boxed());
+		let mut futures = remotes
+			.iter()
+			.map(|remote| {
+				let remote = remote.clone();
+				let arg = arg.clone();
+				async move {
+					let client =
+						self.get_remote_client(remote.clone())
+							.await
+							.map_err(|source| {
+								tg::error!(
+									!source,
+									remote = %remote,
+									"failed to get the remote client"
+								)
+							})?;
+					client
+						.try_get_process_tty_size_stream(id, arg)
+						.await
+						.map_err(|source| {
+							tg::error!(
+								!source,
+								remote = %remote,
+								"failed to get the process tty stream"
+							)
+						})
+						.map(|stream| stream.map(futures::StreamExt::boxed))
+				}
+			})
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(stream)) => {
+					result = Ok(Some(stream));
 					break;
 				},
 				Ok(None) => (),
 				Err(source) => {
-					error.replace(tg::error!(
-						!source,
-						remote = %remote,
-						"failed to get the process tty stream"
-					));
+					result = Err(source);
 				},
 			}
 		}
-		if let Some(stream) = stream {
-			return Ok(Some(stream));
-		}
-		if let Some(error) = error {
-			return Err(error);
-		}
-		Ok(None)
+		let Some(stream) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(stream))
 	}
 
 	pub(crate) async fn handle_get_process_tty_size_request(

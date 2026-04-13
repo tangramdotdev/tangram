@@ -3,15 +3,17 @@ use {
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 };
 
 impl Server {
-	pub(crate) async fn delete_remote_with_context(
+	pub(crate) async fn try_delete_remote_with_context(
 		&self,
 		context: &Context,
 		name: &str,
-	) -> tg::Result<()> {
+	) -> tg::Result<Option<()>> {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
@@ -29,14 +31,18 @@ impl Server {
 			",
 		);
 		let params = db::params![&name];
-		connection
+		let n = connection
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
+		if n == 0 {
+			return Ok(None);
+		}
+
 		self.remotes.remove(name);
 
-		Ok(())
+		Ok(Some(()))
 	}
 
 	pub(crate) async fn handle_delete_remote_request(
@@ -52,9 +58,17 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Delete the remote.
-		self.delete_remote_with_context(context, name)
+		let Some(()) = self
+			.try_delete_remote_with_context(context, name)
 			.await
-			.map_err(|source| tg::error!(!source, %name, "failed to delete the remote"))?;
+			.map_err(|source| tg::error!(!source, %name, "failed to delete the remote"))?
+		else {
+			return Ok(http::Response::builder()
+				.not_found()
+				.empty()
+				.unwrap()
+				.boxed_body());
+		};
 
 		// Create the response.
 		match accept
@@ -67,7 +81,7 @@ impl Server {
 			},
 		}
 
-		let response = http::Response::builder().body(BoxBody::empty()).unwrap();
+		let response = http::Response::builder().empty().unwrap().boxed_body();
 		Ok(response)
 	}
 }

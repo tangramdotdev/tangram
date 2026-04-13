@@ -5,7 +5,7 @@ use {
 };
 
 impl tg::Client {
-	pub async fn delete_remote(&self, name: &str) -> tg::Result<()> {
+	pub async fn try_delete_remote(&self, name: &str) -> tg::Result<Option<()>> {
 		let method = http::Method::DELETE;
 		let path = format!("/remotes/{name}");
 		let uri = Uri::builder().path(&path).build().unwrap();
@@ -18,12 +18,15 @@ impl tg::Client {
 			.send_with_retry(request)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+		if response.status() == http::StatusCode::NOT_FOUND {
+			return Ok(None);
+		}
 		if !response.status().is_success() {
 			let error = response.json().await.map_err(|source| {
 				tg::error!(!source, "failed to deserialize the error response")
 			})?;
 			return Err(error);
 		}
-		Ok(())
+		Ok(Some(()))
 	}
 }

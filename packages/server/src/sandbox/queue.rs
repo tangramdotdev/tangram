@@ -28,20 +28,8 @@ impl Server {
 			return self.try_dequeue_sandbox_local().await;
 		}
 
-		let peers = self
-			.peers(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
-		if let Some(output) = self.try_dequeue_sandbox_peer(&peers).await? {
-			return Ok(Some(output));
-		}
-
-		let remotes = self
-			.remotes(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
-		if let Some(output) = self.try_dequeue_sandbox_remote(&remotes).await? {
-			return Ok(Some(output));
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			return self.try_dequeue_sandbox_remote(remote).await;
 		}
 
 		Ok(None)
@@ -79,46 +67,22 @@ impl Server {
 		Ok(None)
 	}
 
-	async fn try_dequeue_sandbox_peer(
-		&self,
-		peers: &[String],
-	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
-		for peer in peers {
-			let client = self.get_peer_client(peer.clone()).await.map_err(
-				|source| tg::error!(!source, peer = %peer, "failed to get the peer client"),
-			)?;
-			let output = client
-				.try_dequeue_sandbox(tg::sandbox::queue::Arg::default())
-				.await
-				.map_err(
-					|source| tg::error!(!source, peer = %peer, "failed to dequeue the sandbox"),
-				)?;
-			if output.is_some() {
-				return Ok(output);
-			}
-		}
-		Ok(None)
-	}
-
 	async fn try_dequeue_sandbox_remote(
 		&self,
-		remotes: &[String],
+		remote: String,
 	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
-		for remote in remotes {
-			let client = self.get_remote_client(remote.clone()).await.map_err(
-				|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
-			)?;
-			let output = client
-				.try_dequeue_sandbox(tg::sandbox::queue::Arg::default())
-				.await
-				.map_err(
-					|source| tg::error!(!source, remote = %remote, "failed to dequeue the sandbox"),
-				)?;
-			if output.is_some() {
-				return Ok(output);
-			}
-		}
-		Ok(None)
+		let client = self
+			.get_remote_client(remote)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
+		let arg = tg::sandbox::queue::Arg {
+			local: None,
+			remotes: None,
+		};
+		client
+			.try_dequeue_sandbox(arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to dequeue the sandbox"))
 	}
 
 	pub(crate) fn spawn_publish_sandboxes_created_message_task(&self) {
@@ -163,10 +127,13 @@ impl Server {
 		{
 			None | Some((mime::STAR, mime::STAR) | (mime::TEXT, mime::EVENT_STREAM)) => {
 				let content_type = mime::TEXT_EVENT_STREAM;
-				let stream = stream.map(|result| match result {
-					Ok(event) => event.try_into(),
-					Err(error) => error.try_into(),
-				});
+				let stream =
+					stream.map(
+						|result: tg::Result<tg::sandbox::queue::Output>| match result {
+							Ok(event) => event.try_into(),
+							Err(error) => error.try_into(),
+						},
+					);
 				(Some(content_type), BoxBody::with_sse_stream(stream))
 			},
 			Some((type_, subtype)) => {

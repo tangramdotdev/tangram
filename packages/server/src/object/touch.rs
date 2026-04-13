@@ -1,107 +1,57 @@
 use {
 	crate::{Context, Server},
 	tangram_client::prelude::*,
-	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 	tangram_index::prelude::*,
 };
 
 impl Server {
-	pub async fn touch_object_with_context(
+	pub async fn try_touch_object_with_context(
 		&self,
 		_context: &Context,
 		id: &tg::object::Id,
 		arg: tg::object::touch::Arg,
-	) -> tg::Result<()> {
-		if Self::local(arg.local, arg.remotes.as_ref())
-			&& self
-				.try_get_object_local(id, false)
-				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
-				.is_some()
-		{
+	) -> tg::Result<Option<()>> {
+		if Self::local(arg.local, arg.remotes.as_ref()) {
 			return self.touch_object_local(id).await;
 		}
 
-		let peers = self
-			.peers(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
-		if self.touch_object_peer(id, &peers).await? {
-			return Ok(());
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			return self.touch_object_remote(id, remote).await;
 		}
 
-		let remotes = self
-			.remotes(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
-		if self.touch_object_remote(id, &remotes).await? {
-			return Ok(());
-		}
-
-		Err(tg::error!("failed to find the object"))
+		Ok(None)
 	}
 
-	async fn touch_object_local(&self, id: &tg::object::Id) -> tg::Result<()> {
+	async fn touch_object_local(&self, id: &tg::object::Id) -> tg::Result<Option<()>> {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		self.index
+		let output = self
+			.index
 			.touch_object(id, touched_at)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to touch the object"))?;
-		Ok(())
-	}
-
-	async fn touch_object_peer(&self, id: &tg::object::Id, peers: &[String]) -> tg::Result<bool> {
-		for peer in peers {
-			let client = self.get_peer_client(peer.clone()).await.map_err(
-				|source| tg::error!(!source, %id, peer = %peer, "failed to get the peer client"),
-			)?;
-			let output = client
-				.try_get_object(id, tg::object::get::Arg::default())
-				.await
-				.map_err(
-					|source| tg::error!(!source, %id, peer = %peer, "failed to get the object"),
-				)?;
-			if output.is_none() {
-				continue;
-			}
-			client
-				.touch_object(id, tg::object::touch::Arg::default())
-				.await
-				.map_err(
-					|source| tg::error!(!source, %id, peer = %peer, "failed to touch the object"),
-				)?;
-			return Ok(true);
-		}
-		Ok(false)
+		Ok(output.map(|_| ()))
 	}
 
 	async fn touch_object_remote(
 		&self,
 		id: &tg::object::Id,
-		remotes: &[String],
-	) -> tg::Result<bool> {
-		for remote in remotes {
-			let client = self.get_remote_client(remote.clone()).await.map_err(
-				|source| tg::error!(!source, %id, remote = %remote, "failed to get the remote client"),
-			)?;
-			let output = client
-				.try_get_object(id, tg::object::get::Arg::default())
-				.await
-				.map_err(
-					|source| tg::error!(!source, %id, remote = %remote, "failed to get the object"),
-				)?;
-			if output.is_none() {
-				continue;
-			}
-			client
-				.touch_object(id, tg::object::touch::Arg::default())
-				.await
-				.map_err(
-					|source| tg::error!(!source, %id, remote = %remote, "failed to touch the object"),
-				)?;
-			return Ok(true);
-		}
-		Ok(false)
+		remote: String,
+	) -> tg::Result<Option<()>> {
+		let client = self
+			.get_remote_client(remote)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
+		let arg = tg::object::touch::Arg {
+			local: None,
+			remotes: None,
+		};
+		client
+			.try_touch_object(id, arg)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to touch the object on the remote"))
 	}
 
 	pub(crate) async fn handle_touch_object_request(
@@ -128,9 +78,17 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Touch the object.
-		self.touch_object_with_context(context, &id, arg)
+		let Some(()) = self
+			.try_touch_object_with_context(context, &id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to touch the object"))?;
+			.map_err(|source| tg::error!(!source, %id, "failed to touch the object"))?
+		else {
+			return Ok(http::Response::builder()
+				.not_found()
+				.empty()
+				.unwrap()
+				.boxed_body());
+		};
 
 		// Create the response.
 		match accept
@@ -143,7 +101,7 @@ impl Server {
 			},
 		}
 
-		let response = http::Response::builder().body(BoxBody::empty()).unwrap();
+		let response = http::Response::builder().empty().unwrap().boxed_body();
 		Ok(response)
 	}
 }

@@ -1,7 +1,9 @@
 use {
 	crate::{Context, Server},
 	tangram_client::prelude::*,
-	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 	tangram_messenger::Messenger,
 };
 
@@ -11,43 +13,32 @@ impl Server {
 		_context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::tty::size::put::Arg,
-	) -> tg::Result<()> {
-		if Self::local(arg.local, arg.remotes.as_ref())
-			&& let Some(output) = self
-				.try_get_process_local(id, false)
-				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
-		{
-			return self
-				.set_process_tty_size_local(id, arg.size, output.data.tty.is_some())
-				.await;
+	) -> tg::Result<Option<()>> {
+		if Self::local(arg.local, arg.remotes.as_ref()) {
+			return self.set_process_tty_size_local(id, arg.size).await;
 		}
 
-		let peers = self
-			.peers(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
-		if self.set_process_tty_size_peer(id, &arg, &peers).await? {
-			return Ok(());
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			return self.set_process_tty_size_remote(id, arg.size, remote).await;
 		}
 
-		let remotes = self
-			.remotes(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
-		if self.set_process_tty_size_remote(id, &arg, &remotes).await? {
-			return Ok(());
-		}
-
-		Err(tg::error!("failed to find the process"))
+		Ok(None)
 	}
 
 	async fn set_process_tty_size_local(
 		&self,
 		id: &tg::process::Id,
 		size: tg::process::tty::Size,
-		has_tty: bool,
-	) -> tg::Result<()> {
+	) -> tg::Result<Option<()>> {
+		let Some(output) = self
+			.try_get_process_local(id, false)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
+		else {
+			return Ok(None);
+		};
+		let has_tty = output.data.tty.is_some();
+
 		// Check if the process has a tty.
 		if !has_tty {
 			return Err(tg::error!(%id, "the process does not have a tty associated with it"));
@@ -61,71 +52,25 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to update the tty size"))?;
 
-		Ok(())
-	}
-
-	async fn set_process_tty_size_peer(
-		&self,
-		id: &tg::process::Id,
-		arg: &tg::process::tty::size::put::Arg,
-		peers: &[String],
-	) -> tg::Result<bool> {
-		for peer in peers {
-			let client = self.get_peer_client(peer.clone()).await.map_err(
-				|source| tg::error!(!source, %id, peer = %peer, "failed to get the peer client"),
-			)?;
-			let output = client
-				.try_get_process(id, tg::process::get::Arg::default())
-				.await
-				.map_err(
-					|source| tg::error!(!source, %id, peer = %peer, "failed to get the process"),
-				)?;
-			if output.is_none() {
-				continue;
-			}
-			let arg = tg::process::tty::size::put::Arg {
-				local: None,
-				remotes: None,
-				size: arg.size,
-			};
-			client.set_process_tty_size(id, arg).await.map_err(
-				|source| tg::error!(!source, %id, peer = %peer, "failed to set the process tty size"),
-			)?;
-			return Ok(true);
-		}
-		Ok(false)
+		Ok(Some(()))
 	}
 
 	async fn set_process_tty_size_remote(
 		&self,
 		id: &tg::process::Id,
-		arg: &tg::process::tty::size::put::Arg,
-		remotes: &[String],
-	) -> tg::Result<bool> {
-		for remote in remotes {
-			let client = self.get_remote_client(remote.clone()).await.map_err(
-				|source| tg::error!(!source, %id, remote = %remote, "failed to get the remote client"),
-			)?;
-			let output = client
-				.try_get_process(id, tg::process::get::Arg::default())
-				.await
-				.map_err(
-					|source| tg::error!(!source, %id, remote = %remote, "failed to get the process"),
-				)?;
-			if output.is_none() {
-				continue;
-			}
-			let arg = tg::process::tty::size::put::Arg {
-				local: None,
-				remotes: None,
-				size: arg.size,
-			};
-			client.set_process_tty_size(id, arg).await.map_err(
-				|source| tg::error!(!source, %id, remote = %remote, "failed to set the process tty size"),
-			)?;
-			return Ok(true);
-		}
-		Ok(false)
+		size: tg::process::tty::Size,
+		remote: String,
+	) -> tg::Result<Option<()>> {
+		let client = self
+			.get_remote_client(remote)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
+		let arg = tg::process::tty::size::put::Arg {
+			local: None,
+			remotes: None,
+			size,
+		};
+		client.try_set_process_tty_size(id, arg).await
 	}
 
 	pub(crate) async fn handle_set_process_tty_size_request(
@@ -149,12 +94,20 @@ impl Server {
 		let arg = request
 			.json()
 			.await
-			.map_err(|_| tg::error!("failed to deserialize the arg"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Put the process tty.
-		self.try_set_process_tty_size_with_context(context, &id, arg)
+		let Some(()) = self
+			.try_set_process_tty_size_with_context(context, &id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to put the process tty"))?;
+			.map_err(|source| tg::error!(!source, "failed to put the process tty"))?
+		else {
+			return Ok(http::Response::builder()
+				.not_found()
+				.empty()
+				.unwrap()
+				.boxed_body());
+		};
 
 		// Create the response.
 		match accept
@@ -167,7 +120,7 @@ impl Server {
 			},
 		}
 
-		let response = http::Response::builder().body(BoxBody::empty()).unwrap();
+		let response = http::Response::builder().empty().unwrap().boxed_body();
 		Ok(response)
 	}
 }

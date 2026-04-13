@@ -34,11 +34,11 @@ impl tg::handle::Object for Handle {
 		self.0.post_object_batch(arg)
 	}
 
-	fn touch_object(
+	fn try_touch_object(
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::touch::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.touch_object(id, arg)) }
+	) -> impl Future<Output = tg::Result<Option<()>>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_touch_object(id, arg)) }
 	}
 }

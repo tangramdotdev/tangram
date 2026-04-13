@@ -5,7 +5,9 @@ use {
 		stream::{self, FuturesUnordered},
 	},
 	tangram_client::prelude::*,
-	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 };
 
 #[cfg(feature = "postgres")]
@@ -26,19 +28,6 @@ impl Server {
 				.try_get_process_local(id, arg.metadata)
 				.await
 				.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
-		{
-			return Ok(Some(output));
-		}
-
-		// Try peers.
-		let peers = self
-			.peers(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
-		if let Some(output) = self
-			.try_get_process_peer(id, &peers, arg.metadata)
-			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the process from the peer"))?
 		{
 			return Ok(Some(output));
 		}
@@ -79,25 +68,16 @@ impl Server {
 			.try_get_process_batch_local(ids, metadata)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the processes locally"))?;
-		let peers = self
-			.peers(None, None)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
 		let remotes = self
 			.remotes(None, None)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
 		let outputs = std::iter::zip(ids, outputs)
 			.map(|(id, output)| {
-				let peers = peers.clone();
 				let remotes = remotes.clone();
 				async move {
 					if let Some(output) = output {
 						return Ok(Some(output));
-					}
-					let output = self.try_get_process_peer(id, &peers, metadata).await?;
-					if output.is_some() {
-						return Ok(output);
 					}
 					let output = self.try_get_process_remote(id, &remotes, metadata).await?;
 					Ok::<_, tg::Error>(output)
@@ -155,66 +135,6 @@ impl Server {
 		Ok(outputs)
 	}
 
-	async fn try_get_process_peer(
-		&self,
-		id: &tg::process::Id,
-		peers: &[String],
-		metadata: bool,
-	) -> tg::Result<Option<tg::process::get::Output>> {
-		if peers.is_empty() {
-			return Ok(None);
-		}
-		let arg = tg::process::get::Arg {
-			metadata,
-			..Default::default()
-		};
-		let mut output = None;
-		for peer in peers {
-			let client = self.get_peer_client(peer.clone()).await.map_err(
-				|source| tg::error!(!source, peer = %peer, "failed to get the peer client"),
-			)?;
-			let peer_output = client.try_get_process(id, arg.clone()).await.map_err(
-				|source| tg::error!(!source, %id, peer = %peer, "failed to get the process"),
-			)?;
-			if let Some(peer_output) = peer_output {
-				output = Some(peer_output);
-				break;
-			}
-		}
-		let Some(output) = output else {
-			return Ok(None);
-		};
-
-		if output.data.status.is_finished() {
-			tokio::spawn({
-				let server = self.clone();
-				let id = id.clone();
-				let mut data = output.data.clone();
-				async move {
-					let arg = tg::process::children::get::Arg::default();
-					let children = server
-						.try_get_process_children(&id, arg)
-						.await?
-						.ok_or_else(|| tg::error!("expected the process to exist"))?
-						.map_ok(|chunk| stream::iter(chunk.data).map(Ok::<_, tg::Error>))
-						.try_flatten()
-						.try_collect()
-						.await?;
-					data.children = Some(children);
-					let arg = tg::process::put::Arg {
-						data,
-						local: None,
-						remotes: None,
-					};
-					server.put_process(&id, arg).await?;
-					Ok::<_, tg::Error>(())
-				}
-			});
-		}
-
-		Ok(Some(output))
-	}
-
 	async fn try_get_process_remote(
 		&self,
 		id: &tg::process::Id,
@@ -228,20 +148,42 @@ impl Server {
 			metadata,
 			..Default::default()
 		};
-		let mut output = None;
-		for remote in remotes {
-			let client = self.get_remote_client(remote.clone()).await.map_err(
-				|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
-			)?;
-			let remote_output = client.try_get_process(id, arg.clone()).await.map_err(
-				|source| tg::error!(!source, %id, remote = %remote, "failed to get the process"),
-			)?;
-			if let Some(remote_output) = remote_output {
-				output = Some(remote_output);
-				break;
+		let mut futures = remotes
+			.iter()
+			.map(|remote| {
+				let remote = remote.clone();
+				let arg = arg.clone();
+				async move {
+					let client =
+						self.get_remote_client(remote.clone())
+							.await
+							.map_err(|source| {
+								tg::error!(
+									!source,
+									remote = %remote,
+									"failed to get the remote client"
+								)
+							})?;
+					client.try_get_process(id, arg).await.map_err(
+						|source| tg::error!(!source, %id, remote = %remote, "failed to get the process"),
+					)
+				}
+			})
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
 			}
 		}
-		let Some(output) = output else {
+		let Some(output) = result? else {
 			return Ok(None);
 		};
 
@@ -304,8 +246,9 @@ impl Server {
 		let Some(output) = self.try_get_process_with_context(context, &id, arg).await? else {
 			return Ok(http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)
-				.body(BoxBody::empty())
-				.unwrap());
+				.empty()
+				.unwrap()
+				.boxed_body());
 		};
 
 		// Create the response.

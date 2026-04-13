@@ -8,8 +8,11 @@ impl tg::handle::Watch for Handle {
 		self.0.list_watches(arg)
 	}
 
-	fn delete_watch(&self, arg: tg::watch::delete::Arg) -> impl Future<Output = tg::Result<()>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.delete_watch(arg)) }
+	fn try_delete_watch(
+		&self,
+		arg: tg::watch::delete::Arg,
+	) -> impl Future<Output = tg::Result<Option<()>>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_delete_watch(arg)) }
 	}
 
 	fn touch_watch(&self, arg: tg::watch::touch::Arg) -> impl Future<Output = tg::Result<()>> {

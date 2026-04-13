@@ -33,13 +33,13 @@ where
 		}
 	}
 
-	fn delete_tag(
+	fn delete_tags(
 		&self,
 		arg: tg::tag::delete::Arg,
 	) -> impl Future<Output = tg::Result<tg::tag::delete::Output>> {
 		match self {
-			tg::Either::Left(s) => s.delete_tag(arg).left_future(),
-			tg::Either::Right(s) => s.delete_tag(arg).right_future(),
+			tg::Either::Left(s) => s.delete_tags(arg).left_future(),
+			tg::Either::Right(s) => s.delete_tags(arg).right_future(),
 		}
 	}
 }

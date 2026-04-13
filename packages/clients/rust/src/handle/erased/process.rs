@@ -37,17 +37,17 @@ pub trait Process: Send + Sync + 'static {
 		arg: tg::process::put::Arg,
 	) -> BoxFuture<'a, tg::Result<()>>;
 
-	fn cancel_process<'a>(
+	fn try_cancel_process<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::cancel::Arg,
-	) -> BoxFuture<'a, tg::Result<()>>;
+	) -> BoxFuture<'a, tg::Result<Option<()>>>;
 
-	fn signal_process<'a>(
+	fn try_signal_process<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::signal::post::Arg,
-	) -> BoxFuture<'a, tg::Result<()>>;
+	) -> BoxFuture<'a, tg::Result<Option<()>>>;
 
 	fn try_get_process_signal_stream<'a>(
 		&'a self,
@@ -82,11 +82,11 @@ pub trait Process: Send + Sync + 'static {
 		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::tty::size::get::Event>>>>,
 	>;
 
-	fn set_process_tty_size<'a>(
+	fn try_set_process_tty_size<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::tty::size::put::Arg,
-	) -> BoxFuture<'a, tg::Result<()>>;
+	) -> BoxFuture<'a, tg::Result<Option<()>>>;
 
 	fn try_read_process_stdio<'a>(
 		&'a self,
@@ -97,24 +97,27 @@ pub trait Process: Send + Sync + 'static {
 		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>>,
 	>;
 
-	fn write_process_stdio<'a>(
+	fn try_write_process_stdio<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::stdio::write::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
-	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>>;
+	) -> BoxFuture<
+		'a,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>>,
+	>;
 
-	fn touch_process<'a>(
+	fn try_touch_process<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::touch::Arg,
-	) -> BoxFuture<'a, tg::Result<()>>;
+	) -> BoxFuture<'a, tg::Result<Option<()>>>;
 
-	fn finish_process<'a>(
+	fn try_finish_process<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> BoxFuture<'a, tg::Result<()>>;
+	) -> BoxFuture<'a, tg::Result<Option<()>>>;
 
 	fn try_wait_process_future<'a>(
 		&'a self,
@@ -175,20 +178,20 @@ where
 		self.put_process(id, arg).boxed()
 	}
 
-	fn cancel_process<'a>(
+	fn try_cancel_process<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::cancel::Arg,
-	) -> BoxFuture<'a, tg::Result<()>> {
-		self.cancel_process(id, arg).boxed()
+	) -> BoxFuture<'a, tg::Result<Option<()>>> {
+		self.try_cancel_process(id, arg).boxed()
 	}
 
-	fn signal_process<'a>(
+	fn try_signal_process<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::signal::post::Arg,
-	) -> BoxFuture<'a, tg::Result<()>> {
-		self.signal_process(id, arg).boxed()
+	) -> BoxFuture<'a, tg::Result<Option<()>>> {
+		self.try_signal_process(id, arg).boxed()
 	}
 
 	fn try_get_process_signal_stream<'a>(
@@ -241,12 +244,12 @@ where
 			.boxed()
 	}
 
-	fn set_process_tty_size<'a>(
+	fn try_set_process_tty_size<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::tty::size::put::Arg,
-	) -> BoxFuture<'a, tg::Result<()>> {
-		self.set_process_tty_size(id, arg).boxed()
+	) -> BoxFuture<'a, tg::Result<Option<()>>> {
+		self.try_set_process_tty_size(id, arg).boxed()
 	}
 
 	fn try_read_process_stdio<'a>(
@@ -262,32 +265,34 @@ where
 			.boxed()
 	}
 
-	fn write_process_stdio<'a>(
+	fn try_write_process_stdio<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::stdio::write::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
-	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>>
-	{
-		self.write_process_stdio(id, arg, stream)
-			.map_ok(futures::StreamExt::boxed)
+	) -> BoxFuture<
+		'a,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>>,
+	> {
+		self.try_write_process_stdio(id, arg, stream)
+			.map_ok(|option| option.map(futures::StreamExt::boxed))
 			.boxed()
 	}
 
-	fn touch_process<'a>(
+	fn try_touch_process<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::touch::Arg,
-	) -> BoxFuture<'a, tg::Result<()>> {
-		self.touch_process(id, arg).boxed()
+	) -> BoxFuture<'a, tg::Result<Option<()>>> {
+		self.try_touch_process(id, arg).boxed()
 	}
 
-	fn finish_process<'a>(
+	fn try_finish_process<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> BoxFuture<'a, tg::Result<()>> {
-		self.finish_process(id, arg).boxed()
+	) -> BoxFuture<'a, tg::Result<Option<()>>> {
+		self.try_finish_process(id, arg).boxed()
 	}
 
 	fn try_wait_process_future<'a>(

@@ -1,7 +1,10 @@
 use {
 	crate::{Context, Server},
+	futures::{StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
-	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 	tangram_index::prelude::*,
 };
 
@@ -19,15 +22,6 @@ impl Server {
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the process metadata"))?
 		{
-			return Ok(Some(metadata));
-		}
-
-		// Try peers.
-		let peers = self
-			.peers(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
-		if let Some(metadata) = self.try_get_process_metadata_peer(id, &peers).await? {
 			return Ok(Some(metadata));
 		}
 
@@ -63,55 +57,6 @@ impl Server {
 			.collect())
 	}
 
-	async fn try_get_process_metadata_peer(
-		&self,
-		id: &tg::process::Id,
-		peers: &[String],
-	) -> tg::Result<Option<tg::process::Metadata>> {
-		if peers.is_empty() {
-			return Ok(None);
-		}
-		let mut error = None;
-		let mut metadata = None;
-		for peer in peers {
-			let client = match self.get_peer_client(peer.clone()).await {
-				Ok(client) => client,
-				Err(source) => {
-					error.replace(tg::error!(
-						!source,
-						peer = %peer,
-						"failed to get the peer client"
-					));
-					continue;
-				},
-			};
-			match client
-				.try_get_process_metadata(id, tg::process::metadata::Arg::default())
-				.await
-			{
-				Ok(Some(peer_metadata)) => {
-					metadata.replace(peer_metadata);
-					break;
-				},
-				Ok(None) => (),
-				Err(source) => {
-					error.replace(tg::error!(
-						!source,
-						peer = %peer,
-						"failed to get the process metadata"
-					));
-				},
-			}
-		}
-		if let Some(metadata) = metadata {
-			return Ok(Some(metadata));
-		}
-		if let Some(error) = error {
-			return Err(error);
-		}
-		Ok(None)
-	}
-
 	async fn try_get_process_metadata_remote(
 		&self,
 		id: &tg::process::Id,
@@ -120,45 +65,51 @@ impl Server {
 		if remotes.is_empty() {
 			return Ok(None);
 		}
-		let mut error = None;
-		let mut metadata = None;
-		for remote in remotes {
-			let client = match self.get_remote_client(remote.clone()).await {
-				Ok(client) => client,
-				Err(source) => {
-					error.replace(tg::error!(
-						!source,
-						remote = %remote,
-						"failed to get the remote client"
-					));
-					continue;
-				},
-			};
-			match client
-				.try_get_process_metadata(id, tg::process::metadata::Arg::default())
-				.await
-			{
-				Ok(Some(remote_metadata)) => {
-					metadata.replace(remote_metadata);
+		let mut futures = remotes
+			.iter()
+			.map(|remote| {
+				let remote = remote.clone();
+				async move {
+					let client =
+						self.get_remote_client(remote.clone())
+							.await
+							.map_err(|source| {
+								tg::error!(
+									!source,
+									remote = %remote,
+									"failed to get the remote client"
+								)
+							})?;
+					client
+						.try_get_process_metadata(id, tg::process::metadata::Arg::default())
+						.await
+						.map_err(|source| {
+							tg::error!(
+								!source,
+								remote = %remote,
+								"failed to get the process metadata"
+							)
+						})
+				}
+			})
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(metadata)) => {
+					result = Ok(Some(metadata));
 					break;
 				},
 				Ok(None) => (),
 				Err(source) => {
-					error.replace(tg::error!(
-						!source,
-						remote = %remote,
-						"failed to get the process metadata"
-					));
+					result = Err(source);
 				},
 			}
 		}
-		if let Some(metadata) = metadata {
-			return Ok(Some(metadata));
-		}
-		if let Some(error) = error {
-			return Err(error);
-		}
-		Ok(None)
+		let Some(metadata) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(metadata))
 	}
 
 	pub(crate) async fn handle_get_process_metadata_request(
@@ -192,8 +143,9 @@ impl Server {
 		else {
 			return Ok(http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)
-				.body(BoxBody::empty())
-				.unwrap());
+				.empty()
+				.unwrap()
+				.boxed_body());
 		};
 
 		// Create the response.

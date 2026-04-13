@@ -23,7 +23,7 @@ impl tg::handle::Remote for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.put_remote(name, arg)) }
 	}
 
-	fn delete_remote(&self, name: &str) -> impl Future<Output = tg::Result<()>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.delete_remote(name)) }
+	fn try_delete_remote(&self, name: &str) -> impl Future<Output = tg::Result<Option<()>>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_delete_remote(name)) }
 	}
 }

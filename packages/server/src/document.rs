@@ -22,28 +22,25 @@ impl Server {
 		context: &Context,
 		arg: tg::document::Arg,
 	) -> tg::Result<serde_json::Value> {
-		// Forward to remote if requested.
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self
-				.get_remote_client(remote)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
-			let arg = tg::document::Arg {
-				local: None,
-				module: arg.module,
-				remotes: None,
-			};
-			let output = client
-				.document(arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to document on the remote"))?;
-			return Ok(output);
-		}
-
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
+		if Self::local(arg.local, arg.remotes.as_ref()) {
+			return self.document_local(arg).await;
+		}
+
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			return self.document_remote(arg, remote).await;
+		}
+
+		Err(tg::error!(
+			"failed to determine whether to use local or a remote"
+		))
+	}
+
+	#[cfg(feature = "typescript")]
+	async fn document_local(&self, arg: tg::document::Arg) -> tg::Result<serde_json::Value> {
 		// Create the compiler.
 		let compiler = self.create_compiler();
 
@@ -60,6 +57,28 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to wait for the compiler"))?;
 
+		Ok(output)
+	}
+
+	#[cfg(feature = "typescript")]
+	async fn document_remote(
+		&self,
+		arg: tg::document::Arg,
+		remote: String,
+	) -> tg::Result<serde_json::Value> {
+		let client = self
+			.get_remote_client(remote)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
+		let arg = tg::document::Arg {
+			local: None,
+			module: arg.module,
+			remotes: None,
+		};
+		let output = client
+			.document(arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to document on the remote"))?;
 		Ok(output)
 	}
 

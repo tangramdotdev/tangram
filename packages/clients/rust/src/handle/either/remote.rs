@@ -36,10 +36,10 @@ where
 		}
 	}
 
-	fn delete_remote(&self, name: &str) -> impl Future<Output = tg::Result<()>> {
+	fn try_delete_remote(&self, name: &str) -> impl Future<Output = tg::Result<Option<()>>> {
 		match self {
-			tg::Either::Left(s) => s.delete_remote(name).left_future(),
-			tg::Either::Right(s) => s.delete_remote(name).right_future(),
+			tg::Either::Left(s) => s.try_delete_remote(name).left_future(),
+			tg::Either::Right(s) => s.try_delete_remote(name).right_future(),
 		}
 	}
 }

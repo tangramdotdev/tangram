@@ -47,21 +47,21 @@ impl tg::handle::Process for Shared {
 		self.0.put_process(id, arg).await
 	}
 
-	async fn cancel_process(
+	async fn try_cancel_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
-	) -> tg::Result<()> {
-		self.0.cancel_process(id, arg).await
+	) -> tg::Result<Option<()>> {
+		self.0.try_cancel_process(id, arg).await
 	}
 
-	async fn signal_process(
+	async fn try_signal_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<Option<()>> {
 		self.0
-			.post_process_signal_with_context(&Context::default(), id, arg)
+			.try_post_process_signal_with_context(&Context::default(), id, arg)
 			.await
 	}
 
@@ -107,11 +107,11 @@ impl tg::handle::Process for Shared {
 			.await
 	}
 
-	async fn set_process_tty_size(
+	async fn try_set_process_tty_size(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::tty::size::put::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<Option<()>> {
 		self.0
 			.try_set_process_tty_size_with_context(&Context::default(), id, arg)
 			.await
@@ -129,32 +129,33 @@ impl tg::handle::Process for Shared {
 			.await
 	}
 
-	async fn write_process_stdio(
+	async fn try_write_process_stdio(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>
-	{
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>,
+	> {
 		self.0
-			.write_process_stdio_with_context(&Context::default(), id, arg, stream, None)
+			.try_write_process_stdio_with_context(&Context::default(), id, arg, stream, None)
 			.await
 	}
 
-	async fn touch_process(
+	async fn try_touch_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::touch::Arg,
-	) -> tg::Result<()> {
-		self.0.touch_process(id, arg).await
+	) -> tg::Result<Option<()>> {
+		self.0.try_touch_process(id, arg).await
 	}
 
-	async fn finish_process(
+	async fn try_finish_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> tg::Result<()> {
-		self.0.finish_process(id, arg).await
+	) -> tg::Result<Option<()>> {
+		self.0.try_finish_process(id, arg).await
 	}
 
 	async fn try_wait_process_future(
@@ -218,21 +219,21 @@ impl tg::handle::Process for Server {
 			.await
 	}
 
-	async fn cancel_process(
+	async fn try_cancel_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
-	) -> tg::Result<()> {
-		self.cancel_process_with_context(&Context::default(), id, arg)
+	) -> tg::Result<Option<()>> {
+		self.try_cancel_process_with_context(&Context::default(), id, arg)
 			.await
 	}
 
-	async fn signal_process(
+	async fn try_signal_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
-	) -> tg::Result<()> {
-		self.post_process_signal_with_context(&Context::default(), id, arg)
+	) -> tg::Result<Option<()>> {
+		self.try_post_process_signal_with_context(&Context::default(), id, arg)
 			.await
 	}
 
@@ -280,11 +281,11 @@ impl tg::handle::Process for Server {
 			.await
 	}
 
-	async fn set_process_tty_size(
+	async fn try_set_process_tty_size(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::tty::size::put::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<Option<()>> {
 		self.try_set_process_tty_size_with_context(&Context::default(), id, arg)
 			.await
 	}
@@ -300,32 +301,33 @@ impl tg::handle::Process for Server {
 			.await
 	}
 
-	async fn write_process_stdio(
+	async fn try_write_process_stdio(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>
-	{
-		self.write_process_stdio_with_context(&Context::default(), id, arg, stream, None)
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>,
+	> {
+		self.try_write_process_stdio_with_context(&Context::default(), id, arg, stream, None)
 			.await
 	}
 
-	async fn touch_process(
+	async fn try_touch_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::touch::Arg,
-	) -> tg::Result<()> {
-		self.touch_process_with_context(&Context::default(), id, arg)
+	) -> tg::Result<Option<()>> {
+		self.try_touch_process_with_context(&Context::default(), id, arg)
 			.await
 	}
 
-	async fn finish_process(
+	async fn try_finish_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> tg::Result<()> {
-		self.finish_process_with_context(&Context::default(), id, arg)
+	) -> tg::Result<Option<()>> {
+		self.try_finish_process_with_context(&Context::default(), id, arg)
 			.await
 	}
 

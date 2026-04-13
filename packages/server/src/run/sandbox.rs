@@ -246,7 +246,7 @@ impl Server {
 	) -> tg::Result<tg::sandbox::process::queue::Output> {
 		loop {
 			let arg = tg::sandbox::process::queue::Arg {
-				local: None,
+				local: remote.is_none().then_some(true),
 				remotes: remote.map(|remote| vec![remote.to_owned()]),
 			};
 			match self.try_dequeue_sandbox_process(id, arg).await {

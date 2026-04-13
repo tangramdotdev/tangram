@@ -1,7 +1,10 @@
 use {
 	crate::{Context, Server},
+	futures::{StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
-	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 };
 
 impl Server {
@@ -20,14 +23,6 @@ impl Server {
 			return Ok(Some(output));
 		}
 
-		let peers = self
-			.peers(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
-		if let Some(output) = self.try_get_sandbox_peer(id, &peers).await? {
-			return Ok(Some(output));
-		}
-
 		let remotes = self
 			.remotes(arg.local, arg.remotes.clone())
 			.await
@@ -39,50 +34,61 @@ impl Server {
 		Ok(None)
 	}
 
-	async fn try_get_sandbox_peer(
-		&self,
-		id: &tg::sandbox::Id,
-		peers: &[String],
-	) -> tg::Result<Option<tg::sandbox::get::Output>> {
-		for peer in peers {
-			let client = self.get_peer_client(peer.clone()).await.map_err(
-				|source| tg::error!(!source, %id, peer = %peer, "failed to get the peer client"),
-			)?;
-			let output = client
-				.try_get_sandbox(id, tg::sandbox::get::Arg::default())
-				.await
-				.map_err(
-					|source| tg::error!(!source, %id, peer = %peer, "failed to get the sandbox"),
-				)?;
-			if output.is_some() {
-				return Ok(output);
-			}
-		}
-
-		Ok(None)
-	}
-
 	async fn try_get_sandbox_remote(
 		&self,
 		id: &tg::sandbox::Id,
 		remotes: &[String],
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
-		for remote in remotes {
-			let client = self.get_remote_client(remote.clone()).await.map_err(
-				|source| tg::error!(!source, %id, remote = %remote, "failed to get the remote client"),
-			)?;
-			let output = client
-				.try_get_sandbox(id, tg::sandbox::get::Arg::default())
-				.await
-				.map_err(
-					|source| tg::error!(!source, %id, remote = %remote, "failed to get the sandbox"),
-				)?;
-			if output.is_some() {
-				return Ok(output);
+		if remotes.is_empty() {
+			return Ok(None);
+		}
+		let mut futures = remotes
+			.iter()
+			.map(|remote| {
+				let remote = remote.clone();
+				async move {
+					let client =
+						self.get_remote_client(remote.clone())
+							.await
+							.map_err(|source| {
+								tg::error!(
+									!source,
+									%id,
+									remote = %remote,
+									"failed to get the remote client"
+								)
+							})?;
+					client
+						.try_get_sandbox(id, tg::sandbox::get::Arg::default())
+						.await
+						.map_err(|source| {
+							tg::error!(
+								!source,
+								%id,
+								remote = %remote,
+								"failed to get the sandbox"
+							)
+						})
+				}
+			})
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
 			}
 		}
-
-		Ok(None)
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(output))
 	}
 
 	pub(crate) async fn handle_get_sandbox_request(
@@ -106,8 +112,9 @@ impl Server {
 		let Some(output) = self.try_get_sandbox_with_context(context, &id, arg).await? else {
 			return Ok(http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)
-				.body(BoxBody::empty())
-				.unwrap());
+				.empty()
+				.unwrap()
+				.boxed_body());
 		};
 
 		let (content_type, body) = match accept

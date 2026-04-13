@@ -33,34 +33,25 @@ impl Server {
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
-		// Forward to remote if requested.
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self
-				.get_remote_client(remote)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
-			let arg = tg::sync::Arg {
-				commands: arg.commands,
-				errors: arg.errors,
-				eager: arg.eager,
-				force: arg.force,
-				get: arg.get,
-				local: None,
-				logs: arg.logs,
-				metadata: arg.metadata,
-				outputs: arg.outputs,
-				put: arg.put,
-				recursive: arg.recursive,
-				remotes: None,
-			};
-			let stream = client
-				.sync(arg, stream)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to sync with remote"))?;
-			return Ok(stream.boxed());
+		if Self::local(arg.local, arg.remotes.as_ref()) {
+			return self.sync_local(context, arg, stream).await;
 		}
 
-		// Create the task.
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			return self.sync_remote(arg, stream, remote).await;
+		}
+
+		Err(tg::error!(
+			"failed to determine whether to use local or a remote"
+		))
+	}
+
+	async fn sync_local(
+		&self,
+		context: &Context,
+		arg: tg::sync::Arg,
+		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>> {
 		let (sender, receiver) = tokio::sync::mpsc::channel(4096);
 		let task = Task::spawn({
 			let server = self.clone();
@@ -109,6 +100,37 @@ impl Server {
 			})
 			.attach(task);
 
+		Ok(stream.boxed())
+	}
+
+	async fn sync_remote(
+		&self,
+		arg: tg::sync::Arg,
+		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
+		remote: String,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>> {
+		let client = self
+			.get_remote_client(remote)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
+		let arg = tg::sync::Arg {
+			commands: arg.commands,
+			errors: arg.errors,
+			eager: arg.eager,
+			force: arg.force,
+			get: arg.get,
+			local: None,
+			logs: arg.logs,
+			metadata: arg.metadata,
+			outputs: arg.outputs,
+			put: arg.put,
+			recursive: arg.recursive,
+			remotes: None,
+		};
+		let stream = client
+			.sync(arg, stream)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to sync with remote"))?;
 		Ok(stream.boxed())
 	}
 

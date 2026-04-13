@@ -34,24 +34,27 @@ impl tg::handle::Sandbox for Handle {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.list_sandboxes(arg)) }
 	}
 
-	fn delete_sandbox(&self, id: &tg::sandbox::Id) -> impl Future<Output = tg::Result<()>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.delete_sandbox(id)) }
+	fn try_delete_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> impl Future<Output = tg::Result<Option<()>>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_delete_sandbox(id)) }
 	}
 
-	fn finish_sandbox(
+	fn try_finish_sandbox(
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::finish::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.finish_sandbox(id, arg)) }
+	) -> impl Future<Output = tg::Result<Option<()>>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_finish_sandbox(id, arg)) }
 	}
 
-	fn heartbeat_sandbox(
+	fn try_heartbeat_sandbox(
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::heartbeat::Arg,
-	) -> impl Future<Output = tg::Result<tg::sandbox::heartbeat::Output>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.heartbeat_sandbox(id, arg)) }
+	) -> impl Future<Output = tg::Result<Option<tg::sandbox::heartbeat::Output>>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_heartbeat_sandbox(id, arg)) }
 	}
 
 	fn try_get_sandbox_status_stream(

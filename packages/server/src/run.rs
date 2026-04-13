@@ -31,7 +31,10 @@ impl Server {
 				.unwrap();
 			let permit = SandboxPermit(tg::Either::Left(permit));
 
-			let arg = tg::sandbox::queue::Arg::default();
+			let arg = tg::sandbox::queue::Arg {
+				local: Some(true),
+				remotes: None,
+			};
 			let futures = std::iter::once(
 				self.dequeue_sandbox(arg)
 					.map_ok(|output| (output, None))
@@ -42,9 +45,11 @@ impl Server {
 					let server = self.clone();
 					let remote = name.to_owned();
 					async move {
-						let client = server.get_remote_client(remote.clone()).await?;
-						let arg = tg::sandbox::queue::Arg::default();
-						let output = client.dequeue_sandbox(arg).await?;
+						let arg = tg::sandbox::queue::Arg {
+							local: None,
+							remotes: Some(vec![remote.clone()]),
+						};
+						let output = server.dequeue_sandbox(arg).await?;
 						Ok::<_, tg::Error>((output, Some(remote)))
 					}
 					.boxed()

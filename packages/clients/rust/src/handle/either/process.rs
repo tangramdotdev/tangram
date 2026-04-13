@@ -73,25 +73,25 @@ where
 		}
 	}
 
-	fn cancel_process(
+	fn try_cancel_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	) -> impl Future<Output = tg::Result<Option<()>>> {
 		match self {
-			tg::Either::Left(s) => s.cancel_process(id, arg).left_future(),
-			tg::Either::Right(s) => s.cancel_process(id, arg).right_future(),
+			tg::Either::Left(s) => s.try_cancel_process(id, arg).left_future(),
+			tg::Either::Right(s) => s.try_cancel_process(id, arg).right_future(),
 		}
 	}
 
-	fn signal_process(
+	fn try_signal_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	) -> impl Future<Output = tg::Result<Option<()>>> {
 		match self {
-			tg::Either::Left(s) => s.signal_process(id, arg).left_future(),
-			tg::Either::Right(s) => s.signal_process(id, arg).right_future(),
+			tg::Either::Left(s) => s.try_signal_process(id, arg).left_future(),
+			tg::Either::Right(s) => s.try_signal_process(id, arg).right_future(),
 		}
 	}
 
@@ -185,14 +185,14 @@ where
 		}
 	}
 
-	fn set_process_tty_size(
+	fn try_set_process_tty_size(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::tty::size::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	) -> impl Future<Output = tg::Result<Option<()>>> {
 		match self {
-			tg::Either::Left(s) => s.set_process_tty_size(id, arg).left_future(),
-			tg::Either::Right(s) => s.set_process_tty_size(id, arg).right_future(),
+			tg::Either::Left(s) => s.try_set_process_tty_size(id, arg).left_future(),
+			tg::Either::Right(s) => s.try_set_process_tty_size(id, arg).right_future(),
 		}
 	}
 
@@ -219,47 +219,49 @@ where
 		}
 	}
 
-	fn write_process_stdio(
+	fn try_write_process_stdio(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static,
+			Option<
+				impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static,
+			>,
 		>,
 	> {
 		match self {
 			tg::Either::Left(s) => s
-				.write_process_stdio(id, arg, stream)
-				.map_ok(futures::StreamExt::left_stream)
+				.try_write_process_stdio(id, arg, stream)
+				.map_ok(|option| option.map(futures::StreamExt::left_stream))
 				.left_future(),
 			tg::Either::Right(s) => s
-				.write_process_stdio(id, arg, stream)
-				.map_ok(futures::StreamExt::right_stream)
+				.try_write_process_stdio(id, arg, stream)
+				.map_ok(|option| option.map(futures::StreamExt::right_stream))
 				.right_future(),
 		}
 	}
 
-	fn touch_process(
+	fn try_touch_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::touch::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	) -> impl Future<Output = tg::Result<Option<()>>> {
 		match self {
-			tg::Either::Left(s) => s.touch_process(id, arg).left_future(),
-			tg::Either::Right(s) => s.touch_process(id, arg).right_future(),
+			tg::Either::Left(s) => s.try_touch_process(id, arg).left_future(),
+			tg::Either::Right(s) => s.try_touch_process(id, arg).right_future(),
 		}
 	}
 
-	fn finish_process(
+	fn try_finish_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	) -> impl Future<Output = tg::Result<Option<()>>> {
 		match self {
-			tg::Either::Left(s) => s.finish_process(id, arg).left_future(),
-			tg::Either::Right(s) => s.finish_process(id, arg).right_future(),
+			tg::Either::Left(s) => s.try_finish_process(id, arg).left_future(),
+			tg::Either::Right(s) => s.try_finish_process(id, arg).right_future(),
 		}
 	}
 

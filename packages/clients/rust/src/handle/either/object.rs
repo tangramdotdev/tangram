@@ -48,14 +48,14 @@ where
 		}
 	}
 
-	fn touch_object(
+	fn try_touch_object(
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::touch::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
+	) -> impl Future<Output = tg::Result<Option<()>>> {
 		match self {
-			tg::Either::Left(s) => s.touch_object(id, arg).left_future(),
-			tg::Either::Right(s) => s.touch_object(id, arg).right_future(),
+			tg::Either::Left(s) => s.try_touch_object(id, arg).left_future(),
+			tg::Either::Right(s) => s.try_touch_object(id, arg).right_future(),
 		}
 	}
 }

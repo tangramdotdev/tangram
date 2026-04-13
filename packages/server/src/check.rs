@@ -22,28 +22,25 @@ impl Server {
 		context: &Context,
 		arg: tg::check::Arg,
 	) -> tg::Result<tg::check::Output> {
-		// Forward to remote if requested.
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			let client = self
-				.get_remote_client(remote)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
-			let arg = tg::check::Arg {
-				local: None,
-				modules: arg.modules,
-				remotes: None,
-			};
-			let output = client
-				.check(arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to check on the remote"))?;
-			return Ok(output);
-		}
-
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
+		if Self::local(arg.local, arg.remotes.as_ref()) {
+			return self.check_local(arg).await;
+		}
+
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
+			return self.check_remote(arg, remote).await;
+		}
+
+		Err(tg::error!(
+			"failed to determine whether to use local or a remote"
+		))
+	}
+
+	#[cfg(feature = "typescript")]
+	async fn check_local(&self, arg: tg::check::Arg) -> tg::Result<tg::check::Output> {
 		// Create the compiler.
 		let compiler = self.create_compiler();
 
@@ -64,6 +61,28 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to wait for the compiler"))?;
 
+		Ok(output)
+	}
+
+	#[cfg(feature = "typescript")]
+	async fn check_remote(
+		&self,
+		arg: tg::check::Arg,
+		remote: String,
+	) -> tg::Result<tg::check::Output> {
+		let client = self
+			.get_remote_client(remote)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
+		let arg = tg::check::Arg {
+			local: None,
+			modules: arg.modules,
+			remotes: None,
+		};
+		let output = client
+			.check(arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to check on the remote"))?;
 		Ok(output)
 	}
 

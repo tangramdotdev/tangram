@@ -19,8 +19,8 @@ impl tg::handle::Remote for Shared {
 		self.0.put_remote(name, arg).await
 	}
 
-	async fn delete_remote(&self, name: &str) -> tg::Result<()> {
-		self.0.delete_remote(name).await
+	async fn try_delete_remote(&self, name: &str) -> tg::Result<Option<()>> {
+		self.0.try_delete_remote(name).await
 	}
 }
 
@@ -43,8 +43,8 @@ impl tg::handle::Remote for Server {
 			.await
 	}
 
-	async fn delete_remote(&self, name: &str) -> tg::Result<()> {
-		self.delete_remote_with_context(&Context::default(), name)
+	async fn try_delete_remote(&self, name: &str) -> tg::Result<Option<()>> {
+		self.try_delete_remote_with_context(&Context::default(), name)
 			.await
 	}
 }

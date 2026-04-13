@@ -3,53 +3,46 @@ use {
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_http::{
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+	},
 	tangram_messenger::prelude::*,
 };
 
 impl Server {
-	pub(crate) async fn post_process_signal_with_context(
+	pub(crate) async fn try_post_process_signal_with_context(
 		&self,
 		_context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
-	) -> tg::Result<()> {
-		if Self::local(arg.local, arg.remotes.as_ref())
-			&& let Some(output) = self
-				.try_get_process_local(id, false)
-				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
-		{
+	) -> tg::Result<Option<()>> {
+		if Self::local(arg.local, arg.remotes.as_ref()) {
+			return self.post_process_signal_local(id, arg.signal).await;
+		}
+
+		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
 			return self
-				.post_process_signal_local(id, arg.signal, output.data.cacheable)
+				.post_process_signal_remote(id, arg.signal, remote)
 				.await;
 		}
 
-		let peers = self
-			.peers(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the peers"))?;
-		if self.post_process_signal_peer(id, &arg, &peers).await? {
-			return Ok(());
-		}
-
-		let remotes = self
-			.remotes(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
-		if self.post_process_signal_remote(id, &arg, &remotes).await? {
-			return Ok(());
-		}
-
-		Err(tg::error!("failed to find the process"))
+		Ok(None)
 	}
 
 	async fn post_process_signal_local(
 		&self,
 		id: &tg::process::Id,
 		signal: tg::process::Signal,
-		cacheable: bool,
-	) -> tg::Result<()> {
+	) -> tg::Result<Option<()>> {
+		let Some(output) = self
+			.try_get_process_local(id, false)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
+		else {
+			return Ok(None);
+		};
+		let cacheable = output.data.cacheable;
+
 		// Check if the process is cacheable.
 		if cacheable {
 			return Err(tg::error!(%id, "cannot signal cacheable processes"));
@@ -78,70 +71,25 @@ impl Server {
 		// Publish the signal message.
 		self.spawn_publish_process_signal_message_task(id);
 
-		Ok(())
-	}
-	async fn post_process_signal_peer(
-		&self,
-		id: &tg::process::Id,
-		arg: &tg::process::signal::post::Arg,
-		peers: &[String],
-	) -> tg::Result<bool> {
-		for peer in peers {
-			let client = self.get_peer_client(peer.clone()).await.map_err(
-				|source| tg::error!(!source, %id, peer = %peer, "failed to get the peer client"),
-			)?;
-			let output = client
-				.try_get_process(id, tg::process::get::Arg::default())
-				.await
-				.map_err(
-					|source| tg::error!(!source, %id, peer = %peer, "failed to get the process"),
-				)?;
-			if output.is_none() {
-				continue;
-			}
-			let arg = tg::process::signal::post::Arg {
-				local: None,
-				remotes: None,
-				signal: arg.signal,
-			};
-			client.post_process_signal(id, arg).await.map_err(
-				|source| tg::error!(!source, %id, peer = %peer, "failed to post the process signal"),
-			)?;
-			return Ok(true);
-		}
-		Ok(false)
+		Ok(Some(()))
 	}
 
 	async fn post_process_signal_remote(
 		&self,
 		id: &tg::process::Id,
-		arg: &tg::process::signal::post::Arg,
-		remotes: &[String],
-	) -> tg::Result<bool> {
-		for remote in remotes {
-			let client = self.get_remote_client(remote.clone()).await.map_err(
-				|source| tg::error!(!source, %id, remote = %remote, "failed to get the remote client"),
-			)?;
-			let output = client
-				.try_get_process(id, tg::process::get::Arg::default())
-				.await
-				.map_err(
-					|source| tg::error!(!source, %id, remote = %remote, "failed to get the process"),
-				)?;
-			if output.is_none() {
-				continue;
-			}
-			let arg = tg::process::signal::post::Arg {
-				local: None,
-				remotes: None,
-				signal: arg.signal,
-			};
-			client.post_process_signal(id, arg).await.map_err(
-				|source| tg::error!(!source, %id, remote = %remote, "failed to post the process signal"),
-			)?;
-			return Ok(true);
-		}
-		Ok(false)
+		signal: tg::process::Signal,
+		remote: String,
+	) -> tg::Result<Option<()>> {
+		let client = self
+			.get_remote_client(remote)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
+		let arg = tg::process::signal::post::Arg {
+			local: None,
+			remotes: None,
+			signal,
+		};
+		client.try_post_process_signal(id, arg).await
 	}
 
 	pub(crate) async fn handle_post_process_signal_request(
@@ -159,18 +107,26 @@ impl Server {
 		// Parse the process id.
 		let id = id
 			.parse()
-			.map_err(|source| tg::error!(!source, "failed to parse process id"))?;
+			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
 
 		// Get the arg.
 		let arg = request
 			.json()
 			.await
-			.map_err(|_| tg::error!("failed to deserialize the arg"))?;
+			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Post the process signal.
-		self.post_process_signal_with_context(context, &id, arg)
+		let Some(()) = self
+			.try_post_process_signal_with_context(context, &id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to post process signal"))?;
+			.map_err(|source| tg::error!(!source, "failed to post process signal"))?
+		else {
+			return Ok(http::Response::builder()
+				.not_found()
+				.empty()
+				.unwrap()
+				.boxed_body());
+		};
 
 		// Create the response.
 		match accept
@@ -183,7 +139,7 @@ impl Server {
 			},
 		}
 
-		let response = http::Response::builder().body(BoxBody::empty()).unwrap();
+		let response = http::Response::builder().empty().unwrap().boxed_body();
 		Ok(response)
 	}
 
