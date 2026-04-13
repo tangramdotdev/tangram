@@ -10,7 +10,7 @@ impl Cli {
 		if let Err(error) = self.stop_server().await {
 			Self::print_warning_message(&format!("failed to stop existing server. {error}"));
 		}
-		let client = self.create_client();
+		let client = self.create_client()?;
 		self.start_server(&client).await?;
 		Ok(())
 	}

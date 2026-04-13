@@ -65,6 +65,12 @@ impl Sandbox {
 				(self.guest_output_path(), self.host_output_path()),
 				(self.guest_artifacts_path(), self.0.artifacts_path.clone()),
 			]);
+			if matches!(self.0.isolation, tg::sandbox::Isolation::Container) {
+				path_maps.push((
+					PathBuf::from("/"),
+					Self::host_upper_path_from_root(&self.0.path),
+				));
+			}
 			Self::map_path(
 				path,
 				path_maps
@@ -124,6 +130,12 @@ impl Sandbox {
 				(self.host_output_path(), self.guest_output_path()),
 				(self.0.artifacts_path.clone(), self.guest_artifacts_path()),
 			]);
+			if matches!(self.0.isolation, tg::sandbox::Isolation::Container) {
+				path_maps.push((
+					Self::host_upper_path_from_root(&self.0.path),
+					PathBuf::from("/"),
+				));
+			}
 			Self::map_path(
 				path,
 				path_maps

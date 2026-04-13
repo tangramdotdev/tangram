@@ -109,7 +109,6 @@ pub struct State {
 	retry: tangram_futures::retry::Options,
 	sender: self::http::Sender,
 	service: self::http::Service,
-	#[expect(dead_code)]
 	process: Option<tg::process::Id>,
 	#[expect(dead_code)]
 	token: Option<String>,
@@ -179,6 +178,11 @@ impl Client {
 	#[must_use]
 	pub fn url(&self) -> &Uri {
 		&self.url
+	}
+
+	#[must_use]
+	pub fn process(&self) -> Option<&tg::process::Id> {
+		self.0.process.as_ref()
 	}
 
 	#[must_use]

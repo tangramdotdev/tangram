@@ -518,7 +518,11 @@ impl Cli {
 			Mode::Server => tg::Either::Right(self.server().boxed().await?),
 		};
 
-		if self.health.is_none() {
+		if self.health.is_none()
+			&& match &handle {
+				tg::Either::Left(client) => client.process().is_none(),
+				tg::Either::Right(_) => true,
+			} {
 			let arg = tg::health::Arg {
 				fields: Some(vec!["diagnostics".to_owned()]),
 			};
@@ -549,10 +553,18 @@ impl Cli {
 
 	async fn auto(&mut self) -> tg::Result<Client> {
 		// Create the client.
-		let client = self.create_client();
+		let client = self.create_client()?;
 
 		// Attempt to connect to the server.
 		let connected = client.connect().await.is_ok();
+
+		// If the client has a process, then expect it to be connected.
+		if client.process().is_some() {
+			if !connected {
+				return Err(tg::error!(url = %client.url(), "failed to connect to the server"));
+			}
+			return Ok(client);
+		}
 
 		// If the client is not connected and the URL is local, then start the server and attempt to connect.
 		let local = client.url().scheme() == Some("http+unix")
@@ -600,7 +612,7 @@ impl Cli {
 
 	async fn client(&self) -> tg::Result<Client> {
 		// Create the client.
-		let client = self.create_client();
+		let client = self.create_client()?;
 
 		// Try to connect. If the client is not connected, then return an error.
 		let connected = client.connect().await.is_ok();
@@ -611,7 +623,7 @@ impl Cli {
 		Ok(client)
 	}
 
-	fn create_client(&self) -> Client {
+	fn create_client(&self) -> tg::Result<Client> {
 		// Get the url.
 		let url = self
 			.args
@@ -662,8 +674,20 @@ impl Cli {
 				max_retries: retry.max_retries,
 			});
 
+		// Get the process.
+		let process = std::env::var("TANGRAM_PROCESS")
+			.ok()
+			.map(|value| {
+				value
+					.parse()
+					.map_err(|source| tg::error!(!source, "failed to parse TANGRAM_PROCESS"))
+			})
+			.transpose()?;
+
 		// Create the client.
-		tg::Client::new(url, Some(version()), token, None, reconnect, retry)
+		let client = tg::Client::new(url, Some(version()), token, process, reconnect, retry);
+
+		Ok(client)
 	}
 
 	async fn server(&self) -> tg::Result<Server> {
