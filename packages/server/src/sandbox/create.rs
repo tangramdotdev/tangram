@@ -75,7 +75,7 @@ impl Server {
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let isolation = self.resolve_sandbox_isolation()?;
-		Self::validate_sandbox_resources(isolation, arg.cpu, arg.memory)?;
+		Self::validate_sandbox_resources(&isolation, arg.cpu, arg.memory)?;
 		let cpu = arg
 			.cpu
 			.map(i64::try_from)

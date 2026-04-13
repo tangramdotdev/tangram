@@ -4,7 +4,12 @@ use {
 	std::{
 		collections::BTreeMap,
 		ffi::{CString, OsStr, OsString},
-		os::{fd::RawFd, unix::ffi::OsStrExt as _},
+		io::{Read as _, Write as _},
+		net::Ipv4Addr,
+		os::{
+			fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd},
+			unix::{ffi::OsStrExt as _, net::UnixStream},
+		},
 		path::PathBuf,
 		process::ExitCode,
 	},
@@ -15,6 +20,8 @@ use {
 pub struct Arg {
 	pub as_pid_1: bool,
 	pub binds: Vec<Bind>,
+	pub bridge_fd: Option<i32>,
+	pub bridge_ip: Option<Ipv4Addr>,
 	pub cgroup: Option<String>,
 	pub cgroup_cpu: Option<u64>,
 	pub cgroup_memory: Option<u64>,
@@ -24,7 +31,10 @@ pub struct Arg {
 	pub devs: Vec<PathBuf>,
 	pub die_with_parent: bool,
 	pub gid: libc::gid_t,
+	pub guest_ip: Option<Ipv4Addr>,
 	pub hostname: Option<String>,
+	pub id: tg::sandbox::Id,
+	pub network: Option<Network>,
 	pub new_session: bool,
 	pub nice: u8,
 	pub overlay_sources: Vec<PathBuf>,
@@ -32,7 +42,6 @@ pub struct Arg {
 	pub procs: Vec<PathBuf>,
 	pub ro_binds: Vec<Bind>,
 	pub setenvs: Vec<SetEnv>,
-	pub share_net: bool,
 	pub tmpfs: Vec<PathBuf>,
 	pub uid: libc::uid_t,
 	pub unshare_all: bool,
@@ -42,6 +51,12 @@ pub struct Arg {
 pub struct Bind {
 	pub source: PathBuf,
 	pub target: PathBuf,
+}
+
+#[derive(Clone, Debug, derive_more::IsVariant)]
+pub enum Network {
+	Host,
+	Bridge(String),
 }
 
 #[derive(Clone, Debug)]
@@ -62,35 +77,65 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	if arg.die_with_parent {
 		set_parent_death_signal(libc::SIGKILL)?;
 	}
-	let cgroup = arg
-		.cgroup
-		.as_deref()
-		.map(|name| {
-			cgroup::create(
-				name,
-				arg.cgroup_cpu,
-				arg.cgroup_memory,
-				arg.cgroup_memory_oom_group,
-			)
-		})
-		.transpose()?;
 
 	if arg.unshare_all {
 		enter_user_namespace(arg.uid, arg.gid)?;
+		match &arg.network {
+			Some(Network::Host) => (),
+			None => {
+				unshare(
+					libc::CLONE_NEWNET,
+					"failed to unshare the network namespace",
+				)?;
+			},
+			Some(Network::Bridge(_name)) => {
+				unshare(
+					libc::CLONE_NEWNET,
+					"failed to unshare the network namespace",
+				)?;
+				let bridge_fd = arg
+					.bridge_fd
+					.ok_or_else(|| tg::error!("bridge networking requires a sync fd"))?;
+				if bridge_fd < 0 {
+					return Err(tg::error!(
+						fd = %bridge_fd,
+						"bridge networking requires a valid sync fd"
+					));
+				}
+				let bridge_fd = unsafe { OwnedFd::from_raw_fd(bridge_fd) };
+				let mut socket = UnixStream::from(bridge_fd);
+				socket
+					.write_all(&[0u8])
+					.map_err(|source| tg::error!(!source, "failed to signal ready to the host"))?;
+				let mut buf = [0u8; 1];
+				socket
+					.read_exact(&mut buf)
+					.map_err(|source| tg::error!(!source, "failed to wait for go from the host"))?;
+				let guest_ip = arg
+					.guest_ip
+					.ok_or_else(|| tg::error!("bridge networking requires a guest ip"))?;
+				let bridge_ip = arg
+					.bridge_ip
+					.ok_or_else(|| tg::error!("bridge networking requires a bridge ip"))?;
+				let id_str = arg.id.to_string();
+				let truncated = &id_str[..9];
+				let guest_name = format!("tg-vc-{truncated}");
+				let mut nl = crate::netlink::Netlink::new()?;
+				nl.link_rename(&guest_name, "eth0")?;
+				nl.addr_add_v4("eth0", guest_ip, 16)?;
+				nl.link_set_up("eth0")?;
+				nl.link_set_up("lo")?;
+				nl.route_add_default_v4(bridge_ip)?;
+			},
+		}
 		let mut flags = libc::CLONE_NEWNS | libc::CLONE_NEWIPC;
 		if arg.as_pid_1 {
 			flags |= libc::CLONE_NEWPID;
 		}
-		unshare(flags, "failed to unshare the sandbox namespaces")?;
-		if !arg.share_net {
-			unshare(
-				libc::CLONE_NEWNET,
-				"failed to unshare the network namespace",
-			)?;
-		}
 		if arg.hostname.is_some() {
-			unshare(libc::CLONE_NEWUTS, "failed to unshare the UTS namespace")?;
+			flags |= libc::CLONE_NEWUTS;
 		}
+		unshare(flags, "failed to unshare the sandbox namespaces")?;
 	}
 
 	if let Some(hostname) = &arg.hostname {
@@ -100,13 +145,35 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	let root = prepare_root(arg)?;
 	let root_path = root.as_ref().map(|root| root.path().join("root"));
 
-	let child = unsafe { libc::fork() };
-	if child < 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to fork the sandbox child"));
-	}
+	let cgroup = arg
+		.cgroup
+		.as_deref()
+		.map(|name| {
+			cgroup::Cgroup::new(
+				name,
+				cgroup::Options {
+					cpu: arg.cgroup_cpu,
+					memory: arg.cgroup_memory,
+					memory_oom_group: arg.cgroup_memory_oom_group,
+				},
+			)
+		})
+		.transpose()
+		.map_err(|source| tg::error!(!source, "failed to create the cgroup"))?;
+
+	let child = if let Some(cgroup) = &cgroup {
+		let cgroup_fd = cgroup.open_fd()?;
+		fork_into_cgroup(cgroup_fd.as_raw_fd())?
+	} else {
+		let pid = unsafe { libc::fork() };
+		if pid < 0 {
+			let source = std::io::Error::last_os_error();
+			return Err(tg::error!(!source, "failed to fork the sandbox child"));
+		}
+		pid
+	};
 	if child == 0 {
-		match child_main(arg, cgroup.as_ref(), root_path.as_ref()) {
+		match child_main(arg, root_path.as_ref()) {
 			Ok(()) => std::process::exit(0),
 			Err(error) => {
 				eprintln!("{error}");
@@ -115,19 +182,33 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			},
 		}
 	}
-
 	let status = wait_for_child(child)?;
-	if let Some(cgroup) = &cgroup {
-		cgroup::remove(cgroup);
+	if let Some(cgroup) = cgroup {
+		drop(cgroup);
 	}
 	Ok(ExitCode::from(status))
 }
 
-fn child_main(
-	arg: &Arg,
-	cgroup: Option<&cgroup::Cgroup>,
-	root: Option<&PathBuf>,
-) -> tg::Result<()> {
+fn fork_into_cgroup(cgroup_fd: RawFd) -> tg::Result<libc::pid_t> {
+	let mut args: libc::clone_args = unsafe { std::mem::zeroed() };
+	args.flags = libc::CLONE_INTO_CGROUP.try_into().unwrap();
+	args.exit_signal = libc::SIGCHLD as u64;
+	args.cgroup = cgroup_fd.try_into().unwrap();
+	let ret = unsafe {
+		libc::syscall(
+			libc::SYS_clone3,
+			&raw const args,
+			std::mem::size_of::<libc::clone_args>(),
+		)
+	};
+	if ret < 0 {
+		let source = std::io::Error::last_os_error();
+		return Err(tg::error!(!source, "failed to clone3 into the cgroup"));
+	}
+	Ok(ret.try_into().unwrap())
+}
+
+fn child_main(arg: &Arg, root: Option<&PathBuf>) -> tg::Result<()> {
 	unsafe {
 		*libc::__errno_location() = 0;
 	}
@@ -143,9 +224,6 @@ fn child_main(
 	}
 	if arg.die_with_parent {
 		set_parent_death_signal(libc::SIGKILL)?;
-	}
-	if let Some(cgroup) = cgroup {
-		cgroup::move_self(cgroup)?;
 	}
 	if arg.new_session {
 		start_session()?;
@@ -458,5 +536,25 @@ fn wait_for_child(child: libc::pid_t) -> tg::Result<u8> {
 			return Ok((128 + signal).min(255).to_u8().unwrap());
 		}
 		Ok(1)
+	}
+}
+
+impl std::str::FromStr for Network {
+	type Err = tg::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		match s {
+			"host" => Ok(Self::Host),
+			"bridge" => Ok(Self::Bridge("tangram0".to_owned())),
+			s => {
+				if let Some(name) = s.strip_prefix("bridge=") {
+					if name.is_empty() {
+						return Err(tg::error!(option = %s, "invalid network option"));
+					}
+					return Ok(Self::Bridge(name.to_owned()));
+				}
+				Err(tg::error!(option = %s, "unknown network option"))
+			},
+		}
 	}
 }

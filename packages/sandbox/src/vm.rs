@@ -15,4 +15,5 @@ pub struct Network {
 	pub netmask: Ipv4Addr,
 }
 
-pub const HOST_VSOCK_CID: u32 = 2;
+pub const VMADDR_CID_HOST: u32 = 2;
+pub const VMADDR_CID_ANY: u32 = u32::MAX;

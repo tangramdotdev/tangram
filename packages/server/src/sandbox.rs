@@ -75,6 +75,38 @@ impl Server {
 		Ok(true)
 	}
 
+	pub(crate) fn allocate_guest_ip(&self) -> tg::Result<crate::network::Ip> {
+		if self.networks.is_empty() {
+			return Err(tg::error!("no networks are configured"));
+		}
+		self.networks
+			.iter()
+			.find_map(|network| {
+				network
+					.try_reserve()
+					.inspect_err(|error| tracing::warn!(?error, "failed to allocate ip"))
+					.ok()
+			})
+			.ok_or_else(|| tg::error!("failed to allocate guest IP address"))
+	}
+
+	pub(crate) fn allocate_guest_ip_pair(
+		&self,
+	) -> tg::Result<(crate::network::Ip, crate::network::Ip)> {
+		if self.networks.is_empty() {
+			return Err(tg::error!("no networks are configured"));
+		}
+		self.networks
+			.iter()
+			.find_map(|network| {
+				network
+					.try_reserve_pair()
+					.inspect_err(|error| tracing::warn!(?error, "failed to allocate ip pair"))
+					.ok()
+			})
+			.ok_or_else(|| tg::error!("failed to allocate guest IP address pair"))
+	}
+
 	pub(crate) fn spawn_publish_sandbox_status_task(&self, id: &tg::sandbox::Id) {
 		let subject = format!("sandboxes.{id}.status");
 		tokio::spawn({
@@ -89,7 +121,7 @@ impl Server {
 	}
 
 	pub(crate) fn validate_sandbox_resources(
-		isolation: tangram_sandbox::Isolation,
+		isolation: &tangram_sandbox::Isolation,
 		cpu: Option<u64>,
 		memory: Option<u64>,
 	) -> tg::Result<()> {

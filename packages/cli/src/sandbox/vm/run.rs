@@ -1,4 +1,8 @@
-use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*};
+use {
+	crate::Cli,
+	std::{net::Ipv4Addr, path::PathBuf},
+	tangram_client::prelude::*,
+};
 
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -10,7 +14,19 @@ pub struct Args {
 	pub cpu: Option<u64>,
 
 	#[arg(long)]
+	pub host_ip: Option<Ipv4Addr>,
+
+	#[arg(long)]
 	pub hostname: Option<String>,
+
+	#[arg(long)]
+	pub guest_ip: Option<Ipv4Addr>,
+
+	#[arg(long)]
+	pub id: tg::sandbox::Id,
+
+	#[arg(long)]
+	pub kernel_path: PathBuf,
 
 	#[arg(long)]
 	pub memory: Option<u64>,
@@ -43,7 +59,11 @@ impl Cli {
 		let arg = tangram_sandbox::vm::run::Arg {
 			artifacts_path: args.artifacts_path,
 			cpu: args.cpu,
+			host_ip: args.host_ip,
+			guest_ip: args.guest_ip,
 			hostname: args.hostname,
+			id: args.id,
+			kernel_path: args.kernel_path,
 			memory: args.memory,
 			mounts: args.mounts,
 			network: args.network,
