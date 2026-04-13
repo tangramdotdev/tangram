@@ -390,6 +390,9 @@ fn main() -> std::process::ExitCode {
 			..
 		} => Mode::Client,
 
+		// When running inside a sandbox process, use client mode.
+		_ if std::env::var_os("TANGRAM_PROCESS").is_some() => Mode::Client,
+
 		_ => args.mode.unwrap_or_default(),
 	};
 
@@ -518,7 +521,8 @@ impl Cli {
 			Mode::Server => tg::Either::Right(self.server().boxed().await?),
 		};
 
-		if self.health.is_none() {
+		// Skip the health check when running inside a sandbox process.
+		if self.health.is_none() && std::env::var_os("TANGRAM_PROCESS").is_none() {
 			let arg = tg::health::Arg {
 				fields: Some(vec!["diagnostics".to_owned()]),
 			};
@@ -662,8 +666,13 @@ impl Cli {
 				max_retries: retry.max_retries,
 			});
 
+		// Get the process.
+		let process = std::env::var("TANGRAM_PROCESS")
+			.ok()
+			.and_then(|value| value.parse().ok());
+
 		// Create the client.
-		tg::Client::new(url, Some(version()), token, None, reconnect, retry)
+		tg::Client::new(url, Some(version()), token, process, reconnect, retry)
 	}
 
 	async fn server(&self) -> tg::Result<Server> {
