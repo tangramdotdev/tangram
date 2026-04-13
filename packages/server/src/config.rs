@@ -621,11 +621,11 @@ pub struct Watchdog {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Write {
-	pub avg_leaf_size: u32,
+	pub avg_leaf_size: usize,
 	pub cache_pointers: bool,
 	pub max_branch_children: usize,
-	pub max_leaf_size: u32,
-	pub min_leaf_size: u32,
+	pub max_leaf_size: usize,
+	pub min_leaf_size: usize,
 }
 
 impl Config {

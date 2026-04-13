@@ -48,7 +48,7 @@ assert ($stdout == ([
 	"stdout yyyyyyyyyyyyyyyyyyyy",
 	"stdout zzzzzzzzzzzzzzzzzzzz",
 ] | str join "\n"))
-let stderr = $output.stderr | lines | skip 1 | str join "\n"
+let stderr = $output.stderr
 let stderr = $stderr | str replace -ar 'pcs_00[0-9a-z]{26}' 'PROCESS'
 snapshot $stderr '
 	stderr aaaaaaaaaaaaaaaaaaaa
@@ -77,4 +77,5 @@ snapshot $stderr '
 	stderr xxxxxxxxxxxxxxxxxxxx
 	stderr yyyyyyyyyyyyyyyyyyyy
 	stderr zzzzzzzzzzzzzzzzzzzz
+
 '

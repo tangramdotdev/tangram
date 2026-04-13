@@ -86,7 +86,7 @@ pub fn magic<'s>(
 	for module_ in modules.iter() {
 		if let Some(v8_module) = &module_.v8 {
 			let v8_module = v8::Local::new(scope, v8_module);
-			if v8_module.script_id() == Some(function.get_script_origin().script_id()) {
+			if v8_module.script_id() == Some(function.get_script_origin(scope).script_id()) {
 				module = Some(module_.data.clone());
 			}
 		}

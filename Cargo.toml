@@ -82,7 +82,7 @@ data-encoding = "2"
 data-encoding-macro = "0.1"
 deno_core_icudata = "0.77"
 derive_more = { version = "2", features = ["full"] }
-fastcdc = { version = "3", features = ["tokio"] }
+fastcdc = { version = "4", features = ["tokio"] }
 filetime = "0.2"
 flate2 = "1"
 fnv = "1"
@@ -97,7 +97,6 @@ http-body = "1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["server-auto", "service", "tokio"] }
-icu_calendar = "=2.1.1"
 im = "15"
 include_dir = "0.7"
 indexmap = "2"
@@ -136,7 +135,7 @@ reqwest = { version = "0.13", features = ["json", "stream"] }
 rusqlite = { version = "0.39", default-features = false, features = ["bundled", "functions"] }
 rustix = { version = "1", features = ["fs"] }
 rustls = "0.23"
-rustls-platform-verifier = "0.6"
+rustls-platform-verifier = "0.7"
 rustls-pemfile = "2"
 scopeguard = "1"
 scylla = { version = "1", features = ["metrics"] }
