@@ -19,6 +19,7 @@
 		"format": "cargo fmt --all && bun run --parallel --filter \"*\" format",
 		"test": "nu packages/cli/test.nu $@ && cargo nextest run --no-fail-fast --workspace && bun run --parallel --filter \"*\" test",
 		"tg": "PATH=\"$PWD/target/debug:$PATH\" cargo run --all-features -- -c .config/tangram/config.json -d .tangram -m client",
+		"stg": "PATH=\"$PWD/target/debug:$PATH\" cargo build --all-features && sudo target/debug/tangram -c .config/tangram/config.json -d .tangram -m client",
 		"tgr": "PATH=\"$PWD/target/release:$PATH\" cargo run --all-features --release -- -c .config/tangram/config.json -d .tangram -m client",
 		"tgrs": "PATH=\"$PWD/target/release:$PATH\" cargo run --all-features --release -- -c .config/tangram/config.json -d .tangram -m server",
 		"tgrsx": "PATH=\"$PWD/target/release:$PATH\" cargo run --all-features --release -- -c .config/tangram/config.json -d .tangram -m server run -b",

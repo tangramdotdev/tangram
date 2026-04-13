@@ -17,6 +17,7 @@ def main [
 	--print-passing-test-output # Print the output of passing tests.
 	--review (-r) # Review snapshots.
 	--timeout: duration = 30sec # The timeout for each test.
+	--vm # Set the default runner config isolation to vm.
 	...filters: string # Filter tests.
 ] {
 	# Clean up leftover test resources if requested.
@@ -129,6 +130,7 @@ def main [
 				TANGRAM_CONFIG: ($temp_path | path join "config.json"),
 				TANGRAM_MODE: client,
 				TANGRAM_TEST_CLOUD: (if $cloud { "1" } else { "" }),
+				TANGRAM_TEST_VM: (if $vm { "1" } else { "" }),
 				TMPDIR: $temp_path,
 			} {
 				if $no_capture {
@@ -749,6 +751,16 @@ export def --env spawn [
 		remotes: [],
 		tokio_single_threaded: true,
 		v8_thread_pool_size: 1,
+	}
+
+	# Apply vm isolation to the runner if requested via the --vm flag on the
+	# outer test runner.
+	if (($env.TANGRAM_TEST_VM? | default "") | str length) > 0 {
+		$default_config = $default_config | merge deep --strategy append {
+			runner: {
+				isolation: 'vm',
+			},
+		}
 	}
 
 	mut id: any = null

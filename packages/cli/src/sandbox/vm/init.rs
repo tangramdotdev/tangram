@@ -41,20 +41,23 @@ pub struct Args {
 impl Args {
 	fn into_arg(self) -> tg::Result<tangram_sandbox::vm::init::Arg> {
 		let network = if self.network {
+			let guest_ip = self
+				.guest_ip
+				.ok_or_else(|| tg::error!("--guest-ip is required when --network is set"))?;
+			let gateway_ip = self
+				.gateway_ip
+				.ok_or_else(|| tg::error!("--gateway-ip is required when --network is set"))?;
+			let netmask = self
+				.netmask
+				.ok_or_else(|| tg::error!("--netmask is required when --network is set"))?;
 			if self.dns_servers.is_empty() {
-				return Err(tg::error!("missing a DNS server for vm networking"));
+				return Err(tg::error!("--dns is required when --network is set"));
 			}
 			Some(tangram_sandbox::vm::Network {
 				dns_servers: self.dns_servers,
-				gateway_ip: self
-					.gateway_ip
-					.ok_or_else(|| tg::error!("missing the gateway IP for vm networking"))?,
-				guest_ip: self
-					.guest_ip
-					.ok_or_else(|| tg::error!("missing the guest IP for vm networking"))?,
-				netmask: self
-					.netmask
-					.ok_or_else(|| tg::error!("missing the netmask for vm networking"))?,
+				gateway_ip,
+				guest_ip,
+				netmask,
 			})
 		} else {
 			None
