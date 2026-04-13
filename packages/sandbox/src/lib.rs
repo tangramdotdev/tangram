@@ -12,6 +12,8 @@ use {
 };
 
 mod client;
+#[cfg(target_os = "linux")]
+mod network;
 mod pty;
 mod server;
 mod util;
@@ -157,7 +159,7 @@ impl Sandbox {
 			},
 		};
 
-		let client = match tokio::time::timeout(Duration::from_secs(5), async {
+		let client = match tokio::time::timeout(Duration::from_secs(200), async {
 			tokio::select! {
 				result = Client::with_listener(&listener) => result,
 				result = process.wait() => {
@@ -294,27 +296,31 @@ impl Sandbox {
 	}
 
 	#[cfg(target_os = "linux")]
-	async fn listen_vsock() -> tg::Result<(crate::server::Listener, Uri)> {
+	async fn listen_vsock(root_path: &Path) -> tg::Result<(crate::server::Listener, Uri)> {
 		#[cfg(not(feature = "vsock"))]
 		{
 			Err(tg::error!("vsock is not enabled"))
 		}
 		#[cfg(feature = "vsock")]
 		{
-			let host_url = format!("http+vsock://{}:0", self::vm::HOST_VSOCK_CID)
+			let port = 6748;
+			let socket = format!("{}_{port}", vm::run::CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME);
+			let path = root_path.join("vm").join(socket);
+			tokio::fs::create_dir_all(path.parent().unwrap())
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the vm directory"))?;
+			let path = path.to_str().ok_or_else(|| tg::error!("invalid path"))?;
+			let host_url = Uri::builder()
+				.scheme("http+unix")
+				.authority(path)
+				.path("")
+				.build()
+				.map_err(|source| tg::error!(source = source, "failed to build the URL"))?;
+			let guest_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_HOST)
 				.parse()
 				.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
 			let listener = crate::server::Server::listen(&host_url).await?;
-			let addr = match &listener {
-				crate::server::Listener::Vsock(listener) => listener
-					.local_addr()
-					.map_err(|source| tg::error!(!source, "failed to get the local address"))?,
-				_ => unreachable!(),
-			};
-			let url = format!("http+vsock://{}:{}", addr.cid(), addr.port())
-				.parse()
-				.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
-			Ok((listener, url))
+			Ok((listener, guest_url))
 		}
 	}
 
