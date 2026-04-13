@@ -1,6 +1,7 @@
 use {
 	serde_with::{DurationSecondsWithFrac, serde_as},
 	std::{path::PathBuf, time::Duration},
+	tangram_client as tg,
 	tangram_uri::Uri,
 	tangram_util::serde::BoolOptionDefault,
 };
@@ -443,6 +444,8 @@ pub struct Runner {
 	pub concurrency: Option<usize>,
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub heartbeat_interval: Duration,
+	#[serde(default)]
+	pub isolation: tg::sandbox::Isolation,
 	#[serde(default)]
 	pub js: Js,
 	pub remotes: Vec<String>,
@@ -913,6 +916,7 @@ impl Default for Runner {
 		Self {
 			concurrency: None,
 			heartbeat_interval: Duration::from_secs(1),
+			isolation: tg::sandbox::Isolation::default(),
 			js: Js::default(),
 			remotes: Vec::new(),
 		}

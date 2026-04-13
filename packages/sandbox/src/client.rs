@@ -95,16 +95,6 @@ impl Client {
 				let mut guard = client.sender.lock().await;
 				guard.replace(sender);
 			},
-			#[cfg(feature = "vsock")]
-			crate::server::Listener::Vsock(listener) => {
-				let (stream, _) = listener
-					.accept()
-					.await
-					.map_err(|source| tg::error!(!source, "failed to accept the connection"))?;
-				let sender = Self::handshake_h2(stream).await?;
-				let mut guard = client.sender.lock().await;
-				guard.replace(sender);
-			},
 		}
 		Ok(client)
 	}
