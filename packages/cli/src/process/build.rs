@@ -58,7 +58,7 @@ impl Cli {
 		}
 
 		let cacheable = args.options.spawn.sandbox.arg.mounts.is_empty()
-			&& !args.options.spawn.sandbox.arg.network.get()
+			&& !args.options.spawn.sandbox.arg.network.is_enabled()
 			&& matches!(args.options.spawn.stdin, Some(tg::process::Stdio::Null))
 			&& matches!(args.options.spawn.stdout, Some(tg::process::Stdio::Log))
 			&& matches!(args.options.spawn.stderr, Some(tg::process::Stdio::Log))

@@ -53,7 +53,8 @@ impl Server {
 			memory: Option<i64>,
 			#[tangram_database(as = "Option<db::value::Json<Vec<tg::sandbox::Mount>>>")]
 			mounts: Option<Vec<tg::sandbox::Mount>>,
-			network: bool,
+			#[tangram_database(as = "Option<db::value::Json<tg::sandbox::Network>>")]
+			network: Option<tg::sandbox::Network>,
 			#[tangram_database(as = "db::value::FromStr")]
 			status: tg::sandbox::Status,
 			#[tangram_database(as = "Option<db::value::DurationSeconds>")]

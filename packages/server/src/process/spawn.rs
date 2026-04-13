@@ -144,7 +144,7 @@ impl Server {
 
 		// Determine if the process is cacheable.
 		let cacheable = if let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
-			sandbox.mounts.is_empty() && !sandbox.network
+			sandbox.mounts.is_empty() && matches!(&sandbox.network, tg::Either::Left(false))
 		} else {
 			false
 		};
@@ -1347,6 +1347,7 @@ impl Server {
 					created_at,
 					heartbeat_at,
 					hostname,
+					isolation,
 					memory,
 					mounts,
 					network,
@@ -1367,7 +1368,8 @@ impl Server {
 					{p}9,
 					{p}10,
 					{p}11,
-					{p}12
+					{p}12,
+					{p}13
 				);
 			"
 		);
@@ -1394,9 +1396,10 @@ impl Server {
 			now,
 			heartbeat_at,
 			arg.hostname.clone(),
+			arg.isolation.map(db::value::Json),
 			memory,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
-			arg.network,
+			db::value::Json(arg.network.clone()),
 			started_at,
 			status.to_string(),
 			db::value::DurationSeconds(ttl),

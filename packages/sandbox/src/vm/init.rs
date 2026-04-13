@@ -121,8 +121,6 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 	};
 	if result != 0 {
 		let error = std::io::Error::last_os_error();
-		// The kernel auto-mounts devtmpfs at /dev when built with
-		// CONFIG_DEVTMPFS_MOUNT. Treat EBUSY as "already mounted".
 		if error.raw_os_error() != Some(libc::EBUSY) {
 			return Err(tg::error!(!error, "failed to mount /dev"));
 		}

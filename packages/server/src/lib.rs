@@ -482,15 +482,12 @@ impl Server {
 		};
 
 		// Create the networks
-		let ignored_ifaces: Vec<String> = match &config.sandbox.isolation {
-			crate::config::SandboxIsolation::Container(container) => match &container.network {
-				Some(crate::config::ContainerNetwork::Bridge(bridge)) => {
-					vec![bridge.name.as_deref().unwrap_or("tangram0").to_owned()]
-				},
-				_ => Vec::new(),
-			},
-			_ => Vec::new(),
-		};
+		let ignored_ifaces: Vec<String> = config
+			.sandbox
+			.bridge
+			.as_ref()
+			.map(|bridge| vec![bridge.name.as_deref().unwrap_or("tangram0").to_owned()])
+			.unwrap_or_default();
 		let networks = config
 			.sandbox
 			.networks
@@ -950,27 +947,30 @@ impl Server {
 			})
 		});
 
-		// Remove host-wide iptables rules left behind by previous runs of the server,
-		// then re-create the bridge if the runner is using bridge networking.
+		// Remove host-wide iptables rules left behind by previous runs of the server, then create the bridge. Bridge setup requires root; if the server is not running as root, log a warning and skip.
 		#[cfg(target_os = "linux")]
-		if server.config.runner.is_some() {
-			let bridge = if let crate::config::SandboxIsolation::Container(container) =
-				&server.config.sandbox.isolation
-				&& let Some(crate::config::ContainerNetwork::Bridge(bridge)) = &container.network
-			{
-				let name = bridge.name.as_deref().unwrap_or("tangram0").to_owned();
-				let ip = bridge.ip.unwrap_or_else(crate::config::default_bridge_ip);
-				Some((name, ip))
-			} else {
-				None
-			};
-			let bridge_name = bridge.as_ref().map(|(name, _)| name.as_str());
-			if let Err(error) = tangram_sandbox::cleanup_persistent_rules(bridge_name) {
-				tracing::warn!(%error, "failed to clean up persistent sandbox rules");
-			}
-			if let Some((name, ip)) = bridge {
-				tangram_sandbox::create_bridge(&name, ip)
+		{
+			let bridge_config = server.config.sandbox.bridge.as_ref();
+			let bridge_name = bridge_config
+				.and_then(|bridge| bridge.name.as_deref())
+				.unwrap_or("tangram0")
+				.to_owned();
+			let bridge_ip = bridge_config
+				.and_then(|bridge| bridge.ip)
+				.unwrap_or_else(crate::config::default_bridge_ip);
+			if unsafe { libc::geteuid() } == 0 {
+				if let Err(error) =
+					tangram_sandbox::network::cleanup_persistent_rules(Some(&bridge_name))
+				{
+					tracing::warn!(%error, "failed to clean up persistent sandbox rules");
+				}
+				tangram_sandbox::network::create_bridge(&bridge_name, bridge_ip)
 					.map_err(|source| tg::error!(!source, "failed to create the bridge"))?;
+			} else {
+				tracing::warn!(
+					bridge = %bridge_name,
+					"the server is not running as root; skipping bridge setup",
+				);
 			}
 		}
 

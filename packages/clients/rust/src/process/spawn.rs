@@ -212,7 +212,11 @@ where
 		Some(tg::Either::Left(arg)) => Some(arg),
 		Some(tg::Either::Right(_)) | None => None,
 	};
-	if sandbox_arg.as_ref().is_some_and(|arg| arg.network) && checksum.is_none() {
+	if sandbox_arg
+		.as_ref()
+		.is_some_and(|arg| !matches!(arg.network, tg::Either::Left(false)))
+		&& checksum.is_none()
+	{
 		return Err(tg::error!(
 			"a checksum is required to build with network enabled"
 		));
@@ -1056,7 +1060,7 @@ fn normalize_sandbox(
 	let memory = arg.memory;
 	let mounts = arg.mounts.clone();
 	let has_network = arg.network.is_some();
-	let network = arg.network.unwrap_or(false);
+	let network = arg.network.clone().unwrap_or(tg::Either::Left(false));
 	let has_resource_fields = has_cpu || has_memory || !mounts.is_empty() || has_network;
 	match arg.sandbox.clone() {
 		Some(tg::process::SandboxArg::Bool(true)) => {
@@ -1071,7 +1075,7 @@ fn normalize_sandbox(
 				sandbox.mounts.extend(mounts);
 			}
 			if has_network {
-				sandbox.network = network;
+				sandbox.network = network.clone();
 			}
 			let sandbox = normalize_sandbox_create_arg(sandbox);
 			Ok(Some(tg::Either::Left(sandbox)))
@@ -1087,7 +1091,7 @@ fn normalize_sandbox(
 				sandbox.mounts.extend(mounts);
 			}
 			if has_network {
-				sandbox.network = network;
+				sandbox.network = network.clone();
 			}
 			let sandbox = normalize_sandbox_create_arg(sandbox);
 			Ok(Some(tg::Either::Left(sandbox)))
@@ -1107,6 +1111,7 @@ fn normalize_sandbox(
 			let sandbox = tg::sandbox::create::Arg {
 				cpu,
 				hostname: None,
+				isolation: None,
 				location: None,
 				memory,
 				mounts,
@@ -1125,7 +1130,8 @@ fn normalize_sandbox_create_arg(
 	tg::sandbox::create::Arg {
 		cpu: sandbox.cpu,
 		hostname: sandbox.hostname,
-		location: None,
+		isolation: sandbox.isolation,
+		location: sandbox.location,
 		memory: sandbox.memory,
 		mounts: sandbox.mounts,
 		network: sandbox.network,

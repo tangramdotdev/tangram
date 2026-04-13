@@ -22,24 +22,24 @@ pub(crate) async fn spawn(
 	arg: &crate::Arg,
 	serve_arg: &crate::serve::Arg,
 ) -> tg::Result<tokio::process::Child> {
-	let crate::Isolation::Container(container) = &arg.isolation else {
+	let crate::Isolation::Container(_) = &arg.isolation else {
 		unreachable!()
 	};
 	let network_arg = match &arg.network {
 		None => None,
-		Some(crate::Network::Bridge(bridge)) => Some(format!("bridge={}", bridge.name)),
 		Some(crate::Network::Host) => Some("host".to_owned()),
+		Some(crate::Network::Bridge(bridge)) => Some(format!("bridge={}", bridge.name)),
 		Some(crate::Network::Tap) => {
 			return Err(tg::error!(
-				"tap networking is not supported for container isolation"
+				"container sandboxes do not support tap networking"
 			));
 		},
 	};
 	let mut bridge = if let Some(crate::Network::Bridge(bridge)) = &arg.network {
 		let id = arg.id.clone();
-		let bridge = bridge.name.clone();
+		let bridge_name = bridge.name.clone();
 		Some(
-			tokio::task::spawn_blocking(move || crate::network::Bridge::new(&id, &bridge))
+			tokio::task::spawn_blocking(move || crate::network::Bridge::new(&id, &bridge_name))
 				.await
 				.map_err(|source| tg::error!(!source, "the bridge creation task panicked"))??,
 		)
@@ -49,7 +49,7 @@ pub(crate) async fn spawn(
 	prepare_sandbox_directory(&arg.path)?;
 	let user = prepare_etc_files(
 		&arg.path,
-		container.network.as_ref(),
+		arg.network.as_ref(),
 		arg.user.as_deref(),
 		&arg.dns,
 	)?;

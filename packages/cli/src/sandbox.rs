@@ -51,56 +51,58 @@ pub struct Options {
 	pub hostname: Option<String>,
 
 	#[arg(long)]
+	pub isolation: Option<tg::sandbox::Isolation>,
+
+	#[arg(long)]
 	pub memory: Option<u64>,
 
 	#[arg(action = clap::ArgAction::Append, long = "mount", num_args = 1, short)]
 	pub mounts: Vec<tg::sandbox::Mount>,
 
 	#[clap(flatten)]
-	pub network: Network,
+	pub network: NetworkOptions,
 
 	#[arg(long)]
 	pub user: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
-pub struct Network {
-	/// Whether to enable the network.
+pub struct NetworkOptions {
+	/// Enable networking. Accepts `host`, `bridge`, or `bridge=NAME[@IP]`.
 	#[arg(
 		default_missing_value = "true",
 		long,
 		num_args = 0..=1,
 		overrides_with = "no_network",
-		require_equals = true,
 	)]
-	network: Option<bool>,
+	network: Option<tg::Either<bool, tg::sandbox::Network>>,
 
-	#[arg(
-		default_missing_value = "true",
-		long,
-		num_args = 0..=1,
-		overrides_with = "network",
-		require_equals = true,
-	)]
-	no_network: Option<bool>,
+	#[arg(long, overrides_with = "network")]
+	no_network: bool,
 }
 
-impl Network {
-	pub fn get(&self) -> bool {
-		self.network
-			.or(self.no_network.map(|v| !v))
-			.unwrap_or(false)
-	}
-
-	pub fn new(network: bool) -> Self {
-		Self {
-			network: Some(network),
-			no_network: None,
+impl NetworkOptions {
+	pub fn get(&self) -> tg::Either<bool, tg::sandbox::Network> {
+		if self.no_network {
+			tg::Either::Left(false)
+		} else {
+			self.network.clone().unwrap_or(tg::Either::Left(false))
 		}
 	}
 
-	pub fn try_get(&self) -> Option<bool> {
-		self.network.or(self.no_network.map(|v| !v))
+	pub fn is_enabled(&self) -> bool {
+		!matches!(self.get(), tg::Either::Left(false))
+	}
+
+	pub fn is_unset(&self) -> bool {
+		self.network.is_none() && !self.no_network
+	}
+
+	pub fn with_network(network: tg::sandbox::Network) -> Self {
+		Self {
+			network: Some(tg::Either::Right(network)),
+			no_network: false,
+		}
 	}
 }
 
@@ -108,9 +110,10 @@ impl Options {
 	pub fn is_empty(&self) -> bool {
 		self.cpu.is_none()
 			&& self.hostname.is_none()
+			&& self.isolation.is_none()
 			&& self.memory.is_none()
 			&& self.mounts.is_empty()
-			&& self.network.try_get().is_none()
+			&& self.network.is_unset()
 			&& self.user.is_none()
 	}
 }

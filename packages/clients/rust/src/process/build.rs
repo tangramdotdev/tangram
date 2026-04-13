@@ -33,13 +33,16 @@ impl<O> tg::Process<O> {
 			.clone()
 			.unwrap_or(tg::process::SandboxArg::Bool(true));
 		let cacheable = match &sandbox {
-			tg::process::SandboxArg::Bool(true) => {
-				arg.mounts.is_empty() && !arg.network.unwrap_or(false)
-			},
+			tg::process::SandboxArg::Bool(true) => arg.mounts.is_empty()
+				&& matches!(
+					arg.network.as_ref(),
+					None | Some(tg::Either::Left(false))
+				),
 			tg::process::SandboxArg::Arg(sandbox) => {
+				let network = arg.network.as_ref().unwrap_or(&sandbox.network);
 				sandbox.mounts.is_empty()
 					&& arg.mounts.is_empty()
-					&& !arg.network.unwrap_or(sandbox.network)
+					&& matches!(network, tg::Either::Left(false))
 			},
 			tg::process::SandboxArg::Bool(false) | tg::process::SandboxArg::Id(_) => false,
 		} && arg.stdin.is_null()

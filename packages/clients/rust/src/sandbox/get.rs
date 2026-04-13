@@ -21,6 +21,9 @@ pub struct Output {
 	pub id: tg::sandbox::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub isolation: Option<tg::sandbox::Isolation>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::Location>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -32,7 +35,11 @@ pub struct Output {
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub mounts: Vec<tg::sandbox::Mount>,
 
-	pub network: bool,
+	#[serde(
+		default = "default_network",
+		skip_serializing_if = "is_default_network"
+	)]
+	pub network: tg::Either<bool, tg::sandbox::Network>,
 
 	pub status: tg::sandbox::Status,
 
@@ -83,4 +90,12 @@ impl tg::Client {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the response"))?;
 		Ok(Some(output))
 	}
+}
+
+fn default_network() -> tg::Either<bool, tg::sandbox::Network> {
+	tg::Either::Left(false)
+}
+
+fn is_default_network(arg: &tg::Either<bool, tg::sandbox::Network>) -> bool {
+	matches!(arg, tg::Either::Left(false))
 }

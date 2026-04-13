@@ -27,22 +27,28 @@ pub(crate) fn spawn(arg: &crate::Arg, serve_arg: &serve::Arg) -> tg::Result<toki
 		.arg(&arg.tangram_path)
 		.arg("--url")
 		.arg(serve_arg.url.to_string());
-	if let Some(network) = &arg.network {
-		if !network.is_tap() {
-			return Err(tg::error!("vm isolation requires --network=tap"));
-		}
-		let host_ip = arg
-			.host_ip
-			.ok_or_else(|| tg::error!("expected a host IP"))?;
-		let guest_ip = arg
-			.guest_ip
-			.ok_or_else(|| tg::error!("expected a guest IP"))?;
-		command.arg("--network");
-		command.arg("--host-ip").arg(host_ip.to_string());
-		command.arg("--guest-ip").arg(guest_ip.to_string());
-		for server in &arg.dns {
-			command.arg("--dns").arg(server.to_string());
-		}
+	match &arg.network {
+		None => (),
+		Some(crate::Network::Host) => {
+			return Err(tg::error!("vm sandboxes do not support host networking"));
+		},
+		Some(crate::Network::Bridge(_)) => {
+			return Err(tg::error!("vm sandboxes do not support bridge networking"));
+		},
+		Some(crate::Network::Tap) => {
+			let host_ip = arg
+				.host_ip
+				.ok_or_else(|| tg::error!("expected a host IP"))?;
+			let guest_ip = arg
+				.guest_ip
+				.ok_or_else(|| tg::error!("expected a guest IP"))?;
+			command.arg("--network");
+			command.arg("--host-ip").arg(host_ip.to_string());
+			command.arg("--guest-ip").arg(guest_ip.to_string());
+			for server in &arg.dns {
+				command.arg("--dns").arg(server.to_string());
+			}
+		},
 	}
 	if let Some(hostname) = &arg.hostname {
 		command.arg("--hostname").arg(hostname);

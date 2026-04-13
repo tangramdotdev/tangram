@@ -1362,9 +1362,8 @@ export namespace Process {
 
 		/** The process's name. */
 		name?: string | undefined;
-
-		/** Configure network. */
-		network?: boolean | undefined;
+			/** Configure network. */
+			network?: boolean | tg.Sandbox.Network | undefined;
 
 		/** Configure or select the sandbox for this process. */
 		sandbox?: boolean | tg.Sandbox.Arg | tg.Sandbox.Id | undefined;
@@ -2495,6 +2494,17 @@ let isSandboxArg = (value: unknown): value is tg.Sandbox.Arg => {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 };
 
+let isNetworkEnabled = (value: boolean | tg.Sandbox.Network | undefined) => {
+	if (value) {
+		if (typeof value === "boolean") {
+			return value;
+		}
+		return true;
+	} else {
+		return false;
+	}
+};
+
 let normalizeSandbox = (
 	arg: Pick<
 		tg.Process.ArgObject,
@@ -2535,13 +2545,19 @@ let normalizeSandbox = (
 		if (sandbox.hostname !== undefined) {
 			output.hostname = sandbox.hostname;
 		}
+		if (sandbox.isolation !== undefined) {
+			output.isolation = tg.Sandbox.Isolation.toData(sandbox.isolation);
+		}
+		if (sandbox.location !== undefined) {
+			output.location = sandbox.location;
+		}
 		if (sandbox.memory !== undefined) {
 			output.memory = sandbox.memory;
 		}
 		if (sandbox.mounts !== undefined) {
 			output.mounts = sandbox.mounts.map(tg.Sandbox.Mount.toDataString);
 		}
-		output.network = sandbox.network ?? false;
+		output.network = normalizeNetwork(sandbox.network);
 		if ("ttl" in sandbox) {
 			output.ttl = sandbox.ttl;
 		} else if (defaultTtl) {
@@ -2564,9 +2580,33 @@ let normalizeSandbox = (
 		];
 	}
 	if (hasNetwork) {
-		output.network = network;
+		output.network = normalizeNetwork(network);
 	}
 	return output;
+};
+
+let normalizeNetwork = (
+	value: boolean | tg.Sandbox.Network | undefined,
+): boolean | tg.Sandbox.Network.Data => {
+	if (value === undefined) {
+		return false;
+	}
+	if (typeof value === "boolean") {
+		return value;
+	}
+	return tg.Sandbox.Network.toData(value);
+};
+
+let normalizeDebug = (
+	debug: boolean | tg.Process.Debug | undefined,
+): tg.Process.Debug | undefined => {
+	if (debug === undefined || debug === false) {
+		return undefined;
+	}
+	if (debug === true) {
+		return {};
+	}
+	return debug;
 };
 
 let defaultHost = (): string | undefined => {

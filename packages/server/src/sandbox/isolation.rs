@@ -2,7 +2,8 @@ use {crate::Server, tangram_client::prelude::*};
 
 impl Server {
 	pub(crate) fn resolve_sandbox_isolation(&self) -> tg::Result<tangram_sandbox::Isolation> {
-		let isolation = Self::sandbox_isolation_from_config(&self.config.sandbox.isolation);
+		let isolation = Self::sandbox_isolation_from_config(&self.config.sandbox.isolation)
+			.ok_or_else(|| tg::error!("at least one isolation level must be configured"))?;
 		#[cfg(target_os = "linux")]
 		{
 			match isolation {
@@ -30,30 +31,24 @@ impl Server {
 
 	fn sandbox_isolation_from_config(
 		isolation: &crate::config::SandboxIsolation,
-	) -> tangram_sandbox::Isolation {
-		match isolation {
-			crate::config::SandboxIsolation::Container(isolation) => {
-				let network = isolation.network.as_ref().map(|network| match network {
-					crate::config::ContainerNetwork::Host => tangram_sandbox::Network::Host,
-					crate::config::ContainerNetwork::Bridge(bridge) => {
-						tangram_sandbox::Network::Bridge(tangram_sandbox::Bridge {
-							ip: bridge.ip.unwrap_or_else(crate::config::default_bridge_ip),
-							name: bridge.name.clone().unwrap_or_else(|| "tangram0".into()),
-						})
-					},
-				});
-				tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation {
-					network,
-				})
-			},
-			crate::config::SandboxIsolation::Seatbelt(_) => {
-				tangram_sandbox::Isolation::Seatbelt(tangram_sandbox::SeatbeltIsolation::default())
-			},
-			crate::config::SandboxIsolation::Vm(isolation) => {
-				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation {
-					kernel_path: isolation.kernel_path.clone(),
-				})
-			},
+	) -> Option<tangram_sandbox::Isolation> {
+		if isolation.container.is_some() {
+			return Some(tangram_sandbox::Isolation::Container(
+				tangram_sandbox::ContainerIsolation::default(),
+			));
 		}
+		if isolation.seatbelt.is_some() {
+			return Some(tangram_sandbox::Isolation::Seatbelt(
+				tangram_sandbox::SeatbeltIsolation::default(),
+			));
+		}
+		if let Some(vm) = &isolation.vm {
+			return Some(tangram_sandbox::Isolation::Vm(
+				tangram_sandbox::VmIsolation {
+					kernel_path: vm.kernel_path.clone(),
+				},
+			));
+		}
+		None
 	}
 }

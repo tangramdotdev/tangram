@@ -108,17 +108,55 @@ impl Server {
 			target: artifacts_path.clone(),
 			readonly: true,
 		});
-		let (host_ip, guest_ip) = match &isolation {
-			tangram_sandbox::Isolation::Container(container)
-				if state.network
-					&& container
-						.network
-						.as_ref()
-						.is_some_and(tangram_sandbox::Network::is_bridge) =>
-			{
-				(None, Some(self.allocate_guest_ip()?))
+
+		let isolation = match &state.isolation {
+			Some(tg::sandbox::Isolation::Container) => tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation::default()),
+			Some(tg::sandbox::Isolation::Seatbelt) => tangram_sandbox::Isolation::Seatbelt(tangram_sandbox::SeatbeltIsolation::default()),
+			Some(tg::sandbox::Isolation::Vm) => {
+				let kernel_path = self.config().sandbox.isolation.vm.as_ref().ok_or_else(|| tg::error!("no vm image configured"))?.kernel_path.clone();
+				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation { kernel_path })
 			},
-			tangram_sandbox::Isolation::Vm(_) if state.network => {
+			None => self.resolve_sandbox_isolation()?,
+		};
+		let network = match (state.network.as_ref(), &isolation) {
+			(tg::Either::Left(false), _) => None,
+			(
+				tg::Either::Left(true),
+				tangram_sandbox::Isolation::Container(_) | tangram_sandbox::Isolation::Seatbelt(_),
+			) => Some(tangram_sandbox::Network::Host),
+			(tg::Either::Left(true), tangram_sandbox::Isolation::Vm(_)) => {
+				Some(tangram_sandbox::Network::Tap)
+			},
+			(tg::Either::Right(tg::sandbox::Network::Host), _) => {
+				Some(tangram_sandbox::Network::Host)
+			},
+			(tg::Either::Right(tg::sandbox::Network::Bridge), _) => {
+				let ip = self
+					.config
+					.sandbox
+					.bridge
+					.as_ref()
+					.and_then(|bridge| bridge.ip)
+					.unwrap_or_else(crate::config::default_bridge_ip);
+				let name = self
+					.config()
+					.sandbox
+					.bridge
+					.as_ref()
+					.and_then(|bridge| bridge.name.clone())
+					.unwrap_or_else(|| "tangram0".to_owned());
+				Some(tangram_sandbox::Network::Bridge(tangram_sandbox::Bridge {
+					ip,
+					name,
+				}))
+			},
+		};
+		let (host_ip, guest_ip) = match (&isolation, network.as_ref()) {
+			(
+				tangram_sandbox::Isolation::Container(_),
+				Some(tangram_sandbox::Network::Bridge(_)),
+			) => (None, Some(self.allocate_guest_ip()?)),
+			(tangram_sandbox::Isolation::Vm(_), Some(_)) => {
 				let (host, guest) = self.allocate_guest_ip_pair()?;
 				(Some(host), Some(guest))
 			},
@@ -135,28 +173,7 @@ impl Server {
 			isolation,
 			memory: state.memory,
 			mounts,
-			network: state
-				.network
-				.then(|| match &self.config().sandbox.isolation {
-					crate::config::SandboxIsolation::Container(container) => {
-						match &container.network {
-							None | Some(crate::config::ContainerNetwork::Host) => {
-								tangram_sandbox::Network::Host
-							},
-							Some(crate::config::ContainerNetwork::Bridge(bridge)) => {
-								let name =
-									bridge.name.clone().unwrap_or_else(|| "tangram0".to_owned());
-								let ip = bridge.ip.unwrap_or_else(crate::config::default_bridge_ip);
-								tangram_sandbox::Network::Bridge(tangram_sandbox::Bridge {
-									name,
-									ip,
-								})
-							},
-						}
-					},
-					crate::config::SandboxIsolation::Seatbelt(_) => tangram_sandbox::Network::Host,
-					crate::config::SandboxIsolation::Vm(_) => tangram_sandbox::Network::Tap,
-				}),
+			network,
 			nice: self.config.sandbox.nice,
 			path: temp.path().to_owned(),
 			rootfs_path: self.sandbox_rootfs.clone(),
