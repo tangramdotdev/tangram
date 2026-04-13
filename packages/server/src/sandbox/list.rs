@@ -47,7 +47,11 @@ impl Server {
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::sandbox::Id,
+			cpu: Option<i64>,
 			hostname: Option<String>,
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			isolation: Option<tg::sandbox::Isolation>,
+			memory: Option<i64>,
 			#[tangram_database(as = "Option<db::value::Json<Vec<tg::sandbox::Mount>>>")]
 			mounts: Option<Vec<tg::sandbox::Mount>>,
 			network: bool,
@@ -62,7 +66,7 @@ impl Server {
 			})?;
 		let statement = formatdoc!(
 			"
-				select id, hostname, mounts, network, status, ttl, \"user\" as user
+				select id, cpu, hostname, isolation, memory, mounts, network, status, ttl, \"user\" as user
 				from sandboxes
 				where status != 'finished'
 				order by created_at;
@@ -75,16 +79,29 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		let data = rows
 			.into_iter()
-			.map(|row| tg::sandbox::list::Item {
-				id: row.id,
-				hostname: row.hostname,
-				mounts: row.mounts.unwrap_or_default(),
-				network: row.network,
-				status: row.status,
-				ttl: u64::try_from(row.ttl).unwrap(),
-				user: row.user,
+			.map(|row| {
+				Ok::<_, tg::Error>(tg::sandbox::list::Item {
+					id: row.id,
+					cpu: row
+						.cpu
+						.map(u64::try_from)
+						.transpose()
+						.map_err(|source| tg::error!(!source, "invalid sandbox cpu"))?,
+					hostname: row.hostname,
+					isolation: row.isolation,
+					memory: row
+						.memory
+						.map(u64::try_from)
+						.transpose()
+						.map_err(|source| tg::error!(!source, "invalid sandbox memory"))?,
+					mounts: row.mounts.unwrap_or_default(),
+					network: row.network,
+					status: row.status,
+					ttl: u64::try_from(row.ttl).unwrap(),
+					user: row.user,
+				})
 			})
-			.collect();
+			.collect::<tg::Result<_>>()?;
 		Ok(data)
 	}
 

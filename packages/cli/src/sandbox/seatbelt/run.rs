@@ -27,7 +27,8 @@ impl Cli {
 	#[must_use]
 	pub fn command_sandbox_seatbelt_run(args: Args) -> std::process::ExitCode {
 		let arg = args.into_arg();
-		match tangram_sandbox::seatbelt::run::run(&arg) {
+		let result = tangram_sandbox::seatbelt::run::run(&arg);
+		match result {
 			Ok(code) => code,
 			Err(error) => {
 				Cli::print_error_basic(tg::Referent::with_item(error));

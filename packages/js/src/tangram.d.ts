@@ -1430,6 +1430,9 @@ declare namespace tg {
 			/** The base command. */
 			command?: tg.MaybeReferent<tg.Command> | undefined;
 
+			/** The sandbox's CPU allocation. */
+			cpu?: number | undefined;
+
 			/** The command's working directory. **/
 			cwd?: string | undefined;
 
@@ -1441,6 +1444,12 @@ declare namespace tg {
 
 			/** The command's host. */
 			host?: string | undefined;
+
+			/** The sandbox isolation mode. */
+			isolation?: tg.Sandbox.Isolation | undefined;
+
+			/** The sandbox's memory allocation. */
+			memory?: number | undefined;
 
 			/** The process's name. */
 			name?: string | undefined;
@@ -1659,6 +1668,8 @@ declare namespace tg {
 
 			cwd(cwd: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this;
 
+			cpu(cpu: tg.Unresolved<tg.MaybeMutation<number>>): this;
+
 			env(
 				...envs: Array<tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>>
 			): this;
@@ -1668,6 +1679,12 @@ declare namespace tg {
 			): this;
 
 			host(host: tg.Unresolved<tg.MaybeMutation<string>>): this;
+
+			isolation(
+				isolation: tg.Unresolved<tg.MaybeMutation<tg.Sandbox.Isolation>>,
+			): this;
+
+			memory(memory: tg.Unresolved<tg.MaybeMutation<number>>): this;
 
 			mount(...mounts: Array<tg.Unresolved<tg.Process.Mount>>): this;
 
@@ -1868,8 +1885,13 @@ declare namespace tg {
 	export namespace Sandbox {
 		export type Id = string;
 
+		export type Isolation = "container" | "seatbelt" | "vm";
+
 		export type Arg = {
+			cpu?: number | undefined;
 			hostname?: string | undefined;
+			isolation?: tg.Sandbox.Isolation | undefined;
+			memory?: number | undefined;
 			mounts?: Array<tg.Sandbox.Mount> | undefined;
 			network?: boolean | undefined;
 			ttl?: number | undefined;

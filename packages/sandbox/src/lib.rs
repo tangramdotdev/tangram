@@ -22,6 +22,8 @@ pub mod root;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
 pub mod serve;
+#[cfg(target_os = "linux")]
+pub mod vm;
 
 #[derive(Clone)]
 pub struct Sandbox(Arc<State>);
@@ -29,6 +31,7 @@ pub struct Sandbox(Arc<State>);
 pub struct State {
 	artifacts_path: PathBuf,
 	client: Client,
+	isolation: tg::sandbox::Isolation,
 	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	mounts: Vec<tg::sandbox::Mount>,
 	path: PathBuf,
@@ -44,7 +47,10 @@ pub struct Process {
 #[derive(Clone, Debug)]
 pub struct Arg {
 	pub artifacts_path: PathBuf,
+	pub cpu: Option<u64>,
 	pub hostname: Option<String>,
+	pub isolation: tg::sandbox::Isolation,
+	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: bool,
 	pub path: PathBuf,
@@ -73,6 +79,8 @@ pub enum Stdio {
 
 impl Sandbox {
 	pub async fn new(arg: Arg) -> tg::Result<Self> {
+		validate_resources(arg.isolation, arg.cpu, arg.memory)?;
+
 		// Validate the mounts.
 		let mut targets = BTreeSet::new();
 		for mount in &arg.mounts {
@@ -103,17 +111,40 @@ impl Sandbox {
 			}
 		};
 
-		let (listener, url) = Self::listen(&arg.path).await?;
+		let (listener, url) = Self::listen(arg.isolation, &arg.path).await?;
 		let serve_arg = self::serve::Arg {
 			library_paths,
+			listen: false,
 			tangram_path: Self::guest_tangram_path_from_host_tangram_path(&arg.tangram_path),
 			url,
 		};
 
-		#[cfg(target_os = "linux")]
-		let mut process = self::container::spawn(&arg, &serve_arg)?;
-		#[cfg(target_os = "macos")]
-		let mut process = self::seatbelt::spawn(&arg, &serve_arg)?;
+		let mut process = match arg.isolation {
+			#[cfg(target_os = "linux")]
+			tg::sandbox::Isolation::Container => self::container::spawn(&arg, &serve_arg)?,
+			#[cfg(target_os = "linux")]
+			tg::sandbox::Isolation::Seatbelt => {
+				return Err(tg::error!("seatbelt isolation is not supported on linux"));
+			},
+			#[cfg(target_os = "macos")]
+			tg::sandbox::Isolation::Container => {
+				return Err(tg::error!(
+					"{} isolation is not supported on macos",
+					arg.isolation
+				));
+			},
+			#[cfg(target_os = "macos")]
+			tg::sandbox::Isolation::Seatbelt => self::seatbelt::spawn(&arg, &serve_arg)?,
+			#[cfg(target_os = "linux")]
+			tg::sandbox::Isolation::Vm => self::vm::spawn(&arg, &serve_arg)?,
+			#[cfg(target_os = "macos")]
+			tg::sandbox::Isolation::Vm => {
+				return Err(tg::error!(
+					"{} isolation is not supported on macos",
+					arg.isolation
+				));
+			},
+		};
 
 		let client = match tokio::time::timeout(Duration::from_secs(5), async {
 			tokio::select! {
@@ -146,6 +177,7 @@ impl Sandbox {
 		let sandbox = Self(Arc::new(State {
 			artifacts_path: arg.artifacts_path,
 			client,
+			isolation: arg.isolation,
 			mounts: arg.mounts,
 			path: arg.path,
 			process,
@@ -155,7 +187,36 @@ impl Sandbox {
 		Ok(sandbox)
 	}
 
-	async fn listen(root_path: &Path) -> tg::Result<(crate::server::Listener, Uri)> {
+	async fn listen(
+		isolation: tg::sandbox::Isolation,
+		root_path: &Path,
+	) -> tg::Result<(crate::server::Listener, Uri)> {
+		#[cfg(target_os = "linux")]
+		{
+			match isolation {
+				tg::sandbox::Isolation::Container => Self::listen_unix(root_path).await,
+				tg::sandbox::Isolation::Seatbelt => {
+					Err(tg::error!("seatbelt isolation is not supported on linux"))
+				},
+				tg::sandbox::Isolation::Vm => Self::listen_vsock().await,
+			}
+		}
+
+		#[cfg(not(target_os = "linux"))]
+		{
+			match isolation {
+				tg::sandbox::Isolation::Container => Err(tg::error!(
+					"{isolation} isolation is not supported on macos"
+				)),
+				tg::sandbox::Isolation::Seatbelt => Self::listen_unix(root_path).await,
+				tg::sandbox::Isolation::Vm => Err(tg::error!(
+					"{isolation} isolation is not supported on macos"
+				)),
+			}
+		}
+	}
+
+	async fn listen_unix(root_path: &Path) -> tg::Result<(crate::server::Listener, Uri)> {
 		let host_path = Self::host_listen_path_from_root(root_path);
 		tokio::fs::create_dir_all(host_path.parent().unwrap())
 			.await
@@ -217,6 +278,31 @@ impl Sandbox {
 				_ => unreachable!(),
 			};
 			let url = format!("http://localhost:{port}")
+				.parse()
+				.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
+			Ok((listener, url))
+		}
+	}
+
+	#[cfg(target_os = "linux")]
+	async fn listen_vsock() -> tg::Result<(crate::server::Listener, Uri)> {
+		#[cfg(not(feature = "vsock"))]
+		{
+			Err(tg::error!("vsock is not enabled"))
+		}
+		#[cfg(feature = "vsock")]
+		{
+			let host_url = format!("http+vsock://{}:0", self::vm::HOST_VSOCK_CID)
+				.parse()
+				.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
+			let listener = crate::server::Server::listen(&host_url).await?;
+			let addr = match &listener {
+				crate::server::Listener::Vsock(listener) => listener
+					.local_addr()
+					.map_err(|source| tg::error!(!source, "failed to get the local address"))?,
+				_ => unreachable!(),
+			};
+			let url = format!("http+vsock://{}:{}", addr.cid(), addr.port())
 				.parse()
 				.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
 			Ok((listener, url))
@@ -298,6 +384,26 @@ impl Sandbox {
 	) -> tg::Result<Option<crate::client::get::Output>> {
 		self.0.client.try_get_process(id).await
 	}
+}
+
+fn validate_resources(
+	isolation: tg::sandbox::Isolation,
+	cpu: Option<u64>,
+	memory: Option<u64>,
+) -> tg::Result<()> {
+	if cpu == Some(0) {
+		return Err(tg::error!("sandbox cpu must be greater than zero"));
+	}
+	if memory == Some(0) {
+		return Err(tg::error!("sandbox memory must be greater than zero"));
+	}
+	if matches!(isolation, tg::sandbox::Isolation::Seatbelt) && (cpu.is_some() || memory.is_some())
+	{
+		return Err(tg::error!(
+			"sandbox cpu and memory are not supported with seatbelt isolation"
+		));
+	}
+	Ok(())
 }
 
 impl std::fmt::Display for Stdio {

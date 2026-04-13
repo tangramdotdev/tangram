@@ -19,11 +19,13 @@ impl Cli {
 		let arg = tangram_sandbox::container::init::Arg {
 			serve: tangram_sandbox::serve::Arg {
 				library_paths: args.library_paths,
+				listen: false,
 				tangram_path: args.tangram_path,
 				url: args.url,
 			},
 		};
-		match tangram_sandbox::container::init::run(&arg) {
+		let result = tangram_sandbox::container::init::run(&arg);
+		match result {
 			Ok(code) => code,
 			Err(error) => {
 				Cli::print_error_basic(tg::Referent::with_item(error));

@@ -62,6 +62,12 @@ pub(crate) fn spawn(
 	if let Some(hostname) = &arg.hostname {
 		command.arg("--hostname").arg(hostname);
 	}
+	if let Some(cpu) = arg.cpu {
+		command.arg("--cgroup-cpu").arg(cpu.to_string());
+	}
+	if let Some(memory) = arg.memory {
+		command.arg("--cgroup-memory").arg(memory.to_string());
+	}
 	command
 		.arg("--setenv")
 		.arg("HOME")

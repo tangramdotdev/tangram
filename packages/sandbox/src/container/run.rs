@@ -17,6 +17,8 @@ pub struct Arg {
 	pub as_pid_1: bool,
 	pub binds: Vec<Bind>,
 	pub cgroup: Option<String>,
+	pub cgroup_cpu: Option<u64>,
+	pub cgroup_memory: Option<u64>,
 	pub cgroup_memory_oom_group: bool,
 	pub chdir: PathBuf,
 	pub command: Vec<OsString>,
@@ -63,7 +65,14 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	let cgroup = arg
 		.cgroup
 		.as_deref()
-		.map(|name| cgroup::create(name, arg.cgroup_memory_oom_group))
+		.map(|name| {
+			cgroup::create(
+				name,
+				arg.cgroup_cpu,
+				arg.cgroup_memory,
+				arg.cgroup_memory_oom_group,
+			)
+		})
 		.transpose()?;
 
 	if arg.unshare_all {

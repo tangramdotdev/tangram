@@ -321,6 +321,13 @@ fn main() -> std::process::ExitCode {
 		}) => {
 			return Cli::command_sandbox_seatbelt(args);
 		},
+		#[cfg(target_os = "linux")]
+		Command::Sandbox(self::sandbox::Args {
+			command: self::sandbox::Command::Vm(args),
+			..
+		}) => {
+			return Cli::command_sandbox_vm(args);
+		},
 		_ => (),
 	}
 

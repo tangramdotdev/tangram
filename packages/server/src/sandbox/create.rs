@@ -27,8 +27,11 @@ impl Server {
 			"
 				insert into sandboxes (
 					id,
+					cpu,
 					created_at,
 					hostname,
+					isolation,
+					memory,
 					mounts,
 					network,
 					status,
@@ -43,17 +46,35 @@ impl Server {
 					{p}5,
 					{p}6,
 					{p}7,
-					{p}8
+					{p}8,
+					{p}9,
+					{p}10,
+					{p}11
 				);
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let isolation = Self::resolve_sandbox_isolation(arg.isolation)?;
+		Self::validate_sandbox_resources(isolation, arg.cpu, arg.memory)?;
+		let cpu = arg
+			.cpu
+			.map(i64::try_from)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "invalid sandbox cpu"))?;
+		let memory = arg
+			.memory
+			.map(i64::try_from)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "invalid sandbox memory"))?;
 		let ttl =
 			i64::try_from(arg.ttl).map_err(|source| tg::error!(!source, "invalid sandbox ttl"))?;
 		let params = db::params![
 			id.to_string(),
+			cpu,
 			now,
 			arg.hostname.clone(),
+			isolation.to_string(),
+			memory,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
 			arg.network,
 			tg::sandbox::Status::Created.to_string(),

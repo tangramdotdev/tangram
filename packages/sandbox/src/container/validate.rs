@@ -24,6 +24,18 @@ pub fn validate(arg: &Arg) -> tg::Result<()> {
 	if arg.cgroup_memory_oom_group && arg.cgroup.is_none() {
 		return Err(tg::error!("--cgroup-memory-oom-group requires --cgroup"));
 	}
+	if arg.cgroup_cpu.is_some() && arg.cgroup.is_none() {
+		return Err(tg::error!("--cgroup-cpu requires --cgroup"));
+	}
+	if arg.cgroup_memory.is_some() && arg.cgroup.is_none() {
+		return Err(tg::error!("--cgroup-memory requires --cgroup"));
+	}
+	if arg.cgroup_cpu == Some(0) {
+		return Err(tg::error!("--cgroup-cpu must be greater than zero"));
+	}
+	if arg.cgroup_memory == Some(0) {
+		return Err(tg::error!("--cgroup-memory must be greater than zero"));
+	}
 	if !arg.overlays.is_empty() && arg.overlay_sources.is_empty() {
 		return Err(tg::error!(
 			"an overlay requires at least one overlay source"

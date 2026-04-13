@@ -62,10 +62,13 @@ pub struct Arg {
 	pub args: tg::value::Array,
 	pub cached: Option<bool>,
 	pub checksum: Option<tg::Checksum>,
+	pub cpu: Option<u64>,
 	pub cwd: Option<PathBuf>,
 	pub env: tg::value::Map,
 	pub executable: Option<tg::command::Executable>,
 	pub host: Option<String>,
+	pub isolation: Option<tg::sandbox::Isolation>,
+	pub memory: Option<u64>,
 	pub name: Option<String>,
 	pub parent: Option<tg::process::Id>,
 	pub progress: bool,
@@ -301,5 +304,49 @@ impl<O> Deref for Process<O> {
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
+	}
+}
+
+pub(crate) fn normalize_sandbox_arg(
+	sandbox: Option<tg::Either<tg::sandbox::create::Arg, tg::sandbox::Id>>,
+	cpu: Option<u64>,
+	isolation: Option<tg::sandbox::Isolation>,
+	memory: Option<u64>,
+) -> tg::Result<Option<tg::Either<tg::sandbox::create::Arg, tg::sandbox::Id>>> {
+	let has_resource_fields = cpu.is_some() || isolation.is_some() || memory.is_some();
+	match sandbox {
+		Some(tg::Either::Left(mut sandbox)) => {
+			if let Some(cpu) = cpu {
+				sandbox.cpu = Some(cpu);
+			}
+			if let Some(isolation) = isolation {
+				sandbox.isolation = Some(isolation);
+			}
+			if let Some(memory) = memory {
+				sandbox.memory = Some(memory);
+			}
+			Ok(Some(tg::Either::Left(sandbox)))
+		},
+		Some(tg::Either::Right(sandbox)) => {
+			if has_resource_fields {
+				return Err(tg::error!(
+					"cpu, isolation, and memory are not supported for existing sandboxes"
+				));
+			}
+			Ok(Some(tg::Either::Right(sandbox)))
+		},
+		None => {
+			if !has_resource_fields {
+				return Ok(None);
+			}
+			Ok(Some(tg::Either::Left(tg::sandbox::create::Arg {
+				cpu,
+				isolation,
+				memory,
+				network: false,
+				ttl: 0,
+				..Default::default()
+			})))
+		},
 	}
 }

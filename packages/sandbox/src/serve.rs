@@ -3,6 +3,7 @@ use {std::path::PathBuf, tangram_client::prelude::*, tangram_uri::Uri};
 #[derive(Clone, Debug)]
 pub struct Arg {
 	pub library_paths: Vec<PathBuf>,
+	pub listen: bool,
 	pub tangram_path: PathBuf,
 	pub url: Uri,
 }
@@ -18,7 +19,12 @@ pub fn run(arg: &Arg) -> tg::Result<()> {
 			library_paths: arg.library_paths.clone(),
 			tangram_path: arg.tangram_path.clone(),
 		});
-		server.serve_url(&arg.url).await?;
+		if arg.listen {
+			let listener = crate::server::Server::listen(&arg.url).await?;
+			server.serve(listener).await;
+		} else {
+			server.serve_url(&arg.url).await?;
+		}
 		Ok::<_, tg::Error>(())
 	})?;
 

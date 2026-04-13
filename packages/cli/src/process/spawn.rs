@@ -583,7 +583,10 @@ impl Cli {
 					Some(tg::Either::Right(id))
 				},
 				_ => Some(tg::Either::Left(tg::sandbox::create::Arg {
+					cpu: options.sandbox.arg.cpu,
 					hostname: options.sandbox.arg.hostname.clone(),
+					isolation: options.sandbox.arg.isolation,
+					memory: options.sandbox.arg.memory,
 					mounts,
 					network,
 					ttl: options.sandbox.arg.ttl.unwrap_or(0),

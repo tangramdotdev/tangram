@@ -1,9 +1,12 @@
 create table sandboxes (
+	cpu integer,
 	created_at integer not null,
 	finished_at integer,
 	heartbeat_at integer,
 	hostname text,
 	id text primary key,
+	isolation text,
+	memory integer,
 	mounts text,
 	network integer not null,
 	started_at integer,

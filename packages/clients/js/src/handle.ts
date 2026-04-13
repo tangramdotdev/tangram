@@ -21,7 +21,10 @@ export type Handle = {
 
 export namespace Handle {
 	export type SandboxArg = {
+		cpu?: number | undefined;
 		hostname?: string | undefined;
+		isolation?: tg.Sandbox.Isolation | undefined;
+		memory?: number | undefined;
 		mounts?: Array<tg.Sandbox.Mount.Data> | undefined;
 		network: boolean;
 		ttl?: number | undefined;
@@ -29,8 +32,11 @@ export namespace Handle {
 	};
 
 	export type SandboxGetOutput = {
+		cpu?: number | undefined;
 		hostname?: string | undefined;
 		id: tg.Sandbox.Id;
+		isolation?: tg.Sandbox.Isolation | undefined;
+		memory?: number | undefined;
 		mounts: Array<tg.Sandbox.Mount.Data>;
 		network: boolean;
 		status: tg.Sandbox.Status;

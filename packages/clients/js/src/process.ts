@@ -957,6 +957,11 @@ export namespace Process {
 			return this;
 		}
 
+		cpu(cpu: tg.Unresolved<tg.MaybeMutation<number>>): this {
+			this.#args.push({ cpu });
+			return this;
+		}
+
 		env(
 			...envs: Array<tg.Unresolved<tg.MaybeMutation<tg.MaybeMutationMap>>>
 		): this {
@@ -973,6 +978,18 @@ export namespace Process {
 
 		host(host: tg.Unresolved<tg.MaybeMutation<string>>): this {
 			this.#args.push({ host });
+			return this;
+		}
+
+		isolation(
+			isolation: tg.Unresolved<tg.MaybeMutation<tg.Sandbox.Isolation>>,
+		): this {
+			this.#args.push({ isolation });
+			return this;
+		}
+
+		memory(memory: tg.Unresolved<tg.MaybeMutation<number>>): this {
+			this.#args.push({ memory });
 			return this;
 		}
 
@@ -1125,10 +1142,13 @@ export namespace Process {
 		args?: Array<tg.Value> | undefined;
 		checksum?: tg.Checksum | undefined;
 		command?: tg.MaybeReferent<tg.Command> | undefined;
+		cpu?: number | undefined;
 		cwd?: string | undefined;
 		env?: tg.MaybeMutationMap | undefined;
 		executable?: tg.Command.Arg.Executable | undefined;
 		host?: string | undefined;
+		isolation?: tg.Sandbox.Isolation | undefined;
+		memory?: number | undefined;
 		mounts?: Array<tg.Sandbox.Mount> | undefined;
 		name?: string | undefined;
 		network?: boolean | undefined;
@@ -1986,22 +2006,43 @@ let isSandboxArg = (value: unknown): value is tg.Sandbox.Arg => {
 };
 
 let normalizeSandbox = (
-	arg: Pick<tg.Process.ArgObject, "mounts" | "network" | "sandbox">,
+	arg: Pick<
+		tg.Process.ArgObject,
+		"cpu" | "isolation" | "memory" | "mounts" | "network" | "sandbox"
+	>,
 ): Exclude<tg.Handle.SpawnArg["sandbox"], undefined> | undefined => {
+	let hasCpu = "cpu" in arg;
+	let cpu = arg.cpu;
+	let hasIsolation = "isolation" in arg;
+	let isolation = arg.isolation;
+	let hasMemory = "memory" in arg;
+	let memory = arg.memory;
 	let mounts = arg.mounts ?? [];
 	let hasNetwork = "network" in arg;
 	let network = arg.network ?? false;
 	let sandbox = arg.sandbox;
 	if (typeof sandbox === "string") {
-		if (mounts.length > 0 || hasNetwork) {
+		if (
+			hasCpu ||
+			hasIsolation ||
+			hasMemory ||
+			mounts.length > 0 ||
+			hasNetwork
+		) {
 			throw new Error(
-				"mounts and network are not supported for existing sandboxes",
+				"cpu, isolation, memory, mounts, and network are not supported for existing sandboxes",
 			);
 		}
 		return sandbox;
 	}
 	if (sandbox === undefined || sandbox === false) {
-		if (mounts.length === 0 && !hasNetwork) {
+		if (
+			!hasCpu &&
+			!hasIsolation &&
+			!hasMemory &&
+			mounts.length === 0 &&
+			!hasNetwork
+		) {
 			return undefined;
 		}
 		sandbox = { network: false };
@@ -2011,8 +2052,17 @@ let normalizeSandbox = (
 	}
 	let output: tg.Handle.SandboxArg = { network: false };
 	if (isSandboxArg(sandbox)) {
+		if (sandbox.cpu !== undefined) {
+			output.cpu = sandbox.cpu;
+		}
 		if (sandbox.hostname !== undefined) {
 			output.hostname = sandbox.hostname;
+		}
+		if (sandbox.isolation !== undefined) {
+			output.isolation = sandbox.isolation;
+		}
+		if (sandbox.memory !== undefined) {
+			output.memory = sandbox.memory;
 		}
 		if (sandbox.mounts !== undefined) {
 			output.mounts = sandbox.mounts.map(tg.Sandbox.Mount.toDataString);
@@ -2024,6 +2074,15 @@ let normalizeSandbox = (
 		if (sandbox.user !== undefined) {
 			output.user = sandbox.user;
 		}
+	}
+	if (hasCpu) {
+		output.cpu = cpu;
+	}
+	if (hasIsolation) {
+		output.isolation = isolation;
+	}
+	if (hasMemory) {
+		output.memory = memory;
 	}
 	if (mounts.length > 0) {
 		output.mounts = [

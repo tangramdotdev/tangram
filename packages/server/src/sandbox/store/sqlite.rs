@@ -32,6 +32,9 @@ pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 		migration_0000(database)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the sandbox store schema"))?;
+	}
+
+	if version < schema_version {
 		let connection = database
 			.write_connection()
 			.await

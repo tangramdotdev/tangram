@@ -19,13 +19,77 @@ pub mod status;
 pub mod store;
 
 impl Server {
+	pub(crate) fn default_sandbox_isolation() -> tg::sandbox::Isolation {
+		#[cfg(target_os = "linux")]
+		{
+			tg::sandbox::Isolation::Container
+		}
+		#[cfg(target_os = "macos")]
+		{
+			tg::sandbox::Isolation::Seatbelt
+		}
+	}
+
+	pub(crate) fn resolve_sandbox_isolation(
+		isolation: Option<tg::sandbox::Isolation>,
+	) -> tg::Result<tg::sandbox::Isolation> {
+		let isolation = isolation.unwrap_or_else(Self::default_sandbox_isolation);
+		#[cfg(target_os = "linux")]
+		{
+			match isolation {
+				tg::sandbox::Isolation::Container => Ok(tg::sandbox::Isolation::Container),
+				tg::sandbox::Isolation::Seatbelt => {
+					Err(tg::error!("seatbelt isolation is not supported on linux"))
+				},
+				tg::sandbox::Isolation::Vm => Ok(tg::sandbox::Isolation::Vm),
+			}
+		}
+		#[cfg(target_os = "macos")]
+		{
+			match isolation {
+				tg::sandbox::Isolation::Container => Err(tg::error!(
+					"{isolation} isolation is not supported on macos"
+				)),
+				tg::sandbox::Isolation::Seatbelt => Ok(isolation),
+				tg::sandbox::Isolation::Vm => Err(tg::error!(
+					"{isolation} isolation is not supported on macos"
+				)),
+			}
+		}
+	}
+
+	pub(crate) fn validate_sandbox_resources(
+		isolation: tg::sandbox::Isolation,
+		cpu: Option<u64>,
+		memory: Option<u64>,
+	) -> tg::Result<()> {
+		if cpu == Some(0) {
+			return Err(tg::error!("sandbox cpu must be greater than zero"));
+		}
+		if memory == Some(0) {
+			return Err(tg::error!("sandbox memory must be greater than zero"));
+		}
+		if matches!(isolation, tg::sandbox::Isolation::Seatbelt)
+			&& (cpu.is_some() || memory.is_some())
+		{
+			return Err(tg::error!(
+				"sandbox cpu and memory are not supported with seatbelt isolation"
+			));
+		}
+		Ok(())
+	}
+
 	pub(crate) async fn try_get_sandbox_local(
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
+			cpu: Option<i64>,
 			hostname: Option<String>,
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			isolation: Option<tg::sandbox::Isolation>,
+			memory: Option<i64>,
 			#[tangram_database(as = "Option<db::value::Json<Vec<tg::sandbox::Mount>>>")]
 			mounts: Option<Vec<tg::sandbox::Mount>>,
 			network: bool,
@@ -42,7 +106,7 @@ impl Server {
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select hostname, mounts, network, status, ttl, \"user\" as user
+				select cpu, hostname, isolation, memory, mounts, network, status, ttl, \"user\" as user
 				from sandboxes
 				where id = {p}1;
 			"
@@ -52,15 +116,30 @@ impl Server {
 			.query_optional_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		let row = row.map(|row| tg::sandbox::get::Output {
-			id: id.clone(),
-			hostname: row.hostname,
-			mounts: row.mounts.unwrap_or_default(),
-			network: row.network,
-			status: row.status,
-			ttl: u64::try_from(row.ttl).unwrap(),
-			user: row.user,
-		});
+		let row = row
+			.map(|row| {
+				Ok::<_, tg::Error>(tg::sandbox::get::Output {
+					cpu: row
+						.cpu
+						.map(u64::try_from)
+						.transpose()
+						.map_err(|source| tg::error!(!source, "invalid sandbox cpu"))?,
+					id: id.clone(),
+					hostname: row.hostname,
+					isolation: row.isolation,
+					memory: row
+						.memory
+						.map(u64::try_from)
+						.transpose()
+						.map_err(|source| tg::error!(!source, "invalid sandbox memory"))?,
+					mounts: row.mounts.unwrap_or_default(),
+					network: row.network,
+					status: row.status,
+					ttl: u64::try_from(row.ttl).unwrap(),
+					user: row.user,
+				})
+			})
+			.transpose()?;
 		Ok(row)
 	}
 

@@ -55,6 +55,7 @@ impl Server {
 		if state.status.is_finished() {
 			return Ok(());
 		}
+		let isolation = Self::resolve_sandbox_isolation(state.isolation)?;
 
 		// Associate the permit with the sandbox.
 		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
@@ -70,7 +71,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
 
 		// Create the listener.
-		let (listener, guest_uri) = Self::run_create_listener(temp.path())
+		let (listener, guest_uri) = Self::run_create_listener(temp.path(), isolation)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to create the tangram listener"))?;
 
@@ -84,7 +85,10 @@ impl Server {
 		});
 		let arg = tangram_sandbox::Arg {
 			artifacts_path,
+			cpu: state.cpu,
 			hostname: state.hostname.clone(),
+			isolation,
+			memory: state.memory,
 			mounts,
 			network: state.network,
 			path: temp.path().to_owned(),
@@ -257,17 +261,73 @@ impl Server {
 
 	async fn run_create_listener(
 		root_path: &Path,
+		isolation: tg::sandbox::Isolation,
 	) -> tg::Result<(crate::http::Listener, tangram_uri::Uri)> {
-		let host_socket_path = if cfg!(target_os = "linux") {
-			root_path.join("upper/opt/tangram/socket")
-		} else {
-			root_path.join("tg")
-		};
-		let guest_socket_path = if cfg!(target_os = "linux") {
-			Path::new("/opt/tangram/socket").to_owned()
-		} else {
-			host_socket_path.clone()
-		};
+		#[cfg(target_os = "linux")]
+		{
+			match isolation {
+				tg::sandbox::Isolation::Container => {
+					Self::run_create_unix_listener(root_path).await
+				},
+				tg::sandbox::Isolation::Seatbelt => {
+					Err(tg::error!("seatbelt isolation is not supported on linux"))
+				},
+				tg::sandbox::Isolation::Vm => {
+					let _ = root_path;
+					#[cfg(not(feature = "vsock"))]
+					{
+						Err(tg::error!("vsock is not enabled"))
+					}
+					#[cfg(feature = "vsock")]
+					{
+						let url = format!("http+vsock://{}:0", tangram_sandbox::vm::HOST_VSOCK_CID)
+							.parse::<tangram_uri::Uri>()
+							.map_err(|source| {
+								tg::error!(source = source, "failed to parse the URL")
+							})?;
+						let listener = Server::listen(&url)
+							.await
+							.map_err(|source| tg::error!(!source, "failed to listen"))?;
+						let guest_uri = match &listener {
+							crate::http::Listener::Vsock(vsock) => {
+								let addr = vsock.local_addr().map_err(|source| {
+									tg::error!(!source, "failed to get the listener address")
+								})?;
+								format!("http+vsock://{}:{}", addr.cid(), addr.port())
+									.parse::<tangram_uri::Uri>()
+									.map_err(|source| {
+										tg::error!(source = source, "failed to parse the URL")
+									})?
+							},
+							_ => unreachable!(),
+						};
+						Ok((listener, guest_uri))
+					}
+				},
+			}
+		}
+
+		#[cfg(not(target_os = "linux"))]
+		{
+			match isolation {
+				tg::sandbox::Isolation::Container => Err(tg::error!(
+					"{isolation} isolation is not supported on macos"
+				)),
+				tg::sandbox::Isolation::Seatbelt => Self::run_create_unix_listener(root_path).await,
+				tg::sandbox::Isolation::Vm => Err(tg::error!(
+					"{isolation} isolation is not supported on macos"
+				)),
+			}
+		}
+	}
+
+	async fn run_create_unix_listener(
+		root_path: &Path,
+	) -> tg::Result<(crate::http::Listener, tangram_uri::Uri)> {
+		let host_socket_path =
+			tangram_sandbox::Sandbox::host_tangram_socket_path_from_root(root_path);
+		let guest_socket_path =
+			tangram_sandbox::Sandbox::guest_tangram_socket_path_from_root(root_path);
 		let max_socket_path_len = if cfg!(target_os = "macos") {
 			100
 		} else {

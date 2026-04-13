@@ -14,13 +14,15 @@ impl<O> tg::Process<O> {
 		O: TryFrom<tg::Value> + 'static,
 		O::Error: std::error::Error + Send + Sync + 'static,
 	{
-		let sandbox = arg.sandbox.clone().unwrap_or_else(|| {
-			tg::Either::Left(tg::sandbox::create::Arg {
-				network: false,
-				ttl: 0,
-				..Default::default()
-			})
-		});
+		let sandbox =
+			super::normalize_sandbox_arg(arg.sandbox.clone(), arg.cpu, arg.isolation, arg.memory)?
+				.unwrap_or_else(|| {
+					tg::Either::Left(tg::sandbox::create::Arg {
+						network: false,
+						ttl: 0,
+						..Default::default()
+					})
+				});
 		let cacheable = matches!(
 			&sandbox,
 			tg::Either::Left(arg) if arg.mounts.is_empty() && !arg.network

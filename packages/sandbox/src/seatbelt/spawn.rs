@@ -43,6 +43,11 @@ pub(crate) fn spawn(
 		.arg(&arg.tangram_path)
 		.arg("sandbox")
 		.arg("serve")
+		.arg(if serve_arg.listen {
+			"--listen"
+		} else {
+			"--connect"
+		})
 		.arg("--url")
 		.arg(serve_arg.url.to_string())
 		.arg("--tangram-path")

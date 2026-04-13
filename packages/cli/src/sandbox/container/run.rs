@@ -17,6 +17,12 @@ pub struct Args {
 	pub cgroup: Option<String>,
 
 	#[arg(long)]
+	pub cgroup_cpu: Option<u64>,
+
+	#[arg(long)]
+	pub cgroup_memory: Option<u64>,
+
+	#[arg(long)]
 	pub cgroup_memory_oom_group: bool,
 
 	#[arg(default_value = "/", long)]
@@ -96,6 +102,8 @@ impl Args {
 			as_pid_1: self.as_pid_1,
 			binds,
 			cgroup: self.cgroup,
+			cgroup_cpu: self.cgroup_cpu,
+			cgroup_memory: self.cgroup_memory,
 			cgroup_memory_oom_group: self.cgroup_memory_oom_group,
 			chdir: self.chdir,
 			command: self.command,
@@ -121,7 +129,8 @@ impl Cli {
 	#[must_use]
 	pub fn command_sandbox_container_run(args: Args) -> std::process::ExitCode {
 		let arg = args.into_arg();
-		match tangram_sandbox::container::run::run(&arg) {
+		let result = tangram_sandbox::container::run::run(&arg);
+		match result {
 			Ok(code) => code,
 			Err(error) => {
 				Cli::print_error_basic(tg::Referent::with_item(error));

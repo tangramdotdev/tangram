@@ -7,7 +7,12 @@ pub struct Cgroup {
 	path: PathBuf,
 }
 
-pub fn create(name: &str, memory_oom_group: bool) -> tg::Result<Cgroup> {
+pub fn create(
+	name: &str,
+	cpu: Option<u64>,
+	memory: Option<u64>,
+	memory_oom_group: bool,
+) -> tg::Result<Cgroup> {
 	let root = Path::new("/sys/fs/cgroup");
 	if !root.join("cgroup.controllers").exists() {
 		return Err(tg::error!("cgroup v2 is not available"));
@@ -30,6 +35,29 @@ pub fn create(name: &str, memory_oom_group: bool) -> tg::Result<Cgroup> {
 			"failed to create the cgroup"
 		)
 	})?;
+	if let Some(cpu) = cpu {
+		let quota = cpu
+			.checked_mul(100_000)
+			.ok_or_else(|| tg::error!("sandbox cpu is too large"))?;
+		let cpu_max = path.join("cpu.max");
+		write_file(&cpu_max, format!("{quota} 100000\n").as_bytes()).map_err(|source| {
+			tg::error!(
+				!source,
+				path = %cpu_max.display(),
+				"failed to set cpu.max"
+			)
+		})?;
+	}
+	if let Some(memory) = memory {
+		let memory_max = path.join("memory.max");
+		write_file(&memory_max, format!("{memory}\n").as_bytes()).map_err(|source| {
+			tg::error!(
+				!source,
+				path = %memory_max.display(),
+				"failed to set memory.max"
+			)
+		})?;
+	}
 	if memory_oom_group {
 		let oom_group = path.join("memory.oom.group");
 		if oom_group.exists() {

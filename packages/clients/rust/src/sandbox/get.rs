@@ -19,10 +19,19 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cpu: Option<u64>,
+
 	pub id: tg::sandbox::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub hostname: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub isolation: Option<tg::sandbox::Isolation>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub memory: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub mounts: Vec<tg::sandbox::Mount>,

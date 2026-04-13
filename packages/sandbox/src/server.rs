@@ -113,7 +113,6 @@ impl Server {
 		Ok(listener)
 	}
 
-	#[expect(dead_code)]
 	pub async fn serve(&self, listener: Listener) {
 		loop {
 			let stream = match &listener {

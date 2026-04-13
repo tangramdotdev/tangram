@@ -10,6 +10,11 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	command
 		.arg("sandbox")
 		.arg("serve")
+		.arg(if arg.serve.listen {
+			"--listen"
+		} else {
+			"--connect"
+		})
 		.arg("--url")
 		.arg(arg.serve.url.to_string())
 		.arg("--tangram-path")

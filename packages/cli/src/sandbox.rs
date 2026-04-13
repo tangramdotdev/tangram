@@ -9,6 +9,8 @@ pub mod list;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
 pub mod serve;
+#[cfg(target_os = "linux")]
+pub mod vm;
 
 /// Manage sandboxes.
 #[derive(Clone, Debug, clap::Args)]
@@ -34,13 +36,25 @@ pub enum Command {
 	#[cfg(target_os = "macos")]
 	#[command(hide = true)]
 	Seatbelt(self::seatbelt::Args),
+	#[cfg(target_os = "linux")]
+	#[command(hide = true)]
+	Vm(self::vm::Args),
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
 #[group(skip)]
 pub struct Options {
 	#[arg(long)]
+	pub cpu: Option<u64>,
+
+	#[arg(long)]
 	pub hostname: Option<String>,
+
+	#[arg(long)]
+	pub isolation: Option<tg::sandbox::Isolation>,
+
+	#[arg(long)]
+	pub memory: Option<u64>,
 
 	#[arg(action = clap::ArgAction::Append, long = "mount", num_args = 1, short)]
 	pub mounts: Vec<tg::sandbox::Mount>,
@@ -99,7 +113,10 @@ impl Network {
 impl Options {
 	pub fn into_arg_with_default_ttl(self, ttl: u64) -> tg::sandbox::create::Arg {
 		tg::sandbox::create::Arg {
+			cpu: self.cpu,
 			hostname: self.hostname,
+			isolation: self.isolation,
+			memory: self.memory,
 			mounts: self.mounts,
 			network: self.network.get(),
 			ttl: self.ttl.unwrap_or(ttl),
@@ -108,7 +125,10 @@ impl Options {
 	}
 
 	pub fn is_empty(&self) -> bool {
-		self.hostname.is_none()
+		self.cpu.is_none()
+			&& self.hostname.is_none()
+			&& self.isolation.is_none()
+			&& self.memory.is_none()
 			&& self.mounts.is_empty()
 			&& self.network.try_get().is_none()
 			&& self.ttl.is_none()
@@ -137,6 +157,10 @@ impl Cli {
 			},
 			#[cfg(target_os = "macos")]
 			Command::Seatbelt(_) => {
+				unreachable!()
+			},
+			#[cfg(target_os = "linux")]
+			Command::Vm(_) => {
 				unreachable!()
 			},
 			Command::List(args) => {

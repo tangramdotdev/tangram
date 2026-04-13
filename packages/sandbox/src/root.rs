@@ -45,15 +45,19 @@ impl Sandbox {
 				.iter()
 				.map(|mount| (mount.target.clone(), mount.source.clone()))
 				.collect::<Vec<_>>();
+			if matches!(self.0.isolation, tg::sandbox::Isolation::Container) {
+				path_maps.extend([
+					(
+						Self::guest_listen_path_from_root(&self.0.path),
+						Self::host_listen_path_from_root(&self.0.path),
+					),
+					(
+						self.guest_tangram_socket_path(),
+						self.host_tangram_socket_path(),
+					),
+				]);
+			}
 			path_maps.extend([
-				(
-					Self::guest_listen_path_from_root(&self.0.path),
-					Self::host_listen_path_from_root(&self.0.path),
-				),
-				(
-					self.guest_tangram_socket_path(),
-					self.host_tangram_socket_path(),
-				),
 				(
 					self.guest_tmp_path(),
 					Self::host_tmp_path_from_root(&self.0.path),
@@ -100,15 +104,19 @@ impl Sandbox {
 				.iter()
 				.map(|mount| (mount.source.clone(), mount.target.clone()))
 				.collect::<Vec<_>>();
+			if matches!(self.0.isolation, tg::sandbox::Isolation::Container) {
+				path_maps.extend([
+					(
+						Self::host_listen_path_from_root(&self.0.path),
+						Self::guest_listen_path_from_root(&self.0.path),
+					),
+					(
+						self.host_tangram_socket_path(),
+						self.guest_tangram_socket_path(),
+					),
+				]);
+			}
 			path_maps.extend([
-				(
-					Self::host_listen_path_from_root(&self.0.path),
-					Self::guest_listen_path_from_root(&self.0.path),
-				),
-				(
-					self.host_tangram_socket_path(),
-					self.guest_tangram_socket_path(),
-				),
 				(
 					Self::host_tmp_path_from_root(&self.0.path),
 					self.guest_tmp_path(),
@@ -181,6 +189,7 @@ impl Sandbox {
 
 	#[must_use]
 	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
+	#[cfg_attr(target_os = "linux", allow(dead_code))]
 	pub(crate) fn guest_listen_path_from_root(root_path: &Path) -> PathBuf {
 		#[cfg(target_os = "macos")]
 		{
@@ -220,7 +229,7 @@ impl Sandbox {
 	}
 
 	#[must_use]
-	pub(crate) fn guest_tangram_socket_path_from_root(root_path: &Path) -> PathBuf {
+	pub fn guest_tangram_socket_path_from_root(root_path: &Path) -> PathBuf {
 		#[cfg(target_os = "macos")]
 		{
 			Self::host_tangram_socket_path_from_root(root_path)
@@ -264,6 +273,7 @@ impl Sandbox {
 	}
 
 	#[must_use]
+	#[cfg_attr(target_os = "linux", allow(dead_code))]
 	pub(crate) fn host_listen_path_from_root(root_path: &Path) -> PathBuf {
 		root_path.join("socket")
 	}
@@ -293,6 +303,7 @@ impl Sandbox {
 
 	#[must_use]
 	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
+	#[cfg_attr(target_os = "linux", allow(dead_code))]
 	pub(crate) fn host_resolv_conf_path_from_root(root_path: &Path) -> PathBuf {
 		Self::host_etc_path_from_root(root_path).join("resolv.conf")
 	}
@@ -303,7 +314,7 @@ impl Sandbox {
 	}
 
 	#[must_use]
-	pub(crate) fn host_tangram_socket_path_from_root(root_path: &Path) -> PathBuf {
+	pub fn host_tangram_socket_path_from_root(root_path: &Path) -> PathBuf {
 		#[cfg(target_os = "macos")]
 		{
 			root_path.join("tg")
