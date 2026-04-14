@@ -1,6 +1,7 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, StreamExt as _, stream::BoxStream},
+	std::sync::OnceLock,
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
 
@@ -22,6 +23,31 @@ pub use self::{
 
 pub mod dynamic;
 pub mod erased;
+
+pub static HANDLE: OnceLock<tg::Client> = OnceLock::new();
+
+pub fn init() -> tg::Result<&'static tg::Client> {
+	let client = tg::Client::with_env()?;
+	init_with(client)
+}
+
+pub fn init_with(client: tg::Client) -> tg::Result<&'static tg::Client> {
+	if let Some(handle) = HANDLE.get() {
+		return Ok(handle);
+	}
+	match HANDLE.set(client) {
+		Ok(()) | Err(_) => Ok(HANDLE.get().unwrap()),
+	}
+}
+
+#[must_use]
+pub fn try_handle() -> Option<&'static tg::Client> {
+	HANDLE.get()
+}
+
+pub(crate) fn handle() -> tg::Result<&'static tg::Client> {
+	try_handle().ok_or_else(|| tg::error!("tangram is not initialized; call tg::init() first"))
+}
 
 pub trait Handle:
 	Module

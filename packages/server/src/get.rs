@@ -173,11 +173,11 @@ impl Server {
 			return Err(tg::error!("unexpected reference path option"));
 		};
 		let directory = tg::Directory::with_id(directory.clone());
-		let Some(artifact) = directory.try_get(self, path).await? else {
+		let Some(artifact) = directory.try_get_with_handle(self, path).await? else {
 			return Ok(None);
 		};
 		let id = artifact
-			.store(self)
+			.store_with_handle(self)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the artifact"))?;
 		output.referent.item = tg::Either::Left(id.into());

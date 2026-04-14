@@ -11,7 +11,12 @@ pub struct Arg {
 	pub artifacts: Vec<tg::artifact::Id>,
 }
 
-pub async fn cache<H>(handle: &H, arg: Arg) -> tg::Result<()>
+pub async fn cache(arg: Arg) -> tg::Result<()> {
+	let handle = tg::handle()?;
+	cache_with_handle(handle, arg).await
+}
+
+pub async fn cache_with_handle<H>(handle: &H, arg: Arg) -> tg::Result<()>
 where
 	H: tg::Handle,
 {

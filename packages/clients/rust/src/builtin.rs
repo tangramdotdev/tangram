@@ -33,7 +33,16 @@ pub enum DownloadMode {
 	Extract,
 }
 
-pub async fn archive<H>(
+pub async fn archive(
+	artifact: &tg::Artifact,
+	format: tg::ArchiveFormat,
+	compression: Option<tg::CompressionFormat>,
+) -> tg::Result<tg::Blob> {
+	let handle = tg::handle()?;
+	archive_with_handle(artifact, handle, format, compression).await
+}
+
+pub async fn archive_with_handle<H>(
 	artifact: &tg::Artifact,
 	handle: &H,
 	format: tg::ArchiveFormat,
@@ -56,7 +65,7 @@ where
 		})),
 		..Default::default()
 	};
-	let output = tg::build(handle, arg).await?;
+	let output = tg::process::build_with_handle(handle, arg).await?;
 	let blob = output.try_into()?;
 	Ok(blob)
 }
@@ -86,7 +95,12 @@ pub fn archive_command(
 		.expect("the command builder should be complete")
 }
 
-pub async fn bundle<H>(artifact: &tg::Artifact, handle: &H) -> tg::Result<tg::Artifact>
+pub async fn bundle(artifact: &tg::Artifact) -> tg::Result<tg::Artifact> {
+	let handle = tg::handle()?;
+	bundle_with_handle(artifact, handle).await
+}
+
+pub async fn bundle_with_handle<H>(artifact: &tg::Artifact, handle: &H) -> tg::Result<tg::Artifact>
 where
 	H: tg::Handle,
 {
@@ -98,7 +112,7 @@ where
 		})),
 		..Default::default()
 	};
-	let output = tg::build(handle, arg).await?;
+	let output = tg::process::build_with_handle(handle, arg).await?;
 	let artifact = output.try_into()?;
 	Ok(artifact)
 }
@@ -118,7 +132,15 @@ pub fn bundle_command(artifact: &tg::Artifact) -> tg::Command {
 		.expect("the command builder should be complete")
 }
 
-pub async fn checksum<H>(
+pub async fn checksum(
+	input: tg::Either<&tg::Blob, &tg::Artifact>,
+	algorithm: tg::checksum::Algorithm,
+) -> tg::Result<tg::Checksum> {
+	let handle = tg::handle()?;
+	checksum_with_handle(input, handle, algorithm).await
+}
+
+pub async fn checksum_with_handle<H>(
 	input: tg::Either<&tg::Blob, &tg::Artifact>,
 	handle: &H,
 	algorithm: tg::checksum::Algorithm,
@@ -134,7 +156,7 @@ where
 		})),
 		..Default::default()
 	};
-	let output = tg::build(handle, arg).await?;
+	let output = tg::process::build_with_handle(handle, arg).await?;
 	let checksum = output
 		.try_unwrap_string()
 		.ok()
@@ -162,7 +184,12 @@ pub fn checksum_command(
 		.expect("the command builder should be complete")
 }
 
-pub async fn compress<H>(
+pub async fn compress(input: &tg::Blob, format: tg::CompressionFormat) -> tg::Result<tg::Blob> {
+	let handle = tg::handle()?;
+	compress_with_handle(input, handle, format).await
+}
+
+pub async fn compress_with_handle<H>(
 	input: &tg::Blob,
 	handle: &H,
 	format: tg::CompressionFormat,
@@ -178,7 +205,7 @@ where
 		})),
 		..Default::default()
 	};
-	let output = tg::build(handle, arg).await?;
+	let output = tg::process::build_with_handle(handle, arg).await?;
 	let blob = output.try_into()?;
 	Ok(blob)
 }
@@ -198,7 +225,12 @@ pub fn compress_command(input: &tg::Blob, format: tg::CompressionFormat) -> tg::
 		.expect("the command builder should be complete")
 }
 
-pub async fn decompress<H>(input: &tg::Blob, handle: &H) -> tg::Result<tg::Blob>
+pub async fn decompress(input: &tg::Blob) -> tg::Result<tg::Blob> {
+	let handle = tg::handle()?;
+	decompress_with_handle(input, handle).await
+}
+
+pub async fn decompress_with_handle<H>(input: &tg::Blob, handle: &H) -> tg::Result<tg::Blob>
 where
 	H: tg::Handle,
 {
@@ -210,7 +242,7 @@ where
 		})),
 		..Default::default()
 	};
-	let output = tg::build(handle, arg).await?;
+	let output = tg::process::build_with_handle(handle, arg).await?;
 	let blob = output.try_into()?;
 	Ok(blob)
 }
@@ -230,7 +262,16 @@ pub fn decompress_command(input: &tg::Blob) -> tg::Command {
 		.expect("the command builder should be complete")
 }
 
-pub async fn download<H>(
+pub async fn download(
+	url: &Uri,
+	checksum: Option<&tg::Checksum>,
+	options: Option<DownloadOptions>,
+) -> tg::Result<tg::Either<tg::Blob, tg::Artifact>> {
+	let handle = tg::handle()?;
+	download_with_handle(handle, url, checksum, options).await
+}
+
+pub async fn download_with_handle<H>(
 	handle: &H,
 	url: &Uri,
 	checksum: Option<&tg::Checksum>,
@@ -250,7 +291,7 @@ where
 		})),
 		..Default::default()
 	};
-	let output = tg::build(handle, arg).await?;
+	let output = tg::process::build_with_handle(handle, arg).await?;
 	let output = if output.is_blob() {
 		tg::Either::Left(output.try_into()?)
 	} else if output.is_artifact() {
@@ -279,7 +320,12 @@ pub fn download_command(url: &Uri, options: Option<DownloadOptions>) -> tg::Comm
 		.expect("the command builder should be complete")
 }
 
-pub async fn extract<H>(handle: &H, input: &tg::Blob) -> tg::Result<tg::Artifact>
+pub async fn extract(input: &tg::Blob) -> tg::Result<tg::Artifact> {
+	let handle = tg::handle()?;
+	extract_with_handle(handle, input).await
+}
+
+pub async fn extract_with_handle<H>(handle: &H, input: &tg::Blob) -> tg::Result<tg::Artifact>
 where
 	H: tg::Handle,
 {
@@ -291,7 +337,7 @@ where
 		})),
 		..Default::default()
 	};
-	let output = tg::build(handle, arg).await?;
+	let output = tg::process::build_with_handle(handle, arg).await?;
 	let artifact = output.try_into()?;
 	Ok(artifact)
 }

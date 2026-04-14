@@ -1230,7 +1230,7 @@ impl Cli {
 		let mut referent = referent.map(|_| item);
 		let module = match referent.item.clone() {
 			tg::Object::Directory(directory) => {
-				let root_module_name = tg::module::try_get_root_module_file_name(
+				let root_module_name = tg::module::try_get_root_module_file_name_with_handle(
 					&handle,
 					tg::Either::Left(&directory),
 				)
@@ -1244,7 +1244,9 @@ impl Cli {
 					referent.options.path.replace(root_module_name.into());
 				}
 				let kind = tg::module::module_kind_for_path(root_module_name).unwrap();
-				let item = directory.get_entry_edge(&handle, root_module_name).await?;
+				let item = directory
+					.get_entry_edge_with_handle(&handle, root_module_name)
+					.await?;
 				let item = tg::module::Item::Edge(item.into());
 				let referent = referent.map(|_| item);
 				tg::Module { kind, referent }

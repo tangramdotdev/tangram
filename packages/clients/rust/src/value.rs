@@ -80,7 +80,12 @@ impl Value {
 		}
 	}
 
-	pub async fn store<H>(&self, handle: &H) -> tg::Result<()>
+	pub async fn store(&self) -> tg::Result<()> {
+		let handle = tg::handle()?;
+		self.store_with_handle(handle).await
+	}
+
+	pub async fn store_with_handle<H>(&self, handle: &H) -> tg::Result<()>
 	where
 		H: tg::Handle,
 	{
@@ -187,15 +192,25 @@ impl Value {
 		Ok(value)
 	}
 
-	pub async fn children<H>(&self, handle: &H) -> tg::Result<Vec<Self>>
+	pub async fn children(&self) -> tg::Result<Vec<Self>> {
+		let handle = tg::handle()?;
+		self.children_with_handle(handle).await
+	}
+
+	pub async fn children_with_handle<H>(&self, handle: &H) -> tg::Result<Vec<Self>>
 	where
 		H: tg::Handle,
 	{
-		self.children_with_arg(handle, tg::object::get::Arg::default())
+		self.children_with_arg_with_handle(handle, tg::object::get::Arg::default())
 			.await
 	}
 
-	pub async fn children_with_arg<H>(
+	pub async fn children_with_arg(&self, arg: tg::object::get::Arg) -> tg::Result<Vec<Self>> {
+		let handle = tg::handle()?;
+		self.children_with_arg_with_handle(handle, arg).await
+	}
+
+	pub async fn children_with_arg_with_handle<H>(
 		&self,
 		handle: &H,
 		arg: tg::object::get::Arg,
@@ -206,7 +221,7 @@ impl Value {
 		let mut children = Vec::new();
 		match self {
 			Self::Object(object) => {
-				let object = object.load_with_arg(handle, arg).await?;
+				let object = object.load_with_arg_with_handle(handle, arg).await?;
 				for child in object.children() {
 					children.push(tg::Value::Object(child));
 				}
@@ -236,7 +251,17 @@ impl Value {
 		Ok(children)
 	}
 
-	pub async fn load<H>(
+	pub async fn load(
+		&self,
+		arg: tg::object::get::Arg,
+		depth: Option<u64>,
+		blobs: bool,
+	) -> tg::Result<()> {
+		let handle = tg::handle()?;
+		self.load_with_handle(handle, arg, depth, blobs).await
+	}
+
+	pub async fn load_with_handle<H>(
 		&self,
 		handle: &H,
 		arg: tg::object::get::Arg,
@@ -267,7 +292,7 @@ impl Value {
 				let arg = arg.clone();
 				join_set.spawn(async move {
 					let _permit = permit;
-					let children = value.children_with_arg(&handle, arg).await?;
+					let children = value.children_with_arg_with_handle(&handle, arg).await?;
 					Ok((children, depth))
 				});
 			}

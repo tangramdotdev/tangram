@@ -466,14 +466,19 @@ impl Pointer {
 		self.graph.clone().into_iter().map(Into::into).collect()
 	}
 
-	pub async fn get<H>(&self, handle: &H) -> tg::Result<tg::Artifact>
+	pub async fn get(&self) -> tg::Result<tg::Artifact> {
+		let handle = tg::handle()?;
+		self.get_with_handle(handle).await
+	}
+
+	pub async fn get_with_handle<H>(&self, handle: &H) -> tg::Result<tg::Artifact>
 	where
 		H: tg::Handle,
 	{
 		self.graph
 			.as_ref()
 			.ok_or_else(|| tg::error!("missing graph"))?
-			.get(handle, self.index)
+			.get_with_handle(handle, self.index)
 			.await
 	}
 }

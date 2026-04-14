@@ -166,7 +166,7 @@ impl Server {
 		// Guard against concurrent cleans.
 		// Get the host.
 		let command_ = tg::Command::with_id(arg.command.item.clone());
-		let host = command_.host(self).await.ok();
+		let host = command_.host_with_handle(self).await.ok();
 
 		// Get a sandbox store connection.
 		let mut connection = self
@@ -800,10 +800,14 @@ impl Server {
 		let now: i64 = time::OffsetDateTime::now_utc().unix_timestamp();
 		let (error_data, error_code) = if let Some(error) = &error {
 			error
-				.store(self)
+				.store_with_handle(self)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to store the error"))?;
-			let code = error.data(self).await?.code.map(|code| code.to_string());
+			let code = error
+				.data_with_handle(self)
+				.await?
+				.code
+				.map(|code| code.to_string());
 			(Some(error.id()), code)
 		} else {
 			(None, None)

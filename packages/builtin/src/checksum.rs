@@ -67,7 +67,9 @@ async fn checksum_blob<H>(
 where
 	H: tg::Handle,
 {
-	let reader = blob.read(handle, tg::read::Options::default()).await?;
+	let reader = blob
+		.read_with_handle(handle, tg::read::Options::default())
+		.await?;
 	let reader = SharedPositionReader::with_reader_and_position(reader, 0)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to create the shared position reader"))?;
@@ -195,7 +197,7 @@ where
 {
 	match artifact {
 		tg::Artifact::Directory(directory) => {
-			let entries = directory.entries(handle).await?;
+			let entries = directory.entries_with_handle(handle).await?;
 			writer
 				.write_uvarint(0)
 				.await
@@ -224,12 +226,14 @@ where
 			}
 		},
 		tg::Artifact::File(file) => {
-			if !file.dependencies(handle).await?.is_empty() {
+			if !file.dependencies_with_handle(handle).await?.is_empty() {
 				return Err(tg::error!("cannot checksum a file with dependencies"));
 			}
-			let executable = file.executable(handle).await?;
-			let length = file.length(handle).await?;
-			let mut reader = file.read(handle, tg::read::Options::default()).await?;
+			let executable = file.executable_with_handle(handle).await?;
+			let length = file.length_with_handle(handle).await?;
+			let mut reader = file
+				.read_with_handle(handle, tg::read::Options::default())
+				.await?;
 			writer
 				.write_uvarint(1)
 				.await
@@ -248,11 +252,11 @@ where
 			position.fetch_add(length, Ordering::Relaxed);
 		},
 		tg::Artifact::Symlink(symlink) => {
-			if symlink.artifact(handle).await?.is_some() {
+			if symlink.artifact_with_handle(handle).await?.is_some() {
 				return Err(tg::error!("cannot checksum a symlink with an artifact"));
 			}
 			let path = symlink
-				.path(handle)
+				.path_with_handle(handle)
 				.await?
 				.ok_or_else(|| tg::error!("cannot checksum a symlink without a path"))?;
 			let target = path.to_string_lossy();

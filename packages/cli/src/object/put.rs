@@ -84,7 +84,7 @@ impl Cli {
 
 			// Store the value.
 			value
-				.store(&handle)
+				.store_with_handle(&handle)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to store the value"))?;
 

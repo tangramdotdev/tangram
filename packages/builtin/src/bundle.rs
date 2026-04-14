@@ -29,7 +29,7 @@ where
 	};
 
 	// Collect the artifact's recursive artifact dependencies.
-	let dependencies = Box::pin(artifact.recursive_dependencies(handle)).await?;
+	let dependencies = Box::pin(artifact.recursive_dependencies_with_handle(handle)).await?;
 
 	// If there are no dependencies, then return the artifact.
 	if dependencies.is_empty() {
@@ -76,9 +76,9 @@ where
 
 	// Add the artifacts directory to the bundled artifact at `.tangram/artifacts`.
 	let output = output
-		.builder(handle)
+		.builder_with_handle(handle)
 		.await?
-		.add(
+		.add_with_handle(
 			handle,
 			TANGRAM_ARTIFACTS_PATH.as_ref(),
 			artifacts_directory.into(),
@@ -111,7 +111,7 @@ where
 		tg::Artifact::Directory(directory) => {
 			let entries = Box::pin(async move {
 				directory
-					.entries(handle)
+					.entries_with_handle(handle)
 					.await?
 					.iter()
 					.map(|(name, artifact)| async move {
@@ -130,16 +130,16 @@ where
 
 		// If the artifact is a file, then return the file without any dependencies.
 		tg::Artifact::File(file) => {
-			let contents = file.contents(handle).await?.clone();
-			let executable = file.executable(handle).await?;
+			let contents = file.contents_with_handle(handle).await?.clone();
+			let executable = file.executable_with_handle(handle).await?;
 			let file = tg::File::builder(contents).executable(executable).build();
 			Ok(file.into())
 		},
 
 		// If the artifact is a symlink with an artifact, then replace it with a symlink pointing to `.tangram/artifacts/<id>`.
 		tg::Artifact::Symlink(symlink) => {
-			let artifact = symlink.artifact(handle).await?;
-			let path = symlink.path(handle).await?;
+			let artifact = symlink.artifact_with_handle(handle).await?;
+			let path = symlink.path_with_handle(handle).await?;
 			let mut target = PathBuf::new();
 			if let Some(artifact) = artifact {
 				for _ in 0..depth - 1 {

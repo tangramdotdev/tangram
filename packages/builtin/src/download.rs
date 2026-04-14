@@ -236,7 +236,7 @@ where
 		path,
 		updates: Vec::new(),
 	};
-	let artifact = tg::checkin(handle, arg)
+	let artifact = tg::checkin::checkin_with_handle(handle, arg)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to check in the downloaded file"))?;
 
@@ -251,7 +251,7 @@ where
 		Mode::Raw => artifact
 			.try_unwrap_file()
 			.map_err(|_| tg::error!("expected a file"))?
-			.contents(handle)
+			.contents_with_handle(handle)
 			.await?
 			.into(),
 

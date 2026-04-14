@@ -99,15 +99,25 @@ impl State {
 		}
 	}
 
-	pub async fn load<H>(&self, handle: &H) -> tg::Result<tg::object::Object>
+	pub async fn load(&self) -> tg::Result<tg::object::Object> {
+		let handle = tg::handle()?;
+		self.load_with_handle(handle).await
+	}
+
+	pub async fn load_with_handle<H>(&self, handle: &H) -> tg::Result<tg::object::Object>
 	where
 		H: tg::Handle,
 	{
-		self.load_with_arg(handle, tg::object::get::Arg::default())
+		self.load_with_arg_with_handle(handle, tg::object::get::Arg::default())
 			.await
 	}
 
-	pub async fn load_with_arg<H>(
+	pub async fn load_with_arg(&self, arg: tg::object::get::Arg) -> tg::Result<tg::object::Object> {
+		let handle = tg::handle()?;
+		self.load_with_arg_with_handle(handle, arg).await
+	}
+
+	pub async fn load_with_arg_with_handle<H>(
 		&self,
 		handle: &H,
 		arg: tg::object::get::Arg,
@@ -115,20 +125,36 @@ impl State {
 	where
 		H: tg::Handle,
 	{
-		self.try_load_with_arg(handle, arg)
+		self.try_load_with_arg_with_handle(handle, arg)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
-	pub async fn try_load<H>(&self, handle: &H) -> tg::Result<Option<tg::object::Object>>
+	pub async fn try_load(&self) -> tg::Result<Option<tg::object::Object>> {
+		let handle = tg::handle()?;
+		self.try_load_with_handle(handle).await
+	}
+
+	pub async fn try_load_with_handle<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<Option<tg::object::Object>>
 	where
 		H: tg::Handle,
 	{
-		self.try_load_with_arg(handle, tg::object::get::Arg::default())
+		self.try_load_with_arg_with_handle(handle, tg::object::get::Arg::default())
 			.await
 	}
 
-	pub async fn try_load_with_arg<H>(
+	pub async fn try_load_with_arg(
+		&self,
+		arg: tg::object::get::Arg,
+	) -> tg::Result<Option<tg::object::Object>> {
+		let handle = tg::handle()?;
+		self.try_load_with_arg_with_handle(handle, arg).await
+	}
+
+	pub async fn try_load_with_arg_with_handle<H>(
 		&self,
 		handle: &H,
 		arg: tg::object::get::Arg,
@@ -159,11 +185,16 @@ impl State {
 		Ok(Some(object))
 	}
 
-	pub async fn children<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
+	pub async fn children(&self) -> tg::Result<Vec<tg::Object>> {
+		let handle = tg::handle()?;
+		self.children_with_handle(handle).await
+	}
+
+	pub async fn children_with_handle<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
 	where
 		H: tg::Handle,
 	{
-		let object = self.load(handle).await?;
+		let object = self.load_with_handle(handle).await?;
 		Ok(object.children())
 	}
 }

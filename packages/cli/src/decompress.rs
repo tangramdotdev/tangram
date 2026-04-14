@@ -17,7 +17,7 @@ impl Cli {
 		let blob = tg::Blob::with_id(args.blob);
 		let command = tg::builtin::decompress_command(&blob);
 		let command = command
-			.store(&handle)
+			.store_with_handle(&handle)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 		let reference = tg::Reference::with_object(command.into());

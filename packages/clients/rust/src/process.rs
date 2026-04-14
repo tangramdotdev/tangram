@@ -10,8 +10,18 @@ use {
 };
 
 pub use self::{
-	build::build, data::Data, env::env, id::Id, metadata::Metadata, run::run, signal::Signal,
-	state::State, status::Status, stdio::Stdio, tty::Tty, wait::Wait,
+	build::{build, build_with_handle},
+	data::Data,
+	env::env,
+	id::Id,
+	metadata::Metadata,
+	run::{run, run_with_handle},
+	signal::Signal,
+	state::State,
+	status::Status,
+	stdio::Stdio,
+	tty::Tty,
+	wait::Wait,
 };
 
 pub mod build;
@@ -187,16 +197,29 @@ impl<O> Process<O> {
 		self.0.stderr.clone()
 	}
 
-	pub async fn load<H>(&self, handle: &H) -> tg::Result<Arc<tg::process::State>>
+	pub async fn load(&self) -> tg::Result<Arc<tg::process::State>> {
+		let handle = tg::handle()?;
+		self.load_with_handle(handle).await
+	}
+
+	pub async fn load_with_handle<H>(&self, handle: &H) -> tg::Result<Arc<tg::process::State>>
 	where
 		H: tg::Handle,
 	{
-		self.try_load(handle)
+		self.try_load_with_handle(handle)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the process"))
 	}
 
-	pub async fn try_load<H>(&self, handle: &H) -> tg::Result<Option<Arc<tg::process::State>>>
+	pub async fn try_load(&self) -> tg::Result<Option<Arc<tg::process::State>>> {
+		let handle = tg::handle()?;
+		self.try_load_with_handle(handle).await
+	}
+
+	pub async fn try_load_with_handle<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<Option<Arc<tg::process::State>>>
 	where
 		H: tg::Handle,
 	{
@@ -213,24 +236,49 @@ impl<O> Process<O> {
 		Ok(Some(state))
 	}
 
-	pub async fn command<H>(
+	pub async fn command(&self) -> tg::Result<impl Deref<Target = tg::Command>> {
+		let handle = tg::handle()?;
+		self.command_with_handle(handle).await
+	}
+
+	pub async fn command_with_handle<H>(
 		&self,
 		handle: &H,
 	) -> tg::Result<impl Deref<Target = tg::Command> + use<H, O>>
 	where
 		H: tg::Handle,
 	{
-		Ok(self.load(handle).await?.map(|state| &state.command))
+		Ok(self
+			.load_with_handle(handle)
+			.await?
+			.map(|state| &state.command))
 	}
 
-	pub async fn retry<H>(&self, handle: &H) -> tg::Result<impl Deref<Target = bool>>
+	pub async fn retry(&self) -> tg::Result<impl Deref<Target = bool>> {
+		let handle = tg::handle()?;
+		self.retry_with_handle(handle).await
+	}
+
+	pub async fn retry_with_handle<H>(&self, handle: &H) -> tg::Result<impl Deref<Target = bool>>
 	where
 		H: tg::Handle,
 	{
-		Ok(self.load(handle).await?.map(|state| &state.retry))
+		Ok(self
+			.load_with_handle(handle)
+			.await?
+			.map(|state| &state.retry))
 	}
 
-	pub async fn signal<H>(&self, handle: &H, signal: tg::process::Signal) -> tg::Result<()>
+	pub async fn signal(&self, signal: tg::process::Signal) -> tg::Result<()> {
+		let handle = tg::handle()?;
+		self.signal_with_handle(handle, signal).await
+	}
+
+	pub async fn signal_with_handle<H>(
+		&self,
+		handle: &H,
+		signal: tg::process::Signal,
+	) -> tg::Result<()>
 	where
 		H: tg::Handle,
 	{
@@ -258,7 +306,12 @@ impl<O> Process<O> {
 		Ok(())
 	}
 
-	pub async fn wait<H>(
+	pub async fn wait(&self, arg: tg::process::wait::Arg) -> tg::Result<tg::process::Wait> {
+		let handle = tg::handle()?;
+		self.wait_with_handle(handle, arg).await
+	}
+
+	pub async fn wait_with_handle<H>(
 		&self,
 		handle: &H,
 		arg: tg::process::wait::Arg,
@@ -285,13 +338,24 @@ impl<O> Process<O> {
 		Ok(wait)
 	}
 
-	pub async fn output<H>(&self, handle: &H) -> tg::Result<O>
+	pub async fn output(&self) -> tg::Result<O>
+	where
+		O: TryFrom<tg::Value>,
+		O::Error: std::error::Error + Send + Sync + 'static,
+	{
+		let handle = tg::handle()?;
+		self.output_with_handle(handle).await
+	}
+
+	pub async fn output_with_handle<H>(&self, handle: &H) -> tg::Result<O>
 	where
 		H: tg::Handle,
 		O: TryFrom<tg::Value>,
 		O::Error: std::error::Error + Send + Sync + 'static,
 	{
-		let wait = self.wait(handle, tg::process::wait::Arg::default()).await?;
+		let wait = self
+			.wait_with_handle(handle, tg::process::wait::Arg::default())
+			.await?;
 		let output = wait.into_output()?;
 		output
 			.try_into()

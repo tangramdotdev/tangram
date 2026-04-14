@@ -29,7 +29,7 @@ pub async fn checkin(
 	let artifact = state
 		.main_runtime_handle
 		.spawn(async move {
-			let artifact = tg::checkin::checkin(&handle, arg).await?;
+			let artifact = tg::checkin::checkin_with_handle(&handle, arg).await?;
 			Ok::<_, tg::Error>(artifact)
 		})
 		.await
@@ -59,7 +59,7 @@ pub async fn checkout(state: Rc<State>, args: (Serde<tg::checkout::Arg>,)) -> tg
 	let path = state
 		.main_runtime_handle
 		.spawn(async move {
-			let path = tg::checkout::checkout(&handle, arg).await?;
+			let path = tg::checkout::checkout_with_handle(&handle, arg).await?;
 			Ok::<_, tg::Error>(path)
 		})
 		.await

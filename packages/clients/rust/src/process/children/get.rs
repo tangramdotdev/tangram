@@ -41,7 +41,15 @@ pub struct Chunk {
 }
 
 impl<O> tg::Process<O> {
-	pub async fn children<H>(
+	pub async fn children(
+		&self,
+		arg: tg::process::children::get::Arg,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::state::Child>> + Send + 'static> {
+		let handle = tg::handle()?;
+		self.children_with_handle(handle, arg).await
+	}
+
+	pub async fn children_with_handle<H>(
 		&self,
 		handle: &H,
 		arg: tg::process::children::get::Arg,
@@ -49,12 +57,22 @@ impl<O> tg::Process<O> {
 	where
 		H: tg::Handle,
 	{
-		self.try_get_children(handle, arg)
+		self.try_get_children_with_handle(handle, arg)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the process"))
 	}
 
-	pub async fn try_get_children<H>(
+	pub async fn try_get_children(
+		&self,
+		arg: tg::process::children::get::Arg,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::process::state::Child>> + Send + 'static>,
+	> {
+		let handle = tg::handle()?;
+		self.try_get_children_with_handle(handle, arg).await
+	}
+
+	pub async fn try_get_children_with_handle<H>(
 		&self,
 		handle: &H,
 		arg: tg::process::children::get::Arg,

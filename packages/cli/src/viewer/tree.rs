@@ -438,7 +438,7 @@ where
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
-		let children = match blob.load(handle).await?.as_ref() {
+		let children = match blob.load_with_handle(handle).await?.as_ref() {
 			tg::blob::Object::Leaf(_) => {
 				return Ok(());
 			},
@@ -479,7 +479,7 @@ where
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
-		let object = command.object(handle).await?;
+		let object = command.object_with_handle(handle).await?;
 		let mut children = Vec::new();
 		children.push(("args".to_owned(), tg::Value::Array(object.args.clone())));
 		children.push(("env".to_owned(), tg::Value::Map(object.env.clone())));
@@ -509,7 +509,7 @@ where
 						tg::module::Item::Edge(edge) => {
 							let object = match edge {
 								tg::graph::Edge::Pointer(pointer) => {
-									pointer.get(handle).await?.into()
+									pointer.get_with_handle(handle).await?.into()
 								},
 								tg::graph::Edge::Object(object) => object,
 							};
@@ -568,7 +568,7 @@ where
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
-		let object = error.object(handle).await?;
+		let object = error.object_with_handle(handle).await?;
 		let mut children = Vec::new();
 
 		// Add message if present.
@@ -609,7 +609,7 @@ where
 						tg::module::Item::Edge(edge) => {
 							let object = match edge {
 								tg::graph::Edge::Pointer(pointer) => {
-									pointer.get(handle).await?.into()
+									pointer.get_with_handle(handle).await?.into()
 								},
 								tg::graph::Edge::Object(object) => object,
 							};
@@ -767,7 +767,7 @@ where
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
-		let object = directory.object(handle).await?;
+		let object = directory.object_with_handle(handle).await?;
 		let children: Vec<_> = match object.as_ref() {
 			tg::directory::Object::Pointer(pointer) => [
 				(
@@ -793,7 +793,9 @@ where
 						.into_iter()
 						.map(async |(name, artifact)| {
 							let artifact = match artifact {
-								tg::graph::Edge::Pointer(pointer) => pointer.get(handle).await?,
+								tg::graph::Edge::Pointer(pointer) => {
+									pointer.get_with_handle(handle).await?
+								},
 								tg::graph::Edge::Object(artifact) => artifact,
 							};
 							Ok::<_, tg::Error>((name, artifact.into()))
@@ -814,7 +816,7 @@ where
 						.map(async |(i, child)| {
 							let directory: tg::Object = match child.directory {
 								tg::graph::Edge::Pointer(pointer) => {
-									pointer.get(handle).await?.into()
+									pointer.get_with_handle(handle).await?.into()
 								},
 								tg::graph::Edge::Object(directory) => directory.into(),
 							};
@@ -871,7 +873,7 @@ where
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
-		let object = file.object(handle).await?;
+		let object = file.object_with_handle(handle).await?;
 
 		let children = match object.as_ref() {
 			tg::file::Object::Pointer(pointer) => [
@@ -911,7 +913,7 @@ where
 						if let Some(edge) = dependency.0.item() {
 							let item = match edge {
 								tg::graph::Edge::Pointer(pointer) => {
-									pointer.get(handle).await?.into()
+									pointer.get_with_handle(handle).await?.into()
 								},
 								tg::graph::Edge::Object(object) => object.clone(),
 							};
@@ -984,7 +986,7 @@ where
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
 		// Get the graph nodes and metadata, then unload the object immediately.
-		let nodes = graph.nodes(handle).await?;
+		let nodes = graph.nodes_with_handle(handle).await?;
 		let metadata = get_object_metadata_as_value(handle, graph.id()).await?;
 		graph.unload();
 
@@ -1009,7 +1011,7 @@ where
 											if pointer.graph.is_none() {
 												pointer.graph.replace(graph.clone());
 											}
-											pointer.get(handle).await?.into()
+											pointer.get_with_handle(handle).await?.into()
 										},
 										tg::graph::Edge::Object(artifact) => artifact.into(),
 									};
@@ -1031,7 +1033,7 @@ where
 											if pointer.graph.is_none() {
 												pointer.graph.replace(graph.clone());
 											}
-											pointer.get(handle).await?.into()
+											pointer.get_with_handle(handle).await?.into()
 										},
 										tg::graph::Edge::Object(directory) => directory.into(),
 									};
@@ -1076,7 +1078,7 @@ where
 											if pointer.graph.is_none() {
 												pointer.graph.replace(graph.clone());
 											}
-											pointer.get(handle).await?.into()
+											pointer.get_with_handle(handle).await?.into()
 										},
 										tg::graph::Edge::Object(object) => object.clone(),
 									};
@@ -1124,7 +1126,7 @@ where
 									if pointer.graph.is_none() {
 										pointer.graph.replace(graph.clone());
 									}
-									pointer.get(handle).await?.into()
+									pointer.get_with_handle(handle).await?.into()
 								},
 								tg::graph::Edge::Object(object) => object.into(),
 							};
@@ -1433,7 +1435,7 @@ where
 		};
 		update_sender.send(Box::new(update)).ok();
 
-		let command = process.command(handle).await?;
+		let command = process.command_with_handle(handle).await?;
 		let value = tg::Value::Object(command.clone().into());
 		let metadata = get_process_metadata_as_value(handle, process.id()).await?;
 		update_sender
@@ -1470,7 +1472,7 @@ where
 			let update_sender = update_sender.clone();
 			async move {
 				let Ok(wait) = process
-					.wait(&handle, tg::process::wait::Arg::default())
+					.wait_with_handle(&handle, tg::process::wait::Arg::default())
 					.await
 				else {
 					return;
@@ -1493,7 +1495,7 @@ where
 
 		// Create the children stream.
 		let mut children = process
-			.children(handle, tg::process::children::get::Arg::default())
+			.children_with_handle(handle, tg::process::children::get::Arg::default())
 			.await?;
 		while let Some(child) = children.try_next().await? {
 			let mut child = tg::Referent::new(child.process, child.options);
@@ -1504,7 +1506,7 @@ where
 			// Check the status of the process.
 			let finished = child
 				.item
-				.status(handle)
+				.status_with_handle(handle)
 				.await?
 				.try_next()
 				.await?
@@ -1576,7 +1578,7 @@ where
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
-		let object = symlink.object(handle).await?;
+		let object = symlink.object_with_handle(handle).await?;
 		let children = match object.as_ref() {
 			tg::symlink::Object::Pointer(pointer) => [
 				(
@@ -1598,7 +1600,9 @@ where
 				let mut children = Vec::new();
 				if let Some(artifact) = &node.artifact {
 					let artifact = match artifact {
-						tg::graph::Edge::Pointer(pointer) => pointer.get(handle).await?.into(),
+						tg::graph::Edge::Pointer(pointer) => {
+							pointer.get_with_handle(handle).await?.into()
+						},
 						tg::graph::Edge::Object(artifact) => artifact.clone().into(),
 					};
 					children.push(("artifact".to_owned(), tg::Value::Object(artifact)));
@@ -2076,8 +2080,8 @@ where
 		}
 
 		// Get the original commands' executable.
-		let command = process.item.command(handle).await.ok()?.clone();
-		let executable = command.executable(handle).await.ok()?.clone();
+		let command = process.item.command_with_handle(handle).await.ok()?.clone();
+		let executable = command.executable_with_handle(handle).await.ok()?.clone();
 
 		// Handle paths.
 		if let Ok(path) = executable.try_unwrap_path_ref() {
@@ -2131,7 +2135,7 @@ where
 		}
 
 		// Create the status stream.
-		let mut status = process.item.status(handle).await?;
+		let mut status = process.item.status_with_handle(handle).await?;
 		while let Some(status) = status.try_next().await? {
 			let guard = counter.guard();
 			let indicator = match (process.item.cached(), status) {
@@ -2169,7 +2173,7 @@ where
 						return Ok(());
 					}
 
-					let state = process.item.load(handle).await?;
+					let state = process.item.load_with_handle(handle).await?;
 					let failed =
 						state.error.is_some() || state.exit.as_ref().is_some_and(|code| *code != 0);
 					if failed {
@@ -2395,7 +2399,7 @@ where
 							Item::Value(value) => {
 								let value = match value {
 									tg::Value::Object(object) => {
-										object.load(&handle).await.ok();
+										object.load_with_handle(&handle).await.ok();
 										let metadata =
 											get_object_metadata_as_value(&handle, object.id())
 												.await
@@ -2421,7 +2425,7 @@ where
 								value.print(options)
 							},
 							Item::Package(package) => {
-								package.0.load(&handle).await.ok();
+								package.0.load_with_handle(&handle).await.ok();
 								let metadata =
 									get_object_metadata_as_value(&handle, package.0.id())
 										.await
@@ -2622,7 +2626,7 @@ where
 		{
 			return Ok(false);
 		}
-		let dependencies = file.item().dependencies(handle).await?;
+		let dependencies = file.item().dependencies_with_handle(handle).await?;
 		self.dependencies.extend(
 			dependencies
 				.into_iter()

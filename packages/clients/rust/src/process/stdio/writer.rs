@@ -55,7 +55,12 @@ impl Writer {
 		Self::new(None, None, None, stream)
 	}
 
-	pub async fn close<H>(&mut self, handle: &H) -> tg::Result<()>
+	pub async fn close(&mut self) -> tg::Result<()> {
+		let handle = tg::handle()?;
+		self.close_with_handle(handle).await
+	}
+
+	pub async fn close_with_handle<H>(&mut self, handle: &H) -> tg::Result<()>
 	where
 		H: tg::Handle,
 	{
@@ -78,7 +83,12 @@ impl Writer {
 		Ok(())
 	}
 
-	pub async fn write<H>(&mut self, handle: &H, input: &[u8]) -> tg::Result<usize>
+	pub async fn write(&mut self, input: &[u8]) -> tg::Result<usize> {
+		let handle = tg::handle()?;
+		self.write_with_handle(handle, input).await
+	}
+
+	pub async fn write_with_handle<H>(&mut self, handle: &H, input: &[u8]) -> tg::Result<usize>
 	where
 		H: tg::Handle,
 	{
@@ -115,19 +125,24 @@ impl Writer {
 		Ok(input.len())
 	}
 
-	pub async fn write_all<H>(&mut self, handle: &H, input: &[u8]) -> tg::Result<()>
+	pub async fn write_all(&mut self, input: &[u8]) -> tg::Result<()> {
+		let handle = tg::handle()?;
+		self.write_all_with_handle(handle, input).await
+	}
+
+	pub async fn write_all_with_handle<H>(&mut self, handle: &H, input: &[u8]) -> tg::Result<()>
 	where
 		H: tg::Handle,
 	{
 		let mut position = 0;
 		while position < input.len() {
-			let count = self.write(handle, &input[position..]).await?;
+			let count = self.write_with_handle(handle, &input[position..]).await?;
 			if count == 0 {
 				return Err(tg::error!("failed to write stdin"));
 			}
 			position += count;
 		}
-		self.close(handle).await
+		self.close_with_handle(handle).await
 	}
 }
 

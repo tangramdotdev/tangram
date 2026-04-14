@@ -258,7 +258,7 @@ impl Cli {
 					tokio::spawn(async move {
 						process
 							.item()
-							.cancel(&handle)
+							.cancel_with_handle(&handle)
 							.await
 							.inspect_err(|error| {
 								tracing::error!(?error, "failed to cancel the process");
@@ -280,7 +280,7 @@ impl Cli {
 		};
 		let wait = process
 			.item()
-			.wait(&handle, arg)
+			.wait_with_handle(&handle, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to await the process"))?;
 

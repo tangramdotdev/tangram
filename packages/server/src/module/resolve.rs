@@ -60,7 +60,9 @@ impl Server {
 							.try_unwrap_file()
 							.ok()
 							.ok_or_else(|| tg::error!("expected a file"))?;
-						file.module(self).await?.unwrap_or(tg::module::Kind::File)
+						file.module_with_handle(self)
+							.await?
+							.unwrap_or(tg::module::Kind::File)
 					},
 					tg::object::Kind::Symlink => tg::module::Kind::Symlink,
 					tg::object::Kind::Graph => tg::module::Kind::Graph,
@@ -106,7 +108,7 @@ impl Server {
 			.ok()
 			.ok_or_else(|| tg::error!(referrer = %referrer.item, "the referrer must be a file"))?;
 		let dependency = file
-			.get_dependency_edge(self, &import.reference)
+			.get_dependency_edge_with_handle(self, &import.reference)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the dependency edge"))?;
 
@@ -123,15 +125,15 @@ impl Server {
 				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts),
 				tg::Object::Directory(directory),
 			) => {
-				let path =
-					tg::module::try_get_root_module_file_name(self, tg::Either::Left(directory))
-						.await
-						.map_err(|source| {
-							tg::error!(!source, "failed to get the root module file name")
-						})?;
+				let path = tg::module::try_get_root_module_file_name_with_handle(
+					self,
+					tg::Either::Left(directory),
+				)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the root module file name"))?;
 				if let Some(path) = path {
 					let edge = directory
-						.get_entry_edge(self, path)
+						.get_entry_edge_with_handle(self, path)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to get the entry edge"))?;
 					let edge: tg::graph::Edge<tg::Object> = match edge {
@@ -273,7 +275,11 @@ impl Server {
 					import.kind,
 					None | Some(tg::module::Kind::Js | tg::module::Kind::Ts)
 				) && let Some(root_module_name) =
-				tg::module::try_get_root_module_file_name(self, tg::Either::Right(&path)).await?
+				tg::module::try_get_root_module_file_name_with_handle(
+					self,
+					tg::Either::Right(&path),
+				)
+				.await?
 			{
 				let path = path.join(root_module_name);
 				let item = tg::module::data::Item::Path(path);

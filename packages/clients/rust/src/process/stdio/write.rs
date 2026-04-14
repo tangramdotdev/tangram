@@ -131,10 +131,10 @@ impl<O> tg::Process<O> {
 						if chunk.stream != tg::process::stdio::Stream::Stdin {
 							return Err(tg::error!("invalid process stdio stream"));
 						}
-						stdin.write(handle, &chunk.bytes).await?;
+						stdin.write_with_handle(handle, &chunk.bytes).await?;
 					},
 					tg::process::stdio::read::Event::End => {
-						stdin.close(handle).await?;
+						stdin.close_with_handle(handle).await?;
 						break;
 					},
 				}

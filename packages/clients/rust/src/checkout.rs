@@ -37,7 +37,12 @@ pub struct Output {
 	pub path: PathBuf,
 }
 
-pub async fn checkout<H>(handle: &H, arg: Arg) -> tg::Result<PathBuf>
+pub async fn checkout(arg: Arg) -> tg::Result<PathBuf> {
+	let handle = tg::handle()?;
+	checkout_with_handle(handle, arg).await
+}
+
+pub async fn checkout_with_handle<H>(handle: &H, arg: Arg) -> tg::Result<PathBuf>
 where
 	H: tg::Handle,
 {

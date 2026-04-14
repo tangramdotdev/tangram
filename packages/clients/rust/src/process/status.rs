@@ -46,19 +46,33 @@ pub enum Event {
 }
 
 impl<O> tg::Process<O> {
-	pub async fn status<H>(
+	pub async fn status(
+		&self,
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::Status>> + Send + 'static> {
+		let handle = tg::handle()?;
+		self.status_with_handle(handle).await
+	}
+
+	pub async fn status_with_handle<H>(
 		&self,
 		handle: &H,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::Status>> + Send + 'static>
 	where
 		H: tg::Handle,
 	{
-		self.try_get_status(handle)
+		self.try_get_status_with_handle(handle)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the process"))
 	}
 
-	pub async fn try_get_status<H>(
+	pub async fn try_get_status(
+		&self,
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::process::Status>> + Send + 'static>> {
+		let handle = tg::handle()?;
+		self.try_get_status_with_handle(handle).await
+	}
+
+	pub async fn try_get_status_with_handle<H>(
 		&self,
 		handle: &H,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::process::Status>> + Send + 'static>>

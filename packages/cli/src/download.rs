@@ -36,7 +36,7 @@ impl Cli {
 		};
 		let command = tg::builtin::download_command(&args.url, Some(options));
 		let command = command
-			.store(&handle)
+			.store_with_handle(&handle)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 		let reference = tg::Reference::with_object(command.into());

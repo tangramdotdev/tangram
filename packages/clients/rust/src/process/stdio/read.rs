@@ -138,7 +138,7 @@ impl<O> tg::Process<O> {
 						let stream = stream::try_unfold(
 							(handle, stdout),
 							|(handle, mut stdout)| async move {
-								let Some(bytes) = stdout.read(&handle).await? else {
+								let Some(bytes) = stdout.read_with_handle(&handle).await? else {
 									return Ok(None);
 								};
 								let event = tg::process::stdio::read::Event::Chunk(
@@ -159,7 +159,7 @@ impl<O> tg::Process<O> {
 						let stream = stream::try_unfold(
 							(handle, stderr),
 							|(handle, mut stderr)| async move {
-								let Some(bytes) = stderr.read(&handle).await? else {
+								let Some(bytes) = stderr.read_with_handle(&handle).await? else {
 									return Ok(None);
 								};
 								let event = tg::process::stdio::read::Event::Chunk(

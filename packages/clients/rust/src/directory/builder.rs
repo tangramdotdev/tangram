@@ -17,7 +17,12 @@ impl Builder {
 		Self { entries }
 	}
 
-	pub async fn add<H>(
+	pub async fn add(self, path: &Path, artifact: tg::Artifact) -> tg::Result<Self> {
+		let handle = tg::handle()?;
+		self.add_with_handle(handle, path, artifact).await
+	}
+
+	pub async fn add_with_handle<H>(
 		mut self,
 		handle: &H,
 		path: &Path,
@@ -63,14 +68,14 @@ impl Builder {
 					.try_unwrap_directory_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected the artifact to be a directory"))?
-					.builder(handle)
+					.builder_with_handle(handle)
 					.await?
 			} else {
 				Self::default()
 			};
 
 			// Recurse.
-			Box::pin(builder.add(handle, &trailing_path, artifact))
+			Box::pin(builder.add_with_handle(handle, &trailing_path, artifact))
 				.await?
 				.build()
 				.into()
@@ -82,7 +87,12 @@ impl Builder {
 		Ok(self)
 	}
 
-	pub async fn remove<H>(mut self, handle: &H, path: &Path) -> tg::Result<Self>
+	pub async fn remove(self, path: &Path) -> tg::Result<Self> {
+		let handle = tg::handle()?;
+		self.remove_with_handle(handle, path).await
+	}
+
+	pub async fn remove_with_handle<H>(mut self, handle: &H, path: &Path) -> tg::Result<Self>
 	where
 		H: tg::Handle,
 	{
@@ -116,14 +126,14 @@ impl Builder {
 					.try_unwrap_directory_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected the artifact to be a directory"))?
-					.builder(handle)
+					.builder_with_handle(handle)
 					.await?
 			} else {
 				return Err(tg::error!(path = %path.display(), "the path does not exist"));
 			};
 
 			// Recurse.
-			let artifact = Box::pin(builder.remove(handle, &trailing_path))
+			let artifact = Box::pin(builder.remove_with_handle(handle, &trailing_path))
 				.await?
 				.build()
 				.into();

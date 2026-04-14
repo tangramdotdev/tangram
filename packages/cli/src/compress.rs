@@ -21,7 +21,7 @@ impl Cli {
 		let format = args.format;
 		let command = tg::builtin::compress_command(&blob, format);
 		let command = command
-			.store(&handle)
+			.store_with_handle(&handle)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 		let reference = tg::Reference::with_object(command.into());

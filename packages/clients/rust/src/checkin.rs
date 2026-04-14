@@ -93,7 +93,12 @@ pub struct Output {
 	pub artifact: tg::Referent<tg::artifact::Id>,
 }
 
-pub async fn checkin<H>(handle: &H, arg: tg::checkin::Arg) -> tg::Result<tg::Artifact>
+pub async fn checkin(arg: tg::checkin::Arg) -> tg::Result<tg::Artifact> {
+	let handle = tg::handle()?;
+	checkin_with_handle(handle, arg).await
+}
+
+pub async fn checkin_with_handle<H>(handle: &H, arg: tg::checkin::Arg) -> tg::Result<tg::Artifact>
 where
 	H: tg::Handle,
 {

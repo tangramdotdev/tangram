@@ -76,7 +76,7 @@ impl Cli {
 			path: absolute_path.clone(),
 			updates: Vec::new(),
 		};
-		let artifact = tg::checkin(&handle, arg).await.map_err(
+		let artifact = tg::checkin::checkin_with_handle(&handle, arg).await.map_err(
 			|source| tg::error!(!source, path = %absolute_path.display(), "failed to check in the root package"),
 		)?;
 		let referent = tg::Referent::new(
@@ -259,22 +259,24 @@ async fn try_get_package_tag(
 	// Get the file text and module file name from the object.
 	let (text, module_name) = match object {
 		tg::Object::File(file) => {
-			let text = file.text(handle).await?;
+			let text = file.text_with_handle(handle).await?;
 			(text, None)
 		},
 		tg::Object::Directory(directory) => {
-			let Some(name) =
-				tg::module::try_get_root_module_file_name(handle, tg::Either::Left(directory))
-					.await?
+			let Some(name) = tg::module::try_get_root_module_file_name_with_handle(
+				handle,
+				tg::Either::Left(directory),
+			)
+			.await?
 			else {
 				return Ok(None);
 			};
 			let file = directory
-				.get(handle, name)
+				.get_with_handle(handle, name)
 				.await?
 				.try_unwrap_file()
 				.map_err(|_| tg::error!("expected a file"))?;
-			let text = file.text(handle).await?;
+			let text = file.text_with_handle(handle).await?;
 			(text, Some(name.to_owned()))
 		},
 		_ => return Ok(None),
@@ -360,7 +362,7 @@ impl State {
 			while let Some(subtrie) = stack.pop() {
 				if let Some(tg::Artifact::File(file)) = subtrie.value() {
 					let dependencies = file
-						.dependencies(handle)
+						.dependencies_with_handle(handle)
 						.await?
 						.values()
 						.filter_map(|option| {
@@ -562,9 +564,12 @@ where
 			.insert(path.to_owned(), directory.item.clone().into());
 
 		// Keep track of files.
-		if tg::module::try_get_root_module_file_name(handle, tg::Either::Left(directory.item()))
-			.await?
-			.is_some()
+		if tg::module::try_get_root_module_file_name_with_handle(
+			handle,
+			tg::Either::Left(directory.item()),
+		)
+		.await?
+		.is_some()
 		{
 			self.add_package(&directory.clone().map(|d| d.clone().into()));
 		}
@@ -593,7 +598,7 @@ where
 			.insert(path.to_owned(), file.item.clone().into());
 
 		// Mark the packages that are locals.
-		for (reference, option) in file.item.dependencies(handle).await? {
+		for (reference, option) in file.item.dependencies_with_handle(handle).await? {
 			let Some(mut dependency) = option else {
 				continue;
 			};
@@ -709,7 +714,7 @@ async fn publish_checkin(
 		options,
 		updates: Vec::new(),
 	};
-	let artifact = tg::checkin(handle, args)
+	let artifact = tg::checkin::checkin_with_handle(handle, args)
 		.await
 		.map_err(|source| tg::error!(!source, path = %path_display, "failed to checkin"))?;
 	Ok(artifact.id().into())

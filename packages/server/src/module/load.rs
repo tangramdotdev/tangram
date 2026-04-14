@@ -67,7 +67,7 @@ impl Server {
 					.ok()
 					.ok_or_else(|| tg::error!("expected a file"))?;
 				let text = file
-					.text(self)
+					.text_with_handle(self)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get the file text"))?;
 				Ok(tg::module::load::Output { text })

@@ -43,7 +43,7 @@ impl Server {
 		// Store the output.
 		let value = if let Some(value) = &wait.value {
 			value
-				.store(self)
+				.store_with_handle(self)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to store the output"))?;
 			let data = value.to_data();
@@ -61,7 +61,7 @@ impl Server {
 					}
 					let object = tg::error::Object::try_from_data(data)?;
 					let error = tg::Error::with_object(object);
-					let id = error.store(self).await?;
+					let id = error.store_with_handle(self).await?;
 					Some(tg::Either::Right(id))
 				},
 				tg::Either::Right(id) => Some(tg::Either::Right(id)),
@@ -117,17 +117,17 @@ impl Server {
 	) -> tg::Result<Output> {
 		let id = process.id();
 		let state = &process
-			.load(self)
+			.load_with_handle(self)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to load the process"))?;
 		let remote = process.remote();
 
 		let command = process
-			.command(self)
+			.command_with_handle(self)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the command"))?;
 		let command = &command
-			.data(self)
+			.data_with_handle(self)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the command data"))?;
 
@@ -527,10 +527,10 @@ impl Server {
 
 		// Get the process's command's children that are artifacts.
 		let artifacts: Vec<tg::artifact::Id> = process
-			.command(self)
+			.command_with_handle(self)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the command"))?
-			.children(self)
+			.children_with_handle(self)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the command's children"))?
 			.into_iter()

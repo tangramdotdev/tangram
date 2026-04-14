@@ -37,7 +37,7 @@ where
 			let object = tg::Object::with_id(id.clone());
 			match object {
 				tg::Object::Blob(blob) => blob,
-				tg::Object::File(file) => file.contents(handle).await?,
+				tg::Object::File(file) => file.contents_with_handle(handle).await?,
 				_ => return Err(tg::error!("expected a blob or a file")),
 			}
 		},
@@ -47,7 +47,9 @@ where
 	};
 
 	// Create the reader.
-	let reader = blob.read(handle, tg::read::Options::default()).await?;
+	let reader = blob
+		.read_with_handle(handle, tg::read::Options::default())
+		.await?;
 	let mut reader = SharedPositionReader::with_reader_and_position(reader, 0)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to create the shared position reader"))?;
@@ -62,7 +64,7 @@ where
 
 	// Spawn a task to log progress.
 	let position = reader.shared_position();
-	let size = blob.length(handle).await?;
+	let size = blob.length_with_handle(handle).await?;
 	let (sender, receiver) = async_channel::bounded::<tg::Result<tg::progress::Event<()>>>(1024);
 	let progress_task = Task::spawn({
 		let position = position.clone();

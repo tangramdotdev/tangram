@@ -69,7 +69,12 @@ impl Reader {
 		Ok(())
 	}
 
-	pub async fn read<H>(&mut self, handle: &H) -> tg::Result<Option<Bytes>>
+	pub async fn read(&mut self) -> tg::Result<Option<Bytes>> {
+		let handle = tg::handle()?;
+		self.read_with_handle(handle).await
+	}
+
+	pub async fn read_with_handle<H>(&mut self, handle: &H) -> tg::Result<Option<Bytes>>
 	where
 		H: tg::Handle,
 	{
@@ -132,13 +137,18 @@ impl Reader {
 		}
 	}
 
-	pub async fn read_all<H>(&mut self, handle: &H) -> tg::Result<Bytes>
+	pub async fn read_all(&mut self) -> tg::Result<Bytes> {
+		let handle = tg::handle()?;
+		self.read_all_with_handle(handle).await
+	}
+
+	pub async fn read_all_with_handle<H>(&mut self, handle: &H) -> tg::Result<Bytes>
 	where
 		H: tg::Handle,
 	{
 		let mut chunks = Vec::new();
 		let mut length = 0;
-		while let Some(bytes) = self.read(handle).await? {
+		while let Some(bytes) = self.read_with_handle(handle).await? {
 			length += bytes.len();
 			chunks.push(bytes);
 		}
@@ -149,11 +159,16 @@ impl Reader {
 		Ok(Bytes::from(output))
 	}
 
-	pub async fn text<H>(&mut self, handle: &H) -> tg::Result<String>
+	pub async fn text(&mut self) -> tg::Result<String> {
+		let handle = tg::handle()?;
+		self.text_with_handle(handle).await
+	}
+
+	pub async fn text_with_handle<H>(&mut self, handle: &H) -> tg::Result<String>
 	where
 		H: tg::Handle,
 	{
-		String::from_utf8(self.read_all(handle).await?.to_vec())
+		String::from_utf8(self.read_all_with_handle(handle).await?.to_vec())
 			.map_err(|source| tg::error!(!source, "failed to decode the output as UTF-8"))
 	}
 }

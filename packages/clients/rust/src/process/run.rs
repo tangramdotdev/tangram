@@ -1,14 +1,28 @@
 use {crate::prelude::*, std::io::IsTerminal as _};
 
-pub async fn run<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<tg::Value>
+pub async fn run(arg: tg::process::Arg) -> tg::Result<tg::Value> {
+	let handle = tg::handle()?;
+	run_with_handle(handle, arg).await
+}
+
+pub async fn run_with_handle<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<tg::Value>
 where
 	H: tg::Handle,
 {
-	tg::Process::<tg::Value>::run(handle, arg).await
+	tg::Process::<tg::Value>::run_with_handle(handle, arg).await
 }
 
 impl<O> tg::Process<O> {
-	pub async fn run<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<O>
+	pub async fn run(arg: tg::process::Arg) -> tg::Result<O>
+	where
+		O: TryFrom<tg::Value> + 'static,
+		O::Error: std::error::Error + Send + Sync + 'static,
+	{
+		let handle = tg::handle()?;
+		Self::run_with_handle(handle, arg).await
+	}
+
+	pub async fn run_with_handle<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<O>
 	where
 		H: tg::Handle,
 		O: TryFrom<tg::Value> + 'static,
@@ -54,7 +68,7 @@ impl<O> tg::Process<O> {
 		builder = builder.user(arg.user);
 
 		let command = builder.finish()?;
-		let command_id = command.store(handle).await?;
+		let command_id = command.store_with_handle(handle).await?;
 		let mut command = tg::Referent::with_item(command_id);
 		if let Some(name) = arg.name {
 			command.options.name.replace(name);
@@ -91,7 +105,7 @@ impl<O> tg::Process<O> {
 			stdout,
 			tty: arg.tty,
 		};
-		let process = tg::Process::<O>::spawn_with_progress(handle, arg, |stream| {
+		let process = tg::Process::<O>::spawn_with_progress_with_handle(handle, arg, |stream| {
 			let writer = std::io::stderr();
 			let is_tty = progress && writer.is_terminal();
 			tg::progress::write_progress_stream(handle, stream, writer, is_tty)
@@ -100,7 +114,7 @@ impl<O> tg::Process<O> {
 		.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
 
 		let output = process
-			.output(handle)
+			.output_with_handle(handle)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the process output"))?;
 

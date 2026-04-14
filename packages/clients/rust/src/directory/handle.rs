@@ -35,31 +35,51 @@ impl Directory {
 		self.state.id().try_into().unwrap()
 	}
 
-	pub async fn object<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
-	where
-		H: tg::Handle,
-	{
-		self.load(handle).await
+	pub async fn object(&self) -> tg::Result<Arc<Object>> {
+		let handle = tg::handle()?;
+		self.object_with_handle(handle).await
 	}
 
-	pub async fn load<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	pub async fn object_with_handle<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
 	where
 		H: tg::Handle,
 	{
-		self.try_load(handle)
+		self.load_with_handle(handle).await
+	}
+
+	pub async fn load(&self) -> tg::Result<Arc<Object>> {
+		let handle = tg::handle()?;
+		self.load_with_handle(handle).await
+	}
+
+	pub async fn load_with_handle<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	where
+		H: tg::Handle,
+	{
+		self.try_load_with_handle(handle)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
-	pub async fn try_load<H>(&self, handle: &H) -> tg::Result<Option<Arc<Object>>>
+	pub async fn try_load(&self) -> tg::Result<Option<Arc<Object>>> {
+		let handle = tg::handle()?;
+		self.try_load_with_handle(handle).await
+	}
+
+	pub async fn try_load_with_handle<H>(&self, handle: &H) -> tg::Result<Option<Arc<Object>>>
 	where
 		H: tg::Handle,
 	{
-		self.try_load_with_arg(handle, tg::object::get::Arg::default())
+		self.try_load_with_arg_with_handle(handle, tg::object::get::Arg::default())
 			.await
 	}
 
-	pub async fn load_with_arg<H>(
+	pub async fn load_with_arg(&self, arg: tg::object::get::Arg) -> tg::Result<Arc<Object>> {
+		let handle = tg::handle()?;
+		self.load_with_arg_with_handle(handle, arg).await
+	}
+
+	pub async fn load_with_arg_with_handle<H>(
 		&self,
 		handle: &H,
 		arg: tg::object::get::Arg,
@@ -67,12 +87,20 @@ impl Directory {
 	where
 		H: tg::Handle,
 	{
-		self.try_load_with_arg(handle, arg)
+		self.try_load_with_arg_with_handle(handle, arg)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
-	pub async fn try_load_with_arg<H>(
+	pub async fn try_load_with_arg(
+		&self,
+		arg: tg::object::get::Arg,
+	) -> tg::Result<Option<Arc<Object>>> {
+		let handle = tg::handle()?;
+		self.try_load_with_arg_with_handle(handle, arg).await
+	}
+
+	pub async fn try_load_with_arg_with_handle<H>(
 		&self,
 		handle: &H,
 		arg: tg::object::get::Arg,
@@ -80,7 +108,7 @@ impl Directory {
 	where
 		H: tg::Handle,
 	{
-		let object = Box::pin(self.state.try_load_with_arg(handle, arg)).await?;
+		let object = Box::pin(self.state.try_load_with_arg_with_handle(handle, arg)).await?;
 		let Some(object) = object else {
 			return Ok(None);
 		};
@@ -92,26 +120,43 @@ impl Directory {
 		self.state.unload();
 	}
 
-	pub async fn store<H>(&self, handle: &H) -> tg::Result<Id>
+	pub async fn store(&self) -> tg::Result<Id> {
+		let handle = tg::handle()?;
+		self.store_with_handle(handle).await
+	}
+
+	pub async fn store_with_handle<H>(&self, handle: &H) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
-		tg::Value::from(self.clone()).store(handle).await?;
+		tg::Value::from(self.clone())
+			.store_with_handle(handle)
+			.await?;
 		Ok(self.id())
 	}
 
-	pub async fn children<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
-	where
-		H: tg::Handle,
-	{
-		self.state.children(handle).await
+	pub async fn children(&self) -> tg::Result<Vec<tg::Object>> {
+		let handle = tg::handle()?;
+		self.children_with_handle(handle).await
 	}
 
-	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
+	pub async fn children_with_handle<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
 	where
 		H: tg::Handle,
 	{
-		Ok(self.object(handle).await?.to_data())
+		self.state.children_with_handle(handle).await
+	}
+
+	pub async fn data(&self) -> tg::Result<Data> {
+		let handle = tg::handle()?;
+		self.data_with_handle(handle).await
+	}
+
+	pub async fn data_with_handle<H>(&self, handle: &H) -> tg::Result<Data>
+	where
+		H: tg::Handle,
+	{
+		Ok(self.object_with_handle(handle).await?.to_data())
 	}
 }
 
@@ -140,25 +185,38 @@ impl Directory {
 		}
 	}
 
-	pub async fn builder<H>(&self, handle: &H) -> tg::Result<Builder>
+	pub async fn builder(&self) -> tg::Result<Builder> {
+		let handle = tg::handle()?;
+		self.builder_with_handle(handle).await
+	}
+
+	pub async fn builder_with_handle<H>(&self, handle: &H) -> tg::Result<Builder>
 	where
 		H: tg::Handle,
 	{
-		let entries = self.entries(handle).await?;
+		let entries = self.entries_with_handle(handle).await?;
 		let builder = Builder::with_entries(entries);
 		Ok(builder)
 	}
 
-	pub async fn entries<H>(&self, handle: &H) -> tg::Result<BTreeMap<String, tg::Artifact>>
+	pub async fn entries(&self) -> tg::Result<BTreeMap<String, tg::Artifact>> {
+		let handle = tg::handle()?;
+		self.entries_with_handle(handle).await
+	}
+
+	pub async fn entries_with_handle<H>(
+		&self,
+		handle: &H,
+	) -> tg::Result<BTreeMap<String, tg::Artifact>>
 	where
 		H: tg::Handle,
 	{
-		let object = self.object(handle).await?;
+		let object = self.object_with_handle(handle).await?;
 		let entries = match object.as_ref() {
 			Object::Pointer(object) => {
 				let graph = object.graph.as_ref().unwrap();
 				let index = object.index;
-				let object = graph.object(handle).await?;
+				let object = graph.object_with_handle(handle).await?;
 				let node = object
 					.nodes
 					.get(index)
@@ -218,7 +276,7 @@ impl Directory {
 					let child_dir =
 						Self::resolve_directory_edge(handle, &child.directory, graph.clone())
 							.await?;
-					let child_entries = child_dir.entries(handle).await?;
+					let child_entries = child_dir.entries_with_handle(handle).await?;
 					entries.extend(child_entries);
 				}
 				Ok(entries)
@@ -251,27 +309,46 @@ impl Directory {
 		}
 	}
 
-	pub async fn get_entry<H>(&self, handle: &H, name: &str) -> tg::Result<tg::Artifact>
+	pub async fn get_entry(&self, name: &str) -> tg::Result<tg::Artifact> {
+		let handle = tg::handle()?;
+		self.get_entry_with_handle(handle, name).await
+	}
+
+	pub async fn get_entry_with_handle<H>(&self, handle: &H, name: &str) -> tg::Result<tg::Artifact>
 	where
 		H: tg::Handle,
 	{
-		self.try_get_entry(handle, name)
+		self.try_get_entry_with_handle(handle, name)
 			.await?
 			.ok_or_else(|| tg::error!("expected the entry to exist"))
 	}
 
-	pub async fn try_get_entry<H>(&self, handle: &H, name: &str) -> tg::Result<Option<tg::Artifact>>
+	pub async fn try_get_entry(&self, name: &str) -> tg::Result<Option<tg::Artifact>> {
+		let handle = tg::handle()?;
+		self.try_get_entry_with_handle(handle, name).await
+	}
+
+	pub async fn try_get_entry_with_handle<H>(
+		&self,
+		handle: &H,
+		name: &str,
+	) -> tg::Result<Option<tg::Artifact>>
 	where
 		H: tg::Handle,
 	{
-		let Some(edge) = self.try_get_entry_edge(handle, name).await? else {
+		let Some(edge) = self.try_get_entry_edge_with_handle(handle, name).await? else {
 			return Ok(None);
 		};
 		let artifact = tg::Artifact::with_edge(edge);
 		Ok(Some(artifact))
 	}
 
-	pub async fn get_entry_edge<H>(
+	pub async fn get_entry_edge(&self, name: &str) -> tg::Result<tg::graph::Edge<tg::Artifact>> {
+		let handle = tg::handle()?;
+		self.get_entry_edge_with_handle(handle, name).await
+	}
+
+	pub async fn get_entry_edge_with_handle<H>(
 		&self,
 		handle: &H,
 		name: &str,
@@ -279,12 +356,20 @@ impl Directory {
 	where
 		H: tg::Handle,
 	{
-		self.try_get_entry_edge(handle, name)
+		self.try_get_entry_edge_with_handle(handle, name)
 			.await?
 			.ok_or_else(|| tg::error!("expected the entry to exist"))
 	}
 
-	pub async fn try_get_entry_edge<H>(
+	pub async fn try_get_entry_edge(
+		&self,
+		name: &str,
+	) -> tg::Result<Option<tg::graph::Edge<tg::Artifact>>> {
+		let handle = tg::handle()?;
+		self.try_get_entry_edge_with_handle(handle, name).await
+	}
+
+	pub async fn try_get_entry_edge_with_handle<H>(
 		&self,
 		handle: &H,
 		name: &str,
@@ -292,12 +377,12 @@ impl Directory {
 	where
 		H: tg::Handle,
 	{
-		let object = self.object(handle).await?;
+		let object = self.object_with_handle(handle).await?;
 		let edge = match object.as_ref() {
 			Object::Pointer(object) => {
 				let graph = object.graph.as_ref().unwrap();
 				let index = object.index;
-				let object = graph.object(handle).await?;
+				let object = graph.object_with_handle(handle).await?;
 				let node = object
 					.nodes
 					.get(index)
@@ -363,20 +448,34 @@ impl Directory {
 				let child = &branch.children[index];
 				let child_dir =
 					Self::resolve_directory_edge(handle, &child.directory, graph).await?;
-				child_dir.try_get_entry_edge(handle, name).await
+				child_dir.try_get_entry_edge_with_handle(handle, name).await
 			},
 		}
 	}
 
-	pub async fn get<H>(&self, handle: &H, path: impl AsRef<Path>) -> tg::Result<tg::Artifact>
+	pub async fn get(&self, path: impl AsRef<Path>) -> tg::Result<tg::Artifact> {
+		let handle = tg::handle()?;
+		self.get_with_handle(handle, path).await
+	}
+
+	pub async fn get_with_handle<H>(
+		&self,
+		handle: &H,
+		path: impl AsRef<Path>,
+	) -> tg::Result<tg::Artifact>
 	where
 		H: tg::Handle,
 	{
-		let edge = self.get_edge(handle, path).await?;
+		let edge = self.get_edge_with_handle(handle, path).await?;
 		Ok(tg::Artifact::with_edge(edge))
 	}
 
-	pub async fn try_get<H>(
+	pub async fn try_get(&self, path: impl AsRef<Path>) -> tg::Result<Option<tg::Artifact>> {
+		let handle = tg::handle()?;
+		self.try_get_with_handle(handle, path).await
+	}
+
+	pub async fn try_get_with_handle<H>(
 		&self,
 		handle: &H,
 		path: impl AsRef<Path>,
@@ -384,11 +483,19 @@ impl Directory {
 	where
 		H: tg::Handle,
 	{
-		let edge = self.try_get_edge(handle, path).await?;
+		let edge = self.try_get_edge_with_handle(handle, path).await?;
 		Ok(edge.map(tg::Artifact::with_edge))
 	}
 
-	pub async fn get_edge<H>(
+	pub async fn get_edge(
+		&self,
+		path: impl AsRef<Path>,
+	) -> tg::Result<tg::graph::Edge<tg::Artifact>> {
+		let handle = tg::handle()?;
+		self.get_edge_with_handle(handle, path).await
+	}
+
+	pub async fn get_edge_with_handle<H>(
 		&self,
 		handle: &H,
 		path: impl AsRef<Path>,
@@ -396,12 +503,20 @@ impl Directory {
 	where
 		H: tg::Handle,
 	{
-		self.try_get_edge(handle, path)
+		self.try_get_edge_with_handle(handle, path)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the artifact"))
 	}
 
-	pub async fn try_get_edge<H>(
+	pub async fn try_get_edge(
+		&self,
+		path: impl AsRef<Path>,
+	) -> tg::Result<Option<tg::graph::Edge<tg::Artifact>>> {
+		let handle = tg::handle()?;
+		self.try_get_edge_with_handle(handle, path).await
+	}
+
+	pub async fn try_get_edge_with_handle<H>(
 		&self,
 		handle: &H,
 		path: impl AsRef<Path>,
@@ -459,7 +574,10 @@ impl Directory {
 				.try_unwrap_directory()
 				.ok()
 				.ok_or_else(|| tg::error!("the path is external"))?;
-			let Some(entry_edge) = directory.try_get_entry_edge(handle, &name).await? else {
+			let Some(entry_edge) = directory
+				.try_get_entry_edge_with_handle(handle, &name)
+				.await?
+			else {
 				return Ok(None);
 			};
 			parents.push(directory.clone());
@@ -468,11 +586,11 @@ impl Directory {
 
 			// Handle a symlink.
 			if let tg::Artifact::Symlink(symlink) = &artifact {
-				let mut artifact_ = symlink.artifact(handle).await?.clone();
+				let mut artifact_ = symlink.artifact_with_handle(handle).await?.clone();
 				if let Some(tg::Artifact::Symlink(symlink)) = artifact_ {
-					artifact_ = Box::pin(symlink.try_resolve(handle)).await?;
+					artifact_ = Box::pin(symlink.try_resolve_with_handle(handle)).await?;
 				}
-				let path_ = symlink.path(handle).await?.clone();
+				let path_ = symlink.path_with_handle(handle).await?.clone();
 				match (artifact_, path_) {
 					(None, Some(path_)) => {
 						let parent = parents
@@ -486,7 +604,7 @@ impl Directory {
 						return Ok(Some(tg::graph::Edge::Object(artifact)));
 					},
 					(Some(tg::Artifact::Directory(directory)), Some(path)) => {
-						return Box::pin(directory.try_get_edge(handle, path)).await;
+						return Box::pin(directory.try_get_edge_with_handle(handle, path)).await;
 					},
 					_ => {
 						return Err(tg::error!("invalid symlink"));

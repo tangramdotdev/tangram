@@ -20,12 +20,19 @@ pub struct Arg {
 }
 
 impl<O> tg::Process<O> {
-	pub async fn cancel<H>(&self, handle: &H) -> tg::Result<()>
+	pub async fn cancel(&self) -> tg::Result<()> {
+		let handle = tg::handle()?;
+		self.cancel_with_handle(handle).await
+	}
+
+	pub async fn cancel_with_handle<H>(&self, handle: &H) -> tg::Result<()>
 	where
 		H: tg::Handle,
 	{
 		if self.pid.is_some() {
-			return self.signal(handle, tg::process::Signal::SIGTERM).await;
+			return self
+				.signal_with_handle(handle, tg::process::Signal::SIGTERM)
+				.await;
 		}
 		let id = self.id();
 		let (local, remotes) = match self.remote.clone() {

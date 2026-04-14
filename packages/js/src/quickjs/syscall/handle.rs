@@ -36,7 +36,7 @@ pub async fn checkin(
 			.spawn({
 				let handle = state.handle.clone();
 				async move {
-					let artifact = tg::checkin::checkin(&handle, arg).await?;
+					let artifact = tg::checkin::checkin_with_handle(&handle, arg).await?;
 					Ok::<_, tg::Error>(artifact)
 				}
 			})
@@ -73,7 +73,7 @@ pub async fn checkout(ctx: qjs::Ctx<'_>, arg: Serde<tg::checkout::Arg>) -> Resul
 			.spawn({
 				let handle = state.handle.clone();
 				async move {
-					let path = tg::checkout::checkout(&handle, arg).await?;
+					let path = tg::checkout::checkout_with_handle(&handle, arg).await?;
 					Ok::<_, tg::Error>(path)
 				}
 			})

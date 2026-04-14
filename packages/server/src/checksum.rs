@@ -11,7 +11,7 @@ impl Server {
 	) -> tg::Result<tg::Checksum> {
 		let mut writer = tg::checksum::Writer::new(algorithm);
 		let mut reader = blob
-			.read(self, tg::read::Options::default())
+			.read_with_handle(self, tg::read::Options::default())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read the blob"))?;
 		tokio::io::copy(&mut reader, &mut writer)
@@ -46,7 +46,7 @@ impl Server {
 		match artifact {
 			tg::Artifact::Directory(directory) => {
 				let entries = directory
-					.entries(self)
+					.entries_with_handle(self)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get directory entries"))?;
 				writer
@@ -74,22 +74,22 @@ impl Server {
 			},
 			tg::Artifact::File(file) => {
 				let dependencies = file
-					.dependencies(self)
+					.dependencies_with_handle(self)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get file dependencies"))?;
 				if !dependencies.is_empty() {
 					return Err(tg::error!("cannot checksum a file with dependencies"));
 				}
 				let executable = file
-					.executable(self)
+					.executable_with_handle(self)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get executable bit"))?;
 				let length = file
-					.length(self)
+					.length_with_handle(self)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get file length"))?;
 				let mut reader = file
-					.read(self, tg::read::Options::default())
+					.read_with_handle(self, tg::read::Options::default())
 					.await
 					.map_err(|source| tg::error!(!source, "failed to read the file"))?;
 				writer
@@ -110,14 +110,14 @@ impl Server {
 			},
 			tg::Artifact::Symlink(symlink) => {
 				let artifact = symlink
-					.artifact(self)
+					.artifact_with_handle(self)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get symlink artifact"))?;
 				if artifact.is_some() {
 					return Err(tg::error!("cannot checksum a symlink with an artifact"));
 				}
 				let path = symlink
-					.path(self)
+					.path_with_handle(self)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get symlink path"))?
 					.ok_or_else(|| tg::error!("cannot checksum a symlink without a path"))?;

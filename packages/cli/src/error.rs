@@ -160,7 +160,7 @@ impl Cli {
 			{
 				error
 			} else if let Some(error) = match &handle {
-				Some(handle) => error_referent.item().load(handle).await.ok(),
+				Some(handle) => error_referent.item().load_with_handle(handle).await.ok(),
 				None => None,
 			} {
 				error
@@ -329,7 +329,7 @@ impl Cli {
 		};
 		let file = match edge {
 			tg::graph::Edge::Pointer(pointer) => {
-				let Ok(artifact) = pointer.get(&handle).await else {
+				let Ok(artifact) = pointer.get_with_handle(&handle).await else {
 					return;
 				};
 				let Ok(file) = artifact.try_unwrap_file() else {
@@ -344,7 +344,7 @@ impl Cli {
 				file
 			},
 		};
-		let Ok(text) = file.text(&handle).await else {
+		let Ok(text) = file.text_with_handle(&handle).await else {
 			return;
 		};
 		Self::print_code(title, range, message, text);

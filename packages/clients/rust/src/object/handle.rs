@@ -78,30 +78,54 @@ impl Object {
 		}
 	}
 
-	pub async fn object<H>(&self, handle: &H) -> tg::Result<Object_>
+	pub async fn object(&self) -> tg::Result<Object_> {
+		let handle = tg::handle()?;
+		self.object_with_handle(handle).await
+	}
+
+	pub async fn object_with_handle<H>(&self, handle: &H) -> tg::Result<Object_>
 	where
 		H: tg::Handle,
 	{
 		match self {
-			Self::Blob(object) => object.object(handle).await.map(Object_::Blob),
-			Self::Directory(object) => object.object(handle).await.map(Object_::Directory),
-			Self::File(object) => object.object(handle).await.map(Object_::File),
-			Self::Symlink(object) => object.object(handle).await.map(Object_::Symlink),
-			Self::Graph(object) => object.object(handle).await.map(Object_::Graph),
-			Self::Command(object) => object.object(handle).await.map(Object_::Command),
-			Self::Error(object) => object.object(handle).await.map(Object_::Error),
+			Self::Blob(object) => object.object_with_handle(handle).await.map(Object_::Blob),
+			Self::Directory(object) => object
+				.object_with_handle(handle)
+				.await
+				.map(Object_::Directory),
+			Self::File(object) => object.object_with_handle(handle).await.map(Object_::File),
+			Self::Symlink(object) => object
+				.object_with_handle(handle)
+				.await
+				.map(Object_::Symlink),
+			Self::Graph(object) => object.object_with_handle(handle).await.map(Object_::Graph),
+			Self::Command(object) => object
+				.object_with_handle(handle)
+				.await
+				.map(Object_::Command),
+			Self::Error(object) => object.object_with_handle(handle).await.map(Object_::Error),
 		}
 	}
 
-	pub async fn load<H>(&self, handle: &H) -> tg::Result<Object_>
+	pub async fn load(&self) -> tg::Result<Object_> {
+		let handle = tg::handle()?;
+		self.load_with_handle(handle).await
+	}
+
+	pub async fn load_with_handle<H>(&self, handle: &H) -> tg::Result<Object_>
 	where
 		H: tg::Handle,
 	{
-		self.load_with_arg(handle, tg::object::get::Arg::default())
+		self.load_with_arg_with_handle(handle, tg::object::get::Arg::default())
 			.await
 	}
 
-	pub async fn load_with_arg<H>(
+	pub async fn load_with_arg(&self, arg: tg::object::get::Arg) -> tg::Result<Object_> {
+		let handle = tg::handle()?;
+		self.load_with_arg_with_handle(handle, arg).await
+	}
+
+	pub async fn load_with_arg_with_handle<H>(
 		&self,
 		handle: &H,
 		arg: tg::object::get::Arg,
@@ -110,28 +134,52 @@ impl Object {
 		H: tg::Handle,
 	{
 		match self {
-			Self::Blob(blob) => blob.load_with_arg(handle, arg).await.map(Into::into),
-			Self::Directory(directory) => {
-				directory.load_with_arg(handle, arg).await.map(Into::into)
-			},
-			Self::File(file) => file.load_with_arg(handle, arg).await.map(Into::into),
-			Self::Symlink(symlink) => symlink.load_with_arg(handle, arg).await.map(Into::into),
-			Self::Graph(graph) => graph.load_with_arg(handle, arg).await.map(Into::into),
-			Self::Command(command) => command.load_with_arg(handle, arg).await.map(Into::into),
-			Self::Error(error) => error.load_with_arg(handle, arg).await.map(Into::into),
+			Self::Blob(blob) => blob
+				.load_with_arg_with_handle(handle, arg)
+				.await
+				.map(Into::into),
+			Self::Directory(directory) => directory
+				.load_with_arg_with_handle(handle, arg)
+				.await
+				.map(Into::into),
+			Self::File(file) => file
+				.load_with_arg_with_handle(handle, arg)
+				.await
+				.map(Into::into),
+			Self::Symlink(symlink) => symlink
+				.load_with_arg_with_handle(handle, arg)
+				.await
+				.map(Into::into),
+			Self::Graph(graph) => graph
+				.load_with_arg_with_handle(handle, arg)
+				.await
+				.map(Into::into),
+			Self::Command(command) => command
+				.load_with_arg_with_handle(handle, arg)
+				.await
+				.map(Into::into),
+			Self::Error(error) => error
+				.load_with_arg_with_handle(handle, arg)
+				.await
+				.map(Into::into),
 		}
 	}
 
-	pub async fn load_recursive<H>(&self, handle: &H) -> tg::Result<()>
+	pub async fn load_recursive(&self) -> tg::Result<()> {
+		let handle = tg::handle()?;
+		self.load_recursive_with_handle(handle).await
+	}
+
+	pub async fn load_recursive_with_handle<H>(&self, handle: &H) -> tg::Result<()>
 	where
 		H: tg::Handle,
 	{
-		self.load(handle).await?;
-		self.children(handle)
+		self.load_with_handle(handle).await?;
+		self.children_with_handle(handle)
 			.await?
 			.iter()
 			.map(|object| async {
-				object.load_recursive(handle).await?;
+				object.load_recursive_with_handle(handle).await?;
 				Ok::<_, tg::Error>(())
 			})
 			.collect::<FuturesUnordered<_>>()
@@ -152,41 +200,56 @@ impl Object {
 		}
 	}
 
-	pub async fn store<H>(&self, handle: &H) -> tg::Result<Id>
+	pub async fn store(&self) -> tg::Result<Id> {
+		let handle = tg::handle()?;
+		self.store_with_handle(handle).await
+	}
+
+	pub async fn store_with_handle<H>(&self, handle: &H) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
 		match self {
-			Self::Blob(blob) => blob.store(handle).await.map(Into::into),
-			Self::Directory(directory) => directory.store(handle).await.map(Into::into),
-			Self::File(file) => file.store(handle).await.map(Into::into),
-			Self::Symlink(symlink) => symlink.store(handle).await.map(Into::into),
-			Self::Graph(graph) => graph.store(handle).await.map(Into::into),
-			Self::Command(command) => command.store(handle).await.map(Into::into),
-			Self::Error(error) => error.store(handle).await.map(Into::into),
+			Self::Blob(blob) => blob.store_with_handle(handle).await.map(Into::into),
+			Self::Directory(directory) => directory.store_with_handle(handle).await.map(Into::into),
+			Self::File(file) => file.store_with_handle(handle).await.map(Into::into),
+			Self::Symlink(symlink) => symlink.store_with_handle(handle).await.map(Into::into),
+			Self::Graph(graph) => graph.store_with_handle(handle).await.map(Into::into),
+			Self::Command(command) => command.store_with_handle(handle).await.map(Into::into),
+			Self::Error(error) => error.store_with_handle(handle).await.map(Into::into),
 		}
 	}
 
-	pub async fn children<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
+	pub async fn children(&self) -> tg::Result<Vec<tg::Object>> {
+		let handle = tg::handle()?;
+		self.children_with_handle(handle).await
+	}
+
+	pub async fn children_with_handle<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
 	where
 		H: tg::Handle,
 	{
-		let object = self.load(handle).await?;
+		let object = self.load_with_handle(handle).await?;
 		Ok(object.children())
 	}
 
-	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
+	pub async fn data(&self) -> tg::Result<Data> {
+		let handle = tg::handle()?;
+		self.data_with_handle(handle).await
+	}
+
+	pub async fn data_with_handle<H>(&self, handle: &H) -> tg::Result<Data>
 	where
 		H: tg::Handle,
 	{
 		match self {
-			Self::Blob(blob) => blob.data(handle).await.map(Into::into),
-			Self::Directory(directory) => directory.data(handle).await.map(Into::into),
-			Self::File(file) => file.data(handle).await.map(Into::into),
-			Self::Symlink(symlink) => symlink.data(handle).await.map(Into::into),
-			Self::Graph(graph) => graph.data(handle).await.map(Into::into),
-			Self::Command(command) => command.data(handle).await.map(Into::into),
-			Self::Error(error) => error.data(handle).await.map(Into::into),
+			Self::Blob(blob) => blob.data_with_handle(handle).await.map(Into::into),
+			Self::Directory(directory) => directory.data_with_handle(handle).await.map(Into::into),
+			Self::File(file) => file.data_with_handle(handle).await.map(Into::into),
+			Self::Symlink(symlink) => symlink.data_with_handle(handle).await.map(Into::into),
+			Self::Graph(graph) => graph.data_with_handle(handle).await.map(Into::into),
+			Self::Command(command) => command.data_with_handle(handle).await.map(Into::into),
+			Self::Error(error) => error.data_with_handle(handle).await.map(Into::into),
 		}
 	}
 

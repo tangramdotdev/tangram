@@ -213,7 +213,14 @@ pub fn is_non_root_module_path(path: &Path) -> bool {
 		&& (name.ends_with(".tg.js") || name.ends_with(".tg.ts"))
 }
 
-pub async fn try_get_root_module_file_name<H>(
+pub async fn try_get_root_module_file_name(
+	package: tg::Either<&tg::Directory, &Path>,
+) -> tg::Result<Option<&'static str>> {
+	let handle = tg::handle()?;
+	try_get_root_module_file_name_with_handle(handle, package).await
+}
+
+pub async fn try_get_root_module_file_name_with_handle<H>(
 	handle: &H,
 	package: tg::Either<&tg::Directory, &Path>,
 ) -> tg::Result<Option<&'static str>>
@@ -223,7 +230,10 @@ where
 	let mut name = None;
 	for name_ in tg::module::ROOT_MODULE_FILE_NAMES {
 		let exists = match package {
-			tg::Either::Left(directory) => directory.try_get_entry(handle, name_).await?.is_some(),
+			tg::Either::Left(directory) => directory
+				.try_get_entry_with_handle(handle, name_)
+				.await?
+				.is_some(),
 			tg::Either::Right(path) => tokio::fs::try_exists(path.join(*name_)).await.map_err(
 				|source| tg::error!(!source, path = %path.display(), "failed to get the metadata"),
 			)?,

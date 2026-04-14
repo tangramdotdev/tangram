@@ -160,7 +160,7 @@ impl Cli {
 			Depth::Infinite => None,
 		};
 		let blobs = options.blobs;
-		value.load(handle, arg, depth, blobs).await?;
+		value.load_with_handle(handle, arg, depth, blobs).await?;
 		let pretty = options.pretty || stdout.get_ref().is_tty();
 		let style = if pretty {
 			tg::value::print::Style::Pretty {

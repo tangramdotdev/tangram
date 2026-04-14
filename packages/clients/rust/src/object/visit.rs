@@ -61,7 +61,7 @@ where
 		// Get the children.
 		let children = match object {
 			tg::Object::Graph(graph) => graph
-				.nodes(handle)
+				.nodes_with_handle(handle)
 				.await?
 				.into_iter()
 				.enumerate()
@@ -78,7 +78,7 @@ where
 				})
 				.collect::<Vec<_>>(),
 			tg::Object::Directory(directory) => directory
-				.entries(handle)
+				.entries_with_handle(handle)
 				.await?
 				.into_iter()
 				.map(|(name, object)| {
@@ -100,7 +100,7 @@ where
 				})
 				.collect::<Vec<_>>(),
 			tg::Object::File(file) => file
-				.dependencies(handle)
+				.dependencies_with_handle(handle)
 				.await?
 				.into_values()
 				.filter_map(|option| {
@@ -115,7 +115,7 @@ where
 				})
 				.collect::<Vec<_>>(),
 			object => object
-				.children(handle)
+				.children_with_handle(handle)
 				.await?
 				.into_iter()
 				.map(tg::Referent::with_item)

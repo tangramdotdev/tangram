@@ -70,22 +70,37 @@ impl Artifact {
 		}
 	}
 
-	pub async fn object<H>(&self, handle: &H) -> tg::Result<Object>
-	where
-		H: tg::Handle,
-	{
-		self.load(handle).await
+	pub async fn object(&self) -> tg::Result<Object> {
+		let handle = tg::handle()?;
+		self.object_with_handle(handle).await
 	}
 
-	pub async fn load<H>(&self, handle: &H) -> tg::Result<Object>
+	pub async fn object_with_handle<H>(&self, handle: &H) -> tg::Result<Object>
 	where
 		H: tg::Handle,
 	{
-		self.load_with_arg(handle, tg::object::get::Arg::default())
+		self.load_with_handle(handle).await
+	}
+
+	pub async fn load(&self) -> tg::Result<Object> {
+		let handle = tg::handle()?;
+		self.load_with_handle(handle).await
+	}
+
+	pub async fn load_with_handle<H>(&self, handle: &H) -> tg::Result<Object>
+	where
+		H: tg::Handle,
+	{
+		self.load_with_arg_with_handle(handle, tg::object::get::Arg::default())
 			.await
 	}
 
-	pub async fn load_with_arg<H>(
+	pub async fn load_with_arg(&self, arg: tg::object::get::Arg) -> tg::Result<Object> {
+		let handle = tg::handle()?;
+		self.load_with_arg_with_handle(handle, arg).await
+	}
+
+	pub async fn load_with_arg_with_handle<H>(
 		&self,
 		handle: &H,
 		arg: tg::object::get::Arg,
@@ -94,11 +109,18 @@ impl Artifact {
 		H: tg::Handle,
 	{
 		match self {
-			Self::Directory(directory) => {
-				directory.load_with_arg(handle, arg).await.map(Into::into)
-			},
-			Self::File(file) => file.load_with_arg(handle, arg).await.map(Into::into),
-			Self::Symlink(symlink) => symlink.load_with_arg(handle, arg).await.map(Into::into),
+			Self::Directory(directory) => directory
+				.load_with_arg_with_handle(handle, arg)
+				.await
+				.map(Into::into),
+			Self::File(file) => file
+				.load_with_arg_with_handle(handle, arg)
+				.await
+				.map(Into::into),
+			Self::Symlink(symlink) => symlink
+				.load_with_arg_with_handle(handle, arg)
+				.await
+				.map(Into::into),
 		}
 	}
 
@@ -110,22 +132,32 @@ impl Artifact {
 		}
 	}
 
-	pub async fn store<H>(&self, handle: &H) -> tg::Result<Id>
+	pub async fn store(&self) -> tg::Result<Id> {
+		let handle = tg::handle()?;
+		self.store_with_handle(handle).await
+	}
+
+	pub async fn store_with_handle<H>(&self, handle: &H) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
 		match self {
-			Self::Directory(directory) => directory.store(handle).await.map(Into::into),
-			Self::File(file) => file.store(handle).await.map(Into::into),
-			Self::Symlink(symlink) => symlink.store(handle).await.map(Into::into),
+			Self::Directory(directory) => directory.store_with_handle(handle).await.map(Into::into),
+			Self::File(file) => file.store_with_handle(handle).await.map(Into::into),
+			Self::Symlink(symlink) => symlink.store_with_handle(handle).await.map(Into::into),
 		}
 	}
 
-	pub async fn children<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
+	pub async fn children(&self) -> tg::Result<Vec<tg::Object>> {
+		let handle = tg::handle()?;
+		self.children_with_handle(handle).await
+	}
+
+	pub async fn children_with_handle<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
 	where
 		H: tg::Handle,
 	{
-		let object = self.load(handle).await?;
+		let object = self.load_with_handle(handle).await?;
 		Ok(object.children())
 	}
 
@@ -141,16 +173,21 @@ impl Artifact {
 
 impl Artifact {
 	/// Collect an artifact's dependencies.
-	pub async fn dependencies<H>(&self, handle: &H) -> tg::Result<Vec<Self>>
+	pub async fn dependencies(&self) -> tg::Result<Vec<Self>> {
+		let handle = tg::handle()?;
+		self.dependencies_with_handle(handle).await
+	}
+
+	pub async fn dependencies_with_handle<H>(&self, handle: &H) -> tg::Result<Vec<Self>>
 	where
 		H: tg::Handle,
 	{
 		match self {
 			Self::Directory(directory) => Ok(directory
-				.entries(handle)
+				.entries_with_handle(handle)
 				.await?
 				.values()
-				.map(|artifact| artifact.dependencies(handle))
+				.map(|artifact| artifact.dependencies_with_handle(handle))
 				.collect::<FuturesOrdered<_>>()
 				.try_collect::<Vec<_>>()
 				.await?
@@ -159,14 +196,14 @@ impl Artifact {
 				.collect()),
 
 			Self::File(file) => Ok(file
-				.dependencies(handle)
+				.dependencies_with_handle(handle)
 				.await?
 				.into_values()
 				.filter_map(|option| option?.0.item?.try_into().ok())
 				.collect()),
 
 			Self::Symlink(symlink) => Ok(symlink
-				.artifact(handle)
+				.artifact_with_handle(handle)
 				.await?
 				.clone()
 				.into_iter()
@@ -175,7 +212,12 @@ impl Artifact {
 	}
 
 	/// Collect an artifact's recursive dependencies.
-	pub async fn recursive_dependencies<H>(
+	pub async fn recursive_dependencies(&self) -> tg::Result<HashSet<Id, tg::id::BuildHasher>> {
+		let handle = tg::handle()?;
+		self.recursive_dependencies_with_handle(handle).await
+	}
+
+	pub async fn recursive_dependencies_with_handle<H>(
 		&self,
 		handle: &H,
 	) -> tg::Result<HashSet<Id, tg::id::BuildHasher>>
@@ -197,7 +239,7 @@ impl Artifact {
 	where
 		H: tg::Handle,
 	{
-		let dependencies = self.dependencies(handle).await?;
+		let dependencies = self.dependencies_with_handle(handle).await?;
 		dependencies
 			.iter()
 			.map(|artifact| artifact.recursive_dependencies_inner(handle, output.clone()))

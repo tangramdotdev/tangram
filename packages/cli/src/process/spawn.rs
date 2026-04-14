@@ -328,7 +328,7 @@ impl Cli {
 		let mut command_env = None;
 		let mut command = match referent.item.clone() {
 			tg::Object::Command(command) => {
-				let object = command.object(&handle).await?;
+				let object = command.object_with_handle(&handle).await?;
 				command_env = Some(object.env.clone());
 				tg::Command::builder()
 					.host(object.host.clone())
@@ -339,7 +339,7 @@ impl Cli {
 			},
 
 			tg::Object::Directory(directory) => {
-				let root_module_file_name = tg::module::try_get_root_module_file_name(
+				let root_module_file_name = tg::module::try_get_root_module_file_name_with_handle(
 					&handle,
 					tg::Either::Left(&directory),
 				)
@@ -354,7 +354,7 @@ impl Cli {
 				}
 				let kind = tg::module::module_kind_for_path(root_module_file_name).unwrap();
 				let item = directory
-					.get_entry_edge(&handle, root_module_file_name)
+					.get_entry_edge_with_handle(&handle, root_module_file_name)
 					.await?;
 				let item = tg::module::Item::Edge(item.into());
 				let referent = tg::Referent::with_item(item);
@@ -385,7 +385,7 @@ impl Cli {
 				let kind = if kind.is_some() {
 					kind
 				} else {
-					file.module(&handle)
+					file.module_with_handle(&handle)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to get the module kind"))?
 				};
@@ -551,7 +551,7 @@ impl Cli {
 		// Create the command and store it.
 		let command = command.finish()?;
 		command
-			.store(&handle)
+			.store_with_handle(&handle)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 
@@ -652,7 +652,7 @@ impl Cli {
 			stdout: options.stdout.unwrap_or_default(),
 			tty,
 		};
-		let output = tg::Process::spawn_with_progress(&handle, arg, |stream| {
+		let output = tg::Process::spawn_with_progress_with_handle(&handle, arg, |stream| {
 			self.render_progress_stream(stream)
 		})
 		.await

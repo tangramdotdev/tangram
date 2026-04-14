@@ -201,7 +201,12 @@ impl Reference {
 		builder.build().unwrap()
 	}
 
-	pub async fn get<H>(
+	pub async fn get(&self) -> tg::Result<tg::Referent<tg::Either<tg::Object, tg::Process>>> {
+		let handle = tg::handle()?;
+		self.get_with_handle(handle).await
+	}
+
+	pub async fn get_with_handle<H>(
 		&self,
 		handle: &H,
 	) -> tg::Result<tg::Referent<tg::Either<tg::Object, tg::Process>>>

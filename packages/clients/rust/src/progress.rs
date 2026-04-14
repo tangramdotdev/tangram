@@ -476,7 +476,7 @@ where
 	) {
 		let file = match edge {
 			tg::graph::Edge::Pointer(pointer) => {
-				let Ok(artifact) = pointer.get(&self.handle).await else {
+				let Ok(artifact) = pointer.get_with_handle(&self.handle).await else {
 					return;
 				};
 				let Ok(file) = artifact.try_unwrap_file() else {
@@ -491,7 +491,7 @@ where
 				file
 			},
 		};
-		let Ok(text) = file.text(&self.handle).await else {
+		let Ok(text) = file.text_with_handle(&self.handle).await else {
 			return;
 		};
 		self.print_code(title, range, message, text);

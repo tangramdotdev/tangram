@@ -39,31 +39,51 @@ impl Blob {
 		self.state.id().try_into().unwrap()
 	}
 
-	pub async fn object<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
-	where
-		H: tg::Handle,
-	{
-		self.load(handle).await
+	pub async fn object(&self) -> tg::Result<Arc<Object>> {
+		let handle = tg::handle()?;
+		self.object_with_handle(handle).await
 	}
 
-	pub async fn load<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	pub async fn object_with_handle<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
 	where
 		H: tg::Handle,
 	{
-		self.try_load(handle)
+		self.load_with_handle(handle).await
+	}
+
+	pub async fn load(&self) -> tg::Result<Arc<Object>> {
+		let handle = tg::handle()?;
+		self.load_with_handle(handle).await
+	}
+
+	pub async fn load_with_handle<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	where
+		H: tg::Handle,
+	{
+		self.try_load_with_handle(handle)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
-	pub async fn try_load<H>(&self, handle: &H) -> tg::Result<Option<Arc<Object>>>
+	pub async fn try_load(&self) -> tg::Result<Option<Arc<Object>>> {
+		let handle = tg::handle()?;
+		self.try_load_with_handle(handle).await
+	}
+
+	pub async fn try_load_with_handle<H>(&self, handle: &H) -> tg::Result<Option<Arc<Object>>>
 	where
 		H: tg::Handle,
 	{
-		self.try_load_with_arg(handle, tg::object::get::Arg::default())
+		self.try_load_with_arg_with_handle(handle, tg::object::get::Arg::default())
 			.await
 	}
 
-	pub async fn load_with_arg<H>(
+	pub async fn load_with_arg(&self, arg: tg::object::get::Arg) -> tg::Result<Arc<Object>> {
+		let handle = tg::handle()?;
+		self.load_with_arg_with_handle(handle, arg).await
+	}
+
+	pub async fn load_with_arg_with_handle<H>(
 		&self,
 		handle: &H,
 		arg: tg::object::get::Arg,
@@ -71,12 +91,20 @@ impl Blob {
 	where
 		H: tg::Handle,
 	{
-		self.try_load_with_arg(handle, arg)
+		self.try_load_with_arg_with_handle(handle, arg)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
-	pub async fn try_load_with_arg<H>(
+	pub async fn try_load_with_arg(
+		&self,
+		arg: tg::object::get::Arg,
+	) -> tg::Result<Option<Arc<Object>>> {
+		let handle = tg::handle()?;
+		self.try_load_with_arg_with_handle(handle, arg).await
+	}
+
+	pub async fn try_load_with_arg_with_handle<H>(
 		&self,
 		handle: &H,
 		arg: tg::object::get::Arg,
@@ -84,7 +112,10 @@ impl Blob {
 	where
 		H: tg::Handle,
 	{
-		let object = self.state.try_load_with_arg(handle, arg).await?;
+		let object = self
+			.state
+			.try_load_with_arg_with_handle(handle, arg)
+			.await?;
 		let Some(object) = object else {
 			return Ok(None);
 		};
@@ -96,26 +127,43 @@ impl Blob {
 		self.state.unload();
 	}
 
-	pub async fn store<H>(&self, handle: &H) -> tg::Result<Id>
+	pub async fn store(&self) -> tg::Result<Id> {
+		let handle = tg::handle()?;
+		self.store_with_handle(handle).await
+	}
+
+	pub async fn store_with_handle<H>(&self, handle: &H) -> tg::Result<Id>
 	where
 		H: tg::Handle,
 	{
-		tg::Value::from(self.clone()).store(handle).await?;
+		tg::Value::from(self.clone())
+			.store_with_handle(handle)
+			.await?;
 		Ok(self.id())
 	}
 
-	pub async fn children<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
-	where
-		H: tg::Handle,
-	{
-		self.state.children(handle).await
+	pub async fn children(&self) -> tg::Result<Vec<tg::Object>> {
+		let handle = tg::handle()?;
+		self.children_with_handle(handle).await
 	}
 
-	pub async fn data<H>(&self, handle: &H) -> tg::Result<Data>
+	pub async fn children_with_handle<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
 	where
 		H: tg::Handle,
 	{
-		Ok(self.object(handle).await?.to_data())
+		self.state.children_with_handle(handle).await
+	}
+
+	pub async fn data(&self) -> tg::Result<Data> {
+		let handle = tg::handle()?;
+		self.data_with_handle(handle).await
+	}
+
+	pub async fn data_with_handle<H>(&self, handle: &H) -> tg::Result<Data>
+	where
+		H: tg::Handle,
+	{
+		Ok(self.object_with_handle(handle).await?.to_data())
 	}
 }
 
@@ -140,7 +188,12 @@ impl Blob {
 		Self::with_object(Object::Branch(tg::blob::object::Branch { children }))
 	}
 
-	pub async fn with_reader<H>(
+	pub async fn with_reader(reader: impl AsyncRead + Send + 'static) -> tg::Result<Self> {
+		let handle = tg::handle()?;
+		Self::with_reader_with_handle(handle, reader).await
+	}
+
+	pub async fn with_reader_with_handle<H>(
 		handle: &H,
 		reader: impl AsyncRead + Send + 'static,
 	) -> tg::Result<Self>
@@ -153,11 +206,16 @@ impl Blob {
 		Ok(blob)
 	}
 
-	pub async fn length<H>(&self, handle: &H) -> tg::Result<u64>
+	pub async fn length(&self) -> tg::Result<u64> {
+		let handle = tg::handle()?;
+		self.length_with_handle(handle).await
+	}
+
+	pub async fn length_with_handle<H>(&self, handle: &H) -> tg::Result<u64>
 	where
 		H: tg::Handle,
 	{
-		let object = self.object(handle).await?;
+		let object = self.object_with_handle(handle).await?;
 		let length = match object.as_ref() {
 			Object::Leaf(leaf) => leaf.bytes.len().to_u64().unwrap(),
 			Object::Branch(branch) => branch.children.iter().map(|child| child.length).sum(),
@@ -165,12 +223,19 @@ impl Blob {
 		Ok(length)
 	}
 
-	pub async fn bytes<H>(&self, handle: &H) -> tg::Result<Vec<u8>>
+	pub async fn bytes(&self) -> tg::Result<Vec<u8>> {
+		let handle = tg::handle()?;
+		self.bytes_with_handle(handle).await
+	}
+
+	pub async fn bytes_with_handle<H>(&self, handle: &H) -> tg::Result<Vec<u8>>
 	where
 		H: tg::Handle,
 	{
 		let mut bytes = Vec::new();
-		let reader = self.read(handle, tg::read::Options::default()).await?;
+		let reader = self
+			.read_with_handle(handle, tg::read::Options::default())
+			.await?;
 		pin!(reader)
 			.read_to_end(&mut bytes)
 			.await
@@ -178,11 +243,16 @@ impl Blob {
 		Ok(bytes)
 	}
 
-	pub async fn text<H>(&self, handle: &H) -> tg::Result<String>
+	pub async fn text(&self) -> tg::Result<String> {
+		let handle = tg::handle()?;
+		self.text_with_handle(handle).await
+	}
+
+	pub async fn text_with_handle<H>(&self, handle: &H) -> tg::Result<String>
 	where
 		H: tg::Handle,
 	{
-		let bytes = self.bytes(handle).await?;
+		let bytes = self.bytes_with_handle(handle).await?;
 		let string = String::from_utf8(bytes)
 			.map_err(|source| tg::error!(!source, "failed to decode the blob's bytes as UTF-8"))?;
 		Ok(string)

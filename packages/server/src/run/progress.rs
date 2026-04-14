@@ -24,7 +24,7 @@ impl Server {
 		process: &tg::Process,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
 	) -> tg::Result<T> {
-		let stderr = process.load(self).await?.stderr.clone();
+		let stderr = process.load_with_handle(self).await?.stderr.clone();
 		let output = match stderr {
 			tg::process::Stdio::Log => self.write_progress_stream_to_log(process, stream).await?,
 			tg::process::Stdio::Null => self.write_progress_stream_to_null(stream).await?,

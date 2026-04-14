@@ -17,7 +17,7 @@ impl Cli {
 		let artifact = tg::Artifact::with_id(args.artifact);
 		let command = tg::builtin::bundle_command(&artifact);
 		let command = command
-			.store(&handle)
+			.store_with_handle(&handle)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 		let reference = tg::Reference::with_object(command.into());

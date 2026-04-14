@@ -27,7 +27,7 @@ impl Cli {
 			let algorithm = args.algorithm;
 			let command = tg::builtin::checksum_command(tg::Either::Left(blob), algorithm);
 			let command = command
-				.store(&handle)
+				.store_with_handle(&handle)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 			let reference = tg::Reference::with_object(command.into());
@@ -41,7 +41,7 @@ impl Cli {
 			let algorithm = args.algorithm;
 			let command = tg::builtin::checksum_command(tg::Either::Right(artifact), algorithm);
 			let command = command
-				.store(&handle)
+				.store_with_handle(&handle)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 			let reference = tg::Reference::with_object(command.into());

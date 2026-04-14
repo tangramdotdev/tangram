@@ -237,7 +237,7 @@ impl Server {
 			.ok()
 			.ok_or_else(|| tg::error!("invalid path"))?;
 		let artifact = directory
-			.get(self, subpath)
+			.get_with_handle(self, subpath)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the artifact from the cache"))?;
 		let id = artifact.id();

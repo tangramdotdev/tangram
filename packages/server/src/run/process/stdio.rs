@@ -19,7 +19,7 @@ impl Server {
 		// Create a blob stream if necessary.
 		let blob_stream = if let Some(blob) = blob {
 			let reader = blob
-				.read(self, tg::read::Options::default())
+				.read_with_handle(self, tg::read::Options::default())
 				.await
 				.map_err(|source| tg::error!(!source, "failed to read process stdin blob"))?;
 			let stream = ReaderStream::new(reader)

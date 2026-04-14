@@ -473,7 +473,7 @@ impl Server {
 			data.clone()
 		} else {
 			tg::Graph::with_id(graph.clone())
-				.data(self)
+				.data_with_handle(self)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the graph data"))?
 		};

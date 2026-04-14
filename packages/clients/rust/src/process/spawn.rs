@@ -77,11 +77,22 @@ pub struct Output {
 }
 
 impl<O: 'static> tg::Process<O> {
-	pub async fn spawn<H>(handle: &H, arg: tg::process::spawn::Arg) -> tg::Result<tg::Process<O>>
+	pub async fn spawn(arg: tg::process::spawn::Arg) -> tg::Result<tg::Process<O>>
+	where
+		O: 'static,
+	{
+		let handle = tg::handle()?;
+		Self::spawn_with_handle(handle, arg).await
+	}
+
+	pub async fn spawn_with_handle<H>(
+		handle: &H,
+		arg: tg::process::spawn::Arg,
+	) -> tg::Result<tg::Process<O>>
 	where
 		H: tg::Handle,
 	{
-		Self::spawn_with_progress(handle, arg, |stream| async move {
+		Self::spawn_with_progress_with_handle(handle, arg, |stream| async move {
 			stream
 				.try_last()
 				.await?
@@ -91,7 +102,19 @@ impl<O: 'static> tg::Process<O> {
 		.await
 	}
 
-	pub async fn spawn_with_progress<H, F, Fut, T>(
+	pub async fn spawn_with_progress<F, Fut, T>(
+		arg: tg::process::spawn::Arg,
+		progress: F,
+	) -> tg::Result<T>
+	where
+		F: FnOnce(BoxStream<'static, tg::Result<tg::progress::Event<tg::Process<O>>>>) -> Fut,
+		Fut: Future<Output = tg::Result<T>>,
+	{
+		let handle = tg::handle()?;
+		Self::spawn_with_progress_with_handle(handle, arg, progress).await
+	}
+
+	pub async fn spawn_with_progress_with_handle<H, F, Fut, T>(
 		handle: &H,
 		mut arg: tg::process::spawn::Arg,
 		progress: F,
@@ -173,7 +196,7 @@ impl<O: 'static> tg::Process<O> {
 		arg.tty = tty.map(tg::Either::Right);
 		if tty_ && (stdin.is_some() || stdout.is_some() || stderr.is_some()) {
 			let mut object = tg::Command::with_id(arg.command.item.clone())
-				.object(&handle)
+				.object_with_handle(&handle)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to load the command"))?
 				.as_ref()
@@ -191,7 +214,7 @@ impl<O: 'static> tg::Process<O> {
 			}
 			if changed {
 				let id = tg::Command::with_object(object)
-					.store(&handle)
+					.store_with_handle(&handle)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 				arg.command.item = id;
@@ -315,7 +338,7 @@ impl<O: 'static> tg::Process<O> {
 		}
 
 		let command = tg::Command::with_id(arg.command.item().clone())
-			.data(handle)
+			.data_with_handle(handle)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to load the command"))?;
 		if command.stdin.is_some() {
@@ -482,7 +505,7 @@ impl<O: 'static> tg::Process<O> {
 		}
 
 		if output.output.is_none() && exists {
-			let artifact = tg::checkin::checkin(
+			let artifact = tg::checkin::checkin_with_handle(
 				&handle,
 				tg::checkin::Arg {
 					options: tg::checkin::Options {
@@ -572,7 +595,7 @@ where
 		.collect::<BTreeSet<tg::artifact::Id>>();
 	let mut output = BTreeMap::new();
 	for artifact in artifacts {
-		let path = tg::checkout::checkout(
+		let path = tg::checkout::checkout_with_handle(
 			handle,
 			tg::checkout::Arg {
 				artifact: artifact.clone(),

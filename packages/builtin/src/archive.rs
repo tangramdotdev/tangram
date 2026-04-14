@@ -140,7 +140,7 @@ where
 			.try_unwrap_directory_ref()
 			.ok()
 			.ok_or_else(|| tg::error!("expected a directory"))?;
-		for (name, artifact) in directory.entries(handle).await? {
+		for (name, artifact) in directory.entries_with_handle(handle).await? {
 			tar_inner(handle, &mut builder, Path::new(&name), &artifact, &position).await?;
 		}
 
@@ -175,7 +175,7 @@ where
 	};
 
 	// Create the blob future.
-	let blob_future = tg::Blob::with_reader(handle, reader);
+	let blob_future = tg::Blob::with_reader_with_handle(handle, reader);
 
 	// Join the futures.
 	let blob = match future::join(archive_future, blob_future).await {
@@ -212,7 +212,7 @@ where
 				.append_data(&mut header, path, &[][..])
 				.await
 				.map_err(|source| tg::error!(!source, "failed to append directory"))?;
-			for (name, artifact) in directory.entries(handle).await? {
+			for (name, artifact) in directory.entries_with_handle(handle).await? {
 				Box::pin(tar_inner(
 					handle,
 					builder,
@@ -225,12 +225,14 @@ where
 			Ok(())
 		},
 		tg::Artifact::File(file) => {
-			if !file.dependencies(handle).await?.is_empty() {
+			if !file.dependencies_with_handle(handle).await?.is_empty() {
 				return Err(tg::error!("cannot archive a file with dependencies"));
 			}
-			let size = file.length(handle).await?;
-			let reader = file.read(handle, tg::read::Options::default()).await?;
-			let executable = file.executable(handle).await?;
+			let size = file.length_with_handle(handle).await?;
+			let reader = file
+				.read_with_handle(handle, tg::read::Options::default())
+				.await?;
+			let executable = file.executable_with_handle(handle).await?;
 			let mut header = tokio_tar::Header::new_gnu();
 			header.set_size(size);
 			header.set_entry_type(tokio_tar::EntryType::Regular);
@@ -244,11 +246,11 @@ where
 			Ok(())
 		},
 		tg::Artifact::Symlink(symlink) => {
-			if symlink.artifact(handle).await?.is_some() {
+			if symlink.artifact_with_handle(handle).await?.is_some() {
 				return Err(tg::error!("cannot archive a symlink with an artifact"));
 			}
 			let target = symlink
-				.path(handle)
+				.path_with_handle(handle)
 				.await?
 				.ok_or_else(|| tg::error!("cannot archive a symlink without a path"))?;
 			let mut header = tokio_tar::Header::new_gnu();
@@ -288,7 +290,7 @@ where
 			.try_unwrap_directory_ref()
 			.ok()
 			.ok_or_else(|| tg::error!("expected a directory"))?;
-		for (name, artifact) in directory.entries(handle).await? {
+		for (name, artifact) in directory.entries_with_handle(handle).await? {
 			zip_inner(handle, &mut builder, Path::new(&name), &artifact, &position).await?;
 		}
 
@@ -303,7 +305,7 @@ where
 	};
 
 	// Create the blob future.
-	let blob_future = tg::Blob::with_reader(handle, reader);
+	let blob_future = tg::Blob::with_reader_with_handle(handle, reader);
 
 	// Join the futures.
 	let blob = match future::join(archive_future, blob_future).await {
@@ -340,7 +342,7 @@ where
 				.write_entry_whole(entry.build(), &[][..])
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write the directory entry"))?;
-			for (name, artifact) in directory.entries(handle).await? {
+			for (name, artifact) in directory.entries_with_handle(handle).await? {
 				Box::pin(zip_inner(
 					handle,
 					builder,
@@ -353,11 +355,11 @@ where
 			Ok(())
 		},
 		tg::Artifact::File(file) => {
-			if !file.dependencies(handle).await?.is_empty() {
+			if !file.dependencies_with_handle(handle).await?.is_empty() {
 				return Err(tg::error!("cannot archive a file with dependencies"));
 			}
-			let size = file.length(handle).await?;
-			let executable = file.executable(handle).await?;
+			let size = file.length_with_handle(handle).await?;
+			let executable = file.executable_with_handle(handle).await?;
 			let permissions = if executable { 0o0755 } else { 0o0644 };
 			let entry = async_zip::ZipEntryBuilder::new(
 				path.to_string_lossy().as_ref().into(),
@@ -369,7 +371,9 @@ where
 				.await
 				.unwrap()
 				.compat_write();
-			let mut file_reader = file.read(handle, tg::read::Options::default()).await?;
+			let mut file_reader = file
+				.read_with_handle(handle, tg::read::Options::default())
+				.await?;
 			tokio::io::copy(&mut file_reader, &mut entry_writer)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write the file entry"))?;
@@ -378,11 +382,11 @@ where
 			Ok(())
 		},
 		tg::Artifact::Symlink(symlink) => {
-			if symlink.artifact(handle).await?.is_some() {
+			if symlink.artifact_with_handle(handle).await?.is_some() {
 				return Err(tg::error!("cannot archive a symlink with an artifact"));
 			}
 			let target = symlink
-				.path(handle)
+				.path_with_handle(handle)
 				.await?
 				.ok_or_else(|| tg::error!("cannot archive a symlink without a path"))?;
 			let entry = async_zip::ZipEntryBuilder::new(

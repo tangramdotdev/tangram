@@ -584,7 +584,7 @@ impl Object {
 		let position = 0;
 		let read = None;
 		let size = blob
-			.length(server)
+			.length_with_handle(server)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the blob length"))?;
 		let server = server.clone();

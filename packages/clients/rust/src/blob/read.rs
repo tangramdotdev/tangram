@@ -6,7 +6,12 @@ use {
 };
 
 impl tg::Blob {
-	pub async fn read<H>(
+	pub async fn read(&self, options: tg::read::Options) -> tg::Result<impl AsyncBufRead + Send> {
+		let handle = tg::handle()?;
+		self.read_with_handle(handle, options).await
+	}
+
+	pub async fn read_with_handle<H>(
 		&self,
 		handle: &H,
 		options: tg::read::Options,
@@ -15,7 +20,7 @@ impl tg::Blob {
 		H: tg::Handle,
 	{
 		let handle = handle.clone();
-		let id = self.store(&handle).await?.clone();
+		let id = self.store_with_handle(&handle).await?.clone();
 		let arg = tg::read::Arg { blob: id, options };
 		let stream = handle.read(arg).boxed().await?.boxed();
 		let reader = StreamReader::new(

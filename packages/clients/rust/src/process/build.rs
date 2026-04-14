@@ -1,14 +1,28 @@
 use crate::prelude::*;
 
-pub async fn build<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<tg::Value>
+pub async fn build(arg: tg::process::Arg) -> tg::Result<tg::Value> {
+	let handle = tg::handle()?;
+	build_with_handle(handle, arg).await
+}
+
+pub async fn build_with_handle<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<tg::Value>
 where
 	H: tg::Handle,
 {
-	tg::Process::<tg::Value>::build(handle, arg).await
+	tg::Process::<tg::Value>::build_with_handle(handle, arg).await
 }
 
 impl<O> tg::Process<O> {
-	pub async fn build<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<O>
+	pub async fn build(arg: tg::process::Arg) -> tg::Result<O>
+	where
+		O: TryFrom<tg::Value> + 'static,
+		O::Error: std::error::Error + Send + Sync + 'static,
+	{
+		let handle = tg::handle()?;
+		Self::build_with_handle(handle, arg).await
+	}
+
+	pub async fn build_with_handle<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<O>
 	where
 		H: tg::Handle,
 		O: TryFrom<tg::Value> + 'static,
@@ -40,6 +54,6 @@ impl<O> tg::Process<O> {
 			sandbox: Some(sandbox),
 			..arg
 		};
-		tg::Process::<O>::run(handle, arg).await
+		tg::Process::<O>::run_with_handle(handle, arg).await
 	}
 }

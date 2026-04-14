@@ -923,7 +923,7 @@ impl Compiler {
 					.ok()
 					.ok_or_else(|| tg::error!("expected a directory"))?;
 				directory
-					.get_edge(&self.handle, &path)
+					.get_edge_with_handle(&self.handle, &path)
 					.await?
 					.to_data_artifact()
 					.into()
@@ -1043,7 +1043,7 @@ impl Compiler {
 						.ok()
 						.ok_or_else(|| tg::error!("expected a directory"))?;
 					directory
-						.get_edge(&self.handle, &relative_path)
+						.get_edge_with_handle(&self.handle, &relative_path)
 						.await?
 						.to_data_artifact()
 						.into()
@@ -1151,7 +1151,7 @@ impl Compiler {
 					tg::graph::data::Edge::Pointer(pointer) => {
 						let pointer = tg::graph::Pointer::try_from_data(pointer.clone())?;
 						let artifact = tg::Artifact::with_pointer(pointer);
-						artifact.store(&self.handle).await?
+						artifact.store_with_handle(&self.handle).await?
 					},
 					tg::graph::data::Edge::Object(object) => object
 						.clone()
@@ -1179,7 +1179,7 @@ impl Compiler {
 						lock: None,
 						path: None,
 					};
-					tg::checkout(&self.handle, arg).await?;
+					tg::checkout::checkout_with_handle(&self.handle, arg).await?;
 					let components: Vec<_> = tag.components().collect();
 					let mut path = self.tags_path.clone();
 					for (i, component) in components.iter().enumerate() {
@@ -1278,7 +1278,7 @@ impl Compiler {
 						lock: None,
 						path: None,
 					};
-					let output = tg::checkout(&self.handle, arg).await?;
+					let output = tg::checkout::checkout_with_handle(&self.handle, arg).await?;
 					output.join(path)
 				} else {
 					let extension = match kind {
@@ -1294,7 +1294,7 @@ impl Compiler {
 						lock: None,
 						path: None,
 					};
-					tg::checkout(&self.handle, arg).await?
+					tg::checkout::checkout_with_handle(&self.handle, arg).await?
 				};
 
 				let uri = format!("file://{}", path.display()).parse().unwrap();

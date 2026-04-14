@@ -20,7 +20,7 @@ pub use {
 		error::{Error, Result, ok},
 		file::Handle as File,
 		graph::Handle as Graph,
-		handle::Handle,
+		handle::{HANDLE, Handle, init, init_with, try_handle},
 		health::Health,
 		id::Id,
 		module::Module,
@@ -40,6 +40,8 @@ pub use {
 	},
 	tangram_either::Either,
 };
+
+pub(crate) use self::handle::handle;
 
 pub mod artifact;
 pub mod blob;

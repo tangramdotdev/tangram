@@ -28,7 +28,16 @@ pub struct Arg {
 }
 
 impl<O> tg::Process<O> {
-	pub async fn finish<H>(&self, handle: &H, arg: tg::process::finish::Arg) -> tg::Result<()>
+	pub async fn finish(&self, arg: tg::process::finish::Arg) -> tg::Result<()> {
+		let handle = tg::handle()?;
+		self.finish_with_handle(handle, arg).await
+	}
+
+	pub async fn finish_with_handle<H>(
+		&self,
+		handle: &H,
+		arg: tg::process::finish::Arg,
+	) -> tg::Result<()>
 	where
 		H: tg::Handle,
 	{
