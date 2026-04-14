@@ -2,6 +2,10 @@ use ../../test.nu *
 
 # Test that a sandboxed process can check in a file created on the overlay root.
 
+if $nu.os-info.name != "linux" {
+	return
+}
+
 let server = spawn
 
 let path = artifact {
