@@ -34,7 +34,10 @@ impl Sandbox {
 	pub fn host_path_for_guest_path(&self, path: &Path) -> Option<PathBuf> {
 		#[cfg(target_os = "macos")]
 		{
-			Some(path.to_owned())
+			match self.0.isolation {
+				tg::sandbox::Isolation::Seatbelt => Some(path.to_owned()),
+				_ => unreachable!(),
+			}
 		}
 
 		#[cfg(target_os = "linux")]
@@ -99,7 +102,10 @@ impl Sandbox {
 	pub fn guest_path_for_host_path(&self, path: &Path) -> Option<PathBuf> {
 		#[cfg(target_os = "macos")]
 		{
-			Some(path.to_owned())
+			match self.0.isolation {
+				tg::sandbox::Isolation::Seatbelt => Some(path.to_owned()),
+				_ => unreachable!(),
+			}
 		}
 
 		#[cfg(target_os = "linux")]

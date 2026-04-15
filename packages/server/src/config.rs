@@ -242,10 +242,16 @@ pub struct Finalizer {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Http {
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub listeners: Vec<HttpListener>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct HttpListener {
+	pub url: Uri,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tls: Option<HttpTls>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub url: Option<Uri>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

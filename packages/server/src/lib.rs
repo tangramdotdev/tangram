@@ -13,7 +13,6 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::task::Task,
-	tangram_uri::Uri,
 	tangram_util::fs::remove,
 	tokio::io::AsyncWriteExt as _,
 	tracing::Instrument as _,
@@ -81,7 +80,6 @@ pub struct State {
 	config: Config,
 	database: Database,
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
-	http: Option<Http>,
 	index: Index,
 	index_tasks: tangram_futures::task::Set<()>,
 	library: Mutex<Option<Arc<Temp>>>,
@@ -127,10 +125,6 @@ type CheckinTasks = tangram_futures::task::Map<
 	crate::progress::Handle<crate::checkin::TaskOutput>,
 	fnv::FnvBuildHasher,
 >;
-
-struct Http {
-	url: Uri,
-}
 
 type SandboxPermits =
 	DashMap<tg::sandbox::Id, Arc<tokio::sync::Mutex<Option<SandboxPermit>>>, tg::id::BuildHasher>;
@@ -269,21 +263,6 @@ impl Server {
 
 		// Create the checkin tasks.
 		let checkin_tasks = tangram_futures::task::Map::default();
-
-		// Create the HTTP configuration.
-		let http = config.http.as_ref().map(|config| {
-			let url = config.url.clone().unwrap_or_else(|| {
-				let path = path.join("socket");
-				let path = path.to_str().unwrap();
-				tangram_uri::Uri::builder()
-					.scheme("http+unix")
-					.authority(path)
-					.path("")
-					.build()
-					.unwrap()
-			});
-			Http { url }
-		});
 
 		// Create the sandbox permits and semaphore.
 		let sandboxes = DashMap::default();
@@ -600,7 +579,6 @@ impl Server {
 			config,
 			database,
 			diagnostics,
-			http,
 			index,
 			index_tasks,
 			library,
@@ -792,16 +770,52 @@ impl Server {
 		}
 
 		// Spawn the HTTP task.
-		let http_task = if let Some(http) = &server.http {
-			let listener = Self::listen(&http.url)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to listen on the http url"))?;
-			tracing::info!("listening on {}", http.url);
-			Some(Task::spawn(|stop| {
-				let server = server.clone();
+		let http_listeners = server.config().http.as_ref().map(|config| {
+			if config.listeners.is_empty() {
+				let path = server.path.join("socket");
+				let path = path.to_str().unwrap();
+				let url = tangram_uri::Uri::builder()
+					.scheme("http+unix")
+					.authority(path)
+					.path("")
+					.build()
+					.unwrap();
+				vec![crate::config::HttpListener { url, tls: None }]
+			} else {
+				config.listeners.clone()
+			}
+		});
+		let http_task = if let Some(http_listeners) = http_listeners {
+			let http_server = server.clone();
+			let mut listeners = Vec::with_capacity(http_listeners.len());
+			for listener_config in &http_listeners {
+				let listener = Self::listen(&listener_config.url).await.map_err(|source| {
+					tg::error!(
+						!source,
+						url = %listener_config.url,
+						"failed to listen on the http url"
+					)
+				})?;
+				tracing::info!("listening on {}", listener_config.url);
+				listeners.push((listener, listener_config.clone()));
+			}
+			Some(Task::spawn(move |stop| {
+				let server = http_server.clone();
 				let context = Context::default();
 				async move {
-					server.serve(listener, context, stop).await;
+					listeners
+						.into_iter()
+						.map(|(listener, listener_config)| {
+							let server = server.clone();
+							let context = context.clone();
+							let stop = stop.clone();
+							async move {
+								server.serve(listener, listener_config, context, stop).await;
+							}
+						})
+						.collect::<FuturesUnordered<_>>()
+						.collect::<Vec<_>>()
+						.await;
 				}
 			}))
 		} else {
@@ -1117,11 +1131,6 @@ impl Server {
 	#[must_use]
 	pub fn config(&self) -> &Config {
 		&self.config
-	}
-
-	#[must_use]
-	pub fn url(&self) -> Option<&Uri> {
-		self.http.as_ref().map(|http| &http.url)
 	}
 
 	#[must_use]

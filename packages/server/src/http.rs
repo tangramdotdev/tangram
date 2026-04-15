@@ -74,21 +74,27 @@ impl Server {
 		Ok(listener)
 	}
 
-	pub(crate) async fn serve(&self, listener: Listener, context: Context, stopper: Stopper) {
+	pub(crate) async fn serve(
+		&self,
+		listener: Listener,
+		config: crate::config::HttpListener,
+		context: Context,
+		stopper: Stopper,
+	) {
 		#[cfg(feature = "tls")]
-		let tls = if self
-			.http
-			.as_ref()
-			.is_some_and(|http| matches!(http.url.scheme(), Some("https")))
-		{
-			let Some(config) = self.config.http.as_ref().and_then(|http| http.tls.as_ref()) else {
-				tracing::error!("missing tls configuration");
+		let tls = if matches!(config.url.scheme(), Some("https")) {
+			let Some(tls_config) = config.tls.as_ref() else {
+				tracing::error!(url = %config.url, "missing tls configuration");
 				return;
 			};
-			match Self::create_tls_acceptor(config).await {
+			match Self::create_tls_acceptor(tls_config).await {
 				Ok(tls) => Some(tls),
 				Err(error) => {
-					tracing::error!(error = %error.trace(), "failed to create the TLS acceptor");
+					tracing::error!(
+						error = %error.trace(),
+						url = %config.url,
+						"failed to create the TLS acceptor"
+					);
 					return;
 				},
 			}

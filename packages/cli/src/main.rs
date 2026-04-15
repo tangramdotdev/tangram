@@ -120,7 +120,7 @@ struct Args {
 	#[arg(env = "TANGRAM_TRACING", long)]
 	tracing: Option<String>,
 
-	/// Override the `url` key in the config.
+	/// Override the HTTP listener URL in the config.
 	#[arg(env = "TANGRAM_URL", long, short)]
 	url: Option<Uri>,
 }
@@ -633,7 +633,8 @@ impl Cli {
 				.config
 				.as_ref()
 				.and_then(|config| config.server.http.as_ref())
-				.and_then(|config| config.url.clone()))
+				.and_then(|config| config.listeners.first())
+				.map(|listener| listener.url.clone()))
 			.unwrap_or_else(|| {
 				let path = self.directory_path().join("socket");
 				let path = path.to_str().unwrap();
@@ -708,8 +709,10 @@ impl Cli {
 		// Set the URL.
 		if let Some(url) = &self.args.url {
 			config.http = Some(tangram_server::config::Http {
-				tls: None,
-				url: Some(url.clone()),
+				listeners: vec![tangram_server::config::HttpListener {
+					url: url.clone(),
+					tls: None,
+				}],
 			});
 		}
 

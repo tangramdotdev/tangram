@@ -107,12 +107,16 @@ impl Server {
 		// Spawn the serve task.
 		let serve_task = Task::spawn({
 			let server = self.clone();
+			let config = crate::config::HttpListener {
+				url: guest_uri.clone(),
+				tls: None,
+			};
 			let context = Context {
 				sandbox: Some(id.clone()),
 				..Default::default()
 			};
 			|stop| async move {
-				server.serve(listener, context, stop).await;
+				server.serve(listener, config, context, stop).await;
 			}
 		});
 

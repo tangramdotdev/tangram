@@ -36,7 +36,7 @@ pub struct Args {
 	#[arg(long)]
 	pub tracing: Option<String>,
 
-	/// Override the `url` key in the config.
+	/// Override the HTTP listener URL in the config.
 	#[arg(long, short)]
 	pub url: Option<Uri>,
 
