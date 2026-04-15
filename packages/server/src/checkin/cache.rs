@@ -142,7 +142,12 @@ impl Server {
 					|source| tg::error!(!source, path = %dst.display(), "failed to set permissions"),
 				)?;
 		}
-		if !done {
+		if done {
+			// Cache entry already exists, so remove the source from tempdir to avoid cleanup failure.
+			tangram_util::fs::remove(src).await.map_err(
+				|source| tg::error!(!source, path = %src.display(), "failed to remove the source"),
+			)?;
+		} else {
 			let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
 			filetime::set_symlink_file_times(&dst, epoch, epoch).map_err(
 				|source| tg::error!(!source, path = %dst.display(), "failed to set the modified time"),
