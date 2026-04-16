@@ -184,47 +184,16 @@ impl Cli {
 	}
 
 	pub fn print_info_message(string: &str) {
-		print_stderr_message("info".blue().bold(), string);
+		eprintln!("{} {string}", "info".blue().bold());
 	}
 
 	pub fn print_warning_message(string: &str) {
-		print_stderr_message("warning".yellow().bold(), string);
+		eprintln!("{} {string}", "warning".yellow().bold());
 	}
 
 	pub fn print_error_message(string: &str) {
-		print_stderr_message("error".red().bold(), string);
+		eprintln!("{} {string}", "error".red().bold());
 	}
-}
-
-fn print_stderr_message(prefix: impl std::fmt::Display, string: &str) {
-	let suffix = if stderr_requires_carriage_return() {
-		"\r"
-	} else {
-		""
-	};
-	eprintln!("{prefix} {string}{suffix}");
-}
-
-#[cfg(unix)]
-fn stderr_requires_carriage_return() -> bool {
-	if !std::io::stderr().is_tty() {
-		return false;
-	}
-	let Ok(tty) = std::fs::File::options().read(true).open("/dev/tty") else {
-		return false;
-	};
-	let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
-	if unsafe { libc::tcgetattr(std::os::fd::AsRawFd::as_raw_fd(&tty), termios.as_mut_ptr()) } != 0
-	{
-		return false;
-	}
-	let termios = unsafe { termios.assume_init() };
-	termios.c_oflag & libc::OPOST == 0
-}
-
-#[cfg(not(unix))]
-fn stderr_requires_carriage_return() -> bool {
-	false
 }
 
 impl std::str::FromStr for Depth {

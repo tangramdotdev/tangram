@@ -102,34 +102,46 @@ impl<O: 'static> tg::Process<O> {
 		.await
 	}
 
-	pub async fn spawn_with_progress<F, Fut, T>(
+	pub async fn spawn_with_progress<F, Fut>(
 		arg: tg::process::spawn::Arg,
 		progress: F,
-	) -> tg::Result<T>
+	) -> tg::Result<tg::Process<O>>
 	where
-		F: FnOnce(BoxStream<'static, tg::Result<tg::progress::Event<tg::Process<O>>>>) -> Fut,
-		Fut: Future<Output = tg::Result<T>>,
+		F: FnOnce(
+			BoxStream<'static, tg::Result<tg::progress::Event<tg::process::spawn::Output>>>,
+		) -> Fut,
+		Fut: Future<Output = tg::Result<tg::process::spawn::Output>>,
 	{
 		let handle = tg::handle()?;
 		Self::spawn_with_progress_with_handle(handle, arg, progress).await
 	}
 
-	pub async fn spawn_with_progress_with_handle<H, F, Fut, T>(
+	pub async fn spawn_with_progress_with_handle<H, F, Fut>(
 		handle: &H,
 		mut arg: tg::process::spawn::Arg,
 		progress: F,
-	) -> tg::Result<T>
+	) -> tg::Result<tg::Process<O>>
 	where
 		H: tg::Handle,
-		F: FnOnce(BoxStream<'static, tg::Result<tg::progress::Event<tg::Process<O>>>>) -> Fut,
-		Fut: Future<Output = tg::Result<T>>,
+		F: FnOnce(
+			BoxStream<'static, tg::Result<tg::progress::Event<tg::process::spawn::Output>>>,
+		) -> Fut,
+		Fut: Future<Output = tg::Result<tg::process::spawn::Output>>,
 	{
 		let handle = handle.clone();
 		let sandboxed = arg.sandbox.is_some();
 		if !sandboxed {
 			let process = Self::spawn_unsandboxed(&handle, arg).await?;
-			let stream = stream::once(future::ok(tg::progress::Event::Output(process))).boxed();
-			return progress(stream).await;
+			let output = tg::process::spawn::Output {
+				cached: process.cached().unwrap_or(false),
+				process: process.id().clone(),
+				remote: process.remote().cloned(),
+				token: process.token().cloned(),
+				wait: None,
+			};
+			let stream = stream::once(future::ok(tg::progress::Event::Output(output))).boxed();
+			progress(stream).await?;
+			return Ok(process);
 		}
 		let provide_stderr = matches!(
 			arg.stderr,
@@ -220,104 +232,70 @@ impl<O: 'static> tg::Process<O> {
 				arg.command.item = id;
 			}
 		}
-		let stream = handle
-			.spawn_process(arg)
-			.await?
-			.and_then(move |event| {
-				let handle = handle.clone();
-				let stdin = stdin.clone();
-				let stdout = stdout.clone();
-				let stderr = stderr.clone();
-				async move {
-					let event = match event {
-						tg::progress::Event::Output(output) => {
-							let wait = output
-								.wait
-								.map(tg::process::Wait::try_from_data)
-								.transpose()?;
-							let id = output.process;
-							let remote = output.remote.clone();
-							let stdio_task = if stdin.is_some()
-								|| stdout.is_some() || stderr.is_some()
-								|| tty_
-							{
-								let handle = handle.clone();
-								let id = id.clone();
-								let remote = remote.clone();
-								let stdin = stdin.clone();
-								let stdout = stdout.clone();
-								let stderr = stderr.clone();
-								Some(tangram_futures::task::Shared::spawn(move |_| async move {
-									super::stdio::stdio_task(
-										handle, id, remote, stdin, stdout, stderr, tty_, raw,
-									)
-									.await
-								}))
-							} else {
-								None
-							};
-							let stderr = if provide_stderr {
-								super::stdio::Reader::from_process(
-									id.clone(),
-									remote.clone(),
-									tg::process::stdio::Stream::Stderr,
-								)
-							} else {
-								super::stdio::Reader::unavailable(
-									tg::process::stdio::Stream::Stderr,
-								)
-							};
-							let stdin = if provide_stdin {
-								super::stdio::Writer::from_process(
-									id.clone(),
-									remote.clone(),
-									tg::process::stdio::Stream::Stdin,
-								)
-							} else {
-								super::stdio::Writer::unavailable(tg::process::stdio::Stream::Stdin)
-							};
-							let stdout = if provide_stdout {
-								super::stdio::Reader::from_process(
-									id.clone(),
-									remote.clone(),
-									tg::process::stdio::Stream::Stdout,
-								)
-							} else {
-								super::stdio::Reader::unavailable(
-									tg::process::stdio::Stream::Stdout,
-								)
-							};
-							let inner = Arc::new(super::Inner {
-								cached: Some(output.cached),
-								id,
-								metadata: RwLock::new(None),
-								remote,
-								state: RwLock::new(None),
-								stderr,
-								stdin,
-								stdio_task,
-								stdout,
-								task: None,
-								token: output.token,
-								wait: Mutex::new(wait),
-								pid: None,
-							});
-							let process = Self(inner, std::marker::PhantomData);
-							tg::progress::Event::Output(process)
-						},
-						tg::progress::Event::Log(log) => tg::progress::Event::Log(log),
-						tg::progress::Event::Diagnostic(diagnostic) => {
-							tg::progress::Event::Diagnostic(diagnostic)
-						},
-						tg::progress::Event::Indicators(indicators) => {
-							tg::progress::Event::Indicators(indicators)
-						},
-					};
-					Ok(event)
-				}
-			})
-			.boxed();
-		let process = progress(stream).await?;
+		let stream = handle.spawn_process(arg).await?.boxed();
+		let output = progress(stream).await?;
+		let wait = output
+			.wait
+			.map(tg::process::Wait::try_from_data)
+			.transpose()?;
+		let id = output.process;
+		let remote = output.remote.clone();
+		let stdio_task = if stdin.is_some() || stdout.is_some() || stderr.is_some() || tty_ {
+			let handle = handle.clone();
+			let id = id.clone();
+			let remote = remote.clone();
+			let stdin = stdin.clone();
+			let stdout = stdout.clone();
+			let stderr = stderr.clone();
+			Some(tangram_futures::task::Shared::spawn(move |_| async move {
+				super::stdio::stdio_task(handle, id, remote, stdin, stdout, stderr, tty_, raw).await
+			}))
+		} else {
+			None
+		};
+		let stderr = if provide_stderr {
+			super::stdio::Reader::from_process(
+				id.clone(),
+				remote.clone(),
+				tg::process::stdio::Stream::Stderr,
+			)
+		} else {
+			super::stdio::Reader::unavailable(tg::process::stdio::Stream::Stderr)
+		};
+		let stdin = if provide_stdin {
+			super::stdio::Writer::from_process(
+				id.clone(),
+				remote.clone(),
+				tg::process::stdio::Stream::Stdin,
+			)
+		} else {
+			super::stdio::Writer::unavailable(tg::process::stdio::Stream::Stdin)
+		};
+		let stdout = if provide_stdout {
+			super::stdio::Reader::from_process(
+				id.clone(),
+				remote.clone(),
+				tg::process::stdio::Stream::Stdout,
+			)
+		} else {
+			super::stdio::Reader::unavailable(tg::process::stdio::Stream::Stdout)
+		};
+		let inner = Arc::new(super::Inner {
+			cached: Some(output.cached),
+			id,
+			metadata: RwLock::new(None),
+			remote,
+			state: RwLock::new(None),
+			stderr,
+			stdin,
+			stdio_task,
+			stdout,
+			task: None,
+			token: output.token,
+			wait: Mutex::new(wait),
+			pid: None,
+		});
+		let process = Self(inner, std::marker::PhantomData);
 		Ok(process)
 	}
 

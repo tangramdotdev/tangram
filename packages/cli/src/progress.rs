@@ -26,6 +26,18 @@ impl Cli {
 		&mut self,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>>,
 	) -> tg::Result<T> {
+		self.render_progress_stream_with_output(stream, |_| {})
+			.await
+	}
+
+	pub async fn render_progress_stream_with_output<T, F>(
+		&mut self,
+		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>>,
+		mut f: F,
+	) -> tg::Result<T>
+	where
+		F: FnMut(&T),
+	{
 		if self.args.quiet {
 			let output = pin!(stream)
 				.try_last()
@@ -34,6 +46,7 @@ impl Cli {
 				.try_unwrap_output()
 				.ok()
 				.ok_or_else(|| tg::error!("expected the output"))?;
+			f(&output);
 			return Ok(output);
 		}
 
@@ -46,6 +59,7 @@ impl Cli {
 				.await?
 				.and_then(|event| event.try_unwrap_output().ok())
 				.ok_or_else(|| tg::error!("stream ended without output"))?;
+			f(&output);
 			return Ok(output);
 		}
 
@@ -65,9 +79,10 @@ impl Cli {
 			let either = future::select(next, tick).await;
 			match either {
 				future::Either::Left((Some(Ok(event)), _)) => {
-					let is_indicators = event.is_indicators();
-					self.render_progress_stream_update(&mut state, event).await;
-					if is_indicators {
+					let redraw = self
+						.render_progress_stream_update(&mut state, event, &mut f)
+						.await;
+					if !redraw {
 						continue;
 					}
 				},
@@ -92,16 +107,21 @@ impl Cli {
 		Ok(output)
 	}
 
-	async fn render_progress_stream_update<T>(
+	async fn render_progress_stream_update<T, F>(
 		&mut self,
 		state: &mut State<T>,
 		event: tg::progress::Event<T>,
-	) {
+		f: &mut F,
+	) -> bool
+	where
+		F: FnMut(&T),
+	{
 		match event {
 			tg::progress::Event::Diagnostic(diagnostic) => {
 				let item = diagnostic.try_into().unwrap();
 				let referent = tg::Referent::with_item(item);
 				self.print_diagnostic(referent).await;
+				true
 			},
 
 			tg::progress::Event::Indicators(indicators) => {
@@ -109,6 +129,7 @@ impl Cli {
 					.into_iter()
 					.map(|i| (i.name.clone(), i))
 					.collect();
+				false
 			},
 
 			tg::progress::Event::Log(log) => {
@@ -129,10 +150,15 @@ impl Cli {
 					}
 				}
 				writeln!(state.tty, "{}", log.message).unwrap();
+				true
 			},
 
 			tg::progress::Event::Output(output) => {
+				state.clear();
+				state.indicators.clear();
+				f(&output);
 				state.output.replace(output);
+				false
 			},
 		}
 	}

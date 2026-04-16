@@ -1,5 +1,8 @@
 use {
-	crate::Cli, crossterm as ct, futures::prelude::*, std::path::PathBuf,
+	crate::Cli,
+	crossterm as ct,
+	futures::prelude::*,
+	std::{fmt::Write as _, path::PathBuf},
 	tangram_client::prelude::*,
 };
 
@@ -245,7 +248,7 @@ impl Cli {
 		}
 
 		let output = self
-			.spawn(args.options, args.reference, args.trailing)
+			.spawn(args.options, args.reference, args.trailing, false)
 			.boxed()
 			.await?;
 
@@ -270,6 +273,7 @@ impl Cli {
 		options: Options,
 		reference: tg::Reference,
 		trailing: Vec<String>,
+		print: bool,
 	) -> tg::Result<tg::Referent<tg::Process>> {
 		let handle = self.handle().await?;
 
@@ -652,12 +656,20 @@ impl Cli {
 			stdout: options.stdout.unwrap_or_default(),
 			tty,
 		};
-		let output = tg::Process::spawn_with_progress_with_handle(&handle, arg, |stream| {
-			self.render_progress_stream(stream)
+		let quiet = self.args.quiet;
+		let process = tg::Process::spawn_with_progress_with_handle(&handle, arg, |stream| {
+			self.render_progress_stream_with_output(stream, |output| {
+				if print && sandboxed && !quiet {
+					let mut message = output.process.to_string();
+					if let Some(token) = &output.token {
+						write!(message, " {token}").unwrap();
+					}
+					Self::print_info_message(&message);
+				}
+			})
 		})
 		.await
 		.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
-		let process = output;
 
 		// Tag the process if requested.
 		if let Some(tag) = options.tag {

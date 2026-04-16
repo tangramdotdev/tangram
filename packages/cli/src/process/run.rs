@@ -1,8 +1,5 @@
 use {
-	crate::Cli,
-	futures::FutureExt as _,
-	std::{fmt::Write as _, path::PathBuf},
-	tangram_client::prelude::*,
+	crate::Cli, futures::FutureExt as _, std::path::PathBuf, tangram_client::prelude::*,
 	tangram_futures::task::Task,
 };
 
@@ -172,12 +169,10 @@ impl Cli {
 		}
 
 		// Spawn the process.
-		let output = self
-			.spawn(options.spawn, reference, trailing)
+		let process = self
+			.spawn(options.spawn, reference, trailing, !options.detach)
 			.boxed()
 			.await?;
-		let process = output;
-		let sandboxed = process.item().pid().is_none();
 
 		// If the detach flag is set, then return the process ID.
 		if options.detach {
@@ -195,15 +190,6 @@ impl Cli {
 				return Ok(value);
 			}
 			return Ok(process.item().id().to_string().into());
-		}
-
-		// Print the process.
-		if !self.args.quiet && sandboxed {
-			let mut message = process.item().id().to_string();
-			if let Some(token) = process.item().token() {
-				write!(message, " {token}").unwrap();
-			}
-			Self::print_info_message(&message);
 		}
 
 		// Spawn the view task if necessary.
