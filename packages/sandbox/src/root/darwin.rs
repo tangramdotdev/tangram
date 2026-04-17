@@ -12,36 +12,74 @@ pub fn prepare_runtime_libraries(arg: &Arg) -> tg::Result<()> {
 	std::fs::create_dir_all(&arg.path)
 		.map_err(|source| tg::error!(!source, "failed to create the sandbox directory"))?;
 	let libraries = collect_dynamic_libraries(&arg.tangram_path)?;
-	if libraries.is_empty() {
-		return Ok(());
-	}
 	let libraries_path = arg.path.join("lib");
-	std::fs::create_dir_all(&libraries_path).map_err(|source| {
-		tg::error!(!source, "failed to create the sandbox libraries directory")
-	})?;
-	for source in libraries {
-		let name = source.file_name().ok_or_else(|| {
-			tg::error!(
-				path = %source.display(),
-				"failed to get the dynamic library file name"
-			)
+	if !libraries.is_empty() {
+		std::fs::create_dir_all(&libraries_path).map_err(|source| {
+			tg::error!(!source, "failed to create the sandbox libraries directory")
 		})?;
-		let target = libraries_path.join(name);
-		if target.exists() {
-			continue;
-		}
-		if std::fs::hard_link(&source, &target).is_err() {
-			std::fs::copy(&source, &target).map_err(|error| {
+		for source in libraries {
+			let name = source.file_name().ok_or_else(|| {
 				tg::error!(
-					!error,
-					source = %source.display(),
-					target = %target.display(),
-					"failed to stage the dynamic library"
+					path = %source.display(),
+					"failed to get the dynamic library file name"
 				)
 			})?;
+			let target = libraries_path.join(name);
+			if target.exists() {
+				continue;
+			}
+			if std::fs::hard_link(&source, &target).is_err() {
+				std::fs::copy(&source, &target).map_err(|error| {
+					tg::error!(
+						!error,
+						source = %source.display(),
+						target = %target.display(),
+						"failed to stage the dynamic library"
+					)
+				})?;
+			}
 		}
 	}
+	prepare_tangram_wrapper(arg, &libraries_path)?;
 	Ok(())
+}
+
+fn prepare_tangram_wrapper(arg: &Arg, libraries_path: &Path) -> tg::Result<()> {
+	let bin_path = arg.path.join("bin");
+	std::fs::create_dir_all(&bin_path)
+		.map_err(|source| tg::error!(!source, "failed to create the sandbox bin directory"))?;
+	let tangram_wrapper_path = bin_path.join("tangram");
+	let tangram_path = shell_quote(&arg.tangram_path);
+	let libraries_path = shell_quote(libraries_path);
+	let wrapper = format!(
+		r#"#!/bin/sh
+if [ -n "${{DYLD_LIBRARY_PATH:-}}" ]; then
+	export DYLD_LIBRARY_PATH='{libraries_path}':"$DYLD_LIBRARY_PATH"
+else
+	export DYLD_LIBRARY_PATH='{libraries_path}'
+fi
+if [ -n "${{DYLD_FALLBACK_LIBRARY_PATH:-}}" ]; then
+	export DYLD_FALLBACK_LIBRARY_PATH='{libraries_path}':"$DYLD_FALLBACK_LIBRARY_PATH"
+else
+	export DYLD_FALLBACK_LIBRARY_PATH='{libraries_path}'
+fi
+exec '{tangram_path}' "$@"
+"#,
+	);
+	std::fs::write(&tangram_wrapper_path, wrapper)
+		.map_err(|source| tg::error!(!source, "failed to write the tangram wrapper"))?;
+	let permissions = std::os::unix::fs::PermissionsExt::from_mode(0o755);
+	std::fs::set_permissions(&tangram_wrapper_path, permissions)
+		.map_err(|source| tg::error!(!source, "failed to set the tangram wrapper permissions"))?;
+	let tg_wrapper_path = bin_path.join("tg");
+	std::fs::remove_file(&tg_wrapper_path).ok();
+	std::os::unix::fs::symlink("tangram", &tg_wrapper_path)
+		.map_err(|source| tg::error!(!source, "failed to create the tg wrapper symlink"))?;
+	Ok(())
+}
+
+fn shell_quote(path: &Path) -> String {
+	path.to_string_lossy().replace('\'', r"'\''")
 }
 
 fn collect_dynamic_libraries(executable: &Path) -> tg::Result<Vec<PathBuf>> {

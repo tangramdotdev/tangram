@@ -209,6 +209,10 @@ fn create_sandbox_profile(arg: &crate::Arg) -> CString {
 			(allow file-read* file-map-executable
 				(subpath "{}"))
 
+			;; Allow executing the staged Tangram wrappers.
+			(allow file-read* process-exec
+				(subpath "{}"))
+
 			;; Allow reading and writing to the sandbox paths.
 			(allow file-read* file-write* file-write-create file-write-mode
 				file-write-unlink file-link
@@ -222,6 +226,7 @@ fn create_sandbox_profile(arg: &crate::Arg) -> CString {
 		"#,
 		arg.tangram_path.display(),
 		arg.rootfs_path.join("lib").display(),
+		arg.rootfs_path.join("bin").display(),
 		Sandbox::host_tangram_socket_path_from_root(&arg.path).display(),
 		Sandbox::host_listen_path_from_root(&arg.path).display(),
 		Sandbox::host_tangram_socket_path_from_root(&arg.path).display(),

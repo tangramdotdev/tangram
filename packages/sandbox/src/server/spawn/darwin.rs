@@ -11,11 +11,18 @@ pub fn prepare_command_for_spawn(
 		command.env.insert("HOME".to_owned(), home);
 	}
 	let mut paths = Vec::new();
-	if let Some(parent) = tangram_path.parent() {
-		paths.push(parent);
+	if let Some(wrapper_directory) = tangram_wrapper_directory(library_paths) {
+		paths.push(wrapper_directory);
 	}
-	paths.push(Path::new("/usr/bin"));
-	paths.push(Path::new("/bin"));
+	if let Some(parent) = tangram_path.parent() {
+		paths.push(parent.to_owned());
+	}
+	paths.push(Path::new("/usr/bin").to_owned());
+	paths.push(Path::new("/bin").to_owned());
+	let paths = paths
+		.iter()
+		.map(std::path::PathBuf::as_path)
+		.collect::<Vec<_>>();
 	super::append_directories_to_path(command, &paths)?;
 
 	if library_paths.is_empty() || !command_resolves_to_path(command, tangram_path) {
@@ -34,6 +41,11 @@ pub fn prepare_command_for_spawn(
 		.env
 		.insert("DYLD_LIBRARY_PATH".to_owned(), path.to_owned());
 	Ok(())
+}
+
+fn tangram_wrapper_directory(library_paths: &[std::path::PathBuf]) -> Option<std::path::PathBuf> {
+	let rootfs_path = library_paths.first()?.parent()?;
+	Some(rootfs_path.join("bin"))
 }
 
 fn command_resolves_to_path(command: &Command, target: &Path) -> bool {
