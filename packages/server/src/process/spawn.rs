@@ -264,7 +264,7 @@ impl Server {
 			}
 			if cacheable && matches!(arg.cached, None | Some(true)) {
 				let locations = self
-					.locations_with_regions(arg.cache_locations.clone())
+					.locations_with_regions(arg.cache_locations.clone().unwrap_or_default())
 					.await
 					.map_err(|source| {
 						tg::error!(!source, "failed to resolve the cache locations")
@@ -528,7 +528,7 @@ impl Server {
 		)?;
 		let arg = tg::process::spawn::Arg {
 			cached: Some(true),
-			cache_locations: disabled_cache_locations(),
+			cache_locations: Some(disabled_cache_locations()),
 			location: Some(tg::location::Location::Local(tg::location::Local {
 				regions: Some(vec![region.to_owned()]),
 			})),
@@ -593,7 +593,7 @@ impl Server {
 			)?;
 		let arg = tg::process::spawn::Arg {
 			cached: Some(true),
-			cache_locations: disabled_cache_locations(),
+			cache_locations: Some(disabled_cache_locations()),
 			location: Some(tg::location::Location::Local(tg::location::Local {
 				regions: remote.regions.clone(),
 			})),

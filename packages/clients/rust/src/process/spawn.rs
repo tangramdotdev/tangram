@@ -24,8 +24,8 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cached: Option<bool>,
 
-	#[serde(default, skip_serializing_if = "is_default")]
-	pub cache_locations: tg::location::Locations,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cache_locations: Option<tg::location::Locations>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checksum: Option<tg::Checksum>,

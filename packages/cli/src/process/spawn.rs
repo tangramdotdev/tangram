@@ -648,7 +648,7 @@ impl Cli {
 		// Spawn the process.
 		let arg = tg::process::spawn::Arg {
 			cached: options.cached,
-			cache_locations: tg::location::Locations::default(),
+			cache_locations: None,
 			checksum: options.checksum,
 			command: tg::Referent::with_item(command.id()),
 			location: location.clone(),

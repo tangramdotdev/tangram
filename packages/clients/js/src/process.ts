@@ -333,12 +333,9 @@ export class Process<O extends tg.Value = tg.Value> {
 			options: options,
 		};
 
-		let spawnArg = {
-			cache_locations: undefined,
+		let spawnArg: tg.Handle.SpawnArg = {
 			checksum,
 			command: commandReferent,
-			location: undefined,
-			parent: undefined,
 			retry: false,
 			sandbox,
 			stderr: stderr ?? "inherit",
@@ -649,6 +646,10 @@ export class Process<O extends tg.Value = tg.Value> {
 		return this.#state;
 	}
 
+	get pid(): number | undefined {
+		return this.#pid;
+	}
+
 	static expect(value: unknown): tg.Process {
 		tg.assert(value instanceof Process);
 		return value;
@@ -813,7 +814,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			this.#wait = wait;
 			return wait;
 		}
-		let arg = {
+		let arg: tg.Handle.WaitArg = {
 			locations: this.#locations,
 			token: this.#token,
 		};
@@ -1558,6 +1559,11 @@ export namespace Process {
 					return;
 				}
 				if (process !== undefined) {
+					if (process.pid !== undefined) {
+						this.#fd = undefined;
+						this.#process = undefined;
+						return;
+					}
 					let location = tg.Locations.toLocation(process.locations);
 					if (location === undefined) {
 						await process.load();
@@ -1594,6 +1600,9 @@ export namespace Process {
 				if (fd !== undefined) {
 					await tg.host.write(fd, input);
 					return input.length;
+				}
+				if (process!.pid !== undefined) {
+					throw new Error(`${stream} is not available`);
 				}
 				let location = tg.Locations.toLocation(process!.locations);
 				if (location === undefined) {

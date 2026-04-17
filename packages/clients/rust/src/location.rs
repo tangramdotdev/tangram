@@ -1,4 +1,7 @@
-use {crate as tg, serde_with::serde_as, tangram_util::serde::CommaSeparatedString};
+use {
+	crate as tg, serde::de::Deserialize as _, serde_with::serde_as,
+	tangram_util::serde::CommaSeparatedString,
+};
 
 #[derive(
 	Clone,
@@ -36,10 +39,18 @@ pub enum Location {
 	serde::Serialize,
 )]
 pub struct Locations {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde(
+		default,
+		deserialize_with = "deserialize_local",
+		skip_serializing_if = "Option::is_none"
+	)]
 	pub local: Option<tg::Either<bool, Local>>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde(
+		default,
+		deserialize_with = "deserialize_remotes",
+		skip_serializing_if = "Option::is_none"
+	)]
 	pub remotes: Option<tg::Either<bool, Vec<Remote>>>,
 }
 
@@ -113,7 +124,10 @@ impl From<tg::location::Location> for tg::location::Locations {
 	fn from(value: tg::location::Location) -> Self {
 		match value {
 			tg::location::Location::Local(local) => Self {
-				local: Some(tg::Either::Right(local)),
+				local: Some(match local.regions.as_ref() {
+					None => tg::Either::Left(true),
+					Some(_) => tg::Either::Right(local),
+				}),
 				remotes: Some(tg::Either::Left(false)),
 			},
 			tg::location::Location::Remote(remote) => Self {
@@ -122,4 +136,50 @@ impl From<tg::location::Location> for tg::location::Locations {
 			},
 		}
 	}
+}
+
+fn deserialize_local<'de, D>(deserializer: D) -> Result<Option<tg::Either<bool, Local>>, D::Error>
+where
+	D: serde::Deserializer<'de>,
+{
+	serde_untagged::UntaggedEnumVisitor::new()
+		.bool(|value| Ok(Some(tg::Either::Left(value))))
+		.string(|value| match value {
+			"true" => Ok(Some(tg::Either::Left(true))),
+			"false" => Ok(Some(tg::Either::Left(false))),
+			_ => Err(serde::de::Error::invalid_value(
+				serde::de::Unexpected::Str(value),
+				&"\"true\", \"false\", or a map",
+			)),
+		})
+		.map(|map| {
+			Local::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+				.map(tg::Either::Right)
+				.map(Some)
+		})
+		.deserialize(deserializer)
+}
+
+fn deserialize_remotes<'de, D>(
+	deserializer: D,
+) -> Result<Option<tg::Either<bool, Vec<Remote>>>, D::Error>
+where
+	D: serde::Deserializer<'de>,
+{
+	serde_untagged::UntaggedEnumVisitor::new()
+		.bool(|value| Ok(Some(tg::Either::Left(value))))
+		.string(|value| match value {
+			"true" => Ok(Some(tg::Either::Left(true))),
+			"false" => Ok(Some(tg::Either::Left(false))),
+			_ => Err(serde::de::Error::invalid_value(
+				serde::de::Unexpected::Str(value),
+				&"\"true\", \"false\", or a sequence",
+			)),
+		})
+		.seq(|seq| {
+			Vec::<Remote>::deserialize(serde::de::value::SeqAccessDeserializer::new(seq))
+				.map(tg::Either::Right)
+				.map(Some)
+		})
+		.deserialize(deserializer)
 }

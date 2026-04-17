@@ -52,7 +52,7 @@ export namespace Locations {
 		}
 		if (Location.Local.is(location)) {
 			return {
-				local: location,
+				local: location.regions === undefined ? true : location,
 				remotes: false,
 			};
 		}

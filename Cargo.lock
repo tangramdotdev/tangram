@@ -7042,6 +7042,7 @@ dependencies = [
  "rustls-platform-verifier 0.7.0",
  "scopeguard",
  "serde",
+ "serde-untagged",
  "serde_json",
  "serde_qs",
  "serde_with",
