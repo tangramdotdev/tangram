@@ -16,7 +16,6 @@ use {
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::{CommaSeparatedString, is_default, is_false},
-	tempfile::TempDir,
 };
 
 #[serde_as]
@@ -331,7 +330,10 @@ impl<O: 'static> tg::Process<O> {
 		}
 
 		let id = tg::process::Id::new();
-		let temp = TempDir::new()
+		let temp = tangram_util::fs::Temp::new()
+			.map_err(|source| tg::error!(!source, "failed to create a temp directory"))?;
+		tokio::fs::create_dir(temp.path())
+			.await
 			.map_err(|source| tg::error!(!source, "failed to create a temp directory"))?;
 		let output_path = temp.path().join(id.to_string());
 		let artifacts = checkout_artifacts(handle, &command).await?;
@@ -422,7 +424,7 @@ impl<O: 'static> tg::Process<O> {
 		handle: H,
 		mut child: tokio::process::Child,
 		output_path: PathBuf,
-		_temp: TempDir,
+		_temp: tangram_util::fs::Temp,
 	) -> tg::Result<tg::process::wait::Output>
 	where
 		H: tg::Handle,

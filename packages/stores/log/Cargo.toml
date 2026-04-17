@@ -21,7 +21,7 @@ doctest = false
 workspace = true
 
 [dev-dependencies]
-tempfile = { workspace = true }
+tangram_util = { workspace = true }
 
 [dependencies]
 bytes = { workspace = true }

@@ -156,10 +156,12 @@ where
 	};
 
 	// Download.
-	let temp_path = temp_path.map_or_else(std::env::temp_dir, ToOwned::to_owned);
-	let mut temp = tempfile::TempDir::new_in(&temp_path)
+	let temp = temp_path
+		.map_or_else(tangram_util::fs::Temp::new, tangram_util::fs::Temp::new_in)
 		.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
-	temp.disable_cleanup(true);
+	tokio::fs::create_dir(temp.path())
+		.await
+		.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
 	let path = match mode {
 		Mode::Raw => {
 			let path = temp.path().join("file");
@@ -198,10 +200,10 @@ where
 		Mode::Extract(format, compression) => {
 			match format {
 				tg::ArchiveFormat::Tar => {
-					super::extract::extract_tar(&temp, &mut reader, compression).await?;
+					super::extract::extract_tar(temp.path(), &mut reader, compression).await?;
 				},
 				tg::ArchiveFormat::Zip => {
-					super::extract::extract_zip(&temp, &mut reader).await?;
+					super::extract::extract_zip(temp.path(), &mut reader).await?;
 				},
 			}
 			temp.path().to_owned()
