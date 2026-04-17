@@ -350,9 +350,7 @@ impl Server {
 			},
 		};
 
-		if output.location.is_none()
-			&& let Some(parent) = &arg.parent
-		{
+		if let Some(parent) = &arg.parent {
 			self.add_process_child(
 				parent,
 				output.cached,
