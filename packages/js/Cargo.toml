@@ -47,8 +47,8 @@ sync_wrapper = { workspace = true }
 tangram_client = { workspace = true }
 tangram_compiler = { workspace = true }
 tangram_futures = { workspace = true }
+tangram_util = { workspace = true }
 tangram_v8 = { workspace = true, optional = true }
-tempfile = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 toml = { workspace = true }

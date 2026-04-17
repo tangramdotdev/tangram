@@ -643,10 +643,11 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_put_and_read_log_single_chunk() {
-		let temp_dir = tempfile::tempdir().unwrap();
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
 		let config = Config {
 			map_size: 1024 * 1024 * 10,
-			path: temp_dir.path().join("test.lmdb"),
+			path: temp.path().join("test.lmdb"),
 		};
 		let store = Store::new(&config).unwrap();
 		let process = tg::process::Id::new();
@@ -689,10 +690,11 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_put_and_read_log_multiple_chunks() {
-		let temp_dir = tempfile::tempdir().unwrap();
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
 		let config = Config {
 			map_size: 1024 * 1024 * 10,
-			path: temp_dir.path().join("test.lmdb"),
+			path: temp.path().join("test.lmdb"),
 		};
 		let store = Store::new(&config).unwrap();
 		let process = tg::process::Id::new();
@@ -741,10 +743,11 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_read_log_across_chunk_boundaries() {
-		let temp_dir = tempfile::tempdir().unwrap();
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
 		let config = Config {
 			map_size: 1024 * 1024 * 10,
-			path: temp_dir.path().join("test.lmdb"),
+			path: temp.path().join("test.lmdb"),
 		};
 		let store = Store::new(&config).unwrap();
 		let process = tg::process::Id::new();
@@ -817,10 +820,11 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_read_log_combined_stream() {
-		let temp_dir = tempfile::tempdir().unwrap();
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
 		let config = Config {
 			map_size: 1024 * 1024 * 10,
-			path: temp_dir.path().join("test.lmdb"),
+			path: temp.path().join("test.lmdb"),
 		};
 		let store = Store::new(&config).unwrap();
 		let process = tg::process::Id::new();
@@ -896,10 +900,11 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_delete_log_removes_all_chunks() {
-		let temp_dir = tempfile::tempdir().unwrap();
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
 		let config = Config {
 			map_size: 1024 * 1024 * 10,
-			path: temp_dir.path().join("test.lmdb"),
+			path: temp.path().join("test.lmdb"),
 		};
 		let store = Store::new(&config).unwrap();
 		let process = tg::process::Id::new();
@@ -965,10 +970,11 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_try_get_log_length() {
-		let temp_dir = tempfile::tempdir().unwrap();
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
 		let config = Config {
 			map_size: 1024 * 1024 * 10,
-			path: temp_dir.path().join("test.lmdb"),
+			path: temp.path().join("test.lmdb"),
 		};
 		let store = Store::new(&config).unwrap();
 		let process = tg::process::Id::new();
@@ -1040,10 +1046,11 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_read_log_at_end_returns_empty() {
-		let temp_dir = tempfile::tempdir().unwrap();
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
 		let config = Config {
 			map_size: 1024 * 1024 * 10,
-			path: temp_dir.path().join("test.lmdb"),
+			path: temp.path().join("test.lmdb"),
 		};
 		let store = Store::new(&config).unwrap();
 		let process = tg::process::Id::new();
@@ -1074,10 +1081,11 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_read_log_nonexistent_process() {
-		let temp_dir = tempfile::tempdir().unwrap();
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
 		let config = Config {
 			map_size: 1024 * 1024 * 10,
-			path: temp_dir.path().join("test.lmdb"),
+			path: temp.path().join("test.lmdb"),
 		};
 		let store = Store::new(&config).unwrap();
 		let process = tg::process::Id::new();

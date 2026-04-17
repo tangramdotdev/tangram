@@ -580,10 +580,11 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_put_and_get_object() {
-		let temp_dir = tempfile::tempdir().unwrap();
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
 		let config = Config {
 			map_size: 1024 * 1024 * 10,
-			path: temp_dir.path().join("test.lmdb"),
+			path: temp.path().join("test.lmdb"),
 		};
 		let store = Store::new(&config).unwrap();
 
@@ -616,10 +617,11 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_put_object_without_bytes_then_with_bytes() {
-		let temp_dir = tempfile::tempdir().unwrap();
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
 		let config = Config {
 			map_size: 1024 * 1024 * 10,
-			path: temp_dir.path().join("test.lmdb"),
+			path: temp.path().join("test.lmdb"),
 		};
 		let store = Store::new(&config).unwrap();
 
@@ -674,10 +676,11 @@ mod tests {
 	#[test]
 	fn test_put_and_get_object_sync() {
 		// This test mimics what the server does using sync functions.
-		let temp_dir = tempfile::tempdir().unwrap();
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
 		let config = Config {
 			map_size: 1024 * 1024 * 10,
-			path: temp_dir.path().join("test.lmdb"),
+			path: temp.path().join("test.lmdb"),
 		};
 		let store = Store::new(&config).unwrap();
 
@@ -709,10 +712,11 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_put_batch_and_get_object() {
-		let temp_dir = tempfile::tempdir().unwrap();
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
 		let config = Config {
 			map_size: 1024 * 1024 * 10,
-			path: temp_dir.path().join("test.lmdb"),
+			path: temp.path().join("test.lmdb"),
 		};
 		let store = Store::new(&config).unwrap();
 

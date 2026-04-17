@@ -9,7 +9,6 @@ use {
 		process::ExitCode,
 	},
 	tangram_client::prelude::*,
-	tempfile::TempDir,
 };
 
 #[derive(Clone, Debug)]
@@ -151,7 +150,7 @@ fn child_main(
 	exec_command(arg)
 }
 
-fn prepare_root(arg: &Arg) -> tg::Result<Option<TempDir>> {
+fn prepare_root(arg: &Arg) -> tg::Result<Option<tangram_util::fs::Temp>> {
 	if !arg
 		.overlays
 		.iter()
@@ -159,9 +158,9 @@ fn prepare_root(arg: &Arg) -> tg::Result<Option<TempDir>> {
 	{
 		return Ok(None);
 	}
-	let path = tempfile::Builder::new()
-		.prefix("tg-sandbox-run.")
-		.tempdir()
+	let path = tangram_util::fs::Temp::new()
+		.map_err(|source| tg::error!(!source, "failed to create the scratch path"))?;
+	std::fs::create_dir(path.path())
 		.map_err(|source| tg::error!(!source, "failed to create the scratch path"))?;
 	let root = path.path().join("root");
 	std::fs::remove_dir_all(&root).ok();

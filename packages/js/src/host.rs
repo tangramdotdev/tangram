@@ -212,9 +212,12 @@ impl Host {
 	}
 
 	pub async fn mkdtemp(&self) -> tg::Result<String> {
-		let path = tempfile::tempdir()
-			.map_err(|source| tg::error!(!source, "failed to create a temp directory"))?
-			.keep();
+		let path = tangram_util::fs::Temp::new()
+			.map_err(|source| tg::error!(!source, "failed to create a temp directory"))?;
+		tokio::fs::create_dir(path.path())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create a temp directory"))?;
+		let path = path.into_path();
 		let path = path
 			.into_os_string()
 			.into_string()
@@ -267,25 +270,9 @@ impl Host {
 	}
 
 	pub async fn remove(&self, path: String) -> tg::Result<()> {
-		let path = PathBuf::from(path);
-		let metadata = match tokio::fs::symlink_metadata(&path).await {
-			Ok(metadata) => metadata,
-			Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-			Err(source) => {
-				return Err(
-					tg::error!(!source, path = %path.display(), "failed to read the path metadata"),
-				);
-			},
-		};
-		if metadata.is_dir() {
-			tokio::fs::remove_dir_all(&path).await.map_err(
-				|source| tg::error!(!source, path = %path.display(), "failed to remove the directory"),
-			)?;
-		} else {
-			tokio::fs::remove_file(&path).await.map_err(
-				|source| tg::error!(!source, path = %path.display(), "failed to remove the file"),
-			)?;
-		}
+		tangram_util::fs::remove(&path)
+			.await
+			.map_err(|source| tg::error!(!source, %path, "failed to remove"))?;
 		Ok(())
 	}
 

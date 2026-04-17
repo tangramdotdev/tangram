@@ -6,6 +6,66 @@ use {
 	},
 };
 
+#[derive(Debug)]
+pub struct Temp {
+	path: Option<PathBuf>,
+	preserve: bool,
+}
+
+impl Temp {
+	pub fn new() -> std::io::Result<Self> {
+		Self::new_in(std::env::temp_dir())
+	}
+
+	pub fn new_in(path: impl AsRef<Path>) -> std::io::Result<Self> {
+		const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
+			symbols: "0123456789abcdefghjkmnpqrstvwxyz",
+		};
+		let id = uuid::Uuid::now_v7();
+		let id = ENCODING.encode(&id.into_bytes());
+		let path = path.as_ref().join(id);
+		Ok(Self {
+			path: Some(path),
+			preserve: false,
+		})
+	}
+
+	#[must_use]
+	pub fn preserve(mut self, preserve: bool) -> Self {
+		self.preserve = preserve;
+		self
+	}
+
+	#[must_use]
+	pub fn path(&self) -> &Path {
+		self.path
+			.as_deref()
+			.expect("expected the temp path to exist")
+	}
+
+	#[must_use]
+	pub fn into_path(mut self) -> PathBuf {
+		self.path.take().expect("expected the temp path to exist")
+	}
+}
+
+impl AsRef<Path> for Temp {
+	fn as_ref(&self) -> &Path {
+		self.path()
+	}
+}
+
+impl Drop for Temp {
+	fn drop(&mut self) {
+		if self.preserve {
+			return;
+		}
+		if let Some(path) = self.path.take() {
+			remove_sync(&path).ok();
+		}
+	}
+}
+
 pub async fn canonicalize_parent(path: impl AsRef<Path>) -> std::io::Result<PathBuf> {
 	let path = std::path::absolute(path)?;
 	let Some(parent) = path.parent() else {
@@ -101,8 +161,6 @@ pub fn remove_sync(path: impl AsRef<Path>) -> std::io::Result<()> {
 }
 
 /// Rename a file or directory atomically, failing if the destination already exists.
-///
-/// Uses `renameatx_np` with `RENAME_EXCL` on macOS and `renameat2` with `RENAME_NOREPLACE` on Linux.
 pub fn rename_noreplace_sync(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
 	// #[cfg(target_os = "macos")]
 	// {
@@ -147,8 +205,6 @@ pub fn rename_noreplace_sync(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> st
 }
 
 /// Rename a file or directory atomically, failing if the destination already exists.
-///
-/// Uses `renameatx_np` with `RENAME_EXCL` on macOS and `renameat2` with `RENAME_NOREPLACE` on Linux.
 pub async fn rename_noreplace(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
 	let src = src.as_ref().to_owned();
 	let dst = dst.as_ref().to_owned();

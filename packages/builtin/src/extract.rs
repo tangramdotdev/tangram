@@ -94,17 +94,20 @@ where
 	});
 
 	// Create a temp.
-	let temp_path = temp_path.map_or_else(std::env::temp_dir, ToOwned::to_owned);
-	let temp = tempfile::TempDir::new_in(&temp_path)
+	let temp = temp_path
+		.map_or_else(tangram_util::fs::Temp::new, tangram_util::fs::Temp::new_in)
+		.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
+	tokio::fs::create_dir(temp.path())
+		.await
 		.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
 
 	// Extract to the temp.
 	match format {
 		tg::ArchiveFormat::Tar => {
-			extract_tar(&temp, &mut reader, compression).await?;
+			extract_tar(temp.path(), &mut reader, compression).await?;
 		},
 		tg::ArchiveFormat::Zip => {
-			extract_zip(&temp, &mut reader).await?;
+			extract_zip(temp.path(), &mut reader).await?;
 		},
 	}
 
@@ -153,7 +156,7 @@ where
 }
 
 pub(crate) async fn extract_tar(
-	temp: &tempfile::TempDir,
+	temp: &Path,
 	reader: &mut (impl tokio::io::AsyncBufRead + Send + Unpin + 'static),
 	compression: Option<tg::CompressionFormat>,
 ) -> tg::Result<()> {
@@ -185,7 +188,7 @@ pub(crate) async fn extract_tar(
 		let path = entry
 			.path()
 			.map_err(|source| tg::error!(!source, "failed to read the archive entry path"))?;
-		let path = resolve_tar_entry_path(temp.path(), &path)?;
+		let path = resolve_tar_entry_path(temp, &path)?;
 		let kind = entry.header().entry_type();
 
 		if kind.is_dir() {
@@ -216,7 +219,7 @@ pub(crate) async fn extract_tar(
 				.link_name()
 				.map_err(|source| tg::error!(!source, "failed to read hard link target"))?
 				.ok_or_else(|| tg::error!("expected the entry to have a hard link target"))?;
-			let target = resolve_tar_entry_path(temp.path(), &target)?;
+			let target = resolve_tar_entry_path(temp, &target)?;
 			tokio::fs::hard_link(&target, &path)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the hard link"))?;
@@ -266,7 +269,7 @@ fn resolve_tar_entry_path(root: &Path, path: &Path) -> tg::Result<PathBuf> {
 }
 
 pub(crate) async fn extract_zip(
-	temp: &tempfile::TempDir,
+	temp: &Path,
 	reader: &mut (impl tokio::io::AsyncBufRead + Send + Unpin + 'static),
 ) -> tg::Result<()> {
 	// Create the reader.
@@ -293,7 +296,7 @@ pub(crate) async fn extract_zip(
 			.filename()
 			.as_str()
 			.map_err(|source| tg::error!(!source, "failed to get the entry filename"))?;
-		let path = temp.path().join(filename);
+		let path = temp.join(filename);
 
 		// Check if the entry is a directory.
 		let is_dir = entry_reader

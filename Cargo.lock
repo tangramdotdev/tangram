@@ -6945,7 +6945,7 @@ dependencies = [
  "tangram_client",
  "tangram_futures",
  "tangram_uri",
- "tempfile",
+ "tangram_util",
  "tokio",
  "tokio-util",
 ]
@@ -7052,7 +7052,6 @@ dependencies = [
  "tangram_serialize",
  "tangram_uri",
  "tangram_util",
- "tempfile",
  "time",
  "tokio",
  "tokio-rustls",
@@ -7196,7 +7195,6 @@ dependencies = [
  "indoc",
  "pretty_assertions",
  "tangram_util",
- "tempfile",
  "tokio",
 ]
 
@@ -7243,8 +7241,8 @@ dependencies = [
  "tangram_client",
  "tangram_compiler",
  "tangram_futures",
+ "tangram_util",
  "tangram_v8",
- "tempfile",
  "tokio",
  "tokio-util",
  "toml",
@@ -7265,7 +7263,7 @@ dependencies = [
  "num",
  "tangram_client",
  "tangram_serialize",
- "tempfile",
+ "tangram_util",
  "tokio",
 ]
 
@@ -7301,7 +7299,7 @@ dependencies = [
  "serde_json",
  "tangram_client",
  "tangram_serialize",
- "tempfile",
+ "tangram_util",
  "tokio",
 ]
 
@@ -7330,7 +7328,6 @@ dependencies = [
  "tangram_http",
  "tangram_uri",
  "tangram_util",
- "tempfile",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -7454,6 +7451,7 @@ version = "0.0.0"
 dependencies = [
  "bytes",
  "data-encoding",
+ "data-encoding-macro",
  "derive_more",
  "fnv",
  "futures",
@@ -7470,6 +7468,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
+ "uuid",
  "xattr",
 ]
 

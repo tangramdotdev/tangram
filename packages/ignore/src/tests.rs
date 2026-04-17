@@ -7,7 +7,8 @@ use {
 
 #[tokio::test]
 async fn test() {
-	let temp = tempfile::TempDir::new().unwrap();
+	let temp = tangram_util::fs::Temp::new().unwrap();
+	std::fs::create_dir(temp.path()).unwrap();
 	let root = temp.path().join("root");
 	let artifact = Artifact::from(util::directory! {
 		".DS_Store" => util::file!(""),

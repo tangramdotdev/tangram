@@ -382,8 +382,8 @@ export class Process<O extends tg.Value = tg.Value> {
 		}
 
 		let id = tg.handle.processId();
-		let tempDir = await tg.host.mkdtemp();
-		let outputPath = tg.path.join(tempDir, id);
+		let tempPath = await tg.host.mkdtemp();
+		let outputPath = tg.path.join(tempPath, id);
 		let artifacts = await checkoutArtifacts(command);
 		let env = await renderEnv(command.env, artifacts, outputPath);
 		let { args, executable } = renderCommand(command, artifacts, outputPath);
@@ -416,7 +416,7 @@ export class Process<O extends tg.Value = tg.Value> {
 				stdin,
 				stdout,
 			},
-			tempDir,
+			tempPath,
 			outputPath,
 		);
 		return new tg.Process<O>({
@@ -439,7 +439,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			stdin: tg.Process.Stdio.Writer;
 			stdout: tg.Process.Stdio.Reader;
 		},
-		tempDir: string,
+		tempPath: string,
 		outputPath: string,
 	): Promise<tg.Process.Wait> {
 		let wait: tg.Process.Wait | undefined;
@@ -501,7 +501,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			for (let name of ["stdin", "stdout", "stderr"] as const) {
 				await stdio[name].close();
 			}
-			await tg.host.remove(tempDir);
+			await tg.host.remove(tempPath);
 		} catch (error) {
 			if (waitError === undefined) {
 				waitError = error;
