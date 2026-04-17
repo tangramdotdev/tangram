@@ -22,16 +22,13 @@ export let handle: tg.Handle = {
 
 	getProcess(
 		id: tg.Process.Id,
-		remote: string | undefined,
-	): Promise<tg.Process.Data> {
-		return syscall("handle_process_get", id, remote);
+		arg?: tg.Handle.ProcessGetArg | undefined,
+	): Promise<tg.Handle.ProcessGetOutput> {
+		return syscall("handle_process_get", id, arg);
 	},
 
-	getSandbox(
-		id: tg.Sandbox.Id,
-		remote: string | undefined,
-	): Promise<tg.Handle.SandboxGetOutput> {
-		return syscall("handle_sandbox_get", id, remote);
+	getSandbox(id: tg.Sandbox.Id): Promise<tg.Handle.SandboxGetOutput> {
+		return syscall("handle_sandbox_get", id);
 	},
 
 	objectId(object: tg.Object.Data): tg.Object.Id {

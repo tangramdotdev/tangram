@@ -108,5 +108,11 @@ create index process_stdio_process_stream_position_index on process_stdio (proce
 
 create table process_finalize_queue (
 	position integer primary key autoincrement,
-	process text not null unique
+	created_at integer not null,
+	finished_at integer,
+	process text not null unique,
+	started_at integer,
+	status text not null
 );
+
+create index process_finalize_queue_status_position_index on process_finalize_queue (status, position);

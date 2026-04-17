@@ -138,20 +138,24 @@ pub fn object_id(
 
 pub async fn process_get(
 	state: Rc<State>,
-	args: (Serde<tg::process::Id>, Option<String>),
-) -> tg::Result<Serde<tg::process::Data>> {
-	let (Serde(id), _) = args;
+	args: (Serde<tg::process::Id>, Option<Serde<tg::process::get::Arg>>),
+) -> tg::Result<Serde<tg::process::get::Output>> {
+	let (Serde(id), arg) = args;
+	let arg = arg.map(|Serde(arg)| arg).unwrap_or_default();
 	let handle = state.handle.clone();
-	let data = state
+	let output = state
 		.main_runtime_handle
 		.spawn(async move {
-			let tg::process::get::Output { data, .. } = handle.get_process(&id).await?;
-			Ok::<_, tg::Error>(data)
+			let output = handle
+				.try_get_process(&id, arg)
+				.await?
+				.ok_or_else(|| tg::error!("failed to find the process"))?;
+			Ok::<_, tg::Error>(output)
 		})
 		.await
 		.unwrap()
 		.map_err(|source| tg::error!(!source, "failed to get the process"))?;
-	Ok(Serde(data))
+	Ok(Serde(output))
 }
 
 pub fn process_id(
@@ -164,9 +168,9 @@ pub fn process_id(
 
 pub async fn sandbox_get(
 	state: Rc<State>,
-	args: (Serde<tg::sandbox::Id>, Option<String>),
+	args: (Serde<tg::sandbox::Id>,),
 ) -> tg::Result<Serde<tg::sandbox::get::Output>> {
-	let (Serde(id), _) = args;
+	let (Serde(id),) = args;
 	let handle = state.handle.clone();
 	let data = state
 		.main_runtime_handle

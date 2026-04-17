@@ -24,9 +24,11 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, path = %arg.path.display(), "failed to canonicalize the path's parent"))?;
 
-		let output = self.watches.remove(&arg.path);
+		let Some(_) = self.watches.remove(&arg.path) else {
+			return Ok(None);
+		};
 
-		Ok(output.map(|_| ()))
+		Ok(Some(()))
 	}
 
 	pub(crate) async fn handle_delete_watch_request(

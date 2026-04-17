@@ -10,7 +10,19 @@ pub trait Tag: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		tag: &tg::Tag,
 		arg: tg::tag::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send;
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		async move {
+			self.try_put_tag(tag, arg)
+				.await?
+				.ok_or_else(|| tg::error!("failed to find the item"))
+		}
+	}
+
+	fn try_put_tag(
+		&self,
+		tag: &tg::Tag,
+		arg: tg::tag::put::Arg,
+	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
 
 	fn post_tag_batch(
 		&self,
@@ -31,12 +43,12 @@ impl tg::handle::Tag for tg::Client {
 		self.list_tags(arg)
 	}
 
-	fn put_tag(
+	fn try_put_tag(
 		&self,
 		tag: &tg::Tag,
 		arg: tg::tag::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.put_tag(tag, arg)
+	) -> impl Future<Output = tg::Result<Option<()>>> {
+		self.try_put_tag(tag, arg)
 	}
 
 	fn post_tag_batch(

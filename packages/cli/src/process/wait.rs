@@ -5,30 +5,35 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub local: crate::util::args::Local,
+	pub locations: crate::location::Locations,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
-
-	#[command(flatten)]
-	pub remotes: crate::util::args::Remotes,
 }
 
 impl Cli {
 	pub async fn command_process_wait(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
+		let locations = args.locations.get();
+		let process = tg::Process::<tg::Value>::new(
+			args.process.clone(),
+			Some(locations.clone()),
+			None,
+			None,
+			None,
+			None,
+		);
 		let arg = tg::process::wait::Arg {
-			local: args.local.get(),
-			remotes: args.remotes.get(),
+			locations,
 			token: None,
 		};
-		let output = handle.wait_process(&args.process, arg).await.map_err(
+		let output = process.wait_with_handle(&handle, arg).await.map_err(
 			|source| tg::error!(!source, id = %args.process, "failed to wait for the process"),
 		)?;
-		self.print_serde(output, args.print).await?;
+		self.print_serde(output.to_data(), args.print).await?;
 		Ok(())
 	}
 }

@@ -1,27 +1,20 @@
 use {
 	crate::prelude::*,
 	bytes::Bytes,
-	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
-	tangram_util::serde::CommaSeparatedString,
 };
 
-#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(skip)]
 	pub bytes: Bytes,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub local: Option<bool>,
+	pub location: Option<tg::location::Location>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub metadata: Option<tg::object::Metadata>,
-
-	#[serde(alias = "remote", default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<CommaSeparatedString>")]
-	pub remotes: Option<Vec<String>>,
 }
 
 impl tg::Client {

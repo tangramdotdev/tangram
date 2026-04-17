@@ -25,6 +25,22 @@ impl Server {
 				}
 			})
 			.await?;
+		let outputs = outputs
+			.into_iter()
+			.map(|output| {
+				output.map(|mut output| {
+					output.location = Some(self.config().region.clone().map_or_else(
+						|| tg::location::Location::Local(tg::location::Local::default()),
+						|region| {
+							tg::location::Location::Local(tg::location::Local {
+								regions: Some(vec![region]),
+							})
+						},
+					));
+					output
+				})
+			})
+			.collect();
 
 		Ok(outputs)
 	}
@@ -247,6 +263,7 @@ impl Server {
 		let output = tg::process::get::Output {
 			id: id.clone(),
 			data,
+			location: None,
 			metadata: None,
 		};
 

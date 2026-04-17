@@ -49,22 +49,29 @@ impl Server {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
 
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			return self
-				.write_process_stdio_local(id, &arg.streams, input, stopper)
-				.await;
-		}
+		let location = self.location_with_regions(arg.location.as_ref())?;
 
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			return self
-				.write_process_stdio_remote(id, &arg.streams, input, remote)
-				.await;
-		}
+		let output = match location {
+			crate::location::Location::Local { region: None } => {
+				self.try_write_process_stdio_local(id, &arg.streams, input, stopper)
+					.await?
+			},
+			crate::location::Location::Local {
+				region: Some(region),
+			} => {
+				self.try_write_process_stdio_region(id, &arg.streams, input, region)
+					.await?
+			},
+			crate::location::Location::Remote { remote, region } => {
+				self.try_write_process_stdio_remote(id, &arg.streams, input, remote, region)
+					.await?
+			},
+		};
 
-		Ok(None)
+		Ok(output)
 	}
 
-	async fn write_process_stdio_local(
+	async fn try_write_process_stdio_local(
 		&self,
 		id: &tg::process::Id,
 		streams: &[tg::process::stdio::Stream],
@@ -319,19 +326,45 @@ impl Server {
 		}
 	}
 
-	async fn write_process_stdio_remote(
+	async fn try_write_process_stdio_region(
+		&self,
+		id: &tg::process::Id,
+		streams: &[tg::process::stdio::Stream],
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
+		region: String,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>> {
+		let client = self.get_region_client(region.clone()).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+		)?;
+		let arg = tg::process::stdio::write::Arg {
+			location: Some(tg::location::Location::Local(tg::location::Local {
+				regions: Some(vec![region.clone()]),
+			})),
+			streams: streams.to_vec(),
+		};
+		let stream = client
+			.try_write_process_stdio(id, arg, input)
+			.await
+			.map_err(|source| tg::error!(!source, region = %region, "failed to write stdio"))?;
+		Ok(stream.map(futures::StreamExt::boxed))
+	}
+
+	async fn try_write_process_stdio_remote(
 		&self,
 		id: &tg::process::Id,
 		streams: &[tg::process::stdio::Stream],
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 		remote: String,
+		region: Option<String>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>> {
 		let client = self.get_remote_client(remote.clone()).await.map_err(
 			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::process::stdio::write::Arg {
+			location: Some(tg::location::Location::Local(tg::location::Local {
+				regions: region.map(|region| vec![region]),
+			})),
 			streams: streams.to_vec(),
-			..Default::default()
 		};
 		let stream = client
 			.try_write_process_stdio(id, arg, input)

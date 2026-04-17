@@ -27,25 +27,40 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
-		// Try local first if requested.
-		if Self::local(arg.local, arg.remotes.as_ref())
-			&& let Some(stream) = self
-				.try_get_process_children_local(id, arg.clone())
+		let locations = self
+			.locations_with_regions(arg.locations.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+
+		if let Some(local) = &locations.local {
+			if local.current
+				&& let Some(stream) = self
+					.try_get_process_children_local(id, arg.clone())
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the process children"))?
+			{
+				return Ok(Some(stream));
+			}
+
+			if let Some(stream) = self
+				.try_get_process_children_from_regions(id, arg.clone(), &local.regions)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the process children"))?
-		{
-			return Ok(Some(stream));
+				.map_err(|source| {
+					tg::error!(
+						!source,
+						"failed to get the process children from another region"
+					)
+				})? {
+				return Ok(Some(stream));
+			}
 		}
 
-		// Try remotes.
-		let remotes = self
-			.remotes(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
 		if let Some(stream) = self
-			.try_get_process_children_remote(id, arg.clone(), &remotes)
-			.await?
-		{
+			.try_get_process_children_from_remotes(id, arg, &locations.remotes)
+			.await
+			.map_err(|source| {
+				tg::error!(!source, "failed to get the process children from a remote")
+			})? {
 			return Ok(Some(stream));
 		}
 
@@ -283,49 +298,15 @@ impl Server {
 		Ok(chunk)
 	}
 
-	async fn try_get_process_children_remote(
+	async fn try_get_process_children_from_regions(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
-		remotes: &[String],
+		regions: &[String],
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
-		if remotes.is_empty() {
-			return Ok(None);
-		}
-		let arg = tg::process::children::get::Arg {
-			local: None,
-			remotes: None,
-			..arg
-		};
-		let mut futures = remotes
+		let mut futures = regions
 			.iter()
-			.map(|remote| {
-				let remote = remote.clone();
-				let arg = arg.clone();
-				async move {
-					let client =
-						self.get_remote_client(remote.clone())
-							.await
-							.map_err(|source| {
-								tg::error!(
-									!source,
-									remote = %remote,
-									"failed to get the remote client"
-								)
-							})?;
-					client
-						.try_get_process_children_stream(id, arg)
-						.await
-						.map_err(|source| {
-							tg::error!(
-								!source,
-								remote = %remote,
-								"failed to get the process children"
-							)
-						})
-						.map(|stream| stream.map(futures::StreamExt::boxed))
-				}
-			})
+			.map(|region| self.try_get_process_children_from_region(id, arg.clone(), region))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -344,6 +325,101 @@ impl Server {
 			return Ok(None);
 		};
 		Ok(Some(stream))
+	}
+
+	async fn try_get_process_children_from_region(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::children::get::Arg,
+		region: &str,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
+		let client = self.get_region_client(region.to_owned()).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+		)?;
+		let arg = tg::process::children::get::Arg {
+			locations: tg::location::Locations {
+				local: Some(tg::Either::Right(tg::location::Local {
+					regions: Some(vec![region.to_owned()]),
+				})),
+				remotes: Some(tg::Either::Left(false)),
+			},
+			..arg
+		};
+		let Some(stream) = client
+			.try_get_process_children_stream(id, arg)
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the process children"),
+			)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(stream.boxed()))
+	}
+
+	async fn try_get_process_children_from_remotes(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::children::get::Arg,
+		remotes: &[tg::location::Remote],
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
+		let mut futures = remotes
+			.iter()
+			.map(|remote| self.try_get_process_children_from_remote(id, arg.clone(), remote))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(stream)) => {
+					result = Ok(Some(stream));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(stream) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(stream))
+	}
+
+	async fn try_get_process_children_from_remote(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::children::get::Arg,
+		remote: &tg::location::Remote,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
+		let client = self
+			.get_remote_client(remote.remote.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, remote = %remote.remote, "failed to get the remote client"),
+			)?;
+		let arg = tg::process::children::get::Arg {
+			locations: tg::location::Locations {
+				local: match &remote.regions {
+					Some(regions) => Some(tg::Either::Right(tg::location::Local {
+						regions: Some(regions.clone()),
+					})),
+					None => Some(tg::Either::Left(true)),
+				},
+				remotes: Some(tg::Either::Left(false)),
+			},
+			..arg
+		};
+		let Some(stream) = client
+			.try_get_process_children_stream(id, arg)
+			.await
+			.map_err(
+				|source| tg::error!(!source, remote = %remote.remote, "failed to get the process children"),
+			)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(stream.boxed()))
 	}
 
 	pub(crate) async fn handle_get_process_children_request(

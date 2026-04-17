@@ -4,7 +4,7 @@ use {
 	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
-	tangram_util::serde::{CommaSeparatedString, SeekFromNumberOrString},
+	tangram_util::serde::SeekFromNumberOrString,
 };
 
 #[serde_as]
@@ -13,16 +13,12 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub length: Option<u64>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub local: Option<bool>,
+	#[serde(default)]
+	pub locations: tg::location::Locations,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<SeekFromNumberOrString>")]
 	pub position: Option<std::io::SeekFrom>,
-
-	#[serde(alias = "remote", default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<CommaSeparatedString>")]
-	pub remotes: Option<Vec<String>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub size: Option<u64>,
@@ -92,8 +88,7 @@ impl<O> tg::Process<O> {
 							chunk
 								.data
 								.into_iter()
-								.map(tg::process::state::Child::from)
-								.map(Ok),
+								.map(tg::process::state::Child::try_from_data),
 						)
 					})
 					.try_flatten()

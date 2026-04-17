@@ -46,6 +46,7 @@ where
 			tg::Either::Left(s) => s.post_object_batch(arg).left_future(),
 			tg::Either::Right(s) => s.post_object_batch(arg).right_future(),
 		}
+		.boxed()
 	}
 
 	fn try_touch_object(

@@ -668,7 +668,11 @@ impl Server {
 				.unwrap()
 				.boxed_body());
 		};
-		let Some(sandbox) = self.get_active_sandbox(&sandbox_id) else {
+		let Some(sandbox) = self
+			.sandboxes
+			.get(&sandbox_id)
+			.map(|sandbox| sandbox.value().clone())
+		else {
 			let error = tg::error!(sandbox = %sandbox_id, "failed to get the sandbox");
 			tracing::error!(error = %error.trace(), "failed to update the request context");
 			let bytes = match error.to_data_or_id() {
@@ -721,7 +725,7 @@ impl Server {
 		};
 		context.process = Some(Arc::new(crate::context::Process {
 			id: process.id,
-			remote: process.remote,
+			location: process.location,
 			retry: process.retry,
 		}));
 		Ok(())

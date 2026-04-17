@@ -11,13 +11,10 @@ pub struct Args {
 	pub force: bool,
 
 	#[command(flatten)]
-	pub local: crate::util::args::Local,
+	pub locations: crate::location::Locations,
 
 	#[arg(default_value = ".", index = 2)]
 	pub reference: tg::Reference,
-
-	#[command(flatten)]
-	pub remotes: crate::util::args::Remotes,
 
 	#[arg(index = 1)]
 	pub tag: Option<tg::Tag>,
@@ -42,8 +39,7 @@ impl Cli {
 		let arg = tg::tag::put::Arg {
 			force: args.force,
 			item,
-			local: args.local.get(),
-			remotes: args.remotes.get(),
+			locations: args.locations.get(),
 		};
 		let tag = args.tag.unwrap();
 		handle

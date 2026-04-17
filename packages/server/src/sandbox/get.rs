@@ -1,9 +1,13 @@
 use {
 	crate::{Context, Server},
 	futures::{StreamExt as _, stream::FuturesUnordered},
+	indoc::formatdoc,
 	tangram_client::prelude::*,
+	tangram_database::{self as db, prelude::*},
 	tangram_http::{
-		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
+		body::Boxed as BoxBody,
+		request::Ext as _,
+		response::{Ext as _, builder::Ext as _},
 	},
 };
 
@@ -14,63 +18,131 @@ impl Server {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::get::Arg,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
-		if Self::local(arg.local, arg.remotes.as_ref())
-			&& let Some(output) = self
-				.try_get_sandbox_local(id)
+		let locations = self
+			.locations_with_regions(arg.locations)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+
+		if let Some(local) = &locations.local {
+			if local.current
+				&& let Some(output) = self
+					.try_get_sandbox_local(id)
+					.await
+					.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox"))?
+			{
+				return Ok(Some(output));
+			}
+
+			if let Some(output) = self
+				.try_get_sandbox_from_regions(id, &local.regions)
 				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox"))?
-		{
-			return Ok(Some(output));
+				.map_err(
+					|source| tg::error!(!source, %id, "failed to get the sandbox from another region"),
+				)? {
+				return Ok(Some(output));
+			}
 		}
 
-		let remotes = self
-			.remotes(arg.local, arg.remotes.clone())
+		if let Some(output) = self
+			.try_get_sandbox_from_remotes(id, &locations.remotes)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
-		if let Some(output) = self.try_get_sandbox_remote(id, &remotes).await? {
+			.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox from a remote"))?
+		{
 			return Ok(Some(output));
 		}
 
 		Ok(None)
 	}
 
-	async fn try_get_sandbox_remote(
+	pub(crate) async fn try_get_sandbox_local(
 		&self,
 		id: &tg::sandbox::Id,
-		remotes: &[String],
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
-		if remotes.is_empty() {
-			return Ok(None);
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			cpu: Option<i64>,
+			hostname: Option<String>,
+			#[tangram_database(as = "Option<db::value::FromStr>")]
+			isolation: Option<tg::sandbox::Isolation>,
+			memory: Option<i64>,
+			#[tangram_database(as = "Option<db::value::Json<Vec<tg::sandbox::Mount>>>")]
+			mounts: Option<Vec<tg::sandbox::Mount>>,
+			network: bool,
+			#[tangram_database(as = "db::value::FromStr")]
+			status: tg::sandbox::Status,
+			ttl: i64,
+			user: Option<String>,
 		}
-		let mut futures = remotes
-			.iter()
-			.map(|remote| {
-				let remote = remote.clone();
-				async move {
-					let client =
-						self.get_remote_client(remote.clone())
-							.await
-							.map_err(|source| {
-								tg::error!(
-									!source,
-									%id,
-									remote = %remote,
-									"failed to get the remote client"
-								)
-							})?;
-					client
-						.try_get_sandbox(id, tg::sandbox::get::Arg::default())
-						.await
-						.map_err(|source| {
-							tg::error!(
-								!source,
-								%id,
-								remote = %remote,
-								"failed to get the sandbox"
-							)
-						})
-				}
+		let connection = self
+			.sandbox_store
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				select
+					cpu,
+					hostname,
+					isolation,
+					memory,
+					mounts,
+					network,
+					status,
+					ttl,
+					\"user\" as user
+				from sandboxes
+				where id = {p}1;
+			"
+		);
+		let params = db::params![id.to_string()];
+		let row = connection
+			.query_optional_into::<Row>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		let row = row
+			.map(|row| {
+				Ok::<_, tg::Error>(tg::sandbox::get::Output {
+					cpu: row
+						.cpu
+						.map(u64::try_from)
+						.transpose()
+						.map_err(|source| tg::error!(!source, "invalid sandbox cpu"))?,
+					id: id.clone(),
+					location: Some(self.config().region.clone().map_or_else(
+						|| tg::location::Location::Local(tg::location::Local::default()),
+						|region| {
+							tg::location::Location::Local(tg::location::Local {
+								regions: Some(vec![region]),
+							})
+						},
+					)),
+					hostname: row.hostname,
+					isolation: row.isolation,
+					memory: row
+						.memory
+						.map(u64::try_from)
+						.transpose()
+						.map_err(|source| tg::error!(!source, "invalid sandbox memory"))?,
+					mounts: row.mounts.unwrap_or_default(),
+					network: row.network,
+					status: row.status,
+					ttl: u64::try_from(row.ttl).unwrap(),
+					user: row.user,
+				})
 			})
+			.transpose()?;
+		Ok(row)
+	}
+
+	async fn try_get_sandbox_from_regions(
+		&self,
+		id: &tg::sandbox::Id,
+		regions: &[String],
+	) -> tg::Result<Option<tg::sandbox::get::Output>> {
+		let mut futures = regions
+			.iter()
+			.map(|region| self.try_get_sandbox_from_region(id, region))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -88,6 +160,97 @@ impl Server {
 		let Some(output) = result? else {
 			return Ok(None);
 		};
+		Ok(Some(output))
+	}
+
+	async fn try_get_sandbox_from_region(
+		&self,
+		id: &tg::sandbox::Id,
+		region: &str,
+	) -> tg::Result<Option<tg::sandbox::get::Output>> {
+		let client = self.get_region_client(region.to_owned()).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+		)?;
+		let arg = tg::sandbox::get::Arg {
+			locations: tg::location::Locations {
+				local: Some(tg::Either::Right(tg::location::Local {
+					regions: Some(vec![region.to_owned()]),
+				})),
+				remotes: Some(tg::Either::Left(false)),
+			},
+		};
+		let Some(output) = client
+			.try_get_sandbox(id, arg)
+			.await
+			.map_err(|source| tg::error!(!source, region = %region, "failed to get the sandbox"))?
+		else {
+			return Ok(None);
+		};
+		let mut output = output;
+		output.location = Some(tg::location::Location::Local(tg::location::Local {
+			regions: Some(vec![region.to_owned()]),
+		}));
+		Ok(Some(output))
+	}
+
+	async fn try_get_sandbox_from_remotes(
+		&self,
+		id: &tg::sandbox::Id,
+		remotes: &[tg::location::Remote],
+	) -> tg::Result<Option<tg::sandbox::get::Output>> {
+		let mut futures = remotes
+			.iter()
+			.map(|remote| self.try_get_sandbox_from_remote(id, remote))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(output))
+	}
+
+	async fn try_get_sandbox_from_remote(
+		&self,
+		id: &tg::sandbox::Id,
+		remote: &tg::location::Remote,
+	) -> tg::Result<Option<tg::sandbox::get::Output>> {
+		let client = self
+			.get_remote_client(remote.remote.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, %id, remote = %remote.remote, "failed to get the remote client"),
+			)?;
+		let arg = tg::sandbox::get::Arg {
+			locations: tg::location::Locations {
+				local: match &remote.regions {
+					Some(regions) => Some(tg::Either::Right(tg::location::Local {
+						regions: Some(regions.clone()),
+					})),
+					None => Some(tg::Either::Left(true)),
+				},
+				remotes: Some(tg::Either::Left(false)),
+			},
+		};
+		let Some(output) = client.try_get_sandbox(id, arg).await.map_err(
+			|source| tg::error!(!source, %id, remote = %remote.remote, "failed to get the sandbox"),
+		)?
+		else {
+			return Ok(None);
+		};
+		let mut output = output;
+		output.location = Some(tg::location::Location::Remote(remote.clone()));
 		Ok(Some(output))
 	}
 

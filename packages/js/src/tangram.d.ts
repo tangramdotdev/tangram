@@ -1263,6 +1263,40 @@ declare namespace tg {
 	export let run: typeof tg.Process.run;
 	export let spawn: typeof tg.Process.spawn;
 
+	export type Location = tg.Location.Local | tg.Location.Remote;
+
+	export namespace Location {
+		export type Local = {
+			regions?: Array<string> | undefined;
+		};
+
+		export namespace Local {
+			export let is: (value: unknown) => value is tg.Location.Local;
+		}
+
+		export type Remote = {
+			regions?: Array<string> | undefined;
+			remote: string;
+		};
+
+		export namespace Remote {
+			export let is: (value: unknown) => value is tg.Location.Remote;
+		}
+
+		export let is: (value: unknown) => value is tg.Location;
+	}
+
+	export type Locations = {
+		local?: boolean | tg.Location.Local | undefined;
+		remotes?: boolean | Array<tg.Location.Remote> | undefined;
+	};
+
+	export namespace Locations {
+		export let fromLocation: (
+			location: tg.Location | undefined,
+		) => tg.Locations | undefined;
+	}
+
 	export class Process<O extends tg.Value = tg.Value> {
 		#__brand;
 
@@ -1490,9 +1524,8 @@ declare namespace tg {
 			export namespace Read {
 				export type Arg = {
 					length?: number | undefined;
-					local?: boolean | undefined;
+					locations?: tg.Locations | undefined;
 					position?: number | string | undefined;
-					remotes?: Array<string> | undefined;
 					size?: number | undefined;
 					streams: Array<tg.Process.Stdio.Stream>;
 				};
@@ -1526,8 +1559,7 @@ declare namespace tg {
 
 			export namespace Write {
 				export type Arg = {
-					local?: boolean | undefined;
-					remotes?: Array<string> | undefined;
+					location?: tg.Location | undefined;
 					streams: Array<tg.Process.Stdio.Stream>;
 				};
 

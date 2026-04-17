@@ -57,6 +57,9 @@ pub struct Config {
 	pub object_store: ObjectStore,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub region: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub regions: Option<Vec<Region>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -661,6 +664,7 @@ impl Default for Config {
 			log_store: LogStore::default(),
 			messenger: Messenger::default(),
 			object_store: ObjectStore::default(),
+			region: None,
 			regions: None,
 			remotes: None,
 			runner: Some(Runner::default()),

@@ -26,17 +26,19 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			return self.document_local(arg).await;
-		}
+		let location = self.location_with_regions(arg.location.as_ref())?;
 
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			return self.document_remote(arg, remote).await;
-		}
+		let output = match location {
+			crate::location::Location::Local { region: None } => self.document_local(arg).await?,
+			crate::location::Location::Local {
+				region: Some(region),
+			} => self.document_region(arg, region).await?,
+			crate::location::Location::Remote { remote, region } => {
+				self.document_remote(arg, remote, region).await?
+			},
+		};
 
-		Err(tg::error!(
-			"failed to determine whether to use local or a remote"
-		))
+		Ok(output)
 	}
 
 	#[cfg(feature = "typescript")]
@@ -61,24 +63,45 @@ impl Server {
 	}
 
 	#[cfg(feature = "typescript")]
+	async fn document_region(
+		&self,
+		arg: tg::document::Arg,
+		region: String,
+	) -> tg::Result<serde_json::Value> {
+		let client = self.get_region_client(region.clone()).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+		)?;
+		let arg = tg::document::Arg {
+			location: Some(tg::location::Location::Local(tg::location::Local {
+				regions: Some(vec![region.clone()]),
+			})),
+			..arg
+		};
+		let output = client.document(arg).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to document the module"),
+		)?;
+		Ok(output)
+	}
+
+	#[cfg(feature = "typescript")]
 	async fn document_remote(
 		&self,
 		arg: tg::document::Arg,
 		remote: String,
+		region: Option<String>,
 	) -> tg::Result<serde_json::Value> {
-		let client = self
-			.get_remote_client(remote)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
+		let client = self.get_remote_client(remote.clone()).await.map_err(
+			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
+		)?;
 		let arg = tg::document::Arg {
-			local: None,
-			module: arg.module,
-			remotes: None,
+			location: Some(tg::location::Location::Local(tg::location::Local {
+				regions: region.map(|region| vec![region]),
+			})),
+			..arg
 		};
-		let output = client
-			.document(arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to document on the remote"))?;
+		let output = client.document(arg).await.map_err(
+			|source| tg::error!(!source, remote = %remote, "failed to document the module"),
+		)?;
 		Ok(output)
 	}
 

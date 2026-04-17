@@ -141,6 +141,7 @@ impl Server {
 				let output = tg::process::get::Output {
 					id: row.id.clone(),
 					data,
+					location: None,
 					metadata: None,
 				};
 				Ok((row.id, output))

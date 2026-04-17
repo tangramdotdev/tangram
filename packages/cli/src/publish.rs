@@ -15,13 +15,12 @@ pub struct Args {
 	#[arg(default_value = "false", long)]
 	pub dry_run: bool,
 
+	#[command(flatten)]
+	pub location: crate::location::Location,
+
 	/// The path to publish.
 	#[arg(default_value = ".", index = 1)]
 	pub path: PathBuf,
-
-	/// The remote to publish to.
-	#[arg(long, short)]
-	pub remote: Option<String>,
 
 	/// Override the tag for the root.
 	#[arg(long, short)]
@@ -141,8 +140,7 @@ impl Cli {
 					let arg = tg::tag::put::Arg {
 						force: true,
 						item: tg::Either::Left(id),
-						local: None,
-						remotes: None,
+						locations: tg::location::Locations::default(),
 					};
 					handle.put_tag(&tag, arg).await.map_err(
 						|source| tg::error!(!source, tag = %tag, "failed to put local tag"),
@@ -159,8 +157,7 @@ impl Cli {
 						let arg = tg::tag::put::Arg {
 							force: true,
 							item: tg::Either::Left(id),
-							local: None,
-							remotes: None,
+							locations: tg::location::Locations::default(),
 						};
 						handle.put_tag(&item.tag, arg).await.map_err(
 							|source| tg::error!(!source, tag = %item.tag, "failed to put local tag"),
@@ -176,8 +173,7 @@ impl Cli {
 						let arg = tg::tag::put::Arg {
 							force: true,
 							item: tg::Either::Left(id),
-							local: None,
-							remotes: None,
+							locations: tg::location::Locations::default(),
 						};
 						handle.put_tag(&tag, arg).await.map_err(
 							|source| tg::error!(!source, tag = %tag, "failed to put local tag"),
@@ -187,13 +183,19 @@ impl Cli {
 			}
 		}
 
-		// Get the remote.
-		let remote = args.remote.unwrap_or_else(|| "default".to_owned());
+		// Get the location.
+		let location = args.location.get()?.unwrap_or_else(|| {
+			tg::location::Location::Remote(tg::location::Remote {
+				remote: "default".to_owned(),
+				regions: None,
+			})
+		});
 
 		// Push.
 		let stream = handle
 			.push(tg::push::Arg {
 				commands: false,
+				destination: Some(location.clone()),
 				eager: true,
 				errors: true,
 				force: false,
@@ -202,7 +204,7 @@ impl Cli {
 				metadata: false,
 				outputs: true,
 				recursive: false,
-				remote: Some(remote.clone()),
+				source: None,
 			})
 			.await
 			.map_err(|source| tg::error!(!source, "failed to push items"))?;
@@ -235,8 +237,7 @@ impl Cli {
 			.collect::<Vec<_>>();
 		handle
 			.post_tag_batch(tg::tag::batch::Arg {
-				local: None,
-				remotes: Some(vec![remote.clone()]),
+				location: Some(location),
 				tags: tags.clone(),
 			})
 			.await

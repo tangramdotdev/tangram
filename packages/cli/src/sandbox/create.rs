@@ -6,12 +6,25 @@ use {crate::Cli, tangram_client::prelude::*};
 pub struct Args {
 	#[command(flatten)]
 	pub arg: super::Options,
+
+	#[command(flatten)]
+	pub location: crate::location::Location,
 }
 
 impl Cli {
 	pub async fn command_sandbox_create(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let arg = args.arg.into_arg_with_default_ttl(i64::MAX as u64);
+		let arg = tg::sandbox::create::Arg {
+			cpu: args.arg.cpu,
+			hostname: args.arg.hostname,
+			isolation: args.arg.isolation,
+			location: args.location.get()?,
+			memory: args.arg.memory,
+			mounts: args.arg.mounts,
+			network: args.arg.network.get(),
+			ttl: args.arg.ttl.unwrap_or(u64::MAX),
+			user: args.arg.user,
+		};
 		let output = handle
 			.create_sandbox(arg)
 			.await

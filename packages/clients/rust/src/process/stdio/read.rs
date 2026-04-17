@@ -17,16 +17,12 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub length: Option<i64>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub local: Option<bool>,
+	#[serde(default)]
+	pub locations: tg::location::Locations,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<SeekFromNumberOrString>")]
 	pub position: Option<std::io::SeekFrom>,
-
-	#[serde(alias = "remote", default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<CommaSeparatedString>")]
-	pub remotes: Option<Vec<String>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub size: Option<u64>,

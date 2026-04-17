@@ -182,6 +182,7 @@ impl Server {
 			let output = tg::process::get::Output {
 				id: row.id,
 				data,
+				location: None,
 				metadata: None,
 			};
 			outputs.push(output);

@@ -17,17 +17,23 @@ impl Server {
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
 	) -> tg::Result<()> {
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			return self.put_object_local(id, arg).await;
+		let location = self.location_with_regions(arg.location.as_ref())?;
+
+		match location {
+			crate::location::Location::Local { region: None } => {
+				self.put_object_local(id, arg).await?;
+			},
+			crate::location::Location::Local {
+				region: Some(region),
+			} => {
+				self.put_object_region(id, arg, region).await?;
+			},
+			crate::location::Location::Remote { remote, region } => {
+				self.put_object_remote(id, arg, remote, region).await?;
+			},
 		}
 
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			return self.put_object_remote(id, arg, remote).await;
-		}
-
-		Err(tg::error!(
-			"failed to determine whether to use local or a remote"
-		))
+		Ok(())
 	}
 
 	async fn put_object_local(
@@ -114,26 +120,46 @@ impl Server {
 		Ok(())
 	}
 
+	async fn put_object_region(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::put::Arg,
+		region: String,
+	) -> tg::Result<()> {
+		let client = self.get_region_client(region.clone()).await.map_err(
+			|source| tg::error!(!source, %id, region = %region, "failed to get the region client"),
+		)?;
+		let arg = tg::object::put::Arg {
+			location: Some(tg::location::Location::Local(tg::location::Local {
+				regions: Some(vec![region.clone()]),
+			})),
+			..arg
+		};
+		client.put_object(id, arg).await.map_err(
+			|source| tg::error!(!source, %id, region = %region, "failed to put the object"),
+		)?;
+		Ok(())
+	}
+
 	async fn put_object_remote(
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
 		remote: String,
+		region: Option<String>,
 	) -> tg::Result<()> {
-		let client = self
-			.get_remote_client(remote)
-			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
+		let client = self.get_remote_client(remote.clone()).await.map_err(
+			|source| tg::error!(!source, %id, remote = %remote, "failed to get the remote client"),
+		)?;
 		let arg = tg::object::put::Arg {
-			bytes: arg.bytes,
-			metadata: arg.metadata,
-			local: None,
-			remotes: None,
+			location: Some(tg::location::Location::Local(tg::location::Local {
+				regions: region.map(|region| vec![region]),
+			})),
+			..arg
 		};
-		client
-			.put_object(id, arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to put the object on remote"))?;
+		client.put_object(id, arg).await.map_err(
+			|source| tg::error!(!source, %id, remote = %remote, "failed to put the object"),
+		)?;
 		Ok(())
 	}
 
@@ -178,9 +204,8 @@ impl Server {
 
 		let arg = tg::object::put::Arg {
 			bytes,
+			location: query_arg.location,
 			metadata: query_arg.metadata,
-			local: query_arg.local,
-			remotes: query_arg.remotes,
 		};
 		self.put_object_with_context(context, &id, arg)
 			.await

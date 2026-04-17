@@ -5,20 +5,20 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub local: crate::util::args::Local,
-
-	#[command(flatten)]
-	pub print: crate::print::Options,
+	pub locations: crate::location::Locations,
 
 	#[arg(index = 1)]
 	pub reference: tg::Reference,
 
 	#[command(flatten)]
-	pub remotes: crate::util::args::Remotes,
+	pub print: crate::print::Options,
 }
 
 impl Cli {
 	pub async fn command_metadata(&mut self, args: Args) -> tg::Result<()> {
+		let locations = args.locations;
+		let print = args.print;
+
 		// Get the reference.
 		let referent = self.get_reference(&args.reference).await?;
 		let item = referent
@@ -29,19 +29,17 @@ impl Cli {
 		match item {
 			tg::Either::Left(object) => {
 				let args = crate::object::metadata::Args {
-					local: args.local,
+					locations: locations.clone(),
 					object,
-					print: args.print,
-					remotes: args.remotes,
+					print,
 				};
 				self.command_object_metadata(args).await?;
 			},
 			tg::Either::Right(process) => {
 				let args = crate::process::metadata::Args {
-					local: args.local,
-					print: args.print,
+					locations,
+					print,
 					process,
-					remotes: args.remotes,
 				};
 				self.command_process_metadata(args).await?;
 			},

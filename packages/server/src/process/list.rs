@@ -22,41 +22,35 @@ impl Server {
 
 		let mut output = tg::process::list::Output { data: Vec::new() };
 
-		// List the local processes if requested.
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			let local_outputs = self
-				.list_processes_local()
+		let locations = self
+			.locations_with_regions(arg.locations)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+
+		if let Some(local) = &locations.local {
+			if local.current {
+				let local_outputs = self
+					.list_processes_local()
+					.await
+					.map_err(|source| tg::error!(!source, "failed to list local processes"))?;
+				output.data.extend(local_outputs);
+			}
+
+			let region_outputs = self
+				.list_processes_from_regions(&local.regions)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to list local processes"))?;
-			output.data.extend(local_outputs);
+				.map_err(|source| {
+					tg::error!(!source, "failed to list processes from other regions")
+				})?;
+			output
+				.data
+				.extend(region_outputs.into_iter().flat_map(|output| output.data));
 		}
 
-		// List the remote processes if requested.
-		let remotes = self
-			.remotes(arg.local, arg.remotes.clone())
+		let remote_outputs = self
+			.list_processes_from_remotes(&locations.remotes)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
-		let remote_outputs = remotes
-			.into_iter()
-			.map(|remote| {
-				let arg = tg::process::list::Arg {
-					local: None,
-					remotes: None,
-				};
-				async move {
-					let client = self.get_remote_client(remote.clone()).await.map_err(
-						|source| tg::error!(!source, %remote, "failed to get the remote client"),
-					)?;
-					let output = client.list_processes(arg).await.map_err(
-						|source| tg::error!(!source, %remote, "failed to list processes"),
-					)?;
-					Ok::<_, tg::Error>(output)
-				}
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
-			.await?;
-
+			.map_err(|source| tg::error!(!source, "failed to list processes from remotes"))?;
 		output
 			.data
 			.extend(remote_outputs.into_iter().flat_map(|output| output.data));
@@ -65,12 +59,107 @@ impl Server {
 	}
 
 	pub(crate) async fn list_processes_local(&self) -> tg::Result<Vec<tg::process::get::Output>> {
-		match &self.sandbox_store {
+		let mut output = match &self.sandbox_store {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(sandbox_store) => self.list_processes_postgres(sandbox_store).await,
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(sandbox_store) => self.list_processes_sqlite(sandbox_store).await,
+		}?;
+		let location = Some(self.config().region.clone().map_or_else(
+			|| tg::location::Location::Local(tg::location::Local::default()),
+			|region| {
+				tg::location::Location::Local(tg::location::Local {
+					regions: Some(vec![region]),
+				})
+			},
+		));
+		for process in &mut output {
+			process.location = location.clone();
 		}
+		Ok(output)
+	}
+
+	async fn list_processes_from_regions(
+		&self,
+		regions: &[String],
+	) -> tg::Result<Vec<tg::process::list::Output>> {
+		let outputs = regions
+			.iter()
+			.map(|region| self.list_processes_from_region(region))
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+		Ok(outputs)
+	}
+
+	async fn list_processes_from_region(
+		&self,
+		region: &str,
+	) -> tg::Result<tg::process::list::Output> {
+		let client = self.get_region_client(region.to_owned()).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+		)?;
+		let arg = tg::process::list::Arg {
+			locations: tg::location::Locations {
+				local: Some(tg::Either::Right(tg::location::Local {
+					regions: Some(vec![region.to_owned()]),
+				})),
+				remotes: Some(tg::Either::Left(false)),
+			},
+		};
+		let mut output = client
+			.list_processes(arg)
+			.await
+			.map_err(|source| tg::error!(!source, region = %region, "failed to list processes"))?;
+		for process in &mut output.data {
+			process.location = Some(tg::location::Location::Local(tg::location::Local {
+				regions: Some(vec![region.to_owned()]),
+			}));
+		}
+		Ok(output)
+	}
+
+	async fn list_processes_from_remotes(
+		&self,
+		remotes: &[tg::location::Remote],
+	) -> tg::Result<Vec<tg::process::list::Output>> {
+		let outputs = remotes
+			.iter()
+			.map(|remote| self.list_processes_from_remote(remote))
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+		Ok(outputs)
+	}
+
+	async fn list_processes_from_remote(
+		&self,
+		remote: &tg::location::Remote,
+	) -> tg::Result<tg::process::list::Output> {
+		let client = self
+			.get_remote_client(remote.remote.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, remote = %remote.remote, "failed to get the remote client"),
+			)?;
+		let arg = tg::process::list::Arg {
+			locations: tg::location::Locations {
+				local: match &remote.regions {
+					Some(regions) => Some(tg::Either::Right(tg::location::Local {
+						regions: Some(regions.clone()),
+					})),
+					None => Some(tg::Either::Left(true)),
+				},
+				remotes: Some(tg::Either::Left(false)),
+			},
+		};
+		let mut output = client.list_processes(arg).await.map_err(
+			|source| tg::error!(!source, remote = %remote.remote, "failed to list processes"),
+		)?;
+		for process in &mut output.data {
+			process.location = Some(tg::location::Location::Remote(remote.clone()));
+		}
+		Ok(output)
 	}
 
 	pub(crate) async fn handle_list_processes_request(

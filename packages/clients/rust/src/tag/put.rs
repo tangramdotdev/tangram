@@ -1,11 +1,9 @@
 use {
 	crate::prelude::*,
-	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
-	tangram_util::serde::{CommaSeparatedString, is_false},
+	tangram_util::serde::is_false,
 };
 
-#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -13,16 +11,16 @@ pub struct Arg {
 
 	pub item: tg::Either<tg::object::Id, tg::process::Id>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub local: Option<bool>,
-
-	#[serde(alias = "remote", default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<CommaSeparatedString>")]
-	pub remotes: Option<Vec<String>>,
+	#[serde(default)]
+	pub locations: tg::location::Locations,
 }
 
 impl tg::Client {
-	pub async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
+	pub async fn try_put_tag(
+		&self,
+		tag: &tg::Tag,
+		arg: tg::tag::put::Arg,
+	) -> tg::Result<Option<()>> {
 		let method = http::Method::PUT;
 		let uri = format!("/tags/{tag}");
 		let request = http::request::Builder::default()
@@ -39,12 +37,15 @@ impl tg::Client {
 			.send_with_retry(request)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+		if response.status() == http::StatusCode::NOT_FOUND {
+			return Ok(None);
+		}
 		if !response.status().is_success() {
 			let error = response.json().await.map_err(|source| {
 				tg::error!(!source, "failed to deserialize the error response")
 			})?;
 			return Err(error);
 		}
-		Ok(())
+		Ok(Some(()))
 	}
 }

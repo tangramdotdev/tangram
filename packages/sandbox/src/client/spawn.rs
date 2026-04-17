@@ -9,7 +9,7 @@ use {
 pub struct Arg {
 	pub command: Command,
 	pub id: tg::process::Id,
-	pub remote: Option<String>,
+	pub location: Option<tg::location::Location>,
 	pub retry: bool,
 	pub tty: Option<tg::process::Tty>,
 }

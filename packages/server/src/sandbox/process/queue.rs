@@ -25,28 +25,34 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			return self.try_dequeue_sandbox_process_local(sandbox).await;
-		}
+		let location = self.location_with_regions(arg.location.as_ref())?;
 
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			return self
-				.try_dequeue_sandbox_process_remote(sandbox, remote)
-				.await;
-		}
+		let output = match location {
+			crate::location::Location::Local { region: None } => {
+				self.try_dequeue_sandbox_process_local(sandbox).await?
+			},
+			crate::location::Location::Local {
+				region: Some(region),
+			} => {
+				self.try_dequeue_sandbox_process_region(sandbox, region)
+					.await?
+			},
+			crate::location::Location::Remote { remote, region } => {
+				self.try_dequeue_sandbox_process_remote(sandbox, remote, region)
+					.await?
+			},
+		};
 
-		Ok(None)
+		Ok(output)
 	}
 
 	async fn try_dequeue_sandbox_process_local(
 		&self,
 		sandbox: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
-		if !self
-			.get_sandbox_exists_local(sandbox)
-			.await
-			.map_err(|source| tg::error!(!source, %sandbox, "failed to get the sandbox"))?
-		{
+		if !self.get_sandbox_exists_local(sandbox).await.map_err(
+			|source| tg::error!(!source, %sandbox, "failed to check if the sandbox exists"),
+		)? {
 			return Ok(None);
 		}
 
@@ -82,26 +88,53 @@ impl Server {
 				return Ok(Some(output));
 			}
 		}
+
 		Ok(None)
+	}
+
+	async fn try_dequeue_sandbox_process_region(
+		&self,
+		sandbox: &tg::sandbox::Id,
+		region: String,
+	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
+		let client = self.get_region_client(region.clone()).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+		)?;
+		let arg = tg::sandbox::process::queue::Arg {
+			location: Some(tg::location::Location::Local(tg::location::Local {
+				regions: Some(vec![region.clone()]),
+			})),
+		};
+		let output = client
+			.try_dequeue_sandbox_process(sandbox, arg)
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, %sandbox, "failed to dequeue the process"),
+			)?;
+		Ok(output)
 	}
 
 	async fn try_dequeue_sandbox_process_remote(
 		&self,
 		sandbox: &tg::sandbox::Id,
 		remote: String,
+		region: Option<String>,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
-		let client = self
-			.get_remote_client(remote)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
+		let client = self.get_remote_client(remote.clone()).await.map_err(
+			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
+		)?;
 		let arg = tg::sandbox::process::queue::Arg {
-			local: None,
-			remotes: None,
+			location: Some(tg::location::Location::Local(tg::location::Local {
+				regions: region.map(|region| vec![region]),
+			})),
 		};
-		client
+		let output = client
 			.try_dequeue_sandbox_process(sandbox, arg)
 			.await
-			.map_err(|source| tg::error!(!source, %sandbox, "failed to dequeue the process"))
+			.map_err(
+				|source| tg::error!(!source, remote = %remote, %sandbox, "failed to dequeue the process"),
+			)?;
+		Ok(output)
 	}
 
 	pub(crate) fn spawn_publish_sandbox_processes_created_message_task(

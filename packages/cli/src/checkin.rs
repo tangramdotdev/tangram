@@ -36,10 +36,6 @@ pub struct Options {
 	#[arg(long)]
 	pub deterministic: bool,
 
-	/// Treat the provided path as the root path.
-	#[arg(long)]
-	pub root: bool,
-
 	#[command(flatten)]
 	pub ignore: Ignore,
 
@@ -53,15 +49,19 @@ pub struct Options {
 	#[arg(long)]
 	pub locked: bool,
 
+	/// Treat the provided path as the root path.
+	#[arg(long)]
+	pub root: bool,
+
 	#[command(flatten)]
 	pub solve: Solve,
 
-	#[command(flatten)]
-	pub unsolved_dependencies: UnsolvedDependencies,
-
 	/// Set the cache TTL in seconds for tag resolution. Use 0 to bypass the cache.
 	#[arg(long)]
-	pub ttl: Option<u64>,
+	pub tag_ttl: Option<u64>,
+
+	#[command(flatten)]
+	pub unsolved_dependencies: UnsolvedDependencies,
 
 	#[arg(long)]
 	pub watch: bool,
@@ -288,7 +288,7 @@ impl Options {
 			locked: self.locked,
 			solve: self.solve.get(),
 			unsolved_dependencies: self.unsolved_dependencies.get(),
-			ttl: self.ttl,
+			tag_ttl: self.tag_ttl,
 			watch: self.watch,
 		}
 	}

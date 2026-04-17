@@ -25,8 +25,7 @@ impl Server {
 			let arg = tg::tag::put::Arg {
 				force: *force,
 				item: item.clone(),
-				local: None,
-				remotes: None,
+				locations: tg::location::Locations::default(),
 			};
 			Self::put_tag_postgres_inner(&mut transaction, tag, &arg)
 				.await

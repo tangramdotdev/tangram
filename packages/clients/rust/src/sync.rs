@@ -40,7 +40,7 @@ pub struct Arg {
 	pub get: Vec<tg::Either<tg::object::Id, tg::process::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub local: Option<bool>,
+	pub location: Option<tg::location::Location>,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -61,10 +61,6 @@ pub struct Arg {
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub recursive: bool,
-
-	#[serde(alias = "remote", default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<CommaSeparatedString>")]
-	pub remotes: Option<Vec<String>>,
 }
 
 #[derive(

@@ -22,17 +22,15 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			return self.post_tag_batch_local(context, arg).await;
+		let location = Self::location(arg.location.as_ref());
+		match location {
+			crate::location::Location::Local { .. } => {
+				self.post_tag_batch_local(context, arg).await
+			},
+			crate::location::Location::Remote { remote, .. } => {
+				self.post_tag_batch_remote(arg, remote).await
+			},
 		}
-
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			return self.post_tag_batch_remote(arg, remote).await;
-		}
-
-		Err(tg::error!(
-			"failed to determine whether to use local or a remote"
-		))
 	}
 
 	async fn post_tag_batch_local(
@@ -87,8 +85,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
 		let arg = tg::tag::batch::Arg {
-			local: None,
-			remotes: None,
+			location: Some(tg::location::Location::Local(tg::location::Local::default())),
 			tags: arg.tags,
 		};
 		client

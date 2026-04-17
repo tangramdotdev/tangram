@@ -74,9 +74,8 @@ impl Cli {
 	pub async fn command_run(&mut self, args: Args) -> tg::Result<()> {
 		let checkout = args.options.checkout.is_some();
 		let detach = args.options.detach;
-		let local = args.options.spawn.local.get();
+		let locations = args.options.spawn.location.get_locations()?;
 		let print = args.options.print.clone();
-		let remotes = args.options.spawn.remotes.get();
 		let verbose = args.options.verbose;
 
 		// Run.
@@ -93,9 +92,8 @@ impl Cli {
 			Self::print_display(output);
 		} else if (detach && verbose) || !output.is_null() {
 			let arg = tg::object::get::Arg {
-				local,
+				locations,
 				metadata: false,
-				remotes,
 			};
 			self.print_value(&output, print, arg).await?;
 		}
@@ -117,8 +115,7 @@ impl Cli {
 			let build_args = Args {
 				options: Options {
 					spawn: crate::process::spawn::Options {
-						local: options.spawn.local.clone(),
-						remotes: options.spawn.remotes.clone(),
+						location: options.spawn.location.clone(),
 						..Default::default()
 					},
 					..Default::default()
@@ -179,8 +176,11 @@ impl Cli {
 			if options.verbose {
 				let output = tg::process::spawn::Output {
 					cached: process.item().cached().unwrap_or(false),
+					location: process
+						.item()
+						.locations()
+						.and_then(|locations| locations.to_location()),
 					process: process.item().id().clone(),
-					remote: process.item().remote().cloned(),
 					token: process.item().token().cloned(),
 					wait: None,
 				};

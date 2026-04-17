@@ -1,5 +1,6 @@
 use {
 	crate::{Context, Server, database::Database},
+	futures::{StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
@@ -13,39 +14,80 @@ mod postgres;
 mod sqlite;
 
 impl Server {
-	pub(crate) async fn put_tag_with_context(
+	pub(crate) async fn try_put_tag_with_context(
 		&self,
 		context: &Context,
 		tag: &tg::Tag,
 		arg: tg::tag::put::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<Option<()>> {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			return self.put_tag_local(context, tag, arg).await;
+		let locations = self
+			.locations_with_regions(arg.locations.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+
+		if let Some(local) = &locations.local {
+			if local.current
+				&& let Some(output) = self
+					.try_put_tag_local(context, tag, arg.clone())
+					.await
+					.map_err(|source| tg::error!(!source, %tag, "failed to put the tag"))?
+			{
+				return Ok(Some(output));
+			}
+
+			if let Some(output) = self
+				.try_put_tag_from_regions(tag, arg.clone(), &local.regions)
+				.await
+				.map_err(
+					|source| tg::error!(!source, %tag, "failed to put the tag in another region"),
+				)? {
+				return Ok(Some(output));
+			}
 		}
 
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			return self.put_tag_remote(tag, arg, remote).await;
+		if let Some(output) = self
+			.try_put_tag_from_remotes(tag, arg, &locations.remotes)
+			.await
+			.map_err(|source| tg::error!(!source, %tag, "failed to put the tag in a remote"))?
+		{
+			return Ok(Some(output));
 		}
 
-		Err(tg::error!(
-			"failed to determine whether to use local or a remote"
-		))
+		Ok(None)
 	}
 
-	async fn put_tag_local(
+	async fn try_put_tag_local(
 		&self,
 		context: &Context,
 		tag: &tg::Tag,
 		arg: tg::tag::put::Arg,
-	) -> tg::Result<()> {
+	) -> tg::Result<Option<()>> {
 		// Authorize.
 		self.authorize(context)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to authorize"))?;
+
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		let Some(()) = (match &arg.item {
+			tg::Either::Left(id) => self
+				.index
+				.touch_object(id, touched_at)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to touch the object"))?
+				.map(|_| ()),
+			tg::Either::Right(id) => self
+				.index
+				.touch_process(id, touched_at)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to touch the process"))?
+				.map(|_| ()),
+		}) else {
+			return Ok(None);
+		};
 
 		// Insert the tag into the database.
 		match &self.database {
@@ -72,30 +114,127 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to index the tag"))?;
 
-		Ok(())
+		Ok(Some(()))
 	}
 
-	async fn put_tag_remote(
+	async fn try_put_tag_from_regions(
 		&self,
 		tag: &tg::Tag,
 		arg: tg::tag::put::Arg,
-		remote: String,
-	) -> tg::Result<()> {
-		let client = self
-			.get_remote_client(remote)
-			.await
-			.map_err(|source| tg::error!(!source, %tag, "failed to get the remote client"))?;
+		regions: &[String],
+	) -> tg::Result<Option<()>> {
+		let mut futures = regions
+			.iter()
+			.map(|region| self.try_put_tag_from_region(tag, arg.clone(), region))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(output))
+	}
+
+	async fn try_put_tag_from_region(
+		&self,
+		tag: &tg::Tag,
+		arg: tg::tag::put::Arg,
+		region: &str,
+	) -> tg::Result<Option<()>> {
+		let client = self.get_region_client(region.to_owned()).await.map_err(
+			|source| tg::error!(!source, %tag, region = %region, "failed to get the region client"),
+		)?;
 		let arg = tg::tag::put::Arg {
 			force: arg.force,
 			item: arg.item,
-			local: None,
-			remotes: None,
+			locations: tg::location::Locations {
+				local: Some(tg::Either::Right(tg::location::Local {
+					regions: Some(vec![region.to_owned()]),
+				})),
+				remotes: Some(tg::Either::Left(false)),
+			},
 		};
-		client
-			.put_tag(tag, arg)
+		let Some(()) = client.try_put_tag(tag, arg).await.map_err(
+			|source| tg::error!(!source, %tag, region = %region, "failed to put the tag"),
+		)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(()))
+	}
+
+	async fn try_put_tag_from_remotes(
+		&self,
+		tag: &tg::Tag,
+		arg: tg::tag::put::Arg,
+		remotes: &[tg::location::Remote],
+	) -> tg::Result<Option<()>> {
+		let mut futures = remotes
+			.iter()
+			.map(|remote| self.try_put_tag_from_remote(tag, arg.clone(), remote))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(output))
+	}
+
+	async fn try_put_tag_from_remote(
+		&self,
+		tag: &tg::Tag,
+		arg: tg::tag::put::Arg,
+		remote: &tg::location::Remote,
+	) -> tg::Result<Option<()>> {
+		let client = self
+			.get_remote_client(remote.remote.clone())
 			.await
-			.map_err(|source| tg::error!(!source, "failed to put the tag on remote"))?;
-		Ok(())
+			.map_err(
+				|source| tg::error!(!source, %tag, remote = %remote.remote, "failed to get the remote client"),
+			)?;
+		let arg = tg::tag::put::Arg {
+			force: arg.force,
+			item: arg.item,
+			locations: tg::location::Locations {
+				local: match &remote.regions {
+					Some(regions) => Some(tg::Either::Right(tg::location::Local {
+						regions: Some(regions.clone()),
+					})),
+					None => Some(tg::Either::Left(true)),
+				},
+				remotes: Some(tg::Either::Left(false)),
+			},
+		};
+		let Some(()) = client.try_put_tag(tag, arg).await.map_err(
+			|source| tg::error!(!source, %tag, remote = %remote.remote, "failed to put the tag"),
+		)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(()))
 	}
 
 	pub(crate) async fn handle_put_tag_request(
@@ -123,7 +262,13 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Put the tag.
-		self.put_tag_with_context(context, &tag, arg).await?;
+		let Some(()) = self.try_put_tag_with_context(context, &tag, arg).await? else {
+			return Ok(http::Response::builder()
+				.not_found()
+				.empty()
+				.unwrap()
+				.boxed_body());
+		};
 
 		// Create the response.
 		match accept

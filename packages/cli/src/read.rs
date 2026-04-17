@@ -4,14 +4,8 @@ use {crate::Cli, std::pin::pin, tangram_client::prelude::*, tokio::io::AsyncWrit
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[command(flatten)]
-	pub local: crate::util::args::Local,
-
 	#[arg(index = 1)]
 	pub references: Vec<tg::Reference>,
-
-	#[command(flatten)]
-	pub remotes: crate::util::args::Remotes,
 }
 
 impl Cli {

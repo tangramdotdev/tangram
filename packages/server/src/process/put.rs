@@ -24,17 +24,23 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			return self.put_process_local(id, arg).await;
+		let location = self.location_with_regions(arg.location.as_ref())?;
+
+		match location {
+			crate::location::Location::Local { region: None } => {
+				self.put_process_local(id, arg).await?;
+			},
+			crate::location::Location::Local {
+				region: Some(region),
+			} => {
+				self.put_process_region(id, arg, region).await?;
+			},
+			crate::location::Location::Remote { remote, region } => {
+				self.put_process_remote(id, arg, remote, region).await?;
+			},
 		}
 
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			return self.put_process_remote(id, arg, remote).await;
-		}
-
-		Err(tg::error!(
-			"failed to determine whether to use local or a remote"
-		))
+		Ok(())
 	}
 
 	async fn put_process_local(
@@ -143,25 +149,48 @@ impl Server {
 		Ok(())
 	}
 
+	async fn put_process_region(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::put::Arg,
+		region: String,
+	) -> tg::Result<()> {
+		let client = self.get_region_client(region.clone()).await.map_err(
+			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+		)?;
+		let arg = tg::process::put::Arg {
+			data: arg.data,
+			location: Some(tg::location::Location::Local(tg::location::Local {
+				regions: Some(vec![region.clone()]),
+			})),
+		};
+		client
+			.put_process(id, arg)
+			.await
+			.map_err(|source| tg::error!(!source, region = %region, "failed to put the process"))?;
+		Ok(())
+	}
+
 	async fn put_process_remote(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 		remote: String,
+		region: Option<String>,
 	) -> tg::Result<()> {
-		let client = self
-			.get_remote_client(remote)
-			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
+		let client = self.get_remote_client(remote.clone()).await.map_err(
+			|source| tg::error!(!source, remote = %remote, %id, "failed to get the remote client"),
+		)?;
 		let arg = tg::process::put::Arg {
 			data: arg.data,
-			local: None,
-			remotes: None,
+			location: Some(tg::location::Location::Local(tg::location::Local {
+				regions: region.map(|region| vec![region]),
+			})),
 		};
 		client
 			.put_process(id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to put the process on remote"))?;
+			.map_err(|source| tg::error!(!source, remote = %remote, "failed to put the process"))?;
 		Ok(())
 	}
 

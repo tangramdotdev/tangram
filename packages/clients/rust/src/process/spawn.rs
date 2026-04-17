@@ -15,7 +15,7 @@ use {
 	},
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
-	tangram_util::serde::{CommaSeparatedString, is_default, is_false},
+	tangram_util::serde::{is_default, is_false},
 };
 
 #[serde_as]
@@ -24,20 +24,19 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cached: Option<bool>,
 
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub cache_locations: tg::location::Locations,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checksum: Option<tg::Checksum>,
 
 	pub command: tg::Referent<tg::command::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub local: Option<bool>,
+	pub location: Option<tg::location::Location>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::process::Id>,
-
-	#[serde(alias = "remote", default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<CommaSeparatedString>")]
-	pub remotes: Option<Vec<String>>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub retry: bool,
@@ -63,10 +62,10 @@ pub struct Output {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub cached: bool,
 
-	pub process: tg::process::Id,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub remote: Option<String>,
+	pub location: Option<tg::location::Location>,
+
+	pub process: tg::process::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
@@ -133,8 +132,10 @@ impl<O: 'static> tg::Process<O> {
 			let process = Self::spawn_unsandboxed(&handle, arg).await?;
 			let output = tg::process::spawn::Output {
 				cached: process.cached().unwrap_or(false),
+				location: process
+					.locations()
+					.and_then(|locations| locations.to_location()),
 				process: process.id().clone(),
-				remote: process.remote().cloned(),
 				token: process.token().cloned(),
 				wait: None,
 			};
@@ -238,52 +239,41 @@ impl<O: 'static> tg::Process<O> {
 			.map(tg::process::Wait::try_from_data)
 			.transpose()?;
 		let id = output.process;
-		let remote = output.remote.clone();
+		let location = output.location.clone();
 		let stdio_task = if stdin.is_some() || stdout.is_some() || stderr.is_some() || tty_ {
 			let handle = handle.clone();
 			let id = id.clone();
-			let remote = remote.clone();
+			let location = location.clone();
 			let stdin = stdin.clone();
 			let stdout = stdout.clone();
 			let stderr = stderr.clone();
 			Some(tangram_futures::task::Shared::spawn(move |_| async move {
-				super::stdio::stdio_task(handle, id, remote, stdin, stdout, stderr, tty_, raw).await
+				super::stdio::stdio_task(handle, id, location, stdin, stdout, stderr, tty_, raw)
+					.await
 			}))
 		} else {
 			None
 		};
 		let stderr = if provide_stderr {
-			super::stdio::Reader::from_process(
-				id.clone(),
-				remote.clone(),
-				tg::process::stdio::Stream::Stderr,
-			)
+			super::stdio::Reader::from_process(tg::process::stdio::Stream::Stderr)
 		} else {
 			super::stdio::Reader::unavailable(tg::process::stdio::Stream::Stderr)
 		};
 		let stdin = if provide_stdin {
-			super::stdio::Writer::from_process(
-				id.clone(),
-				remote.clone(),
-				tg::process::stdio::Stream::Stdin,
-			)
+			super::stdio::Writer::from_process(tg::process::stdio::Stream::Stdin)
 		} else {
 			super::stdio::Writer::unavailable(tg::process::stdio::Stream::Stdin)
 		};
 		let stdout = if provide_stdout {
-			super::stdio::Reader::from_process(
-				id.clone(),
-				remote.clone(),
-				tg::process::stdio::Stream::Stdout,
-			)
+			super::stdio::Reader::from_process(tg::process::stdio::Stream::Stdout)
 		} else {
 			super::stdio::Reader::unavailable(tg::process::stdio::Stream::Stdout)
 		};
 		let inner = Arc::new(super::Inner {
 			cached: Some(output.cached),
 			id,
+			locations: Arc::new(RwLock::new(location.map(tg::location::Locations::from))),
 			metadata: RwLock::new(None),
-			remote,
 			state: RwLock::new(None),
 			stderr,
 			stdin,
@@ -295,6 +285,9 @@ impl<O: 'static> tg::Process<O> {
 			pid: None,
 		});
 		let process = Self(inner, std::marker::PhantomData);
+		process.stdin().set_process(Arc::downgrade(&process.0));
+		process.stdout().set_process(Arc::downgrade(&process.0));
+		process.stderr().set_process(Arc::downgrade(&process.0));
 		Ok(process)
 	}
 
@@ -404,9 +397,9 @@ impl<O: 'static> tg::Process<O> {
 		let inner = Arc::new(super::Inner {
 			cached: Some(false),
 			id,
+			locations: Arc::new(RwLock::new(None)),
 			metadata: RwLock::new(None),
 			pid: Some(pid),
-			remote: None,
 			state: RwLock::new(None),
 			stderr,
 			stdin,
@@ -417,6 +410,9 @@ impl<O: 'static> tg::Process<O> {
 			wait: Mutex::new(None),
 		});
 		let process = Self(inner, std::marker::PhantomData);
+		process.stdin().set_process(Arc::downgrade(&process.0));
+		process.stdout().set_process(Arc::downgrade(&process.0));
+		process.stderr().set_process(Arc::downgrade(&process.0));
 		Ok(process)
 	}
 

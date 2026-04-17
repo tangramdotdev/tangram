@@ -7,7 +7,7 @@ use {
 };
 
 impl Server {
-	pub(crate) async fn finalizer_try_dequeue_batch_sqlite(
+	pub(crate) async fn try_finalizer_dequeue_batch_sqlite(
 		&self,
 		sandbox_store: &db::sqlite::Database,
 		batch_size: usize,
@@ -18,12 +18,12 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
 		connection
 			.with(move |connection, _cache| {
-				Self::finalizer_try_dequeue_batch_sqlite_sync(connection, batch_size)
+				Self::try_finalizer_dequeue_batch_sqlite_sync(connection, batch_size)
 			})
 			.await
 	}
 
-	fn finalizer_try_dequeue_batch_sqlite_sync(
+	fn try_finalizer_dequeue_batch_sqlite_sync(
 		connection: &mut sqlite::Connection,
 		batch_size: usize,
 	) -> tg::Result<Option<Vec<Entry>>> {
@@ -34,6 +34,7 @@ impl Server {
 			"
 				select position, process
 				from process_finalize_queue
+				where status = 'created'
 				order by position
 				limit ?1;
 			"
@@ -64,16 +65,25 @@ impl Server {
 		if entries.is_empty() {
 			return Ok(None);
 		}
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let statement = indoc!(
 			"
-				delete from process_finalize_queue
-				where position = ?1;
+				update process_finalize_queue
+				set
+					started_at = coalesce(started_at, ?1),
+					status = 'started'
+				where position = ?2;
 			"
 		);
 		for entry in &entries {
-			transaction
-				.execute(statement, sqlite::params![entry.position])
+			let n = transaction
+				.execute(statement, sqlite::params![now, entry.position])
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+			if n != 1 {
+				return Err(tg::error!(
+					"failed to claim the process finalize queue entry"
+				));
+			}
 		}
 		transaction
 			.commit()

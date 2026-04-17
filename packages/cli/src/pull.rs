@@ -1,10 +1,44 @@
 use {crate::Cli, futures::future, tangram_client::prelude::*};
 
-pub type Args = crate::push::Args;
+/// Pull processes and objects.
+#[derive(Clone, Debug, clap::Args)]
+#[group(skip)]
+pub struct Args {
+	#[arg(alias = "command", long)]
+	pub commands: bool,
+
+	#[command(flatten)]
+	pub eager: crate::push::Eager,
+
+	#[arg(alias = "error", long)]
+	pub errors: bool,
+
+	#[arg(long, short)]
+	pub force: bool,
+
+	#[arg(alias = "log", long)]
+	pub logs: bool,
+
+	#[arg(long)]
+	pub metadata: bool,
+
+	#[command(flatten)]
+	pub outputs: crate::push::Outputs,
+
+	#[arg(long)]
+	pub recursive: bool,
+
+	#[arg(required = true)]
+	pub references: Vec<tg::Reference>,
+
+	#[command(flatten)]
+	pub source: crate::location::Location,
+}
 
 impl Cli {
 	pub async fn command_pull(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
+		let source = args.source.get()?;
 
 		// Get the references.
 		let referents = self.get_references(&args.references).await?;
@@ -21,6 +55,7 @@ impl Cli {
 		// Pull the items.
 		let arg = tg::pull::Arg {
 			commands: args.commands,
+			destination: None,
 			eager: args.eager.get(),
 			errors: args.errors,
 			force: args.force,
@@ -29,7 +64,7 @@ impl Cli {
 			metadata: args.metadata,
 			outputs: args.outputs.get(),
 			recursive: args.recursive,
-			remote: Some(args.remote),
+			source,
 		};
 		let stream = handle
 			.pull(arg)
@@ -59,8 +94,7 @@ impl Cli {
 					let arg = tg::tag::put::Arg {
 						force: args.force,
 						item: item.clone(),
-						local: None,
-						remotes: None,
+						locations: tg::location::Locations::default(),
 					};
 					handle
 						.put_tag(&tag, arg)

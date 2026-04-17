@@ -11,16 +11,13 @@ pub struct Args {
 	pub length: Option<i64>,
 
 	#[command(flatten)]
-	pub local: crate::util::args::Local,
+	pub locations: crate::location::Locations,
 
 	#[arg(long, value_parser = parse_seek_from)]
 	pub position: Option<std::io::SeekFrom>,
 
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
-
-	#[command(flatten)]
-	pub remotes: crate::util::args::Remotes,
 
 	#[arg(long)]
 	pub size: Option<u64>,
@@ -39,8 +36,15 @@ struct PositionArg {
 impl Cli {
 	pub async fn command_process_stdio_read(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let process =
-			tg::Process::<tg::Value>::new(args.process.clone(), None, None, None, None, None);
+		let locations = args.locations.get();
+		let process = tg::Process::<tg::Value>::new(
+			args.process.clone(),
+			Some(locations.clone()),
+			None,
+			None,
+			None,
+			None,
+		);
 		let streams = if args.streams.is_empty() {
 			vec![
 				tg::process::stdio::Stream::Stdout,
@@ -51,9 +55,8 @@ impl Cli {
 		};
 		let arg = tg::process::stdio::read::Arg {
 			length: args.length,
-			local: args.local.get(),
+			locations,
 			position: args.position,
-			remotes: args.remotes.get(),
 			size: args.size,
 			streams,
 		};

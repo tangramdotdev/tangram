@@ -34,6 +34,7 @@ mod index;
 mod init;
 #[cfg(feature = "js")]
 mod js;
+mod location;
 mod lsp;
 mod metadata;
 mod new;
@@ -54,9 +55,9 @@ mod shell;
 mod tag;
 mod tangram;
 mod telemetry;
+mod touch;
 mod tree;
 mod update;
-mod util;
 mod view;
 mod viewer;
 mod watch;
@@ -265,6 +266,8 @@ enum Command {
 	Status(self::process::status::Args),
 
 	Tag(self::tag::Args),
+
+	Touch(self::touch::Args),
 
 	#[command(hide = true)]
 	Tree(self::tree::Args),
@@ -1047,6 +1050,7 @@ impl Cli {
 			Command::Spawn(args) => self.command_process_spawn(args).boxed(),
 			Command::Status(args) => self.command_process_status(args).boxed(),
 			Command::Tag(args) => self.command_tag(args).boxed(),
+			Command::Touch(args) => self.command_touch(args).boxed(),
 			Command::Tree(args) => self.command_tree(args).boxed(),
 			Command::Update(args) => self.command_update(args).boxed(),
 			Command::View(args) => self.command_view(args).boxed(),

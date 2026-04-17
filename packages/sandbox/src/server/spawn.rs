@@ -174,8 +174,8 @@ impl Server {
 		// Insert the process.
 		let process = Process {
 			command: arg.command,
+			location: arg.location,
 			pid,
-			remote: arg.remote,
 			retry: arg.retry,
 			stdin,
 			stdout,

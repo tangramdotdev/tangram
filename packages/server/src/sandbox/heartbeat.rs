@@ -19,18 +19,24 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			return self.heartbeat_sandbox_local(id).await;
-		}
+		let location = self.location_with_regions(arg.location.as_ref())?;
+		let output = match location {
+			crate::location::Location::Local { region: None } => {
+				self.try_heartbeat_sandbox_local(id).await?
+			},
+			crate::location::Location::Local {
+				region: Some(region),
+			} => self.try_heartbeat_sandbox_region(id, region).await?,
+			crate::location::Location::Remote { remote, region } => {
+				self.try_heartbeat_sandbox_remote(id, remote, region)
+					.await?
+			},
+		};
 
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			return self.heartbeat_sandbox_remote(id, remote).await;
-		}
-
-		Ok(None)
+		Ok(output)
 	}
 
-	async fn heartbeat_sandbox_local(
+	async fn try_heartbeat_sandbox_local(
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
@@ -61,20 +67,51 @@ impl Server {
 		Ok(Some(tg::sandbox::heartbeat::Output { status }))
 	}
 
-	async fn heartbeat_sandbox_remote(
+	async fn try_heartbeat_sandbox_region(
+		&self,
+		id: &tg::sandbox::Id,
+		region: String,
+	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
+		let client = self.get_region_client(region.clone()).await.map_err(
+			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+		)?;
+		let arg = tg::sandbox::heartbeat::Arg {
+			location: Some(tg::location::Location::Local(tg::location::Local {
+				regions: Some(vec![region.clone()]),
+			})),
+		};
+		let Some(output) = client.try_heartbeat_sandbox(id, arg).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to heartbeat the sandbox"),
+		)?
+		else {
+			return Ok(None);
+		};
+
+		Ok(Some(output))
+	}
+
+	async fn try_heartbeat_sandbox_remote(
 		&self,
 		id: &tg::sandbox::Id,
 		remote: String,
+		region: Option<String>,
 	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
-		let client = self
-			.get_remote_client(remote)
-			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
+		let client = self.get_remote_client(remote.clone()).await.map_err(
+			|source| tg::error!(!source, remote = %remote, %id, "failed to get the remote client"),
+		)?;
 		let arg = tg::sandbox::heartbeat::Arg {
-			local: None,
-			remotes: None,
+			location: Some(tg::location::Location::Local(tg::location::Local {
+				regions: region.map(|region| vec![region]),
+			})),
 		};
-		client.try_heartbeat_sandbox(id, arg).await
+		let Some(output) = client.try_heartbeat_sandbox(id, arg).await.map_err(
+			|source| tg::error!(!source, remote = %remote, "failed to heartbeat the sandbox"),
+		)?
+		else {
+			return Ok(None);
+		};
+
+		Ok(Some(output))
 	}
 
 	pub(crate) async fn handle_heartbeat_sandbox_request(

@@ -1,5 +1,6 @@
 use {
 	crate::{Context, Server},
+	futures::{StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
@@ -18,44 +19,165 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			return self.touch_process_local(id).await;
+		let locations = self
+			.locations_with_regions(arg.locations)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+
+		if let Some(local) = &locations.local {
+			if local.current
+				&& let Some(output) = self
+					.try_touch_process_local(id)
+					.await
+					.map_err(|source| tg::error!(!source, %id, "failed to touch the process"))?
+			{
+				return Ok(Some(output));
+			}
+
+			if let Some(output) = self
+				.try_touch_process_from_regions(id, &local.regions)
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, "failed to touch the process in another region"),
+				)? {
+				return Ok(Some(output));
+			}
 		}
 
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			return self.touch_process_remote(id, remote).await;
+		if let Some(output) = self
+			.try_touch_process_from_remotes(id, &locations.remotes)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to touch the process in a remote"))?
+		{
+			return Ok(Some(output));
 		}
 
 		Ok(None)
 	}
 
-	async fn touch_process_local(&self, id: &tg::process::Id) -> tg::Result<Option<()>> {
+	async fn try_touch_process_local(&self, id: &tg::process::Id) -> tg::Result<Option<()>> {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let output = self
+		let Some(_) = self
 			.index
 			.touch_process(id, touched_at)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to touch the process"))?;
-		Ok(output.map(|_| ()))
+			.map_err(|source| tg::error!(!source, %id, "failed to touch the process"))?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(()))
 	}
 
-	async fn touch_process_remote(
+	async fn try_touch_process_from_regions(
 		&self,
 		id: &tg::process::Id,
-		remote: String,
+		regions: &[String],
+	) -> tg::Result<Option<()>> {
+		let mut futures = regions
+			.iter()
+			.map(|region| self.try_touch_process_from_region(id, region))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(output))
+	}
+
+	async fn try_touch_process_from_region(
+		&self,
+		id: &tg::process::Id,
+		region: &str,
+	) -> tg::Result<Option<()>> {
+		let client = self.get_region_client(region.to_owned()).await.map_err(
+			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+		)?;
+		let arg = tg::process::touch::Arg {
+			locations: tg::location::Locations {
+				local: Some(tg::Either::Right(tg::location::Local {
+					regions: Some(vec![region.to_owned()]),
+				})),
+				remotes: Some(tg::Either::Left(false)),
+			},
+		};
+		let Some(()) = client.try_touch_process(id, arg).await.map_err(
+			|source| tg::error!(!source, region = %region, %id, "failed to touch the process"),
+		)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(()))
+	}
+
+	async fn try_touch_process_from_remotes(
+		&self,
+		id: &tg::process::Id,
+		remotes: &[tg::location::Remote],
+	) -> tg::Result<Option<()>> {
+		let mut futures = remotes
+			.iter()
+			.map(|remote| self.try_touch_process_from_remote(id, remote))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(output))
+	}
+
+	async fn try_touch_process_from_remote(
+		&self,
+		id: &tg::process::Id,
+		remote: &tg::location::Remote,
 	) -> tg::Result<Option<()>> {
 		let client = self
-			.get_remote_client(remote)
+			.get_remote_client(remote.remote.clone())
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
+			.map_err(
+				|source| tg::error!(!source, remote = %remote.remote, %id, "failed to get the remote client"),
+			)?;
 		let arg = tg::process::touch::Arg {
-			local: None,
-			remotes: None,
+			locations: tg::location::Locations {
+				local: match &remote.regions {
+					Some(regions) => Some(tg::Either::Right(tg::location::Local {
+						regions: Some(regions.clone()),
+					})),
+					None => Some(tg::Either::Left(true)),
+				},
+				remotes: Some(tg::Either::Left(false)),
+			},
 		};
-		client
-			.try_touch_process(id, arg)
-			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to touch the process on the remote"))
+		let Some(()) = client.try_touch_process(id, arg).await.map_err(
+			|source| tg::error!(!source, remote = %remote.remote, %id, "failed to touch the process"),
+		)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(()))
 	}
 
 	pub(crate) async fn handle_touch_process_request(

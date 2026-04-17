@@ -35,7 +35,10 @@ pub struct Arg {
 	pub recursive: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub remote: Option<String>,
+	pub destination: Option<tg::location::Location>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub source: Option<tg::location::Location>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -122,7 +125,11 @@ impl Default for Arg {
 			metadata: false,
 			outputs: true,
 			recursive: false,
-			remote: None,
+			destination: Some(tg::location::Location::Remote(tg::location::Remote {
+				remote: "default".to_owned(),
+				regions: None,
+			})),
+			source: Some(tg::location::Location::Local(tg::location::Local::default())),
 		}
 	}
 }

@@ -36,6 +36,9 @@ pub struct Arg {
 	pub isolation: Option<Isolation>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Location>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub memory: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]

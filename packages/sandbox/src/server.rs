@@ -36,8 +36,8 @@ pub struct State {
 
 struct Process {
 	command: Command,
+	location: Option<tg::location::Location>,
 	pid: libc::pid_t,
-	remote: Option<String>,
 	retry: bool,
 	stdin: Option<Arc<tokio::sync::Mutex<tokio::process::ChildStdin>>>,
 	stdout: Option<Arc<tokio::sync::Mutex<tokio::process::ChildStdout>>>,

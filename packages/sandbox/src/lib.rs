@@ -314,13 +314,13 @@ impl Sandbox {
 		command: Command,
 		id: tg::process::Id,
 		tty: Option<tg::process::Tty>,
-		remote: Option<String>,
+		location: Option<tg::location::Location>,
 		retry: bool,
 	) -> tg::Result<Process> {
 		let arg = crate::client::spawn::Arg {
 			command,
 			id: id.clone(),
-			remote,
+			location,
 			retry,
 			tty,
 		};

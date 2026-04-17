@@ -137,7 +137,7 @@ impl std::str::FromStr for Stream {
 pub(super) async fn stdio_task<H>(
 	handle: H,
 	id: tg::process::Id,
-	remote: Option<String>,
+	location: Option<tg::location::Location>,
 	stdin: Option<tg::process::Stdio>,
 	stdout: Option<tg::process::Stdio>,
 	stderr: Option<tg::process::Stdio>,
@@ -150,15 +150,15 @@ where
 	let mut stdin_task = stdin.map(|stdin| {
 		let handle = handle.clone();
 		let id = id.clone();
-		let remote = remote.clone();
-		Task::spawn(move |_| async move { stdin_task(&handle, id, remote, stdin, raw).await })
+		let location = location.clone();
+		Task::spawn(move |_| async move { stdin_task(&handle, id, location, stdin, raw).await })
 	});
 
 	let sigwinch_task = if tty {
 		let handle = handle.clone();
 		let id = id.clone();
-		let remote = remote.clone();
-		let task = Task::spawn(|_| async move { sigwinch_task(&handle, id, remote).await });
+		let location = location.clone();
+		let task = Task::spawn(|_| async move { sigwinch_task(&handle, id, location).await });
 		Some(task)
 	} else {
 		None
@@ -167,8 +167,8 @@ where
 	let output = if stdout.is_some() || stderr.is_some() {
 		let handle = handle.clone();
 		let id = id.clone();
-		let remote = remote.clone();
-		stdout_stderr_task(&handle, id, remote, stdout, stderr).await
+		let location = location.clone();
+		stdout_stderr_task(&handle, id, location, stdout, stderr).await
 	} else {
 		Ok(())
 	};
@@ -196,7 +196,7 @@ where
 async fn stdin_task<H>(
 	handle: &H,
 	id: tg::process::Id,
-	remote: Option<String>,
+	location: Option<tg::location::Location>,
 	stdin: tg::process::Stdio,
 	raw: bool,
 ) -> tg::Result<()>
@@ -236,9 +236,8 @@ where
 	#[cfg(not(unix))]
 	let _ = raw;
 	let arg = tg::process::stdio::write::Arg {
+		location,
 		streams: vec![tg::process::stdio::Stream::Stdin],
-		remotes: remote.map(|remote| vec![remote]),
-		..Default::default()
 	};
 	let input = io::stdin()
 		.map_err(|source| tg::error!(!source, "failed to open stdin"))?
@@ -265,7 +264,7 @@ where
 async fn stdout_stderr_task<H>(
 	handle: &H,
 	id: tg::process::Id,
-	remote: Option<String>,
+	location: Option<tg::location::Location>,
 	stdout: Option<tg::process::Stdio>,
 	stderr: Option<tg::process::Stdio>,
 ) -> tg::Result<()>
@@ -287,8 +286,11 @@ where
 		return Ok(());
 	}
 	let arg = tg::process::stdio::read::Arg {
+		locations: location.map_or_else(
+			tg::location::Locations::default,
+			tg::location::Locations::from,
+		),
 		streams,
-		remotes: remote.map(|remote| vec![remote]),
 		..Default::default()
 	};
 	let Some(stream) = handle.try_read_process_stdio_all(&id, arg).await? else {
@@ -333,7 +335,11 @@ where
 	Ok(())
 }
 
-async fn sigwinch_task<H>(handle: &H, id: tg::process::Id, remote: Option<String>) -> tg::Result<()>
+async fn sigwinch_task<H>(
+	handle: &H,
+	id: tg::process::Id,
+	location: Option<tg::location::Location>,
+) -> tg::Result<()>
 where
 	H: tg::Handle,
 {
@@ -341,9 +347,8 @@ where
 		.map_err(|source| tg::error!(!source, "failed to create signal handler"))?;
 	while let Some(()) = signal.recv().await {
 		let arg = tg::process::tty::size::put::Arg {
-			local: None,
-			remotes: remote.clone().map(|remote| vec![remote]),
 			size: get_tty_size().ok_or_else(|| tg::error!("failed to get the tty size"))?,
+			location: location.clone(),
 		};
 		handle
 			.set_process_tty_size(&id, arg)

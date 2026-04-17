@@ -8,6 +8,9 @@ pub struct Args {
 	pub sandbox: tg::sandbox::Id,
 
 	#[command(flatten)]
+	pub locations: crate::location::Locations,
+
+	#[command(flatten)]
 	pub print: crate::print::Options,
 }
 
@@ -15,7 +18,12 @@ impl Cli {
 	pub async fn command_sandbox_get(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let output = handle
-			.try_get_sandbox(&args.sandbox, tg::sandbox::get::Arg::default())
+			.try_get_sandbox(
+				&args.sandbox,
+				tg::sandbox::get::Arg {
+					locations: args.locations.get(),
+				},
+			)
 			.await
 			.map_err(
 				|source| tg::error!(!source, sandbox = %args.sandbox, "failed to get the sandbox"),

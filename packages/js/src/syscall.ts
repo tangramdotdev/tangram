@@ -65,8 +65,8 @@ declare global {
 	function syscall(
 		syscall: "handle_process_get",
 		id: tg.Process.Id,
-		remote: string | undefined,
-	): Promise<tg.Process.Data>;
+		arg: tg.Handle.ProcessGetArg | undefined,
+	): Promise<tg.Handle.ProcessGetOutput>;
 
 	function syscall(
 		syscall: "handle_process_id",
@@ -76,7 +76,6 @@ declare global {
 	function syscall(
 		syscall: "handle_sandbox_get",
 		id: string,
-		remote: string | undefined,
 	): Promise<tg.Handle.SandboxGetOutput>;
 
 	function syscall(

@@ -1,6 +1,6 @@
 use {
 	crate::Cli,
-	futures::{StreamExt as _, TryStreamExt as _, stream},
+	futures::{StreamExt as _, TryStreamExt as _},
 	tangram_client::prelude::*,
 };
 
@@ -12,7 +12,7 @@ pub struct Args {
 	pub length: Option<u64>,
 
 	#[command(flatten)]
-	pub local: crate::util::args::Local,
+	pub locations: crate::location::Locations,
 
 	#[arg(long)]
 	pub position: Option<u64>,
@@ -23,9 +23,6 @@ pub struct Args {
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
 
-	#[command(flatten)]
-	pub remotes: crate::util::args::Remotes,
-
 	#[arg(long)]
 	pub size: Option<u64>,
 }
@@ -33,21 +30,28 @@ pub struct Args {
 impl Cli {
 	pub async fn command_process_children(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
+		let locations = args.locations.get();
+		let process = tg::Process::<tg::Value>::new(
+			args.process.clone(),
+			Some(locations.clone()),
+			None,
+			None,
+			None,
+			None,
+		);
 		let arg = tg::process::children::get::Arg {
 			length: args.length,
-			local: args.local.get(),
+			locations,
 			position: args.position.map(std::io::SeekFrom::Start),
-			remotes: args.remotes.get(),
 			size: args.size,
 		};
-		let stream = handle
-			.get_process_children(&args.process, arg)
+		let stream = process
+			.children_with_handle(&handle, arg)
 			.await
 			.map_err(
 				|source| tg::error!(!source, id = %args.process, "failed to get the process children"),
 			)?
-			.map_ok(|chunk| stream::iter(chunk.data.into_iter().map(Ok)))
-			.try_flatten();
+			.map_ok(|child| child.to_data());
 		self.print_serde_stream(stream.boxed(), args.print).await?;
 		Ok(())
 	}

@@ -9,16 +9,15 @@ impl Server {
 	pub(crate) async fn pull_tag(
 		&self,
 		pattern: tg::tag::Pattern,
-		remote: Option<String>,
+		locations: tg::location::Locations,
 	) -> tg::Result<()> {
 		let list = self
 			.list_tags(tg::tag::list::Arg {
 				cached: false,
 				length: None,
-				local: None,
+				locations,
 				pattern,
 				recursive: false,
-				remotes: remote.clone().map(|r| vec![r]),
 				reverse: false,
 				ttl: None,
 			})
@@ -29,11 +28,11 @@ impl Server {
 			.filter_map(|output| {
 				let directory = output.item?.left()?.try_unwrap_directory().ok()?;
 				let server = self.clone();
-				let remote = remote.clone().unwrap_or_else(|| "default".to_owned());
+				let location = output.location?;
 				Some(async move {
 					let arg = tg::pull::Arg {
+						source: Some(location),
 						items: vec![tg::Either::Left(directory.into())],
-						remote: Some(remote),
 						..Default::default()
 					};
 					let stream = server.pull(arg).await?;

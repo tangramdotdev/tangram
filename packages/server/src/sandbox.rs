@@ -79,70 +79,6 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn try_get_sandbox_local(
-		&self,
-		id: &tg::sandbox::Id,
-	) -> tg::Result<Option<tg::sandbox::get::Output>> {
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			cpu: Option<i64>,
-			hostname: Option<String>,
-			#[tangram_database(as = "Option<db::value::FromStr>")]
-			isolation: Option<tg::sandbox::Isolation>,
-			memory: Option<i64>,
-			#[tangram_database(as = "Option<db::value::Json<Vec<tg::sandbox::Mount>>>")]
-			mounts: Option<Vec<tg::sandbox::Mount>>,
-			network: bool,
-			#[tangram_database(as = "db::value::FromStr")]
-			status: tg::sandbox::Status,
-			ttl: i64,
-			user: Option<String>,
-		}
-		let connection = self
-			.sandbox_store
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select cpu, hostname, isolation, memory, mounts, network, status, ttl, \"user\" as user
-				from sandboxes
-				where id = {p}1;
-			"
-		);
-		let params = db::params![id.to_string()];
-		let row = connection
-			.query_optional_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		let row = row
-			.map(|row| {
-				Ok::<_, tg::Error>(tg::sandbox::get::Output {
-					cpu: row
-						.cpu
-						.map(u64::try_from)
-						.transpose()
-						.map_err(|source| tg::error!(!source, "invalid sandbox cpu"))?,
-					id: id.clone(),
-					hostname: row.hostname,
-					isolation: row.isolation,
-					memory: row
-						.memory
-						.map(u64::try_from)
-						.transpose()
-						.map_err(|source| tg::error!(!source, "invalid sandbox memory"))?,
-					mounts: row.mounts.unwrap_or_default(),
-					network: row.network,
-					status: row.status,
-					ttl: u64::try_from(row.ttl).unwrap(),
-					user: row.user,
-				})
-			})
-			.transpose()?;
-		Ok(row)
-	}
-
 	pub(crate) async fn get_sandbox_exists_local(&self, id: &tg::sandbox::Id) -> tg::Result<bool> {
 		let connection = self
 			.sandbox_store
@@ -197,37 +133,6 @@ impl Server {
 		Ok(true)
 	}
 
-	pub(crate) async fn try_finish_sandbox_local(&self, id: &tg::sandbox::Id) -> tg::Result<bool> {
-		let connection = self
-			.sandbox_store
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				update sandboxes
-				set
-					finished_at = {p}1,
-					heartbeat_at = null,
-					status = 'finished'
-				where id = {p}2 and status != 'finished';
-			"
-		);
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let params = db::params![now, id.to_string()];
-		let n = connection
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		drop(connection);
-		if n == 0 {
-			return Ok(false);
-		}
-		self.publish_sandbox_status(id);
-		Ok(true)
-	}
-
 	pub(crate) fn publish_sandbox_status(&self, id: &tg::sandbox::Id) {
 		let subject = format!("sandboxes.{id}.status");
 		tokio::spawn({
@@ -241,15 +146,18 @@ impl Server {
 	pub(crate) async fn finish_unfinished_processes_in_sandbox(
 		&self,
 		id: &tg::sandbox::Id,
-		remote: Option<&str>,
+		location: &tg::location::Location,
 		error: tg::error::Data,
 	) -> tg::Result<()> {
-		if let Some(remote) = remote {
-			self.finish_unfinished_processes_in_sandbox_remote(id, remote, error)
-				.await
-		} else {
-			self.finish_unfinished_processes_in_sandbox_local(id, error)
-				.await
+		match location {
+			tg::location::Location::Local(_) => {
+				self.finish_unfinished_processes_in_sandbox_local(id, error)
+					.await
+			},
+			tg::location::Location::Remote(remote) => {
+				self.finish_unfinished_processes_in_sandbox_remote(id, remote, error)
+					.await
+			},
 		}
 	}
 
@@ -292,9 +200,10 @@ impl Server {
 						checksum: None,
 						error: Some(tg::Either::Left(error)),
 						exit: 1,
-						local: Some(true),
+						location: Some(tg::location::Location::Local(
+							tg::location::Local::default(),
+						)),
 						output: None,
-						remotes: None,
 					};
 					server.finish_process(&row.id, arg).await.ok();
 				}
@@ -310,17 +219,36 @@ impl Server {
 	async fn finish_unfinished_processes_in_sandbox_remote(
 		&self,
 		id: &tg::sandbox::Id,
-		remote: &str,
+		remote: &tg::location::Remote,
 		error: tg::error::Data,
 	) -> tg::Result<()> {
-		let client = self.get_remote_client(remote.to_owned()).await.map_err(
-			|source| tg::error!(!source, %id, %remote, "failed to get the remote client"),
-		)?;
+		let client = self
+			.get_remote_client(remote.remote.clone())
+			.await
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					%id,
+					remote = %remote.remote,
+					"failed to get the remote client"
+				)
+			})?;
+		let arg = tg::process::list::Arg {
+			locations: tg::location::Locations {
+				local: match &remote.regions {
+					Some(regions) => Some(tg::Either::Right(tg::location::Local {
+						regions: Some(regions.clone()),
+					})),
+					None => Some(tg::Either::Left(true)),
+				},
+				remotes: Some(tg::Either::Left(false)),
+			},
+		};
 		let output = client
-			.list_processes(tg::process::list::Arg::default())
+			.list_processes(arg)
 			.await
 			.map_err(
-				|source| tg::error!(!source, %id, %remote, "failed to list the remote processes"),
+				|source| tg::error!(!source, %id, remote = %remote.remote, "failed to list the remote processes"),
 			)?;
 
 		output
@@ -330,15 +258,14 @@ impl Server {
 			.map(|output| {
 				let server = self.clone();
 				let error = error.clone();
-				let remote = remote.to_owned();
+				let remote = remote.clone();
 				async move {
 					let arg = tg::process::finish::Arg {
 						checksum: None,
 						error: Some(tg::Either::Left(error)),
 						exit: 1,
-						local: None,
+						location: Some(tg::location::Location::Remote(remote)),
 						output: None,
-						remotes: Some(vec![remote]),
 					};
 					server.finish_process(&output.id, arg).await.ok();
 				}

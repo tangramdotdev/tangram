@@ -30,9 +30,15 @@ impl Server {
 		}
 
 		let mut data = Vec::new();
+		let locations = self
+			.locations(arg.locations.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
 
 		// Collect local results.
-		if Self::local(arg.local, arg.remotes.as_ref()) {
+		if let Some(local) = &locations.local
+			&& local.current
+		{
 			let local_arg = tg::tag::list::Arg {
 				length: None,
 				..arg.clone()
@@ -45,15 +51,12 @@ impl Server {
 		}
 
 		// Collect remote results concurrently.
-		let remotes = self
-			.remotes(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
-		let remote_results = remotes
+		let remote_results = locations
+			.remotes
 			.into_iter()
 			.map(|remote| {
 				let arg = arg.clone();
-				async move { self.list_tags_remote(&remote, &arg).await }
+				async move { self.list_tags_remote(&remote.remote, &arg).await }
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
@@ -67,7 +70,8 @@ impl Server {
 			} else {
 				a.tag.cmp(&b.tag)
 			};
-			tag_cmp.then_with(|| a.remote.cmp(&b.remote))
+			tag_cmp
+				.then_with(|| compare_tag_entry_locations(a.location.as_ref(), b.location.as_ref()))
 		});
 
 		// Truncate to the requested length.
@@ -105,7 +109,10 @@ impl Server {
 					tg::error!(!source, "failed to deserialize the cached tag list")
 				})?;
 				for entry in &mut entries {
-					entry.remote = Some(remote.to_owned());
+					entry.location = Some(tg::location::Location::Remote(tg::location::Remote {
+						remote: remote.to_owned(),
+						regions: None,
+					}));
 				}
 				return Ok(entries);
 			}
@@ -132,7 +139,10 @@ impl Server {
 		let entries = entries
 			.into_iter()
 			.map(|mut entry| {
-				entry.remote = Some(remote.to_owned());
+				entry.location = Some(tg::location::Location::Remote(tg::location::Remote {
+					remote: remote.to_owned(),
+					regions: None,
+				}));
 				entry
 			})
 			.collect();
@@ -144,8 +154,7 @@ impl Server {
 		tg::tag::list::Arg {
 			cached: false,
 			length: None,
-			local: None,
-			remotes: None,
+			locations: tg::location::Location::Local(tg::location::Local::default()).into(),
 			reverse: false,
 			ttl: None,
 			..arg.clone()
@@ -254,5 +263,28 @@ impl Server {
 		}
 		let response = response.body(body).unwrap();
 		Ok(response)
+	}
+}
+
+fn compare_tag_entry_locations(
+	a: Option<&tg::location::Location>,
+	b: Option<&tg::location::Location>,
+) -> std::cmp::Ordering {
+	match (a, b) {
+		(None, None) => std::cmp::Ordering::Equal,
+		(None, Some(_)) => std::cmp::Ordering::Less,
+		(Some(_), None) => std::cmp::Ordering::Greater,
+		(Some(tg::location::Location::Remote(a)), Some(tg::location::Location::Remote(b))) => {
+			a.remote.cmp(&b.remote)
+		},
+		(Some(tg::location::Location::Local(_)), Some(tg::location::Location::Local(_))) => {
+			std::cmp::Ordering::Equal
+		},
+		(Some(tg::location::Location::Local(_)), Some(tg::location::Location::Remote(_))) => {
+			std::cmp::Ordering::Less
+		},
+		(Some(tg::location::Location::Remote(_)), Some(tg::location::Location::Local(_))) => {
+			std::cmp::Ordering::Greater
+		},
 	}
 }

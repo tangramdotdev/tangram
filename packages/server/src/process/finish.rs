@@ -21,18 +21,25 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			return self.finish_process_local(id, arg).await;
-		}
+		let location = self.location_with_regions(arg.location.as_ref())?;
 
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			return self.finish_process_remote(id, arg, remote).await;
-		}
+		let output = match location {
+			crate::location::Location::Local { region: None } => {
+				self.try_finish_process_local(id, arg).await?
+			},
+			crate::location::Location::Local {
+				region: Some(region),
+			} => self.try_finish_process_region(id, arg, region).await?,
+			crate::location::Location::Remote { remote, region } => {
+				self.try_finish_process_remote(id, arg, remote, region)
+					.await?
+			},
+		};
 
-		Ok(None)
+		Ok(output)
 	}
 
-	async fn finish_process_local(
+	async fn try_finish_process_local(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
@@ -90,8 +97,9 @@ impl Server {
 				async move {
 					if let Some(token) = token {
 						let arg = tg::process::cancel::Arg {
-							local: Some(true),
-							remotes: None,
+							location: Some(tg::location::Location::Local(
+								tg::location::Local::default(),
+							)),
 							token,
 						};
 						self.cancel_process(&id, arg).await.ok();
@@ -245,11 +253,11 @@ impl Server {
 		// Enqueue the process for finalization.
 		let statement = formatdoc!(
 			"
-				insert into process_finalize_queue (process)
-				values ({p}1);
+				insert into process_finalize_queue (created_at, process, status)
+				values ({p}1, {p}2, {p}3);
 			"
 		);
-		let params = db::params![id.to_string()];
+		let params = db::params![now, id.to_string(), "created"];
 		transaction
 			.execute(statement.into(), params)
 			.await
@@ -302,23 +310,23 @@ impl Server {
 		Ok(Some(()))
 	}
 
-	async fn finish_process_remote(
+	async fn try_finish_process_region(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
-		remote: String,
+		region: String,
 	) -> tg::Result<Option<()>> {
-		let client = self
-			.get_remote_client(remote)
-			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
+		let client = self.get_region_client(region.clone()).await.map_err(
+			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+		)?;
 		let arg = tg::process::finish::Arg {
 			checksum: arg.checksum,
 			error: arg.error,
 			exit: arg.exit,
-			local: None,
+			location: Some(tg::location::Location::Local(tg::location::Local {
+				regions: Some(vec![region.clone()]),
+			})),
 			output: arg.output,
-			remotes: None,
 		};
 		match client.try_finish_process(id, arg).await {
 			Ok(Some(())) => Ok(Some(())),
@@ -335,7 +343,52 @@ impl Server {
 						)
 					})?;
 				if output.is_none_or(|output| !output.data.status.is_finished()) {
-					return Err(tg::error!(!error, %id, "failed to finish the process"));
+					return Err(
+						tg::error!(!error, region = %region, %id, "failed to finish the process"),
+					);
+				}
+				Ok(Some(()))
+			},
+		}
+	}
+
+	async fn try_finish_process_remote(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::finish::Arg,
+		remote: String,
+		region: Option<String>,
+	) -> tg::Result<Option<()>> {
+		let client = self.get_remote_client(remote.clone()).await.map_err(
+			|source| tg::error!(!source, remote = %remote, %id, "failed to get the remote client"),
+		)?;
+		let arg = tg::process::finish::Arg {
+			checksum: arg.checksum,
+			error: arg.error,
+			exit: arg.exit,
+			location: Some(tg::location::Location::Local(tg::location::Local {
+				regions: region.map(|region| vec![region]),
+			})),
+			output: arg.output,
+		};
+		match client.try_finish_process(id, arg).await {
+			Ok(Some(())) => Ok(Some(())),
+			Ok(None) => Ok(None),
+			Err(error) => {
+				let output = client
+					.try_get_process(id, tg::process::get::Arg::default())
+					.await
+					.map_err(|source| {
+						tg::error!(
+							!source,
+							%id,
+							"failed to confirm the process state after the finish request failed"
+						)
+					})?;
+				if output.is_none_or(|output| !output.data.status.is_finished()) {
+					return Err(
+						tg::error!(!error, remote = %remote, %id, "failed to finish the process"),
+					);
 				}
 				Ok(Some(()))
 			},

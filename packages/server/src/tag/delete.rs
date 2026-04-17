@@ -19,18 +19,13 @@ impl Server {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
-
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			return self.delete_tags_local(context, arg).await;
+		let location = Self::location(arg.location.as_ref());
+		match location {
+			crate::location::Location::Local { .. } => self.delete_tags_local(context, arg).await,
+			crate::location::Location::Remote { remote, .. } => {
+				self.delete_tags_remote(arg, remote).await
+			},
 		}
-
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			return self.delete_tags_remote(arg, remote).await;
-		}
-
-		Err(tg::error!(
-			"failed to determine whether to use local or a remote"
-		))
 	}
 
 	async fn delete_tags_local(
@@ -81,10 +76,9 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
 		let arg = tg::tag::delete::Arg {
-			local: None,
+			location: Some(tg::location::Location::Local(tg::location::Local::default())),
 			pattern: arg.pattern,
 			recursive: arg.recursive,
-			remotes: None,
 		};
 		let output = client
 			.delete_tags(arg)
