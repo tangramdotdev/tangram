@@ -263,6 +263,18 @@ where
 		// Note the intended direction of the chunks stream.
 		scrolling.forwards = height >= 0;
 
+		// If there are no chunks yet, request a page and retry the scroll.
+		if scrolling.chunks.is_empty() {
+			let error = if scrolling.forwards {
+				scroll::Error::Append
+			} else {
+				scroll::Error::Prepend
+			};
+			self.sender.send(Event::Page(error)).ok();
+			self.sender.send(Event::Scroll(height)).ok();
+			return;
+		}
+
 		// Try to create new scroll state if not exists. If an error occurs send the page event and retry the scroll event.
 		if scrolling.scroll.is_none() {
 			match Scroll::new(rect, &scrolling.chunks) {
@@ -452,6 +464,9 @@ where
 		let Ok(scrolling) = stream.try_unwrap_scrolling_mut() else {
 			return;
 		};
+		if scrolling.chunks.is_empty() {
+			return;
+		}
 		match Scroll::new(area, &scrolling.chunks) {
 			Ok(scroll) => {
 				scrolling.scroll.replace(scroll);
