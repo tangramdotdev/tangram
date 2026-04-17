@@ -69,6 +69,7 @@ pub struct Locations {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+#[serde(deny_unknown_fields)]
 pub struct Local {
 	#[serde(alias = "region", default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<CommaSeparatedString>")]
@@ -90,6 +91,7 @@ pub struct Local {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+#[serde(deny_unknown_fields)]
 pub struct Remote {
 	#[tangram_serialize(id = 0)]
 	pub remote: String,

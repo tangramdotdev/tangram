@@ -22,7 +22,7 @@ impl Cli {
 			memory: args.arg.memory,
 			mounts: args.arg.mounts,
 			network: args.arg.network.get(),
-			ttl: args.arg.ttl.unwrap_or(u64::MAX),
+			ttl: args.arg.ttl.unwrap_or(i64::MAX as u64),
 			user: args.arg.user,
 		};
 		let output = handle

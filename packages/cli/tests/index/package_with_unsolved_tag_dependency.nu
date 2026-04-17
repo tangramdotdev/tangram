@@ -104,7 +104,7 @@ assert equal $complete_metadata $expected_metadata
 
 # Now test push: add the other server as a remote and push the directory.
 tg -u $local.url remote put push $other.url
-tg -u $local.url push --remote push $dir_id
+tg -u $local.url push --remote=push $dir_id
 
 # Index the other server and verify metadata matches.
 tg -u $other.url index

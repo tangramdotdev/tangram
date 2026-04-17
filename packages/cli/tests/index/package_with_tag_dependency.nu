@@ -117,7 +117,7 @@ assert equal $complete_metadata $expected_metadata
 
 # Now test push: add the other server as a remote and push the directory.
 tg -u $local.url remote put push $other.url
-tg -u $local.url push --remote push $dir_id
+tg -u $local.url push --remote=push $dir_id
 
 # Also push the tag to the other server.
 tg -u $other.url tag dep $dep_path

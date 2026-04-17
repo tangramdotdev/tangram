@@ -133,7 +133,7 @@ snapshot -n graph_metadata $graph_metadata '
 
 # Push to push and verify metadata matches.
 tg -u $local.url remote put push $remote.url
-tg -u $local.url push --remote push $id
+tg -u $local.url push --remote=push $id
 tg -u $remote.url tag c/1.0.0 $c1
 tg -u $remote.url tag c/2.0.0 $c2
 tg -u $remote.url tag a/1.0.0 $a

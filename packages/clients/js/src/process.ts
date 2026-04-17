@@ -396,14 +396,17 @@ export class Process<O extends tg.Value = tg.Value> {
 		});
 		let stdin = new tg.Process.Stdio.Writer({
 			fd: spawnOutput.stdin,
+			unavailable: spawnOutput.stdin === undefined,
 			stream: "stdin",
 		});
 		let stdout = new tg.Process.Stdio.Reader({
 			fd: spawnOutput.stdout,
+			unavailable: spawnOutput.stdout === undefined,
 			stream: "stdout",
 		});
 		let stderr = new tg.Process.Stdio.Reader({
 			fd: spawnOutput.stderr,
+			unavailable: spawnOutput.stderr === undefined,
 			stream: "stderr",
 		});
 		let pid = spawnOutput.pid;
@@ -515,6 +518,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		arg: tg.Handle.SpawnArg,
 	): Promise<tg.Process<O>> {
 		let noTty = arg.tty === false;
+		let provideStderr = arg.stderr === "pipe" || arg.stderr === "tty";
+		let provideStdin = arg.stdin === "pipe" || arg.stdin === "tty";
+		let provideStdout = arg.stdout === "pipe" || arg.stdout === "tty";
 		let tty: tg.Process.Tty | undefined;
 		if (arg.tty === true) {
 			let size = tg.host.getTtySize();
@@ -609,14 +615,17 @@ export class Process<O extends tg.Value = tg.Value> {
 			locations: tg.Locations.fromLocation(output.location),
 			state: undefined,
 			stderr: new tg.Process.Stdio.Reader({
+				unavailable: !provideStderr,
 				stream: "stderr",
 			}),
 			stdin: new tg.Process.Stdio.Writer({
+				unavailable: !provideStdin,
 				stream: "stdin",
 			}),
 			stdioPromise,
 			token: output.token,
 			stdout: new tg.Process.Stdio.Reader({
+				unavailable: !provideStdout,
 				stream: "stdout",
 			}),
 			wait,
@@ -1422,6 +1431,7 @@ export namespace Process {
 		}
 
 		export class Reader {
+			#available: boolean;
 			#fd: number | undefined;
 			#input: AsyncIterableIterator<tg.Process.Stdio.Read.Event> | undefined;
 			#process: tg.Process | undefined;
@@ -1429,8 +1439,10 @@ export namespace Process {
 
 			constructor(arg: {
 				fd?: number | undefined;
+				unavailable?: boolean | undefined;
 				stream: "stdout" | "stderr";
 			}) {
+				this.#available = !(arg.unavailable ?? false);
 				this.#fd = arg.fd;
 				this.#input = undefined;
 				this.#process = undefined;
@@ -1447,6 +1459,9 @@ export namespace Process {
 				this.#fd = undefined;
 				this.#input = undefined;
 				this.#process = undefined;
+				if (!this.#available) {
+					return;
+				}
 				if (fd !== undefined) {
 					await tg.host.close(fd);
 				}
@@ -1456,6 +1471,9 @@ export namespace Process {
 			}
 
 			async read(): Promise<Uint8Array | undefined> {
+				if (!this.#available) {
+					throw new Error(`${this.#stream} is not available`);
+				}
 				if (this.#fd !== undefined) {
 					while (true) {
 						let bytes = await tg.host.read(this.#fd, 4096);
@@ -1534,11 +1552,17 @@ export namespace Process {
 		}
 
 		export class Writer {
+			#available: boolean;
 			#fd: number | undefined;
 			#process: tg.Process | undefined;
 			#stream: "stdin";
 
-			constructor(arg: { fd?: number | undefined; stream: "stdin" }) {
+			constructor(arg: {
+				fd?: number | undefined;
+				unavailable?: boolean | undefined;
+				stream: "stdin";
+			}) {
+				this.#available = !(arg.unavailable ?? false);
 				this.#fd = arg.fd;
 				this.#process = undefined;
 				this.#stream = arg.stream;
@@ -1552,6 +1576,11 @@ export namespace Process {
 				let fd = this.#fd;
 				let process = this.#process;
 				let stream = this.#stream;
+				if (!this.#available) {
+					this.#fd = undefined;
+					this.#process = undefined;
+					return;
+				}
 				if (fd !== undefined) {
 					this.#fd = undefined;
 					this.#process = undefined;
@@ -1587,6 +1616,9 @@ export namespace Process {
 			async write(input: Uint8Array): Promise<number> {
 				if (!(input instanceof Uint8Array)) {
 					throw new Error("expected stdio bytes");
+				}
+				if (!this.#available) {
+					throw new Error(`${this.#stream} is not available`);
 				}
 				let fd = this.#fd;
 				let process = this.#process;
