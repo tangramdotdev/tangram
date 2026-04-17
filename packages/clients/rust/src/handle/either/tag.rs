@@ -15,14 +15,14 @@ where
 		}
 	}
 
-	fn try_put_tag(
+	fn put_tag(
 		&self,
 		tag: &tg::Tag,
 		arg: tg::tag::put::Arg,
-	) -> impl Future<Output = tg::Result<Option<()>>> {
+	) -> impl Future<Output = tg::Result<()>> {
 		match self {
-			tg::Either::Left(s) => s.try_put_tag(tag, arg).left_future(),
-			tg::Either::Right(s) => s.try_put_tag(tag, arg).right_future(),
+			tg::Either::Left(s) => s.put_tag(tag, arg).left_future(),
+			tg::Either::Right(s) => s.put_tag(tag, arg).right_future(),
 		}
 	}
 

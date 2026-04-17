@@ -766,7 +766,7 @@ export def --env spawn [
 		"docker:docker@localhost:4500" | save -f $cluster
 
 		cqlsh -e $"create keyspace \"object_store_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
-		cqlsh -k $'objects_($id)' -f ($repository_path | path join packages/stores/object/src/scylla.cql)
+		cqlsh -k $'object_store_($id)' -f ($repository_path | path join packages/stores/object/src/scylla.cql)
 
 		let config = {
 			database: {

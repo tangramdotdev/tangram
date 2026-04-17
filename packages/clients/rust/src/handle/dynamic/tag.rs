@@ -8,12 +8,12 @@ impl tg::handle::Tag for Handle {
 		self.0.list_tags(arg)
 	}
 
-	fn try_put_tag(
+	fn put_tag(
 		&self,
 		tag: &tg::Tag,
 		arg: tg::tag::put::Arg,
-	) -> impl Future<Output = tg::Result<Option<()>>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_put_tag(tag, arg)) }
+	) -> impl Future<Output = tg::Result<()>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.put_tag(tag, arg)) }
 	}
 
 	fn post_tag_batch(&self, arg: tg::tag::batch::Arg) -> impl Future<Output = tg::Result<()>> {

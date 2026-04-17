@@ -8,8 +8,8 @@ impl tg::handle::Tag for Shared {
 		self.0.list_tags(arg).await
 	}
 
-	async fn try_put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<Option<()>> {
-		self.0.try_put_tag(tag, arg).await
+	async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
+		self.0.put_tag(tag, arg).await
 	}
 
 	async fn post_tag_batch(&self, arg: tg::tag::batch::Arg) -> tg::Result<()> {
@@ -26,8 +26,8 @@ impl tg::handle::Tag for Server {
 		self.list_tags_with_context(&Context::default(), arg).await
 	}
 
-	async fn try_put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<Option<()>> {
-		self.try_put_tag_with_context(&Context::default(), tag, arg)
+	async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
+		self.put_tag_with_context(&Context::default(), tag, arg)
 			.await
 	}
 

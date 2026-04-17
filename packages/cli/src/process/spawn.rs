@@ -681,9 +681,8 @@ impl Cli {
 			let arg = tg::tag::put::Arg {
 				force: false,
 				item,
-				locations: location
-					.clone()
-					.map_or_else(tg::location::Locations::default, Into::into),
+				location: location.clone(),
+				replicate: false,
 			};
 			handle
 				.put_tag(&tag, arg)

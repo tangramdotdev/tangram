@@ -1,5 +1,6 @@
 use {
 	crate::{Context, Server, database::Database},
+	futures::TryStreamExt as _,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::prelude::*,
@@ -19,13 +20,24 @@ impl Server {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
-		let location = Self::location(arg.location.as_ref());
-		match location {
-			crate::location::Location::Local { .. } => self.delete_tags_local(context, arg).await,
-			crate::location::Location::Remote { remote, .. } => {
-				self.delete_tags_remote(arg, remote).await
+
+		let location = self
+			.location_with_regions(arg.location.as_ref())
+			.map_err(|source| tg::error!(!source, "failed to resolve the location"))?;
+
+		let output = match location {
+			crate::location::Location::Local { region: None } => {
+				self.delete_tags_local(context, arg.clone()).await?
 			},
-		}
+			crate::location::Location::Local {
+				region: Some(region),
+			} => self.delete_tags_region(arg, region).await?,
+			crate::location::Location::Remote { remote, region } => {
+				self.delete_tags_remote(arg, remote, region).await?
+			},
+		};
+
+		Ok(output)
 	}
 
 	async fn delete_tags_local(
@@ -38,19 +50,29 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to authorize"))?;
 
-		// Delete the tag from the database.
-		let output = match &self.database {
-			#[cfg(feature = "postgres")]
-			Database::Postgres(database) => Self::delete_tag_postgres(database, &arg.pattern, arg.recursive)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to delete the tag"))?,
-			#[cfg(feature = "sqlite")]
-			Database::Sqlite(database) => Self::delete_tag_sqlite(database, &arg.pattern, arg.recursive)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to delete the tag"))?,
+		let output = if arg.replicate.is_none() {
+			// Delete the tags from the database.
+			match &self.database {
+				#[cfg(feature = "postgres")]
+				Database::Postgres(database) => {
+					Self::delete_tags_postgres(database, &arg.pattern, arg.recursive)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to delete the tag"))?
+				},
+				#[cfg(feature = "sqlite")]
+				Database::Sqlite(database) => Self::delete_tags_sqlite(database, &arg.pattern, arg.recursive)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to delete the tag"))?,
+			}
+		} else {
+			let deleted = arg
+				.replicate
+				.clone()
+				.ok_or_else(|| tg::error!("expected deleted tags for a replicated delete"))?;
+			tg::tag::delete::Output { deleted }
 		};
 
-		// Index the deleted tags.
+		// Delete the tags from the index.
 		let tags = output
 			.deleted
 			.iter()
@@ -63,6 +85,58 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to index the deleted tags"))?;
 		}
 
+		// Handle regions if this is the primary delete request.
+		if arg.replicate.is_none() {
+			let locations = self
+				.locations_with_regions(tg::location::Locations {
+					local: Some(tg::Either::Left(true)),
+					remotes: Some(tg::Either::Left(false)),
+				})
+				.await
+				.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+			if let Some(local) = locations.local
+				&& !local.regions.is_empty()
+			{
+					local
+						.regions
+						.iter()
+						.map(|region| {
+							let arg = tg::tag::delete::Arg {
+								replicate: Some(output.deleted.clone()),
+								..arg.clone()
+							};
+							async move { self.delete_tags_region(arg, region.clone()).await.map(|_| ()) }
+						})
+					.collect::<futures::stream::FuturesUnordered<_>>()
+					.try_collect::<()>()
+					.await
+					.map_err(|source| {
+						tg::error!(!source, "failed to delete the tag in another region")
+					})?;
+			}
+		}
+
+		Ok(output)
+	}
+
+	async fn delete_tags_region(
+		&self,
+		arg: tg::tag::delete::Arg,
+		region: String,
+	) -> tg::Result<tg::tag::delete::Output> {
+		let client = self.get_region_client(region.clone()).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+		)?;
+		let arg = tg::tag::delete::Arg {
+			location: Some(tg::location::Location::Local(tg::location::Local {
+				regions: Some(vec![region.clone()]),
+			})),
+			..arg
+		};
+		let output = client
+			.delete_tags(arg)
+			.await
+			.map_err(|source| tg::error!(!source, region = %region, "failed to delete the tag"))?;
 		Ok(output)
 	}
 
@@ -70,15 +144,18 @@ impl Server {
 		&self,
 		arg: tg::tag::delete::Arg,
 		remote: String,
+		region: Option<String>,
 	) -> tg::Result<tg::tag::delete::Output> {
 		let client = self
 			.get_remote_client(remote)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
 		let arg = tg::tag::delete::Arg {
-			location: Some(tg::location::Location::Local(tg::location::Local::default())),
-			pattern: arg.pattern,
-			recursive: arg.recursive,
+			location: Some(tg::location::Location::Local(tg::location::Local {
+				regions: region.map(|region| vec![region]),
+			})),
+			replicate: None,
+			..arg
 		};
 		let output = client
 			.delete_tags(arg)

@@ -24,6 +24,7 @@ pub(crate) struct Local {
 }
 
 impl Server {
+	#[expect(dead_code)]
 	pub(crate) fn location(location: Option<&tg::location::Location>) -> Location {
 		match location {
 			None | Some(tg::location::Location::Local(_)) => Location::Local { region: None },

@@ -39,9 +39,7 @@ impl Cli {
 	pub async fn command_pull(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let source = args.source.get()?;
-		let locations = tg::location::Locations::from(tg::location::Location::Local(
-			tg::location::Local::default(),
-		));
+		let location = Some(tg::location::Location::Local(tg::location::Local::default()));
 
 		// Get the references.
 		let referents = self.get_references(&args.references).await?;
@@ -97,7 +95,8 @@ impl Cli {
 					let arg = tg::tag::put::Arg {
 						force: args.force,
 						item: item.clone(),
-						locations: locations.clone(),
+						location: location.clone(),
+						replicate: false,
 					};
 					handle
 						.put_tag(&tag, arg)

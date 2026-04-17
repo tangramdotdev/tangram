@@ -140,7 +140,8 @@ impl Cli {
 					let arg = tg::tag::put::Arg {
 						force: true,
 						item: tg::Either::Left(id),
-						locations: tg::location::Locations::default(),
+						location: None,
+						replicate: false,
 					};
 					handle.put_tag(&tag, arg).await.map_err(
 						|source| tg::error!(!source, tag = %tag, "failed to put local tag"),
@@ -157,7 +158,8 @@ impl Cli {
 						let arg = tg::tag::put::Arg {
 							force: true,
 							item: tg::Either::Left(id),
-							locations: tg::location::Locations::default(),
+							location: None,
+							replicate: false,
 						};
 						handle.put_tag(&item.tag, arg).await.map_err(
 							|source| tg::error!(!source, tag = %item.tag, "failed to put local tag"),
@@ -173,7 +175,8 @@ impl Cli {
 						let arg = tg::tag::put::Arg {
 							force: true,
 							item: tg::Either::Left(id),
-							locations: tg::location::Locations::default(),
+							location: None,
+							replicate: false,
 						};
 						handle.put_tag(&tag, arg).await.map_err(
 							|source| tg::error!(!source, tag = %tag, "failed to put local tag"),
@@ -238,6 +241,7 @@ impl Cli {
 		handle
 			.post_tag_batch(tg::tag::batch::Arg {
 				location: Some(location),
+				replicate: false,
 				tags: tags.clone(),
 			})
 			.await

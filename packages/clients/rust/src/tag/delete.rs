@@ -11,6 +11,9 @@ pub struct Arg {
 
 	pub pattern: tg::tag::Pattern,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub replicate: Option<Vec<tg::Tag>>,
+
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub recursive: bool,
 }

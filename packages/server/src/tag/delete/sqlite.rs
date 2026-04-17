@@ -8,7 +8,7 @@ use {
 };
 
 impl Server {
-	pub(crate) async fn delete_tag_sqlite(
+	pub(crate) async fn delete_tags_sqlite(
 		database: &db::sqlite::Database,
 		pattern: &tg::tag::Pattern,
 		recursive: bool,
