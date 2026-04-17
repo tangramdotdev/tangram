@@ -15,6 +15,7 @@ pub fn prepare_runtime_libraries(arg: &Arg) -> tg::Result<()> {
 		.extract(&arg.path)
 		.map_err(|source| tg::error!(!source, "failed to extract the sandbox rootfs"))?;
 	set_rootfs_permissions(&arg.path, &ROOTFS, &permissions)?;
+	restore_rootfs_symlinks(&arg.path)?;
 	prepare_rootfs_mountpoints(&arg.path)?;
 
 	let lib_path = arg.path.join("opt/tangram/lib");
@@ -118,6 +119,14 @@ pub fn prepare_runtime_libraries(arg: &Arg) -> tg::Result<()> {
 		})?;
 	}
 
+	Ok(())
+}
+
+fn restore_rootfs_symlinks(rootfs_path: &Path) -> tg::Result<()> {
+	let tg_path = rootfs_path.join("opt/tangram/bin/tg");
+	std::fs::remove_file(&tg_path).ok();
+	std::os::unix::fs::symlink("tangram", &tg_path)
+		.map_err(|source| tg::error!(!source, "failed to restore the tg symlink"))?;
 	Ok(())
 }
 
