@@ -144,8 +144,8 @@ impl Server {
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::Status>> {
 		let connection =
-			self.sandbox_store.connection().await.map_err(|source| {
-				tg::error!(!source, "failed to get a sandbox store connection")
+			self.process_store.connection().await.map_err(|source| {
+				tg::error!(!source, "failed to get a process store connection")
 			})?;
 		let p = connection.p();
 		let statement = formatdoc!(

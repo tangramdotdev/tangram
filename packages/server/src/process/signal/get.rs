@@ -153,15 +153,15 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Signal>> {
-		match &self.sandbox_store {
+		match &self.process_store {
 			#[cfg(feature = "postgres")]
-			Database::Postgres(sandbox_store) => {
-				self.try_dequeue_process_signal_postgres(sandbox_store, id)
+			Database::Postgres(process_store) => {
+				self.try_dequeue_process_signal_postgres(process_store, id)
 					.await
 			},
 			#[cfg(feature = "sqlite")]
-			Database::Sqlite(sandbox_store) => {
-				self.try_dequeue_process_signal_sqlite(sandbox_store, id)
+			Database::Sqlite(process_store) => {
+				self.try_dequeue_process_signal_sqlite(process_store, id)
 					.await
 			},
 		}

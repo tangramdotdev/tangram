@@ -106,16 +106,16 @@ impl Server {
 		ids: &[tg::process::Id],
 		metadata: bool,
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
-		// Get the process from the sandbox store.
+		// Get the process from the process store.
 		let data_future = async {
-			match &self.sandbox_store {
+			match &self.process_store {
 				#[cfg(feature = "postgres")]
-				Database::Postgres(sandbox_store) => {
-					self.try_get_process_batch_postgres(sandbox_store, ids)
+				Database::Postgres(process_store) => {
+					self.try_get_process_batch_postgres(process_store, ids)
 						.await
 				},
 				#[cfg(feature = "sqlite")]
-				Database::Sqlite(sandbox_store) => self.try_get_process_batch_sqlite(sandbox_store, ids).await,
+				Database::Sqlite(process_store) => self.try_get_process_batch_sqlite(process_store, ids).await,
 			}
 		};
 

@@ -16,7 +16,6 @@ pub mod list;
 pub mod process;
 pub mod queue;
 pub mod status;
-pub mod store;
 
 impl Server {
 	pub(crate) fn default_sandbox_isolation() -> tg::sandbox::Isolation {
@@ -81,7 +80,7 @@ impl Server {
 
 	pub(crate) async fn get_sandbox_exists_local(&self, id: &tg::sandbox::Id) -> tg::Result<bool> {
 		let connection = self
-			.sandbox_store
+			.process_store
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -104,7 +103,7 @@ impl Server {
 
 	pub(crate) async fn try_start_sandbox_local(&self, id: &tg::sandbox::Id) -> tg::Result<bool> {
 		let connection = self
-			.sandbox_store
+			.process_store
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -172,7 +171,7 @@ impl Server {
 			id: tg::process::Id,
 		}
 		let connection = self
-			.sandbox_store
+			.process_store
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;

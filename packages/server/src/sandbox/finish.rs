@@ -43,7 +43,7 @@ impl Server {
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<()>> {
 		let connection = self
-			.sandbox_store
+			.process_store
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;

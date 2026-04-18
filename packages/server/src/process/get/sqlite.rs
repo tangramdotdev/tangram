@@ -9,13 +9,13 @@ use {
 impl Server {
 	pub(crate) async fn try_get_process_batch_sqlite(
 		&self,
-		sandbox_store: &db::sqlite::Database,
+		process_store: &db::sqlite::Database,
 		ids: &[tg::process::Id],
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
-		let connection = sandbox_store
+		let connection = process_store
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 
 		let outputs = connection
 			.with({

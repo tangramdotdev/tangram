@@ -9,14 +9,14 @@ use {
 impl Server {
 	pub(crate) async fn try_get_process_batch_postgres(
 		&self,
-		sandbox_store: &db::postgres::Database,
+		process_store: &db::postgres::Database,
 		ids: &[tg::process::Id],
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
-		// Get a sandbox store connection.
-		let connection = sandbox_store
+		// Get a process store connection.
+		let connection = process_store
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 
 		// Get the processes.
 		#[derive(db::postgres::row::Deserialize)]

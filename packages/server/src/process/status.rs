@@ -139,10 +139,10 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Status>> {
-		// Get a sandbox store connection.
+		// Get a process store connection.
 		let connection =
-			self.sandbox_store.connection().await.map_err(|source| {
-				tg::error!(!source, "failed to get a sandbox store connection")
+			self.process_store.connection().await.map_err(|source| {
+				tg::error!(!source, "failed to get a process store connection")
 			})?;
 
 		// Get the status.
@@ -167,7 +167,7 @@ impl Server {
 			return Ok(None);
 		};
 
-		// Drop the sandbox store connection.
+		// Drop the process store connection.
 		drop(connection);
 
 		Ok(Some(status))

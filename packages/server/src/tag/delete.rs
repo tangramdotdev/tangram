@@ -97,16 +97,20 @@ impl Server {
 			if let Some(local) = locations.local
 				&& !local.regions.is_empty()
 			{
-					local
-						.regions
-						.iter()
-						.map(|region| {
-							let arg = tg::tag::delete::Arg {
-								replicate: Some(output.deleted.clone()),
-								..arg.clone()
-							};
-							async move { self.delete_tags_region(arg, region.clone()).await.map(|_| ()) }
-						})
+				local
+					.regions
+					.iter()
+					.map(|region| {
+						let arg = tg::tag::delete::Arg {
+							replicate: Some(output.deleted.clone()),
+							..arg.clone()
+						};
+						async move {
+							self.delete_tags_region(arg, region.clone())
+								.await
+								.map(|_| ())
+						}
+					})
 					.collect::<futures::stream::FuturesUnordered<_>>()
 					.try_collect::<()>()
 					.await

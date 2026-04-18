@@ -18,6 +18,7 @@ pub(crate) mod signal;
 pub(crate) mod spawn;
 pub(crate) mod status;
 pub(crate) mod stdio;
+pub(crate) mod store;
 pub(crate) mod touch;
 pub(crate) mod tty;
 pub(crate) mod wait;
@@ -26,7 +27,7 @@ impl Server {
 	pub(crate) async fn get_process_exists_local(&self, id: &tg::process::Id) -> tg::Result<bool> {
 		// Get a database connection.
 		let connection = self
-			.sandbox_store
+			.process_store
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
@@ -54,7 +55,7 @@ impl Server {
 
 	pub(crate) async fn try_start_process_local(&self, id: &tg::process::Id) -> tg::Result<bool> {
 		let connection = self
-			.sandbox_store
+			.process_store
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;

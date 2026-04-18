@@ -39,10 +39,10 @@ impl Server {
 	) -> tg::Result<tg::sandbox::create::Output> {
 		let id = tg::sandbox::Id::new();
 		let connection = self
-			.sandbox_store
+			.process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"

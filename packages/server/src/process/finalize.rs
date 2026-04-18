@@ -66,15 +66,15 @@ impl Server {
 		&self,
 		batch_size: usize,
 	) -> tg::Result<Option<Vec<Entry>>> {
-		match &self.sandbox_store {
+		match &self.process_store {
 			#[cfg(feature = "postgres")]
-			Database::Postgres(sandbox_store) => {
-				self.try_finalizer_dequeue_batch_postgres(sandbox_store, batch_size)
+			Database::Postgres(process_store) => {
+				self.try_finalizer_dequeue_batch_postgres(process_store, batch_size)
 					.await
 			},
 			#[cfg(feature = "sqlite")]
-			Database::Sqlite(sandbox_store) => {
-				self.try_finalizer_dequeue_batch_sqlite(sandbox_store, batch_size)
+			Database::Sqlite(process_store) => {
+				self.try_finalizer_dequeue_batch_sqlite(process_store, batch_size)
 					.await
 			},
 		}
@@ -109,10 +109,10 @@ impl Server {
 
 	async fn complete_process_finalize_entry(&self, entry: &Entry) -> tg::Result<()> {
 		let mut connection = self
-			.sandbox_store
+			.process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 		let transaction = connection
 			.transaction()
 			.await
@@ -163,8 +163,8 @@ impl Server {
 		&self,
 	) -> tg::Result<Option<i64>> {
 		let connection =
-			self.sandbox_store.connection().await.map_err(|source| {
-				tg::error!(!source, "failed to get a sandbox store connection")
+			self.process_store.connection().await.map_err(|source| {
+				tg::error!(!source, "failed to get a process store connection")
 			})?;
 		let statement = indoc!(
 			"
@@ -188,8 +188,8 @@ impl Server {
 		position: i64,
 	) -> tg::Result<u64> {
 		let connection =
-			self.sandbox_store.connection().await.map_err(|source| {
-				tg::error!(!source, "failed to get a sandbox store connection")
+			self.process_store.connection().await.map_err(|source| {
+				tg::error!(!source, "failed to get a process store connection")
 			})?;
 		let p = connection.p();
 		let statement = formatdoc!(

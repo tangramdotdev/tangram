@@ -298,15 +298,15 @@ impl Server {
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<tg::process::stdio::read::Event>> {
-		match &self.sandbox_store {
+		match &self.process_store {
 			#[cfg(feature = "postgres")]
-			Database::Postgres(sandbox_store) => {
-				self.try_read_process_stdio_pipe_event_postgres(sandbox_store, id, streams)
+			Database::Postgres(process_store) => {
+				self.try_read_process_stdio_pipe_event_postgres(process_store, id, streams)
 					.await
 			},
 			#[cfg(feature = "sqlite")]
-			Database::Sqlite(sandbox_store) => {
-				self.try_read_process_stdio_pipe_event_sqlite(sandbox_store, id, streams)
+			Database::Sqlite(process_store) => {
+				self.try_read_process_stdio_pipe_event_sqlite(process_store, id, streams)
 					.await
 			},
 		}

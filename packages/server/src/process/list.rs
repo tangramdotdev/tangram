@@ -59,11 +59,11 @@ impl Server {
 	}
 
 	pub(crate) async fn list_processes_local(&self) -> tg::Result<Vec<tg::process::get::Output>> {
-		let mut output = match &self.sandbox_store {
+		let mut output = match &self.process_store {
 			#[cfg(feature = "postgres")]
-			Database::Postgres(sandbox_store) => self.list_processes_postgres(sandbox_store).await,
+			Database::Postgres(process_store) => self.list_processes_postgres(process_store).await,
 			#[cfg(feature = "sqlite")]
-			Database::Sqlite(sandbox_store) => self.list_processes_sqlite(sandbox_store).await,
+			Database::Sqlite(process_store) => self.list_processes_sqlite(process_store).await,
 		}?;
 		let location = Some(self.config().region.clone().map_or_else(
 			|| tg::location::Location::Local(tg::location::Local::default()),

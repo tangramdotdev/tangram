@@ -19,7 +19,7 @@ pub enum Store {
 
 impl Store {
 	#[cfg(feature = "foundationdb")]
-	pub fn new_fdb(config: &crate::config::LogFdbStore) -> tg::Result<Self> {
+	pub fn new_fdb(config: &crate::config::FdbLogStore) -> tg::Result<Self> {
 		let options = log_store::fdb::Options {
 			cluster: config.cluster.clone(),
 			prefix: config.prefix.clone(),
@@ -30,7 +30,7 @@ impl Store {
 	}
 
 	#[cfg(feature = "lmdb")]
-	pub fn new_lmdb(directory: &Path, config: &crate::config::LogLmdbStore) -> tg::Result<Self> {
+	pub fn new_lmdb(directory: &Path, config: &crate::config::LmdbLogStore) -> tg::Result<Self> {
 		let path = directory.join(&config.path);
 		let config = log_store::lmdb::Config {
 			map_size: config.map_size,

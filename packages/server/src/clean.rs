@@ -245,12 +245,12 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to delete objects"))?;
 
-		// Get a sandbox store connection.
+		// Get a process store connection.
 		let connection = self
-			.sandbox_store
+			.process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 
 		// Delete processes.
 		let p = connection.p();

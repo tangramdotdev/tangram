@@ -41,10 +41,10 @@ impl Server {
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
 		let connection = self
-			.sandbox_store
+			.process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"

@@ -11,15 +11,15 @@ use super::WriteOutput;
 impl Server {
 	pub(crate) async fn try_write_process_stdio_postgres(
 		&self,
-		sandbox_store: &db::postgres::Database,
+		process_store: &db::postgres::Database,
 		id: &tg::process::Id,
 		stream: tg::process::stdio::Stream,
 		bytes: Bytes,
 	) -> tg::Result<WriteOutput> {
-		let mut connection = sandbox_store
+		let mut connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 
 		let transaction = connection
 			.inner_mut()
@@ -93,14 +93,14 @@ impl Server {
 
 	pub(crate) async fn try_close_process_stdio_postgres(
 		&self,
-		sandbox_store: &db::postgres::Database,
+		process_store: &db::postgres::Database,
 		id: &tg::process::Id,
 		stream: tg::process::stdio::Stream,
 	) -> tg::Result<()> {
-		let connection = sandbox_store
+		let connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 		let column = match stream {
 			tg::process::stdio::Stream::Stdin => "stdin_open",
 			tg::process::stdio::Stream::Stdout => "stdout_open",

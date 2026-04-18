@@ -95,7 +95,7 @@ pub struct State {
 	sandbox_permits: SandboxPermits,
 	sandbox_rootfs: PathBuf,
 	sandbox_semaphore: Arc<tokio::sync::Semaphore>,
-	sandbox_store: Database,
+	process_store: Database,
 	sandboxes: Sandboxes,
 	sandbox_tasks: SandboxTasks,
 	tangram_path: PathBuf,
@@ -322,8 +322,8 @@ impl Server {
 			},
 		};
 
-		// Create the sandbox store.
-		let sandbox_store = match &config.sandbox_store {
+		// Create the process store.
+		let process_store = match &config.process.store {
 			self::config::Database::Postgres(options) => {
 				#[cfg(not(feature = "postgres"))]
 				{
@@ -338,13 +338,13 @@ impl Server {
 						connections: options.connections.unwrap_or(parallelism),
 						url: options.url.clone(),
 					};
-					let sandbox_store =
+					let process_store =
 						db::postgres::Database::new(options)
 							.await
 							.map_err(|source| {
-								tg::error!(!source, "failed to create the sandbox store")
+								tg::error!(!source, "failed to create the process store")
 							})?;
-					Database::Postgres(sandbox_store)
+					Database::Postgres(process_store)
 				}
 			},
 			self::config::Database::Sqlite(config) => {
@@ -363,11 +363,11 @@ impl Server {
 						initialize,
 						path: path.join(&config.path),
 					};
-					let sandbox_store =
+					let process_store =
 						db::sqlite::Database::new(options).await.map_err(|source| {
-							tg::error!(!source, "failed to create the sandbox store")
+							tg::error!(!source, "failed to create the process store")
 						})?;
-					Database::Sqlite(sandbox_store)
+					Database::Sqlite(process_store)
 				}
 			},
 		};
@@ -521,7 +521,7 @@ impl Server {
 		};
 
 		// Create the object store.
-		let object_store = match &config.object_store {
+		let object_store = match &config.object.store {
 			config::ObjectStore::Lmdb(lmdb) => {
 				#[cfg(not(feature = "lmdb"))]
 				{
@@ -594,7 +594,7 @@ impl Server {
 			sandbox_permits,
 			sandbox_rootfs,
 			sandbox_semaphore,
-			sandbox_store,
+			process_store,
 			sandboxes,
 			sandbox_tasks,
 			tangram_path,
@@ -612,12 +612,12 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to migrate the database"))?;
 		}
 
-		// Migrate the sandbox store if necessary.
+		// Migrate the process store if necessary.
 		#[cfg(feature = "sqlite")]
-		if let Ok(sandbox_store) = server.sandbox_store.try_unwrap_sqlite_ref() {
-			self::sandbox::store::sqlite::migrate(sandbox_store)
+		if let Ok(process_store) = server.process_store.try_unwrap_sqlite_ref() {
+			self::process::store::sqlite::migrate(process_store)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to migrate the sandbox store"))?;
+				.map_err(|source| tg::error!(!source, "failed to migrate the process store"))?;
 		}
 
 		// Finish unfinished processes if single process mode is enabled.

@@ -9,13 +9,13 @@ use {
 impl Server {
 	pub(crate) async fn try_finalizer_dequeue_batch_sqlite(
 		&self,
-		sandbox_store: &db::sqlite::Database,
+		process_store: &db::sqlite::Database,
 		batch_size: usize,
 	) -> tg::Result<Option<Vec<Entry>>> {
-		let connection = sandbox_store
+		let connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 		connection
 			.with(move |connection, _cache| {
 				Self::try_finalizer_dequeue_batch_sqlite_sync(connection, batch_size)

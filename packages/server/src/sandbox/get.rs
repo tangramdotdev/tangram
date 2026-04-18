@@ -74,7 +74,7 @@ impl Server {
 			user: Option<String>,
 		}
 		let connection = self
-			.sandbox_store
+			.process_store
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;

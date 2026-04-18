@@ -54,7 +54,10 @@ pub struct Config {
 	pub messenger: Messenger,
 
 	#[serde(default)]
-	pub object_store: ObjectStore,
+	pub object: Object,
+
+	#[serde(default)]
+	pub process: Process,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub region: Option<String>,
@@ -68,9 +71,6 @@ pub struct Config {
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default = "default_runner")]
 	pub runner: Option<Runner>,
-
-	#[serde(default = "default_sandbox_store")]
-	pub sandbox_store: Database,
 
 	#[serde(default)]
 	pub sync: Sync,
@@ -106,44 +106,6 @@ pub struct Advanced {
 	pub preserve_temp_directories: bool,
 	pub single_directory: bool,
 	pub single_process: bool,
-}
-
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Client {
-	/// Configure reconnect retry options.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub reconnect: Option<Reconnect>,
-
-	/// Configure request retry options.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub retry: Option<Retry>,
-}
-
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Reconnect {
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub backoff: Duration,
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub jitter: Duration,
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub max_delay: Duration,
-	pub max_retries: u64,
-}
-
-#[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Retry {
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub backoff: Duration,
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub jitter: Duration,
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub max_delay: Duration,
-	pub max_retries: u64,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -299,6 +261,29 @@ pub struct Indexer {
 	pub partition_start: u64,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
+pub enum LogStore {
+	Fdb(FdbLogStore),
+	Lmdb(LmdbLogStore),
+	Memory,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct FdbLogStore {
+	pub cluster: PathBuf,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub prefix: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct LmdbLogStore {
+	pub map_size: usize,
+	pub path: PathBuf,
+}
+
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum Messenger {
@@ -317,17 +302,69 @@ pub struct NatsMessenger {
 	pub url: Uri,
 }
 
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Object {
+	#[serde(default)]
+	pub store: ObjectStore,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
+pub enum ObjectStore {
+	Lmdb(LmdbObjectStore),
+	Memory,
+	Scylla(ScyllaObjectStore),
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct LmdbObjectStore {
+	pub map_size: usize,
+	pub path: PathBuf,
+}
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct Remote {
-	pub name: String,
-	pub url: Uri,
+pub struct ScyllaObjectStore {
+	pub addr: String,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub reconnect: Option<Reconnect>,
+	pub connections: Option<usize>,
+	pub keyspace: String,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub retry: Option<Retry>,
+	pub password: Option<String>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub token: Option<String>,
+	pub speculative_execution: Option<ScyllaObjectStoreSpeculativeExecution>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub username: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
+pub enum ScyllaObjectStoreSpeculativeExecution {
+	Percentile(ScyllaObjectStorePercentileSpeculativeExecution),
+	Simple(ScyllaObjectStoreSimpleSpeculativeExecution),
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScyllaObjectStorePercentileSpeculativeExecution {
+	pub max_retry_count: usize,
+	pub percentile: f64,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScyllaObjectStoreSimpleSpeculativeExecution {
+	pub max_retry_count: usize,
+	pub retry_interval: u64,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Process {
+	#[serde(default = "default_process_store")]
+	pub store: Database,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -343,21 +380,55 @@ pub struct Region {
 	pub token: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum JsEngine {
-	#[default]
-	Auto,
-	#[serde(rename = "quickjs", alias = "quick_js")]
-	QuickJs,
-	V8,
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Remote {
+	pub name: String,
+	pub url: Uri,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub reconnect: Option<Reconnect>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<Retry>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
-pub struct Js {
-	#[serde(default)]
-	pub engine: JsEngine,
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Client {
+	/// Configure reconnect retry options.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub reconnect: Option<Reconnect>,
+
+	/// Configure request retry options.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry: Option<Retry>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Reconnect {
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub backoff: Duration,
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub jitter: Duration,
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub max_delay: Duration,
+	pub max_retries: u64,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Retry {
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub backoff: Duration,
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub jitter: Duration,
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub max_delay: Duration,
+	pub max_retries: u64,
 }
 
 #[serde_as]
@@ -373,78 +444,21 @@ pub struct Runner {
 	pub remotes: Vec<String>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
-pub enum ObjectStore {
-	Lmdb(ObjectLmdbStore),
-	Memory,
-	Scylla(ObjectScyllaStore),
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
-pub struct ObjectLmdbStore {
-	pub map_size: usize,
-	pub path: PathBuf,
+pub struct Js {
+	#[serde(default)]
+	pub engine: JsEngine,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ObjectScyllaStore {
-	pub addr: String,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub connections: Option<usize>,
-	pub keyspace: String,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub password: Option<String>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub speculative_execution: Option<ObjectScyllaStoreSpeculativeExecution>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub username: Option<String>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
-pub enum ObjectScyllaStoreSpeculativeExecution {
-	Percentile(ObjectScyllaStorePercentileSpeculativeExecution),
-	Simple(ObjectScyllaStoreSimpleSpeculativeExecution),
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ObjectScyllaStorePercentileSpeculativeExecution {
-	pub max_retry_count: usize,
-	pub percentile: f64,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ObjectScyllaStoreSimpleSpeculativeExecution {
-	pub max_retry_count: usize,
-	pub retry_interval: u64,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
-pub enum LogStore {
-	Fdb(LogFdbStore),
-	Lmdb(LogLmdbStore),
-	Memory,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
-pub struct LogFdbStore {
-	pub cluster: PathBuf,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub prefix: Option<String>,
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
-pub struct LogLmdbStore {
-	pub map_size: usize,
-	pub path: PathBuf,
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JsEngine {
+	#[default]
+	Auto,
+	#[serde(rename = "quickjs", alias = "quick_js")]
+	QuickJs,
+	V8,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -663,12 +677,12 @@ impl Default for Config {
 			indexer: Some(Indexer::default()),
 			log_store: LogStore::default(),
 			messenger: Messenger::default(),
-			object_store: ObjectStore::default(),
+			object: Object::default(),
+			process: Process::default(),
 			region: None,
 			regions: None,
 			remotes: None,
 			runner: Some(Runner::default()),
-			sandbox_store: default_sandbox_store(),
 			sync: Sync::default(),
 			tag: Tag::default(),
 			version: None,
@@ -800,6 +814,30 @@ impl Default for Indexer {
 	}
 }
 
+impl Default for LogStore {
+	fn default() -> Self {
+		Self::Lmdb(LmdbLogStore::default())
+	}
+}
+
+impl Default for FdbLogStore {
+	fn default() -> Self {
+		Self {
+			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
+			prefix: None,
+		}
+	}
+}
+
+impl Default for LmdbLogStore {
+	fn default() -> Self {
+		Self {
+			map_size: 1_099_511_627_776,
+			path: PathBuf::from("logs"),
+		}
+	}
+}
+
 impl Default for NatsMessenger {
 	fn default() -> Self {
 		let url = "nats://localhost:4222".parse().unwrap();
@@ -811,24 +849,13 @@ impl Default for NatsMessenger {
 	}
 }
 
-impl Default for Runner {
-	fn default() -> Self {
-		Self {
-			concurrency: None,
-			heartbeat_interval: Duration::from_secs(1),
-			js: Js::default(),
-			remotes: Vec::new(),
-		}
-	}
-}
-
 impl Default for ObjectStore {
 	fn default() -> Self {
-		Self::Lmdb(ObjectLmdbStore::default())
+		Self::Lmdb(LmdbObjectStore::default())
 	}
 }
 
-impl Default for ObjectLmdbStore {
+impl Default for LmdbObjectStore {
 	fn default() -> Self {
 		Self {
 			map_size: 1_099_511_627_776,
@@ -837,26 +864,21 @@ impl Default for ObjectLmdbStore {
 	}
 }
 
-impl Default for LogStore {
-	fn default() -> Self {
-		Self::Lmdb(LogLmdbStore::default())
-	}
-}
-
-impl Default for LogFdbStore {
+impl Default for Process {
 	fn default() -> Self {
 		Self {
-			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
-			prefix: None,
+			store: default_process_store(),
 		}
 	}
 }
 
-impl Default for LogLmdbStore {
+impl Default for Runner {
 	fn default() -> Self {
 		Self {
-			map_size: 1_099_511_627_776,
-			path: PathBuf::from("logs"),
+			concurrency: None,
+			heartbeat_interval: Duration::from_secs(1),
+			js: Js::default(),
+			remotes: Vec::new(),
 		}
 	}
 }
@@ -1008,10 +1030,10 @@ fn default_finalizer() -> Option<Finalizer> {
 	Some(Finalizer::default())
 }
 
-fn default_sandbox_store() -> Database {
+fn default_process_store() -> Database {
 	Database::Sqlite(SqliteDatabase {
 		connections: None,
-		path: PathBuf::from("sandbox_store"),
+		path: PathBuf::from("process_store"),
 	})
 }
 

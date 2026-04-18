@@ -176,7 +176,7 @@ impl Server {
 		let blob = self.write(arg, Cursor::new(blob_bytes)).await?.blob;
 
 		let connection = self
-			.sandbox_store
+			.process_store
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get db connection"))?;

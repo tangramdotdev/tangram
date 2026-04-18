@@ -8,12 +8,12 @@ use {
 impl Server {
 	pub(crate) async fn try_dequeue_sandbox_postgres(
 		&self,
-		sandbox_store: &db::postgres::Database,
+		process_store: &db::postgres::Database,
 	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
-		let mut connection = sandbox_store
+		let mut connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 		let transaction = connection
 			.inner_mut()
 			.transaction()

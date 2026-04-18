@@ -62,8 +62,8 @@ impl Server {
 			user: Option<String>,
 		}
 		let connection =
-			self.sandbox_store.connection().await.map_err(|source| {
-				tg::error!(!source, "failed to get a sandbox store connection")
+			self.process_store.connection().await.map_err(|source| {
+				tg::error!(!source, "failed to get a process store connection")
 			})?;
 		let statement = formatdoc!(
 			"

@@ -9,14 +9,14 @@ use {
 impl Server {
 	pub(crate) async fn try_read_process_stdio_pipe_event_postgres(
 		&self,
-		sandbox_store: &db::postgres::Database,
+		process_store: &db::postgres::Database,
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<tg::process::stdio::read::Event>> {
-		let mut connection = sandbox_store
+		let mut connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 		let transaction = connection
 			.inner_mut()
 			.transaction()

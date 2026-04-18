@@ -50,17 +50,17 @@ impl Server {
 	) -> tg::Result<()> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
-		// Insert the process into the sandbox store.
-		match &self.sandbox_store {
+		// Insert the process into the process store.
+		match &self.process_store {
 			#[cfg(feature = "postgres")]
-			Database::Postgres(sandbox_store) => {
-				Self::put_process_postgres(id, &arg, sandbox_store, now)
+			Database::Postgres(process_store) => {
+				Self::put_process_postgres(id, &arg, process_store, now)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to put the process"))?;
 			},
 			#[cfg(feature = "sqlite")]
-			Database::Sqlite(sandbox_store) => {
-				Self::put_process_sqlite(id, &arg, sandbox_store, now)
+			Database::Sqlite(process_store) => {
+				Self::put_process_sqlite(id, &arg, process_store, now)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to put the process"))?;
 			},

@@ -283,15 +283,15 @@ impl Server {
 		stream: tg::process::stdio::Stream,
 		bytes: Bytes,
 	) -> tg::Result<WriteOutput> {
-		match &self.sandbox_store {
+		match &self.process_store {
 			#[cfg(feature = "postgres")]
-			Database::Postgres(sandbox_store) => {
-				self.try_write_process_stdio_postgres(sandbox_store, id, stream, bytes)
+			Database::Postgres(process_store) => {
+				self.try_write_process_stdio_postgres(process_store, id, stream, bytes)
 					.await
 			},
 			#[cfg(feature = "sqlite")]
-			Database::Sqlite(sandbox_store) => {
-				self.try_write_process_stdio_sqlite(sandbox_store, id, stream, bytes)
+			Database::Sqlite(process_store) => {
+				self.try_write_process_stdio_sqlite(process_store, id, stream, bytes)
 					.await
 			},
 		}
@@ -312,15 +312,15 @@ impl Server {
 		id: &tg::process::Id,
 		stream: tg::process::stdio::Stream,
 	) -> tg::Result<()> {
-		match &self.sandbox_store {
+		match &self.process_store {
 			#[cfg(feature = "postgres")]
-			Database::Postgres(sandbox_store) => {
-				self.try_close_process_stdio_postgres(sandbox_store, id, stream)
+			Database::Postgres(process_store) => {
+				self.try_close_process_stdio_postgres(process_store, id, stream)
 					.await
 			},
 			#[cfg(feature = "sqlite")]
-			Database::Sqlite(sandbox_store) => {
-				self.try_close_process_stdio_sqlite(sandbox_store, id, stream)
+			Database::Sqlite(process_store) => {
+				self.try_close_process_stdio_sqlite(process_store, id, stream)
 					.await
 			},
 		}
