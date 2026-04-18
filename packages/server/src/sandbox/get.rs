@@ -179,14 +179,13 @@ impl Server {
 				remotes: Some(tg::Either::Left(false)),
 			},
 		};
-		let Some(output) = client
+		let Some(mut output) = client
 			.try_get_sandbox(id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, region = %region, "failed to get the sandbox"))?
 		else {
 			return Ok(None);
 		};
-		let mut output = output;
 		output.location = Some(tg::location::Location::Local(tg::location::Local {
 			regions: Some(vec![region.to_owned()]),
 		}));
@@ -243,13 +242,12 @@ impl Server {
 				remotes: Some(tg::Either::Left(false)),
 			},
 		};
-		let Some(output) = client.try_get_sandbox(id, arg).await.map_err(
+		let Some(mut output) = client.try_get_sandbox(id, arg).await.map_err(
 			|source| tg::error!(!source, %id, remote = %remote.remote, "failed to get the sandbox"),
 		)?
 		else {
 			return Ok(None);
 		};
-		let mut output = output;
 		output.location = Some(tg::location::Location::Remote(remote.clone()));
 		Ok(Some(output))
 	}

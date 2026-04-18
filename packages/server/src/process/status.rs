@@ -93,7 +93,12 @@ impl Server {
 			.then(move |()| {
 				let server = server.clone();
 				let id = id.clone();
-				async move { server.get_process_status_local(&id).await }
+				async move {
+					server
+						.try_get_process_status_local(&id)
+						.await
+						.map(|option| option.unwrap_or(tg::process::Status::Finished))
+				}
 			})
 			.try_filter(move |status| {
 				future::ready(match (previous.as_mut(), *status) {

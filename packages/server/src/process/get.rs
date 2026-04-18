@@ -203,13 +203,12 @@ impl Server {
 			},
 			metadata,
 		};
-		let Some(output) = client.try_get_process(id, arg).await.map_err(
+		let Some(mut output) = client.try_get_process(id, arg).await.map_err(
 			|source| tg::error!(!source, %id, region = %region, "failed to get the process"),
 		)?
 		else {
 			return Ok(None);
 		};
-		let mut output = output;
 		output.location = Some(tg::location::Location::Local(tg::location::Local {
 			regions: Some(vec![region.to_owned()]),
 		}));
@@ -297,13 +296,12 @@ impl Server {
 			},
 			metadata,
 		};
-		let Some(output) = client.try_get_process(id, arg).await.map_err(
+		let Some(mut output) = client.try_get_process(id, arg).await.map_err(
 			|source| tg::error!(!source, %id, remote = %remote.remote, "failed to get the process"),
 		)?
 		else {
 			return Ok(None);
 		};
-		let mut output = output;
 		output.location = Some(tg::location::Location::Remote(remote.clone()));
 		Ok(Some(output))
 	}

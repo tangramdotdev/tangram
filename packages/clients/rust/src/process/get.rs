@@ -22,8 +22,13 @@ pub struct Arg {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub data: tg::process::Data,
+
 	pub id: tg::process::Id,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Location>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub metadata: Option<tg::process::Metadata>,
 }
 
