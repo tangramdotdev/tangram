@@ -62,14 +62,14 @@ pub enum Item {
 	serde::Serialize,
 )]
 pub struct Options {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub local: Option<PathBuf>,
-
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub locations: tg::location::Locations,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub source: Option<PathBuf>,
 }
 
 impl Reference {

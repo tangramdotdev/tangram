@@ -2,10 +2,10 @@ use ../../test.nu *
 
 let server = spawn
 
-# Create and tag a module with a local dependency.
+# Create and tag a module with a source dependency.
 let path = artifact {
 	a.tg.ts: '
-		import "b" with { local: "./b.tg.ts" };
+		import "b" with { source: "./b.tg.ts" };
 	'
 	b.tg.ts: ''
 	c.tg.ts: '

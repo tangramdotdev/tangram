@@ -1,14 +1,14 @@
-import bun from "bun" with { local: "../packages/packages/bun.tg.ts" };
-import dash from "dash" with { local: "../packages/packages/dash.tg.ts" };
+import bun from "bun" with { source: "../packages/packages/bun.tg.ts" };
+import dash from "dash" with { source: "../packages/packages/dash.tg.ts" };
 import foundationdb from "foundationdb" with {
-	local: "../packages/packages/foundationdb.tg.ts",
+	source: "../packages/packages/foundationdb.tg.ts",
 };
-import { libclang } from "llvm" with { local: "../packages/packages/llvm" };
-import { cargo } from "rust" with { local: "../packages/packages/rust" };
-import xz from "xz" with { local: "../packages/packages/xz.tg.ts" };
-import zlib from "zlib-ng" with { local: "../packages/packages/zlib-ng.tg.ts" };
-import * as std from "std" with { local: "../packages/packages/std" };
-import { $ } from "std" with { local: "../packages/packages/std" };
+import { libclang } from "llvm" with { source: "../packages/packages/llvm" };
+import { cargo } from "rust" with { source: "../packages/packages/rust" };
+import xz from "xz" with { source: "../packages/packages/xz.tg.ts" };
+import zlib from "zlib-ng" with { source: "../packages/packages/zlib-ng.tg.ts" };
+import * as std from "std" with { source: "../packages/packages/std" };
+import { $ } from "std" with { source: "../packages/packages/std" };
 
 import source from "." with { type: "directory" };
 

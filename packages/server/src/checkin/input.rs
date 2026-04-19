@@ -387,10 +387,10 @@ impl Server {
 
 			// Create the dependencies and push items for path dependencies.
 			for reference in references {
-				let reference_path = if state.arg.options.local_dependencies {
+				let reference_path = if state.arg.options.source_dependencies {
 					reference
 						.options()
-						.local
+						.source
 						.as_ref()
 						.or(reference.item().try_unwrap_path_ref().ok())
 				} else {
@@ -463,10 +463,10 @@ impl Server {
 			// Create the dependencies and push items for path dependencies.
 			for import in analysis.imports {
 				let reference = import.reference;
-				let reference_path = if state.arg.options.local_dependencies {
+				let reference_path = if state.arg.options.source_dependencies {
 					reference
 						.options()
-						.local
+						.source
 						.as_ref()
 						.or(reference.item().try_unwrap_path_ref().ok())
 				} else {

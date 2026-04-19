@@ -10,19 +10,19 @@ let root = artifact {
 	packages: {
 		a: {
 			tangram.ts: '
-				import b from "b" with { local: "../b" };
+				import b from "b" with { source: "../b" };
 				export default "a";
 			'
 		}
 		b: {
 			tangram.ts: '
-				import c from "c" with { local: "../c" };
+				import c from "c" with { source: "../c" };
 				export default "b";
 			'
 		}
 		c: {
 			tangram.ts: '
-				import a from "a" with { local: "../a" };
+				import a from "a" with { source: "../a" };
 				export default "c";
 			'
 		}

@@ -8,8 +8,8 @@ let local = spawn -n local -c {
 # Create a single file (not a directory).
 let path = artifact {
 	root.tg.ts: '
-		import * as directory from "directory" with { local: "./directory" };
-		import * as file from "file" with { local: "./file.tg.ts" };
+		import * as directory from "directory" with { source: "./directory" };
+		import * as file from "file" with { source: "./file.tg.ts" };
 		export let metadata = {
 			tag: "root/1.0.0",
 		};

@@ -40,9 +40,6 @@ pub struct Options {
 	pub ignore: Ignore,
 
 	#[command(flatten)]
-	pub local_dependencies: LocalDependencies,
-
-	#[command(flatten)]
 	pub lock: Lock,
 
 	/// If this flag is set, the lock will not be updated.
@@ -55,6 +52,9 @@ pub struct Options {
 
 	#[command(flatten)]
 	pub solve: Solve,
+
+	#[command(flatten)]
+	pub source_dependencies: SourceDependencies,
 
 	/// Set the cache TTL in seconds for tag resolution. Use 0 to bypass the cache.
 	#[arg(long)]
@@ -124,31 +124,31 @@ impl Ignore {
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
-pub struct LocalDependencies {
-	/// Whether to use local dependencies.
+pub struct SourceDependencies {
+	/// Whether to use source dependencies.
 	#[arg(
 		default_missing_value = "true",
 		long,
 		num_args = 0..=1,
-		overrides_with = "no_local_dependencies",
+		overrides_with = "no_source_dependencies",
 		require_equals = true,
 	)]
-	local_dependencies: Option<bool>,
+	source_dependencies: Option<bool>,
 
 	#[arg(
 		default_missing_value = "true",
 		long,
 		num_args = 0..=1,
-		overrides_with = "local_dependencies",
+		overrides_with = "source_dependencies",
 		require_equals = true,
 	)]
-	no_local_dependencies: Option<bool>,
+	no_source_dependencies: Option<bool>,
 }
 
-impl LocalDependencies {
+impl SourceDependencies {
 	pub fn get(&self) -> bool {
-		self.local_dependencies
-			.or(self.no_local_dependencies.map(|v| !v))
+		self.source_dependencies
+			.or(self.no_source_dependencies.map(|v| !v))
 			.unwrap_or(true)
 	}
 }
@@ -281,14 +281,14 @@ impl Options {
 			cache_pointers: self.cache_pointers.get(),
 			destructive: self.destructive,
 			deterministic: self.deterministic,
-			root: self.root,
 			ignore: self.ignore.get(),
-			local_dependencies: self.local_dependencies.get(),
 			lock: self.lock.get(),
 			locked: self.locked,
+			root: self.root,
 			solve: self.solve.get(),
-			unsolved_dependencies: self.unsolved_dependencies.get(),
+			source_dependencies: self.source_dependencies.get(),
 			tag_ttl: self.tag_ttl,
+			unsolved_dependencies: self.unsolved_dependencies.get(),
 			watch: self.watch,
 		}
 	}

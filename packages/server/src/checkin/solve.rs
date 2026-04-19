@@ -562,10 +562,10 @@ impl Server {
 		checkpoint: &Checkpoint,
 		item: &Item,
 	) -> Option<Candidate> {
-		// If local_dependencies is true and the reference has a local option, do not use the lock candidate.
+		// If source_dependencies is true and the reference has a source option, do not use the lock candidate.
 		if let ItemVariant::FileDependency(reference) = &item.variant
-			&& state.arg.options.local_dependencies
-			&& reference.options().local.is_some()
+			&& state.arg.options.source_dependencies
+			&& reference.options().source.is_some()
 		{
 			return None;
 		}

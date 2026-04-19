@@ -57,10 +57,6 @@ pub struct Options {
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub ignore: bool,
 
-	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
-	#[serde(default = "return_true", skip_serializing_if = "is_true")]
-	pub local_dependencies: bool,
-
 	#[serde(default = "default_lock", skip_serializing_if = "is_default_lock")]
 	pub lock: Option<Lock>,
 
@@ -75,6 +71,10 @@ pub struct Options {
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub solve: bool,
+
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
+	#[serde(default = "return_true", skip_serializing_if = "is_true")]
+	pub source_dependencies: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tag_ttl: Option<u64>,
@@ -177,14 +177,14 @@ impl Default for Options {
 			cache_pointers: true,
 			destructive: false,
 			deterministic: false,
-			root: false,
 			ignore: true,
-			local_dependencies: true,
 			lock: Some(Lock::default()),
 			locked: false,
+			root: false,
 			solve: true,
-			unsolved_dependencies: false,
+			source_dependencies: true,
 			tag_ttl: None,
+			unsolved_dependencies: false,
 			watch: false,
 		}
 	}

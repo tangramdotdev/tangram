@@ -5,7 +5,7 @@ let server = spawn
 let path = artifact {
 	foo: {
 		tangram.ts: '
-			import bar from "bar" with { local: "../bar" };
+			import bar from "bar" with { source: "../bar" };
 			export default () => tg.run(bar);
 		'
 	}

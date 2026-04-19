@@ -7,7 +7,7 @@ use {
 	tangram_client::prelude::*,
 };
 
-/// Publish a tag with its transitive local dependencies.
+/// Publish a tag with its transitive source dependencies.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -43,7 +43,7 @@ pub struct Node {
 struct State {
 	file_tree: radix_trie::Trie<PathBuf, tg::Artifact>,
 	all_packages: Vec<tg::Referent<tg::Object>>,
-	local_packages: Vec<tg::Referent<tg::Object>>,
+	source_packages: Vec<tg::Referent<tg::Object>>,
 	tags: Vec<(tg::Tag, tg::object::Id)>,
 	graph: Graph,
 }
@@ -340,7 +340,7 @@ impl State {
 	) -> tg::Result<()> {
 		// Make sure the root is added if it is on the local file system.
 		if root.path().is_some() {
-			self.local_packages.push(root.clone());
+			self.source_packages.push(root.clone());
 			self.add_package(root);
 		}
 
@@ -426,7 +426,7 @@ impl State {
 				node.package.item.unload();
 
 				let publishable = index == 0
-					|| self.local_packages.iter().any(|referent| {
+					|| self.source_packages.iter().any(|referent| {
 						referent.clone().map(|r| r.id()) == node.package.clone().map(|r| r.id())
 					}) || !node
 					.incoming
@@ -444,7 +444,7 @@ impl State {
 					continue;
 				};
 
-				// If this node has local dependencies then we need to check it in again.
+				// If this node has source dependencies then we need to check it in again.
 				let path = if node.outgoing.is_empty() {
 					None
 				} else {
@@ -602,7 +602,7 @@ where
 		self.file_tree
 			.insert(path.to_owned(), file.item.clone().into());
 
-		// Mark the packages that are locals.
+		// Mark the packages that come from source overrides.
 		for (reference, option) in file.item.dependencies_with_handle(handle).await? {
 			let Some(mut dependency) = option else {
 				continue;
@@ -610,7 +610,7 @@ where
 
 			// Make sure to inherit the dependency.
 			dependency.0.inherit(&file);
-			if reference.options().local.is_some() {
+			if reference.options().source.is_some() {
 				let Some(item) = dependency.0.item.clone() else {
 					continue;
 				};
@@ -618,7 +618,7 @@ where
 					item,
 					options: dependency.0.options.clone(),
 				};
-				self.local_packages.push(referent.clone());
+				self.source_packages.push(referent.clone());
 				self.add_package(&referent);
 			}
 		}
@@ -709,9 +709,9 @@ async fn publish_checkin(
 ) -> tg::Result<tg::object::Id> {
 	let path_display = path.display().to_string();
 	let options = tg::checkin::Options {
-		local_dependencies: false,
 		lock: None,
 		solve,
+		source_dependencies: false,
 		..tg::checkin::Options::default()
 	};
 	let args = tg::checkin::Arg {

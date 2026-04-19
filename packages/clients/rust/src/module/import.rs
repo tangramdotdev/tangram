@@ -21,9 +21,9 @@ impl Import {
 			.and_then(|attributes| attributes.remove("type").or(attributes.remove("kind")))
 			.map(|kind| kind.parse())
 			.transpose()?;
-		let local = attributes
+		let source = attributes
 			.as_mut()
-			.and_then(|attributes| attributes.remove("local"))
+			.and_then(|attributes| attributes.remove("source"))
 			.map(Into::into);
 		let locations = attributes
 			.as_mut()
@@ -39,7 +39,6 @@ impl Import {
 			.map(Into::into);
 
 		let options = tg::reference::Options {
-			local: local.or(reference.options().local.clone()),
 			locations: tg::location::Locations {
 				local: locations
 					.as_ref()
@@ -51,6 +50,7 @@ impl Import {
 					.or(reference.options().locations.remotes.clone()),
 			},
 			path: path.or(reference.options().path.clone()),
+			source: source.or(reference.options().source.clone()),
 		};
 		let reference = tg::Reference::with_item_and_options(reference.item().clone(), options);
 
