@@ -19,7 +19,7 @@ pub struct Tap {
 	pub guest_ip: Ipv4Addr,
 	pub host_ip: Ipv4Addr,
 	pub netmask: Ipv4Addr,
-	pub tap: OwnedFd,
+	pub fd: OwnedFd,
 }
 
 impl Tap {
@@ -57,7 +57,7 @@ impl Tap {
 			0x02, bytes[0], bytes[1], bytes[2], bytes[3], bytes[4],
 		);
 
-		let tap = open_tap(&name)?;
+		let fd = open_tap(&name)?;
 
 		ip(&format!("link set {name} up"))?;
 		ip(&format!("addr add {host_ip}/30 dev {name}"))?;
@@ -66,7 +66,7 @@ impl Tap {
 		ensure_iptables_rules()?;
 
 		// Clear FD_CLOEXEC so the fd survives exec() into cloud-hypervisor.
-		let raw = tap.as_raw_fd();
+		let raw = fd.as_raw_fd();
 		let flags = unsafe { libc::fcntl(raw, libc::F_GETFD) };
 		if flags < 0 {
 			let source = std::io::Error::last_os_error();
@@ -83,7 +83,7 @@ impl Tap {
 			guest_ip,
 			host_ip,
 			netmask,
-			tap,
+			fd,
 		})
 	}
 }

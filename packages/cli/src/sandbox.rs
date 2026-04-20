@@ -108,21 +108,6 @@ impl Network {
 }
 
 impl Options {
-<<<<<<< HEAD
-=======
-	pub fn into_arg_with_default_ttl(self, ttl: u64) -> tg::sandbox::create::Arg {
-		tg::sandbox::create::Arg {
-			cpu: self.cpu,
-			hostname: self.hostname,
-			memory: self.memory,
-			mounts: self.mounts,
-			network: self.network.get(),
-			ttl: self.ttl.unwrap_or(ttl),
-			user: self.user,
-		}
-	}
-
->>>>>>> 2f129976f (checkpoint)
 	pub fn is_empty(&self) -> bool {
 		self.cpu.is_none()
 			&& self.hostname.is_none()

@@ -5,8 +5,9 @@ use {
 		ffi::{CStr, CString, OsStr},
 		fmt::Write as _,
 		hash::{Hash as _, Hasher as _},
+		net::Ipv4Addr,
 		os::{
-			fd::{AsRawFd, IntoRawFd as _, RawFd},
+			fd::{AsRawFd as _, IntoRawFd as _, RawFd},
 			unix::{
 				ffi::OsStrExt as _,
 				process::{CommandExt as _, ExitStatusExt as _},
@@ -35,7 +36,9 @@ const VIRTIOFSD_SOCKET_NAME: &str = "virtiofsd.sock";
 pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub cpu: Option<u64>,
+	pub kernel_path: PathBuf,
 	pub hostname: Option<String>,
+	pub host_subnet: Ipv4Addr,
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: bool,
@@ -61,13 +64,13 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		return Err(tg::error!("sandbox memory must be greater than zero"));
 	}
 
-	if let Some(hostname) = &arg.hostname {
-		if hostname.chars().any(char::is_whitespace) {
-			return Err(tg::error!(
-				%hostname,
-				"hostname may not contain whitespace"
-			));
-		}
+	if let Some(hostname) = &arg.hostname
+		&& hostname.chars().any(char::is_whitespace)
+	{
+		return Err(tg::error!(
+			%hostname,
+			"hostname may not contain whitespace"
+		));
 	}
 
 	let user = resolve_user(arg.user.as_deref())?;
@@ -106,11 +109,10 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 				.map(|cpu| vec!["--cpus".to_owned(), format!("boot={cpu},max={cpu}")])
 				.unwrap_or_default(),
 		)
-		.args(
-			arg.memory
-				.map(|memory| vec!["--memory".to_owned(), format!("size={memory},shared=on")])
-				.unwrap_or_else(|| vec!["--memory".to_owned(), "shared=on".to_owned()]),
-		)
+		.args(arg.memory.map_or_else(
+			|| vec!["--memory".to_owned(), "shared=on".to_owned()],
+			|memory| vec!["--memory".to_owned(), format!("size={memory},shared=on")],
+		))
 		.arg("--cmdline")
 		.arg(kernel_cmdline(arg, &user, network.as_ref()))
 		.arg("--fs")
@@ -135,7 +137,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		.stderr(std::process::Stdio::inherit());
 	if let Some(tap) = tap.as_ref() {
 		command.arg("--net");
-		command.arg(format!("fd={},mac={}", tap.tap.as_raw_fd(), tap.mac));
+		command.arg(format!("fd={},mac={}", tap.fd.as_raw_fd(), tap.mac));
 	}
 	let _tap = tap;
 	unsafe {
