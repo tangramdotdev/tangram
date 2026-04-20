@@ -9,13 +9,13 @@ impl Server {
 	pub(crate) async fn pull_tag(
 		&self,
 		pattern: tg::tag::Pattern,
-		locations: tg::location::Locations,
+		location: Option<tg::location::Arg>,
 	) -> tg::Result<()> {
 		let list = self
 			.list_tags(tg::tag::list::Arg {
 				cached: false,
 				length: None,
-				locations,
+				location,
 				pattern,
 				recursive: false,
 				reverse: false,

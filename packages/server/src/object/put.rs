@@ -17,18 +17,21 @@ impl Server {
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
 	) -> tg::Result<()> {
-		let location = self.location_with_regions(arg.location.as_ref())?;
+		let location = self.location(arg.location.as_ref())?;
 
 		match location {
-			crate::location::Location::Local { region: None } => {
+			tg::Location::Local(tg::location::Local { region: None }) => {
 				self.put_object_local(id, arg).await?;
 			},
-			crate::location::Location::Local {
+			tg::Location::Local(tg::location::Local {
 				region: Some(region),
-			} => {
+			}) => {
 				self.put_object_region(id, arg, region).await?;
 			},
-			crate::location::Location::Remote { remote, region } => {
+			tg::Location::Remote(tg::location::Remote {
+				name: remote,
+				region,
+			}) => {
 				self.put_object_remote(id, arg, remote, region).await?;
 			},
 		}
@@ -129,10 +132,11 @@ impl Server {
 		let client = self.get_region_client(region.clone()).await.map_err(
 			|source| tg::error!(!source, %id, region = %region, "failed to get the region client"),
 		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
 		let arg = tg::object::put::Arg {
-			location: Some(tg::location::Location::Local(tg::location::Local {
-				regions: Some(vec![region.clone()]),
-			})),
+			location: Some(location.into()),
 			..arg
 		};
 		client.put_object(id, arg).await.map_err(
@@ -152,9 +156,7 @@ impl Server {
 			|source| tg::error!(!source, %id, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::object::put::Arg {
-			location: Some(tg::location::Location::Local(tg::location::Local {
-				regions: region.map(|region| vec![region]),
-			})),
+			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			..arg
 		};
 		client.put_object(id, arg).await.map_err(

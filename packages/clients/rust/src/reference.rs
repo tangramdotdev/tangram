@@ -3,7 +3,6 @@ use {
 	std::{path::PathBuf, pin::pin},
 	tangram_futures::stream::TryExt as _,
 	tangram_uri::Uri,
-	tangram_util::serde::is_default,
 };
 
 #[derive(
@@ -62,8 +61,8 @@ pub enum Item {
 	serde::Serialize,
 )]
 pub struct Options {
-	#[serde(default, skip_serializing_if = "is_default")]
-	pub locations: tg::location::Locations,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,

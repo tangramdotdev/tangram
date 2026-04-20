@@ -11,7 +11,7 @@ pub struct Args {
 	pub force: bool,
 
 	#[command(flatten)]
-	pub location: crate::location::Location,
+	pub location: crate::location::Args,
 
 	#[arg(default_value = ".", index = 2)]
 	pub reference: tg::Reference,
@@ -39,7 +39,7 @@ impl Cli {
 		let arg = tg::tag::put::Arg {
 			force: args.force,
 			item,
-			location: args.location.get()?,
+			location: args.location.get(),
 			replicate: false,
 		};
 		let tag = args.tag.unwrap();

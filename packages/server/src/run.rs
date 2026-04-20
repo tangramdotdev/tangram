@@ -31,9 +31,9 @@ impl Server {
 				.unwrap();
 			let permit = SandboxPermit(tg::Either::Left(permit));
 
-			let location = tg::location::Location::Local(tg::location::Local::default());
+			let location = tg::Location::Local(tg::location::Local::default());
 			let arg = tg::sandbox::queue::Arg {
-				location: Some(location.clone()),
+				location: Some(location.clone().into()),
 			};
 			let futures = std::iter::once(
 				self.dequeue_sandbox(arg)
@@ -43,13 +43,13 @@ impl Server {
 			.chain(self.config.runner.iter().flat_map(|config| {
 				config.remotes.iter().map(|name| {
 					let server = self.clone();
-					let location = tg::location::Location::Remote(tg::location::Remote {
-						remote: name.to_owned(),
-						regions: None,
+					let location = tg::Location::Remote(tg::location::Remote {
+						name: name.to_owned(),
+						region: None,
 					});
 					async move {
 						let arg = tg::sandbox::queue::Arg {
-							location: Some(location.clone()),
+							location: Some(location.clone().into()),
 						};
 						let output = server.dequeue_sandbox(arg).await?;
 						Ok::<_, tg::Error>((output, location))

@@ -25,11 +25,12 @@ impl Import {
 			.as_mut()
 			.and_then(|attributes| attributes.remove("source"))
 			.map(Into::into);
-		let locations = attributes
+		let location = attributes
 			.as_mut()
 			.and_then(|attributes| attributes.remove("location"))
-			.map(|locations| {
-				serde_qs::from_str::<tg::location::Locations>(&locations)
+			.map(|location| {
+				location
+					.parse::<tg::location::Arg>()
 					.map_err(|source| tg::error!(!source, "invalid location attribute"))
 			})
 			.transpose()?;
@@ -39,16 +40,7 @@ impl Import {
 			.map(Into::into);
 
 		let options = tg::reference::Options {
-			locations: tg::location::Locations {
-				local: locations
-					.as_ref()
-					.and_then(|locations| locations.local.clone())
-					.or(reference.options().locations.local.clone()),
-				remotes: locations
-					.as_ref()
-					.and_then(|locations| locations.remotes.clone())
-					.or(reference.options().locations.remotes.clone()),
-			},
+			location: location.or(reference.options().location.clone()),
 			path: path.or(reference.options().path.clone()),
 			source: source.or(reference.options().source.clone()),
 		};

@@ -7,7 +7,7 @@ impl Cli {
 		let detach = args.options.detach;
 		let verbose = args.options.verbose;
 		let checkout = args.options.checkout.is_some();
-		let locations = args.options.spawn.location.get_locations()?;
+		let location = args.options.spawn.location.get();
 		let print = args.options.print.clone();
 
 		// Build.
@@ -24,7 +24,7 @@ impl Cli {
 			Self::print_display(output);
 		} else if (detach && verbose) || !output.is_null() {
 			let arg = tg::object::get::Arg {
-				locations,
+				location,
 				metadata: false,
 			};
 			self.print_value(&output, print, arg).await?;

@@ -8,7 +8,7 @@ pub struct Args {
 	pub commands: bool,
 
 	#[command(flatten)]
-	pub destination: crate::location::Location,
+	pub destination: crate::location::Args,
 
 	#[command(flatten)]
 	pub eager: Eager,
@@ -94,11 +94,11 @@ impl Outputs {
 impl Cli {
 	pub async fn command_push(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let destination = args.destination.get()?;
+		let destination = args.destination.to_location()?;
 		let location = destination.clone().or_else(|| {
-			Some(tg::location::Location::Remote(tg::location::Remote {
-				remote: "default".to_owned(),
-				regions: None,
+			Some(tg::Location::Remote(tg::location::Remote {
+				name: "default".to_owned(),
+				region: None,
 			}))
 		});
 
@@ -156,7 +156,7 @@ impl Cli {
 					let arg = tg::tag::put::Arg {
 						force: args.force,
 						item: item.clone(),
-						location: location.clone(),
+						location: location.clone().map(Into::into),
 						replicate: false,
 					};
 					handle

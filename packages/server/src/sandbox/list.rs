@@ -20,7 +20,7 @@ impl Server {
 		let mut output = tg::sandbox::list::Output { data: Vec::new() };
 
 		let locations = self
-			.locations_with_regions(arg.locations)
+			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
 
@@ -29,13 +29,13 @@ impl Server {
 				output.data.extend(self.list_sandboxes_local().await?);
 			}
 
-			let region_outputs = self.list_sandboxes_from_regions(&local.regions).await?;
+			let region_outputs = self.list_sandboxes_regions(&local.regions).await?;
 			output
 				.data
 				.extend(region_outputs.into_iter().flat_map(|output| output.data));
 		}
 
-		let remote_outputs = self.list_sandboxes_from_remotes(&locations.remotes).await?;
+		let remote_outputs = self.list_sandboxes_remotes(&locations.remotes).await?;
 		output
 			.data
 			.extend(remote_outputs.into_iter().flat_map(|output| output.data));
@@ -106,33 +106,28 @@ impl Server {
 		Ok(data)
 	}
 
-	async fn list_sandboxes_from_regions(
+	async fn list_sandboxes_regions(
 		&self,
 		regions: &[String],
 	) -> tg::Result<Vec<tg::sandbox::list::Output>> {
 		let outputs = regions
 			.iter()
-			.map(|region| self.list_sandboxes_from_region(region))
+			.map(|region| self.list_sandboxes_region(region))
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
 		Ok(outputs)
 	}
 
-	async fn list_sandboxes_from_region(
-		&self,
-		region: &str,
-	) -> tg::Result<tg::sandbox::list::Output> {
+	async fn list_sandboxes_region(&self, region: &str) -> tg::Result<tg::sandbox::list::Output> {
 		let client = self.get_region_client(region.to_owned()).await.map_err(
 			|source| tg::error!(!source, region = %region, "failed to get the region client"),
 		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.to_owned()),
+		});
 		let arg = tg::sandbox::list::Arg {
-			locations: tg::location::Locations {
-				local: Some(tg::Either::Right(tg::location::Local {
-					regions: Some(vec![region.to_owned()]),
-				})),
-				remotes: Some(tg::Either::Left(false)),
-			},
+			location: Some(location.into()),
 		};
 		let output = client.list_sandboxes(arg).await.map_err(
 			|source| tg::error!(!source, region = %region, "failed to list the sandboxes"),
@@ -140,22 +135,22 @@ impl Server {
 		Ok(output)
 	}
 
-	async fn list_sandboxes_from_remotes(
+	async fn list_sandboxes_remotes(
 		&self,
-		remotes: &[tg::location::Remote],
+		remotes: &[crate::location::Remote],
 	) -> tg::Result<Vec<tg::sandbox::list::Output>> {
 		let outputs = remotes
 			.iter()
-			.map(|remote| self.list_sandboxes_from_remote(remote))
+			.map(|remote| self.list_sandboxes_remote(remote))
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
 		Ok(outputs)
 	}
 
-	async fn list_sandboxes_from_remote(
+	async fn list_sandboxes_remote(
 		&self,
-		remote: &tg::location::Remote,
+		remote: &crate::location::Remote,
 	) -> tg::Result<tg::sandbox::list::Output> {
 		let client = self
 			.get_remote_client(remote.remote.clone())
@@ -164,15 +159,11 @@ impl Server {
 				|source| tg::error!(!source, remote = %remote.remote, "failed to get the remote client"),
 			)?;
 		let arg = tg::sandbox::list::Arg {
-			locations: tg::location::Locations {
-				local: match &remote.regions {
-					Some(regions) => Some(tg::Either::Right(tg::location::Local {
-						regions: Some(regions.clone()),
-					})),
-					None => Some(tg::Either::Left(true)),
-				},
-				remotes: Some(tg::Either::Left(false)),
-			},
+			location: Some(tg::location::Arg(vec![
+				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
+					regions: remote.regions.clone(),
+				}),
+			])),
 		};
 		let output = client.list_sandboxes(arg).await.map_err(
 			|source| tg::error!(!source, remote = %remote.remote, "failed to list the sandboxes"),

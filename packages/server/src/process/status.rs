@@ -24,7 +24,7 @@ impl Server {
 		arg: tg::process::status::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let locations = self
-			.locations_with_regions(arg.locations)
+			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
 
@@ -37,7 +37,7 @@ impl Server {
 			}
 
 			if let Some(status) = self
-				.try_get_process_status_stream_from_regions(id, &local.regions)
+				.try_get_process_status_stream_regions(id, &local.regions)
 				.await
 				.map_err(
 					|source| tg::error!(!source, %id, "failed to get the process status from another region"),
@@ -47,7 +47,7 @@ impl Server {
 		}
 
 		if let Some(status) = self
-			.try_get_process_status_stream_from_remotes(id, &locations.remotes)
+			.try_get_process_status_stream_remotes(id, &locations.remotes)
 			.await
 			.map_err(
 				|source| tg::error!(!source, %id, "failed to get the process status from a remote"),
@@ -173,14 +173,14 @@ impl Server {
 		Ok(Some(status))
 	}
 
-	async fn try_get_process_status_stream_from_regions(
+	async fn try_get_process_status_stream_regions(
 		&self,
 		id: &tg::process::Id,
 		regions: &[String],
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_process_status_stream_from_region(id, region))
+			.map(|region| self.try_get_process_status_stream_region(id, region))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -201,7 +201,7 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	async fn try_get_process_status_stream_from_region(
+	async fn try_get_process_status_stream_region(
 		&self,
 		id: &tg::process::Id,
 		region: &str,
@@ -209,13 +209,11 @@ impl Server {
 		let client = self.get_region_client(region.to_owned()).await.map_err(
 			|source| tg::error!(!source, region = %region, "failed to get the region client"),
 		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.to_owned()),
+		});
 		let arg = tg::process::status::Arg {
-			locations: tg::location::Locations {
-				local: Some(tg::Either::Right(tg::location::Local {
-					regions: Some(vec![region.to_owned()]),
-				})),
-				remotes: Some(tg::Either::Left(false)),
-			},
+			location: Some(location.into()),
 		};
 		let Some(stream) = client
 			.try_get_process_status_stream(id, arg)
@@ -229,14 +227,14 @@ impl Server {
 		Ok(Some(stream.boxed()))
 	}
 
-	async fn try_get_process_status_stream_from_remotes(
+	async fn try_get_process_status_stream_remotes(
 		&self,
 		id: &tg::process::Id,
-		remotes: &[tg::location::Remote],
+		remotes: &[crate::location::Remote],
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_get_process_status_stream_from_remote(id, remote))
+			.map(|remote| self.try_get_process_status_stream_remote(id, remote))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -257,10 +255,10 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	async fn try_get_process_status_stream_from_remote(
+	async fn try_get_process_status_stream_remote(
 		&self,
 		id: &tg::process::Id,
-		remote: &tg::location::Remote,
+		remote: &crate::location::Remote,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let client = self
 			.get_remote_client(remote.remote.clone())
@@ -269,15 +267,11 @@ impl Server {
 				|source| tg::error!(!source, remote = %remote.remote, "failed to get the remote client"),
 			)?;
 		let arg = tg::process::status::Arg {
-			locations: tg::location::Locations {
-				local: match &remote.regions {
-					Some(regions) => Some(tg::Either::Right(tg::location::Local {
-						regions: Some(regions.clone()),
-					})),
-					None => Some(tg::Either::Left(true)),
-				},
-				remotes: Some(tg::Either::Left(false)),
-			},
+			location: Some(tg::location::Arg(vec![
+				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
+					regions: remote.regions.clone(),
+				}),
+			])),
 		};
 		let Some(stream) = client
 			.try_get_process_status_stream(id, arg)

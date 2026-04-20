@@ -14,7 +14,7 @@ pub struct Args {
 	pub id: tg::process::Id,
 
 	#[command(flatten)]
-	pub location: crate::location::Location,
+	pub location: crate::location::Args,
 }
 
 impl Cli {
@@ -37,7 +37,7 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to deseralize the data"))?;
 		let arg = tg::process::put::Arg {
 			data,
-			location: args.location.get()?,
+			location: args.location.get(),
 		};
 		handle
 			.put_process(&args.id, arg)

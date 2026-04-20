@@ -5,7 +5,7 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub location: crate::location::Location,
+	pub location: crate::location::Args,
 
 	/// If this flag is set, the lock will not be updated.
 	#[arg(long)]
@@ -40,7 +40,7 @@ impl Cli {
 
 		// Document the module.
 		let arg = tg::document::Arg {
-			location: args.location.get()?,
+			location: args.location.get(),
 			module,
 		};
 		let output = handle

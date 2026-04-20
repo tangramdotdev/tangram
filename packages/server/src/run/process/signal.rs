@@ -6,14 +6,11 @@ impl Server {
 		sandbox: &tangram_sandbox::Sandbox,
 		sandbox_process: &tangram_sandbox::Process,
 		id: &tg::process::Id,
-		location: Option<&tg::location::Location>,
+		location: Option<&tg::Location>,
 	) -> tg::Result<()> {
 		// Get the signal stream for the process.
 		let arg = tg::process::signal::get::Arg {
-			locations: location.cloned().map_or_else(
-				tg::location::Locations::default,
-				tg::location::Locations::from,
-			),
+			location: location.cloned().map(Into::into),
 		};
 		let mut stream = self
 			.try_get_process_signal_stream(id, arg)

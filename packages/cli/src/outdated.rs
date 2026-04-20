@@ -90,7 +90,7 @@ impl Cli {
 					.list_tags(tg::tag::list::Arg {
 						cached: false,
 						length: Some(1),
-						locations: tg::location::Locations::default(),
+						location: None,
 						pattern: pattern.clone(),
 						recursive: false,
 						reverse: true,
@@ -110,7 +110,7 @@ impl Cli {
 					.list_tags(tg::tag::list::Arg {
 						cached: false,
 						length: Some(1),
-						locations: tg::location::Locations::default(),
+						location: None,
 						pattern: pattern.clone(),
 						recursive: false,
 						reverse: true,

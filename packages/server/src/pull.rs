@@ -25,15 +25,15 @@ impl Server {
 		}
 
 		let source = arg.source.clone().unwrap_or_else(|| {
-			tg::location::Location::Remote(tg::location::Remote {
-				remote: "default".to_owned(),
-				regions: None,
+			tg::Location::Remote(tg::location::Remote {
+				name: "default".to_owned(),
+				region: None,
 			})
 		});
 		let destination = arg
 			.destination
 			.clone()
-			.unwrap_or_else(|| tg::location::Location::Local(tg::location::Local::default()));
+			.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
 		let arg: tg::push::Arg = arg.clone().into();
 		let stream = self.push_or_pull(&arg, source, destination).await?;
 		Ok(stream.boxed())

@@ -149,11 +149,11 @@ impl Server {
 		error: tg::error::Data,
 	) -> tg::Result<()> {
 		match location {
-			tg::location::Location::Local(_) => {
+			tg::Location::Local(_) => {
 				self.finish_unfinished_processes_in_sandbox_local(id, error)
 					.await
 			},
-			tg::location::Location::Remote(remote) => {
+			tg::Location::Remote(remote) => {
 				self.finish_unfinished_processes_in_sandbox_remote(id, remote, error)
 					.await
 			},
@@ -199,9 +199,7 @@ impl Server {
 						checksum: None,
 						error: Some(tg::Either::Left(error)),
 						exit: 1,
-						location: Some(tg::location::Location::Local(
-							tg::location::Local::default(),
-						)),
+						location: Some(tg::Location::Local(tg::location::Local::default()).into()),
 						output: None,
 					};
 					server.finish_process(&row.id, arg).await.ok();
@@ -222,33 +220,26 @@ impl Server {
 		error: tg::error::Data,
 	) -> tg::Result<()> {
 		let client = self
-			.get_remote_client(remote.remote.clone())
+			.get_remote_client(remote.name.clone())
 			.await
 			.map_err(|source| {
 				tg::error!(
 					!source,
 					%id,
-					remote = %remote.remote,
+					remote = %remote.name,
 					"failed to get the remote client"
 				)
 			})?;
 		let arg = tg::process::list::Arg {
-			locations: tg::location::Locations {
-				local: match &remote.regions {
-					Some(regions) => Some(tg::Either::Right(tg::location::Local {
-						regions: Some(regions.clone()),
-					})),
-					None => Some(tg::Either::Left(true)),
-				},
-				remotes: Some(tg::Either::Left(false)),
-			},
+			location: Some(tg::location::Arg(vec![
+				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
+					regions: remote.region.clone().map(|region| vec![region]),
+				}),
+			])),
 		};
-		let output = client
-			.list_processes(arg)
-			.await
-			.map_err(
-				|source| tg::error!(!source, %id, remote = %remote.remote, "failed to list the remote processes"),
-			)?;
+		let output = client.list_processes(arg).await.map_err(
+			|source| tg::error!(!source, %id, remote = %remote.name, "failed to list the remote processes"),
+		)?;
 
 		output
 			.data
@@ -263,7 +254,7 @@ impl Server {
 						checksum: None,
 						error: Some(tg::Either::Left(error)),
 						exit: 1,
-						location: Some(tg::location::Location::Remote(remote)),
+						location: Some(tg::Location::Remote(remote).into()),
 						output: None,
 					};
 					server.finish_process(&output.id, arg).await.ok();

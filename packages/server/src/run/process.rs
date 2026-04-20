@@ -71,18 +71,18 @@ impl Server {
 		};
 
 		// If the process is remote, then push the output.
-		if let Some(tg::location::Location::Remote(remote)) = process
-			.locations()
-			.and_then(|locations| locations.to_location())
+		if let Some(tg::Location::Remote(remote)) = process
+			.location()
+			.and_then(|location| location.to_location())
 			&& let Some(value) = &value
 		{
 			let mut objects = BTreeSet::new();
 			value.children(&mut objects);
 			if !objects.is_empty() {
 				let arg = tg::push::Arg {
-					destination: Some(tg::location::Location::Remote(tg::location::Remote {
-						remote: remote.remote.clone(),
-						regions: remote.regions.clone(),
+					destination: Some(tg::Location::Remote(tg::location::Remote {
+						name: remote.name.clone(),
+						region: remote.region.clone(),
 					})),
 					items: objects.into_iter().map(tg::Either::Left).collect(),
 					..Default::default()
@@ -103,8 +103,9 @@ impl Server {
 			error,
 			exit: wait.exit,
 			location: process
-				.locations()
-				.and_then(|locations| locations.to_location()),
+				.location()
+				.and_then(|location| location.to_location())
+				.map(Into::into),
 			output: value,
 		};
 		self.finish_process(process.id(), arg).await.map_err(
@@ -127,8 +128,8 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to load the process"))?;
 		let location = process
-			.locations()
-			.and_then(|locations| locations.to_location());
+			.location()
+			.and_then(|location| location.to_location());
 
 		let command = process
 			.command_with_handle(self)

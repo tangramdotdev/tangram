@@ -19,15 +19,18 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 
-		let location = self.location_with_regions(arg.location.as_ref())?;
+		let location = self.location(arg.location.as_ref())?;
 		let output = match location {
-			crate::location::Location::Local { region: None } => {
+			tg::Location::Local(tg::location::Local { region: None }) => {
 				self.try_heartbeat_sandbox_local(id).await?
 			},
-			crate::location::Location::Local {
+			tg::Location::Local(tg::location::Local {
 				region: Some(region),
-			} => self.try_heartbeat_sandbox_region(id, region).await?,
-			crate::location::Location::Remote { remote, region } => {
+			}) => self.try_heartbeat_sandbox_region(id, region).await?,
+			tg::Location::Remote(tg::location::Remote {
+				name: remote,
+				region,
+			}) => {
 				self.try_heartbeat_sandbox_remote(id, remote, region)
 					.await?
 			},
@@ -75,10 +78,11 @@ impl Server {
 		let client = self.get_region_client(region.clone()).await.map_err(
 			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
 		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
 		let arg = tg::sandbox::heartbeat::Arg {
-			location: Some(tg::location::Location::Local(tg::location::Local {
-				regions: Some(vec![region.clone()]),
-			})),
+			location: Some(location.into()),
 		};
 		let Some(output) = client.try_heartbeat_sandbox(id, arg).await.map_err(
 			|source| tg::error!(!source, region = %region, "failed to heartbeat the sandbox"),
@@ -100,9 +104,7 @@ impl Server {
 			|source| tg::error!(!source, remote = %remote, %id, "failed to get the remote client"),
 		)?;
 		let arg = tg::sandbox::heartbeat::Arg {
-			location: Some(tg::location::Location::Local(tg::location::Local {
-				regions: region.map(|region| vec![region]),
-			})),
+			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 		};
 		let Some(output) = client.try_heartbeat_sandbox(id, arg).await.map_err(
 			|source| tg::error!(!source, remote = %remote, "failed to heartbeat the sandbox"),

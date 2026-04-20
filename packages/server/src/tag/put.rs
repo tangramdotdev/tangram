@@ -27,21 +27,24 @@ impl Server {
 		}
 
 		let location = self
-			.location_with_regions(arg.location.as_ref())
+			.location(arg.location.as_ref())
 			.map_err(|source| tg::error!(!source, "failed to resolve the location"))?;
 
 		match location {
-			crate::location::Location::Local { region: None } => {
+			tg::Location::Local(tg::location::Local { region: None }) => {
 				self.try_put_tag_local(context, tag, arg.clone())
 					.await
 					.map_err(|source| tg::error!(!source, %tag, "failed to put the tag"))?;
 			},
-			crate::location::Location::Local {
+			tg::Location::Local(tg::location::Local {
 				region: Some(region),
-			} => {
+			}) => {
 				self.try_put_tag_region(tag, arg, region).await?;
 			},
-			crate::location::Location::Remote { remote, region } => {
+			tg::Location::Remote(tg::location::Remote {
+				name: remote,
+				region,
+			}) => {
 				self.try_put_tag_remote(tag, arg, remote, region).await?;
 			},
 		}
@@ -89,11 +92,9 @@ impl Server {
 
 		// Handle regions unless this is a replicated request.
 		if !arg.replicate {
+			let location = tg::Location::Local(tg::location::Local::default()).into();
 			let locations = self
-				.locations_with_regions(tg::location::Locations {
-					local: Some(tg::Either::Left(true)),
-					remotes: Some(tg::Either::Left(false)),
-				})
+				.locations(Some(&location))
 				.await
 				.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
 			if let Some(local) = locations.local
@@ -130,10 +131,11 @@ impl Server {
 		let client = self.get_region_client(region.clone()).await.map_err(
 			|source| tg::error!(!source, %tag, region = %region, "failed to get the region client"),
 		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
 		let arg = tg::tag::put::Arg {
-			location: Some(tg::location::Location::Local(tg::location::Local {
-				regions: Some(vec![region.clone()]),
-			})),
+			location: Some(location.into()),
 			..arg
 		};
 		client.put_tag(tag, arg).await.map_err(
@@ -153,9 +155,7 @@ impl Server {
 			|source| tg::error!(!source, %tag, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::tag::put::Arg {
-			location: Some(tg::location::Location::Local(tg::location::Local {
-				regions: region.map(|region| vec![region]),
-			})),
+			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			replicate: false,
 			..arg
 		};

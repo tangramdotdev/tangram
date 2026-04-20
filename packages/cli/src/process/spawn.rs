@@ -96,7 +96,7 @@ pub struct Options {
 	pub host: Option<String>,
 
 	#[command(flatten)]
-	pub location: crate::location::Location,
+	pub location: crate::location::Args,
 
 	/// Whether to retry failed processes.
 	#[arg(long)]
@@ -254,8 +254,8 @@ impl Cli {
 				cached: output.item().cached().unwrap_or(false),
 				location: output
 					.item()
-					.locations()
-					.and_then(|locations| locations.to_location()),
+					.location()
+					.and_then(|location| location.to_location()),
 				process: output.item().id().clone(),
 				token: output.item().token().cloned(),
 				wait: None,
@@ -276,7 +276,7 @@ impl Cli {
 		print: bool,
 	) -> tg::Result<tg::Referent<tg::Process>> {
 		let handle = self.handle().await?;
-		let location = options.location.get()?;
+		let location = options.location.get();
 
 		// Determine whether to sandbox.
 		let sandbox = match options.sandbox.get() {
@@ -286,7 +286,8 @@ impl Cli {
 					|| !options.sandbox.arg.is_empty()
 					|| location
 						.as_ref()
-						.is_some_and(tg::location::Location::is_remote)
+						.and_then(tg::location::Arg::to_location)
+						.is_some_and(|location| location.is_remote())
 					|| matches!(
 						options.tty.tty,
 						Some(tg::Either::Left(true) | tg::Either::Right(_))
@@ -648,7 +649,7 @@ impl Cli {
 		// Spawn the process.
 		let arg = tg::process::spawn::Arg {
 			cached: options.cached,
-			cache_locations: None,
+			cache_location: None,
 			checksum: options.checksum,
 			command: tg::Referent::with_item(command.id()),
 			location: location.clone(),

@@ -24,18 +24,21 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 
-		let location = self.location_with_regions(arg.location.as_ref())?;
+		let location = self.location(arg.location.as_ref())?;
 
 		match location {
-			crate::location::Location::Local { region: None } => {
+			tg::Location::Local(tg::location::Local { region: None }) => {
 				self.put_process_local(id, arg).await?;
 			},
-			crate::location::Location::Local {
+			tg::Location::Local(tg::location::Local {
 				region: Some(region),
-			} => {
+			}) => {
 				self.put_process_region(id, arg, region).await?;
 			},
-			crate::location::Location::Remote { remote, region } => {
+			tg::Location::Remote(tg::location::Remote {
+				name: remote,
+				region,
+			}) => {
 				self.put_process_remote(id, arg, remote, region).await?;
 			},
 		}
@@ -158,11 +161,12 @@ impl Server {
 		let client = self.get_region_client(region.clone()).await.map_err(
 			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
 		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
 		let arg = tg::process::put::Arg {
 			data: arg.data,
-			location: Some(tg::location::Location::Local(tg::location::Local {
-				regions: Some(vec![region.clone()]),
-			})),
+			location: Some(location.into()),
 		};
 		client
 			.put_process(id, arg)
@@ -181,11 +185,17 @@ impl Server {
 		let client = self.get_remote_client(remote.clone()).await.map_err(
 			|source| tg::error!(!source, remote = %remote, %id, "failed to get the remote client"),
 		)?;
+		let location = region.as_deref().map_or_else(
+			|| tg::Location::Local(tg::location::Local::default()),
+			|region| {
+				tg::Location::Local(tg::location::Local {
+					region: Some(region.to_owned()),
+				})
+			},
+		);
 		let arg = tg::process::put::Arg {
 			data: arg.data,
-			location: Some(tg::location::Location::Local(tg::location::Local {
-				regions: region.map(|region| vec![region]),
-			})),
+			location: Some(location.into()),
 		};
 		client
 			.put_process(id, arg)

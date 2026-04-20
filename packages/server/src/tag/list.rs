@@ -31,14 +31,12 @@ impl Server {
 
 		let mut data = Vec::new();
 		let locations = self
-			.locations(arg.locations.clone())
+			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
 
 		// Collect local results.
-		if let Some(local) = &locations.local
-			&& local.current
-		{
+		if locations.local.is_some() {
 			let local_arg = tg::tag::list::Arg {
 				length: None,
 				..arg.clone()
@@ -109,9 +107,9 @@ impl Server {
 					tg::error!(!source, "failed to deserialize the cached tag list")
 				})?;
 				for entry in &mut entries {
-					entry.location = Some(tg::location::Location::Remote(tg::location::Remote {
-						remote: remote.to_owned(),
-						regions: None,
+					entry.location = Some(tg::Location::Remote(tg::location::Remote {
+						name: remote.to_owned(),
+						region: None,
 					}));
 				}
 				return Ok(entries);
@@ -139,9 +137,9 @@ impl Server {
 		let entries = entries
 			.into_iter()
 			.map(|mut entry| {
-				entry.location = Some(tg::location::Location::Remote(tg::location::Remote {
-					remote: remote.to_owned(),
-					regions: None,
+				entry.location = Some(tg::Location::Remote(tg::location::Remote {
+					name: remote.to_owned(),
+					region: None,
 				}));
 				entry
 			})
@@ -154,7 +152,7 @@ impl Server {
 		tg::tag::list::Arg {
 			cached: false,
 			length: None,
-			locations: tg::location::Location::Local(tg::location::Local::default()).into(),
+			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
 			reverse: false,
 			ttl: None,
 			..arg.clone()
@@ -267,23 +265,19 @@ impl Server {
 }
 
 fn compare_tag_entry_locations(
-	a: Option<&tg::location::Location>,
-	b: Option<&tg::location::Location>,
+	a: Option<&tg::Location>,
+	b: Option<&tg::Location>,
 ) -> std::cmp::Ordering {
 	match (a, b) {
-		(None, None) => std::cmp::Ordering::Equal,
-		(None, Some(_)) => std::cmp::Ordering::Less,
-		(Some(_), None) => std::cmp::Ordering::Greater,
-		(Some(tg::location::Location::Remote(a)), Some(tg::location::Location::Remote(b))) => {
-			a.remote.cmp(&b.remote)
-		},
-		(Some(tg::location::Location::Local(_)), Some(tg::location::Location::Local(_))) => {
+		(None, None) | (Some(tg::Location::Local(_)), Some(tg::Location::Local(_))) => {
 			std::cmp::Ordering::Equal
 		},
-		(Some(tg::location::Location::Local(_)), Some(tg::location::Location::Remote(_))) => {
+		(None, Some(_)) | (Some(tg::Location::Local(_)), Some(tg::Location::Remote(_))) => {
 			std::cmp::Ordering::Less
 		},
-		(Some(tg::location::Location::Remote(_)), Some(tg::location::Location::Local(_))) => {
+		(Some(_), None) => std::cmp::Ordering::Greater,
+		(Some(tg::Location::Remote(a)), Some(tg::Location::Remote(b))) => a.name.cmp(&b.name),
+		(Some(tg::Location::Remote(_)), Some(tg::Location::Local(_))) => {
 			std::cmp::Ordering::Greater
 		},
 	}

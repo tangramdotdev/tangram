@@ -5,7 +5,7 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub locations: crate::location::Locations,
+	pub locations: crate::location::Args,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
@@ -18,14 +18,8 @@ impl Cli {
 	pub async fn command_process_output(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let locations = args.locations.get();
-		let process = tg::Process::<tg::Value>::new(
-			args.process.clone(),
-			Some(locations),
-			None,
-			None,
-			None,
-			None,
-		);
+		let process =
+			tg::Process::<tg::Value>::new(args.process.clone(), locations, None, None, None, None);
 		let output = process.output_with_handle(&handle).await.map_err(
 			|source| tg::error!(!source, id = %args.process, "failed to get the process output"),
 		)?;

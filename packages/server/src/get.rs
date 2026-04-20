@@ -124,7 +124,7 @@ impl Server {
 		let list_arg = tg::tag::list::Arg {
 			cached: false,
 			length: Some(1),
-			locations: options.locations.clone(),
+			location: options.location.clone(),
 			pattern: pattern.clone(),
 			recursive: false,
 			reverse: true,

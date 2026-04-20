@@ -8,7 +8,7 @@ pub struct Arg {
 	pub data: tg::process::Data,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub location: Option<tg::location::Location>,
+	pub location: Option<tg::location::Arg>,
 }
 
 impl tg::Client {

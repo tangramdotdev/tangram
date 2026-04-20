@@ -8,7 +8,7 @@ pub struct Args {
 	pub sandbox: tg::sandbox::Id,
 
 	#[command(flatten)]
-	pub locations: crate::location::Locations,
+	pub locations: crate::location::Args,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
@@ -21,7 +21,7 @@ impl Cli {
 			.try_get_sandbox(
 				&args.sandbox,
 				tg::sandbox::get::Arg {
-					locations: args.locations.get(),
+					location: args.locations.get(),
 				},
 			)
 			.await

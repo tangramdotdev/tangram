@@ -69,6 +69,12 @@ export namespace Module {
 		if (value.referent.options?.id !== undefined) {
 			params.push(`id=${encodeURIComponent(value.referent.options.id)}`);
 		}
+		if (value.referent.options?.location !== undefined) {
+			let location = tg.Location.Arg.toDataString(
+				value.referent.options.location,
+			);
+			params.push(`location=${encodeURIComponent(location)}`);
+		}
 		if (value.referent.options?.name !== undefined) {
 			params.push(`name=${encodeURIComponent(value.referent.options.name)}`);
 		}
@@ -97,7 +103,7 @@ export namespace Module {
 		} else {
 			item = tg.Graph.Edge.fromDataString(itemString, tg.Object.withId);
 		}
-		let options: tg.Referent.Data.Options = {};
+		let options: tg.Referent.Options = {};
 		if (params !== undefined) {
 			for (let param of params.split("&")) {
 				let [key, value] = param.split("=");
@@ -111,6 +117,12 @@ export namespace Module {
 					}
 					case "id": {
 						options.id = decodeURIComponent(value);
+						break;
+					}
+					case "location": {
+						options.location = tg.Location.Arg.fromDataString(
+							decodeURIComponent(value),
+						);
 						break;
 					}
 					case "name": {

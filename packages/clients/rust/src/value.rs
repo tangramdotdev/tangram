@@ -85,10 +85,7 @@ impl Value {
 		self.store_with_handle(handle).await
 	}
 
-	pub async fn store_with_location(
-		&self,
-		location: Option<tg::location::Location>,
-	) -> tg::Result<()> {
+	pub async fn store_with_location(&self, location: Option<tg::Location>) -> tg::Result<()> {
 		let handle = tg::handle()?;
 		self.store_with_location_with_handle(handle, location).await
 	}
@@ -154,7 +151,7 @@ impl Value {
 	pub async fn store_with_location_with_handle<H>(
 		&self,
 		handle: &H,
-		location: Option<tg::location::Location>,
+		location: Option<tg::Location>,
 	) -> tg::Result<()>
 	where
 		H: tg::Handle,
@@ -198,7 +195,10 @@ impl Value {
 			}
 		}
 		if !objects.is_empty() {
-			let arg = tg::object::batch::Arg { location, objects };
+			let arg = tg::object::batch::Arg {
+				location: location.map(Into::into),
+				objects,
+			};
 			handle.post_object_batch(arg).await?;
 		}
 

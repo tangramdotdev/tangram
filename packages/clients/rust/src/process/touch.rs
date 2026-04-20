@@ -5,8 +5,8 @@ use {
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	#[serde(default)]
-	pub locations: tg::location::Locations,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
 }
 
 impl tg::Client {

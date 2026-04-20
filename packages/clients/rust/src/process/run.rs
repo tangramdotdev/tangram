@@ -93,7 +93,7 @@ impl<O> tg::Process<O> {
 
 		let arg = tg::process::spawn::Arg {
 			cached: arg.cached,
-			cache_locations: None,
+			cache_location: None,
 			checksum,
 			command,
 			location: arg.location,

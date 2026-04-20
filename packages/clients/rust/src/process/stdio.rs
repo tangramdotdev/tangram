@@ -137,7 +137,7 @@ impl std::str::FromStr for Stream {
 pub(super) async fn stdio_task<H>(
 	handle: H,
 	id: tg::process::Id,
-	location: Option<tg::location::Location>,
+	location: Option<tg::Location>,
 	stdin: Option<tg::process::Stdio>,
 	stdout: Option<tg::process::Stdio>,
 	stderr: Option<tg::process::Stdio>,
@@ -196,7 +196,7 @@ where
 async fn stdin_task<H>(
 	handle: &H,
 	id: tg::process::Id,
-	location: Option<tg::location::Location>,
+	location: Option<tg::Location>,
 	stdin: tg::process::Stdio,
 	raw: bool,
 ) -> tg::Result<()>
@@ -236,7 +236,7 @@ where
 	#[cfg(not(unix))]
 	let _ = raw;
 	let arg = tg::process::stdio::write::Arg {
-		location,
+		location: location.map(Into::into),
 		streams: vec![tg::process::stdio::Stream::Stdin],
 	};
 	let input = io::stdin()
@@ -264,7 +264,7 @@ where
 async fn stdout_stderr_task<H>(
 	handle: &H,
 	id: tg::process::Id,
-	location: Option<tg::location::Location>,
+	location: Option<tg::Location>,
 	stdout: Option<tg::process::Stdio>,
 	stderr: Option<tg::process::Stdio>,
 ) -> tg::Result<()>
@@ -286,10 +286,7 @@ where
 		return Ok(());
 	}
 	let arg = tg::process::stdio::read::Arg {
-		locations: location.map_or_else(
-			tg::location::Locations::default,
-			tg::location::Locations::from,
-		),
+		location: location.map(Into::into),
 		streams,
 		..Default::default()
 	};
@@ -338,7 +335,7 @@ where
 async fn sigwinch_task<H>(
 	handle: &H,
 	id: tg::process::Id,
-	location: Option<tg::location::Location>,
+	location: Option<tg::Location>,
 ) -> tg::Result<()>
 where
 	H: tg::Handle,
@@ -348,7 +345,7 @@ where
 	while let Some(()) = signal.recv().await {
 		let arg = tg::process::tty::size::put::Arg {
 			size: get_tty_size().ok_or_else(|| tg::error!("failed to get the tty size"))?,
-			location: location.clone(),
+			location: location.clone().map(Into::into),
 		};
 		handle
 			.set_process_tty_size(&id, arg)

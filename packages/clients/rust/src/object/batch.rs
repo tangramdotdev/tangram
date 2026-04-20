@@ -18,7 +18,7 @@ use {
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
-	pub location: Option<tg::location::Location>,
+	pub location: Option<tg::location::Arg>,
 
 	#[tangram_serialize(id = 1)]
 	pub objects: Vec<Object>,

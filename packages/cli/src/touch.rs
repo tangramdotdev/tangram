@@ -5,7 +5,7 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub locations: crate::location::Locations,
+	pub locations: crate::location::Args,
 
 	#[arg(index = 1)]
 	pub reference: tg::Reference,

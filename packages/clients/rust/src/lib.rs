@@ -23,6 +23,7 @@ pub use {
 		handle::{HANDLE, Handle, init, init_with, try_handle},
 		health::Health,
 		id::Id,
+		location::Location,
 		module::Module,
 		mutation::Mutation,
 		object::Handle as Object,

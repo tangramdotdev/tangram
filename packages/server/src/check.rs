@@ -26,16 +26,19 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 
-		let location = self.location_with_regions(arg.location.as_ref())?;
+		let location = self.location(arg.location.as_ref())?;
 
 		let output = match location {
-			crate::location::Location::Local { region: None } => self.check_local(arg).await?,
-			crate::location::Location::Local {
-				region: Some(region),
-			} => self.check_region(arg, region).await?,
-			crate::location::Location::Remote { remote, region } => {
-				self.check_remote(arg, remote, region).await?
+			tg::Location::Local(tg::location::Local { region: None }) => {
+				self.check_local(arg).await?
 			},
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) => self.check_region(arg, region).await?,
+			tg::Location::Remote(tg::location::Remote {
+				name: remote,
+				region,
+			}) => self.check_remote(arg, remote, region).await?,
 		};
 
 		Ok(output)
@@ -75,10 +78,11 @@ impl Server {
 		let client = self.get_region_client(region.clone()).await.map_err(
 			|source| tg::error!(!source, region = %region, "failed to get the region client"),
 		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
 		let arg = tg::check::Arg {
-			location: Some(tg::location::Location::Local(tg::location::Local {
-				regions: Some(vec![region.clone()]),
-			})),
+			location: Some(location.into()),
 			..arg
 		};
 		let output = client
@@ -99,9 +103,15 @@ impl Server {
 			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::check::Arg {
-			location: Some(tg::location::Location::Local(tg::location::Local {
-				regions: region.map(|region| vec![region]),
-			})),
+			location: Some(region.as_deref().map_or_else(
+				|| tg::Location::Local(tg::location::Local::default()).into(),
+				|region| {
+					tg::Location::Local(tg::location::Local {
+						region: Some(region.to_owned()),
+					})
+					.into()
+				},
+			)),
 			..arg
 		};
 		let output = client

@@ -9,7 +9,7 @@ pub struct Args {
 	pub bytes: bool,
 
 	#[command(flatten)]
-	pub locations: crate::location::Locations,
+	pub locations: crate::location::Args,
 
 	/// Get the metadata.
 	#[arg(long)]

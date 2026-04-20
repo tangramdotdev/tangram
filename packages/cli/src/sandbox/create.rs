@@ -8,7 +8,7 @@ pub struct Args {
 	pub arg: super::Options,
 
 	#[command(flatten)]
-	pub location: crate::location::Location,
+	pub location: crate::location::Args,
 }
 
 impl Cli {
@@ -18,7 +18,7 @@ impl Cli {
 			cpu: args.arg.cpu,
 			hostname: args.arg.hostname,
 			isolation: args.arg.isolation,
-			location: args.location.get()?,
+			location: args.location.get(),
 			memory: args.arg.memory,
 			mounts: args.arg.mounts,
 			network: args.arg.network.get(),

@@ -33,18 +33,19 @@ impl Server {
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
-		let location = self.location_with_regions(arg.location.as_ref())?;
+		let location = self.location(arg.location.as_ref())?;
 
 		let stream = match location {
-			crate::location::Location::Local { region: None } => {
+			tg::Location::Local(tg::location::Local { region: None }) => {
 				self.sync_local(context, arg, stream).await?
 			},
-			crate::location::Location::Local {
+			tg::Location::Local(tg::location::Local {
 				region: Some(region),
-			} => self.sync_region(arg, stream, region).await?,
-			crate::location::Location::Remote { remote, region } => {
-				self.sync_remote(arg, stream, remote, region).await?
-			},
+			}) => self.sync_region(arg, stream, region).await?,
+			tg::Location::Remote(tg::location::Remote {
+				name: remote,
+				region,
+			}) => self.sync_remote(arg, stream, remote, region).await?,
 		};
 
 		Ok(stream)
@@ -116,10 +117,11 @@ impl Server {
 		let client = self.get_region_client(region.clone()).await.map_err(
 			|source| tg::error!(!source, region = %region, "failed to get the region client"),
 		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
 		let arg = tg::sync::Arg {
-			location: Some(tg::location::Location::Local(tg::location::Local {
-				regions: Some(vec![region.clone()]),
-			})),
+			location: Some(location.into()),
 			..arg
 		};
 		let stream = client
@@ -140,9 +142,7 @@ impl Server {
 			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::sync::Arg {
-			location: Some(tg::location::Location::Local(tg::location::Local {
-				regions: region.map(|region| vec![region]),
-			})),
+			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			..arg
 		};
 		let stream = client

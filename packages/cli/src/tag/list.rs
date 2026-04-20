@@ -9,7 +9,7 @@ pub struct Args {
 	pub cached: bool,
 
 	#[command(flatten)]
-	pub locations: crate::location::Locations,
+	pub locations: crate::location::Args,
 
 	#[arg(index = 1, default_value = "*")]
 	pub pattern: tg::tag::Pattern,
@@ -34,7 +34,7 @@ impl Cli {
 		let arg = tg::tag::list::Arg {
 			cached: args.cached,
 			length: None,
-			locations: args.locations.get(),
+			location: args.locations.get(),
 			pattern: args.pattern.clone(),
 			recursive: args.recursive,
 			reverse: args.reverse,

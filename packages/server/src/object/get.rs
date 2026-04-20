@@ -39,7 +39,7 @@ impl Server {
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let locations = self
-			.locations_with_regions(arg.locations)
+			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
 
@@ -54,7 +54,7 @@ impl Server {
 			}
 
 			if let Some(output) = self
-				.try_get_object_from_regions(id, &local.regions, arg.metadata)
+				.try_get_object_regions(id, &local.regions, arg.metadata)
 				.await
 				.map_err(
 					|source| tg::error!(!source, %id, "failed to get the object from another region"),
@@ -64,7 +64,7 @@ impl Server {
 		}
 
 		if let Some(output) = self
-			.try_get_object_from_remotes(id, &locations.remotes, arg.metadata)
+			.try_get_object_remotes(id, &locations.remotes, arg.metadata)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to get the object from a remote"))?
 		{
@@ -156,7 +156,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the objects locally"))?;
 		let locations = self
-			.locations_with_regions(tg::location::Locations::default())
+			.locations(None)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
 		let local_regions = locations.local.map_or_else(Vec::new, |local| local.regions);
@@ -171,15 +171,13 @@ impl Server {
 					}
 
 					if let Some(output) = self
-						.try_get_object_from_regions(id, &local_regions, metadata)
+						.try_get_object_regions(id, &local_regions, metadata)
 						.await?
 					{
 						return Ok(Some(output));
 					}
 
-					let output = self
-						.try_get_object_from_remotes(id, &remotes, metadata)
-						.await?;
+					let output = self.try_get_object_remotes(id, &remotes, metadata).await?;
 					Ok::<_, tg::Error>(output)
 				}
 			})
@@ -245,7 +243,7 @@ impl Server {
 		Ok(output)
 	}
 
-	async fn try_get_object_from_regions(
+	async fn try_get_object_regions(
 		&self,
 		id: &tg::object::Id,
 		regions: &[String],
@@ -253,7 +251,7 @@ impl Server {
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_object_from_region(id, region, metadata))
+			.map(|region| self.try_get_object_region(id, region, metadata))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -277,17 +275,17 @@ impl Server {
 		Ok(Some(output))
 	}
 
-	async fn try_get_object_from_region(
+	async fn try_get_object_region(
 		&self,
 		id: &tg::object::Id,
 		region: &str,
 		metadata: bool,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		let location = tg::location::Location::Local(tg::location::Local {
-			regions: Some(vec![region.to_owned()]),
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.to_owned()),
 		});
 		let Some(output) = self
-			.try_get_object_from_location(id, location, metadata)
+			.try_get_object_location(id, location, metadata)
 			.await
 			.map_err(
 				|source| tg::error!(!source, %id, region = %region, "failed to get the object"),
@@ -298,15 +296,15 @@ impl Server {
 		Ok(Some(output))
 	}
 
-	async fn try_get_object_from_remotes(
+	async fn try_get_object_remotes(
 		&self,
 		id: &tg::object::Id,
-		remotes: &[tg::location::Remote],
+		remotes: &[crate::location::Remote],
 		metadata: bool,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_get_object_from_remote(id, remote, metadata))
+			.map(|remote| self.try_get_object_remote(id, remote, metadata))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -330,15 +328,18 @@ impl Server {
 		Ok(Some(output))
 	}
 
-	async fn try_get_object_from_remote(
+	async fn try_get_object_remote(
 		&self,
 		id: &tg::object::Id,
-		remote: &tg::location::Remote,
+		remote: &crate::location::Remote,
 		metadata: bool,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		let location = tg::location::Location::Remote(remote.clone());
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.remote.clone(),
+			region: None,
+		});
 		let Some(output) = self
-			.try_get_object_from_location(id, location, metadata)
+			.try_get_object_location(id, location, metadata)
 			.await
 			.map_err(|source| {
 				tg::error!(
@@ -354,7 +355,7 @@ impl Server {
 		Ok(Some(output))
 	}
 
-	async fn try_get_object_from_location(
+	async fn try_get_object_location(
 		&self,
 		id: &tg::object::Id,
 		location: tg::location::Location,
@@ -391,55 +392,50 @@ impl Server {
 			metadata,
 		} = key;
 		match location {
-			tg::location::Location::Local(local) => {
-				let regions = local
-					.regions
+			tg::Location::Local(local) => {
+				let region = local
+					.region
 					.as_ref()
-					.ok_or_else(|| tg::error!("expected the regions to be set"))?;
-				let [region] = regions.as_slice() else {
-					return Err(tg::error!("expected exactly one region"));
-				};
+					.ok_or_else(|| tg::error!("expected the region to be set"))?;
 				let client = self.get_region_client(region.clone()).await.map_err(
 					|source| tg::error!(!source, region = %region, "failed to get the region client"),
 				)?;
+				let location = tg::Location::Local(tg::location::Local {
+					region: Some(region.to_owned()),
+				});
 				let arg = tg::object::get::Arg {
-					locations: tg::location::Locations {
-						local: Some(tg::Either::Right(tg::location::Local {
-							regions: Some(vec![region.clone()]),
-						})),
-						remotes: Some(tg::Either::Left(false)),
-					},
+					location: Some(location.into()),
 					metadata,
 				};
 				client.try_get_object(&id, arg).await.map_err(
 					|source| tg::error!(!source, %id, region = %region, "failed to get the object"),
 				)
 			},
-			tg::location::Location::Remote(remote) => {
-				let client = self
-					.get_remote_client(remote.remote.clone())
-					.await
-					.map_err(|source| {
-						tg::error!(
-							!source,
-							remote = %remote.remote,
-							"failed to get the remote client"
-						)
-					})?;
+			tg::Location::Remote(remote) => {
+				let client =
+					self.get_remote_client(remote.name.clone())
+						.await
+						.map_err(|source| {
+							tg::error!(
+								!source,
+								remote = %remote.name,
+								"failed to get the remote client"
+							)
+						})?;
 				let arg = tg::object::get::Arg {
-					locations: tg::location::Locations {
-						local: match &remote.regions {
-							Some(regions) => Some(tg::Either::Right(tg::location::Local {
-								regions: Some(regions.clone()),
-							})),
-							None => Some(tg::Either::Left(true)),
+					location: Some(remote.region.as_deref().map_or_else(
+						|| tg::Location::Local(tg::location::Local::default()).into(),
+						|region| {
+							tg::Location::Local(tg::location::Local {
+								region: Some(region.to_owned()),
+							})
+							.into()
 						},
-						remotes: Some(tg::Either::Left(false)),
-					},
+					)),
 					metadata,
 				};
 				client.try_get_object(&id, arg).await.map_err(
-					|source| tg::error!(!source, %id, remote = %remote.remote, "failed to get the object"),
+					|source| tg::error!(!source, %id, remote = %remote.name, "failed to get the object"),
 				)
 			},
 		}

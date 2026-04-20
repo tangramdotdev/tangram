@@ -9,7 +9,7 @@ pub struct Args {
 	pub bytes: bool,
 
 	#[command(flatten)]
-	pub locations: crate::location::Locations,
+	pub locations: crate::location::Args,
 
 	/// Get the object's metadata.
 	#[arg(long)]
@@ -28,7 +28,7 @@ impl Cli {
 		let handle = self.handle().await?;
 		if args.bytes {
 			let arg = tg::object::get::Arg {
-				locations: args.locations.get(),
+				location: args.locations.get(),
 				metadata: args.metadata,
 			};
 			let tg::object::get::Output { bytes, metadata } = handle
@@ -54,7 +54,7 @@ impl Cli {
 			.depth
 			.get_or_insert(crate::print::Depth::Finite(1));
 		let arg = tg::object::get::Arg {
-			locations: args.locations.get(),
+			location: args.locations.get(),
 			metadata: args.metadata,
 		};
 		if args.metadata {

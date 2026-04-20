@@ -13,8 +13,8 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub length: Option<u64>,
 
-	#[serde(default)]
-	pub locations: tg::location::Locations,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
 
 	#[serde(default, skip_serializing_if = "tg::tag::Pattern::is_empty")]
 	pub pattern: tg::tag::Pattern,
@@ -41,7 +41,7 @@ pub struct Entry {
 	pub item: Option<tg::Either<tg::object::Id, tg::process::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub location: Option<tg::location::Location>,
+	pub location: Option<tg::Location>,
 
 	pub tag: tg::Tag,
 }

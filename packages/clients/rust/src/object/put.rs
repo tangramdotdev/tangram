@@ -11,7 +11,7 @@ pub struct Arg {
 	pub bytes: Bytes,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub location: Option<tg::location::Location>,
+	pub location: Option<tg::location::Arg>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub metadata: Option<tg::object::Metadata>,

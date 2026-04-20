@@ -5,7 +5,7 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub locations: crate::location::Locations,
+	pub locations: crate::location::Args,
 
 	#[arg(index = 1)]
 	pub object: tg::object::Id,
@@ -18,7 +18,7 @@ impl Cli {
 	pub async fn command_object_metadata(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let arg = tg::object::metadata::Arg {
-			locations: args.locations.get(),
+			location: args.locations.get(),
 		};
 		let output = handle
 			.try_get_object_metadata(&args.object, arg)

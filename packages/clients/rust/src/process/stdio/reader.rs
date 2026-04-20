@@ -103,16 +103,11 @@ impl Reader {
 			let process = process
 				.and_then(|process| process.upgrade())
 				.ok_or_else(|| tg::error!("the process is not available"))?;
-			let locations = process
-				.locations
-				.read()
-				.unwrap()
-				.clone()
-				.unwrap_or_default();
+			let location = process.location.read().unwrap().clone();
 			let process = process.id.clone();
 			state = self.0.lock().await;
 			let arg = tg::process::stdio::read::Arg {
-				locations,
+				location,
 				streams: vec![stream],
 				..Default::default()
 			};

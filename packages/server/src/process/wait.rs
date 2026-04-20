@@ -24,7 +24,7 @@ impl Server {
 		arg: tg::process::wait::Arg,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
 		let locations = self
-			.locations_with_regions(arg.locations.clone())
+			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
 
@@ -42,23 +42,23 @@ impl Server {
 			}
 
 			if let Some((future, region)) = self
-				.try_wait_process_from_regions(id, &local.regions)
+				.try_wait_process_regions(id, &local.regions)
 				.await
 				.map_err(
 					|source| tg::error!(!source, %id, "failed to wait for the process in another region"),
 				)? {
-				let location = Some(tg::location::Location::Local(tg::location::Local {
-					regions: Some(vec![region]),
+				let location = Some(tg::Location::Local(tg::location::Local {
+					region: Some(region),
 				}));
 				let future = self
-					.attach_wait_process_cancel_guard(id, arg, location, future)
+					.attach_wait_process_cancel_guard(id, arg, location.map(Into::into), future)
 					.await?;
 				return Ok(Some(future));
 			}
 		}
 
 		let Some((future, remote)) = self
-			.try_wait_process_from_remotes(id, &locations.remotes)
+			.try_wait_process_remotes(id, &locations.remotes)
 			.await
 			.map_err(
 				|source| tg::error!(!source, %id, "failed to wait for the process on the remote"),
@@ -66,7 +66,13 @@ impl Server {
 		else {
 			return Ok(None);
 		};
-		let location = Some(tg::location::Location::Remote(remote));
+		let location = Some(
+			tg::Location::Remote(tg::location::Remote {
+				name: remote.remote.clone(),
+				region: None,
+			})
+			.into(),
+		);
 		let future = self
 			.attach_wait_process_cancel_guard(id, arg, location, future)
 			.await?;
@@ -124,7 +130,7 @@ impl Server {
 		Ok(Some(future.boxed()))
 	}
 
-	async fn try_wait_process_from_regions(
+	async fn try_wait_process_regions(
 		&self,
 		id: &tg::process::Id,
 		regions: &[String],
@@ -136,7 +142,7 @@ impl Server {
 	> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_wait_process_from_region(id, region))
+			.map(|region| self.try_wait_process_region(id, region))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -157,7 +163,7 @@ impl Server {
 		Ok(Some(future))
 	}
 
-	async fn try_wait_process_from_region(
+	async fn try_wait_process_region(
 		&self,
 		id: &tg::process::Id,
 		region: &str,
@@ -170,13 +176,11 @@ impl Server {
 		let client = self.get_region_client(region.to_owned()).await.map_err(
 			|source| tg::error!(!source, region = %region, "failed to get the region client"),
 		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.to_owned()),
+		});
 		let arg = tg::process::wait::Arg {
-			locations: tg::location::Locations {
-				local: Some(tg::Either::Right(tg::location::Local {
-					regions: Some(vec![region.to_owned()]),
-				})),
-				remotes: Some(tg::Either::Left(false)),
-			},
+			location: Some(location.into()),
 			token: None,
 		};
 		let Some(future) = client.try_wait_process_future(id, arg).await.map_err(
@@ -188,19 +192,19 @@ impl Server {
 		Ok(Some((future.boxed(), region.to_owned())))
 	}
 
-	async fn try_wait_process_from_remotes(
+	async fn try_wait_process_remotes(
 		&self,
 		id: &tg::process::Id,
-		remotes: &[tg::location::Remote],
+		remotes: &[crate::location::Remote],
 	) -> tg::Result<
 		Option<(
 			BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
-			tg::location::Remote,
+			crate::location::Remote,
 		)>,
 	> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_wait_process_from_remote(id, remote))
+			.map(|remote| self.try_wait_process_remote(id, remote))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -221,14 +225,14 @@ impl Server {
 		Ok(Some(future))
 	}
 
-	async fn try_wait_process_from_remote(
+	async fn try_wait_process_remote(
 		&self,
 		id: &tg::process::Id,
-		remote: &tg::location::Remote,
+		remote: &crate::location::Remote,
 	) -> tg::Result<
 		Option<(
 			BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
-			tg::location::Remote,
+			crate::location::Remote,
 		)>,
 	> {
 		let client = self
@@ -238,15 +242,11 @@ impl Server {
 				|source| tg::error!(!source, remote = %remote.remote, "failed to get the remote client"),
 			)?;
 		let arg = tg::process::wait::Arg {
-			locations: tg::location::Locations {
-				local: match &remote.regions {
-					Some(regions) => Some(tg::Either::Right(tg::location::Local {
-						regions: Some(regions.clone()),
-					})),
-					None => Some(tg::Either::Left(true)),
-				},
-				remotes: Some(tg::Either::Left(false)),
-			},
+			location: Some(tg::location::Arg(vec![
+				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
+					regions: remote.regions.clone(),
+				}),
+			])),
 			token: None,
 		};
 		let Some(future) = client.try_wait_process_future(id, arg).await.map_err(
@@ -262,7 +262,7 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
-		location: Option<tg::location::Location>,
+		location: Option<tg::location::Arg>,
 		future: BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
 	) -> tg::Result<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>> {
 		// If a token is provided, attach a cancellation guard.

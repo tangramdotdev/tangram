@@ -12,7 +12,7 @@ pub struct Args {
 	pub length: Option<u64>,
 
 	#[command(flatten)]
-	pub locations: crate::location::Locations,
+	pub locations: crate::location::Args,
 
 	#[arg(long)]
 	pub position: Option<u64>,
@@ -33,7 +33,7 @@ impl Cli {
 		let locations = args.locations.get();
 		let process = tg::Process::<tg::Value>::new(
 			args.process.clone(),
-			Some(locations.clone()),
+			locations.clone(),
 			None,
 			None,
 			None,
@@ -41,7 +41,7 @@ impl Cli {
 		);
 		let arg = tg::process::children::get::Arg {
 			length: args.length,
-			locations,
+			location: locations,
 			position: args.position.map(std::io::SeekFrom::Start),
 			size: args.size,
 		};

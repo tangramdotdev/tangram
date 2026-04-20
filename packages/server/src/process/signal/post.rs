@@ -16,19 +16,22 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
 	) -> tg::Result<Option<()>> {
-		let location = self.location_with_regions(arg.location.as_ref())?;
+		let location = self.location(arg.location.as_ref())?;
 
 		let output = match location {
-			crate::location::Location::Local { region: None } => {
+			tg::Location::Local(tg::location::Local { region: None }) => {
 				self.try_post_process_signal_local(id, arg.signal).await?
 			},
-			crate::location::Location::Local {
+			tg::Location::Local(tg::location::Local {
 				region: Some(region),
-			} => {
+			}) => {
 				self.try_post_process_signal_region(id, arg.signal, region)
 					.await?
 			},
-			crate::location::Location::Remote { remote, region } => {
+			tg::Location::Remote(tg::location::Remote {
+				name: remote,
+				region,
+			}) => {
 				self.try_post_process_signal_remote(id, arg.signal, remote, region)
 					.await?
 			},
@@ -91,11 +94,12 @@ impl Server {
 		let client = self.get_region_client(region.clone()).await.map_err(
 			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
 		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
 		let arg = tg::process::signal::post::Arg {
 			signal,
-			location: Some(tg::location::Location::Local(tg::location::Local {
-				regions: Some(vec![region.clone()]),
-			})),
+			location: Some(location.into()),
 		};
 		let Some(()) = client.try_post_process_signal(id, arg).await.map_err(
 			|source| tg::error!(!source, region = %region, "failed to signal the process"),
@@ -118,9 +122,7 @@ impl Server {
 		)?;
 		let arg = tg::process::signal::post::Arg {
 			signal,
-			location: Some(tg::location::Location::Local(tg::location::Local {
-				regions: region.map(|region| vec![region]),
-			})),
+			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 		};
 		let Some(()) = client.try_post_process_signal(id, arg).await.map_err(
 			|source| tg::error!(!source, remote = %remote, "failed to signal the process"),

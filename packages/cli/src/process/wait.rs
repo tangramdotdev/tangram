@@ -5,7 +5,7 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub locations: crate::location::Locations,
+	pub locations: crate::location::Args,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
@@ -20,14 +20,14 @@ impl Cli {
 		let locations = args.locations.get();
 		let process = tg::Process::<tg::Value>::new(
 			args.process.clone(),
-			Some(locations.clone()),
+			locations.clone(),
 			None,
 			None,
 			None,
 			None,
 		);
 		let arg = tg::process::wait::Arg {
-			locations,
+			location: locations,
 			token: None,
 		};
 		let output = process.wait_with_handle(&handle, arg).await.map_err(

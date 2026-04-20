@@ -28,7 +28,7 @@ impl Server {
 		arg: tg::process::children::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
 		let locations = self
-			.locations_with_regions(arg.locations.clone())
+			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
 
@@ -43,7 +43,7 @@ impl Server {
 			}
 
 			if let Some(stream) = self
-				.try_get_process_children_from_regions(id, arg.clone(), &local.regions)
+				.try_get_process_children_regions(id, arg.clone(), &local.regions)
 				.await
 				.map_err(|source| {
 					tg::error!(
@@ -56,7 +56,7 @@ impl Server {
 		}
 
 		if let Some(stream) = self
-			.try_get_process_children_from_remotes(id, arg, &locations.remotes)
+			.try_get_process_children_remotes(id, arg, &locations.remotes)
 			.await
 			.map_err(|source| {
 				tg::error!(!source, "failed to get the process children from a remote")
@@ -298,7 +298,7 @@ impl Server {
 		Ok(chunk)
 	}
 
-	async fn try_get_process_children_from_regions(
+	async fn try_get_process_children_regions(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
@@ -306,7 +306,7 @@ impl Server {
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_process_children_from_region(id, arg.clone(), region))
+			.map(|region| self.try_get_process_children_region(id, arg.clone(), region))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -327,7 +327,7 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	async fn try_get_process_children_from_region(
+	async fn try_get_process_children_region(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
@@ -336,13 +336,11 @@ impl Server {
 		let client = self.get_region_client(region.to_owned()).await.map_err(
 			|source| tg::error!(!source, region = %region, "failed to get the region client"),
 		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.to_owned()),
+		});
 		let arg = tg::process::children::get::Arg {
-			locations: tg::location::Locations {
-				local: Some(tg::Either::Right(tg::location::Local {
-					regions: Some(vec![region.to_owned()]),
-				})),
-				remotes: Some(tg::Either::Left(false)),
-			},
+			location: Some(location.into()),
 			..arg
 		};
 		let Some(stream) = client
@@ -357,15 +355,15 @@ impl Server {
 		Ok(Some(stream.boxed()))
 	}
 
-	async fn try_get_process_children_from_remotes(
+	async fn try_get_process_children_remotes(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
-		remotes: &[tg::location::Remote],
+		remotes: &[crate::location::Remote],
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_get_process_children_from_remote(id, arg.clone(), remote))
+			.map(|remote| self.try_get_process_children_remote(id, arg.clone(), remote))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -386,11 +384,11 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	async fn try_get_process_children_from_remote(
+	async fn try_get_process_children_remote(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
-		remote: &tg::location::Remote,
+		remote: &crate::location::Remote,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
 		let client = self
 			.get_remote_client(remote.remote.clone())
@@ -399,15 +397,11 @@ impl Server {
 				|source| tg::error!(!source, remote = %remote.remote, "failed to get the remote client"),
 			)?;
 		let arg = tg::process::children::get::Arg {
-			locations: tg::location::Locations {
-				local: match &remote.regions {
-					Some(regions) => Some(tg::Either::Right(tg::location::Local {
-						regions: Some(regions.clone()),
-					})),
-					None => Some(tg::Either::Left(true)),
-				},
-				remotes: Some(tg::Either::Left(false)),
-			},
+			location: Some(tg::location::Arg(vec![
+				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
+					regions: remote.regions.clone(),
+				}),
+			])),
 			..arg
 		};
 		let Some(stream) = client

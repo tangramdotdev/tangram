@@ -13,7 +13,7 @@ export let setProcess = (newProcess: typeof process) => {
 
 export class Process<O extends tg.Value = tg.Value> {
 	#id: tg.Process.Id;
-	#locations: tg.Locations | undefined;
+	#location: tg.Location.Arg | undefined;
 	#options: tg.Referent.Options;
 	#pid: number | undefined;
 	#promise: Promise<tg.Process.Wait> | undefined;
@@ -334,8 +334,10 @@ export class Process<O extends tg.Value = tg.Value> {
 		};
 
 		let spawnArg: tg.Handle.SpawnArg = {
+			cache_location: arg.cache_location,
 			checksum,
 			command: commandReferent,
+			location: arg.location,
 			retry: false,
 			sandbox,
 			stderr: stderr ?? "inherit",
@@ -422,7 +424,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		);
 		return new tg.Process<O>({
 			id,
-			locations: undefined,
+			location: undefined,
 			pid,
 			promise,
 			state: undefined,
@@ -596,6 +598,10 @@ export class Process<O extends tg.Value = tg.Value> {
 			output.wait !== undefined
 				? tg.Process.Wait.fromData(output.wait)
 				: undefined;
+		let location =
+			output.location !== undefined
+				? tg.Location.Arg.fromLocation(output.location)
+				: undefined;
 		let stdioPromise =
 			stdin !== undefined ||
 			stdout !== undefined ||
@@ -603,7 +609,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			tty !== undefined
 				? stdioTask(
 						output.process,
-						output.location,
+						location,
 						stdin,
 						stdout,
 						stderr,
@@ -612,7 +618,7 @@ export class Process<O extends tg.Value = tg.Value> {
 				: undefined;
 		let process = new tg.Process<O>({
 			id: output.process,
-			locations: tg.Locations.fromLocation(output.location),
+			location,
 			state: undefined,
 			stderr: new tg.Process.Stdio.Reader({
 				unavailable: !provideStderr,
@@ -635,7 +641,7 @@ export class Process<O extends tg.Value = tg.Value> {
 
 	constructor(arg: tg.Process.ConstructorArg) {
 		this.#id = arg.id;
-		this.#locations = arg.locations;
+		this.#location = arg.location;
 		this.#options = arg.options ?? {};
 		this.#state = arg.state;
 		this.#stdioPromise = arg.stdioPromise;
@@ -673,10 +679,10 @@ export class Process<O extends tg.Value = tg.Value> {
 			throw new Error("loading unsandboxed process state is not supported");
 		}
 		let output = await tg.handle.getProcess(this.#id, {
-			locations: this.#locations,
+			location: this.#location,
 		});
 		if (output.location !== undefined) {
-			this.#locations = tg.Locations.fromLocation(output.location);
+			this.#location = tg.Location.Arg.fromLocation(output.location);
 		}
 		this.#state = tg.Process.State.fromData(output.data);
 	}
@@ -701,8 +707,8 @@ export class Process<O extends tg.Value = tg.Value> {
 		return this.#id;
 	}
 
-	get locations(): tg.Locations | undefined {
-		return this.#locations;
+	get location(): tg.Location.Arg | undefined {
+		return this.#location;
 	}
 
 	get command(): Promise<tg.Command> {
@@ -798,10 +804,10 @@ export class Process<O extends tg.Value = tg.Value> {
 			await tg.host.signal(this.#pid, signal);
 			return;
 		}
-		let location = tg.Locations.toLocation(this.#locations);
+		let location = this.#location;
 		if (location === undefined) {
 			await this.load();
-			location = tg.Locations.toLocation(this.#locations);
+			location = this.#location;
 		}
 		let arg = {
 			location,
@@ -824,7 +830,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			return wait;
 		}
 		let arg: tg.Handle.WaitArg = {
-			locations: this.#locations,
+			location: this.#location,
 			token: this.#token,
 		};
 		let data = await tg.handle.waitProcess(this.#id, arg);
@@ -902,10 +908,10 @@ export class Process<O extends tg.Value = tg.Value> {
 				"tty resizing is not supported for unsandboxed processes",
 			);
 		}
-		let location = tg.Locations.toLocation(this.#locations);
+		let location = this.#location;
 		if (location === undefined) {
 			await this.load();
-			location = tg.Locations.toLocation(this.#locations);
+			location = this.#location;
 		}
 		await tg.handle.setProcessTtySize(this.#id, {
 			location,
@@ -1138,7 +1144,7 @@ export namespace Process {
 
 	export type ConstructorArg = {
 		id: tg.Process.Id;
-		locations?: tg.Locations | undefined;
+		location?: tg.Location.Arg | undefined;
 		options?: tg.Referent.Options;
 		pid?: number | undefined;
 		promise?: Promise<tg.Process.Wait> | undefined;
@@ -1161,6 +1167,7 @@ export namespace Process {
 
 	export type ArgObject = {
 		args?: Array<tg.Value> | undefined;
+		cache_location?: tg.Location.Arg | undefined;
 		checksum?: tg.Checksum | undefined;
 		command?: tg.MaybeReferent<tg.Command> | undefined;
 		cpu?: number | undefined;
@@ -1169,6 +1176,7 @@ export namespace Process {
 		executable?: tg.Command.Arg.Executable | undefined;
 		host?: string | undefined;
 		isolation?: tg.Sandbox.Isolation | undefined;
+		location?: tg.Location.Arg | undefined;
 		memory?: number | undefined;
 		mounts?: Array<tg.Sandbox.Mount> | undefined;
 		name?: string | undefined;
@@ -1212,20 +1220,60 @@ export namespace Process {
 
 	export namespace Child {
 		export let toData = (value: tg.Process.Child): tg.Process.Data.Child => {
+			let options: tg.Referent.Data.Options = {};
+			if (value.options.artifact !== undefined) {
+				options.artifact = value.options.artifact;
+			}
+			if (value.options.id !== undefined) {
+				options.id = value.options.id;
+			}
+			if (value.options.location !== undefined) {
+				options.location = tg.Location.Arg.toDataString(value.options.location);
+			}
+			if (value.options.name !== undefined) {
+				options.name = value.options.name;
+			}
+			if (value.options.path !== undefined) {
+				options.path = value.options.path;
+			}
+			if (value.options.tag !== undefined) {
+				options.tag = value.options.tag;
+			}
 			return {
 				cached: value.cached,
-				options: value.options,
+				options,
 				process: value.process.id,
 			};
 		};
 
 		export let fromData = (data: tg.Process.Data.Child): tg.Process.Child => {
+			let options: tg.Referent.Options = {};
+			if (data.options.artifact !== undefined) {
+				options.artifact = data.options.artifact;
+			}
+			if (data.options.id !== undefined) {
+				options.id = data.options.id;
+			}
+			if (data.options.location !== undefined) {
+				options.location = tg.Location.Arg.fromDataString(
+					data.options.location,
+				);
+			}
+			if (data.options.name !== undefined) {
+				options.name = data.options.name;
+			}
+			if (data.options.path !== undefined) {
+				options.path = data.options.path;
+			}
+			if (data.options.tag !== undefined) {
+				options.tag = data.options.tag;
+			}
 			return {
 				cached: data.cached ?? false,
-				options: data.options,
+				options,
 				process: new tg.Process({
 					id: data.process,
-					locations: undefined,
+					location: undefined,
 					state: undefined,
 					stderr: new tg.Process.Stdio.Reader({
 						stream: "stderr",
@@ -1362,7 +1410,7 @@ export namespace Process {
 		export namespace Read {
 			export type Arg = {
 				length?: number | undefined;
-				locations?: tg.Locations | undefined;
+				location?: tg.Location.Arg | undefined;
 				position?: number | string | undefined;
 				size?: number | undefined;
 				streams: Array<tg.Process.Stdio.Stream>;
@@ -1423,7 +1471,7 @@ export namespace Process {
 
 		export namespace Write {
 			export type Arg = {
-				location?: tg.Location | undefined;
+				location?: tg.Location.Arg | undefined;
 				streams: Array<tg.Process.Stdio.Stream>;
 			};
 
@@ -1497,7 +1545,7 @@ export namespace Process {
 				}
 				if (this.#input === undefined) {
 					let input = await tg.handle.readProcessStdio(this.#process.id, {
-						locations: this.#process.locations,
+						location: this.#process.location,
 						streams: [this.#stream],
 					});
 					if (input === undefined) {
@@ -1593,10 +1641,10 @@ export namespace Process {
 						this.#process = undefined;
 						return;
 					}
-					let location = tg.Locations.toLocation(process.locations);
+					let location = process.location;
 					if (location === undefined) {
 						await process.load();
-						location = tg.Locations.toLocation(process.locations);
+						location = process.location;
 					}
 					this.#fd = undefined;
 					this.#process = undefined;
@@ -1636,10 +1684,10 @@ export namespace Process {
 				if (process!.pid !== undefined) {
 					throw new Error(`${stream} is not available`);
 				}
-				let location = tg.Locations.toLocation(process!.locations);
+				let location = process!.location;
 				if (location === undefined) {
 					await process!.load();
-					location = tg.Locations.toLocation(process!.locations);
+					location = process!.location;
 				}
 				await tg.handle.writeProcessStdio(
 					process!.id,
@@ -1723,7 +1771,7 @@ export namespace Process {
 	export namespace Data {
 		export type Child = {
 			cached?: boolean;
-			options: tg.Referent.Options;
+			options: tg.Referent.Data.Options;
 			process: tg.Process.Id;
 		};
 	}
@@ -1774,7 +1822,7 @@ export namespace Process {
 
 async function stdioTask(
 	id: tg.Process.Id,
-	location: tg.Location | undefined,
+	location: tg.Location.Arg | undefined,
 	stdin: "pipe" | "tty" | undefined,
 	stdout: "pipe" | "tty" | undefined,
 	stderr: "pipe" | "tty" | undefined,
@@ -1852,7 +1900,7 @@ async function cleanupStdio(
 
 async function stdinTask(
 	id: tg.Process.Id,
-	location: tg.Location | undefined,
+	location: tg.Location.Arg | undefined,
 	stdin: "pipe" | "tty",
 	stopper: tg.Host.Stopper,
 ): Promise<void> {
@@ -1910,7 +1958,7 @@ async function stdinTask(
 
 async function stdoutStderrTask(
 	id: tg.Process.Id,
-	location: tg.Location | undefined,
+	location: tg.Location.Arg | undefined,
 	stdout: "pipe" | "tty" | undefined,
 	stderr: "pipe" | "tty" | undefined,
 ): Promise<void> {
@@ -1925,7 +1973,7 @@ async function stdoutStderrTask(
 		return;
 	}
 	let iterator = await tg.handle.readProcessStdio(id, {
-		locations: tg.Locations.fromLocation(location),
+		location,
 		streams,
 	});
 	if (iterator === undefined) {
@@ -1942,7 +1990,7 @@ async function stdoutStderrTask(
 
 async function sigwinchTask(
 	id: tg.Process.Id,
-	location: tg.Location | undefined,
+	location: tg.Location.Arg | undefined,
 	signalListener: tg.Host.SignalListener,
 ): Promise<void> {
 	for await (let _ of signalListener) {

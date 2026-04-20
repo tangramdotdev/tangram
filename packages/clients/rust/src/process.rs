@@ -52,7 +52,7 @@ pub struct Process<O = tg::Value>(Arc<Inner>, PhantomData<fn() -> O>);
 pub struct Inner {
 	cached: Option<bool>,
 	id: Id,
-	locations: Arc<RwLock<Option<tg::location::Locations>>>,
+	location: Arc<RwLock<Option<tg::location::Arg>>>,
 	metadata: RwLock<Option<Arc<Metadata>>>,
 	pid: Option<u32>,
 	state: RwLock<Option<Arc<State>>>,
@@ -78,7 +78,7 @@ pub struct Arg {
 	pub executable: Option<tg::command::Executable>,
 	pub host: Option<String>,
 	pub isolation: Option<tg::sandbox::Isolation>,
-	pub location: Option<tg::location::Location>,
+	pub location: Option<tg::location::Arg>,
 	pub memory: Option<u64>,
 	pub name: Option<String>,
 	pub parent: Option<tg::process::Id>,
@@ -96,13 +96,13 @@ impl<O> Process<O> {
 	#[must_use]
 	pub fn new(
 		id: Id,
-		locations: Option<tg::location::Locations>,
+		location: Option<tg::location::Arg>,
 		metadata: Option<Metadata>,
 		state: Option<State>,
 		token: Option<String>,
 		cached: Option<bool>,
 	) -> Self {
-		let locations = Arc::new(RwLock::new(locations));
+		let location = Arc::new(RwLock::new(location));
 		let metadata = RwLock::new(metadata.map(Arc::new));
 		let state = RwLock::new(state.map(Arc::new));
 		let stderr = tg::process::stdio::Reader::from_process(tg::process::stdio::Stream::Stderr);
@@ -111,7 +111,7 @@ impl<O> Process<O> {
 		let inner = Arc::new(Inner {
 			cached,
 			id,
-			locations: locations.clone(),
+			location: location.clone(),
 			metadata,
 			pid: None,
 			state,
@@ -141,8 +141,8 @@ impl<O> Process<O> {
 	}
 
 	#[must_use]
-	pub fn locations(&self) -> Option<tg::location::Locations> {
-		self.locations.read().unwrap().clone()
+	pub fn location(&self) -> Option<tg::location::Arg> {
+		self.location.read().unwrap().clone()
 	}
 
 	#[must_use]
@@ -194,12 +194,7 @@ impl<O> Process<O> {
 	where
 		H: tg::Handle,
 	{
-		if self.pid.is_some()
-			|| self
-				.locations()
-				.and_then(|locations| locations.to_location())
-				.is_some()
-		{
+		if self.pid.is_some() || self.location().is_some() {
 			return Ok(());
 		}
 		self.try_load_with_handle(handle).await?;
@@ -236,17 +231,14 @@ impl<O> Process<O> {
 			return Ok(Some(state));
 		}
 		let arg = tg::process::get::Arg {
-			locations: self.locations().unwrap_or_default(),
+			location: self.location(),
 			metadata: false,
 		};
 		let Some(output) = handle.try_get_process(self.id(), arg).await? else {
 			return Ok(None);
 		};
 		if let Some(location) = output.location {
-			self.locations
-				.write()
-				.unwrap()
-				.replace(tg::location::Locations::from(location));
+			self.location.write().unwrap().replace(location.into());
 		}
 		let state = tg::process::State::try_from(output.data)?;
 		let state = Arc::new(state);
@@ -317,9 +309,7 @@ impl<O> Process<O> {
 		self.ensure_location_with_handle(handle).await?;
 		let arg = tg::process::signal::post::Arg {
 			signal,
-			location: self
-				.locations()
-				.and_then(|locations| locations.to_location()),
+			location: self.location(),
 		};
 		handle.signal_process(self.id(), arg).await?;
 
@@ -377,7 +367,7 @@ impl<O> Process<O> {
 		O::Error: std::error::Error + Send + Sync + 'static,
 	{
 		let arg = tg::process::wait::Arg {
-			locations: self.locations().unwrap_or_default(),
+			location: self.location(),
 			token: self.token().cloned(),
 		};
 		let wait = self.wait_with_handle(handle, arg).await?;

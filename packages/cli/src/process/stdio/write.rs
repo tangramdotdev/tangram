@@ -9,7 +9,7 @@ use {
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub location: crate::location::Location,
+	pub location: crate::location::Args,
 
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
@@ -23,7 +23,7 @@ impl Cli {
 		let handle = self.handle().await?;
 		let process = tg::Process::<tg::Value>::new(
 			args.process.clone(),
-			Some(args.location.get_locations()?),
+			args.location.get(),
 			None,
 			None,
 			None,
@@ -34,9 +34,7 @@ impl Cli {
 		};
 		let stream = *stream;
 		let arg = tg::process::stdio::write::Arg {
-			location: process
-				.locations()
-				.and_then(|locations| locations.to_location()),
+			location: process.location(),
 			streams: vec![stream],
 		};
 		let input = tangram_util::io::stdin()

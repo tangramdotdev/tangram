@@ -25,7 +25,7 @@ pub struct Arg {
 	pub cached: Option<bool>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub cache_locations: Option<tg::location::Locations>,
+	pub cache_location: Option<tg::location::Arg>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checksum: Option<tg::Checksum>,
@@ -33,7 +33,7 @@ pub struct Arg {
 	pub command: tg::Referent<tg::command::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub location: Option<tg::location::Location>,
+	pub location: Option<tg::location::Arg>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::process::Id>,
@@ -63,7 +63,7 @@ pub struct Output {
 	pub cached: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub location: Option<tg::location::Location>,
+	pub location: Option<tg::Location>,
 
 	pub process: tg::process::Id,
 
@@ -133,8 +133,8 @@ impl<O: 'static> tg::Process<O> {
 			let output = tg::process::spawn::Output {
 				cached: process.cached().unwrap_or(false),
 				location: process
-					.locations()
-					.and_then(|locations| locations.to_location()),
+					.location()
+					.and_then(|location| location.to_location()),
 				process: process.id().clone(),
 				token: process.token().cloned(),
 				wait: None,
@@ -272,7 +272,7 @@ impl<O: 'static> tg::Process<O> {
 		let inner = Arc::new(super::Inner {
 			cached: Some(output.cached),
 			id,
-			locations: Arc::new(RwLock::new(location.map(tg::location::Locations::from))),
+			location: Arc::new(RwLock::new(location.map(Into::into))),
 			metadata: RwLock::new(None),
 			state: RwLock::new(None),
 			stderr,
@@ -397,7 +397,7 @@ impl<O: 'static> tg::Process<O> {
 		let inner = Arc::new(super::Inner {
 			cached: Some(false),
 			id,
-			locations: Arc::new(RwLock::new(None)),
+			location: Arc::new(RwLock::new(None)),
 			metadata: RwLock::new(None),
 			pid: Some(pid),
 			state: RwLock::new(None),

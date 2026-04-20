@@ -529,9 +529,9 @@ impl Server {
 				tokio::spawn({
 					let server = self.clone();
 					let pattern = pattern.clone();
-					let locations = reference.options().locations.clone();
+					let location = reference.options().location.clone();
 					async move {
-						server.pull_tag(pattern.clone(), locations).await.ok();
+						server.pull_tag(pattern.clone(), location).await.ok();
 					}
 				});
 			}

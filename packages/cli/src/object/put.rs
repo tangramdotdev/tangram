@@ -21,7 +21,7 @@ pub struct Args {
 	pub kind: Option<tg::object::Kind>,
 
 	#[command(flatten)]
-	pub location: crate::location::Location,
+	pub location: crate::location::Args,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
@@ -30,7 +30,8 @@ pub struct Args {
 impl Cli {
 	pub async fn command_object_put(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let location = args.location.get()?;
+		let location = args.location.get();
+		let concrete_location = args.location.to_location()?;
 
 		// Read input from argument or stdin.
 		let input = if let Some(input) = args.input {
@@ -81,7 +82,7 @@ impl Cli {
 
 			// Store the value.
 			value
-				.store_with_location_with_handle(&handle, location)
+				.store_with_location_with_handle(&handle, concrete_location)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to store the value"))?;
 

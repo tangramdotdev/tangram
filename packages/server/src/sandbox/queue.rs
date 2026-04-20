@@ -24,17 +24,18 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 
-		let location = self.location_with_regions(arg.location.as_ref())?;
+		let location = self.location(arg.location.as_ref())?;
 		let output = match location {
-			crate::location::Location::Local { region: None } => {
+			tg::Location::Local(tg::location::Local { region: None }) => {
 				self.try_dequeue_sandbox_local().await?
 			},
-			crate::location::Location::Local {
+			tg::Location::Local(tg::location::Local {
 				region: Some(region),
-			} => self.try_dequeue_sandbox_region(region).await?,
-			crate::location::Location::Remote { remote, region } => {
-				self.try_dequeue_sandbox_remote(remote, region).await?
-			},
+			}) => self.try_dequeue_sandbox_region(region).await?,
+			tg::Location::Remote(tg::location::Remote {
+				name: remote,
+				region,
+			}) => self.try_dequeue_sandbox_remote(remote, region).await?,
 		};
 
 		Ok(output)
@@ -79,10 +80,11 @@ impl Server {
 		let client = self.get_region_client(region.clone()).await.map_err(
 			|source| tg::error!(!source, region = %region, "failed to get the region client"),
 		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
 		let arg = tg::sandbox::queue::Arg {
-			location: Some(tg::location::Location::Local(tg::location::Local {
-				regions: Some(vec![region.clone()]),
-			})),
+			location: Some(location.into()),
 		};
 		let output = client.try_dequeue_sandbox(arg).await.map_err(
 			|source| tg::error!(!source, region = %region, "failed to dequeue the sandbox"),
@@ -99,9 +101,7 @@ impl Server {
 			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::sandbox::queue::Arg {
-			location: Some(tg::location::Location::Local(tg::location::Local {
-				regions: region.map(|region| vec![region]),
-			})),
+			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 		};
 		let output = client.try_dequeue_sandbox(arg).await.map_err(
 			|source| tg::error!(!source, remote = %remote, "failed to dequeue the sandbox"),

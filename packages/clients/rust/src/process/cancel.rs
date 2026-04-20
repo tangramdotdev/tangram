@@ -7,7 +7,7 @@ use {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub location: Option<tg::location::Location>,
+	pub location: Option<tg::location::Arg>,
 
 	pub token: String,
 }
@@ -29,9 +29,7 @@ impl<O> tg::Process<O> {
 		}
 		self.ensure_location_with_handle(handle).await?;
 		let id = self.id();
-		let location = self
-			.locations()
-			.and_then(|locations| locations.to_location());
+		let location = self.location();
 		let token = self
 			.token()
 			.ok_or_else(|| tg::error!("missing token"))?

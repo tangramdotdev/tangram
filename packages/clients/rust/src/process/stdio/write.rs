@@ -12,7 +12,7 @@ use {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub location: Option<tg::location::Location>,
+	pub location: Option<tg::location::Arg>,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[serde_as(as = "CommaSeparatedString")]
@@ -140,9 +140,7 @@ impl<O> tg::Process<O> {
 
 		if arg.location.is_none() {
 			self.ensure_location_with_handle(handle).await?;
-			arg.location = self
-				.locations()
-				.and_then(|locations| locations.to_location());
+			arg.location = self.location();
 		}
 		handle.write_process_stdio_all(self.id(), arg, input).await
 	}

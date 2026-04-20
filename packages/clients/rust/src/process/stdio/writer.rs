@@ -151,7 +151,7 @@ impl std::fmt::Debug for Writer {
 async fn ensure_process_with_handle<H>(
 	process: Option<Weak<tg::process::Inner>>,
 	handle: &H,
-) -> tg::Result<(Option<tg::location::Location>, tg::process::Id)>
+) -> tg::Result<(Option<tg::location::Arg>, tg::process::Id)>
 where
 	H: tg::Handle,
 {
@@ -160,12 +160,7 @@ where
 		.ok_or_else(|| tg::error!("the process is not available"))?;
 	let handle_process = crate::process::Process::<tg::Value>(process.clone(), PhantomData);
 	handle_process.ensure_location_with_handle(handle).await?;
-	let location = process
-		.locations
-		.read()
-		.unwrap()
-		.clone()
-		.and_then(|locations| locations.to_location());
+	let location = process.location.read().unwrap().clone();
 	let id = process.id.clone();
 	Ok((location, id))
 }

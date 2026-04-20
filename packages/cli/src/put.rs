@@ -18,7 +18,7 @@ pub struct Args {
 	pub kind: Option<tg::object::Kind>,
 
 	#[command(flatten)]
-	pub location: crate::location::Location,
+	pub location: crate::location::Args,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,

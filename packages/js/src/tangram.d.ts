@@ -1267,7 +1267,7 @@ declare namespace tg {
 
 	export namespace Location {
 		export type Local = {
-			regions?: Array<string> | undefined;
+			region?: string | undefined;
 		};
 
 		export namespace Local {
@@ -1275,8 +1275,8 @@ declare namespace tg {
 		}
 
 		export type Remote = {
-			regions?: Array<string> | undefined;
-			remote: string;
+			name: string;
+			region?: string | undefined;
 		};
 
 		export namespace Remote {
@@ -1284,17 +1284,57 @@ declare namespace tg {
 		}
 
 		export let is: (value: unknown) => value is tg.Location;
-	}
 
-	export type Locations = {
-		local?: boolean | tg.Location.Local | undefined;
-		remotes?: boolean | Array<tg.Location.Remote> | undefined;
-	};
+		export let toDataString: (value: tg.Location) => string;
 
-	export namespace Locations {
-		export let fromLocation: (
-			location: tg.Location | undefined,
-		) => tg.Locations | undefined;
+		export let fromDataString: (data: string) => tg.Location;
+
+		export type Arg = {
+			components: Array<tg.Location.Arg.Component>;
+		};
+
+		export namespace Arg {
+			export type Component =
+				| tg.Location.Arg.LocalComponent
+				| tg.Location.Arg.RemoteComponent;
+
+			export namespace Component {
+				export let is: (value: unknown) => value is tg.Location.Arg.Component;
+			}
+
+			export type LocalComponent = {
+				regions?: Array<string> | undefined;
+			};
+
+			export namespace LocalComponent {
+				export let is: (
+					value: unknown,
+				) => value is tg.Location.Arg.LocalComponent;
+			}
+
+			export type RemoteComponent = {
+				name: string;
+				regions?: Array<string> | undefined;
+			};
+
+			export namespace RemoteComponent {
+				export let is: (
+					value: unknown,
+				) => value is tg.Location.Arg.RemoteComponent;
+			}
+
+			export let is: (value: unknown) => value is tg.Location.Arg;
+
+			export let toDataString: (value: tg.Location.Arg) => string;
+
+			export let fromDataString: (data: string) => tg.Location.Arg;
+
+			export let fromLocation: (value: tg.Location) => tg.Location.Arg;
+
+			export let toLocation: (
+				value: tg.Location.Arg | undefined,
+			) => tg.Location | undefined;
+		}
 	}
 
 	export class Process<O extends tg.Value = tg.Value> {
@@ -1390,6 +1430,9 @@ declare namespace tg {
 		/** Get this process's ID. */
 		get id(): tg.Process.Id;
 
+		/** Get this process's location arg. */
+		get location(): tg.Location.Arg | undefined;
+
 		/** Get this process's checksum. */
 		get checksum(): Promise<tg.Checksum | undefined>;
 
@@ -1458,6 +1501,9 @@ declare namespace tg {
 			/** The command's arguments. */
 			args?: Array<tg.Value> | undefined;
 
+			/** The cache location arg. */
+			cache_location?: tg.Location.Arg | undefined;
+
 			/** If a checksum of the process's output is provided, then the process can be cached even if it is not sandboxed. */
 			checksum?: tg.Checksum | undefined;
 
@@ -1481,6 +1527,9 @@ declare namespace tg {
 
 			/** The sandbox isolation mode. */
 			isolation?: tg.Sandbox.Isolation | undefined;
+
+			/** The process location arg. */
+			location?: tg.Location.Arg | undefined;
 
 			/** The sandbox's memory allocation. */
 			memory?: number | undefined;
@@ -1524,7 +1573,7 @@ declare namespace tg {
 			export namespace Read {
 				export type Arg = {
 					length?: number | undefined;
-					locations?: tg.Locations | undefined;
+					location?: tg.Location.Arg | undefined;
 					position?: number | string | undefined;
 					size?: number | undefined;
 					streams: Array<tg.Process.Stdio.Stream>;
@@ -1559,7 +1608,7 @@ declare namespace tg {
 
 			export namespace Write {
 				export type Arg = {
-					location?: tg.Location | undefined;
+					location?: tg.Location.Arg | undefined;
 					streams: Array<tg.Process.Stdio.Stream>;
 				};
 
@@ -1791,6 +1840,7 @@ declare namespace tg {
 		export type Options = {
 			artifact?: tg.Artifact.Id | undefined;
 			id?: tg.Object.Id | undefined;
+			location?: tg.Location.Arg | undefined;
 			name?: string | undefined;
 			path?: string | undefined;
 			tag?: tg.Tag | undefined;
@@ -1807,6 +1857,7 @@ declare namespace tg {
 			export type Options = {
 				artifact?: tg.Artifact.Id;
 				id?: tg.Object.Id;
+				location?: string;
 				name?: string;
 				path?: string;
 				tag?: tg.Tag;

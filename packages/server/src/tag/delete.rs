@@ -22,19 +22,20 @@ impl Server {
 		}
 
 		let location = self
-			.location_with_regions(arg.location.as_ref())
+			.location(arg.location.as_ref())
 			.map_err(|source| tg::error!(!source, "failed to resolve the location"))?;
 
 		let output = match location {
-			crate::location::Location::Local { region: None } => {
+			tg::Location::Local(tg::location::Local { region: None }) => {
 				self.delete_tags_local(context, arg.clone()).await?
 			},
-			crate::location::Location::Local {
+			tg::Location::Local(tg::location::Local {
 				region: Some(region),
-			} => self.delete_tags_region(arg, region).await?,
-			crate::location::Location::Remote { remote, region } => {
-				self.delete_tags_remote(arg, remote, region).await?
-			},
+			}) => self.delete_tags_region(arg, region).await?,
+			tg::Location::Remote(tg::location::Remote {
+				name: remote,
+				region,
+			}) => self.delete_tags_remote(arg, remote, region).await?,
 		};
 
 		Ok(output)
@@ -87,11 +88,9 @@ impl Server {
 
 		// Handle regions if this is the primary delete request.
 		if arg.replicate.is_none() {
+			let location = tg::Location::Local(tg::location::Local::default()).into();
 			let locations = self
-				.locations_with_regions(tg::location::Locations {
-					local: Some(tg::Either::Left(true)),
-					remotes: Some(tg::Either::Left(false)),
-				})
+				.locations(Some(&location))
 				.await
 				.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
 			if let Some(local) = locations.local
@@ -131,10 +130,11 @@ impl Server {
 		let client = self.get_region_client(region.clone()).await.map_err(
 			|source| tg::error!(!source, region = %region, "failed to get the region client"),
 		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
 		let arg = tg::tag::delete::Arg {
-			location: Some(tg::location::Location::Local(tg::location::Local {
-				regions: Some(vec![region.clone()]),
-			})),
+			location: Some(location.into()),
 			..arg
 		};
 		let output = client
@@ -155,9 +155,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
 		let arg = tg::tag::delete::Arg {
-			location: Some(tg::location::Location::Local(tg::location::Local {
-				regions: region.map(|region| vec![region]),
-			})),
+			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			replicate: None,
 			..arg
 		};

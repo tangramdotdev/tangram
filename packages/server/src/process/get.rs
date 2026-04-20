@@ -23,7 +23,7 @@ impl Server {
 		arg: tg::process::get::Arg,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let locations = self
-			.locations_with_regions(arg.locations)
+			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
 
@@ -38,7 +38,7 @@ impl Server {
 			}
 
 			if let Some(output) = self
-				.try_get_process_from_regions(id, &local.regions, arg.metadata)
+				.try_get_process_regions(id, &local.regions, arg.metadata)
 				.await
 				.map_err(
 					|source| tg::error!(!source, %id, "failed to get the process from another region"),
@@ -48,7 +48,7 @@ impl Server {
 		}
 
 		if let Some(output) = self
-			.try_get_process_from_remotes(id, &locations.remotes, arg.metadata)
+			.try_get_process_remotes(id, &locations.remotes, arg.metadata)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to get the process from a remote"))?
 		{
@@ -78,7 +78,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the processes locally"))?;
 		let remotes = self
-			.locations_with_regions(tg::location::Locations::default())
+			.locations(None)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?
 			.remotes;
@@ -89,9 +89,7 @@ impl Server {
 					if let Some(output) = output {
 						return Ok(Some(output));
 					}
-					let output = self
-						.try_get_process_from_remotes(id, &remotes, metadata)
-						.await?;
+					let output = self.try_get_process_remotes(id, &remotes, metadata).await?;
 					Ok::<_, tg::Error>(output)
 				}
 			})
@@ -133,20 +131,20 @@ impl Server {
 		// Fetch the data and metadata concurrently.
 		let (data, metadata) = future::join(data_future, metadata_future).await;
 		let data = data?;
-		let location = Some(self.config().region.clone().map_or_else(
-			|| tg::location::Location::Local(tg::location::Local::default()),
+		let location = self.config().region.clone().map_or_else(
+			|| tg::Location::Local(tg::location::Local::default()),
 			|region| {
-				tg::location::Location::Local(tg::location::Local {
-					regions: Some(vec![region]),
+				tg::Location::Local(tg::location::Local {
+					region: Some(region),
 				})
 			},
-		));
+		);
 
 		// Combine data and metadata into outputs.
 		let outputs = std::iter::zip(data, metadata)
 			.map(|(output, metadata)| {
 				output.map(|mut output| {
-					output.location = location.clone();
+					output.location = Some(location.clone());
 					output.metadata = metadata;
 					output
 				})
@@ -156,7 +154,7 @@ impl Server {
 		Ok(outputs)
 	}
 
-	async fn try_get_process_from_regions(
+	async fn try_get_process_regions(
 		&self,
 		id: &tg::process::Id,
 		regions: &[String],
@@ -164,7 +162,7 @@ impl Server {
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_process_from_region(id, region, metadata))
+			.map(|region| self.try_get_process_region(id, region, metadata))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -185,7 +183,7 @@ impl Server {
 		Ok(Some(output))
 	}
 
-	async fn try_get_process_from_region(
+	async fn try_get_process_region(
 		&self,
 		id: &tg::process::Id,
 		region: &str,
@@ -194,13 +192,11 @@ impl Server {
 		let client = self.get_region_client(region.to_owned()).await.map_err(
 			|source| tg::error!(!source, region = %region, "failed to get the region client"),
 		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.to_owned()),
+		});
 		let arg = tg::process::get::Arg {
-			locations: tg::location::Locations {
-				local: Some(tg::Either::Right(tg::location::Local {
-					regions: Some(vec![region.to_owned()]),
-				})),
-				remotes: Some(tg::Either::Left(false)),
-			},
+			location: Some(location.clone().into()),
 			metadata,
 		};
 		let Some(mut output) = client.try_get_process(id, arg).await.map_err(
@@ -209,21 +205,19 @@ impl Server {
 		else {
 			return Ok(None);
 		};
-		output.location = Some(tg::location::Location::Local(tg::location::Local {
-			regions: Some(vec![region.to_owned()]),
-		}));
+		output.location = Some(location);
 		Ok(Some(output))
 	}
 
-	async fn try_get_process_from_remotes(
+	async fn try_get_process_remotes(
 		&self,
 		id: &tg::process::Id,
-		remotes: &[tg::location::Remote],
+		remotes: &[crate::location::Remote],
 		metadata: bool,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_get_process_from_remote(id, remote, metadata))
+			.map(|remote| self.try_get_process_remote(id, remote, metadata))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -272,10 +266,10 @@ impl Server {
 		Ok(Some(output))
 	}
 
-	async fn try_get_process_from_remote(
+	async fn try_get_process_remote(
 		&self,
 		id: &tg::process::Id,
-		remote: &tg::location::Remote,
+		remote: &crate::location::Remote,
 		metadata: bool,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let client = self
@@ -284,16 +278,13 @@ impl Server {
 			.map_err(
 				|source| tg::error!(!source, remote = %remote.remote, "failed to get the remote client"),
 			)?;
-		let arg = tg::process::get::Arg {
-			locations: tg::location::Locations {
-				local: match &remote.regions {
-					Some(regions) => Some(tg::Either::Right(tg::location::Local {
-						regions: Some(regions.clone()),
-					})),
-					None => Some(tg::Either::Left(true)),
-				},
-				remotes: Some(tg::Either::Left(false)),
+		let location = tg::location::Arg(vec![tg::location::arg::Component::Local(
+			tg::location::arg::LocalComponent {
+				regions: remote.regions.clone(),
 			},
+		)]);
+		let arg = tg::process::get::Arg {
+			location: Some(location),
 			metadata,
 		};
 		let Some(mut output) = client.try_get_process(id, arg).await.map_err(
@@ -302,7 +293,10 @@ impl Server {
 		else {
 			return Ok(None);
 		};
-		output.location = Some(tg::location::Location::Remote(remote.clone()));
+		output.location = Some(tg::Location::Remote(tg::location::Remote {
+			name: remote.remote.clone(),
+			region: None,
+		}));
 		Ok(Some(output))
 	}
 

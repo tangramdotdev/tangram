@@ -14,19 +14,22 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::tty::size::put::Arg,
 	) -> tg::Result<Option<()>> {
-		let location = self.location_with_regions(arg.location.as_ref())?;
+		let location = self.location(arg.location.as_ref())?;
 
 		let output = match location {
-			crate::location::Location::Local { region: None } => {
+			tg::Location::Local(tg::location::Local { region: None }) => {
 				self.try_set_process_tty_size_local(id, arg.size).await?
 			},
-			crate::location::Location::Local {
+			tg::Location::Local(tg::location::Local {
 				region: Some(region),
-			} => {
+			}) => {
 				self.try_set_process_tty_size_region(id, arg.size, region)
 					.await?
 			},
-			crate::location::Location::Remote { remote, region } => {
+			tg::Location::Remote(tg::location::Remote {
+				name: remote,
+				region,
+			}) => {
 				self.try_set_process_tty_size_remote(id, arg.size, remote, region)
 					.await?
 			},
@@ -74,11 +77,12 @@ impl Server {
 		let client = self.get_region_client(region.clone()).await.map_err(
 			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
 		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
 		let arg = tg::process::tty::size::put::Arg {
 			size,
-			location: Some(tg::location::Location::Local(tg::location::Local {
-				regions: Some(vec![region.clone()]),
-			})),
+			location: Some(location.into()),
 		};
 		let Some(()) = client.try_set_process_tty_size(id, arg).await.map_err(
 			|source| tg::error!(!source, region = %region, "failed to put the process tty"),
@@ -101,9 +105,7 @@ impl Server {
 		)?;
 		let arg = tg::process::tty::size::put::Arg {
 			size,
-			location: Some(tg::location::Location::Local(tg::location::Local {
-				regions: region.map(|region| vec![region]),
-			})),
+			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 		};
 		let Some(()) = client.try_set_process_tty_size(id, arg).await.map_err(
 			|source| tg::error!(!source, remote = %remote, "failed to put the process tty"),

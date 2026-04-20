@@ -5,7 +5,7 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub location: crate::location::Location,
+	pub location: crate::location::Args,
 
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
@@ -19,7 +19,7 @@ impl Cli {
 		let handle = self.handle().await?;
 		let process = tg::Process::<tg::Value>::new(
 			args.process.clone(),
-			Some(args.location.get_locations()?),
+			args.location.get(),
 			None,
 			None,
 			Some(args.token),

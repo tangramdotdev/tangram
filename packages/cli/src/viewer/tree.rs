@@ -1360,7 +1360,7 @@ where
 			.list_tags(tg::tag::list::Arg {
 				cached: false,
 				length: None,
-				locations: tg::location::Locations::default(),
+				location: None,
 				pattern: tg::tag::Pattern::new(pattern.to_string()),
 				recursive: false,
 				reverse: false,

@@ -58,10 +58,10 @@ export namespace Handle {
 	};
 
 	export type SpawnArg = {
-		cache_locations?: tg.Locations | undefined;
+		cache_location?: tg.Location.Arg | undefined;
 		checksum?: tg.Checksum | undefined;
 		command: tg.Referent<tg.Command.Id>;
-		location?: tg.Location | undefined;
+		location?: tg.Location.Arg | undefined;
 		parent?: tg.Process.Id | undefined;
 		retry?: boolean | undefined;
 		sandbox?: tg.Handle.SandboxArg | string | undefined;
@@ -80,7 +80,7 @@ export namespace Handle {
 	};
 
 	export type WaitArg = {
-		locations?: tg.Locations | undefined;
+		location?: tg.Location.Arg | undefined;
 		token: string | undefined;
 	};
 
@@ -115,12 +115,12 @@ export namespace Handle {
 	};
 
 	export type SignalArg = {
-		location?: tg.Location | undefined;
+		location?: tg.Location.Arg | undefined;
 		signal: tg.Process.Signal;
 	};
 
 	export type ProcessGetArg = {
-		locations?: tg.Locations | undefined;
+		location?: tg.Location.Arg | undefined;
 	};
 
 	export type ProcessGetOutput = {
@@ -132,19 +132,19 @@ export namespace Handle {
 
 	export type ProcessStdioReadArg = {
 		length?: number | undefined;
-		locations?: tg.Locations | undefined;
+		location?: tg.Location.Arg | undefined;
 		position?: number | string | undefined;
 		size?: number | undefined;
 		streams: Array<tg.Process.Stdio.Stream>;
 	};
 
 	export type ProcessStdioWriteArg = {
-		location?: tg.Location | undefined;
+		location?: tg.Location.Arg | undefined;
 		streams: Array<tg.Process.Stdio.Stream>;
 	};
 
 	export type ProcessTtySizePutArg = {
-		location?: tg.Location | undefined;
+		location?: tg.Location.Arg | undefined;
 		size: tg.Process.Tty.Size;
 	};
 

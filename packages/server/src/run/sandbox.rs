@@ -10,7 +10,7 @@ impl Server {
 	pub(crate) fn spawn_sandbox_task(
 		&self,
 		id: &tg::sandbox::Id,
-		location: tg::location::Location,
+		location: tg::Location,
 		permit: SandboxPermit,
 		process: Option<tg::process::Id>,
 	) {
@@ -33,17 +33,16 @@ impl Server {
 	async fn sandbox_task(
 		&self,
 		id: &tg::sandbox::Id,
-		location: tg::location::Location,
+		location: tg::Location,
 		permit: SandboxPermit,
 		process: Option<tg::process::Id>,
 	) -> tg::Result<()> {
 		// Get the sandbox.
-		let locations = tg::location::Locations::from(location.clone());
 		let state = self
 			.try_get_sandbox(
 				id,
 				tg::sandbox::get::Arg {
-					locations: locations.clone(),
+					location: Some(location.clone().into()),
 				},
 			)
 			.await
@@ -131,7 +130,7 @@ impl Server {
 			.get_sandbox_status(
 				id,
 				tg::sandbox::status::Arg {
-					locations: locations.clone(),
+					location: Some(location.clone().into()),
 				},
 			)
 			.await
@@ -196,7 +195,7 @@ impl Server {
 				},
 				() = timer_future => {
 					let arg = tg::sandbox::finish::Arg {
-						location: Some(location.clone()),
+						location: Some(location.clone().into()),
 					};
 					self.finish_sandbox(id, arg).await.ok();
 					timer.take();
@@ -243,7 +242,7 @@ impl Server {
 	) -> tg::Result<tg::sandbox::process::queue::Output> {
 		loop {
 			let arg = tg::sandbox::process::queue::Arg {
-				location: Some(location.clone()),
+				location: Some(location.clone().into()),
 			};
 			match self.try_dequeue_sandbox_process(id, arg).await {
 				Ok(Some(output)) => return Ok(output),
@@ -392,7 +391,7 @@ impl Server {
 		let config = self.config.runner.clone().unwrap_or_default();
 		loop {
 			let arg = tg::sandbox::heartbeat::Arg {
-				location: Some(location.clone()),
+				location: Some(location.clone().into()),
 			};
 			let result = self.heartbeat_sandbox(id, arg).await;
 			if let Ok(output) = result
@@ -422,7 +421,7 @@ impl Server {
 		let sender = sender.clone();
 		let process = tg::Process::new(
 			process,
-			Some(tg::location::Locations::from(location.clone())),
+			Some(location.clone().into()),
 			None,
 			None,
 			None,

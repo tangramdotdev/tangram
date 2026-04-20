@@ -340,7 +340,7 @@ impl Server {
 			self.list_tags(tg::tag::list::Arg {
 				cached: false,
 				length: None,
-				locations: tg::location::Locations::default(),
+				location: None,
 				pattern: pattern.clone(),
 				recursive: false,
 				reverse: true,

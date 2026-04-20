@@ -16,7 +16,7 @@ pub struct Args {
 	pub dry_run: bool,
 
 	#[command(flatten)]
-	pub location: crate::location::Location,
+	pub location: crate::location::Args,
 
 	/// The path to publish.
 	#[arg(default_value = ".", index = 1)]
@@ -187,10 +187,10 @@ impl Cli {
 		}
 
 		// Get the location.
-		let location = args.location.get()?.unwrap_or_else(|| {
-			tg::location::Location::Remote(tg::location::Remote {
-				remote: "default".to_owned(),
-				regions: None,
+		let location = args.location.to_location()?.unwrap_or_else(|| {
+			tg::Location::Remote(tg::location::Remote {
+				name: "default".to_owned(),
+				region: None,
 			})
 		});
 
@@ -240,7 +240,7 @@ impl Cli {
 			.collect::<Vec<_>>();
 		handle
 			.post_tag_batch(tg::tag::batch::Arg {
-				location: Some(location),
+				location: Some(location.into()),
 				replicate: false,
 				tags: tags.clone(),
 			})

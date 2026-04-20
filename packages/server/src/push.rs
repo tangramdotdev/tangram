@@ -24,11 +24,11 @@ impl Server {
 		let source = arg
 			.source
 			.clone()
-			.unwrap_or_else(|| tg::location::Location::Local(tg::location::Local::default()));
+			.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
 		let destination = arg.destination.clone().unwrap_or_else(|| {
-			tg::location::Location::Remote(tg::location::Remote {
-				remote: "default".to_owned(),
-				regions: None,
+			tg::Location::Remote(tg::location::Remote {
+				name: "default".to_owned(),
+				region: None,
 			})
 		});
 		let stream = self.push_or_pull(&arg, source, destination).await?;
@@ -137,7 +137,7 @@ impl Server {
 						match item {
 							tg::Either::Left(object) => {
 								let metadata_arg = tg::object::metadata::Arg {
-									locations: tg::location::Locations::from(source.clone()),
+									location: Some(source.clone().into()),
 								};
 								let metadata = server
 									.try_get_object_metadata(object, metadata_arg)
@@ -151,7 +151,7 @@ impl Server {
 							},
 							tg::Either::Right(process) => {
 								let metadata_arg = tg::process::metadata::Arg {
-									locations: tg::location::Locations::from(source.clone()),
+									location: Some(source.clone().into()),
 								};
 								let Some(metadata) = server
 									.try_get_process_metadata(process, metadata_arg)
@@ -285,7 +285,7 @@ impl Server {
 				eager: arg.eager,
 				force: arg.force,
 				get: Vec::new(),
-				location: Some(source.clone()),
+				location: Some(source.clone().into()),
 				logs: arg.logs,
 				metadata: arg.metadata,
 				outputs: arg.outputs,
@@ -305,7 +305,7 @@ impl Server {
 				eager: arg.eager,
 				force: arg.force,
 				get: arg.items.clone(),
-				location: Some(destination.clone()),
+				location: Some(destination.clone().into()),
 				logs: arg.logs,
 				metadata: arg.metadata,
 				outputs: arg.outputs,

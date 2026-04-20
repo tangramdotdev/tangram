@@ -32,14 +32,14 @@ pub struct Args {
 	pub references: Vec<tg::Reference>,
 
 	#[command(flatten)]
-	pub source: crate::location::Location,
+	pub source: crate::location::Args,
 }
 
 impl Cli {
 	pub async fn command_pull(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let source = args.source.get()?;
-		let location = Some(tg::location::Location::Local(tg::location::Local::default()));
+		let source = args.source.to_location()?;
+		let location = Some(tg::Location::Local(tg::location::Local::default()));
 
 		// Get the references.
 		let referents = self.get_references(&args.references).await?;
@@ -95,7 +95,7 @@ impl Cli {
 					let arg = tg::tag::put::Arg {
 						force: args.force,
 						item: item.clone(),
-						location: location.clone(),
+						location: location.clone().map(Into::into),
 						replicate: false,
 					};
 					handle

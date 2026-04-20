@@ -74,7 +74,7 @@ impl Cli {
 	pub async fn command_run(&mut self, args: Args) -> tg::Result<()> {
 		let checkout = args.options.checkout.is_some();
 		let detach = args.options.detach;
-		let locations = args.options.spawn.location.get_locations()?;
+		let location = args.options.spawn.location.get();
 		let print = args.options.print.clone();
 		let verbose = args.options.verbose;
 
@@ -92,7 +92,7 @@ impl Cli {
 			Self::print_display(output);
 		} else if (detach && verbose) || !output.is_null() {
 			let arg = tg::object::get::Arg {
-				locations,
+				location,
 				metadata: false,
 			};
 			self.print_value(&output, print, arg).await?;
@@ -178,8 +178,8 @@ impl Cli {
 					cached: process.item().cached().unwrap_or(false),
 					location: process
 						.item()
-						.locations()
-						.and_then(|locations| locations.to_location()),
+						.location()
+						.and_then(|location| location.to_location()),
 					process: process.item().id().clone(),
 					token: process.item().token().cloned(),
 					wait: None,
