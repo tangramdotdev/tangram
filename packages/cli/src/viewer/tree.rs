@@ -2350,15 +2350,19 @@ where
 							Item::Process(process) => Some(process.clone()),
 							_ => None,
 						});
+				if let Some(process) = process.clone()
+					&& let Ok(state) = process.load_with_handle(&handle).await
+					&& (state.log.is_some() || state.stdout.is_log() || state.stderr.is_log())
 				{
 					let handle = handle.clone();
 					let update = move |viewer: &mut super::Viewer<H>| {
-						if let Some(process) = process {
-							let log = Log::new(&handle, &process);
-							viewer.log.replace(log);
-						} else {
-							viewer.log.take();
-						}
+						let log = Log::new(&handle, &process);
+						viewer.log.replace(log);
+					};
+					viewer.send(Box::new(update)).unwrap();
+				} else {
+					let update = move |viewer: &mut super::Viewer<H>| {
+						viewer.log.take();
 					};
 					viewer.send(Box::new(update)).unwrap();
 				}
