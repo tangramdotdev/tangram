@@ -593,7 +593,6 @@ impl Cli {
 				_ => Some(tg::Either::Left(tg::sandbox::create::Arg {
 					cpu: options.sandbox.arg.cpu,
 					hostname: options.sandbox.arg.hostname.clone(),
-					isolation: options.sandbox.arg.isolation,
 					location: None,
 					memory: options.sandbox.arg.memory,
 					mounts,

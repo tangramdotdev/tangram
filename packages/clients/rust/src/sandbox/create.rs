@@ -3,27 +3,6 @@ use {
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
 
-#[derive(
-	Clone,
-	Copy,
-	Debug,
-	Eq,
-	Hash,
-	Ord,
-	PartialEq,
-	PartialOrd,
-	serde_with::DeserializeFromStr,
-	serde_with::SerializeDisplay,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-#[tangram_serialize(display, from_str)]
-pub enum Isolation {
-	Container,
-	Seatbelt,
-	Vm,
-}
-
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -31,9 +10,6 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub hostname: Option<String>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub isolation: Option<Isolation>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
@@ -56,29 +32,6 @@ pub struct Arg {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub id: tg::sandbox::Id,
-}
-
-impl std::fmt::Display for Isolation {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Container => write!(f, "container"),
-			Self::Seatbelt => write!(f, "seatbelt"),
-			Self::Vm => write!(f, "vm"),
-		}
-	}
-}
-
-impl std::str::FromStr for Isolation {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> tg::Result<Self> {
-		match s {
-			"container" => Ok(Self::Container),
-			"seatbelt" => Ok(Self::Seatbelt),
-			"vm" => Ok(Self::Vm),
-			_ => Err(tg::error!(%s, "invalid isolation")),
-		}
-	}
 }
 
 impl tg::Client {

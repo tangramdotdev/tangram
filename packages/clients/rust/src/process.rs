@@ -77,7 +77,6 @@ pub struct Arg {
 	pub env: tg::value::Map,
 	pub executable: Option<tg::command::Executable>,
 	pub host: Option<String>,
-	pub isolation: Option<tg::sandbox::Isolation>,
 	pub location: Option<tg::location::Arg>,
 	pub memory: Option<u64>,
 	pub name: Option<String>,
@@ -389,17 +388,13 @@ impl<O> Deref for Process<O> {
 pub(crate) fn normalize_sandbox_arg(
 	sandbox: Option<tg::Either<tg::sandbox::create::Arg, tg::sandbox::Id>>,
 	cpu: Option<u64>,
-	isolation: Option<tg::sandbox::Isolation>,
 	memory: Option<u64>,
 ) -> tg::Result<Option<tg::Either<tg::sandbox::create::Arg, tg::sandbox::Id>>> {
-	let has_resource_fields = cpu.is_some() || isolation.is_some() || memory.is_some();
+	let has_resource_fields = cpu.is_some() || memory.is_some();
 	match sandbox {
 		Some(tg::Either::Left(mut sandbox)) => {
 			if let Some(cpu) = cpu {
 				sandbox.cpu = Some(cpu);
-			}
-			if let Some(isolation) = isolation {
-				sandbox.isolation = Some(isolation);
 			}
 			if let Some(memory) = memory {
 				sandbox.memory = Some(memory);
@@ -409,7 +404,7 @@ pub(crate) fn normalize_sandbox_arg(
 		Some(tg::Either::Right(sandbox)) => {
 			if has_resource_fields {
 				return Err(tg::error!(
-					"cpu, isolation, and memory are not supported for existing sandboxes"
+					"cpu and memory are not supported for existing sandboxes"
 				));
 			}
 			Ok(Some(tg::Either::Right(sandbox)))
@@ -420,7 +415,6 @@ pub(crate) fn normalize_sandbox_arg(
 			}
 			Ok(Some(tg::Either::Left(tg::sandbox::create::Arg {
 				cpu,
-				isolation,
 				memory,
 				network: false,
 				ttl: 0,

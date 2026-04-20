@@ -1,5 +1,5 @@
 use {
-	crate::Sandbox,
+	crate::{Isolation, Sandbox},
 	std::path::{Path, PathBuf},
 	tangram_client::prelude::*,
 };
@@ -35,7 +35,7 @@ impl Sandbox {
 		#[cfg(target_os = "macos")]
 		{
 			match self.0.isolation {
-				tg::sandbox::Isolation::Seatbelt => Some(path.to_owned()),
+				Isolation::Seatbelt(_) => Some(path.to_owned()),
 				_ => unreachable!(),
 			}
 		}
@@ -48,7 +48,7 @@ impl Sandbox {
 				.iter()
 				.map(|mount| (mount.target.clone(), mount.source.clone()))
 				.collect::<Vec<_>>();
-			if matches!(self.0.isolation, tg::sandbox::Isolation::Container) {
+			if matches!(self.0.isolation, Isolation::Container(_)) {
 				path_maps.extend([
 					(
 						Self::guest_listen_path_from_root(&self.0.path),
@@ -68,7 +68,7 @@ impl Sandbox {
 				(self.guest_output_path(), self.host_output_path()),
 				(self.guest_artifacts_path(), self.0.artifacts_path.clone()),
 			]);
-			if matches!(self.0.isolation, tg::sandbox::Isolation::Container) {
+			if matches!(self.0.isolation, Isolation::Container(_)) {
 				path_maps.push((
 					PathBuf::from("/"),
 					Self::host_upper_path_from_root(&self.0.path),
@@ -103,7 +103,7 @@ impl Sandbox {
 		#[cfg(target_os = "macos")]
 		{
 			match self.0.isolation {
-				tg::sandbox::Isolation::Seatbelt => Some(path.to_owned()),
+				Isolation::Seatbelt(_) => Some(path.to_owned()),
 				_ => unreachable!(),
 			}
 		}
@@ -116,7 +116,7 @@ impl Sandbox {
 				.iter()
 				.map(|mount| (mount.source.clone(), mount.target.clone()))
 				.collect::<Vec<_>>();
-			if matches!(self.0.isolation, tg::sandbox::Isolation::Container) {
+			if matches!(self.0.isolation, Isolation::Container(_)) {
 				path_maps.extend([
 					(
 						Self::host_listen_path_from_root(&self.0.path),
@@ -136,7 +136,7 @@ impl Sandbox {
 				(self.host_output_path(), self.guest_output_path()),
 				(self.0.artifacts_path.clone(), self.guest_artifacts_path()),
 			]);
-			if matches!(self.0.isolation, tg::sandbox::Isolation::Container) {
+			if matches!(self.0.isolation, Isolation::Container(_)) {
 				path_maps.push((
 					Self::host_upper_path_from_root(&self.0.path),
 					PathBuf::from("/"),

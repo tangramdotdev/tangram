@@ -53,7 +53,7 @@ impl Server {
 		if state.status.is_finished() {
 			return Ok(());
 		}
-		let isolation = Self::resolve_sandbox_isolation(state.isolation)?;
+		let isolation = self.resolve_sandbox_isolation()?;
 
 		// Associate the permit with the sandbox.
 		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
@@ -256,18 +256,18 @@ impl Server {
 
 	async fn run_create_listener(
 		root_path: &Path,
-		isolation: tg::sandbox::Isolation,
+		isolation: tangram_sandbox::Isolation,
 	) -> tg::Result<(crate::http::Listener, tangram_uri::Uri)> {
 		#[cfg(target_os = "linux")]
 		{
 			match isolation {
-				tg::sandbox::Isolation::Container => {
+				tangram_sandbox::Isolation::Container(_) => {
 					Self::run_create_unix_listener(root_path).await
 				},
-				tg::sandbox::Isolation::Seatbelt => {
+				tangram_sandbox::Isolation::Seatbelt(_) => {
 					Err(tg::error!("seatbelt isolation is not supported on linux"))
 				},
-				tg::sandbox::Isolation::Vm => {
+				tangram_sandbox::Isolation::Vm(_) => {
 					let _ = root_path;
 					#[cfg(not(feature = "vsock"))]
 					{
@@ -305,11 +305,13 @@ impl Server {
 		#[cfg(not(target_os = "linux"))]
 		{
 			match isolation {
-				tg::sandbox::Isolation::Container => Err(tg::error!(
+				tangram_sandbox::Isolation::Container(_) => Err(tg::error!(
 					"{isolation} isolation is not supported on macos"
 				)),
-				tg::sandbox::Isolation::Seatbelt => Self::run_create_unix_listener(root_path).await,
-				tg::sandbox::Isolation::Vm => Err(tg::error!(
+				tangram_sandbox::Isolation::Seatbelt(_) => {
+					Self::run_create_unix_listener(root_path).await
+				},
+				tangram_sandbox::Isolation::Vm(_) => Err(tg::error!(
 					"{isolation} isolation is not supported on macos"
 				)),
 			}

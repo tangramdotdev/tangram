@@ -3,8 +3,6 @@ import * as tg from "./index.ts";
 export namespace Sandbox {
 	export type Id = string;
 
-	export type Isolation = "container" | "seatbelt" | "vm";
-
 	export namespace Id {
 		export let is = (value: unknown): value is tg.Sandbox.Id => {
 			return typeof value === "string" && value.startsWith("sbx_");
@@ -14,7 +12,6 @@ export namespace Sandbox {
 	export type Arg = {
 		cpu?: number | undefined;
 		hostname?: string | undefined;
-		isolation?: tg.Sandbox.Isolation | undefined;
 		memory?: number | undefined;
 		mounts?: Array<tg.Sandbox.Mount> | undefined;
 		network?: boolean | undefined;

@@ -26,8 +26,8 @@ def main [
 			print -e $"removed ($entry.name)"
 		}
 
-		let preserved_dbs = ['postgres', 'template0', 'template1', 'process_store']
-		let dbs = psql -U postgres -h localhost -t -c "SELECT datname FROM pg_database" | lines | str trim | where { $in starts-with 'process_store_' }
+		let preserved_dbs = ['postgres', 'template0', 'template1', 'processes']
+		let dbs = psql -U postgres -h localhost -t -c "SELECT datname FROM pg_database" | lines | str trim | where { $in starts-with 'processes_' }
 		for db in $dbs {
 			print -e $"dropping postgres database ($db)"
 			try { dropdb -U postgres -h localhost $db }
@@ -39,8 +39,8 @@ def main [
 			try { cockroach sql --insecure --host=localhost:26257 -e $'drop database if exists ($db) cascade' }
 		}
 
-		let preserved_keyspaces = ['system', 'system_auth', 'system_distributed', 'system_distributed_everywhere', 'system_schema', 'system_traces', 'system_views', 'object_store']
-		let keyspaces = cqlsh -e "SELECT JSON keyspace_name FROM system_schema.keyspaces" | lines | str trim | where { $in starts-with '{' } | each { $in | from json | get keyspace_name } | where { $in starts-with 'object_store_' }
+		let preserved_keyspaces = ['system', 'system_auth', 'system_distributed', 'system_distributed_everywhere', 'system_schema', 'system_traces', 'system_views', 'objects']
+		let keyspaces = cqlsh -e "SELECT JSON keyspace_name FROM system_schema.keyspaces" | lines | str trim | where { $in starts-with '{' } | each { $in | from json | get keyspace_name } | where { $in starts-with 'objects_' }
 		for keyspace in $keyspaces {
 			print -e $"dropping scylla keyspace ($keyspace)"
 			try { cqlsh -e $"drop keyspace \"($keyspace)\";" e> /dev/null }
@@ -761,14 +761,14 @@ export def --env spawn [
 		cockroach sql --insecure --host=localhost:26257 -e $'create database database_($id)'
 		cockroach sql --insecure --host=localhost:26257 -d $'database_($id)' -f ($repository_path | path join packages/server/src/database/postgres.sql)
 
-		createdb -U postgres -h localhost $'process_store_($id)'
-		psql -U postgres -h localhost -d $'process_store_($id)' -f ($repository_path | path join packages/server/src/process/store/postgres.sql)
+		createdb -U postgres -h localhost $'processes_($id)'
+		psql -U postgres -h localhost -d $'processes_($id)' -f ($repository_path | path join packages/server/src/process/store/postgres.sql)
 
 		let cluster = mktemp -t
 		"docker:docker@localhost:4500" | save -f $cluster
 
-		cqlsh -e $"create keyspace \"object_store_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
-		cqlsh -k $'object_store_($id)' -f ($repository_path | path join packages/stores/object/src/scylla.cql)
+		cqlsh -e $"create keyspace \"objects_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
+		cqlsh -k $'objects_($id)' -f ($repository_path | path join packages/stores/object/src/scylla.cql)
 
 		let config = {
 			database: {
@@ -795,7 +795,7 @@ export def --env spawn [
 				store: {
 					addr: 'localhost:9042',
 					connections: 1,
-					keyspace: $'object_store_($id)',
+					keyspace: $'objects_($id)',
 					kind: 'scylla',
 				},
 			},
@@ -803,7 +803,7 @@ export def --env spawn [
 				store: {
 					connections: 1,
 					kind: 'postgres',
-					url: $'postgres://postgres@localhost:5432/process_store_($id)',
+					url: $'postgres://postgres@localhost:5432/processes_($id)',
 				},
 			},
 			remotes: [],
@@ -913,7 +913,7 @@ def clean_databases [id: string] {
 	try { cockroach sql --insecure --host=localhost:26257 -e $'drop database if exists database_($id) cascade' }
 
 	# Drop the Postgres database.
-	try { dropdb -U postgres -h localhost $'process_store_($id)' }
+	try { dropdb -U postgres -h localhost $'processes_($id)' }
 
 	# Clear the fdb key range.
 	let cluster = mktemp -t
@@ -921,7 +921,7 @@ def clean_databases [id: string] {
 	try { fdbcli -C $cluster --exec $'writemode on; clearrange "index_($id)" "index_($id)\xff"; clearrange "logs_($id)" "logs_($id)\xff"' }
 
 	# Drop the scylla keyspace.
-	try { cqlsh -e $"drop keyspace \"object_store_($id)\";" }
+	try { cqlsh -e $"drop keyspace \"objects_($id)\";" }
 }
 
 def diff [old: string, new: string, --path] {

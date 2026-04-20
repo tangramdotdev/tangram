@@ -1,6 +1,10 @@
 use ../../test.nu *
 
-let server = spawn
+let server = spawn --config {
+	sandbox: {
+		finalizer: false,
+	},
+}
 
 let a = mktemp -d | str trim
 let b = mktemp -d | str trim

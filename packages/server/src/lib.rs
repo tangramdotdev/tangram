@@ -844,7 +844,7 @@ impl Server {
 		}));
 
 		// Spawn the process finalizer task.
-		let process_finalizer_task = server.config.finalizer.clone().map(|config| {
+		let process_finalizer_task = server.config.process.finalizer.clone().map(|config| {
 			tokio::spawn({
 				let server = server.clone();
 				async move {
@@ -860,7 +860,7 @@ impl Server {
 		});
 
 		// Spawn the sandbox finalizer task.
-		let sandbox_finalizer_task = server.config.finalizer.clone().map(|config| {
+		let sandbox_finalizer_task = server.config.sandbox.finalizer.clone().map(|config| {
 			tokio::spawn({
 				let server = server.clone();
 				async move {

@@ -1312,7 +1312,6 @@ impl Server {
 					created_at,
 					heartbeat_at,
 					hostname,
-					isolation,
 					memory,
 					mounts,
 					network,
@@ -1333,15 +1332,14 @@ impl Server {
 					{p}9,
 					{p}10,
 					{p}11,
-					{p}12,
-					{p}13
+					{p}12
 				);
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let heartbeat_at = (status == tg::sandbox::Status::Started).then_some(now);
 		let started_at = (status == tg::sandbox::Status::Started).then_some(now);
-		let isolation = Self::resolve_sandbox_isolation(arg.isolation)?;
+		let isolation = self.resolve_sandbox_isolation()?;
 		Self::validate_sandbox_resources(isolation, arg.cpu, arg.memory)?;
 		let cpu = arg
 			.cpu
@@ -1361,7 +1359,6 @@ impl Server {
 			now,
 			heartbeat_at,
 			arg.hostname.clone(),
-			isolation.to_string(),
 			memory,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
 			arg.network,

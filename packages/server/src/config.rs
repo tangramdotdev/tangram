@@ -33,10 +33,6 @@ pub struct Config {
 	pub directory: Option<PathBuf>,
 
 	#[serde_as(as = "BoolOptionDefault")]
-	#[serde(default = "default_finalizer")]
-	pub finalizer: Option<Finalizer>,
-
-	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default = "default_http")]
 	pub http: Option<Http>,
 
@@ -71,6 +67,9 @@ pub struct Config {
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default = "default_runner")]
 	pub runner: Option<Runner>,
+
+	#[serde(default)]
+	pub sandbox: Sandbox,
 
 	#[serde(default)]
 	pub sync: Sync,
@@ -360,9 +359,14 @@ pub struct ScyllaObjectStoreSimpleSpeculativeExecution {
 	pub retry_interval: u64,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Process {
+	#[serde_as(as = "BoolOptionDefault")]
+	#[serde(default = "default_finalizer")]
+	pub finalizer: Option<Finalizer>,
+
 	#[serde(default = "default_process_store")]
 	pub store: Database,
 }
@@ -460,6 +464,37 @@ pub enum JsEngine {
 	QuickJs,
 	V8,
 }
+
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct Sandbox {
+	#[serde_as(as = "BoolOptionDefault")]
+	#[serde(default = "default_finalizer")]
+	pub finalizer: Option<Finalizer>,
+
+	pub isolation: SandboxIsolation,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
+pub enum SandboxIsolation {
+	Container(ContainerSandboxIsolation),
+	Seatbelt(SeatbeltSandboxIsolation),
+	Vm(VmSandboxIsolation),
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ContainerSandboxIsolation {}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct SeatbeltSandboxIsolation {}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct VmSandboxIsolation {}
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
@@ -671,7 +706,6 @@ impl Default for Config {
 			cleaner: None,
 			database: Database::default(),
 			directory: None,
-			finalizer: Some(Finalizer::default()),
 			http: Some(Http::default()),
 			index: Index::default(),
 			indexer: Some(Indexer::default()),
@@ -683,6 +717,7 @@ impl Default for Config {
 			regions: None,
 			remotes: None,
 			runner: Some(Runner::default()),
+			sandbox: Sandbox::default(),
 			sync: Sync::default(),
 			tag: Tag::default(),
 			version: None,
@@ -867,6 +902,7 @@ impl Default for LmdbObjectStore {
 impl Default for Process {
 	fn default() -> Self {
 		Self {
+			finalizer: Some(Finalizer::default()),
 			store: default_process_store(),
 		}
 	}
@@ -879,6 +915,24 @@ impl Default for Runner {
 			heartbeat_interval: Duration::from_secs(1),
 			js: Js::default(),
 			remotes: Vec::new(),
+		}
+	}
+}
+
+impl Default for Sandbox {
+	fn default() -> Self {
+		Self {
+			finalizer: Some(Finalizer::default()),
+			isolation: {
+				#[cfg(target_os = "linux")]
+				{
+					SandboxIsolation::Container(ContainerSandboxIsolation::default())
+				}
+				#[cfg(target_os = "macos")]
+				{
+					SandboxIsolation::Seatbelt(SeatbeltSandboxIsolation::default())
+				}
+			},
 		}
 	}
 }

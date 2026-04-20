@@ -17,7 +17,6 @@ impl Cli {
 		let arg = tg::sandbox::create::Arg {
 			cpu: args.arg.cpu,
 			hostname: args.arg.hostname,
-			isolation: args.arg.isolation,
 			location: args.location.get(),
 			memory: args.arg.memory,
 			mounts: args.arg.mounts,

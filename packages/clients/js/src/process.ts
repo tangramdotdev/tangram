@@ -1008,13 +1008,6 @@ export namespace Process {
 			return this;
 		}
 
-		isolation(
-			isolation: tg.Unresolved<tg.MaybeMutation<tg.Sandbox.Isolation>>,
-		): this {
-			this.#args.push({ isolation });
-			return this;
-		}
-
 		memory(memory: tg.Unresolved<tg.MaybeMutation<number>>): this {
 			this.#args.push({ memory });
 			return this;
@@ -1175,7 +1168,6 @@ export namespace Process {
 		env?: tg.MaybeMutationMap | undefined;
 		executable?: tg.Command.Arg.Executable | undefined;
 		host?: string | undefined;
-		isolation?: tg.Sandbox.Isolation | undefined;
 		location?: tg.Location.Arg | undefined;
 		memory?: number | undefined;
 		mounts?: Array<tg.Sandbox.Mount> | undefined;
@@ -2211,13 +2203,11 @@ let isSandboxArg = (value: unknown): value is tg.Sandbox.Arg => {
 let normalizeSandbox = (
 	arg: Pick<
 		tg.Process.ArgObject,
-		"cpu" | "isolation" | "memory" | "mounts" | "network" | "sandbox"
+		"cpu" | "memory" | "mounts" | "network" | "sandbox"
 	>,
 ): Exclude<tg.Handle.SpawnArg["sandbox"], undefined> | undefined => {
 	let hasCpu = "cpu" in arg;
 	let cpu = arg.cpu;
-	let hasIsolation = "isolation" in arg;
-	let isolation = arg.isolation;
 	let hasMemory = "memory" in arg;
 	let memory = arg.memory;
 	let mounts = arg.mounts ?? [];
@@ -2225,27 +2215,15 @@ let normalizeSandbox = (
 	let network = arg.network ?? false;
 	let sandbox = arg.sandbox;
 	if (typeof sandbox === "string") {
-		if (
-			hasCpu ||
-			hasIsolation ||
-			hasMemory ||
-			mounts.length > 0 ||
-			hasNetwork
-		) {
+		if (hasCpu || hasMemory || mounts.length > 0 || hasNetwork) {
 			throw new Error(
-				"cpu, isolation, memory, mounts, and network are not supported for existing sandboxes",
+				"cpu, memory, mounts, and network are not supported for existing sandboxes",
 			);
 		}
 		return sandbox;
 	}
 	if (sandbox === undefined || sandbox === false) {
-		if (
-			!hasCpu &&
-			!hasIsolation &&
-			!hasMemory &&
-			mounts.length === 0 &&
-			!hasNetwork
-		) {
+		if (!hasCpu && !hasMemory && mounts.length === 0 && !hasNetwork) {
 			return undefined;
 		}
 		sandbox = { network: false };
@@ -2260,9 +2238,6 @@ let normalizeSandbox = (
 		}
 		if (sandbox.hostname !== undefined) {
 			output.hostname = sandbox.hostname;
-		}
-		if (sandbox.isolation !== undefined) {
-			output.isolation = sandbox.isolation;
 		}
 		if (sandbox.memory !== undefined) {
 			output.memory = sandbox.memory;
@@ -2280,9 +2255,6 @@ let normalizeSandbox = (
 	}
 	if (hasCpu) {
 		output.cpu = cpu;
-	}
-	if (hasIsolation) {
-		output.isolation = isolation;
 	}
 	if (hasMemory) {
 		output.memory = memory;

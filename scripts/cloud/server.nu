@@ -26,14 +26,14 @@ let config = {
 	object: {
 		store: {
 			addr: 'localhost:9042',
-			keyspace: 'store',
+			keyspace: 'objects',
 			kind: 'scylla',
 		},
 	},
 	process: {
 		store: {
 			kind: 'postgres',
-			url: 'postgres://postgres@localhost:5432/process_store',
+			url: 'postgres://postgres@localhost:5432/processes',
 		},
 	},
 	remotes: [],

@@ -31,7 +31,7 @@ pub struct Sandbox(Arc<State>);
 pub struct State {
 	artifacts_path: PathBuf,
 	client: Client,
-	isolation: tg::sandbox::Isolation,
+	isolation: Isolation,
 	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	mounts: Vec<tg::sandbox::Mount>,
 	path: PathBuf,
@@ -49,7 +49,7 @@ pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub cpu: Option<u64>,
 	pub hostname: Option<String>,
-	pub isolation: tg::sandbox::Isolation,
+	pub isolation: Isolation,
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: bool,
@@ -69,6 +69,22 @@ pub struct Command {
 	pub stdin: Stdio,
 	pub stdout: Stdio,
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Isolation {
+	Container(ContainerIsolation),
+	Seatbelt(SeatbeltIsolation),
+	Vm(VmIsolation),
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ContainerIsolation {}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SeatbeltIsolation {}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct VmIsolation {}
 
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Stdio {
@@ -121,24 +137,24 @@ impl Sandbox {
 
 		let mut process = match arg.isolation {
 			#[cfg(target_os = "linux")]
-			tg::sandbox::Isolation::Container => self::container::spawn(&arg, &serve_arg)?,
+			Isolation::Container(_) => self::container::spawn(&arg, &serve_arg)?,
 			#[cfg(target_os = "linux")]
-			tg::sandbox::Isolation::Seatbelt => {
+			Isolation::Seatbelt(_) => {
 				return Err(tg::error!("seatbelt isolation is not supported on linux"));
 			},
 			#[cfg(target_os = "macos")]
-			tg::sandbox::Isolation::Container => {
+			Isolation::Container(_) => {
 				return Err(tg::error!(
 					"{} isolation is not supported on macos",
 					arg.isolation
 				));
 			},
 			#[cfg(target_os = "macos")]
-			tg::sandbox::Isolation::Seatbelt => self::seatbelt::spawn(&arg, &serve_arg)?,
+			Isolation::Seatbelt(_) => self::seatbelt::spawn(&arg, &serve_arg)?,
 			#[cfg(target_os = "linux")]
-			tg::sandbox::Isolation::Vm => self::vm::spawn(&arg, &serve_arg)?,
+			Isolation::Vm(_) => self::vm::spawn(&arg, &serve_arg)?,
 			#[cfg(target_os = "macos")]
-			tg::sandbox::Isolation::Vm => {
+			Isolation::Vm(_) => {
 				return Err(tg::error!(
 					"{} isolation is not supported on macos",
 					arg.isolation
@@ -188,28 +204,28 @@ impl Sandbox {
 	}
 
 	async fn listen(
-		isolation: tg::sandbox::Isolation,
+		isolation: Isolation,
 		root_path: &Path,
 	) -> tg::Result<(crate::server::Listener, Uri)> {
 		#[cfg(target_os = "linux")]
 		{
 			match isolation {
-				tg::sandbox::Isolation::Container => Self::listen_unix(root_path).await,
-				tg::sandbox::Isolation::Seatbelt => {
+				Isolation::Container(_) => Self::listen_unix(root_path).await,
+				Isolation::Seatbelt(_) => {
 					Err(tg::error!("seatbelt isolation is not supported on linux"))
 				},
-				tg::sandbox::Isolation::Vm => Self::listen_vsock().await,
+				Isolation::Vm(_) => Self::listen_vsock().await,
 			}
 		}
 
 		#[cfg(not(target_os = "linux"))]
 		{
 			match isolation {
-				tg::sandbox::Isolation::Container => Err(tg::error!(
+				Isolation::Container(_) => Err(tg::error!(
 					"{isolation} isolation is not supported on macos"
 				)),
-				tg::sandbox::Isolation::Seatbelt => Self::listen_unix(root_path).await,
-				tg::sandbox::Isolation::Vm => Err(tg::error!(
+				Isolation::Seatbelt(_) => Self::listen_unix(root_path).await,
+				Isolation::Vm(_) => Err(tg::error!(
 					"{isolation} isolation is not supported on macos"
 				)),
 			}
@@ -387,7 +403,7 @@ impl Sandbox {
 }
 
 fn validate_resources(
-	isolation: tg::sandbox::Isolation,
+	isolation: Isolation,
 	cpu: Option<u64>,
 	memory: Option<u64>,
 ) -> tg::Result<()> {
@@ -397,13 +413,20 @@ fn validate_resources(
 	if memory == Some(0) {
 		return Err(tg::error!("sandbox memory must be greater than zero"));
 	}
-	if matches!(isolation, tg::sandbox::Isolation::Seatbelt) && (cpu.is_some() || memory.is_some())
-	{
+	if matches!(isolation, Isolation::Seatbelt(_)) && (cpu.is_some() || memory.is_some()) {
 		return Err(tg::error!(
 			"sandbox cpu and memory are not supported with seatbelt isolation"
 		));
 	}
 	Ok(())
+}
+
+impl std::ops::Deref for Sandbox {
+	type Target = State;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
+	}
 }
 
 impl std::fmt::Display for Stdio {
@@ -426,13 +449,5 @@ impl std::str::FromStr for Stdio {
 			"tty" => Ok(Stdio::Tty),
 			s => Err(tg::error!(string = %s, "invalid stdio {s}")),
 		}
-	}
-}
-
-impl std::ops::Deref for Sandbox {
-	type Target = State;
-
-	fn deref(&self) -> &Self::Target {
-		&self.0
 	}
 }

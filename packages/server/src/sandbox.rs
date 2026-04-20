@@ -19,39 +19,43 @@ pub mod queue;
 pub mod status;
 
 impl Server {
-	pub(crate) fn default_sandbox_isolation() -> tg::sandbox::Isolation {
-		#[cfg(target_os = "linux")]
-		{
-			tg::sandbox::Isolation::Container
-		}
-		#[cfg(target_os = "macos")]
-		{
-			tg::sandbox::Isolation::Seatbelt
+	fn sandbox_isolation_from_config(
+		isolation: crate::config::SandboxIsolation,
+	) -> tangram_sandbox::Isolation {
+		match isolation {
+			crate::config::SandboxIsolation::Container(_) => {
+				tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation::default())
+			},
+			crate::config::SandboxIsolation::Seatbelt(_) => {
+				tangram_sandbox::Isolation::Seatbelt(tangram_sandbox::SeatbeltIsolation::default())
+			},
+			crate::config::SandboxIsolation::Vm(_) => {
+				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation::default())
+			},
 		}
 	}
 
-	pub(crate) fn resolve_sandbox_isolation(
-		isolation: Option<tg::sandbox::Isolation>,
-	) -> tg::Result<tg::sandbox::Isolation> {
-		let isolation = isolation.unwrap_or_else(Self::default_sandbox_isolation);
+	pub(crate) fn resolve_sandbox_isolation(&self) -> tg::Result<tangram_sandbox::Isolation> {
+		let isolation = Self::sandbox_isolation_from_config(self.config.sandbox.isolation);
 		#[cfg(target_os = "linux")]
 		{
 			match isolation {
-				tg::sandbox::Isolation::Container => Ok(tg::sandbox::Isolation::Container),
-				tg::sandbox::Isolation::Seatbelt => {
+				tangram_sandbox::Isolation::Container(_) | tangram_sandbox::Isolation::Vm(_) => {
+					Ok(isolation)
+				},
+				tangram_sandbox::Isolation::Seatbelt(_) => {
 					Err(tg::error!("seatbelt isolation is not supported on linux"))
 				},
-				tg::sandbox::Isolation::Vm => Ok(tg::sandbox::Isolation::Vm),
 			}
 		}
 		#[cfg(target_os = "macos")]
 		{
 			match isolation {
-				tg::sandbox::Isolation::Container => Err(tg::error!(
+				tangram_sandbox::Isolation::Container(_) => Err(tg::error!(
 					"{isolation} isolation is not supported on macos"
 				)),
-				tg::sandbox::Isolation::Seatbelt => Ok(isolation),
-				tg::sandbox::Isolation::Vm => Err(tg::error!(
+				tangram_sandbox::Isolation::Seatbelt(_) => Ok(isolation),
+				tangram_sandbox::Isolation::Vm(_) => Err(tg::error!(
 					"{isolation} isolation is not supported on macos"
 				)),
 			}
@@ -59,7 +63,7 @@ impl Server {
 	}
 
 	pub(crate) fn validate_sandbox_resources(
-		isolation: tg::sandbox::Isolation,
+		isolation: tangram_sandbox::Isolation,
 		cpu: Option<u64>,
 		memory: Option<u64>,
 	) -> tg::Result<()> {
@@ -69,7 +73,7 @@ impl Server {
 		if memory == Some(0) {
 			return Err(tg::error!("sandbox memory must be greater than zero"));
 		}
-		if matches!(isolation, tg::sandbox::Isolation::Seatbelt)
+		if matches!(isolation, tangram_sandbox::Isolation::Seatbelt(_))
 			&& (cpu.is_some() || memory.is_some())
 		{
 			return Err(tg::error!(

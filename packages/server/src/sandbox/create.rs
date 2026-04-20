@@ -52,7 +52,6 @@ impl Server {
 					cpu,
 					created_at,
 					hostname,
-					isolation,
 					memory,
 					mounts,
 					network,
@@ -70,13 +69,12 @@ impl Server {
 					{p}7,
 					{p}8,
 					{p}9,
-					{p}10,
-					{p}11
+					{p}10
 				);
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let isolation = Self::resolve_sandbox_isolation(arg.isolation)?;
+		let isolation = self.resolve_sandbox_isolation()?;
 		Self::validate_sandbox_resources(isolation, arg.cpu, arg.memory)?;
 		let cpu = arg
 			.cpu
@@ -95,7 +93,6 @@ impl Server {
 			cpu,
 			now,
 			arg.hostname.clone(),
-			isolation.to_string(),
 			memory,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
 			arg.network,

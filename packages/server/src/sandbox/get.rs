@@ -62,8 +62,6 @@ impl Server {
 		struct Row {
 			cpu: Option<i64>,
 			hostname: Option<String>,
-			#[tangram_database(as = "Option<db::value::FromStr>")]
-			isolation: Option<tg::sandbox::Isolation>,
 			memory: Option<i64>,
 			#[tangram_database(as = "Option<db::value::Json<Vec<tg::sandbox::Mount>>>")]
 			mounts: Option<Vec<tg::sandbox::Mount>>,
@@ -84,7 +82,6 @@ impl Server {
 				select
 					cpu,
 					hostname,
-					isolation,
 					memory,
 					mounts,
 					network,
@@ -118,7 +115,6 @@ impl Server {
 						},
 					)),
 					hostname: row.hostname,
-					isolation: row.isolation,
 					memory: row
 						.memory
 						.map(u64::try_from)

@@ -50,8 +50,6 @@ impl Server {
 			id: tg::sandbox::Id,
 			cpu: Option<i64>,
 			hostname: Option<String>,
-			#[tangram_database(as = "Option<db::value::FromStr>")]
-			isolation: Option<tg::sandbox::Isolation>,
 			memory: Option<i64>,
 			#[tangram_database(as = "Option<db::value::Json<Vec<tg::sandbox::Mount>>>")]
 			mounts: Option<Vec<tg::sandbox::Mount>>,
@@ -67,7 +65,7 @@ impl Server {
 			})?;
 		let statement = formatdoc!(
 			"
-				select id, cpu, hostname, isolation, memory, mounts, network, status, ttl, \"user\" as user
+				select id, cpu, hostname, memory, mounts, network, status, ttl, \"user\" as user
 				from sandboxes
 				where status != 'finished'
 				order by created_at;
@@ -89,7 +87,6 @@ impl Server {
 						.transpose()
 						.map_err(|source| tg::error!(!source, "invalid sandbox cpu"))?,
 					hostname: row.hostname,
-					isolation: row.isolation,
 					memory: row
 						.memory
 						.map(u64::try_from)

@@ -51,9 +51,6 @@ pub struct Options {
 	pub hostname: Option<String>,
 
 	#[arg(long)]
-	pub isolation: Option<tg::sandbox::Isolation>,
-
-	#[arg(long)]
 	pub memory: Option<u64>,
 
 	#[arg(action = clap::ArgAction::Append, long = "mount", num_args = 1, short)]
@@ -114,7 +111,6 @@ impl Options {
 	pub fn is_empty(&self) -> bool {
 		self.cpu.is_none()
 			&& self.hostname.is_none()
-			&& self.isolation.is_none()
 			&& self.memory.is_none()
 			&& self.mounts.is_empty()
 			&& self.network.try_get().is_none()

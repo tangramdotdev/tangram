@@ -24,9 +24,6 @@ pub struct Output {
 	pub hostname: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub isolation: Option<tg::sandbox::Isolation>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub memory: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]

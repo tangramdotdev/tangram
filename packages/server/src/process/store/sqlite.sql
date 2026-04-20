@@ -5,7 +5,6 @@ create table sandboxes (
 	heartbeat_at integer,
 	hostname text,
 	id text primary key,
-	isolation text,
 	memory integer,
 	mounts text,
 	network integer not null,

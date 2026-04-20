@@ -28,8 +28,7 @@ impl<O> tg::Process<O> {
 		O: TryFrom<tg::Value> + 'static,
 		O::Error: std::error::Error + Send + Sync + 'static,
 	{
-		let sandbox =
-			super::normalize_sandbox_arg(arg.sandbox.clone(), arg.cpu, arg.isolation, arg.memory)?;
+		let sandbox = super::normalize_sandbox_arg(arg.sandbox.clone(), arg.cpu, arg.memory)?;
 		let sandboxed = sandbox.is_some();
 
 		let host = arg

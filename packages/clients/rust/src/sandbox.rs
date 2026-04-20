@@ -1,7 +1,7 @@
 mod id;
 mod mount;
 
-pub use self::{create::Isolation, id::Id, mount::Mount, status::Status};
+pub use self::{id::Id, mount::Mount, status::Status};
 
 pub mod create;
 pub mod delete;
