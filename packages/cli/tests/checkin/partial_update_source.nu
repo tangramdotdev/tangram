@@ -50,7 +50,7 @@ let lock = {
 let path = artifact {
 	root: {
 		tangram.ts: '
-			import a from "a/^1" with { local: "../a" }
+			import a from "a/^1" with { source: "../a" }
 			import b from "b/^1";
 		'
 	}
@@ -68,9 +68,9 @@ let object = tg get --depth=inf --pretty $id
 snapshot $object '
 	tg.directory({
 	  "tangram.ts": tg.file({
-	    "contents": blb_01dyj4m1cfvkgerkcxb48kt9cghwm58wq44a9qz81vn4m9mmaxk1ng,
+	    "contents": blb_01nffkh2nb2jybfrf2a6apykka689ggsbcchq8d9yy8g1bz36w490g,
 	    "dependencies": {
-	      "a/^1?local=../a": {
+	      "a/^1?source=../a": {
 	        "item": tg.directory({
 	          "tangram.ts": tg.file({
 	            "contents": blb_01r6mwmke66z61dwjakzxtmgxnkwe8983mrvz4q5pskt4hn4n0xye0,

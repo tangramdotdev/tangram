@@ -7,7 +7,7 @@ use {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	pub id: tg::process::Id,
-	pub remote: Option<String>,
+	pub location: Option<tg::location::Location>,
 	pub retry: bool,
 }
 

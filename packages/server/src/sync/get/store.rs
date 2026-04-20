@@ -236,7 +236,7 @@ impl Server {
 		// Write the processes to the database.
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let batch_refs: Vec<_> = batch.iter().map(|(id, data, _)| (id, data)).collect();
-		match &self.sandbox_store {
+		match &self.process_store {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(database) => {
 				Self::put_process_batch_postgres(&batch_refs, database, now)

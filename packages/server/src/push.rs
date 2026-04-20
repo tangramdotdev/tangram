@@ -1,6 +1,6 @@
 use {
 	crate::{Context, Server},
-	futures::{prelude::*, stream::FuturesUnordered},
+	futures::{prelude::*, stream::BoxStream, stream::FuturesUnordered},
 	std::{
 		panic::AssertUnwindSafe,
 		pin::pin,
@@ -21,27 +21,26 @@ impl Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + use<>,
 	> {
-		let remote = arg.remote.clone().unwrap_or_else(|| "default".to_owned());
-		let remote = self
-			.get_remote_client(remote)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
-		Self::push_or_pull(self, &remote, &arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to start the push"))
+		let source = arg
+			.source
+			.clone()
+			.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
+		let destination = arg.destination.clone().unwrap_or_else(|| {
+			tg::Location::Remote(tg::location::Remote {
+				name: "default".to_owned(),
+				region: None,
+			})
+		});
+		let stream = self.push_or_pull(&arg, source, destination).await?;
+		Ok(stream)
 	}
 
-	pub(crate) async fn push_or_pull<S, D>(
-		src: &S,
-		dst: &D,
+	pub(crate) async fn push_or_pull(
+		&self,
 		arg: &tg::push::Arg,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + use<S, D>,
-	>
-	where
-		S: tg::Handle,
-		D: tg::Handle,
-	{
+		source: tg::location::Location,
+		destination: tg::location::Location,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>> {
 		// Create the progress handle and add the indicators.
 		let progress = crate::progress::Handle::new();
 		if arg.items.iter().any(tg::Either::is_right) {
@@ -70,23 +69,33 @@ impl Server {
 
 		// Spawn a task to set the indicator totals as soon as they are ready.
 		let indicator_total_task = Task::spawn({
-			let src = src.clone();
+			let server = self.clone();
+			let source = source.clone();
 			let progress = progress.clone();
 			let arg = arg.clone();
-			|_| async move { Self::push_or_pull_set_indicator_totals(&src, progress, &arg).await }
+			|_| async move {
+				server
+					.push_or_pull_set_indicator_totals(source.clone(), progress, &arg)
+					.await
+			}
 		});
 
 		// Spawn the task.
 		let task = Task::spawn({
+			let server = self.clone();
+			let destination = destination.clone();
 			let progress = progress.clone();
 			let arg = arg.clone();
-			let src = src.clone();
-			let dst = dst.clone();
+			let source = source.clone();
 			|_| async move {
-				let result =
-					AssertUnwindSafe(Self::push_or_pull_task(arg, progress.clone(), src, dst))
-						.catch_unwind()
-						.await;
+				let result = AssertUnwindSafe(server.push_or_pull_task(
+					arg,
+					progress.clone(),
+					source.clone(),
+					destination.clone(),
+				))
+				.catch_unwind()
+				.await;
 				match result {
 					Ok(Ok(output)) => {
 						progress.output(output);
@@ -108,28 +117,29 @@ impl Server {
 		// Create the stream.
 		let stream = progress.stream().attach(indicator_total_task).attach(task);
 
-		Ok(stream)
+		Ok(stream.boxed())
 	}
 
-	async fn push_or_pull_set_indicator_totals<S>(
-		src: &S,
+	async fn push_or_pull_set_indicator_totals(
+		&self,
+		source: tg::location::Location,
 		progress: crate::progress::Handle<tg::push::Output>,
 		arg: &tg::push::Arg,
-	) -> tg::Result<()>
-	where
-		S: tg::Handle,
-	{
+	) -> tg::Result<()> {
 		let mut metadata_futures = arg
 			.items
 			.iter()
 			.map(|item| {
-				let src = src.clone();
+				let server = self.clone();
+				let source = source.clone();
 				async move {
 					loop {
 						match item {
 							tg::Either::Left(object) => {
-								let metadata_arg = tg::object::metadata::Arg::default();
-								let metadata = src
+								let metadata_arg = tg::object::metadata::Arg {
+									location: Some(source.clone().into()),
+								};
+								let metadata = server
 									.try_get_object_metadata(object, metadata_arg)
 									.await?
 									.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
@@ -140,8 +150,10 @@ impl Server {
 								}
 							},
 							tg::Either::Right(process) => {
-								let metadata_arg = tg::process::metadata::Arg::default();
-								let Some(metadata) = src
+								let metadata_arg = tg::process::metadata::Arg {
+									location: Some(source.clone().into()),
+								};
+								let Some(metadata) = server
 									.try_get_process_metadata(process, metadata_arg)
 									.await
 									.map_err(|source| {
@@ -246,16 +258,13 @@ impl Server {
 		Ok(())
 	}
 
-	async fn push_or_pull_task<S, D>(
+	async fn push_or_pull_task(
+		&self,
 		arg: tg::push::Arg,
 		progress: crate::progress::Handle<tg::push::Output>,
-		src: S,
-		dst: D,
-	) -> tg::Result<tg::push::Output>
-	where
-		S: tg::Handle,
-		D: tg::Handle,
-	{
+		source: tg::location::Location,
+		destination: tg::location::Location,
+	) -> tg::Result<tg::push::Output> {
 		let output = Arc::new(Mutex::new(tg::push::Output::default()));
 
 		// Set the progress to zero.
@@ -276,16 +285,15 @@ impl Server {
 				eager: arg.eager,
 				force: arg.force,
 				get: Vec::new(),
-				local: None,
+				location: Some(source.clone().into()),
 				logs: arg.logs,
 				metadata: arg.metadata,
 				outputs: arg.outputs,
 				put: Vec::new(),
 				recursive: arg.recursive,
-				remotes: None,
 			};
 			let push_input_stream = ReceiverStream::new(pull_output_receiver).map(Ok).boxed();
-			let push_output_stream = src
+			let push_output_stream = self
 				.sync(push_arg, push_input_stream)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the push stream"))?;
@@ -297,16 +305,15 @@ impl Server {
 				eager: arg.eager,
 				force: arg.force,
 				get: arg.items.clone(),
-				local: None,
+				location: Some(destination.clone().into()),
 				logs: arg.logs,
 				metadata: arg.metadata,
 				outputs: arg.outputs,
 				put: Vec::new(),
 				recursive: arg.recursive,
-				remotes: None,
 			};
 			let pull_input_stream = ReceiverStream::new(push_output_receiver).map(Ok).boxed();
-			let pull_output_stream = dst
+			let pull_output_stream = self
 				.sync(pull_arg, pull_input_stream)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to create the pull stream"))?;

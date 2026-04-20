@@ -39,7 +39,7 @@ let root = artifact {
 		}
 		outer: {
 			tangram.ts: '
-				import inner from "inner" with { local: "../inner" };
+				import inner from "inner" with { source: "../inner" };
 				export let metadata = { tag: "outer/0" };
 			'
 		}

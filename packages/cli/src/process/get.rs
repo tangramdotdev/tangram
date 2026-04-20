@@ -5,7 +5,7 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub local: crate::util::args::Local,
+	pub locations: crate::location::Args,
 
 	/// Get the process's metadata.
 	#[arg(long)]
@@ -16,18 +16,14 @@ pub struct Args {
 
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
-
-	#[command(flatten)]
-	pub remotes: crate::util::args::Remotes,
 }
 
 impl Cli {
 	pub async fn command_process_get(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let arg = tg::process::get::Arg {
-			local: args.local.get(),
+			location: args.locations.get(),
 			metadata: args.metadata,
-			remotes: args.remotes.get(),
 		};
 		let output = handle
 			.try_get_process(&args.process, arg)

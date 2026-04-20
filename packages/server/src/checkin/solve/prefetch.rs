@@ -340,12 +340,11 @@ impl Server {
 			self.list_tags(tg::tag::list::Arg {
 				cached: false,
 				length: None,
-				local: None,
+				location: None,
 				pattern: pattern.clone(),
 				recursive: false,
-				remotes: None,
 				reverse: true,
-				ttl: prefetch.arg.options.ttl,
+				ttl: prefetch.arg.options.tag_ttl,
 			})
 			.await
 			.map_err(|source| tg::error!(!source, %pattern, "failed to list tags"))?

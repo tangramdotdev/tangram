@@ -48,9 +48,9 @@ type GraphPointers =
 #[derive(Clone, Debug)]
 struct Candidate {
 	index: Option<usize>,
-	object: tg::object::Id,
 	#[expect(dead_code)]
-	remote: Option<String>,
+	location: Option<tg::location::Location>,
+	object: tg::object::Id,
 	tag: tg::Tag,
 }
 
@@ -562,10 +562,10 @@ impl Server {
 		checkpoint: &Checkpoint,
 		item: &Item,
 	) -> Option<Candidate> {
-		// If local_dependencies is true and the reference has a local option, do not use the lock candidate.
+		// If source_dependencies is true and the reference has a source option, do not use the lock candidate.
 		if let ItemVariant::FileDependency(reference) = &item.variant
-			&& state.arg.options.local_dependencies
-			&& reference.options().local.is_some()
+			&& state.arg.options.source_dependencies
+			&& reference.options().source.is_some()
 		{
 			return None;
 		}
@@ -610,11 +610,11 @@ impl Server {
 		};
 		let object = referent.id().cloned()?;
 		let tag = referent.tag().cloned()?;
-		let remote = None;
+		let location = None;
 		let candidate = Candidate {
 			index,
+			location,
 			object,
-			remote,
 			tag,
 		};
 		Some(candidate)
@@ -635,12 +635,12 @@ impl Server {
 			.filter_map(|output| {
 				let object = output.item?.left()?;
 				let index = None;
-				let remote = output.remote;
+				let location = output.location;
 				let tag = output.tag;
 				let candidate = Candidate {
 					index,
+					location,
 					object,
-					remote,
 					tag,
 				};
 				Some(candidate)

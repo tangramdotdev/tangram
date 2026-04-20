@@ -8,12 +8,12 @@ use {
 impl Server {
 	pub(crate) async fn list_processes_postgres(
 		&self,
-		sandbox_store: &db::postgres::Database,
+		process_store: &db::postgres::Database,
 	) -> tg::Result<Vec<tg::process::get::Output>> {
-		let connection = sandbox_store
+		let connection = process_store
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 
 		#[derive(db::postgres::row::Deserialize)]
 		struct Row {
@@ -134,6 +134,7 @@ impl Server {
 				let output = tg::process::get::Output {
 					id: row.id,
 					data,
+					location: None,
 					metadata: None,
 				};
 				Ok(output)

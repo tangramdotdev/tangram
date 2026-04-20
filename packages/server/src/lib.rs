@@ -95,7 +95,7 @@ pub struct State {
 	sandbox_permits: SandboxPermits,
 	sandbox_rootfs: PathBuf,
 	sandbox_semaphore: Arc<tokio::sync::Semaphore>,
-	sandbox_store: Database,
+	process_store: Database,
 	sandboxes: Sandboxes,
 	sandbox_tasks: SandboxTasks,
 	tangram_path: PathBuf,
@@ -322,8 +322,8 @@ impl Server {
 			},
 		};
 
-		// Create the sandbox store.
-		let sandbox_store = match &config.sandbox_store {
+		// Create the process store.
+		let process_store = match &config.process.store {
 			self::config::Database::Postgres(options) => {
 				#[cfg(not(feature = "postgres"))]
 				{
@@ -338,13 +338,13 @@ impl Server {
 						connections: options.connections.unwrap_or(parallelism),
 						url: options.url.clone(),
 					};
-					let sandbox_store =
+					let process_store =
 						db::postgres::Database::new(options)
 							.await
 							.map_err(|source| {
-								tg::error!(!source, "failed to create the sandbox store")
+								tg::error!(!source, "failed to create the process store")
 							})?;
-					Database::Postgres(sandbox_store)
+					Database::Postgres(process_store)
 				}
 			},
 			self::config::Database::Sqlite(config) => {
@@ -363,11 +363,11 @@ impl Server {
 						initialize,
 						path: path.join(&config.path),
 					};
-					let sandbox_store =
+					let process_store =
 						db::sqlite::Database::new(options).await.map_err(|source| {
-							tg::error!(!source, "failed to create the sandbox store")
+							tg::error!(!source, "failed to create the process store")
 						})?;
-					Database::Sqlite(sandbox_store)
+					Database::Sqlite(process_store)
 				}
 			},
 		};
@@ -521,7 +521,7 @@ impl Server {
 		};
 
 		// Create the object store.
-		let object_store = match &config.object_store {
+		let object_store = match &config.object.store {
 			config::ObjectStore::Lmdb(lmdb) => {
 				#[cfg(not(feature = "lmdb"))]
 				{
@@ -594,7 +594,7 @@ impl Server {
 			sandbox_permits,
 			sandbox_rootfs,
 			sandbox_semaphore,
-			sandbox_store,
+			process_store,
 			sandboxes,
 			sandbox_tasks,
 			tangram_path,
@@ -612,12 +612,12 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to migrate the database"))?;
 		}
 
-		// Migrate the sandbox store if necessary.
+		// Migrate the process store if necessary.
 		#[cfg(feature = "sqlite")]
-		if let Ok(sandbox_store) = server.sandbox_store.try_unwrap_sqlite_ref() {
-			self::sandbox::store::sqlite::migrate(sandbox_store)
+		if let Ok(process_store) = server.process_store.try_unwrap_sqlite_ref() {
+			self::process::store::sqlite::migrate(process_store)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to migrate the sandbox store"))?;
+				.map_err(|source| tg::error!(!source, "failed to migrate the process store"))?;
 		}
 
 		// Finish unfinished processes if single process mode is enabled.
@@ -659,6 +659,15 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to insert the remote"))?;
 			}
+		}
+		server.remotes.clear();
+		let output = server
+			.list_remotes(tg::remote::list::Arg::default())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to list the remotes"))?;
+		for remote in output.data {
+			let client = server.create_remote_client(&remote.name, remote.url);
+			server.remotes.insert(remote.name, client);
 		}
 
 		// Spawn the indexer task.
@@ -1102,9 +1111,8 @@ impl Server {
 						checksum: None,
 						error,
 						exit: 1,
-						local: None,
+						location: None,
 						output: None,
-						remotes: None,
 					};
 					if let Err(error) = server.finish_process(&output.id, arg).await {
 						tracing::error!(process = %output.id, error = %error.trace(), "failed to finish the process");
@@ -1133,42 +1141,28 @@ impl Server {
 		&self.config
 	}
 
-	#[must_use]
-	pub(crate) fn get_active_sandbox(
-		&self,
-		id: &tg::sandbox::Id,
-	) -> Option<tangram_sandbox::Sandbox> {
-		self.sandboxes
-			.get(id)
-			.map(|sandbox| sandbox.value().clone())
-	}
-
-	pub(crate) fn host_path_for_guest_path(
-		&self,
-		context: &Context,
-		path: &Path,
-	) -> tg::Result<PathBuf> {
+	fn host_path_for_guest_path(&self, context: &Context, path: &Path) -> tg::Result<PathBuf> {
 		let Some(id) = &context.sandbox else {
 			return Ok(path.to_owned());
 		};
 		let sandbox = self
-			.get_active_sandbox(id)
+			.sandboxes
+			.get(id)
+			.map(|sandbox| sandbox.value().clone())
 			.ok_or_else(|| tg::error!(%id, "failed to get the sandbox"))?;
 		sandbox
 			.host_path_for_guest_path(path)
 			.ok_or_else(|| tg::error!(path = %path.display(), "no host path for guest path"))
 	}
 
-	pub(crate) fn guest_path_for_host_path(
-		&self,
-		context: &Context,
-		path: &Path,
-	) -> tg::Result<PathBuf> {
+	fn guest_path_for_host_path(&self, context: &Context, path: &Path) -> tg::Result<PathBuf> {
 		let Some(id) = &context.sandbox else {
 			return Ok(path.to_owned());
 		};
 		let sandbox = self
-			.get_active_sandbox(id)
+			.sandboxes
+			.get(id)
+			.map(|sandbox| sandbox.value().clone())
 			.ok_or_else(|| tg::error!(%id, "failed to get the sandbox"))?;
 		sandbox
 			.guest_path_for_host_path(path)
@@ -1176,12 +1170,12 @@ impl Server {
 	}
 
 	#[must_use]
-	pub fn artifacts_path(&self) -> PathBuf {
+	fn artifacts_path(&self) -> PathBuf {
 		self.path.join("artifacts")
 	}
 
 	#[must_use]
-	pub fn cache_path(&self) -> PathBuf {
+	fn cache_path(&self) -> PathBuf {
 		if self.vfs.lock().unwrap().is_some() {
 			self.path.join("cache")
 		} else {
@@ -1190,17 +1184,7 @@ impl Server {
 	}
 
 	#[must_use]
-	pub fn database_path(&self) -> PathBuf {
-		self.path.join("database")
-	}
-
-	#[must_use]
-	pub fn index_path(&self) -> PathBuf {
-		self.path.join("index")
-	}
-
-	#[must_use]
-	pub fn library_path(&self) -> PathBuf {
+	fn library_path(&self) -> PathBuf {
 		let library = self
 			.library
 			.lock()
@@ -1211,70 +1195,13 @@ impl Server {
 	}
 
 	#[must_use]
-	pub fn tags_path(&self) -> PathBuf {
+	fn tags_path(&self) -> PathBuf {
 		self.path.join("tags")
 	}
 
 	#[must_use]
-	pub fn temp_path(&self) -> PathBuf {
+	fn temp_path(&self) -> PathBuf {
 		self.path.join("tmp")
-	}
-
-	#[must_use]
-	pub fn local(local: Option<bool>, remotes: Option<&Vec<String>>) -> bool {
-		match (local, &remotes) {
-			(None, None) => true,
-			(Some(local), _) => local,
-			(None, Some(_)) => false,
-		}
-	}
-
-	pub fn remote(
-		local: Option<bool>,
-		remotes: Option<&Vec<String>>,
-	) -> tg::Result<Option<String>> {
-		let remotes = remotes.map_or([].as_slice(), Vec::as_slice);
-		let local = local.unwrap_or(remotes.is_empty());
-		match (local, remotes) {
-			(true, []) => Ok(None),
-			(true, _) => Err(tg::error!("cannot specify both local and a remote")),
-			(false, []) => Err(tg::error!("a remote is required when local is false")),
-			(false, [remote]) => Ok(Some(remote.clone())),
-			(false, _) => Err(tg::error!("only one remote is allowed")),
-		}
-	}
-
-	pub async fn regions(
-		&self,
-		local: Option<bool>,
-		remotes: Option<Vec<String>>,
-	) -> tg::Result<Vec<String>> {
-		if !Self::local(local, remotes.as_ref()) {
-			return Ok(Vec::new());
-		}
-		let regions = self
-			.config
-			.regions
-			.as_ref()
-			.map_or_else(Vec::new, |regions| {
-				regions.iter().map(|region| region.name.clone()).collect()
-			});
-		Ok(regions)
-	}
-
-	pub async fn remotes(
-		&self,
-		local: Option<bool>,
-		remotes: Option<Vec<String>>,
-	) -> tg::Result<Vec<String>> {
-		if local == Some(true) {
-			return Ok(Vec::new());
-		}
-		if let Some(remotes) = remotes {
-			return Ok(remotes);
-		}
-		let output = self.list_remotes(tg::remote::list::Arg::default()).await?;
-		Ok(output.data.into_iter().map(|r| r.name).collect())
 	}
 }
 

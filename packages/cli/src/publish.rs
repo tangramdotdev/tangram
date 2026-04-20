@@ -7,7 +7,7 @@ use {
 	tangram_client::prelude::*,
 };
 
-/// Publish a tag with its transitive local dependencies.
+/// Publish a tag with its transitive source dependencies.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
@@ -15,13 +15,12 @@ pub struct Args {
 	#[arg(default_value = "false", long)]
 	pub dry_run: bool,
 
+	#[command(flatten)]
+	pub location: crate::location::Args,
+
 	/// The path to publish.
 	#[arg(default_value = ".", index = 1)]
 	pub path: PathBuf,
-
-	/// The remote to publish to.
-	#[arg(long, short)]
-	pub remote: Option<String>,
 
 	/// Override the tag for the root.
 	#[arg(long, short)]
@@ -44,7 +43,7 @@ pub struct Node {
 struct State {
 	file_tree: radix_trie::Trie<PathBuf, tg::Artifact>,
 	all_packages: Vec<tg::Referent<tg::Object>>,
-	local_packages: Vec<tg::Referent<tg::Object>>,
+	source_packages: Vec<tg::Referent<tg::Object>>,
 	tags: Vec<(tg::Tag, tg::object::Id)>,
 	graph: Graph,
 }
@@ -141,8 +140,8 @@ impl Cli {
 					let arg = tg::tag::put::Arg {
 						force: true,
 						item: tg::Either::Left(id),
-						local: None,
-						remotes: None,
+						location: None,
+						replicate: false,
 					};
 					handle.put_tag(&tag, arg).await.map_err(
 						|source| tg::error!(!source, tag = %tag, "failed to put local tag"),
@@ -159,8 +158,8 @@ impl Cli {
 						let arg = tg::tag::put::Arg {
 							force: true,
 							item: tg::Either::Left(id),
-							local: None,
-							remotes: None,
+							location: None,
+							replicate: false,
 						};
 						handle.put_tag(&item.tag, arg).await.map_err(
 							|source| tg::error!(!source, tag = %item.tag, "failed to put local tag"),
@@ -176,8 +175,8 @@ impl Cli {
 						let arg = tg::tag::put::Arg {
 							force: true,
 							item: tg::Either::Left(id),
-							local: None,
-							remotes: None,
+							location: None,
+							replicate: false,
 						};
 						handle.put_tag(&tag, arg).await.map_err(
 							|source| tg::error!(!source, tag = %tag, "failed to put local tag"),
@@ -187,13 +186,19 @@ impl Cli {
 			}
 		}
 
-		// Get the remote.
-		let remote = args.remote.unwrap_or_else(|| "default".to_owned());
+		// Get the location.
+		let location = args.location.to_location()?.unwrap_or_else(|| {
+			tg::Location::Remote(tg::location::Remote {
+				name: "default".to_owned(),
+				region: None,
+			})
+		});
 
 		// Push.
 		let stream = handle
 			.push(tg::push::Arg {
 				commands: false,
+				destination: Some(location.clone()),
 				eager: true,
 				errors: true,
 				force: false,
@@ -202,7 +207,7 @@ impl Cli {
 				metadata: false,
 				outputs: true,
 				recursive: false,
-				remote: Some(remote.clone()),
+				source: None,
 			})
 			.await
 			.map_err(|source| tg::error!(!source, "failed to push items"))?;
@@ -235,8 +240,8 @@ impl Cli {
 			.collect::<Vec<_>>();
 		handle
 			.post_tag_batch(tg::tag::batch::Arg {
-				local: None,
-				remotes: Some(vec![remote.clone()]),
+				location: Some(location.into()),
+				replicate: false,
 				tags: tags.clone(),
 			})
 			.await
@@ -335,7 +340,7 @@ impl State {
 	) -> tg::Result<()> {
 		// Make sure the root is added if it is on the local file system.
 		if root.path().is_some() {
-			self.local_packages.push(root.clone());
+			self.source_packages.push(root.clone());
 			self.add_package(root);
 		}
 
@@ -421,7 +426,7 @@ impl State {
 				node.package.item.unload();
 
 				let publishable = index == 0
-					|| self.local_packages.iter().any(|referent| {
+					|| self.source_packages.iter().any(|referent| {
 						referent.clone().map(|r| r.id()) == node.package.clone().map(|r| r.id())
 					}) || !node
 					.incoming
@@ -439,7 +444,7 @@ impl State {
 					continue;
 				};
 
-				// If this node has local dependencies then we need to check it in again.
+				// If this node has source dependencies then we need to check it in again.
 				let path = if node.outgoing.is_empty() {
 					None
 				} else {
@@ -597,7 +602,7 @@ where
 		self.file_tree
 			.insert(path.to_owned(), file.item.clone().into());
 
-		// Mark the packages that are locals.
+		// Mark the packages that come from source overrides.
 		for (reference, option) in file.item.dependencies_with_handle(handle).await? {
 			let Some(mut dependency) = option else {
 				continue;
@@ -605,7 +610,7 @@ where
 
 			// Make sure to inherit the dependency.
 			dependency.0.inherit(&file);
-			if reference.options().local.is_some() {
+			if reference.options().source.is_some() {
 				let Some(item) = dependency.0.item.clone() else {
 					continue;
 				};
@@ -613,7 +618,7 @@ where
 					item,
 					options: dependency.0.options.clone(),
 				};
-				self.local_packages.push(referent.clone());
+				self.source_packages.push(referent.clone());
 				self.add_package(&referent);
 			}
 		}
@@ -704,9 +709,9 @@ async fn publish_checkin(
 ) -> tg::Result<tg::object::Id> {
 	let path_display = path.display().to_string();
 	let options = tg::checkin::Options {
-		local_dependencies: false,
 		lock: None,
 		solve,
+		source_dependencies: false,
 		..tg::checkin::Options::default()
 	};
 	let args = tg::checkin::Arg {

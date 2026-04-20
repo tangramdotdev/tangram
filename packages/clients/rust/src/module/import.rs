@@ -16,39 +16,35 @@ impl Import {
 		// Parse the specifier as a reference.
 		let reference = specifier.parse::<tg::Reference>()?;
 
-		// Parse the kind.
 		let kind = attributes
 			.as_mut()
 			.and_then(|attributes| attributes.remove("type").or(attributes.remove("kind")))
 			.map(|kind| kind.parse())
 			.transpose()?;
+		let source = attributes
+			.as_mut()
+			.and_then(|attributes| attributes.remove("source"))
+			.map(Into::into);
+		let location = attributes
+			.as_mut()
+			.and_then(|attributes| attributes.remove("location"))
+			.map(|location| {
+				location
+					.parse::<tg::location::Arg>()
+					.map_err(|source| tg::error!(!source, "invalid location attribute"))
+			})
+			.transpose()?;
+		let path = attributes
+			.as_mut()
+			.and_then(|attributes| attributes.remove("path"))
+			.map(Into::into);
 
-		// Parse the remaining attributes as the query component of a reference and update the reference.
-		let reference = if let Some(attributes) = attributes {
-			if attributes.is_empty() {
-				reference
-			} else {
-				let attributes = serde_json::Value::Object(
-					attributes
-						.into_iter()
-						.map(|(key, value)| (key, serde_json::Value::String(value)))
-						.collect(),
-				);
-				let attributes = serde_json::from_value::<tg::reference::Options>(attributes)
-					.map_err(|source| tg::error!(!source, "invalid attributes"))?;
-				let local = attributes.local.or(reference.options().local.clone());
-				let path = attributes.path.or(reference.options().path.clone());
-				let remote = attributes.remote.or(reference.options().remote.clone());
-				let options = tg::reference::Options {
-					local,
-					path,
-					remote,
-				};
-				tg::Reference::with_item_and_options(reference.item().clone(), options)
-			}
-		} else {
-			reference
+		let options = tg::reference::Options {
+			location: location.or(reference.options().location.clone()),
+			path: path.or(reference.options().path.clone()),
+			source: source.or(reference.options().source.clone()),
 		};
+		let reference = tg::Reference::with_item_and_options(reference.item().clone(), options);
 
 		let import = Import { kind, reference };
 

@@ -71,15 +71,20 @@ impl Server {
 		};
 
 		// If the process is remote, then push the output.
-		if let Some(remote) = process.remote()
+		if let Some(tg::Location::Remote(remote)) = process
+			.location()
+			.and_then(|location| location.to_location())
 			&& let Some(value) = &value
 		{
 			let mut objects = BTreeSet::new();
 			value.children(&mut objects);
 			if !objects.is_empty() {
 				let arg = tg::push::Arg {
+					destination: Some(tg::Location::Remote(tg::location::Remote {
+						name: remote.name.clone(),
+						region: remote.region.clone(),
+					})),
 					items: objects.into_iter().map(tg::Either::Left).collect(),
-					remote: Some(remote.to_owned()),
 					..Default::default()
 				};
 				let stream = self
@@ -97,9 +102,11 @@ impl Server {
 			checksum: wait.checksum,
 			error,
 			exit: wait.exit,
-			local: None,
+			location: process
+				.location()
+				.and_then(|location| location.to_location())
+				.map(Into::into),
 			output: value,
-			remotes: process.remote().cloned().map(|r| vec![r]),
 		};
 		self.finish_process(process.id(), arg).await.map_err(
 			|source| tg::error!(!source, process = %process.id(), "failed to finish the process"),
@@ -120,7 +127,9 @@ impl Server {
 			.load_with_handle(self)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to load the process"))?;
-		let remote = process.remote();
+		let location = process
+			.location()
+			.and_then(|location| location.to_location());
 
 		let command = process
 			.command_with_handle(self)
@@ -287,7 +296,7 @@ impl Server {
 				sandbox_command,
 				id.clone(),
 				state.tty,
-				remote.cloned(),
+				location.clone(),
 				state.retry,
 			)
 			.await
@@ -304,11 +313,11 @@ impl Server {
 			let sandbox = sandbox.clone();
 			let sandbox_process = sandbox_process.clone();
 			let id = id.clone();
-			let remote = remote.cloned();
+			let location = location.clone();
 			let stdin_blob = command.stdin.clone().map(tg::Blob::with_id);
 			|_| async move {
 				server
-					.run_stdin_task(&sandbox, &sandbox_process, &id, remote, stdin, stdin_blob)
+					.run_stdin_task(&sandbox, &sandbox_process, &id, location, stdin, stdin_blob)
 					.await
 			}
 		});
@@ -321,10 +330,10 @@ impl Server {
 				let sandbox = sandbox.clone();
 				let sandbox_process = sandbox_process.clone();
 				let id = id.clone();
-				let remote = remote.cloned();
+				let location = location.clone();
 				|_| async move {
 					server
-						.run_stdout_stderr_task(&sandbox, &sandbox_process, &id, remote)
+						.run_stdout_stderr_task(&sandbox, &sandbox_process, &id, location)
 						.await
 				}
 			}))
@@ -337,10 +346,10 @@ impl Server {
 				let sandbox = sandbox.clone();
 				let sandbox_process = sandbox_process.clone();
 				let id = id.clone();
-				let remote = remote.cloned();
+				let location = location.clone();
 				async move {
 					server
-						.run_tty_task(&sandbox, &sandbox_process, &id, remote.as_ref())
+						.run_tty_task(&sandbox, &sandbox_process, &id, location.as_ref())
 						.await
 						.inspect_err(|source| tracing::error!(?source, "the tty task failed"))
 						.ok();
@@ -356,10 +365,10 @@ impl Server {
 			let sandbox = sandbox.clone();
 			let sandbox_process = sandbox_process.clone();
 			let id = id.clone();
-			let remote = remote.cloned();
+			let location = location.clone();
 			async move {
 				server
-					.run_signal_task(&sandbox, &sandbox_process, &id, remote.as_ref())
+					.run_signal_task(&sandbox, &sandbox_process, &id, location.as_ref())
 					.await
 					.inspect_err(|source| tracing::error!(?source, "the signal task failed"))
 					.ok();
@@ -411,7 +420,7 @@ impl Server {
 		let context = Context {
 			process: Some(Arc::new(crate::context::Process {
 				id: id.clone(),
-				remote: remote.cloned(),
+				location: location.clone(),
 				retry: state.retry,
 			})),
 			sandbox: Some(state.sandbox.clone()),

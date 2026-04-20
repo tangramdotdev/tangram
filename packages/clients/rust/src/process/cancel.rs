@@ -1,20 +1,13 @@
 use {
 	crate::tg,
-	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
-	tangram_util::serde::CommaSeparatedString,
 };
 
-#[serde_as]
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub local: Option<bool>,
-
-	#[serde(alias = "remote", default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<CommaSeparatedString>")]
-	pub remotes: Option<Vec<String>>,
+	pub location: Option<tg::location::Arg>,
 
 	pub token: String,
 }
@@ -34,25 +27,14 @@ impl<O> tg::Process<O> {
 				.signal_with_handle(handle, tg::process::Signal::SIGTERM)
 				.await;
 		}
+		self.ensure_location_with_handle(handle).await?;
 		let id = self.id();
-		let (local, remotes) = match self.remote.clone() {
-			Some(remote) => (None, Some(vec![remote])),
-			None => (Some(true), None),
-		};
+		let location = self.location();
 		let token = self
 			.token()
 			.ok_or_else(|| tg::error!("missing token"))?
 			.clone();
-		handle
-			.cancel_process(
-				id,
-				Arg {
-					local,
-					remotes,
-					token,
-				},
-			)
-			.await?;
+		handle.cancel_process(id, Arg { location, token }).await?;
 		Ok(())
 	}
 }

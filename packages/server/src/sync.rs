@@ -33,17 +33,22 @@ impl Server {
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			return self.sync_local(context, arg, stream).await;
-		}
+		let location = self.location(arg.location.as_ref())?;
 
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			return self.sync_remote(arg, stream, remote).await;
-		}
+		let stream = match location {
+			tg::Location::Local(tg::location::Local { region: None }) => {
+				self.sync_local(context, arg, stream).await?
+			},
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) => self.sync_region(arg, stream, region).await?,
+			tg::Location::Remote(tg::location::Remote {
+				name: remote,
+				region,
+			}) => self.sync_remote(arg, stream, remote, region).await?,
+		};
 
-		Err(tg::error!(
-			"failed to determine whether to use local or a remote"
-		))
+		Ok(stream)
 	}
 
 	async fn sync_local(
@@ -103,34 +108,47 @@ impl Server {
 		Ok(stream.boxed())
 	}
 
+	async fn sync_region(
+		&self,
+		arg: tg::sync::Arg,
+		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
+		region: String,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>> {
+		let client = self.get_region_client(region.clone()).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
+		let arg = tg::sync::Arg {
+			location: Some(location.into()),
+			..arg
+		};
+		let stream = client
+			.sync(arg, stream)
+			.await
+			.map_err(|source| tg::error!(!source, region = %region, "failed to sync"))?;
+		Ok(stream.boxed())
+	}
+
 	async fn sync_remote(
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		remote: String,
+		region: Option<String>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>> {
-		let client = self
-			.get_remote_client(remote)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
+		let client = self.get_remote_client(remote.clone()).await.map_err(
+			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
+		)?;
 		let arg = tg::sync::Arg {
-			commands: arg.commands,
-			errors: arg.errors,
-			eager: arg.eager,
-			force: arg.force,
-			get: arg.get,
-			local: None,
-			logs: arg.logs,
-			metadata: arg.metadata,
-			outputs: arg.outputs,
-			put: arg.put,
-			recursive: arg.recursive,
-			remotes: None,
+			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
+			..arg
 		};
 		let stream = client
 			.sync(arg, stream)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to sync with remote"))?;
+			.map_err(|source| tg::error!(!source, remote = %remote, "failed to sync"))?;
 		Ok(stream.boxed())
 	}
 

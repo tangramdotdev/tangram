@@ -15,22 +15,40 @@ impl Server {
 		id: &tg::object::Id,
 		arg: tg::object::metadata::Arg,
 	) -> tg::Result<Option<tg::object::Metadata>> {
-		// Try local first if requested.
-		if Self::local(arg.local, arg.remotes.as_ref())
-			&& let Some(metadata) = self
-				.try_get_object_metadata_local(id)
+		let locations = self
+			.locations(arg.location.as_ref())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+
+		if let Some(local) = &locations.local {
+			if local.current
+				&& let Some(metadata) = self
+					.try_get_object_metadata_local(id)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the object metadata"))?
+			{
+				return Ok(Some(metadata));
+			}
+
+			if let Some(metadata) = self
+				.try_get_object_metadata_regions(id, &local.regions)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the object metadata"))?
-		{
-			return Ok(Some(metadata));
+				.map_err(|source| {
+					tg::error!(
+						!source,
+						"failed to get the object metadata from another region"
+					)
+				})? {
+				return Ok(Some(metadata));
+			}
 		}
 
-		// Try remotes.
-		let remotes = self
-			.remotes(arg.local, arg.remotes.clone())
+		if let Some(metadata) = self
+			.try_get_object_metadata_remotes(id, &locations.remotes)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
-		if let Some(metadata) = self.try_get_object_metadata_remote(id, &remotes).await? {
+			.map_err(|source| {
+				tg::error!(!source, "failed to get the object metadata from a remote")
+			})? {
 			return Ok(Some(metadata));
 		}
 
@@ -61,41 +79,14 @@ impl Server {
 			.collect())
 	}
 
-	async fn try_get_object_metadata_remote(
+	async fn try_get_object_metadata_regions(
 		&self,
 		id: &tg::object::Id,
-		remotes: &[String],
+		regions: &[String],
 	) -> tg::Result<Option<tg::object::Metadata>> {
-		if remotes.is_empty() {
-			return Ok(None);
-		}
-		let mut futures = remotes
+		let mut futures = regions
 			.iter()
-			.map(|remote| {
-				let remote = remote.clone();
-				async move {
-					let client =
-						self.get_remote_client(remote.clone())
-							.await
-							.map_err(|source| {
-								tg::error!(
-									!source,
-									remote = %remote,
-									"failed to get the remote client"
-								)
-							})?;
-					client
-						.try_get_object_metadata(id, tg::object::metadata::Arg::default())
-						.await
-						.map_err(|source| {
-							tg::error!(
-								!source,
-								remote = %remote,
-								"failed to get the object metadata"
-							)
-						})
-				}
-			})
+			.map(|region| self.try_get_object_metadata_region(id, region))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -111,6 +102,91 @@ impl Server {
 			}
 		}
 		let Some(metadata) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(metadata))
+	}
+
+	async fn try_get_object_metadata_region(
+		&self,
+		id: &tg::object::Id,
+		region: &str,
+	) -> tg::Result<Option<tg::object::Metadata>> {
+		let client = self.get_region_client(region.to_owned()).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.to_owned()),
+		});
+		let arg = tg::object::metadata::Arg {
+			location: Some(location.into()),
+		};
+		let Some(metadata) = client.try_get_object_metadata(id, arg).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the object metadata"),
+		)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(metadata))
+	}
+
+	async fn try_get_object_metadata_remotes(
+		&self,
+		id: &tg::object::Id,
+		remotes: &[crate::location::Remote],
+	) -> tg::Result<Option<tg::object::Metadata>> {
+		let mut futures = remotes
+			.iter()
+			.map(|remote| self.try_get_object_metadata_remote(id, remote))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(metadata)) => {
+					result = Ok(Some(metadata));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(metadata) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(metadata))
+	}
+
+	async fn try_get_object_metadata_remote(
+		&self,
+		id: &tg::object::Id,
+		remote: &crate::location::Remote,
+	) -> tg::Result<Option<tg::object::Metadata>> {
+		let client = self
+			.get_remote_client(remote.remote.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, remote = %remote.remote, "failed to get the remote client"),
+			)?;
+		let arg = tg::object::metadata::Arg {
+			location: Some(tg::location::Arg(vec![
+				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
+					regions: remote.regions.clone(),
+				}),
+			])),
+		};
+		let Some(metadata) = client
+			.try_get_object_metadata(id, arg)
+			.await
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					remote = %remote.remote,
+					"failed to get the object metadata"
+				)
+			})?
+		else {
 			return Ok(None);
 		};
 		Ok(Some(metadata))
@@ -146,7 +222,7 @@ impl Server {
 			.await?
 		else {
 			return Ok(http::Response::builder()
-				.status(http::StatusCode::NOT_FOUND)
+				.not_found()
 				.empty()
 				.unwrap()
 				.boxed_body());

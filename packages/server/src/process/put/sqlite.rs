@@ -11,15 +11,15 @@ impl Server {
 	pub(crate) async fn put_process_sqlite(
 		id: &tg::process::Id,
 		arg: &tg::process::put::Arg,
-		sandbox_store: &db::sqlite::Database,
+		process_store: &db::sqlite::Database,
 		touched_at: i64,
 	) -> tg::Result<()> {
-		Self::put_process_batch_sqlite(&[(id, &arg.data)], sandbox_store, touched_at).await
+		Self::put_process_batch_sqlite(&[(id, &arg.data)], process_store, touched_at).await
 	}
 
 	pub(crate) async fn put_process_batch_sqlite(
 		items: &[(&tg::process::Id, &tg::process::Data)],
-		sandbox_store: &db::sqlite::Database,
+		process_store: &db::sqlite::Database,
 		touched_at: i64,
 	) -> tg::Result<()> {
 		if items.is_empty() {
@@ -32,11 +32,11 @@ impl Server {
 			.map(|(id, data)| ((*id).clone(), (*data).clone()))
 			.collect();
 
-		// Get a sandbox store connection.
-		let connection = sandbox_store
+		// Get a process store connection.
+		let connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 
 		connection
 			.with(move |connection, cache| {

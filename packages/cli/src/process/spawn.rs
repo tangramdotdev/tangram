@@ -96,10 +96,7 @@ pub struct Options {
 	pub host: Option<String>,
 
 	#[command(flatten)]
-	pub local: crate::util::args::Local,
-
-	#[command(flatten)]
-	pub remotes: crate::util::args::Remotes,
+	pub location: crate::location::Args,
 
 	/// Whether to retry failed processes.
 	#[arg(long)]
@@ -255,8 +252,11 @@ impl Cli {
 		if args.verbose {
 			let output = tg::process::spawn::Output {
 				cached: output.item().cached().unwrap_or(false),
+				location: output
+					.item()
+					.location()
+					.and_then(|location| location.to_location()),
 				process: output.item().id().clone(),
-				remote: output.item().remote().cloned(),
 				token: output.item().token().cloned(),
 				wait: None,
 			};
@@ -276,6 +276,7 @@ impl Cli {
 		print: bool,
 	) -> tg::Result<tg::Referent<tg::Process>> {
 		let handle = self.handle().await?;
+		let location = options.location.get();
 
 		// Determine whether to sandbox.
 		let sandbox = match options.sandbox.get() {
@@ -283,7 +284,10 @@ impl Cli {
 				options.cached.is_some_and(|v| v)
 					|| options.checksum.is_some()
 					|| !options.sandbox.arg.is_empty()
-					|| options.remotes.get().is_some()
+					|| location
+						.as_ref()
+						.and_then(tg::location::Arg::to_location)
+						.is_some_and(|location| location.is_remote())
 					|| matches!(
 						options.tty.tty,
 						Some(tg::Either::Left(true) | tg::Either::Right(_))
@@ -590,6 +594,7 @@ impl Cli {
 					cpu: options.sandbox.arg.cpu,
 					hostname: options.sandbox.arg.hostname.clone(),
 					isolation: options.sandbox.arg.isolation,
+					location: None,
 					memory: options.sandbox.arg.memory,
 					mounts,
 					network,
@@ -644,11 +649,11 @@ impl Cli {
 		// Spawn the process.
 		let arg = tg::process::spawn::Arg {
 			cached: options.cached,
+			cache_location: None,
 			checksum: options.checksum,
 			command: tg::Referent::with_item(command.id()),
-			local: options.local.get(),
+			location: location.clone(),
 			parent: None,
-			remotes: options.remotes.get(),
 			retry: options.retry,
 			sandbox,
 			stderr: options.stderr.unwrap_or_default(),
@@ -677,8 +682,8 @@ impl Cli {
 			let arg = tg::tag::put::Arg {
 				force: false,
 				item,
-				local: options.local.get(),
-				remotes: options.remotes.get(),
+				location: location.clone(),
+				replicate: false,
 			};
 			handle
 				.put_tag(&tag, arg)

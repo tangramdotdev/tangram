@@ -12,11 +12,7 @@ use {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub local: Option<bool>,
-
-	#[serde(alias = "remote", default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<CommaSeparatedString>")]
-	pub remotes: Option<Vec<String>>,
+	pub location: Option<tg::location::Arg>,
 
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[serde_as(as = "CommaSeparatedString")]
@@ -113,7 +109,7 @@ impl<O> tg::Process<O> {
 	pub async fn write_stdio_all<H>(
 		&self,
 		handle: &H,
-		arg: tg::process::stdio::write::Arg,
+		mut arg: tg::process::stdio::write::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 	) -> tg::Result<()>
 	where
@@ -142,6 +138,10 @@ impl<O> tg::Process<O> {
 			return Ok(());
 		}
 
+		if arg.location.is_none() {
+			self.ensure_location_with_handle(handle).await?;
+			arg.location = self.location();
+		}
 		handle.write_process_stdio_all(self.id(), arg, input).await
 	}
 }

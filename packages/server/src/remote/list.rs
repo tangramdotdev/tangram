@@ -22,6 +22,7 @@ impl Server {
 			.connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			name: String,
@@ -47,7 +48,9 @@ impl Server {
 				url: row.url,
 			})
 			.collect();
+
 		let output = tg::remote::list::Output { data };
+
 		Ok(output)
 	}
 

@@ -5,31 +5,24 @@ use {crate::Cli, futures::StreamExt as _, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub local: crate::util::args::Local,
+	pub locations: crate::location::Args,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
-
-	#[command(flatten)]
-	pub remotes: crate::util::args::Remotes,
 }
 
 impl Cli {
 	pub async fn command_process_status(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let arg = tg::process::status::Arg {
-			local: args.local.get(),
-			remotes: args.remotes.get(),
-		};
-		let stream = handle
-			.get_process_status(&args.process, arg)
-			.await
-			.map_err(
-				|source| tg::error!(!source, id = %args.process, "failed to get the process status"),
-			)?;
+		let locations = args.locations.get();
+		let process =
+			tg::Process::<tg::Value>::new(args.process.clone(), locations, None, None, None, None);
+		let stream = process.status_with_handle(&handle).await.map_err(
+			|source| tg::error!(!source, id = %args.process, "failed to get the process status"),
+		)?;
 		self.print_serde_stream(stream.boxed(), args.print).await?;
 		Ok(())
 	}

@@ -20,6 +20,29 @@ impl Server {
 			return Ok(());
 		}
 
+		let location = self.location(arg.location.as_ref())?;
+
+		match location {
+			tg::Location::Local(tg::location::Local { region: None }) => {
+				self.post_object_batch_local(arg).await?;
+			},
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) => {
+				self.post_object_batch_region(arg, region).await?;
+			},
+			tg::Location::Remote(tg::location::Remote {
+				name: remote,
+				region,
+			}) => {
+				self.post_object_batch_remote(arg, remote, region).await?;
+			},
+		}
+
+		Ok(())
+	}
+
+	async fn post_object_batch_local(&self, arg: tg::object::batch::Arg) -> tg::Result<()> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Store the objects.
@@ -90,6 +113,46 @@ impl Server {
 			})
 			.detach();
 
+		Ok(())
+	}
+
+	async fn post_object_batch_region(
+		&self,
+		arg: tg::object::batch::Arg,
+		region: String,
+	) -> tg::Result<()> {
+		let client = self.get_region_client(region.clone()).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
+		let arg = tg::object::batch::Arg {
+			location: Some(location.into()),
+			..arg
+		};
+		client.post_object_batch(arg).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to post the object batch"),
+		)?;
+		Ok(())
+	}
+
+	async fn post_object_batch_remote(
+		&self,
+		arg: tg::object::batch::Arg,
+		remote: String,
+		region: Option<String>,
+	) -> tg::Result<()> {
+		let client = self.get_remote_client(remote.clone()).await.map_err(
+			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
+		)?;
+		let arg = tg::object::batch::Arg {
+			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
+			..arg
+		};
+		client.post_object_batch(arg).await.map_err(
+			|source| tg::error!(!source, remote = %remote, "failed to post the object batch"),
+		)?;
 		Ok(())
 	}
 

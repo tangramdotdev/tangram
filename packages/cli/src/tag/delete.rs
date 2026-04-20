@@ -5,7 +5,7 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub local: crate::util::args::Local,
+	pub location: crate::location::Args,
 
 	#[arg(index = 1)]
 	pub pattern: tg::tag::Pattern,
@@ -15,19 +15,16 @@ pub struct Args {
 
 	#[arg(long)]
 	pub recursive: bool,
-
-	#[command(flatten)]
-	pub remotes: crate::util::args::Remotes,
 }
 
 impl Cli {
 	pub async fn command_tag_delete(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let arg = tg::tag::delete::Arg {
-			local: args.local.get(),
+			location: args.location.get(),
 			pattern: args.pattern.clone(),
 			recursive: args.recursive,
-			remotes: args.remotes.get(),
+			replicate: None,
 		};
 		let output = handle.delete_tags(arg).await.map_err(
 			|source| tg::error!(!source, pattern = %args.pattern, "failed to delete the tag"),

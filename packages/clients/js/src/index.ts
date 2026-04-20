@@ -22,6 +22,7 @@ import { File, file } from "./file.ts";
 import { Graph, graph } from "./graph.ts";
 import { type Handle, handle, setHandle } from "./handle.ts";
 import { type Host, host, setHost } from "./host.ts";
+import { Location } from "./location.ts";
 import { Module } from "./module.ts";
 import { Mutation, mutation } from "./mutation.ts";
 import { Object } from "./object.ts";
@@ -92,6 +93,7 @@ export {
 	Error,
 	File,
 	Graph,
+	Location,
 	Module,
 	Mutation,
 	Object,

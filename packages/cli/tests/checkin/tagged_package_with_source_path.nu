@@ -12,7 +12,7 @@ tg tag a $a_path
 
 let path = artifact {
 	tangram.ts: '
-		import a from "a" with { local: "../a" };
+		import a from "a" with { source: "../a" };
 		export default tg.command(async () => {
 			return await a();
 		});
@@ -24,7 +24,7 @@ let path = artifact {
 	}
 }
 
-let id = tg checkin --no-local-dependencies $path
+let id = tg checkin --no-source-dependencies $path
 tg index
 
 let object = tg object get --blobs --depth=inf --pretty $id

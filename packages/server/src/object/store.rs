@@ -19,7 +19,7 @@ pub enum Store {
 
 impl Store {
 	#[cfg(feature = "lmdb")]
-	pub fn new_lmdb(directory: &Path, config: &crate::config::ObjectLmdbStore) -> tg::Result<Self> {
+	pub fn new_lmdb(directory: &Path, config: &crate::config::LmdbObjectStore) -> tg::Result<Self> {
 		let path = directory.join(&config.path);
 		let config = object_store::lmdb::Config {
 			map_size: config.map_size,
@@ -36,20 +36,20 @@ impl Store {
 	}
 
 	#[cfg(feature = "scylla")]
-	pub async fn new_scylla(config: &crate::config::ObjectScyllaStore) -> tg::Result<Self> {
+	pub async fn new_scylla(config: &crate::config::ScyllaObjectStore) -> tg::Result<Self> {
 		let config = object_store::scylla::Config {
 			addr: config.addr.clone(),
 			connections: config.connections,
 			keyspace: config.keyspace.clone(),
 			password: config.password.clone(),
 			speculative_execution: config.speculative_execution.as_ref().map(|se| match se {
-				crate::config::ObjectScyllaStoreSpeculativeExecution::Percentile(p) => {
+				crate::config::ScyllaObjectStoreSpeculativeExecution::Percentile(p) => {
 					object_store::scylla::SpeculativeExecution::Percentile {
 						max_retry_count: p.max_retry_count,
 						percentile: p.percentile,
 					}
 				},
-				crate::config::ObjectScyllaStoreSpeculativeExecution::Simple(s) => {
+				crate::config::ScyllaObjectStoreSpeculativeExecution::Simple(s) => {
 					object_store::scylla::SpeculativeExecution::Simple {
 						max_retry_count: s.max_retry_count,
 						retry_interval: std::time::Duration::from_millis(s.retry_interval),

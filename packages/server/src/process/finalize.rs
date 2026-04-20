@@ -38,7 +38,7 @@ impl Server {
 		let mut stream = pin!(stream);
 		while let Some(()) = stream.next().await {
 			loop {
-				let entries = match self.finalizer_try_dequeue_batch(batch_size).await {
+				let entries = match self.try_finalizer_dequeue_batch(batch_size).await {
 					Ok(Some(entries)) => entries,
 					Ok(None) => break,
 					Err(error) => {
@@ -62,33 +62,28 @@ impl Server {
 		Ok(())
 	}
 
-	async fn finalizer_try_dequeue_batch(
+	async fn try_finalizer_dequeue_batch(
 		&self,
 		batch_size: usize,
 	) -> tg::Result<Option<Vec<Entry>>> {
-		match &self.sandbox_store {
+		match &self.process_store {
 			#[cfg(feature = "postgres")]
-			Database::Postgres(sandbox_store) => {
-				self.finalizer_try_dequeue_batch_postgres(sandbox_store, batch_size)
+			Database::Postgres(process_store) => {
+				self.try_finalizer_dequeue_batch_postgres(process_store, batch_size)
 					.await
 			},
 			#[cfg(feature = "sqlite")]
-			Database::Sqlite(sandbox_store) => {
-				self.finalizer_try_dequeue_batch_sqlite(sandbox_store, batch_size)
+			Database::Sqlite(process_store) => {
+				self.try_finalizer_dequeue_batch_sqlite(process_store, batch_size)
 					.await
 			},
 		}
 	}
 
 	async fn finalizer_handle_entries(&self, entries: Vec<Entry>) -> tg::Result<()> {
-		for (index, entry) in entries.iter().enumerate() {
-			let result = self.finalizer_handle_entry(&entry.process).await;
+		for entry in &entries {
+			let result = self.finalizer_handle_entry(entry).await;
 			if let Err(error) = result {
-				self.requeue_process_finalize_entries(&entries[index..])
-					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to requeue the process finalize entries")
-					})?;
 				return Err(tg::error!(
 					!error,
 					process = %entry.process,
@@ -99,7 +94,8 @@ impl Server {
 		Ok(())
 	}
 
-	async fn finalizer_handle_entry(&self, process: &tg::process::Id) -> tg::Result<()> {
+	async fn finalizer_handle_entry(&self, entry: &Entry) -> tg::Result<()> {
+		let process = &entry.process;
 		self.compact_process_log(process)
 			.await
 			.inspect_err(
@@ -107,18 +103,16 @@ impl Server {
 			)
 			.ok();
 		self.finalizer_spawn_index_task(process).await?;
+		self.complete_process_finalize_entry(entry).await?;
 		Ok(())
 	}
 
-	async fn requeue_process_finalize_entries(&self, entries: &[Entry]) -> tg::Result<()> {
-		if entries.is_empty() {
-			return Ok(());
-		}
+	async fn complete_process_finalize_entry(&self, entry: &Entry) -> tg::Result<()> {
 		let mut connection = self
-			.sandbox_store
+			.process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 		let transaction = connection
 			.transaction()
 			.await
@@ -126,16 +120,37 @@ impl Server {
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
-				insert into process_finalize_queue (position, process)
-				values ({p}1, {p}2);
+				update process_finalize_queue
+				set
+					finished_at = {p}1,
+					status = {p}2
+				where position = {p}3;
 			"
 		);
-		for entry in entries {
-			let params = db::params![entry.position, entry.process.to_string()];
-			transaction
-				.execute(statement.clone().into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let params = db::params![now, "finished", entry.position];
+		let n = transaction
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		if n == 0 {
+			return Ok(());
+		}
+		let statement = formatdoc!(
+			"
+				delete from process_finalize_queue
+				where position = {p}1;
+			"
+		);
+		let params = db::params![entry.position];
+		let n = transaction
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		if n != 1 {
+			return Err(tg::error!(
+				"failed to delete the process finalize queue entry"
+			));
 		}
 		transaction
 			.commit()
@@ -148,8 +163,8 @@ impl Server {
 		&self,
 	) -> tg::Result<Option<i64>> {
 		let connection =
-			self.sandbox_store.connection().await.map_err(|source| {
-				tg::error!(!source, "failed to get a sandbox store connection")
+			self.process_store.connection().await.map_err(|source| {
+				tg::error!(!source, "failed to get a process store connection")
 			})?;
 		let statement = indoc!(
 			"
@@ -173,8 +188,8 @@ impl Server {
 		position: i64,
 	) -> tg::Result<u64> {
 		let connection =
-			self.sandbox_store.connection().await.map_err(|source| {
-				tg::error!(!source, "failed to get a sandbox store connection")
+			self.process_store.connection().await.map_err(|source| {
+				tg::error!(!source, "failed to get a process store connection")
 			})?;
 		let p = connection.p();
 		let statement = formatdoc!(

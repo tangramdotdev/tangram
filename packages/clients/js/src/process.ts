@@ -13,10 +13,10 @@ export let setProcess = (newProcess: typeof process) => {
 
 export class Process<O extends tg.Value = tg.Value> {
 	#id: tg.Process.Id;
+	#location: tg.Location.Arg | undefined;
 	#options: tg.Referent.Options;
 	#pid: number | undefined;
 	#promise: Promise<tg.Process.Wait> | undefined;
-	#remote: string | undefined;
 	#state: tg.Process.State | undefined;
 	#stderr: tg.Process.Stdio.Reader;
 	#stdin: tg.Process.Stdio.Writer;
@@ -333,11 +333,11 @@ export class Process<O extends tg.Value = tg.Value> {
 			options: options,
 		};
 
-		let spawnArg = {
+		let spawnArg: tg.Handle.SpawnArg = {
+			cache_location: arg.cache_location,
 			checksum,
 			command: commandReferent,
-			parent: undefined,
-			remote: undefined,
+			location: arg.location,
 			retry: false,
 			sandbox,
 			stderr: stderr ?? "inherit",
@@ -365,7 +365,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (arg.sandbox !== undefined) {
 			throw new Error("sandboxing is not supported for unsandboxed processes");
 		}
-		if (arg.stdin.startsWith("blb_")) {
+		if ((arg.stdin ?? "inherit").startsWith("blb_")) {
 			throw new Error("blob stdin is not supported for unsandboxed processes");
 		}
 
@@ -392,20 +392,23 @@ export class Process<O extends tg.Value = tg.Value> {
 			cwd: command.cwd,
 			env,
 			executable,
-			stderr: renderStdio(arg.stderr, "stderr"),
-			stdin: renderStdio(arg.stdin, "stdin"),
-			stdout: renderStdio(arg.stdout, "stdout"),
+			stderr: renderStdio(arg.stderr ?? "inherit", "stderr"),
+			stdin: renderStdio(arg.stdin ?? "inherit", "stdin"),
+			stdout: renderStdio(arg.stdout ?? "inherit", "stdout"),
 		});
 		let stdin = new tg.Process.Stdio.Writer({
 			fd: spawnOutput.stdin,
+			unavailable: spawnOutput.stdin === undefined,
 			stream: "stdin",
 		});
 		let stdout = new tg.Process.Stdio.Reader({
 			fd: spawnOutput.stdout,
+			unavailable: spawnOutput.stdout === undefined,
 			stream: "stdout",
 		});
 		let stderr = new tg.Process.Stdio.Reader({
 			fd: spawnOutput.stderr,
+			unavailable: spawnOutput.stderr === undefined,
 			stream: "stderr",
 		});
 		let pid = spawnOutput.pid;
@@ -421,9 +424,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		);
 		return new tg.Process<O>({
 			id,
+			location: undefined,
 			pid,
 			promise,
-			remote: undefined,
 			state: undefined,
 			stderr,
 			stdin,
@@ -517,6 +520,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		arg: tg.Handle.SpawnArg,
 	): Promise<tg.Process<O>> {
 		let noTty = arg.tty === false;
+		let provideStderr = arg.stderr === "pipe" || arg.stderr === "tty";
+		let provideStdin = arg.stdin === "pipe" || arg.stdin === "tty";
+		let provideStdout = arg.stdout === "pipe" || arg.stdout === "tty";
 		let tty: tg.Process.Tty | undefined;
 		if (arg.tty === true) {
 			let size = tg.host.getTtySize();
@@ -527,19 +533,19 @@ export class Process<O extends tg.Value = tg.Value> {
 			tty = arg.tty;
 		}
 		let stdin: "pipe" | "tty" | undefined =
-			arg.stdin === "inherit"
+			(arg.stdin ?? "inherit") === "inherit"
 				? !noTty && tg.host.isTty(0)
 					? "tty"
 					: "pipe"
 				: undefined;
 		let stdout: "pipe" | "tty" | undefined =
-			arg.stdout === "inherit"
+			(arg.stdout ?? "inherit") === "inherit"
 				? !noTty && tg.host.isTty(1)
 					? "tty"
 					: "pipe"
 				: undefined;
 		let stderr: "pipe" | "tty" | undefined =
-			arg.stderr === "inherit"
+			(arg.stderr ?? "inherit") === "inherit"
 				? !noTty && tg.host.isTty(2)
 					? "tty"
 					: "pipe"
@@ -582,14 +588,19 @@ export class Process<O extends tg.Value = tg.Value> {
 		}
 		let output = await tg.handle.spawnProcess({
 			...arg,
-			stderr: stderr ?? arg.stderr,
-			stdin: stdin ?? arg.stdin,
-			stdout: stdout ?? arg.stdout,
+			retry: arg.retry ?? false,
+			stderr: stderr ?? arg.stderr ?? "inherit",
+			stdin: stdin ?? arg.stdin ?? "inherit",
+			stdout: stdout ?? arg.stdout ?? "inherit",
 			tty,
 		});
 		let wait =
 			output.wait !== undefined
 				? tg.Process.Wait.fromData(output.wait)
+				: undefined;
+		let location =
+			output.location !== undefined
+				? tg.Location.Arg.fromLocation(output.location)
 				: undefined;
 		let stdioPromise =
 			stdin !== undefined ||
@@ -598,7 +609,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			tty !== undefined
 				? stdioTask(
 						output.process,
-						output.remote,
+						location,
 						stdin,
 						stdout,
 						stderr,
@@ -607,23 +618,20 @@ export class Process<O extends tg.Value = tg.Value> {
 				: undefined;
 		let process = new tg.Process<O>({
 			id: output.process,
-			remote: output.remote,
+			location,
 			state: undefined,
 			stderr: new tg.Process.Stdio.Reader({
-				process: arg.stderr === "pipe" ? output.process : undefined,
-				remote: arg.stderr === "pipe" ? output.remote : undefined,
+				unavailable: !provideStderr,
 				stream: "stderr",
 			}),
 			stdin: new tg.Process.Stdio.Writer({
-				process: arg.stdin === "pipe" ? output.process : undefined,
-				remote: arg.stdin === "pipe" ? output.remote : undefined,
+				unavailable: !provideStdin,
 				stream: "stdin",
 			}),
 			stdioPromise,
 			token: output.token,
 			stdout: new tg.Process.Stdio.Reader({
-				process: arg.stdout === "pipe" ? output.process : undefined,
-				remote: arg.stdout === "pipe" ? output.remote : undefined,
+				unavailable: !provideStdout,
 				stream: "stdout",
 			}),
 			wait,
@@ -633,8 +641,8 @@ export class Process<O extends tg.Value = tg.Value> {
 
 	constructor(arg: tg.Process.ConstructorArg) {
 		this.#id = arg.id;
+		this.#location = arg.location;
 		this.#options = arg.options ?? {};
-		this.#remote = arg.remote;
 		this.#state = arg.state;
 		this.#stdioPromise = arg.stdioPromise;
 		this.#pid = arg.pid;
@@ -644,10 +652,17 @@ export class Process<O extends tg.Value = tg.Value> {
 		this.#stderr = arg.stderr;
 		this.#token = arg.token;
 		this.#wait = arg.wait;
+		this.#stdin.setProcess(this);
+		this.#stdout.setProcess(this);
+		this.#stderr.setProcess(this);
 	}
 
 	get state(): tg.Process.State | undefined {
 		return this.#state;
+	}
+
+	get pid(): number | undefined {
+		return this.#pid;
 	}
 
 	static expect(value: unknown): tg.Process {
@@ -663,8 +678,13 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (this.#pid !== undefined) {
 			throw new Error("loading unsandboxed process state is not supported");
 		}
-		let data = await tg.handle.getProcess(this.#id, this.#remote);
-		this.#state = tg.Process.State.fromData(data);
+		let output = await tg.handle.getProcess(this.#id, {
+			location: this.#location,
+		});
+		if (output.location !== undefined) {
+			this.#location = tg.Location.Arg.fromLocation(output.location);
+		}
+		this.#state = tg.Process.State.fromData(output.data);
 	}
 
 	async reload(): Promise<void> {
@@ -680,11 +700,15 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (sandbox === undefined) {
 			return undefined;
 		}
-		return await tg.handle.getSandbox(sandbox, this.#remote);
+		return await tg.handle.getSandbox(sandbox);
 	}
 
 	get id(): tg.Process.Id {
 		return this.#id;
+	}
+
+	get location(): tg.Location.Arg | undefined {
+		return this.#location;
 	}
 
 	get command(): Promise<tg.Command> {
@@ -780,9 +804,13 @@ export class Process<O extends tg.Value = tg.Value> {
 			await tg.host.signal(this.#pid, signal);
 			return;
 		}
+		let location = this.#location;
+		if (location === undefined) {
+			await this.load();
+			location = this.#location;
+		}
 		let arg = {
-			local: this.#remote === undefined ? true : undefined,
-			remotes: this.#remote !== undefined ? [this.#remote] : undefined,
+			location,
 			signal,
 		};
 		await tg.handle.signalProcess(this.#id, arg);
@@ -801,13 +829,8 @@ export class Process<O extends tg.Value = tg.Value> {
 			this.#wait = wait;
 			return wait;
 		}
-		let remotes = undefined;
-		if (this.#remote) {
-			remotes = [this.#remote];
-		}
-		let arg = {
-			local: undefined,
-			remotes,
+		let arg: tg.Handle.WaitArg = {
+			location: this.#location,
 			token: this.#token,
 		};
 		let data = await tg.handle.waitProcess(this.#id, arg);
@@ -885,9 +908,13 @@ export class Process<O extends tg.Value = tg.Value> {
 				"tty resizing is not supported for unsandboxed processes",
 			);
 		}
+		let location = this.#location;
+		if (location === undefined) {
+			await this.load();
+			location = this.#location;
+		}
 		await tg.handle.setProcessTtySize(this.#id, {
-			local: undefined,
-			remotes: this.#remote !== undefined ? [this.#remote] : undefined,
+			location,
 			size,
 		});
 	}
@@ -1117,10 +1144,10 @@ export namespace Process {
 
 	export type ConstructorArg = {
 		id: tg.Process.Id;
+		location?: tg.Location.Arg | undefined;
 		options?: tg.Referent.Options;
 		pid?: number | undefined;
 		promise?: Promise<tg.Process.Wait> | undefined;
-		remote?: string | undefined;
 		state?: State | undefined;
 		stderr: tg.Process.Stdio.Reader;
 		stdin: tg.Process.Stdio.Writer;
@@ -1140,6 +1167,7 @@ export namespace Process {
 
 	export type ArgObject = {
 		args?: Array<tg.Value> | undefined;
+		cache_location?: tg.Location.Arg | undefined;
 		checksum?: tg.Checksum | undefined;
 		command?: tg.MaybeReferent<tg.Command> | undefined;
 		cpu?: number | undefined;
@@ -1148,6 +1176,7 @@ export namespace Process {
 		executable?: tg.Command.Arg.Executable | undefined;
 		host?: string | undefined;
 		isolation?: tg.Sandbox.Isolation | undefined;
+		location?: tg.Location.Arg | undefined;
 		memory?: number | undefined;
 		mounts?: Array<tg.Sandbox.Mount> | undefined;
 		name?: string | undefined;
@@ -1161,50 +1190,172 @@ export namespace Process {
 	};
 
 	export type State = {
+		actualChecksum?: tg.Checksum | undefined;
+		cacheable: boolean;
+		children?: Array<tg.Process.Child> | undefined;
 		command: tg.Command;
+		createdAt: number;
 		error: tg.Error | undefined;
 		exit: number | undefined;
+		expectedChecksum?: tg.Checksum | undefined;
+		finishedAt?: number | undefined;
+		host: string;
+		log?: tg.Blob | undefined;
 		output?: tg.Value;
+		retry: boolean;
 		sandbox?: string;
+		startedAt?: number | undefined;
 		status: tg.Process.Status;
-		stderr: string | undefined;
-		stdin: string | undefined;
-		stdout: string | undefined;
+		stderr: tg.Process.Stdio;
+		stdin: tg.Process.Stdio;
+		stdout: tg.Process.Stdio;
+		tty?: tg.Process.Tty | undefined;
 	};
+
+	export type Child = {
+		cached: boolean;
+		options: tg.Referent.Options;
+		process: tg.Process;
+	};
+
+	export namespace Child {
+		export let toData = (value: tg.Process.Child): tg.Process.Data.Child => {
+			let options: tg.Referent.Data.Options = {};
+			if (value.options.artifact !== undefined) {
+				options.artifact = value.options.artifact;
+			}
+			if (value.options.id !== undefined) {
+				options.id = value.options.id;
+			}
+			if (value.options.location !== undefined) {
+				options.location = tg.Location.Arg.toDataString(value.options.location);
+			}
+			if (value.options.name !== undefined) {
+				options.name = value.options.name;
+			}
+			if (value.options.path !== undefined) {
+				options.path = value.options.path;
+			}
+			if (value.options.tag !== undefined) {
+				options.tag = value.options.tag;
+			}
+			return {
+				cached: value.cached,
+				options,
+				process: value.process.id,
+			};
+		};
+
+		export let fromData = (data: tg.Process.Data.Child): tg.Process.Child => {
+			let options: tg.Referent.Options = {};
+			if (data.options.artifact !== undefined) {
+				options.artifact = data.options.artifact;
+			}
+			if (data.options.id !== undefined) {
+				options.id = data.options.id;
+			}
+			if (data.options.location !== undefined) {
+				options.location = tg.Location.Arg.fromDataString(
+					data.options.location,
+				);
+			}
+			if (data.options.name !== undefined) {
+				options.name = data.options.name;
+			}
+			if (data.options.path !== undefined) {
+				options.path = data.options.path;
+			}
+			if (data.options.tag !== undefined) {
+				options.tag = data.options.tag;
+			}
+			return {
+				cached: data.cached ?? false,
+				options,
+				process: new tg.Process({
+					id: data.process,
+					location: undefined,
+					state: undefined,
+					stderr: new tg.Process.Stdio.Reader({
+						stream: "stderr",
+					}),
+					stdin: new tg.Process.Stdio.Writer({
+						stream: "stdin",
+					}),
+					stdout: new tg.Process.Stdio.Reader({
+						stream: "stdout",
+					}),
+				}),
+			};
+		};
+	}
 
 	export namespace State {
 		export let toData = (value: State): Data => {
 			let output: Data = {
 				command: value.command.id,
+				created_at: value.createdAt,
+				host: value.host,
+				sandbox: value.sandbox!,
 				status: value.status,
 			};
+			if (value.actualChecksum !== undefined) {
+				output.actual_checksum = value.actualChecksum;
+			}
+			if (value.cacheable) {
+				output.cacheable = value.cacheable;
+			}
+			if (value.children !== undefined) {
+				output.children = value.children.map(tg.Process.Child.toData);
+			}
 			if (value.error !== undefined) {
 				output.error = tg.Error.toData(value.error);
 			}
 			if (value.exit !== undefined) {
 				output.exit = value.exit;
 			}
+			if (value.expectedChecksum !== undefined) {
+				output.expected_checksum = value.expectedChecksum;
+			}
+			if (value.finishedAt !== undefined) {
+				output.finished_at = value.finishedAt;
+			}
+			if (value.log !== undefined) {
+				output.log = value.log.id;
+			}
 			if ("output" in value) {
 				output.output = tg.Value.toData(value.output);
 			}
-			if (value.sandbox !== undefined) {
-				output.sandbox = value.sandbox;
+			if (value.retry) {
+				output.retry = value.retry;
 			}
-			if (value.stderr !== undefined) {
+			if (value.startedAt !== undefined) {
+				output.started_at = value.startedAt;
+			}
+			if (value.stderr !== "inherit") {
 				output.stderr = value.stderr;
 			}
-			if (value.stdin !== undefined) {
+			if (value.stdin !== "inherit") {
 				output.stdin = value.stdin;
 			}
-			if (value.stdout !== undefined) {
+			if (value.stdout !== "inherit") {
 				output.stdout = value.stdout;
+			}
+			if (value.tty !== undefined) {
+				output.tty = value.tty;
 			}
 			return output;
 		};
 
 		export let fromData = (data: tg.Process.Data): tg.Process.State => {
 			let output: State = {
+				actualChecksum: data.actual_checksum,
+				cacheable: data.cacheable ?? false,
+				children:
+					data.children !== undefined
+						? data.children.map(tg.Process.Child.fromData)
+						: undefined,
 				command: tg.Command.withId(data.command),
+				createdAt: data.created_at,
 				error:
 					data.error !== undefined
 						? typeof data.error === "string"
@@ -1212,14 +1363,19 @@ export namespace Process {
 							: tg.Error.fromData(data.error)
 						: undefined,
 				exit: data.exit,
+				expectedChecksum: data.expected_checksum,
+				finishedAt: data.finished_at,
+				host: data.host,
+				log: data.log !== undefined ? tg.Blob.withId(data.log) : undefined,
+				retry: data.retry ?? false,
+				sandbox: data.sandbox,
+				startedAt: data.started_at,
 				status: data.status,
-				stderr: data.stderr,
-				stdin: data.stdin,
-				stdout: data.stdout,
+				stderr: data.stderr ?? "inherit",
+				stdin: data.stdin ?? "inherit",
+				stdout: data.stdout ?? "inherit",
+				tty: data.tty,
 			};
-			if (data.sandbox !== undefined) {
-				output.sandbox = data.sandbox;
-			}
 			if ("output" in data) {
 				output.output = tg.Value.fromData(data.output);
 			}
@@ -1254,9 +1410,8 @@ export namespace Process {
 		export namespace Read {
 			export type Arg = {
 				length?: number | undefined;
-				local?: boolean | undefined;
+				location?: tg.Location.Arg | undefined;
 				position?: number | string | undefined;
-				remotes?: Array<string> | undefined;
 				size?: number | undefined;
 				streams: Array<tg.Process.Stdio.Stream>;
 			};
@@ -1316,8 +1471,7 @@ export namespace Process {
 
 		export namespace Write {
 			export type Arg = {
-				local?: boolean | undefined;
-				remotes?: Array<string> | undefined;
+				location?: tg.Location.Arg | undefined;
 				streams: Array<tg.Process.Stdio.Stream>;
 			};
 
@@ -1325,23 +1479,26 @@ export namespace Process {
 		}
 
 		export class Reader {
+			#available: boolean;
 			#fd: number | undefined;
 			#input: AsyncIterableIterator<tg.Process.Stdio.Read.Event> | undefined;
-			#process: tg.Process.Id | undefined;
-			#remote: string | undefined;
+			#process: tg.Process | undefined;
 			#stream: "stdout" | "stderr";
 
 			constructor(arg: {
 				fd?: number | undefined;
-				process?: tg.Process.Id | undefined;
-				remote?: string | undefined;
+				unavailable?: boolean | undefined;
 				stream: "stdout" | "stderr";
 			}) {
+				this.#available = !(arg.unavailable ?? false);
 				this.#fd = arg.fd;
 				this.#input = undefined;
-				this.#process = arg.process;
-				this.#remote = arg.remote;
+				this.#process = undefined;
 				this.#stream = arg.stream;
+			}
+
+			setProcess(process: tg.Process): void {
+				this.#process = process;
 			}
 
 			async close(): Promise<void> {
@@ -1350,7 +1507,9 @@ export namespace Process {
 				this.#fd = undefined;
 				this.#input = undefined;
 				this.#process = undefined;
-				this.#remote = undefined;
+				if (!this.#available) {
+					return;
+				}
 				if (fd !== undefined) {
 					await tg.host.close(fd);
 				}
@@ -1360,6 +1519,9 @@ export namespace Process {
 			}
 
 			async read(): Promise<Uint8Array | undefined> {
+				if (!this.#available) {
+					throw new Error(`${this.#stream} is not available`);
+				}
 				if (this.#fd !== undefined) {
 					while (true) {
 						let bytes = await tg.host.read(this.#fd, 4096);
@@ -1373,7 +1535,6 @@ export namespace Process {
 					let fd = this.#fd;
 					this.#fd = undefined;
 					this.#process = undefined;
-					this.#remote = undefined;
 					if (fd !== undefined) {
 						await tg.host.close(fd);
 					}
@@ -1383,9 +1544,8 @@ export namespace Process {
 					throw new Error(`${this.#stream} is not available`);
 				}
 				if (this.#input === undefined) {
-					let input = await tg.handle.readProcessStdio(this.#process, {
-						local: undefined,
-						remotes: this.#remote !== undefined ? [this.#remote] : undefined,
+					let input = await tg.handle.readProcessStdio(this.#process.id, {
+						location: this.#process.location,
 						streams: [this.#stream],
 					});
 					if (input === undefined) {
@@ -1411,7 +1571,6 @@ export namespace Process {
 				}
 				this.#input = undefined;
 				this.#process = undefined;
-				this.#remote = undefined;
 				return undefined;
 			}
 
@@ -1441,44 +1600,58 @@ export namespace Process {
 		}
 
 		export class Writer {
+			#available: boolean;
 			#fd: number | undefined;
-			#process: tg.Process.Id | undefined;
-			#remote: string | undefined;
+			#process: tg.Process | undefined;
 			#stream: "stdin";
 
 			constructor(arg: {
 				fd?: number | undefined;
-				process?: tg.Process.Id | undefined;
-				remote?: string | undefined;
+				unavailable?: boolean | undefined;
 				stream: "stdin";
 			}) {
+				this.#available = !(arg.unavailable ?? false);
 				this.#fd = arg.fd;
-				this.#process = arg.process;
-				this.#remote = arg.remote;
+				this.#process = undefined;
 				this.#stream = arg.stream;
+			}
+
+			setProcess(process: tg.Process): void {
+				this.#process = process;
 			}
 
 			async close(): Promise<void> {
 				let fd = this.#fd;
 				let process = this.#process;
-				let remote = this.#remote;
 				let stream = this.#stream;
+				if (!this.#available) {
+					this.#fd = undefined;
+					this.#process = undefined;
+					return;
+				}
 				if (fd !== undefined) {
 					this.#fd = undefined;
 					this.#process = undefined;
-					this.#remote = undefined;
 					await tg.host.close(fd);
 					return;
 				}
 				if (process !== undefined) {
+					if (process.pid !== undefined) {
+						this.#fd = undefined;
+						this.#process = undefined;
+						return;
+					}
+					let location = process.location;
+					if (location === undefined) {
+						await process.load();
+						location = process.location;
+					}
 					this.#fd = undefined;
 					this.#process = undefined;
-					this.#remote = undefined;
 					await tg.handle.writeProcessStdio(
-						process,
+						process.id,
 						{
-							local: undefined,
-							remotes: remote !== undefined ? [remote] : undefined,
+							location,
 							streams: [stream],
 						},
 						(async function* () {
@@ -1492,9 +1665,11 @@ export namespace Process {
 				if (!(input instanceof Uint8Array)) {
 					throw new Error("expected stdio bytes");
 				}
+				if (!this.#available) {
+					throw new Error(`${this.#stream} is not available`);
+				}
 				let fd = this.#fd;
 				let process = this.#process;
-				let remote = this.#remote;
 				let stream = this.#stream;
 				if (fd === undefined && process === undefined) {
 					throw new Error(`${stream} is not available`);
@@ -1506,11 +1681,18 @@ export namespace Process {
 					await tg.host.write(fd, input);
 					return input.length;
 				}
+				if (process!.pid !== undefined) {
+					throw new Error(`${stream} is not available`);
+				}
+				let location = process!.location;
+				if (location === undefined) {
+					await process!.load();
+					location = process!.location;
+				}
 				await tg.handle.writeProcessStdio(
-					process!,
+					process!.id,
 					{
-						local: undefined,
-						remotes: remote !== undefined ? [remote] : undefined,
+						location,
 						streams: [stream],
 					},
 					(async function* () {
@@ -1564,16 +1746,35 @@ export namespace Process {
 	export type Status = "created" | "started" | "finished";
 
 	export type Data = {
+		actual_checksum?: tg.Checksum;
+		cacheable?: boolean;
+		children?: Array<tg.Process.Data.Child>;
 		command: tg.Command.Id;
+		created_at: number;
 		error?: tg.Error.Data | tg.Error.Id;
 		exit?: number;
+		expected_checksum?: tg.Checksum;
+		finished_at?: number;
+		host: string;
+		log?: tg.Blob.Id;
 		output?: tg.Value.Data;
-		sandbox?: string;
+		retry?: boolean;
+		sandbox: string;
+		started_at?: number;
 		status: tg.Process.Status;
-		stderr?: string;
-		stdin?: string;
-		stdout?: string;
+		stderr?: tg.Process.Stdio;
+		stdin?: tg.Process.Stdio;
+		stdout?: tg.Process.Stdio;
+		tty?: tg.Process.Tty;
 	};
+
+	export namespace Data {
+		export type Child = {
+			cached?: boolean;
+			options: tg.Referent.Data.Options;
+			process: tg.Process.Id;
+		};
+	}
 
 	export type Wait = {
 		error: tg.Error | undefined;
@@ -1621,7 +1822,7 @@ export namespace Process {
 
 async function stdioTask(
 	id: tg.Process.Id,
-	remote: string | undefined,
+	location: tg.Location.Arg | undefined,
 	stdin: "pipe" | "tty" | undefined,
 	stdout: "pipe" | "tty" | undefined,
 	stderr: "pipe" | "tty" | undefined,
@@ -1633,7 +1834,7 @@ async function stdioTask(
 		stdin !== undefined ? await tg.host.stopperOpen() : undefined;
 	let stdinTask_ =
 		stdin !== undefined && stdinStopper !== undefined
-			? stdinTask(id, remote, stdin, stdinStopper).catch((error) => {
+			? stdinTask(id, location, stdin, stdinStopper).catch((error) => {
 					if (!stdinClosing) {
 						stdinError = error;
 					}
@@ -1643,13 +1844,18 @@ async function stdioTask(
 	let sigwinchListener = tty ? tg.host.listenSignal("sigwinch") : undefined;
 	let sigwinchTask_ =
 		sigwinchListener !== undefined
-			? sigwinchTask(id, remote, sigwinchListener).catch((error) => {
+			? sigwinchTask(id, location, sigwinchListener).catch((error) => {
 					sigwinchError = error;
 				})
 			: undefined;
 	let stdoutStderrError: unknown;
 	try {
-		stdoutStderrError = await stdoutStderrTask(id, remote, stdout, stderr).then(
+		stdoutStderrError = await stdoutStderrTask(
+			id,
+			location,
+			stdout,
+			stderr,
+		).then(
 			() => undefined,
 			(error) => error,
 		);
@@ -1694,7 +1900,7 @@ async function cleanupStdio(
 
 async function stdinTask(
 	id: tg.Process.Id,
-	remote: string | undefined,
+	location: tg.Location.Arg | undefined,
 	stdin: "pipe" | "tty",
 	stopper: tg.Host.Stopper,
 ): Promise<void> {
@@ -1727,8 +1933,7 @@ async function stdinTask(
 		await tg.handle.writeProcessStdio(
 			id,
 			{
-				local: undefined,
-				remotes: remote !== undefined ? [remote] : undefined,
+				location,
 				streams: ["stdin"],
 			},
 			input,
@@ -1753,7 +1958,7 @@ async function stdinTask(
 
 async function stdoutStderrTask(
 	id: tg.Process.Id,
-	remote: string | undefined,
+	location: tg.Location.Arg | undefined,
 	stdout: "pipe" | "tty" | undefined,
 	stderr: "pipe" | "tty" | undefined,
 ): Promise<void> {
@@ -1768,8 +1973,7 @@ async function stdoutStderrTask(
 		return;
 	}
 	let iterator = await tg.handle.readProcessStdio(id, {
-		local: undefined,
-		remotes: remote !== undefined ? [remote] : undefined,
+		location,
 		streams,
 	});
 	if (iterator === undefined) {
@@ -1786,7 +1990,7 @@ async function stdoutStderrTask(
 
 async function sigwinchTask(
 	id: tg.Process.Id,
-	remote: string | undefined,
+	location: tg.Location.Arg | undefined,
 	signalListener: tg.Host.SignalListener,
 ): Promise<void> {
 	for await (let _ of signalListener) {
@@ -1795,8 +1999,7 @@ async function sigwinchTask(
 			throw new Error("failed to get the tty size");
 		}
 		await tg.handle.setProcessTtySize(id, {
-			local: undefined,
-			remotes: remote !== undefined ? [remote] : undefined,
+			location,
 			size,
 		});
 	}

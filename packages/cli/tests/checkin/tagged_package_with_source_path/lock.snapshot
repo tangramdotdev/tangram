@@ -12,7 +12,7 @@
     {
       "kind": "file",
       "dependencies": {
-        "a?local=../a": {
+        "a?source=../a": {
           "item": null,
           "options": {
             "id": "dir_01397yyk1pe2sv1ddct0f0aq0qtxjbjtw55t9d7vke752ezc8at4p0",

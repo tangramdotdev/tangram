@@ -13,6 +13,7 @@ pub mod signal;
 pub mod spawn;
 pub mod status;
 pub mod stdio;
+pub mod touch;
 pub mod wait;
 
 /// Manage processes.
@@ -40,6 +41,7 @@ pub enum Command {
 	Spawn(self::spawn::Args),
 	Status(self::status::Args),
 	Stdio(self::stdio::Args),
+	Touch(self::touch::Args),
 	Wait(self::wait::Args),
 }
 
@@ -81,6 +83,9 @@ impl Cli {
 			},
 			Command::Stdio(args) => {
 				self.command_process_stdio(args).await?;
+			},
+			Command::Touch(args) => {
+				self.command_process_touch(args).await?;
 			},
 			Command::Wait(args) => {
 				self.command_process_wait(args).await?;

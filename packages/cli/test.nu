@@ -26,8 +26,8 @@ def main [
 			print -e $"removed ($entry.name)"
 		}
 
-		let preserved_dbs = ['postgres', 'template0', 'template1', 'sandbox_store']
-		let dbs = psql -U postgres -h localhost -t -c "SELECT datname FROM pg_database" | lines | str trim | where { $in starts-with 'sandbox_store_' }
+		let preserved_dbs = ['postgres', 'template0', 'template1', 'process_store']
+		let dbs = psql -U postgres -h localhost -t -c "SELECT datname FROM pg_database" | lines | str trim | where { $in starts-with 'process_store_' }
 		for db in $dbs {
 			print -e $"dropping postgres database ($db)"
 			try { dropdb -U postgres -h localhost $db }
@@ -740,9 +740,11 @@ export def --env spawn [
 			kind: 'lmdb',
 			map_size: 10_485_760,
 		},
-		object_store: {
-			kind: 'lmdb',
-			map_size: 10_485_760,
+		object: {
+			store: {
+				kind: 'lmdb',
+				map_size: 10_485_760,
+			},
 		},
 		remotes: [],
 		tokio_single_threaded: true,
@@ -759,14 +761,14 @@ export def --env spawn [
 		cockroach sql --insecure --host=localhost:26257 -e $'create database database_($id)'
 		cockroach sql --insecure --host=localhost:26257 -d $'database_($id)' -f ($repository_path | path join packages/server/src/database/postgres.sql)
 
-		createdb -U postgres -h localhost $'sandbox_store_($id)'
-		psql -U postgres -h localhost -d $'sandbox_store_($id)' -f ($repository_path | path join packages/server/src/sandbox/store/postgres.sql)
+		createdb -U postgres -h localhost $'process_store_($id)'
+		psql -U postgres -h localhost -d $'process_store_($id)' -f ($repository_path | path join packages/server/src/process/store/postgres.sql)
 
 		let cluster = mktemp -t
 		"docker:docker@localhost:4500" | save -f $cluster
 
 		cqlsh -e $"create keyspace \"object_store_($id)\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };"
-		cqlsh -k $'objects_($id)' -f ($repository_path | path join packages/stores/object/src/scylla.cql)
+		cqlsh -k $'object_store_($id)' -f ($repository_path | path join packages/stores/object/src/scylla.cql)
 
 		let config = {
 			database: {
@@ -789,18 +791,22 @@ export def --env spawn [
 				kind: 'nats',
 				url: 'nats://localhost',
 			},
-			object_store: {
-				addr: 'localhost:9042',
-				connections: 1,
-				keyspace: $'object_store_($id)',
-				kind: 'scylla',
+			object: {
+				store: {
+					addr: 'localhost:9042',
+					connections: 1,
+					keyspace: $'object_store_($id)',
+					kind: 'scylla',
+				},
+			},
+			process: {
+				store: {
+					connections: 1,
+					kind: 'postgres',
+					url: $'postgres://postgres@localhost:5432/process_store_($id)',
+				},
 			},
 			remotes: [],
-			sandbox_store: {
-				connections: 1,
-				kind: 'postgres',
-				url: $'postgres://postgres@localhost:5432/sandbox_store_($id)',
-			},
 			watchdog: {
 				batch_size: 100,
 				interval: 1,
@@ -907,7 +913,7 @@ def clean_databases [id: string] {
 	try { cockroach sql --insecure --host=localhost:26257 -e $'drop database if exists database_($id) cascade' }
 
 	# Drop the Postgres database.
-	try { dropdb -U postgres -h localhost $'sandbox_store_($id)' }
+	try { dropdb -U postgres -h localhost $'process_store_($id)' }
 
 	# Clear the fdb key range.
 	let cluster = mktemp -t

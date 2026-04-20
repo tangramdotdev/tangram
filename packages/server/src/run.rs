@@ -31,32 +31,34 @@ impl Server {
 				.unwrap();
 			let permit = SandboxPermit(tg::Either::Left(permit));
 
+			let location = tg::Location::Local(tg::location::Local::default());
 			let arg = tg::sandbox::queue::Arg {
-				local: Some(true),
-				remotes: None,
+				location: Some(location.clone().into()),
 			};
 			let futures = std::iter::once(
 				self.dequeue_sandbox(arg)
-					.map_ok(|output| (output, None))
+					.map_ok(move |output| (output, location.clone()))
 					.boxed(),
 			)
 			.chain(self.config.runner.iter().flat_map(|config| {
 				config.remotes.iter().map(|name| {
 					let server = self.clone();
-					let remote = name.to_owned();
+					let location = tg::Location::Remote(tg::location::Remote {
+						name: name.to_owned(),
+						region: None,
+					});
 					async move {
 						let arg = tg::sandbox::queue::Arg {
-							local: None,
-							remotes: Some(vec![remote.clone()]),
+							location: Some(location.clone().into()),
 						};
 						let output = server.dequeue_sandbox(arg).await?;
-						Ok::<_, tg::Error>((output, Some(remote)))
+						Ok::<_, tg::Error>((output, location))
 					}
 					.boxed()
 				})
 			}));
 
-			let (output, remote) = match future::select_ok(futures).await {
+			let (output, location) = match future::select_ok(futures).await {
 				Ok((output, _)) => output,
 				Err(error) => {
 					tracing::error!(error = %error.trace(), "failed to dequeue a sandbox");
@@ -65,7 +67,7 @@ impl Server {
 				},
 			};
 
-			self.spawn_sandbox_task(&output.sandbox, remote, permit, output.process);
+			self.spawn_sandbox_task(&output.sandbox, location, permit, output.process);
 		}
 	}
 }

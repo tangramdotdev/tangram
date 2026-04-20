@@ -1,5 +1,6 @@
 use {
 	crate::{Context, Server},
+	futures::{StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
@@ -14,44 +15,159 @@ impl Server {
 		id: &tg::object::Id,
 		arg: tg::object::touch::Arg,
 	) -> tg::Result<Option<()>> {
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			return self.touch_object_local(id).await;
+		let locations = self
+			.locations(arg.location.as_ref())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+
+		if let Some(local) = &locations.local {
+			if local.current
+				&& let Some(output) = self
+					.try_touch_object_local(id)
+					.await
+					.map_err(|source| tg::error!(!source, %id, "failed to touch the object"))?
+			{
+				return Ok(Some(output));
+			}
+
+			if let Some(output) = self
+				.try_touch_object_regions(id, &local.regions)
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, "failed to touch the object in another region"),
+				)? {
+				return Ok(Some(output));
+			}
 		}
 
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			return self.touch_object_remote(id, remote).await;
+		if let Some(output) = self
+			.try_touch_object_remotes(id, &locations.remotes)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to touch the object in a remote"))?
+		{
+			return Ok(Some(output));
 		}
 
 		Ok(None)
 	}
 
-	async fn touch_object_local(&self, id: &tg::object::Id) -> tg::Result<Option<()>> {
+	async fn try_touch_object_local(&self, id: &tg::object::Id) -> tg::Result<Option<()>> {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		let output = self
+		let Some(_) = self
 			.index
 			.touch_object(id, touched_at)
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to touch the object"))?;
-		Ok(output.map(|_| ()))
+			.map_err(|source| tg::error!(!source, %id, "failed to touch the object"))?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(()))
 	}
 
-	async fn touch_object_remote(
+	async fn try_touch_object_regions(
 		&self,
 		id: &tg::object::Id,
-		remote: String,
+		regions: &[String],
+	) -> tg::Result<Option<()>> {
+		let mut futures = regions
+			.iter()
+			.map(|region| self.try_touch_object_region(id, region))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(output))
+	}
+
+	async fn try_touch_object_region(
+		&self,
+		id: &tg::object::Id,
+		region: &str,
+	) -> tg::Result<Option<()>> {
+		let client = self.get_region_client(region.to_owned()).await.map_err(
+			|source| tg::error!(!source, %id, region = %region, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.to_owned()),
+		});
+		let arg = tg::object::touch::Arg {
+			location: Some(location.into()),
+		};
+		let Some(()) = client.try_touch_object(id, arg).await.map_err(
+			|source| tg::error!(!source, %id, region = %region, "failed to touch the object"),
+		)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(()))
+	}
+
+	async fn try_touch_object_remotes(
+		&self,
+		id: &tg::object::Id,
+		remotes: &[crate::location::Remote],
+	) -> tg::Result<Option<()>> {
+		let mut futures = remotes
+			.iter()
+			.map(|remote| self.try_touch_object_remote(id, remote))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(output))
+	}
+
+	async fn try_touch_object_remote(
+		&self,
+		id: &tg::object::Id,
+		remote: &crate::location::Remote,
 	) -> tg::Result<Option<()>> {
 		let client = self
-			.get_remote_client(remote)
+			.get_remote_client(remote.remote.clone())
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
+			.map_err(
+				|source| tg::error!(!source, %id, remote = %remote.remote, "failed to get the remote client"),
+			)?;
 		let arg = tg::object::touch::Arg {
-			local: None,
-			remotes: None,
+			location: Some(tg::location::Arg(vec![
+				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
+					regions: remote.regions.clone(),
+				}),
+			])),
 		};
-		client
-			.try_touch_object(id, arg)
-			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to touch the object on the remote"))
+		let Some(()) = client.try_touch_object(id, arg).await.map_err(
+			|source| tg::error!(!source, %id, remote = %remote.remote, "failed to touch the object"),
+		)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(()))
 	}
 
 	pub(crate) async fn handle_touch_object_request(

@@ -62,13 +62,13 @@ pub enum Item {
 )]
 pub struct Options {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub local: Option<PathBuf>,
+	pub location: Option<tg::location::Arg>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub remote: Option<String>,
+	pub source: Option<PathBuf>,
 }
 
 impl Reference {
@@ -139,27 +139,12 @@ impl Reference {
 		let item = path
 			.parse()
 			.map_err(|source| tg::error!(!source, "failed to parse the reference item"))?;
-		let mut options = Options::default();
-		if let Some(query) = uri.query_raw() {
-			for param in query.split('&') {
-				if let Some((key, value)) = param.split_once('=') {
-					let value = tangram_uri::decode_query_value(value)
-						.map_err(|_| tg::error!("failed to decode the value"))?;
-					match key {
-						"local" => {
-							options.local.replace(value.into_owned().into());
-						},
-						"path" => {
-							options.path.replace(value.into_owned().into());
-						},
-						"remote" => {
-							options.remote.replace(value.into_owned());
-						},
-						_ => {},
-					}
-				}
-			}
-		}
+		let options = uri
+			.query_raw()
+			.map(serde_qs::from_str::<Options>)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to deserialize the query params"))?
+			.unwrap_or_default();
 		let export = uri.fragment().map(ToOwned::to_owned);
 		Ok(Self {
 			item,
@@ -171,29 +156,12 @@ impl Reference {
 	#[must_use]
 	pub fn to_uri(&self) -> Uri {
 		let path = self.item.to_string();
-		let mut builder = Uri::builder();
-		builder = builder.path_raw(&path);
-		let mut query = Vec::new();
-		if let Some(local) = &self.options.local {
-			let local = local.to_string_lossy();
-			let local = tangram_uri::encode_query_value(&local);
-			let local = format!("local={local}");
-			query.push(local);
-		}
-		if let Some(path) = &self.options.path {
-			let path = path.to_string_lossy();
-			let path = tangram_uri::encode_query_value(&path);
-			let path = format!("path={path}");
-			query.push(path);
-		}
-		if let Some(remote) = &self.options.remote {
-			let remote = tangram_uri::encode_query_value(remote);
-			let remote = format!("remote={remote}");
-			query.push(remote);
-		}
-		if !query.is_empty() {
-			let query = query.join("&");
-			builder = builder.query_raw(&query);
+		let mut builder = Uri::builder().path_raw(&path);
+		if self.options != Options::default() {
+			builder = builder
+				.query_params(&self.options)
+				.map_err(|source| tg::error!(!source, "failed to serialize the query params"))
+				.unwrap();
 		}
 		if let Some(export) = &self.export {
 			builder = builder.fragment(export);

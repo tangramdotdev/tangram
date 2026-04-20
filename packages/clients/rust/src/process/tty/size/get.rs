@@ -1,11 +1,9 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, TryStreamExt as _},
-	serde_with::serde_as,
 	std::future,
 	tangram_http::{request::builder::Ext as _, response::Ext as _, sse},
 	tangram_uri::Uri,
-	tangram_util::serde::CommaSeparatedString,
 };
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -15,15 +13,10 @@ pub enum Event {
 	End,
 }
 
-#[serde_as]
 #[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub local: Option<bool>,
-
-	#[serde(alias = "remote", default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<CommaSeparatedString>")]
-	pub remotes: Option<Vec<String>>,
+	pub location: Option<tg::location::Arg>,
 }
 
 impl tg::Client {

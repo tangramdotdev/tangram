@@ -2,11 +2,84 @@ use {
 	crate::prelude::*,
 	futures::{Stream, TryStreamExt as _, future},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_util::serde::is_false,
 };
 
-pub type Arg = tg::push::Arg;
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub commands: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub eager: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub errors: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub force: bool,
+
+	pub items: Vec<tg::Either<tg::object::Id, tg::process::Id>>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub logs: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub metadata: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub outputs: bool,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub recursive: bool,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub destination: Option<tg::Location>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub source: Option<tg::Location>,
+}
 
 pub type Output = tg::push::Output;
+
+impl Default for Arg {
+	fn default() -> Self {
+		Self {
+			commands: false,
+			eager: true,
+			errors: false,
+			force: false,
+			items: Vec::new(),
+			logs: false,
+			metadata: false,
+			outputs: true,
+			recursive: false,
+			destination: Some(tg::Location::Local(tg::location::Local::default())),
+			source: Some(tg::Location::Remote(tg::location::Remote {
+				name: "default".to_owned(),
+				region: None,
+			})),
+		}
+	}
+}
+
+impl From<tg::pull::Arg> for tg::push::Arg {
+	fn from(value: tg::pull::Arg) -> Self {
+		Self {
+			commands: value.commands,
+			eager: value.eager,
+			errors: value.errors,
+			force: value.force,
+			items: value.items,
+			logs: value.logs,
+			metadata: value.metadata,
+			outputs: value.outputs,
+			recursive: value.recursive,
+			destination: value.destination,
+			source: value.source,
+		}
+	}
+}
 
 impl tg::Client {
 	pub async fn pull(

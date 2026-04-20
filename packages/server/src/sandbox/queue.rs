@@ -24,15 +24,21 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			return self.try_dequeue_sandbox_local().await;
-		}
+		let location = self.location(arg.location.as_ref())?;
+		let output = match location {
+			tg::Location::Local(tg::location::Local { region: None }) => {
+				self.try_dequeue_sandbox_local().await?
+			},
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) => self.try_dequeue_sandbox_region(region).await?,
+			tg::Location::Remote(tg::location::Remote {
+				name: remote,
+				region,
+			}) => self.try_dequeue_sandbox_remote(remote, region).await?,
+		};
 
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			return self.try_dequeue_sandbox_remote(remote).await;
-		}
-
-		Ok(None)
+		Ok(output)
 	}
 
 	async fn try_dequeue_sandbox_local(&self) -> tg::Result<Option<tg::sandbox::queue::Output>> {
@@ -47,11 +53,11 @@ impl Server {
 		let stream = stream::select(created, interval);
 		let mut stream = pin!(stream);
 		while let Some(()) = stream.next().await {
-			let output = match &self.sandbox_store {
+			let output = match &self.process_store {
 				#[cfg(feature = "postgres")]
-				Database::Postgres(sandbox_store) => self.try_dequeue_sandbox_postgres(sandbox_store).await?,
+				Database::Postgres(process_store) => self.try_dequeue_sandbox_postgres(process_store).await?,
 				#[cfg(feature = "sqlite")]
-				Database::Sqlite(sandbox_store) => self.try_dequeue_sandbox_sqlite(sandbox_store).await?,
+				Database::Sqlite(process_store) => self.try_dequeue_sandbox_sqlite(process_store).await?,
 			};
 			if let Some(output) = output {
 				self.publish_sandbox_status(&output.sandbox);
@@ -67,22 +73,40 @@ impl Server {
 		Ok(None)
 	}
 
+	async fn try_dequeue_sandbox_region(
+		&self,
+		region: String,
+	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
+		let client = self.get_region_client(region.clone()).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
+		let arg = tg::sandbox::queue::Arg {
+			location: Some(location.into()),
+		};
+		let output = client.try_dequeue_sandbox(arg).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to dequeue the sandbox"),
+		)?;
+		Ok(output)
+	}
+
 	async fn try_dequeue_sandbox_remote(
 		&self,
 		remote: String,
+		region: Option<String>,
 	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
-		let client = self
-			.get_remote_client(remote)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
+		let client = self.get_remote_client(remote.clone()).await.map_err(
+			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
+		)?;
 		let arg = tg::sandbox::queue::Arg {
-			local: None,
-			remotes: None,
+			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 		};
-		client
-			.try_dequeue_sandbox(arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to dequeue the sandbox"))
+		let output = client.try_dequeue_sandbox(arg).await.map_err(
+			|source| tg::error!(!source, remote = %remote, "failed to dequeue the sandbox"),
+		)?;
+		Ok(output)
 	}
 
 	pub(crate) fn spawn_publish_sandboxes_created_message_task(&self) {

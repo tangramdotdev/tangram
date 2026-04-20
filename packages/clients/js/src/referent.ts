@@ -9,6 +9,7 @@ export namespace Referent {
 	export type Options = {
 		artifact?: tg.Artifact.Id | undefined;
 		id?: tg.Object.Id | undefined;
+		location?: tg.Location.Arg | undefined;
 		name?: string | undefined;
 		path?: string | undefined;
 		tag?: tg.Tag | undefined;
@@ -25,6 +26,9 @@ export namespace Referent {
 		}
 		if (value.options?.id !== undefined) {
 			options.id = value.options.id;
+		}
+		if (value.options?.location !== undefined) {
+			options.location = tg.Location.Arg.toDataString(value.options.location);
 		}
 		if (value.options?.name !== undefined) {
 			options.name = value.options.name;
@@ -47,7 +51,25 @@ export namespace Referent {
 	): tg.Referent<U> => {
 		tg.assert(typeof data === "object");
 		let item = f(data.item);
-		let options = data.options ?? {};
+		let options: tg.Referent.Options = {};
+		if (data.options?.artifact !== undefined) {
+			options.artifact = data.options.artifact;
+		}
+		if (data.options?.id !== undefined) {
+			options.id = data.options.id;
+		}
+		if (data.options?.location !== undefined) {
+			options.location = tg.Location.Arg.fromDataString(data.options.location);
+		}
+		if (data.options?.name !== undefined) {
+			options.name = data.options.name;
+		}
+		if (data.options?.path !== undefined) {
+			options.path = data.options.path;
+		}
+		if (data.options?.tag !== undefined) {
+			options.tag = data.options.tag;
+		}
 		return {
 			item,
 			options,
@@ -66,6 +88,10 @@ export namespace Referent {
 		}
 		if (value.options?.id !== undefined) {
 			params.push(`id=${encodeURIComponent(value.options.id)}`);
+		}
+		if (value.options?.location !== undefined) {
+			let location = tg.Location.Arg.toDataString(value.options.location);
+			params.push(`location=${encodeURIComponent(location)}`);
 		}
 		if (value.options?.name !== undefined) {
 			params.push(`name=${encodeURIComponent(value.options.name)}`);
@@ -89,7 +115,7 @@ export namespace Referent {
 	): tg.Referent<U> => {
 		let [itemString, params] = data.split("?");
 		let item = f(itemString! as T);
-		let options: tg.Referent.Data.Options = {};
+		let options: tg.Referent.Options = {};
 		if (params !== undefined) {
 			for (let param of params.split("&")) {
 				let [key, value] = param.split("=");
@@ -103,6 +129,12 @@ export namespace Referent {
 					}
 					case "id": {
 						options.id = decodeURIComponent(value);
+						break;
+					}
+					case "location": {
+						options.location = tg.Location.Arg.fromDataString(
+							decodeURIComponent(value),
+						);
 						break;
 					}
 					case "name": {
@@ -141,6 +173,7 @@ export namespace Referent {
 		export type Options = {
 			artifact?: tg.Artifact.Id;
 			id?: tg.Object.Id;
+			location?: string;
 			name?: string;
 			path?: string;
 			tag?: tg.Tag;

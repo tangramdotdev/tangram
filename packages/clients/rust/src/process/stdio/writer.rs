@@ -6,7 +6,10 @@ use {
 		StreamExt as _, future,
 		stream::{self, BoxStream},
 	},
-	std::sync::Arc,
+	std::{
+		marker::PhantomData,
+		sync::{Arc, Weak},
+	},
 	tokio::{io::AsyncWriteExt as _, sync::Mutex},
 };
 
@@ -15,8 +18,7 @@ pub struct Writer(Arc<Mutex<State>>);
 
 struct State {
 	fd: Option<Fd>,
-	process: Option<tg::process::Id>,
-	remote: Option<String>,
+	process: Option<Weak<tg::process::Inner>>,
 	stream: Stream,
 }
 
@@ -25,34 +27,28 @@ enum Fd {
 }
 
 impl Writer {
-	fn new(
-		fd: Option<Fd>,
-		process: Option<tg::process::Id>,
-		remote: Option<String>,
-		stream: Stream,
-	) -> Self {
+	fn new(fd: Option<Fd>, stream: Stream) -> Self {
 		Self(Arc::new(Mutex::new(State {
 			fd,
-			process,
-			remote,
+			process: None,
 			stream,
 		})))
 	}
 
-	pub(crate) fn from_process(
-		process: tg::process::Id,
-		remote: Option<String>,
-		stream: Stream,
-	) -> Self {
-		Self::new(None, Some(process), remote, stream)
+	pub(crate) fn from_process(stream: Stream) -> Self {
+		Self::new(None, stream)
 	}
 
 	pub(crate) fn from_stdin(stdin: tokio::process::ChildStdin) -> Self {
-		Self::new(Some(Fd::Stdin(stdin)), None, None, Stream::Stdin)
+		Self::new(Some(Fd::Stdin(stdin)), Stream::Stdin)
 	}
 
 	pub(crate) fn unavailable(stream: Stream) -> Self {
-		Self::new(None, None, None, stream)
+		Self::new(None, stream)
+	}
+
+	pub(crate) fn set_process(&self, process: Weak<tg::process::Inner>) {
+		self.0.try_lock().unwrap().process = Some(process);
 	}
 
 	pub async fn close(&mut self) -> tg::Result<()> {
@@ -67,13 +63,12 @@ impl Writer {
 		let mut state = self.0.lock().await;
 		let fd = state.fd.take();
 		let process = state.process.take();
-		let remote = state.remote.take();
 		let stream = state.stream;
 		drop(fd);
 		if let Some(process) = process {
+			let (location, process) = ensure_process_with_handle(Some(process), handle).await?;
 			let arg = tg::process::stdio::write::Arg {
-				local: None,
-				remotes: remote.map(|remote| vec![remote]),
+				location,
 				streams: vec![stream],
 			};
 			let input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>> =
@@ -107,9 +102,10 @@ impl Writer {
 			return Err(tg::error!("{} is not available", state.stream));
 		};
 		let stream = state.stream;
+		drop(state);
+		let (location, process) = ensure_process_with_handle(Some(process), handle).await?;
 		let arg = tg::process::stdio::write::Arg {
-			local: None,
-			remotes: state.remote.clone().map(|remote| vec![remote]),
+			location,
 			streams: vec![stream],
 		};
 		let event = tg::process::stdio::read::Event::Chunk(tg::process::stdio::Chunk {
@@ -150,4 +146,21 @@ impl std::fmt::Debug for Writer {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		f.debug_struct("Writer").finish_non_exhaustive()
 	}
+}
+
+async fn ensure_process_with_handle<H>(
+	process: Option<Weak<tg::process::Inner>>,
+	handle: &H,
+) -> tg::Result<(Option<tg::location::Arg>, tg::process::Id)>
+where
+	H: tg::Handle,
+{
+	let process = process
+		.and_then(|process| process.upgrade())
+		.ok_or_else(|| tg::error!("the process is not available"))?;
+	let handle_process = crate::process::Process::<tg::Value>(process.clone(), PhantomData);
+	handle_process.ensure_location_with_handle(handle).await?;
+	let location = process.location.read().unwrap().clone();
+	let id = process.id.clone();
+	Ok((location, id))
 }

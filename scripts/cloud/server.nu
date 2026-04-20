@@ -23,17 +23,21 @@ let config = {
 		kind: 'nats',
 		url: 'nats://localhost:4222',
 	},
+	object: {
+		store: {
+			addr: 'localhost:9042',
+			keyspace: 'store',
+			kind: 'scylla',
+		},
+	},
+	process: {
+		store: {
+			kind: 'postgres',
+			url: 'postgres://postgres@localhost:5432/process_store',
+		},
+	},
 	remotes: [],
 	runner: false,
-	sandbox_store: {
-		kind: 'postgres',
-		url: 'postgres://postgres@localhost:5432/sandbox_store',
-	},
-	store: {
-		kind: 'scylla',
-		addr: 'localhost:9042',
-		keyspace: 'store',
-	},
 	telemetry: {
 		endpoint: 'http://localhost:4317',
 		service_name: 'server',

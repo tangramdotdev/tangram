@@ -19,15 +19,23 @@ impl Server {
 
 		let mut output = tg::sandbox::list::Output { data: Vec::new() };
 
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			output.data.extend(self.list_sandboxes_local().await?);
+		let locations = self
+			.locations(arg.location.as_ref())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+
+		if let Some(local) = &locations.local {
+			if local.current {
+				output.data.extend(self.list_sandboxes_local().await?);
+			}
+
+			let region_outputs = self.list_sandboxes_regions(&local.regions).await?;
+			output
+				.data
+				.extend(region_outputs.into_iter().flat_map(|output| output.data));
 		}
 
-		let remotes = self
-			.remotes(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
-		let remote_outputs = self.list_sandboxes_remote(&remotes).await?;
+		let remote_outputs = self.list_sandboxes_remotes(&locations.remotes).await?;
 		output
 			.data
 			.extend(remote_outputs.into_iter().flat_map(|output| output.data));
@@ -54,8 +62,8 @@ impl Server {
 			user: Option<String>,
 		}
 		let connection =
-			self.sandbox_store.connection().await.map_err(|source| {
-				tg::error!(!source, "failed to get a sandbox store connection")
+			self.process_store.connection().await.map_err(|source| {
+				tg::error!(!source, "failed to get a process store connection")
 			})?;
 		let statement = formatdoc!(
 			"
@@ -98,28 +106,69 @@ impl Server {
 		Ok(data)
 	}
 
-	async fn list_sandboxes_remote(
+	async fn list_sandboxes_regions(
 		&self,
-		remotes: &[String],
+		regions: &[String],
 	) -> tg::Result<Vec<tg::sandbox::list::Output>> {
-		let remote_outputs = remotes
+		let outputs = regions
 			.iter()
-			.map(|remote| async move {
-				let client = self.get_remote_client(remote.clone()).await.map_err(
-					|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
-				)?;
-				let output = client
-					.list_sandboxes(tg::sandbox::list::Arg::default())
-					.await
-					.map_err(
-						|source| tg::error!(!source, remote = %remote, "failed to list the sandboxes"),
-					)?;
-				Ok::<_, tg::Error>(output)
-			})
+			.map(|region| self.list_sandboxes_region(region))
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
-		Ok(remote_outputs)
+		Ok(outputs)
+	}
+
+	async fn list_sandboxes_region(&self, region: &str) -> tg::Result<tg::sandbox::list::Output> {
+		let client = self.get_region_client(region.to_owned()).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.to_owned()),
+		});
+		let arg = tg::sandbox::list::Arg {
+			location: Some(location.into()),
+		};
+		let output = client.list_sandboxes(arg).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to list the sandboxes"),
+		)?;
+		Ok(output)
+	}
+
+	async fn list_sandboxes_remotes(
+		&self,
+		remotes: &[crate::location::Remote],
+	) -> tg::Result<Vec<tg::sandbox::list::Output>> {
+		let outputs = remotes
+			.iter()
+			.map(|remote| self.list_sandboxes_remote(remote))
+			.collect::<FuturesUnordered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+		Ok(outputs)
+	}
+
+	async fn list_sandboxes_remote(
+		&self,
+		remote: &crate::location::Remote,
+	) -> tg::Result<tg::sandbox::list::Output> {
+		let client = self
+			.get_remote_client(remote.remote.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, remote = %remote.remote, "failed to get the remote client"),
+			)?;
+		let arg = tg::sandbox::list::Arg {
+			location: Some(tg::location::Arg(vec![
+				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
+					regions: remote.regions.clone(),
+				}),
+			])),
+		};
+		let output = client.list_sandboxes(arg).await.map_err(
+			|source| tg::error!(!source, remote = %remote.remote, "failed to list the sandboxes"),
+		)?;
+		Ok(output)
 	}
 
 	pub(crate) async fn handle_list_sandboxes_request(

@@ -3,7 +3,7 @@ use {
 	crate::prelude::*,
 	bytes::Bytes,
 	futures::{StreamExt as _, stream::BoxStream},
-	std::sync::Arc,
+	std::sync::{Arc, Weak},
 	tokio::{io::AsyncReadExt as _, sync::Mutex},
 };
 
@@ -13,8 +13,7 @@ pub struct Reader(Arc<Mutex<State>>);
 struct State {
 	fd: Option<Fd>,
 	input: Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>,
-	process: Option<tg::process::Id>,
-	remote: Option<String>,
+	process: Option<Weak<tg::process::Inner>>,
 	stream: Stream,
 }
 
@@ -27,37 +26,34 @@ impl Reader {
 	fn new(
 		fd: Option<Fd>,
 		input: Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>,
-		process: Option<tg::process::Id>,
-		remote: Option<String>,
 		stream: Stream,
 	) -> Self {
 		Self(Arc::new(Mutex::new(State {
 			fd,
 			input,
-			process,
-			remote,
+			process: None,
 			stream,
 		})))
 	}
 
-	pub(crate) fn from_process(
-		process: tg::process::Id,
-		remote: Option<String>,
-		stream: Stream,
-	) -> Self {
-		Self::new(None, None, Some(process), remote, stream)
+	pub(crate) fn from_process(stream: Stream) -> Self {
+		Self::new(None, None, stream)
 	}
 
 	pub(crate) fn from_stderr(stderr: tokio::process::ChildStderr) -> Self {
-		Self::new(Some(Fd::Stderr(stderr)), None, None, None, Stream::Stderr)
+		Self::new(Some(Fd::Stderr(stderr)), None, Stream::Stderr)
 	}
 
 	pub(crate) fn from_stdout(stdout: tokio::process::ChildStdout) -> Self {
-		Self::new(Some(Fd::Stdout(stdout)), None, None, None, Stream::Stdout)
+		Self::new(Some(Fd::Stdout(stdout)), None, Stream::Stdout)
 	}
 
 	pub(crate) fn unavailable(stream: Stream) -> Self {
-		Self::new(None, None, None, None, stream)
+		Self::new(None, None, stream)
+	}
+
+	pub(crate) fn set_process(&self, process: Weak<tg::process::Inner>) {
+		self.0.try_lock().unwrap().process = Some(process);
 	}
 
 	pub async fn close(&mut self) -> tg::Result<()> {
@@ -65,7 +61,6 @@ impl Reader {
 		state.fd = None;
 		state.input = None;
 		state.process = None;
-		state.remote = None;
 		Ok(())
 	}
 
@@ -94,7 +89,6 @@ impl Reader {
 			if count == 0 {
 				state.fd = None;
 				state.process = None;
-				state.remote = None;
 				return Ok(None);
 			}
 			return Ok(Some(Bytes::copy_from_slice(&buffer[..count])));
@@ -103,15 +97,22 @@ impl Reader {
 			return Err(tg::error!("{} is not available", state.stream));
 		}
 		if state.input.is_none() {
+			let process = state.process.clone();
+			let stream = state.stream;
+			drop(state);
+			let process = process
+				.and_then(|process| process.upgrade())
+				.ok_or_else(|| tg::error!("the process is not available"))?;
+			let location = process.location.read().unwrap().clone();
+			let process = process.id.clone();
+			state = self.0.lock().await;
 			let arg = tg::process::stdio::read::Arg {
-				local: None,
-				remotes: state.remote.clone().map(|remote| vec![remote]),
-				streams: vec![state.stream],
+				location,
+				streams: vec![stream],
 				..Default::default()
 			};
-			let process = state.process.clone().unwrap();
 			let Some(input) = handle.try_read_process_stdio(&process, arg).await? else {
-				return Err(tg::error!("{} is not available", state.stream));
+				return Err(tg::error!("{} is not available", stream));
 			};
 			state.input = Some(input.boxed());
 		}
@@ -129,7 +130,6 @@ impl Reader {
 				Some(Ok(tg::process::stdio::read::Event::End)) | None => {
 					state.input = None;
 					state.process = None;
-					state.remote = None;
 					return Ok(None);
 				},
 				Some(Err(error)) => return Err(error),

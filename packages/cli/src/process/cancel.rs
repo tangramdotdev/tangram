@@ -5,13 +5,10 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub local: crate::util::args::Local,
+	pub location: crate::location::Args,
 
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
-
-	#[command(flatten)]
-	pub remotes: crate::util::args::Remotes,
 
 	#[arg(index = 2)]
 	pub token: String,
@@ -20,17 +17,17 @@ pub struct Args {
 impl Cli {
 	pub async fn command_process_cancel(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-
-		// Cancel the process.
-		let arg = tg::process::cancel::Arg {
-			local: args.local.get(),
-			remotes: args.remotes.get(),
-			token: args.token,
-		};
-		handle.cancel_process(&args.process, arg).await.map_err(
-			|source| tg::error!(!source, id = %args.process, "failed to cancel the process"),
+		let process = tg::Process::<tg::Value>::new(
+			args.process.clone(),
+			args.location.get(),
+			None,
+			None,
+			Some(args.token),
+			None,
+		);
+		process.cancel_with_handle(&handle).await.map_err(
+			|source| tg::error!(!source, id = %process.id(), "failed to cancel the process"),
 		)?;
-
 		Ok(())
 	}
 }

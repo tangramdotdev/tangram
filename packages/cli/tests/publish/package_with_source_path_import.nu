@@ -9,7 +9,7 @@ let local = spawn -n local -c {
 let shared_path = artifact {
 	dep: {
 		tangram.ts: '
-			export default () => "I am a local dependency!";
+			export default () => "I am a source dependency!";
 
 			export let metadata = {
 				tag: "test-dep/1.0.0",
@@ -18,7 +18,7 @@ let shared_path = artifact {
 	},
 	main: {
 		tangram.ts: '
-			import dep from "test-dep" with { local: "../dep" };
+			import dep from "test-dep" with { source: "../dep" };
 
 			export default () => `Main package using: ${dep()}`;
 
@@ -41,12 +41,12 @@ cd $main_path
 tg checkin .
 
 # Publish the main package without having created tags beforehand.
-# This should discover the local dep, create its tag, publish it, then publish main.
+# This should discover the source dep, create its tag, publish it, then publish main.
 let output = tg publish . | complete
 success $output
 
 # Extract the published artifact IDs from the stderr output.
-# Since packages with local path dependencies are re-checked-in, the published IDs
+# Since packages with source dependencies are re-checked-in, the published IDs
 # may differ from the original checkin IDs.
 let extract_published_id = {|package_name: string|
 	let line = $output.stderr | lines | find --regex $"info tagged ($package_name)" | get 0?

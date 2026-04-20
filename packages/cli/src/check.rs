@@ -5,7 +5,7 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub local: crate::util::args::Local,
+	pub location: crate::location::Args,
 
 	/// If this flag is set, the lock will not be updated.
 	#[arg(long)]
@@ -13,9 +13,6 @@ pub struct Args {
 
 	#[arg(default_value = ".", index = 1)]
 	pub references: Vec<tg::Reference>,
-
-	#[command(flatten)]
-	pub remotes: crate::util::args::Remotes,
 }
 
 impl Cli {
@@ -32,9 +29,8 @@ impl Cli {
 		// Check the modules.
 		let modules = modules.iter().map(tg::Module::to_data).collect();
 		let arg = tg::check::Arg {
-			local: args.local.get(),
+			location: args.location.get(),
 			modules,
-			remotes: args.remotes.get(),
 		};
 		let output = handle
 			.check(arg)

@@ -5,25 +5,21 @@ use {crate::Cli, std::collections::BTreeSet, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub local: crate::util::args::Local,
+	pub locations: crate::location::Args,
 
 	#[arg(index = 1)]
 	pub object: tg::object::Id,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
-
-	#[command(flatten)]
-	pub remotes: crate::util::args::Remotes,
 }
 
 impl Cli {
 	pub async fn command_object_children(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let arg = tg::object::get::Arg {
-			local: args.local.get(),
+			location: args.locations.get(),
 			metadata: false,
-			remotes: args.remotes.get(),
 		};
 		let output = handle
 			.try_get_object(&args.object, arg)

@@ -2,7 +2,7 @@ use {
 	crate::{Context, SandboxPermit, Server, database},
 	futures::{
 		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
-		stream::{self, BoxStream, FuturesUnordered},
+		stream::{BoxStream, FuturesUnordered},
 	},
 	indoc::{formatdoc, indoc},
 	std::{fmt::Write, pin::pin},
@@ -34,12 +34,10 @@ impl Server {
 	) -> tg::Result<
 		BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>,
 	> {
-		// If the process context is set, update the parent, remotes, and retry.
+		// If the process context is set, update the parent, location, and retry.
 		if let Some(process) = &context.process {
 			arg.parent = Some(process.id.clone());
-			if let Some(remote) = &process.remote {
-				arg.remotes = Some(vec![remote.clone()]);
-			}
+			arg.location = process.location.clone().map(Into::into);
 			arg.retry = process.retry;
 		}
 		let parent_sandbox = context.sandbox.clone();
@@ -83,69 +81,25 @@ impl Server {
 		parent_sandbox: Option<tg::sandbox::Id>,
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			return self.try_spawn_process_local(arg, parent_sandbox).await;
-		}
+		let location = self.location(arg.location.as_ref())?;
 
-		if let Some(name) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			return self.try_spawn_process_remote(arg, progress, name).await;
-		}
-
-		Err(tg::error!(
-			"failed to determine whether to use local or a remote"
-		))
-	}
-
-	async fn try_spawn_process_remote(
-		&self,
-		arg: tg::process::spawn::Arg,
-		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
-		name: String,
-	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		// Push the command.
-		let push_arg = tg::push::Arg {
-			commands: true,
-			items: vec![tg::Either::Left(arg.command.item().clone().into())],
-			remote: Some(name.clone()),
-			..Default::default()
-		};
-		let stream = self
-			.push(push_arg)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to push the command"))?;
-		let mut stream = pin!(stream);
-		while let Some(event) = stream.try_next().await? {
-			if event.is_output() {
-				break;
-			}
-			progress.forward(Ok(event));
-		}
-
-		let remote = self
-			.get_remote_client(name.clone())
-			.await
-			.map_err(|source| tg::error!(!source, %name, "failed to get the remote client"))?;
-
-		let arg = tg::process::spawn::Arg {
-			local: None,
-			remotes: None,
-			..arg
+		let output = match location {
+			tg::Location::Local(tg::location::Local { region: None }) => {
+				self.try_spawn_process_local(arg, parent_sandbox).await?
+			},
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) => self.try_spawn_process_region(arg, progress, region).await?,
+			tg::Location::Remote(tg::location::Remote {
+				name: remote,
+				region,
+			}) => {
+				self.try_spawn_process_remote(arg, progress, remote, region)
+					.await?
+			},
 		};
 
-		// Spawn the process.
-		let stream = remote
-			.try_spawn_process(arg)
-			.await
-			.map_err(|source| tg::error!(!source, %name, "failed to spawn process on remote"))?;
-		let mut stream = pin!(stream);
-
-		// Forward any events.
-		while let Some(event) = stream.next().await {
-			if let Some(output) = progress.forward(event) {
-				return Ok(output);
-			}
-		}
-		Err(tg::error!("expected an output"))
+		Ok(output)
 	}
 
 	async fn try_spawn_process_local(
@@ -163,17 +117,16 @@ impl Server {
 			),
 		};
 
-		// Guard against concurrent cleans.
 		// Get the host.
 		let command_ = tg::Command::with_id(arg.command.item.clone());
 		let host = command_.host_with_handle(self).await.ok();
 
-		// Get a sandbox store connection.
+		// Get a process store connection.
 		let mut connection = self
-			.sandbox_store
+			.process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection
@@ -259,7 +212,12 @@ impl Server {
 		{
 			let sandbox = &output.sandbox;
 			if let Some(permit) = output.permit.take() {
-				self.spawn_sandbox_task(sandbox, None, permit, Some(output.id.clone()));
+				self.spawn_sandbox_task(
+					sandbox,
+					tg::Location::Local(tg::location::Local::default()),
+					permit,
+					Some(output.id.clone()),
+				);
 			} else if output.sandbox_status == Some(tg::sandbox::Status::Created) {
 				self.spawn_publish_sandbox_processes_created_message_task(sandbox);
 				self.spawn_publish_sandboxes_created_message_task();
@@ -302,27 +260,39 @@ impl Server {
 			}
 		};
 
-		// Create a future that will attempt to get a cached remote process if possible.
-		let cached_future = {
-			async {
-				if finished {
-					return Ok::<_, tg::Error>(None);
-				}
-				if cacheable && matches!(arg.cached, None | Some(true)) {
-					let remotes = self
-						.remotes(None, None)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
-					let output = self
-						.try_get_cached_process_remote(&arg, &remotes)
+		// Create a future that will attempt to get a cached process in another region or on a remote if possible.
+		let cached_future = async {
+			if finished {
+				return Ok::<_, tg::Error>(None);
+			}
+			if cacheable && matches!(arg.cached, None | Some(true)) {
+				let locations =
+					self.locations(arg.cache_location.as_ref())
 						.await
 						.map_err(|source| {
-							tg::error!(!source, "failed to get a cached remote process")
+							tg::error!(!source, "failed to resolve the cache locations")
 						})?;
-					Ok(output)
-				} else {
-					Ok(None)
+				let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
+				if let Some(output) = self
+					.try_get_cached_process_regions(&arg, &regions)
+					.await
+					.map_err(|source| {
+						tg::error!(
+							!source,
+							"failed to get a cached process from another region"
+						)
+					})? {
+					return Ok(Some(output));
 				}
+				let output = self
+					.try_get_cached_process_remotes(&arg, &locations.remotes)
+					.await
+					.map_err(|source| {
+						tg::error!(!source, "failed to get a cached process from a remote")
+					})?;
+				Ok(output)
+			} else {
+				Ok(None)
 			}
 		};
 
@@ -333,8 +303,8 @@ impl Server {
 					let output = output.unwrap();
 					tg::process::spawn::Output {
 						cached: output.cached,
+						location: Some(tg::Location::Local(tg::location::Local::default())),
 						process: output.id,
-						remote: None,
 						token: output.token,
 						wait: Some(wait),
 					}
@@ -354,8 +324,9 @@ impl Server {
 							let server = self.clone();
 							async move {
 								let arg = tg::process::cancel::Arg {
-									local: Some(true),
-									remotes: None,
+									location: Some(
+										tg::Location::Local(tg::location::Local::default()).into(),
+									),
 									token,
 								};
 								server.cancel_process(&output.id, arg).boxed().await.ok();
@@ -369,8 +340,8 @@ impl Server {
 					};
 					tg::process::spawn::Output {
 						cached: output.cached,
+						location: Some(tg::Location::Local(tg::location::Local::default())),
 						process: output.id,
-						remote: None,
 						token: output.token,
 						wait: output.wait,
 					}
@@ -378,9 +349,7 @@ impl Server {
 			},
 		};
 
-		if output.remote.is_none()
-			&& let Some(parent) = &arg.parent
-		{
+		if let Some(parent) = &arg.parent {
 			self.add_process_child(
 				parent,
 				output.cached,
@@ -395,6 +364,260 @@ impl Server {
 		}
 
 		Ok(Some(output))
+	}
+
+	async fn try_spawn_process_region(
+		&self,
+		arg: tg::process::spawn::Arg,
+		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
+		region: String,
+	) -> tg::Result<Option<tg::process::spawn::Output>> {
+		let client = self.get_region_client(region.clone()).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
+		self.spawn_process_push_command(arg.command.item(), Some(location.clone()), progress)
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to push the command"),
+			)?;
+		let arg = tg::process::spawn::Arg {
+			location: Some(location.clone().into()),
+			..arg
+		};
+		let stream = client.try_spawn_process(arg).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to spawn the process"),
+		)?;
+		let mut stream = pin!(stream);
+		while let Some(event) = stream.next().await {
+			let event = event.map(|event| {
+				event.map_output(|output| {
+					output.map(|mut output| {
+						output.location = Some(location.clone());
+						output
+					})
+				})
+			});
+			if let Some(output) = progress.forward(event) {
+				return Ok(output);
+			}
+		}
+		Err(tg::error!("expected an output"))
+	}
+
+	async fn try_spawn_process_remote(
+		&self,
+		arg: tg::process::spawn::Arg,
+		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
+		remote: String,
+		region: Option<String>,
+	) -> tg::Result<Option<tg::process::spawn::Output>> {
+		let client = self.get_remote_client(remote.clone()).await.map_err(
+			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
+		)?;
+		let destination = tg::Location::Remote(tg::location::Remote {
+			name: remote.clone(),
+			region: region.clone(),
+		});
+		self.spawn_process_push_command(arg.command.item(), Some(destination), progress)
+			.await
+			.map_err(
+				|source| tg::error!(!source, remote = %remote, "failed to push the command"),
+			)?;
+		let arg = tg::process::spawn::Arg {
+			location: Some(
+				tg::Location::Local(tg::location::Local {
+					region: region.clone(),
+				})
+				.into(),
+			),
+			..arg
+		};
+		let stream = client.try_spawn_process(arg).await.map_err(
+			|source| tg::error!(!source, remote = %remote, "failed to spawn the process"),
+		)?;
+		let mut stream = pin!(stream);
+		while let Some(event) = stream.next().await {
+			let remote = remote.clone();
+			let event = event.map(|event| {
+				event.map_output(|output| {
+					output.map(|mut output| {
+						let region = match output.location.take() {
+							Some(tg::Location::Local(local)) => local.region,
+							Some(tg::Location::Remote(remote)) => remote.region,
+							None => None,
+						};
+						output.location = Some(tg::Location::Remote(tg::location::Remote {
+							name: remote.clone(),
+							region,
+						}));
+						output
+					})
+				})
+			});
+			if let Some(output) = progress.forward(event) {
+				return Ok(output);
+			}
+		}
+		Err(tg::error!("expected an output"))
+	}
+
+	async fn spawn_process_push_command(
+		&self,
+		command: &tg::command::Id,
+		location: Option<tg::location::Location>,
+		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
+	) -> tg::Result<()> {
+		let push_arg = tg::push::Arg {
+			commands: true,
+			destination: location,
+			items: vec![tg::Either::Left(command.clone().into())],
+			..Default::default()
+		};
+		let stream = self
+			.push(push_arg)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to push the command"))?;
+		let mut stream = pin!(stream);
+		while let Some(event) = stream.try_next().await? {
+			if event.is_output() {
+				return Ok(());
+			}
+			progress.forward(Ok(event));
+		}
+		Err(tg::error!("expected an output"))
+	}
+
+	async fn try_get_cached_process_regions(
+		&self,
+		arg: &tg::process::spawn::Arg,
+		regions: &[String],
+	) -> tg::Result<Option<tg::process::spawn::Output>> {
+		let mut futures = regions
+			.iter()
+			.map(|region| self.try_get_cached_process_region(arg, region))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(output))
+	}
+
+	async fn try_get_cached_process_region(
+		&self,
+		arg: &tg::process::spawn::Arg,
+		region: &str,
+	) -> tg::Result<Option<tg::process::spawn::Output>> {
+		let client = self.get_region_client(region.to_owned()).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.to_owned()),
+		});
+		let arg = tg::process::spawn::Arg {
+			cached: Some(true),
+			cache_location: Some(disabled_cache_locations()),
+			location: Some(location.clone().into()),
+			parent: None,
+			..arg.clone()
+		};
+		let stream = client.try_spawn_process(arg).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the cached process"),
+		)?;
+		let mut stream = pin!(stream);
+		while let Some(event) = stream.next().await {
+			let event = event?;
+			let Some(mut output) = event.try_unwrap_output().ok().flatten() else {
+				continue;
+			};
+			output.location = Some(location);
+			return Ok(Some(output));
+		}
+		Ok(None)
+	}
+
+	async fn try_get_cached_process_remotes(
+		&self,
+		arg: &tg::process::spawn::Arg,
+		remotes: &[crate::location::Remote],
+	) -> tg::Result<Option<tg::process::spawn::Output>> {
+		let mut futures = remotes
+			.iter()
+			.map(|remote| self.try_get_cached_process_remote(arg, remote))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(output))
+	}
+
+	async fn try_get_cached_process_remote(
+		&self,
+		arg: &tg::process::spawn::Arg,
+		remote: &crate::location::Remote,
+	) -> tg::Result<Option<tg::process::spawn::Output>> {
+		let client = self
+			.get_remote_client(remote.remote.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, remote = %remote.remote, "failed to get the remote client"),
+			)?;
+		let arg = tg::process::spawn::Arg {
+			cached: Some(true),
+			cache_location: Some(disabled_cache_locations()),
+			location: Some(tg::Location::Local(tg::location::Local { region: None }).into()),
+			parent: None,
+			..arg.clone()
+		};
+		let stream = client.try_spawn_process(arg).await.map_err(
+			|source| tg::error!(!source, remote = %remote.remote, "failed to get the cached process"),
+		)?;
+		let mut stream = pin!(stream);
+		while let Some(event) = stream.next().await {
+			let event = event?;
+			let Some(mut output) = event.try_unwrap_output().ok().flatten() else {
+				continue;
+			};
+			let region = match output.location.take() {
+				Some(tg::Location::Local(local)) => local.region,
+				Some(tg::Location::Remote(remote)) => remote.region,
+				None => None,
+			};
+			output.location = Some(tg::Location::Remote(tg::location::Remote {
+				name: remote.remote.clone(),
+				region,
+			}));
+			return Ok(Some(output));
+		}
+		Ok(None)
 	}
 
 	async fn try_get_cached_process_local(
@@ -1198,68 +1421,6 @@ impl Server {
 			.map(|permit| SandboxPermit(tg::Either::Left(permit)))
 	}
 
-	async fn try_get_cached_process_remote(
-		&self,
-		arg: &tg::process::spawn::Arg,
-		remotes: &[String],
-	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		if remotes.is_empty() {
-			return Ok(None);
-		}
-		let clients = remotes
-			.iter()
-			.map(|remote| async move {
-				let client = self.get_remote_client(remote.clone()).await.map_err(
-					|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
-				)?;
-				Ok::<_, tg::Error>((remote.clone(), client))
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
-			.await?;
-		let streams = clients
-			.into_iter()
-			.map(|(remote, client)| {
-				let arg = arg.clone();
-				async move {
-					let arg = tg::process::spawn::Arg {
-						cached: Some(true),
-						local: None,
-						parent: None,
-						remotes: None,
-						..arg.clone()
-					};
-					let stream = client
-						.spawn_process(arg)
-						.await?
-						.map_ok(move |event| {
-							event.map_output(|mut output| {
-								output.remote.replace(remote.clone());
-								output
-							})
-						})
-						.boxed();
-					Ok::<_, tg::Error>(stream)
-				}
-			})
-			.collect::<FuturesUnordered<_>>()
-			.collect::<Vec<_>>()
-			.await
-			.into_iter()
-			.filter_map(std::result::Result::ok)
-			.collect::<Vec<_>>(); // resolves https://github.com/rust-lang/rust/issues/64552
-
-		// Wait for the first output.
-		let stream = stream::iter(streams).flatten();
-		let mut stream = pin!(stream);
-		while let Some(event) = stream.next().await {
-			if let Ok(tg::progress::Event::Output(output)) = event {
-				return Ok(Some(output));
-			}
-		}
-		Ok(None)
-	}
-
 	async fn add_process_child(
 		&self,
 		parent: &tg::process::Id,
@@ -1268,12 +1429,12 @@ impl Server {
 		options: &tg::referent::Options,
 		token: Option<&String>,
 	) -> tg::Result<()> {
-		// Get a sandbox store connection.
+		// Get a process store connection.
 		let mut connection = self
-			.sandbox_store
+			.process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection
@@ -1390,7 +1551,7 @@ impl Server {
 			return Err(tg::error!("{message}"));
 		}
 
-		// Add the child to the sandbox store.
+		// Add the child to the process store.
 		let statement = formatdoc!(
 			"
 				insert into process_children (process, position, cached, child, options, token)
@@ -1569,7 +1730,12 @@ impl Server {
 					return;
 				}
 
-				server.spawn_sandbox_task(&sandbox, None, permit, Some(process));
+				server.spawn_sandbox_task(
+					&sandbox,
+					tg::Location::Local(tg::location::Local::default()),
+					permit,
+					Some(process),
+				);
 			}
 		});
 	}
@@ -1628,4 +1794,8 @@ impl Server {
 
 		Ok(response)
 	}
+}
+
+fn disabled_cache_locations() -> tg::location::Arg {
+	tg::location::Arg::default()
 }

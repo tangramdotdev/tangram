@@ -52,9 +52,9 @@ pub struct Process<O = tg::Value>(Arc<Inner>, PhantomData<fn() -> O>);
 pub struct Inner {
 	cached: Option<bool>,
 	id: Id,
+	location: Arc<RwLock<Option<tg::location::Arg>>>,
 	metadata: RwLock<Option<Arc<Metadata>>>,
 	pid: Option<u32>,
-	remote: Option<String>,
 	state: RwLock<Option<Arc<State>>>,
 	stderr: tg::process::stdio::Reader,
 	stdin: tg::process::stdio::Writer,
@@ -78,11 +78,11 @@ pub struct Arg {
 	pub executable: Option<tg::command::Executable>,
 	pub host: Option<String>,
 	pub isolation: Option<tg::sandbox::Isolation>,
+	pub location: Option<tg::location::Arg>,
 	pub memory: Option<u64>,
 	pub name: Option<String>,
 	pub parent: Option<tg::process::Id>,
 	pub progress: bool,
-	pub remote: Option<String>,
 	pub retry: bool,
 	pub sandbox: Option<tg::Either<tg::sandbox::create::Arg, tg::sandbox::Id>>,
 	pub stderr: tg::process::Stdio,
@@ -96,35 +96,24 @@ impl<O> Process<O> {
 	#[must_use]
 	pub fn new(
 		id: Id,
+		location: Option<tg::location::Arg>,
 		metadata: Option<Metadata>,
-		remote: Option<String>,
 		state: Option<State>,
 		token: Option<String>,
 		cached: Option<bool>,
 	) -> Self {
+		let location = Arc::new(RwLock::new(location));
 		let metadata = RwLock::new(metadata.map(Arc::new));
 		let state = RwLock::new(state.map(Arc::new));
-		let stderr = tg::process::stdio::Reader::from_process(
-			id.clone(),
-			remote.clone(),
-			tg::process::stdio::Stream::Stderr,
-		);
-		let stdin = tg::process::stdio::Writer::from_process(
-			id.clone(),
-			remote.clone(),
-			tg::process::stdio::Stream::Stdin,
-		);
-		let stdout = tg::process::stdio::Reader::from_process(
-			id.clone(),
-			remote.clone(),
-			tg::process::stdio::Stream::Stdout,
-		);
+		let stderr = tg::process::stdio::Reader::from_process(tg::process::stdio::Stream::Stderr);
+		let stdin = tg::process::stdio::Writer::from_process(tg::process::stdio::Stream::Stdin);
+		let stdout = tg::process::stdio::Reader::from_process(tg::process::stdio::Stream::Stdout);
 		let inner = Arc::new(Inner {
 			cached,
 			id,
+			location: location.clone(),
 			metadata,
 			pid: None,
-			remote,
 			state,
 			stderr,
 			stdin,
@@ -134,7 +123,11 @@ impl<O> Process<O> {
 			token,
 			wait: Mutex::new(None),
 		});
-		Self(inner, PhantomData)
+		let process = Self(inner, PhantomData);
+		process.stdin().set_process(Arc::downgrade(&process.0));
+		process.stdout().set_process(Arc::downgrade(&process.0));
+		process.stderr().set_process(Arc::downgrade(&process.0));
+		process
 	}
 
 	#[must_use]
@@ -148,8 +141,8 @@ impl<O> Process<O> {
 	}
 
 	#[must_use]
-	pub fn remote(&self) -> Option<&String> {
-		self.remote.as_ref()
+	pub fn location(&self) -> Option<tg::location::Arg> {
+		self.location.read().unwrap().clone()
 	}
 
 	#[must_use]
@@ -197,6 +190,17 @@ impl<O> Process<O> {
 		self.0.stderr.clone()
 	}
 
+	pub(crate) async fn ensure_location_with_handle<H>(&self, handle: &H) -> tg::Result<()>
+	where
+		H: tg::Handle,
+	{
+		if self.pid.is_some() || self.location().is_some() {
+			return Ok(());
+		}
+		self.try_load_with_handle(handle).await?;
+		Ok(())
+	}
+
 	pub async fn load(&self) -> tg::Result<Arc<tg::process::State>> {
 		let handle = tg::handle()?;
 		self.load_with_handle(handle).await
@@ -226,10 +230,16 @@ impl<O> Process<O> {
 		if let Some(state) = self.state.read().unwrap().clone() {
 			return Ok(Some(state));
 		}
-		let arg = tg::process::get::Arg::default();
+		let arg = tg::process::get::Arg {
+			location: self.location(),
+			metadata: false,
+		};
 		let Some(output) = handle.try_get_process(self.id(), arg).await? else {
 			return Ok(None);
 		};
+		if let Some(location) = output.location {
+			self.location.write().unwrap().replace(location.into());
+		}
 		let state = tg::process::State::try_from(output.data)?;
 		let state = Arc::new(state);
 		self.state.write().unwrap().replace(state.clone());
@@ -296,10 +306,10 @@ impl<O> Process<O> {
 			return Ok(());
 		}
 
+		self.ensure_location_with_handle(handle).await?;
 		let arg = tg::process::signal::post::Arg {
-			local: self.remote.is_none().then_some(true),
-			remotes: self.remote.clone().map(|remote| vec![remote]),
 			signal,
+			location: self.location(),
 		};
 		handle.signal_process(self.id(), arg).await?;
 
@@ -314,7 +324,7 @@ impl<O> Process<O> {
 	pub async fn wait_with_handle<H>(
 		&self,
 		handle: &H,
-		arg: tg::process::wait::Arg,
+		mut arg: tg::process::wait::Arg,
 	) -> tg::Result<tg::process::Wait>
 	where
 		H: tg::Handle,
@@ -333,6 +343,9 @@ impl<O> Process<O> {
 		}
 		if let Some(wait) = self.wait.lock().unwrap().take() {
 			return Ok(wait);
+		}
+		if arg.token.is_none() {
+			arg.token = self.token().cloned();
 		}
 		let wait = handle.wait_process(&self.id, arg).await?.try_into()?;
 		Ok(wait)
@@ -353,9 +366,11 @@ impl<O> Process<O> {
 		O: TryFrom<tg::Value>,
 		O::Error: std::error::Error + Send + Sync + 'static,
 	{
-		let wait = self
-			.wait_with_handle(handle, tg::process::wait::Arg::default())
-			.await?;
+		let arg = tg::process::wait::Arg {
+			location: self.location(),
+			token: self.token().cloned(),
+		};
+		let wait = self.wait_with_handle(handle, arg).await?;
 		let output = wait.into_output()?;
 		output
 			.try_into()

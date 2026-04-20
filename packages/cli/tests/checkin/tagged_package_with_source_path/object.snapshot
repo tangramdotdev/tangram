@@ -6,9 +6,9 @@ tg.directory({
     }),
   }),
   "tangram.ts": tg.file({
-    "contents": tg.blob("import a from \"a\" with { local: \"../a\" };\nexport default tg.command(async () => {\n\treturn await a();\n});"),
+    "contents": tg.blob("import a from \"a\" with { source: \"../a\" };\nexport default tg.command(async () => {\n\treturn await a();\n});"),
     "dependencies": {
-      "a?local=../a": {
+      "a?source=../a": {
         "item": tg.directory({
           "tangram.ts": tg.file({
             "contents": tg.blob("export default () => \"a\";"),

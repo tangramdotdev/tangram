@@ -8,6 +8,9 @@ pub struct Args {
 	pub commands: bool,
 
 	#[command(flatten)]
+	pub destination: crate::location::Args,
+
+	#[command(flatten)]
 	pub eager: Eager,
 
 	#[arg(alias = "error", long)]
@@ -30,9 +33,6 @@ pub struct Args {
 
 	#[arg(required = true)]
 	pub references: Vec<tg::Reference>,
-
-	#[arg(long, short, default_value = "default")]
-	pub remote: String,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -94,6 +94,13 @@ impl Outputs {
 impl Cli {
 	pub async fn command_push(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
+		let destination = args.destination.to_location()?;
+		let location = destination.clone().or_else(|| {
+			Some(tg::Location::Remote(tg::location::Remote {
+				name: "default".to_owned(),
+				region: None,
+			}))
+		});
 
 		// Get the references.
 		let referents = self.get_references(&args.references).await?;
@@ -110,6 +117,7 @@ impl Cli {
 		// Push the items.
 		let arg = tg::push::Arg {
 			commands: args.commands,
+			destination: destination.clone(),
 			eager: args.eager.get(),
 			errors: args.errors,
 			force: args.force,
@@ -118,7 +126,7 @@ impl Cli {
 			metadata: args.metadata,
 			outputs: args.outputs.get(),
 			recursive: args.recursive,
-			remote: Some(args.remote.clone()),
+			source: None,
 		};
 		let stream = handle
 			.push(arg)
@@ -148,8 +156,8 @@ impl Cli {
 					let arg = tg::tag::put::Arg {
 						force: args.force,
 						item: item.clone(),
-						local: None,
-						remotes: Some(vec![args.remote.clone()]),
+						location: location.clone().map(Into::into),
+						replicate: false,
 					};
 					handle
 						.put_tag(&tag, arg)

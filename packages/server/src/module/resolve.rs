@@ -252,7 +252,7 @@ impl Server {
 		referrer: &tg::Referent<&Path>,
 		import: &tg::module::Import,
 	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
-		let path = import.reference.options().local.as_ref().or(import
+		let path = import.reference.options().source.as_ref().or(import
 			.reference
 			.item()
 			.try_unwrap_path_ref()

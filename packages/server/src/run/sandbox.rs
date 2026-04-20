@@ -10,7 +10,7 @@ impl Server {
 	pub(crate) fn spawn_sandbox_task(
 		&self,
 		id: &tg::sandbox::Id,
-		remote: Option<String>,
+		location: tg::Location,
 		permit: SandboxPermit,
 		process: Option<tg::process::Id>,
 	) {
@@ -21,7 +21,7 @@ impl Server {
 			.spawn(id.clone(), |_| {
 				let server = self.clone();
 				let id = id.clone();
-				async move { server.sandbox_task(&id, remote, permit, process).await }
+				async move { server.sandbox_task(&id, location, permit, process).await }
 					.inspect_err(|error| {
 						tracing::error!(error = %error.trace(), "the sandbox task failed");
 					})
@@ -33,18 +33,16 @@ impl Server {
 	async fn sandbox_task(
 		&self,
 		id: &tg::sandbox::Id,
-		remote: Option<String>,
+		location: tg::Location,
 		permit: SandboxPermit,
 		process: Option<tg::process::Id>,
 	) -> tg::Result<()> {
 		// Get the sandbox.
-		let remotes = remote.as_ref().map(|remote| vec![remote.clone()]);
 		let state = self
 			.try_get_sandbox(
 				id,
 				tg::sandbox::get::Arg {
-					local: None,
-					remotes: remotes.clone(),
+					location: Some(location.clone().into()),
 				},
 			)
 			.await
@@ -124,20 +122,15 @@ impl Server {
 		let heartbeat_task = Task::spawn({
 			let server = self.clone();
 			let id = id.clone();
-			let remote = remote.clone();
-			move |stopper| async move {
-				server
-					.sandbox_heartbeat_task(&id, remote.as_deref(), stopper)
-					.await
-			}
+			let location = location.clone();
+			move |stopper| async move { server.sandbox_heartbeat_task(&id, &location, stopper).await }
 		});
 
 		let status = self
 			.get_sandbox_status(
 				id,
 				tg::sandbox::status::Arg {
-					local: None,
-					remotes: remotes.clone(),
+					location: Some(location.clone().into()),
 				},
 			)
 			.await
@@ -157,7 +150,7 @@ impl Server {
 				&process_tasks,
 				&sender,
 				process.clone(),
-				remote.as_ref(),
+				&location,
 				&sandbox,
 				&guest_uri,
 			);
@@ -171,14 +164,14 @@ impl Server {
 				|timer| timer.as_mut().right_future(),
 			);
 			tokio::select! {
-				output = self.dequeue_sandbox_process(id, remote.as_deref()) => {
+				output = self.dequeue_sandbox_process(id, &location) => {
 					let output = output.map_err(|source| tg::error!(!source, "failed to dequeue a process"))?;
 					timer.take();
 					self.spawn_sandbox_process_task(
 						&process_tasks,
 						&sender,
 						output.process.clone(),
-						remote.as_ref(),
+						&location,
 						&sandbox,
 						&guest_uri,
 					);
@@ -202,8 +195,7 @@ impl Server {
 				},
 				() = timer_future => {
 					let arg = tg::sandbox::finish::Arg {
-						local: None,
-						remotes: remotes.clone(),
+						location: Some(location.clone().into()),
 					};
 					self.finish_sandbox(id, arg).await.ok();
 					timer.take();
@@ -230,7 +222,7 @@ impl Server {
 
 		self.finish_unfinished_processes_in_sandbox(
 			id,
-			remote.as_deref(),
+			&location,
 			tg::error::Data {
 				code: Some(tg::error::Code::Cancellation),
 				message: Some("the process was canceled".into()),
@@ -246,18 +238,17 @@ impl Server {
 	async fn dequeue_sandbox_process(
 		&self,
 		id: &tg::sandbox::Id,
-		remote: Option<&str>,
+		location: &tg::location::Location,
 	) -> tg::Result<tg::sandbox::process::queue::Output> {
 		loop {
 			let arg = tg::sandbox::process::queue::Arg {
-				local: remote.is_none().then_some(true),
-				remotes: remote.map(|remote| vec![remote.to_owned()]),
+				location: Some(location.clone().into()),
 			};
 			match self.try_dequeue_sandbox_process(id, arg).await {
 				Ok(Some(output)) => return Ok(output),
 				Ok(None) => (),
 				Err(error) => {
-					tracing::trace!(error = %error.trace(), sandbox = %id, remote = ?remote, "failed to dequeue a process");
+					tracing::trace!(error = %error.trace(), sandbox = %id, ?location, "failed to dequeue a process");
 				},
 			}
 		}
@@ -394,14 +385,13 @@ impl Server {
 	async fn sandbox_heartbeat_task(
 		&self,
 		id: &tg::sandbox::Id,
-		remote: Option<&str>,
+		location: &tg::location::Location,
 		stopper: Stopper,
 	) -> tg::Result<()> {
 		let config = self.config.runner.clone().unwrap_or_default();
 		loop {
 			let arg = tg::sandbox::heartbeat::Arg {
-				local: None,
-				remotes: remote.map(|remote| vec![remote.to_owned()]),
+				location: Some(location.clone().into()),
 			};
 			let result = self.heartbeat_sandbox(id, arg).await;
 			if let Ok(output) = result
@@ -423,13 +413,20 @@ impl Server {
 		process_tasks: &ProcessTaskMap,
 		sender: &tokio::sync::mpsc::UnboundedSender<tg::process::Id>,
 		process: tg::process::Id,
-		remote: Option<&String>,
+		location: &tg::location::Location,
 		sandbox: &tangram_sandbox::Sandbox,
 		guest_uri: &tangram_uri::Uri,
 	) {
 		let server = self.clone();
 		let sender = sender.clone();
-		let process = tg::Process::new(process, None, remote.cloned(), None, None, None);
+		let process = tg::Process::new(
+			process,
+			Some(location.clone().into()),
+			None,
+			None,
+			None,
+			None,
+		);
 		let sandbox = sandbox.clone();
 		let guest_uri = guest_uri.clone();
 		process_tasks

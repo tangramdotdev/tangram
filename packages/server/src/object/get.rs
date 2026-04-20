@@ -26,8 +26,8 @@ pub struct CacheFile {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct ObjectGetTaskKey {
-	pub remote: String,
 	pub id: tg::object::Id,
+	pub location: tg::location::Location,
 	pub metadata: bool,
 }
 
@@ -38,27 +38,36 @@ impl Server {
 		id: &tg::object::Id,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			let metadata = arg.metadata;
-			let output = self
-				.try_get_object_local(id, metadata)
+		let locations = self
+			.locations(arg.location.as_ref())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+
+		if let Some(local) = &locations.local {
+			if local.current
+				&& let Some(output) = self
+					.try_get_object_local(id, arg.metadata)
+					.await
+					.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
+			{
+				return Ok(Some(output));
+			}
+
+			if let Some(output) = self
+				.try_get_object_regions(id, &local.regions, arg.metadata)
 				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to get the object locally"))?;
-			if let Some(output) = output {
+				.map_err(
+					|source| tg::error!(!source, %id, "failed to get the object from another region"),
+				)? {
 				return Ok(Some(output));
 			}
 		}
 
-		let remotes = self
-			.remotes(arg.local, arg.remotes)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
 		if let Some(output) = self
-			.try_get_object_remote(id, &remotes, arg.metadata)
+			.try_get_object_remotes(id, &locations.remotes, arg.metadata)
 			.await
-			.map_err(
-				|source| tg::error!(!source, %id, "failed to get the object from the remote"),
-			)? {
+			.map_err(|source| tg::error!(!source, %id, "failed to get the object from a remote"))?
+		{
 			return Ok(Some(output));
 		}
 
@@ -146,17 +155,35 @@ impl Server {
 			.try_get_object_batch_local(ids, metadata)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the objects locally"))?;
-		let remotes = self
-			.remotes(None, None)
+		let locations = self
+			.locations(None)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
+			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
+		let remotes = locations.remotes;
 		let outputs = std::iter::zip(ids, outputs)
-			.map(|(id, output)| async {
-				if let Some(output) = output {
-					return Ok(Some(output));
+			.map(|(id, output)| {
+				let regions = regions.clone();
+				let remotes = remotes.clone();
+				async move {
+					if let Some(output) = output {
+						return Ok(Some(output));
+					}
+
+					if let Some(output) =
+						self.try_get_object_regions(id, &regions, metadata).await?
+					{
+						return Ok(Some(output));
+					}
+
+					if let Some(output) =
+						self.try_get_object_remotes(id, &remotes, metadata).await?
+					{
+						return Ok(Some(output));
+					}
+
+					Ok::<_, tg::Error>(None)
 				}
-				let output = self.try_get_object_remote(id, &remotes, metadata).await?;
-				Ok::<_, tg::Error>(output)
 			})
 			.collect::<FuturesOrdered<_>>()
 			.try_collect::<Vec<_>>()
@@ -220,31 +247,21 @@ impl Server {
 		Ok(output)
 	}
 
-	async fn try_get_object_remote(
+	async fn try_get_object_regions(
 		&self,
 		id: &tg::object::Id,
-		remotes: &[String],
+		regions: &[String],
 		metadata: bool,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		if remotes.is_empty() {
-			return Ok(None);
-		}
-		let mut futures = remotes
+		let mut futures = regions
 			.iter()
-			.map(|remote| {
-				let key = ObjectGetTaskKey {
-					remote: remote.clone(),
-					id: id.clone(),
-					metadata,
-				};
-				self.try_get_object_remote_task(key)
-			})
+			.map(|region| self.try_get_object_region(id, region, metadata))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
 			match next {
-				Ok(Some(remote_output)) => {
-					result = Ok(Some(remote_output));
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
 					break;
 				},
 				Ok(None) => (),
@@ -257,6 +274,178 @@ impl Server {
 			return Ok(None);
 		};
 
+		self.spawn_put_object_task(id, &output);
+
+		Ok(Some(output))
+	}
+
+	async fn try_get_object_region(
+		&self,
+		id: &tg::object::Id,
+		region: &str,
+		metadata: bool,
+	) -> tg::Result<Option<tg::object::get::Output>> {
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.to_owned()),
+		});
+		let Some(output) = self
+			.try_get_object_location(id, location, metadata)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %id, region = %region, "failed to get the object"),
+			)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(output))
+	}
+
+	async fn try_get_object_remotes(
+		&self,
+		id: &tg::object::Id,
+		remotes: &[crate::location::Remote],
+		metadata: bool,
+	) -> tg::Result<Option<tg::object::get::Output>> {
+		let mut futures = remotes
+			.iter()
+			.map(|remote| self.try_get_object_remote(id, remote, metadata))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+
+		self.spawn_put_object_task(id, &output);
+
+		Ok(Some(output))
+	}
+
+	async fn try_get_object_remote(
+		&self,
+		id: &tg::object::Id,
+		remote: &crate::location::Remote,
+		metadata: bool,
+	) -> tg::Result<Option<tg::object::get::Output>> {
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.remote.clone(),
+			region: None,
+		});
+		let Some(output) = self
+			.try_get_object_location(id, location, metadata)
+			.await
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					%id,
+					remote = %remote.remote,
+					"failed to get the object"
+				)
+			})?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(output))
+	}
+
+	async fn try_get_object_location(
+		&self,
+		id: &tg::object::Id,
+		location: tg::location::Location,
+		metadata: bool,
+	) -> tg::Result<Option<tg::object::get::Output>> {
+		let key = ObjectGetTaskKey {
+			id: id.clone(),
+			location,
+			metadata,
+		};
+		self.try_get_object_from_location_task(key).await
+	}
+
+	async fn try_get_object_from_location_task(
+		&self,
+		key: ObjectGetTaskKey,
+	) -> tg::Result<Option<tg::object::get::Output>> {
+		let task = self.object_get_tasks.get_or_spawn_detached(key.clone(), {
+			let server = self.clone();
+			move |_stop| async move { server.try_get_object_from_location_task_inner(key).await }
+		});
+		task.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "the get object task panicked"))?
+	}
+
+	async fn try_get_object_from_location_task_inner(
+		&self,
+		key: ObjectGetTaskKey,
+	) -> tg::Result<Option<tg::object::get::Output>> {
+		let ObjectGetTaskKey {
+			id,
+			location,
+			metadata,
+		} = key;
+		match location {
+			tg::Location::Local(local) => {
+				let region = local
+					.region
+					.as_ref()
+					.ok_or_else(|| tg::error!("expected the region to be set"))?;
+				let client = self.get_region_client(region.clone()).await.map_err(
+					|source| tg::error!(!source, region = %region, "failed to get the region client"),
+				)?;
+				let location = tg::Location::Local(tg::location::Local {
+					region: Some(region.to_owned()),
+				});
+				let arg = tg::object::get::Arg {
+					location: Some(location.into()),
+					metadata,
+				};
+				client.try_get_object(&id, arg).await.map_err(
+					|source| tg::error!(!source, %id, region = %region, "failed to get the object"),
+				)
+			},
+			tg::Location::Remote(remote) => {
+				let client =
+					self.get_remote_client(remote.name.clone())
+						.await
+						.map_err(|source| {
+							tg::error!(
+								!source,
+								remote = %remote.name,
+								"failed to get the remote client"
+							)
+						})?;
+				let arg = tg::object::get::Arg {
+					location: Some(remote.region.as_deref().map_or_else(
+						|| tg::Location::Local(tg::location::Local::default()).into(),
+						|region| {
+							tg::Location::Local(tg::location::Local {
+								region: Some(region.to_owned()),
+							})
+							.into()
+						},
+					)),
+					metadata,
+				};
+				client.try_get_object(&id, arg).await.map_err(
+					|source| tg::error!(!source, %id, remote = %remote.name, "failed to get the object"),
+				)
+			},
+		}
+	}
+
+	fn spawn_put_object_task(&self, id: &tg::object::Id, output: &tg::object::get::Output) {
 		tokio::spawn({
 			let server = self.clone();
 			let id = id.clone();
@@ -264,50 +453,13 @@ impl Server {
 			async move {
 				let arg = tg::object::put::Arg {
 					bytes: output.bytes.clone(),
+					location: None,
 					metadata: output.metadata.clone(),
-					local: None,
-					remotes: None,
 				};
 				server.put_object(&id, arg).await?;
 				Ok::<_, tg::Error>(())
 			}
 		});
-
-		Ok(Some(output))
-	}
-
-	async fn try_get_object_remote_task(
-		&self,
-		key: ObjectGetTaskKey,
-	) -> tg::Result<Option<tg::object::get::Output>> {
-		let task = self.object_get_tasks.get_or_spawn_detached(key.clone(), {
-			let server = self.clone();
-			move |_stop| async move { server.try_get_object_remote_task_inner(key).await }
-		});
-		task.wait()
-			.await
-			.map_err(|source| tg::error!(!source, "the remote get object task panicked"))?
-	}
-
-	async fn try_get_object_remote_task_inner(
-		&self,
-		key: ObjectGetTaskKey,
-	) -> tg::Result<Option<tg::object::get::Output>> {
-		let ObjectGetTaskKey {
-			remote,
-			id,
-			metadata,
-		} = key;
-		let client = self.get_remote_client(remote.clone()).await.map_err(
-			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
-		)?;
-		let arg = tg::object::get::Arg {
-			metadata,
-			..Default::default()
-		};
-		client.try_get_object(&id, arg).await.map_err(
-			|source| tg::error!(!source, %id, remote = %remote, "failed to get the object"),
-		)
 	}
 
 	async fn try_read_cache_pointer(

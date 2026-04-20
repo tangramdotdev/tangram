@@ -5,13 +5,10 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub local: crate::util::args::Local,
+	pub location: crate::location::Args,
 
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
-
-	#[command(flatten)]
-	pub remotes: crate::util::args::Remotes,
 
 	#[arg(default_value = "INT", long, short)]
 	pub signal: tg::process::Signal,
@@ -20,16 +17,22 @@ pub struct Args {
 impl Cli {
 	pub async fn command_process_signal(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
+		let process = tg::Process::<tg::Value>::new(
+			args.process.clone(),
+			args.location.get(),
+			None,
+			None,
+			None,
+			None,
+		);
 
 		// Signal the process.
-		let arg = tg::process::signal::post::Arg {
-			local: args.local.get(),
-			remotes: args.remotes.get(),
-			signal: args.signal,
-		};
-		handle.signal_process(&args.process, arg).await.map_err(
-			|source| tg::error!(!source, id = %args.process, "failed to signal the process"),
-		)?;
+		process
+			.signal_with_handle(&handle, args.signal)
+			.await
+			.map_err(
+				|source| tg::error!(!source, id = %process.id(), "failed to signal the process"),
+			)?;
 
 		Ok(())
 	}

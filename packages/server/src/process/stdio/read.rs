@@ -42,23 +42,35 @@ impl Server {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
 
-		if Self::local(arg.local, arg.remotes.as_ref())
-			&& let Some(event_stream) = self
-				.try_read_process_stdio_local(id, arg.clone())
+		let locations = self
+			.locations(arg.location.as_ref())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+
+		if let Some(local) = &locations.local {
+			if local.current
+				&& let Some(event_stream) = self
+					.try_read_process_stdio_local(id, arg.clone())
+					.await
+					.map_err(|source| tg::error!(!source, "failed to read local process stdio"))?
+			{
+				return Ok(Some(event_stream));
+			}
+
+			if let Some(event_stream) = self
+				.try_read_process_stdio_regions(id, arg.clone(), &local.regions)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to read local process stdio"))?
-		{
-			return Ok(Some(event_stream));
+				.map_err(|source| {
+					tg::error!(!source, "failed to read process stdio from another region")
+				})? {
+				return Ok(Some(event_stream));
+			}
 		}
 
-		let remotes = self
-			.remotes(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
 		if let Some(event_stream) = self
-			.try_read_process_stdio_remote(id, arg, &remotes)
+			.try_read_process_stdio_remotes(id, arg, &locations.remotes)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to read remote process stdio"))?
+			.map_err(|source| tg::error!(!source, "failed to read process stdio from a remote"))?
 		{
 			return Ok(Some(event_stream));
 		}
@@ -286,63 +298,29 @@ impl Server {
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<tg::process::stdio::read::Event>> {
-		match &self.sandbox_store {
+		match &self.process_store {
 			#[cfg(feature = "postgres")]
-			Database::Postgres(sandbox_store) => {
-				self.try_read_process_stdio_pipe_event_postgres(sandbox_store, id, streams)
+			Database::Postgres(process_store) => {
+				self.try_read_process_stdio_pipe_event_postgres(process_store, id, streams)
 					.await
 			},
 			#[cfg(feature = "sqlite")]
-			Database::Sqlite(sandbox_store) => {
-				self.try_read_process_stdio_pipe_event_sqlite(sandbox_store, id, streams)
+			Database::Sqlite(process_store) => {
+				self.try_read_process_stdio_pipe_event_sqlite(process_store, id, streams)
 					.await
 			},
 		}
 	}
 
-	async fn try_read_process_stdio_remote(
+	async fn try_read_process_stdio_regions(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
-		remotes: &[String],
+		regions: &[String],
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
-		if remotes.is_empty() {
-			return Ok(None);
-		}
-		let arg = tg::process::stdio::read::Arg {
-			local: None,
-			remotes: None,
-			..arg
-		};
-		let mut futures = remotes
+		let mut futures = regions
 			.iter()
-			.map(|remote| {
-				let remote = remote.clone();
-				let arg = arg.clone();
-				async move {
-					let client =
-						self.get_remote_client(remote.clone())
-							.await
-							.map_err(|source| {
-								tg::error!(
-									!source,
-									remote = %remote,
-									"failed to get the remote client"
-								)
-							})?;
-					client
-						.try_read_process_stdio_all(id, arg)
-						.await
-						.map_err(|source| {
-							tg::error!(
-								!source,
-								remote = %remote,
-								"failed to read the process stdio"
-							)
-						})
-						.map(|stream| stream.map(futures::StreamExt::boxed))
-				}
-			})
+			.map(|region| self.try_read_process_stdio_region(id, arg.clone(), region))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -361,6 +339,89 @@ impl Server {
 			return Ok(None);
 		};
 		Ok(Some(stream))
+	}
+
+	async fn try_read_process_stdio_region(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::read::Arg,
+		region: &str,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
+		let client = self.get_region_client(region.to_owned()).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.to_owned()),
+		});
+		let arg = tg::process::stdio::read::Arg {
+			location: Some(location.into()),
+			..arg
+		};
+		let Some(stream) = client.try_read_process_stdio_all(id, arg).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to read the process stdio"),
+		)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(stream.boxed()))
+	}
+
+	async fn try_read_process_stdio_remotes(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::read::Arg,
+		remotes: &[crate::location::Remote],
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
+		let mut futures = remotes
+			.iter()
+			.map(|remote| self.try_read_process_stdio_remote(id, arg.clone(), remote))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(stream)) => {
+					result = Ok(Some(stream));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(stream) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(stream))
+	}
+
+	async fn try_read_process_stdio_remote(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::read::Arg,
+		remote: &crate::location::Remote,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
+		let client = self
+			.get_remote_client(remote.remote.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, remote = %remote.remote, "failed to get the remote client"),
+			)?;
+		let arg = tg::process::stdio::read::Arg {
+			location: Some(tg::location::Arg(vec![
+				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
+					regions: remote.regions.clone(),
+				}),
+			])),
+			..arg
+		};
+		let Some(stream) = client.try_read_process_stdio_all(id, arg).await.map_err(
+			|source| tg::error!(!source, remote = %remote.remote, "failed to read the process stdio"),
+		)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(stream.boxed()))
 	}
 
 	fn get_process_stdio_source(

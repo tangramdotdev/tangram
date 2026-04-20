@@ -12,19 +12,19 @@ let root = artifact {
 	packages: {
 		a: {
 			tangram.ts: '
-				import b from "b" with { local: "../b" };
+				import b from "b" with { source: "../b" };
 				export let metadata = { tag: "a/0" };
 			'
 		}
 		b: {
 			tangram.ts: '
-				import c from "c" with { local: "../c" };
+				import c from "c" with { source: "../c" };
 				export let metadata = { tag: "b/0" };
 			'
 		}
 		c: {
 			tangram.ts: '
-				import a from "a" with { local: "../a" };
+				import a from "a" with { source: "../a" };
 				export let metadata = { tag: "c/0" };
 			'
 		}

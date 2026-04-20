@@ -10,16 +10,16 @@ use {
 impl Server {
 	pub(crate) async fn try_read_process_stdio_pipe_event_sqlite(
 		&self,
-		sandbox_store: &db::sqlite::Database,
+		process_store: &db::sqlite::Database,
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<tg::process::stdio::read::Event>> {
 		let id = id.clone();
 		let streams = streams.clone();
-		let connection = sandbox_store
+		let connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 		connection
 			.with(move |connection, _cache| {
 				Self::try_read_process_stdio_pipe_event_sqlite_sync(connection, &id, &streams)

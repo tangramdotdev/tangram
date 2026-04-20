@@ -11,16 +11,16 @@ use super::WriteOutput;
 impl Server {
 	pub(crate) async fn try_write_process_stdio_sqlite(
 		&self,
-		sandbox_store: &db::sqlite::Database,
+		process_store: &db::sqlite::Database,
 		id: &tg::process::Id,
 		stream: tg::process::stdio::Stream,
 		bytes: Bytes,
 	) -> tg::Result<WriteOutput> {
 		let id = id.clone();
-		let connection = sandbox_store
+		let connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 		connection
 			.with(move |connection, _cache| {
 				Self::try_write_process_stdio_sqlite_sync(connection, &id, stream, &bytes)
@@ -109,15 +109,15 @@ impl Server {
 
 	pub(crate) async fn try_close_process_stdio_sqlite(
 		&self,
-		sandbox_store: &db::sqlite::Database,
+		process_store: &db::sqlite::Database,
 		id: &tg::process::Id,
 		stream: tg::process::stdio::Stream,
 	) -> tg::Result<()> {
 		let id = id.clone();
-		let connection = sandbox_store
+		let connection = process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 		connection
 			.with(move |connection, _cache| {
 				Self::try_close_process_stdio_sqlite_sync(connection, &id, stream)

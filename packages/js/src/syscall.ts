@@ -1,5 +1,60 @@
 import type * as tg from "@tangramdotdev/client";
 
+type LocationWire = string;
+
+type ProcessGetArgWire = {
+	location?: LocationWire | undefined;
+};
+
+type ProcessGetOutputWire = Omit<tg.Handle.ProcessGetOutput, "location"> & {
+	location?: LocationWire | undefined;
+};
+
+type SandboxGetOutputWire = Omit<tg.Handle.SandboxGetOutput, "location"> & {
+	location?: LocationWire | undefined;
+};
+
+type SignalArgWire = Omit<tg.Handle.SignalArg, "location"> & {
+	location?: LocationWire | undefined;
+};
+
+type SpawnArgWire = Omit<
+	tg.Handle.SpawnArg,
+	"cache_location" | "command" | "location"
+> & {
+	cache_location?: LocationWire | undefined;
+	command: Omit<tg.Referent<tg.Command.Id>, "options"> & {
+		options?: tg.Referent.Data.Options | undefined;
+	};
+	location?: LocationWire | undefined;
+};
+
+type SpawnOutputWire = Omit<tg.Handle.SpawnOutput, "location"> & {
+	location?: LocationWire | undefined;
+};
+
+type WaitArgWire = Omit<tg.Handle.WaitArg, "location"> & {
+	location?: LocationWire | undefined;
+};
+
+type ProcessStdioReadArgWire = Omit<tg.Handle.ProcessStdioReadArg, "location"> & {
+	location?: LocationWire | undefined;
+};
+
+type ProcessStdioWriteArgWire = Omit<
+	tg.Handle.ProcessStdioWriteArg,
+	"location"
+> & {
+	location?: LocationWire | undefined;
+};
+
+type ProcessTtySizePutArgWire = Omit<
+	tg.Handle.ProcessTtySizePutArg,
+	"location"
+> & {
+	location?: LocationWire | undefined;
+};
+
 declare global {
 	function syscall(
 		syscall: "encoding_base64_decode",
@@ -65,8 +120,8 @@ declare global {
 	function syscall(
 		syscall: "handle_process_get",
 		id: tg.Process.Id,
-		remote: string | undefined,
-	): Promise<tg.Process.Data>;
+		arg: ProcessGetArgWire | undefined,
+	): Promise<ProcessGetOutputWire>;
 
 	function syscall(
 		syscall: "handle_process_id",
@@ -76,19 +131,18 @@ declare global {
 	function syscall(
 		syscall: "handle_sandbox_get",
 		id: string,
-		remote: string | undefined,
-	): Promise<tg.Handle.SandboxGetOutput>;
+	): Promise<SandboxGetOutputWire>;
 
 	function syscall(
 		syscall: "handle_process_signal",
 		id: tg.Process.Id,
-		arg: tg.Handle.SignalArg,
+		arg: SignalArgWire,
 	): Promise<void>;
 
 	function syscall(
 		syscall: "handle_process_spawn",
-		arg: tg.Handle.SpawnArg,
-	): Promise<tg.Handle.SpawnOutput>;
+		arg: SpawnArgWire,
+	): Promise<SpawnOutputWire>;
 
 	function syscall(
 		syscall: "handle_process_stdio_read_close",
@@ -98,7 +152,7 @@ declare global {
 	function syscall(
 		syscall: "handle_process_stdio_read_open",
 		id: tg.Process.Id,
-		arg: tg.Handle.ProcessStdioReadArg,
+		arg: ProcessStdioReadArgWire,
 	): Promise<number | undefined>;
 
 	function syscall(
@@ -114,7 +168,7 @@ declare global {
 	function syscall(
 		syscall: "handle_process_stdio_write_open",
 		id: tg.Process.Id,
-		arg: tg.Handle.ProcessStdioWriteArg,
+		arg: ProcessStdioWriteArgWire,
 	): Promise<number>;
 
 	function syscall(
@@ -130,13 +184,13 @@ declare global {
 	function syscall(
 		syscall: "handle_process_tty_size_put",
 		id: tg.Process.Id,
-		arg: tg.Handle.ProcessTtySizePutArg,
+		arg: ProcessTtySizePutArgWire,
 	): Promise<void>;
 
 	function syscall(
 		syscall: "handle_process_wait",
 		id: tg.Process.Id,
-		arg: tg.Handle.WaitArg,
+		arg: WaitArgWire,
 	): Promise<tg.Process.Wait.Data>;
 
 	function syscall(

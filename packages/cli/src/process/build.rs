@@ -7,9 +7,8 @@ impl Cli {
 		let detach = args.options.detach;
 		let verbose = args.options.verbose;
 		let checkout = args.options.checkout.is_some();
+		let location = args.options.spawn.location.get();
 		let print = args.options.print.clone();
-		let local = args.options.spawn.local.get();
-		let remotes = args.options.spawn.remotes.get();
 
 		// Build.
 		let output = self.build(args).await?;
@@ -25,9 +24,8 @@ impl Cli {
 			Self::print_display(output);
 		} else if (detach && verbose) || !output.is_null() {
 			let arg = tg::object::get::Arg {
-				local,
+				location,
 				metadata: false,
-				remotes,
 			};
 			self.print_value(&output, print, arg).await?;
 		}

@@ -9,13 +9,10 @@ use {
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub local: crate::util::args::Local,
+	pub location: crate::location::Args,
 
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
-
-	#[command(flatten)]
-	pub remotes: crate::util::args::Remotes,
 
 	#[arg(long, value_delimiter = ',', visible_alias = "stream")]
 	pub streams: Vec<tg::process::stdio::Stream>,
@@ -24,15 +21,20 @@ pub struct Args {
 impl Cli {
 	pub async fn command_process_stdio_write(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
-		let process =
-			tg::Process::<tg::Value>::new(args.process.clone(), None, None, None, None, None);
+		let process = tg::Process::<tg::Value>::new(
+			args.process.clone(),
+			args.location.get(),
+			None,
+			None,
+			None,
+			None,
+		);
 		let [stream] = args.streams.as_slice() else {
 			return Err(tg::error!("expected exactly one stdio stream"));
 		};
 		let stream = *stream;
 		let arg = tg::process::stdio::write::Arg {
-			local: args.local.get(),
-			remotes: args.remotes.get(),
+			location: process.location(),
 			streams: vec![stream],
 		};
 		let input = tangram_util::io::stdin()

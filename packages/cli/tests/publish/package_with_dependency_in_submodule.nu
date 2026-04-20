@@ -28,7 +28,7 @@ let shared_path = artifact {
 			};
 		',
 		helper.tg.ts: '
-			import dep from "test-dep" with { local: "../dep" };
+			import dep from "test-dep" with { source: "../dep" };
 			import { util } from "./util.tg.ts";
 
 			export let helper = () => `helper with ${dep()} and ${util()}`;

@@ -93,11 +93,11 @@ impl<O> tg::Process<O> {
 
 		let arg = tg::process::spawn::Arg {
 			cached: arg.cached,
+			cache_location: None,
 			checksum,
 			command,
-			local: None,
+			location: arg.location,
 			parent: arg.parent,
-			remotes: arg.remote.map(|remote| vec![remote]),
 			retry: arg.retry,
 			sandbox,
 			stderr,

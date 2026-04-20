@@ -3,10 +3,9 @@ use {
 	bytes::Bytes,
 	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
-	tangram_util::serde::{BytesBase64, CommaSeparatedString},
+	tangram_util::serde::BytesBase64,
 };
 
-#[serde_as]
 #[derive(
 	Clone,
 	Debug,
@@ -18,16 +17,11 @@ use {
 )]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 0)]
-	pub local: Option<bool>,
+	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
 
 	#[tangram_serialize(id = 1)]
 	pub objects: Vec<Object>,
-
-	#[serde(alias = "remote", default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<CommaSeparatedString>")]
-	#[tangram_serialize(id = 2)]
-	pub remotes: Option<Vec<String>>,
 }
 
 #[serde_as]

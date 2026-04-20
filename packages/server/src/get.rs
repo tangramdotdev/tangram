@@ -124,10 +124,9 @@ impl Server {
 		let list_arg = tg::tag::list::Arg {
 			cached: false,
 			length: Some(1),
-			local: None,
+			location: options.location.clone(),
 			pattern: pattern.clone(),
 			recursive: false,
-			remotes: options.remote.as_ref().map(|r| vec![r.clone()]),
 			reverse: true,
 			ttl: None,
 		};

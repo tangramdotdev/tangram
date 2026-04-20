@@ -5,40 +5,38 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[command(flatten)]
-	pub local: crate::util::args::Local,
-
-	#[command(flatten)]
-	pub print: crate::print::Options,
+	pub locations: crate::location::Args,
 
 	/// The object or process.
 	#[arg(default_value = ".", index = 1)]
 	pub reference: tg::Reference,
 
 	#[command(flatten)]
-	pub remotes: crate::util::args::Remotes,
+	pub print: crate::print::Options,
 }
 
 impl Cli {
 	pub async fn command_children(&mut self, args: Args) -> tg::Result<()> {
+		let locations = args.locations;
+		let print = args.print;
+
 		let referent = self.get_reference(&args.reference).await?;
 		match referent.item {
 			tg::Either::Left(object) => {
 				let args = crate::object::children::Args {
-					local: args.local,
+					locations: locations.clone(),
 					object: object.id(),
-					print: args.print,
-					remotes: args.remotes,
+					print,
 				};
 				self.command_object_children(args).await?;
 			},
 			tg::Either::Right(process) => {
 				let args = crate::process::children::Args {
 					length: None,
-					local: args.local,
+					locations,
 					position: None,
-					print: args.print,
+					print,
 					process: process.id().clone(),
-					remotes: args.remotes,
 					size: None,
 				};
 				self.command_process_children(args).await?;

@@ -8,9 +8,12 @@ use {
 impl Server {
 	pub async fn get_region_clients(&self) -> tg::Result<BTreeMap<String, tg::Client>> {
 		let regions = self
-			.regions(None, None)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to list the regions"))?;
+			.config()
+			.regions
+			.as_ref()
+			.map_or_else(Vec::new, |regions| {
+				regions.iter().map(|region| region.name.clone()).collect()
+			});
 		let regions = regions
 			.into_iter()
 			.map(|region| async {

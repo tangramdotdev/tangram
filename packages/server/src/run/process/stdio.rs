@@ -12,7 +12,7 @@ impl Server {
 		sandbox: &tangram_sandbox::Sandbox,
 		sandbox_process: &tangram_sandbox::Process,
 		id: &tg::process::Id,
-		remote: Option<String>,
+		location: Option<tg::Location>,
 		mode: tg::process::Stdio,
 		blob: Option<tg::Blob>,
 	) -> tg::Result<()> {
@@ -40,8 +40,7 @@ impl Server {
 		// Create the stdio stream if necessary.
 		let stream = if matches!(mode, tg::process::Stdio::Pipe | tg::process::Stdio::Tty) {
 			let arg = tg::process::stdio::read::Arg {
-				local: None,
-				remotes: remote.map(|remote| vec![remote]),
+				location: location.clone().map(Into::into),
 				streams: vec![tg::process::stdio::Stream::Stdin],
 				..Default::default()
 			};
@@ -101,11 +100,10 @@ impl Server {
 		sandbox: &tangram_sandbox::Sandbox,
 		sandbox_process: &tangram_sandbox::Process,
 		id: &tg::process::Id,
-		remote: Option<String>,
+		location: Option<tg::Location>,
 	) -> tg::Result<()> {
 		let arg = tg::process::stdio::write::Arg {
-			local: None,
-			remotes: remote.clone().map(|remote| vec![remote]),
+			location: location.map(Into::into),
 			streams: vec![
 				tg::process::stdio::Stream::Stdout,
 				tg::process::stdio::Stream::Stderr,

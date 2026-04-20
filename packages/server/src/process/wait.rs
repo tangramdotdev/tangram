@@ -23,23 +23,42 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
-		// Try local first if requested.
-		if Self::local(arg.local, arg.remotes.as_ref())
-			&& let Some(future) = self
-				.try_wait_process_local(id)
+		let locations = self
+			.locations(arg.location.as_ref())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+
+		if let Some(local) = &locations.local {
+			if local.current
+				&& let Some(future) = self
+					.try_wait_process_local(id)
+					.await
+					.map_err(|source| tg::error!(!source, %id, "failed to wait for the process"))?
+			{
+				let future = self
+					.attach_wait_process_cancel_guard(id, arg, None, future)
+					.await?;
+				return Ok(Some(future));
+			}
+
+			if let Some((future, region)) = self
+				.try_wait_process_regions(id, &local.regions)
 				.await
-				.map_err(|source| tg::error!(!source, %id, "failed to wait for the process"))?
-		{
-			return self.attach_wait_process_cancel_guard(id, arg, future).await;
+				.map_err(
+					|source| tg::error!(!source, %id, "failed to wait for the process in another region"),
+				)? {
+				let location = Some(tg::Location::Local(tg::location::Local {
+					region: Some(region),
+				}));
+				let future = self
+					.attach_wait_process_cancel_guard(id, arg, location.map(Into::into), future)
+					.await?;
+				return Ok(Some(future));
+			}
 		}
 
-		// Try remotes.
-		let remote_names = self
-			.remotes(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
-		let Some(future) = self
-			.try_wait_process_remote(id, &remote_names)
+		let Some((future, remote)) = self
+			.try_wait_process_remotes(id, &locations.remotes)
 			.await
 			.map_err(
 				|source| tg::error!(!source, %id, "failed to wait for the process on the remote"),
@@ -47,57 +66,16 @@ impl Server {
 		else {
 			return Ok(None);
 		};
-
-		self.attach_wait_process_cancel_guard(id, arg, future).await
-	}
-
-	async fn attach_wait_process_cancel_guard(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::wait::Arg,
-		future: BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
-	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
-		// If a token is provided, attach a cancellation guard.
-		let future = if let Some(token) = arg.token.clone() {
-			let cancel = Arc::new(AtomicBool::new(true));
-
-			// Map the future to defuse on success.
-			let future = {
-				let cancel = cancel.clone();
-				future.map(
-					move |result: tg::Result<Option<tg::process::wait::Output>>| {
-						if result.is_ok() {
-							cancel.store(false, Ordering::SeqCst);
-						}
-						result
-					},
-				)
-			}
-			.boxed();
-
-			// Create guard that cancels if not defused.
-			let guard = {
-				let server = self.clone();
-				let id = id.clone();
-				let arg = arg.clone();
-				scopeguard::guard((), move |()| {
-					if cancel.load(Ordering::SeqCst) {
-						let arg = tg::process::cancel::Arg {
-							local: arg.local,
-							remotes: arg.remotes,
-							token: token.clone(),
-						};
-						tokio::spawn(async move {
-							server.cancel_process(&id, arg).await.ok();
-						});
-					}
-				})
-			};
-
-			future.attach(guard).boxed()
-		} else {
-			future
-		};
+		let location = Some(
+			tg::Location::Remote(tg::location::Remote {
+				name: remote.remote.clone(),
+				region: None,
+			})
+			.into(),
+		);
+		let future = self
+			.attach_wait_process_cancel_guard(id, arg, location, future)
+			.await?;
 
 		Ok(Some(future))
 	}
@@ -152,49 +130,19 @@ impl Server {
 		Ok(Some(future.boxed()))
 	}
 
-	async fn try_wait_process_remote(
+	async fn try_wait_process_regions(
 		&self,
 		id: &tg::process::Id,
-		remotes: &[String],
-	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
-		if remotes.is_empty() {
-			return Ok(None);
-		}
-		let arg = tg::process::wait::Arg {
-			local: None,
-			remotes: None,
-			token: None,
-		};
-		let mut futures = remotes
+		regions: &[String],
+	) -> tg::Result<
+		Option<(
+			BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
+			String,
+		)>,
+	> {
+		let mut futures = regions
 			.iter()
-			.map(|remote| {
-				let remote = remote.clone();
-				let arg = arg.clone();
-				async move {
-					let client =
-						self.get_remote_client(remote.clone())
-							.await
-							.map_err(|source| {
-								tg::error!(
-									!source,
-									remote = %remote,
-									"failed to get the remote client"
-								)
-							})?;
-					client
-						.try_wait_process_future(id, arg)
-						.await
-						.map_err(|source| {
-							tg::error!(
-								!source,
-								%id,
-								remote = %remote,
-								"failed to wait for the process"
-							)
-						})
-						.map(|future| future.map(futures::FutureExt::boxed))
-				}
-			})
+			.map(|region| self.try_wait_process_region(id, region))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -213,6 +161,152 @@ impl Server {
 			return Ok(None);
 		};
 		Ok(Some(future))
+	}
+
+	async fn try_wait_process_region(
+		&self,
+		id: &tg::process::Id,
+		region: &str,
+	) -> tg::Result<
+		Option<(
+			BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
+			String,
+		)>,
+	> {
+		let client = self.get_region_client(region.to_owned()).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.to_owned()),
+		});
+		let arg = tg::process::wait::Arg {
+			location: Some(location.into()),
+			token: None,
+		};
+		let Some(future) = client.try_wait_process_future(id, arg).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to wait for the process"),
+		)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some((future.boxed(), region.to_owned())))
+	}
+
+	async fn try_wait_process_remotes(
+		&self,
+		id: &tg::process::Id,
+		remotes: &[crate::location::Remote],
+	) -> tg::Result<
+		Option<(
+			BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
+			crate::location::Remote,
+		)>,
+	> {
+		let mut futures = remotes
+			.iter()
+			.map(|remote| self.try_wait_process_remote(id, remote))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(future)) => {
+					result = Ok(Some(future));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(future) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(future))
+	}
+
+	async fn try_wait_process_remote(
+		&self,
+		id: &tg::process::Id,
+		remote: &crate::location::Remote,
+	) -> tg::Result<
+		Option<(
+			BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
+			crate::location::Remote,
+		)>,
+	> {
+		let client = self
+			.get_remote_client(remote.remote.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, remote = %remote.remote, "failed to get the remote client"),
+			)?;
+		let arg = tg::process::wait::Arg {
+			location: Some(tg::location::Arg(vec![
+				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
+					regions: remote.regions.clone(),
+				}),
+			])),
+			token: None,
+		};
+		let Some(future) = client.try_wait_process_future(id, arg).await.map_err(
+			|source| tg::error!(!source, remote = %remote.remote, "failed to wait for the process"),
+		)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some((future.boxed(), remote.clone())))
+	}
+
+	async fn attach_wait_process_cancel_guard(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::wait::Arg,
+		location: Option<tg::location::Arg>,
+		future: BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
+	) -> tg::Result<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>> {
+		// If a token is provided, attach a cancellation guard.
+		let future = if let Some(token) = arg.token.clone() {
+			let cancel = Arc::new(AtomicBool::new(true));
+
+			// Map the future to defuse on success.
+			let future = {
+				let cancel = cancel.clone();
+				future.map(
+					move |result: tg::Result<Option<tg::process::wait::Output>>| {
+						if result.is_ok() {
+							cancel.store(false, Ordering::SeqCst);
+						}
+						result
+					},
+				)
+			}
+			.boxed();
+
+			// Create guard that cancels if not defused.
+			let guard = {
+				let server = self.clone();
+				let id = id.clone();
+				let location = location.clone();
+				scopeguard::guard((), move |()| {
+					if cancel.load(Ordering::SeqCst) {
+						let arg = tg::process::cancel::Arg {
+							location: location.clone(),
+							token: token.clone(),
+						};
+						tokio::spawn(async move {
+							server.cancel_process(&id, arg).await.ok();
+						});
+					}
+				})
+			};
+
+			future.attach(guard).boxed()
+		} else {
+			future
+		};
+
+		Ok(future)
 	}
 
 	pub(crate) async fn handle_post_process_wait_request(

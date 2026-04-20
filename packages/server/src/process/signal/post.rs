@@ -1,5 +1,6 @@
 use {
 	crate::{Context, Server},
+	futures::{StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -16,20 +17,44 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
 	) -> tg::Result<Option<()>> {
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			return self.post_process_signal_local(id, arg.signal).await;
+		let locations = self
+			.locations(arg.location.as_ref())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+
+		if let Some(local) = &locations.local {
+			if local.current
+				&& let Some(output) = self
+					.try_post_process_signal_local(id, arg.signal)
+					.await
+					.map_err(|source| tg::error!(!source, %id, "failed to signal the process"))?
+			{
+				return Ok(Some(output));
+			}
+
+			if let Some(output) = self
+				.try_post_process_signal_regions(id, arg.signal, &local.regions)
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, "failed to signal the process in another region"),
+				)? {
+				return Ok(Some(output));
+			}
 		}
 
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			return self
-				.post_process_signal_remote(id, arg.signal, remote)
-				.await;
+		if let Some(output) = self
+			.try_post_process_signal_remotes(id, arg.signal, &locations.remotes)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %id, "failed to signal the process in a remote"),
+			)? {
+			return Ok(Some(output));
 		}
 
 		Ok(None)
 	}
 
-	async fn post_process_signal_local(
+	async fn try_post_process_signal_local(
 		&self,
 		id: &tg::process::Id,
 		signal: tg::process::Signal,
@@ -48,12 +73,12 @@ impl Server {
 			return Err(tg::error!(%id, "cannot signal cacheable processes"));
 		}
 
-		// Insert the signal into the sandbox store.
+		// Insert the signal into the process store.
 		let connection = self
-			.sandbox_store
+			.process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -74,22 +99,116 @@ impl Server {
 		Ok(Some(()))
 	}
 
-	async fn post_process_signal_remote(
+	async fn try_post_process_signal_regions(
 		&self,
 		id: &tg::process::Id,
 		signal: tg::process::Signal,
-		remote: String,
+		regions: &[String],
+	) -> tg::Result<Option<()>> {
+		let mut futures = regions
+			.iter()
+			.map(|region| self.try_post_process_signal_region(id, signal, region))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(output))
+	}
+
+	async fn try_post_process_signal_region(
+		&self,
+		id: &tg::process::Id,
+		signal: tg::process::Signal,
+		region: &str,
+	) -> tg::Result<Option<()>> {
+		let client = self.get_region_client(region.to_owned()).await.map_err(
+			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.to_owned()),
+		});
+		let arg = tg::process::signal::post::Arg {
+			signal,
+			location: Some(location.into()),
+		};
+		let Some(()) = client.try_post_process_signal(id, arg).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to signal the process"),
+		)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(()))
+	}
+
+	async fn try_post_process_signal_remotes(
+		&self,
+		id: &tg::process::Id,
+		signal: tg::process::Signal,
+		remotes: &[crate::location::Remote],
+	) -> tg::Result<Option<()>> {
+		let mut futures = remotes
+			.iter()
+			.map(|remote| self.try_post_process_signal_remote(id, signal, remote))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(output))
+	}
+
+	async fn try_post_process_signal_remote(
+		&self,
+		id: &tg::process::Id,
+		signal: tg::process::Signal,
+		remote: &crate::location::Remote,
 	) -> tg::Result<Option<()>> {
 		let client = self
-			.get_remote_client(remote)
+			.get_remote_client(remote.remote.clone())
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
+			.map_err(
+				|source| tg::error!(!source, remote = %remote.remote, %id, "failed to get the remote client"),
+			)?;
 		let arg = tg::process::signal::post::Arg {
-			local: None,
-			remotes: None,
 			signal,
+			location: Some(tg::location::Arg(vec![
+				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
+					regions: remote.regions.clone(),
+				}),
+			])),
 		};
-		client.try_post_process_signal(id, arg).await
+		let Some(()) = client.try_post_process_signal(id, arg).await.map_err(
+			|source| tg::error!(!source, remote = %remote.remote, "failed to signal the process"),
+		)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(()))
 	}
 
 	pub(crate) async fn handle_post_process_signal_request(

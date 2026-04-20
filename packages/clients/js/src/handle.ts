@@ -36,6 +36,7 @@ export namespace Handle {
 		hostname?: string | undefined;
 		id: tg.Sandbox.Id;
 		isolation?: tg.Sandbox.Isolation | undefined;
+		location?: tg.Location | undefined;
 		memory?: number | undefined;
 		mounts: Array<tg.Sandbox.Mount.Data>;
 		network: boolean;
@@ -57,29 +58,29 @@ export namespace Handle {
 	};
 
 	export type SpawnArg = {
-		checksum: tg.Checksum | undefined;
+		cache_location?: tg.Location.Arg | undefined;
+		checksum?: tg.Checksum | undefined;
 		command: tg.Referent<tg.Command.Id>;
-		parent: tg.Process.Id | undefined;
-		remote: string | undefined;
-		retry: boolean;
-		sandbox: tg.Handle.SandboxArg | string | undefined;
-		stderr: string;
-		stdin: string;
-		stdout: string;
-		tty: boolean | tg.Process.Tty | undefined;
+		location?: tg.Location.Arg | undefined;
+		parent?: tg.Process.Id | undefined;
+		retry?: boolean | undefined;
+		sandbox?: tg.Handle.SandboxArg | string | undefined;
+		stderr?: string | undefined;
+		stdin?: string | undefined;
+		stdout?: string | undefined;
+		tty?: boolean | tg.Process.Tty | undefined;
 	};
 
 	export type SpawnOutput = {
 		cached: boolean;
+		location: tg.Location | undefined;
 		process: tg.Process.Id;
-		remote: string | undefined;
 		token: string | undefined;
 		wait: tg.Process.Wait.Data | undefined;
 	};
 
 	export type WaitArg = {
-		local: boolean | undefined;
-		remotes: Array<string> | undefined;
+		location?: tg.Location.Arg | undefined;
 		token: string | undefined;
 	};
 
@@ -114,29 +115,36 @@ export namespace Handle {
 	};
 
 	export type SignalArg = {
-		local?: boolean | undefined;
-		remotes?: Array<string> | undefined;
+		location?: tg.Location.Arg | undefined;
 		signal: tg.Process.Signal;
+	};
+
+	export type ProcessGetArg = {
+		location?: tg.Location.Arg | undefined;
+	};
+
+	export type ProcessGetOutput = {
+		data: tg.Process.Data;
+		id: tg.Process.Id;
+		location?: tg.Location | undefined;
+		metadata?: unknown;
 	};
 
 	export type ProcessStdioReadArg = {
 		length?: number | undefined;
-		local?: boolean | undefined;
+		location?: tg.Location.Arg | undefined;
 		position?: number | string | undefined;
-		remotes?: Array<string> | undefined;
 		size?: number | undefined;
 		streams: Array<tg.Process.Stdio.Stream>;
 	};
 
 	export type ProcessStdioWriteArg = {
-		local?: boolean | undefined;
-		remotes?: Array<string> | undefined;
+		location?: tg.Location.Arg | undefined;
 		streams: Array<tg.Process.Stdio.Stream>;
 	};
 
 	export type ProcessTtySizePutArg = {
-		local?: boolean | undefined;
-		remotes?: Array<string> | undefined;
+		location?: tg.Location.Arg | undefined;
 		size: tg.Process.Tty.Size;
 	};
 
@@ -155,8 +163,8 @@ export namespace Handle {
 	export type Process = {
 		getProcess(
 			id: tg.Process.Id,
-			remote: string | undefined,
-		): Promise<tg.Process.Data>;
+			arg?: tg.Handle.ProcessGetArg | undefined,
+		): Promise<tg.Handle.ProcessGetOutput>;
 
 		readProcessStdio(
 			id: tg.Process.Id,
@@ -185,10 +193,7 @@ export namespace Handle {
 	};
 
 	export type Sandbox = {
-		getSandbox(
-			id: tg.Sandbox.Id,
-			remote: string | undefined,
-		): Promise<tg.Handle.SandboxGetOutput>;
+		getSandbox(id: tg.Sandbox.Id): Promise<tg.Handle.SandboxGetOutput>;
 	};
 
 	export type System = {

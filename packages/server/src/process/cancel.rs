@@ -1,5 +1,6 @@
 use {
 	crate::{Context, Server},
+	futures::{StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -15,28 +16,54 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<()>> {
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			return self.cancel_process_local(id, arg).await;
+		let locations = self
+			.locations(arg.location.as_ref())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+
+		if let Some(local) = &locations.local {
+			if local.current
+				&& let Some(output) = self
+					.try_cancel_process_local(id, arg.clone())
+					.await
+					.map_err(|source| tg::error!(!source, %id, "failed to cancel the process"))?
+			{
+				return Ok(Some(output));
+			}
+
+			if let Some(output) = self
+				.try_cancel_process_regions(id, arg.clone(), &local.regions)
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, "failed to cancel the process in another region"),
+				)? {
+				return Ok(Some(output));
+			}
 		}
 
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			return self.cancel_process_remote(id, arg, remote).await;
+		if let Some(output) = self
+			.try_cancel_process_remotes(id, arg, &locations.remotes)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %id, "failed to cancel the process in a remote"),
+			)? {
+			return Ok(Some(output));
 		}
 
 		Ok(None)
 	}
 
-	async fn cancel_process_local(
+	async fn try_cancel_process_local(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<()>> {
-		// Get a sandbox store connection.
+		// Get a process store connection.
 		let mut connection = self
-			.sandbox_store
+			.process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection
@@ -100,24 +127,116 @@ impl Server {
 		Ok(Some(()))
 	}
 
-	async fn cancel_process_remote(
+	async fn try_cancel_process_regions(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
-		remote: String,
+		regions: &[String],
+	) -> tg::Result<Option<()>> {
+		let mut futures = regions
+			.iter()
+			.map(|region| self.try_cancel_process_region(id, arg.clone(), region))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(output))
+	}
+
+	async fn try_cancel_process_region(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::cancel::Arg,
+		region: &str,
+	) -> tg::Result<Option<()>> {
+		let client = self.get_region_client(region.to_owned()).await.map_err(
+			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.to_owned()),
+		});
+		let arg = tg::process::cancel::Arg {
+			location: Some(location.into()),
+			..arg
+		};
+		let Some(()) = client.try_cancel_process(id, arg).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to cancel the process"),
+		)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(()))
+	}
+
+	async fn try_cancel_process_remotes(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::cancel::Arg,
+		remotes: &[crate::location::Remote],
+	) -> tg::Result<Option<()>> {
+		let mut futures = remotes
+			.iter()
+			.map(|remote| self.try_cancel_process_remote(id, arg.clone(), remote))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(output))
+	}
+
+	async fn try_cancel_process_remote(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::cancel::Arg,
+		remote: &crate::location::Remote,
 	) -> tg::Result<Option<()>> {
 		let client = self
-			.get_remote_client(remote)
+			.get_remote_client(remote.remote.clone())
 			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
+			.map_err(
+				|source| tg::error!(!source, remote = %remote.remote, %id, "failed to get the remote client"),
+			)?;
 		let arg = tg::process::cancel::Arg {
-			local: None,
-			remotes: None,
-			token: arg.token,
+			location: Some(tg::location::Arg(vec![
+				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
+					regions: remote.regions.clone(),
+				}),
+			])),
+			..arg
 		};
-		client.try_cancel_process(id, arg).await.map_err(
-			|source| tg::error!(!source, %id, "failed to cancel the process on the remote"),
-		)
+		let Some(()) = client.try_cancel_process(id, arg).await.map_err(
+			|source| tg::error!(!source, remote = %remote.remote, "failed to cancel the process"),
+		)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(()))
 	}
 
 	pub(crate) async fn handle_cancel_process_request(

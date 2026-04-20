@@ -640,6 +640,10 @@ export namespace Graph {
 			if (value.options?.id !== undefined) {
 				params.push(`id=${encodeURIComponent(value.options.id)}`);
 			}
+			if (value.options?.location !== undefined) {
+				let location = tg.Location.Arg.toDataString(value.options.location);
+				params.push(`location=${encodeURIComponent(location)}`);
+			}
 			if (value.options?.name !== undefined) {
 				params.push(`name=${encodeURIComponent(value.options.name)}`);
 			}
@@ -676,6 +680,12 @@ export namespace Graph {
 						}
 						case "id": {
 							options.id = decodeURIComponent(value);
+							break;
+						}
+						case "location": {
+							options.location = tg.Location.Arg.fromDataString(
+								decodeURIComponent(value),
+							);
 							break;
 						}
 						case "name": {

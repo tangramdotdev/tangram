@@ -21,18 +21,44 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			return self.finish_process_local(id, arg).await;
+		let locations = self
+			.locations(arg.location.as_ref())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+
+		if let Some(local) = &locations.local {
+			if local.current
+				&& let Some(output) = self
+					.try_finish_process_local(id, arg.clone())
+					.await
+					.map_err(|source| tg::error!(!source, %id, "failed to finish the process"))?
+			{
+				return Ok(Some(output));
+			}
+
+			if let Some(output) = self
+				.try_finish_process_regions(id, arg.clone(), &local.regions)
+				.await
+				.map_err(
+					|source| tg::error!(!source, %id, "failed to finish the process in another region"),
+				)? {
+				return Ok(Some(output));
+			}
 		}
 
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			return self.finish_process_remote(id, arg, remote).await;
+		if let Some(output) = self
+			.try_finish_process_remotes(id, arg, &locations.remotes)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %id, "failed to finish the process in a remote"),
+			)? {
+			return Ok(Some(output));
 		}
 
 		Ok(None)
 	}
 
-	async fn finish_process_local(
+	async fn try_finish_process_local(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
@@ -55,8 +81,8 @@ impl Server {
 
 		// Get the process's children.
 		let connection =
-			self.sandbox_store.connection().await.map_err(|source| {
-				tg::error!(!source, "failed to get a sandbox store connection")
+			self.process_store.connection().await.map_err(|source| {
+				tg::error!(!source, "failed to get a process store connection")
 			})?;
 		let p = connection.p();
 		#[derive(Clone, db::row::Deserialize)]
@@ -90,8 +116,9 @@ impl Server {
 				async move {
 					if let Some(token) = token {
 						let arg = tg::process::cancel::Arg {
-							local: Some(true),
-							remotes: None,
+							location: Some(
+								tg::Location::Local(tg::location::Local::default()).into(),
+							),
 							token,
 						};
 						self.cancel_process(&id, arg).await.ok();
@@ -132,12 +159,12 @@ impl Server {
 			error.remove_internal_locations();
 		}
 
-		// Get a sandbox store connection.
+		// Get a process store connection.
 		let mut connection = self
-			.sandbox_store
+			.process_store
 			.write_connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 
 		// Begin a transaction.
 		let transaction = connection
@@ -245,11 +272,11 @@ impl Server {
 		// Enqueue the process for finalization.
 		let statement = formatdoc!(
 			"
-				insert into process_finalize_queue (process)
-				values ({p}1);
+				insert into process_finalize_queue (created_at, process, status)
+				values ({p}1, {p}2, {p}3);
 			"
 		);
-		let params = db::params![id.to_string()];
+		let params = db::params![now, id.to_string(), "created"];
 		transaction
 			.execute(statement.into(), params)
 			.await
@@ -302,23 +329,50 @@ impl Server {
 		Ok(Some(()))
 	}
 
-	async fn finish_process_remote(
+	async fn try_finish_process_regions(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
-		remote: String,
+		regions: &[String],
 	) -> tg::Result<Option<()>> {
-		let client = self
-			.get_remote_client(remote)
-			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the remote client"))?;
+		let mut futures = regions
+			.iter()
+			.map(|region| self.try_finish_process_region(id, arg.clone(), region))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(output))
+	}
+
+	async fn try_finish_process_region(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::finish::Arg,
+		region: &str,
+	) -> tg::Result<Option<()>> {
+		let client = self.get_region_client(region.to_owned()).await.map_err(
+			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.to_owned()),
+		});
 		let arg = tg::process::finish::Arg {
-			checksum: arg.checksum,
-			error: arg.error,
-			exit: arg.exit,
-			local: None,
-			output: arg.output,
-			remotes: None,
+			location: Some(location.into()),
+			..arg
 		};
 		match client.try_finish_process(id, arg).await {
 			Ok(Some(())) => Ok(Some(())),
@@ -335,7 +389,82 @@ impl Server {
 						)
 					})?;
 				if output.is_none_or(|output| !output.data.status.is_finished()) {
-					return Err(tg::error!(!error, %id, "failed to finish the process"));
+					return Err(
+						tg::error!(!error, region = %region, %id, "failed to finish the process"),
+					);
+				}
+				Ok(Some(()))
+			},
+		}
+	}
+
+	async fn try_finish_process_remotes(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::finish::Arg,
+		remotes: &[crate::location::Remote],
+	) -> tg::Result<Option<()>> {
+		let mut futures = remotes
+			.iter()
+			.map(|remote| self.try_finish_process_remote(id, arg.clone(), remote))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(output))
+	}
+
+	async fn try_finish_process_remote(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::finish::Arg,
+		remote: &crate::location::Remote,
+	) -> tg::Result<Option<()>> {
+		let client = self
+			.get_remote_client(remote.remote.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, remote = %remote.remote, %id, "failed to get the remote client"),
+			)?;
+		let arg = tg::process::finish::Arg {
+			location: Some(tg::location::Arg(vec![
+				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
+					regions: remote.regions.clone(),
+				}),
+			])),
+			..arg
+		};
+		match client.try_finish_process(id, arg).await {
+			Ok(Some(())) => Ok(Some(())),
+			Ok(None) => Ok(None),
+			Err(error) => {
+				let output = client
+					.try_get_process(id, tg::process::get::Arg::default())
+					.await
+					.map_err(|source| {
+						tg::error!(
+							!source,
+							%id,
+							"failed to confirm the process state after the finish request failed"
+						)
+					})?;
+				if output.is_none_or(|output| !output.data.status.is_finished()) {
+					return Err(
+						tg::error!(!error, remote = %remote.remote, %id, "failed to finish the process"),
+					);
 				}
 				Ok(Some(()))
 			},

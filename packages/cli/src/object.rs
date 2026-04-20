@@ -4,6 +4,7 @@ pub mod children;
 pub mod get;
 pub mod metadata;
 pub mod put;
+pub mod touch;
 
 /// Manage objects.
 #[derive(Clone, Debug, clap::Args)]
@@ -20,6 +21,7 @@ pub enum Command {
 	Metadata(self::metadata::Args),
 	#[command(alias = "add")]
 	Put(self::put::Args),
+	Touch(self::touch::Args),
 }
 
 impl Cli {
@@ -36,6 +38,9 @@ impl Cli {
 			},
 			Command::Put(args) => {
 				self.command_object_put(args).await?;
+			},
+			Command::Touch(args) => {
+				self.command_object_touch(args).await?;
 			},
 		}
 		Ok(())

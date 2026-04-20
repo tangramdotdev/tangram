@@ -33,7 +33,7 @@ tg push --eager --outputs --recursive $shared_process
 # Wrapper: builds the shared dependency.
 let wrapper = mktemp -d
 let wrapper_ts = [
-	$'import shared from "shared" with { local: "($shared)" };'
+	$'import shared from "shared" with { source: "($shared)" };'
 	'export default async (name) => {'
 	'	const dir = await tg.build(shared).then(tg.Directory.expect);'
 	'	return tg.directory({ [name]: dir });'
@@ -48,7 +48,7 @@ let builds = 0..<$count | each { |i|
 } | str join ", "
 let outer = mktemp -d
 let outer_ts = [
-	$'import wrap from "wrap" with { local: "($wrapper)" };'
+	$'import wrap from "wrap" with { source: "($wrapper)" };'
 	''
 	'export default async () => {'
 	('	const results = await Promise.all([' + $builds + ']);')

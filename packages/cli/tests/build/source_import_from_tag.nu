@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Test that imports with local attributes resolve correctly when building from a published tag.
+# Test that imports with source attributes resolve correctly when building from a published tag.
 # Building from a local path works, but building from a tag fails to resolve the sibling dependency.
 
 let remote = spawn --cloud -n remote
@@ -10,7 +10,7 @@ let local = spawn -n local -c {
 
 let path = artifact {
 	"main.tg.ts": '
-		import dep from "dep" with { local: "./dep.tg.ts" };
+		import dep from "dep" with { source: "./dep.tg.ts" };
 		export default () => dep();
 		export const metadata = { tag: "main/1.0.0" };
 	'

@@ -168,24 +168,29 @@ pub fn object_id(data: Serde<tg::object::Data>) -> Result<Serde<tg::object::Id>>
 pub async fn process_get(
 	ctx: qjs::Ctx<'_>,
 	id: Serde<tg::process::Id>,
-) -> Result<Serde<tg::process::Data>> {
+	arg: Option<Serde<tg::process::get::Arg>>,
+) -> Result<Serde<tg::process::get::Output>> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	let Serde(id) = id;
+	let arg = arg.map(|Serde(arg)| arg).unwrap_or_default();
 	let result = async {
-		let data = state
+		let output = state
 			.main_runtime_handle
 			.spawn({
 				let handle = state.handle.clone();
 				let id = id.clone();
 				async move {
-					let tg::process::get::Output { data, .. } = handle.get_process(&id).await?;
-					Ok::<_, tg::Error>(data)
+					let output = handle
+						.try_get_process(&id, arg)
+						.await?
+						.ok_or_else(|| tg::error!("failed to find the process"))?;
+					Ok::<_, tg::Error>(output)
 				}
 			})
 			.await
 			.map_err(|source| tg::error!(!source, "the task panicked"))?
 			.map_err(|source| tg::error!(!source, "failed to get the process"))?;
-		Ok(data)
+		Ok(output)
 	}
 	.await;
 	Result(result.map(Serde))

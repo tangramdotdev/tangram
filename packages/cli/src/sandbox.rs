@@ -62,7 +62,7 @@ pub struct Options {
 	#[clap(flatten)]
 	pub network: Network,
 
-	#[arg(id = "sandbox_ttl", long = "sandbox-ttl")]
+	#[arg(long)]
 	pub ttl: Option<u64>,
 
 	#[arg(long)]
@@ -111,19 +111,6 @@ impl Network {
 }
 
 impl Options {
-	pub fn into_arg_with_default_ttl(self, ttl: u64) -> tg::sandbox::create::Arg {
-		tg::sandbox::create::Arg {
-			cpu: self.cpu,
-			hostname: self.hostname,
-			isolation: self.isolation,
-			memory: self.memory,
-			mounts: self.mounts,
-			network: self.network.get(),
-			ttl: self.ttl.unwrap_or(ttl),
-			user: self.user,
-		}
-	}
-
 	pub fn is_empty(&self) -> bool {
 		self.cpu.is_none()
 			&& self.hostname.is_none()

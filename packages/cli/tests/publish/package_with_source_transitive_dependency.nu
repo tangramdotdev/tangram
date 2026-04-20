@@ -18,7 +18,7 @@ let shared_path = artifact {
 	},
 	dep: {
 		tangram.ts: '
-			import transitive from "test-transitive" with { local: "../transitive" };
+			import transitive from "test-transitive" with { source: "../transitive" };
 
 			export default () => `Dependency using: ${transitive()}`;
 
@@ -29,7 +29,7 @@ let shared_path = artifact {
 	},
 	main: {
 		tangram.ts: '
-			import dep from "test-dep" with { local: "../dep" };
+			import dep from "test-dep" with { source: "../dep" };
 
 			export default () => `Main package using: ${dep()}`;
 
@@ -98,15 +98,15 @@ assert equal $local_main_metadata $remote_main_metadata "Main metadata not synce
 assert equal $local_dep_metadata $remote_dep_metadata "Dependency metadata not synced between local and remote."
 assert equal $local_transitive_metadata $remote_transitive_metadata "Transitive metadata not synced between local and remote."
 
-# Verify that all published packages were re-checked in without local dependencies.
-# The main package should have tag-based dependencies, not local path dependencies.
+# Verify that all published packages were re-checked in without source dependencies.
+# The main package should have tag-based dependencies, not source dependencies.
 let main_object = tg get $main_id --blobs --depth=inf
-assert not ($main_object | str contains '"path"') "test-main should not have local path dependencies after publishing."
+assert not ($main_object | str contains '"path"') "test-main should not have source dependencies after publishing."
 
 # The dep package should also have tag-based dependencies.
 let dep_object = tg get $dep_id --blobs --depth=inf
-assert not ($dep_object | str contains '"path"') "test-dep should not have local path dependencies after publishing."
+assert not ($dep_object | str contains '"path"') "test-dep should not have source dependencies after publishing."
 
 # The transitive package has no dependencies, but verify it does not have path fields.
 let transitive_object = tg get $transitive_id --blobs --depth=inf
-assert not ($transitive_object | str contains '"path"') "test-transitive should not have local path dependencies after publishing."
+assert not ($transitive_object | str contains '"path"') "test-transitive should not have source dependencies after publishing."

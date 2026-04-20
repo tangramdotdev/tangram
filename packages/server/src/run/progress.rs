@@ -29,8 +29,10 @@ impl Server {
 			tg::process::Stdio::Log => self.write_progress_stream_to_log(process, stream).await?,
 			tg::process::Stdio::Null => self.write_progress_stream_to_null(stream).await?,
 			tg::process::Stdio::Pipe | tg::process::Stdio::Tty => {
-				let remote = process.remote().cloned();
-				self.write_progress_stream_to_tty(process.id(), remote, stream)
+				let location = process
+					.location()
+					.and_then(|location| location.to_location());
+				self.write_progress_stream_to_tty(process.id(), location, stream)
 					.await?
 			},
 			tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit => {
@@ -68,8 +70,10 @@ impl Server {
 							continue;
 						}
 						let arg = tg::process::stdio::write::Arg {
-							local: None,
-							remotes: process.remote().cloned().map(|remote| vec![remote]),
+							location: process
+								.location()
+								.and_then(|location| location.to_location())
+								.map(Into::into),
 							streams: vec![tg::process::stdio::Stream::Stderr],
 						};
 						let input = futures::stream::iter([
@@ -97,7 +101,7 @@ impl Server {
 	async fn write_progress_stream_to_tty<T: Send + 'static>(
 		&self,
 		id: &tg::process::Id,
-		remote: Option<String>,
+		location: Option<tg::Location>,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>> + Send + 'static,
 	) -> tg::Result<T> {
 		let (sender, receiver) = tokio::sync::mpsc::channel(16);
@@ -148,8 +152,7 @@ impl Server {
 		let id = id.clone();
 		let stderr_task = Task::spawn(|_| async move {
 			let arg = tg::process::stdio::write::Arg {
-				local: None,
-				remotes: remote.map(|remote| vec![remote]),
+				location: location.map(Into::into),
 				streams: vec![tg::process::stdio::Stream::Stderr],
 			};
 			let input = ReceiverStream::new(receiver)

@@ -4,7 +4,7 @@ use {
 };
 
 impl Server {
-	pub(crate) async fn delete_tag_postgres(
+	pub(crate) async fn delete_tags_postgres(
 		database: &tangram_database::postgres::Database,
 		pattern: &tg::tag::Pattern,
 		recursive: bool,

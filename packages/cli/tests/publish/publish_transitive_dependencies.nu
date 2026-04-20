@@ -8,7 +8,7 @@ let local = spawn -n local -c {
 	remotes: [{ name: default, url: $remote.url }]
 }
 
-# 1. Create a monorepo with packages A, B, C where A -> B -> C using local dependencies.
+# 1. Create a monorepo with packages A, B, C where A -> B -> C using source dependencies.
 let root = artifact {
 	packages: {
 		c: {
@@ -18,13 +18,13 @@ let root = artifact {
 		}
 		b: {
 			tangram.ts: '
-				import c from "c" with { local: "../c" };
+				import c from "c" with { source: "../c" };
 				export let metadata = { tag: "b/0" };
 			'
 		}
 		a: {
 			tangram.ts: '
-				import b from "b" with { local: "../b" };
+				import b from "b" with { source: "../b" };
 				export let metadata = { tag: "a/0" };
 			'
 		}

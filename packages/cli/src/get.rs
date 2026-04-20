@@ -9,24 +9,23 @@ pub struct Args {
 	pub bytes: bool,
 
 	#[command(flatten)]
-	pub local: crate::util::args::Local,
+	pub locations: crate::location::Args,
 
 	/// Get the metadata.
 	#[arg(long)]
 	pub metadata: bool,
 
-	#[command(flatten)]
-	pub print: crate::print::Options,
-
 	#[arg(index = 1)]
 	pub reference: tg::Reference,
 
 	#[command(flatten)]
-	pub remotes: crate::util::args::Remotes,
+	pub print: crate::print::Options,
 }
 
 impl Cli {
 	pub async fn command_get(&mut self, args: Args) -> tg::Result<()> {
+		let locations = args.locations;
+		let print = args.print;
 		let referent = self.get_reference(&args.reference).await?;
 		let referent = referent.map(|item| {
 			item.map_left(|object| object.id().clone())
@@ -37,21 +36,19 @@ impl Cli {
 			tg::Either::Left(object) => {
 				let args = crate::object::get::Args {
 					bytes: args.bytes,
-					local: args.local,
+					locations: locations.clone(),
 					metadata: args.metadata,
 					object,
-					print: args.print,
-					remotes: args.remotes,
+					print,
 				};
 				self.command_object_get(args).await?;
 			},
 			tg::Either::Right(process) => {
 				let args = crate::process::get::Args {
-					local: args.local,
+					locations,
 					metadata: args.metadata,
-					print: args.print,
+					print,
 					process,
-					remotes: args.remotes,
 				};
 				self.command_process_get(args).await?;
 			},

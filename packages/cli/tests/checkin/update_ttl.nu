@@ -44,8 +44,8 @@ let checkin_stale_lock = open $checkin_lockfile_path | from json
 let checkin_stale_tag = $checkin_stale_lock.nodes.1.dependencies."checkin/a/^1".options.tag
 assert ($checkin_stale_tag == "checkin/a/1.0.0") "without a ttl override, checkin should use the cached tag list"
 
-# Run checkin --update with --ttl 0. The fresh tag list should now use checkin/a/1.1.0.
-tg -u $local.url checkin $checkin_package_path --update checkin/a --ttl 0
+# Run checkin --update with --tag-ttl 0. The fresh tag list should now use checkin/a/1.1.0.
+tg -u $local.url checkin $checkin_package_path --update checkin/a --tag-ttl 0
 let checkin_fresh_lock = open $checkin_lockfile_path | from json
 let checkin_fresh_tag = $checkin_fresh_lock.nodes.1.dependencies."checkin/a/^1".options.tag
 assert ($checkin_fresh_tag == "checkin/a/1.1.0") "with ttl 0, checkin should bypass the cache"
@@ -88,8 +88,8 @@ let update_stale_lock = open $update_lockfile_path | from json
 let update_stale_tag = $update_stale_lock.nodes.1.dependencies."update/a/^1".options.tag
 assert ($update_stale_tag == "update/a/1.0.0") "without a ttl override, update should use the cached tag list"
 
-# Run update with --ttl 0. The fresh tag list should now use update/a/1.1.0.
-tg -u $local.url update $update_package_path --ttl 0
+# Run update with --tag-ttl 0. The fresh tag list should now use update/a/1.1.0.
+tg -u $local.url update $update_package_path --tag-ttl 0
 let update_fresh_lock = open $update_lockfile_path | from json
 let update_fresh_tag = $update_fresh_lock.nodes.1.dependencies."update/a/^1".options.tag
 assert ($update_fresh_tag == "update/a/1.1.0") "with ttl 0, update should bypass the cache"

@@ -9,16 +9,13 @@ pub struct Args {
 	pub cached: bool,
 
 	#[command(flatten)]
-	pub local: crate::util::args::Local,
+	pub locations: crate::location::Args,
 
 	#[arg(index = 1)]
 	pub pattern: tg::tag::Pattern,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
-
-	#[command(flatten)]
-	pub remotes: crate::util::args::Remotes,
 
 	/// Set the cache TTL in seconds. Use 0 to bypass the cache.
 	#[arg(long)]
@@ -31,10 +28,9 @@ impl Cli {
 		let arg = tg::tag::list::Arg {
 			cached: args.cached,
 			length: Some(1),
-			local: args.local.get(),
+			location: args.locations.get(),
 			pattern: args.pattern.clone(),
 			recursive: false,
-			remotes: args.remotes.get(),
 			reverse: true,
 			ttl: args.ttl,
 		};

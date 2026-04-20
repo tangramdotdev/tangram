@@ -9,12 +9,12 @@ use {
 impl Server {
 	pub(crate) async fn list_processes_sqlite(
 		&self,
-		sandbox_store: &db::sqlite::Database,
+		process_store: &db::sqlite::Database,
 	) -> tg::Result<Vec<tg::process::get::Output>> {
-		let connection = sandbox_store
+		let connection = process_store
 			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to get a sandbox store connection"))?;
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 
 		let outputs = connection
 			.with(move |connection, cache| Self::list_processes_sqlite_sync(connection, cache))
@@ -182,6 +182,7 @@ impl Server {
 			let output = tg::process::get::Output {
 				id: row.id,
 				data,
+				location: None,
 				metadata: None,
 			};
 			outputs.push(output);

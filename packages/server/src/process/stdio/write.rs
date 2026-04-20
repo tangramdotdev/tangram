@@ -49,22 +49,32 @@ impl Server {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
 
-		if Self::local(arg.local, arg.remotes.as_ref()) {
-			return self
-				.write_process_stdio_local(id, &arg.streams, input, stopper)
-				.await;
-		}
+		let location = self.location(arg.location.as_ref())?;
 
-		if let Some(remote) = Self::remote(arg.local, arg.remotes.as_ref())? {
-			return self
-				.write_process_stdio_remote(id, &arg.streams, input, remote)
-				.await;
-		}
+		let output = match location {
+			tg::Location::Local(tg::location::Local { region: None }) => {
+				self.try_write_process_stdio_local(id, &arg.streams, input, stopper)
+					.await?
+			},
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) => {
+				self.try_write_process_stdio_region(id, &arg.streams, input, region)
+					.await?
+			},
+			tg::Location::Remote(tg::location::Remote {
+				name: remote,
+				region,
+			}) => {
+				self.try_write_process_stdio_remote(id, &arg.streams, input, remote, region)
+					.await?
+			},
+		};
 
-		Ok(None)
+		Ok(output)
 	}
 
-	async fn write_process_stdio_local(
+	async fn try_write_process_stdio_local(
 		&self,
 		id: &tg::process::Id,
 		streams: &[tg::process::stdio::Stream],
@@ -276,15 +286,15 @@ impl Server {
 		stream: tg::process::stdio::Stream,
 		bytes: Bytes,
 	) -> tg::Result<WriteOutput> {
-		match &self.sandbox_store {
+		match &self.process_store {
 			#[cfg(feature = "postgres")]
-			Database::Postgres(sandbox_store) => {
-				self.try_write_process_stdio_postgres(sandbox_store, id, stream, bytes)
+			Database::Postgres(process_store) => {
+				self.try_write_process_stdio_postgres(process_store, id, stream, bytes)
 					.await
 			},
 			#[cfg(feature = "sqlite")]
-			Database::Sqlite(sandbox_store) => {
-				self.try_write_process_stdio_sqlite(sandbox_store, id, stream, bytes)
+			Database::Sqlite(process_store) => {
+				self.try_write_process_stdio_sqlite(process_store, id, stream, bytes)
 					.await
 			},
 		}
@@ -305,33 +315,58 @@ impl Server {
 		id: &tg::process::Id,
 		stream: tg::process::stdio::Stream,
 	) -> tg::Result<()> {
-		match &self.sandbox_store {
+		match &self.process_store {
 			#[cfg(feature = "postgres")]
-			Database::Postgres(sandbox_store) => {
-				self.try_close_process_stdio_postgres(sandbox_store, id, stream)
+			Database::Postgres(process_store) => {
+				self.try_close_process_stdio_postgres(process_store, id, stream)
 					.await
 			},
 			#[cfg(feature = "sqlite")]
-			Database::Sqlite(sandbox_store) => {
-				self.try_close_process_stdio_sqlite(sandbox_store, id, stream)
+			Database::Sqlite(process_store) => {
+				self.try_close_process_stdio_sqlite(process_store, id, stream)
 					.await
 			},
 		}
 	}
 
-	async fn write_process_stdio_remote(
+	async fn try_write_process_stdio_region(
+		&self,
+		id: &tg::process::Id,
+		streams: &[tg::process::stdio::Stream],
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
+		region: String,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>> {
+		let client = self.get_region_client(region.clone()).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
+		let arg = tg::process::stdio::write::Arg {
+			location: Some(location.into()),
+			streams: streams.to_vec(),
+		};
+		let stream = client
+			.try_write_process_stdio(id, arg, input)
+			.await
+			.map_err(|source| tg::error!(!source, region = %region, "failed to write stdio"))?;
+		Ok(stream.map(futures::StreamExt::boxed))
+	}
+
+	async fn try_write_process_stdio_remote(
 		&self,
 		id: &tg::process::Id,
 		streams: &[tg::process::stdio::Stream],
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 		remote: String,
+		region: Option<String>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>> {
 		let client = self.get_remote_client(remote.clone()).await.map_err(
 			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::process::stdio::write::Arg {
+			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			streams: streams.to_vec(),
-			..Default::default()
 		};
 		let stream = client
 			.try_write_process_stdio(id, arg, input)

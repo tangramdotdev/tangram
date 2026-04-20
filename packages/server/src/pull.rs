@@ -24,15 +24,19 @@ impl Server {
 			return Ok(stream.boxed());
 		}
 
-		let remote = arg.remote.clone().unwrap_or_else(|| "default".to_owned());
-		let remote = self
-			.get_remote_client(remote)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
-		Self::push_or_pull(&remote, self, &arg)
-			.await
-			.map(futures::StreamExt::boxed)
-			.map_err(|source| tg::error!(!source, "failed to start the pull"))
+		let source = arg.source.clone().unwrap_or_else(|| {
+			tg::Location::Remote(tg::location::Remote {
+				name: "default".to_owned(),
+				region: None,
+			})
+		});
+		let destination = arg
+			.destination
+			.clone()
+			.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
+		let arg: tg::push::Arg = arg.clone().into();
+		let stream = self.push_or_pull(&arg, source, destination).await?;
+		Ok(stream.boxed())
 	}
 
 	async fn pull_items_stored(&self, arg: &tg::pull::Arg) -> tg::Result<bool> {

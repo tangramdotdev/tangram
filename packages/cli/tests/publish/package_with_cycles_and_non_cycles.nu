@@ -42,8 +42,8 @@ let shared_path = artifact {
 	},
 	independent: {
 		tangram.ts: '
-			import leaf1 from "test-leaf1" with { local: "../leaf1" };
-			import leaf2 from "test-leaf2" with { local: "../leaf2" };
+			import leaf1 from "test-leaf1" with { source: "../leaf1" };
+			import leaf2 from "test-leaf2" with { source: "../leaf2" };
 			export default () => `Independent using: ${leaf1()} and ${leaf2()}`;
 			export let metadata = {
 				tag: "test-independent/1.0.0",
@@ -52,8 +52,8 @@ let shared_path = artifact {
 	},
 	cycle-a: {
 		tangram.ts: '
-			import cycleB from "test-cycle-b" with { local: "../cycle-b" };
-			import leaf1 from "test-leaf1" with { local: "../leaf1" };
+			import cycleB from "test-cycle-b" with { source: "../cycle-b" };
+			import leaf1 from "test-leaf1" with { source: "../leaf1" };
 			export default () => `Cycle A using: ${cycleB()} and ${leaf1()}`;
 			export let greeting = () => "Hello from Cycle A";
 			export let metadata = {
@@ -63,8 +63,8 @@ let shared_path = artifact {
 	},
 	cycle-b: {
 		tangram.ts: '
-			import * as cycleA from "test-cycle-a" with { local: "../cycle-a" };
-			import leaf2 from "test-leaf2" with { local: "../leaf2" };
+			import * as cycleA from "test-cycle-a" with { source: "../cycle-a" };
+			import leaf2 from "test-leaf2" with { source: "../leaf2" };
 			export default () => `Cycle B using: ${cycleA.greeting()} and ${leaf2()}`;
 			export let metadata = {
 				tag: "test-cycle-b/1.0.0",
@@ -73,8 +73,8 @@ let shared_path = artifact {
 	},
 	main: {
 		tangram.ts: '
-			import cycleA from "test-cycle-a" with { local: "../cycle-a" };
-			import independent from "test-independent" with { local: "../independent" };
+			import cycleA from "test-cycle-a" with { source: "../cycle-a" };
+			import independent from "test-independent" with { source: "../independent" };
 			export default () => `Main using: ${cycleA()} and ${independent()}`;
 			export let metadata = {
 				tag: "test-main/1.0.0",

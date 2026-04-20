@@ -22,7 +22,7 @@ impl Server {
 		if let Some(fields) = fields {
 			for field in fields {
 				match field.as_str() {
-					"database" | "diagnostics" | "pipes" | "processes" | "ttys" | "version" => (),
+					"database" | "diagnostics" | "processes" | "version" => (),
 					_ => return Err(tg::error!(%field, "invalid health field")),
 				}
 			}
@@ -34,15 +34,13 @@ impl Server {
 		};
 		let include_database = include_field("database");
 		let include_diagnostics = include_field("diagnostics");
-		let _include_pipes = include_field("pipes");
 		let include_processes = include_field("processes");
-		let _include_ttys = include_field("ttys");
 		let include_version = include_field("version");
 
 		let processes = if include_processes {
-			// Get a sandbox store connection.
-			let connection = self.sandbox_store.connection().await.map_err(|source| {
-				tg::error!(!source, "failed to get a sandbox store connection")
+			// Get a process store connection.
+			let connection = self.process_store.connection().await.map_err(|source| {
+				tg::error!(!source, "failed to get a process store connection")
 			})?;
 
 			// Get the process health.
@@ -87,7 +85,7 @@ impl Server {
 					database.read_pool().available().to_u64().unwrap()
 						+ database.write_pool().available().to_u64().unwrap()
 				},
-			} + match &self.sandbox_store {
+			} + match &self.process_store {
 				#[cfg(feature = "postgres")]
 				Database::Postgres(database) => database.pool().available().to_u64().unwrap(),
 				#[cfg(feature = "sqlite")]

@@ -19,25 +19,43 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::tty::size::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::tty::size::get::Event>>>> {
-		// Try local first if requested.
-		if Self::local(arg.local, arg.remotes.as_ref())
-			&& let Some(stream) = self
-				.try_get_process_tty_size_stream_local(id)
+		let locations = self
+			.locations(arg.location.as_ref())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+
+		if let Some(local) = &locations.local {
+			if local.current
+				&& let Some(stream) = self
+					.try_get_process_tty_size_stream_local(id)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the process tty stream"))?
+			{
+				return Ok(Some(stream));
+			}
+
+			if let Some(stream) = self
+				.try_get_process_tty_size_stream_regions(id, &local.regions)
 				.await
-				.map_err(|source| tg::error!(!source, "failed to get the process tty stream"))?
-		{
-			return Ok(Some(stream));
+				.map_err(|source| {
+					tg::error!(
+						!source,
+						"failed to get the process tty stream from another region"
+					)
+				})? {
+				return Ok(Some(stream));
+			}
 		}
 
-		// Try remotes.
-		let remotes = self
-			.remotes(arg.local, arg.remotes.clone())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the remotes"))?;
 		if let Some(stream) = self
-			.try_get_process_tty_size_stream_remote(id, arg.clone(), &remotes)
-			.await?
-		{
+			.try_get_process_tty_size_stream_remotes(id, &locations.remotes)
+			.await
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					"failed to get the process tty stream from a remote"
+				)
+			})? {
 			return Ok(Some(stream));
 		}
 
@@ -76,48 +94,14 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	async fn try_get_process_tty_size_stream_remote(
+	async fn try_get_process_tty_size_stream_regions(
 		&self,
 		id: &tg::process::Id,
-		_arg: tg::process::tty::size::get::Arg,
-		remotes: &[String],
+		regions: &[String],
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::tty::size::get::Event>>>> {
-		if remotes.is_empty() {
-			return Ok(None);
-		}
-		let arg = tg::process::tty::size::get::Arg {
-			local: None,
-			remotes: None,
-		};
-		let mut futures = remotes
+		let mut futures = regions
 			.iter()
-			.map(|remote| {
-				let remote = remote.clone();
-				let arg = arg.clone();
-				async move {
-					let client =
-						self.get_remote_client(remote.clone())
-							.await
-							.map_err(|source| {
-								tg::error!(
-									!source,
-									remote = %remote,
-									"failed to get the remote client"
-								)
-							})?;
-					client
-						.try_get_process_tty_size_stream(id, arg)
-						.await
-						.map_err(|source| {
-							tg::error!(
-								!source,
-								remote = %remote,
-								"failed to get the process tty stream"
-							)
-						})
-						.map(|stream| stream.map(futures::StreamExt::boxed))
-				}
-			})
+			.map(|region| self.try_get_process_tty_size_stream_region(id, region))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -136,6 +120,90 @@ impl Server {
 			return Ok(None);
 		};
 		Ok(Some(stream))
+	}
+
+	async fn try_get_process_tty_size_stream_region(
+		&self,
+		id: &tg::process::Id,
+		region: &str,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::tty::size::get::Event>>>> {
+		let client = self.get_region_client(region.to_owned()).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.to_owned()),
+		});
+		let arg = tg::process::tty::size::get::Arg {
+			location: Some(location.into()),
+		};
+		let Some(stream) = client
+			.try_get_process_tty_size_stream(id, arg)
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the process tty stream"),
+			)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(stream.boxed()))
+	}
+
+	async fn try_get_process_tty_size_stream_remotes(
+		&self,
+		id: &tg::process::Id,
+		remotes: &[crate::location::Remote],
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::tty::size::get::Event>>>> {
+		let mut futures = remotes
+			.iter()
+			.map(|remote| self.try_get_process_tty_size_stream_remote(id, remote))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(stream)) => {
+					result = Ok(Some(stream));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => {
+					result = Err(source);
+				},
+			}
+		}
+		let Some(stream) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(stream))
+	}
+
+	async fn try_get_process_tty_size_stream_remote(
+		&self,
+		id: &tg::process::Id,
+		remote: &crate::location::Remote,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::tty::size::get::Event>>>> {
+		let client = self
+			.get_remote_client(remote.remote.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, remote = %remote.remote, "failed to get the remote client"),
+			)?;
+		let arg = tg::process::tty::size::get::Arg {
+			location: Some(tg::location::Arg(vec![
+				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
+					regions: remote.regions.clone(),
+				}),
+			])),
+		};
+		let Some(stream) = client
+			.try_get_process_tty_size_stream(id, arg)
+			.await
+			.map_err(
+				|source| tg::error!(!source, remote = %remote.remote, "failed to get the process tty stream"),
+			)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(stream.boxed()))
 	}
 
 	pub(crate) async fn handle_get_process_tty_size_request(

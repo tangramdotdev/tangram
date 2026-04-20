@@ -50,7 +50,7 @@ snapshot -n metadata $metadata '
 
 # Push to push and verify metadata matches.
 tg -u $local.url remote put push $remote.url
-tg -u $local.url push --remote push $id
+tg -u $local.url push --remote=push $id
 tg -u $remote.url tag dep $dep_path
 tg -u $remote.url index
 let remote_metadata = tg -u $remote.url object metadata --pretty $id

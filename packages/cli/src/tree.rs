@@ -1,6 +1,6 @@
 use {crate::Cli, tangram_client::prelude::*};
 
-/// Display a tree for a process or an object.
+/// Display a tree for an object or a process.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {

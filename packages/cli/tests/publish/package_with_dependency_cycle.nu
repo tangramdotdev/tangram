@@ -9,7 +9,7 @@ let local = spawn -n local -c {
 let shared_path = artifact {
 	a: {
 		tangram.ts: '
-			import b from "test-b" with { local: "../b" };
+			import b from "test-b" with { source: "../b" };
 			export default () => `A using: ${b()}`;
 			export let greeting = () => "Hello from A";
 			export let metadata = {
@@ -19,7 +19,7 @@ let shared_path = artifact {
 	},
 	b: {
 		tangram.ts: '
-			import * as a from "test-a" with { local: "../a" };
+			import * as a from "test-a" with { source: "../a" };
 			export default () => `B using: ${a.greeting()}`;
 			export let metadata = {
 				tag: "test-b/1.0.0",

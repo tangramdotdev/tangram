@@ -129,7 +129,7 @@ impl Server {
 			.into_iter()
 			.map(|m| tg::tag::list::Entry {
 				item: m.item,
-				remote: None,
+				location: None,
 				tag: m.tag,
 			})
 			.collect();
