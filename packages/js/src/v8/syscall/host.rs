@@ -48,6 +48,15 @@ pub fn is_tty(
 	Ok(crate::host::Host::is_tty(fd))
 }
 
+pub fn is_foreground_controlling_tty(
+	_state: Rc<State>,
+	_scope: &mut v8::PinScope<'_, '_>,
+	args: (i32,),
+) -> tg::Result<bool> {
+	let (fd,) = args;
+	Ok(crate::host::Host::is_foreground_controlling_tty(fd))
+}
+
 pub async fn listen_signal_close(state: Rc<State>, args: (usize,)) -> tg::Result<()> {
 	let (token,) = args;
 	state.host.listen_signal_close(token).await;

@@ -90,6 +90,9 @@ pub fn syscall<'js>(
 		"host_exists" => qjs::Function::new(ctx.clone(), Async(self::host::exists)),
 		"host_get_tty_size" => qjs::Function::new(ctx.clone(), self::host::get_tty_size),
 		"host_get_xattr" => qjs::Function::new(ctx.clone(), Async(self::host::getxattr)),
+		"host_is_foreground_controlling_tty" => {
+			qjs::Function::new(ctx.clone(), self::host::is_foreground_controlling_tty)
+		},
 		"host_is_tty" => qjs::Function::new(ctx.clone(), self::host::is_tty),
 		"host_magic" => qjs::Function::new(ctx.clone(), self::host::magic),
 		"host_mkdtemp" => qjs::Function::new(ctx.clone(), Async(self::host::mkdtemp)),

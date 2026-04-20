@@ -131,13 +131,14 @@ def main [
 				TANGRAM_TEST_CLOUD: (if $cloud { "1" } else { "" }),
 				TMPDIR: $temp_path,
 			} {
+				let command = $'$env.config.display_errors.exit_code = true; source ($test.path)';
 				if $no_capture {
 					try {
-						open /dev/null | timeout $timeout nu -c $'$env.config.display_errors.exit_code = true; source ($test.path)' o+e> /dev/tty
+						open /dev/null | timeout $timeout nu -c $command
 					}
 					{ exit_code: $env.LAST_EXIT_CODE, stdout: '', stderr: '' }
 				} else {
-					open /dev/null | timeout $timeout nu -c $'$env.config.display_errors.exit_code = true; source ($test.path)' o+e>| complete
+					open /dev/null | timeout $timeout nu -c $command | complete
 				}
 			}
 			let end = date now

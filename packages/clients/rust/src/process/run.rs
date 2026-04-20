@@ -1,4 +1,4 @@
-use {crate::prelude::*, std::io::IsTerminal as _};
+use crate::prelude::*;
 
 pub async fn run(arg: tg::process::Arg) -> tg::Result<tg::Value> {
 	let handle = tg::handle()?;
@@ -106,7 +106,8 @@ impl<O> tg::Process<O> {
 		};
 		let process = tg::Process::<O>::spawn_with_progress_with_handle(handle, arg, |stream| {
 			let writer = std::io::stderr();
-			let is_tty = progress && writer.is_terminal();
+			let is_tty =
+				progress && tangram_util::tty::is_foreground_controlling_tty(libc::STDERR_FILENO);
 			tg::progress::write_progress_stream(handle, stream, writer, is_tty)
 		})
 		.await

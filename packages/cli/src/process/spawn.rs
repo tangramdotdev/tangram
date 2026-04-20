@@ -608,25 +608,11 @@ impl Cli {
 		// Get the tty.
 		let tty = match (options.tty.tty.clone(), options.tty.no_tty) {
 			(Some(tg::Either::Left(true)), _) => {
-				let tty = std::fs::OpenOptions::new()
-					.read(true)
-					.write(true)
-					.open("/dev/tty")
-					.ok();
-				let tty_fd = tty.as_ref().map(std::os::fd::AsRawFd::as_raw_fd);
-				let size = if let Some(fd) = tty_fd {
-					let mut size = unsafe { std::mem::zeroed::<libc::winsize>() };
-					if unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, &mut size) } < 0
-						|| size.ws_col == 0
-						|| size.ws_row == 0
-					{
-						None
-					} else {
-						Some(tg::process::tty::Size {
-							rows: size.ws_row,
-							cols: size.ws_col,
-						})
-					}
+				let size = if let Some(size) = tangram_util::tty::get_controlling_tty_size() {
+					Some(tg::process::tty::Size {
+						rows: size.rows,
+						cols: size.cols,
+					})
 				} else {
 					ct::terminal::size().ok().and_then(|(cols, rows)| {
 						(cols != 0 && rows != 0).then_some(tg::process::tty::Size { rows, cols })

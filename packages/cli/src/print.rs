@@ -1,7 +1,7 @@
 use {
 	crate::Cli,
 	anstream::{eprintln, println},
-	crossterm::{style::Stylize, tty::IsTty as _},
+	crossterm::style::Stylize,
 	futures::{Stream, TryStreamExt as _},
 	std::pin::pin,
 	tangram_client::prelude::*,
@@ -62,7 +62,8 @@ impl Cli {
 	{
 		let handle = self.handle().await?;
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
-		let pretty = options.pretty || stdout.get_ref().is_tty();
+		let pretty =
+			options.pretty || tangram_util::tty::is_foreground_controlling_tty(libc::STDOUT_FILENO);
 		stdout
 			.write_all(b"[")
 			.await
@@ -99,7 +100,7 @@ impl Cli {
 				indent,
 			)
 			.await?;
-			if stdout.get_ref().is_tty() {
+			if tangram_util::tty::is_foreground_controlling_tty(libc::STDOUT_FILENO) {
 				stdout
 					.flush()
 					.await
@@ -161,7 +162,8 @@ impl Cli {
 		};
 		let blobs = options.blobs;
 		value.load_with_handle(handle, arg, depth, blobs).await?;
-		let pretty = options.pretty || stdout.get_ref().is_tty();
+		let pretty =
+			options.pretty || tangram_util::tty::is_foreground_controlling_tty(libc::STDOUT_FILENO);
 		let style = if pretty {
 			tg::value::print::Style::Pretty {
 				indentation: INDENTATION,

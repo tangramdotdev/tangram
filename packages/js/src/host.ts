@@ -25,6 +25,10 @@ export let host: tg.Host = {
 		return syscall("host_get_xattr", path, name);
 	},
 
+	isForegroundControllingTty(fd: number): boolean {
+		return syscall("host_is_foreground_controlling_tty", fd);
+	},
+
 	isTty(fd: number): boolean {
 		return syscall("host_is_tty", fd);
 	},

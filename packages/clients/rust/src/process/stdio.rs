@@ -207,32 +207,33 @@ where
 		return Ok(());
 	}
 	#[cfg(unix)]
-	let _raw_mode_guard = if raw {
-		let fd = libc::STDIN_FILENO;
-		let mut original = std::mem::MaybeUninit::<libc::termios>::uninit();
-		if unsafe { libc::tcgetattr(fd, original.as_mut_ptr()) } != 0 {
-			return Err(tg::error!(
-				source = std::io::Error::last_os_error(),
-				"failed to get stdin termios"
-			));
-		}
-		let original = unsafe { original.assume_init() };
-		let mut raw = original;
-		unsafe {
-			libc::cfmakeraw(std::ptr::addr_of_mut!(raw));
-		}
-		if unsafe { libc::tcsetattr(fd, libc::TCSAFLUSH, std::ptr::addr_of!(raw)) } != 0 {
-			return Err(tg::error!(
-				source = std::io::Error::last_os_error(),
-				"failed to set stdin raw mode"
-			));
-		}
-		Some(scopeguard::guard(original, move |original| unsafe {
-			libc::tcsetattr(fd, libc::TCSAFLUSH, std::ptr::addr_of!(original));
-		}))
-	} else {
-		None
-	};
+	let _raw_mode_guard =
+		if raw && tangram_util::tty::is_foreground_controlling_tty(libc::STDIN_FILENO) {
+			let fd = libc::STDIN_FILENO;
+			let mut original = std::mem::MaybeUninit::<libc::termios>::uninit();
+			if unsafe { libc::tcgetattr(fd, original.as_mut_ptr()) } != 0 {
+				return Err(tg::error!(
+					source = std::io::Error::last_os_error(),
+					"failed to get stdin termios"
+				));
+			}
+			let original = unsafe { original.assume_init() };
+			let mut raw = original;
+			unsafe {
+				libc::cfmakeraw(std::ptr::addr_of_mut!(raw));
+			}
+			if unsafe { libc::tcsetattr(fd, libc::TCSAFLUSH, std::ptr::addr_of!(raw)) } != 0 {
+				return Err(tg::error!(
+					source = std::io::Error::last_os_error(),
+					"failed to set stdin raw mode"
+				));
+			}
+			Some(scopeguard::guard(original, move |original| unsafe {
+				libc::tcsetattr(fd, libc::TCSAFLUSH, std::ptr::addr_of!(original));
+			}))
+		} else {
+			None
+		};
 	#[cfg(not(unix))]
 	let _ = raw;
 	let arg = tg::process::stdio::write::Arg {
@@ -343,9 +344,12 @@ where
 	let mut signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::window_change())
 		.map_err(|source| tg::error!(!source, "failed to create signal handler"))?;
 	while let Some(()) = signal.recv().await {
+		let Some(size) = get_tty_size() else {
+			continue;
+		};
 		let arg = tg::process::tty::size::put::Arg {
-			size: get_tty_size().ok_or_else(|| tg::error!("failed to get the tty size"))?,
 			location: location.clone().map(Into::into),
+			size,
 		};
 		handle
 			.set_process_tty_size(&id, arg)
@@ -356,26 +360,9 @@ where
 }
 
 pub(super) fn get_tty_size() -> Option<tg::process::tty::Size> {
-	let tty = std::fs::OpenOptions::new()
-		.read(true)
-		.write(true)
-		.open("/dev/tty")
-		.ok();
-	let tty_fd = tty.as_ref().map(std::os::fd::AsRawFd::as_raw_fd);
-	if let Some(fd) = tty_fd {
-		let mut size = unsafe { std::mem::zeroed::<libc::winsize>() };
-		if unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, &mut size) } < 0
-			|| size.ws_col == 0
-			|| size.ws_row == 0
-		{
-			None
-		} else {
-			Some(tg::process::tty::Size {
-				rows: size.ws_row,
-				cols: size.ws_col,
-			})
-		}
-	} else {
-		None
-	}
+	let size = tangram_util::tty::get_controlling_tty_size()?;
+	Some(tg::process::tty::Size {
+		rows: size.rows,
+		cols: size.cols,
+	})
 }

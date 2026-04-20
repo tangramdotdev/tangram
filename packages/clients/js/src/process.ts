@@ -523,6 +523,32 @@ export class Process<O extends tg.Value = tg.Value> {
 		let provideStderr = arg.stderr === "pipe" || arg.stderr === "tty";
 		let provideStdin = arg.stdin === "pipe" || arg.stdin === "tty";
 		let provideStdout = arg.stdout === "pipe" || arg.stdout === "tty";
+		let stdinIsTty = tg.host.isTty(0);
+		let stdinIsForegroundControllingTty = tg.host.isForegroundControllingTty(0);
+		let stdoutIsForegroundControllingTty =
+			tg.host.isForegroundControllingTty(1);
+		let stderrIsForegroundControllingTty =
+			tg.host.isForegroundControllingTty(2);
+		let hasForegroundTty =
+			stdinIsForegroundControllingTty ||
+			stdoutIsForegroundControllingTty ||
+			stderrIsForegroundControllingTty;
+		let resolveInheritedStdio = (
+			stdio: string | undefined,
+			foregroundTty: boolean,
+			background: "pipe" | "null",
+		): { local: "pipe" | "tty" | undefined; spawn: tg.Process.Stdio } => {
+			let original = (stdio ?? "inherit") as tg.Process.Stdio;
+			if (original !== "inherit") {
+				return { local: undefined, spawn: original };
+			}
+			let spawn: tg.Process.Stdio =
+				!noTty && foregroundTty ? "tty" : background;
+			return {
+				local: spawn === "null" ? undefined : (spawn as "pipe" | "tty"),
+				spawn,
+			};
+		};
 		let tty: tg.Process.Tty | undefined;
 		if (arg.tty === true) {
 			let size = tg.host.getTtySize();
@@ -532,36 +558,36 @@ export class Process<O extends tg.Value = tg.Value> {
 		} else if (arg.tty !== undefined && arg.tty !== false) {
 			tty = arg.tty;
 		}
-		let stdin: "pipe" | "tty" | undefined =
-			(arg.stdin ?? "inherit") === "inherit"
-				? !noTty && tg.host.isTty(0)
-					? "tty"
-					: "pipe"
-				: undefined;
-		let stdout: "pipe" | "tty" | undefined =
-			(arg.stdout ?? "inherit") === "inherit"
-				? !noTty && tg.host.isTty(1)
-					? "tty"
-					: "pipe"
-				: undefined;
-		let stderr: "pipe" | "tty" | undefined =
-			(arg.stderr ?? "inherit") === "inherit"
-				? !noTty && tg.host.isTty(2)
-					? "tty"
-					: "pipe"
-				: undefined;
+		let { local: stdin, spawn: spawnStdin } = resolveInheritedStdio(
+			arg.stdin,
+			stdinIsForegroundControllingTty,
+			stdinIsTty ? "null" : "pipe",
+		);
+		let { local: stdout, spawn: spawnStdout } = resolveInheritedStdio(
+			arg.stdout,
+			stdoutIsForegroundControllingTty,
+			"pipe",
+		);
+		let { local: stderr, spawn: spawnStderr } = resolveInheritedStdio(
+			arg.stderr,
+			stderrIsForegroundControllingTty,
+			"pipe",
+		);
 		if (
 			tty === undefined &&
-			(stdin === "tty" || stdout === "tty" || stderr === "tty")
+			(spawnStdin === "tty" || spawnStdout === "tty" || spawnStderr === "tty")
 		) {
 			let size = tg.host.getTtySize();
 			if (size !== undefined) {
 				tty = { size };
 			}
 		}
+		let localTty = tty !== undefined && hasForegroundTty;
 		if (
 			tty !== undefined &&
-			(stdin !== undefined || stdout !== undefined || stderr !== undefined) &&
+			(spawnStdin === "tty" ||
+				spawnStdout === "tty" ||
+				spawnStderr === "tty") &&
 			(tg.process.env.COLORTERM !== undefined ||
 				tg.process.env.TERM !== undefined)
 		) {
@@ -589,9 +615,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		let output = await tg.handle.spawnProcess({
 			...arg,
 			retry: arg.retry ?? false,
-			stderr: stderr ?? arg.stderr ?? "inherit",
-			stdin: stdin ?? arg.stdin ?? "inherit",
-			stdout: stdout ?? arg.stdout ?? "inherit",
+			stderr: spawnStderr ?? "inherit",
+			stdin: spawnStdin ?? "inherit",
+			stdout: spawnStdout ?? "inherit",
 			tty,
 		});
 		let wait =
@@ -606,15 +632,8 @@ export class Process<O extends tg.Value = tg.Value> {
 			stdin !== undefined ||
 			stdout !== undefined ||
 			stderr !== undefined ||
-			tty !== undefined
-				? stdioTask(
-						output.process,
-						location,
-						stdin,
-						stdout,
-						stderr,
-						tty !== undefined,
-					)
+			localTty
+				? stdioTask(output.process, location, stdin, stdout, stderr, localTty)
 				: undefined;
 		let process = new tg.Process<O>({
 			id: output.process,
@@ -1897,7 +1916,7 @@ async function stdinTask(
 	stopper: tg.Host.Stopper,
 ): Promise<void> {
 	let error: unknown;
-	let raw = stdin === "tty";
+	let raw = stdin === "tty" && tg.host.isForegroundControllingTty(0);
 	if (raw) {
 		await tg.host.enableRawMode(0);
 	}
@@ -1988,7 +2007,7 @@ async function sigwinchTask(
 	for await (let _ of signalListener) {
 		let size = tg.host.getTtySize();
 		if (size === undefined) {
-			throw new Error("failed to get the tty size");
+			continue;
 		}
 		await tg.handle.setProcessTtySize(id, {
 			location,

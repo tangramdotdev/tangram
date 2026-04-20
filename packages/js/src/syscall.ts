@@ -229,6 +229,8 @@ declare global {
 		name: string,
 	): Promise<Uint8Array | undefined>;
 
+	function syscall(syscall: "host_is_foreground_controlling_tty", fd: number): boolean;
+
 	function syscall(syscall: "host_is_tty", fd: number): boolean;
 
 	function syscall(

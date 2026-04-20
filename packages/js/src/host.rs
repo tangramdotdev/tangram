@@ -3,7 +3,6 @@ use {
 	dashmap::{DashMap, mapref::entry::Entry},
 	std::{
 		collections::BTreeMap,
-		fs::OpenOptions,
 		future::Future,
 		os::{
 			fd::{AsRawFd, FromRawFd, OwnedFd},
@@ -99,12 +98,9 @@ impl Host {
 	}
 
 	pub async fn disable_raw_mode(&self, fd: i32) -> tg::Result<()> {
-		let original = self
-			.0
-			.termios
-			.remove(&fd)
-			.map(|(_, original)| original)
-			.ok_or_else(|| tg::error!(%fd, "failed to find the file descriptor raw mode"))?;
+		let Some((_, original)) = self.0.termios.remove(&fd) else {
+			return Ok(());
+		};
 		if let Err(error) = set_termios(fd, &original) {
 			self.0.termios.insert(fd, original);
 			return Err(error);
@@ -113,6 +109,10 @@ impl Host {
 	}
 
 	pub async fn enable_raw_mode(&self, fd: i32) -> tg::Result<()> {
+		if !tangram_util::tty::is_foreground_controlling_tty(fd) {
+			return Ok(());
+		}
+
 		match self.0.termios.entry(fd) {
 			Entry::Occupied(_) => Ok(()),
 			Entry::Vacant(entry) => {
@@ -134,22 +134,10 @@ impl Host {
 	}
 
 	pub fn get_tty_size() -> Option<tg::process::tty::Size> {
-		let tty = OpenOptions::new()
-			.read(true)
-			.write(true)
-			.open("/dev/tty")
-			.ok();
-		let fd = tty.as_ref().map(std::os::fd::AsRawFd::as_raw_fd)?;
-		let mut size = unsafe { std::mem::zeroed::<libc::winsize>() };
-		if unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, &mut size) } < 0
-			|| size.ws_col == 0
-			|| size.ws_row == 0
-		{
-			return None;
-		}
+		let size = tangram_util::tty::get_controlling_tty_size()?;
 		Some(tg::process::tty::Size {
-			cols: size.ws_col,
-			rows: size.ws_row,
+			cols: size.cols,
+			rows: size.rows,
 		})
 	}
 
@@ -168,7 +156,11 @@ impl Host {
 	}
 
 	pub fn is_tty(fd: i32) -> bool {
-		unsafe { libc::isatty(fd) == 1 }
+		tangram_util::tty::is_tty(fd)
+	}
+
+	pub fn is_foreground_controlling_tty(fd: i32) -> bool {
+		tangram_util::tty::is_foreground_controlling_tty(fd)
 	}
 
 	pub async fn listen_signal_close(&self, token: usize) {

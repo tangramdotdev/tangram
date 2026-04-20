@@ -46,6 +46,10 @@ pub fn is_tty(_ctx: qjs::Ctx<'_>, fd: i32) -> Result<bool> {
 	Result(Ok(crate::host::Host::is_tty(fd)))
 }
 
+pub fn is_foreground_controlling_tty(_ctx: qjs::Ctx<'_>, fd: i32) -> Result<bool> {
+	Result(Ok(crate::host::Host::is_foreground_controlling_tty(fd)))
+}
+
 pub async fn listen_signal_close(ctx: qjs::Ctx<'_>, token: usize) -> Result<()> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	state.host.listen_signal_close(token).await;

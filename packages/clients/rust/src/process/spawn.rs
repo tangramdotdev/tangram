@@ -8,7 +8,6 @@ use {
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		future::Future,
-		io::IsTerminal as _,
 		os::unix::process::ExitStatusExt as _,
 		path::{Path, PathBuf},
 		sync::{Arc, Mutex, RwLock},
@@ -156,7 +155,32 @@ impl<O: 'static> tg::Process<O> {
 			tg::process::Stdio::Pipe | tg::process::Stdio::Tty
 		);
 		let no_tty = matches!(arg.tty, Some(tg::Either::Left(false)));
-		let raw = sandboxed && arg.stdin.is_inherit() && !no_tty && std::io::stdin().is_terminal();
+		let stdin_is_tty = tangram_util::tty::is_tty(libc::STDIN_FILENO);
+		let stdin_is_foreground_controlling_tty =
+			tangram_util::tty::is_foreground_controlling_tty(libc::STDIN_FILENO);
+		let stdout_is_foreground_controlling_tty =
+			tangram_util::tty::is_foreground_controlling_tty(libc::STDOUT_FILENO);
+		let stderr_is_foreground_controlling_tty =
+			tangram_util::tty::is_foreground_controlling_tty(libc::STDERR_FILENO);
+		let resolve_inherited_stdio =
+			|stdio: &mut tg::process::Stdio,
+			 foreground_tty: bool,
+			 background: tg::process::Stdio| {
+				if !sandboxed || !stdio.is_inherit() {
+					return None;
+				}
+				let resolved = if !no_tty && foreground_tty {
+					tg::process::Stdio::Tty
+				} else {
+					background
+				};
+				*stdio = resolved.clone();
+				match resolved {
+					tg::process::Stdio::Pipe | tg::process::Stdio::Tty => Some(resolved),
+					tg::process::Stdio::Null => None,
+					_ => unreachable!(),
+				}
+			};
 		let mut tty = match arg.tty.take() {
 			Some(tg::Either::Left(true)) => {
 				super::stdio::get_tty_size().map(|size| tg::process::Tty { size })
@@ -164,39 +188,26 @@ impl<O: 'static> tg::Process<O> {
 			Some(tg::Either::Right(tty)) => Some(tty),
 			_ => None,
 		};
-		let stdin = if sandboxed && arg.stdin.is_inherit() {
-			let stdin = if raw {
-				tg::process::Stdio::Tty
+		let stdin = resolve_inherited_stdio(
+			&mut arg.stdin,
+			stdin_is_foreground_controlling_tty,
+			if stdin_is_tty {
+				tg::process::Stdio::Null
 			} else {
 				tg::process::Stdio::Pipe
-			};
-			arg.stdin = stdin.clone();
-			Some(stdin)
-		} else {
-			None
-		};
-		let stdout = if sandboxed && arg.stdout.is_inherit() {
-			let stdout = if !no_tty && std::io::stdout().is_terminal() {
-				tg::process::Stdio::Tty
-			} else {
-				tg::process::Stdio::Pipe
-			};
-			arg.stdout = stdout.clone();
-			Some(stdout)
-		} else {
-			None
-		};
-		let stderr = if sandboxed && arg.stderr.is_inherit() {
-			let stderr = if !no_tty && std::io::stderr().is_terminal() {
-				tg::process::Stdio::Tty
-			} else {
-				tg::process::Stdio::Pipe
-			};
-			arg.stderr = stderr.clone();
-			Some(stderr)
-		} else {
-			None
-		};
+			},
+		);
+		let stdout = resolve_inherited_stdio(
+			&mut arg.stdout,
+			stdout_is_foreground_controlling_tty,
+			tg::process::Stdio::Pipe,
+		);
+		let stderr = resolve_inherited_stdio(
+			&mut arg.stderr,
+			stderr_is_foreground_controlling_tty,
+			tg::process::Stdio::Pipe,
+		);
+		let raw = matches!(stdin, Some(tg::process::Stdio::Tty));
 		if tty.is_none()
 			&& (stdin.as_ref().is_some_and(tg::process::Stdio::is_tty)
 				|| stdout.as_ref().is_some_and(tg::process::Stdio::is_tty)
@@ -204,9 +215,12 @@ impl<O: 'static> tg::Process<O> {
 		{
 			tty = super::stdio::get_tty_size().map(|size| tg::process::Tty { size });
 		}
-		let tty_ = tty.is_some();
+		let local_tty = tty.is_some()
+			&& (stdin_is_foreground_controlling_tty
+				|| stdout_is_foreground_controlling_tty
+				|| stderr_is_foreground_controlling_tty);
 		arg.tty = tty.map(tg::Either::Right);
-		if tty_ && (stdin.is_some() || stdout.is_some() || stderr.is_some()) {
+		if arg.stdin.is_tty() || arg.stdout.is_tty() || arg.stderr.is_tty() {
 			let mut object = tg::Command::with_id(arg.command.item.clone())
 				.object_with_handle(&handle)
 				.await
@@ -240,7 +254,7 @@ impl<O: 'static> tg::Process<O> {
 			.transpose()?;
 		let id = output.process;
 		let location = output.location.clone();
-		let stdio_task = if stdin.is_some() || stdout.is_some() || stderr.is_some() || tty_ {
+		let stdio_task = if stdin.is_some() || stdout.is_some() || stderr.is_some() || local_tty {
 			let handle = handle.clone();
 			let id = id.clone();
 			let location = location.clone();
@@ -248,8 +262,10 @@ impl<O: 'static> tg::Process<O> {
 			let stdout = stdout.clone();
 			let stderr = stderr.clone();
 			Some(tangram_futures::task::Shared::spawn(move |_| async move {
-				super::stdio::stdio_task(handle, id, location, stdin, stdout, stderr, tty_, raw)
-					.await
+				super::stdio::stdio_task(
+					handle, id, location, stdin, stdout, stderr, local_tty, raw,
+				)
+				.await
 			}))
 		} else {
 			None

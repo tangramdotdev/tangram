@@ -19,6 +19,8 @@ export type Host = {
 
 	getxattr(path: string, name: string): Promise<Uint8Array | undefined>;
 
+	isForegroundControllingTty(fd: number): boolean;
+
 	isTty(fd: number): boolean;
 
 	listenSignal(signal: tg.Host.Signal): tg.Host.SignalListener;

@@ -4,12 +4,7 @@ use {
 	futures::{FutureExt as _, Stream, StreamExt as _, future},
 	indexmap::IndexMap,
 	num::ToPrimitive as _,
-	std::{
-		fmt::Write as _,
-		io::{IsTerminal as _, Write as _},
-		pin::pin,
-		time::Duration,
-	},
+	std::{fmt::Write as _, io::Write as _, pin::pin, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
 };
@@ -52,7 +47,7 @@ impl Cli {
 
 		let tty = std::io::stderr();
 
-		if !tty.is_terminal() {
+		if !tangram_util::tty::is_foreground_controlling_tty(libc::STDERR_FILENO) {
 			let stream = pin!(stream);
 			let output = stream
 				.try_last()

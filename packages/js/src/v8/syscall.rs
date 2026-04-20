@@ -69,6 +69,9 @@ pub fn syscall<'s>(
 		"host_exists" => async_(scope, &args, self::host::exists),
 		"host_get_tty_size" => sync(scope, &args, self::host::get_tty_size),
 		"host_get_xattr" => async_(scope, &args, self::host::getxattr),
+		"host_is_foreground_controlling_tty" => {
+			sync(scope, &args, self::host::is_foreground_controlling_tty)
+		},
 		"host_is_tty" => sync(scope, &args, self::host::is_tty),
 		"host_magic" => self::host::magic(scope, &args),
 		"host_mkdtemp" => async_(scope, &args, self::host::mkdtemp),
