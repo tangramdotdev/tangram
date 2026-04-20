@@ -120,7 +120,9 @@ impl Server {
 			.map(|row| {
 				let server = self.clone();
 				async move {
-					if matches!(row.code, Some(tg::error::Code::Cancellation)) {
+					let claimed_for_cancellation =
+						matches!(row.code, Some(tg::error::Code::Cancellation));
+					if claimed_for_cancellation {
 						let ready = server
 							.watchdog_try_finish_sandbox(&row.id)
 							.await
@@ -148,13 +150,23 @@ impl Server {
 							tracing::error!(error = %error.trace(), "failed to cancel the sandbox processes");
 						})
 						.ok();
-					server
-						.try_finish_sandbox_local(&row.id)
-						.await
+					if claimed_for_cancellation {
+						server
+							.enqueue_finished_sandbox_local(&row.id)
+							.await
+							.inspect_err(|error| {
+								tracing::error!(error = %error.trace(), "failed to enqueue sandbox finalization");
+							})
+							.ok();
+					} else {
+						server
+							.try_finish_sandbox_local(&row.id)
+							.await
 							.inspect_err(|error| {
 								tracing::error!(error = %error.trace(), "failed to finish the sandbox");
 							})
 							.ok();
+					}
 					true
 				}
 				.boxed()

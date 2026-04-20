@@ -23,3 +23,14 @@ tg sandbox delete $create
 
 let list = tg sandbox list | from json
 assert (($list | where id == $create | is-empty))
+
+mut output = { exit_code: 0, stdout: '', stderr: '' }
+for _ in 0..100 {
+	$output = (tg sandbox get $create | complete)
+	if $output.exit_code != 0 {
+		break
+	}
+	sleep 0.05sec
+}
+failure $output "the sandbox should be finalized"
+assert ($output.stderr | str contains 'failed to find the sandbox') "the error should mention the missing sandbox"

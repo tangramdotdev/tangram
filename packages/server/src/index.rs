@@ -250,10 +250,10 @@ impl Server {
 	}
 
 	async fn index_task(&self, progress: &crate::progress::Handle<()>) -> tg::Result<()> {
-		// Subscribe to finalizer progress.
+		// Subscribe to process finalizer progress.
 		let finalizer_progress_stream = self
 			.messenger
-			.subscribe::<()>("finalizer_progress".to_owned(), None)
+			.subscribe::<()>("processes.finalizer.progress".to_owned(), None)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to finalizer progress"))?;
 		let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(1)));

@@ -1033,7 +1033,7 @@ fn default_finalizer() -> Option<Finalizer> {
 fn default_process_store() -> Database {
 	Database::Sqlite(SqliteDatabase {
 		connections: None,
-		path: PathBuf::from("process_store"),
+		path: PathBuf::from("processes"),
 	})
 }
 

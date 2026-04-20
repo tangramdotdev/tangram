@@ -9,6 +9,7 @@ use {
 
 pub mod create;
 pub mod delete;
+pub mod finalize;
 pub mod finish;
 pub mod get;
 pub mod heartbeat;

@@ -54,7 +54,7 @@ impl Server {
 					break;
 				}
 				self.messenger
-					.publish("finalizer_progress".to_owned(), ())
+					.publish("processes.finalizer.progress".to_owned(), ())
 					.await
 					.ok();
 			}

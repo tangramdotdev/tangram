@@ -117,6 +117,17 @@ create table process_finalize_queue (
 
 create index process_finalize_queue_status_position_index on process_finalize_queue (status, position);
 
+create table sandbox_finalize_queue (
+	position bigserial primary key,
+	created_at int8 not null,
+	finished_at int8,
+	sandbox text not null unique,
+	started_at int8,
+	status text not null
+);
+
+create index sandbox_finalize_queue_status_position_index on sandbox_finalize_queue (status, position);
+
 create or replace procedure update_parent_depths(
 	changed_process_ids text[]
 )

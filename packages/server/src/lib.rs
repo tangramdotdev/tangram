@@ -843,8 +843,8 @@ impl Server {
 			}
 		}));
 
-		// Spawn the finalizer task.
-		let finalizer_task = server.config.finalizer.clone().map(|config| {
+		// Spawn the process finalizer task.
+		let process_finalizer_task = server.config.finalizer.clone().map(|config| {
 			tokio::spawn({
 				let server = server.clone();
 				async move {
@@ -852,7 +852,23 @@ impl Server {
 						.finalizer_task(&config)
 						.await
 						.inspect_err(|error| {
-							tracing::error!(error = %error.trace(), "the finalizer task failed");
+							tracing::error!(error = %error.trace(), "the process finalizer task failed");
+						})
+						.ok();
+				}
+			})
+		});
+
+		// Spawn the sandbox finalizer task.
+		let sandbox_finalizer_task = server.config.finalizer.clone().map(|config| {
+			tokio::spawn({
+				let server = server.clone();
+				async move {
+					server
+						.sandbox_finalizer_task(&config)
+						.await
+						.inspect_err(|error| {
+							tracing::error!(error = %error.trace(), "the sandbox finalizer task failed");
 						})
 						.ok();
 				}
@@ -942,16 +958,28 @@ impl Server {
 					task.abort();
 				}
 
-				// Abort the finalizer task.
-				if let Some(task) = finalizer_task {
+				// Abort the process finalizer task.
+				if let Some(task) = process_finalizer_task {
 					task.abort();
 					let result = task.await;
 					if let Err(error) = result
 						&& !error.is_cancelled()
 					{
-						tracing::error!(?error, "the finalizer task panicked");
+						tracing::error!(?error, "the process finalizer task panicked");
 					}
-					tracing::trace!("finalizer task");
+					tracing::trace!("process finalizer task");
+				}
+
+				// Abort the sandbox finalizer task.
+				if let Some(task) = sandbox_finalizer_task {
+					task.abort();
+					let result = task.await;
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "the sandbox finalizer task panicked");
+					}
+					tracing::trace!("sandbox finalizer task");
 				}
 
 				// Abort the watchdog task.

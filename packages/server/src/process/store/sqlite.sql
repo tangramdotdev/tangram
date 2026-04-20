@@ -116,3 +116,14 @@ create table process_finalize_queue (
 );
 
 create index process_finalize_queue_status_position_index on process_finalize_queue (status, position);
+
+create table sandbox_finalize_queue (
+	position integer primary key autoincrement,
+	created_at integer not null,
+	finished_at integer,
+	sandbox text not null unique,
+	started_at integer,
+	status text not null
+);
+
+create index sandbox_finalize_queue_status_position_index on sandbox_finalize_queue (status, position);

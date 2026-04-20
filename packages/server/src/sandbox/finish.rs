@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::{Context, Server, database},
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
@@ -63,12 +63,16 @@ impl Server {
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<()>> {
-		let connection = self
+		let mut connection = self
 			.process_store
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		let p = connection.p();
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to acquire a transaction"))?;
+		let p = transaction.p();
 		let statement = formatdoc!(
 			"
 				update sandboxes
@@ -81,16 +85,107 @@ impl Server {
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let params = db::params![now, id.to_string()];
-		let n = connection
+		let n = transaction
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		drop(connection);
 		if n == 0 {
 			return Ok(None);
 		}
+
+		let enqueue =
+			Self::try_insert_sandbox_finalize_entry_with_transaction(&transaction, id, now)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to enqueue sandbox finalization"))?;
+
+		transaction
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+		drop(connection);
+
 		self.publish_sandbox_status(id);
+		if enqueue {
+			self.spawn_publish_sandbox_finalize_message_task();
+		}
 		Ok(Some(()))
+	}
+
+	pub(crate) async fn enqueue_finished_sandbox_local(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<Option<()>> {
+		let mut connection = self
+			.process_store
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let transaction = connection
+			.transaction()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to acquire a transaction"))?;
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				select status
+				from sandboxes
+				where id = {p}1;
+			"
+		);
+		let params = db::params![id.to_string()];
+		let Some(status) = transaction
+			.query_optional_value_into::<db::value::Serde<tg::sandbox::Status>>(
+				statement.into(),
+				params,
+			)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+			.map(|value| value.0)
+		else {
+			return Ok(None);
+		};
+		if !status.is_finished() {
+			return Err(tg::error!("expected the sandbox to be finished"));
+		}
+
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let enqueue =
+			Self::try_insert_sandbox_finalize_entry_with_transaction(&transaction, id, now)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to enqueue sandbox finalization"))?;
+
+		transaction
+			.commit()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+		drop(connection);
+
+		if enqueue {
+			self.spawn_publish_sandbox_finalize_message_task();
+		}
+
+		Ok(Some(()))
+	}
+
+	async fn try_insert_sandbox_finalize_entry_with_transaction(
+		transaction: &database::Transaction<'_>,
+		id: &tg::sandbox::Id,
+		now: i64,
+	) -> tg::Result<bool> {
+		let p = transaction.p();
+		let statement = formatdoc!(
+			"
+				insert into sandbox_finalize_queue (created_at, sandbox, status)
+				values ({p}1, {p}2, {p}3)
+				on conflict (sandbox) do nothing;
+			"
+		);
+		let params = db::params![now, id.to_string(), "created"];
+		let n = transaction
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		Ok(n != 0)
 	}
 
 	async fn try_finish_sandbox_regions(
