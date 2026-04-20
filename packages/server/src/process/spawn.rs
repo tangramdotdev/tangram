@@ -1340,7 +1340,7 @@ impl Server {
 		let heartbeat_at = (status == tg::sandbox::Status::Started).then_some(now);
 		let started_at = (status == tg::sandbox::Status::Started).then_some(now);
 		let isolation = self.resolve_sandbox_isolation()?;
-		Self::validate_sandbox_resources(isolation, arg.cpu, arg.memory)?;
+		Self::validate_sandbox_resources(&isolation, arg.cpu, arg.memory)?;
 		let cpu = arg
 			.cpu
 			.map(i64::try_from)

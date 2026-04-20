@@ -69,16 +69,3 @@ impl tg::Client {
 		Ok(output)
 	}
 }
-
-impl Default for Isolation {
-	fn default() -> Self {
-		#[cfg(target_os = "macos")]
-		{
-			return Isolation::Seatbelt;
-		}
-		#[cfg(target_os = "linux")]
-		{
-			return Isolation::Container;
-		}
-	}
-}
