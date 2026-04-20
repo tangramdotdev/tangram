@@ -165,8 +165,8 @@ impl Server {
 			region: Some(region.clone()),
 		});
 		let arg = tg::process::put::Arg {
-			data: arg.data,
 			location: Some(location.into()),
+			..arg
 		};
 		client
 			.put_process(id, arg)
@@ -194,8 +194,8 @@ impl Server {
 			},
 		);
 		let arg = tg::process::put::Arg {
-			data: arg.data,
 			location: Some(location.into()),
+			..arg
 		};
 		client
 			.put_process(id, arg)

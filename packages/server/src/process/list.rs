@@ -146,9 +146,14 @@ impl Server {
 			|source| tg::error!(!source, remote = %remote.remote, "failed to list processes"),
 		)?;
 		for process in &mut output.data {
+			let region = match process.location.take() {
+				Some(tg::Location::Local(local)) => local.region,
+				Some(tg::Location::Remote(remote)) => remote.region,
+				None => None,
+			};
 			process.location = Some(tg::Location::Remote(tg::location::Remote {
 				name: remote.remote.clone(),
-				region: None,
+				region,
 			}));
 		}
 		Ok(output)

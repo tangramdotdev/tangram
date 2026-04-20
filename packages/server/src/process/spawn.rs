@@ -440,12 +440,18 @@ impl Server {
 		)?;
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.next().await {
+			let remote = remote.clone();
 			let event = event.map(|event| {
 				event.map_output(|output| {
 					output.map(|mut output| {
+						let region = match output.location.take() {
+							Some(tg::Location::Local(local)) => local.region,
+							Some(tg::Location::Remote(remote)) => remote.region,
+							None => None,
+						};
 						output.location = Some(tg::Location::Remote(tg::location::Remote {
 							name: remote.clone(),
-							region: region.clone(),
+							region,
 						}));
 						output
 					})
@@ -600,9 +606,14 @@ impl Server {
 			let Some(mut output) = event.try_unwrap_output().ok().flatten() else {
 				continue;
 			};
+			let region = match output.location.take() {
+				Some(tg::Location::Local(local)) => local.region,
+				Some(tg::Location::Remote(remote)) => remote.region,
+				None => None,
+			};
 			output.location = Some(tg::Location::Remote(tg::location::Remote {
 				name: remote.remote.clone(),
-				region: None,
+				region,
 			}));
 			return Ok(Some(output));
 		}

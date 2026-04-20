@@ -204,11 +204,7 @@ impl Server {
 			return Ok(response);
 		}
 
-		let arg = tg::object::put::Arg {
-			bytes,
-			location: query_arg.location,
-			metadata: query_arg.metadata,
-		};
+		let arg = tg::object::put::Arg { bytes, ..query_arg };
 		self.put_object_with_context(context, &id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to put the object"))?;

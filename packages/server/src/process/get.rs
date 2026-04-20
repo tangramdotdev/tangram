@@ -293,9 +293,14 @@ impl Server {
 		else {
 			return Ok(None);
 		};
+		let region = match output.location.take() {
+			Some(tg::Location::Local(local)) => local.region,
+			Some(tg::Location::Remote(remote)) => remote.region,
+			None => None,
+		};
 		output.location = Some(tg::Location::Remote(tg::location::Remote {
 			name: remote.remote.clone(),
-			region: None,
+			region,
 		}));
 		Ok(Some(output))
 	}
