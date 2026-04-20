@@ -174,8 +174,8 @@ impl Server {
 		let id = id
 			.parse::<tg::object::Id>()
 			.map_err(|source| tg::error!(!source, "failed to parse the object id"))?;
-		let query_arg: tg::object::put::Arg = request
-			.query_params()
+		let arg = request
+			.query_params::<tg::object::put::Arg>()
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
 			.unwrap_or_default();
@@ -204,11 +204,13 @@ impl Server {
 			return Ok(response);
 		}
 
-		let arg = tg::object::put::Arg { bytes, ..query_arg };
+		let arg = tg::object::put::Arg { bytes, ..arg };
 		self.put_object_with_context(context, &id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to put the object"))?;
+
 		let response = http::Response::builder().empty().unwrap().boxed_body();
+
 		Ok(response)
 	}
 }

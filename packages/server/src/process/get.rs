@@ -2,7 +2,7 @@ use {
 	crate::{Context, Server, database::Database},
 	futures::{
 		StreamExt as _, TryStreamExt as _, future,
-		stream::{self, FuturesUnordered},
+		stream::{self, FuturesOrdered, FuturesUnordered},
 	},
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -77,23 +77,37 @@ impl Server {
 			.try_get_process_batch_local(ids, metadata)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the processes locally"))?;
-		let remotes = self
+		let locations = self
 			.locations(None)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?
-			.remotes;
+			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
+		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
+		let remotes = locations.remotes;
 		let outputs = std::iter::zip(ids, outputs)
 			.map(|(id, output)| {
+				let regions = regions.clone();
 				let remotes = remotes.clone();
 				async move {
 					if let Some(output) = output {
 						return Ok(Some(output));
 					}
-					let output = self.try_get_process_remotes(id, &remotes, metadata).await?;
-					Ok::<_, tg::Error>(output)
+
+					if let Some(output) =
+						self.try_get_process_regions(id, &regions, metadata).await?
+					{
+						return Ok(Some(output));
+					}
+
+					if let Some(output) =
+						self.try_get_process_remotes(id, &remotes, metadata).await?
+					{
+						return Ok(Some(output));
+					}
+
+					Ok::<_, tg::Error>(None)
 				}
 			})
-			.collect::<FuturesUnordered<_>>()
+			.collect::<FuturesOrdered<_>>()
 			.try_collect::<Vec<_>>()
 			.await?;
 		Ok(outputs)

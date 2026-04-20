@@ -77,12 +77,16 @@ impl Server {
 		});
 
 		let Some(arg) = arg else {
-			let output = self.list_remotes(tg::remote::list::Arg::default()).await?;
-			let remotes = output
-				.data
+			let mut remotes = self
+				.remotes
+				.iter()
+				.map(|remote| remote.key().clone())
+				.collect::<Vec<_>>();
+			remotes.sort();
+			let remotes = remotes
 				.into_iter()
 				.map(|remote| Remote {
-					remote: remote.name,
+					remote,
 					regions: None,
 				})
 				.collect();

@@ -660,6 +660,15 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to insert the remote"))?;
 			}
 		}
+		server.remotes.clear();
+		let output = server
+			.list_remotes(tg::remote::list::Arg::default())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to list the remotes"))?;
+		for remote in output.data {
+			let client = server.create_remote_client(&remote.name, remote.url);
+			server.remotes.insert(remote.name, client);
+		}
 
 		// Spawn the indexer task.
 		let indexer_task = server.config.indexer.clone().map(|config| {

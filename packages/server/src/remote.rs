@@ -1,9 +1,4 @@
-use {
-	crate::Server,
-	futures::{TryStreamExt as _, stream::FuturesUnordered},
-	std::collections::BTreeMap,
-	tangram_client::prelude::*,
-};
+use {crate::Server, std::collections::BTreeMap, tangram_client::prelude::*, tangram_uri::Uri};
 
 pub mod delete;
 pub mod get;
@@ -12,23 +7,11 @@ pub mod put;
 
 impl Server {
 	pub async fn get_remote_clients(&self) -> tg::Result<BTreeMap<String, tg::Client>> {
-		let output = self
-			.list_remotes(tg::remote::list::Arg::default())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to list the remotes"))?;
-		let remotes = output
-			.data
-			.into_iter()
-			.map(|output| async {
-				let name = output.name.clone();
-				let client = self.get_remote_client(output.name.clone()).await.map_err(
-					|source| tg::error!(!source, remote = %name, "failed to get the remote client"),
-				)?;
-				Ok::<_, tg::Error>((output.name, client))
-			})
-			.collect::<FuturesUnordered<_>>()
-			.try_collect()
-			.await?;
+		let remotes = self
+			.remotes
+			.iter()
+			.map(|remote| (remote.key().clone(), remote.value().clone()))
+			.collect();
 		Ok(remotes)
 	}
 
@@ -49,6 +32,12 @@ impl Server {
 		else {
 			return Ok(None);
 		};
+		let client = self.create_remote_client(&remote, output.url);
+		self.remotes.insert(remote, client.clone());
+		Ok(Some(client))
+	}
+
+	pub(crate) fn create_remote_client(&self, remote: &str, url: Uri) -> tg::Client {
 		let remote_config = self
 			.config()
 			.remotes
@@ -71,15 +60,13 @@ impl Server {
 				max_retries: retry.max_retries,
 			}
 		});
-		let client = tg::Client::new(
-			output.url,
+		tg::Client::new(
+			url,
 			Some(self.version.clone()),
 			token,
 			None,
 			reconnect,
 			retry,
-		);
-		self.remotes.insert(remote, client.clone());
-		Ok(Some(client))
+		)
 	}
 }

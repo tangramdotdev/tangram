@@ -159,26 +159,30 @@ impl Server {
 			.locations(None)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
-		let local_regions = locations.local.map_or_else(Vec::new, |local| local.regions);
+		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
 		let remotes = locations.remotes;
 		let outputs = std::iter::zip(ids, outputs)
 			.map(|(id, output)| {
-				let local_regions = local_regions.clone();
+				let regions = regions.clone();
 				let remotes = remotes.clone();
 				async move {
 					if let Some(output) = output {
 						return Ok(Some(output));
 					}
 
-					if let Some(output) = self
-						.try_get_object_regions(id, &local_regions, metadata)
-						.await?
+					if let Some(output) =
+						self.try_get_object_regions(id, &regions, metadata).await?
 					{
 						return Ok(Some(output));
 					}
 
-					let output = self.try_get_object_remotes(id, &remotes, metadata).await?;
-					Ok::<_, tg::Error>(output)
+					if let Some(output) =
+						self.try_get_object_remotes(id, &remotes, metadata).await?
+					{
+						return Ok(Some(output));
+					}
+
+					Ok::<_, tg::Error>(None)
 				}
 			})
 			.collect::<FuturesOrdered<_>>()
