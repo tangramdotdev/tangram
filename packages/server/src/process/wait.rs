@@ -19,9 +19,20 @@ use {
 impl Server {
 	pub async fn try_wait_process_future_with_context(
 		&self,
+		context: &Context,
+		id: &tg::process::Id,
+		arg: tg::process::wait::Arg,
+	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
+		self.try_wait_process_future_with_context_and_stopper(context, id, arg, None)
+			.await
+	}
+
+	async fn try_wait_process_future_with_context_and_stopper(
+		&self,
 		_context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
+		stopper: Option<Stopper>,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
 		let locations = self
 			.locations(arg.location.as_ref())
@@ -35,9 +46,8 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, %id, "failed to wait for the process"))?
 			{
-				let future = self
-					.attach_wait_process_cancel_guard(id, arg, None, future)
-					.await?;
+				let future =
+					self.attach_wait_process_cancel_guard(id, &arg, None, stopper.clone(), future);
 				return Ok(Some(future));
 			}
 
@@ -50,9 +60,13 @@ impl Server {
 				let location = Some(tg::Location::Local(tg::location::Local {
 					region: Some(region),
 				}));
-				let future = self
-					.attach_wait_process_cancel_guard(id, arg, location.map(Into::into), future)
-					.await?;
+				let future = self.attach_wait_process_cancel_guard(
+					id,
+					&arg,
+					location.map(Into::into),
+					stopper.clone(),
+					future,
+				);
 				return Ok(Some(future));
 			}
 		}
@@ -73,9 +87,7 @@ impl Server {
 			})
 			.into(),
 		);
-		let future = self
-			.attach_wait_process_cancel_guard(id, arg, location, future)
-			.await?;
+		let future = self.attach_wait_process_cancel_guard(id, &arg, location, stopper, future);
 
 		Ok(Some(future))
 	}
@@ -258,55 +270,46 @@ impl Server {
 		Ok(Some((future.boxed(), remote.clone())))
 	}
 
-	async fn attach_wait_process_cancel_guard(
+	fn attach_wait_process_cancel_guard(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::wait::Arg,
+		arg: &tg::process::wait::Arg,
 		location: Option<tg::location::Arg>,
+		stopper: Option<Stopper>,
 		future: BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
-	) -> tg::Result<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>> {
+	) -> BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>> {
 		// If a token is provided, attach a cancellation guard.
-		let future = if let Some(token) = arg.token.clone() {
+		if let Some(token) = arg.token.clone() {
 			let cancel = Arc::new(AtomicBool::new(true));
-
-			// Map the future to defuse on success.
 			let future = {
 				let cancel = cancel.clone();
-				future.map(
-					move |result: tg::Result<Option<tg::process::wait::Output>>| {
-						if result.is_ok() {
-							cancel.store(false, Ordering::SeqCst);
-						}
-						result
-					},
-				)
+				async move {
+					let output = future.await;
+					cancel.store(false, Ordering::SeqCst);
+					output
+				}
 			}
 			.boxed();
 
-			// Create guard that cancels if not defused.
-			let guard = {
-				let server = self.clone();
-				let id = id.clone();
-				let location = location.clone();
-				scopeguard::guard((), move |()| {
-					if cancel.load(Ordering::SeqCst) {
-						let arg = tg::process::cancel::Arg {
-							location: location.clone(),
-							token: token.clone(),
-						};
-						tokio::spawn(async move {
-							server.cancel_process(&id, arg).await.ok();
-						});
-					}
-				})
-			};
+			let server = self.clone();
+			let id = id.clone();
+			let guard = scopeguard::guard((), move |()| {
+				if cancel.load(Ordering::SeqCst) && !stopper.as_ref().is_some_and(Stopper::stopped)
+				{
+					let arg = tg::process::cancel::Arg {
+						location: location.clone(),
+						token,
+					};
+					tokio::spawn(async move {
+						server.cancel_process(&id, arg).await.ok();
+					});
+				}
+			});
 
 			future.attach(guard).boxed()
 		} else {
 			future
-		};
-
-		Ok(future)
+		}
 	}
 
 	pub(crate) async fn handle_post_process_wait_request(
@@ -322,7 +325,7 @@ impl Server {
 
 		// Parse the arg.
 		let arg = request
-			.query_params()
+			.query_params::<tg::process::wait::Arg>()
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
 			.unwrap_or_default();
@@ -333,9 +336,17 @@ impl Server {
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
+		// Get the stopper.
+		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
+
 		// Get the future.
 		let Some(future) = self
-			.try_wait_process_future_with_context(context, &id, arg)
+			.try_wait_process_future_with_context_and_stopper(
+				context,
+				&id,
+				arg,
+				Some(stopper.clone()),
+			)
 			.await?
 		else {
 			return Ok(http::Response::builder()
@@ -355,7 +366,6 @@ impl Server {
 		});
 
 		// Stop the stream when the server stops.
-		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
 		let stopper = async move { stopper.wait().await };
 		let stream = stream.take_until(stopper);
 
