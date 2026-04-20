@@ -63,7 +63,7 @@ impl Server {
 	}
 
 	pub(crate) fn validate_sandbox_resources(
-		isolation: tangram_sandbox::Isolation,
+		isolation: &tangram_sandbox::Isolation,
 		cpu: Option<u64>,
 		memory: Option<u64>,
 	) -> tg::Result<()> {

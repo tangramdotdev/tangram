@@ -2,10 +2,7 @@ use {
 	crate::client::Client,
 	futures::Stream,
 	std::{
-		collections::{BTreeMap, BTreeSet},
-		path::{Path, PathBuf},
-		sync::Arc,
-		time::Duration,
+		collections::{BTreeMap, BTreeSet}, path::{Path, PathBuf}, sync::Arc, time::Duration
 	},
 	tangram_client::prelude::*,
 	tangram_uri::Uri,
@@ -72,21 +69,25 @@ pub struct Command {
 	pub stdout: Stdio,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
 pub enum Isolation {
 	Container(ContainerIsolation),
 	Seatbelt(SeatbeltIsolation),
 	Vm(VmIsolation),
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ContainerIsolation {}
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SeatbeltIsolation {}
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct VmIsolation {}
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct VmIsolation {
+	pub kernel: PathBuf,
+	pub host_subnet: String,
+}
 
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Stdio {
@@ -97,7 +98,7 @@ pub enum Stdio {
 
 impl Sandbox {
 	pub async fn new(arg: Arg) -> tg::Result<Self> {
-		validate_resources(arg.isolation, arg.cpu, arg.memory)?;
+		validate_resources(&arg.isolation, arg.cpu, arg.memory)?;
 
 		// Validate the mounts.
 		let mut targets = BTreeSet::new();
@@ -129,7 +130,7 @@ impl Sandbox {
 			}
 		};
 
-		let (listener, url) = Self::listen(arg.isolation, &arg.path).await?;
+		let (listener, url) = Self::listen(&arg.isolation, &arg.path).await?;
 		let serve_arg = self::serve::Arg {
 			library_paths,
 			listen: false,
@@ -206,7 +207,7 @@ impl Sandbox {
 	}
 
 	async fn listen(
-		isolation: Isolation,
+		isolation: &Isolation,
 		root_path: &Path,
 	) -> tg::Result<(crate::server::Listener, Uri)> {
 		#[cfg(target_os = "linux")]
@@ -216,7 +217,7 @@ impl Sandbox {
 				Isolation::Seatbelt(_) => {
 					Err(tg::error!("seatbelt isolation is not supported on linux"))
 				},
-				Isolation::Vm(_) => Self::listen_vsock().await,
+				Isolation::Vm(_) => Self::listen_vsock(root_path).await,
 			}
 		}
 
@@ -288,13 +289,13 @@ impl Sandbox {
 				.parse()
 				.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
 			let listener = crate::server::Server::listen(&host_url).await?;
-			let port = match &listener {
-				crate::server::Listener::Tcp(listener) => listener
-					.local_addr()
-					.map_err(|source| tg::error!(!source, "failed to get the local address"))?
-					.port(),
-				_ => unreachable!(),
+			let crate::server::Listener::Tcp(tcp) = &listener else {
+				unreachable!();
 			};
+			let port = tcp
+				.local_addr()
+				.map_err(|source| tg::error!(!source, "failed to get the local address"))?
+				.port();
 			let url = format!("http://localhost:{port}")
 				.parse()
 				.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
@@ -409,7 +410,7 @@ impl Sandbox {
 }
 
 fn validate_resources(
-	isolation: Isolation,
+	isolation: &Isolation,
 	cpu: Option<u64>,
 	memory: Option<u64>,
 ) -> tg::Result<()> {

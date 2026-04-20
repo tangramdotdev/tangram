@@ -69,7 +69,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
 
 		// Create the listener.
-		let (listener, guest_uri) = Self::run_create_listener(temp.path(), isolation)
+		let (listener, guest_uri) = Self::run_create_listener(temp.path(), &isolation)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to create the tangram listener"))?;
 
@@ -256,7 +256,7 @@ impl Server {
 
 	async fn run_create_listener(
 		root_path: &Path,
-		isolation: tangram_sandbox::Isolation,
+		isolation: &tangram_sandbox::Isolation,
 	) -> tg::Result<(crate::http::Listener, tangram_uri::Uri)> {
 		#[cfg(target_os = "linux")]
 		{

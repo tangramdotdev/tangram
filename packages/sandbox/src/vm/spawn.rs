@@ -7,11 +7,18 @@ pub(crate) fn spawn(arg: &crate::Arg, serve_arg: &serve::Arg) -> tg::Result<toki
 		));
 	}
 
+	let crate::Isolation::Vm(vm) = &arg.isolation else {
+		unreachable!()
+	};
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	command.arg("sandbox").arg("vm").arg("run");
 	command
 		.arg("--artifacts-path")
 		.arg(&arg.artifacts_path)
+		.arg("--kernel-path")
+		.arg(&vm.kernel)
+		.arg("--host-subnet")
+		.arg(&vm.host_subnet)
 		.arg("--path")
 		.arg(&arg.path)
 		.arg("--rootfs-path")
