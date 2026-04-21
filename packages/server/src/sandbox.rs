@@ -51,13 +51,13 @@ impl Server {
 		#[cfg(target_os = "macos")]
 		{
 			match isolation {
-				tangram_sandbox::Isolation::Container(_) => Err(tg::error!(
-					"{isolation} isolation is not supported on macos"
-				)),
+				tangram_sandbox::Isolation::Container(_) => {
+					Err(tg::error!("container isolation is not supported on macos"))
+				},
 				tangram_sandbox::Isolation::Seatbelt(_) => Ok(isolation),
-				tangram_sandbox::Isolation::Vm(_) => Err(tg::error!(
-					"{isolation} isolation is not supported on macos"
-				)),
+				tangram_sandbox::Isolation::Vm(_) => {
+					Err(tg::error!("vm isolation is not supported on macos"))
+				},
 			}
 		}
 	}

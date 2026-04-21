@@ -5,16 +5,13 @@ pub struct Size {
 }
 
 #[cfg(unix)]
+#[must_use]
 pub fn is_tty(fd: libc::c_int) -> bool {
 	unsafe { libc::isatty(fd) == 1 }
 }
 
-#[cfg(not(unix))]
-pub fn is_tty(_fd: libc::c_int) -> bool {
-	false
-}
-
 #[cfg(unix)]
+#[must_use]
 pub fn is_foreground_controlling_tty(fd: libc::c_int) -> bool {
 	if !is_tty(fd) {
 		return false;
@@ -28,12 +25,8 @@ pub fn is_foreground_controlling_tty(fd: libc::c_int) -> bool {
 	foreground_pgid == unsafe { libc::getpgrp() }
 }
 
-#[cfg(not(unix))]
-pub fn is_foreground_controlling_tty(fd: libc::c_int) -> bool {
-	is_tty(fd)
-}
-
 #[cfg(unix)]
+#[must_use]
 pub fn open_controlling_tty() -> Option<std::fs::File> {
 	std::fs::OpenOptions::new()
 		.read(true)
@@ -42,12 +35,8 @@ pub fn open_controlling_tty() -> Option<std::fs::File> {
 		.ok()
 }
 
-#[cfg(not(unix))]
-pub fn open_controlling_tty() -> Option<std::fs::File> {
-	None
-}
-
 #[cfg(unix)]
+#[must_use]
 pub fn get_tty_size(fd: libc::c_int) -> Option<Size> {
 	let mut size = unsafe { std::mem::zeroed::<libc::winsize>() };
 	if unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, &mut size) } < 0
@@ -61,11 +50,6 @@ pub fn get_tty_size(fd: libc::c_int) -> Option<Size> {
 		cols: size.ws_col,
 		rows: size.ws_row,
 	})
-}
-
-#[cfg(not(unix))]
-pub fn get_tty_size(_fd: libc::c_int) -> Option<Size> {
-	None
 }
 
 #[cfg(unix)]
@@ -148,23 +132,12 @@ pub fn get_cursor_position(fd: libc::c_int) -> std::io::Result<(u16, u16)> {
 	}
 }
 
-#[cfg(not(unix))]
-pub fn get_cursor_position(_fd: libc::c_int) -> std::io::Result<(u16, u16)> {
-	Err(std::io::Error::other("cursor position is unsupported"))
-}
-
+#[cfg(unix)]
+#[must_use]
 pub fn get_controlling_tty_size() -> Option<Size> {
 	let tty = open_controlling_tty()?;
-	#[cfg(unix)]
-	{
-		use std::os::fd::AsRawFd as _;
-		get_tty_size(tty.as_raw_fd())
-	}
-	#[cfg(not(unix))]
-	{
-		let _ = tty;
-		None
-	}
+	use std::os::fd::AsRawFd as _;
+	get_tty_size(tty.as_raw_fd())
 }
 
 #[cfg(unix)]

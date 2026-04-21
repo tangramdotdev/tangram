@@ -144,10 +144,7 @@ impl Sandbox {
 			},
 			#[cfg(target_os = "macos")]
 			Isolation::Container(_) => {
-				return Err(tg::error!(
-					"{} isolation is not supported on macos",
-					arg.isolation
-				));
+				return Err(tg::error!("container isolation is not supported on macos"));
 			},
 			#[cfg(target_os = "macos")]
 			Isolation::Seatbelt(_) => self::seatbelt::spawn(&arg, &serve_arg)?,
@@ -155,10 +152,7 @@ impl Sandbox {
 			Isolation::Vm(_) => self::vm::spawn(&arg, &serve_arg)?,
 			#[cfg(target_os = "macos")]
 			Isolation::Vm(_) => {
-				return Err(tg::error!(
-					"{} isolation is not supported on macos",
-					arg.isolation
-				));
+				return Err(tg::error!("vm isolation is not supported on macos"));
 			},
 		};
 
@@ -221,13 +215,11 @@ impl Sandbox {
 		#[cfg(not(target_os = "linux"))]
 		{
 			match isolation {
-				Isolation::Container(_) => Err(tg::error!(
-					"{isolation} isolation is not supported on macos"
-				)),
+				Isolation::Container(_) => {
+					Err(tg::error!("container isolation is not supported on macos"))
+				},
 				Isolation::Seatbelt(_) => Self::listen_unix(root_path).await,
-				Isolation::Vm(_) => Err(tg::error!(
-					"{isolation} isolation is not supported on macos"
-				)),
+				Isolation::Vm(_) => Err(tg::error!("vm isolation is not supported on macos")),
 			}
 		}
 	}

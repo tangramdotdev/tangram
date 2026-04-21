@@ -305,15 +305,15 @@ impl Server {
 		#[cfg(not(target_os = "linux"))]
 		{
 			match isolation {
-				tangram_sandbox::Isolation::Container(_) => Err(tg::error!(
-					"{isolation} isolation is not supported on macos"
-				)),
+				tangram_sandbox::Isolation::Container(_) => {
+					Err(tg::error!("container isolation is not supported on macos"))
+				},
 				tangram_sandbox::Isolation::Seatbelt(_) => {
 					Self::run_create_unix_listener(root_path).await
 				},
-				tangram_sandbox::Isolation::Vm(_) => Err(tg::error!(
-					"{isolation} isolation is not supported on macos"
-				)),
+				tangram_sandbox::Isolation::Vm(_) => {
+					Err(tg::error!("vm isolation is not supported on macos"))
+				},
 			}
 		}
 	}
