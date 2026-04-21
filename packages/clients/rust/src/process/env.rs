@@ -13,12 +13,12 @@ pub fn env() -> tg::Result<tg::value::Map> {
 		}
 	}
 	for (key, value) in prefixed {
+		if !env.contains_key(&key) {
+			continue;
+		}
 		let value = value.parse::<tg::Value>().map_err(
 			|source| tg::error!(!source, key = %key, "failed to parse the prefixed env var"),
 		)?;
-		if !env.contains_key(&key) {
-			return Err(tg::error!(key = %key, "expected the env var for the prefixed env var"));
-		}
 		env.insert(key, value);
 	}
 	Ok(env)
