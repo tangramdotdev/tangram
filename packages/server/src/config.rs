@@ -443,7 +443,6 @@ pub struct Runner {
 	pub concurrency: Option<usize>,
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub heartbeat_interval: Duration,
-	pub isolation: tangram_sandbox::Isolation,
 	#[serde(default)]
 	pub js: Js,
 	pub remotes: Vec<String>,
@@ -939,9 +938,6 @@ impl Default for Runner {
 		Self {
 			concurrency: None,
 			heartbeat_interval: Duration::from_secs(1),
-			isolation: tangram_sandbox::Isolation::Container(
-				tangram_sandbox::ContainerIsolation::default(),
-			),
 			js: Js::default(),
 			remotes: Vec::new(),
 		}
