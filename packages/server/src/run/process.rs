@@ -201,8 +201,12 @@ impl Server {
 		let env = render_env(&command.env, &guest_artifacts_path, &guest_output_path)?;
 
 		#[cfg(target_os = "macos")]
-		env.entry("TMPDIR".to_owned())
-			.or_insert_with(|| sandbox.host_scratch_path().to_string_lossy().into_owned());
+		let env = {
+			let mut env = env;
+			env.entry("TMPDIR".to_owned())
+				.or_insert_with(|| sandbox.host_scratch_path().to_string_lossy().into_owned());
+			env
+		};
 
 		// Render the executable.
 		let executable = match command.host.as_str() {
