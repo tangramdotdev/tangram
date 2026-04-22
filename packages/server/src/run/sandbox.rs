@@ -108,9 +108,18 @@ impl Server {
 			target: artifacts_path.clone(),
 			readonly: true,
 		});
+		let guest_ip = match &isolation {
+			tangram_sandbox::Isolation::Container(container)
+				if matches!(container.net, tangram_sandbox::Net::Bridge(_)) =>
+			{
+				Some(self.allocate_guest_ip())
+			},
+			_ => None,
+		};
 		let arg = tangram_sandbox::Arg {
 			artifacts_path,
 			cpu: state.cpu,
+			guest_ip,
 			hostname: state.hostname.clone(),
 			isolation,
 			memory: state.memory,
@@ -118,6 +127,7 @@ impl Server {
 			network: state.network,
 			path: temp.path().to_owned(),
 			rootfs_path: self.sandbox_rootfs.clone(),
+			sandbox_id: id.clone(),
 			tangram_path: self.tangram_path.clone(),
 			user: state.user.clone(),
 		};
