@@ -13,12 +13,14 @@ pub(crate) fn spawn(arg: &crate::Arg, serve_arg: &serve::Arg) -> tg::Result<toki
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	command.arg("sandbox").arg("vm").arg("run");
 	command
+		.arg("--sandbox-id")
+		.arg(arg.sandbox_id.to_string())
 		.arg("--artifacts-path")
 		.arg(&arg.artifacts_path)
 		.arg("--kernel-path")
-		.arg(&vm.kernel)
+		.arg(&vm.kernel_path)
 		.arg("--host-subnet")
-		.arg(&vm.host_subnet)
+		.arg(vm.host_subnet.to_string())
 		.arg("--path")
 		.arg(&arg.path)
 		.arg("--rootfs-path")
