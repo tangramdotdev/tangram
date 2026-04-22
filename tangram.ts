@@ -6,7 +6,9 @@ import foundationdb from "foundationdb" with {
 import { libclang } from "llvm" with { source: "../packages/packages/llvm" };
 import { cargo } from "rust" with { source: "../packages/packages/rust" };
 import xz from "xz" with { source: "../packages/packages/xz.tg.ts" };
-import zlib from "zlib-ng" with { source: "../packages/packages/zlib-ng.tg.ts" };
+import zlib from "zlib-ng" with {
+	source: "../packages/packages/zlib-ng.tg.ts",
+};
 import * as std from "std" with { source: "../packages/packages/std" };
 import { $ } from "std" with { source: "../packages/packages/std" };
 
@@ -50,6 +52,7 @@ export const build = async (...args: std.Args<Arg>) => {
 	const envs: std.Args<std.env.Arg> = [
 		bunEnvArg(build),
 		librustyv8(cargoLock, host),
+		sandboxRootfs(host),
 	];
 
 	if (build !== host) {
@@ -193,7 +196,7 @@ export const nodeModules = async (hostArg?: string) => {
 		},
 	});
 
-	const output = await $`
+	const output = await std.build`
 			cp -R ${workspaceSource}/. ${tg.output}
 			chmod -R u+w ${tg.output}
 			cd ${tg.output}
@@ -302,6 +305,32 @@ const bunEnvArg = async (hostArg?: string) => {
 		bunArtifact,
 		tg.directory({ ["bin/node"]: tg.symlink(tg`${bunArtifact}/bin/bun`) }),
 	);
+};
+
+export const sandboxRootfs = async (host?: string) => {
+	const h = host ?? std.triple.host();
+	if (std.triple.os(h) !== "linux") {
+		return {};
+	}
+	const arch = std.triple.arch(h);
+	let archiveName: string;
+	let checksum: tg.Checksum;
+	if (arch === "aarch64") {
+		archiveName = "sandbox_aarch64_linux.tar.zst";
+		checksum =
+			"sha256:c6efd234e0df26c4858a7d17f682f98d61d0cd9b85f360d9433627fc80abe74a";
+	} else if (arch === "x86_64") {
+		archiveName = "sandbox_x86_64_linux.tar.zst";
+		checksum =
+			"sha256:1980e452d9939cb300c697f54906545c8f36feda8db044d539df5748c8365503";
+	} else {
+		throw new Error(`unsupported Linux sandbox arch: ${arch}`);
+	}
+	const url = `https://github.com/tangramdotdev/bootstrap/releases/download/v2026.01.26/${archiveName}`;
+	const rootfs = await std.download
+		.extractArchive({ checksum, url })
+		.then(tg.Directory.expect);
+	return { TANGRAM_SANDBOX_ROOTFS: rootfs };
 };
 
 export const librustyv8 = async (

@@ -2,6 +2,7 @@ use std::{path::PathBuf, process::Command};
 
 fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
+	println!("cargo:rerun-if-env-changed=TANGRAM_SANDBOX_ROOTFS");
 
 	let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
 	if target_os != "linux" {
@@ -10,6 +11,13 @@ fn main() {
 
 	let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
 	let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+	let output_path = out_dir.join("rootfs");
+	std::fs::remove_dir_all(&output_path).ok();
+
+	if let Some(rootfs) = std::env::var_os("TANGRAM_SANDBOX_ROOTFS") {
+		std::os::unix::fs::symlink(rootfs, &output_path).unwrap();
+		return;
+	}
 
 	let archive_name = match target_arch.as_str() {
 		"aarch64" => "sandbox_aarch64_linux.tar.zst",
@@ -23,12 +31,10 @@ fn main() {
 	let status = Command::new("curl")
 		.args(["--location", "--fail", "--output"])
 		.arg(&archive_path)
-		.arg(url)
+		.arg(&url)
 		.status()
 		.unwrap();
 	assert!(status.success(), "failed to download {archive_name}");
-	let output_path = out_dir.join("rootfs");
-	std::fs::remove_dir_all(&output_path).ok();
 	std::fs::create_dir_all(&output_path).unwrap();
 	let status = Command::new("tar")
 		.arg("--extract")
