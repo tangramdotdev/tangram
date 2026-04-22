@@ -17,9 +17,6 @@ pub struct Output {
 	pub value: Option<tg::Value>,
 }
 
-type ProcessTaskMap =
-	tangram_futures::task::Map<tg::process::Id, tg::Result<()>, (), tg::id::BuildHasher>;
-
 impl Server {
 	pub(crate) async fn runner_task(&self) {
 		loop {

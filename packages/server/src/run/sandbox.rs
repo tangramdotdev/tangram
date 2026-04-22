@@ -1,9 +1,10 @@
 use {
-	crate::{SandboxPermit, Server, context::Context, run::ProcessTaskMap, temp::Temp},
+	crate::{SandboxPermit, Server, context::Context, temp::Temp},
 	futures::{FutureExt as _, TryFutureExt as _, TryStreamExt as _, future},
 	std::{path::Path, pin::pin, sync::Arc, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
+	tokio::task::JoinSet,
 };
 
 impl Server {
@@ -139,16 +140,16 @@ impl Server {
 			)?;
 		let mut status = pin!(status);
 
-		let process_tasks = ProcessTaskMap::default();
-		let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<tg::process::Id>();
+		let process_stopper = Stopper::new();
+		let mut process_tasks = JoinSet::new();
 
 		let ttl = (state.ttl != i64::MAX as u64).then(|| Duration::from_secs(state.ttl));
 		let mut timer = None;
 
 		if let Some(process) = process {
 			self.spawn_sandbox_process_task(
-				&process_tasks,
-				&sender,
+				&mut process_tasks,
+				&process_stopper,
 				process.clone(),
 				&location,
 				&sandbox,
@@ -167,15 +168,15 @@ impl Server {
 				output = self.dequeue_sandbox_process(id, &location) => {
 					let output = output.map_err(|source| tg::error!(!source, "failed to dequeue a process"))?;
 					timer.take();
-						self.spawn_sandbox_process_task(
-							&process_tasks,
-							&sender,
-							output.process.clone(),
-							&location,
-							&sandbox,
-							&guest_uri,
-						);
-					},
+					self.spawn_sandbox_process_task(
+						&mut process_tasks,
+						&process_stopper,
+						output.process.clone(),
+						&location,
+						&sandbox,
+						&guest_uri,
+					);
+				},
 				result = status.try_next() => {
 					let option = result.map_err(|source| tg::error!(!source, "failed to read the sandbox status"))?;
 					let Some(status) = option else {
@@ -185,10 +186,7 @@ impl Server {
 						break;
 					}
 				},
-				id = receiver.recv() => {
-					let Some(_) = id else {
-						break;
-					};
+				_ = process_tasks.join_next(), if !process_tasks.is_empty() => {
 					if process_tasks.is_empty() && let Some(ttl) = ttl {
 						timer.replace(tokio::time::sleep(ttl).boxed());
 					}
@@ -203,9 +201,8 @@ impl Server {
 			}
 		}
 
-		process_tasks.stop_all();
-		drop(sender);
-		process_tasks.wait().await;
+		process_stopper.stop();
+		while process_tasks.join_next().await.is_some() {}
 
 		serve_task.stop();
 		serve_task
@@ -412,15 +409,14 @@ impl Server {
 
 	fn spawn_sandbox_process_task(
 		&self,
-		process_tasks: &ProcessTaskMap,
-		sender: &tokio::sync::mpsc::UnboundedSender<tg::process::Id>,
+		process_tasks: &mut JoinSet<tg::Result<()>>,
+		process_stopper: &Stopper,
 		process: tg::process::Id,
 		location: &tg::location::Location,
 		sandbox: &tangram_sandbox::Sandbox,
 		guest_uri: &tangram_uri::Uri,
 	) {
 		let server = self.clone();
-		let sender = sender.clone();
 		let process = tg::Process::new(
 			process,
 			Some(location.clone().into()),
@@ -431,20 +427,14 @@ impl Server {
 		);
 		let sandbox = sandbox.clone();
 		let guest_uri = guest_uri.clone();
-		process_tasks
-			.spawn(process.id().clone(), move |stopper| async move {
-				let process_id = process.id().clone();
-				let _guard =
-					scopeguard::guard((sender, process_id.clone()), |(sender, process_id)| {
-						sender.send(process_id).ok();
-					});
-				server
-					.run_process_task(&process, sandbox, guest_uri, stopper)
-					.await
-					.inspect_err(|error| {
-						tracing::error!(error = %error.trace(), process = %process.id(), "the process task failed");
-					})
-			})
-			.detach();
+		let stopper = process_stopper.clone();
+		process_tasks.spawn(async move {
+			server
+				.run_process_task(&process, sandbox, guest_uri, stopper)
+				.await
+				.inspect_err(|error| {
+					tracing::error!(error = %error.trace(), process = %process.id(), "the process task failed");
+				})
+		});
 	}
 }
