@@ -14,6 +14,8 @@ use {
 
 mod client;
 #[cfg(target_os = "linux")]
+mod netlink;
+#[cfg(target_os = "linux")]
 mod network;
 mod pty;
 mod server;
@@ -54,15 +56,16 @@ pub struct Process {
 pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub cpu: Option<u64>,
+	pub host_ip: Option<Ipv4Addr>,
 	pub guest_ip: Option<Ipv4Addr>,
 	pub hostname: Option<String>,
+	pub id: tg::sandbox::Id,
 	pub isolation: Isolation,
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: bool,
 	pub path: PathBuf,
 	pub rootfs_path: PathBuf,
-	pub sandbox_id: tg::sandbox::Id,
 	pub tangram_path: PathBuf,
 	pub user: Option<String>,
 }
@@ -103,9 +106,9 @@ pub enum Net {
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Bridge {
+	pub ip: Ipv4Addr,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub name: Option<String>,
-	pub ip: Ipv4Addr,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -114,7 +117,6 @@ pub struct SeatbeltIsolation {}
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct VmIsolation {
 	pub kernel_path: PathBuf,
-	pub host_subnet: Ipv4Addr,
 }
 
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
@@ -240,7 +242,7 @@ impl Sandbox {
 				Isolation::Seatbelt(_) => {
 					Err(tg::error!("seatbelt isolation is not supported on linux"))
 				},
-				Isolation::Vm(_) => Self::listen_vsock(root_path).await,
+				Isolation::Vm(_) => Self::listen_cloud_hypervisor(root_path).await,
 			}
 		}
 
@@ -324,33 +326,42 @@ impl Sandbox {
 		}
 	}
 
+	#[cfg(feature = "vsock")]
+	#[allow(dead_code)]
+	async fn listen_vsock() -> tg::Result<(crate::server::Listener, Uri)> {
+		let port = 6748;
+		let host_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_ANY)
+			.parse()
+			.map_err(|_| tg::error!("failed to parse host url"))?;
+		let guest_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_ANY)
+			.parse()
+			.map_err(|_| tg::error!("failed to parse guest url"))?;
+		let listener = crate::server::Server::listen(&host_url).await?;
+		Ok((listener, guest_url))
+	}
+
 	#[cfg(target_os = "linux")]
-	async fn listen_vsock(root_path: &Path) -> tg::Result<(crate::server::Listener, Uri)> {
-		#[cfg(not(feature = "vsock"))]
-		{
-			Err(tg::error!("vsock is not enabled"))
-		}
-		#[cfg(feature = "vsock")]
-		{
-			let port = 6748;
-			let socket = format!("{}_{port}", vm::run::CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME);
-			let path = root_path.join("vm").join(socket);
-			tokio::fs::create_dir_all(path.parent().unwrap())
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the vm directory"))?;
-			let path = path.to_str().ok_or_else(|| tg::error!("invalid path"))?;
-			let host_url = Uri::builder()
-				.scheme("http+unix")
-				.authority(path)
-				.path("")
-				.build()
-				.map_err(|source| tg::error!(source = source, "failed to build the URL"))?;
-			let guest_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_HOST)
-				.parse()
-				.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
-			let listener = crate::server::Server::listen(&host_url).await?;
-			Ok((listener, guest_url))
-		}
+	async fn listen_cloud_hypervisor(
+		root_path: &Path,
+	) -> tg::Result<(crate::server::Listener, Uri)> {
+		let port = 6748;
+		let socket = format!("{}_{port}", vm::run::CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME);
+		let path = root_path.join("vm").join(socket);
+		tokio::fs::create_dir_all(path.parent().unwrap())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the vm directory"))?;
+		let path = path.to_str().ok_or_else(|| tg::error!("invalid path"))?;
+		let host_url = Uri::builder()
+			.scheme("http+unix")
+			.authority(path)
+			.path("")
+			.build()
+			.map_err(|source| tg::error!(source = source, "failed to build the URL"))?;
+		let guest_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_HOST)
+			.parse()
+			.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
+		let listener = crate::server::Server::listen(&host_url).await?;
+		Ok((listener, guest_url))
 	}
 
 	pub async fn spawn(

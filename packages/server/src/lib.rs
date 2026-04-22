@@ -1,6 +1,6 @@
 use {
 	self::{context::Context, database::Database, index::Index, messenger::Messenger},
-	crate::{temp::Temp, watch::Watch},
+	crate::{network::Network, temp::Temp, watch::Watch},
 	dashmap::{DashMap, DashSet},
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	indoc::{formatdoc, indoc},
@@ -9,7 +9,7 @@ use {
 		ops::Deref,
 		os::fd::AsRawFd as _,
 		path::{Path, PathBuf},
-		sync::{Arc, Mutex, atomic::AtomicU32},
+		sync::{Arc, Mutex},
 	},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -41,6 +41,7 @@ mod log;
 mod lsp;
 mod messenger;
 mod module;
+mod network;
 mod object;
 mod process;
 mod pull;
@@ -88,19 +89,19 @@ pub struct State {
 	lock: Mutex<Option<tokio::fs::File>>,
 	log_store: self::log::Store,
 	messenger: Messenger,
-	next_guest_ip: AtomicU32,
+	networks: Vec<Network>,
 	object_get_tasks: ObjectGetTasks,
 	object_store: self::object::Store,
 	path: PathBuf,
+	process_store: Database,
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	remote_list_tags_tasks: RemoteListTagsTasks,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	sandbox_permits: SandboxPermits,
 	sandbox_rootfs: PathBuf,
 	sandbox_semaphore: Arc<tokio::sync::Semaphore>,
-	process_store: Database,
-	sandboxes: Sandboxes,
 	sandbox_tasks: SandboxTasks,
+	sandboxes: Sandboxes,
 	tangram_path: PathBuf,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
@@ -275,10 +276,6 @@ impl Server {
 			.as_ref()
 			.map_or(0, |runner| runner.concurrency.unwrap_or(parallelism));
 		let sandbox_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
-
-		// Create the next guest ip counter. Starts at the first usable address
-		// after the default bridge gateway at 172.17.0.1.
-		let next_guest_ip = AtomicU32::new(u32::from(Ipv4Addr::new(172, 17, 0, 2)));
 
 		// Create the sandbox tasks.
 		let sandbox_tasks = tangram_futures::task::Map::default();
@@ -472,6 +469,14 @@ impl Server {
 			},
 		};
 
+		// Create the networks
+		let networks = config
+			.sandbox
+			.networks
+			.iter()
+			.map(|network| Network::new(network.ip.min.to_bits(), network.ip.max.to_bits()))
+			.collect();
+
 		// Create the regions.
 		let regions = DashMap::default();
 
@@ -592,19 +597,19 @@ impl Server {
 			lock,
 			log_store,
 			messenger,
-			next_guest_ip,
+			networks,
 			object_get_tasks,
 			object_store,
 			path,
+			process_store,
 			regions,
 			remote_list_tags_tasks,
 			remotes,
 			sandbox_permits,
 			sandbox_rootfs,
 			sandbox_semaphore,
-			process_store,
-			sandboxes,
 			sandbox_tasks,
+			sandboxes,
 			tangram_path,
 			temps,
 			version,
@@ -908,7 +913,7 @@ impl Server {
 			&& let crate::config::ContainerNet::Bridge(bridge) = &container.net
 		{
 			let name = bridge.name.as_deref().unwrap_or("tangram0").to_owned();
-			let ip = bridge.ip.unwrap_or(Ipv4Addr::new(172, 17, 0, 1));
+			let ip = bridge.ip.unwrap_or(Ipv4Addr::new(172, 18, 0, 1));
 			tangram_sandbox::create_bridge(&name, ip)
 				.map_err(|source| tg::error!(!source, "failed to create the bridge"))?;
 		}

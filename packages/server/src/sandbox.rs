@@ -1,7 +1,7 @@
 use {
 	crate::Server,
 	indoc::formatdoc,
-	std::{net::Ipv4Addr, sync::atomic::Ordering},
+	std::net::Ipv4Addr,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_messenger::prelude::*,
@@ -29,10 +29,10 @@ impl Server {
 					crate::config::ContainerNet::None => tangram_sandbox::Net::None,
 					crate::config::ContainerNet::Host => tangram_sandbox::Net::Host,
 					crate::config::ContainerNet::Bridge(bridge) => {
-						let ip = bridge.ip.unwrap_or(Ipv4Addr::new(172, 17, 0, 1));
+						let ip = bridge.ip.unwrap_or(Ipv4Addr::new(172, 18, 0, 1));
 						tangram_sandbox::Net::Bridge(tangram_sandbox::Bridge {
-							name: bridge.name.clone(),
 							ip,
+							name: bridge.name.clone(),
 						})
 					},
 				};
@@ -42,10 +42,8 @@ impl Server {
 				tangram_sandbox::Isolation::Seatbelt(tangram_sandbox::SeatbeltIsolation::default())
 			},
 			crate::config::SandboxIsolation::Vm(vm) => {
-				let host_subnet = vm.host_subnet.unwrap_or(Ipv4Addr::new(172, 17, 0, 0));
 				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation {
 					kernel_path: vm.kernel_path.clone(),
-					host_subnet,
 				})
 			},
 		}
@@ -155,9 +153,36 @@ impl Server {
 		Ok(true)
 	}
 
-	pub(crate) fn allocate_guest_ip(&self) -> Ipv4Addr {
-		let raw = self.next_guest_ip.fetch_add(1, Ordering::Relaxed);
-		Ipv4Addr::from(raw)
+	pub(crate) fn allocate_guest_ip(&self) -> tg::Result<crate::network::Ip> {
+		if self.networks.is_empty() {
+			return Err(tg::error!("no networks are configured"));
+		}
+		self.networks
+			.iter()
+			.find_map(|network| {
+				network
+					.try_reserve()
+					.inspect_err(|error| tracing::warn!(?error, "failed to allocate ip"))
+					.ok()
+			})
+			.ok_or_else(|| tg::error!("failed to allocate guest IP address"))
+	}
+
+	pub(crate) fn allocate_guest_ip_pair(
+		&self,
+	) -> tg::Result<(crate::network::Ip, crate::network::Ip)> {
+		if self.networks.is_empty() {
+			return Err(tg::error!("no networks are configured"));
+		}
+		self.networks
+			.iter()
+			.find_map(|network| {
+				network
+					.try_reserve_pair()
+					.inspect_err(|error| tracing::warn!(?error, "failed to allocate ip pair"))
+					.ok()
+			})
+			.ok_or_else(|| tg::error!("failed to allocate guest IP address pair"))
 	}
 
 	pub(crate) fn spawn_publish_sandbox_status_task(&self, id: &tg::sandbox::Id) {

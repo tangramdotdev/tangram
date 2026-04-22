@@ -14,6 +14,9 @@ pub struct Args {
 	pub binds: Vec<PathBuf>,
 
 	#[arg(long)]
+	pub bridge_fd: Option<i32>,
+
+	#[arg(long)]
 	pub bridge_ip: Option<Ipv4Addr>,
 
 	#[arg(long)]
@@ -50,6 +53,12 @@ pub struct Args {
 	pub hostname: Option<String>,
 
 	#[arg(long)]
+	pub id: tg::sandbox::Id,
+
+	#[arg(long, default_value = "host")]
+	pub net: tangram_sandbox::container::run::Net,
+
+	#[arg(long)]
 	pub new_session: bool,
 
 	#[arg(action = clap::ArgAction::Append, long = "overlay-src", num_args = 1)]
@@ -64,17 +73,8 @@ pub struct Args {
 	#[arg(action = clap::ArgAction::Append, long = "ro-bind", num_args = 2)]
 	pub ro_binds: Vec<PathBuf>,
 
-	#[arg(long)]
-	pub sandbox_id: tg::sandbox::Id,
-
 	#[arg(action = clap::ArgAction::Append, long = "setenv", num_args = 2)]
 	pub setenvs: Vec<String>,
-
-	#[arg(long, default_value = "host")]
-	pub net: tangram_sandbox::container::run::Net,
-
-	#[arg(long)]
-	pub fd: Option<i32>,
 
 	#[arg(action = clap::ArgAction::Append, long = "tmpfs", num_args = 1)]
 	pub tmpfs: Vec<PathBuf>,
@@ -113,6 +113,7 @@ impl Args {
 		tangram_sandbox::container::run::Arg {
 			as_pid_1: self.as_pid_1,
 			binds,
+			bridge_fd: self.bridge_fd,
 			bridge_ip: self.bridge_ip,
 			cgroup: self.cgroup,
 			cgroup_cpu: self.cgroup_cpu,
@@ -125,15 +126,14 @@ impl Args {
 			gid: self.gid,
 			guest_ip: self.guest_ip,
 			hostname: self.hostname,
+			net: self.net,
 			new_session: self.new_session,
 			overlay_sources: self.overlay_sources,
 			overlays,
 			procs: self.procs,
 			ro_binds,
-			sandbox_id: self.sandbox_id,
+			id: self.id,
 			setenvs,
-			net: self.net,
-			fd: self.fd,
 			tmpfs: self.tmpfs,
 			uid: self.uid,
 			unshare_all: self.unshare_all,

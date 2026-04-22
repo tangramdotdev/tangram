@@ -443,7 +443,6 @@ pub struct Runner {
 	pub concurrency: Option<usize>,
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub heartbeat_interval: Duration,
-	pub isolation: tangram_sandbox::Isolation,
 	#[serde(default)]
 	pub js: Js,
 	pub remotes: Vec<String>,
@@ -475,6 +474,9 @@ pub struct Sandbox {
 	pub finalizer: Option<Finalizer>,
 
 	pub isolation: SandboxIsolation,
+
+	#[serde(default = "default_networks", skip_serializing_if = "Vec::is_empty")]
+	pub networks: Vec<SandboxNetwork>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -483,6 +485,20 @@ pub enum SandboxIsolation {
 	Container(ContainerSandboxIsolation),
 	Seatbelt(SeatbeltSandboxIsolation),
 	Vm(VmSandboxIsolation),
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+pub struct SandboxNetwork {
+	pub ip: IpRange,
+}
+
+#[derive(
+	Clone, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
+)]
+pub struct IpRange {
+	pub min: Ipv4Addr,
+	pub max: Ipv4Addr,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -505,21 +521,19 @@ pub enum ContainerNet {
 #[serde(deny_unknown_fields, default)]
 pub struct Bridge {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub name: Option<String>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub ip: Option<Ipv4Addr>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub name: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct SeatbeltSandboxIsolation {}
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct VmSandboxIsolation {
 	pub kernel_path: PathBuf,
-	#[serde(default)]
-	pub host_subnet: Option<Ipv4Addr>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -939,9 +953,6 @@ impl Default for Runner {
 		Self {
 			concurrency: None,
 			heartbeat_interval: Duration::from_secs(1),
-			isolation: tangram_sandbox::Isolation::Container(
-				tangram_sandbox::ContainerIsolation::default(),
-			),
 			js: Js::default(),
 			remotes: Vec::new(),
 		}
@@ -962,6 +973,7 @@ impl Default for Sandbox {
 					SandboxIsolation::Seatbelt(SeatbeltSandboxIsolation::default())
 				}
 			},
+			networks: default_networks(),
 		}
 	}
 }
@@ -1108,9 +1120,66 @@ impl Default for Write {
 	}
 }
 
+mod ip_range {
+	use {super::IpRange, std::net::Ipv4Addr, tangram_client as tg};
+
+	impl std::fmt::Display for IpRange {
+		fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+			write!(f, "{}-{}", self.min, self.max)
+		}
+	}
+
+	impl std::str::FromStr for IpRange {
+		type Err = tg::Error;
+
+		fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
+			if let Some((min, max)) = s.split_once('-') {
+				let min = min
+					.trim()
+					.parse()
+					.map_err(|source| tg::error!(!source, "invalid minimum address"))?;
+				let max = max
+					.trim()
+					.parse()
+					.map_err(|source| tg::error!(!source, "invalid maximum address"))?;
+				Ok(IpRange { min, max })
+			} else if let Some((addr, prefix)) = s.split_once('/') {
+				let addr: Ipv4Addr = addr
+					.trim()
+					.parse()
+					.map_err(|source| tg::error!(!source, "invalid address"))?;
+				let prefix: u8 = prefix
+					.trim()
+					.parse()
+					.map_err(|source| tg::error!(!source, "invalid prefix"))?;
+				if prefix > 32 {
+					return Err(tg::error!(%prefix, "invalid prefix"));
+				}
+				let bits = u32::from(addr);
+				let mask = if prefix == 0 {
+					0
+				} else {
+					u32::MAX << (32 - prefix)
+				};
+				let min = Ipv4Addr::from(bits & mask);
+				let max = Ipv4Addr::from((bits & mask) | !mask);
+				Ok(IpRange { min, max })
+			} else {
+				Err(tg::error!(%s, "invalid IP range"))
+			}
+		}
+	}
+}
+
 #[expect(clippy::unnecessary_wraps)]
 fn default_finalizer() -> Option<Finalizer> {
 	Some(Finalizer::default())
+}
+
+fn default_networks() -> Vec<SandboxNetwork> {
+	vec![SandboxNetwork {
+		ip: "172.18.0.0-172.255.0.0".parse().unwrap(),
+	}]
 }
 
 fn default_process_store() -> Database {

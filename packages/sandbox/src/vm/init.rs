@@ -343,6 +343,8 @@ fn spawn_server(arg: &crate::serve::Arg, home: Option<&Path>) -> tg::Result<std:
 		.arg("sandbox")
 		.arg("serve")
 		.arg(if arg.listen { "--listen" } else { "--connect" })
+		.arg("--output-path")
+		.arg(&arg.output_path)
 		.arg("--url")
 		.arg(arg.url.to_string())
 		.arg("--tangram-path")

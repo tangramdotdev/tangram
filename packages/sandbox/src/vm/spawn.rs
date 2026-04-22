@@ -11,16 +11,24 @@ pub(crate) fn spawn(arg: &crate::Arg, serve_arg: &serve::Arg) -> tg::Result<toki
 		unreachable!()
 	};
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
+	let host_ip = arg
+		.host_ip
+		.ok_or_else(|| tg::error!("expected an host ip"))?;
+	let guest_ip = arg
+		.guest_ip
+		.ok_or_else(|| tg::error!("expected a guest ip"))?;
 	command.arg("sandbox").arg("vm").arg("run");
 	command
-		.arg("--sandbox-id")
-		.arg(arg.sandbox_id.to_string())
+		.arg("--id")
+		.arg(arg.id.to_string())
 		.arg("--artifacts-path")
 		.arg(&arg.artifacts_path)
 		.arg("--kernel-path")
 		.arg(&vm.kernel_path)
-		.arg("--host-subnet")
-		.arg(vm.host_subnet.to_string())
+		.arg("--host-ip")
+		.arg(host_ip.to_string())
+		.arg("--guest-ip")
+		.arg(guest_ip.to_string())
 		.arg("--path")
 		.arg(&arg.path)
 		.arg("--rootfs-path")

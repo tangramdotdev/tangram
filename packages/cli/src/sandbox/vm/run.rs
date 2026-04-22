@@ -14,13 +14,19 @@ pub struct Args {
 	pub cpu: Option<u64>,
 
 	#[arg(long)]
-	pub kernel_path: PathBuf,
-
-	#[arg(long)]
-	pub host_subnet: Ipv4Addr,
+	pub host_ip: Ipv4Addr,
 
 	#[arg(long)]
 	pub hostname: Option<String>,
+
+	#[arg(long)]
+	pub guest_ip: Ipv4Addr,
+
+	#[arg(long)]
+	pub id: tg::sandbox::Id,
+
+	#[arg(long)]
+	pub kernel_path: PathBuf,
 
 	#[arg(long)]
 	pub memory: Option<u64>,
@@ -38,9 +44,6 @@ pub struct Args {
 	pub rootfs_path: PathBuf,
 
 	#[arg(long)]
-	pub sandbox_id: tg::sandbox::Id,
-
-	#[arg(long)]
 	pub tangram_path: PathBuf,
 
 	#[arg(long)]
@@ -56,15 +59,16 @@ impl Cli {
 		let arg = tangram_sandbox::vm::run::Arg {
 			artifacts_path: args.artifacts_path,
 			cpu: args.cpu,
-			kernel_path: args.kernel_path,
-			host_subnet: args.host_subnet,
+			host_ip: args.host_ip,
+			guest_ip: args.guest_ip,
 			hostname: args.hostname,
+			id: args.id,
+			kernel_path: args.kernel_path,
 			memory: args.memory,
 			mounts: args.mounts,
 			network: args.network,
 			path: args.path,
 			rootfs_path: args.rootfs_path,
-			sandbox_id: args.sandbox_id,
 			tangram_path: args.tangram_path,
 			url: args.url,
 			user: args.user,

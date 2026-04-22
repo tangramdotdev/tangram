@@ -30,15 +30,16 @@ const VIRTIOFSD_SOCKET_NAME: &str = "virtiofsd.sock";
 pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub cpu: Option<u64>,
-	pub kernel_path: PathBuf,
+	pub guest_ip: Ipv4Addr,
+	pub host_ip: Ipv4Addr,
 	pub hostname: Option<String>,
-	pub host_subnet: Ipv4Addr,
+	pub id: tg::sandbox::Id,
+	pub kernel_path: PathBuf,
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: bool,
 	pub path: PathBuf,
 	pub rootfs_path: PathBuf,
-	pub sandbox_id: tg::sandbox::Id,
 	pub tangram_path: PathBuf,
 	pub url: tangram_uri::Uri,
 	pub user: Option<String>,
@@ -81,7 +82,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		let mut hasher = DefaultHasher::new();
 		arg.path.hash(&mut hasher);
 		let id = format!("{:x}", hasher.finish());
-		Some(crate::network::Tap::new(&id, arg.host_subnet)?)
+		Some(crate::network::Tap::new(&id, arg.host_ip, arg.guest_ip)?)
 	} else {
 		None
 	};
@@ -219,6 +220,7 @@ fn build_mount_arg(arg: &Arg) -> container::run::Arg {
 	container::run::Arg {
 		as_pid_1: false,
 		binds,
+		bridge_fd: None,
 		bridge_ip: None,
 		cgroup: None,
 		cgroup_cpu: None,
@@ -231,6 +233,8 @@ fn build_mount_arg(arg: &Arg) -> container::run::Arg {
 		gid: 0,
 		guest_ip: None,
 		hostname: None,
+		id: arg.id.clone(),
+		net: container::run::Net::None,
 		new_session: false,
 		overlay_sources: vec![arg.rootfs_path.clone()],
 		overlays: vec![container::run::Overlay {
@@ -240,13 +244,10 @@ fn build_mount_arg(arg: &Arg) -> container::run::Arg {
 		}],
 		procs: Vec::new(),
 		ro_binds,
-		sandbox_id: arg.sandbox_id.clone(),
 		setenvs: Vec::new(),
-		net: container::run::Net::None,
 		tmpfs: Vec::new(),
 		uid: 0,
 		unshare_all: false,
-		fd: None,
 	}
 }
 
@@ -339,13 +340,15 @@ fn host_vm_root_path_from_root(root_path: &Path) -> PathBuf {
 
 fn kernel_cmdline(arg: &Arg, user: &User, network: Option<&crate::vm::Network>) -> String {
 	let tangram_path = Sandbox::guest_tangram_path_from_host_tangram_path(&arg.tangram_path);
+	let output_path = Sandbox::guest_output_path_from_root(&arg.path);
 	let mut cmdline = String::from("console=ttyS0 rootfstype=virtiofs");
 	write!(
 		&mut cmdline,
-		" root={ROOTFS_TAG} init={} -- sandbox vm init --url {} --tangram-path {} --uid {} --gid {}",
+		" root={ROOTFS_TAG} init={} -- sandbox vm init --url {} --tangram-path {} --output-path {} --uid {} --gid {}",
 		tangram_path.display(),
 		arg.url,
 		tangram_path.display(),
+		output_path.display(),
 		user.uid,
 		user.gid,
 	)

@@ -1,10 +1,12 @@
 use {
+	crate::netlink::Netlink,
 	std::{
 		hash::{DefaultHasher, Hash as _, Hasher as _},
 		net::Ipv4Addr,
 		os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
 	},
-	tangram_client as tg, tokio::io::{AsyncReadExt, AsyncWriteExt},
+	tangram_client as tg,
+	tokio::io::{AsyncReadExt, AsyncWriteExt},
 };
 
 pub const HOST_TAP_PREFIX: &str = "tg-";
@@ -14,27 +16,19 @@ const TUNSETIFF: libc::c_ulong = 0x4004_54ca;
 
 #[derive(Debug)]
 pub struct Tap {
-	pub name: String,
-	pub mac: String,
+	pub fd: OwnedFd,
 	pub guest_ip: Ipv4Addr,
 	pub host_ip: Ipv4Addr,
+	pub mac: String,
+	pub name: String,
+	pub netlink: Netlink,
 	pub netmask: Ipv4Addr,
-	pub fd: OwnedFd,
 }
 
 impl Tap {
-	pub fn new(id: &str, host_subnet: Ipv4Addr) -> tg::Result<Tap> {
-		if !crate::util::user_is_root() {
-			return Err(tg::error!("networking requires root permissions"));
-		}
-
-		let base = u32::from(host_subnet);
-		let host_ip = Ipv4Addr::from(base + 1);
-		let guest_ip = Ipv4Addr::from(base + 2);
+	pub fn new(id: &str, host_ip: Ipv4Addr, guest_ip: Ipv4Addr) -> tg::Result<Tap> {
 		let netmask = Ipv4Addr::new(255, 255, 255, 252);
-
 		let name = tap_name(id);
-
 		let bytes = rand::random::<[u8; 5]>();
 		let mac = format!(
 			"{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
@@ -43,8 +37,9 @@ impl Tap {
 
 		let fd = open_tap(&name)?;
 
-		ip(&format!("link set {name} up"))?;
-		ip(&format!("addr add {host_ip}/30 dev {name}"))?;
+		let mut netlink = Netlink::new()?;
+		netlink.link_set_up(&name)?;
+		netlink.addr_add_v4(&name, host_ip, 30)?;
 
 		enable_ipv4_forwarding()?;
 		ensure_iptables_rules()?;
@@ -62,31 +57,33 @@ impl Tap {
 		}
 
 		Ok(Tap {
-			name,
-			mac,
+			fd,
 			guest_ip,
 			host_ip,
+			mac,
+			name,
+			netlink,
 			netmask,
-			fd,
 		})
 	}
 }
 
 impl Drop for Tap {
 	fn drop(&mut self) {
-		ip(&format!("link delete {}", self.name))
-			.inspect_err(|error| tracing::error!(%error, "failed to clean up the tap"))
-			.ok();
+		if let Err(error) = self.netlink.link_delete(&self.name) {
+			tracing::error!(%error, "failed to clean up the tap");
+		}
 	}
 }
 
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct Bridge {
-	pub host_name: String,
 	pub guest_name: String,
-	pub host_pipe: tokio::net::UnixStream,
 	pub guest_pipe: Option<std::os::unix::net::UnixStream>,
+	pub host_name: String,
+	pub host_pipe: tokio::net::UnixStream,
+	pub netlink: Netlink,
 }
 
 #[allow(dead_code)]
@@ -99,33 +96,45 @@ impl Bridge {
 		let truncated = &id_str[..9];
 		let host_name = format!("tg-vh-{truncated}");
 		let guest_name = format!("tg-vc-{truncated}");
-		ip(&format!(
-			"link add {host_name} type veth peer name {guest_name}"
-		))?;
-		ip(&format!("link set {host_name} master {bridge}"))?;
-		ip(&format!("link set {host_name} up"))?;
 
-		let (host_pipe, guest_pipe) = tokio::net::UnixStream::pair().map_err(|source| tg::error!(!source, "failed to create socket pair"))?;
-		let guest_pipe = guest_pipe.into_std().map_err(|source| tg::error!(!source, "failed to create the guest pipe"))?;
-		guest_pipe.set_nonblocking(false).map_err(|source| tg::error!(!source, "failed to set the pipe as non blocking"))?;
-		
+		let mut netlink = Netlink::new()?;
+		netlink.link_add_veth_pair(&host_name, &guest_name)?;
+		netlink.link_set_master(&host_name, bridge)?;
+		netlink.link_set_up(&host_name)?;
+
+		let (host_pipe, guest_pipe) = tokio::net::UnixStream::pair()
+			.map_err(|source| tg::error!(!source, "failed to create socket pair"))?;
+		let guest_pipe = guest_pipe
+			.into_std()
+			.map_err(|source| tg::error!(!source, "failed to create the guest pipe"))?;
+		guest_pipe
+			.set_nonblocking(false)
+			.map_err(|source| tg::error!(!source, "failed to set the pipe as non blocking"))?;
+
 		unsafe {
 			let raw = guest_pipe.as_raw_fd();
 			let flags = libc::fcntl(raw, libc::F_GETFD);
 			if flags < 0 {
-				return Err(tg::error!(source = std::io::Error::last_os_error(), "fcntl failed"));
+				return Err(tg::error!(
+					source = std::io::Error::last_os_error(),
+					"fcntl failed"
+				));
 			}
 			let result = libc::fcntl(raw, libc::F_SETFD, flags & !libc::FD_CLOEXEC);
 			if result < 0 {
-				return Err(tg::error!(source = std::io::Error::last_os_error(), "fcntl failed"));
+				return Err(tg::error!(
+					source = std::io::Error::last_os_error(),
+					"fcntl failed"
+				));
 			}
 		}
-		
+
 		Ok(Self {
-			host_name,
 			guest_name,
-			host_pipe,
 			guest_pipe: Some(guest_pipe),
+			host_name,
+			host_pipe,
+			netlink,
 		})
 	}
 
@@ -134,7 +143,9 @@ impl Bridge {
 			.read_u8()
 			.await
 			.map_err(|source| tg::error!(!source, "child process failed"))?;
-		ip(&format!("link set {} netns {}", self.guest_name, child))?;
+		let pid = u32::try_from(child)
+			.map_err(|source| tg::error!(!source, "the child pid does not fit in a u32"))?;
+		self.netlink.link_set_netns_pid(&self.guest_name, pid)?;
 		self.host_pipe
 			.write_u8(0)
 			.await
@@ -145,20 +156,12 @@ impl Bridge {
 
 #[allow(dead_code)]
 pub fn create_bridge(name: &str, addr: Ipv4Addr) -> tg::Result<()> {
-	if !crate::util::user_is_root() {
-		return Err(tg::error!("networking requires root permissions"));
+	let mut netlink = Netlink::new()?;
+	if !netlink.link_exists(name)? {
+		netlink.link_add_bridge(name)?;
 	}
-	let exists = std::process::Command::new("ip")
-		.args(["link", "show", "dev", name])
-		.stdout(std::process::Stdio::null())
-		.stderr(std::process::Stdio::null())
-		.status()
-		.is_ok_and(|status| status.success());
-	if !exists {
-		ip(&format!("link add name {name} type bridge"))?;
-	}
-	ip(&format!("addr replace {addr}/16 dev {name}"))?;
-	ip(&format!("link set {name} up"))?;
+	netlink.addr_replace_v4(name, addr, 16)?;
+	netlink.link_set_up(name)?;
 	enable_ipv4_forwarding()?;
 	ensure_bridge_iptables_rules(name, addr)?;
 	Ok(())
@@ -312,20 +315,6 @@ fn get_or_set_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()> {
 		let stderr = String::from_utf8_lossy(&output.stderr);
 		let rule = rule.join(" ");
 		return Err(tg::error!(%stderr, %rule, "failed to install iptables rule"));
-	}
-	Ok(())
-}
-
-pub(crate) fn ip(cli: &str) -> tg::Result<()> {
-	let output = std::process::Command::new("ip")
-		.args(cli.split(' '))
-		.stderr(std::process::Stdio::piped())
-		.output()
-		.map_err(|source| tg::error!(!source, "failed to spawn `ip`"))?;
-	if !output.status.success() {
-		let code = output.status.code();
-		let stderr = String::from_utf8_lossy(&output.stderr);
-		return Err(tg::error!(?code, %stderr, "ip {cli} failed"));
 	}
 	Ok(())
 }

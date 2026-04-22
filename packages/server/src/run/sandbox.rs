@@ -108,40 +108,50 @@ impl Server {
 			target: artifacts_path.clone(),
 			readonly: true,
 		});
-		let guest_ip = match &isolation {
+		let (host_ip, guest_ip) = match &isolation {
 			tangram_sandbox::Isolation::Container(container)
 				if matches!(container.net, tangram_sandbox::Net::Bridge(_)) =>
 			{
-				Some(self.allocate_guest_ip())
+				(None, Some(self.allocate_guest_ip()?))
 			},
-			_ => None,
+			tangram_sandbox::Isolation::Vm(_) => {
+				let (host, guest) = self.allocate_guest_ip_pair()?;
+				(Some(host), Some(guest))
+			},
+			_ => (None, None),
 		};
 		let arg = tangram_sandbox::Arg {
 			artifacts_path,
 			cpu: state.cpu,
-			guest_ip,
+			host_ip: host_ip.as_ref().map(|ip| ip.addr),
+			guest_ip: guest_ip.as_ref().map(|ip| ip.addr),
 			hostname: state.hostname.clone(),
+			id: id.clone(),
 			isolation,
 			memory: state.memory,
 			mounts,
 			network: state.network,
 			path: temp.path().to_owned(),
 			rootfs_path: self.sandbox_rootfs.clone(),
-			sandbox_id: id.clone(),
 			tangram_path: self.tangram_path.clone(),
 			user: state.user.clone(),
 		};
 		let sandbox = tangram_sandbox::Sandbox::new(arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to create the sandbox"))?;
+
+		let _temp = temp;
 		self.sandboxes.insert(id.clone(), sandbox.clone());
+		let server = self.clone();
 		scopeguard::defer! {
-			self.sandboxes.remove(id);
+			server.sandboxes.remove(id);
+			drop(host_ip);
+			drop(guest_ip);
 		}
 
 		// Spawn the serve task.
 		let serve_task = Task::spawn({
-			let server = self.clone();
+			let server = server.clone();
 			let config = crate::config::HttpListener {
 				url: guest_uri.clone(),
 				tls: None,
@@ -157,13 +167,13 @@ impl Server {
 
 		// Spawn the heartbeat task.
 		let heartbeat_task = Task::spawn({
-			let server = self.clone();
+			let server = server.clone();
 			let id = id.clone();
 			let location = location.clone();
 			move |stopper| async move { server.sandbox_heartbeat_task(&id, &location, stopper).await }
 		});
 
-		let status = self
+		let status = server
 			.get_sandbox_status(
 				id,
 				tg::sandbox::status::Arg {
@@ -301,8 +311,6 @@ impl Server {
 		}
 	}
 
-<<<<<<< HEAD
-=======
 	async fn run_create_listener(
 		root_path: &Path,
 		isolation: &tangram_sandbox::Isolation,
@@ -433,7 +441,6 @@ impl Server {
 		Ok((listener, guest_uri))
 	}
 
->>>>>>> 2d9742972 (compiling)
 	async fn sandbox_heartbeat_task(
 		&self,
 		id: &tg::sandbox::Id,
