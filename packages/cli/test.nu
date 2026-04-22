@@ -73,13 +73,7 @@ def main [
 		}
 	}
 
-	# Create the state.
-	mut pending = $tests
-	mut running = []
 	mut results = []
-
-	let start = date now
-	let total = $pending | length
 
 	# Determine the number of concurrent tests to run.
 	let jobs = $jobs | default (sys cpu | length)
@@ -89,168 +83,72 @@ def main [
 		$jobs
 	}
 
-	def spawn [test: record] {
-		job spawn {
-			# Create a temp directory for this test.
-			let temp_path = mktemp -d -t tangram_test_XXXXXX | path expand
-
-			# Remove inline, pending, and touch files.
-			let parsed = $test.path | path parse
-			for path in (glob $'($parsed.parent | path join $parsed.stem){.{inline,pending,touched},/*.{pending,touched}}') {
-				rm $path
-			}
-
-			# Run the test.
-			let start = date now
-			let timeout = $timeout | into int | $in / 1_000_000_000
-			if $preserve_temps {
-				let config = {
-					advanced: {
-						preserve_temp_directories: true,
-					},
-				}
-				$config | to json | save -f ($temp_path | path join "config.json")
-			}
-			let dyld_fallback_library_path = if $nu.os-info.name == 'macos' {
-				[
-					'/opt/homebrew/lib'
-					'/usr/local/lib'
-					($env.DYLD_FALLBACK_LIBRARY_PATH? | default '')
-				]
-				| where { |path| $path != '' }
-				| str join (char esep)
-			} else {
-				$env.DYLD_FALLBACK_LIBRARY_PATH? | default ''
-			}
-			let output = with-env {
-				SHELL: "/bin/sh",
-				DYLD_LIBRARY_PATH: $dyld_fallback_library_path,
-				DYLD_FALLBACK_LIBRARY_PATH: $dyld_fallback_library_path,
-				TANGRAM_CONFIG: ($temp_path | path join "config.json"),
-				TANGRAM_MODE: client,
-				TANGRAM_TEST_CLOUD: (if $cloud { "1" } else { "" }),
-				TMPDIR: $temp_path,
-			} {
-				let command = $'$env.config.display_errors.exit_code = true; source ($test.path)';
-				if $no_capture {
-					try {
-						open /dev/null | timeout $timeout nu -c $command
-					}
-					{ exit_code: $env.LAST_EXIT_CODE, stdout: '', stderr: '' }
-				} else {
-					open /dev/null | timeout $timeout nu -c $command | complete
-				}
-			}
-			let end = date now
-			let duration = $end - $start
-
-			# If the test passed, delete snapshots which were not touched and remove touch files.
-			if $output.exit_code == 0 {
-				let parent_path = $test.path | path dirname
-				let stem = $test.path | path parse | get stem
-				for path in (glob $'($parent_path | path join $stem){.snapshot,/*.snapshot}') {
-					if not ($path | str replace '.snapshot' '.touched' | path exists) {
-						rm $path
-					}
-				}
-				for path in (glob $'($parent_path | path join $stem){.touched,/*.touched}') {
-					rm $path
-				}
-			}
-
-			# Clean up the cloud resource.
-			let ids_path = $temp_path | path join 'ids'
-			let ids = if ($ids_path | path exists) {
-				open $ids_path | lines | where { $in != '' }
-			} else {
-				[]
-			}
-			for id in $ids {
-				clean_databases $id
-			}
-
-			# Kill any background jobs started by the test, such as server processes.
-			for job in (job list | where { ($in.description? | default '') == 'server' }) {
-				let exit_path = server_exit_path $temp_path $job.id
-				for pid in ($job.pids? | default []) {
-					try { ^kill -KILL $pid }
-				}
-				if not (wait_for_server_exit $exit_path) {
-					try { job kill $job.id }
-				}
-			}
-
-			# Clean up the temp directory.
-			if not $preserve_temps {
-				remove_temp_directory $temp_path
-			}
-
-			# Send the result.
-			let result = {
-				duration: $duration,
-				name: $test.name,
-				output: $output,
-				temp_path: $temp_path,
-			}
-			$result | job send 0
-		}
-	}
-
-	# Fill the worker pool.
-	while ($running | length) < $jobs and ($pending | length) > 0 {
-		let test = $pending | first
-		$pending = $pending | skip 1
-		let id = spawn $test
-		$running = $running | append { id: $id, name: $test.name, start: (date now) }
-	}
-
-	# Spawn a job that sends a null message every 100ms to trigger progress updates.
-	let interval_job = job spawn {
-		loop {
-			sleep 1sec
-			null | job send 0
-		}
-	}
-
-	# Hide the cursor.
-	print -e -n "\e[?25l"
-
-	# Process results as they complete.
-	while ($running | length) > 0 or ($pending | length) > 0 {
-		# Wait for the next event (either test completion or ticker).
-		let result = job recv
-
-		# Clear the from the cursor to the end.
-		print -e -n "\e[0J"
-
-		if $result != null {
-			# Print the result.
-			let symbol = if $result.output.exit_code == 0 {
-				$'(ansi green)✓(ansi reset)'
-			} else {
-				$'(ansi red)✗(ansi reset)'
-			}
-			print -e $'($symbol) ($result.name) ($result.duration)'
-			if $print_passing_test_output or $result.output.exit_code != 0 {
-				print -e -n $result.output.stdout
-			}
-
-			# Store the result.
+	if $no_capture {
+		for test in $tests {
+			let result = run_test $test $cloud $no_capture $preserve_temps $timeout
+			print_test_result $result $print_passing_test_output
 			$results = $results | append $result
+		}
+	} else {
+		# Create the state.
+		mut pending = $tests
+		mut running = []
 
-			# Remove the completed job from the running list.
-			$running = $running | where name != $result.name
+		let start = date now
+		let total = $pending | length
 
-			# Spawn a new job if there are more tests to run.
-			if ($pending | length) > 0 {
-				let test = $pending | first
-				$pending = $pending | skip 1
-				let id = spawn $test
-				$running = $running | append { id: $id, name: $test.name, start: (date now) }
+		def spawn [test: record] {
+			job spawn {
+				let result = run_test $test $cloud $no_capture $preserve_temps $timeout
+				$result | job send 0
 			}
 		}
 
-		if not $no_capture {
+		# Fill the worker pool.
+		while ($running | length) < $jobs and ($pending | length) > 0 {
+			let test = $pending | first
+			$pending = $pending | skip 1
+			let id = spawn $test
+			$running = $running | append { id: $id, name: $test.name, start: (date now) }
+		}
+
+		# Spawn a job that sends a null message every 100ms to trigger progress updates.
+		let interval_job = job spawn {
+			loop {
+				sleep 1sec
+				null | job send 0
+			}
+		}
+
+		# Hide the cursor.
+		print -e -n "\e[?25l"
+
+		# Process results as they complete.
+		while ($running | length) > 0 or ($pending | length) > 0 {
+			# Wait for the next event (either test completion or ticker).
+			let result = job recv
+
+			# Clear the from the cursor to the end.
+			print -e -n "\e[0J"
+
+			if $result != null {
+				print_test_result $result $print_passing_test_output
+
+				# Store the result.
+				$results = $results | append $result
+
+				# Remove the completed job from the running list.
+				$running = $running | where name != $result.name
+
+				# Spawn a new job if there are more tests to run.
+				if ($pending | length) > 0 {
+					let test = $pending | first
+					$pending = $pending | skip 1
+					let id = spawn $test
+					$running = $running | append { id: $id, name: $test.name, start: (date now) }
+				}
+			}
+
 			# Print the running tests.
 			let term_width = term size | get columns
 			for test in $running {
@@ -283,15 +181,15 @@ def main [
 				print -e -n $"\e[($running | length)A"
 			}
 		}
+
+		job kill $interval_job
+
+		# Clear.
+		print -e -n "\e[0J"
+
+		# Show the cursor.
+		print -e -n "\e[?25h"
 	}
-
-	job kill $interval_job
-
-	# Clear.
-	print -e -n "\e[0J"
-
-	# Show the cursor.
-	print -e -n "\e[?25h"
 
 	if $accept {
 		for test in $tests {
@@ -422,6 +320,126 @@ def main [
 
 	if $failed > 0 {
 		exit 1
+	}
+}
+
+def run_test [test: record, cloud: bool, no_capture: bool, preserve_temps: bool, timeout: duration] {
+	# Create a temp directory for this test.
+	let temp_path = mktemp -d -t tangram_test_XXXXXX | path expand
+
+	# Remove inline, pending, and touch files.
+	let parsed = $test.path | path parse
+	for path in (glob $'($parsed.parent | path join $parsed.stem){.{inline,pending,touched},/*.{pending,touched}}') {
+		rm $path
+	}
+
+	# Run the test.
+	let start = date now
+	let timeout = $timeout | into int | $in / 1_000_000_000
+	if $preserve_temps {
+		let config = {
+			advanced: {
+				preserve_temp_directories: true,
+			},
+		}
+		$config | to json | save -f ($temp_path | path join "config.json")
+	}
+	let dyld_fallback_library_path = if $nu.os-info.name == 'macos' {
+		[
+			'/opt/homebrew/lib'
+			'/usr/local/lib'
+			($env.DYLD_FALLBACK_LIBRARY_PATH? | default '')
+		]
+		| where { |path| $path != '' }
+		| str join (char esep)
+	} else {
+		$env.DYLD_FALLBACK_LIBRARY_PATH? | default ''
+	}
+	let output = with-env {
+		SHELL: "/bin/sh",
+		DYLD_LIBRARY_PATH: $dyld_fallback_library_path,
+		DYLD_FALLBACK_LIBRARY_PATH: $dyld_fallback_library_path,
+		TANGRAM_CONFIG: ($temp_path | path join "config.json"),
+		TANGRAM_MODE: client,
+		TANGRAM_TEST_CLOUD: (if $cloud { "1" } else { "" }),
+		TMPDIR: $temp_path,
+	} {
+		let command = $'$env.config.display_errors.exit_code = true; source ($test.path)';
+		if $no_capture {
+			let exit_code_path = mktemp -t tangram_test_exit_code.XXXXXX
+			open /dev/null | ^sh -c 'timeout "$1" nu -c "$2"; status=$?; printf "%s" "$status" > "$3"' sh $timeout $command $exit_code_path
+			let exit_code = if ($exit_code_path | path exists) {
+				open $exit_code_path | str trim | into int
+			} else {
+				1
+			}
+			try { rm $exit_code_path }
+			{ exit_code: $exit_code, stdout: '', stderr: '' }
+		} else {
+			open /dev/null | timeout $timeout nu -c $command | complete
+		}
+	}
+	let end = date now
+	let duration = $end - $start
+
+	# If the test passed, delete snapshots which were not touched and remove touch files.
+	if $output.exit_code == 0 {
+		let parent_path = $test.path | path dirname
+		let stem = $test.path | path parse | get stem
+		for path in (glob $'($parent_path | path join $stem){.snapshot,/*.snapshot}') {
+			if not ($path | str replace '.snapshot' '.touched' | path exists) {
+				rm $path
+			}
+		}
+		for path in (glob $'($parent_path | path join $stem){.touched,/*.touched}') {
+			rm $path
+		}
+	}
+
+	# Clean up the cloud resource.
+	let ids_path = $temp_path | path join 'ids'
+	let ids = if ($ids_path | path exists) {
+		open $ids_path | lines | where { $in != '' }
+	} else {
+		[]
+	}
+	for id in $ids {
+		clean_databases $id
+	}
+
+	# Kill any background jobs started by the test, such as server processes.
+	for job in (job list | where { ($in.description? | default '') == 'server' }) {
+		let exit_path = server_exit_path $temp_path $job.id
+		for pid in ($job.pids? | default []) {
+			try { ^kill -KILL $pid }
+		}
+		if not (wait_for_server_exit $exit_path) {
+			try { job kill $job.id }
+		}
+	}
+
+	# Clean up the temp directory.
+	if not $preserve_temps {
+		remove_temp_directory $temp_path
+	}
+
+	{
+		duration: $duration,
+		name: $test.name,
+		output: $output,
+		temp_path: $temp_path,
+	}
+}
+
+def print_test_result [result: record, print_passing_test_output: bool] {
+	let symbol = if $result.output.exit_code == 0 {
+		$'(ansi green)✓(ansi reset)'
+	} else {
+		$'(ansi red)✗(ansi reset)'
+	}
+	print -e $'($symbol) ($result.name) ($result.duration)'
+	if $print_passing_test_output or $result.output.exit_code != 0 {
+		print -e -n $result.output.stdout
 	}
 }
 
