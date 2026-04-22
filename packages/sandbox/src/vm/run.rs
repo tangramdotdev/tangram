@@ -23,12 +23,6 @@ use {
 pub const CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME: &str = "cloud-hypervisor-vsock.sock";
 const HELPER_WAIT_INTERVAL: Duration = Duration::from_millis(10);
 
-#[cfg(target_arch = "aarch64")]
-const KERNEL_PATH: &str = "/tmp/tangram-cloud-hypervisor-kernel/Image-arm64";
-
-#[cfg(target_arch = "x86_64")]
-const KERNEL_PATH: &str = "/tmp/tangram-cloud-hypervisor-kernel/vmlinux-x86_64";
-
 const ROOTFS_TAG: &str = "root";
 const VIRTIOFSD_SOCKET_NAME: &str = "virtiofsd.sock";
 
@@ -44,6 +38,7 @@ pub struct Arg {
 	pub network: bool,
 	pub path: PathBuf,
 	pub rootfs_path: PathBuf,
+	pub sandbox_id: tg::sandbox::Id,
 	pub tangram_path: PathBuf,
 	pub url: tangram_uri::Uri,
 	pub user: Option<String>,
@@ -86,7 +81,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		let mut hasher = DefaultHasher::new();
 		arg.path.hash(&mut hasher);
 		let id = format!("{:x}", hasher.finish());
-		Some(crate::network::Tap::new(&id)?)
+		Some(crate::network::Tap::new(&id, arg.host_subnet)?)
 	} else {
 		None
 	};
@@ -103,7 +98,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	let mut command = std::process::Command::new("cloud-hypervisor");
 	command
 		.arg("--kernel")
-		.arg(KERNEL_PATH)
+		.arg(&arg.kernel_path)
 		.args(
 			arg.cpu
 				.map(|cpu| vec!["--cpus".to_owned(), format!("boot={cpu},max={cpu}")])
@@ -224,6 +219,7 @@ fn build_mount_arg(arg: &Arg) -> container::run::Arg {
 	container::run::Arg {
 		as_pid_1: false,
 		binds,
+		bridge_ip: None,
 		cgroup: None,
 		cgroup_cpu: None,
 		cgroup_memory: None,
@@ -233,6 +229,7 @@ fn build_mount_arg(arg: &Arg) -> container::run::Arg {
 		devs: Vec::new(),
 		die_with_parent: false,
 		gid: 0,
+		guest_ip: None,
 		hostname: None,
 		new_session: false,
 		overlay_sources: vec![arg.rootfs_path.clone()],
@@ -243,11 +240,13 @@ fn build_mount_arg(arg: &Arg) -> container::run::Arg {
 		}],
 		procs: Vec::new(),
 		ro_binds,
+		sandbox_id: arg.sandbox_id.clone(),
 		setenvs: Vec::new(),
-		share_net: false,
+		net: container::run::Net::None,
 		tmpfs: Vec::new(),
 		uid: 0,
 		unshare_all: false,
+		fd: None,
 	}
 }
 

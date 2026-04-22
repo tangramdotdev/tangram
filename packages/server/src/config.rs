@@ -1,6 +1,6 @@
 use {
 	serde_with::{DurationSecondsWithFrac, serde_as},
-	std::{path::PathBuf, time::Duration},
+	std::{net::Ipv4Addr, path::PathBuf, time::Duration},
 	tangram_uri::Uri,
 	tangram_util::serde::BoolOptionDefault,
 };
@@ -477,7 +477,7 @@ pub struct Sandbox {
 	pub isolation: SandboxIsolation,
 }
 
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum SandboxIsolation {
 	Container(ContainerSandboxIsolation),
@@ -485,17 +485,42 @@ pub enum SandboxIsolation {
 	Vm(VmSandboxIsolation),
 }
 
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
-pub struct ContainerSandboxIsolation {}
+pub struct ContainerSandboxIsolation {
+	#[serde(default)]
+	pub net: ContainerNet,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum ContainerNet {
+	None,
+	#[default]
+	Host,
+	Bridge(Bridge),
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct Bridge {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub name: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ip: Option<Ipv4Addr>,
+}
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct SeatbeltSandboxIsolation {}
 
-#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
-pub struct VmSandboxIsolation {}
+pub struct VmSandboxIsolation {
+	pub kernel_path: PathBuf,
+	#[serde(default)]
+	pub host_subnet: Option<Ipv4Addr>,
+}
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
@@ -914,7 +939,9 @@ impl Default for Runner {
 		Self {
 			concurrency: None,
 			heartbeat_interval: Duration::from_secs(1),
-			isolation: tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation {}),
+			isolation: tangram_sandbox::Isolation::Container(
+				tangram_sandbox::ContainerIsolation::default(),
+			),
 			js: Js::default(),
 			remotes: Vec::new(),
 		}

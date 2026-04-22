@@ -4,7 +4,7 @@ use {
 		net::Ipv4Addr,
 		os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
 	},
-	tangram_client as tg,
+	tangram_client as tg, tokio::io::{AsyncReadExt, AsyncWriteExt},
 };
 
 pub const HOST_TAP_PREFIX: &str = "tg-";
@@ -23,28 +23,12 @@ pub struct Tap {
 }
 
 impl Tap {
-	pub fn new(id: &str) -> tg::Result<Tap> {
+	pub fn new(id: &str, host_subnet: Ipv4Addr) -> tg::Result<Tap> {
 		if !crate::util::user_is_root() {
 			return Err(tg::error!("networking requires root permissions"));
 		}
 
-		// Derive a /30 slice of 172.16.0.0/12 from a hash of the id, skipping
-		// 172.17.0.0/16 to avoid collision with Docker's default bridge.
-		const SUBNETS_PER_16: u64 = 16_384;
-		const USABLE_16S: u64 = 15;
-		const TOTAL_SUBNETS: u64 = SUBNETS_PER_16 * USABLE_16S;
-		let mut hasher = DefaultHasher::new();
-		id.hash(&mut hasher);
-		let idx = hasher.finish() % TOTAL_SUBNETS;
-
-		let sixteen_idx = idx / SUBNETS_PER_16;
-		let within_idx = u32::try_from(idx % SUBNETS_PER_16).unwrap();
-		let second_octet = if sixteen_idx == 0 {
-			16
-		} else {
-			u8::try_from(17 + sixteen_idx).unwrap()
-		};
-		let base = u32::from_be_bytes([172, second_octet, 0, 0]) + within_idx * 4;
+		let base = u32::from(host_subnet);
 		let host_ip = Ipv4Addr::from(base + 1);
 		let guest_ip = Ipv4Addr::from(base + 2);
 		let netmask = Ipv4Addr::new(255, 255, 255, 252);
@@ -94,6 +78,126 @@ impl Drop for Tap {
 			.inspect_err(|error| tracing::error!(%error, "failed to clean up the tap"))
 			.ok();
 	}
+}
+
+#[allow(dead_code)]
+#[derive(Debug)]
+pub struct Bridge {
+	pub host_name: String,
+	pub guest_name: String,
+	pub host_pipe: tokio::net::UnixStream,
+	pub guest_pipe: Option<std::os::unix::net::UnixStream>,
+}
+
+#[allow(dead_code)]
+impl Bridge {
+	pub fn new(id: &tg::sandbox::Id, bridge: &str) -> tg::Result<Self> {
+		let id_str = id.to_string();
+		if id_str.len() < 9 {
+			return Err(tg::error!(%id, "the sandbox id is too short"));
+		}
+		let truncated = &id_str[..9];
+		let host_name = format!("tg-vh-{truncated}");
+		let guest_name = format!("tg-vc-{truncated}");
+		ip(&format!(
+			"link add {host_name} type veth peer name {guest_name}"
+		))?;
+		ip(&format!("link set {host_name} master {bridge}"))?;
+		ip(&format!("link set {host_name} up"))?;
+
+		let (host_pipe, guest_pipe) = tokio::net::UnixStream::pair().map_err(|source| tg::error!(!source, "failed to create socket pair"))?;
+		let guest_pipe = guest_pipe.into_std().map_err(|source| tg::error!(!source, "failed to create the guest pipe"))?;
+		guest_pipe.set_nonblocking(false).map_err(|source| tg::error!(!source, "failed to set the pipe as non blocking"))?;
+		
+		unsafe {
+			let raw = guest_pipe.as_raw_fd();
+			let flags = libc::fcntl(raw, libc::F_GETFD);
+			if flags < 0 {
+				return Err(tg::error!(source = std::io::Error::last_os_error(), "fcntl failed"));
+			}
+			let result = libc::fcntl(raw, libc::F_SETFD, flags & !libc::FD_CLOEXEC);
+			if result < 0 {
+				return Err(tg::error!(source = std::io::Error::last_os_error(), "fcntl failed"));
+			}
+		}
+		
+		Ok(Self {
+			host_name,
+			guest_name,
+			host_pipe,
+			guest_pipe: Some(guest_pipe),
+		})
+	}
+
+	pub async fn connect(&mut self, child: libc::pid_t) -> tg::Result<()> {
+		self.host_pipe
+			.read_u8()
+			.await
+			.map_err(|source| tg::error!(!source, "child process failed"))?;
+		ip(&format!("link set {} netns {}", self.guest_name, child))?;
+		self.host_pipe
+			.write_u8(0)
+			.await
+			.map_err(|source| tg::error!(!source, "child process failed"))?;
+		Ok(())
+	}
+}
+
+#[allow(dead_code)]
+pub fn create_bridge(name: &str, addr: Ipv4Addr) -> tg::Result<()> {
+	if !crate::util::user_is_root() {
+		return Err(tg::error!("networking requires root permissions"));
+	}
+	let exists = std::process::Command::new("ip")
+		.args(["link", "show", "dev", name])
+		.stdout(std::process::Stdio::null())
+		.stderr(std::process::Stdio::null())
+		.status()
+		.is_ok_and(|status| status.success());
+	if !exists {
+		ip(&format!("link add name {name} type bridge"))?;
+	}
+	ip(&format!("addr replace {addr}/16 dev {name}"))?;
+	ip(&format!("link set {name} up"))?;
+	enable_ipv4_forwarding()?;
+	ensure_bridge_iptables_rules(name, addr)?;
+	Ok(())
+}
+
+#[allow(dead_code)]
+fn ensure_bridge_iptables_rules(bridge: &str, addr: Ipv4Addr) -> tg::Result<()> {
+	let octets = addr.octets();
+	let subnet = Ipv4Addr::new(octets[0], octets[1], 0, 0);
+	let cidr = format!("{subnet}/16");
+	get_or_set_iptables_rule(
+		&["-t", "nat"],
+		&[
+			"POSTROUTING",
+			"-s",
+			cidr.as_str(),
+			"!",
+			"-o",
+			bridge,
+			"-j",
+			"MASQUERADE",
+		],
+	)?;
+	get_or_set_iptables_rule(&[], &["FORWARD", "-i", bridge, "-j", "ACCEPT"])?;
+	get_or_set_iptables_rule(
+		&[],
+		&[
+			"FORWARD",
+			"-o",
+			bridge,
+			"-m",
+			"conntrack",
+			"--ctstate",
+			"ESTABLISHED,RELATED",
+			"-j",
+			"ACCEPT",
+		],
+	)?;
+	Ok(())
 }
 
 fn tap_name(id: &str) -> String {
@@ -212,7 +316,7 @@ fn get_or_set_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()> {
 	Ok(())
 }
 
-fn ip(cli: &str) -> tg::Result<()> {
+pub(crate) fn ip(cli: &str) -> tg::Result<()> {
 	let output = std::process::Command::new("ip")
 		.args(cli.split(' '))
 		.stderr(std::process::Stdio::piped())

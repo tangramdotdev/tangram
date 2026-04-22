@@ -2,7 +2,11 @@ use {
 	crate::client::Client,
 	futures::Stream,
 	std::{
-		collections::{BTreeMap, BTreeSet}, path::{Path, PathBuf}, sync::Arc, time::Duration
+		collections::{BTreeMap, BTreeSet},
+		net::Ipv4Addr,
+		path::{Path, PathBuf},
+		sync::Arc,
+		time::Duration,
 	},
 	tangram_client::prelude::*,
 	tangram_uri::Uri,
@@ -23,6 +27,9 @@ pub mod seatbelt;
 pub mod serve;
 #[cfg(target_os = "linux")]
 pub mod vm;
+
+#[cfg(target_os = "linux")]
+pub use self::network::create_bridge;
 
 #[derive(Clone)]
 pub struct Sandbox(Arc<State>);
@@ -47,6 +54,7 @@ pub struct Process {
 pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub cpu: Option<u64>,
+	pub guest_ip: Option<Ipv4Addr>,
 	pub hostname: Option<String>,
 	pub isolation: Isolation,
 	pub memory: Option<u64>,
@@ -54,6 +62,7 @@ pub struct Arg {
 	pub network: bool,
 	pub path: PathBuf,
 	pub rootfs_path: PathBuf,
+	pub sandbox_id: tg::sandbox::Id,
 	pub tangram_path: PathBuf,
 	pub user: Option<String>,
 }
@@ -77,16 +86,35 @@ pub enum Isolation {
 	Vm(VmIsolation),
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ContainerIsolation {}
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ContainerIsolation {
+	#[serde(default)]
+	pub net: Net,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum Net {
+	None,
+	#[default]
+	Host,
+	Bridge(Bridge),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Bridge {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub name: Option<String>,
+	pub ip: Ipv4Addr,
+}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SeatbeltIsolation {}
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct VmIsolation {
-	pub kernel: PathBuf,
-	pub host_subnet: String,
+	pub kernel_path: PathBuf,
+	pub host_subnet: Ipv4Addr,
 }
 
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
@@ -140,7 +168,7 @@ impl Sandbox {
 
 		let mut process = match arg.isolation {
 			#[cfg(target_os = "linux")]
-			Isolation::Container(_) => self::container::spawn(&arg, &serve_arg)?,
+			Isolation::Container(_) => self::container::spawn(&arg, &serve_arg).await?,
 			#[cfg(target_os = "linux")]
 			Isolation::Seatbelt(_) => {
 				return Err(tg::error!("seatbelt isolation is not supported on linux"));
