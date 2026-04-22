@@ -215,28 +215,17 @@ fn create_sandbox_profile(arg: &crate::Arg) -> CString {
 			(allow file-read* process-exec
 				(subpath "{}"))
 
-			;; Allow reading and writing to the sandbox paths.
+			;; Allow reading and writing to the sandbox socket files.
 			(allow file-read* file-write* file-write-create file-write-mode
 				file-write-unlink file-link
 				(literal "{}")
 				(literal "{}"))
-			(allow file-read* file-write* file-write-create file-write-mode
-				file-write-unlink file-link process-exec
-				(subpath "{}")
-				(subpath "{}")
-				(subpath "{}"))
 		"#,
 		arg.tangram_path.display(),
 		arg.rootfs_path.join("lib").display(),
 		arg.rootfs_path.join("bin").display(),
 		Sandbox::host_tangram_socket_path_from_root(&arg.path).display(),
 		Sandbox::host_listen_path_from_root(&arg.path).display(),
-		Sandbox::host_tangram_socket_path_from_root(&arg.path).display(),
-		Sandbox::host_output_path_from_root(&arg.path).display(),
-		Sandbox::host_scratch_path_from_root(&arg.path)
-			.parent()
-			.unwrap()
-			.display(),
 	)
 	.unwrap();
 
@@ -319,7 +308,12 @@ fn create_sandbox_profile(arg: &crate::Arg) -> CString {
 		.unwrap();
 	}
 
-	for mount in &arg.mounts {
+	let sandbox_root_mount = tg::sandbox::Mount {
+		source: arg.path.clone(),
+		target: arg.path.clone(),
+		readonly: false,
+	};
+	for mount in std::iter::once(&sandbox_root_mount).chain(arg.mounts.iter()) {
 		if mount.readonly {
 			let path = &mount.source;
 			writedoc!(

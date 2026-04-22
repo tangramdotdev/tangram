@@ -6,9 +6,14 @@ pub fn prepare_command_for_spawn(
 	library_paths: &[std::path::PathBuf],
 ) -> tg::Result<()> {
 	if !command.env.contains_key("HOME") {
-		let home = std::env::var("HOME")
-			.map_err(|source| tg::error!(!source, "failed to get the home directory"))?;
-		command.env.insert("HOME".to_owned(), home);
+		// Use `/root` to match the Linux container default. The seatbelt
+		// sandbox does not chroot, so the host's `$HOME` (typically under
+		// `/Users`) is visible but denied by the profile; tools that stat
+		// `$HOME/.gitconfig` (for example libgit2 via `cargo`) then see
+		// `EPERM` instead of `ENOENT` and treat the config as invalid. A
+		// path that does not exist on the host under a granted subtree
+		// produces `ENOENT`, which is the expected "no config" signal.
+		command.env.insert("HOME".to_owned(), "/root".to_owned());
 	}
 	let mut paths = Vec::new();
 	if let Some(wrapper_directory) = tangram_wrapper_directory(library_paths) {
