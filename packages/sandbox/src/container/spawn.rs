@@ -130,6 +130,8 @@ pub(crate) fn spawn(
 		.arg("sandbox")
 		.arg("container")
 		.arg("init")
+		.arg("--output-path")
+		.arg(&init_arg.serve.output_path)
 		.arg("--url")
 		.arg(init_arg.serve.url.to_string())
 		.arg("--tangram-path")

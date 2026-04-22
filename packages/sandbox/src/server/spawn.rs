@@ -31,6 +31,34 @@ impl Server {
 		&self,
 		mut arg: crate::client::spawn::Arg,
 	) -> tg::Result<crate::client::spawn::Output> {
+		// Normalize the env.
+		for key in [
+			"TANGRAM_CONFIG",
+			"TANGRAM_DIRECTORY",
+			"TANGRAM_MODE",
+			"TANGRAM_PROCESS",
+			"TANGRAM_TOKEN",
+			"TANGRAM_TRACING",
+			"TANGRAM_URL",
+		] {
+			arg.command.env.remove(key);
+		}
+		arg.command.env.remove("TANGRAM_OUTPUT");
+		arg.command.env.insert(
+			"TANGRAM_OUTPUT".to_owned(),
+			self.output_path
+				.join(arg.id.to_string())
+				.to_str()
+				.unwrap()
+				.to_owned(),
+		);
+		arg.command
+			.env
+			.insert("TANGRAM_PROCESS".to_owned(), arg.id.to_string());
+		arg.command
+			.env
+			.insert("TANGRAM_URL".to_owned(), arg.url.to_string());
+
 		// Apply host specific modifications to the command.
 		#[cfg(target_os = "macos")]
 		{

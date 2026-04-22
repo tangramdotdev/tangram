@@ -198,7 +198,7 @@ impl Server {
 		};
 
 		// Render the env.
-		let mut env = render_env(&command.env, &guest_artifacts_path, &guest_output_path)?;
+		let env = render_env(&command.env, &guest_artifacts_path, &guest_output_path)?;
 
 		#[cfg(target_os = "macos")]
 		env.entry("TMPDIR".to_owned())
@@ -246,16 +246,6 @@ impl Server {
 			},
 		};
 
-		// Set `$TANGRAM_OUTPUT`.
-		env.insert(
-			"TANGRAM_OUTPUT".to_owned(),
-			guest_output_path.to_str().unwrap().to_owned(),
-		);
-
-		// Set `$TANGRAM_URL`.
-		env.insert("TANGRAM_URL".to_owned(), guest_uri.to_string());
-		env.insert("TANGRAM_PROCESS".to_owned(), id.to_string());
-
 		let sandbox_stdin = match state.stdin {
 			tg::process::Stdio::Null => tangram_sandbox::Stdio::Null,
 			tg::process::Stdio::Pipe => tangram_sandbox::Stdio::Pipe,
@@ -298,6 +288,7 @@ impl Server {
 				state.tty,
 				location.clone(),
 				state.retry,
+				guest_uri.clone(),
 			)
 			.await
 			.map_err(

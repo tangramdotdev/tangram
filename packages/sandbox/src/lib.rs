@@ -131,6 +131,7 @@ impl Sandbox {
 		let serve_arg = self::serve::Arg {
 			library_paths,
 			listen: false,
+			output_path: Self::guest_output_path_from_root(&arg.path),
 			tangram_path: Self::guest_tangram_path_from_host_tangram_path(&arg.tangram_path),
 			url,
 		};
@@ -324,6 +325,7 @@ impl Sandbox {
 		tty: Option<tg::process::Tty>,
 		location: Option<tg::location::Location>,
 		retry: bool,
+		url: tangram_uri::Uri,
 	) -> tg::Result<Process> {
 		let arg = crate::client::spawn::Arg {
 			command,
@@ -331,6 +333,7 @@ impl Sandbox {
 			location,
 			retry,
 			tty,
+			url,
 		};
 		self.0.client.spawn(arg).await?;
 		Ok(Process { id })

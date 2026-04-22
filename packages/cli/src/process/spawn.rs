@@ -500,18 +500,6 @@ impl Cli {
 		let mut env = tg::value::Map::new();
 		if !sandbox {
 			env.extend(tg::process::env()?);
-			env.remove("TANGRAM_OUTPUT");
-			env.remove("TANGRAM_PROCESS");
-			if !env.contains_key("TANGRAM_URL")
-				&& let tg::Either::Left(client) = &handle
-			{
-				env.insert("TANGRAM_URL".to_owned(), client.url().to_string().into());
-			}
-			if !env.contains_key("TANGRAM_TOKEN")
-				&& let Some(token) = &self.args.token
-			{
-				env.insert("TANGRAM_TOKEN".to_owned(), token.clone().into());
-			}
 		}
 		for (key, value) in command_env.into_iter().flatten() {
 			if let Ok(mutation) = value.try_unwrap_mutation_ref() {

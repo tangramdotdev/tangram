@@ -22,6 +22,7 @@ mod wait;
 
 pub struct Arg {
 	pub library_paths: Vec<std::path::PathBuf>,
+	pub output_path: std::path::PathBuf,
 	pub tangram_path: std::path::PathBuf,
 }
 
@@ -30,6 +31,7 @@ pub struct Server(Arc<State>);
 
 pub struct State {
 	library_paths: Vec<std::path::PathBuf>,
+	output_path: std::path::PathBuf,
 	processes: DashMap<tg::process::Id, Process>,
 	tangram_path: std::path::PathBuf,
 }
@@ -64,6 +66,7 @@ impl Server {
 	pub fn new(arg: Arg) -> Self {
 		Self(Arc::new(State {
 			library_paths: arg.library_paths,
+			output_path: arg.output_path,
 			processes: DashMap::default(),
 			tangram_path: arg.tangram_path,
 		}))

@@ -7,6 +7,9 @@ pub struct Args {
 	pub library_paths: Vec<PathBuf>,
 
 	#[arg(long)]
+	pub output_path: PathBuf,
+
+	#[arg(long)]
 	pub url: tangram_uri::Uri,
 
 	#[arg(long)]
@@ -20,6 +23,7 @@ impl Cli {
 			serve: tangram_sandbox::serve::Arg {
 				library_paths: args.library_paths,
 				listen: false,
+				output_path: args.output_path,
 				tangram_path: args.tangram_path,
 				url: args.url,
 			},

@@ -32,6 +32,9 @@ pub struct Args {
 	pub listen: Listen,
 
 	#[arg(long)]
+	pub output_path: PathBuf,
+
+	#[arg(long)]
 	pub url: tangram_uri::Uri,
 
 	#[arg(long)]
@@ -53,6 +56,7 @@ impl Cli {
 		let arg = tangram_sandbox::serve::Arg {
 			library_paths: args.library_paths,
 			listen: args.listen.get(),
+			output_path: args.output_path,
 			tangram_path: args.tangram_path,
 			url: args.url,
 		};

@@ -242,7 +242,6 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (sandbox === undefined) {
 			let cwd = tg.process.cwd;
 			let env = { ...tg.process.env };
-			delete env.TANGRAM_OUTPUT;
 			arg = await tg.Process.arg({ cwd, env }, arg);
 		} else {
 			if (!("host" in arg)) {

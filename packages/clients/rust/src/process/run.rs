@@ -53,14 +53,17 @@ impl<O> tg::Process<O> {
 		let cwd = arg.cwd.or(cwd);
 		builder = builder.cwd(cwd);
 
-		let env = if sandboxed {
-			arg.env
-		} else {
-			let mut env = tg::process::env()?;
-			env.remove("TANGRAM_OUTPUT");
-			env.remove("TANGRAM_PROCESS");
-			env
-		};
+		let mut env = tg::value::Map::new();
+		if !sandboxed {
+			env.extend(tg::process::env()?);
+		}
+		for (key, value) in arg.env {
+			if let Ok(mutation) = value.try_unwrap_mutation_ref() {
+				mutation.apply(&mut env, &key)?;
+			} else {
+				env.insert(key, value);
+			}
+		}
 		builder = builder.env(env);
 
 		builder = builder.stdin(None);

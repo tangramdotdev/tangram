@@ -48,6 +48,8 @@ pub(crate) fn spawn(
 		} else {
 			"--connect"
 		})
+		.arg("--output-path")
+		.arg(&serve_arg.output_path)
 		.arg("--url")
 		.arg(serve_arg.url.to_string())
 		.arg("--tangram-path")

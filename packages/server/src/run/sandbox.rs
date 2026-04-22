@@ -167,15 +167,15 @@ impl Server {
 				output = self.dequeue_sandbox_process(id, &location) => {
 					let output = output.map_err(|source| tg::error!(!source, "failed to dequeue a process"))?;
 					timer.take();
-					self.spawn_sandbox_process_task(
-						&process_tasks,
-						&sender,
-						output.process.clone(),
-						&location,
-						&sandbox,
-						&guest_uri,
-					);
-				},
+						self.spawn_sandbox_process_task(
+							&process_tasks,
+							&sender,
+							output.process.clone(),
+							&location,
+							&sandbox,
+							&guest_uri,
+						);
+					},
 				result = status.try_next() => {
 					let option = result.map_err(|source| tg::error!(!source, "failed to read the sandbox status"))?;
 					let Some(status) = option else {

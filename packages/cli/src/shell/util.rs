@@ -360,9 +360,14 @@ fn ignored(key: &str) -> bool {
 		"_" | "OLDPWD"
 			| "PPID" | "PWD"
 			| "SHLVL" | "TANGRAM_SHELL_STATE"
+			| "TANGRAM_CONFIG"
+			| "TANGRAM_DIRECTORY"
 			| "TANGRAM_HOST"
+			| "TANGRAM_MODE"
 			| "TANGRAM_OUTPUT"
 			| "TANGRAM_PROCESS"
+			| "TANGRAM_TOKEN"
+			| "TANGRAM_TRACING"
 			| "TANGRAM_URL"
 	)
 }

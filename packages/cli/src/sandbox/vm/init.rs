@@ -29,6 +29,9 @@ pub struct Args {
 	pub network: bool,
 
 	#[arg(long)]
+	pub output_path: PathBuf,
+
+	#[arg(long)]
 	pub tangram_path: PathBuf,
 
 	#[arg(long)]
@@ -66,6 +69,7 @@ impl Args {
 			serve: tangram_sandbox::serve::Arg {
 				library_paths: Vec::new(),
 				listen: false,
+				output_path: self.output_path,
 				tangram_path: self.tangram_path,
 				url: self.url,
 			},

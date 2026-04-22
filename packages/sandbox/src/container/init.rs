@@ -15,6 +15,8 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		} else {
 			"--connect"
 		})
+		.arg("--output-path")
+		.arg(&arg.serve.output_path)
 		.arg("--url")
 		.arg(arg.serve.url.to_string())
 		.arg("--tangram-path")

@@ -3,6 +3,7 @@ use {
 	crate::Command,
 	tangram_client::prelude::*,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_uri::Uri,
 };
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -12,6 +13,7 @@ pub struct Arg {
 	pub location: Option<tg::location::Location>,
 	pub retry: bool,
 	pub tty: Option<tg::process::Tty>,
+	pub url: Uri,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
