@@ -51,6 +51,8 @@ struct Process {
 pub enum Listener {
 	Unix(tokio::net::UnixListener),
 	Tcp(tokio::net::TcpListener),
+	#[cfg(feature = "vsock")]
+	Vsock(tokio_vsock::VsockListener)
 }
 
 enum Stream {
@@ -90,6 +92,25 @@ impl Server {
 					.map_err(|source| tg::error!(!source, "failed to bind"))?;
 				Listener::Tcp(listener)
 			},
+			Some("http+vsock") => {
+				#[cfg(not(feature = "vsock"))]
+				{
+					return Err(tg::error!("vsock is not enabled"));
+				}
+				#[cfg(feature = "vsock")]
+				{
+					let cid = url
+						.host()
+						.ok_or_else(|| tg::error!(%url, "invalid url"))?
+						.parse::<u32>()
+						.map_err(|source| tg::error!(!source, %url, "invalid url"))?;
+					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+					let addr = tokio_vsock::VsockAddr::new(cid, u32::from(port));
+					let listener = tokio_vsock::VsockListener::bind(addr)
+						.map_err(|source| tg::error!(!source, "failed to bind"))?;
+					Listener::Vsock(listener)
+				}
+			},
 			_ => return Err(tg::error!(%url, "invalid url")),
 		};
 		Ok(listener)
@@ -109,6 +130,13 @@ impl Server {
 						continue;
 					};
 					Stream::Tcp(stream)
+				},
+				#[cfg(feature = "vsock")]
+				Listener::Vsock(listener) => {
+					let Ok((stream, _)) = listener.accept().await else {
+						continue;
+					};
+					Stream::Vsock(stream)
 				},
 			};
 			let server = self.clone();

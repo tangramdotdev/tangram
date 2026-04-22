@@ -242,7 +242,7 @@ impl Sandbox {
 				Isolation::Seatbelt(_) => {
 					Err(tg::error!("seatbelt isolation is not supported on linux"))
 				},
-				Isolation::Vm(_) => Self::listen_vsock(root_path).await,
+				Isolation::Vm(_) => Self::listen_cloud_hypervisor(root_path).await,
 			}
 		}
 
@@ -326,33 +326,36 @@ impl Sandbox {
 		}
 	}
 
+	#[cfg(feature = "vsock")]
+	#[allow(dead_code)]
+	async fn listen_vsock() -> tg::Result<(crate::server::Listener, Uri)> {
+		let port = 6748;
+		let host_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_ANY).parse().map_err(|_| tg::error!("failed to parse host url"))?;
+		let guest_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_ANY).parse().map_err(|_| tg::error!("failed to parse guest url"))?;
+		let listener = crate::server::Server::listen(&host_url).await?;
+		Ok((listener, guest_url))
+	}
+
 	#[cfg(target_os = "linux")]
-	async fn listen_vsock(root_path: &Path) -> tg::Result<(crate::server::Listener, Uri)> {
-		#[cfg(not(feature = "vsock"))]
-		{
-			Err(tg::error!("vsock is not enabled"))
-		}
-		#[cfg(feature = "vsock")]
-		{
-			let port = 6748;
-			let socket = format!("{}_{port}", vm::run::CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME);
-			let path = root_path.join("vm").join(socket);
-			tokio::fs::create_dir_all(path.parent().unwrap())
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the vm directory"))?;
-			let path = path.to_str().ok_or_else(|| tg::error!("invalid path"))?;
-			let host_url = Uri::builder()
-				.scheme("http+unix")
-				.authority(path)
-				.path("")
-				.build()
-				.map_err(|source| tg::error!(source = source, "failed to build the URL"))?;
-			let guest_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_HOST)
-				.parse()
-				.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
-			let listener = crate::server::Server::listen(&host_url).await?;
-			Ok((listener, guest_url))
-		}
+	async fn listen_cloud_hypervisor(root_path: &Path) -> tg::Result<(crate::server::Listener, Uri)> {
+		let port = 6748;
+		let socket = format!("{}_{port}", vm::run::CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME);
+		let path = root_path.join("vm").join(socket);
+		tokio::fs::create_dir_all(path.parent().unwrap())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the vm directory"))?;
+		let path = path.to_str().ok_or_else(|| tg::error!("invalid path"))?;
+		let host_url = Uri::builder()
+			.scheme("http+unix")
+			.authority(path)
+			.path("")
+			.build()
+			.map_err(|source| tg::error!(source = source, "failed to build the URL"))?;
+		let guest_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_HOST)
+			.parse()
+			.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
+		let listener = crate::server::Server::listen(&host_url).await?;
+		Ok((listener, guest_url))
 	}
 
 	pub async fn spawn(
