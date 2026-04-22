@@ -2,7 +2,7 @@ use {
 	crate::task::Stopper,
 	futures::{future::BoxFuture, prelude::*},
 	std::sync::{
-		Arc, Mutex,
+		Arc,
 		atomic::{AtomicUsize, Ordering},
 	},
 };
@@ -17,7 +17,6 @@ struct State<T, C> {
 	attached_count: AtomicUsize,
 	context: C,
 	future: future::Shared<BoxFuture<'static, Result<T, Arc<tokio::task::JoinError>>>>,
-	on_drop: Mutex<Option<Box<dyn FnOnce() + Send + Sync>>>,
 	stopper: Stopper,
 }
 
@@ -40,7 +39,6 @@ where
 			attached_count: AtomicUsize::new(1),
 			context,
 			future,
-			on_drop: Mutex::new(None),
 			stopper,
 		};
 		Self {
@@ -63,7 +61,6 @@ where
 			attached_count: AtomicUsize::new(1),
 			context,
 			future,
-			on_drop: Mutex::new(None),
 			stopper,
 		};
 		Self {
@@ -88,7 +85,6 @@ where
 			attached_count: AtomicUsize::new(1),
 			context,
 			future,
-			on_drop: Mutex::new(None),
 			stopper,
 		};
 		Self {
@@ -128,13 +124,6 @@ where
 			self.attached = false;
 			self.inner.attached_count.fetch_sub(1, Ordering::AcqRel);
 		}
-	}
-
-	pub fn set_on_drop<F>(&self, f: F)
-	where
-		F: FnOnce() + Send + Sync + 'static,
-	{
-		*self.inner.on_drop.lock().unwrap() = Some(Box::new(f));
 	}
 
 	pub fn stop(&self) {
@@ -192,9 +181,6 @@ impl<T, C> Drop for Task<T, C> {
 			let prev = self.inner.attached_count.fetch_sub(1, Ordering::AcqRel);
 			if prev == 1 {
 				self.inner.abort_handle.abort();
-				if let Some(callback) = self.inner.on_drop.lock().unwrap().take() {
-					callback();
-				}
 			}
 		}
 	}

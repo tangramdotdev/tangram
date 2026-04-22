@@ -1,11 +1,11 @@
 use {
 	crate::task::{Shared, Stopper},
 	dashmap::DashMap,
-	futures::{prelude::*, stream::FuturesUnordered},
+	futures::{StreamExt as _, stream::FuturesUnordered},
 	std::{
 		collections::hash_map::RandomState,
+		future::Future,
 		hash::{BuildHasher, Hash},
-		panic::{AssertUnwindSafe, catch_unwind},
 		sync::Arc,
 	},
 };
@@ -73,50 +73,31 @@ where
 		F: FnOnce(C, Stopper) -> Fut,
 		Fut: Future<Output = T> + Send + 'static,
 	{
-		let map = self.0.clone();
-		let spawn = {
-			let key = key.clone();
-			let weak = Arc::downgrade(&map);
-			move || {
-				let context = context();
-				let mut task = Shared::spawn_with_context(context.clone(), {
-					let key = key.clone();
-					let weak = weak.clone();
-					move |stopper| {
-						let future = f(context, stopper);
-						async move {
-							let result = AssertUnwindSafe(future).catch_unwind().await;
-							if let Some(map) = weak.upgrade() {
-								let id = tokio::task::id();
-								map.remove_if(&key, |_, task| task.id() == id);
-							}
-							match result {
-								Ok(value) => value,
-								Err(payload) => std::panic::resume_unwind(payload),
-							}
-						}
-					}
-				});
-				task.set_on_drop({
-					let id = task.id();
-					let key = key.clone();
-					move || {
-						if let Some(map) = weak.upgrade() {
-							map.remove_if(&key, |_, task| task.id() == id);
-						}
-					}
-				});
-				if detached {
-					task.detach();
-				}
-				task
-			}
-		};
 		let mut task = if get {
-			self.0.entry(key).or_insert_with(spawn).value().clone()
+			match self.0.entry(key.clone()) {
+				dashmap::mapref::entry::Entry::Occupied(entry) => entry.get().clone(),
+				dashmap::mapref::entry::Entry::Vacant(entry) => {
+					let context = context();
+					let mut task = Shared::spawn_with_context(context.clone(), move |stopper| {
+						f(context, stopper)
+					});
+					if detached {
+						task.detach();
+					}
+					entry.insert(task.clone());
+					self.spawn_waiter(key, &task);
+					task
+				},
+			}
 		} else {
-			let task = spawn();
-			self.0.insert(key, task.clone());
+			let context = context();
+			let mut task =
+				Shared::spawn_with_context(context.clone(), move |stopper| f(context, stopper));
+			if detached {
+				task.detach();
+			}
+			self.0.insert(key.clone(), task.clone());
+			self.spawn_waiter(key, &task);
 			task
 		};
 		task.attach();
@@ -177,51 +158,50 @@ where
 		G: FnOnce() -> C,
 		F: FnOnce(C, Stopper) -> T + Send + 'static,
 	{
-		let map = self.0.clone();
-		let spawn = {
-			let key = key.clone();
-			let weak = Arc::downgrade(&map);
-			move || {
-				let context = context();
-				let mut task = Shared::spawn_blocking_with_context(context.clone(), {
-					let key = key.clone();
-					let weak = weak.clone();
-					move |stopper| {
-						let result = catch_unwind(AssertUnwindSafe(|| f(context, stopper)));
-						if let Some(map) = weak.upgrade() {
-							let id = tokio::task::id();
-							map.remove_if(&key, |_, task| task.id() == id);
-						}
-						match result {
-							Ok(value) => value,
-							Err(payload) => std::panic::resume_unwind(payload),
-						}
-					}
-				});
-				task.set_on_drop({
-					let id = task.id();
-					let key = key.clone();
-					move || {
-						if let Some(map) = weak.upgrade() {
-							map.remove_if(&key, |_, task| task.id() == id);
-						}
-					}
-				});
-				if detached {
-					task.detach();
-				}
-				task
-			}
-		};
 		let mut task = if get {
-			self.0.entry(key).or_insert_with(spawn).value().clone()
+			match self.0.entry(key.clone()) {
+				dashmap::mapref::entry::Entry::Occupied(entry) => entry.get().clone(),
+				dashmap::mapref::entry::Entry::Vacant(entry) => {
+					let context = context();
+					let mut task =
+						Shared::spawn_blocking_with_context(context.clone(), move |stopper| {
+							f(context, stopper)
+						});
+					if detached {
+						task.detach();
+					}
+					entry.insert(task.clone());
+					self.spawn_waiter(key, &task);
+					task
+				},
+			}
 		} else {
-			let task = spawn();
-			self.0.insert(key, task.clone());
+			let context = context();
+			let mut task = Shared::spawn_blocking_with_context(context.clone(), move |stopper| {
+				f(context, stopper)
+			});
+			if detached {
+				task.detach();
+			}
+			self.0.insert(key.clone(), task.clone());
+			self.spawn_waiter(key, &task);
 			task
 		};
 		task.attach();
 		task
+	}
+
+	fn spawn_waiter(&self, key: K, task: &Shared<T, C>) {
+		let mut waiter = task.clone();
+		waiter.detach();
+		let task_id = task.id();
+		let weak = Arc::downgrade(&self.0);
+		tokio::spawn(async move {
+			waiter.wait().await.ok();
+			if let Some(map) = weak.upgrade() {
+				map.remove_if(&key, |_, task| task.id() == task_id);
+			}
+		});
 	}
 
 	pub fn try_get_id(&self, key: &K) -> Option<tokio::task::Id> {
@@ -259,14 +239,14 @@ where
 	}
 
 	pub fn abort_all(&self) {
-		for task in &*self.0 {
-			task.abort();
+		for entry in &*self.0 {
+			entry.value().abort();
 		}
 	}
 
 	pub fn stop_all(&self) {
-		for task in &*self.0 {
-			task.stop();
+		for entry in &*self.0 {
+			entry.value().stop();
 		}
 	}
 
