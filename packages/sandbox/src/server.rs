@@ -75,7 +75,6 @@ impl Server {
 				let listener = tokio::net::UnixListener::bind(path).map_err(
 					|source| tg::error!(!source, path = %path.display(), "failed to bind"),
 				)?;
-				eprintln!("created listener at {}", path.display());
 				Listener::Unix(listener)
 			},
 			Some("http") => {

@@ -276,8 +276,7 @@ impl Server {
 		let sandbox_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
 
 		// Create the next guest ip counter. Starts at the first usable address
-		// after the default bridge gateway at 172.17.0.1.
-		let next_guest_ip = AtomicU32::new(u32::from(Ipv4Addr::new(172, 17, 0, 2)));
+		let next_guest_ip = AtomicU32::new(u32::from(Ipv4Addr::new(172, 18, 0, 2)));
 
 		// Create the sandbox tasks.
 		let sandbox_tasks = tangram_futures::task::Map::default();
@@ -907,7 +906,7 @@ impl Server {
 			&& let crate::config::ContainerNet::Bridge(bridge) = &container.net
 		{
 			let name = bridge.name.as_deref().unwrap_or("tangram0").to_owned();
-			let ip = bridge.ip.unwrap_or(Ipv4Addr::new(172, 17, 0, 1));
+			let ip = bridge.ip.unwrap_or(Ipv4Addr::new(172, 18, 0, 1));
 			tangram_sandbox::create_bridge(&name, ip)
 				.map_err(|source| tg::error!(!source, "failed to create the bridge"))?;
 		}

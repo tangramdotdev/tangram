@@ -29,7 +29,7 @@ impl Server {
 					crate::config::ContainerNet::None => tangram_sandbox::Net::None,
 					crate::config::ContainerNet::Host => tangram_sandbox::Net::Host,
 					crate::config::ContainerNet::Bridge(bridge) => {
-						let ip = bridge.ip.unwrap_or(Ipv4Addr::new(172, 17, 0, 1));
+						let ip = bridge.ip.unwrap_or(Ipv4Addr::new(172, 18, 0, 1));
 						tangram_sandbox::Net::Bridge(tangram_sandbox::Bridge {
 							name: bridge.name.clone(),
 							ip,
@@ -42,7 +42,7 @@ impl Server {
 				tangram_sandbox::Isolation::Seatbelt(tangram_sandbox::SeatbeltIsolation::default())
 			},
 			crate::config::SandboxIsolation::Vm(vm) => {
-				let host_subnet = vm.host_subnet.unwrap_or(Ipv4Addr::new(172, 17, 0, 0));
+				let host_subnet = vm.host_subnet.unwrap_or(Ipv4Addr::new(172, 18, 0, 0));
 				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation {
 					kernel_path: vm.kernel_path.clone(),
 					host_subnet,

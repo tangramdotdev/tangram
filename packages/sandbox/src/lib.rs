@@ -14,6 +14,8 @@ use {
 
 mod client;
 #[cfg(target_os = "linux")]
+mod netlink;
+#[cfg(target_os = "linux")]
 mod network;
 mod pty;
 mod server;

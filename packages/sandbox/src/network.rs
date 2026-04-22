@@ -4,7 +4,8 @@ use {
 		net::Ipv4Addr,
 		os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
 	},
-	tangram_client as tg, tokio::io::{AsyncReadExt, AsyncWriteExt},
+	tangram_client as tg,
+	tokio::io::{AsyncReadExt, AsyncWriteExt},
 };
 
 pub const HOST_TAP_PREFIX: &str = "tg-";
@@ -105,22 +106,33 @@ impl Bridge {
 		ip(&format!("link set {host_name} master {bridge}"))?;
 		ip(&format!("link set {host_name} up"))?;
 
-		let (host_pipe, guest_pipe) = tokio::net::UnixStream::pair().map_err(|source| tg::error!(!source, "failed to create socket pair"))?;
-		let guest_pipe = guest_pipe.into_std().map_err(|source| tg::error!(!source, "failed to create the guest pipe"))?;
-		guest_pipe.set_nonblocking(false).map_err(|source| tg::error!(!source, "failed to set the pipe as non blocking"))?;
-		
+		let (host_pipe, guest_pipe) = tokio::net::UnixStream::pair()
+			.map_err(|source| tg::error!(!source, "failed to create socket pair"))?;
+		let guest_pipe = guest_pipe
+			.into_std()
+			.map_err(|source| tg::error!(!source, "failed to create the guest pipe"))?;
+		guest_pipe
+			.set_nonblocking(false)
+			.map_err(|source| tg::error!(!source, "failed to set the pipe as non blocking"))?;
+
 		unsafe {
 			let raw = guest_pipe.as_raw_fd();
 			let flags = libc::fcntl(raw, libc::F_GETFD);
 			if flags < 0 {
-				return Err(tg::error!(source = std::io::Error::last_os_error(), "fcntl failed"));
+				return Err(tg::error!(
+					source = std::io::Error::last_os_error(),
+					"fcntl failed"
+				));
 			}
 			let result = libc::fcntl(raw, libc::F_SETFD, flags & !libc::FD_CLOEXEC);
 			if result < 0 {
-				return Err(tg::error!(source = std::io::Error::last_os_error(), "fcntl failed"));
+				return Err(tg::error!(
+					source = std::io::Error::last_os_error(),
+					"fcntl failed"
+				));
 			}
 		}
-		
+
 		Ok(Self {
 			host_name,
 			guest_name,
@@ -321,7 +333,7 @@ pub(crate) fn ip(cli: &str) -> tg::Result<()> {
 		.args(cli.split(' '))
 		.stderr(std::process::Stdio::piped())
 		.output()
-		.map_err(|source| tg::error!(!source, "failed to spawn `ip`"))?;
+		.map_err(|source| tg::error!(!source, "failed to spawn `ip {cli}`"))?;
 	if !output.status.success() {
 		let code = output.status.code();
 		let stderr = String::from_utf8_lossy(&output.stderr);

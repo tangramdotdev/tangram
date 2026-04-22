@@ -251,11 +251,9 @@ fn prepare_etc_files(sandbox_path: &Path, network: bool, user: Option<&str>) -> 
 	)
 	.map_err(|source| tg::error!(!source, "failed to write /etc/nsswitch.conf"))?;
 	if network {
-		std::fs::copy(
-			"/etc/resolv.conf",
-			Sandbox::host_resolv_conf_path_from_root(sandbox_path),
-		)
-		.map_err(|source| tg::error!(!source, "failed to stage /etc/resolv.conf"))?;
+		let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
+		std::fs::write(path, "nameserver 1.1.1.1\nnameserver 8.8.8.8\n")
+			.map_err(|source| tg::error!(!source, "failed to stage /etc/resolv.conf"))?;
 	}
 	Ok(user)
 }
