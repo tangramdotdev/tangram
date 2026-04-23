@@ -444,6 +444,7 @@ impl<O: 'static> tg::Process<O> {
 	pub(super) async fn prepare_unsandboxed_command<H>(
 		handle: &H,
 		arg: &tg::process::spawn::Arg,
+		output_path: Option<PathBuf>,
 	) -> tg::Result<PrepareUnsandboxedCommandOutput>
 	where
 		H: tg::Handle,
@@ -477,7 +478,7 @@ impl<O: 'static> tg::Process<O> {
 		tokio::fs::create_dir(temp.path())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create a temp directory"))?;
-		let output_path = temp.path().join("output");
+		let output_path = output_path.unwrap_or_else(|| temp.path().join("output"));
 		let artifacts = checkout_artifacts(handle, &command).await?;
 		let env = render_env(handle, &command.env, &artifacts, &output_path)?;
 		let (executable, args) = render_command(&command, &artifacts, &output_path)?;
@@ -502,7 +503,7 @@ impl<O: 'static> tg::Process<O> {
 	where
 		H: tg::Handle,
 	{
-		let prepared = Self::prepare_unsandboxed_command(handle, &arg).await?;
+		let prepared = Self::prepare_unsandboxed_command(handle, &arg, None).await?;
 
 		let mut command_ = tokio::process::Command::new(&prepared.executable);
 		command_.args(&prepared.args);

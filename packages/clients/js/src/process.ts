@@ -400,7 +400,11 @@ export class Process<O extends tg.Value = tg.Value> {
 		validateExecStdio(arg.stdout ?? "inherit", "stdout");
 		validateExecStdio(arg.stderr ?? "inherit", "stderr");
 
-		let prepared = await this.prepareUnsandboxedCommand(arg);
+		tg.assert(typeof tg.process.env.TANGRAM_OUTPUT === "string");
+		let prepared = await this.prepareUnsandboxedCommand(
+			arg,
+			tg.process.env.TANGRAM_OUTPUT,
+		);
 		return await tg.host.exec({
 			args: prepared.args,
 			cwd: prepared.cwd,
@@ -548,6 +552,7 @@ export class Process<O extends tg.Value = tg.Value> {
 
 	static async prepareUnsandboxedCommand(
 		arg: tg.Handle.SpawnArg,
+		outputPath?: string,
 	): Promise<tg.Process.PreparedUnsandboxedCommandOutput> {
 		if (arg.tty !== undefined) {
 			throw new Error("tty is not supported for unsandboxed processes");
@@ -572,7 +577,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		}
 
 		let tempPath = await tg.host.mkdtemp();
-		let outputPath = tg.path.join(tempPath, "output");
+		outputPath ??= tg.path.join(tempPath, "output");
 		let artifacts = await checkoutArtifacts(command);
 		let env = await renderEnv(command.env, artifacts, outputPath);
 		let { args, executable } = renderCommand(command, artifacts, outputPath);

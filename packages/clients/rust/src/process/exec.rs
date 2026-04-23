@@ -30,7 +30,10 @@ impl<O> tg::Process<O> {
 		validate_stdio(&arg.stdout, tg::process::stdio::Stream::Stdout)?;
 		validate_stdio(&arg.stderr, tg::process::stdio::Stream::Stderr)?;
 
-		let prepared = tg::Process::<tg::Value>::prepare_unsandboxed_command(handle, &arg).await?;
+		let output_path = std::env::var_os("TANGRAM_OUTPUT").map(Into::into);
+		let prepared =
+			tg::Process::<tg::Value>::prepare_unsandboxed_command(handle, &arg, output_path)
+				.await?;
 
 		let mut command = std::process::Command::new(&prepared.executable);
 		command.args(&prepared.args);
