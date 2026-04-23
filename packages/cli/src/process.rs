@@ -3,6 +3,7 @@ use {crate::Cli, tangram_client::prelude::*};
 pub mod build;
 pub mod cancel;
 pub mod children;
+pub mod exec;
 pub mod get;
 pub mod list;
 pub mod metadata;
@@ -28,6 +29,7 @@ pub struct Args {
 pub enum Command {
 	Cancel(self::cancel::Args),
 	Children(self::children::Args),
+	Exec(self::exec::Args),
 	Get(self::get::Args),
 	#[command(alias = "ls")]
 	List(self::list::Args),
@@ -53,6 +55,9 @@ impl Cli {
 			},
 			Command::Children(args) => {
 				self.command_process_children(args).await?;
+			},
+			Command::Exec(args) => {
+				self.command_process_exec(args).await?;
 			},
 			Command::Get(args) => {
 				self.command_process_get(args).await?;

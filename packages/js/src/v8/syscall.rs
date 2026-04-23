@@ -65,6 +65,7 @@ pub fn syscall<'s>(
 		"host_close" => async_(scope, &args, self::host::close),
 		"host_disable_raw_mode" => async_(scope, &args, self::host::disable_raw_mode),
 		"host_enable_raw_mode" => async_(scope, &args, self::host::enable_raw_mode),
+		"host_exec" => async_(scope, &args, self::host::exec),
 		"host_exists" => async_(scope, &args, self::host::exists),
 		"host_get_tty_size" => sync(scope, &args, self::host::get_tty_size),
 		"host_get_xattr" => async_(scope, &args, self::host::getxattr),

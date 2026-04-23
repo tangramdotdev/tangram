@@ -657,6 +657,9 @@ declare namespace tg {
 		/** Build this command and return the process's output. */
 		build(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"run", [], O>;
 
+		/** Exec this command. */
+		exec(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"exec", [], never>;
+
 		/** Run this command and return the process's output. */
 		run(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"run", [], O>;
 
@@ -1260,6 +1263,7 @@ declare namespace tg {
 	};
 
 	export let build: typeof tg.Process.build;
+	export let exec: typeof tg.Process.exec;
 	export let run: typeof tg.Process.run;
 	export let spawn: typeof tg.Process.spawn;
 
@@ -1360,6 +1364,25 @@ declare namespace tg {
 		static build(
 			...args: tg.Args<tg.Process.Arg>
 		): tg.Process.Builder<"run", Array<tg.Value>, tg.Value>;
+
+		static exec<
+			A extends tg.UnresolvedArgs<Array<tg.Value>>,
+			O extends tg.ReturnValue,
+		>(function_: (...args: A) => O): tg.Process.Builder<"exec", [], never>;
+		static exec<
+			A extends tg.UnresolvedArgs<Array<tg.Value>>,
+			O extends tg.ReturnValue,
+		>(
+			function_: (...args: A) => O,
+			...args: tg.UnresolvedArgs<tg.ResolvedArgs<A>>
+		): tg.Process.Builder<"exec", [], never>;
+		static exec(
+			strings: TemplateStringsArray,
+			...placeholders: tg.Args<tg.Template.Arg>
+		): tg.Process.Builder<"exec", Array<tg.Value>, never>;
+		static exec(
+			...args: tg.Args<tg.Process.Arg>
+		): tg.Process.Builder<"exec", Array<tg.Value>, never>;
 
 		static run<
 			A extends tg.UnresolvedArgs<Array<tg.Value>>,
@@ -1703,6 +1726,11 @@ declare namespace tg {
 			/** Spawn this command and return the process. */
 			spawn(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"spawn", [], O>;
 
+			/** Exec this command. */
+			exec(
+				...args: tg.UnresolvedArgs<A>
+			): tg.Process.Builder<"exec", [], never>;
+
 			then<TResult1 = tg.Command<A, O>, TResult2 = never>(
 				onfulfilled?:
 					| ((value: tg.Command<A, O>) => TResult1 | PromiseLike<TResult1>)
@@ -1798,6 +1826,8 @@ declare namespace tg {
 
 			spawn(): tg.Process.Builder<"spawn", A, O>;
 
+			exec(): tg.Process.Builder<"exec", A, never>;
+
 			then<TResult1 = tg.Process.Builder.Output<M, O>, TResult2 = never>(
 				onfulfilled?:
 					| ((
@@ -1813,12 +1843,18 @@ declare namespace tg {
 		}
 
 		export namespace Builder {
-			export type Mode = "run" | "spawn";
+			export type Mode = "exec" | "run" | "spawn";
 
 			export type Output<
 				M extends tg.Process.Builder.Mode,
 				O extends tg.Value,
-			> = M extends "spawn" ? tg.Process<O> : O;
+			> = M extends "exec"
+				? never
+				: M extends "run"
+					? O
+					: M extends "spawn"
+						? tg.Process<O>
+						: never;
 		}
 	}
 

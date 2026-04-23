@@ -29,7 +29,7 @@ pub use {
 		object::Handle as Object,
 		placeholder::Placeholder,
 		position::Position,
-		process::{Process, build, run},
+		process::{Process, build, exec, run, spawn},
 		range::Range,
 		reference::Reference,
 		referent::Referent,

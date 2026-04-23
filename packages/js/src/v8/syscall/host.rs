@@ -21,6 +21,11 @@ pub async fn enable_raw_mode(state: Rc<State>, args: (i32,)) -> tg::Result<()> {
 	state.host.enable_raw_mode(fd).await
 }
 
+pub async fn exec(state: Rc<State>, args: (Serde<crate::host::SpawnArg>,)) -> tg::Result<()> {
+	let (Serde(arg),) = args;
+	state.host.exec(arg).await
+}
+
 pub async fn exists(state: Rc<State>, args: (String,)) -> tg::Result<bool> {
 	let (path,) = args;
 	state.host.exists(path).await

@@ -13,6 +13,10 @@ export let host: tg.Host = {
 		return syscall("host_enable_raw_mode", fd);
 	},
 
+	exec(arg: tg.Host.SpawnArg): Promise<never> {
+		return syscall("host_exec", arg);
+	},
+
 	exists(path: string): Promise<boolean> {
 		return syscall("host_exists", path);
 	},

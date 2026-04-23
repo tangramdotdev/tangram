@@ -264,6 +264,10 @@ export class Command<
 	spawn(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"spawn", [], O> {
 		return tg.spawn(this, { args }) as tg.Process.Builder<"spawn", [], O>;
 	}
+
+	exec(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"exec", [], never> {
+		return tg.exec(this, { args }) as tg.Process.Builder<"exec", [], never>;
+	}
 }
 
 export namespace Command {
@@ -630,6 +634,14 @@ export namespace Command {
 				"spawn",
 				[],
 				O
+			>;
+		}
+
+		exec(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"exec", [], never> {
+			return tg.exec(...this.#args, { args }) as tg.Process.Builder<
+				"exec",
+				[],
+				never
 			>;
 		}
 

@@ -79,6 +79,7 @@ export type {
 };
 
 let build = Process.build;
+let exec = Process.exec;
 let run = Process.run;
 let spawn = Process.spawn;
 
@@ -117,6 +118,7 @@ export {
 	download,
 	encoding,
 	error,
+	exec,
 	extract,
 	file,
 	graph,

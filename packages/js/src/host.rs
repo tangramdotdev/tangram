@@ -6,7 +6,7 @@ use {
 		future::Future,
 		os::{
 			fd::{AsRawFd, FromRawFd, OwnedFd},
-			unix::process::ExitStatusExt as _,
+			unix::process::{CommandExt as _, ExitStatusExt as _},
 		},
 		path::PathBuf,
 		sync::{
@@ -123,6 +123,30 @@ impl Host {
 				Ok(())
 			},
 		}
+	}
+
+	pub async fn exec(&self, arg: SpawnArg) -> tg::Result<()> {
+		validate_exec_stdio(arg.stdin, "stdin")?;
+		validate_exec_stdio(arg.stdout, "stdout")?;
+		validate_exec_stdio(arg.stderr, "stderr")?;
+
+		let mut command = std::process::Command::new(&arg.executable);
+		command.args(&arg.args);
+		command.env_clear();
+		command.envs(&arg.env);
+		if let Some(cwd) = &arg.cwd {
+			command.current_dir(cwd);
+		}
+		command.stdin(arg.stdin.to_std());
+		command.stdout(arg.stdout.to_std());
+		command.stderr(arg.stderr.to_std());
+
+		let source = command.exec();
+		Err(tg::error!(
+			!source,
+			executable = %arg.executable,
+			"failed to exec the process"
+		))
 	}
 
 	pub async fn exists(&self, path: String) -> tg::Result<bool> {
@@ -521,6 +545,17 @@ impl Stdio {
 			Self::Null => std::process::Stdio::null(),
 			Self::Pipe => std::process::Stdio::piped(),
 		}
+	}
+}
+
+fn validate_exec_stdio(stdio: Stdio, stream: &str) -> tg::Result<()> {
+	if matches!(stdio, Stdio::Inherit | Stdio::Null) {
+		Ok(())
+	} else {
+		Err(tg::error!(
+			stream = %stream,
+			"stdio must be inherit or null for an exec"
+		))
 	}
 }
 

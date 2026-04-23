@@ -189,6 +189,8 @@ enum Command {
 
 	Download(self::download::Args),
 
+	Exec(self::process::exec::Args),
+
 	Extract(self::extract::Args),
 
 	Format(self::format::Args),
@@ -1017,6 +1019,7 @@ impl Cli {
 			Command::Decompress(args) => self.command_decompress(args).boxed(),
 			Command::Document(args) => self.command_document(args).boxed(),
 			Command::Download(args) => self.command_download(args).boxed(),
+			Command::Exec(args) => self.command_process_exec(args).boxed(),
 			Command::Extract(args) => self.command_extract(args).boxed(),
 			Command::Format(args) => self.command_format(args).boxed(),
 			Command::Get(args) => self.command_get(args).boxed(),

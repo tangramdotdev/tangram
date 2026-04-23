@@ -13,10 +13,12 @@ pub use self::{
 	build::{build, build_with_handle},
 	data::Data,
 	env::env,
+	exec::{exec, exec_with_handle},
 	id::Id,
 	metadata::Metadata,
 	run::{run, run_with_handle},
 	signal::Signal,
+	spawn::{spawn, spawn_with_handle},
 	state::State,
 	status::Status,
 	stdio::Stdio,
@@ -29,6 +31,7 @@ pub mod cancel;
 pub mod children;
 pub mod data;
 pub mod env;
+pub mod exec;
 pub mod finish;
 pub mod get;
 pub mod id;

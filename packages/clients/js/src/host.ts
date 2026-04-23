@@ -13,6 +13,8 @@ export type Host = {
 
 	enableRawMode(fd: number): Promise<void>;
 
+	exec(arg: tg.Host.SpawnArg): Promise<never>;
+
 	exists(path: string): Promise<boolean>;
 
 	getTtySize(): tg.Process.Tty.Size | undefined;

@@ -73,8 +73,122 @@ pub struct Output {
 	pub wait: Option<tg::process::wait::Output>,
 }
 
+pub(super) struct PrepareUnsandboxedCommandOutput {
+	pub args: Vec<String>,
+	pub cwd: Option<PathBuf>,
+	pub env: BTreeMap<String, String>,
+	pub executable: PathBuf,
+	pub output_path: PathBuf,
+	pub temp: tangram_util::fs::Temp,
+}
+
+pub async fn spawn(arg: tg::process::Arg) -> tg::Result<tg::Process> {
+	let handle = tg::handle()?;
+	spawn_with_handle(handle, arg).await
+}
+
+pub async fn spawn_with_handle<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<tg::Process>
+where
+	H: tg::Handle,
+{
+	tg::Process::<tg::Value>::spawn_with_handle(handle, arg).await
+}
+
+pub(crate) async fn spawn_arg_with_handle<H>(
+	handle: &H,
+	arg: tg::process::Arg,
+) -> tg::Result<tg::process::spawn::Arg>
+where
+	H: tg::Handle,
+{
+	let sandbox = super::normalize_sandbox_arg(arg.sandbox.clone(), arg.cpu, arg.memory)?;
+	let sandboxed = sandbox.is_some();
+
+	let host = arg
+		.host
+		.ok_or_else(|| tg::error!("expected the host to be set"))?;
+
+	let executable = arg
+		.executable
+		.ok_or_else(|| tg::error!("expected the executable to be set"))?;
+
+	let mut builder = tg::Command::builder().host(host).executable(executable);
+
+	builder = builder.args(arg.args);
+
+	let cwd = if sandboxed {
+		None
+	} else {
+		let cwd = std::env::current_dir()
+			.map_err(|source| tg::error!(!source, "failed to get the current directory"))?;
+		Some(cwd)
+	};
+	let cwd = arg.cwd.or(cwd);
+	builder = builder.cwd(cwd);
+
+	let mut env = tg::value::Map::new();
+	if !sandboxed {
+		env.extend(tg::process::env()?);
+	}
+	for (key, value) in arg.env {
+		if let Ok(mutation) = value.try_unwrap_mutation_ref() {
+			mutation.apply(&mut env, &key)?;
+		} else {
+			env.insert(key, value);
+		}
+	}
+	builder = builder.env(env);
+
+	let stdin = arg.stdin;
+	let command_stdin = if let tg::process::Stdio::Blob(blob) = &stdin {
+		Some(tg::Blob::with_id(blob.clone()))
+	} else {
+		None
+	};
+	builder = builder.stdin(command_stdin);
+	builder = builder.user(arg.user);
+
+	let command = builder.finish()?;
+	let command_id = command.store_with_handle(handle).await?;
+	let mut command = tg::Referent::with_item(command_id);
+	if let Some(name) = arg.name {
+		command.options.name.replace(name);
+	}
+
+	let checksum = arg.checksum;
+
+	let stdout = arg.stdout;
+	let stderr = arg.stderr;
+	let sandbox_arg = match sandbox.clone() {
+		Some(tg::Either::Left(arg)) => Some(arg),
+		Some(tg::Either::Right(_)) | None => None,
+	};
+	if sandbox_arg.as_ref().is_some_and(|arg| arg.network) && checksum.is_none() {
+		return Err(tg::error!(
+			"a checksum is required to build with network enabled"
+		));
+	}
+
+	let arg = tg::process::spawn::Arg {
+		cached: arg.cached,
+		cache_location: None,
+		checksum,
+		command,
+		location: arg.location,
+		parent: arg.parent,
+		retry: arg.retry,
+		sandbox,
+		stderr,
+		stdin,
+		stdout,
+		tty: arg.tty,
+	};
+
+	Ok(arg)
+}
+
 impl<O: 'static> tg::Process<O> {
-	pub async fn spawn(arg: tg::process::spawn::Arg) -> tg::Result<tg::Process<O>>
+	pub async fn spawn(arg: tg::process::Arg) -> tg::Result<tg::Process<O>>
 	where
 		O: 'static,
 	{
@@ -84,7 +198,7 @@ impl<O: 'static> tg::Process<O> {
 
 	pub async fn spawn_with_handle<H>(
 		handle: &H,
-		arg: tg::process::spawn::Arg,
+		arg: tg::process::Arg,
 	) -> tg::Result<tg::Process<O>>
 	where
 		H: tg::Handle,
@@ -100,7 +214,7 @@ impl<O: 'static> tg::Process<O> {
 	}
 
 	pub async fn spawn_with_progress<F, Fut>(
-		arg: tg::process::spawn::Arg,
+		arg: tg::process::Arg,
 		progress: F,
 	) -> tg::Result<tg::Process<O>>
 	where
@@ -114,6 +228,22 @@ impl<O: 'static> tg::Process<O> {
 	}
 
 	pub async fn spawn_with_progress_with_handle<H, F, Fut>(
+		handle: &H,
+		arg: tg::process::Arg,
+		progress: F,
+	) -> tg::Result<tg::Process<O>>
+	where
+		H: tg::Handle,
+		F: FnOnce(
+			BoxStream<'static, tg::Result<tg::progress::Event<tg::process::spawn::Output>>>,
+		) -> Fut,
+		Fut: Future<Output = tg::Result<tg::process::spawn::Output>>,
+	{
+		let arg = spawn_arg_with_handle(handle, arg).await?;
+		Self::spawn_inner_with_handle(handle, arg, progress).await
+	}
+
+	async fn spawn_inner_with_handle<H, F, Fut>(
 		handle: &H,
 		mut arg: tg::process::spawn::Arg,
 		progress: F,
@@ -311,10 +441,10 @@ impl<O: 'static> tg::Process<O> {
 		Ok(process)
 	}
 
-	async fn spawn_unsandboxed<H>(
+	pub(super) async fn prepare_unsandboxed_command<H>(
 		handle: &H,
-		arg: tg::process::spawn::Arg,
-	) -> tg::Result<tg::Process<O>>
+		arg: &tg::process::spawn::Arg,
+	) -> tg::Result<PrepareUnsandboxedCommandOutput>
 	where
 		H: tg::Handle,
 	{
@@ -351,12 +481,34 @@ impl<O: 'static> tg::Process<O> {
 		let artifacts = checkout_artifacts(handle, &command).await?;
 		let env = render_env(&command.env, &artifacts, &output_path)?;
 		let (executable, args) = render_command(&command, &artifacts, &output_path)?;
+		let cwd = command.cwd.clone();
 
-		let mut command_ = tokio::process::Command::new(&executable);
-		command_.args(&args);
+		let output = PrepareUnsandboxedCommandOutput {
+			args,
+			cwd,
+			env,
+			executable,
+			output_path,
+			temp,
+		};
+
+		Ok(output)
+	}
+
+	async fn spawn_unsandboxed<H>(
+		handle: &H,
+		arg: tg::process::spawn::Arg,
+	) -> tg::Result<tg::Process<O>>
+	where
+		H: tg::Handle,
+	{
+		let prepared = Self::prepare_unsandboxed_command(handle, &arg).await?;
+
+		let mut command_ = tokio::process::Command::new(&prepared.executable);
+		command_.args(&prepared.args);
 		command_.env_clear();
-		command_.envs(&env);
-		if let Some(cwd) = &command.cwd {
+		command_.envs(&prepared.env);
+		if let Some(cwd) = &prepared.cwd {
 			command_.current_dir(cwd);
 		}
 		command_.stdin(convert_stdio(
@@ -375,7 +527,7 @@ impl<O: 'static> tg::Process<O> {
 		let mut child = command_.spawn().map_err(|source| {
 			tg::error!(
 				!source,
-				executable = %executable.display(),
+				executable = %prepared.executable.display(),
 				"failed to spawn the process"
 			)
 		})?;
@@ -409,6 +561,8 @@ impl<O: 'static> tg::Process<O> {
 
 		let mut task = tangram_futures::task::Shared::spawn({
 			let handle = handle.clone();
+			let output_path = prepared.output_path;
+			let temp = prepared.temp;
 			move |_| async move { Self::wait_unsandboxed(handle, child, output_path, temp).await }
 		});
 		task.detach();

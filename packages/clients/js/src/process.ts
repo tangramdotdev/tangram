@@ -94,6 +94,47 @@ export class Process<O extends tg.Value = tg.Value> {
 		}
 	}
 
+	static exec<
+		A extends tg.UnresolvedArgs<Array<tg.Value>>,
+		O extends tg.ReturnValue,
+	>(function_: (...args: A) => O): tg.Process.Builder<"exec", [], never>;
+	static exec<
+		A extends tg.UnresolvedArgs<Array<tg.Value>>,
+		O extends tg.ReturnValue,
+	>(
+		function_: (...args: A) => O,
+		...args: tg.UnresolvedArgs<tg.ResolvedArgs<A>>
+	): tg.Process.Builder<"exec", [], never>;
+	static exec(
+		strings: TemplateStringsArray,
+		...placeholders: tg.Args<tg.Template.Arg>
+	): tg.Process.Builder<"exec", Array<tg.Value>, never>;
+	static exec(
+		...args: tg.Args<tg.Process.Arg>
+	): tg.Process.Builder<"exec", Array<tg.Value>, never>;
+	static exec(...args: any): any {
+		if (typeof args[0] === "function") {
+			return new tg.Process.Builder("exec", {
+				host: "js",
+				executable: tg.Command.Executable.fromData(tg.host.magic(args[0])),
+				args: args.slice(1),
+			});
+		} else if (Array.isArray(args[0]) && "raw" in args[0]) {
+			let strings = args[0] as TemplateStringsArray;
+			let placeholders = args.slice(1);
+			let template = tg.template(strings, ...placeholders);
+			let executable = tg.process.env.SHELL ?? "sh";
+			tg.assert(tg.Command.Arg.Executable.is(executable));
+			let arg = {
+				executable,
+				args: ["-c", template],
+			};
+			return new tg.Process.Builder("exec", arg);
+		} else {
+			return new tg.Process.Builder("exec", ...args);
+		}
+	}
+
 	static run<
 		A extends tg.UnresolvedArgs<Array<tg.Value>>,
 		O extends tg.ReturnValue,
@@ -231,9 +272,10 @@ export class Process<O extends tg.Value = tg.Value> {
 		});
 	}
 
-	static async new<O extends tg.Value = tg.Value>(
-		...args: tg.Args<tg.Process.Arg>
-	): Promise<tg.Process<O>> {
+	static async spawnArg(...args: tg.Args<tg.Process.Arg>): Promise<{
+		arg: tg.Handle.SpawnArg;
+		options: tg.Referent.Options;
+	}> {
 		let arg = await tg.Process.arg(...args);
 
 		let sandbox = normalizeSandbox(arg);
@@ -343,52 +385,40 @@ export class Process<O extends tg.Value = tg.Value> {
 			stdout: stdout ?? "inherit",
 			tty,
 		};
-		let process: tg.Process<O>;
-		if (sandbox === undefined) {
-			process = await this.spawnUnsandboxed<O>(spawnArg);
-		} else {
-			process = await this.spawnSandboxed<O>(spawnArg);
-		}
-		process.#options = options;
 
-		return process;
+		return { arg: spawnArg, options };
+	}
+
+	static async execUnsandboxed(arg: tg.Handle.SpawnArg): Promise<never> {
+		if (arg.sandbox !== undefined) {
+			throw new Error("an exec must not be sandboxed");
+		}
+		validateExecStdio(arg.stdin ?? "inherit", "stdin");
+		validateExecStdio(arg.stdout ?? "inherit", "stdout");
+		validateExecStdio(arg.stderr ?? "inherit", "stderr");
+
+		let prepared = await this.prepareUnsandboxedCommand(arg);
+		return await tg.host.exec({
+			args: prepared.args,
+			cwd: prepared.cwd,
+			env: prepared.env,
+			executable: prepared.executable,
+			stderr: renderExecStdio(arg.stderr ?? "inherit"),
+			stdin: renderExecStdio(arg.stdin ?? "inherit"),
+			stdout: renderExecStdio(arg.stdout ?? "inherit"),
+		});
 	}
 
 	static async spawnUnsandboxed<O extends tg.Value = tg.Value>(
 		arg: tg.Handle.SpawnArg,
+		options?: tg.Referent.Options,
 	): Promise<tg.Process<O>> {
-		if (arg.tty !== undefined) {
-			throw new Error("tty is not supported for unsandboxed processes");
-		}
-		if (arg.sandbox !== undefined) {
-			throw new Error("sandboxing is not supported for unsandboxed processes");
-		}
-		if ((arg.stdin ?? "inherit").startsWith("blb_")) {
-			throw new Error("blob stdin is not supported for unsandboxed processes");
-		}
-
-		let command = await tg.Command.withId(arg.command.item).object();
-		if (command.stdin !== undefined) {
-			throw new Error(
-				"command stdin blobs are not supported for unsandboxed processes",
-			);
-		}
-		if (command.user !== undefined) {
-			throw new Error(
-				"setting a user is not supported for unsandboxed processes",
-			);
-		}
-
-		let tempPath = await tg.host.mkdtemp();
-		let outputPath = tg.path.join(tempPath, "output");
-		let artifacts = await checkoutArtifacts(command);
-		let env = await renderEnv(command.env, artifacts, outputPath);
-		let { args, executable } = renderCommand(command, artifacts, outputPath);
+		let prepared = await this.prepareUnsandboxedCommand(arg);
 		let spawnOutput = await tg.host.spawn({
-			args,
-			cwd: command.cwd,
-			env,
-			executable,
+			args: prepared.args,
+			cwd: prepared.cwd,
+			env: prepared.env,
+			executable: prepared.executable,
 			stderr: renderStdio(arg.stderr ?? "inherit", "stderr"),
 			stdin: renderStdio(arg.stdin ?? "inherit", "stdin"),
 			stdout: renderStdio(arg.stdout ?? "inherit", "stdout"),
@@ -416,12 +446,13 @@ export class Process<O extends tg.Value = tg.Value> {
 				stdin,
 				stdout,
 			},
-			tempPath,
-			outputPath,
+			prepared.tempPath,
+			prepared.outputPath,
 		);
 		return new tg.Process<O>({
 			id,
 			location: undefined,
+			options: options ?? {},
 			promise,
 			state: undefined,
 			stderr,
@@ -512,8 +543,49 @@ export class Process<O extends tg.Value = tg.Value> {
 		return wait!;
 	}
 
+	static async prepareUnsandboxedCommand(
+		arg: tg.Handle.SpawnArg,
+	): Promise<tg.Process.PreparedUnsandboxedCommandOutput> {
+		if (arg.tty !== undefined) {
+			throw new Error("tty is not supported for unsandboxed processes");
+		}
+		if (arg.sandbox !== undefined) {
+			throw new Error("sandboxing is not supported for unsandboxed processes");
+		}
+		if ((arg.stdin ?? "inherit").startsWith("blb_")) {
+			throw new Error("blob stdin is not supported for unsandboxed processes");
+		}
+
+		let command = await tg.Command.withId(arg.command.item).object();
+		if (command.stdin !== undefined) {
+			throw new Error(
+				"command stdin blobs are not supported for unsandboxed processes",
+			);
+		}
+		if (command.user !== undefined) {
+			throw new Error(
+				"setting a user is not supported for unsandboxed processes",
+			);
+		}
+
+		let tempPath = await tg.host.mkdtemp();
+		let outputPath = tg.path.join(tempPath, "output");
+		let artifacts = await checkoutArtifacts(command);
+		let env = await renderEnv(command.env, artifacts, outputPath);
+		let { args, executable } = renderCommand(command, artifacts, outputPath);
+		return {
+			args,
+			cwd: command.cwd,
+			env,
+			executable,
+			tempPath,
+			outputPath,
+		};
+	}
+
 	static async spawnSandboxed<O extends tg.Value = tg.Value>(
 		arg: tg.Handle.SpawnArg,
+		options?: tg.Referent.Options,
 	): Promise<tg.Process<O>> {
 		let noTty = arg.tty === false;
 		let provideStderr = arg.stderr === "pipe" || arg.stderr === "tty";
@@ -634,6 +706,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		let process = new tg.Process<O>({
 			id: output.process,
 			location,
+			options: options ?? {},
 			state: undefined,
 			stderr: new tg.Process.Stdio.Reader({
 				unavailable: !provideStderr,
@@ -1090,6 +1163,14 @@ export namespace Process {
 			return this;
 		}
 
+		exec(): tg.Process.Builder<"exec", A, never> {
+			let output = new tg.Process.Builder("exec", ...this.#args);
+			if (this.#validate !== undefined) {
+				output.validate(this.#validate);
+			}
+			return output as tg.Process.Builder<"exec", A, never>;
+		}
+
 		run(): tg.Process.Builder<"run", A, O> {
 			let output = new tg.Process.Builder("run", ...this.#args);
 			if (this.#validate !== undefined) {
@@ -1121,28 +1202,38 @@ export namespace Process {
 			return this.#thenInner().then(onfulfilled, onrejected);
 		}
 
-		async #thenInner(): Promise<tg.Process.Builder.Output<M, O>> {
+		#thenInner(): Promise<tg.Process.Builder.Output<M, O>>;
+		async #thenInner(): Promise<O | tg.Process<O>> {
 			let arg = await tg.Process.arg(...this.#args);
 			this.#validate?.(arg);
-			let process = await tg.Process.new<O>(arg);
-			switch (this.#mode) {
-				case "run": {
-					return (await process.output()) as tg.Process.Builder.Output<M, O>;
-				}
-				case "spawn": {
-					return process as tg.Process.Builder.Output<M, O>;
-				}
+			let output = await tg.Process.spawnArg(arg);
+			if (this.#mode === "exec") {
+				return await tg.Process.execUnsandboxed(output.arg);
 			}
+			let process =
+				output.arg.sandbox === undefined
+					? await tg.Process.spawnUnsandboxed<O>(output.arg, output.options)
+					: await tg.Process.spawnSandboxed<O>(output.arg, output.options);
+			if (this.#mode === "spawn") {
+				return process;
+			}
+			return await process.output();
 		}
 	}
 
 	export namespace Builder {
-		export type Mode = "run" | "spawn";
+		export type Mode = "exec" | "run" | "spawn";
 
 		export type Output<
 			M extends tg.Process.Builder.Mode,
 			O extends tg.Value,
-		> = M extends "spawn" ? tg.Process<O> : O;
+		> = M extends "exec"
+			? never
+			: M extends "run"
+				? O
+				: M extends "spawn"
+					? tg.Process<O>
+					: never;
 	}
 
 	export type ConstructorArg = {
@@ -1157,6 +1248,15 @@ export namespace Process {
 		stdout: tg.Process.Stdio.Reader;
 		token?: string | undefined;
 		wait?: tg.Process.Wait | undefined;
+	};
+
+	export type PreparedUnsandboxedCommandOutput = {
+		args: Array<string>;
+		cwd?: string | undefined;
+		env: { [key: string]: string };
+		executable: string;
+		outputPath: string;
+		tempPath: string;
 	};
 
 	export type Arg =
@@ -2213,6 +2313,23 @@ function renderStdio(
 			throw new Error("blob stdio is not supported for unsandboxed processes");
 		}
 	}
+}
+
+function validateExecStdio(
+	stdio: string,
+	stream: "stdin" | "stdout" | "stderr",
+): void {
+	if (stdio === "inherit" || stdio === "null") {
+		return;
+	}
+	throw new Error(`${stream} must be inherit or null for an exec`);
+}
+
+function renderExecStdio(stdio: string): "inherit" | "null" {
+	if (stdio === "inherit" || stdio === "null") {
+		return stdio;
+	}
+	throw new Error("stdio must be inherit or null for an exec");
 }
 
 let isSandboxArg = (value: unknown): value is tg.Sandbox.Arg => {

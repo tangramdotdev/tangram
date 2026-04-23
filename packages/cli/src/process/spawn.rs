@@ -3,7 +3,8 @@ use {
 	crossterm as ct,
 	futures::prelude::*,
 	std::{fmt::Write as _, path::PathBuf},
-	tangram_client::prelude::*,
+	tangram_client::{Client, prelude::*},
+	tangram_server::Shared as Server,
 };
 
 /// Spawn a process.
@@ -209,6 +210,15 @@ impl Tty {
 	}
 }
 
+pub(crate) struct InnerOutput {
+	pub arg: tg::process::Arg,
+	pub handle: tg::Either<Client, Server>,
+	pub location: Option<tg::location::Arg>,
+	pub referent: tg::Referent<tg::Object>,
+	pub sandboxed: bool,
+	pub tag: Option<tg::Tag>,
+}
+
 impl Cli {
 	pub async fn command_process_spawn(&mut self, mut args: Args) -> tg::Result<()> {
 		if matches!(args.options.sandbox.get(), Some(tg::Either::Left(false))) {
@@ -279,6 +289,61 @@ impl Cli {
 		trailing: Vec<String>,
 		print: bool,
 	) -> tg::Result<tg::Referent<tg::Process>> {
+		let InnerOutput {
+			arg,
+			handle,
+			location,
+			referent,
+			sandboxed,
+			tag,
+		} = self.spawn_inner(options, reference, trailing).await?;
+
+		let quiet = self.args.quiet;
+		let process = tg::Process::spawn_with_progress_with_handle(&handle, arg, |stream| {
+			self.render_progress_stream_with_output(stream, |output| {
+				if print && sandboxed && !quiet {
+					let mut message = output.process.to_string();
+					if let Some(token) = &output.token {
+						write!(message, " {token}").unwrap();
+					}
+					Self::print_info_message(&message);
+				}
+			})
+		})
+		.await
+		.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
+
+		// Tag the process if requested.
+		if let Some(tag) = tag {
+			let id = process
+				.id()
+				.right()
+				.cloned()
+				.ok_or_else(|| tg::error!("a tag requires a sandboxed process"))?;
+			let item = tg::Either::Right(id);
+			let arg = tg::tag::put::Arg {
+				force: false,
+				item,
+				location: location.clone(),
+				replicate: false,
+			};
+			handle
+				.put_tag(&tag, arg)
+				.await
+				.map_err(|source| tg::error!(!source, %tag, "failed to tag the process"))?;
+		}
+
+		let process = referent.replace(process).0;
+
+		Ok(process)
+	}
+
+	pub(crate) async fn spawn_inner(
+		&mut self,
+		options: Options,
+		reference: tg::Reference,
+		trailing: Vec<String>,
+	) -> tg::Result<InnerOutput> {
 		let handle = self.handle().await?;
 		let location = options.location.get();
 
@@ -515,20 +580,12 @@ impl Cli {
 		command = command.args(args_);
 
 		// Set the cwd.
-		if !sandbox {
-			let cwd = std::env::current_dir()
-				.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;
-			command = command.cwd(cwd);
-		}
 		if let Some(cwd) = options.cwd {
 			command = command.cwd(cwd);
 		}
 
 		// Set the env.
 		let mut env = tg::value::Map::new();
-		if !sandbox {
-			env.extend(tg::process::env()?);
-		}
 		for (key, value) in command_env.into_iter().flatten() {
 			if let Ok(mutation) = value.try_unwrap_mutation_ref() {
 				mutation.apply(&mut env, &key)?;
@@ -572,12 +629,9 @@ impl Cli {
 		}
 		command = command.env(env);
 
-		// Create the command and store it.
+		// Create the command.
 		let command = command.finish()?;
-		command
-			.store_with_handle(&handle)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
+		let command = command.object_with_handle(&handle).await?;
 
 		// Determine if the network is enabled.
 		let sandboxed = sandbox;
@@ -647,53 +701,43 @@ impl Cli {
 			_ => None,
 		};
 
-		// Spawn the process.
-		let arg = tg::process::spawn::Arg {
+		let stdin = match (options.stdin.clone(), command.stdin.as_ref()) {
+			(None | Some(tg::process::Stdio::Null), Some(blob)) => {
+				tg::process::Stdio::Blob(blob.id())
+			},
+			(Some(stdin), _) => stdin,
+			(None, None) => tg::process::Stdio::default(),
+		};
+
+		let arg = tg::process::Arg {
+			args: command.args.clone(),
 			cached: options.cached,
-			cache_location: None,
 			checksum: options.checksum,
-			command: tg::Referent::with_item(command.id()),
+			cwd: command.cwd.clone(),
+			env: command.env.clone(),
+			executable: Some(command.executable.clone()),
+			host: Some(command.host.clone()),
 			location: location.clone(),
+			name: None,
 			parent: None,
+			progress: false,
 			retry: options.retry,
 			sandbox,
 			stderr: options.stderr.unwrap_or_default(),
-			stdin: options.stdin.unwrap_or_default(),
+			stdin,
 			stdout: options.stdout.unwrap_or_default(),
 			tty,
+			user: command.user.clone(),
+			..Default::default()
 		};
-		let quiet = self.args.quiet;
-		let process = tg::Process::spawn_with_progress_with_handle(&handle, arg, |stream| {
-			self.render_progress_stream_with_output(stream, |output| {
-				if print && sandboxed && !quiet {
-					let mut message = output.process.to_string();
-					if let Some(token) = &output.token {
-						write!(message, " {token}").unwrap();
-					}
-					Self::print_info_message(&message);
-				}
-			})
+
+		Ok(InnerOutput {
+			arg,
+			handle,
+			location,
+			referent,
+			sandboxed,
+			tag: options.tag,
 		})
-		.await
-		.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
-
-		// Tag the process if requested.
-		if let Some(tag) = options.tag {
-			let item = tg::Either::Right(process.id().unwrap_right().clone());
-			let arg = tg::tag::put::Arg {
-				force: false,
-				item,
-				location: location.clone(),
-				replicate: false,
-			};
-			handle
-				.put_tag(&tag, arg)
-				.await
-				.map_err(|source| tg::error!(!source, %tag, "failed to tag the process"))?;
-		}
-
-		let process = referent.replace(process).0;
-
-		Ok(process)
 	}
 }

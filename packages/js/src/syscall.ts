@@ -211,6 +211,11 @@ declare global {
 
 	function syscall(syscall: "host_enable_raw_mode", fd: number): Promise<void>;
 
+	function syscall(
+		syscall: "host_exec",
+		arg: tg.Host.SpawnArg,
+	): Promise<never>;
+
 	function syscall(syscall: "host_exists", path: string): Promise<boolean>;
 
 	function syscall(
