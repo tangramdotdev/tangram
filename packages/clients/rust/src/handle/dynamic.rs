@@ -24,6 +24,10 @@ impl Handle {
 }
 
 impl tg::Handle for Handle {
+	fn arg(&self) -> tg::Arg {
+		self.0.arg()
+	}
+
 	fn cache(
 		&self,
 		arg: tg::cache::Arg,

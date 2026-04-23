@@ -31,11 +31,11 @@ impl Server {
 		&self,
 		mut arg: crate::client::spawn::Arg,
 	) -> tg::Result<crate::client::spawn::Output> {
-		// Normalize the env.
 		for key in [
 			"TANGRAM_CONFIG",
 			"TANGRAM_DIRECTORY",
 			"TANGRAM_MODE",
+			"TANGRAM_OUTPUT",
 			"TANGRAM_PROCESS",
 			"TANGRAM_TOKEN",
 			"TANGRAM_TRACING",
@@ -43,7 +43,6 @@ impl Server {
 		] {
 			arg.command.env.remove(key);
 		}
-		arg.command.env.remove("TANGRAM_OUTPUT");
 		arg.command.env.insert(
 			"TANGRAM_OUTPUT".to_owned(),
 			self.output_path

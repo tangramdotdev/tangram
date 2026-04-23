@@ -28,6 +28,7 @@ pub fn syscall<'s>(
 		"encoding_utf8_encode" => sync(scope, &args, self::encoding::utf8_encode),
 		"encoding_yaml_decode" => sync(scope, &args, self::encoding::yaml_decode),
 		"encoding_yaml_encode" => sync(scope, &args, self::encoding::yaml_encode),
+		"handle_arg" => sync(scope, &args, self::handle::arg),
 		"handle_checkin" => async_(scope, &args, self::handle::checkin),
 		"handle_checksum" => async_(scope, &args, self::handle::checksum),
 		"handle_checkout" => async_(scope, &args, self::handle::checkout),

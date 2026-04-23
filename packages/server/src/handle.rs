@@ -15,6 +15,10 @@ mod user;
 mod watch;
 
 impl tg::Handle for Shared {
+	fn arg(&self) -> tg::Arg {
+		self.0.server.arg()
+	}
+
 	async fn cache(
 		&self,
 		arg: tg::cache::Arg,
@@ -131,6 +135,10 @@ impl tg::Handle for Shared {
 }
 
 impl tg::Handle for Server {
+	fn arg(&self) -> tg::Arg {
+		self.arg()
+	}
+
 	async fn cache(
 		&self,
 		arg: tg::cache::Arg,

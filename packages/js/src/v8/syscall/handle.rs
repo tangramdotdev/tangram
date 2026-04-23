@@ -20,6 +20,26 @@ struct ObjectBatchObject {
 	id: tg::object::Id,
 }
 
+#[derive(serde::Serialize)]
+pub struct HandleArg {
+	process: Option<tg::process::Id>,
+	token: Option<String>,
+	url: Option<String>,
+}
+
+pub fn arg(
+	state: Rc<State>,
+	_scope: &mut v8::PinScope<'_, '_>,
+	_args: (Option<String>,),
+) -> tg::Result<Serde<HandleArg>> {
+	let arg = state.handle.arg();
+	Ok(Serde(HandleArg {
+		process: arg.process,
+		token: arg.token,
+		url: arg.url.map(|url| url.to_string()),
+	}))
+}
+
 pub async fn checkin(
 	state: Rc<State>,
 	args: (Serde<tg::checkin::Arg>,),

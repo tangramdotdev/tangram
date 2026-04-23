@@ -18,6 +18,13 @@ where
 	L: tg::Handle,
 	R: tg::Handle,
 {
+	fn arg(&self) -> tg::Arg {
+		match self {
+			tg::Either::Left(handle) => handle.arg(),
+			tg::Either::Right(handle) => handle.arg(),
+		}
+	}
+
 	fn cache(
 		&self,
 		arg: tg::cache::Arg,

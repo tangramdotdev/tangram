@@ -7,6 +7,8 @@ export let setHandle = (newHandle: Handle) => {
 };
 
 export type Handle = {
+	arg(): tg.Handle.Arg;
+
 	checkin(arg: tg.Handle.CheckinArg): Promise<tg.Artifact.Id>;
 
 	checkout(arg: tg.Handle.CheckoutArg): Promise<string>;
@@ -20,6 +22,12 @@ export type Handle = {
 	tg.Handle.System;
 
 export namespace Handle {
+	export type Arg = {
+		process?: tg.Process.Id | undefined;
+		token?: string | undefined;
+		url?: string | undefined;
+	};
+
 	export type SandboxArg = {
 		cpu?: number | undefined;
 		hostname?: string | undefined;

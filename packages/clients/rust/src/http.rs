@@ -34,14 +34,12 @@ pub(crate) enum Error {
 }
 
 impl tg::Client {
-	#[expect(clippy::needless_pass_by_value)]
-	pub(crate) fn service(
-		url: Uri,
-		version: String,
-		token: Option<String>,
-		process: Option<tg::process::Id>,
-		reconnect: &tangram_futures::retry::Options,
-	) -> (Sender, Service) {
+	pub(crate) fn service(arg: &tg::Arg) -> (Sender, Service) {
+		let url = arg.url.clone().unwrap();
+		let version = arg.version.clone().unwrap();
+		let token = arg.token.clone();
+		let process = arg.process.clone();
+		let reconnect = arg.reconnect.as_ref().unwrap();
 		let sender = Arc::new(tokio::sync::Mutex::new(
 			None::<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>>,
 		));
@@ -142,13 +140,14 @@ impl tg::Client {
 		match guard.as_ref() {
 			Some(sender) if sender.is_ready() => (),
 			_ => {
-				let sender = tangram_futures::retry(&self.reconnect, || async {
-					match Self::connect_h2(&self.url).await {
-						Ok(sender) => Ok(ControlFlow::Break(sender)),
-						Err(error) => Ok(ControlFlow::Continue(error)),
-					}
-				})
-				.await?;
+				let sender =
+					tangram_futures::retry(self.arg.reconnect.as_ref().unwrap(), || async {
+						match Self::connect_h2(self.arg.url.as_ref().unwrap()).await {
+							Ok(sender) => Ok(ControlFlow::Break(sender)),
+							Err(error) => Ok(ControlFlow::Continue(error)),
+						}
+					})
+					.await?;
 				guard.replace(sender.clone());
 			},
 		}
@@ -654,7 +653,7 @@ impl tg::Client {
 		B::Error: Into<tangram_http::Error> + Clone + Send,
 	{
 		let client = self.clone();
-		tangram_futures::retry(&self.retry, || {
+		tangram_futures::retry(self.arg.retry.as_ref().unwrap(), || {
 			let client = client.clone();
 			let request = request.clone();
 			async move {

@@ -27,7 +27,7 @@ pub mod erased;
 pub static HANDLE: OnceLock<tg::Client> = OnceLock::new();
 
 pub fn init() -> tg::Result<&'static tg::Client> {
-	let client = tg::Client::with_env()?;
+	let client = tg::Client::new(tg::Arg::default())?;
 	init_with(client)
 }
 
@@ -64,6 +64,8 @@ pub trait Handle:
 	+ Sync
 	+ 'static
 {
+	fn arg(&self) -> tg::Arg;
+
 	fn cache(
 		&self,
 		arg: tg::cache::Arg,
@@ -224,6 +226,10 @@ pub trait Handle:
 }
 
 impl tg::Handle for tg::Client {
+	fn arg(&self) -> tg::Arg {
+		self.0.arg.clone()
+	}
+
 	fn cache(
 		&self,
 		arg: tg::cache::Arg,

@@ -691,7 +691,14 @@ impl Cli {
 			.transpose()?;
 
 		// Create the client.
-		let client = tg::Client::new(url, Some(version()), token, process, reconnect, retry);
+		let client = tg::Client::new(tg::Arg {
+			url: Some(url),
+			version: Some(version()),
+			token,
+			process,
+			reconnect,
+			retry,
+		})?;
 
 		Ok(client)
 	}

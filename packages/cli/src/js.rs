@@ -97,7 +97,7 @@ impl Cli {
 		let executable = args.executable;
 
 		// Create the client.
-		let client = tg::Client::with_env()?;
+		let client = tg::Client::new(tg::Arg::default())?;
 
 		// Create the runtime and connect the client.
 		let runtime = tokio::runtime::Builder::new_multi_thread()

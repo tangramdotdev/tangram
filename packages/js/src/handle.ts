@@ -33,6 +33,10 @@ type SpawnOutputWire = Omit<tg.Handle.SpawnOutput, "location"> & {
 };
 
 export let handle: tg.Handle = {
+	arg(): tg.Handle.Arg {
+		return syscall("handle_arg");
+	},
+
 	checkin(arg: tg.Handle.CheckinArg): Promise<tg.Artifact.Id> {
 		return syscall("handle_checkin", arg);
 	},

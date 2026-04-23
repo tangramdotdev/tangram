@@ -479,7 +479,7 @@ impl<O: 'static> tg::Process<O> {
 			.map_err(|source| tg::error!(!source, "failed to create a temp directory"))?;
 		let output_path = temp.path().join("output");
 		let artifacts = checkout_artifacts(handle, &command).await?;
-		let env = render_env(&command.env, &artifacts, &output_path)?;
+		let env = render_env(handle, &command.env, &artifacts, &output_path)?;
 		let (executable, args) = render_command(&command, &artifacts, &output_path)?;
 		let cwd = command.cwd.clone();
 
@@ -826,11 +826,15 @@ fn render_args_dash_a(args: &[tg::value::Data]) -> Vec<String> {
 		.collect()
 }
 
-fn render_env(
+fn render_env<H>(
+	handle: &H,
 	env: &tg::value::data::Map,
 	artifacts: &BTreeMap<tg::artifact::Id, PathBuf>,
 	output_path: &Path,
-) -> tg::Result<BTreeMap<String, String>> {
+) -> tg::Result<BTreeMap<String, String>>
+where
+	H: tg::Handle,
+{
 	for key in env.keys() {
 		if key.starts_with(tg::process::env::PREFIX) {
 			return Err(tg::error!(
@@ -864,10 +868,32 @@ fn render_env(
 		let value = tg::Value::try_from_data(value.clone()).unwrap().to_string();
 		output.insert(format!("{}{key}", tg::process::env::PREFIX), value);
 	}
+	for key in [
+		"TANGRAM_CONFIG",
+		"TANGRAM_DIRECTORY",
+		"TANGRAM_MODE",
+		"TANGRAM_OUTPUT",
+		"TANGRAM_PROCESS",
+		"TANGRAM_TOKEN",
+		"TANGRAM_TRACING",
+		"TANGRAM_URL",
+	] {
+		output.remove(key);
+	}
 	output.insert(
 		"TANGRAM_OUTPUT".to_owned(),
 		output_path.to_string_lossy().into_owned(),
 	);
+	let arg = handle.arg();
+	if let Some(process) = arg.process {
+		output.insert("TANGRAM_PROCESS".to_owned(), process.to_string());
+	}
+	if let Some(token) = arg.token {
+		output.insert("TANGRAM_TOKEN".to_owned(), token);
+	}
+	if let Some(url) = arg.url {
+		output.insert("TANGRAM_URL".to_owned(), url.to_string());
+	}
 	Ok(output)
 }
 

@@ -32,12 +32,12 @@ impl Server {
 		else {
 			return Ok(None);
 		};
-		let client = self.create_remote_client(&remote, output.url);
+		let client = self.create_remote_client(&remote, output.url)?;
 		self.remotes.insert(remote, client.clone());
 		Ok(Some(client))
 	}
 
-	pub(crate) fn create_remote_client(&self, remote: &str, url: Uri) -> tg::Client {
+	pub(crate) fn create_remote_client(&self, remote: &str, url: Uri) -> tg::Result<tg::Client> {
 		let remote_config = self
 			.config()
 			.remotes
@@ -60,13 +60,13 @@ impl Server {
 				max_retries: retry.max_retries,
 			}
 		});
-		tg::Client::new(
-			url,
-			Some(self.version.clone()),
+		tg::Client::new(tg::Arg {
+			url: Some(url),
+			version: Some(self.version.clone()),
 			token,
-			None,
+			process: None,
 			reconnect,
 			retry,
-		)
+		})
 	}
 }

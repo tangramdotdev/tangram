@@ -103,58 +103,53 @@ pub mod prelude {
 	};
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Arg {
+	pub url: Option<Uri>,
+	pub version: Option<String>,
+	pub token: Option<String>,
+	pub process: Option<tg::process::Id>,
+	pub reconnect: Option<tangram_futures::retry::Options>,
+	pub retry: Option<tangram_futures::retry::Options>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Client(Arc<State>);
 
 #[derive(Debug)]
 pub struct State {
-	url: Uri,
-	reconnect: tangram_futures::retry::Options,
-	retry: tangram_futures::retry::Options,
+	arg: tg::Arg,
 	sender: self::http::Sender,
 	service: self::http::Service,
-	process: Option<tg::process::Id>,
-	#[expect(dead_code)]
-	token: Option<String>,
-	version: String,
 }
 
 impl Client {
-	#[must_use]
-	pub fn new(
-		url: Uri,
-		version: Option<String>,
-		token: Option<String>,
-		process: Option<tg::process::Id>,
-		reconnect: Option<tangram_futures::retry::Options>,
-		retry: Option<tangram_futures::retry::Options>,
-	) -> Self {
-		let version = version.unwrap_or(env!("CARGO_PKG_VERSION").to_owned());
-		let reconnect = reconnect.unwrap_or_default();
-		let retry = retry.unwrap_or_default();
-		let (sender, service) = Self::service(
-			url.clone(),
-			version.clone(),
-			token.clone(),
-			process.clone(),
-			&reconnect,
-		);
-		Self(Arc::new(State {
-			url,
-			reconnect,
-			retry,
+	pub fn new(mut arg: tg::Arg) -> tg::Result<Self> {
+		arg.url = Some(match arg.url {
+			Some(url) => url,
+			None => Self::default_url()?,
+		});
+		arg.version
+			.get_or_insert_with(|| env!("CARGO_PKG_VERSION").to_owned());
+		arg.token = arg.token.or_else(|| std::env::var("TANGRAM_TOKEN").ok());
+		arg.process = match arg.process {
+			Some(process) => Some(process),
+			None => Self::default_process()?,
+		};
+		arg.reconnect.get_or_insert_default();
+		arg.retry.get_or_insert_default();
+		let (sender, service) = Self::service(&arg);
+		Ok(Self(Arc::new(State {
+			arg,
 			sender,
 			service,
-			process,
-			token,
-			version,
-		}))
+		})))
 	}
 
-	pub fn with_env() -> tg::Result<Self> {
-		let url = if let Ok(url) = std::env::var("TANGRAM_URL") {
+	fn default_url() -> tg::Result<Uri> {
+		if let Ok(url) = std::env::var("TANGRAM_URL") {
 			url.parse()
-				.map_err(|error| tg::error!(source = error, "failed to parse the URL"))?
+				.map_err(|error| tg::error!(source = error, "failed to parse the URL"))
 		} else {
 			let path = std::env::home_dir()
 				.ok_or_else(|| tg::error!("failed to get the home directory"))?;
@@ -165,28 +160,29 @@ impl Client {
 				.authority(path)
 				.path("")
 				.build()
-				.map_err(|error| tg::error!(source = error, "failed to build the URL"))?
-		};
-		let process = std::env::var("TANGRAM_PROCESS")
+				.map_err(|error| tg::error!(source = error, "failed to build the URL"))
+		}
+	}
+
+	fn default_process() -> tg::Result<Option<tg::process::Id>> {
+		std::env::var("TANGRAM_PROCESS")
 			.ok()
 			.map(|value| {
 				value
 					.parse()
 					.map_err(|source| tg::error!(!source, "failed to parse TANGRAM_PROCESS"))
 			})
-			.transpose()?;
-		let token = std::env::var("TANGRAM_TOKEN").ok();
-		Ok(Self::new(url, None, token, process, None, None))
+			.transpose()
 	}
 
 	#[must_use]
 	pub fn url(&self) -> &Uri {
-		&self.url
+		self.0.arg.url.as_ref().unwrap()
 	}
 
 	#[must_use]
 	pub fn process(&self) -> Option<&tg::process::Id> {
-		self.0.process.as_ref()
+		self.0.arg.process.as_ref()
 	}
 
 	#[must_use]
@@ -199,7 +195,7 @@ impl Client {
 
 	#[must_use]
 	pub fn version(&self) -> &str {
-		&self.version
+		self.0.arg.version.as_deref().unwrap()
 	}
 }
 

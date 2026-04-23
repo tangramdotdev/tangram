@@ -86,6 +86,8 @@ declare global {
 
 	function syscall(syscall: "encoding_yaml_encode", value: unknown): string;
 
+	function syscall(syscall: "handle_arg"): tg.Handle.Arg;
+
 	function syscall(
 		syscall: "handle_checkin",
 		arg: tg.Handle.CheckinArg,

@@ -39,6 +39,7 @@ pub fn syscall<'js>(
 		"encoding_utf8_encode" => qjs::Function::new(ctx.clone(), self::encoding::utf8_encode),
 		"encoding_yaml_decode" => qjs::Function::new(ctx.clone(), self::encoding::yaml_decode),
 		"encoding_yaml_encode" => qjs::Function::new(ctx.clone(), self::encoding::yaml_encode),
+		"handle_arg" => qjs::Function::new(ctx.clone(), self::handle::arg),
 		"handle_checkin" => qjs::Function::new(ctx.clone(), Async(self::handle::checkin)),
 		"handle_checksum" => qjs::Function::new(ctx.clone(), Async(self::handle::checksum)),
 		"handle_checkout" => qjs::Function::new(ctx.clone(), Async(self::handle::checkout)),

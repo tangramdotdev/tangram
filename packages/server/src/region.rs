@@ -65,14 +65,14 @@ impl Server {
 				max_delay: retry.max_delay,
 				max_retries: retry.max_retries,
 			});
-		let client = tg::Client::new(
-			region_config.url.clone(),
-			Some(self.version.clone()),
-			region_config.token.clone(),
-			None,
+		let client = tg::Client::new(tg::Arg {
+			url: Some(region_config.url.clone()),
+			version: Some(self.version.clone()),
+			token: region_config.token.clone(),
+			process: None,
 			reconnect,
 			retry,
-		);
+		})?;
 		self.regions.insert(region, client.clone());
 		Ok(Some(client))
 	}

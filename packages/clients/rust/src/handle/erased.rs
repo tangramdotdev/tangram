@@ -21,6 +21,8 @@ pub use self::{
 pub trait Handle:
 	Module + Object + Process + Remote + Sandbox + Tag + User + Watch + Send + Sync + 'static
 {
+	fn arg(&self) -> tg::Arg;
+
 	fn cache(
 		&self,
 		arg: tg::cache::Arg,
@@ -114,6 +116,10 @@ impl<T> Handle for T
 where
 	T: tg::handle::Handle,
 {
+	fn arg(&self) -> tg::Arg {
+		tg::handle::Handle::arg(self)
+	}
+
 	fn cache(
 		&self,
 		arg: tg::cache::Arg,

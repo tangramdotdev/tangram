@@ -2240,7 +2240,29 @@ async function renderEnv(
 		}
 		rendered[`TANGRAM_ENV_${key}`] = tg.Value.stringify(value);
 	}
+	for (let key of [
+		"TANGRAM_CONFIG",
+		"TANGRAM_DIRECTORY",
+		"TANGRAM_MODE",
+		"TANGRAM_OUTPUT",
+		"TANGRAM_PROCESS",
+		"TANGRAM_TOKEN",
+		"TANGRAM_TRACING",
+		"TANGRAM_URL",
+	]) {
+		delete rendered[key];
+	}
+	let arg = tg.handle.arg();
 	rendered.TANGRAM_OUTPUT = outputPath;
+	if (arg.process !== undefined) {
+		rendered.TANGRAM_PROCESS = arg.process;
+	}
+	if (arg.token !== undefined) {
+		rendered.TANGRAM_TOKEN = arg.token;
+	}
+	if (arg.url !== undefined) {
+		rendered.TANGRAM_URL = arg.url;
+	}
 	return rendered;
 }
 

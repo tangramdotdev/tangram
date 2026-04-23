@@ -13,6 +13,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::task::Task,
+	tangram_uri::Uri,
 	tangram_util::fs::remove,
 	tokio::io::AsyncWriteExt as _,
 	tracing::Instrument as _,
@@ -666,7 +667,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to list the remotes"))?;
 		for remote in output.data {
-			let client = server.create_remote_client(&remote.name, remote.url);
+			let client = server.create_remote_client(&remote.name, remote.url)?;
 			server.remotes.insert(remote.name, client);
 		}
 
@@ -1162,6 +1163,33 @@ impl Server {
 			tokio::runtime::Handle::current(),
 			self.version.clone(),
 		)
+	}
+
+	#[must_use]
+	pub fn arg(&self) -> tg::Arg {
+		let url = self
+			.config()
+			.http
+			.as_ref()
+			.and_then(|http| http.listeners.first())
+			.map_or_else(
+				|| {
+					let path = self.path.join("socket");
+					let path = path.to_str().unwrap();
+					Uri::builder()
+						.scheme("http+unix")
+						.authority(path)
+						.path("")
+						.build()
+						.unwrap()
+				},
+				|listener| listener.url.clone(),
+			);
+		tg::Arg {
+			url: Some(url),
+			version: Some(self.version.clone()),
+			..Default::default()
+		}
 	}
 
 	#[must_use]

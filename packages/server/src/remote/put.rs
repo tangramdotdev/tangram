@@ -38,7 +38,7 @@ impl Server {
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to insert the remote"))?;
-		let client = self.create_remote_client(name, arg.url.clone());
+		let client = self.create_remote_client(name, arg.url.clone())?;
 		self.remotes.insert(name.to_owned(), client);
 		Ok(())
 	}
