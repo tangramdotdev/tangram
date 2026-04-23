@@ -64,7 +64,7 @@ pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::Location>,
 
-	pub process: tg::process::Id,
+	pub process: tg::Either<u32, tg::process::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
@@ -134,7 +134,7 @@ impl<O: 'static> tg::Process<O> {
 				location: process
 					.location()
 					.and_then(|location| location.to_location()),
-				process: process.id().clone(),
+				process: process.id().cloned(),
 				token: process.token().cloned(),
 				wait: None,
 			};
@@ -252,7 +252,12 @@ impl<O: 'static> tg::Process<O> {
 			.wait
 			.map(tg::process::Wait::try_from_data)
 			.transpose()?;
-		let id = output.process;
+		let id = output
+			.process
+			.as_ref()
+			.right()
+			.cloned()
+			.ok_or_else(|| tg::error!("expected a sandboxed process id"))?;
 		let location = output.location.clone();
 		let stdio_task = if stdin.is_some() || stdout.is_some() || stderr.is_some() || local_tty {
 			let handle = handle.clone();
@@ -287,7 +292,7 @@ impl<O: 'static> tg::Process<O> {
 		};
 		let inner = Arc::new(super::Inner {
 			cached: Some(output.cached),
-			id,
+			id: tg::Either::Right(id),
 			location: Arc::new(RwLock::new(location.map(Into::into))),
 			metadata: RwLock::new(None),
 			state: RwLock::new(None),
@@ -298,7 +303,6 @@ impl<O: 'static> tg::Process<O> {
 			task: None,
 			token: output.token,
 			wait: Mutex::new(wait),
-			pid: None,
 		});
 		let process = Self(inner, std::marker::PhantomData);
 		process.stdin().set_process(Arc::downgrade(&process.0));
@@ -338,13 +342,12 @@ impl<O: 'static> tg::Process<O> {
 			));
 		}
 
-		let id = tg::process::Id::new();
 		let temp = tangram_util::fs::Temp::new()
 			.map_err(|source| tg::error!(!source, "failed to create a temp directory"))?;
 		tokio::fs::create_dir(temp.path())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create a temp directory"))?;
-		let output_path = temp.path().join(id.to_string());
+		let output_path = temp.path().join("output");
 		let artifacts = checkout_artifacts(handle, &command).await?;
 		let env = render_env(&command.env, &artifacts, &output_path)?;
 		let (executable, args) = render_command(&command, &artifacts, &output_path)?;
@@ -412,10 +415,9 @@ impl<O: 'static> tg::Process<O> {
 
 		let inner = Arc::new(super::Inner {
 			cached: Some(false),
-			id,
+			id: tg::Either::Left(pid),
 			location: Arc::new(RwLock::new(None)),
 			metadata: RwLock::new(None),
-			pid: Some(pid),
 			state: RwLock::new(None),
 			stderr,
 			stdin,

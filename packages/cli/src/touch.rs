@@ -19,7 +19,7 @@ impl Cli {
 		let item = referent
 			.item
 			.map_left(|object| object.id().clone())
-			.map_right(|process| process.id().clone());
+			.map_right(|process| process.id().unwrap_right().clone());
 
 		match item {
 			tg::Either::Left(object) => {

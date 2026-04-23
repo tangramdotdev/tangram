@@ -22,13 +22,13 @@ impl<O> tg::Process<O> {
 	where
 		H: tg::Handle,
 	{
-		if self.pid.is_some() {
+		if self.id().is_left() {
 			return self
 				.signal_with_handle(handle, tg::process::Signal::SIGTERM)
 				.await;
 		}
 		self.ensure_location_with_handle(handle).await?;
-		let id = self.id();
+		let id = self.id().unwrap_right();
 		let location = self.location();
 		let token = self
 			.token()

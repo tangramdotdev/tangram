@@ -366,17 +366,16 @@ def run_test [test: record, cloud: bool, no_capture: bool, preserve_temps: bool,
 	} {
 		let command = $'$env.config.display_errors.exit_code = true; source ($test.path)';
 		if $no_capture {
-			let exit_code_path = mktemp -t tangram_test_exit_code.XXXXXX
-			open /dev/null | ^sh -c 'timeout "$1" nu -c "$2"; status=$?; printf "%s" "$status" > "$3"' sh $timeout $command $exit_code_path
-			let exit_code = if ($exit_code_path | path exists) {
-				open $exit_code_path | str trim | into int
-			} else {
-				1
-			}
-			try { rm $exit_code_path }
+			open /dev/null | timeout $timeout nu -c $command o+e> /dev/stderr
+			let exit_code = $env.LAST_EXIT_CODE
 			{ exit_code: $exit_code, stdout: '', stderr: '' }
 		} else {
-			open /dev/null | timeout $timeout nu -c $command | complete
+			let output = open /dev/null | timeout $timeout nu -c $command o+e>| complete
+			{
+				exit_code: $output.exit_code,
+				stdout: '',
+				stderr: $output.stdout,
+			}
 		}
 	}
 	let end = date now
@@ -392,7 +391,7 @@ def run_test [test: record, cloud: bool, no_capture: bool, preserve_temps: bool,
 			}
 		}
 		for path in (glob $'($parent_path | path join $stem){.touched,/*.touched}') {
-			rm $path
+			try { rm $path }
 		}
 	}
 
@@ -439,7 +438,7 @@ def print_test_result [result: record, print_passing_test_output: bool] {
 	}
 	print -e $'($symbol) ($result.name) ($result.duration)'
 	if $print_passing_test_output or $result.output.exit_code != 0 {
-		print -e -n $result.output.stdout
+		print -e -n $result.output.stderr
 	}
 }
 

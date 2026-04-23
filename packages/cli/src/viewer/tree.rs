@@ -211,7 +211,7 @@ where
 				.insert(NodeID::Package(package.0.id())),
 			Some(Item::Process(process)) if options.expand_processes => expanded_nodes
 				.borrow_mut()
-				.insert(NodeID::Process(process.id().clone())),
+				.insert(NodeID::Process(process.id().unwrap_right().clone())),
 			Some(Item::Tag(pattern)) if options.expand_tags => expanded_nodes
 				.borrow_mut()
 				.insert(NodeID::Tag(pattern.to_string())),
@@ -1436,7 +1436,7 @@ where
 
 		let command = process.command_with_handle(handle).await?;
 		let value = tg::Value::Object(command.clone().into());
-		let metadata = get_process_metadata_as_value(handle, process.id()).await?;
+		let metadata = get_process_metadata_as_value(handle, process.id().unwrap_right()).await?;
 		update_sender
 			.send({
 				let handle = handle.clone();
@@ -1899,7 +1899,7 @@ where
 				.insert(NodeID::Package(package.0.id())),
 			Item::Process(process) if options.expand_processes => expanded_nodes
 				.borrow_mut()
-				.insert(NodeID::Process(process.id().clone())),
+				.insert(NodeID::Process(process.id().unwrap_right().clone())),
 			Item::Tag(pattern) if options.expand_tags => expanded_nodes
 				.borrow_mut()
 				.insert(NodeID::Tag(pattern.to_string())),
@@ -2191,7 +2191,7 @@ where
 		// Check if the process was canceled.
 		let arg = tg::process::get::Arg::default();
 		if handle
-			.try_get_process(process.item.id(), arg)
+			.try_get_process(process.item.id().unwrap_right(), arg)
 			.await?
 			.and_then(|output| output.data.error)
 			.is_some_and(|error| match error {
@@ -2372,7 +2372,7 @@ where
 					async move {
 						match referent.item {
 							Item::Process(process) => handle
-								.get_process(process.id())
+								.get_process(process.id().unwrap_right())
 								.and_then(async |output: tg::process::get::Output| {
 									#[derive(serde::Serialize)]
 									struct ProcessData {
@@ -2381,7 +2381,7 @@ where
 									}
 									let metadata = handle
 										.try_get_process_metadata(
-											process.id(),
+											process.id().unwrap_right(),
 											tg::process::metadata::Arg::default(),
 										)
 										.await?;

@@ -80,10 +80,6 @@ export let handle: tg.Handle = {
 		return syscall("handle_object_batch", arg);
 	},
 
-	processId(): tg.Process.Id {
-		return syscall("handle_process_id", undefined);
-	},
-
 	read(arg: tg.Handle.ReadArg): Promise<Uint8Array> {
 		return syscall("handle_read", arg);
 	},

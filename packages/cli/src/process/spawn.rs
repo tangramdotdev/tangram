@@ -256,7 +256,7 @@ impl Cli {
 					.item()
 					.location()
 					.and_then(|location| location.to_location()),
-				process: output.item().id().clone(),
+				process: output.item().id().cloned(),
 				token: output.item().token().cloned(),
 				wait: None,
 			};
@@ -651,7 +651,7 @@ impl Cli {
 
 		// Tag the process if requested.
 		if let Some(tag) = options.tag {
-			let item = tg::Either::Right(process.id().clone());
+			let item = tg::Either::Right(process.id().unwrap_right().clone());
 			let arg = tg::tag::put::Arg {
 				force: false,
 				item,

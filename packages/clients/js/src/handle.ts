@@ -204,8 +204,6 @@ export namespace Handle {
 
 		parseValue(value: string): tg.Value.Data;
 
-		processId(): tg.Process.Id;
-
 		stringifyValue(value: tg.Value.Data): string;
 	};
 }

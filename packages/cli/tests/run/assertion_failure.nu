@@ -15,5 +15,5 @@ let path = artifact {
 let output = do { cd $path; tg run } | complete
 failure $output
 let stderr = $output.stderr
-let stderr = $stderr | str replace -ar 'pcs_00[0-9a-z]{26}' 'PROCESS'
+let stderr = $stderr | str replace -ar 'id = (pcs_00[0-9a-z]{26}|[0-9]+)' 'id = PROCESS'
 snapshot $stderr

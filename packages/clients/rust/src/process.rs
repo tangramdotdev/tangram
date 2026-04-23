@@ -51,10 +51,9 @@ pub struct Process<O = tg::Value>(Arc<Inner>, PhantomData<fn() -> O>);
 #[derive(derive_more::Debug)]
 pub struct Inner {
 	cached: Option<bool>,
-	id: Id,
+	id: tg::Either<u32, Id>,
 	location: Arc<RwLock<Option<tg::location::Arg>>>,
 	metadata: RwLock<Option<Arc<Metadata>>>,
-	pid: Option<u32>,
 	state: RwLock<Option<Arc<State>>>,
 	stderr: tg::process::stdio::Reader,
 	stdin: tg::process::stdio::Writer,
@@ -109,10 +108,9 @@ impl<O> Process<O> {
 		let stdout = tg::process::stdio::Reader::from_process(tg::process::stdio::Stream::Stdout);
 		let inner = Arc::new(Inner {
 			cached,
-			id,
+			id: tg::Either::Right(id),
 			location: location.clone(),
 			metadata,
-			pid: None,
 			state,
 			stderr,
 			stdin,
@@ -135,8 +133,8 @@ impl<O> Process<O> {
 	}
 
 	#[must_use]
-	pub fn id(&self) -> &Id {
-		&self.id
+	pub fn id(&self) -> tg::Either<&u32, &Id> {
+		self.0.id.as_ref()
 	}
 
 	#[must_use]
@@ -165,11 +163,6 @@ impl<O> Process<O> {
 	}
 
 	#[must_use]
-	pub fn pid(&self) -> Option<u32> {
-		self.0.pid
-	}
-
-	#[must_use]
 	pub fn token(&self) -> Option<&String> {
 		self.token.as_ref()
 	}
@@ -193,7 +186,7 @@ impl<O> Process<O> {
 	where
 		H: tg::Handle,
 	{
-		if self.pid.is_some() || self.location().is_some() {
+		if self.id().is_left() || self.location().is_some() {
 			return Ok(());
 		}
 		self.try_load_with_handle(handle).await?;
@@ -229,11 +222,16 @@ impl<O> Process<O> {
 		if let Some(state) = self.state.read().unwrap().clone() {
 			return Ok(Some(state));
 		}
+		let Some(id) = self.id().right() else {
+			return Err(tg::error!(
+				"loading unsandboxed process state is not supported"
+			));
+		};
 		let arg = tg::process::get::Arg {
 			location: self.location(),
 			metadata: false,
 		};
-		let Some(output) = handle.try_get_process(self.id(), arg).await? else {
+		let Some(output) = handle.try_get_process(id, arg).await? else {
 			return Ok(None);
 		};
 		if let Some(location) = output.location {
@@ -291,8 +289,8 @@ impl<O> Process<O> {
 	where
 		H: tg::Handle,
 	{
-		if let Some(pid) = self.pid {
-			let pid = i32::try_from(pid)
+		if let Some(pid) = self.id().left() {
+			let pid = i32::try_from(*pid)
 				.map_err(|source| tg::error!(!source, "failed to convert the process id"))?;
 			let signal = i32::from(signal as u8);
 			let ret = unsafe { libc::kill(pid, signal) };
@@ -310,7 +308,8 @@ impl<O> Process<O> {
 			signal,
 			location: self.location(),
 		};
-		handle.signal_process(self.id(), arg).await?;
+		let id = self.id().unwrap_right();
+		handle.signal_process(id, arg).await?;
 
 		Ok(())
 	}
@@ -346,7 +345,12 @@ impl<O> Process<O> {
 		if arg.token.is_none() {
 			arg.token = self.token().cloned();
 		}
-		let wait = handle.wait_process(&self.id, arg).await?.try_into()?;
+		let Some(id) = self.id().right() else {
+			return Err(tg::error!(
+				"waiting for an unsandboxed process is not supported"
+			));
+		};
+		let wait = handle.wait_process(id, arg).await?.try_into()?;
 		Ok(wait)
 	}
 

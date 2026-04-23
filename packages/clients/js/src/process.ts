@@ -12,10 +12,9 @@ export let setProcess = (newProcess: typeof process) => {
 };
 
 export class Process<O extends tg.Value = tg.Value> {
-	#id: tg.Process.Id;
+	#id: number | tg.Process.Id;
 	#location: tg.Location.Arg | undefined;
 	#options: tg.Referent.Options;
-	#pid: number | undefined;
 	#promise: Promise<tg.Process.Wait> | undefined;
 	#state: tg.Process.State | undefined;
 	#stderr: tg.Process.Stdio.Reader;
@@ -380,9 +379,8 @@ export class Process<O extends tg.Value = tg.Value> {
 			);
 		}
 
-		let id = tg.handle.processId();
 		let tempPath = await tg.host.mkdtemp();
-		let outputPath = tg.path.join(tempPath, id);
+		let outputPath = tg.path.join(tempPath, "output");
 		let artifacts = await checkoutArtifacts(command);
 		let env = await renderEnv(command.env, artifacts, outputPath);
 		let { args, executable } = renderCommand(command, artifacts, outputPath);
@@ -410,9 +408,9 @@ export class Process<O extends tg.Value = tg.Value> {
 			unavailable: spawnOutput.stderr === undefined,
 			stream: "stderr",
 		});
-		let pid = spawnOutput.pid;
+		let id = spawnOutput.pid;
 		let promise = this.waitUnsandboxed(
-			pid,
+			id,
 			{
 				stderr,
 				stdin,
@@ -424,7 +422,6 @@ export class Process<O extends tg.Value = tg.Value> {
 		return new tg.Process<O>({
 			id,
 			location: undefined,
-			pid,
 			promise,
 			state: undefined,
 			stderr,
@@ -663,7 +660,6 @@ export class Process<O extends tg.Value = tg.Value> {
 		this.#options = arg.options ?? {};
 		this.#state = arg.state;
 		this.#stdioPromise = arg.stdioPromise;
-		this.#pid = arg.pid;
 		this.#promise = arg.promise;
 		this.#stdin = arg.stdin;
 		this.#stdout = arg.stdout;
@@ -679,10 +675,6 @@ export class Process<O extends tg.Value = tg.Value> {
 		return this.#state;
 	}
 
-	get pid(): number | undefined {
-		return this.#pid;
-	}
-
 	static expect(value: unknown): tg.Process {
 		tg.assert(value instanceof Process);
 		return value;
@@ -693,7 +685,7 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	async load(): Promise<void> {
-		if (this.#pid !== undefined) {
+		if (typeof this.#id === "number") {
 			throw new Error("loading unsandboxed process state is not supported");
 		}
 		let output = await tg.handle.getProcess(this.#id, {
@@ -710,7 +702,7 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	async #getSandbox(): Promise<tg.Handle.SandboxGetOutput | undefined> {
-		if (this.#pid !== undefined) {
+		if (typeof this.#id === "number") {
 			return undefined;
 		}
 		await this.load();
@@ -721,7 +713,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		return await tg.handle.getSandbox(sandbox);
 	}
 
-	get id(): tg.Process.Id {
+	get id(): number | tg.Process.Id {
 		return this.#id;
 	}
 
@@ -789,7 +781,7 @@ export class Process<O extends tg.Value = tg.Value> {
 
 	get sandbox(): Promise<string | undefined> {
 		return (async () => {
-			if (this.#pid !== undefined) {
+			if (typeof this.#id === "number") {
 				return undefined;
 			}
 			await this.load();
@@ -818,8 +810,8 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	async signal(signal: tg.Process.Signal): Promise<void> {
-		if (this.#pid !== undefined) {
-			await tg.host.signal(this.#pid, signal);
+		if (typeof this.#id === "number") {
+			await tg.host.signal(this.#id, signal);
 			return;
 		}
 		let location = this.#location;
@@ -841,7 +833,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (this.#wait !== undefined) {
 			return this.#wait;
 		}
-		if (this.#pid !== undefined) {
+		if (typeof this.#id === "number") {
 			tg.assert(this.#promise !== undefined);
 			let wait = await this.#promise;
 			this.#wait = wait;
@@ -921,7 +913,7 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	async setTtySize(size: tg.Process.Tty.Size): Promise<void> {
-		if (this.#pid !== undefined) {
+		if (typeof this.#id === "number") {
 			throw new Error(
 				"tty resizing is not supported for unsandboxed processes",
 			);
@@ -1154,10 +1146,9 @@ export namespace Process {
 	}
 
 	export type ConstructorArg = {
-		id: tg.Process.Id;
+		id: number | tg.Process.Id;
 		location?: tg.Location.Arg | undefined;
 		options?: tg.Referent.Options;
-		pid?: number | undefined;
 		promise?: Promise<tg.Process.Wait> | undefined;
 		state?: State | undefined;
 		stderr: tg.Process.Stdio.Reader;
@@ -1249,10 +1240,14 @@ export namespace Process {
 			if (value.options.tag !== undefined) {
 				options.tag = value.options.tag;
 			}
+			let process = value.process.id;
+			if (typeof process !== "string") {
+				throw new Error("expected a sandboxed process id");
+			}
 			return {
 				cached: value.cached,
 				options,
-				process: value.process.id,
+				process,
 			};
 		};
 
@@ -1554,6 +1549,9 @@ export namespace Process {
 					throw new Error(`${this.#stream} is not available`);
 				}
 				if (this.#input === undefined) {
+					if (typeof this.#process.id !== "string") {
+						throw new Error("expected a sandboxed process id");
+					}
 					let input = await tg.handle.readProcessStdio(this.#process.id, {
 						location: this.#process.location,
 						streams: [this.#stream],
@@ -1646,7 +1644,7 @@ export namespace Process {
 					return;
 				}
 				if (process !== undefined) {
-					if (process.pid !== undefined) {
+					if (typeof process.id === "number") {
 						this.#fd = undefined;
 						this.#process = undefined;
 						return;
@@ -1658,6 +1656,9 @@ export namespace Process {
 					}
 					this.#fd = undefined;
 					this.#process = undefined;
+					if (typeof process.id !== "string") {
+						throw new Error("expected a sandboxed process id");
+					}
 					await tg.handle.writeProcessStdio(
 						process.id,
 						{
@@ -1691,7 +1692,7 @@ export namespace Process {
 					await tg.host.write(fd, input);
 					return input.length;
 				}
-				if (process!.pid !== undefined) {
+				if (typeof process!.id === "number") {
 					throw new Error(`${stream} is not available`);
 				}
 				let location = process!.location;

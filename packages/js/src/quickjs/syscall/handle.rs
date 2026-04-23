@@ -196,10 +196,6 @@ pub async fn process_get(
 	Result(result.map(Serde))
 }
 
-pub fn process_id(_value: Option<String>) -> Result<Serde<tg::process::Id>> {
-	Result(Ok(Serde(tg::process::Id::new())))
-}
-
 pub async fn sandbox_get(
 	ctx: qjs::Ctx<'_>,
 	id: Serde<tg::sandbox::Id>,

@@ -32,7 +32,7 @@ impl Server {
 				let location = process
 					.location()
 					.and_then(|location| location.to_location());
-				self.write_progress_stream_to_tty(process.id(), location, stream)
+				self.write_progress_stream_to_tty(process.id().unwrap_right(), location, stream)
 					.await?
 			},
 			tg::process::Stdio::Blob(_) | tg::process::Stdio::Inherit => {
@@ -87,7 +87,7 @@ impl Server {
 							Ok(tg::process::stdio::read::Event::End),
 						])
 						.boxed();
-						self.write_process_stdio_all(process.id(), arg, input)
+						self.write_process_stdio_all(process.id().unwrap_right(), arg, input)
 							.await?;
 					}
 				},

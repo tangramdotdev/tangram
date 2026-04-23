@@ -149,7 +149,7 @@ impl Child {
 		tg::process::data::Child {
 			cached: self.process.cached().unwrap_or(false),
 			options: self.options.clone(),
-			process: self.process.id().clone(),
+			process: self.process.id().unwrap_right().clone(),
 		}
 	}
 

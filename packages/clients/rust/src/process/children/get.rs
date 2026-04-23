@@ -78,8 +78,13 @@ impl<O> tg::Process<O> {
 	where
 		H: tg::Handle,
 	{
+		let Some(id) = self.id().right() else {
+			return Err(tg::error!(
+				"getting the process children is not supported for unsandboxed processes"
+			));
+		};
 		Ok(handle
-			.try_get_process_children(self.id(), arg)
+			.try_get_process_children(id, arg)
 			.await?
 			.map(|stream| {
 				stream

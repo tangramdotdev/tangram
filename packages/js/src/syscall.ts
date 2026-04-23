@@ -124,11 +124,6 @@ declare global {
 	): Promise<ProcessGetOutputWire>;
 
 	function syscall(
-		syscall: "handle_process_id",
-		value: undefined,
-	): tg.Process.Id;
-
-	function syscall(
 		syscall: "handle_sandbox_get",
 		id: string,
 	): Promise<SandboxGetOutputWire>;

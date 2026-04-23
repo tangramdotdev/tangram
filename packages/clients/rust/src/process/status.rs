@@ -75,8 +75,13 @@ impl<O> tg::Process<O> {
 		let arg = tg::process::status::Arg {
 			location: self.location(),
 		};
+		let Some(id) = self.id().right() else {
+			return Err(tg::error!(
+				"getting the process status is not supported for unsandboxed processes"
+			));
+		};
 		handle
-			.try_get_process_status(self.id(), arg)
+			.try_get_process_status(id, arg)
 			.await
 			.map(|option| option.map(futures::StreamExt::boxed))
 	}

@@ -158,14 +158,6 @@ pub async fn process_get(
 	Ok(Serde(output))
 }
 
-pub fn process_id(
-	_state: Rc<State>,
-	_scope: &mut v8::PinScope<'_, '_>,
-	_args: (Option<String>,),
-) -> tg::Result<Serde<tg::process::Id>> {
-	Ok(Serde(tg::process::Id::new()))
-}
-
 pub async fn sandbox_get(
 	state: Rc<State>,
 	args: (Serde<tg::sandbox::Id>,),

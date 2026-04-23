@@ -46,7 +46,6 @@ pub fn syscall<'js>(
 		"handle_object_get" => qjs::Function::new(ctx.clone(), Async(self::handle::object_get)),
 		"handle_object_id" => qjs::Function::new(ctx.clone(), self::handle::object_id),
 		"handle_process_get" => qjs::Function::new(ctx.clone(), Async(self::handle::process_get)),
-		"handle_process_id" => qjs::Function::new(ctx.clone(), self::handle::process_id),
 		"handle_sandbox_get" => qjs::Function::new(ctx.clone(), Async(self::handle::sandbox_get)),
 		"handle_process_signal" => {
 			qjs::Function::new(ctx.clone(), Async(self::handle::process_signal))

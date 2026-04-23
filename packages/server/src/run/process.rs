@@ -108,9 +108,11 @@ impl Server {
 				.map(Into::into),
 			output: value,
 		};
-		self.finish_process(process.id(), arg).await.map_err(
-			|source| tg::error!(!source, process = %process.id(), "failed to finish the process"),
-		)?;
+		self.finish_process(process.id().unwrap_right(), arg)
+			.await
+			.map_err(
+				|source| tg::error!(!source, process = %process.id(), "failed to finish the process"),
+			)?;
 
 		Ok::<_, tg::Error>(())
 	}
@@ -122,7 +124,7 @@ impl Server {
 		guest_uri: &tangram_uri::Uri,
 		stopper: Stopper,
 	) -> tg::Result<Output> {
-		let id = process.id();
+		let id = process.id().unwrap_right();
 		let state = &process
 			.load_with_handle(self)
 			.await

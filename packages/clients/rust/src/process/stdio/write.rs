@@ -115,7 +115,7 @@ impl<O> tg::Process<O> {
 	where
 		H: tg::Handle,
 	{
-		if self.pid.is_some() {
+		if self.id().is_left() {
 			if arg.streams.as_slice() != [tg::process::stdio::Stream::Stdin] {
 				return Err(tg::error!("writing stdout or stderr is invalid"));
 			}
@@ -142,7 +142,8 @@ impl<O> tg::Process<O> {
 			self.ensure_location_with_handle(handle).await?;
 			arg.location = self.location();
 		}
-		handle.write_process_stdio_all(self.id(), arg, input).await
+		let id = self.id().unwrap_right();
+		handle.write_process_stdio_all(id, arg, input).await
 	}
 }
 

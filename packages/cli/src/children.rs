@@ -36,7 +36,7 @@ impl Cli {
 					locations,
 					position: None,
 					print,
-					process: process.id().clone(),
+					process: process.id().unwrap_right().clone(),
 					size: None,
 				};
 				self.command_process_children(args).await?;

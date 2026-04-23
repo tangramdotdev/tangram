@@ -1428,7 +1428,7 @@ declare namespace tg {
 		wait(): Promise<tg.Process.Wait>;
 
 		/** Get this process's ID. */
-		get id(): tg.Process.Id;
+		get id(): number | tg.Process.Id;
 
 		/** Get this process's location arg. */
 		get location(): tg.Location.Arg | undefined;

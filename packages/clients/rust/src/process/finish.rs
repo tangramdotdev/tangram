@@ -34,7 +34,7 @@ impl<O> tg::Process<O> {
 	where
 		H: tg::Handle,
 	{
-		let id = self.id();
+		let id = self.id().unwrap_right();
 		handle.finish_process(id, arg).await?;
 		Ok(())
 	}

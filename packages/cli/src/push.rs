@@ -109,8 +109,8 @@ impl Cli {
 			.map(|referent| {
 				referent
 					.item
-					.map_left(|process| process.id().clone())
-					.map_right(|object| object.id().clone())
+					.map_left(|object| object.id().clone())
+					.map_right(|process| process.id().unwrap_right().clone())
 			})
 			.collect::<Vec<_>>();
 

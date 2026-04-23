@@ -304,7 +304,7 @@ impl Server {
 					tg::process::spawn::Output {
 						cached: output.cached,
 						location: Some(tg::Location::Local(tg::location::Local::default())),
-						process: output.id,
+						process: tg::Either::Right(output.id),
 						token: output.token,
 						wait: Some(wait),
 					}
@@ -341,7 +341,7 @@ impl Server {
 					tg::process::spawn::Output {
 						cached: output.cached,
 						location: Some(tg::Location::Local(tg::location::Local::default())),
-						process: output.id,
+						process: tg::Either::Right(output.id),
 						token: output.token,
 						wait: output.wait,
 					}
@@ -350,10 +350,11 @@ impl Server {
 		};
 
 		if let Some(parent) = &arg.parent {
+			let child = output.process.as_ref().unwrap_right();
 			self.add_process_child(
 				parent,
 				output.cached,
-				&output.process,
+				child,
 				&arg.command.options,
 				output.token.as_ref(),
 			)

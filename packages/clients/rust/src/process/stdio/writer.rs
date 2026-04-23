@@ -64,6 +64,10 @@ impl Writer {
 		let fd = state.fd.take();
 		let process = state.process.take();
 		let stream = state.stream;
+		if matches!(fd, Some(Fd::Stdin(_))) {
+			drop(fd);
+			return Ok(());
+		}
 		drop(fd);
 		if let Some(process) = process {
 			let (location, process) = ensure_process_with_handle(Some(process), handle).await?;
@@ -161,6 +165,11 @@ where
 	let handle_process = crate::process::Process::<tg::Value>(process.clone(), PhantomData);
 	handle_process.ensure_location_with_handle(handle).await?;
 	let location = process.location.read().unwrap().clone();
-	let id = process.id.clone();
+	let id = process
+		.id
+		.as_ref()
+		.right()
+		.cloned()
+		.ok_or_else(|| tg::error!("the process is not available"))?;
 	Ok((location, id))
 }

@@ -180,7 +180,7 @@ impl Cli {
 						.item()
 						.location()
 						.and_then(|location| location.to_location()),
-					process: process.item().id().clone(),
+					process: process.item().id().cloned(),
 					token: process.item().token().cloned(),
 					wait: None,
 				};

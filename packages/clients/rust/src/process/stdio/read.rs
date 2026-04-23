@@ -121,7 +121,7 @@ impl<O> tg::Process<O> {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
 
-		if self.pid.is_some() {
+		if self.id().is_left() {
 			let mut streams = Vec::new();
 			for stream in arg.streams {
 				match stream {
@@ -178,7 +178,8 @@ impl<O> tg::Process<O> {
 			return Ok(Some(stream.boxed()));
 		}
 
-		let Some(stream) = handle.try_read_process_stdio_all(self.id(), arg).await? else {
+		let id = self.id().unwrap_right();
+		let Some(stream) = handle.try_read_process_stdio_all(id, arg).await? else {
 			return Ok(None);
 		};
 
