@@ -76,6 +76,7 @@ pub fn syscall<'s>(
 		"host_is_tty" => sync(scope, &args, self::host::is_tty),
 		"host_magic" => self::host::magic(scope, &args),
 		"host_mkdtemp" => async_(scope, &args, self::host::mkdtemp),
+		"host_parallelism" => sync(scope, &args, self::host::parallelism),
 		"host_read" => async_(scope, &args, self::host::read),
 		"host_remove" => async_(scope, &args, self::host::remove),
 		"host_signal" => async_(scope, &args, self::host::signal),

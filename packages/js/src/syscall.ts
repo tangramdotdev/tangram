@@ -242,6 +242,8 @@ declare global {
 
 	function syscall(syscall: "host_mkdtemp", value: undefined): Promise<string>;
 
+	function syscall(syscall: "host_parallelism", value: undefined): number;
+
 	function syscall(
 		syscall: "host_read",
 		fd: number,

@@ -241,6 +241,10 @@ impl Host {
 		Ok(path)
 	}
 
+	pub fn parallelism() -> usize {
+		std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
+	}
+
 	pub async fn read(
 		&self,
 		fd: i32,

@@ -49,6 +49,10 @@ export let host: tg.Host = {
 		return syscall("host_mkdtemp", undefined);
 	},
 
+	get parallelism(): number {
+		return syscall("host_parallelism", undefined);
+	},
+
 	read(
 		fd: number,
 		length?: number | undefined,

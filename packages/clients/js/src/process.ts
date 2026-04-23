@@ -8,7 +8,10 @@ export let process: {
 } = {} as any;
 
 export let setProcess = (newProcess: typeof process) => {
-	Object.assign(process, newProcess);
+	Object.defineProperties(
+		process,
+		Object.getOwnPropertyDescriptors(newProcess),
+	);
 };
 
 export class Process<O extends tg.Value = tg.Value> {

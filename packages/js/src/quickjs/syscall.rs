@@ -97,6 +97,7 @@ pub fn syscall<'js>(
 		"host_is_tty" => qjs::Function::new(ctx.clone(), self::host::is_tty),
 		"host_magic" => qjs::Function::new(ctx.clone(), self::host::magic),
 		"host_mkdtemp" => qjs::Function::new(ctx.clone(), Async(self::host::mkdtemp)),
+		"host_parallelism" => qjs::Function::new(ctx.clone(), self::host::parallelism),
 		"host_read" => qjs::Function::new(ctx.clone(), Async(self::host::read)),
 		"host_remove" => qjs::Function::new(ctx.clone(), Async(self::host::remove)),
 		"host_signal" => qjs::Function::new(ctx.clone(), Async(self::host::signal)),

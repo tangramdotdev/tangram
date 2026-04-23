@@ -3,7 +3,7 @@ import type * as tg from "./index.ts";
 export let handle: Handle = {} as any;
 
 export let setHandle = (newHandle: Handle) => {
-	Object.assign(handle, newHandle);
+	Object.defineProperties(handle, Object.getOwnPropertyDescriptors(newHandle));
 };
 
 export type Handle = {

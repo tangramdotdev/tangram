@@ -1,7 +1,10 @@
 export let encoding: Encoding = {} as any;
 
 export let setEncoding = (newEncoding: Encoding) => {
-	Object.assign(encoding, newEncoding);
+	Object.defineProperties(
+		encoding,
+		Object.getOwnPropertyDescriptors(newEncoding),
+	);
 };
 
 export type Encoding = {

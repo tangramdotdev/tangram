@@ -3,7 +3,7 @@ import type * as tg from "./index.ts";
 export let host: Host = {} as any;
 
 export let setHost = (newHost: Host) => {
-	Object.assign(host, newHost);
+	Object.defineProperties(host, Object.getOwnPropertyDescriptors(newHost));
 };
 
 export type Host = {
@@ -30,6 +30,8 @@ export type Host = {
 	magic(value: Function): tg.Command.Data.Executable;
 
 	mkdtemp(): Promise<string>;
+
+	parallelism: number;
 
 	read(
 		fd: number,

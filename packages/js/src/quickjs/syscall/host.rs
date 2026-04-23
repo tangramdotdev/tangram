@@ -121,6 +121,10 @@ pub async fn mkdtemp(ctx: qjs::Ctx<'_>, _value: Option<String>) -> Result<String
 	Result(state.host.mkdtemp().await)
 }
 
+pub fn parallelism(_ctx: qjs::Ctx<'_>, _value: Option<String>) -> Result<usize> {
+	Result(Ok(crate::host::Host::parallelism()))
+}
+
 pub async fn read(
 	ctx: qjs::Ctx<'_>,
 	fd: i32,

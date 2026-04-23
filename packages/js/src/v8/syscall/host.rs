@@ -119,6 +119,14 @@ pub async fn mkdtemp(state: Rc<State>, _args: (Option<String>,)) -> tg::Result<S
 	state.host.mkdtemp().await
 }
 
+pub fn parallelism(
+	_state: Rc<State>,
+	_scope: &mut v8::PinScope<'_, '_>,
+	_args: (Option<String>,),
+) -> tg::Result<usize> {
+	Ok(crate::host::Host::parallelism())
+}
+
 pub async fn read(
 	state: Rc<State>,
 	args: (i32, Option<usize>, Option<usize>),
