@@ -1,7 +1,4 @@
-use {
-	crate::Cli, futures::FutureExt as _, std::path::PathBuf, tangram_client::prelude::*,
-	tangram_futures::task::Task,
-};
+use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*, tangram_futures::task::Task};
 
 /// Spawn and await a process.
 #[derive(Clone, Debug, clap::Args)]
@@ -22,10 +19,6 @@ pub struct Args {
 #[derive(Clone, Debug, Default, clap::Args)]
 #[group(skip)]
 pub struct Options {
-	/// If this flag is set, then build the specified target and run its output.
-	#[arg(long, short)]
-	pub build: bool,
-
 	/// Whether to check out the output.
 	#[expect(clippy::option_option)]
 	#[arg(long, require_equals = true, short)]
@@ -110,30 +103,6 @@ impl Cli {
 			trailing,
 		} = args;
 
-		// Handle the build flag.
-		let reference = if options.build {
-			let build_args = Args {
-				options: Options {
-					spawn: crate::process::spawn::Options {
-						location: options.spawn.location.clone(),
-						..Default::default()
-					},
-					..Default::default()
-				},
-				reference,
-				trailing: vec![],
-			};
-			let output = Box::pin(self.build(build_args)).await?;
-			let object = output
-				.try_unwrap_object()
-				.ok()
-				.ok_or_else(|| tg::error!("expected the build to output an object"))?;
-			let id = object.id();
-			tg::Reference::with_object(id)
-		} else {
-			reference
-		};
-
 		// If detach is set, then set stdio if necessary.
 		if options.detach {
 			match options.spawn.stdin {
@@ -166,10 +135,8 @@ impl Cli {
 		}
 
 		// Spawn the process.
-		let process = self
-			.spawn(options.spawn, reference, trailing, !options.detach)
-			.boxed()
-			.await?;
+		let process =
+			Box::pin(self.spawn(options.spawn, reference, trailing, !options.detach)).await?;
 
 		// If the detach flag is set, then return the process ID.
 		if options.detach {

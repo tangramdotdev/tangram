@@ -49,6 +49,10 @@ pub struct Options {
 	)]
 	pub arg_values: Vec<String>,
 
+	/// If this flag is set, then build the specified target and run its output.
+	#[arg(long, short)]
+	pub build: bool,
+
 	/// Set this flag to true to require a cached process. Set this flag to false to require a new process to be created. Omit this flag to use a cached process if possible, and create a new process if not.
 	#[arg(
 		default_missing_value = "true",
@@ -277,6 +281,30 @@ impl Cli {
 	) -> tg::Result<tg::Referent<tg::Process>> {
 		let handle = self.handle().await?;
 		let location = options.location.get();
+
+		// Handle the build flag.
+		let reference = if options.build {
+			let build_args = crate::process::build::Args {
+				options: crate::process::build::Options {
+					spawn: crate::process::spawn::Options {
+						location: options.location.clone(),
+						..Default::default()
+					},
+					..Default::default()
+				},
+				reference,
+				trailing: vec![],
+			};
+			let output = Box::pin(self.build(build_args)).await?;
+			let object = output
+				.try_unwrap_object()
+				.ok()
+				.ok_or_else(|| tg::error!("expected the build to output an object"))?;
+			let id = object.id();
+			tg::Reference::with_object(id)
+		} else {
+			reference
+		};
 
 		// Determine whether to sandbox.
 		let sandbox = match options.sandbox.get() {
