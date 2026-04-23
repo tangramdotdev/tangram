@@ -58,13 +58,13 @@ pub struct Arg {
 	pub cpu: Option<u64>,
 	pub guest_ip: Option<Ipv4Addr>,
 	pub hostname: Option<String>,
+	pub id: tg::sandbox::Id,
 	pub isolation: Isolation,
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: bool,
 	pub path: PathBuf,
 	pub rootfs_path: PathBuf,
-	pub sandbox_id: tg::sandbox::Id,
 	pub tangram_path: PathBuf,
 	pub user: Option<String>,
 }
@@ -105,9 +105,9 @@ pub enum Net {
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Bridge {
+	pub ip: Ipv4Addr,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub name: Option<String>,
-	pub ip: Ipv4Addr,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -115,8 +115,8 @@ pub struct SeatbeltIsolation {}
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct VmIsolation {
-	pub kernel_path: PathBuf,
 	pub host_subnet: Ipv4Addr,
+	pub kernel_path: PathBuf,
 }
 
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
@@ -330,14 +330,20 @@ impl Sandbox {
 	#[allow(dead_code)]
 	async fn listen_vsock() -> tg::Result<(crate::server::Listener, Uri)> {
 		let port = 6748;
-		let host_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_ANY).parse().map_err(|_| tg::error!("failed to parse host url"))?;
-		let guest_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_ANY).parse().map_err(|_| tg::error!("failed to parse guest url"))?;
+		let host_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_ANY)
+			.parse()
+			.map_err(|_| tg::error!("failed to parse host url"))?;
+		let guest_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_ANY)
+			.parse()
+			.map_err(|_| tg::error!("failed to parse guest url"))?;
 		let listener = crate::server::Server::listen(&host_url).await?;
 		Ok((listener, guest_url))
 	}
 
 	#[cfg(target_os = "linux")]
-	async fn listen_cloud_hypervisor(root_path: &Path) -> tg::Result<(crate::server::Listener, Uri)> {
+	async fn listen_cloud_hypervisor(
+		root_path: &Path,
+	) -> tg::Result<(crate::server::Listener, Uri)> {
 		let port = 6748;
 		let socket = format!("{}_{port}", vm::run::CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME);
 		let path = root_path.join("vm").join(socket);

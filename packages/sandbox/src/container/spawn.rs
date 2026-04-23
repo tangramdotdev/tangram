@@ -40,14 +40,12 @@ pub(crate) async fn spawn(
 	let mut bridge = if arg.network
 		&& let crate::Net::Bridge(bridge) = &container.net
 	{
-		let sandbox_id = arg.sandbox_id.clone();
+		let id = arg.id.clone();
 		let bridge_name = bridge.name.as_deref().unwrap_or("tangram0").to_owned();
 		Some(
-			tokio::task::spawn_blocking(move || {
-				crate::network::Bridge::new(&sandbox_id, &bridge_name)
-			})
-			.await
-			.map_err(|source| tg::error!(!source, "the bridge creation task panicked"))??,
+			tokio::task::spawn_blocking(move || crate::network::Bridge::new(&id, &bridge_name))
+				.await
+				.map_err(|source| tg::error!(!source, "the bridge creation task panicked"))??,
 		)
 	} else {
 		None
@@ -64,8 +62,8 @@ pub(crate) async fn spawn(
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
 	command.arg("sandbox").arg("container").arg("run");
 	command
-		.arg("--sandbox-id")
-		.arg(arg.sandbox_id.to_string())
+		.arg("--id")
+		.arg(arg.id.to_string())
 		.arg("--unshare-all")
 		.arg("--as-pid-1")
 		.arg("--die-with-parent")
@@ -92,7 +90,7 @@ pub(crate) async fn spawn(
 	command.arg("--net").arg(&net_arg);
 	if let Some(bridge) = bridge.as_ref() {
 		command
-			.arg("--fd")
+			.arg("--bridge-fd")
 			.arg(bridge.guest_pipe.as_ref().unwrap().as_raw_fd().to_string());
 	}
 	if let crate::Net::Bridge(bridge) = &container.net {

@@ -31,8 +31,8 @@ impl Server {
 					crate::config::ContainerNet::Bridge(bridge) => {
 						let ip = bridge.ip.unwrap_or(Ipv4Addr::new(172, 18, 0, 1));
 						tangram_sandbox::Net::Bridge(tangram_sandbox::Bridge {
-							name: bridge.name.clone(),
 							ip,
+							name: bridge.name.clone(),
 						})
 					},
 				};
@@ -44,8 +44,8 @@ impl Server {
 			crate::config::SandboxIsolation::Vm(vm) => {
 				let host_subnet = vm.host_subnet.unwrap_or(Ipv4Addr::new(172, 18, 0, 0));
 				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation {
-					kernel_path: vm.kernel_path.clone(),
 					host_subnet,
+					kernel_path: vm.kernel_path.clone(),
 				})
 			},
 		}

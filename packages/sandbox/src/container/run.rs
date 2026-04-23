@@ -20,6 +20,7 @@ use {
 pub struct Arg {
 	pub as_pid_1: bool,
 	pub binds: Vec<Bind>,
+	pub bridge_fd: Option<i32>,
 	pub bridge_ip: Option<Ipv4Addr>,
 	pub cgroup: Option<String>,
 	pub cgroup_cpu: Option<u64>,
@@ -32,18 +33,17 @@ pub struct Arg {
 	pub gid: libc::gid_t,
 	pub guest_ip: Option<Ipv4Addr>,
 	pub hostname: Option<String>,
-	pub new_session: bool,
+	pub id: tg::sandbox::Id,
 	pub net: Net,
+	pub new_session: bool,
 	pub overlay_sources: Vec<PathBuf>,
 	pub overlays: Vec<Overlay>,
 	pub procs: Vec<PathBuf>,
 	pub ro_binds: Vec<Bind>,
-	pub sandbox_id: tg::sandbox::Id,
 	pub setenvs: Vec<SetEnv>,
 	pub tmpfs: Vec<PathBuf>,
 	pub uid: libc::uid_t,
 	pub unshare_all: bool,
-	pub fd: Option<i32>,
 }
 
 #[derive(Clone, Debug)]
@@ -110,11 +110,11 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 					libc::CLONE_NEWNET,
 					"failed to unshare the network namespace",
 				)?;
-				let fd = arg
-					.fd
+				let bridge_fd = arg
+					.bridge_fd
 					.ok_or_else(|| tg::error!("bridge networking requires a sync fd"))?;
-				let fd = unsafe { OwnedFd::from_raw_fd(fd) };
-				let mut socket = UnixStream::from(fd);
+				let bridge_fd = unsafe { OwnedFd::from_raw_fd(bridge_fd) };
+				let mut socket = UnixStream::from(bridge_fd);
 				socket
 					.write_all(&[0u8])
 					.map_err(|source| tg::error!(!source, "failed to signal ready to the host"))?;
@@ -128,7 +128,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 				let bridge_ip = arg
 					.bridge_ip
 					.ok_or_else(|| tg::error!("bridge networking requires a bridge ip"))?;
-				let id_str = arg.sandbox_id.to_string();
+				let id_str = arg.id.to_string();
 				let truncated = &id_str[..9];
 				let guest_name = format!("tg-vc-{truncated}");
 				let mut nl = crate::netlink::Netlink::new()?;

@@ -52,7 +52,7 @@ pub enum Listener {
 	Unix(tokio::net::UnixListener),
 	Tcp(tokio::net::TcpListener),
 	#[cfg(feature = "vsock")]
-	Vsock(tokio_vsock::VsockListener)
+	Vsock(tokio_vsock::VsockListener),
 }
 
 enum Stream {

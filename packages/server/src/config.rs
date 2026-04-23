@@ -504,9 +504,9 @@ pub enum ContainerNet {
 #[serde(deny_unknown_fields, default)]
 pub struct Bridge {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub name: Option<String>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub ip: Option<Ipv4Addr>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub name: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -516,9 +516,9 @@ pub struct SeatbeltSandboxIsolation {}
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct VmSandboxIsolation {
-	pub kernel_path: PathBuf,
 	#[serde(default)]
 	pub host_subnet: Option<Ipv4Addr>,
+	pub kernel_path: PathBuf,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]

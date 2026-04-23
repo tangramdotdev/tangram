@@ -30,15 +30,15 @@ const VIRTIOFSD_SOCKET_NAME: &str = "virtiofsd.sock";
 pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub cpu: Option<u64>,
-	pub kernel_path: PathBuf,
-	pub hostname: Option<String>,
 	pub host_subnet: Ipv4Addr,
+	pub hostname: Option<String>,
+	pub id: tg::sandbox::Id,
+	pub kernel_path: PathBuf,
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: bool,
 	pub path: PathBuf,
 	pub rootfs_path: PathBuf,
-	pub sandbox_id: tg::sandbox::Id,
 	pub tangram_path: PathBuf,
 	pub url: tangram_uri::Uri,
 	pub user: Option<String>,
@@ -219,6 +219,7 @@ fn build_mount_arg(arg: &Arg) -> container::run::Arg {
 	container::run::Arg {
 		as_pid_1: false,
 		binds,
+		bridge_fd: None,
 		bridge_ip: None,
 		cgroup: None,
 		cgroup_cpu: None,
@@ -231,6 +232,8 @@ fn build_mount_arg(arg: &Arg) -> container::run::Arg {
 		gid: 0,
 		guest_ip: None,
 		hostname: None,
+		id: arg.id.clone(),
+		net: container::run::Net::None,
 		new_session: false,
 		overlay_sources: vec![arg.rootfs_path.clone()],
 		overlays: vec![container::run::Overlay {
@@ -240,13 +243,10 @@ fn build_mount_arg(arg: &Arg) -> container::run::Arg {
 		}],
 		procs: Vec::new(),
 		ro_binds,
-		sandbox_id: arg.sandbox_id.clone(),
 		setenvs: Vec::new(),
-		net: container::run::Net::None,
 		tmpfs: Vec::new(),
 		uid: 0,
 		unshare_all: false,
-		fd: None,
 	}
 }
 

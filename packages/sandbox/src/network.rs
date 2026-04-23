@@ -15,12 +15,12 @@ const TUNSETIFF: libc::c_ulong = 0x4004_54ca;
 
 #[derive(Debug)]
 pub struct Tap {
-	pub name: String,
-	pub mac: String,
+	pub fd: OwnedFd,
 	pub guest_ip: Ipv4Addr,
 	pub host_ip: Ipv4Addr,
+	pub mac: String,
+	pub name: String,
 	pub netmask: Ipv4Addr,
-	pub fd: OwnedFd,
 }
 
 impl Tap {
@@ -63,12 +63,12 @@ impl Tap {
 		}
 
 		Ok(Tap {
-			name,
-			mac,
+			fd,
 			guest_ip,
 			host_ip,
+			mac,
+			name,
 			netmask,
-			fd,
 		})
 	}
 }
@@ -84,10 +84,10 @@ impl Drop for Tap {
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct Bridge {
-	pub host_name: String,
 	pub guest_name: String,
-	pub host_pipe: tokio::net::UnixStream,
 	pub guest_pipe: Option<std::os::unix::net::UnixStream>,
+	pub host_name: String,
+	pub host_pipe: tokio::net::UnixStream,
 }
 
 #[allow(dead_code)]
@@ -134,10 +134,10 @@ impl Bridge {
 		}
 
 		Ok(Self {
-			host_name,
 			guest_name,
-			host_pipe,
 			guest_pipe: Some(guest_pipe),
+			host_name,
+			host_pipe,
 		})
 	}
 
