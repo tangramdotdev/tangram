@@ -82,18 +82,23 @@ impl Server {
 			target: artifacts_path.clone(),
 			readonly: true,
 		});
-		let guest_ip = match &isolation {
+		let (host_ip, guest_ip) = match &isolation {
 			tangram_sandbox::Isolation::Container(container)
 				if matches!(container.net, tangram_sandbox::Net::Bridge(_)) =>
 			{
-				Some(self.allocate_guest_ip())
+				(None, Some(self.allocate_guest_ip()?))
 			},
-			_ => None,
+			tangram_sandbox::Isolation::Container(_) => (
+				Some(self.allocate_guest_ip()?),
+				Some(self.allocate_guest_ip()?),
+			),
+			_ => (None, None),
 		};
 		let arg = tangram_sandbox::Arg {
 			artifacts_path,
 			cpu: state.cpu,
-			guest_ip,
+			host_ip: host_ip.as_ref().map(|ip| ip.addr),
+			guest_ip: guest_ip.as_ref().map(|ip| ip.addr),
 			hostname: state.hostname.clone(),
 			id: id.clone(),
 			isolation,
@@ -108,9 +113,13 @@ impl Server {
 		let sandbox = tangram_sandbox::Sandbox::new(arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to create the sandbox"))?;
+
+		// TODO: starting here, async move. Capture all state.
 		self.sandboxes.insert(id.clone(), sandbox.clone());
 		scopeguard::defer! {
 			self.sandboxes.remove(id);
+			drop(host_ip);
+			drop(guest_ip);
 		}
 
 		// Spawn the serve task.

@@ -2,7 +2,7 @@ use {
 	crate::Server,
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
-	std::{net::Ipv4Addr, sync::atomic::Ordering},
+	std::net::Ipv4Addr,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_messenger::prelude::*,
@@ -42,9 +42,7 @@ impl Server {
 				tangram_sandbox::Isolation::Seatbelt(tangram_sandbox::SeatbeltIsolation::default())
 			},
 			crate::config::SandboxIsolation::Vm(vm) => {
-				let host_subnet = vm.host_subnet.unwrap_or(Ipv4Addr::new(172, 18, 0, 0));
 				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation {
-					host_subnet,
 					kernel_path: vm.kernel_path.clone(),
 				})
 			},
@@ -153,9 +151,11 @@ impl Server {
 		Ok(true)
 	}
 
-	pub(crate) fn allocate_guest_ip(&self) -> Ipv4Addr {
-		let raw = self.next_guest_ip.fetch_add(1, Ordering::Relaxed);
-		Ipv4Addr::from(raw)
+	pub(crate) fn allocate_guest_ip(&self) -> tg::Result<crate::network::Ip> {
+		self.networks
+			.iter()
+			.find_map(|network| network.try_reserve().ok())
+			.ok_or_else(|| tg::error!("failed to allocate guesst IP address"))
 	}
 
 	pub(crate) fn publish_sandbox_status(&self, id: &tg::sandbox::Id) {

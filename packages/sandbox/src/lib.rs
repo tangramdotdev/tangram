@@ -56,6 +56,7 @@ pub struct Process {
 pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub cpu: Option<u64>,
+	pub host_ip: Option<Ipv4Addr>,
 	pub guest_ip: Option<Ipv4Addr>,
 	pub hostname: Option<String>,
 	pub id: tg::sandbox::Id,
@@ -115,7 +116,6 @@ pub struct SeatbeltIsolation {}
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct VmIsolation {
-	pub host_subnet: Ipv4Addr,
 	pub kernel_path: PathBuf,
 }
 

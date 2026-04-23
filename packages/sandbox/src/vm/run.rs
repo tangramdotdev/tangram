@@ -30,9 +30,10 @@ const VIRTIOFSD_SOCKET_NAME: &str = "virtiofsd.sock";
 pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub cpu: Option<u64>,
-	pub host_subnet: Ipv4Addr,
+	pub guest_ip: Ipv4Addr,
+	pub host_ip: Ipv4Addr,
 	pub hostname: Option<String>,
-	pub id: tg::sandbox::Id,
+	pub id:  tg::sandbox::Id,
 	pub kernel_path: PathBuf,
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
@@ -81,7 +82,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		let mut hasher = DefaultHasher::new();
 		arg.path.hash(&mut hasher);
 		let id = format!("{:x}", hasher.finish());
-		Some(crate::network::Tap::new(&id, arg.host_subnet)?)
+		Some(crate::network::Tap::new(&id, arg.host_ip, arg.guest_ip)?)
 	} else {
 		None
 	};

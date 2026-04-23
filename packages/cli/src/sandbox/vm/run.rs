@@ -14,10 +14,13 @@ pub struct Args {
 	pub cpu: Option<u64>,
 
 	#[arg(long)]
-	pub host_subnet: Ipv4Addr,
+	pub host_ip: Ipv4Addr,
 
 	#[arg(long)]
 	pub hostname: Option<String>,
+	
+	#[arg(long)]
+	pub guest_ip: Ipv4Addr,
 
 	#[arg(long)]
 	pub id: tg::sandbox::Id,
@@ -56,7 +59,8 @@ impl Cli {
 		let arg = tangram_sandbox::vm::run::Arg {
 			artifacts_path: args.artifacts_path,
 			cpu: args.cpu,
-			host_subnet: args.host_subnet,
+			host_ip: args.host_ip,
+			guest_ip: args.guest_ip,
 			hostname: args.hostname,
 			id: args.id,
 			kernel_path: args.kernel_path,

@@ -24,14 +24,11 @@ pub struct Tap {
 }
 
 impl Tap {
-	pub fn new(id: &str, host_subnet: Ipv4Addr) -> tg::Result<Tap> {
+	pub fn new(id: &str, host_ip: Ipv4Addr, guest_ip: Ipv4Addr) -> tg::Result<Tap> {
 		if !crate::util::user_is_root() {
 			return Err(tg::error!("networking requires root permissions"));
 		}
 
-		let base = u32::from(host_subnet);
-		let host_ip = Ipv4Addr::from(base + 1);
-		let guest_ip = Ipv4Addr::from(base + 2);
 		let netmask = Ipv4Addr::new(255, 255, 255, 252);
 
 		let name = tap_name(id);
