@@ -33,7 +33,7 @@ pub struct Arg {
 	pub guest_ip: Ipv4Addr,
 	pub host_ip: Ipv4Addr,
 	pub hostname: Option<String>,
-	pub id:  tg::sandbox::Id,
+	pub id: tg::sandbox::Id,
 	pub kernel_path: PathBuf,
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,

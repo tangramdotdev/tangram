@@ -38,7 +38,3 @@ pub fn which(path: &Path, executable: &std::path::Path) -> Option<std::path::Pat
 	}
 	None
 }
-
-pub fn user_is_root() -> bool {
-	unsafe { libc::geteuid() == 0 }
-}

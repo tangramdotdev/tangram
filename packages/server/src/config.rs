@@ -475,7 +475,7 @@ pub struct Sandbox {
 
 	pub isolation: SandboxIsolation,
 
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[serde(default = "default_networks", skip_serializing_if = "Vec::is_empty")]
 	pub networks: Vec<SandboxNetwork>,
 }
 
@@ -964,9 +964,6 @@ impl Default for Runner {
 impl Default for Sandbox {
 	fn default() -> Self {
 		Self {
-			networks: vec![SandboxNetwork {
-				ip: "172.18.0.0-172.255.0.0".parse().unwrap(),
-			}],
 			finalizer: Some(Finalizer::default()),
 			isolation: {
 				#[cfg(target_os = "linux")]
@@ -978,6 +975,7 @@ impl Default for Sandbox {
 					SandboxIsolation::Seatbelt(SeatbeltSandboxIsolation::default())
 				}
 			},
+			networks: default_networks(),
 		}
 	}
 }
@@ -1178,6 +1176,12 @@ mod ip_range {
 #[expect(clippy::unnecessary_wraps)]
 fn default_finalizer() -> Option<Finalizer> {
 	Some(Finalizer::default())
+}
+
+fn default_networks() -> Vec<SandboxNetwork> {
+	vec![SandboxNetwork {
+		ip: "172.18.0.0-172.255.0.0".parse().unwrap(),
+	}]
 }
 
 fn default_process_store() -> Database {

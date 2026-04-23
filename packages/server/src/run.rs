@@ -64,7 +64,10 @@ impl Server {
 				},
 			};
 
-			self.spawn_sandbox_task(&output.sandbox, location, permit, output.process);
+			self.spawn_sandbox_task(&output.sandbox, location, permit, output.process)
+				.await
+				.inspect_err(|error| tracing::error!(%error, "failed to create the sandbox task"))
+				.ok();
 		}
 	}
 }

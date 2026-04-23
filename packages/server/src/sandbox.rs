@@ -152,10 +152,18 @@ impl Server {
 	}
 
 	pub(crate) fn allocate_guest_ip(&self) -> tg::Result<crate::network::Ip> {
+		if self.networks.is_empty() {
+			return Err(tg::error!("no networks are configured"));
+		}
 		self.networks
 			.iter()
-			.find_map(|network| network.try_reserve().ok())
-			.ok_or_else(|| tg::error!("failed to allocate guesst IP address"))
+			.find_map(|network| {
+				network
+					.try_reserve()
+					.inspect_err(|error| tracing::warn!(?error, "failed to allocate ip"))
+					.ok()
+			})
+			.ok_or_else(|| tg::error!("failed to allocate guest IP address"))
 	}
 
 	pub(crate) fn publish_sandbox_status(&self, id: &tg::sandbox::Id) {

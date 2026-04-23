@@ -18,7 +18,7 @@ pub struct Args {
 
 	#[arg(long)]
 	pub hostname: Option<String>,
-	
+
 	#[arg(long)]
 	pub guest_ip: Ipv4Addr,
 
