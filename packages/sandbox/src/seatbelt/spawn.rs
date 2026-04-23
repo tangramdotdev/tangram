@@ -258,19 +258,56 @@ fn create_sandbox_profile(arg: &crate::Arg) -> CString {
 	}
 
 	if let Some(home_path) = &home_path {
-		let cf_user_text_encoding = home_path.join(".CFUserTextEncoding");
 		writedoc!(
 			profile,
 			r"
-				;; Allow CoreFoundation to read the user locale metadata.
-				(allow file-read* file-test-existence
-					(literal {})
-					(literal {}))
+				;; Allow read-only access to the user's home directory so tools such
+				;; as cargo/libgit2 (reading $HOME/.gitconfig), rustup toolchains,
+				;; and CoreFoundation (.CFUserTextEncoding) work inside the sandbox.
+				(allow file-read* file-map-executable file-test-existence
+					(subpath {}))
 			",
 			escape(home_path.as_os_str().as_bytes()),
-			escape(cf_user_text_encoding.as_os_str().as_bytes()),
 		)
 		.unwrap();
+		for ancestor in home_path
+			.ancestors()
+			.skip(1)
+			.take_while(|path| *path != Path::new("/"))
+		{
+			writedoc!(
+				profile,
+				r"
+					(allow file-read-metadata
+						(literal {}))
+				",
+				escape(ancestor.as_os_str().as_bytes()),
+			)
+			.unwrap();
+		}
+		// Hard-deny well-known credential stores under $HOME. Seatbelt uses
+		// last-matching-rule semantics, so these override the allow above.
+		// List matches OpenCode's default secret roots.
+		for secret in [
+			".ssh",
+			".gnupg",
+			".aws",
+			".azure",
+			".config/gcloud",
+			".netrc",
+			".npmrc",
+		] {
+			let path = home_path.join(secret);
+			writedoc!(
+				profile,
+				r"
+					(deny file-read* file-read-metadata file-map-executable
+						(subpath {}))
+				",
+				escape(path.as_os_str().as_bytes()),
+			)
+			.unwrap();
+		}
 	}
 
 	if arg.network {
