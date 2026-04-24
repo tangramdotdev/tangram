@@ -215,28 +215,17 @@ fn create_sandbox_profile(arg: &crate::Arg) -> CString {
 			(allow file-read* process-exec
 				(subpath "{}"))
 
-			;; Allow reading and writing to the sandbox paths.
+			;; Allow reading and writing to the sandbox socket files.
 			(allow file-read* file-write* file-write-create file-write-mode
 				file-write-unlink file-link
 				(literal "{}")
 				(literal "{}"))
-			(allow file-read* file-write* file-write-create file-write-mode
-				file-write-unlink file-link process-exec
-				(subpath "{}")
-				(subpath "{}")
-				(subpath "{}"))
 		"#,
 		arg.tangram_path.display(),
 		arg.rootfs_path.join("lib").display(),
 		arg.rootfs_path.join("bin").display(),
 		Sandbox::host_tangram_socket_path_from_root(&arg.path).display(),
 		Sandbox::host_listen_path_from_root(&arg.path).display(),
-		Sandbox::host_tangram_socket_path_from_root(&arg.path).display(),
-		Sandbox::host_output_path_from_root(&arg.path).display(),
-		Sandbox::host_scratch_path_from_root(&arg.path)
-			.parent()
-			.unwrap()
-			.display(),
 	)
 	.unwrap();
 
@@ -269,19 +258,50 @@ fn create_sandbox_profile(arg: &crate::Arg) -> CString {
 	}
 
 	if let Some(home_path) = &home_path {
-		let cf_user_text_encoding = home_path.join(".CFUserTextEncoding");
 		writedoc!(
 			profile,
 			r"
-				;; Allow CoreFoundation to read the user locale metadata.
-				(allow file-read* file-test-existence
-					(literal {})
-					(literal {}))
+				(allow file-read* file-map-executable file-test-existence
+					(subpath {}))
 			",
 			escape(home_path.as_os_str().as_bytes()),
-			escape(cf_user_text_encoding.as_os_str().as_bytes()),
 		)
 		.unwrap();
+		for ancestor in home_path
+			.ancestors()
+			.skip(1)
+			.take_while(|path| *path != Path::new("/"))
+		{
+			writedoc!(
+				profile,
+				r"
+					(allow file-read-metadata
+						(literal {}))
+				",
+				escape(ancestor.as_os_str().as_bytes()),
+			)
+			.unwrap();
+		}
+		for secret in [
+			".ssh",
+			".gnupg",
+			".aws",
+			".azure",
+			".config/gcloud",
+			".netrc",
+			".npmrc",
+		] {
+			let path = home_path.join(secret);
+			writedoc!(
+				profile,
+				r"
+					(deny file-read* file-read-metadata file-map-executable
+						(subpath {}))
+				",
+				escape(path.as_os_str().as_bytes()),
+			)
+			.unwrap();
+		}
 	}
 
 	if arg.network {
@@ -319,7 +339,12 @@ fn create_sandbox_profile(arg: &crate::Arg) -> CString {
 		.unwrap();
 	}
 
-	for mount in &arg.mounts {
+	let sandbox_root_mount = tg::sandbox::Mount {
+		source: arg.path.clone(),
+		target: arg.path.clone(),
+		readonly: false,
+	};
+	for mount in std::iter::once(&sandbox_root_mount).chain(arg.mounts.iter()) {
 		if mount.readonly {
 			let path = &mount.source;
 			writedoc!(
