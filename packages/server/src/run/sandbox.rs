@@ -90,10 +90,10 @@ impl Server {
 			{
 				(None, Some(self.allocate_guest_ip()?))
 			},
-			tangram_sandbox::Isolation::Container(_) => (
-				Some(self.allocate_guest_ip()?),
-				Some(self.allocate_guest_ip()?),
-			),
+			tangram_sandbox::Isolation::Vm(_) => {
+				let (host, guest) = self.allocate_guest_ip_pair()?;
+				(Some(host), Some(guest))
+			},
 			_ => (None, None),
 		};
 		let arg = tangram_sandbox::Arg {

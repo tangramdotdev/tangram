@@ -530,11 +530,9 @@ pub struct Bridge {
 #[serde(deny_unknown_fields, default)]
 pub struct SeatbeltSandboxIsolation {}
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct VmSandboxIsolation {
-	#[serde(default)]
-	pub host_subnet: Option<Ipv4Addr>,
 	pub kernel_path: PathBuf,
 }
 

@@ -340,13 +340,15 @@ fn host_vm_root_path_from_root(root_path: &Path) -> PathBuf {
 
 fn kernel_cmdline(arg: &Arg, user: &User, network: Option<&crate::vm::Network>) -> String {
 	let tangram_path = Sandbox::guest_tangram_path_from_host_tangram_path(&arg.tangram_path);
+	let output_path = Sandbox::guest_output_path_from_root(&arg.path);
 	let mut cmdline = String::from("console=ttyS0 rootfstype=virtiofs");
 	write!(
 		&mut cmdline,
-		" root={ROOTFS_TAG} init={} -- sandbox vm init --url {} --tangram-path {} --uid {} --gid {}",
+		" root={ROOTFS_TAG} init={} -- sandbox vm init --url {} --tangram-path {} --output-path {} --uid {} --gid {}",
 		tangram_path.display(),
 		arg.url,
 		tangram_path.display(),
+		output_path.display(),
 		user.uid,
 		user.gid,
 	)

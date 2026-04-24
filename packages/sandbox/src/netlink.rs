@@ -49,7 +49,7 @@ impl Netlink {
 		attrs.push(
 			RtattrBuilder::default()
 				.rta_type(Ifla::Ifname)
-				.rta_payload(format!("{new_name}\0"))
+				.rta_payload(new_name.to_owned())
 				.build()
 				.map_err(|source| tg::error!(!source, "failed to build the ifname attribute"))?,
 		);
@@ -60,6 +60,7 @@ impl Netlink {
 			.build()
 			.map_err(|source| tg::error!(!source, "failed to build the ifinfomsg"))?;
 		self.send::<Ifinfomsg>(Rtm::Newlink, NlmF::ACK, msg)
+			.map_err(|source| tg::error!(!source, "failed to link rename"))
 	}
 
 	pub fn link_set_up(&mut self, name: &str) -> tg::Result<()> {
@@ -72,6 +73,7 @@ impl Netlink {
 			.build()
 			.map_err(|source| tg::error!(!source, "failed to build the ifinfomsg"))?;
 		self.send::<Ifinfomsg>(Rtm::Newlink, NlmF::ACK, msg)
+			.map_err(|source| tg::error!(!source, "failed link set up"))
 	}
 
 	pub fn link_delete(&mut self, name: &str) -> tg::Result<()> {
@@ -82,6 +84,7 @@ impl Netlink {
 			.build()
 			.map_err(|source| tg::error!(!source, "failed to build the ifinfomsg"))?;
 		self.send::<Ifinfomsg>(Rtm::Dellink, NlmF::ACK, msg)
+			.map_err(|source| tg::error!(!source, "failed to link delete"))
 	}
 
 	#[expect(clippy::unused_self)]
@@ -111,6 +114,7 @@ impl Netlink {
 			.build()
 			.map_err(|source| tg::error!(!source, "failed to build the ifinfomsg"))?;
 		self.send::<Ifinfomsg>(Rtm::Newlink, NlmF::CREATE | NlmF::EXCL | NlmF::ACK, msg)
+			.map_err(|source| tg::error!(!source, "failed to add bridge"))
 	}
 
 	pub fn link_add_veth_pair(&mut self, host: &str, peer: &str) -> tg::Result<()> {
@@ -138,7 +142,7 @@ impl Netlink {
 		// Build IFLA_LINKINFO containing IFLA_INFO_KIND = "veth" and IFLA_INFO_DATA nesting the peer.
 		let info_kind: Rtattr<IflaInfo, Buffer> = RtattrBuilder::default()
 			.rta_type(IflaInfo::Kind)
-			.rta_payload("veth\0".to_owned())
+			.rta_payload("veth".to_owned())
 			.build()
 			.map_err(|source| tg::error!(!source, "failed to build the info_kind attribute"))?;
 		let info_data: Rtattr<IflaInfo, Buffer> = RtattrBuilder::default()
@@ -167,6 +171,7 @@ impl Netlink {
 			.build()
 			.map_err(|source| tg::error!(!source, "failed to build the ifinfomsg"))?;
 		self.send::<Ifinfomsg>(Rtm::Newlink, NlmF::CREATE | NlmF::EXCL | NlmF::ACK, msg)
+			.map_err(|source| tg::error!(!source, "failed to add veth pair"))
 	}
 
 	pub fn link_set_master(&mut self, name: &str, master: &str) -> tg::Result<()> {
@@ -188,6 +193,7 @@ impl Netlink {
 			.build()
 			.map_err(|source| tg::error!(!source, "failed to build the ifinfomsg"))?;
 		self.send::<Ifinfomsg>(Rtm::Newlink, NlmF::ACK, msg)
+			.map_err(|source| tg::error!(!source, "failed to set link master"))
 	}
 
 	pub fn link_set_netns_pid(&mut self, name: &str, pid: u32) -> tg::Result<()> {
@@ -209,6 +215,7 @@ impl Netlink {
 			.build()
 			.map_err(|source| tg::error!(!source, "failed to build the ifinfomsg"))?;
 		self.send::<Ifinfomsg>(Rtm::Newlink, NlmF::ACK, msg)
+			.map_err(|source| tg::error!(!source, "failed to set netns pid"))
 	}
 
 	pub fn addr_add_v4(&mut self, name: &str, addr: Ipv4Addr, prefix_len: u8) -> tg::Result<()> {
@@ -271,6 +278,7 @@ impl Netlink {
 			.build()
 			.map_err(|source| tg::error!(!source, "failed to build the ifaddrmsg"))?;
 		self.send::<Ifaddrmsg>(Rtm::Newaddr, flags, msg)
+			.map_err(|source| tg::error!(!source, "failed to add address"))
 	}
 
 	pub fn route_add_default_v4(&mut self, gateway: Ipv4Addr) -> tg::Result<()> {
@@ -298,6 +306,7 @@ impl Netlink {
 			.build()
 			.map_err(|source| tg::error!(!source, "failed to build the rtmsg"))?;
 		self.send::<Rtmsg>(Rtm::Newroute, NlmF::CREATE | NlmF::EXCL | NlmF::ACK, msg)
+			.map_err(|source| tg::error!(!source, "failed to add default"))
 	}
 
 	fn send<P>(&mut self, msg_type: Rtm, flags: NlmF, payload: P) -> tg::Result<()>
@@ -337,7 +346,7 @@ fn index_of(name: &str) -> tg::Result<i32> {
 fn rtattr_ifname(name: &str) -> tg::Result<Rtattr<Ifla, Buffer>> {
 	RtattrBuilder::default()
 		.rta_type(Ifla::Ifname)
-		.rta_payload(format!("{name}\0"))
+		.rta_payload(name.to_owned())
 		.build()
 		.map_err(|source| tg::error!(!source, "failed to build the ifname attribute"))
 }
@@ -345,7 +354,7 @@ fn rtattr_ifname(name: &str) -> tg::Result<Rtattr<Ifla, Buffer>> {
 fn rtattr_linkinfo_kind(kind: &str) -> tg::Result<Rtattr<Ifla, Buffer>> {
 	let info_kind: Rtattr<IflaInfo, Buffer> = RtattrBuilder::default()
 		.rta_type(IflaInfo::Kind)
-		.rta_payload(format!("{kind}\0"))
+		.rta_payload(kind.to_owned())
 		.build()
 		.map_err(|source| tg::error!(!source, "failed to build the info_kind attribute"))?;
 	RtattrBuilder::default()
