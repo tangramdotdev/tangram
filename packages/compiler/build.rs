@@ -113,7 +113,11 @@ mod typescript {
 		// Build typescript.
 		println!("cargo:rerun-if-changed=../../packages/typescript");
 		let manifest_directory_path = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-		let typescript_path = format!("{manifest_directory_path}/../../packages/typescript");
+		let typescript_path_raw = format!("{manifest_directory_path}/../../packages/typescript");
+		let typescript_path = std::fs::canonicalize(&typescript_path_raw)
+			.unwrap_or_else(|_| std::path::PathBuf::from(&typescript_path_raw))
+			.to_string_lossy()
+			.to_string();
 		if let Ok(node_path) = std::env::var("NODE_PATH") {
 			std::fs::write(
 				out_dir_path.join("tsconfig.json"),
@@ -132,13 +136,26 @@ mod typescript {
 				),
 			)
 			.unwrap();
-			std::process::Command::new("bunx")
+			// Diagnostic: check if typescript source files exist in the sandbox.
+			let ts_src = format!("{typescript_path}/src");
+			eprintln!("DIAG: typescript_path={typescript_path}");
+			eprintln!("DIAG: typescript_path exists={}", std::path::Path::new(&typescript_path).exists());
+			eprintln!("DIAG: src dir exists={}", std::path::Path::new(&ts_src).exists());
+			if let Ok(entries) = std::fs::read_dir(&ts_src) {
+				let files: Vec<_> = entries.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().to_string()).collect();
+				eprintln!("DIAG: src files count={} first_5={:?}", files.len(), &files[..files.len().min(5)]);
+			} else {
+				eprintln!("DIAG: cannot read src dir");
+			}
+			let tsgo_output = std::process::Command::new("bunx")
 				.args(["tsgo", "--project", out_dir_path.to_str().unwrap()])
-				.status()
-				.unwrap()
-				.success()
-				.then_some(())
+				.output()
 				.unwrap();
+			if !tsgo_output.status.success() {
+				eprintln!("tsgo stdout: {}", String::from_utf8_lossy(&tsgo_output.stdout));
+				eprintln!("tsgo stderr: {}", String::from_utf8_lossy(&tsgo_output.stderr));
+				panic!("tsgo failed with exit code {:?}", tsgo_output.status.code());
+			}
 		} else {
 			std::process::Command::new("bun")
 				.args(["run", "--cwd", "../../packages/typescript", "check"])
