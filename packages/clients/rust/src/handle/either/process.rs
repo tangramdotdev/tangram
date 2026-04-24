@@ -258,7 +258,7 @@ where
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> impl Future<Output = tg::Result<Option<()>>> {
+	) -> impl Future<Output = tg::Result<Option<bool>>> {
 		match self {
 			tg::Either::Left(s) => s.try_finish_process(id, arg).left_future(),
 			tg::Either::Right(s) => s.try_finish_process(id, arg).right_future(),

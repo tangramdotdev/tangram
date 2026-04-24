@@ -11,6 +11,7 @@ use {
 		stream::TryExt as _,
 		task::{Stopper, Task},
 	},
+	tokio::task::JoinSet,
 };
 
 mod signal;
@@ -18,14 +19,42 @@ mod stdio;
 mod tty;
 
 impl Server {
-	pub(crate) async fn run_process_task(
+	pub(crate) fn spawn_process_task(
+		&self,
+		process_tasks: &mut JoinSet<tg::Result<()>>,
+		process_stopper: &Stopper,
+		process: tg::process::Id,
+		location: &tg::location::Location,
+		sandbox: &tangram_sandbox::Sandbox,
+		guest_uri: &tangram_uri::Uri,
+	) {
+		let server = self.clone();
+		let process = tg::Process::new(
+			process,
+			Some(location.clone().into()),
+			None,
+			None,
+			None,
+			None,
+		);
+		let sandbox = sandbox.clone();
+		let guest_uri = guest_uri.clone();
+		let stopper = process_stopper.clone();
+		process_tasks.spawn(async move {
+			server
+				.process_task(&process, sandbox, guest_uri, stopper)
+				.await
+		});
+	}
+
+	pub(crate) async fn process_task(
 		&self,
 		process: &tg::Process,
 		sandbox: tangram_sandbox::Sandbox,
 		guest_uri: tangram_uri::Uri,
 		stopper: Stopper,
 	) -> tg::Result<()> {
-		let wait = match self
+		let output = match self
 			.run_process(process, sandbox, &guest_uri, stopper)
 			.await
 			.map_err(
@@ -41,7 +70,7 @@ impl Server {
 		};
 
 		// Store the output.
-		let value = if let Some(value) = &wait.value {
+		let value = if let Some(value) = &output.value {
 			value
 				.store_with_handle(self)
 				.await
@@ -52,32 +81,25 @@ impl Server {
 			None
 		};
 
-		// Get the error.
-		let error = if let Some(error) = &wait.error {
-			match error.to_data_or_id() {
-				tg::Either::Left(mut data) => {
-					if !self.config.advanced.internal_error_locations {
-						data.remove_internal_locations();
-					}
-					let object = tg::error::Object::try_from_data(data)?;
-					let error = tg::Error::with_object(object);
-					let id = error.store_with_handle(self).await?;
-					Some(tg::Either::Right(id))
-				},
-				tg::Either::Right(id) => Some(tg::Either::Right(id)),
-			}
+		// Store the error.
+		let error = if let Some(error) = &output.error {
+			Some(self.store_process_error(error.to_data_or_id()).await)
 		} else {
 			None
 		};
 
-		// If the process is remote, then push the output.
+		// If the process is remote, then push the output and error.
 		if let Some(tg::Location::Remote(remote)) = process
 			.location()
 			.and_then(|location| location.to_location())
-			&& let Some(value) = &value
 		{
 			let mut objects = BTreeSet::new();
-			value.children(&mut objects);
+			if let Some(value) = &value {
+				value.children(&mut objects);
+			}
+			if let Some(tg::Either::Right(id)) = &error {
+				objects.insert(tg::object::Id::Error(id.clone()));
+			}
 			if !objects.is_empty() {
 				let arg = tg::push::Arg {
 					destination: Some(tg::Location::Remote(tg::location::Remote {
@@ -97,17 +119,16 @@ impl Server {
 			}
 		}
 
-		// Finish the process.
+		// Get the location.
 		let arg = tg::process::finish::Arg {
-			checksum: wait.checksum,
+			checksum: output.checksum,
 			error,
-			exit: wait.exit,
-			location: process
-				.location()
-				.and_then(|location| location.to_location())
-				.map(Into::into),
+			exit: output.exit,
+			location: process.location(),
 			output: value,
 		};
+
+		// Finish the process.
 		self.finish_process(process.id().unwrap_right(), arg)
 			.await
 			.map_err(
@@ -252,7 +273,7 @@ impl Server {
 			},
 		};
 
-		let sandbox_stdin = match state.stdin {
+		let stdin = match state.stdin {
 			tg::process::Stdio::Null => tangram_sandbox::Stdio::Null,
 			tg::process::Stdio::Pipe => tangram_sandbox::Stdio::Pipe,
 			tg::process::Stdio::Tty => tangram_sandbox::Stdio::Tty,
@@ -260,7 +281,7 @@ impl Server {
 				return Err(tg::error!("invalid stdin"));
 			},
 		};
-		let sandbox_stdout = match state.stdout {
+		let stdout = match state.stdout {
 			tg::process::Stdio::Log | tg::process::Stdio::Pipe => tangram_sandbox::Stdio::Pipe,
 			tg::process::Stdio::Null => tangram_sandbox::Stdio::Null,
 			tg::process::Stdio::Tty => tangram_sandbox::Stdio::Tty,
@@ -268,7 +289,7 @@ impl Server {
 				return Err(tg::error!("invalid stdout"));
 			},
 		};
-		let sandbox_stderr = match state.stderr {
+		let stderr = match state.stderr {
 			tg::process::Stdio::Log | tg::process::Stdio::Pipe => tangram_sandbox::Stdio::Pipe,
 			tg::process::Stdio::Null => tangram_sandbox::Stdio::Null,
 			tg::process::Stdio::Tty => tangram_sandbox::Stdio::Tty,
@@ -283,9 +304,9 @@ impl Server {
 			cwd,
 			env,
 			executable,
-			stdin: sandbox_stdin,
-			stdout: sandbox_stdout,
-			stderr: sandbox_stderr,
+			stdin,
+			stdout,
+			stderr,
 		};
 		let sandbox_process = sandbox
 			.spawn(

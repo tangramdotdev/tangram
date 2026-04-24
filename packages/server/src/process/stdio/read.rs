@@ -401,12 +401,9 @@ impl Server {
 		arg: tg::process::stdio::read::Arg,
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
-		let client = self
-			.get_remote_client(remote.remote.clone())
-			.await
-			.map_err(
-				|source| tg::error!(!source, remote = %remote.remote, "failed to get the remote client"),
-			)?;
+		let client = self.get_remote_client(remote.name.clone()).await.map_err(
+			|source| tg::error!(!source, remote = %remote.name, "failed to get the remote client"),
+		)?;
 		let arg = tg::process::stdio::read::Arg {
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
@@ -416,7 +413,7 @@ impl Server {
 			..arg
 		};
 		let Some(stream) = client.try_read_process_stdio_all(id, arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote.remote, "failed to read the process stdio"),
+			|source| tg::error!(!source, remote = %remote.name, "failed to read the process stdio"),
 		)?
 		else {
 			return Ok(None);

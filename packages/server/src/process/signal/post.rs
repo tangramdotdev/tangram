@@ -188,12 +188,9 @@ impl Server {
 		signal: tg::process::Signal,
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<()>> {
-		let client = self
-			.get_remote_client(remote.remote.clone())
-			.await
-			.map_err(
-				|source| tg::error!(!source, remote = %remote.remote, %id, "failed to get the remote client"),
-			)?;
+		let client = self.get_remote_client(remote.name.clone()).await.map_err(
+			|source| tg::error!(!source, remote = %remote.name, %id, "failed to get the remote client"),
+		)?;
 		let arg = tg::process::signal::post::Arg {
 			signal,
 			location: Some(tg::location::Arg(vec![
@@ -203,7 +200,7 @@ impl Server {
 			])),
 		};
 		let Some(()) = client.try_post_process_signal(id, arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote.remote, "failed to signal the process"),
+			|source| tg::error!(!source, remote = %remote.name, "failed to signal the process"),
 		)?
 		else {
 			return Ok(None);

@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::{Context, Server, database::Transaction},
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
@@ -7,8 +7,28 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_messenger::prelude::*,
 };
+
+#[cfg(feature = "postgres")]
+mod postgres;
+#[cfg(feature = "sqlite")]
+mod sqlite;
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Condition {
+	DepthExceeded { max_depth: i64 },
+	TokenCountZero,
+}
+
+pub(crate) struct InnerArg {
+	pub checksum: Option<tg::Checksum>,
+	pub condition: Option<Condition>,
+	pub error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+	pub error_code: Option<tg::error::Code>,
+	pub exit: u8,
+	pub now: i64,
+	pub output: Option<tg::value::Data>,
+}
 
 impl Server {
 	pub(crate) async fn try_finish_process_with_context(
@@ -16,7 +36,7 @@ impl Server {
 		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<bool>> {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
@@ -29,7 +49,7 @@ impl Server {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
-					.try_finish_process_local(id, arg.clone())
+					.try_finish_process_local(id, arg.clone(), None)
 					.await
 					.map_err(|source| tg::error!(!source, %id, "failed to finish the process"))?
 			{
@@ -58,11 +78,12 @@ impl Server {
 		Ok(None)
 	}
 
-	async fn try_finish_process_local(
+	pub(crate) async fn try_finish_process_local(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> tg::Result<Option<()>> {
+		condition: Option<Condition>,
+	) -> tg::Result<Option<bool>> {
 		let tg::process::finish::Arg {
 			mut error,
 			output,
@@ -78,56 +99,6 @@ impl Server {
 		else {
 			return Ok(None);
 		};
-
-		// Get the process's children.
-		let connection =
-			self.process_store.connection().await.map_err(|source| {
-				tg::error!(!source, "failed to get a process store connection")
-			})?;
-		let p = connection.p();
-		#[derive(Clone, db::row::Deserialize)]
-		struct Row {
-			#[tangram_database(as = "db::value::FromStr")]
-			child: tg::process::Id,
-			token: Option<String>,
-		}
-		let statement = formatdoc!(
-			"
-				select child, token
-				from process_children
-				where process = {p}1
-				order by position;
-			"
-		);
-		let params = db::params![id.to_string()];
-		let children = connection
-			.query_all_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		drop(connection);
-
-		// Cancel the children.
-		children
-			.clone()
-			.into_iter()
-			.map(|row| {
-				let id = row.child;
-				let token = row.token;
-				async move {
-					if let Some(token) = token {
-						let arg = tg::process::cancel::Arg {
-							location: Some(
-								tg::Location::Local(tg::location::Local::default()).into(),
-							),
-							token,
-						};
-						self.cancel_process(&id, arg).await.ok();
-					}
-				}
-			})
-			.collect::<FuturesUnordered<_>>()
-			.collect::<Vec<_>>()
-			.await;
 
 		// Verify the checksum if one was provided.
 		if let Some(expected) = &data.expected_checksum
@@ -153,11 +124,19 @@ impl Server {
 			}
 		}
 
-		if !self.config.advanced.internal_error_locations
-			&& let Some(tg::Either::Left(error)) = &mut error
-		{
-			error.remove_internal_locations();
-		}
+		let error_code = error.as_ref().and_then(|error| match error {
+			tg::Either::Left(data) => data.code,
+			tg::Either::Right(_) => None,
+		});
+
+		// Store the error if necessary.
+		error = match error {
+			Some(error) => {
+				let error = self.store_process_error(error).await;
+				Some(error)
+			},
+			None => None,
+		};
 
 		// Get a process store connection.
 		let mut connection = self
@@ -172,115 +151,22 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "faile to acquire a transaction"))?;
 
-		// Get the current open stdio flags so the corresponding readers can be woken after commit.
-		let p = transaction.p();
-		#[derive(db::row::Deserialize)]
-		struct OpenRow {
-			stderr: Option<bool>,
-			stdin: Option<bool>,
-			stdout: Option<bool>,
-		}
-		let statement = formatdoc!(
-			"
-				select stderr_open as stderr, stdin_open as stdin, stdout_open as stdout
-				from processes
-				where id = {p}1 and status != 'finished';
-			"
-		);
-		let params = db::params![id.to_string()];
-		let open = transaction
-			.query_optional_into::<OpenRow>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Update the process.
-		let statement = formatdoc!(
-			"
-				update processes
-				set
-					actual_checksum = {p}1,
-					depth = null,
-					error = {p}2,
-					error_code = {p}3,
-					finished_at = {p}4,
-					output = {p}5,
-					exit = {p}6,
-					status = {p}7,
-					stderr_open = case when stderr_open is null then null else false end,
-					stdin_open = case when stdin_open is null then null else false end,
-					stdout_open = case when stdout_open is null then null else false end,
-					touched_at = {p}8
-				where
-					id = {p}9 and
-					status != 'finished';
-			"
-		);
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let error_data_or_id = error.as_ref().map(|error| match error {
-			tg::Either::Left(data) => serde_json::to_string(data).unwrap(),
-			tg::Either::Right(id) => id.to_string(),
-		});
-		let error_code = error.as_ref().and_then(|error| match error {
-			tg::Either::Left(data) => data.code.map(|code| code.to_string()),
-			tg::Either::Right(_) => None,
-		});
-		let params = db::params![
-			arg.checksum.as_ref().map(ToString::to_string),
-			error_data_or_id,
+		let arg = InnerArg {
+			checksum: arg.checksum,
+			condition,
+			error,
 			error_code,
-			now,
-			output.clone().map(db::value::Json),
 			exit,
-			tg::process::Status::Finished.to_string(),
-			now,
-			id.to_string(),
-		];
-		let n = transaction
-			.execute(statement.into(), params)
+			now: time::OffsetDateTime::now_utc().unix_timestamp(),
+			output,
+		};
+		let finished = self
+			.try_finish_process_inner(&transaction, id, arg)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		if n != 1 {
-			return Err(tg::error!("the process was already finished"));
+			.map_err(|source| tg::error!(!source, "failed to finish the process"))?;
+		if !finished {
+			return Ok(Some(false));
 		}
-
-		// Delete the tokens.
-		let statement = formatdoc!(
-			"
-				delete from process_tokens where process = {p}1;
-			"
-		);
-		let params = db::params![id.to_string()];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Update token count to 0.
-		let statement = formatdoc!(
-			"
-				update processes
-				set token_count = 0
-				where id = {p}1;
-			"
-		);
-		let params = db::params![id.to_string()];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Enqueue the process for finalization.
-		let statement = formatdoc!(
-			"
-				insert into process_finalize_queue (created_at, process, status)
-				values ({p}1, {p}2, {p}3);
-			"
-		);
-		let params = db::params![now, id.to_string(), "created"];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Commit the transaction.
 		transaction
@@ -290,43 +176,147 @@ impl Server {
 
 		drop(connection);
 
-		// Publish the finalize message.
+		self.spawn_process_finish_tasks(id);
+
+		Ok(Some(true))
+	}
+
+	pub(crate) async fn store_process_error(
+		&self,
+		error: tg::Either<tg::error::Data, tg::error::Id>,
+	) -> tg::Either<tg::error::Data, tg::error::Id> {
+		let tg::Either::Left(mut data) = error else {
+			return error;
+		};
+		if !self.config.advanced.internal_error_locations {
+			data.remove_internal_locations();
+		}
+
+		let object = match tg::error::Object::try_from_data(data.clone()) {
+			Ok(object) => object,
+			Err(source) => {
+				let error = tg::error!(!source, "failed to create the error object");
+				tracing::error!(error = %error.trace(), "failed to store the process error");
+				return tg::Either::Left(data);
+			},
+		};
+
+		let error = tg::Error::with_object(object);
+		let result = error.store_with_handle(self).await;
+		match result {
+			Ok(id) => tg::Either::Right(id),
+			Err(error) => {
+				tracing::error!(error = %error.trace(), "failed to store the process error");
+				tg::Either::Left(data)
+			},
+		}
+	}
+
+	pub(crate) async fn try_finish_process_inner(
+		&self,
+		transaction: &Transaction<'_>,
+		id: &tg::process::Id,
+		arg: InnerArg,
+	) -> tg::Result<bool> {
+		match transaction {
+			#[cfg(feature = "postgres")]
+			Transaction::Postgres(transaction) => {
+				self.try_finish_process_inner_postgres(transaction, id, arg)
+					.await
+			},
+			#[cfg(feature = "sqlite")]
+			Transaction::Sqlite(transaction) => {
+				self.try_finish_process_inner_sqlite(transaction, id, arg)
+					.await
+			},
+		}
+	}
+
+	pub(crate) fn spawn_process_finish_tasks(&self, id: &tg::process::Id) {
+		// Spawn tasks to publish the stdio close messages.
+		for stream in [
+			tg::process::stdio::Stream::Stdin,
+			tg::process::stdio::Stream::Stdout,
+			tg::process::stdio::Stream::Stderr,
+		] {
+			self.spawn_publish_process_stdio_close_message_task(id, stream);
+		}
+
+		// Spawn a task to publish the status.
+		self.spawn_publish_process_status_task(id);
+
+		// Spawn a task to publish the finalize message.
 		self.spawn_publish_process_finalize_message_task();
 
-		if open.as_ref().is_some_and(|row| row.stdin == Some(true)) {
-			self.spawn_publish_process_stdio_close_message_task(
-				id,
-				tg::process::stdio::Stream::Stdin,
-			);
-		}
-		if open.as_ref().is_some_and(|row| row.stdout == Some(true)) {
-			self.spawn_publish_process_stdio_close_message_task(
-				id,
-				tg::process::stdio::Stream::Stdout,
-			);
-		}
-		if open.as_ref().is_some_and(|row| row.stderr == Some(true)) {
-			self.spawn_publish_process_stdio_close_message_task(
-				id,
-				tg::process::stdio::Stream::Stderr,
-			);
-		}
+		// Spawn a task to cancel the children.
+		self.spawn_cancel_process_children_task(id);
+	}
 
-		// Publish the status.
+	fn spawn_cancel_process_children_task(&self, id: &tg::process::Id) {
 		tokio::spawn({
 			let server = self.clone();
 			let id = id.clone();
 			async move {
-				server
-					.messenger
-					.publish(format!("processes.{id}.status"), ())
-					.await
-					.inspect_err(|error| tracing::error!(%error, %id, "failed to publish"))
-					.ok();
+				let result = server.cancel_process_children(&id).await;
+				if let Err(error) = result {
+					tracing::error!(error = %error.trace(), "failed to cancel the children");
+				}
 			}
 		});
+	}
 
-		Ok(Some(()))
+	async fn cancel_process_children(&self, id: &tg::process::Id) -> tg::Result<()> {
+		let connection =
+			self.process_store.connection().await.map_err(|source| {
+				tg::error!(!source, "failed to get a process store connection")
+			})?;
+		let p = connection.p();
+
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			child: tg::process::Id,
+			token: Option<String>,
+		}
+		let statement = formatdoc!(
+			"
+				select process_children.child, process_children.token
+				from process_children
+				inner join processes on processes.id = process_children.child
+				where process_children.process = {p}1 and processes.status != 'finished'
+				order by process_children.position;
+			"
+		);
+		let params = db::params![id.to_string()];
+		let children = connection
+			.query_all_into::<Row>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		drop(connection);
+
+		children
+			.into_iter()
+			.map(|row| {
+				let id = row.child;
+				let token = row.token;
+				async move {
+					if let Some(token) = token {
+						let arg = tg::process::cancel::Arg {
+							location: Some(
+								tg::Location::Local(tg::location::Local::default()).into(),
+							),
+							token,
+						};
+						self.cancel_process(&id, arg).await.ok();
+					}
+				}
+			})
+			.collect::<FuturesUnordered<_>>()
+			.collect::<Vec<_>>()
+			.await;
+
+		Ok(())
 	}
 
 	async fn try_finish_process_regions(
@@ -334,7 +324,7 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
 		regions: &[String],
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<bool>> {
 		let mut futures = regions
 			.iter()
 			.map(|region| self.try_finish_process_region(id, arg.clone(), region))
@@ -363,7 +353,7 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
 		region: &str,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<bool>> {
 		let client = self.get_region_client(region.to_owned()).await.map_err(
 			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
 		)?;
@@ -374,28 +364,14 @@ impl Server {
 			location: Some(location.into()),
 			..arg
 		};
-		match client.try_finish_process(id, arg).await {
-			Ok(Some(())) => Ok(Some(())),
-			Ok(None) => Ok(None),
-			Err(error) => {
-				let output = client
-					.try_get_process(id, tg::process::get::Arg::default())
-					.await
-					.map_err(|source| {
-						tg::error!(
-							!source,
-							%id,
-							"failed to confirm the process state after the finish request failed"
-						)
-					})?;
-				if output.is_none_or(|output| !output.data.status.is_finished()) {
-					return Err(
-						tg::error!(!error, region = %region, %id, "failed to finish the process"),
-					);
-				}
-				Ok(Some(()))
-			},
-		}
+		let Some(finished) = client
+			.try_finish_process(id, arg)
+			.await
+			.map_err(|source| tg::error!(!source, %region, "failed to finish the process"))?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(finished))
 	}
 
 	async fn try_finish_process_remotes(
@@ -403,7 +379,7 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
 		remotes: &[crate::location::Remote],
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<bool>> {
 		let mut futures = remotes
 			.iter()
 			.map(|remote| self.try_finish_process_remote(id, arg.clone(), remote))
@@ -432,13 +408,10 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
 		remote: &crate::location::Remote,
-	) -> tg::Result<Option<()>> {
-		let client = self
-			.get_remote_client(remote.remote.clone())
-			.await
-			.map_err(
-				|source| tg::error!(!source, remote = %remote.remote, %id, "failed to get the remote client"),
-			)?;
+	) -> tg::Result<Option<bool>> {
+		let client = self.get_remote_client(remote.name.clone()).await.map_err(
+			|source| tg::error!(!source, remote = %remote.name, %id, "failed to get the remote client"),
+		)?;
 		let arg = tg::process::finish::Arg {
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
@@ -447,28 +420,13 @@ impl Server {
 			])),
 			..arg
 		};
-		match client.try_finish_process(id, arg).await {
-			Ok(Some(())) => Ok(Some(())),
-			Ok(None) => Ok(None),
-			Err(error) => {
-				let output = client
-					.try_get_process(id, tg::process::get::Arg::default())
-					.await
-					.map_err(|source| {
-						tg::error!(
-							!source,
-							%id,
-							"failed to confirm the process state after the finish request failed"
-						)
-					})?;
-				if output.is_none_or(|output| !output.data.status.is_finished()) {
-					return Err(
-						tg::error!(!error, remote = %remote.remote, %id, "failed to finish the process"),
-					);
-				}
-				Ok(Some(()))
-			},
-		}
+		let Some(finished) = client.try_finish_process(id, arg).await.map_err(
+			|source| tg::error!(!source, remote = %remote.name, "failed to finish the process"),
+		)?
+		else {
+			return Ok(None);
+		};
+		Ok(Some(finished))
 	}
 
 	pub(crate) async fn handle_finish_process_request(
@@ -495,7 +453,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Finish the process.
-		let Some(()) = self
+		let Some(finished) = self
 			.try_finish_process_with_context(context, &id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to finish the process"))?
@@ -506,6 +464,13 @@ impl Server {
 				.unwrap()
 				.boxed_body());
 		};
+		if !finished {
+			return Ok(http::Response::builder()
+				.status(http::StatusCode::CONFLICT)
+				.empty()
+				.unwrap()
+				.boxed_body());
+		}
 
 		// Create the response.
 		match accept

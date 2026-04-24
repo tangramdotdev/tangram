@@ -34,7 +34,7 @@ pub trait Sandbox: Send + Sync + 'static {
 		&'a self,
 		id: &'a tg::sandbox::Id,
 		arg: tg::sandbox::finish::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<()>>>;
+	) -> BoxFuture<'a, tg::Result<Option<bool>>>;
 
 	fn try_heartbeat_sandbox<'a>(
 		&'a self,
@@ -112,7 +112,7 @@ where
 		&'a self,
 		id: &'a tg::sandbox::Id,
 		arg: tg::sandbox::finish::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<()>>> {
+	) -> BoxFuture<'a, tg::Result<Option<bool>>> {
 		self.try_finish_sandbox(id, arg).boxed()
 	}
 

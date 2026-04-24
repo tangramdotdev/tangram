@@ -1,6 +1,5 @@
 use {
 	crate::Server,
-	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -13,76 +12,13 @@ pub mod finalize;
 pub mod finish;
 pub mod get;
 pub mod heartbeat;
+pub mod isolation;
 pub mod list;
 pub mod process;
 pub mod queue;
 pub mod status;
 
 impl Server {
-	fn sandbox_isolation_from_config(
-		isolation: crate::config::SandboxIsolation,
-	) -> tangram_sandbox::Isolation {
-		match isolation {
-			crate::config::SandboxIsolation::Container(_) => {
-				tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation::default())
-			},
-			crate::config::SandboxIsolation::Seatbelt(_) => {
-				tangram_sandbox::Isolation::Seatbelt(tangram_sandbox::SeatbeltIsolation::default())
-			},
-			crate::config::SandboxIsolation::Vm(_) => {
-				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation::default())
-			},
-		}
-	}
-
-	pub(crate) fn resolve_sandbox_isolation(&self) -> tg::Result<tangram_sandbox::Isolation> {
-		let isolation = Self::sandbox_isolation_from_config(self.config.sandbox.isolation);
-		#[cfg(target_os = "linux")]
-		{
-			match isolation {
-				tangram_sandbox::Isolation::Container(_) | tangram_sandbox::Isolation::Vm(_) => {
-					Ok(isolation)
-				},
-				tangram_sandbox::Isolation::Seatbelt(_) => {
-					Err(tg::error!("seatbelt isolation is not supported on linux"))
-				},
-			}
-		}
-		#[cfg(target_os = "macos")]
-		{
-			match isolation {
-				tangram_sandbox::Isolation::Container(_) => {
-					Err(tg::error!("container isolation is not supported on macos"))
-				},
-				tangram_sandbox::Isolation::Seatbelt(_) => Ok(isolation),
-				tangram_sandbox::Isolation::Vm(_) => {
-					Err(tg::error!("vm isolation is not supported on macos"))
-				},
-			}
-		}
-	}
-
-	pub(crate) fn validate_sandbox_resources(
-		isolation: tangram_sandbox::Isolation,
-		cpu: Option<u64>,
-		memory: Option<u64>,
-	) -> tg::Result<()> {
-		if cpu == Some(0) {
-			return Err(tg::error!("sandbox cpu must be greater than zero"));
-		}
-		if memory == Some(0) {
-			return Err(tg::error!("sandbox memory must be greater than zero"));
-		}
-		if matches!(isolation, tangram_sandbox::Isolation::Seatbelt(_))
-			&& (cpu.is_some() || memory.is_some())
-		{
-			return Err(tg::error!(
-				"sandbox cpu and memory are not supported with seatbelt isolation"
-			));
-		}
-		Ok(())
-	}
-
 	pub(crate) async fn get_sandbox_exists_local(&self, id: &tg::sandbox::Id) -> tg::Result<bool> {
 		let connection = self
 			.process_store
@@ -120,7 +56,9 @@ impl Server {
 					heartbeat_at = {p}1,
 					started_at = case when started_at is null then {p}1 else started_at end,
 					status = 'started'
-				where id = {p}2 and status = 'created';
+				where
+					id = {p}2 and
+					status = 'created';
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -133,143 +71,41 @@ impl Server {
 		if n == 0 {
 			return Ok(false);
 		}
-		self.publish_sandbox_status(id);
+		self.spawn_publish_sandbox_status_task(id);
 		Ok(true)
 	}
 
-	pub(crate) fn publish_sandbox_status(&self, id: &tg::sandbox::Id) {
+	pub(crate) fn spawn_publish_sandbox_status_task(&self, id: &tg::sandbox::Id) {
 		let subject = format!("sandboxes.{id}.status");
 		tokio::spawn({
 			let server = self.clone();
 			async move {
-				server.messenger.publish(subject, ()).await.ok();
+				let result = server.messenger.publish(subject, ()).await;
+				if let Err(error) = result {
+					tracing::error!(%error, "failed to publish the sandbox status message");
+				}
 			}
 		});
 	}
 
-	pub(crate) async fn finish_unfinished_processes_in_sandbox(
-		&self,
-		id: &tg::sandbox::Id,
-		location: &tg::location::Location,
-		error: tg::error::Data,
+	pub(crate) fn validate_sandbox_resources(
+		isolation: tangram_sandbox::Isolation,
+		cpu: Option<u64>,
+		memory: Option<u64>,
 	) -> tg::Result<()> {
-		match location {
-			tg::Location::Local(_) => {
-				self.finish_unfinished_processes_in_sandbox_local(id, error)
-					.await
-			},
-			tg::Location::Remote(remote) => {
-				self.finish_unfinished_processes_in_sandbox_remote(id, remote, error)
-					.await
-			},
+		if cpu == Some(0) {
+			return Err(tg::error!("sandbox cpu must be greater than zero"));
 		}
-	}
-
-	pub(crate) async fn finish_unfinished_processes_in_sandbox_local(
-		&self,
-		id: &tg::sandbox::Id,
-		error: tg::error::Data,
-	) -> tg::Result<()> {
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			#[tangram_database(as = "db::value::FromStr")]
-			id: tg::process::Id,
+		if memory == Some(0) {
+			return Err(tg::error!("sandbox memory must be greater than zero"));
 		}
-		let connection = self
-			.process_store
-			.connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		let p = connection.p();
-		let statement = formatdoc!(
-			"
-				select id
-				from processes
-				where sandbox = {p}1 and status != 'finished';
-			"
-		);
-		let params = db::params![id.to_string()];
-		let rows = connection
-			.query_all_into::<Row>(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		drop(connection);
-
-		rows.into_iter()
-			.map(|row| {
-				let server = self.clone();
-				let error = error.clone();
-				async move {
-					let arg = tg::process::finish::Arg {
-						checksum: None,
-						error: Some(tg::Either::Left(error)),
-						exit: 1,
-						location: Some(tg::Location::Local(tg::location::Local::default()).into()),
-						output: None,
-					};
-					server.finish_process(&row.id, arg).await.ok();
-				}
-				.boxed()
-			})
-			.collect::<FuturesUnordered<_>>()
-			.collect::<Vec<_>>()
-			.await;
-
-		Ok(())
-	}
-
-	async fn finish_unfinished_processes_in_sandbox_remote(
-		&self,
-		id: &tg::sandbox::Id,
-		remote: &tg::location::Remote,
-		error: tg::error::Data,
-	) -> tg::Result<()> {
-		let client = self
-			.get_remote_client(remote.name.clone())
-			.await
-			.map_err(|source| {
-				tg::error!(
-					!source,
-					%id,
-					remote = %remote.name,
-					"failed to get the remote client"
-				)
-			})?;
-		let arg = tg::process::list::Arg {
-			location: Some(tg::location::Arg(vec![
-				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
-					regions: remote.region.clone().map(|region| vec![region]),
-				}),
-			])),
-		};
-		let output = client.list_processes(arg).await.map_err(
-			|source| tg::error!(!source, %id, remote = %remote.name, "failed to list the remote processes"),
-		)?;
-
-		output
-			.data
-			.into_iter()
-			.filter(|output| &output.data.sandbox == id && !output.data.status.is_finished())
-			.map(|output| {
-				let server = self.clone();
-				let error = error.clone();
-				let remote = remote.clone();
-				async move {
-					let arg = tg::process::finish::Arg {
-						checksum: None,
-						error: Some(tg::Either::Left(error)),
-						exit: 1,
-						location: Some(tg::Location::Remote(remote).into()),
-						output: None,
-					};
-					server.finish_process(&output.id, arg).await.ok();
-				}
-				.boxed()
-			})
-			.collect::<FuturesUnordered<_>>()
-			.collect::<Vec<_>>()
-			.await;
-
+		if matches!(isolation, tangram_sandbox::Isolation::Seatbelt(_))
+			&& (cpu.is_some() || memory.is_some())
+		{
+			return Err(tg::error!(
+				"sandbox cpu and memory are not supported with seatbelt isolation"
+			));
+		}
 		Ok(())
 	}
 }

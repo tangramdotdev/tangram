@@ -24,7 +24,7 @@ pub(crate) mod tty;
 pub(crate) mod wait;
 
 impl Server {
-	pub(crate) async fn get_process_exists_local(&self, id: &tg::process::Id) -> tg::Result<bool> {
+	async fn get_process_exists_local(&self, id: &tg::process::Id) -> tg::Result<bool> {
 		// Get a database connection.
 		let connection = self
 			.process_store
@@ -85,6 +85,19 @@ impl Server {
 		self.messenger.publish(subject, ()).await.ok();
 
 		Ok(true)
+	}
+
+	fn spawn_publish_process_status_task(&self, id: &tg::process::Id) {
+		let subject = format!("processes.{id}.status");
+		tokio::spawn({
+			let server = self.clone();
+			async move {
+				let result = server.messenger.publish(subject, ()).await;
+				if let Err(error) = result {
+					tracing::error!(%error, "failed to publish the process status message");
+				}
+			}
+		});
 	}
 
 	pub(crate) async fn try_lock_process_for_token_mutation_with_transaction(

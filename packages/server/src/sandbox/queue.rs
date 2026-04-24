@@ -42,6 +42,7 @@ impl Server {
 	}
 
 	async fn try_dequeue_sandbox_local(&self) -> tg::Result<Option<tg::sandbox::queue::Output>> {
+		// Create the update stream.
 		let created = self
 			.messenger
 			.subscribe::<()>("sandboxes.created".into(), Some("sandboxes.dequeue".into()))
@@ -51,6 +52,8 @@ impl Server {
 		let interval = Duration::from_secs(1);
 		let interval = IntervalStream::new(tokio::time::interval(interval)).map(|_| ());
 		let stream = stream::select(created, interval);
+
+		// Dequeue.
 		let mut stream = pin!(stream);
 		while let Some(()) = stream.next().await {
 			let output = match &self.process_store {
@@ -60,7 +63,7 @@ impl Server {
 				Database::Sqlite(process_store) => self.try_dequeue_sandbox_sqlite(process_store).await?,
 			};
 			if let Some(output) = output {
-				self.publish_sandbox_status(&output.sandbox);
+				self.spawn_publish_sandbox_status_task(&output.sandbox);
 				if let Some(process) = &output.process {
 					self.messenger
 						.publish(format!("processes.{process}.status"), ())
@@ -70,7 +73,8 @@ impl Server {
 				return Ok(Some(output));
 			}
 		}
-		Ok(None)
+
+		unreachable!()
 	}
 
 	async fn try_dequeue_sandbox_region(

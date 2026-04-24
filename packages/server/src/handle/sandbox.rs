@@ -42,7 +42,7 @@ impl tg::handle::Sandbox for Shared {
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::finish::Arg,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<bool>> {
 		self.0.try_finish_sandbox(id, arg).await
 	}
 
@@ -116,7 +116,7 @@ impl tg::handle::Sandbox for Server {
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::finish::Arg,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<bool>> {
 		self.try_finish_sandbox_with_context(&Context::default(), id, arg)
 			.await
 	}

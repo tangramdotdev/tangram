@@ -1,11 +1,13 @@
 use {
 	crate::{SandboxPermit, Server, context::Context, temp::Temp},
-	futures::{FutureExt as _, TryFutureExt as _, TryStreamExt as _, future},
-	std::{path::Path, pin::pin, sync::Arc, time::Duration},
+	futures::{FutureExt as _, TryStreamExt as _, future},
+	std::{pin::pin, sync::Arc, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
 	tokio::task::JoinSet,
 };
+
+mod listener;
 
 impl Server {
 	pub(crate) fn spawn_sandbox_task(
@@ -22,11 +24,35 @@ impl Server {
 			.spawn(id.clone(), |_| {
 				let server = self.clone();
 				let id = id.clone();
-				async move { server.sandbox_task(&id, location, permit, process).await }
-					.inspect_err(|error| {
-						tracing::error!(error = %error.trace(), "the sandbox task failed");
-					})
-					.map(|_| ())
+				async move {
+					// Run the sandbox task.
+					let result = server
+						.sandbox_task(&id, location.clone(), permit, process)
+						.await;
+
+					// If the sandbox task fails, then finish the sandbox with an error.
+					if let Err(error) = result {
+						tracing::error!(error = %error.trace(), sandbox = %id, "the sandbox failed");
+						let mut error = error.to_data_or_id();
+						if !server.config.advanced.internal_error_locations
+							&& let tg::Either::Left(error) = &mut error
+						{
+							error.remove_internal_locations();
+						}
+						let arg = tg::sandbox::finish::Arg {
+							error: Some(error),
+							location: Some(location.into()),
+						};
+						let result = server.finish_sandbox(&id, arg).await;
+						if let Err(error) = result {
+							tracing::error!(
+								error = %error.trace(),
+								sandbox = %id,
+								"failed to finish the sandbox after the sandbox failed"
+							);
+						}
+					}
+				}
 			})
 			.detach();
 	}
@@ -140,14 +166,17 @@ impl Server {
 			)?;
 		let mut status = pin!(status);
 
-		let process_stopper = Stopper::new();
+		// Create the process tasks.
 		let mut process_tasks = JoinSet::new();
+		let process_stopper = Stopper::new();
 
-		let ttl = (state.ttl != i64::MAX as u64).then(|| Duration::from_secs(state.ttl));
+		// Create the timer.
 		let mut timer = None;
+		let ttl = (state.ttl != i64::MAX as u64).then(|| Duration::from_secs(state.ttl));
 
+		// If the sandbox was created with a process, then start it. Otherwise, start the timer.
 		if let Some(process) = process {
-			self.spawn_sandbox_process_task(
+			self.spawn_process_task(
 				&mut process_tasks,
 				&process_stopper,
 				process.clone(),
@@ -159,16 +188,20 @@ impl Server {
 			timer.replace(tokio::time::sleep(ttl).boxed());
 		}
 
+		// Start dequeueing a process.
+		let mut dequeue = self.dequeue_sandbox_process(id, &location).boxed();
+
 		loop {
 			let timer_future = timer.as_mut().map_or_else(
 				|| future::pending().left_future(),
 				|timer| timer.as_mut().right_future(),
 			);
 			tokio::select! {
-				output = self.dequeue_sandbox_process(id, &location) => {
+				// If a process is dequeued, then start it and dequeue another.
+				output = &mut dequeue => {
 					let output = output.map_err(|source| tg::error!(!source, "failed to dequeue a process"))?;
 					timer.take();
-					self.spawn_sandbox_process_task(
+					self.spawn_process_task(
 						&mut process_tasks,
 						&process_stopper,
 						output.process.clone(),
@@ -176,7 +209,10 @@ impl Server {
 						&sandbox,
 						&guest_uri,
 					);
+					dequeue = self.dequeue_sandbox_process(id, &location).boxed();
 				},
+
+				// If the sandbox finishes, then break.
 				result = status.try_next() => {
 					let option = result.map_err(|source| tg::error!(!source, "failed to read the sandbox status"))?;
 					let Some(status) = option else {
@@ -186,48 +222,52 @@ impl Server {
 						break;
 					}
 				},
-				_ = process_tasks.join_next(), if !process_tasks.is_empty() => {
+
+				// If a process finishes and there are no processes, then start the timer.
+				output = process_tasks.join_next(), if !process_tasks.is_empty() => {
+					output
+						.unwrap()
+						.map_err(|source| tg::error!(!source, "a process task panicked"))?
+						.map_err(|source| tg::error!(!source, "a process task failed"))?;
 					if process_tasks.is_empty() && let Some(ttl) = ttl {
 						timer.replace(tokio::time::sleep(ttl).boxed());
 					}
 				},
+
+				// If the timer fires, then finish the sandbox and break.
 				() = timer_future => {
 					let arg = tg::sandbox::finish::Arg {
+						error: None,
 						location: Some(location.clone().into()),
 					};
-					self.finish_sandbox(id, arg).await.ok();
-					timer.take();
+					self.finish_sandbox(id, arg).await?;
+					break;
 				},
 			}
 		}
 
+		// Stop and await the process tasks.
 		process_stopper.stop();
-		while process_tasks.join_next().await.is_some() {}
+		while let Some(result) = process_tasks.join_next().await {
+			result
+				.map_err(|source| tg::error!(!source, "a process task panicked"))?
+				.map_err(|source| tg::error!(!source, "a process task failed"))?;
+		}
 
+		// Stop and await the server task.
 		serve_task.stop();
 		serve_task
 			.wait()
 			.await
 			.map_err(|source| tg::error!(!source, "the serve task panicked"))?;
 
+		// Stop and await the heartbeat task.
 		heartbeat_task.stop();
 		heartbeat_task
 			.wait()
 			.await
 			.map_err(|source| tg::error!(!source, "the heartbeat task panicked"))?
 			.map_err(|source| tg::error!(!source, "the heartbeat task failed"))?;
-
-		self.finish_unfinished_processes_in_sandbox(
-			id,
-			&location,
-			tg::error::Data {
-				code: Some(tg::error::Code::Cancellation),
-				message: Some("the process was canceled".into()),
-				..Default::default()
-			},
-		)
-		.await
-		.map_err(|source| tg::error!(!source, %id, "failed to finish unfinished processes"))?;
 
 		Ok(())
 	}
@@ -249,136 +289,6 @@ impl Server {
 				},
 			}
 		}
-	}
-
-	async fn run_create_listener(
-		root_path: &Path,
-		isolation: tangram_sandbox::Isolation,
-	) -> tg::Result<(crate::http::Listener, tangram_uri::Uri)> {
-		#[cfg(target_os = "linux")]
-		{
-			match isolation {
-				tangram_sandbox::Isolation::Container(_) => {
-					Self::run_create_unix_listener(root_path).await
-				},
-				tangram_sandbox::Isolation::Seatbelt(_) => {
-					Err(tg::error!("seatbelt isolation is not supported on linux"))
-				},
-				tangram_sandbox::Isolation::Vm(_) => {
-					let _ = root_path;
-					#[cfg(not(feature = "vsock"))]
-					{
-						Err(tg::error!("vsock is not enabled"))
-					}
-					#[cfg(feature = "vsock")]
-					{
-						let url = format!("http+vsock://{}:0", tangram_sandbox::vm::HOST_VSOCK_CID)
-							.parse::<tangram_uri::Uri>()
-							.map_err(|source| {
-								tg::error!(source = source, "failed to parse the URL")
-							})?;
-						let listener = Server::listen(&url)
-							.await
-							.map_err(|source| tg::error!(!source, "failed to listen"))?;
-						let guest_uri = match &listener {
-							crate::http::Listener::Vsock(vsock) => {
-								let addr = vsock.local_addr().map_err(|source| {
-									tg::error!(!source, "failed to get the listener address")
-								})?;
-								format!("http+vsock://{}:{}", addr.cid(), addr.port())
-									.parse::<tangram_uri::Uri>()
-									.map_err(|source| {
-										tg::error!(source = source, "failed to parse the URL")
-									})?
-							},
-							_ => unreachable!(),
-						};
-						Ok((listener, guest_uri))
-					}
-				},
-			}
-		}
-
-		#[cfg(not(target_os = "linux"))]
-		{
-			match isolation {
-				tangram_sandbox::Isolation::Container(_) => {
-					Err(tg::error!("container isolation is not supported on macos"))
-				},
-				tangram_sandbox::Isolation::Seatbelt(_) => {
-					Self::run_create_unix_listener(root_path).await
-				},
-				tangram_sandbox::Isolation::Vm(_) => {
-					Err(tg::error!("vm isolation is not supported on macos"))
-				},
-			}
-		}
-	}
-
-	async fn run_create_unix_listener(
-		root_path: &Path,
-	) -> tg::Result<(crate::http::Listener, tangram_uri::Uri)> {
-		let host_socket_path =
-			tangram_sandbox::Sandbox::host_tangram_socket_path_from_root(root_path);
-		let guest_socket_path =
-			tangram_sandbox::Sandbox::guest_tangram_socket_path_from_root(root_path);
-		let max_socket_path_len = if cfg!(target_os = "macos") {
-			100
-		} else {
-			usize::MAX
-		};
-		let host_socket_path_string = host_socket_path
-			.to_str()
-			.ok_or_else(|| tg::error!("invalid socket path"))?;
-		let guest_socket_path_string = guest_socket_path
-			.to_str()
-			.ok_or_else(|| tg::error!("invalid socket path"))?;
-
-		tokio::fs::create_dir_all(host_socket_path.parent().unwrap())
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the host path"))?;
-		let url = if host_socket_path_string.len() <= max_socket_path_len {
-			tangram_uri::Uri::builder()
-				.scheme("http+unix")
-				.authority(host_socket_path_string)
-				.path("")
-				.build()
-				.map_err(|source| tg::error!(source = source, "failed to build the socket URL"))?
-		} else {
-			"http://localhost:0"
-				.parse::<tangram_uri::Uri>()
-				.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?
-		};
-		let listener = Server::listen(&url)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to listen"))?;
-		let guest_uri = match &listener {
-			crate::http::Listener::Unix(_) => tangram_uri::Uri::builder()
-				.scheme("http+unix")
-				.authority(guest_socket_path_string)
-				.path("")
-				.build()
-				.map_err(|source| tg::error!(source = source, "failed to build the guest URL"))?,
-			crate::http::Listener::Tcp(tcp) => {
-				let port = tcp
-					.local_addr()
-					.map_err(|source| tg::error!(!source, "failed to get the listener address"))?
-					.port();
-				format!("http://localhost:{port}")
-					.parse::<tangram_uri::Uri>()
-					.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?
-			},
-			#[cfg(feature = "vsock")]
-			crate::http::Listener::Vsock(vsock) => {
-				let addr = vsock
-					.local_addr()
-					.map_err(|source| tg::error!(!source, "failed to get the listener address"))?;
-				format!("http+vsock://{}:{}", addr.cid(), addr.port())
-					.parse::<tangram_uri::Uri>()
-					.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?
-			},
-		};
-		Ok((listener, guest_uri))
 	}
 
 	async fn sandbox_heartbeat_task(
@@ -405,36 +315,5 @@ impl Server {
 			}
 		}
 		Ok(())
-	}
-
-	fn spawn_sandbox_process_task(
-		&self,
-		process_tasks: &mut JoinSet<tg::Result<()>>,
-		process_stopper: &Stopper,
-		process: tg::process::Id,
-		location: &tg::location::Location,
-		sandbox: &tangram_sandbox::Sandbox,
-		guest_uri: &tangram_uri::Uri,
-	) {
-		let server = self.clone();
-		let process = tg::Process::new(
-			process,
-			Some(location.clone().into()),
-			None,
-			None,
-			None,
-			None,
-		);
-		let sandbox = sandbox.clone();
-		let guest_uri = guest_uri.clone();
-		let stopper = process_stopper.clone();
-		process_tasks.spawn(async move {
-			server
-				.run_process_task(&process, sandbox, guest_uri, stopper)
-				.await
-				.inspect_err(|error| {
-					tracing::error!(error = %error.trace(), process = %process.id(), "the process task failed");
-				})
-		});
 	}
 }

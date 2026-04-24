@@ -154,7 +154,7 @@ impl tg::handle::Process for Shared {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<bool>> {
 		self.0.try_finish_process(id, arg).await
 	}
 
@@ -326,7 +326,7 @@ impl tg::handle::Process for Server {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<bool>> {
 		self.try_finish_process_with_context(&Context::default(), id, arg)
 			.await
 	}

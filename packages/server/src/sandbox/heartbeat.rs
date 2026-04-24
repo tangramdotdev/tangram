@@ -173,12 +173,9 @@ impl Server {
 		id: &tg::sandbox::Id,
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
-		let client = self
-			.get_remote_client(remote.remote.clone())
-			.await
-			.map_err(
-				|source| tg::error!(!source, remote = %remote.remote, %id, "failed to get the remote client"),
-			)?;
+		let client = self.get_remote_client(remote.name.clone()).await.map_err(
+			|source| tg::error!(!source, remote = %remote.name, %id, "failed to get the remote client"),
+		)?;
 		let arg = tg::sandbox::heartbeat::Arg {
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
@@ -187,7 +184,7 @@ impl Server {
 			])),
 		};
 		let Some(output) = client.try_heartbeat_sandbox(id, arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote.remote, "failed to heartbeat the sandbox"),
+			|source| tg::error!(!source, remote = %remote.name, "failed to heartbeat the sandbox"),
 		)?
 		else {
 			return Ok(None);

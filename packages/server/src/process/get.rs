@@ -286,12 +286,9 @@ impl Server {
 		remote: &crate::location::Remote,
 		metadata: bool,
 	) -> tg::Result<Option<tg::process::get::Output>> {
-		let client = self
-			.get_remote_client(remote.remote.clone())
-			.await
-			.map_err(
-				|source| tg::error!(!source, remote = %remote.remote, "failed to get the remote client"),
-			)?;
+		let client = self.get_remote_client(remote.name.clone()).await.map_err(
+			|source| tg::error!(!source, remote = %remote.name, "failed to get the remote client"),
+		)?;
 		let location = tg::location::Arg(vec![tg::location::arg::Component::Local(
 			tg::location::arg::LocalComponent {
 				regions: remote.regions.clone(),
@@ -302,7 +299,7 @@ impl Server {
 			metadata,
 		};
 		let Some(mut output) = client.try_get_process(id, arg).await.map_err(
-			|source| tg::error!(!source, %id, remote = %remote.remote, "failed to get the process"),
+			|source| tg::error!(!source, %id, remote = %remote.name, "failed to get the process"),
 		)?
 		else {
 			return Ok(None);
@@ -313,7 +310,7 @@ impl Server {
 			None => None,
 		};
 		output.location = Some(tg::Location::Remote(tg::location::Remote {
-			name: remote.remote.clone(),
+			name: remote.name.clone(),
 			region,
 		}));
 		Ok(Some(output))

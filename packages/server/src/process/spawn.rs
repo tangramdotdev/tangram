@@ -585,12 +585,9 @@ impl Server {
 		arg: &tg::process::spawn::Arg,
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		let client = self
-			.get_remote_client(remote.remote.clone())
-			.await
-			.map_err(
-				|source| tg::error!(!source, remote = %remote.remote, "failed to get the remote client"),
-			)?;
+		let client = self.get_remote_client(remote.name.clone()).await.map_err(
+			|source| tg::error!(!source, remote = %remote.name, "failed to get the remote client"),
+		)?;
 		let arg = tg::process::spawn::Arg {
 			cached: Some(true),
 			cache_location: Some(disabled_cache_locations()),
@@ -599,7 +596,7 @@ impl Server {
 			..arg.clone()
 		};
 		let stream = client.try_spawn_process(arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote.remote, "failed to get the cached process"),
+			|source| tg::error!(!source, remote = %remote.name, "failed to get the cached process"),
 		)?;
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.next().await {
@@ -613,7 +610,7 @@ impl Server {
 				None => None,
 			};
 			output.location = Some(tg::Location::Remote(tg::location::Remote {
-				name: remote.remote.clone(),
+				name: remote.name.clone(),
 				region,
 			}));
 			return Ok(Some(output));

@@ -14,18 +14,30 @@ let path = artifact {
 
 let process = tg build -dv $path | from json
 tg cancel $process.process $process.token
-let output = tg wait $process.process | complete
-let output = $output.stdout | str trim | from json
-snapshot $output.error.message 'the process was canceled'
+let output = tg output $process.process | complete
+failure $output
+let stderr = $output.stderr | ansi strip | str trim | str replace -r 'id = pcs_[a-z0-9]+' 'id = <process>'
+snapshot $stderr '
+	error an error occurred
+	-> failed to get the process output
+	   id = <process>
+	-> the process was canceled
+'
 
 let id = job spawn {
 	tg build $path | complete
 };
 job kill $id
 
-let output = tg wait $process.process | complete
-let output = $output.stdout | str trim | from json
-snapshot $output.error.message 'the process was canceled'
+let output = tg output $process.process | complete
+failure $output
+let stderr = $output.stderr | ansi strip | str trim | str replace -r 'id = pcs_[a-z0-9]+' 'id = <process>'
+snapshot $stderr '
+	error an error occurred
+	-> failed to get the process output
+	   id = <process>
+	-> the process was canceled
+'
 
 let path = artifact {
 	tangram.ts: '

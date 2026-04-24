@@ -159,12 +159,9 @@ impl Server {
 		id: &tg::process::Id,
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<tg::process::Metadata>> {
-		let client = self
-			.get_remote_client(remote.remote.clone())
-			.await
-			.map_err(
-				|source| tg::error!(!source, remote = %remote.remote, "failed to get the remote client"),
-			)?;
+		let client = self.get_remote_client(remote.name.clone()).await.map_err(
+			|source| tg::error!(!source, remote = %remote.name, "failed to get the remote client"),
+		)?;
 		let arg = tg::process::metadata::Arg {
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
@@ -173,7 +170,7 @@ impl Server {
 			])),
 		};
 		let Some(metadata) = client.try_get_process_metadata(id, arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote.remote, "failed to get the process metadata"),
+			|source| tg::error!(!source, remote = %remote.name, "failed to get the process metadata"),
 		)?
 		else {
 			return Ok(None);

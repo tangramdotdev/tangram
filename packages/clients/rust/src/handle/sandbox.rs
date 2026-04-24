@@ -64,9 +64,11 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::sandbox::finish::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		async move {
-			self.try_finish_sandbox(id, arg)
-				.await?
-				.ok_or_else(|| tg::error!("failed to find the sandbox"))
+			match self.try_finish_sandbox(id, arg).await? {
+				Some(true) => Ok(()),
+				Some(false) => Err(tg::error!("the sandbox was already finished")),
+				None => Err(tg::error!("failed to find the sandbox")),
+			}
 		}
 	}
 
@@ -74,7 +76,7 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::finish::Arg,
-	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
+	) -> impl Future<Output = tg::Result<Option<bool>>> + Send;
 
 	fn heartbeat_sandbox(
 		&self,
@@ -164,7 +166,7 @@ impl tg::handle::Sandbox for tg::Client {
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::finish::Arg,
-	) -> impl Future<Output = tg::Result<Option<()>>> {
+	) -> impl Future<Output = tg::Result<Option<bool>>> {
 		self.try_finish_sandbox(id, arg)
 	}
 
