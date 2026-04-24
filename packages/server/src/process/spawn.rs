@@ -217,9 +217,7 @@ impl Server {
 					tg::Location::Local(tg::location::Local::default()),
 					permit,
 					Some(output.id.clone()),
-				)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the sandbox"))?;
+				);
 			} else if output.sandbox_status == Some(tg::sandbox::Status::Created) {
 				self.spawn_publish_sandbox_processes_created_message_task(sandbox);
 				self.spawn_publish_sandboxes_created_message_task();
@@ -1730,17 +1728,12 @@ impl Server {
 					return;
 				}
 
-				// TODO: what if this fails? The process should be canceled, but we don't have a cancellation token.
-				server
-					.spawn_sandbox_task(
-						&sandbox,
-						tg::Location::Local(tg::location::Local::default()),
-						permit,
-						Some(process),
-					)
-					.await
-					.inspect_err(|error| tracing::error!(%error, "failed to create the sandbox"))
-					.ok();
+				server.spawn_sandbox_task(
+					&sandbox,
+					tg::Location::Local(tg::location::Local::default()),
+					permit,
+					Some(process),
+				);
 			}
 		});
 	}

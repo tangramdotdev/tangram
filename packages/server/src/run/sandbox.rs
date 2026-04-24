@@ -1,9 +1,6 @@
 use {
 	crate::{SandboxPermit, Server, context::Context, temp::Temp},
-	futures::{
-		FutureExt as _, TryFutureExt as _, TryStreamExt as _,
-		future::{self, BoxFuture},
-	},
+	futures::{FutureExt as _, TryStreamExt as _, future},
 	std::{path::Path, pin::pin, sync::Arc, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
@@ -17,30 +14,23 @@ impl Server {
 		location: tg::Location,
 		permit: SandboxPermit,
 		process: Option<tg::process::Id>,
-	) -> BoxFuture<'static, tg::Result<()>> {
+	) {
 		let server = self.clone();
 		let id = id.clone();
-		async move {
-			if server.sandbox_tasks.try_get_id(&id).is_some() {
-				return Ok(());
-			}
-			let future = server
-				.sandbox_task(&id, location, permit, process)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to create the sandbox"))?;
-			server
-				.sandbox_tasks
-				.spawn(id.clone(), |_| {
-					future
+		self
+			.sandbox_tasks
+			.spawn(id.clone(), move |_| {
+				async move {
+					server
+						.sandbox_task(&id, location, permit, process)
+						.await
 						.inspect_err(|error| {
 							tracing::error!(error = %error.trace(), "the sandbox task failed");
 						})
-						.map(|_| ())
-				})
-				.detach();
-			Ok(())
-		}
-		.boxed()
+						.ok();
+				}
+			})
+			.detach();
 	}
 
 	async fn sandbox_task(
@@ -49,7 +39,7 @@ impl Server {
 		location: tg::Location,
 		permit: SandboxPermit,
 		process: Option<tg::process::Id>,
-	) -> tg::Result<BoxFuture<'static, tg::Result<()>>> {
+	) -> tg::Result<()> {
 		// Get the sandbox.
 		let state = self
 			.try_get_sandbox(
@@ -61,10 +51,10 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox"))?;
 		let Some(state) = state else {
-			return Ok(Box::pin(future::ok(())));
+			return Ok(());
 		};
 		if state.status.is_finished() {
-			return Ok(Box::pin(future::ok(())));
+			return Ok(());
 		}
 		let isolation = self.resolve_sandbox_isolation()?;
 
@@ -126,155 +116,143 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to create the sandbox"))?;
 
-		let future = {
-			let server = self.clone();
+		let _temp = temp;
+		self.sandboxes.insert(id.clone(), sandbox.clone());
+		let server = self.clone();
+		scopeguard::defer! {
+			server.sandboxes.remove(id);
+			drop(host_ip);
+			drop(guest_ip);
+		}
+
+		// Spawn the serve task.
+		let serve_task = Task::spawn({
+			let server = server.clone();
+			let config = crate::config::HttpListener {
+				url: guest_uri.clone(),
+				tls: None,
+			};
+			let context = Context {
+				sandbox: Some(id.clone()),
+				..Default::default()
+			};
+			|stop| async move {
+				server.serve(listener, config, context, stop).await;
+			}
+		});
+
+		// Spawn the heartbeat task.
+		let heartbeat_task = Task::spawn({
+			let server = server.clone();
 			let id = id.clone();
-			async move {
-				let _temp = temp;
-				server.sandboxes.insert(id.clone(), sandbox.clone());
-				scopeguard::defer! {
-					server.sandboxes.remove(&id);
-					drop(host_ip);
-					drop(guest_ip);
-				}
+			let location = location.clone();
+			move |stopper| async move { server.sandbox_heartbeat_task(&id, &location, stopper).await }
+		});
 
-				// Spawn the serve task.
-				let serve_task = Task::spawn({
-					let server = server.clone();
-					let config = crate::config::HttpListener {
-						url: guest_uri.clone(),
-						tls: None,
-					};
-					let context = Context {
-						sandbox: Some(id.clone()),
-						..Default::default()
-					};
-					|stop| async move {
-						server.serve(listener, config, context, stop).await;
-					}
-				});
+		let status = server
+			.get_sandbox_status(
+				id,
+				tg::sandbox::status::Arg {
+					location: Some(location.clone().into()),
+				},
+			)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %id, "failed to get the sandbox status stream"),
+			)?;
+		let mut status = pin!(status);
 
-				// Spawn the heartbeat task.
-				let heartbeat_task = Task::spawn({
-					let server = server.clone();
-					let id = id.clone();
-					let location = location.clone();
-					move |stopper| async move {
-						server.sandbox_heartbeat_task(&id, &location, stopper).await
-					}
-				});
+		let process_stopper = Stopper::new();
+		let mut process_tasks = JoinSet::new();
 
-				let status = server
-					.get_sandbox_status(
-						&id,
-						tg::sandbox::status::Arg {
-							location: Some(location.clone().into()),
-						},
-					)
-					.await
-					.map_err(
-						|source| tg::error!(!source, %id, "failed to get the sandbox status stream"),
-					)?;
-				let mut status = pin!(status);
+		let ttl = (state.ttl != i64::MAX as u64).then(|| Duration::from_secs(state.ttl));
+		let mut timer = None;
 
-				let process_stopper = Stopper::new();
-				let mut process_tasks = JoinSet::new();
+		if let Some(process) = process {
+			server.spawn_sandbox_process_task(
+				&mut process_tasks,
+				&process_stopper,
+				process.clone(),
+				&location,
+				&sandbox,
+				&guest_uri,
+			);
+		} else if let Some(ttl) = ttl {
+			timer.replace(tokio::time::sleep(ttl).boxed());
+		}
 
-				let ttl = (state.ttl != i64::MAX as u64).then(|| Duration::from_secs(state.ttl));
-				let mut timer = None;
-
-				if let Some(process) = process {
+		loop {
+			let timer_future = timer.as_mut().map_or_else(
+				|| future::pending().left_future(),
+				|timer| timer.as_mut().right_future(),
+			);
+			tokio::select! {
+				output = server.dequeue_sandbox_process(id, &location) => {
+					let output = output.map_err(|source| tg::error!(!source, "failed to dequeue a process"))?;
+					timer.take();
 					server.spawn_sandbox_process_task(
 						&mut process_tasks,
 						&process_stopper,
-						process.clone(),
+						output.process.clone(),
 						&location,
 						&sandbox,
 						&guest_uri,
 					);
-				} else if let Some(ttl) = ttl {
-					timer.replace(tokio::time::sleep(ttl).boxed());
-				}
-
-				loop {
-					let timer_future = timer.as_mut().map_or_else(
-						|| future::pending().left_future(),
-						|timer| timer.as_mut().right_future(),
-					);
-					tokio::select! {
-						output = server.dequeue_sandbox_process(&id, &location) => {
-							let output = output.map_err(|source| tg::error!(!source, "failed to dequeue a process"))?;
-							timer.take();
-							server.spawn_sandbox_process_task(
-								&mut process_tasks,
-								&process_stopper,
-								output.process.clone(),
-								&location,
-								&sandbox,
-								&guest_uri,
-							);
-						},
-						result = status.try_next() => {
-							let option = result.map_err(|source| tg::error!(!source, "failed to read the sandbox status"))?;
-							let Some(status) = option else {
-								break;
-							};
-							if status.is_finished() {
-								break;
-							}
-						},
-						_ = process_tasks.join_next(), if !process_tasks.is_empty() => {
-							if process_tasks.is_empty() && let Some(ttl) = ttl {
-								timer.replace(tokio::time::sleep(ttl).boxed());
-							}
-						},
-						() = timer_future => {
-							let arg = tg::sandbox::finish::Arg {
-								location: Some(location.clone().into()),
-							};
-							server.finish_sandbox(&id, arg).await.ok();
-							timer.take();
-						},
+				},
+				result = status.try_next() => {
+					let option = result.map_err(|source| tg::error!(!source, "failed to read the sandbox status"))?;
+					let Some(status) = option else {
+						break;
+					};
+					if status.is_finished() {
+						break;
 					}
-				}
-
-				process_stopper.stop();
-				while process_tasks.join_next().await.is_some() {}
-
-				serve_task.stop();
-				serve_task
-					.wait()
-					.await
-					.map_err(|source| tg::error!(!source, "the serve task panicked"))?;
-
-				heartbeat_task.stop();
-				heartbeat_task
-					.wait()
-					.await
-					.map_err(|source| tg::error!(!source, "the heartbeat task panicked"))?
-					.map_err(|source| tg::error!(!source, "the heartbeat task failed"))?;
-
-				server
-					.finish_unfinished_processes_in_sandbox(
-						&id,
-						&location,
-						tg::error::Data {
-							code: Some(tg::error::Code::Cancellation),
-							message: Some("the process was canceled".into()),
-							..Default::default()
-						},
-					)
-					.await
-					.map_err(
-						|source| tg::error!(!source, %id, "failed to finish unfinished processes"),
-					)?;
-
-				Ok::<(), tg::Error>(())
+				},
+				_ = process_tasks.join_next(), if !process_tasks.is_empty() => {
+					if process_tasks.is_empty() && let Some(ttl) = ttl {
+						timer.replace(tokio::time::sleep(ttl).boxed());
+					}
+				},
+				() = timer_future => {
+					let arg = tg::sandbox::finish::Arg {
+						location: Some(location.clone().into()),
+					};
+					server.finish_sandbox(id, arg).await.ok();
+					timer.take();
+				},
 			}
-			.boxed()
-		};
+		}
 
-		Ok(future)
+		process_stopper.stop();
+		while process_tasks.join_next().await.is_some() {}
+
+		serve_task.stop();
+		serve_task
+			.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "the serve task panicked"))?;
+
+		heartbeat_task.stop();
+		heartbeat_task
+			.wait()
+			.await
+			.map_err(|source| tg::error!(!source, "the heartbeat task panicked"))?
+			.map_err(|source| tg::error!(!source, "the heartbeat task failed"))?;
+
+		server
+			.finish_unfinished_processes_in_sandbox(
+				id,
+				&location,
+				tg::error::Data {
+					code: Some(tg::error::Code::Cancellation),
+					message: Some("the process was canceled".into()),
+					..Default::default()
+				},
+			)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to finish unfinished processes"))?;
+
+		Ok::<(), tg::Error>(())
 	}
 
 	async fn dequeue_sandbox_process(
