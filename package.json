@@ -28,7 +28,15 @@
 		"macos:doctor": "nu scripts/macos/doctor.nu",
 		"macos:install": "nu scripts/macos/install.nu",
 		"macos:release": "nu scripts/macos/release.nu",
-		"macos:run": "nu scripts/macos/run.nu"
+		"macos:run": "nu scripts/macos/run.nu",
+		"tg:build": "tg run -b . -- build",
+		"tg:build:all": "tg run -b . -- build --all-features",
+		"tg:canary": "tg build .#release && gh release upload canary .tangram/release/* --clobber && git tag canary -f && git push origin tag canary -f",
+		"tg:tg": "tg run -b . -- run --all-features -c .config/tangram/config.json -d .tangram -m client",
+		"tg:stg": "sudo tg run -b . -- run --all-features -c .config/tangram/config.json -d .tangram -m client",
+		"tg:tgr": "tg run -b . -- run --release -c .config/tangram/config.json -d .tangram -m client",
+		"tg:tgx": "tg run -b . -- run -c .config/tangram/config.json -d .tangram -m client run -b",
+		"tg:tgxr": "tg run -b . -- run --release -c .config/tangram/config.json -d .tangram -m client run -b"
 	},
 	"dependencies": {
 		"@types/bun": "^1.3.14",
