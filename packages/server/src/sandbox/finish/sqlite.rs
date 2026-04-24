@@ -1,5 +1,8 @@
 use {
-	crate::{Server, sandbox::finish::InnerArg},
+	crate::{
+		Server,
+		sandbox::finish::{InnerArg, InnerOutput},
+	},
 	indoc::indoc,
 	rusqlite as sqlite,
 	tangram_client::prelude::*,
@@ -12,7 +15,7 @@ impl Server {
 		transaction: &db::sqlite::Transaction<'_>,
 		id: &tg::sandbox::Id,
 		arg: InnerArg,
-	) -> tg::Result<bool> {
+	) -> tg::Result<InnerOutput> {
 		let id = id.clone();
 		transaction
 			.with(move |transaction, _cache| {
@@ -25,7 +28,7 @@ impl Server {
 		transaction: &mut sqlite::Transaction<'_>,
 		id: &tg::sandbox::Id,
 		arg: &InnerArg,
-	) -> tg::Result<bool> {
+	) -> tg::Result<InnerOutput> {
 		let statement = indoc!(
 			"
 				update sandboxes
@@ -49,7 +52,11 @@ impl Server {
 			)
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		if n != 1 {
-			return Ok(false);
+			let output = InnerOutput {
+				finished: false,
+				unfinished_processes: Vec::new(),
+			};
+			return Ok(output);
 		}
 
 		let statement = indoc!(
@@ -65,6 +72,40 @@ impl Server {
 			)
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		Ok(true)
+		let statement = indoc!(
+			"
+				select id
+				from processes
+				where
+					sandbox = ?1 and
+					status != 'finished'
+				order by created_at, id;
+			"
+		);
+		let mut statement = transaction
+			.prepare(statement)
+			.map_err(|source| tg::error!(!source, "failed to prepare the statement"))?;
+		let mut rows = statement
+			.query(sqlite::params![id.to_string()])
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		let mut unfinished_processes = Vec::new();
+		while let Some(row) = rows
+			.next()
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+		{
+			let process = row
+				.get::<_, String>(0)
+				.map_err(|source| tg::error!(!source, "failed to get the process"))?
+				.parse()
+				.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+			unfinished_processes.push(process);
+		}
+
+		let output = InnerOutput {
+			finished: true,
+			unfinished_processes,
+		};
+
+		Ok(output)
 	}
 }

@@ -190,7 +190,7 @@ impl Server {
 		}
 	}
 
-	async fn try_finish_process_inner(
+	pub(crate) async fn try_finish_process_inner(
 		&self,
 		transaction: &Transaction<'_>,
 		id: &tg::process::Id,

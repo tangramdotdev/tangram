@@ -1,5 +1,8 @@
 use {
-	crate::{Server, sandbox::finish::InnerArg},
+	crate::{
+		Server,
+		sandbox::finish::{InnerArg, InnerOutput},
+	},
 	indoc::indoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -11,7 +14,13 @@ impl Server {
 		transaction: &db::postgres::Transaction<'_>,
 		id: &tg::sandbox::Id,
 		arg: InnerArg,
-	) -> tg::Result<bool> {
+	) -> tg::Result<InnerOutput> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			finished: bool,
+			#[tangram_database(as = "db::value::Json<Vec<tg::process::Id>>")]
+			unfinished_processes: Vec<tg::process::Id>,
+		}
 		let statement = indoc!(
 			"
 				with updated as (
@@ -30,8 +39,23 @@ impl Server {
 					select $1, id, $4
 					from updated
 					returning sandbox
+				),
+				unfinished_processes as (
+					select processes.id, processes.created_at
+					from processes
+					where
+						processes.sandbox in (select id from updated) and
+						processes.status != 'finished'
 				)
-				select exists(select 1 from updated);
+				select
+					exists(select 1 from updated) as finished,
+					(
+						select coalesce(
+							json_agg(id order by created_at, id),
+							'[]'::json
+						)
+						from unfinished_processes
+					) as unfinished_processes;
 			"
 		);
 		let params = db::params![
@@ -40,10 +64,17 @@ impl Server {
 			id.to_string(),
 			"created",
 		];
-		let finished = transaction
-			.query_one_value_into::<bool>(statement.into(), params)
+		let Row {
+			finished,
+			unfinished_processes,
+		} = transaction
+			.query_one_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		Ok(finished)
+		let output = InnerOutput {
+			finished,
+			unfinished_processes,
+		};
+		Ok(output)
 	}
 }

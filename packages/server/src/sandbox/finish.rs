@@ -19,6 +19,11 @@ pub(super) struct InnerArg {
 	pub(super) now: i64,
 }
 
+pub(super) struct InnerOutput {
+	pub(super) finished: bool,
+	pub(super) unfinished_processes: Vec<tg::process::Id>,
+}
+
 impl Server {
 	pub(crate) async fn try_finish_sandbox_with_context(
 		&self,
@@ -93,12 +98,56 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to acquire a transaction"))?;
 
-		let finished = self
+		let InnerOutput {
+			finished,
+			unfinished_processes,
+		} = self
 			.try_finish_sandbox_inner(&transaction, id)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to finish the sandbox"))?;
 		if !finished {
 			return Err(tg::error!("the sandbox was already finished"));
+		}
+
+		// Finish the unfinished processes.
+		let mut finished_processes = Vec::new();
+		if !unfinished_processes.is_empty() {
+			let error = tg::Either::Left(tg::error::Data {
+				code: Some(tg::error::Code::Cancellation),
+				message: Some("the process was canceled".into()),
+				..Default::default()
+			});
+			let results = unfinished_processes
+				.into_iter()
+				.map(|process| {
+					let error = error.clone();
+					let transaction = &transaction;
+					async move {
+						let finished = self
+							.try_finish_process_inner(
+								transaction,
+								&process,
+								None,
+								Some(error),
+								None,
+								1,
+							)
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to finish the process")
+							})?;
+						Ok::<_, tg::Error>(finished.then_some(process))
+					}
+				})
+				.collect::<FuturesUnordered<_>>()
+				.collect::<Vec<_>>()
+				.await;
+			for process in results {
+				let Some(process) = process? else {
+					continue;
+				};
+				finished_processes.push(process);
+			}
 		}
 
 		// Commit the transaction.
@@ -115,6 +164,10 @@ impl Server {
 		// Spawn a task to publish the finalize message.
 		self.spawn_publish_sandbox_finalize_message_task();
 
+		for process in &finished_processes {
+			self.spawn_process_finish_tasks(process);
+		}
+
 		Ok(Some(()))
 	}
 
@@ -122,7 +175,7 @@ impl Server {
 		&self,
 		transaction: &Transaction<'_>,
 		id: &tg::sandbox::Id,
-	) -> tg::Result<bool> {
+	) -> tg::Result<InnerOutput> {
 		let arg = InnerArg {
 			now: time::OffsetDateTime::now_utc().unix_timestamp(),
 		};
