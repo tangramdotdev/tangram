@@ -24,6 +24,7 @@ pub(crate) struct InnerArg {
 	pub checksum: Option<tg::Checksum>,
 	pub condition: Option<Condition>,
 	pub error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+	pub error_code: Option<tg::error::Code>,
 	pub exit: u8,
 	pub now: i64,
 	pub output: Option<tg::value::Data>,
@@ -123,6 +124,11 @@ impl Server {
 			}
 		}
 
+		let error_code = error.as_ref().and_then(|error| match error {
+			tg::Either::Left(data) => data.code,
+			tg::Either::Right(_) => None,
+		});
+
 		// Store the error if necessary.
 		error = match error {
 			Some(error) => {
@@ -149,6 +155,7 @@ impl Server {
 			checksum: arg.checksum,
 			condition,
 			error,
+			error_code,
 			exit,
 			now: time::OffsetDateTime::now_utc().unix_timestamp(),
 			output,

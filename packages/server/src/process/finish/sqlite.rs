@@ -29,10 +29,7 @@ impl Server {
 		id: &tg::process::Id,
 		arg: &InnerArg,
 	) -> tg::Result<bool> {
-		let error_code = arg.error.as_ref().and_then(|error| match error {
-			tg::Either::Left(data) => data.code.map(|code| code.to_string()),
-			tg::Either::Right(_) => None,
-		});
+		let error_code = arg.error_code.map(|code| code.to_string());
 		let error = arg.error.as_ref().map(|error| match error {
 			tg::Either::Left(data) => serde_json::to_string(data).unwrap(),
 			tg::Either::Right(id) => id.to_string(),

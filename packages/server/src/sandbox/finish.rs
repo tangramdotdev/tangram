@@ -129,6 +129,10 @@ impl Server {
 					..Default::default()
 				})
 			});
+			let error_code = match error.as_ref() {
+				tg::Either::Left(data) => data.code,
+				tg::Either::Right(_) => None,
+			};
 			let error = self.store_process_error(error).await;
 			let results = unfinished_processes
 				.into_iter()
@@ -140,6 +144,7 @@ impl Server {
 							checksum: None,
 							condition: None,
 							error: Some(error),
+							error_code,
 							exit: 1,
 							now,
 							output: None,
