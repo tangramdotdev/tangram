@@ -60,7 +60,7 @@ where
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::finish::Arg,
-	) -> impl Future<Output = tg::Result<Option<()>>> {
+	) -> impl Future<Output = tg::Result<Option<bool>>> {
 		match self {
 			tg::Either::Left(s) => s.try_finish_sandbox(id, arg).left_future(),
 			tg::Either::Right(s) => s.try_finish_sandbox(id, arg).right_future(),

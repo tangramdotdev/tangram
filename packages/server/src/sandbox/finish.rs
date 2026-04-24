@@ -30,7 +30,7 @@ impl Server {
 		context: &Context,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::finish::Arg,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<bool>> {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
@@ -43,7 +43,7 @@ impl Server {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
-					.try_finish_sandbox_local(id)
+					.try_finish_sandbox_local(id, arg.error.clone())
 					.await
 					.map_err(|source| tg::error!(!source, %id, "failed to finish the sandbox"))?
 			{
@@ -75,7 +75,8 @@ impl Server {
 	pub(crate) async fn try_finish_sandbox_local(
 		&self,
 		id: &tg::sandbox::Id,
-	) -> tg::Result<Option<()>> {
+		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+	) -> tg::Result<Option<bool>> {
 		// Verify the sandbox is local.
 		if !self
 			.get_sandbox_exists_local(id)
@@ -106,17 +107,20 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to finish the sandbox"))?;
 		if !finished {
-			return Err(tg::error!("the sandbox was already finished"));
+			return Ok(Some(false));
 		}
 
 		// Finish the unfinished processes.
 		let mut finished_processes = Vec::new();
 		if !unfinished_processes.is_empty() {
-			let error = tg::Either::Left(tg::error::Data {
-				code: Some(tg::error::Code::Cancellation),
-				message: Some("the process was canceled".into()),
-				..Default::default()
+			let error = error.unwrap_or_else(|| {
+				tg::Either::Left(tg::error::Data {
+					code: Some(tg::error::Code::Cancellation),
+					message: Some("the process was canceled".into()),
+					..Default::default()
+				})
 			});
+			let error = self.store_process_error(error).await;
 			let results = unfinished_processes
 				.into_iter()
 				.map(|process| {
@@ -168,7 +172,7 @@ impl Server {
 			self.spawn_process_finish_tasks(process);
 		}
 
-		Ok(Some(()))
+		Ok(Some(true))
 	}
 
 	async fn try_finish_sandbox_inner(
@@ -198,7 +202,7 @@ impl Server {
 		id: &tg::sandbox::Id,
 		arg: &tg::sandbox::finish::Arg,
 		regions: &[String],
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<bool>> {
 		let mut futures = regions
 			.iter()
 			.map(|region| self.try_finish_sandbox_region(id, arg, region))
@@ -227,7 +231,7 @@ impl Server {
 		id: &tg::sandbox::Id,
 		arg: &tg::sandbox::finish::Arg,
 		region: &str,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<bool>> {
 		let client = self.get_region_client(region.to_owned()).await.map_err(
 			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
 		)?;
@@ -238,13 +242,13 @@ impl Server {
 			location: Some(location.into()),
 			..arg.clone()
 		};
-		let Some(()) = client.try_finish_sandbox(id, arg).await.map_err(
+		let Some(finished) = client.try_finish_sandbox(id, arg).await.map_err(
 			|source| tg::error!(!source, region = %region, "failed to finish the sandbox"),
 		)?
 		else {
 			return Ok(None);
 		};
-		Ok(Some(()))
+		Ok(Some(finished))
 	}
 
 	async fn try_finish_sandbox_remotes(
@@ -252,7 +256,7 @@ impl Server {
 		id: &tg::sandbox::Id,
 		arg: &tg::sandbox::finish::Arg,
 		remotes: &[crate::location::Remote],
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<bool>> {
 		let mut futures = remotes
 			.iter()
 			.map(|remote| self.try_finish_sandbox_remote(id, arg, remote))
@@ -281,7 +285,7 @@ impl Server {
 		id: &tg::sandbox::Id,
 		arg: &tg::sandbox::finish::Arg,
 		remote: &crate::location::Remote,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<bool>> {
 		let client = self.get_remote_client(remote.name.clone()).await.map_err(
 			|source| tg::error!(!source, remote = %remote.name, %id, "failed to get the remote client"),
 		)?;
@@ -293,13 +297,13 @@ impl Server {
 			])),
 			..arg.clone()
 		};
-		let Some(()) = client.try_finish_sandbox(id, arg).await.map_err(
+		let Some(finished) = client.try_finish_sandbox(id, arg).await.map_err(
 			|source| tg::error!(!source, remote = %remote.name, "failed to finish the sandbox"),
 		)?
 		else {
 			return Ok(None);
 		};
-		Ok(Some(()))
+		Ok(Some(finished))
 	}
 
 	pub(crate) async fn handle_finish_sandbox_request(
@@ -320,7 +324,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
-		let Some(()) = self
+		let Some(finished) = self
 			.try_finish_sandbox_with_context(context, &id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to finish the sandbox"))?
@@ -331,6 +335,13 @@ impl Server {
 				.unwrap()
 				.boxed_body());
 		};
+		if !finished {
+			return Ok(http::Response::builder()
+				.status(http::StatusCode::CONFLICT)
+				.empty()
+				.unwrap()
+				.boxed_body());
+		}
 
 		match accept
 			.as_ref()

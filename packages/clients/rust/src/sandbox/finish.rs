@@ -17,7 +17,7 @@ impl tg::Client {
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::finish::Arg,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<bool>> {
 		let method = http::Method::POST;
 		let uri = format!("/sandboxes/{id}/finish");
 		let request = http::request::Builder::default()
@@ -37,12 +37,15 @@ impl tg::Client {
 		if response.status() == http::StatusCode::NOT_FOUND {
 			return Ok(None);
 		}
+		if response.status() == http::StatusCode::CONFLICT {
+			return Ok(Some(false));
+		}
 		if !response.status().is_success() {
 			let error = response.json().await.map_err(|source| {
 				tg::error!(!source, "failed to deserialize the error response")
 			})?;
 			return Err(error);
 		}
-		Ok(Some(()))
+		Ok(Some(true))
 	}
 }

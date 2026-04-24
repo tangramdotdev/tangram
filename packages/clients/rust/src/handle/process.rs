@@ -250,9 +250,11 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::process::finish::Arg,
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		async move {
-			self.try_finish_process(id, arg)
-				.await?
-				.ok_or_else(|| tg::error!("failed to find the process"))
+			match self.try_finish_process(id, arg).await? {
+				Some(true) => Ok(()),
+				Some(false) => Err(tg::error!("the process was already finished")),
+				None => Err(tg::error!("failed to find the process")),
+			}
 		}
 	}
 
@@ -260,7 +262,7 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
+	) -> impl Future<Output = tg::Result<Option<bool>>> + Send;
 
 	fn wait_process_future(
 		&self,
@@ -455,7 +457,7 @@ impl tg::handle::Process for tg::Client {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> impl Future<Output = tg::Result<Option<()>>> {
+	) -> impl Future<Output = tg::Result<Option<bool>>> {
 		self.try_finish_process(id, arg)
 	}
 

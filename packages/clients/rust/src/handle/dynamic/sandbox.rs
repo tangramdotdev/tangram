@@ -45,7 +45,7 @@ impl tg::handle::Sandbox for Handle {
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::finish::Arg,
-	) -> impl Future<Output = tg::Result<Option<()>>> {
+	) -> impl Future<Output = tg::Result<Option<bool>>> {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_finish_sandbox(id, arg)) }
 	}
 

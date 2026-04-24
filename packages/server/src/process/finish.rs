@@ -29,7 +29,7 @@ impl Server {
 		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<bool>> {
 		if context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
@@ -75,7 +75,7 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<bool>> {
 		let tg::process::finish::Arg {
 			mut error,
 			output,
@@ -143,7 +143,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to finish the process"))?;
 		if !finished {
-			return Err(tg::error!("the process was already finished"));
+			return Ok(Some(false));
 		}
 
 		// Commit the transaction.
@@ -156,7 +156,7 @@ impl Server {
 
 		self.spawn_process_finish_tasks(id);
 
-		Ok(Some(()))
+		Ok(Some(true))
 	}
 
 	pub(crate) async fn store_process_error(
@@ -327,7 +327,7 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
 		regions: &[String],
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<bool>> {
 		let mut futures = regions
 			.iter()
 			.map(|region| self.try_finish_process_region(id, arg.clone(), region))
@@ -356,7 +356,7 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
 		region: &str,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<bool>> {
 		let client = self.get_region_client(region.to_owned()).await.map_err(
 			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
 		)?;
@@ -367,14 +367,14 @@ impl Server {
 			location: Some(location.into()),
 			..arg
 		};
-		let Some(()) = client
+		let Some(finished) = client
 			.try_finish_process(id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %region, "failed to finish the process"))?
 		else {
 			return Ok(None);
 		};
-		Ok(Some(()))
+		Ok(Some(finished))
 	}
 
 	async fn try_finish_process_remotes(
@@ -382,7 +382,7 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
 		remotes: &[crate::location::Remote],
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<bool>> {
 		let mut futures = remotes
 			.iter()
 			.map(|remote| self.try_finish_process_remote(id, arg.clone(), remote))
@@ -411,7 +411,7 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
 		remote: &crate::location::Remote,
-	) -> tg::Result<Option<()>> {
+	) -> tg::Result<Option<bool>> {
 		let client = self.get_remote_client(remote.name.clone()).await.map_err(
 			|source| tg::error!(!source, remote = %remote.name, %id, "failed to get the remote client"),
 		)?;
@@ -423,13 +423,13 @@ impl Server {
 			])),
 			..arg
 		};
-		let Some(()) = client.try_finish_process(id, arg).await.map_err(
+		let Some(finished) = client.try_finish_process(id, arg).await.map_err(
 			|source| tg::error!(!source, remote = %remote.name, "failed to finish the process"),
 		)?
 		else {
 			return Ok(None);
 		};
-		Ok(Some(()))
+		Ok(Some(finished))
 	}
 
 	pub(crate) async fn handle_finish_process_request(
@@ -456,7 +456,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Finish the process.
-		let Some(()) = self
+		let Some(finished) = self
 			.try_finish_process_with_context(context, &id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to finish the process"))?
@@ -467,6 +467,13 @@ impl Server {
 				.unwrap()
 				.boxed_body());
 		};
+		if !finished {
+			return Ok(http::Response::builder()
+				.status(http::StatusCode::CONFLICT)
+				.empty()
+				.unwrap()
+				.boxed_body());
+		}
 
 		// Create the response.
 		match accept

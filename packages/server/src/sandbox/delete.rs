@@ -14,6 +14,7 @@ impl Server {
 	) -> tg::Result<Option<()>> {
 		self.try_finish_sandbox_with_context(context, id, tg::sandbox::finish::Arg::default())
 			.await
+			.map(|option| option.map(|_| ()))
 	}
 
 	pub(crate) async fn handle_delete_sandbox_request(

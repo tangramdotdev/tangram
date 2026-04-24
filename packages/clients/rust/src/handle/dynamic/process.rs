@@ -196,7 +196,7 @@ impl tg::handle::Process for Handle {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> impl Future<Output = tg::Result<Option<()>>> {
+	) -> impl Future<Output = tg::Result<Option<bool>>> {
 		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_finish_process(id, arg)) }
 	}
 

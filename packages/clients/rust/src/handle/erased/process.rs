@@ -117,7 +117,7 @@ pub trait Process: Send + Sync + 'static {
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<()>>>;
+	) -> BoxFuture<'a, tg::Result<Option<bool>>>;
 
 	fn try_wait_process_future<'a>(
 		&'a self,
@@ -291,7 +291,7 @@ where
 		&'a self,
 		id: &'a tg::process::Id,
 		arg: tg::process::finish::Arg,
-	) -> BoxFuture<'a, tg::Result<Option<()>>> {
+	) -> BoxFuture<'a, tg::Result<Option<bool>>> {
 		self.try_finish_process(id, arg).boxed()
 	}
 
