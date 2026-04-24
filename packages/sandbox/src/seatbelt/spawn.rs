@@ -261,9 +261,6 @@ fn create_sandbox_profile(arg: &crate::Arg) -> CString {
 		writedoc!(
 			profile,
 			r"
-				;; Allow read-only access to the user's home directory so tools such
-				;; as cargo/libgit2 (reading $HOME/.gitconfig), rustup toolchains,
-				;; and CoreFoundation (.CFUserTextEncoding) work inside the sandbox.
 				(allow file-read* file-map-executable file-test-existence
 					(subpath {}))
 			",
@@ -285,9 +282,6 @@ fn create_sandbox_profile(arg: &crate::Arg) -> CString {
 			)
 			.unwrap();
 		}
-		// Hard-deny well-known credential stores under $HOME. Seatbelt uses
-		// last-matching-rule semantics, so these override the allow above.
-		// List matches OpenCode's default secret roots.
 		for secret in [
 			".ssh",
 			".gnupg",
