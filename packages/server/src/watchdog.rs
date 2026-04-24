@@ -125,6 +125,19 @@ impl Server {
 					};
 					match entry.id {
 						tg::Either::Left(id) => {
+							let condition = match entry.code {
+								None => {
+									crate::process::finish::Condition::DepthExceeded { max_depth }
+								},
+								Some(tg::error::Code::Cancellation) => {
+									crate::process::finish::Condition::TokenCountZero
+								},
+								Some(code) => {
+									return Err(
+										tg::error!(%code, "invalid process finish condition"),
+									);
+								},
+							};
 							let arg = tg::process::finish::Arg {
 								checksum: None,
 								error: Some(tg::Either::Left(error)),
@@ -135,7 +148,7 @@ impl Server {
 								output: None,
 							};
 							let finished = server
-								.try_finish_process(&id, arg)
+								.try_finish_process_local(&id, arg, Some(condition))
 								.await
 								.map_err(
 									|source| tg::error!(!source, %id, "failed to finish the process"),
@@ -144,14 +157,26 @@ impl Server {
 							Ok::<_, tg::Error>(finished)
 						},
 						tg::Either::Right(id) => {
-							let arg = tg::sandbox::finish::Arg {
-								error: Some(tg::Either::Left(error)),
-								location: Some(
-									tg::Location::Local(tg::location::Local::default()).into(),
-								),
+							match entry.code {
+								Some(tg::error::Code::HeartbeatExpiration) => (),
+								Some(code) => {
+									return Err(
+										tg::error!(%code, "invalid sandbox finish condition"),
+									);
+								},
+								None => {
+									return Err(tg::error!("invalid sandbox finish condition"));
+								},
+							}
+							let condition = crate::sandbox::finish::Condition::HeartbeatExpired {
+								max_heartbeat_at,
 							};
 							let finished = server
-								.try_finish_sandbox(&id, arg)
+								.try_finish_sandbox_local(
+									&id,
+									Some(tg::Either::Left(error)),
+									Some(condition),
+								)
 								.await
 								.map_err(
 									|source| tg::error!(!source, %id, "failed to finish the sandbox"),
@@ -171,6 +196,7 @@ impl Server {
 			.count()
 			.to_u64()
 			.unwrap();
+
 		Ok(n)
 	}
 }

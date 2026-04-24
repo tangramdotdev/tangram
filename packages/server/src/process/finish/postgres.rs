@@ -1,5 +1,8 @@
 use {
-	crate::{Server, process::finish::InnerArg},
+	crate::{
+		Server,
+		process::finish::{Condition, InnerArg},
+	},
 	indoc::indoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -12,6 +15,27 @@ impl Server {
 		id: &tg::process::Id,
 		arg: InnerArg,
 	) -> tg::Result<bool> {
+		let error_code = arg.error.as_ref().and_then(|error| match error {
+			tg::Either::Left(data) => data.code.map(|code| code.to_string()),
+			tg::Either::Right(_) => None,
+		});
+		let error = arg.error.as_ref().map(|error| match error {
+			tg::Either::Left(data) => serde_json::to_string(data).unwrap(),
+			tg::Either::Right(id) => id.to_string(),
+		});
+		let output = arg
+			.output
+			.as_ref()
+			.map(serde_json::to_string)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
+		let (condition, max_depth) = match arg.condition {
+			Some(Condition::DepthExceeded { max_depth }) => {
+				(Some("depth_exceeded"), Some(max_depth))
+			},
+			Some(Condition::TokenCountZero) => (Some("token_count_zero"), None),
+			None => (None, None),
+		};
 		let statement = indoc!(
 			"
 				with updated as (
@@ -32,7 +56,12 @@ impl Server {
 						touched_at = $8
 					where
 						id = $9 and
-						status != 'finished'
+						status != 'finished' and
+						(
+							$11::text is null or
+							($11 = 'depth_exceeded' and depth > $12) or
+							($11 = 'token_count_zero' and token_count = 0)
+						)
 					returning id
 				),
 				deleted_tokens as (
@@ -53,16 +82,18 @@ impl Server {
 			.query_one_value_into::<bool>(
 				statement.into(),
 				db::params![
-					arg.checksum,
-					arg.error,
-					arg.error_code,
+					arg.checksum.as_ref().map(ToString::to_string),
+					error,
+					error_code,
 					arg.now,
-					arg.output,
-					arg.exit,
+					output,
+					i64::from(arg.exit),
 					tg::process::Status::Finished.to_string(),
 					arg.now,
 					id.to_string(),
 					"created",
+					condition,
+					max_depth,
 				],
 			)
 			.await

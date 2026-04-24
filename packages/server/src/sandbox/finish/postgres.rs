@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Server,
-		sandbox::finish::{InnerArg, InnerOutput},
+		sandbox::finish::{Condition, InnerArg, InnerOutput},
 	},
 	indoc::indoc,
 	tangram_client::prelude::*,
@@ -15,6 +15,12 @@ impl Server {
 		id: &tg::sandbox::Id,
 		arg: InnerArg,
 	) -> tg::Result<InnerOutput> {
+		let (condition, max_heartbeat_at) = match arg.condition {
+			Some(Condition::HeartbeatExpired { max_heartbeat_at }) => {
+				(Some("heartbeat_expired"), Some(max_heartbeat_at))
+			},
+			None => (None, None),
+		};
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			finished: bool,
@@ -31,7 +37,11 @@ impl Server {
 						status = $2
 					where
 						id = $3 and
-						status != 'finished'
+						status != 'finished' and
+						(
+							$5::text is null or
+							($5 = 'heartbeat_expired' and status = 'started' and heartbeat_at < $6)
+						)
 					returning id
 				),
 				enqueued as (
@@ -63,6 +73,8 @@ impl Server {
 			tg::sandbox::Status::Finished.to_string(),
 			id.to_string(),
 			"created",
+			condition,
+			max_heartbeat_at,
 		];
 		let Row {
 			finished,

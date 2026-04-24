@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Server,
-		sandbox::finish::{InnerArg, InnerOutput},
+		sandbox::finish::{Condition, InnerArg, InnerOutput},
 	},
 	indoc::indoc,
 	rusqlite as sqlite,
@@ -29,6 +29,12 @@ impl Server {
 		id: &tg::sandbox::Id,
 		arg: &InnerArg,
 	) -> tg::Result<InnerOutput> {
+		let (condition, max_heartbeat_at) = match arg.condition {
+			Some(Condition::HeartbeatExpired { max_heartbeat_at }) => {
+				(Some("heartbeat_expired"), Some(max_heartbeat_at))
+			},
+			None => (None, None),
+		};
 		let statement = indoc!(
 			"
 				update sandboxes
@@ -38,7 +44,11 @@ impl Server {
 					status = ?2
 				where
 					id = ?3 and
-					status != 'finished';
+					status != 'finished' and
+					(
+						?4 is null or
+						(?4 = 'heartbeat_expired' and status = 'started' and heartbeat_at < ?5)
+					);
 			"
 		);
 		let n = transaction
@@ -48,6 +58,8 @@ impl Server {
 					arg.now,
 					tg::sandbox::Status::Finished.to_string(),
 					id.to_string(),
+					condition,
+					max_heartbeat_at,
 				],
 			)
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;

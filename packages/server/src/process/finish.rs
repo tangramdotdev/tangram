@@ -14,13 +14,19 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
-pub(super) struct InnerArg {
-	pub(super) checksum: Option<String>,
-	pub(super) error: Option<String>,
-	pub(super) error_code: Option<String>,
-	pub(super) exit: i64,
-	pub(super) now: i64,
-	pub(super) output: Option<String>,
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Condition {
+	DepthExceeded { max_depth: i64 },
+	TokenCountZero,
+}
+
+pub(crate) struct InnerArg {
+	pub checksum: Option<tg::Checksum>,
+	pub condition: Option<Condition>,
+	pub error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+	pub exit: u8,
+	pub now: i64,
+	pub output: Option<tg::value::Data>,
 }
 
 impl Server {
@@ -42,7 +48,7 @@ impl Server {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
-					.try_finish_process_local(id, arg.clone())
+					.try_finish_process_local(id, arg.clone(), None)
 					.await
 					.map_err(|source| tg::error!(!source, %id, "failed to finish the process"))?
 			{
@@ -71,10 +77,11 @@ impl Server {
 		Ok(None)
 	}
 
-	async fn try_finish_process_local(
+	pub(crate) async fn try_finish_process_local(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
+		condition: Option<Condition>,
 	) -> tg::Result<Option<bool>> {
 		let tg::process::finish::Arg {
 			mut error,
@@ -138,8 +145,16 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "faile to acquire a transaction"))?;
 
+		let arg = InnerArg {
+			checksum: arg.checksum,
+			condition,
+			error,
+			exit,
+			now: time::OffsetDateTime::now_utc().unix_timestamp(),
+			output,
+		};
 		let finished = self
-			.try_finish_process_inner(&transaction, id, arg.checksum.as_ref(), error, output, exit)
+			.try_finish_process_inner(&transaction, id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to finish the process"))?;
 		if !finished {
@@ -194,33 +209,8 @@ impl Server {
 		&self,
 		transaction: &Transaction<'_>,
 		id: &tg::process::Id,
-		checksum: Option<&tg::Checksum>,
-		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
-		output: Option<tg::value::Data>,
-		exit: u8,
+		arg: InnerArg,
 	) -> tg::Result<bool> {
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let error_code = error.as_ref().and_then(|error| match error {
-			tg::Either::Left(data) => data.code.map(|code| code.to_string()),
-			tg::Either::Right(_) => None,
-		});
-		let error = error.as_ref().map(|error| match error {
-			tg::Either::Left(data) => serde_json::to_string(data).unwrap(),
-			tg::Either::Right(id) => id.to_string(),
-		});
-		let output = output
-			.as_ref()
-			.map(serde_json::to_string)
-			.transpose()
-			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
-		let arg = InnerArg {
-			checksum: checksum.map(ToString::to_string),
-			error,
-			error_code,
-			exit: exit.into(),
-			now,
-			output,
-		};
 		match transaction {
 			#[cfg(feature = "postgres")]
 			Transaction::Postgres(transaction) => {

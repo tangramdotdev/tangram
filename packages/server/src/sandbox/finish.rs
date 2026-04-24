@@ -15,13 +15,19 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
-pub(super) struct InnerArg {
-	pub(super) now: i64,
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Condition {
+	HeartbeatExpired { max_heartbeat_at: i64 },
 }
 
-pub(super) struct InnerOutput {
-	pub(super) finished: bool,
-	pub(super) unfinished_processes: Vec<tg::process::Id>,
+struct InnerArg {
+	condition: Option<Condition>,
+	now: i64,
+}
+
+struct InnerOutput {
+	finished: bool,
+	unfinished_processes: Vec<tg::process::Id>,
 }
 
 impl Server {
@@ -43,7 +49,7 @@ impl Server {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
-					.try_finish_sandbox_local(id, arg.error.clone())
+					.try_finish_sandbox_local(id, arg.error.clone(), None)
 					.await
 					.map_err(|source| tg::error!(!source, %id, "failed to finish the sandbox"))?
 			{
@@ -76,6 +82,7 @@ impl Server {
 		&self,
 		id: &tg::sandbox::Id,
 		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+		condition: Option<Condition>,
 	) -> tg::Result<Option<bool>> {
 		// Verify the sandbox is local.
 		if !self
@@ -98,12 +105,14 @@ impl Server {
 			.transaction()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to acquire a transaction"))?;
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let arg = InnerArg { condition, now };
 
 		let InnerOutput {
 			finished,
 			unfinished_processes,
 		} = self
-			.try_finish_sandbox_inner(&transaction, id)
+			.try_finish_sandbox_inner(&transaction, id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to finish the sandbox"))?;
 		if !finished {
@@ -127,15 +136,16 @@ impl Server {
 					let error = error.clone();
 					let transaction = &transaction;
 					async move {
+						let arg = crate::process::finish::InnerArg {
+							checksum: None,
+							condition: None,
+							error: Some(error),
+							exit: 1,
+							now,
+							output: None,
+						};
 						let finished = self
-							.try_finish_process_inner(
-								transaction,
-								&process,
-								None,
-								Some(error),
-								None,
-								1,
-							)
+							.try_finish_process_inner(transaction, &process, arg)
 							.await
 							.map_err(|source| {
 								tg::error!(!source, "failed to finish the process")
@@ -179,10 +189,8 @@ impl Server {
 		&self,
 		transaction: &Transaction<'_>,
 		id: &tg::sandbox::Id,
+		arg: InnerArg,
 	) -> tg::Result<InnerOutput> {
-		let arg = InnerArg {
-			now: time::OffsetDateTime::now_utc().unix_timestamp(),
-		};
 		match transaction {
 			#[cfg(feature = "postgres")]
 			Transaction::Postgres(transaction) => {

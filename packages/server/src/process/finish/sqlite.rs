@@ -1,5 +1,8 @@
 use {
-	crate::{Server, process::finish::InnerArg},
+	crate::{
+		Server,
+		process::finish::{Condition, InnerArg},
+	},
 	indoc::indoc,
 	rusqlite as sqlite,
 	tangram_client::prelude::*,
@@ -26,6 +29,28 @@ impl Server {
 		id: &tg::process::Id,
 		arg: &InnerArg,
 	) -> tg::Result<bool> {
+		let error_code = arg.error.as_ref().and_then(|error| match error {
+			tg::Either::Left(data) => data.code.map(|code| code.to_string()),
+			tg::Either::Right(_) => None,
+		});
+		let error = arg.error.as_ref().map(|error| match error {
+			tg::Either::Left(data) => serde_json::to_string(data).unwrap(),
+			tg::Either::Right(id) => id.to_string(),
+		});
+		let output = arg
+			.output
+			.as_ref()
+			.map(serde_json::to_string)
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to serialize the output"))?;
+		let (condition, max_depth) = match arg.condition {
+			Some(Condition::DepthExceeded { max_depth }) => {
+				(Some("depth_exceeded"), Some(max_depth))
+			},
+			Some(Condition::TokenCountZero) => (Some("token_count_zero"), None),
+			None => (None, None),
+		};
+		let checksum = arg.checksum.as_ref().map(ToString::to_string);
 		let statement = indoc!(
 			"
 				update processes
@@ -45,22 +70,29 @@ impl Server {
 					touched_at = ?8
 				where
 					id = ?9 and
-					status != 'finished';
+					status != 'finished' and
+					(
+						?10 is null or
+						(?10 = 'depth_exceeded' and depth > ?11) or
+						(?10 = 'token_count_zero' and token_count = 0)
+					);
 			"
 		);
 		let n = transaction
 			.execute(
 				statement,
 				sqlite::params![
-					arg.checksum.as_deref(),
-					arg.error.as_deref(),
-					arg.error_code.as_deref(),
+					checksum.as_deref(),
+					error.as_deref(),
+					error_code.as_deref(),
 					arg.now,
-					arg.output.as_deref(),
-					arg.exit,
+					output.as_deref(),
+					i64::from(arg.exit),
 					tg::process::Status::Finished.to_string(),
 					arg.now,
 					id.to_string(),
+					condition,
+					max_depth,
 				],
 			)
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
