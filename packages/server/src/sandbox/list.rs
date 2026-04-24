@@ -149,12 +149,9 @@ impl Server {
 		&self,
 		remote: &crate::location::Remote,
 	) -> tg::Result<tg::sandbox::list::Output> {
-		let client = self
-			.get_remote_client(remote.remote.clone())
-			.await
-			.map_err(
-				|source| tg::error!(!source, remote = %remote.remote, "failed to get the remote client"),
-			)?;
+		let client = self.get_remote_client(remote.name.clone()).await.map_err(
+			|source| tg::error!(!source, remote = %remote.name, "failed to get the remote client"),
+		)?;
 		let arg = tg::sandbox::list::Arg {
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
@@ -163,7 +160,7 @@ impl Server {
 			])),
 		};
 		let output = client.list_sandboxes(arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote.remote, "failed to list the sandboxes"),
+			|source| tg::error!(!source, remote = %remote.name, "failed to list the sandboxes"),
 		)?;
 		Ok(output)
 	}

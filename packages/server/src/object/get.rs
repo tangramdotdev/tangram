@@ -339,7 +339,7 @@ impl Server {
 		metadata: bool,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let location = tg::Location::Remote(tg::location::Remote {
-			name: remote.remote.clone(),
+			name: remote.name.clone(),
 			region: None,
 		});
 		let Some(output) = self
@@ -349,7 +349,7 @@ impl Server {
 				tg::error!(
 					!source,
 					%id,
-					remote = %remote.remote,
+					remote = %remote.name,
 					"failed to get the object"
 				)
 			})?

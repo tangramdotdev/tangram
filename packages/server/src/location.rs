@@ -15,7 +15,7 @@ pub(crate) struct Local {
 
 #[derive(Clone)]
 pub(crate) struct Remote {
-	pub remote: String,
+	pub name: String,
 	pub regions: Option<Vec<String>>,
 }
 
@@ -86,7 +86,7 @@ impl Server {
 			let remotes = remotes
 				.into_iter()
 				.map(|remote| Remote {
-					remote,
+					name: remote,
 					regions: None,
 				})
 				.collect();
@@ -132,7 +132,7 @@ impl Server {
 					let regions = component.regions.clone().map(canonicalize_regions);
 					if let Some(existing) = remotes
 						.iter_mut()
-						.find(|remote| remote.remote == component.name)
+						.find(|remote| remote.name == component.name)
 					{
 						match (&mut existing.regions, regions) {
 							(_, None) => existing.regions = None,
@@ -147,7 +147,7 @@ impl Server {
 						}
 					} else {
 						remotes.push(Remote {
-							remote: component.name.clone(),
+							name: component.name.clone(),
 							regions,
 						});
 					}

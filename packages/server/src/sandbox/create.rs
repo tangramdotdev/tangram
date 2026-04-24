@@ -106,7 +106,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		drop(connection);
 
-		self.publish_sandbox_status(&id);
+		self.spawn_publish_sandbox_status_task(&id);
 		self.spawn_publish_sandboxes_created_message_task();
 
 		let output = tg::sandbox::create::Output { id };

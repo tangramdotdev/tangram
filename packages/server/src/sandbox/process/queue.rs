@@ -53,12 +53,14 @@ impl Server {
 		&self,
 		sandbox: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
+		// Verify the sandbox exists.
 		if !self.get_sandbox_exists_local(sandbox).await.map_err(
 			|source| tg::error!(!source, %sandbox, "failed to check if the sandbox exists"),
 		)? {
 			return Ok(None);
 		}
 
+		// Create the update stream.
 		let subject = format!("sandboxes.{sandbox}.processes.created");
 		let created = self
 			.messenger
@@ -69,6 +71,8 @@ impl Server {
 		let interval = Duration::from_secs(1);
 		let interval = IntervalStream::new(tokio::time::interval(interval)).map(|_| ());
 		let stream = stream::select(created, interval);
+
+		// Dequeue.
 		let mut stream = pin!(stream);
 		while let Some(()) = stream.next().await {
 			let output = match &self.process_store {
@@ -92,7 +96,7 @@ impl Server {
 			}
 		}
 
-		Ok(None)
+		unreachable!()
 	}
 
 	async fn try_dequeue_sandbox_process_region(

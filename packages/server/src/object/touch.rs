@@ -148,12 +148,9 @@ impl Server {
 		id: &tg::object::Id,
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<()>> {
-		let client = self
-			.get_remote_client(remote.remote.clone())
-			.await
-			.map_err(
-				|source| tg::error!(!source, %id, remote = %remote.remote, "failed to get the remote client"),
-			)?;
+		let client = self.get_remote_client(remote.name.clone()).await.map_err(
+			|source| tg::error!(!source, %id, remote = %remote.name, "failed to get the remote client"),
+		)?;
 		let arg = tg::object::touch::Arg {
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
@@ -162,7 +159,7 @@ impl Server {
 			])),
 		};
 		let Some(()) = client.try_touch_object(id, arg).await.map_err(
-			|source| tg::error!(!source, %id, remote = %remote.remote, "failed to touch the object"),
+			|source| tg::error!(!source, %id, remote = %remote.name, "failed to touch the object"),
 		)?
 		else {
 			return Ok(None);

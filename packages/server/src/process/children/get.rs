@@ -390,12 +390,9 @@ impl Server {
 		arg: tg::process::children::get::Arg,
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
-		let client = self
-			.get_remote_client(remote.remote.clone())
-			.await
-			.map_err(
-				|source| tg::error!(!source, remote = %remote.remote, "failed to get the remote client"),
-			)?;
+		let client = self.get_remote_client(remote.name.clone()).await.map_err(
+			|source| tg::error!(!source, remote = %remote.name, "failed to get the remote client"),
+		)?;
 		let arg = tg::process::children::get::Arg {
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
@@ -408,7 +405,7 @@ impl Server {
 			.try_get_process_children_stream(id, arg)
 			.await
 			.map_err(
-				|source| tg::error!(!source, remote = %remote.remote, "failed to get the process children"),
+				|source| tg::error!(!source, remote = %remote.name, "failed to get the process children"),
 			)?
 		else {
 			return Ok(None);

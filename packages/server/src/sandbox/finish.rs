@@ -1,15 +1,23 @@
 use {
-	crate::{Context, Server, database},
+	crate::{Context, Server, database::Transaction},
 	futures::{StreamExt as _, stream::FuturesUnordered},
-	indoc::formatdoc,
 	tangram_client::prelude::*,
-	tangram_database::{self as db, prelude::*},
+	tangram_database::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody,
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
 };
+
+#[cfg(feature = "postgres")]
+mod postgres;
+#[cfg(feature = "sqlite")]
+mod sqlite;
+
+pub(super) struct InnerArg {
+	pub(super) now: i64,
+}
 
 impl Server {
 	pub(crate) async fn try_finish_sandbox_with_context(
@@ -38,7 +46,7 @@ impl Server {
 			}
 
 			if let Some(output) = self
-				.try_finish_sandbox_regions(id, &local.regions)
+				.try_finish_sandbox_regions(id, &arg, &local.regions)
 				.await
 				.map_err(
 					|source| tg::error!(!source, %id, "failed to finish the sandbox in another region"),
@@ -48,7 +56,7 @@ impl Server {
 		}
 
 		if let Some(output) = self
-			.try_finish_sandbox_remotes(id, &locations.remotes)
+			.try_finish_sandbox_remotes(id, &arg, &locations.remotes)
 			.await
 			.map_err(
 				|source| tg::error!(!source, %id, "failed to finish the sandbox in a remote"),
@@ -63,139 +71,84 @@ impl Server {
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<()>> {
+		// Verify the sandbox is local.
+		if !self
+			.get_sandbox_exists_local(id)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the sandbox"))?
+		{
+			return Ok(None);
+		}
+
+		// Get a process store connection.
 		let mut connection = self
 			.process_store
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+
+		// Begin a transaction.
 		let transaction = connection
 			.transaction()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to acquire a transaction"))?;
-		let p = transaction.p();
-		let statement = formatdoc!(
-			"
-				update sandboxes
-				set
-					finished_at = {p}1,
-					heartbeat_at = null,
-					status = 'finished'
-				where id = {p}2 and status != 'finished';
-			"
-		);
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let params = db::params![now, id.to_string()];
-		let n = transaction
-			.execute(statement.into(), params)
+
+		let finished = self
+			.try_finish_sandbox_inner(&transaction, id)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		if n == 0 {
-			return Ok(None);
+			.map_err(|source| tg::error!(!source, "failed to finish the sandbox"))?;
+		if !finished {
+			return Err(tg::error!("the sandbox was already finished"));
 		}
 
-		let enqueue =
-			Self::try_insert_sandbox_finalize_entry_with_transaction(&transaction, id, now)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to enqueue sandbox finalization"))?;
-
+		// Commit the transaction.
 		transaction
 			.commit()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
 		drop(connection);
 
-		self.publish_sandbox_status(id);
-		if enqueue {
-			self.spawn_publish_sandbox_finalize_message_task();
-		}
+		// Spawn a task to publish the status message.
+		self.spawn_publish_sandbox_status_task(id);
+
+		// Spawn a task to publish the finalize message.
+		self.spawn_publish_sandbox_finalize_message_task();
+
 		Ok(Some(()))
 	}
 
-	pub(crate) async fn enqueue_finished_sandbox_local(
+	async fn try_finish_sandbox_inner(
 		&self,
+		transaction: &Transaction<'_>,
 		id: &tg::sandbox::Id,
-	) -> tg::Result<Option<()>> {
-		let mut connection = self
-			.process_store
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
-		let transaction = connection
-			.transaction()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to acquire a transaction"))?;
-		let p = transaction.p();
-		let statement = formatdoc!(
-			"
-				select status
-				from sandboxes
-				where id = {p}1;
-			"
-		);
-		let params = db::params![id.to_string()];
-		let Some(status) = transaction
-			.query_optional_value_into::<db::value::Serde<tg::sandbox::Status>>(
-				statement.into(),
-				params,
-			)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
-			.map(|value| value.0)
-		else {
-			return Ok(None);
-		};
-		if !status.is_finished() {
-			return Err(tg::error!("expected the sandbox to be finished"));
-		}
-
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let enqueue =
-			Self::try_insert_sandbox_finalize_entry_with_transaction(&transaction, id, now)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to enqueue sandbox finalization"))?;
-
-		transaction
-			.commit()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
-		drop(connection);
-
-		if enqueue {
-			self.spawn_publish_sandbox_finalize_message_task();
-		}
-
-		Ok(Some(()))
-	}
-
-	async fn try_insert_sandbox_finalize_entry_with_transaction(
-		transaction: &database::Transaction<'_>,
-		id: &tg::sandbox::Id,
-		now: i64,
 	) -> tg::Result<bool> {
-		let p = transaction.p();
-		let statement = formatdoc!(
-			"
-				insert into sandbox_finalize_queue (created_at, sandbox, status)
-				values ({p}1, {p}2, {p}3)
-				on conflict (sandbox) do nothing;
-			"
-		);
-		let params = db::params![now, id.to_string(), "created"];
-		let n = transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		Ok(n != 0)
+		let arg = InnerArg {
+			now: time::OffsetDateTime::now_utc().unix_timestamp(),
+		};
+		match transaction {
+			#[cfg(feature = "postgres")]
+			Transaction::Postgres(transaction) => {
+				self.try_finish_sandbox_inner_postgres(transaction, id, arg)
+					.await
+			},
+			#[cfg(feature = "sqlite")]
+			Transaction::Sqlite(transaction) => {
+				self.try_finish_sandbox_inner_sqlite(transaction, id, arg)
+					.await
+			},
+		}
 	}
 
 	async fn try_finish_sandbox_regions(
 		&self,
 		id: &tg::sandbox::Id,
+		arg: &tg::sandbox::finish::Arg,
 		regions: &[String],
 	) -> tg::Result<Option<()>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_finish_sandbox_region(id, region))
+			.map(|region| self.try_finish_sandbox_region(id, arg, region))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -219,6 +172,7 @@ impl Server {
 	async fn try_finish_sandbox_region(
 		&self,
 		id: &tg::sandbox::Id,
+		arg: &tg::sandbox::finish::Arg,
 		region: &str,
 	) -> tg::Result<Option<()>> {
 		let client = self.get_region_client(region.to_owned()).await.map_err(
@@ -229,6 +183,7 @@ impl Server {
 		});
 		let arg = tg::sandbox::finish::Arg {
 			location: Some(location.into()),
+			..arg.clone()
 		};
 		let Some(()) = client.try_finish_sandbox(id, arg).await.map_err(
 			|source| tg::error!(!source, region = %region, "failed to finish the sandbox"),
@@ -242,11 +197,12 @@ impl Server {
 	async fn try_finish_sandbox_remotes(
 		&self,
 		id: &tg::sandbox::Id,
+		arg: &tg::sandbox::finish::Arg,
 		remotes: &[crate::location::Remote],
 	) -> tg::Result<Option<()>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_finish_sandbox_remote(id, remote))
+			.map(|remote| self.try_finish_sandbox_remote(id, arg, remote))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -270,23 +226,22 @@ impl Server {
 	async fn try_finish_sandbox_remote(
 		&self,
 		id: &tg::sandbox::Id,
+		arg: &tg::sandbox::finish::Arg,
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<()>> {
-		let client = self
-			.get_remote_client(remote.remote.clone())
-			.await
-			.map_err(
-				|source| tg::error!(!source, remote = %remote.remote, %id, "failed to get the remote client"),
-			)?;
+		let client = self.get_remote_client(remote.name.clone()).await.map_err(
+			|source| tg::error!(!source, remote = %remote.name, %id, "failed to get the remote client"),
+		)?;
 		let arg = tg::sandbox::finish::Arg {
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
 					regions: remote.regions.clone(),
 				}),
 			])),
+			..arg.clone()
 		};
 		let Some(()) = client.try_finish_sandbox(id, arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote.remote, "failed to finish the sandbox"),
+			|source| tg::error!(!source, remote = %remote.name, "failed to finish the sandbox"),
 		)?
 		else {
 			return Ok(None);
@@ -334,6 +289,8 @@ impl Server {
 			},
 		}
 
-		Ok(http::Response::builder().empty().unwrap().boxed_body())
+		let response = http::Response::builder().empty().unwrap().boxed_body();
+
+		Ok(response)
 	}
 }

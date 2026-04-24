@@ -54,7 +54,7 @@ impl Server {
 			.into_iter()
 			.map(|remote| {
 				let arg = arg.clone();
-				async move { self.list_tags_remote(&remote.remote, &arg).await }
+				async move { self.list_tags_remote(&remote.name, &arg).await }
 			})
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<Vec<_>>()
