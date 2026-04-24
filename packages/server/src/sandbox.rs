@@ -2,6 +2,7 @@ use {
 	crate::Server,
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
+	std::net::Ipv4Addr,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_messenger::prelude::*,
@@ -20,23 +21,36 @@ pub mod status;
 
 impl Server {
 	fn sandbox_isolation_from_config(
-		isolation: crate::config::SandboxIsolation,
+		isolation: &crate::config::SandboxIsolation,
 	) -> tangram_sandbox::Isolation {
 		match isolation {
-			crate::config::SandboxIsolation::Container(_) => {
-				tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation::default())
+			crate::config::SandboxIsolation::Container(container) => {
+				let net = match &container.net {
+					crate::config::ContainerNet::None => tangram_sandbox::Net::None,
+					crate::config::ContainerNet::Host => tangram_sandbox::Net::Host,
+					crate::config::ContainerNet::Bridge(bridge) => {
+						let ip = bridge.ip.unwrap_or(Ipv4Addr::new(172, 18, 0, 1));
+						tangram_sandbox::Net::Bridge(tangram_sandbox::Bridge {
+							ip,
+							name: bridge.name.clone(),
+						})
+					},
+				};
+				tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation { net })
 			},
 			crate::config::SandboxIsolation::Seatbelt(_) => {
 				tangram_sandbox::Isolation::Seatbelt(tangram_sandbox::SeatbeltIsolation::default())
 			},
-			crate::config::SandboxIsolation::Vm(_) => {
-				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation::default())
+			crate::config::SandboxIsolation::Vm(vm) => {
+				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation {
+					kernel_path: vm.kernel_path.clone(),
+				})
 			},
 		}
 	}
 
 	pub(crate) fn resolve_sandbox_isolation(&self) -> tg::Result<tangram_sandbox::Isolation> {
-		let isolation = Self::sandbox_isolation_from_config(self.config.sandbox.isolation);
+		let isolation = Self::sandbox_isolation_from_config(&self.config.sandbox.isolation);
 		#[cfg(target_os = "linux")]
 		{
 			match isolation {
@@ -63,7 +77,7 @@ impl Server {
 	}
 
 	pub(crate) fn validate_sandbox_resources(
-		isolation: tangram_sandbox::Isolation,
+		isolation: &tangram_sandbox::Isolation,
 		cpu: Option<u64>,
 		memory: Option<u64>,
 	) -> tg::Result<()> {
@@ -135,6 +149,38 @@ impl Server {
 		}
 		self.publish_sandbox_status(id);
 		Ok(true)
+	}
+
+	pub(crate) fn allocate_guest_ip(&self) -> tg::Result<crate::network::Ip> {
+		if self.networks.is_empty() {
+			return Err(tg::error!("no networks are configured"));
+		}
+		self.networks
+			.iter()
+			.find_map(|network| {
+				network
+					.try_reserve()
+					.inspect_err(|error| tracing::warn!(?error, "failed to allocate ip"))
+					.ok()
+			})
+			.ok_or_else(|| tg::error!("failed to allocate guest IP address"))
+	}
+
+	pub(crate) fn allocate_guest_ip_pair(
+		&self,
+	) -> tg::Result<(crate::network::Ip, crate::network::Ip)> {
+		if self.networks.is_empty() {
+			return Err(tg::error!("no networks are configured"));
+		}
+		self.networks
+			.iter()
+			.find_map(|network| {
+				network
+					.try_reserve_pair()
+					.inspect_err(|error| tracing::warn!(?error, "failed to allocate ip pair"))
+					.ok()
+			})
+			.ok_or_else(|| tg::error!("failed to allocate guest IP address pair"))
 	}
 
 	pub(crate) fn publish_sandbox_status(&self, id: &tg::sandbox::Id) {

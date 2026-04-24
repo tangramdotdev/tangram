@@ -32,7 +32,9 @@ include_dir = { workspace = true }
 indoc = { workspace = true }
 libc = { workspace = true }
 mime = { workspace = true }
+neli = { workspace = true }
 num = { workspace = true }
+rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true }

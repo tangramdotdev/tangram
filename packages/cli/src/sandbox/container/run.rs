@@ -1,6 +1,6 @@
 use {
 	crate::Cli,
-	std::{ffi::OsString, path::PathBuf},
+	std::{ffi::OsString, net::Ipv4Addr, path::PathBuf},
 	tangram_client::prelude::*,
 };
 
@@ -12,6 +12,12 @@ pub struct Args {
 
 	#[arg(action = clap::ArgAction::Append, long = "bind", num_args = 2)]
 	pub binds: Vec<PathBuf>,
+
+	#[arg(long)]
+	pub bridge_fd: Option<i32>,
+
+	#[arg(long)]
+	pub bridge_ip: Option<Ipv4Addr>,
 
 	#[arg(long)]
 	pub cgroup: Option<String>,
@@ -41,7 +47,16 @@ pub struct Args {
 	pub gid: u32,
 
 	#[arg(long)]
+	pub guest_ip: Option<Ipv4Addr>,
+
+	#[arg(long)]
 	pub hostname: Option<String>,
+
+	#[arg(long)]
+	pub id: tg::sandbox::Id,
+
+	#[arg(long, default_value = "host")]
+	pub net: tangram_sandbox::container::run::Net,
 
 	#[arg(long)]
 	pub new_session: bool,
@@ -60,9 +75,6 @@ pub struct Args {
 
 	#[arg(action = clap::ArgAction::Append, long = "setenv", num_args = 2)]
 	pub setenvs: Vec<String>,
-
-	#[arg(long)]
-	pub share_net: bool,
 
 	#[arg(action = clap::ArgAction::Append, long = "tmpfs", num_args = 1)]
 	pub tmpfs: Vec<PathBuf>,
@@ -101,6 +113,8 @@ impl Args {
 		tangram_sandbox::container::run::Arg {
 			as_pid_1: self.as_pid_1,
 			binds,
+			bridge_fd: self.bridge_fd,
+			bridge_ip: self.bridge_ip,
 			cgroup: self.cgroup,
 			cgroup_cpu: self.cgroup_cpu,
 			cgroup_memory: self.cgroup_memory,
@@ -110,14 +124,16 @@ impl Args {
 			devs: self.devs,
 			die_with_parent: self.die_with_parent,
 			gid: self.gid,
+			guest_ip: self.guest_ip,
 			hostname: self.hostname,
+			net: self.net,
 			new_session: self.new_session,
 			overlay_sources: self.overlay_sources,
 			overlays,
 			procs: self.procs,
 			ro_binds,
+			id: self.id,
 			setenvs,
-			share_net: self.share_net,
 			tmpfs: self.tmpfs,
 			uid: self.uid,
 			unshare_all: self.unshare_all,

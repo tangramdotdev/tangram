@@ -109,6 +109,7 @@ liblzma = { version = "0.4", features = ["static"] }
 lsp-types = "0.97"
 miette = { version = "7.6", features = ["fancy"] }
 mime = "0.3"
+neli = "0.7"
 notify = "8"
 num = "0.4"
 num-derive = "0.4"

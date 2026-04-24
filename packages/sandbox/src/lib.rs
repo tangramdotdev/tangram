@@ -3,6 +3,7 @@ use {
 	futures::Stream,
 	std::{
 		collections::{BTreeMap, BTreeSet},
+		net::Ipv4Addr,
 		path::{Path, PathBuf},
 		sync::Arc,
 		time::Duration,
@@ -12,6 +13,10 @@ use {
 };
 
 mod client;
+#[cfg(target_os = "linux")]
+mod netlink;
+#[cfg(target_os = "linux")]
+mod network;
 mod pty;
 mod server;
 mod util;
@@ -24,6 +29,9 @@ pub mod seatbelt;
 pub mod serve;
 #[cfg(target_os = "linux")]
 pub mod vm;
+
+#[cfg(target_os = "linux")]
+pub use self::network::create_bridge;
 
 #[derive(Clone)]
 pub struct Sandbox(Arc<State>);
@@ -48,7 +56,10 @@ pub struct Process {
 pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub cpu: Option<u64>,
+	pub host_ip: Option<Ipv4Addr>,
+	pub guest_ip: Option<Ipv4Addr>,
 	pub hostname: Option<String>,
+	pub id: tg::sandbox::Id,
 	pub isolation: Isolation,
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
@@ -70,21 +81,43 @@ pub struct Command {
 	pub stdout: Stdio,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
 pub enum Isolation {
 	Container(ContainerIsolation),
 	Seatbelt(SeatbeltIsolation),
 	Vm(VmIsolation),
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct ContainerIsolation {}
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ContainerIsolation {
+	#[serde(default)]
+	pub net: Net,
+}
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum Net {
+	None,
+	#[default]
+	Host,
+	Bridge(Bridge),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Bridge {
+	pub ip: Ipv4Addr,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub name: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SeatbeltIsolation {}
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct VmIsolation {}
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct VmIsolation {
+	pub kernel_path: PathBuf,
+}
 
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Stdio {
@@ -95,7 +128,7 @@ pub enum Stdio {
 
 impl Sandbox {
 	pub async fn new(arg: Arg) -> tg::Result<Self> {
-		validate_resources(arg.isolation, arg.cpu, arg.memory)?;
+		validate_resources(&arg.isolation, arg.cpu, arg.memory)?;
 
 		// Validate the mounts.
 		let mut targets = BTreeSet::new();
@@ -127,7 +160,7 @@ impl Sandbox {
 			}
 		};
 
-		let (listener, url) = Self::listen(arg.isolation, &arg.path).await?;
+		let (listener, url) = Self::listen(&arg.isolation, &arg.path).await?;
 		let serve_arg = self::serve::Arg {
 			library_paths,
 			listen: false,
@@ -138,7 +171,7 @@ impl Sandbox {
 
 		let mut process = match arg.isolation {
 			#[cfg(target_os = "linux")]
-			Isolation::Container(_) => self::container::spawn(&arg, &serve_arg)?,
+			Isolation::Container(_) => self::container::spawn(&arg, &serve_arg).await?,
 			#[cfg(target_os = "linux")]
 			Isolation::Seatbelt(_) => {
 				return Err(tg::error!("seatbelt isolation is not supported on linux"));
@@ -157,7 +190,7 @@ impl Sandbox {
 			},
 		};
 
-		let client = match tokio::time::timeout(Duration::from_secs(5), async {
+		let client = match tokio::time::timeout(Duration::from_secs(200), async {
 			tokio::select! {
 				result = Client::with_listener(&listener) => result,
 				result = process.wait() => {
@@ -199,7 +232,7 @@ impl Sandbox {
 	}
 
 	async fn listen(
-		isolation: Isolation,
+		isolation: &Isolation,
 		root_path: &Path,
 	) -> tg::Result<(crate::server::Listener, Uri)> {
 		#[cfg(target_os = "linux")]
@@ -209,7 +242,7 @@ impl Sandbox {
 				Isolation::Seatbelt(_) => {
 					Err(tg::error!("seatbelt isolation is not supported on linux"))
 				},
-				Isolation::Vm(_) => Self::listen_vsock().await,
+				Isolation::Vm(_) => Self::listen_cloud_hypervisor(root_path).await,
 			}
 		}
 
@@ -279,13 +312,13 @@ impl Sandbox {
 				.parse()
 				.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
 			let listener = crate::server::Server::listen(&host_url).await?;
-			let port = match &listener {
-				crate::server::Listener::Tcp(listener) => listener
-					.local_addr()
-					.map_err(|source| tg::error!(!source, "failed to get the local address"))?
-					.port(),
-				_ => unreachable!(),
+			let crate::server::Listener::Tcp(tcp) = &listener else {
+				unreachable!();
 			};
+			let port = tcp
+				.local_addr()
+				.map_err(|source| tg::error!(!source, "failed to get the local address"))?
+				.port();
 			let url = format!("http://localhost:{port}")
 				.parse()
 				.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
@@ -293,29 +326,42 @@ impl Sandbox {
 		}
 	}
 
-	#[cfg(target_os = "linux")]
+	#[cfg(feature = "vsock")]
+	#[allow(dead_code)]
 	async fn listen_vsock() -> tg::Result<(crate::server::Listener, Uri)> {
-		#[cfg(not(feature = "vsock"))]
-		{
-			Err(tg::error!("vsock is not enabled"))
-		}
-		#[cfg(feature = "vsock")]
-		{
-			let host_url = format!("http+vsock://{}:0", self::vm::HOST_VSOCK_CID)
-				.parse()
-				.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
-			let listener = crate::server::Server::listen(&host_url).await?;
-			let addr = match &listener {
-				crate::server::Listener::Vsock(listener) => listener
-					.local_addr()
-					.map_err(|source| tg::error!(!source, "failed to get the local address"))?,
-				_ => unreachable!(),
-			};
-			let url = format!("http+vsock://{}:{}", addr.cid(), addr.port())
-				.parse()
-				.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
-			Ok((listener, url))
-		}
+		let port = 6748;
+		let host_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_ANY)
+			.parse()
+			.map_err(|_| tg::error!("failed to parse host url"))?;
+		let guest_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_ANY)
+			.parse()
+			.map_err(|_| tg::error!("failed to parse guest url"))?;
+		let listener = crate::server::Server::listen(&host_url).await?;
+		Ok((listener, guest_url))
+	}
+
+	#[cfg(target_os = "linux")]
+	async fn listen_cloud_hypervisor(
+		root_path: &Path,
+	) -> tg::Result<(crate::server::Listener, Uri)> {
+		let port = 6748;
+		let socket = format!("{}_{port}", vm::run::CLOUD_HYPERVISOR_VSOCK_SOCKET_NAME);
+		let path = root_path.join("vm").join(socket);
+		tokio::fs::create_dir_all(path.parent().unwrap())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the vm directory"))?;
+		let path = path.to_str().ok_or_else(|| tg::error!("invalid path"))?;
+		let host_url = Uri::builder()
+			.scheme("http+unix")
+			.authority(path)
+			.path("")
+			.build()
+			.map_err(|source| tg::error!(source = source, "failed to build the URL"))?;
+		let guest_url = format!("http+vsock://{}:{port}", self::vm::VMADDR_CID_HOST)
+			.parse()
+			.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?;
+		let listener = crate::server::Server::listen(&host_url).await?;
+		Ok((listener, guest_url))
 	}
 
 	pub async fn spawn(
@@ -398,7 +444,7 @@ impl Sandbox {
 }
 
 fn validate_resources(
-	isolation: Isolation,
+	isolation: &Isolation,
 	cpu: Option<u64>,
 	memory: Option<u64>,
 ) -> tg::Result<()> {
