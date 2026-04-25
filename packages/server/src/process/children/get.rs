@@ -23,7 +23,7 @@ use {
 impl Server {
 	pub async fn try_get_process_children_stream_with_context(
 		&self,
-		_context: &Context,
+		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
@@ -35,7 +35,7 @@ impl Server {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(stream) = self
-					.try_get_process_children_local(id, arg.clone())
+					.try_get_process_children_local(context, id, arg.clone())
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get the process children"))?
 			{
@@ -69,6 +69,7 @@ impl Server {
 
 	async fn try_get_process_children_local(
 		&self,
+		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
@@ -87,9 +88,10 @@ impl Server {
 		// Spawn the task.
 		let server = self.clone();
 		let id = id.clone();
+		let stopper = context.stopper.clone();
 		let task = Task::spawn(|_| async move {
 			let result = server
-				.try_get_process_children_local_task(&id, arg, sender.clone())
+				.try_get_process_children_local_task(&id, arg, sender.clone(), stopper)
 				.await;
 			if let Err(error) = result {
 				sender.try_send(Err(error)).ok();
@@ -106,6 +108,7 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 		sender: async_channel::Sender<tg::Result<tg::process::children::get::Event>>,
+		stopper: Option<Stopper>,
 	) -> tg::Result<()> {
 		// Get the position.
 		let position = match arg.position {
@@ -149,7 +152,7 @@ impl Server {
 			.boxed();
 
 		// Create the events stream.
-		let mut events = stream::select_all([children, status, interval]).boxed();
+		let mut events = stream::select_all([children, status, interval]).with_stopper(stopper);
 
 		// Create the state.
 		let size = arg.size.unwrap_or(10);
@@ -204,7 +207,9 @@ impl Server {
 			}
 
 			// Wait for an event before returning to the top of the loop.
-			events.next().await;
+			if events.next().await.is_none() {
+				break;
+			}
 		}
 
 		Ok(())
@@ -448,11 +453,6 @@ impl Server {
 				.unwrap()
 				.boxed_body());
 		};
-
-		// Stop the stream when the server stops.
-		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
-		let stopper = async move { stopper.wait().await };
-		let stream = stream.take_until(stopper);
 
 		// Create the body.
 		let (content_type, body) = match accept

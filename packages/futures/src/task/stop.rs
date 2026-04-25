@@ -1,6 +1,6 @@
 use futures::prelude::*;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Stopper(tokio::sync::watch::Sender<bool>);
 
 impl Stopper {
@@ -19,7 +19,7 @@ impl Stopper {
 		*self.0.subscribe().borrow()
 	}
 
-	pub fn wait(&self) -> impl Future<Output = ()> + Send + 'static {
+	pub fn wait(&self) -> impl Future<Output = ()> + Send + use<> {
 		let sender = self.0.clone();
 		async move {
 			sender

@@ -12,10 +12,7 @@ use {
 	},
 	sync_wrapper::SyncWrapper,
 	tangram_client::prelude::*,
-	tangram_futures::{
-		stream::Ext as _,
-		task::{Stopper, Task},
-	},
+	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -54,7 +51,7 @@ type ReadFuture = BoxFuture<'static, tg::Result<Option<Cursor<Bytes>>>>;
 impl Server {
 	pub(crate) async fn try_read_stream_with_context(
 		&self,
-		_context: &Context,
+		context: &Context,
 		arg: tg::read::Arg,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::read::Event>> + Send + use<>>> {
 		// Create the reader.
@@ -103,7 +100,7 @@ impl Server {
 		});
 
 		// Create the stream.
-		let stream = receiver.attach(task);
+		let stream = receiver.attach(task).with_stopper(context.stopper.clone());
 
 		Ok(Some(stream))
 	}
@@ -198,10 +195,7 @@ impl Server {
 			},
 		}
 
-		// Stop the stream when the server stops.
-		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
-		let stopper = async move { stopper.wait().await };
-		let mut stream = stream.take_until(stopper).boxed().peekable();
+		let mut stream = stream.boxed().peekable();
 
 		let mut position = None;
 		if let Some(Ok(tg::read::Event::Chunk(chunk))) = Pin::new(&mut stream).peek().await {

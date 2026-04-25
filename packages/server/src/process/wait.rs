@@ -23,8 +23,37 @@ impl Server {
 		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
-		self.try_wait_process_future_with_context_and_stopper(context, id, arg, None)
-			.await
+		self.try_wait_process_future_with_context_and_stopper(
+			context,
+			id,
+			arg,
+			context.stopper.clone(),
+		)
+		.await
+	}
+
+	async fn try_wait_process_stream_with_context(
+		&self,
+		context: &Context,
+		id: &tg::process::Id,
+		arg: tg::process::wait::Arg,
+	) -> tg::Result<
+		Option<impl futures::Stream<Item = tg::Result<tg::process::wait::Event>> + Send + use<>>,
+	> {
+		let Some(future) = self
+			.try_wait_process_future_with_context(context, id, arg)
+			.await?
+		else {
+			return Ok(None);
+		};
+		let stream = stream::once(future).filter_map(|result| async move {
+			match result {
+				Ok(Some(value)) => Some(Ok(tg::process::wait::Event::Output(value))),
+				Ok(None) => None,
+				Err(error) => Some(Err(error)),
+			}
+		});
+		Ok(Some(stream))
 	}
 
 	async fn try_wait_process_future_with_context_and_stopper(
@@ -333,17 +362,9 @@ impl Server {
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
-		// Get the stopper.
-		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
-
-		// Get the future.
-		let Some(future) = self
-			.try_wait_process_future_with_context_and_stopper(
-				context,
-				&id,
-				arg,
-				Some(stopper.clone()),
-			)
+		// Get the stream.
+		let Some(stream) = self
+			.try_wait_process_stream_with_context(context, &id, arg)
 			.await?
 		else {
 			return Ok(http::Response::builder()
@@ -352,19 +373,6 @@ impl Server {
 				.unwrap()
 				.boxed_body());
 		};
-
-		// Create the stream.
-		let stream = stream::once(future).filter_map(|result| async move {
-			match result {
-				Ok(Some(value)) => Some(Ok(tg::process::wait::Event::Output(value))),
-				Ok(None) => None,
-				Err(error) => Some(Err(error)),
-			}
-		});
-
-		// Stop the stream when the server stops.
-		let stopper = async move { stopper.wait().await };
-		let stream = stream.take_until(stopper);
 
 		// Create the body.
 		let (content_type, body) = match accept

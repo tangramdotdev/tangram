@@ -1,7 +1,10 @@
 use {
 	self::take_while_inclusive::TakeWhileInclusive,
-	crate::attach::Attach,
-	futures::{Stream, StreamExt as _, TryStream, TryStreamExt as _},
+	crate::{attach::Attach, task::Stopper},
+	futures::{
+		FutureExt as _, Stream, StreamExt as _, TryStream, TryStreamExt as _, future,
+		stream::BoxStream,
+	},
 };
 
 pub mod take_while_inclusive;
@@ -34,6 +37,17 @@ pub trait Ext: Stream {
 		Fut: Future<Output = bool>,
 	{
 		TakeWhileInclusive::new(self, predicate)
+	}
+
+	fn with_stopper(self, stopper: Option<Stopper>) -> BoxStream<'static, Self::Item>
+	where
+		Self: Sized + Send + 'static,
+		Self::Item: Send + 'static,
+	{
+		let stop = stopper.map_or(future::pending().right_future(), |stopper| {
+			stopper.wait().left_future()
+		});
+		self.take_until(stop).boxed()
 	}
 }
 

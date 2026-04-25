@@ -5,7 +5,7 @@ use {
 		stream::{BoxStream, FuturesUnordered},
 	},
 	tangram_client::prelude::*,
-	tangram_futures::task::Stopper,
+	tangram_futures::stream::Ext as _,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -15,7 +15,7 @@ use {
 impl Server {
 	pub(crate) async fn try_get_process_tty_size_stream_with_context(
 		&self,
-		_context: &Context,
+		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::tty::size::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::tty::size::get::Event>>>> {
@@ -27,7 +27,7 @@ impl Server {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(stream) = self
-					.try_get_process_tty_size_stream_local(id)
+					.try_get_process_tty_size_stream_local(context, id)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get the process tty stream"))?
 			{
@@ -64,6 +64,7 @@ impl Server {
 
 	async fn try_get_process_tty_size_stream_local(
 		&self,
+		context: &Context,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::tty::size::get::Event>>>> {
 		// Check if the process exists locally.
@@ -89,6 +90,7 @@ impl Server {
 					result.map_err(|source| tg::error!(!source, "failed to get message"))?;
 				Ok(message.payload.0)
 			})
+			.with_stopper(context.stopper.clone())
 			.boxed();
 
 		Ok(Some(stream))
@@ -206,7 +208,7 @@ impl Server {
 	pub(crate) async fn handle_get_process_tty_size_request(
 		&self,
 		request: http::Request<BoxBody>,
-		_context: &Context,
+		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Parse the ID.
@@ -228,18 +230,16 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Get the stream.
-		let Some(stream) = self.try_get_process_tty_size_stream(&id, arg).await? else {
+		let Some(stream) = self
+			.try_get_process_tty_size_stream_with_context(context, &id, arg)
+			.await?
+		else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()
 				.unwrap()
 				.boxed_body());
 		};
-
-		// Stop the stream when the server stops.
-		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
-		let stopper = async move { stopper.wait().await };
-		let stream = stream.take_until(stopper);
 
 		// Create the body.
 		let (content_type, body) = match accept

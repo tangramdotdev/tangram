@@ -138,7 +138,7 @@ impl tg::handle::Process for Shared {
 		Option<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>,
 	> {
 		self.0
-			.try_write_process_stdio_with_context(&Context::default(), id, arg, stream, None)
+			.try_write_process_stdio_with_context(&Context::default(), id, arg, stream)
 			.await
 	}
 
@@ -309,7 +309,7 @@ impl tg::handle::Process for Server {
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + 'static>,
 	> {
-		self.try_write_process_stdio_with_context(&Context::default(), id, arg, stream, None)
+		self.try_write_process_stdio_with_context(&Context::default(), id, arg, stream)
 			.await
 	}
 

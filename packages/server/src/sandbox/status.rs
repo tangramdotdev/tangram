@@ -8,7 +8,7 @@ use {
 	std::time::Duration,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_futures::{stream::Ext as _, task::Stopper},
+	tangram_futures::stream::Ext as _,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -19,7 +19,7 @@ use {
 impl Server {
 	pub async fn try_get_sandbox_status_stream_with_context(
 		&self,
-		_context: &Context,
+		context: &Context,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::status::Arg,
 	) -> tg::Result<
@@ -37,7 +37,7 @@ impl Server {
 				&& let Some(status) = self.try_get_sandbox_status_stream_local(id).await.map_err(
 					|source| tg::error!(!source, %id, "failed to get the sandbox status stream"),
 				)? {
-				return Ok(Some(status.left_stream()));
+				return Ok(Some(status.with_stopper(context.stopper.clone())));
 			}
 
 			if let Some(status) = self
@@ -46,7 +46,7 @@ impl Server {
 				.map_err(
 					|source| tg::error!(!source, %id, "failed to get the sandbox status from another region"),
 				)? {
-				return Ok(Some(status.right_stream()));
+				return Ok(Some(status));
 			}
 		}
 
@@ -56,7 +56,7 @@ impl Server {
 			.map_err(
 				|source| tg::error!(!source, %id, "failed to get the sandbox status from a remote"),
 			)? {
-			return Ok(Some(status.right_stream()));
+			return Ok(Some(status));
 		}
 
 		Ok(None)
@@ -308,9 +308,6 @@ impl Server {
 				.unwrap()
 				.boxed_body());
 		};
-		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
-		let stopper = async move { stopper.wait().await };
-		let stream = stream.take_until(stopper);
 		let (content_type, body) = match accept
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))

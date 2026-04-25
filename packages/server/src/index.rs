@@ -4,10 +4,7 @@ use {
 	num::ToPrimitive as _,
 	std::{panic::AssertUnwindSafe, time::Duration},
 	tangram_client::prelude::*,
-	tangram_futures::{
-		stream::Ext as _,
-		task::{Stopper, Task},
-	},
+	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::{self as index, prelude::*},
 	tangram_messenger::prelude::*,
@@ -245,7 +242,10 @@ impl Server {
 				}
 			}
 		});
-		let stream = progress.stream().attach(task);
+		let stream = progress
+			.stream()
+			.attach(task)
+			.with_stopper(context.stopper.clone());
 		Ok(stream)
 	}
 
@@ -376,13 +376,6 @@ impl Server {
 			.index_with_context(context)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to start the index task"))?;
-
-		// Stop the stream when the server stops.
-		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
-		let stopper = async move {
-			stopper.wait().await;
-		};
-		let stream = stream.take_until(stopper);
 
 		let (content_type, body) = match accept
 			.as_ref()

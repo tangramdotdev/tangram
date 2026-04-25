@@ -435,15 +435,13 @@ impl Server {
 				"the process was canceled"
 			));
 		}
-		let context = Context {
-			process: Some(Arc::new(crate::context::Process {
-				id: id.clone(),
-				location: location.clone(),
-				retry: state.retry,
-			})),
-			sandbox: Some(state.sandbox.clone()),
-			..Default::default()
-		};
+		let mut context = Context::default();
+		context.process = Some(Arc::new(crate::context::Process {
+			id: id.clone(),
+			location: location.clone(),
+			retry: state.retry,
+		}));
+		context.sandbox = Some(state.sandbox.clone());
 
 		// Create the output.
 		let mut output = Output {

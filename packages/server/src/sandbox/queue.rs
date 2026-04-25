@@ -3,7 +3,7 @@ use {
 	futures::{StreamExt as _, future, stream},
 	std::{pin::pin, time::Duration},
 	tangram_client::prelude::*,
-	tangram_futures::task::Stopper,
+	tangram_futures::{stream::Ext as _, task::Stopper},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_messenger::prelude::*,
 	tokio_stream::wrappers::IntervalStream,
@@ -27,7 +27,8 @@ impl Server {
 		let location = self.location(arg.location.as_ref())?;
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.try_dequeue_sandbox_local().await?
+				self.try_dequeue_sandbox_local(context.stopper.clone())
+					.await?
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
@@ -41,7 +42,25 @@ impl Server {
 		Ok(output)
 	}
 
-	async fn try_dequeue_sandbox_local(&self) -> tg::Result<Option<tg::sandbox::queue::Output>> {
+	fn try_dequeue_sandbox_stream_with_context(
+		&self,
+		context: &Context,
+		arg: tg::sandbox::queue::Arg,
+	) -> impl futures::Stream<Item = tg::Result<tg::sandbox::queue::Output>> + Send + use<> {
+		let handle = self.clone();
+		let task_context = context.clone();
+		let dequeue = async move {
+			handle
+				.try_dequeue_sandbox_with_context(&task_context, arg)
+				.await
+		};
+		stream::once(dequeue).filter_map(|output| future::ready(output.transpose()))
+	}
+
+	async fn try_dequeue_sandbox_local(
+		&self,
+		stopper: Option<Stopper>,
+	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
 		// Create the update stream.
 		let created = self
 			.messenger
@@ -51,7 +70,7 @@ impl Server {
 			.map(|_| ());
 		let interval = Duration::from_secs(1);
 		let interval = IntervalStream::new(tokio::time::interval(interval)).map(|_| ());
-		let stream = stream::select(created, interval);
+		let stream = stream::select(created, interval).with_stopper(stopper);
 
 		// Dequeue.
 		let mut stream = pin!(stream);
@@ -74,7 +93,7 @@ impl Server {
 			}
 		}
 
-		unreachable!()
+		Ok(None)
 	}
 
 	async fn try_dequeue_sandbox_region(
@@ -134,7 +153,6 @@ impl Server {
 		request: http::Request<BoxBody>,
 		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
-		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
 		let accept: Option<mime::Mime> = request
 			.parse_header(http::header::ACCEPT)
 			.transpose()
@@ -143,12 +161,7 @@ impl Server {
 			.json_or_default()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
-		let handle = self.clone();
-		let context = context.clone();
-		let future = async move { handle.try_dequeue_sandbox_with_context(&context, arg).await };
-		let stream = stream::once(future).filter_map(|option| future::ready(option.transpose()));
-		let stopper = async move { stopper.wait().await };
-		let stream = stream.take_until(stopper);
+		let stream = self.try_dequeue_sandbox_stream_with_context(context, arg);
 		let (content_type, body) = match accept
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))

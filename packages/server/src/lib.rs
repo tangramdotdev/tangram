@@ -811,16 +811,16 @@ impl Server {
 			}
 			Some(Task::spawn(move |stop| {
 				let server = http_server.clone();
-				let context = Context::default();
 				async move {
 					listeners
 						.into_iter()
 						.map(|(listener, listener_config)| {
 							let server = server.clone();
-							let context = context.clone();
 							let stop = stop.clone();
 							async move {
-								server.serve(listener, listener_config, context, stop).await;
+								server
+									.serve(listener, listener_config, None, None, stop)
+									.await;
 							}
 						})
 						.collect::<FuturesUnordered<_>>()

@@ -1,9 +1,8 @@
 use {
 	crate::{Context, Server},
-	futures::{FutureExt as _, TryFutureExt as _, future},
+	futures::{TryFutureExt as _, future},
 	std::pin::pin,
 	tangram_client::prelude::*,
-	tangram_futures::task::Stopper,
 	tangram_http::{body::Boxed as BoxBody, response::Ext as _, response::builder::Ext as _},
 	tokio::io::{AsyncBufRead, AsyncWrite},
 };
@@ -19,10 +18,17 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 		let compiler = self.create_compiler();
-		compiler
-			.serve(input, output)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to serve the lsp"))?;
+		let result = match context.stopper.clone() {
+			Some(stopper) => {
+				let serve = compiler.serve(input, output);
+				match future::select(pin!(serve), pin!(stopper.wait())).await {
+					future::Either::Left((result, _)) => result,
+					future::Either::Right(_) => Ok(()),
+				}
+			},
+			None => compiler.serve(input, output).await,
+		};
+		result.map_err(|source| tg::error!(!source, "failed to serve the lsp"))?;
 		compiler.stop();
 		compiler
 			.wait()
@@ -61,7 +67,6 @@ impl Server {
 		// Spawn the LSP.
 		let handle = self.clone();
 		let context = context.clone();
-		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
 		tokio::spawn(
 			async move {
 				let io = hyper::upgrade::on(request)
@@ -70,13 +75,7 @@ impl Server {
 				let io = hyper_util::rt::TokioIo::new(io);
 				let (input, output) = tokio::io::split(io);
 				let input = tokio::io::BufReader::new(input);
-				let task = handle.lsp_with_context(&context, input, output);
-				future::select(pin!(task), pin!(stopper.wait()))
-					.map(|output| match output {
-						future::Either::Left((Err(error), _)) => Err(error),
-						_ => Ok(()),
-					})
-					.await?;
+				handle.lsp_with_context(&context, input, output).await?;
 				Ok::<_, tg::Error>(())
 			}
 			.inspect_err(|error| tracing::error!(error = %error.trace())),

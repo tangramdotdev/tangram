@@ -27,7 +27,7 @@ mod sqlite;
 impl Server {
 	pub(crate) async fn try_get_process_signal_stream_with_context(
 		&self,
-		_context: &Context,
+		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::signal::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::signal::get::Event>>>> {
@@ -38,12 +38,12 @@ impl Server {
 
 		if let Some(local) = &locations.local {
 			if local.current
-				&& let Some(stream) =
-					self.try_get_process_signal_stream_local(id)
-						.await
-						.map_err(|source| {
-							tg::error!(!source, "failed to get the process signal stream")
-						})? {
+				&& let Some(stream) = self
+					.try_get_process_signal_stream_local(context, id)
+					.await
+					.map_err(|source| {
+						tg::error!(!source, "failed to get the process signal stream")
+					})? {
 				return Ok(Some(stream));
 			}
 
@@ -77,6 +77,7 @@ impl Server {
 
 	async fn try_get_process_signal_stream_local(
 		&self,
+		context: &Context,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::signal::get::Event>>>> {
 		// Verify the process is local.
@@ -94,9 +95,10 @@ impl Server {
 		// Spawn the task.
 		let server = self.clone();
 		let id = id.clone();
+		let stopper = context.stopper.clone();
 		let task = Task::spawn(|_| async move {
 			let result = server
-				.try_get_process_signal_stream_local_task(&id, sender.clone())
+				.try_get_process_signal_stream_local_task(&id, sender.clone(), stopper)
 				.await;
 			if let Err(error) = result {
 				sender.try_send(Err(error)).ok();
@@ -112,6 +114,7 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 		sender: async_channel::Sender<tg::Result<tg::process::signal::get::Event>>,
+		stopper: Option<Stopper>,
 	) -> tg::Result<()> {
 		let subject = format!("processes.{id}.signal");
 		let group = "processes.signal.dequeue";
@@ -123,7 +126,7 @@ impl Server {
 			.map(|_| ());
 		let interval =
 			IntervalStream::new(tokio::time::interval(Duration::from_secs(1))).map(|_| ());
-		let stream = stream::select(stream, interval);
+		let stream = stream::select(stream, interval).with_stopper(stopper);
 		let mut stream = pin!(stream);
 		while let Some(()) = stream.next().await {
 			loop {
@@ -279,7 +282,7 @@ impl Server {
 	pub(crate) async fn handle_get_process_signal_request(
 		&self,
 		request: http::Request<BoxBody>,
-		_context: &Context,
+		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Parse the ID.
@@ -301,18 +304,16 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Get the stream.
-		let Some(stream) = self.try_get_process_signal_stream(&id, arg).await? else {
+		let Some(stream) = self
+			.try_get_process_signal_stream_with_context(context, &id, arg)
+			.await?
+		else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()
 				.unwrap()
 				.boxed_body());
 		};
-
-		// Stop the stream when the server stops.
-		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
-		let stopper = async move { stopper.wait().await };
-		let stream = stream.take_until(stopper);
 
 		// Create the body.
 		let (content_type, body) = match accept

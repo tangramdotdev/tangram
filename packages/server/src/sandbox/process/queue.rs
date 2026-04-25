@@ -3,7 +3,7 @@ use {
 	futures::{StreamExt as _, future, stream},
 	std::{pin::pin, time::Duration},
 	tangram_client::prelude::*,
-	tangram_futures::task::Stopper,
+	tangram_futures::{stream::Ext as _, task::Stopper},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_messenger::prelude::*,
 	tokio_stream::wrappers::IntervalStream,
@@ -29,7 +29,8 @@ impl Server {
 
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.try_dequeue_sandbox_process_local(sandbox).await?
+				self.try_dequeue_sandbox_process_local(sandbox, context.stopper.clone())
+					.await?
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
@@ -49,9 +50,28 @@ impl Server {
 		Ok(output)
 	}
 
+	fn try_dequeue_sandbox_process_stream_with_context(
+		&self,
+		context: &Context,
+		sandbox: &tg::sandbox::Id,
+		arg: tg::sandbox::process::queue::Arg,
+	) -> impl futures::Stream<Item = tg::Result<tg::sandbox::process::queue::Output>> + Send + use<>
+	{
+		let handle = self.clone();
+		let sandbox = sandbox.clone();
+		let task_context = context.clone();
+		let dequeue = async move {
+			handle
+				.try_dequeue_sandbox_process_with_context(&task_context, &sandbox, arg)
+				.await
+		};
+		stream::once(dequeue).filter_map(|output| future::ready(output.transpose()))
+	}
+
 	async fn try_dequeue_sandbox_process_local(
 		&self,
 		sandbox: &tg::sandbox::Id,
+		stopper: Option<Stopper>,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
 		// Verify the sandbox exists.
 		if !self.get_sandbox_exists_local(sandbox).await.map_err(
@@ -70,7 +90,7 @@ impl Server {
 			.map(|_| ());
 		let interval = Duration::from_secs(1);
 		let interval = IntervalStream::new(tokio::time::interval(interval)).map(|_| ());
-		let stream = stream::select(created, interval);
+		let stream = stream::select(created, interval).with_stopper(stopper);
 
 		// Dequeue.
 		let mut stream = pin!(stream);
@@ -96,7 +116,7 @@ impl Server {
 			}
 		}
 
-		unreachable!()
+		Ok(None)
 	}
 
 	async fn try_dequeue_sandbox_process_region(
@@ -169,7 +189,6 @@ impl Server {
 		context: &Context,
 		sandbox: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
-		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
 		let sandbox = sandbox
 			.parse::<tg::sandbox::Id>()
 			.map_err(|source| tg::error!(!source, "failed to parse the sandbox id"))?;
@@ -187,18 +206,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Get the stream.
-		let handle = self.clone();
-		let context = context.clone();
-		let future = async move {
-			handle
-				.try_dequeue_sandbox_process_with_context(&context, &sandbox, arg)
-				.await
-		};
-		let stream = stream::once(future).filter_map(|option| future::ready(option.transpose()));
-
-		// Stop the stream when the server stops.
-		let stopper = async move { stopper.wait().await };
-		let stream = stream.take_until(stopper);
+		let stream = self.try_dequeue_sandbox_process_stream_with_context(context, &sandbox, arg);
 
 		// Create the body.
 		let (content_type, body) = match accept

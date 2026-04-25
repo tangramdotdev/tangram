@@ -10,7 +10,6 @@ use {
 	},
 	tangram_uri::Uri,
 	tower::ServiceExt as _,
-	tower_http::ServiceBuilderExt as _,
 };
 
 pub(crate) enum Listener {
@@ -78,7 +77,8 @@ impl Server {
 		&self,
 		listener: Listener,
 		config: crate::config::HttpListener,
-		context: Context,
+		process: Option<Arc<crate::context::Process>>,
+		sandbox: Option<tg::sandbox::Id>,
 		stopper: Stopper,
 	) {
 		#[cfg(feature = "tls")]
@@ -119,7 +119,6 @@ impl Server {
 				http::StatusCode::REQUEST_TIMEOUT,
 				Duration::from_mins(1),
 			))
-			.add_extension(stopper.clone())
 			.layer(tangram_http::layer::compression::RequestDecompressionLayer)
 			.layer(
 				tangram_http::layer::compression::ResponseCompressionLayer::new(
@@ -147,9 +146,15 @@ impl Server {
 
 		let service = builder.service_fn({
 			let handle = self.clone();
+			let stopper = stopper.clone();
 			move |request| {
 				let handle = handle.clone();
-				let context = context.clone();
+				let context = Context {
+					process: process.clone(),
+					sandbox: sandbox.clone(),
+					stopper: Some(stopper.clone()),
+					..Default::default()
+				};
 				async move {
 					let response = handle.handle_request(request, context).await;
 					Ok::<_, Infallible>(response)
@@ -367,11 +372,13 @@ impl Server {
 	#[tracing::instrument(level = "trace", name = "request", skip_all, fields(id, method, path))]
 	async fn handle_request(
 		&self,
-		mut request: http::Request<BoxBody>,
+		request: http::Request<BoxBody>,
 		mut context: Context,
 	) -> http::Response<BoxBody> {
 		let id = tg::Id::new_uuidv7(tg::id::Kind::Request);
-		request.extensions_mut().insert(id.clone());
+		context.id = Some(id.clone());
+		context.token = request.token(None).map(ToOwned::to_owned);
+		context.untrusted = true;
 
 		let span = tracing::Span::current();
 		span.record("id", id.to_string());
@@ -380,9 +387,6 @@ impl Server {
 
 		let method = request.method().clone();
 		let path = request.uri().path().to_owned();
-
-		context.token = request.token(None).map(ToOwned::to_owned);
-		context.untrusted = true;
 
 		if let Err(response) = self
 			.handle_request_context_for_process(request.headers(), &mut context)

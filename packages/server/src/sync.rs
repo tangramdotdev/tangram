@@ -7,12 +7,7 @@ use {
 		sync::{Arc, Mutex},
 	},
 	tangram_client::prelude::*,
-	tangram_futures::{
-		read::Ext as _,
-		stream::Ext as _,
-		task::{Stopper, Task},
-		write::Ext as _,
-	},
+	tangram_futures::{read::Ext as _, stream::Ext as _, task::Task, write::Ext as _},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tokio::io::AsyncReadExt as _,
 	tokio_stream::wrappers::ReceiverStream,
@@ -36,9 +31,10 @@ impl Server {
 		let location = self.location(arg.location.as_ref())?;
 
 		let stream = match location {
-			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.sync_local(context, arg, stream).await?
-			},
+			tg::Location::Local(tg::location::Local { region: None }) => self
+				.sync_local(context, arg, stream)
+				.await?
+				.with_stopper(context.stopper.clone()),
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
 			}) => self.sync_region(arg, stream, region).await?,
@@ -278,9 +274,6 @@ impl Server {
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
-		// Get the stop signal.
-		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
-
 		// Create the request body.
 		let mut reader = request.reader();
 		let arg = if let Some(arg) = arg {
@@ -344,10 +337,6 @@ impl Server {
 		}
 
 		// Create the response body.
-		let stopper = async move {
-			stopper.wait().await;
-		};
-		let stream = stream.take_until(stopper);
 		let content_type = Some(tg::sync::CONTENT_TYPE);
 		let stream = stream.then(|result| async {
 			let frame = match result {

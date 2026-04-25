@@ -1,5 +1,5 @@
 use {
-	crate::{SandboxPermit, Server, context::Context, temp::Temp},
+	crate::{SandboxPermit, Server, temp::Temp},
 	futures::{FutureExt as _, TryStreamExt as _, future},
 	std::{pin::pin, sync::Arc, time::Duration},
 	tangram_client::prelude::*,
@@ -132,16 +132,15 @@ impl Server {
 		// Spawn the serve task.
 		let serve_task = Task::spawn({
 			let server = self.clone();
+			let id = id.clone();
 			let config = crate::config::HttpListener {
 				url: guest_uri.clone(),
 				tls: None,
 			};
-			let context = Context {
-				sandbox: Some(id.clone()),
-				..Default::default()
-			};
 			|stop| async move {
-				server.serve(listener, config, context, stop).await;
+				server
+					.serve(listener, config, None, Some(id.clone()), stop)
+					.await;
 			}
 		});
 

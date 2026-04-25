@@ -5,7 +5,7 @@ use {
 		stream::{self, BoxStream, FuturesUnordered},
 	},
 	num::ToPrimitive as _,
-	std::{collections::BTreeSet, io::SeekFrom, time::Duration},
+	std::{collections::BTreeSet, io::SeekFrom, pin::pin, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::{
 		stream::Ext as _,
@@ -34,7 +34,7 @@ enum Source {
 impl Server {
 	pub async fn try_read_process_stdio_with_context(
 		&self,
-		_context: &Context,
+		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
@@ -49,30 +49,30 @@ impl Server {
 
 		if let Some(local) = &locations.local {
 			if local.current
-				&& let Some(event_stream) = self
-					.try_read_process_stdio_local(id, arg.clone())
+				&& let Some(stream) = self
+					.try_read_process_stdio_local(context, id, arg.clone())
 					.await
 					.map_err(|source| tg::error!(!source, "failed to read local process stdio"))?
 			{
-				return Ok(Some(event_stream));
+				return Ok(Some(stream));
 			}
 
-			if let Some(event_stream) = self
+			if let Some(stream) = self
 				.try_read_process_stdio_regions(id, arg.clone(), &local.regions)
 				.await
 				.map_err(|source| {
 					tg::error!(!source, "failed to read process stdio from another region")
 				})? {
-				return Ok(Some(event_stream));
+				return Ok(Some(stream));
 			}
 		}
 
-		if let Some(event_stream) = self
+		if let Some(stream) = self
 			.try_read_process_stdio_remotes(id, arg, &locations.remotes)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to read process stdio from a remote"))?
 		{
-			return Ok(Some(event_stream));
+			return Ok(Some(stream));
 		}
 
 		Ok(None)
@@ -80,6 +80,7 @@ impl Server {
 
 	async fn try_read_process_stdio_local(
 		&self,
+		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
@@ -92,9 +93,12 @@ impl Server {
 		};
 		let source = Self::get_process_stdio_source(&output.data, &arg)?;
 		let stream = match source {
-			Source::Pipe(streams) => self.try_read_process_stdio_pipe_local(id, &streams).await?,
+			Source::Pipe(streams) => {
+				self.try_read_process_stdio_pipe_local(context, id, &streams)
+					.await?
+			},
 			Source::Log(streams) => {
-				self.try_read_process_stdio_log_local(id, arg, streams)
+				self.try_read_process_stdio_log_local(context, id, arg, streams)
 					.await?
 			},
 			Source::Null => stream::once(future::ok(tg::process::stdio::read::Event::End)).boxed(),
@@ -104,6 +108,7 @@ impl Server {
 
 	async fn try_read_process_stdio_log_local(
 		&self,
+		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		streams: BTreeSet<tg::process::stdio::Stream>,
@@ -111,9 +116,10 @@ impl Server {
 		let (sender, receiver) = async_channel::unbounded();
 		let server = self.clone();
 		let id = id.clone();
+		let stopper = context.stopper.clone();
 		let task = Task::spawn(move |_| async move {
 			let result = server
-				.try_read_process_stdio_log_local_task(&id, arg, streams, sender.clone())
+				.try_read_process_stdio_log_local_task(&id, arg, streams, sender.clone(), stopper)
 				.await;
 			if let Err(error) = result {
 				sender.try_send(Err(error)).ok();
@@ -128,6 +134,7 @@ impl Server {
 		mut arg: tg::process::stdio::read::Arg,
 		streams: BTreeSet<tg::process::stdio::Stream>,
 		sender: async_channel::Sender<tg::Result<tg::process::stdio::read::Event>>,
+		stopper: Option<Stopper>,
 	) -> tg::Result<()> {
 		let subject = format!("processes.{id}.log");
 		let log = self
@@ -151,8 +158,9 @@ impl Server {
 			.map(|_| ())
 			.boxed();
 
-		let mut events = stream::select_all([log, status, interval]).boxed();
-		'outer: loop {
+		let mut wakeups = stream::select_all([log, status, interval]).with_stopper(stopper);
+
+		'outer: while wakeups.next().await.is_some() {
 			let status = self
 				.get_process_status_local(id)
 				.await
@@ -201,8 +209,6 @@ impl Server {
 					.ok();
 				break;
 			}
-
-			events.next().await;
 		}
 
 		Ok(())
@@ -210,6 +216,7 @@ impl Server {
 
 	pub(crate) async fn try_read_process_stdio_pipe_local(
 		&self,
+		context: &Context,
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>> {
@@ -218,9 +225,10 @@ impl Server {
 		let server = self.clone();
 		let id = id.clone();
 		let streams = streams.clone();
+		let stopper = context.stopper.clone();
 		let task = Task::spawn(move |_| async move {
 			let result = server
-				.try_read_process_stdio_pipe_local_task(&id, streams, sender.clone())
+				.try_read_process_stdio_pipe_local_task(&id, streams, sender.clone(), stopper)
 				.await;
 			if let Err(error) = result {
 				sender.try_send(Err(error)).ok();
@@ -234,6 +242,7 @@ impl Server {
 		id: &tg::process::Id,
 		streams: BTreeSet<tg::process::stdio::Stream>,
 		sender: async_channel::Sender<tg::Result<tg::process::stdio::read::Event>>,
+		stopper: Option<Stopper>,
 	) -> tg::Result<()> {
 		let mut wakeups = Vec::with_capacity(streams.len() * 2 + 1);
 		for stream in &streams {
@@ -261,8 +270,9 @@ impl Server {
 			.map(|_| ())
 			.boxed();
 		wakeups.push(interval);
-		let mut wakeups = stream::select_all(wakeups).boxed();
-		while let Some(()) = wakeups.next().await {
+		let wakeups = stream::select_all(wakeups).with_stopper(stopper);
+		let mut wakeups = pin!(wakeups);
+		while wakeups.next().await.is_some() {
 			loop {
 				match self.try_read_process_stdio_pipe_event(id, &streams).await {
 					Ok(Some(event)) => {
@@ -497,8 +507,7 @@ impl Server {
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
 			.unwrap_or_default();
-
-		let Some(event_stream) = self
+		let Some(stream) = self
 			.try_read_process_stdio_with_context(context, &id, arg)
 			.await?
 		else {
@@ -508,10 +517,6 @@ impl Server {
 				.unwrap()
 				.boxed_body());
 		};
-
-		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
-		let stopper = async move { stopper.wait().await };
-		let stream = event_stream.take_until(stopper);
 
 		let content_type = mime::TEXT_EVENT_STREAM;
 		let stream = stream.map(|result| match result {

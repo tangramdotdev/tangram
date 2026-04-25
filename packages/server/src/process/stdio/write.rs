@@ -39,11 +39,10 @@ pub(crate) enum WriteOutput {
 impl Server {
 	pub async fn try_write_process_stdio_with_context(
 		&self,
-		_context: &Context,
+		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
-		stopper: Option<Stopper>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>> {
 		if arg.streams.is_empty() {
 			return Err(tg::error!("expected at least one stdio stream"));
@@ -53,7 +52,7 @@ impl Server {
 
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.try_write_process_stdio_local(id, &arg.streams, input, stopper)
+				self.try_write_process_stdio_local(id, &arg.streams, input, context.stopper.clone())
 					.await?
 			},
 			tg::Location::Local(tg::location::Local {
@@ -404,7 +403,6 @@ impl Server {
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
 			.unwrap_or_default();
-		let stopper = request.extensions().get::<Stopper>().cloned().unwrap();
 		let input = request
 			.sse()
 			.map_err(|source| tg::error!(!source, "failed to read an event"))
@@ -422,7 +420,7 @@ impl Server {
 			.boxed();
 
 		let Some(output) = self
-			.try_write_process_stdio_with_context(context, &id, arg, input, Some(stopper.clone()))
+			.try_write_process_stdio_with_context(context, &id, arg, input)
 			.await?
 		else {
 			return Ok(http::Response::builder()
