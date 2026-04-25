@@ -1,6 +1,4 @@
-#[cfg(target_os = "macos")]
-use std::path::Path;
-use {crate::Server, tangram_client::prelude::*};
+use {crate::Server, std::path::Path, tangram_client::prelude::*};
 
 impl Server {
 	#[cfg(target_os = "macos")]
@@ -22,7 +20,7 @@ impl Server {
 	}
 
 	#[cfg(target_os = "linux")]
-	async fn run_create_listener(
+	pub(super) async fn run_create_listener(
 		root_path: &Path,
 		isolation: tangram_sandbox::Isolation,
 	) -> tg::Result<(crate::http::Listener, tangram_uri::Uri)> {
