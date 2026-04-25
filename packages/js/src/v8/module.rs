@@ -27,13 +27,25 @@ pub fn host_import_module_dynamically_callback<'s>(
 	// Get the state.
 	let state = context.get_slot::<State>().unwrap().clone();
 
-	// Get the referrer's ID.
-	let id = resource_name
-		.to_integer(scope)
-		.map(|id| id.value().to_usize().unwrap());
-	let referrer = match id {
-		None | Some(0) => None,
-		Some(id) => Some(state.modules.borrow().get(id - 1).unwrap().data.clone()),
+	// Get the referrer.
+	let resource_name = resource_name
+		.to_string(scope)
+		.map(|resource_name| resource_name.to_rust_string_lossy(scope));
+	let referrer = match resource_name.as_deref() {
+		None | Some("main") => None,
+		Some(resource_name) => {
+			let module: tg::module::Data = match resource_name.parse().map_err(
+				|source| tg::error!(!source, %resource_name, "failed to parse the resource name"),
+			) {
+				Ok(module) => module,
+				Err(error) => {
+					let exception = error::to_exception(scope, &error)?;
+					scope.throw_exception(exception);
+					return None;
+				},
+			};
+			Some(module)
+		},
 	};
 
 	// Parse the import.
@@ -371,7 +383,7 @@ fn compile_module<'s>(
 	};
 
 	// Define the module's origin.
-	let resource_name = v8::Integer::new(scope, id.to_i32().unwrap()).into();
+	let resource_name = v8::String::new(scope, &module.to_string()).unwrap().into();
 	let resource_line_offset = 0;
 	let resource_column_offset = 0;
 	let resource_is_shared_cross_origin = false;

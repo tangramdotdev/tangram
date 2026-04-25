@@ -77,27 +77,30 @@ pub(super) fn from_exception<'s>(
 	let v8_message = v8::Exception::create_message(scope, exception);
 
 	// Get the location.
-	let id = v8_message
+	let file_name = v8_message
 		.get_script_resource_name(scope)
-		.and_then(|resource_name| <v8::Local<v8::Integer>>::try_from(resource_name).ok())
-		.map(|resource_name| resource_name.value().to_usize().unwrap());
-	let line = if id.is_some() {
-		Some(v8_message.get_line_number(scope).unwrap().to_u32().unwrap() - 1)
-	} else {
-		None
-	};
-	let start_column = if id.is_some() {
-		Some(v8_message.get_start_column().to_u32().unwrap())
-	} else {
-		None
-	};
-	let end_column = if id.is_some() {
-		Some(v8_message.get_end_column().to_u32().unwrap())
-	} else {
-		None
-	};
-	let location = get_location(state, None, id, line, start_column, end_column)
-		.and_then(|location| location.try_into().ok());
+		.and_then(|resource_name| resource_name.to_string(scope))
+		.map(|resource_name| resource_name.to_rust_string_lossy(scope));
+	let line = file_name
+		.as_ref()
+		.and_then(|_| v8_message.get_line_number(scope))
+		.and_then(|line| line.to_u32())
+		.map(|line| line.saturating_sub(1));
+	let start_column = file_name
+		.as_ref()
+		.and_then(|_| v8_message.get_start_column().to_u32());
+	let end_column = file_name
+		.as_ref()
+		.and_then(|_| v8_message.get_end_column().to_u32());
+	let location = get_location(
+		state,
+		None,
+		file_name.as_deref(),
+		line,
+		start_column,
+		end_column,
+	)
+	.and_then(|location| location.try_into().ok());
 
 	// Get the message.
 	let message_string = v8::String::new_external_onebyte_static(scope, b"message").unwrap();
@@ -245,8 +248,8 @@ pub fn prepare_stack_trace_callback<'s>(
 		let file_name = get_file_name.call(scope, call_site.into(), &[]).unwrap();
 		let file_name = if !file_name.is_null() && !file_name.is_undefined() {
 			file_name
-				.to_integer(scope)
-				.map(|i| i.value().to_usize().unwrap())
+				.to_string(scope)
+				.map(|file_name| file_name.to_rust_string_lossy(scope))
 		} else {
 			None
 		};
@@ -259,7 +262,8 @@ pub fn prepare_stack_trace_callback<'s>(
 		let line_number = if !line_number.is_null() && !line_number.is_undefined() {
 			line_number
 				.to_integer(scope)
-				.map(|i| i.value().to_u32().unwrap() - 1)
+				.and_then(|i| i.value().to_u32())
+				.map(|line| line.saturating_sub(1))
 		} else {
 			None
 		};
@@ -274,7 +278,7 @@ pub fn prepare_stack_trace_callback<'s>(
 		let column_number = if !column_number.is_null() && !column_number.is_undefined() {
 			column_number
 				.to_integer(scope)
-				.map(|i| i.value().to_u32().unwrap())
+				.and_then(|i| i.value().to_u32())
 		} else {
 			None
 		};
@@ -282,7 +286,7 @@ pub fn prepare_stack_trace_callback<'s>(
 		if let Some(location) = get_location(
 			state.as_ref(),
 			symbol,
-			file_name,
+			file_name.as_deref(),
 			line_number,
 			column_number,
 			column_number,
@@ -303,86 +307,82 @@ pub fn prepare_stack_trace_callback<'s>(
 fn get_location(
 	state: &State,
 	symbol: Option<String>,
-	id: Option<usize>,
+	file_name: Option<&str>,
 	line: Option<u32>,
 	start_column: Option<u32>,
 	end_column: Option<u32>,
 ) -> Option<tg::error::data::Location> {
-	match id {
-		Some(0) => {
-			let line = line?;
-			let start_column = start_column?;
-			let end_column = end_column?;
-			let global_source_map = state.global_source_map.as_ref()?;
-			let start_token = global_source_map.lookup_token(line, start_column)?;
-			let start_line = start_token.get_src_line();
-			let start_column = start_token.get_src_col();
-			let end_token = global_source_map.lookup_token(line, end_column)?;
-			let end_line = end_token.get_src_line();
-			let end_column = end_token.get_src_col();
-			let symbol = start_token.get_name().map(String::from);
-			let source =
-				tg::error::data::File::Internal(start_token.get_source().unwrap().parse().unwrap());
-			let location = tg::error::data::Location {
-				symbol,
-				file: source,
-				range: tg::Range {
-					start: tg::Position {
-						line: start_line,
-						character: start_column,
-					},
-					end: tg::Position {
-						line: end_line,
-						character: end_column,
-					},
+	let file_name = file_name?;
+	if file_name == "main" {
+		let line = line?;
+		let start_column = start_column?;
+		let end_column = end_column?;
+		let global_source_map = state.global_source_map.as_ref()?;
+		let start_token = global_source_map.lookup_token(line, start_column)?;
+		let start_line = start_token.get_src_line();
+		let start_column = start_token.get_src_col();
+		let end_token = global_source_map.lookup_token(line, end_column)?;
+		let end_line = end_token.get_src_line();
+		let end_column = end_token.get_src_col();
+		let symbol = start_token.get_name().map(String::from);
+		let source =
+			tg::error::data::File::Internal(start_token.get_source().unwrap().parse().unwrap());
+		let location = tg::error::data::Location {
+			symbol,
+			file: source,
+			range: tg::Range {
+				start: tg::Position {
+					line: start_line,
+					character: start_column,
 				},
-			};
-			Some(location)
-		},
-
-		Some(id) => {
-			// Get the module.
-			let modules = state.modules.borrow();
-			let module = modules.get(id - 1)?;
-
-			// Get the source.
-			let source = tg::error::data::File::Module(module.data.clone());
-
-			// Get the line and column and apply a source map if one is available.
-			let mut start_line = line?;
-			let mut start_column = start_column?;
-			let mut end_line = line?;
-			let mut end_column = end_column?;
-			if let Some(source_map) = module.source_map.as_ref() {
-				if let Some(start_token) = source_map.lookup_token(start_line, start_column) {
-					start_line = start_token.get_src_line();
-					start_column = start_token.get_src_col();
-				}
-				if let Some(end_token) = source_map.lookup_token(end_line, end_column) {
-					end_line = end_token.get_src_line();
-					end_column = end_token.get_src_col();
-				}
-			}
-
-			// Create the location.
-			let location = tg::error::data::Location {
-				symbol,
-				file: source,
-				range: tg::Range {
-					start: tg::Position {
-						line: start_line,
-						character: start_column,
-					},
-					end: tg::Position {
-						line: end_line,
-						character: end_column,
-					},
+				end: tg::Position {
+					line: end_line,
+					character: end_column,
 				},
-			};
-
-			Some(location)
-		},
-
-		None => None,
+			},
+		};
+		return Some(location);
 	}
+
+	// Get the module.
+	let module_data = file_name.parse().ok()?;
+	let modules = state.modules.borrow();
+	let module = modules.iter().find(|module| module.data == module_data)?;
+
+	// Get the source.
+	let source = tg::error::data::File::Module(module.data.clone());
+
+	// Get the line and column and apply a source map if one is available.
+	let mut start_line = line?;
+	let mut start_column = start_column?;
+	let mut end_line = line?;
+	let mut end_column = end_column?;
+	if let Some(source_map) = module.source_map.as_ref() {
+		if let Some(start_token) = source_map.lookup_token(start_line, start_column) {
+			start_line = start_token.get_src_line();
+			start_column = start_token.get_src_col();
+		}
+		if let Some(end_token) = source_map.lookup_token(end_line, end_column) {
+			end_line = end_token.get_src_line();
+			end_column = end_token.get_src_col();
+		}
+	}
+
+	// Create the location.
+	let location = tg::error::data::Location {
+		symbol,
+		file: source,
+		range: tg::Range {
+			start: tg::Position {
+				line: start_line,
+				character: start_column,
+			},
+			end: tg::Position {
+				line: end_line,
+				character: end_column,
+			},
+		},
+	};
+
+	Some(location)
 }

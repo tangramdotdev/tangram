@@ -171,7 +171,7 @@ mod v8 {
 			let path = out_dir_path.join("main.js");
 			let script_text = std::fs::read_to_string(&path).unwrap();
 			let script_str = v8::String::new(scope, &script_text).unwrap();
-			let resource_name = v8::Integer::new(scope, 0).into();
+			let resource_name = v8::String::new(scope, "main").unwrap().into();
 			let resource_line_offset = 0;
 			let resource_column_offset = 0;
 			let resource_is_shared_cross_origin = false;
