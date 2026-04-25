@@ -21,6 +21,20 @@ export namespace Module {
 
 	export type Item = string | tg.Graph.Edge<tg.Object>;
 
+	export namespace Item {
+		export let toDataString = (value: tg.Module.Item): string => {
+			if (typeof value === "string") {
+				if (value.startsWith(".") || value.startsWith("/")) {
+					return value;
+				} else {
+					return `./${value}`;
+				}
+			} else {
+				return tg.Graph.Edge.toDataString(value, (object) => object.id);
+			}
+		};
+	}
+
 	export let toData = (value: tg.Module): tg.Module.Data => {
 		return {
 			kind: value.kind,
@@ -49,17 +63,7 @@ export namespace Module {
 	};
 
 	export let toDataString = (value: tg.Module): string => {
-		let item = value.referent.item;
-		let string: string;
-		if (typeof item === "string") {
-			if (item.startsWith(".") || item.startsWith("/")) {
-				string = item;
-			} else {
-				string = `./${item}`;
-			}
-		} else {
-			string = tg.Graph.Edge.toDataString(item, (object) => object.id);
-		}
+		let string = tg.Module.Item.toDataString(value.referent.item);
 		let params = [];
 		if (value.referent.options?.artifact !== undefined) {
 			params.push(

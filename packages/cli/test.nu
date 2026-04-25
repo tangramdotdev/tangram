@@ -15,6 +15,7 @@ def main [
 	--preserve-temps # Keep the temporary directories.
 	--no-capture # Do not capture the output of each test. This sets --jobs to 1.
 	--print-passing-test-output # Print the output of passing tests.
+	--quickjs # Use QuickJS as the JS engine.
 	--review (-r) # Review snapshots.
 	--timeout: duration = 30sec # The timeout for each test.
 	...filters: string # Filter tests.
@@ -85,7 +86,7 @@ def main [
 
 	if $no_capture {
 		for test in $tests {
-			let result = run_test $test $cloud $no_capture $preserve_temps $timeout
+			let result = run_test $test $cloud $quickjs $no_capture $preserve_temps $timeout
 			print_test_result $result $print_passing_test_output
 			$results = $results | append $result
 		}
@@ -99,7 +100,7 @@ def main [
 
 		def spawn [test: record] {
 			job spawn {
-				let result = run_test $test $cloud $no_capture $preserve_temps $timeout
+				let result = run_test $test $cloud $quickjs $no_capture $preserve_temps $timeout
 				$result | job send 0
 			}
 		}
@@ -323,7 +324,7 @@ def main [
 	}
 }
 
-def run_test [test: record, cloud: bool, no_capture: bool, preserve_temps: bool, timeout: duration] {
+def run_test [test: record, cloud: bool, quickjs: bool, no_capture: bool, preserve_temps: bool, timeout: duration] {
 	# Create a temp directory for this test.
 	let temp_path = mktemp -d -t tangram_test_XXXXXX | path expand
 
@@ -362,6 +363,7 @@ def run_test [test: record, cloud: bool, no_capture: bool, preserve_temps: bool,
 		TANGRAM_CONFIG: ($temp_path | path join "config.json"),
 		TANGRAM_MODE: client,
 		TANGRAM_TEST_CLOUD: (if $cloud { "1" } else { "" }),
+		TANGRAM_TEST_QUICKJS: (if $quickjs { "1" } else { "" }),
 		TMPDIR: $temp_path,
 	} {
 		let command = $'$env.config.display_errors.exit_code = true; source ($test.path)';
@@ -743,6 +745,7 @@ export def --env spawn [
 	--config (-c): record
 	--directory (-d): string
 	--name (-n): string
+	--quickjs # Use QuickJS as the JS engine.
 	--url (-u): string
 ] {
 	mut default_config = {
@@ -767,6 +770,17 @@ export def --env spawn [
 		remotes: [],
 		tokio_single_threaded: true,
 		v8_thread_pool_size: 1,
+	}
+
+	let use_quickjs = $quickjs or (($env.TANGRAM_TEST_QUICKJS? | default "") | str length) > 0
+	if $use_quickjs {
+		$default_config = $default_config | merge deep {
+			runner: {
+				js: {
+					engine: 'quickjs',
+				},
+			},
+		}
 	}
 
 	mut id: any = null

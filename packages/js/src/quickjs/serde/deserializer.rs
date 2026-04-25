@@ -1,6 +1,6 @@
 use {
 	num::ToPrimitive as _,
-	rquickjs as qjs,
+	rquickjs::{self as qjs, FromJs as _},
 	serde::{Deserialize as _, Deserializer as _, de::Error as _},
 };
 
@@ -215,14 +215,9 @@ impl<'de> serde::Deserializer<'de> for Deserializer<'_> {
 	where
 		V: serde::de::Visitor<'de>,
 	{
-		let string = self
-			.value
-			.as_string()
-			.ok_or_else(|| Error::custom("expected a string"))?;
-		let value = string
-			.to_string()
+		let value = qjs::Coerced::<String>::from_js(&self.ctx, self.value)
 			.map_err(|error| Error::custom(error.to_string()))?;
-		visitor.visit_string(value)
+		visitor.visit_string(value.0)
 	}
 
 	fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Self::Error>

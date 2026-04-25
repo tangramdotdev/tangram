@@ -5,9 +5,10 @@ use {
 		syscall::syscall,
 	},
 	crate::Output,
+	futures::future,
 	rquickjs::{self as qjs, CatchResultExt as _},
 	sourcemap::SourceMap,
-	std::{cell::RefCell, path::PathBuf, rc::Rc},
+	std::{cell::RefCell, path::PathBuf, pin::pin, rc::Rc},
 	tangram_client::prelude::*,
 };
 
@@ -25,7 +26,7 @@ struct State {
 	global_source_map: Option<SourceMap>,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
-	root: tg::module::Data,
+	rejection: tokio::sync::watch::Sender<Option<tg::Error>>,
 	handle: tg::handle::dynamic::Handle,
 	host: crate::host::Host,
 	stdio: crate::stdio::Stdio,
@@ -57,32 +58,12 @@ pub async fn run<H>(
 where
 	H: tg::Handle,
 {
-	// Convert the executable to a module.
-	let module = match &executable {
-		tg::command::data::Executable::Artifact(_) => {
-			return Err(tg::error!("invalid executable"));
-		},
-
-		tg::command::data::Executable::Module(executable) => executable.module.clone(),
-
-		tg::command::data::Executable::Path(executable) => {
-			let kind = tg::module::module_kind_for_path(&executable.path)
-				.map_err(|_| tg::error!("invalid executable"))?;
-			let item = tg::module::data::Item::Path(executable.path.clone());
-			let options = tg::referent::Options {
-				path: Some(executable.path.clone()),
-				..Default::default()
-			};
-			tg::module::Data {
-				kind,
-				referent: tg::Referent { item, options },
-			}
-		},
-	};
-
 	// Create the runtime.
 	let runtime = qjs::AsyncRuntime::new()
 		.map_err(|source| tg::error!(!source, "failed to create the QuickJS runtime"))?;
+
+	// Create the rejection channel.
+	let (rejection, _) = tokio::sync::watch::channel(None);
 
 	// Create the abort channel.
 	let (abort_channel_sender, abort_channel_receiver) = tokio::sync::watch::channel(false);
@@ -100,6 +81,18 @@ where
 		.set_interrupt_handler(Some(Box::new(move || *abort_channel_receiver.borrow())))
 		.await;
 
+	// Set the promise rejection tracker.
+	runtime
+		.set_host_promise_rejection_tracker(Some(Box::new(move |ctx, _promise, reason, _| {
+			let Some(state) = ctx.userdata::<StateHandle>().map(|state| state.clone()) else {
+				return;
+			};
+			let error = self::error::from_exception(&state, &ctx, &reason)
+				.unwrap_or_else(|| tg::error!("failed to get the exception"));
+			state.rejection.send_replace(Some(error));
+		})))
+		.await;
+
 	// Set the resolver and loader.
 	runtime.set_loader(Resolver, Loader).await;
 
@@ -114,104 +107,115 @@ where
 		global_source_map: SourceMap::from_slice(SOURCE_MAP).ok(),
 		main_runtime_handle: main_runtime_handle.clone(),
 		modules: RefCell::new(Vec::new()),
-		root: module.clone(),
+		rejection: rejection.clone(),
 		handle: handle.clone(),
 		host: crate::host::Host::default(),
 		stdio: crate::stdio::Stdio::new(handle, main_runtime_handle),
 	});
 
 	// Initialize the context and await the result.
-	let result = context
-		.async_with(async |ctx| {
-			// Store the state in the context's userdata.
-			ctx.store_userdata(StateHandle(state.clone()))
-				.map_err(|_| tg::error!("failed to store the state in the context"))?;
+	let future = context.async_with(async |ctx| {
+		// Store the state in the context's userdata.
+		ctx.store_userdata(StateHandle(state.clone()))
+			.map_err(|_| tg::error!("failed to store the state in the context"))?;
 
-			// Load the bytecode.
-			let main_module = unsafe { qjs::Module::load(ctx.clone(), BYTECODE) }
-				.catch(&ctx)
-				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-
-			// Evaluate the module.
-			let (_evaluated_module, _promise) = main_module
-				.eval()
-				.catch(&ctx)
-				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-
-			// Register the syscall function.
-			let globals = ctx.globals();
-			let syscall_function = qjs::Function::new(ctx.clone(), syscall)
-				.catch(&ctx)
-				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-			globals
-				.set("syscall", syscall_function)
-				.catch(&ctx)
-				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-
-			// Register the prepareStackTrace callback on Error.
-			let error_constructor = globals
-				.get::<_, qjs::Object>("Error")
-				.catch(&ctx)
-				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-			let prepare_stack_trace_function =
-				qjs::Function::new(ctx.clone(), self::error::prepare_stack_trace)
-					.catch(&ctx)
-					.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-			error_constructor
-				.set("prepareStackTrace", prepare_stack_trace_function)
-				.catch(&ctx)
-				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-
-			// Get the start function.
-			let start: qjs::Function = globals
-				.get("start")
-				.catch(&ctx)
-				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-
-			// Build the arg object.
-			let arg = qjs::Object::new(ctx.clone())
-				.catch(&ctx)
-				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-			arg.set("args", Serde(&args))
-				.catch(&ctx)
-				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-			arg.set(
-				"cwd",
-				cwd.to_str().ok_or_else(|| tg::error!("invalid cwd"))?,
-			)
+		// Load the bytecode.
+		let main_module = unsafe { qjs::Module::load(ctx.clone(), BYTECODE) }
 			.catch(&ctx)
 			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-			arg.set("env", Serde(&env))
-				.catch(&ctx)
-				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-			arg.set("executable", Serde(&executable))
-				.catch(&ctx)
-				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-			// Call the start function.
-			let value: qjs::Value = start
-				.call((arg,))
-				.catch(&ctx)
-				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
 
-			// Get the promise and await its result.
-			let promise = value
-				.as_promise()
-				.ok_or_else(|| tg::error!("expected a promise"))?;
-			let result = promise
-				.clone()
-				.into_future::<Serde<tg::value::Data>>()
-				.await;
+		// Evaluate the module.
+		let (_evaluated_module, _promise) = main_module
+			.eval()
+			.catch(&ctx)
+			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
 
-			if let Ok(value) = result {
-				Ok(value)
-			} else {
-				let exception = ctx.catch();
-				let error = self::error::from_exception(&state, &ctx, &exception)
-					.unwrap_or_else(|| tg::error!("promise rejected"));
-				Err(error)
-			}
-		})
-		.await;
+		// Register the syscall function.
+		let globals = ctx.globals();
+		let syscall_function = qjs::Function::new(ctx.clone(), syscall)
+			.catch(&ctx)
+			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+		globals
+			.set("syscall", syscall_function)
+			.catch(&ctx)
+			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+
+		// Register the prepareStackTrace callback on Error.
+		let error_constructor = globals
+			.get::<_, qjs::Object>("Error")
+			.catch(&ctx)
+			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+		let prepare_stack_trace_function =
+			qjs::Function::new(ctx.clone(), self::error::prepare_stack_trace)
+				.catch(&ctx)
+				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+		error_constructor
+			.set("prepareStackTrace", prepare_stack_trace_function)
+			.catch(&ctx)
+			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+
+		// Get the start function.
+		let start: qjs::Function = globals
+			.get("start")
+			.catch(&ctx)
+			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+
+		// Build the arg object.
+		let arg = qjs::Object::new(ctx.clone())
+			.catch(&ctx)
+			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+		arg.set("args", Serde(&args))
+			.catch(&ctx)
+			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+		arg.set(
+			"cwd",
+			cwd.to_str().ok_or_else(|| tg::error!("invalid cwd"))?,
+		)
+		.catch(&ctx)
+		.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+		arg.set("env", Serde(&env))
+			.catch(&ctx)
+			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+		arg.set("executable", Serde(&executable))
+			.catch(&ctx)
+			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+
+		// Call the start function.
+		let value: qjs::Value = start
+			.call((arg,))
+			.catch(&ctx)
+			.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+
+		// Get the promise and await its result.
+		let promise = value
+			.as_promise()
+			.ok_or_else(|| tg::error!("expected a promise"))?;
+		let result = promise
+			.clone()
+			.into_future::<Serde<tg::value::Data>>()
+			.await;
+
+		if let Ok(value) = result {
+			Ok(value)
+		} else {
+			let exception = ctx.catch();
+			let error = self::error::from_exception(&state, &ctx, &exception)
+				.unwrap_or_else(|| tg::error!("promise rejected"));
+			Err(error)
+		}
+	});
+	let mut rejection = rejection.subscribe();
+	let rejection = async move {
+		let error = rejection
+			.wait_for(Option::is_some)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to receive the promise rejection"))?;
+		Ok::<_, tg::Error>(error.as_ref().unwrap().clone())
+	};
+	let result = match future::select(pin!(future), pin!(rejection)).await {
+		future::Either::Left((result, _)) => result,
+		future::Either::Right((Ok(error) | Err(error), _)) => Err(error),
+	};
 
 	let output = match result {
 		Ok(Serde(data)) => Output {

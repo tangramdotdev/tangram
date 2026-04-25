@@ -31,10 +31,7 @@ pub async fn exists(ctx: qjs::Ctx<'_>, path: String) -> Result<bool> {
 	Result(state.host.exists(path).await)
 }
 
-pub fn get_tty_size(
-	_ctx: qjs::Ctx<'_>,
-	_value: Option<String>,
-) -> Result<Serde<Option<tg::process::tty::Size>>> {
+pub fn get_tty_size(_ctx: qjs::Ctx<'_>) -> Result<Serde<Option<tg::process::tty::Size>>> {
 	Result(Ok(Serde(crate::host::Host::get_tty_size())))
 }
 
@@ -92,23 +89,23 @@ pub fn magic<'js>(
 	let module = file_name
 		.as_deref()
 		.and_then(|file_name| {
-			if file_name == "!" {
-				Some(state.root.clone())
-			} else {
-				file_name.parse::<tg::module::Data>().ok().or_else(|| {
-					let modules = state.modules.borrow();
-					modules.iter().find_map(|module_info| {
-						let name = module_info.module.to_string();
-						if file_name == name || file_name.contains(&name) {
-							Some(module_info.module.clone())
-						} else {
-							None
-						}
-					})
+			file_name.parse::<tg::module::Data>().ok().or_else(|| {
+				let modules = state.modules.borrow();
+				modules.iter().find_map(|module_info| {
+					let name = module_info.module.to_string();
+					if file_name == name || file_name.contains(&name) {
+						Some(module_info.module.clone())
+					} else {
+						None
+					}
 				})
-			}
+			})
 		})
-		.unwrap_or_else(|| state.root.clone());
+		.ok_or_else(|| tg::error!("failed to find the module for the function"));
+	let module = match module {
+		Ok(module) => module,
+		Err(error) => return Result(Err(error)),
+	};
 	let executable = tg::command::data::Executable::Module(tg::command::data::ModuleExecutable {
 		module,
 		export: name,
@@ -116,12 +113,12 @@ pub fn magic<'js>(
 	Result(Ok(Serde(executable)))
 }
 
-pub async fn mkdtemp(ctx: qjs::Ctx<'_>, _value: Option<String>) -> Result<String> {
+pub async fn mkdtemp(ctx: qjs::Ctx<'_>) -> Result<String> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	Result(state.host.mkdtemp().await)
 }
 
-pub fn parallelism(_ctx: qjs::Ctx<'_>, _value: Option<String>) -> Result<usize> {
+pub fn parallelism(_ctx: qjs::Ctx<'_>) -> Result<usize> {
 	Result(Ok(crate::host::Host::parallelism()))
 }
 
@@ -171,7 +168,7 @@ pub async fn stopper_close(ctx: qjs::Ctx<'_>, stopper: usize) -> Result<()> {
 	Result(state.host.stopper_close(stopper).await)
 }
 
-pub async fn stopper_open(ctx: qjs::Ctx<'_>, _value: Option<String>) -> Result<usize> {
+pub async fn stopper_open(ctx: qjs::Ctx<'_>) -> Result<usize> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	Result(state.host.stopper_open().await)
 }

@@ -27,44 +27,53 @@ pub fn host_import_module_dynamically_callback<'s>(
 	// Get the state.
 	let state = context.get_slot::<State>().unwrap().clone();
 
-	// Determine the referrer and import.
-	let (referrer, import) = if specifier.to_rust_string_lossy(scope) == "!" {
-		// Root module.
-		(None, None)
+	// Get the referrer's ID.
+	let id = resource_name
+		.to_integer(scope)
+		.map(|id| id.value().to_usize().unwrap());
+	let referrer = match id {
+		None | Some(0) => None,
+		Some(id) => Some(state.modules.borrow().get(id - 1).unwrap().data.clone()),
+	};
+
+	// Parse the import.
+	let import = if referrer.is_none() {
+		let specifier = specifier.to_rust_string_lossy(scope);
+		let module = match specifier
+			.parse()
+			.map_err(|source| tg::error!(!source, %specifier, "failed to parse the specifier"))
+		{
+			Ok(module) => module,
+			Err(error) => {
+				let exception = error::to_exception(scope, &error)?;
+				scope.throw_exception(exception);
+				return None;
+			},
+		};
+		tg::Either::Left(module)
 	} else {
-		// Get the referrer's ID.
-		let id = resource_name
-			.to_integer(scope)
-			.unwrap()
-			.value()
-			.to_usize()
-			.unwrap();
-
-		// Get the referrer.
-		let referrer = state.modules.borrow().get(id - 1).unwrap().data.clone();
-
-		// Parse the import.
 		let import = parse_import(scope, specifier, attributes, ImportKind::Dynamic)?;
-
-		(Some(referrer), Some(import))
+		tg::Either::Right(import)
 	};
 
 	// Resolve the module.
 	let promise = state.create_promise(scope, {
 		let handle = state.handle.clone();
-		let root = state.root.clone();
+		let import = import.clone();
 		async move {
-			let module = if let (Some(referrer), Some(import)) = (referrer, import) {
-				let arg = tg::module::resolve::Arg {
-					referrer: referrer.clone(),
-					import: import.clone(),
-				};
-				let output = handle.resolve_module(arg).await.map_err(|source| {
-					tg::error!(!source, ?referrer, ?import, "failed to resolve the module")
-				})?;
-				output.module
-			} else {
-				root
+			let module = match referrer {
+				None => import.unwrap_left(),
+				Some(referrer) => {
+					let import = import.unwrap_right();
+					let arg = tg::module::resolve::Arg {
+						referrer: referrer.clone(),
+						import: import.clone(),
+					};
+					let output = handle.resolve_module(arg).await.map_err(|source| {
+						tg::error!(!source, ?referrer, ?import, "failed to resolve the module")
+					})?;
+					output.module
+				},
 			};
 			Ok(Serde(module))
 		}

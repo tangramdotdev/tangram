@@ -220,10 +220,7 @@ declare global {
 
 	function syscall(syscall: "host_exists", path: string): Promise<boolean>;
 
-	function syscall(
-		syscall: "host_get_tty_size",
-		value: undefined,
-	): tg.Process.Tty.Size | undefined;
+	function syscall(syscall: "host_get_tty_size"): tg.Process.Tty.Size | undefined;
 
 	function syscall(
 		syscall: "host_get_xattr",
@@ -240,9 +237,9 @@ declare global {
 		value: Function,
 	): tg.Command.Data.Executable;
 
-	function syscall(syscall: "host_mkdtemp", value: undefined): Promise<string>;
+	function syscall(syscall: "host_mkdtemp"): Promise<string>;
 
-	function syscall(syscall: "host_parallelism", value: undefined): number;
+	function syscall(syscall: "host_parallelism"): number;
 
 	function syscall(
 		syscall: "host_read",
@@ -284,10 +281,7 @@ declare global {
 
 	function syscall(syscall: "host_stopper_close", stopper: number): Promise<void>;
 
-	function syscall(
-		syscall: "host_stopper_open",
-		value: undefined,
-	): Promise<number>;
+	function syscall(syscall: "host_stopper_open"): Promise<number>;
 
 	function syscall(syscall: "host_stopper_stop", stopper: number): Promise<void>;
 

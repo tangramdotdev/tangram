@@ -31,7 +31,7 @@ pub struct HandleArg {
 	url: Option<String>,
 }
 
-pub fn arg(ctx: qjs::Ctx<'_>, _value: Option<String>) -> Result<Serde<HandleArg>> {
+pub fn arg(ctx: qjs::Ctx<'_>) -> Result<Serde<HandleArg>> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	let arg = state.handle.arg();
 	Result(Ok(Serde(HandleArg {

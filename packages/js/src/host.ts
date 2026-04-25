@@ -22,7 +22,7 @@ export let host: tg.Host = {
 	},
 
 	getTtySize(): tg.Process.Tty.Size | undefined {
-		return syscall("host_get_tty_size", undefined);
+		return syscall("host_get_tty_size");
 	},
 
 	getxattr(path: string, name: string): Promise<Uint8Array | undefined> {
@@ -46,11 +46,11 @@ export let host: tg.Host = {
 	},
 
 	mkdtemp(): Promise<string> {
-		return syscall("host_mkdtemp", undefined);
+		return syscall("host_mkdtemp");
 	},
 
 	get parallelism(): number {
-		return syscall("host_parallelism", undefined);
+		return syscall("host_parallelism");
 	},
 
 	read(
@@ -85,7 +85,7 @@ export let host: tg.Host = {
 	},
 
 	stopperOpen(): Promise<tg.Host.Stopper> {
-		return syscall("host_stopper_open", undefined);
+		return syscall("host_stopper_open");
 	},
 
 	stopperStop(stopper: tg.Host.Stopper): Promise<void> {

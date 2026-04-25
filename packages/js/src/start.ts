@@ -8,6 +8,8 @@ type Arg = {
 };
 
 export let start = async (arg: Arg): Promise<tg.Value.Data> => {
+	let executable = tg.Command.Executable.fromData(arg.executable);
+
 	// Set tg.process.
 	tg.setProcess({
 		args: arg.args.map(tg.Value.fromData),
@@ -18,24 +20,38 @@ export let start = async (arg: Arg): Promise<tg.Value.Data> => {
 				tg.Value.fromData(value),
 			]),
 		),
-		executable: tg.Command.Executable.fromData(arg.executable),
+		executable,
 	});
 
 	// Import the module.
-	// oxlint-disable-next-line no-eval
-	let namespace = await eval(`import("!")`);
+	let specifier: string;
+	let export_: string | undefined;
+	if ("artifact" in executable) {
+		specifier = executable.artifact.id;
+		if (executable.path !== undefined) {
+			specifier += `?path=${encodeURIComponent(executable.path)}`;
+		}
+	} else if ("module" in executable) {
+		specifier = tg.Module.toDataString(executable.module);
+		export_ = executable.export;
+	} else if ("path" in executable) {
+		specifier = executable.path;
+	} else {
+		return tg.unreachable();
+	}
+	let namespace = await import(specifier);
 
 	// If there is no export, then return undefined.
-	if (!("export" in arg.executable && arg.executable.export !== undefined)) {
+	if (export_ === undefined) {
 		return undefined;
 	}
 
 	// Call the export.
 	let output: tg.Value;
-	if (!(arg.executable.export in namespace)) {
-		throw new Error(`failed to find the export named ${arg.executable.export}`);
+	if (!(export_ in namespace)) {
+		throw new Error(`failed to find the export named ${export_}`);
 	}
-	let value = await namespace[arg.executable.export];
+	let value = await namespace[export_];
 	if (tg.Value.is(value)) {
 		output = value;
 	} else if (typeof value === "function") {

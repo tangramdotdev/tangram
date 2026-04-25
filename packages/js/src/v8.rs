@@ -31,7 +31,6 @@ struct State {
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
 	rejection: tokio::sync::watch::Sender<Option<tg::Error>>,
-	root: tg::module::Data,
 	handle: tg::handle::dynamic::Handle,
 	host: crate::host::Host,
 	stdio: crate::stdio::Stdio,
@@ -64,29 +63,6 @@ pub async fn run<H>(
 where
 	H: tg::Handle,
 {
-	// Convert the executable to a module.
-	let module = match &executable {
-		tg::command::data::Executable::Artifact(_) => {
-			return Err(tg::error!("invalid executable"));
-		},
-
-		tg::command::data::Executable::Module(executable) => executable.module.clone(),
-
-		tg::command::data::Executable::Path(executable) => {
-			let kind = tg::module::module_kind_for_path(&executable.path)
-				.map_err(|_| tg::error!("invalid executable"))?;
-			let item = tg::module::data::Item::Path(executable.path.clone());
-			let options = tg::referent::Options {
-				path: Some(executable.path.clone()),
-				..Default::default()
-			};
-			tg::module::Data {
-				kind,
-				referent: tg::Referent { item, options },
-			}
-		},
-	};
-
 	// Create the state.
 	let (rejection, _) = tokio::sync::watch::channel(None);
 	let handle = tg::handle::dynamic::Handle::new(handle.clone());
@@ -96,7 +72,6 @@ where
 		main_runtime_handle: main_runtime_handle.clone(),
 		modules: RefCell::new(Vec::new()),
 		rejection,
-		root: module.clone(),
 		handle: handle.clone(),
 		host: crate::host::Host::default(),
 		stdio: crate::stdio::Stdio::new(handle, main_runtime_handle),

@@ -347,13 +347,8 @@ fn get_location(
 		return Some(location);
 	}
 
-	// Handle "!" which is the root module.
-	let module_data = if file_name == "!" {
-		state.root.clone()
-	} else {
-		// Otherwise, the file name should be a module data string.
-		file_name.parse().ok()?
-	};
+	// The file name should be a module data string.
+	let module_data = file_name.parse().ok()?;
 
 	// Find the module in state.modules by matching the module data.
 	let modules = state.modules.borrow();

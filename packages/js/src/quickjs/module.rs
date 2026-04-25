@@ -15,20 +15,24 @@ impl qjs::loader::Resolver for Resolver {
 		name: &str,
 		attributes: Option<qjs::loader::ImportAttributes<'_>>,
 	) -> qjs::Result<String> {
-		// Handle the root module.
-		if name == "!" {
-			return Ok("!".to_string());
-		}
-
 		// Get the state from the context's userdata.
 		let state = ctx.userdata::<StateHandle>().unwrap().clone();
 
 		// Get the referrer.
-		let referrer = if base.is_empty() || base == "main" || base == "!" {
-			state.root.clone()
+		let referrer = if base.is_empty() || base == "main" {
+			None
 		} else {
-			base.parse::<tg::module::Data>()
-				.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?
+			Some(
+				base.parse::<tg::module::Data>()
+					.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?,
+			)
+		};
+
+		let Some(referrer) = referrer else {
+			let module = name
+				.parse::<tg::module::Data>()
+				.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
+			return Ok(module.to_string());
 		};
 
 		// Parse the import attributes.
@@ -84,12 +88,9 @@ impl qjs::loader::Loader for Loader {
 	) -> qjs::Result<qjs::Module<'js>> {
 		let state = ctx.userdata::<StateHandle>().unwrap().clone();
 
-		let module_data = if name == "!" {
-			state.root.clone()
-		} else {
-			name.parse()
-				.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?
-		};
+		let module_data = name
+			.parse::<tg::module::Data>()
+			.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
 
 		// Load the module.
 		let (sender, receiver) = std::sync::mpsc::channel();
