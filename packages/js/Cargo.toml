@@ -12,7 +12,7 @@ version = { workspace = true }
 
 [features]
 quickjs = ["dep:rquickjs"]
-v8 = ["dep:tangram_v8", "dep:v8"]
+v8 = ["dep:axum", "dep:tangram_v8", "dep:v8"]
 
 [lib]
 doctest = false
@@ -30,6 +30,7 @@ serde_json = { workspace = true }
 v8 = { workspace = true, optional = true }
 
 [dependencies]
+axum = { workspace = true, optional = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
 data-encoding = { workspace = true }

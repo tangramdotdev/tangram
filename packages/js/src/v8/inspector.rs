@@ -1,31 +1,107 @@
 use {
+	axum::{
+		Router,
+		extract::{
+			Path, State, WebSocketUpgrade,
+			ws::{Message, WebSocket},
+		},
+		http::{HeaderMap, StatusCode, header::HOST},
+		response::IntoResponse,
+		routing::get,
+	},
+	futures::{SinkExt as _, StreamExt as _, task::AtomicWaker},
 	serde::{Deserialize, Serialize},
-	std::{cell::RefCell, collections::VecDeque, rc::Rc},
+	std::{
+		cell::{Cell, RefCell},
+		collections::VecDeque,
+		rc::Rc,
+		sync::{
+			Arc,
+			atomic::{AtomicU64, Ordering},
+			mpsc as std_mpsc,
+		},
+		thread,
+	},
 	tangram_client::prelude::*,
-	tokio::sync::oneshot,
+	tokio::sync::{mpsc as tokio_mpsc, oneshot},
 };
 
 const CONTEXT_GROUP_ID: i32 = 1;
 
+const DEFAULT_INSPECTOR_ADDRESS: std::net::SocketAddr =
+	std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), 9229);
+
+static TARGET_COUNTER: AtomicU64 = AtomicU64::new(1);
+
 pub struct Inspector {
 	channel: InspectorChannel,
-	repl: Option<crate::repl::Receiver>,
-	repl_closed: bool,
 	context_id: Option<u64>,
+	debugger: Option<Debugger>,
 	inner: v8::inspector::V8Inspector,
 	next_id: i32,
 	pending: Option<PendingCommand>,
-	session: Option<v8::inspector::V8InspectorSession>,
+	repl: Option<crate::repl::Receiver>,
+	repl_closed: bool,
+	session: Rc<RefCell<Option<v8::inspector::V8InspectorSession>>>,
+	startup_error: Option<tg::Error>,
 }
 
 pub struct PollState {
 	pub clear_rejection: bool,
 }
 
-struct InspectorClient;
+struct Debugger {
+	_server: Server,
+	mode: crate::inspect::Mode,
+	state: Rc<DebuggerState>,
+}
+
+struct DebuggerState {
+	active: RefCell<Option<ActiveConnection>>,
+	commands: DebuggerCommandReceiver,
+	paused: Cell<bool>,
+	run_if_waiting_for_debugger: Cell<bool>,
+	session: Rc<RefCell<Option<v8::inspector::V8InspectorSession>>>,
+	waiting_for_debugger: Cell<bool>,
+}
+
+struct ActiveConnection {
+	id: u64,
+	outgoing: tokio_mpsc::UnboundedSender<String>,
+}
+
+#[derive(Clone)]
+struct DebuggerCommandSender {
+	sender: std_mpsc::Sender<DebuggerCommand>,
+	waker: Arc<AtomicWaker>,
+}
+
+struct DebuggerCommandReceiver {
+	receiver: std_mpsc::Receiver<DebuggerCommand>,
+	waker: Arc<AtomicWaker>,
+}
+
+enum DebuggerCommand {
+	Connected {
+		id: u64,
+		outgoing: tokio_mpsc::UnboundedSender<String>,
+	},
+	Message {
+		id: u64,
+		message: String,
+	},
+	Disconnected {
+		id: u64,
+	},
+}
+
+struct InspectorClient {
+	debugger: Option<Rc<DebuggerState>>,
+}
 
 #[derive(Clone)]
 struct InspectorChannel {
+	debugger: Option<Rc<DebuggerState>>,
 	messages: Rc<RefCell<VecDeque<String>>>,
 }
 
@@ -43,10 +119,72 @@ enum PendingCommandKind {
 	},
 }
 
+struct Server {
+	shutdown: Option<oneshot::Sender<()>>,
+	thread: Option<thread::JoinHandle<()>>,
+}
+
+#[derive(Clone)]
+struct ServerState {
+	command: DebuggerCommandSender,
+	connection_counter: Arc<AtomicU64>,
+	host: std::net::SocketAddr,
+	target: Arc<Target>,
+}
+
+struct Target {
+	id: String,
+	title: String,
+	url: String,
+}
+
 #[derive(Debug, Deserialize)]
 struct BaseMessage {
 	id: Option<i32>,
 	method: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CdpCommandEnvelope {
+	id: Option<i64>,
+	method: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct CdpNotification {
+	method: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct CdpResponse<T> {
+	id: i64,
+	result: T,
+}
+
+#[derive(Debug, Serialize)]
+struct EmptyResult {}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TargetMetadata {
+	description: String,
+	devtools_frontend_url: String,
+	id: String,
+	title: String,
+	#[serde(rename = "type")]
+	target_type: String,
+	url: String,
+	web_socket_debugger_url: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct VersionMetadata {
+	#[serde(rename = "Browser")]
+	browser: String,
+	#[serde(rename = "Protocol-Version")]
+	protocol_version: String,
+	#[serde(rename = "V8-Version")]
+	v8_version: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -151,23 +289,39 @@ struct ExecutionContextDescription {
 }
 
 impl Inspector {
+	#[allow(clippy::needless_pass_by_value)]
 	pub fn new(
 		isolate: &mut v8::Isolate,
 		inspect: Option<crate::inspect::Options>,
 		repl: Option<crate::repl::Receiver>,
 	) -> Self {
-		let inspector_client = v8::inspector::V8InspectorClient::new(Box::new(InspectorClient));
+		let session = Rc::new(RefCell::new(None));
+		let (debugger, startup_error) =
+			if let Some(crate::inspect::Options { addr, mode }) = inspect {
+				match Debugger::new(addr, mode, session.clone()) {
+					Ok(debugger) => (Some(debugger), None),
+					Err(error) => (None, Some(error)),
+				}
+			} else {
+				(None, None)
+			};
+		let debugger_state = debugger.as_ref().map(|debugger| debugger.state.clone());
+		let inspector_client = v8::inspector::V8InspectorClient::new(Box::new(InspectorClient {
+			debugger: debugger_state.clone(),
+		}));
 		let inspector = v8::inspector::V8Inspector::create(isolate, inspector_client);
 		let repl_closed = repl.is_none();
 		Self {
-			channel: InspectorChannel::new(),
-			repl,
-			repl_closed,
+			channel: InspectorChannel::new(debugger_state),
 			context_id: None,
+			debugger,
 			inner: inspector,
 			next_id: 1,
 			pending: None,
-			session: None,
+			repl,
+			repl_closed,
+			session,
+			startup_error,
 		}
 	}
 
@@ -176,6 +330,9 @@ impl Inspector {
 		scope: &mut v8::PinScope,
 		context: v8::Local<v8::Context>,
 	) -> tg::Result<()> {
+		if let Some(error) = self.startup_error.take() {
+			return Err(error);
+		}
 		self.inner.context_created(
 			context,
 			CONTEXT_GROUP_ID,
@@ -188,13 +345,16 @@ impl Inspector {
 			v8::inspector::StringView::from(&b"{}"[..]),
 			v8::inspector::V8InspectorClientTrustLevel::FullyTrusted,
 		);
-		self.session = Some(session);
+		*self.session.borrow_mut() = Some(session);
 		self.post(scope, "Runtime.enable", None::<()>)?;
 		self.context_id = self.channel.take_context_id();
 		if self.context_id.is_none() {
 			return Err(tg::error!(
 				"failed to get the V8 inspector execution context"
 			));
+		}
+		if let Some(debugger) = &self.debugger {
+			debugger.prepare_to_run();
 		}
 		Ok(())
 	}
@@ -205,6 +365,17 @@ impl Inspector {
 		isolate: &mut v8::OwnedIsolate,
 		context: &v8::Global<v8::Context>,
 	) -> std::task::Poll<tg::Result<Option<PollState>>> {
+		if let Some(debugger) = &self.debugger {
+			unsafe { isolate.enter() };
+			let handled = debugger.poll(cx);
+			unsafe { isolate.exit() };
+			if handled {
+				return std::task::Poll::Ready(Ok(Some(PollState {
+					clear_rejection: false,
+				})));
+			}
+		}
+
 		if let Some(clear_rejection) = self.complete_pending_command(isolate, context) {
 			return std::task::Poll::Ready(Ok(Some(PollState { clear_rejection })));
 		}
@@ -389,12 +560,216 @@ impl Inspector {
 		let message = InspectorRequest { id, method, params };
 		let message = serde_json::to_string(&message)
 			.map_err(|source| tg::error!(!source, "failed to serialize the inspector request"))?;
-		let Some(session) = self.session.as_mut() else {
+		let mut session = self.session.borrow_mut();
+		let Some(session) = session.as_mut() else {
 			return Err(tg::error!("the V8 inspector session is not available"));
 		};
 		session.dispatch_protocol_message(v8::inspector::StringView::from(message.as_bytes()));
 		scope.perform_microtask_checkpoint();
 		Ok(id)
+	}
+}
+
+impl Debugger {
+	fn new(
+		addr: Option<std::net::SocketAddr>,
+		mode: crate::inspect::Mode,
+		session: Rc<RefCell<Option<v8::inspector::V8InspectorSession>>>,
+	) -> tg::Result<Self> {
+		let (command, commands) = debugger_command_channel();
+		let server = Server::start(addr.unwrap_or(DEFAULT_INSPECTOR_ADDRESS), command)?;
+		let state = Rc::new(DebuggerState {
+			active: RefCell::new(None),
+			commands,
+			paused: Cell::new(false),
+			run_if_waiting_for_debugger: Cell::new(false),
+			session,
+			waiting_for_debugger: Cell::new(false),
+		});
+		Ok(Self {
+			_server: server,
+			mode,
+			state,
+		})
+	}
+
+	fn poll(&self, cx: &mut std::task::Context<'_>) -> bool {
+		self.state.poll(cx)
+	}
+
+	fn prepare_to_run(&self) {
+		match self.mode {
+			crate::inspect::Mode::Normal => {
+				self.state.drain_commands();
+			},
+			crate::inspect::Mode::Wait => {
+				self.state.wait_for_session();
+				self.state.drain_commands();
+			},
+			crate::inspect::Mode::Break => {
+				self.state.wait_for_session();
+				self.state.waiting_for_debugger.set(true);
+				while !self.state.run_if_waiting_for_debugger.get() {
+					if let Some(command) = self.state.recv_command() {
+						self.state.handle_command(command);
+					} else {
+						break;
+					}
+				}
+				self.state.waiting_for_debugger.set(false);
+				if let Some(session) = self.state.session.borrow_mut().as_mut() {
+					let reason = v8::inspector::StringView::from(&b"debugCommand"[..]);
+					let detail = v8::inspector::StringView::empty();
+					session.schedule_pause_on_next_statement(reason, detail);
+				}
+			},
+		}
+	}
+}
+
+impl DebuggerState {
+	fn poll(&self, cx: &mut std::task::Context<'_>) -> bool {
+		self.commands.waker.register(cx.waker());
+		self.drain_commands()
+	}
+
+	fn drain_commands(&self) -> bool {
+		let mut handled = false;
+		while let Ok(command) = self.commands.receiver.try_recv() {
+			self.handle_command(command);
+			handled = true;
+		}
+		handled
+	}
+
+	fn recv_command(&self) -> Option<DebuggerCommand> {
+		self.commands.receiver.recv().ok()
+	}
+
+	fn wait_for_session(&self) {
+		while self.active.borrow().is_none() {
+			if let Some(command) = self.recv_command() {
+				self.handle_command(command);
+			} else {
+				break;
+			}
+		}
+	}
+
+	fn handle_command(&self, command: DebuggerCommand) {
+		match command {
+			DebuggerCommand::Connected { id, outgoing } => {
+				*self.active.borrow_mut() = Some(ActiveConnection { id, outgoing });
+			},
+			DebuggerCommand::Message { id, message } => {
+				if self.active.borrow().as_ref().map(|active| active.id) != Some(id) {
+					return;
+				}
+				if self.handle_local_command(&message) {
+					return;
+				}
+				if let Some(session) = self.session.borrow_mut().as_mut() {
+					session.dispatch_protocol_message(v8::inspector::StringView::from(
+						message.as_bytes(),
+					));
+				}
+			},
+			DebuggerCommand::Disconnected { id } => {
+				let is_active = self.active.borrow().as_ref().map(|active| active.id) == Some(id);
+				if is_active {
+					*self.active.borrow_mut() = None;
+					self.paused.set(false);
+				}
+			},
+		}
+	}
+
+	fn handle_local_command(&self, message: &str) -> bool {
+		let Ok(envelope) = serde_json::from_str::<CdpCommandEnvelope>(message) else {
+			return false;
+		};
+		let Some(method) = envelope.method.as_deref() else {
+			return false;
+		};
+		match method {
+			"NodeRuntime.enable" | "NodeRuntime.disable" => {
+				if let Some(id) = envelope.id {
+					let response = CdpResponse {
+						id,
+						result: EmptyResult {},
+					};
+					self.send_protocol_message(&response);
+				}
+				if method == "NodeRuntime.enable" && self.waiting_for_debugger.get() {
+					let notification = CdpNotification {
+						method: "NodeRuntime.waitingForDebugger",
+					};
+					self.send_protocol_message(&notification);
+				}
+				true
+			},
+			"Runtime.runIfWaitingForDebugger" => {
+				self.run_if_waiting_for_debugger.set(true);
+				false
+			},
+			_ => false,
+		}
+	}
+
+	fn send_protocol_message<T: Serialize>(&self, message: &T) {
+		if let Some(active) = self.active.borrow().as_ref()
+			&& let Ok(message) = serde_json::to_string(message)
+		{
+			let _ = active.outgoing.send(message);
+		}
+	}
+
+	fn send_inspector_message(&self, message: String) {
+		if let Some(active) = self.active.borrow().as_ref() {
+			let _ = active.outgoing.send(message);
+		}
+	}
+}
+
+impl DebuggerCommandSender {
+	fn send(&self, command: DebuggerCommand) -> Result<(), std_mpsc::SendError<DebuggerCommand>> {
+		let result = self.sender.send(command);
+		self.waker.wake();
+		result
+	}
+}
+
+impl InspectorClient {
+	fn debugger(&self) -> Option<&DebuggerState> {
+		self.debugger.as_deref()
+	}
+}
+
+impl v8::inspector::V8InspectorClientImpl for InspectorClient {
+	fn run_message_loop_on_pause(&self, _context_group_id: i32) {
+		let Some(debugger) = self.debugger() else {
+			return;
+		};
+		debugger.paused.set(true);
+		while debugger.paused.get() {
+			if let Some(command) = debugger.recv_command() {
+				debugger.handle_command(command);
+			} else {
+				break;
+			}
+		}
+	}
+
+	fn quit_message_loop_on_pause(&self) {
+		if let Some(debugger) = self.debugger() {
+			debugger.paused.set(false);
+		}
+	}
+
+	fn run_if_waiting_for_debugger(&self, _context_group_id: i32) {
+		if let Some(debugger) = self.debugger() {
+			debugger.run_if_waiting_for_debugger.set(true);
+		}
 	}
 }
 
@@ -426,19 +801,20 @@ impl<'a> CallArgument<'a> {
 	}
 }
 
-impl v8::inspector::V8InspectorClientImpl for InspectorClient {}
-
 impl InspectorChannel {
-	fn new() -> Self {
+	fn new(debugger: Option<Rc<DebuggerState>>) -> Self {
 		Self {
+			debugger,
 			messages: Rc::new(RefCell::new(VecDeque::new())),
 		}
 	}
 
 	fn push_message(&self, message: v8::UniquePtr<v8::inspector::StringBuffer>) {
-		self.messages
-			.borrow_mut()
-			.push_back(message.unwrap().string().to_string());
+		let message = message.unwrap().string().to_string();
+		self.messages.borrow_mut().push_back(message.clone());
+		if let Some(debugger) = &self.debugger {
+			debugger.send_inspector_message(message);
+		}
 	}
 
 	fn take_response(&self, id: i32) -> Option<InspectorResponse> {
@@ -477,6 +853,176 @@ impl v8::inspector::ChannelImpl for InspectorChannel {
 	}
 
 	fn flush_protocol_notifications(&self) {}
+}
+
+impl Server {
+	fn start(address: std::net::SocketAddr, command: DebuggerCommandSender) -> tg::Result<Self> {
+		let listener = std::net::TcpListener::bind(address)
+			.map_err(|source| tg::error!(!source, "failed to bind the inspector server"))?;
+		listener
+			.set_nonblocking(true)
+			.map_err(|source| tg::error!(!source, "failed to configure the inspector server"))?;
+		let host = listener
+			.local_addr()
+			.map_err(|source| tg::error!(!source, "failed to get the inspector server address"))?;
+		let target = Arc::new(Target {
+			id: format!(
+				"{}-{}",
+				std::process::id(),
+				TARGET_COUNTER.fetch_add(1, Ordering::SeqCst)
+			),
+			title: format!("tangram js [pid: {}]", std::process::id()),
+			url: "tangram:js".to_owned(),
+		});
+		let state = ServerState {
+			command,
+			connection_counter: Arc::new(AtomicU64::new(1)),
+			host,
+			target,
+		};
+		let (shutdown_tx, shutdown_rx) = oneshot::channel();
+		let thread = thread::spawn(move || {
+			let runtime = tokio::runtime::Builder::new_current_thread()
+				.enable_all()
+				.build()
+				.expect("failed to build the inspector runtime");
+			runtime.block_on(async move {
+				let listener = tokio::net::TcpListener::from_std(listener)
+					.expect("failed to create the inspector listener");
+				let app = Router::new()
+					.route("/json", get(json_list))
+					.route("/json/list", get(json_list))
+					.route("/json/version", get(json_version))
+					.route("/ws/{id}", get(ws))
+					.with_state(state);
+				let shutdown = async {
+					let _ = shutdown_rx.await;
+				};
+				let _ = axum::serve(listener, app)
+					.with_graceful_shutdown(shutdown)
+					.await;
+			});
+		});
+		Ok(Self {
+			shutdown: Some(shutdown_tx),
+			thread: Some(thread),
+		})
+	}
+}
+
+impl Drop for Server {
+	fn drop(&mut self) {
+		if let Some(shutdown) = self.shutdown.take() {
+			let _ = shutdown.send(());
+		}
+		if let Some(thread) = self.thread.take() {
+			let _ = thread.join();
+		}
+	}
+}
+
+impl ServerState {
+	fn target_metadata(&self, host: &str) -> TargetMetadata {
+		TargetMetadata {
+			description: "tangram js".to_owned(),
+			devtools_frontend_url: self.frontend_url(host),
+			id: self.target.id.clone(),
+			title: self.target.title.clone(),
+			target_type: "node".to_owned(),
+			url: self.target.url.clone(),
+			web_socket_debugger_url: self.websocket_debugger_url(host),
+		}
+	}
+
+	fn frontend_url(&self, host: &str) -> String {
+		format!(
+			"devtools://devtools/bundled/js_app.html?ws={host}/ws/{}&experiments=true&v8only=true",
+			self.target.id
+		)
+	}
+
+	fn websocket_debugger_url(&self, host: &str) -> String {
+		format!("ws://{host}/ws/{}", self.target.id)
+	}
+}
+
+async fn json_list(
+	State(state): State<ServerState>,
+	headers: HeaderMap,
+) -> axum::Json<Vec<TargetMetadata>> {
+	let host = request_host(&headers).unwrap_or_else(|| state.host.to_string());
+	axum::Json(vec![state.target_metadata(&host)])
+}
+
+async fn json_version() -> axum::Json<VersionMetadata> {
+	axum::Json(VersionMetadata {
+		browser: "tangram".to_owned(),
+		protocol_version: "1.3".to_owned(),
+		v8_version: v8::V8::get_version().to_owned(),
+	})
+}
+
+async fn ws(
+	Path(id): Path<String>,
+	State(state): State<ServerState>,
+	upgrade: WebSocketUpgrade,
+) -> impl IntoResponse {
+	if id != state.target.id {
+		return StatusCode::NOT_FOUND.into_response();
+	}
+	upgrade
+		.on_upgrade(move |socket| websocket(socket, state))
+		.into_response()
+}
+
+async fn websocket(socket: WebSocket, state: ServerState) {
+	let id = state.connection_counter.fetch_add(1, Ordering::SeqCst);
+	let (outgoing, mut outgoing_rx) = tokio_mpsc::unbounded_channel::<String>();
+	let _ = state
+		.command
+		.send(DebuggerCommand::Connected { id, outgoing });
+	let (mut sender, mut receiver) = socket.split();
+	loop {
+		tokio::select! {
+			Some(message) = outgoing_rx.recv() => {
+				if sender.send(Message::Text(message.into())).await.is_err() {
+					break;
+				}
+			},
+			message = receiver.next() => {
+				match message {
+					Some(Ok(Message::Text(message))) => {
+						let _ = state.command.send(DebuggerCommand::Message {
+							id,
+							message: message.to_string(),
+						});
+					},
+					Some(Ok(Message::Close(_)) | Err(_)) | None => break,
+					Some(Ok(_)) => {},
+				}
+			},
+		}
+	}
+	let _ = state.command.send(DebuggerCommand::Disconnected { id });
+}
+
+fn request_host(headers: &HeaderMap) -> Option<String> {
+	headers
+		.get(HOST)
+		.and_then(|host| host.to_str().ok())
+		.map(ToOwned::to_owned)
+}
+
+fn debugger_command_channel() -> (DebuggerCommandSender, DebuggerCommandReceiver) {
+	let (sender, receiver) = std_mpsc::channel();
+	let waker = Arc::new(AtomicWaker::new());
+	(
+		DebuggerCommandSender {
+			sender,
+			waker: waker.clone(),
+		},
+		DebuggerCommandReceiver { receiver, waker },
+	)
 }
 
 fn response_remote_object(response: &InspectorResponse) -> Result<&RemoteObject, String> {

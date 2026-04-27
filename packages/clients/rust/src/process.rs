@@ -12,6 +12,7 @@ use {
 pub use self::{
 	build::{build, build_with_handle},
 	data::Data,
+	debug::Debug,
 	env::env,
 	exec::{exec, exec_with_handle},
 	id::Id,
@@ -30,6 +31,7 @@ pub mod build;
 pub mod cancel;
 pub mod children;
 pub mod data;
+pub mod debug;
 pub mod env;
 pub mod exec;
 pub mod finish;
