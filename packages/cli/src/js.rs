@@ -23,7 +23,7 @@ pub struct Args {
 
 	/// The JS engine to use.
 	#[arg(long, default_value = "auto")]
-	pub engine: JsEngine,
+	pub engine: Engine,
 
 	#[arg(index = 1)]
 	pub executable: tg::command::data::Executable,
@@ -34,7 +34,7 @@ pub struct Args {
 
 #[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
 #[value(rename_all = "lowercase")]
-pub enum JsEngine {
+pub enum Engine {
 	#[default]
 	Auto,
 	QuickJs,
@@ -110,26 +110,24 @@ impl Cli {
 		// Run.
 		let future = match args.engine {
 			#[cfg(feature = "v8")]
-			JsEngine::Auto | JsEngine::V8 => tangram_js::v8::run(
-				&client,
+			Engine::Auto | Engine::V8 => tangram_js::v8::run(
+				tg::handle::dynamic::Handle::new(client),
+				runtime.handle().clone(),
 				args_,
 				cwd,
 				env,
 				executable,
-				runtime.handle().clone(),
-				None,
 			)
 			.boxed_local(),
 			#[cfg(feature = "quickjs")]
 			#[allow(unreachable_patterns)]
-			JsEngine::Auto | JsEngine::QuickJs => tangram_js::quickjs::run(
-				&client,
+			Engine::Auto | Engine::QuickJs => tangram_js::quickjs::run(
+				tg::handle::dynamic::Handle::new(client),
+				runtime.handle().clone(),
 				args_,
 				cwd,
 				env,
 				executable,
-				runtime.handle().clone(),
-				None,
 			)
 			.boxed_local(),
 			#[allow(unreachable_patterns)]

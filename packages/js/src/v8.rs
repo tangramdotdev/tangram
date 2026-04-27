@@ -3,42 +3,47 @@ use {
 		module::{
 			host_import_module_dynamically_callback, host_initialize_import_meta_object_callback,
 		},
+		promise::promise_reject_callback,
 		syscall::syscall,
 	},
 	crate::Output,
-	futures::{
-		FutureExt as _, StreamExt as _, TryFutureExt as _,
-		future::{self, LocalBoxFuture},
-		stream::FuturesUnordered,
-	},
+	futures::{StreamExt as _, future::LocalBoxFuture, stream::FuturesUnordered},
 	sourcemap::SourceMap,
-	std::{cell::RefCell, future::poll_fn, path::PathBuf, pin::pin, rc::Rc, task::Poll},
+	std::{
+		cell::RefCell,
+		future::poll_fn,
+		path::{Path, PathBuf},
+		rc::Rc,
+		task::Poll,
+	},
 	tangram_client::prelude::*,
 	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 };
 
 mod error;
 mod module;
+mod promise;
 mod syscall;
 
 const SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.heapsnapshot"));
 
 const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.js.map"));
 
-struct State {
-	promises: RefCell<FuturesUnordered<LocalBoxFuture<'static, PromiseOutput>>>,
-	global_source_map: Option<SourceMap>,
-	main_runtime_handle: tokio::runtime::Handle,
-	modules: RefCell<Vec<Module>>,
-	rejection: tokio::sync::watch::Sender<Option<tg::Error>>,
-	handle: tg::handle::dynamic::Handle,
-	host: crate::host::Host,
-	stdio: crate::stdio::Stdio,
+struct Runtime {
+	context: v8::Global<v8::Context>,
+	isolate: v8::OwnedIsolate,
+	state: Rc<State>,
 }
 
-struct PromiseOutput {
-	resolver: v8::Global<v8::PromiseResolver>,
-	result: tg::Result<Box<dyn tangram_v8::Serialize>>,
+struct State {
+	global_source_map: Option<SourceMap>,
+	handle: tg::handle::dynamic::Handle,
+	host: crate::host::Host,
+	main_runtime_handle: tokio::runtime::Handle,
+	modules: RefCell<Vec<Module>>,
+	promises: RefCell<FuturesUnordered<LocalBoxFuture<'static, self::promise::Output>>>,
+	rejection: RefCell<Option<tg::Error>>,
+	stdio: crate::stdio::Stdio,
 }
 
 #[derive(Clone, Debug)]
@@ -48,75 +53,124 @@ struct Module {
 	v8: Option<v8::Global<v8::Module>>,
 }
 
-#[derive(Clone)]
-pub struct Abort(v8::IsolateHandle);
-
-pub async fn run<H>(
-	handle: &H,
+pub async fn run(
+	handle: tg::handle::dynamic::Handle,
+	main_runtime_handle: tokio::runtime::Handle,
 	args: tg::value::data::Array,
 	cwd: PathBuf,
 	env: tg::value::data::Map,
 	executable: tg::command::data::Executable,
-	main_runtime_handle: tokio::runtime::Handle,
-	abort_sender: Option<tokio::sync::watch::Sender<Option<Abort>>>,
-) -> tg::Result<Output>
-where
-	H: tg::Handle,
-{
-	// Create the state.
-	let (rejection, _) = tokio::sync::watch::channel(None);
-	let handle = tg::handle::dynamic::Handle::new(handle.clone());
-	let state = Rc::new(State {
-		promises: RefCell::new(FuturesUnordered::new()),
-		global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
-		main_runtime_handle: main_runtime_handle.clone(),
-		modules: RefCell::new(Vec::new()),
-		rejection,
-		handle: handle.clone(),
-		host: crate::host::Host::default(),
-		stdio: crate::stdio::Stdio::new(handle, main_runtime_handle),
-	});
+) -> tg::Result<Output> {
+	let mut runtime = Runtime::new(handle, &args, &cwd, &env, &executable, main_runtime_handle)?;
+	let value = runtime.start()?;
+	let result = runtime.resolve(&value).await;
+	let output = match result {
+		Ok(output) => Output {
+			checksum: None,
+			error: None,
+			exit: 0,
+			output: Some(output),
+		},
+		Err(error) => Output {
+			checksum: None,
+			error: Some(error),
+			exit: 1,
+			output: None,
+		},
+	};
+	Ok(output)
+}
 
-	// Create the isolate params.
-	let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT.into());
+impl Runtime {
+	pub fn new(
+		handle: tg::handle::dynamic::Handle,
+		args: &tg::value::data::Array,
+		cwd: &Path,
+		env: &tg::value::data::Map,
+		executable: &tg::command::data::Executable,
+		main_runtime_handle: tokio::runtime::Handle,
+	) -> tg::Result<Self> {
+		// Create the isolate params.
+		let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT.into());
 
-	// Create the isolate.
-	let isolate = v8::Isolate::new(params);
-	let mut isolate = scopeguard::guard(isolate, |isolate| unsafe {
-		isolate.enter();
-	});
-	unsafe { isolate.exit() };
+		// Create the isolate.
+		let mut isolate = v8::Isolate::new(params);
+		unsafe { isolate.exit() };
 
-	// Enter the isolate.
-	unsafe { isolate.enter() };
+		// Enter the isolate.
+		unsafe { isolate.enter() };
 
-	// Send the abort handle.
-	if let Some(abort_sender) = abort_sender {
-		abort_sender.send_replace(Some(Abort::new(isolate.thread_safe_handle())));
+		// Set the microtask policy.
+		isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+
+		// Set the host import module dynamically callback.
+		isolate
+			.set_host_import_module_dynamically_callback(host_import_module_dynamically_callback);
+
+		// Set the host initialize import meta object callback.
+		isolate.set_host_initialize_import_meta_object_callback(
+			host_initialize_import_meta_object_callback,
+		);
+
+		// Set the prepare stack trace callback.
+		isolate.set_prepare_stack_trace_callback(self::error::prepare_stack_trace_callback);
+
+		// Set the promise reject callback.
+		isolate.set_promise_reject_callback(promise_reject_callback);
+
+		// Create the context.
+		let context = {
+			v8::scope!(scope, &mut isolate);
+			let context = v8::Context::new(scope, v8::ContextOptions::default());
+			let scope = &mut v8::ContextScope::new(scope, context);
+			v8::Global::new(scope, context)
+		};
+
+		// Create the state.
+		let state = Rc::new(State {
+			global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
+			handle: handle.clone(),
+			host: crate::host::Host::default(),
+			main_runtime_handle: main_runtime_handle.clone(),
+			modules: RefCell::new(Vec::new()),
+			promises: RefCell::new(FuturesUnordered::new()),
+			rejection: RefCell::new(None),
+			stdio: crate::stdio::Stdio::new(handle, main_runtime_handle),
+		});
+
+		// Init.
+		let result = Self::init(&mut isolate, &context, &state, args, cwd, env, executable);
+		match result {
+			Ok(()) => (),
+			Err(error) => {
+				return Err(error);
+			},
+		}
+
+		// Exit the isolate.
+		unsafe { isolate.exit() };
+
+		let runtime = Self {
+			context,
+			isolate,
+			state,
+		};
+
+		Ok(runtime)
 	}
 
-	// Set the microtask policy.
-	isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
-
-	// Set the host import module dynamically callback.
-	isolate.set_host_import_module_dynamically_callback(host_import_module_dynamically_callback);
-
-	// Set the host initialize import meta object callback.
-	isolate.set_host_initialize_import_meta_object_callback(
-		host_initialize_import_meta_object_callback,
-	);
-
-	// Set the prepare stack trace callback.
-	isolate.set_prepare_stack_trace_callback(self::error::prepare_stack_trace_callback);
-
-	// Set the promise reject callback.
-	isolate.set_promise_reject_callback(promise_reject_callback);
-
-	// Create the context.
-	let context = {
-		// Create the context.
-		v8::scope!(scope, isolate.as_mut());
-		let context = v8::Context::new(scope, v8::ContextOptions::default());
+	fn init(
+		isolate: &mut v8::Isolate,
+		context: &v8::Global<v8::Context>,
+		state: &Rc<State>,
+		args: &tg::value::data::Array,
+		cwd: &Path,
+		env: &tg::value::data::Map,
+		executable: &tg::command::data::Executable,
+	) -> tg::Result<()> {
+		// Create a scope for the context.
+		v8::scope!(scope, isolate);
+		let context = v8::Local::new(scope, context.clone());
 		let scope = &mut v8::ContextScope::new(scope, context);
 
 		// Set the state on the context.
@@ -131,16 +185,6 @@ where
 			.define_property(scope, syscall_string.into(), &syscall_descriptor)
 			.unwrap();
 
-		v8::Global::new(scope, context)
-	};
-
-	// Call the start function.
-	let result = (|| {
-		// Create a scope for the context.
-		v8::scope!(scope, isolate.as_mut());
-		let context = v8::Local::new(scope, context.clone());
-		let scope = &mut v8::ContextScope::new(scope, context);
-
 		// Create the arg.
 		let arg = v8::Object::new(scope);
 
@@ -151,8 +195,8 @@ where
 
 		// Set cwd.
 		let key = v8::String::new_external_onebyte_static(scope, b"cwd").unwrap();
-		let value =
-			Serde(cwd.to_str().ok_or_else(|| tg::error!("invalid cwd"))?).serialize(scope)?;
+		let value = cwd.to_str().ok_or_else(|| tg::error!("invalid cwd"))?;
+		let value = Serde(value).serialize(scope)?;
 		arg.set(scope, key.into(), value);
 
 		// Set env.
@@ -165,15 +209,15 @@ where
 		let value = Serde(&executable).serialize(scope)?;
 		arg.set(scope, key.into(), value);
 
-		// Get the start function.
-		let start = v8::String::new_external_onebyte_static(scope, b"start").unwrap();
-		let start = context.global(scope).get(scope, start.into()).unwrap();
-		let start = v8::Local::<v8::Function>::try_from(start).unwrap();
+		// Get the init function.
+		let init = v8::String::new_external_onebyte_static(scope, b"init").unwrap();
+		let init = context.global(scope).get(scope, init.into()).unwrap();
+		let init = v8::Local::<v8::Function>::try_from(init).unwrap();
 
-		// Call the start function.
+		// Call the init function.
 		v8::tc_scope!(scope, scope);
 		let undefined = v8::undefined(scope);
-		let value = start.call(scope, undefined.into(), &[arg.into()]);
+		init.call(scope, undefined.into(), &[arg.into()]);
 		if scope.has_caught() {
 			if !scope.can_continue() {
 				if scope.has_terminated() {
@@ -182,7 +226,46 @@ where
 				return Err(tg::error!("unrecoverable error"));
 			}
 			let exception = scope.exception().unwrap();
-			let error = self::error::from_exception(&state, scope, exception)
+			let error = self::error::from_exception(state, scope, exception)
+				.unwrap_or_else(|| tg::error!("failed to get the exception"));
+			return Err(error);
+		}
+
+		Ok(())
+	}
+
+	fn start(&mut self) -> tg::Result<v8::Global<v8::Value>> {
+		unsafe { self.isolate.enter() };
+		let result = self.start_inner();
+		unsafe { self.isolate.exit() };
+		let output = result?;
+		Ok(output)
+	}
+
+	fn start_inner(&mut self) -> tg::Result<v8::Global<v8::Value>> {
+		// Create a scope for the context.
+		v8::scope!(scope, &mut self.isolate);
+		let context = v8::Local::new(scope, self.context.clone());
+		let scope = &mut v8::ContextScope::new(scope, context);
+
+		// Get the start function.
+		let start = v8::String::new_external_onebyte_static(scope, b"start").unwrap();
+		let start = context.global(scope).get(scope, start.into()).unwrap();
+		let start = v8::Local::<v8::Function>::try_from(start).unwrap();
+
+		// Call the start function.
+		v8::tc_scope!(scope, scope);
+		let undefined = v8::undefined(scope);
+		let value = start.call(scope, undefined.into(), &[]);
+		if scope.has_caught() {
+			if !scope.can_continue() {
+				if scope.has_terminated() {
+					return Err(tg::error!("execution terminated"));
+				}
+				return Err(tg::error!("unrecoverable error"));
+			}
+			let exception = scope.exception().unwrap();
+			let error = self::error::from_exception(&self.state, scope, exception)
 				.unwrap_or_else(|| tg::error!("failed to get the exception"));
 			return Err(error);
 		}
@@ -192,232 +275,101 @@ where
 		let value = v8::Global::new(scope, value);
 
 		Ok(value)
-	})();
+	}
 
-	// Exit the isolate.
-	unsafe { isolate.exit() };
-
-	let value = result?;
-
-	// Run the event loop.
-	let future = poll_fn(|cx| {
-		loop {
-			// Poll the promises.
-			let poll = state.promises.borrow_mut().poll_next_unpin(cx);
-			let done = matches!(&poll, Poll::Ready(None));
-
-			match poll {
-				// If no promises are ready, then return pending.
-				Poll::Pending => {
-					return Poll::Pending;
-				},
-
-				// If there is a promise to fulfill, then resolve or reject it and run microtasks.
-				Poll::Ready(Some(output)) => {
-					let PromiseOutput {
-						resolver: promise_resolver,
-						result,
-					} = output;
-
-					// Enter the isolate.
-					unsafe { isolate.enter() };
-
-					let result = (|| {
-						// Create a scope for the context.
-						v8::scope!(scope, isolate.as_mut());
-						let context = v8::Local::new(scope, context.clone());
-						let scope = &mut v8::ContextScope::new(scope, context);
-						v8::tc_scope!(scope, scope);
-
-						// Resolve or reject the promise.
-						let promise_resolver = v8::Local::new(scope, promise_resolver);
-						match result.and_then(|value| value.serialize(scope)) {
-							Ok(value) => {
-								// Resolve the promise.
-								promise_resolver.resolve(scope, value).unwrap();
-							},
-							Err(error) => {
-								// Reject the promise.
-								let exception = error::to_exception(scope, &error);
-								if let Some(exception) = exception {
-									promise_resolver.reject(scope, exception).unwrap();
-								}
-							},
-						}
-
-						// Run microtasks.
-						scope.perform_microtask_checkpoint();
-
-						// Handle an exception.
-						if scope.has_caught() {
-							if !scope.can_continue() {
-								if scope.has_terminated() {
-									return Err(tg::error!("execution terminated"));
-								}
-								return Err(tg::error!("unrecoverable error"));
-							}
-							let exception = scope.exception().unwrap();
-							let error = self::error::from_exception(&state, scope, exception)
-								.unwrap_or_else(|| tg::error!("failed to get the exception"));
-							return Err(error);
-						}
-
-						Ok(())
-					})();
-
-					// Exit the isolate.
-					unsafe { isolate.exit() };
-
-					if let Err(error) = result {
-						return Poll::Ready(Err(error));
-					}
-				},
-
-				// If there are no more promises to resolve or reject, then do not continue.
-				Poll::Ready(None) => (),
-			}
-
-			// Enter the isolate.
-			unsafe { isolate.enter() };
-
-			// Check if the main value has settled.
-			let result = {
-				// Create a scope for the context.
-				v8::scope!(scope, isolate.as_mut());
-				let context = v8::Local::new(scope, context.clone());
-				let scope = &mut v8::ContextScope::new(scope, context);
-
-				// Make the value local.
-				let value = v8::Local::new(scope, value.clone());
-
-				// Get the result if the value has settled.
-				match v8::Local::<v8::Promise>::try_from(value) {
-					Err(_) => Some(
-						<Serde<tg::value::Data>>::deserialize(scope, value).map(|value| value.0),
-					),
-					Ok(promise) => match promise.state() {
-						// If the promise is fulfilled, then return the result.
-						v8::PromiseState::Fulfilled => {
-							let value = promise.result(scope);
-							Some(
-								<Serde<tg::value::Data>>::deserialize(scope, value)
-									.map(|value| value.0),
-							)
-						},
-
-						// If the promise is rejected, then return the error.
-						v8::PromiseState::Rejected => {
-							let exception = promise.result(scope);
-							let error = self::error::from_exception(&state, scope, exception)
-								.unwrap_or_else(|| tg::error!("failed to get the exception"));
-							Some(Err(error))
-						},
-
-						// If the promise is still pending, then continue the loop.
-						v8::PromiseState::Pending => None,
+	pub async fn resolve(&mut self, value: &v8::Global<v8::Value>) -> tg::Result<tg::Value> {
+		poll_fn(|cx| {
+			loop {
+				let done = match self.poll_event_loop(cx) {
+					Poll::Pending => {
+						return Poll::Pending;
 					},
+					Poll::Ready(Err(error)) => {
+						return Poll::Ready(Err(error));
+					},
+					Poll::Ready(Ok(done)) => done,
+				};
+				if let Some(result) = self.try_resolve_value(value) {
+					return Poll::Ready(result);
 				}
-			};
-
-			// Exit the isolate.
-			unsafe { isolate.exit() };
-
-			if let Some(result) = result {
-				return Poll::Ready(result);
+				if done {
+					return Poll::Pending;
+				}
 			}
+		})
+		.await
+	}
 
-			// If the value is still pending and there are no remaining promises, then remain pending indefinitely.
-			if done {
-				return Poll::Pending;
-			}
+	fn poll_event_loop(&mut self, cx: &mut std::task::Context<'_>) -> Poll<tg::Result<bool>> {
+		if let Some(error) = self.state.rejection.borrow().clone() {
+			return Poll::Ready(Err(error));
 		}
-	});
-	let mut rejection = state.rejection.subscribe();
-	let rejection = rejection
-		.wait_for(Option::is_some)
-		.map_ok(|option| option.as_ref().unwrap().clone())
-		.map(Result::unwrap);
-	let rejection = pin!(rejection);
-	let output = match future::select(pin!(future), rejection).await {
-		future::Either::Left((Ok(output), _)) => Output {
-			checksum: None,
-			error: None,
-			exit: 0,
-			output: Some(tg::Value::try_from(output)?),
-		},
-		future::Either::Left((Err(error), _)) | future::Either::Right((error, _)) => Output {
-			checksum: None,
-			error: Some(error),
-			exit: 1,
-			output: None,
-		},
-	};
 
-	Ok(output)
-}
+		let poll = self.state.promises.borrow_mut().poll_next_unpin(cx);
 
-impl State {
-	pub fn create_promise<'s>(
-		&self,
-		scope: &mut v8::PinScope<'s, '_>,
-		future: impl Future<Output = tg::Result<impl tangram_v8::Serialize + 'static>> + 'static,
-	) -> v8::Local<'s, v8::Promise> {
-		// Create the promise.
-		let resolver = v8::PromiseResolver::new(scope).unwrap();
-		let promise = resolver.get_promise(scope);
-
-		// Move the promise resolver to the global scope.
-		let resolver = v8::Global::new(scope, resolver);
-
-		// Create the future.
-		let future = {
-			async move {
-				let result = future
-					.await
-					.map(|value| Box::new(value) as Box<dyn tangram_v8::Serialize>);
-				PromiseOutput { resolver, result }
-			}
-			.boxed_local()
+		let output = match poll {
+			Poll::Pending => {
+				return Poll::Pending;
+			},
+			Poll::Ready(None) => {
+				return Poll::Ready(Ok(true));
+			},
+			Poll::Ready(Some(output)) => output,
 		};
 
-		// Add the promise.
-		self.promises.borrow_mut().push(future);
+		let result = self.resolve_or_reject_promise(output);
+		if let Err(error) = result {
+			return Poll::Ready(Err(error));
+		}
 
-		promise
+		Poll::Ready(Ok(false))
+	}
+
+	fn try_resolve_value(
+		&mut self,
+		value: &v8::Global<v8::Value>,
+	) -> Option<tg::Result<tg::Value>> {
+		unsafe { self.isolate.enter() };
+		let result = self.try_resolve_value_inner(value);
+		unsafe { self.isolate.exit() };
+		result
+	}
+
+	fn try_resolve_value_inner(
+		&mut self,
+		value: &v8::Global<v8::Value>,
+	) -> Option<tg::Result<tg::Value>> {
+		v8::scope!(scope, &mut self.isolate);
+		let context = v8::Local::new(scope, self.context.clone());
+		let scope = &mut v8::ContextScope::new(scope, context);
+		let value = v8::Local::new(scope, value.clone());
+		match v8::Local::<v8::Promise>::try_from(value) {
+			Err(_) => {
+				let value = <Serde<tg::value::Data>>::deserialize(scope, value)
+					.and_then(|value| tg::Value::try_from_data(value.0));
+				Some(value)
+			},
+			Ok(promise) => match promise.state() {
+				v8::PromiseState::Fulfilled => {
+					let value = promise.result(scope);
+					let value = <Serde<tg::value::Data>>::deserialize(scope, value)
+						.and_then(|value| tg::Value::try_from_data(value.0));
+					Some(value)
+				},
+				v8::PromiseState::Rejected => {
+					let exception = promise.result(scope);
+					let error = self::error::from_exception(&self.state, scope, exception)
+						.unwrap_or_else(|| tg::error!("failed to get the exception"));
+					Some(Err(error))
+				},
+				v8::PromiseState::Pending => None,
+			},
+		}
 	}
 }
 
-/// Implement V8's promise rejection callback.
-extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
-	// Get the scope.
-	v8::callback_scope!(unsafe scope, &message);
-
-	// Get the context.
-	let context = scope.get_current_context();
-
-	// Get the state.
-	let state = context.get_slot::<State>().unwrap().clone();
-
-	match message.get_event() {
-		v8::PromiseRejectEvent::PromiseRejectWithNoHandler
-		| v8::PromiseRejectEvent::PromiseHandlerAddedAfterReject => {
-			let exception = message.get_promise().result(scope);
-			let error = error::from_exception(&state, scope, exception)
-				.unwrap_or_else(|| tg::error!("failed to get the exception"));
-			state.rejection.send_replace(Some(error));
-		},
-		v8::PromiseRejectEvent::PromiseRejectAfterResolved
-		| v8::PromiseRejectEvent::PromiseResolveAfterResolved => {},
-	}
-}
-
-impl Abort {
-	#[must_use]
-	pub fn new(handle: v8::IsolateHandle) -> Self {
-		Self(handle)
-	}
-
-	pub fn abort(&self) {
-		self.0.terminate_execution();
+impl Drop for Runtime {
+	fn drop(&mut self) {
+		unsafe { self.isolate.enter() };
 	}
 }

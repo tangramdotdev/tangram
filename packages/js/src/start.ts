@@ -1,41 +1,19 @@
 import * as tg from "@tangramdotdev/client";
 
-type Arg = {
-	args: Array<tg.Value.Data>;
-	cwd: string;
-	env: Record<string, tg.Value.Data>;
-	executable: tg.Command.Data.Executable;
-};
-
-export let start = async (arg: Arg): Promise<tg.Value.Data> => {
-	let executable = tg.Command.Executable.fromData(arg.executable);
-
-	// Set tg.process.
-	tg.setProcess({
-		args: arg.args.map(tg.Value.fromData),
-		cwd: arg.cwd,
-		env: Object.fromEntries(
-			Object.entries(arg.env).map(([key, value]) => [
-				key,
-				tg.Value.fromData(value),
-			]),
-		),
-		executable,
-	});
-
+export let start = async (): Promise<tg.Value.Data> => {
 	// Import the module.
 	let specifier: string;
 	let export_: string | undefined;
-	if ("artifact" in executable) {
-		specifier = executable.artifact.id;
-		if (executable.path !== undefined) {
-			specifier += `?path=${encodeURIComponent(executable.path)}`;
+	if ("artifact" in tg.process.executable) {
+		specifier = tg.process.executable.artifact.id;
+		if (tg.process.executable.path !== undefined) {
+			specifier += `?path=${encodeURIComponent(tg.process.executable.path)}`;
 		}
-	} else if ("module" in executable) {
-		specifier = tg.Module.toDataString(executable.module);
-		export_ = executable.export;
-	} else if ("path" in executable) {
-		specifier = executable.path;
+	} else if ("module" in tg.process.executable) {
+		specifier = tg.Module.toDataString(tg.process.executable.module);
+		export_ = tg.process.executable.export;
+	} else if ("path" in tg.process.executable) {
+		specifier = tg.process.executable.path;
 	} else {
 		return tg.unreachable();
 	}

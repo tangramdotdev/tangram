@@ -55,6 +55,7 @@ mod shell;
 mod tag;
 mod tangram;
 mod telemetry;
+mod theme;
 mod touch;
 mod tree;
 mod update;
@@ -298,10 +299,7 @@ fn main() -> std::process::ExitCode {
 		#[cfg(feature = "js")]
 		Command::Js(args) => {
 			#[cfg(feature = "v8")]
-			if matches!(
-				args.engine,
-				crate::js::JsEngine::Auto | crate::js::JsEngine::V8
-			) {
+			if matches!(args.engine, crate::js::Engine::Auto | crate::js::Engine::V8) {
 				Cli::initialize_v8(0);
 			}
 			return Cli::command_js(&matches, args);
@@ -1309,9 +1307,11 @@ impl Cli {
 				..miette::ThemeStyles::none()
 			},
 		};
+		let highlighter =
+			miette::highlighters::SyntectHighlighter::new_themed(crate::theme::tangram(), false);
 		let handler = miette::GraphicalReportHandler::new()
 			.with_theme(theme)
-			.without_syntax_highlighting();
+			.with_syntax_highlighting(highlighter);
 		miette::set_hook(Box::new(move |_| Box::new(handler.clone()))).unwrap();
 	}
 
