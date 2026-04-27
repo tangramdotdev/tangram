@@ -37,7 +37,7 @@ pub struct Args {
 	pub trailing: Vec<String>,
 }
 
-#[derive(Clone, Debug, clap::Args)]
+#[derive(Clone, Debug, Default, clap::Args)]
 pub struct Debug {
 	#[arg(long = "debug")]
 	enabled: bool,

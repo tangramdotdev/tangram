@@ -55,6 +55,7 @@ export class Process<O extends tg.Value = tg.Value> {
 				typeof sandbox !== "string" &&
 				(sandbox.mounts?.length ?? 0) === 0 &&
 				(sandbox.network ?? false) === false &&
+				normalizeDebug(arg.debug) === undefined &&
 				arg.stdin === "null" &&
 				arg.stdout === "log" &&
 				arg.stderr === "log" &&
@@ -339,6 +340,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		}
 
 		let checksum = arg.checksum;
+		let debug = normalizeDebug(arg.debug);
 		let processStdin: tg.Process.Stdio | undefined;
 		let commandStdin: tg.Blob.Arg | undefined;
 		if ("stdin" in arg) {
@@ -379,6 +381,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			cache_location: arg.cache_location,
 			checksum,
 			command: commandReferent,
+			debug,
 			location: arg.location,
 			retry: false,
 			sandbox,
@@ -579,7 +582,12 @@ export class Process<O extends tg.Value = tg.Value> {
 		outputPath ??= tg.path.join(tempPath, "output");
 		let artifacts = await checkoutArtifacts(command);
 		let env = await renderEnv(command.env, artifacts, outputPath);
-		let { args, executable } = renderCommand(command, artifacts, outputPath);
+		let { args, executable } = renderCommand(
+			command,
+			artifacts,
+			outputPath,
+			arg.debug,
+		);
 		return {
 			args,
 			cwd: command.cwd,
@@ -1074,6 +1082,15 @@ export namespace Process {
 			return this;
 		}
 
+		debug(
+			debug: tg.Unresolved<
+				tg.MaybeMutation<boolean | tg.Process.Debug | undefined>
+			> = true,
+		): this {
+			this.#args.push({ debug });
+			return this;
+		}
+
 		cpu(cpu: tg.Unresolved<tg.MaybeMutation<number>>): this {
 			this.#args.push({ cpu });
 			return this;
@@ -1281,6 +1298,7 @@ export namespace Process {
 		command?: tg.MaybeReferent<tg.Command> | undefined;
 		cpu?: number | undefined;
 		cwd?: string | undefined;
+		debug?: boolean | tg.Process.Debug | undefined;
 		env?: tg.MaybeMutationMap | undefined;
 		executable?: tg.Command.Arg.Executable | undefined;
 		host?: string | undefined;
@@ -1303,6 +1321,7 @@ export namespace Process {
 		children?: Array<tg.Process.Child> | undefined;
 		command: tg.Command;
 		createdAt: number;
+		debug?: tg.Process.Debug | undefined;
 		error: tg.Error | undefined;
 		exit: number | undefined;
 		expectedChecksum?: tg.Checksum | undefined;
@@ -1325,6 +1344,15 @@ export namespace Process {
 		options: tg.Referent.Options;
 		process: tg.Process;
 	};
+
+	export type Debug = {
+		addr?: string | undefined;
+		mode?: tg.Process.Debug.Mode | undefined;
+	};
+
+	export namespace Debug {
+		export type Mode = "normal" | "break" | "wait";
+	}
 
 	export namespace Child {
 		export let toData = (value: tg.Process.Child): tg.Process.Data.Child => {
@@ -1419,6 +1447,9 @@ export namespace Process {
 			if (value.children !== undefined) {
 				output.children = value.children.map(tg.Process.Child.toData);
 			}
+			if (value.debug !== undefined) {
+				output.debug = value.debug;
+			}
 			if (value.error !== undefined) {
 				output.error = tg.Error.toData(value.error);
 			}
@@ -1468,6 +1499,7 @@ export namespace Process {
 						: undefined,
 				command: tg.Command.withId(data.command),
 				createdAt: data.created_at,
+				debug: data.debug,
 				error:
 					data.error !== undefined
 						? typeof data.error === "string"
@@ -1869,6 +1901,7 @@ export namespace Process {
 		children?: Array<tg.Process.Data.Child>;
 		command: tg.Command.Id;
 		created_at: number;
+		debug?: tg.Process.Debug;
 		error?: tg.Error.Data | tg.Error.Id;
 		exit?: number;
 		expected_checksum?: tg.Checksum;
@@ -2151,6 +2184,7 @@ function renderCommand(
 	command: tg.Command.Object,
 	artifacts: Map<tg.Artifact.Id, string>,
 	outputPath: string,
+	debug: tg.Process.Debug | undefined,
 ): { args: Array<string>; executable: string } {
 	switch (command.host) {
 		case "builtin": {
@@ -2159,8 +2193,12 @@ function renderCommand(
 			return { args, executable: "tangram" };
 		}
 		case "js": {
-			let args = renderArgsDashA(command.args);
-			args.unshift("js", renderExecutableUri(command.executable));
+			let args = [
+				"js",
+				...renderJsDebugArgs(debug),
+				renderExecutableUri(command.executable),
+				...renderArgsDashA(command.args),
+			];
 			return { args, executable: "tangram" };
 		}
 		default: {
@@ -2170,6 +2208,20 @@ function renderCommand(
 			};
 		}
 	}
+}
+
+function renderJsDebugArgs(debug: tg.Process.Debug | undefined): Array<string> {
+	if (debug === undefined) {
+		return [];
+	}
+	let args = ["--debug"];
+	if (debug.addr !== undefined) {
+		args.push("--debug-addr", debug.addr);
+	}
+	if (debug.mode !== undefined && debug.mode !== "normal") {
+		args.push("--debug-mode", debug.mode);
+	}
+	return args;
 }
 
 function renderExecutable(
@@ -2434,6 +2486,18 @@ let normalizeSandbox = (
 		output.network = network;
 	}
 	return output;
+};
+
+let normalizeDebug = (
+	debug: boolean | tg.Process.Debug | undefined,
+): tg.Process.Debug | undefined => {
+	if (debug === undefined || debug === false) {
+		return undefined;
+	}
+	if (debug === true) {
+		return {};
+	}
+	return debug;
 };
 
 let defaultHost = (): string | undefined => {

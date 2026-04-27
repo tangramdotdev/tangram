@@ -78,6 +78,7 @@ pub struct Arg {
 	pub checksum: Option<tg::Checksum>,
 	pub cpu: Option<u64>,
 	pub cwd: Option<PathBuf>,
+	pub debug: Option<tg::process::Debug>,
 	pub env: tg::value::Map,
 	pub executable: Option<tg::command::Executable>,
 	pub host: Option<String>,

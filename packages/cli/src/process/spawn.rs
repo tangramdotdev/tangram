@@ -74,6 +74,10 @@ pub struct Options {
 	#[arg(long, short = 'C')]
 	pub cwd: Option<PathBuf>,
 
+	#[cfg(feature = "js")]
+	#[command(flatten)]
+	pub debug: crate::js::Debug,
+
 	/// Set environment variables as strings.
 	#[arg(
 		action = clap::ArgAction::Append,
@@ -346,6 +350,10 @@ impl Cli {
 	) -> tg::Result<InnerOutput> {
 		let handle = self.handle().await?;
 		let location = options.location.get();
+		#[cfg(feature = "js")]
+		let debug = options.debug.get();
+		#[cfg(not(feature = "js"))]
+		let debug = None;
 
 		// Handle the build flag.
 		let reference = if options.build {
@@ -714,6 +722,7 @@ impl Cli {
 			cached: options.cached,
 			checksum: options.checksum,
 			cwd: command.cwd.clone(),
+			debug,
 			env: command.env.clone(),
 			executable: Some(command.executable.clone()),
 			host: Some(command.host.clone()),

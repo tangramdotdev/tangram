@@ -38,6 +38,7 @@ pub struct State {
 
 struct Process {
 	command: Command,
+	debug: Option<tg::process::Debug>,
 	location: Option<tg::location::Location>,
 	pid: libc::pid_t,
 	retry: bool,

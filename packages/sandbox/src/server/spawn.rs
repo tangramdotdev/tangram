@@ -201,6 +201,7 @@ impl Server {
 		// Insert the process.
 		let process = Process {
 			command: arg.command,
+			debug: arg.debug,
 			location: arg.location,
 			pid,
 			retry: arg.retry,

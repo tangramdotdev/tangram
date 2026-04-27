@@ -67,6 +67,7 @@ export namespace Handle {
 		cache_location?: tg.Location.Arg | undefined;
 		checksum?: tg.Checksum | undefined;
 		command: tg.Referent<tg.Command.Id>;
+		debug?: tg.Process.Debug | undefined;
 		location?: tg.Location.Arg | undefined;
 		parent?: tg.Process.Id | undefined;
 		retry?: boolean | undefined;

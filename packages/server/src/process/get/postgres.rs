@@ -31,6 +31,8 @@ impl Server {
 			#[tangram_database(as = "db::postgres::value::FromStr")]
 			command: tg::command::Id,
 			created_at: i64,
+			#[tangram_database(as = "Option<db::value::Json<tg::process::Debug>>")]
+			debug: Option<tg::process::Debug>,
 			error: Option<String>,
 			#[tangram_database(as = "Option<db::postgres::value::TryFrom<i64>>")]
 			exit: Option<u8>,
@@ -66,6 +68,7 @@ impl Server {
 					(select coalesce(json_agg(json_build_object('cached', cached, 'process', child, 'options', options::json) order by position), '[]'::json) from process_children where process = processes.id) as children,
 					command,
 					created_at,
+					debug,
 					error,
 					exit,
 					expected_checksum,
@@ -122,6 +125,7 @@ impl Server {
 					children: Some(row.children),
 					command: row.command,
 					created_at: row.created_at,
+					debug: row.debug,
 					error,
 					exit: row.exit,
 					expected_checksum: row.expected_checksum,

@@ -39,7 +39,8 @@ impl<O> tg::Process<O> {
 		let cacheable = matches!(
 			&sandbox,
 			tg::Either::Left(arg) if arg.mounts.is_empty() && !arg.network
-		) && arg.stdin.is_null()
+		) && arg.debug.is_none()
+			&& arg.stdin.is_null()
 			&& arg.stdout.is_log()
 			&& arg.stderr.is_log();
 		let cacheable = cacheable || arg.checksum.is_some();

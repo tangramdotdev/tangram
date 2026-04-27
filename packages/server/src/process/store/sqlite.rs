@@ -5,7 +5,7 @@ use {
 };
 
 pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
-	let schema_version = 1;
+	let schema_version = 2;
 
 	let connection = database
 		.connection()
@@ -32,6 +32,10 @@ pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 		migration_0000(database)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the process store schema"))?;
+	} else if version < 2 {
+		migration_0001(database)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to add process debug state"))?;
 	}
 
 	if version < schema_version {
@@ -61,6 +65,22 @@ async fn migration_0000(database: &db::sqlite::Database) -> tg::Result<()> {
 		.with(move |connection, _cache| {
 			connection
 				.execute_batch(sql)
+				.map_err(|source| tg::error!(!source, "failed to execute the statements"))?;
+			Ok::<_, tg::Error>(())
+		})
+		.await?;
+	Ok(())
+}
+
+async fn migration_0001(database: &db::sqlite::Database) -> tg::Result<()> {
+	let connection = database
+		.write_connection()
+		.await
+		.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+	connection
+		.with(move |connection, _cache| {
+			connection
+				.execute_batch("alter table processes add column debug text;")
 				.map_err(|source| tg::error!(!source, "failed to execute the statements"))?;
 			Ok::<_, tg::Error>(())
 		})
