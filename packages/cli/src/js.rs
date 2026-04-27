@@ -1,6 +1,4 @@
-use {
-	crate::Cli, futures::FutureExt as _, std::net::ToSocketAddrs as _, tangram_client::prelude::*,
-};
+use {crate::Cli, futures::FutureExt as _, tangram_client::prelude::*};
 
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -24,7 +22,7 @@ pub struct Args {
 	pub arg_values: Vec<String>,
 
 	#[command(flatten)]
-	pub debug: Debug,
+	pub debug: crate::process::spawn::Debug,
 
 	/// The JS engine to use.
 	#[arg(long, default_value = "auto")]
@@ -35,89 +33,6 @@ pub struct Args {
 
 	#[arg(index = 2, trailing_var_arg = true)]
 	pub trailing: Vec<String>,
-}
-
-#[derive(Clone, Debug, Default, clap::Args)]
-pub struct Debug {
-	#[arg(long = "debug")]
-	enabled: bool,
-
-	#[arg(long = "debug-addr")]
-	addr: Option<std::net::SocketAddr>,
-
-	#[arg(long = "debug-mode")]
-	mode: Option<tg::process::debug::Mode>,
-
-	#[arg(
-		long,
-		default_missing_value = "127.0.0.1:9229",
-		num_args = 0..=1,
-		require_equals = true,
-		value_parser = parse_inspect_addr,
-	)]
-	inspect: Option<std::net::SocketAddr>,
-
-	#[arg(
-		long,
-		default_missing_value = "127.0.0.1:9229",
-		num_args = 0..=1,
-		require_equals = true,
-		value_parser = parse_inspect_addr,
-	)]
-	inspect_brk: Option<std::net::SocketAddr>,
-
-	#[arg(
-		long,
-		default_missing_value = "127.0.0.1:9229",
-		num_args = 0..=1,
-		require_equals = true,
-		value_parser = parse_inspect_addr,
-	)]
-	inspect_wait: Option<std::net::SocketAddr>,
-}
-
-impl Debug {
-	pub fn get(&self) -> Option<tg::process::Debug> {
-		let mut debug = self.enabled.then(tg::process::Debug::default);
-		if let Some(addr) = self.addr {
-			debug.get_or_insert_with(tg::process::Debug::default).addr = Some(addr);
-		}
-		if let Some(mode) = self.mode {
-			debug.get_or_insert_with(tg::process::Debug::default).mode = mode;
-		}
-		if let Some(addr) = self.inspect {
-			let debug = debug.get_or_insert_with(tg::process::Debug::default);
-			debug.addr = Some(addr);
-			debug.mode = tg::process::debug::Mode::Normal;
-		}
-		if let Some(addr) = self.inspect_brk {
-			let debug = debug.get_or_insert_with(tg::process::Debug::default);
-			debug.addr = Some(addr);
-			debug.mode = tg::process::debug::Mode::Break;
-		}
-		if let Some(addr) = self.inspect_wait {
-			let debug = debug.get_or_insert_with(tg::process::Debug::default);
-			debug.addr = Some(addr);
-			debug.mode = tg::process::debug::Mode::Wait;
-		}
-		debug
-	}
-}
-
-fn parse_inspect_addr(s: &str) -> Result<std::net::SocketAddr, String> {
-	if let Ok(addr) = s.parse() {
-		return Ok(addr);
-	}
-	if let Ok(port) = s.parse() {
-		return Ok(std::net::SocketAddr::new(
-			std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
-			port,
-		));
-	}
-	s.to_socket_addrs()
-		.map_err(|_| format!("invalid inspect address `{s}`"))?
-		.next()
-		.ok_or_else(|| format!("invalid inspect address `{s}`"))
 }
 
 #[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]

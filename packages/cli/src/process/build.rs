@@ -59,16 +59,8 @@ impl Cli {
 
 		let cacheable = args.options.spawn.sandbox.arg.mounts.is_empty()
 			&& !args.options.spawn.sandbox.arg.network.get()
-			&& {
-				#[cfg(feature = "js")]
-				{
-					args.options.spawn.debug.get().is_none()
-				}
-				#[cfg(not(feature = "js"))]
-				{
-					true
-				}
-			} && matches!(args.options.spawn.stdin, Some(tg::process::Stdio::Null))
+			&& args.options.spawn.debug.get().is_none()
+			&& matches!(args.options.spawn.stdin, Some(tg::process::Stdio::Null))
 			&& matches!(args.options.spawn.stdout, Some(tg::process::Stdio::Log))
 			&& matches!(args.options.spawn.stderr, Some(tg::process::Stdio::Log))
 			&& !matches!(
