@@ -1,6 +1,7 @@
 use {
 	super::Output,
 	crate::{Server, context::Context},
+	futures::TryStreamExt as _,
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		path::Path,
@@ -129,11 +130,15 @@ impl Server {
 		};
 
 		// Finish the process.
-		self.finish_process(process.id().unwrap_right(), arg)
+		let finished = self
+			.try_finish_process(process.id().unwrap_right(), arg)
 			.await
 			.map_err(
 				|source| tg::error!(!source, process = %process.id(), "failed to finish the process"),
 			)?;
+		if finished.is_none() {
+			return Err(tg::error!(process = %process.id(), "failed to find the process"));
+		}
 
 		Ok::<_, tg::Error>(())
 	}
@@ -397,11 +402,41 @@ impl Server {
 			|source| tg::error!(!source, %id, "failed to start waiting for the process"),
 		)?;
 		let mut wait = std::pin::pin!(wait);
+		let arg = tg::process::status::Arg {
+			location: location.clone().map(Into::into),
+		};
+		let status = self
+			.try_get_process_status_stream(id, arg)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the process status stream"))?
+			.ok_or_else(|| tg::error!(%id, "expected the process status stream to exist"))?;
+		let status = async move {
+			let mut status = std::pin::pin!(status);
+			while let Some(event) = status.try_next().await? {
+				match event {
+					tg::process::status::Event::Status(status) if status.is_finished() => break,
+					tg::process::status::Event::Status(_) => (),
+					tg::process::status::Event::End => break,
+				}
+			}
+			Ok::<_, tg::Error>(())
+		};
+		let mut status = std::pin::pin!(status);
 		let (exit, stopped) = tokio::select! {
 			result = &mut wait => {
 				let exit = result
 					.map_err(|source| tg::error!(!source, %id, "failed to wait for the process"))?;
 				(exit, false)
+			},
+			result = &mut status => {
+				result.map_err(|source| {
+					tg::error!(!source, %id, "failed to wait for the process status")
+				})?;
+				sandbox.kill(&sandbox_process, tg::process::Signal::SIGKILL).await.ok();
+				let exit = wait
+					.await
+					.map_err(|source| tg::error!(!source, %id, "failed to wait for the process"))?;
+				(exit, true)
 			},
 			() = stopper.wait() => {
 				sandbox.kill(&sandbox_process, tg::process::Signal::SIGKILL).await.ok();
