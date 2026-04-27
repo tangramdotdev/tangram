@@ -1,7 +1,6 @@
 use {
 	crate::Server,
 	indoc::formatdoc,
-	std::net::Ipv4Addr,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_messenger::prelude::*,
@@ -20,83 +19,6 @@ pub mod queue;
 pub mod status;
 
 impl Server {
-	fn sandbox_isolation_from_config(
-		isolation: &crate::config::SandboxIsolation,
-	) -> tangram_sandbox::Isolation {
-		match isolation {
-			crate::config::SandboxIsolation::Container(container) => {
-				let net = match &container.net {
-					crate::config::ContainerNet::None => tangram_sandbox::Net::None,
-					crate::config::ContainerNet::Host => tangram_sandbox::Net::Host,
-					crate::config::ContainerNet::Bridge(bridge) => {
-						let ip = bridge.ip.unwrap_or(Ipv4Addr::new(172, 18, 0, 1));
-						tangram_sandbox::Net::Bridge(tangram_sandbox::Bridge {
-							ip,
-							name: bridge.name.clone(),
-						})
-					},
-				};
-				tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation { net })
-			},
-			crate::config::SandboxIsolation::Seatbelt(_) => {
-				tangram_sandbox::Isolation::Seatbelt(tangram_sandbox::SeatbeltIsolation::default())
-			},
-			crate::config::SandboxIsolation::Vm(vm) => {
-				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation {
-					kernel_path: vm.kernel_path.clone(),
-				})
-			},
-		}
-	}
-
-	pub(crate) fn resolve_sandbox_isolation(&self) -> tg::Result<tangram_sandbox::Isolation> {
-		let isolation = Self::sandbox_isolation_from_config(&self.config.sandbox.isolation);
-		#[cfg(target_os = "linux")]
-		{
-			match isolation {
-				tangram_sandbox::Isolation::Container(_) | tangram_sandbox::Isolation::Vm(_) => {
-					Ok(isolation)
-				},
-				tangram_sandbox::Isolation::Seatbelt(_) => {
-					Err(tg::error!("seatbelt isolation is not supported on linux"))
-				},
-			}
-		}
-		#[cfg(target_os = "macos")]
-		{
-			match isolation {
-				tangram_sandbox::Isolation::Container(_) => {
-					Err(tg::error!("container isolation is not supported on macos"))
-				},
-				tangram_sandbox::Isolation::Seatbelt(_) => Ok(isolation),
-				tangram_sandbox::Isolation::Vm(_) => {
-					Err(tg::error!("vm isolation is not supported on macos"))
-				},
-			}
-		}
-	}
-
-	pub(crate) fn validate_sandbox_resources(
-		isolation: &tangram_sandbox::Isolation,
-		cpu: Option<u64>,
-		memory: Option<u64>,
-	) -> tg::Result<()> {
-		if cpu == Some(0) {
-			return Err(tg::error!("sandbox cpu must be greater than zero"));
-		}
-		if memory == Some(0) {
-			return Err(tg::error!("sandbox memory must be greater than zero"));
-		}
-		if matches!(isolation, tangram_sandbox::Isolation::Seatbelt(_))
-			&& (cpu.is_some() || memory.is_some())
-		{
-			return Err(tg::error!(
-				"sandbox cpu and memory are not supported with seatbelt isolation"
-			));
-		}
-		Ok(())
-	}
-
 	pub(crate) async fn get_sandbox_exists_local(&self, id: &tg::sandbox::Id) -> tg::Result<bool> {
 		let connection = self
 			.process_store
@@ -199,7 +121,7 @@ impl Server {
 	}
 
 	pub(crate) fn validate_sandbox_resources(
-		isolation: tangram_sandbox::Isolation,
+		isolation: &tangram_sandbox::Isolation,
 		cpu: Option<u64>,
 		memory: Option<u64>,
 	) -> tg::Result<()> {

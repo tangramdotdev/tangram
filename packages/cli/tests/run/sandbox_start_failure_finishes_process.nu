@@ -15,7 +15,7 @@ let path = artifact {
 	',
 }
 
-let process = tg process spawn --sandbox --mount $"($missing):/missing,ro" $path | str trim
+let process = tg process spawn --sandbox --mount $"($missing):/missing,ro" ($path | str trim)
 
 let output = timeout 10s tg process wait $process | complete
 success $output "the process wait should not time out"
