@@ -104,9 +104,7 @@ where
 	let sandbox = super::normalize_sandbox_arg(arg.sandbox.clone(), arg.cpu, arg.memory)?;
 	let sandboxed = sandbox.is_some();
 
-	let host = arg
-		.host
-		.ok_or_else(|| tg::error!("expected the host to be set"))?;
+	let host = arg.host.unwrap_or_else(|| tg::host::current().to_owned());
 
 	let executable = arg
 		.executable

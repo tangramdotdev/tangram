@@ -1,5 +1,6 @@
 use {
 	self::{
+		inspector::Inspector,
 		module::{
 			host_import_module_dynamically_callback, host_initialize_import_meta_object_callback,
 		},
@@ -9,18 +10,13 @@ use {
 	crate::Output,
 	futures::{StreamExt as _, future::LocalBoxFuture, stream::FuturesUnordered},
 	sourcemap::SourceMap,
-	std::{
-		cell::RefCell,
-		future::poll_fn,
-		path::{Path, PathBuf},
-		rc::Rc,
-		task::Poll,
-	},
+	std::{cell::RefCell, future::poll_fn, rc::Rc, task::Poll},
 	tangram_client::prelude::*,
 	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 };
 
 mod error;
+mod inspector;
 mod module;
 mod promise;
 mod syscall;
@@ -29,13 +25,15 @@ const SNAPSHOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.heapsnaps
 
 const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.js.map"));
 
-struct Runtime {
+pub struct Runtime {
 	context: v8::Global<v8::Context>,
+	inspector: Option<Inspector>,
 	isolate: v8::OwnedIsolate,
 	state: Rc<State>,
 }
 
 struct State {
+	arg: crate::Arg,
 	global_source_map: Option<SourceMap>,
 	handle: tg::handle::dynamic::Handle,
 	host: crate::host::Host,
@@ -53,15 +51,8 @@ struct Module {
 	v8: Option<v8::Global<v8::Module>>,
 }
 
-pub async fn run(
-	handle: tg::handle::dynamic::Handle,
-	main_runtime_handle: tokio::runtime::Handle,
-	args: tg::value::data::Array,
-	cwd: PathBuf,
-	env: tg::value::data::Map,
-	executable: tg::command::data::Executable,
-) -> tg::Result<Output> {
-	let mut runtime = Runtime::new(handle, &args, &cwd, &env, &executable, main_runtime_handle)?;
+pub async fn run(arg: crate::Arg) -> tg::Result<Output> {
+	let mut runtime = Runtime::new(arg)?;
 	let value = runtime.start()?;
 	let result = runtime.resolve(&value).await;
 	let output = match result {
@@ -82,14 +73,9 @@ pub async fn run(
 }
 
 impl Runtime {
-	pub fn new(
-		handle: tg::handle::dynamic::Handle,
-		args: &tg::value::data::Array,
-		cwd: &Path,
-		env: &tg::value::data::Map,
-		executable: &tg::command::data::Executable,
-		main_runtime_handle: tokio::runtime::Handle,
-	) -> tg::Result<Self> {
+	pub fn new(mut arg: crate::Arg) -> tg::Result<Self> {
+		let repl = arg.repl.take();
+
 		// Create the isolate params.
 		let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT.into());
 
@@ -127,19 +113,28 @@ impl Runtime {
 		};
 
 		// Create the state.
+		let global_source_map = SourceMap::from_slice(SOURCE_MAP).unwrap();
+		let handle = arg.handle.clone();
+		let host = crate::host::Host::default();
+		let main_runtime_handle = arg.main_runtime_handle.clone();
+		let modules = RefCell::new(Vec::new());
+		let promises = RefCell::new(FuturesUnordered::new());
+		let rejection = RefCell::new(None);
+		let stdio = crate::stdio::Stdio::new(arg.handle.clone(), arg.main_runtime_handle.clone());
 		let state = Rc::new(State {
-			global_source_map: Some(SourceMap::from_slice(SOURCE_MAP).unwrap()),
-			handle: handle.clone(),
-			host: crate::host::Host::default(),
-			main_runtime_handle: main_runtime_handle.clone(),
-			modules: RefCell::new(Vec::new()),
-			promises: RefCell::new(FuturesUnordered::new()),
-			rejection: RefCell::new(None),
-			stdio: crate::stdio::Stdio::new(handle, main_runtime_handle),
+			global_source_map: Some(global_source_map),
+			handle,
+			host,
+			main_runtime_handle,
+			modules,
+			arg,
+			promises,
+			rejection,
+			stdio,
 		});
 
 		// Init.
-		let result = Self::init(&mut isolate, &context, &state, args, cwd, env, executable);
+		let result = Self::init(&mut isolate, &context, &state);
 		match result {
 			Ok(()) => (),
 			Err(error) => {
@@ -147,11 +142,24 @@ impl Runtime {
 			},
 		}
 
+		// Create the inspector.
+		let inspector = if state.arg.inspect.is_some() || repl.is_some() {
+			let mut inspector = Inspector::new(&mut isolate, state.arg.inspect.clone(), repl);
+			v8::scope!(scope, &mut isolate);
+			let context = v8::Local::new(scope, context.clone());
+			let scope = &mut v8::ContextScope::new(scope, context);
+			inspector.register_context(scope, context)?;
+			Some(inspector)
+		} else {
+			None
+		};
+
 		// Exit the isolate.
 		unsafe { isolate.exit() };
 
 		let runtime = Self {
 			context,
+			inspector,
 			isolate,
 			state,
 		};
@@ -163,10 +171,6 @@ impl Runtime {
 		isolate: &mut v8::Isolate,
 		context: &v8::Global<v8::Context>,
 		state: &Rc<State>,
-		args: &tg::value::data::Array,
-		cwd: &Path,
-		env: &tg::value::data::Map,
-		executable: &tg::command::data::Executable,
 	) -> tg::Result<()> {
 		// Create a scope for the context.
 		v8::scope!(scope, isolate);
@@ -190,23 +194,27 @@ impl Runtime {
 
 		// Set args.
 		let key = v8::String::new_external_onebyte_static(scope, b"args").unwrap();
-		let value = Serde(&args).serialize(scope)?;
+		let value = Serde(&state.arg.args).serialize(scope)?;
 		arg.set(scope, key.into(), value);
 
 		// Set cwd.
 		let key = v8::String::new_external_onebyte_static(scope, b"cwd").unwrap();
-		let value = cwd.to_str().ok_or_else(|| tg::error!("invalid cwd"))?;
+		let value = state
+			.arg
+			.cwd
+			.to_str()
+			.ok_or_else(|| tg::error!("invalid cwd"))?;
 		let value = Serde(value).serialize(scope)?;
 		arg.set(scope, key.into(), value);
 
 		// Set env.
 		let key = v8::String::new_external_onebyte_static(scope, b"env").unwrap();
-		let value = Serde(&env).serialize(scope)?;
+		let value = Serde(&state.arg.env).serialize(scope)?;
 		arg.set(scope, key.into(), value);
 
 		// Set executable.
 		let key = v8::String::new_external_onebyte_static(scope, b"executable").unwrap();
-		let value = Serde(&executable).serialize(scope)?;
+		let value = Serde(&state.arg.executable).serialize(scope)?;
 		arg.set(scope, key.into(), value);
 
 		// Get the init function.
@@ -300,29 +308,78 @@ impl Runtime {
 		.await
 	}
 
+	pub async fn run(&mut self) -> tg::Result<()> {
+		poll_fn(|cx| {
+			loop {
+				let done = match self.poll_event_loop(cx) {
+					Poll::Pending => {
+						return Poll::Pending;
+					},
+					Poll::Ready(Err(error)) => {
+						return Poll::Ready(Err(error));
+					},
+					Poll::Ready(Ok(done)) => done,
+				};
+				if done {
+					return Poll::Ready(Ok(()));
+				}
+			}
+		})
+		.await
+	}
+
 	fn poll_event_loop(&mut self, cx: &mut std::task::Context<'_>) -> Poll<tg::Result<bool>> {
-		if let Some(error) = self.state.rejection.borrow().clone() {
+		let mut done = true;
+
+		if let Some(inspector) = self.inspector.as_mut() {
+			let poll = inspector.poll(cx, &mut self.isolate, &self.context);
+			match poll {
+				Poll::Ready(Ok(Some(state))) => {
+					if state.clear_rejection {
+						*self.state.rejection.borrow_mut() = None;
+					}
+					return Poll::Ready(Ok(false));
+				},
+				Poll::Ready(Ok(None)) => (),
+				Poll::Ready(Err(error)) => {
+					return Poll::Ready(Err(error));
+				},
+				Poll::Pending => {
+					done = false;
+				},
+			}
+		}
+
+		if let Some(error) = self.state.rejection.borrow().clone()
+			&& !self
+				.inspector
+				.as_ref()
+				.is_some_and(Inspector::is_handling_command)
+		{
 			return Poll::Ready(Err(error));
 		}
 
 		let poll = self.state.promises.borrow_mut().poll_next_unpin(cx);
 
-		let output = match poll {
+		match poll {
 			Poll::Pending => {
-				return Poll::Pending;
+				done = false;
 			},
-			Poll::Ready(None) => {
-				return Poll::Ready(Ok(true));
+			Poll::Ready(None) => (),
+			Poll::Ready(Some(output)) => {
+				let result = self.resolve_or_reject_promise(output);
+				if let Err(error) = result {
+					return Poll::Ready(Err(error));
+				}
+				return Poll::Ready(Ok(false));
 			},
-			Poll::Ready(Some(output)) => output,
-		};
-
-		let result = self.resolve_or_reject_promise(output);
-		if let Err(error) = result {
-			return Poll::Ready(Err(error));
 		}
 
-		Poll::Ready(Ok(false))
+		if !done {
+			return Poll::Pending;
+		}
+
+		Poll::Ready(Ok(true))
 	}
 
 	fn try_resolve_value(
@@ -371,5 +428,10 @@ impl Runtime {
 impl Drop for Runtime {
 	fn drop(&mut self) {
 		unsafe { self.isolate.enter() };
+		if let Some(inspector) = self.inspector.as_mut() {
+			v8::scope!(scope, &mut self.isolate);
+			let context = v8::Local::new(scope, self.context.clone());
+			inspector.context_destroyed(context);
+		}
 	}
 }

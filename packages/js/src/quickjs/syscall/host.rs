@@ -10,6 +10,11 @@ pub async fn close(ctx: qjs::Ctx<'_>, fd: i32) -> Result<()> {
 	Result(state.host.close(fd).await)
 }
 
+pub fn current(ctx: qjs::Ctx<'_>) -> Result<Option<String>> {
+	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	Result(Ok(state.arg.host.clone()))
+}
+
 pub async fn disable_raw_mode(ctx: qjs::Ctx<'_>, fd: i32) -> Result<()> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	Result(state.host.disable_raw_mode(fd).await)

@@ -505,7 +505,7 @@ impl Cli {
 						});
 					tg::Command::builder().host(host).executable(executable)
 				} else {
-					let host = tg::host().to_owned();
+					let host = tg::host::current().to_owned();
 					let executable =
 						tg::command::Executable::Artifact(tg::command::ArtifactExecutable {
 							artifact: file.clone().into(),
@@ -623,7 +623,7 @@ impl Cli {
 			let host = if let Some(host) = options.host {
 				host
 			} else {
-				tg::host().to_owned()
+				tg::host::current().to_owned()
 			};
 			env.insert("TANGRAM_HOST".to_owned(), host.into());
 		}

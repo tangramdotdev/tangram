@@ -107,29 +107,29 @@ impl Cli {
 			.map_err(|error| tg::error!(source = error, "failed to create the tokio runtime"))?;
 		runtime.block_on(client.connect())?;
 
+		// Create the arg.
+		let handle = tg::handle::dynamic::Handle::new(client);
+		let main_runtime_handle = runtime.handle().clone();
+		let arg = tangram_js::Arg {
+			args: args_,
+			cwd,
+			env,
+			executable,
+			handle,
+			host: None,
+			inspect: None,
+			main_runtime_handle,
+			repl: None,
+		};
+
 		// Run.
 		let future = match args.engine {
-			#[cfg(feature = "v8")]
-			Engine::Auto | Engine::V8 => tangram_js::v8::run(
-				tg::handle::dynamic::Handle::new(client),
-				runtime.handle().clone(),
-				args_,
-				cwd,
-				env,
-				executable,
-			)
-			.boxed_local(),
-			#[cfg(feature = "quickjs")]
 			#[allow(unreachable_patterns)]
-			Engine::Auto | Engine::QuickJs => tangram_js::quickjs::run(
-				tg::handle::dynamic::Handle::new(client),
-				runtime.handle().clone(),
-				args_,
-				cwd,
-				env,
-				executable,
-			)
-			.boxed_local(),
+			#[cfg(feature = "v8")]
+			Engine::Auto | Engine::V8 => tangram_js::v8::run(arg).boxed_local(),
+			#[allow(unreachable_patterns)]
+			#[cfg(feature = "quickjs")]
+			Engine::Auto | Engine::QuickJs => tangram_js::quickjs::run(arg).boxed_local(),
 			#[allow(unreachable_patterns)]
 			_ => return Err(tg::error!("the requested JS engine is not available")),
 		};

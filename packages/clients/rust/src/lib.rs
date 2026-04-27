@@ -66,6 +66,7 @@ pub mod get;
 pub mod graph;
 pub mod handle;
 pub mod health;
+pub mod host;
 pub mod id;
 pub mod index;
 pub mod location;
@@ -204,26 +205,5 @@ impl Deref for Client {
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
-	}
-}
-
-/// Get the host.
-#[must_use]
-pub fn host() -> &'static str {
-	#[cfg(all(target_arch = "aarch64", target_os = "macos"))]
-	{
-		"aarch64-darwin"
-	}
-	#[cfg(all(target_arch = "aarch64", target_os = "linux"))]
-	{
-		"aarch64-linux"
-	}
-	#[cfg(all(target_arch = "x86_64", target_os = "macos"))]
-	{
-		"x86_64-darwin"
-	}
-	#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
-	{
-		"x86_64-linux"
 	}
 }

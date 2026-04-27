@@ -1255,6 +1255,16 @@ declare namespace tg {
 		}
 	}
 
+	export let host: tg.Host;
+
+	export type Host = {
+		/** The current host for this runtime, if one was provided. */
+		current: string | undefined;
+
+		/** The host's available parallelism. */
+		parallelism: number;
+	};
+
 	export let process: {
 		args: Array<tg.Value>;
 		cwd: string;

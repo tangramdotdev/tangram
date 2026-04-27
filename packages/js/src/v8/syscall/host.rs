@@ -11,6 +11,14 @@ pub async fn close(state: Rc<State>, args: (i32,)) -> tg::Result<()> {
 	state.host.close(fd).await
 }
 
+pub fn current(
+	state: Rc<State>,
+	_scope: &mut v8::PinScope<'_, '_>,
+	_args: (Option<String>,),
+) -> tg::Result<Option<String>> {
+	Ok(state.arg.host.clone())
+}
+
 pub async fn disable_raw_mode(state: Rc<State>, args: (i32,)) -> tg::Result<()> {
 	let (fd,) = args;
 	state.host.disable_raw_mode(fd).await

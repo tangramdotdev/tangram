@@ -71,7 +71,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			stdout: "log",
 			tty: false,
 			env: {
-				TANGRAM_HOST: tg.process.env.TANGRAM_HOST,
+				TANGRAM_HOST: defaultHost(),
 			},
 		};
 		if (typeof args[0] === "function") {
@@ -237,8 +237,7 @@ export class Process<O extends tg.Value = tg.Value> {
 					tg.Artifact.is(arg) ||
 					arg instanceof tg.Template
 				) {
-					let host = tg.process.env.TANGRAM_HOST;
-					tg.assert(host !== undefined, "TANGRAM_HOST must be set");
+					let host = defaultHost();
 					let executable = tg.process.env.SHELL ?? "sh";
 					return {
 						args: ["-c", arg],
@@ -289,7 +288,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			arg = await tg.Process.arg({ cwd, env }, arg);
 		} else {
 			if (!("host" in arg)) {
-				arg.host = tg.process.env.TANGRAM_HOST as string | undefined;
+				arg.host = defaultHost();
 			}
 			if (arg.executable === tg.process.env.SHELL) {
 				arg.executable = "sh";
@@ -2435,4 +2434,8 @@ let normalizeSandbox = (
 		output.network = network;
 	}
 	return output;
+};
+
+let defaultHost = (): string | undefined => {
+	return (tg.process.env.TANGRAM_HOST as string | undefined) ?? tg.host.current;
 };

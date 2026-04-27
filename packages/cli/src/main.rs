@@ -49,6 +49,7 @@ mod push;
 mod put;
 mod read;
 mod remote;
+mod repl;
 mod sandbox;
 mod server;
 mod shell;
@@ -247,6 +248,8 @@ enum Command {
 
 	Remote(self::remote::Args),
 
+	Repl(self::repl::Args),
+
 	#[command(alias = "r")]
 	Run(self::process::run::Args),
 
@@ -424,7 +427,9 @@ fn main() -> std::process::ExitCode {
 
 	// Initialize V8.
 	#[cfg(feature = "v8")]
-	if matches!(mode, Mode::Server) {
+	if matches!(mode, Mode::Server)
+		|| matches!(&args.command, Command::Repl(args) if matches!(args.engine, crate::js::Engine::Auto | crate::js::Engine::V8))
+	{
 		let thread_pool_size = config
 			.as_ref()
 			.and_then(|config| config.v8_thread_pool_size)
@@ -1048,6 +1053,7 @@ impl Cli {
 			Command::Put(args) => self.command_put(args).boxed(),
 			Command::Read(args) => self.command_read(args).boxed(),
 			Command::Remote(args) => self.command_remote(args).boxed(),
+			Command::Repl(args) => self.command_repl(args).boxed(),
 			Command::Run(args) => self.command_run(args).boxed(),
 			Command::Sandbox(args) => self.command_sandbox(args).boxed(),
 			Command::Self_(args) => self.command_tangram(args).boxed(),
