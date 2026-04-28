@@ -55,7 +55,6 @@ export class Process<O extends tg.Value = tg.Value> {
 				typeof sandbox !== "string" &&
 				(sandbox.mounts?.length ?? 0) === 0 &&
 				(sandbox.network ?? false) === false &&
-				normalizeDebug(arg.debug) === undefined &&
 				arg.stdin === "null" &&
 				arg.stdout === "log" &&
 				arg.stderr === "log" &&

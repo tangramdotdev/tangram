@@ -143,7 +143,6 @@ impl Server {
 		};
 		let cacheable = cacheable || arg.checksum.is_some();
 		let cacheable = cacheable
-			&& arg.debug.is_none()
 			&& arg.stdin.is_null()
 			&& arg.stdout.is_log()
 			&& arg.stderr.is_log()
