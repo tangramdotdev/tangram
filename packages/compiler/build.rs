@@ -9,7 +9,10 @@ fn main() {
 }
 
 mod library {
-	use std::path::{Path, PathBuf};
+	use {
+		serde_json::json,
+		std::path::{Path, PathBuf},
+	};
 
 	pub fn build() {
 		// Get the out dir path.
@@ -41,13 +44,60 @@ mod library {
 		let lib_path = out_dir_path.join("lib");
 		std::fs::create_dir_all(&lib_path).unwrap();
 
-		// Copy the tangram.d.ts.
+		// Generate the Tangram declarations.
 		println!("cargo:rerun-if-changed=../../packages/js/src/tangram.d.ts");
-		std::fs::copy(
-			"../../packages/js/src/tangram.d.ts",
-			lib_path.join("tangram.d.ts"),
+		println!("cargo:rerun-if-changed=../../packages/clients/js/package.json");
+		println!("cargo:rerun-if-changed=../../packages/clients/js/tsconfig.json");
+		println!("cargo:rerun-if-changed=../../packages/clients/js/src");
+		let tangram_declarations_path = lib_path.join("tangram");
+		if tangram_declarations_path.exists() {
+			std::fs::remove_dir_all(&tangram_declarations_path).unwrap();
+		}
+		let manifest_directory_path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+		let client_path =
+			std::fs::canonicalize(manifest_directory_path.join("../../packages/clients/js"))
+				.unwrap();
+		let mut compiler_options = json!({
+			"declaration": true,
+			"emitDeclarationOnly": true,
+			"noEmit": false,
+			"outDir": tangram_declarations_path,
+			"rootDir": client_path.join("src"),
+		});
+		if let Ok(node_path) = std::env::var("NODE_PATH") {
+			compiler_options.as_object_mut().unwrap().insert(
+				"paths".into(),
+				json!({
+					"*": [
+						format!("{node_path}/*"),
+						format!("{}/*", client_path.join("node_modules").display()),
+					],
+				}),
+			);
+		}
+		let tsconfig_path = out_dir_path.join("tangram.tsconfig.json");
+		let tsconfig = json!({
+			"extends": client_path.join("tsconfig.json"),
+			"compilerOptions": compiler_options,
+			"include": [client_path.join("src/**/*")],
+		});
+		std::fs::write(
+			&tsconfig_path,
+			serde_json::to_string_pretty(&tsconfig).unwrap(),
 		)
 		.unwrap();
+		std::process::Command::new("bunx")
+			.args(["tsgo", "--project"])
+			.arg(&tsconfig_path)
+			.status()
+			.unwrap()
+			.success()
+			.then_some(())
+			.unwrap();
+		let declarations = std::fs::read_to_string("../../packages/js/src/tangram.d.ts")
+			.unwrap()
+			.replace("\"@tangramdotdev/client\"", "\"./tangram/index.ts\"");
+		std::fs::write(lib_path.join("tangram.d.ts"), declarations).unwrap();
 
 		// Copy the typescript libraries.
 		let node_modules_path = match std::env::var("NODE_PATH") {

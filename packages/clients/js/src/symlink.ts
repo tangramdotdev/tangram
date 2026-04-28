@@ -1,9 +1,11 @@
 import * as tg from "./index.ts";
 
+/** Create a symlink. */
 export let symlink = async (arg: tg.Symlink.Arg): Promise<tg.Symlink> => {
 	return await tg.Symlink.new(arg);
 };
 
+/** A symlink. */
 export class Symlink {
 	#state: tg.Object.State;
 
@@ -27,6 +29,7 @@ export class Symlink {
 		return this.#state;
 	}
 
+	/** Get a symlink with an ID. */
 	static withId(id: tg.Symlink.Id): tg.Symlink {
 		return new tg.Symlink({ id, stored: true });
 	}
@@ -43,6 +46,7 @@ export class Symlink {
 		return tg.Symlink.withObject(tg.Symlink.Object.fromData(data));
 	}
 
+	/** Create a symlink. */
 	static async new(arg_: tg.Unresolved<tg.Symlink.Arg>): Promise<tg.Symlink> {
 		let arg = await tg.Symlink.arg(arg_);
 		if (tg.Graph.Arg.Pointer.is(arg)) {
@@ -93,15 +97,18 @@ export class Symlink {
 		}
 	}
 
+	/** Expect that a value is a `tg.Symlink`. */
 	static expect(value: unknown): tg.Symlink {
 		tg.assert(value instanceof tg.Symlink);
 		return value;
 	}
 
+	/** Assert that a value is a `tg.Symlink`. */
 	static assert(value: unknown): asserts value is tg.Symlink {
 		tg.assert(value instanceof tg.Symlink);
 	}
 
+	/** Get this symlink's ID. */
 	get id(): tg.Symlink.Id {
 		let id = this.#state.id;
 		tg.assert(tg.Object.Id.kind(id) === "symlink");
@@ -124,6 +131,7 @@ export class Symlink {
 		this.#state.unload();
 	}
 
+	/** Store this symlink. */
 	async store(): Promise<tg.Symlink.Id> {
 		await tg.Value.store(this);
 		return this.id;
@@ -133,6 +141,7 @@ export class Symlink {
 		return this.#state.children;
 	}
 
+	/** Get this symlink's artifact. */
 	get artifact(): Promise<tg.Artifact | undefined> {
 		return (async () => {
 			let object = await this.object();
@@ -162,6 +171,7 @@ export class Symlink {
 		})();
 	}
 
+	/** Get this symlink's path. */
 	get path(): Promise<string | undefined> {
 		return (async () => {
 			let object = await this.object();
@@ -179,6 +189,7 @@ export class Symlink {
 		})();
 	}
 
+	/** Resolve this symlink to the artifact it refers to, or return undefined if none is found. */
 	async resolve(): Promise<tg.Artifact | undefined> {
 		let artifact = await this.artifact;
 		if (artifact instanceof tg.Symlink) {

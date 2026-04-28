@@ -1,5 +1,6 @@
 import * as tg from "./index.ts";
 
+/** Create a template. */
 export async function template(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<tg.Template.Arg>
@@ -43,6 +44,7 @@ async function inner(
 	}
 }
 
+/** A template. */
 export class Template {
 	#components: Array<tg.Template.Component>;
 
@@ -90,11 +92,13 @@ export class Template {
 		return new tg.Template(components_);
 	}
 
+	/** Expect that a value is a `tg.Template`. */
 	static expect(value: unknown): tg.Template {
 		tg.assert(value instanceof tg.Template);
 		return value;
 	}
 
+	/** Assert that a value is a `tg.Template`. */
 	static assert(value: unknown): asserts value is tg.Template {
 		tg.assert(value instanceof tg.Template);
 	}
@@ -143,6 +147,7 @@ export class Template {
 		});
 	}
 
+	/** Join an array of templates with a separator. */
 	static async join(
 		separator: tg.Unresolved<tg.Template.Arg>,
 		...args: tg.Args<tg.Template.Arg>
@@ -162,6 +167,7 @@ export class Template {
 		return template(...templates);
 	}
 
+	/** Get this template's components. */
 	get components(): Array<tg.Template.Component> {
 		return [...this.#components];
 	}
@@ -193,6 +199,7 @@ export namespace Template {
 		};
 	}
 
+	/** A tagged template function that behaves identically to `tg.template` except that it does not trim leading whitespace. */
 	export let raw = async (
 		strings: TemplateStringsArray,
 		...placeholders: tg.Args<tg.Template.Arg>

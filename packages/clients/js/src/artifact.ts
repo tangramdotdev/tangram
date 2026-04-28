@@ -1,8 +1,10 @@
 import * as tg from "./index.ts";
 
+/** An artifact. */
 export type Artifact = tg.Directory | tg.File | tg.Symlink;
 
 export namespace Artifact {
+	/** An artifact ID. */
 	export type Id = string;
 
 	export namespace Id {
@@ -15,6 +17,7 @@ export namespace Artifact {
 		};
 	}
 
+	/** The kind of an artifact. */
 	export type Kind = "directory" | "file" | "symlink";
 
 	export type Data = tg.Directory.Data | tg.File.Data | tg.Symlink.Data;
@@ -78,6 +81,7 @@ export namespace Artifact {
 		};
 	}
 
+	/** Get an artifact with an ID. */
 	export let withId = (id: tg.Artifact.Id): tg.Artifact => {
 		tg.assert(
 			typeof id === "string",
@@ -108,6 +112,7 @@ export namespace Artifact {
 		}
 	};
 
+	/** Check if a value is a `tg.Artifact`. */
 	export let is = (value: unknown): value is tg.Artifact => {
 		return (
 			value instanceof tg.Directory ||
@@ -116,11 +121,13 @@ export namespace Artifact {
 		);
 	};
 
+	/** Expect that a value is a `tg.Artifact`. */
 	export let expect = (value: unknown): tg.Artifact => {
 		tg.assert(is(value));
 		return value;
 	};
 
+	/** Assert that a value is a `tg.Artifact`. */
 	export let assert = (value: unknown): asserts value is tg.Artifact => {
 		tg.assert(is(value));
 	};

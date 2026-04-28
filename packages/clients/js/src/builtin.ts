@@ -9,6 +9,7 @@ export type DownloadOptions = {
 	mode?: "raw" | "decompress" | "extract" | undefined;
 };
 
+/** Archive an artifact. */
 export let archive = async (
 	artifact: tg.Artifact,
 	format: ArchiveFormat,
@@ -23,6 +24,7 @@ export let archive = async (
 	return value;
 };
 
+/** Bundle an artifact. */
 export let bundle = async (artifact: tg.Artifact): Promise<tg.Artifact> => {
 	let value = await tg
 		.build()
@@ -46,6 +48,7 @@ export let checksum = async (
 	return value;
 };
 
+/** Compress a blob. */
 export let compress = async (
 	blob: tg.Blob,
 	format: tg.CompressionFormat,
@@ -59,6 +62,7 @@ export let compress = async (
 	return value;
 };
 
+/** Decompress a blob. */
 export let decompress = async (blob: tg.Blob): Promise<tg.Blob> => {
 	let value = await tg
 		.build()
@@ -69,6 +73,7 @@ export let decompress = async (blob: tg.Blob): Promise<tg.Blob> => {
 	return value;
 };
 
+/** Download an artifact. */
 export let download = async (
 	url: string,
 	checksum?: tg.Checksum,
@@ -88,6 +93,7 @@ export let download = async (
 	return value;
 };
 
+/** Extract an artifact from an archive. */
 export let extract = async (blob: tg.Blob): Promise<tg.Artifact> => {
 	let value = await tg
 		.build()

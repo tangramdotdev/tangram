@@ -1115,23 +1115,11 @@ impl Compiler {
 					tokio::fs::create_dir_all(&self.library_path)
 						.await
 						.map_err(|source| {
-							tg::error!(!source, "failed create the library temp directory")
+							tg::error!(!source, "failed to create the library temp directory")
 						})?;
-					let arg = tg::module::load::Arg {
-						module: module.clone(),
-					};
-					let contents = self.handle.load_module(arg).await?.text;
-					tokio::fs::write(&absolute_path, contents)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to write the library"))?;
-					let metadata = tokio::fs::symlink_metadata(&absolute_path)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to write the library"))?;
-					let mut permissions = metadata.permissions();
-					permissions.set_readonly(true);
-					tokio::fs::set_permissions(&absolute_path, permissions)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to write the library"))?;
+					LIBRARY.extract(&self.library_path).map_err(|source| {
+						tg::error!(!source, "failed to materialize the library")
+					})?;
 				}
 				let uri = format!("file://{}", absolute_path.display())
 					.parse()

@@ -1,5 +1,6 @@
 import * as tg from "./index.ts";
 
+/** Create a command. */
 export function command<
 	A extends tg.UnresolvedArgs<Array<tg.Value>>,
 	O extends tg.ReturnValue,
@@ -51,12 +52,14 @@ export function command(...args: any): any {
 	}
 }
 
+/** A command. */
 export class Command<
 	A extends Array<tg.Value> = Array<tg.Value>,
 	O extends tg.Value = tg.Value,
 > {
 	#state: tg.Object.State;
 
+	/** Create a command. */
 	static async new<
 		A extends Array<tg.Value> = Array<tg.Value>,
 		O extends tg.Value = tg.Value,
@@ -158,6 +161,7 @@ export class Command<
 		return this.#state;
 	}
 
+	/** Get a command with an ID. */
 	static withId(id: tg.Command.Id): tg.Command {
 		return new tg.Command({ id, stored: true });
 	}
@@ -170,21 +174,25 @@ export class Command<
 		return tg.Command.withObject(tg.Command.Object.fromData(data));
 	}
 
+	/** Expect that a value is a `tg.Command`. */
 	static expect(value: unknown): tg.Command {
 		tg.assert(value instanceof tg.Command);
 		return value;
 	}
 
+	/** Assert that a value is a `tg.Command`. */
 	static assert(value: unknown): asserts value is tg.Command {
 		tg.assert(value instanceof tg.Command);
 	}
 
+	/** Get this command's ID. */
 	get id(): tg.Command.Id {
 		let id = this.#state.id;
 		tg.assert(tg.Object.Id.kind(id) === "command");
 		return id;
 	}
 
+	/** Get this command's object. */
 	async object(): Promise<tg.Command.Object> {
 		let object = await this.#state.load();
 		tg.assert(object.kind === "command");
@@ -201,6 +209,7 @@ export class Command<
 		this.#state.unload();
 	}
 
+	/** Store this command. */
 	async store(): Promise<tg.Command.Id> {
 		await tg.Value.store(this);
 		return this.id;
@@ -210,30 +219,35 @@ export class Command<
 		return this.#state.children;
 	}
 
+	/** Get this command's arguments. */
 	get args(): Promise<Array<tg.Value>> {
 		return (async () => {
 			return (await this.object()).args;
 		})();
 	}
 
+	/** Get this command's cwd. */
 	get cwd(): Promise<string | undefined> {
 		return (async () => {
 			return (await this.object()).cwd;
 		})();
 	}
 
+	/** Get this command's environment. */
 	get env(): Promise<{ [key: string]: tg.Value }> {
 		return (async () => {
 			return (await this.object()).env;
 		})();
 	}
 
+	/** Get this command's executable. */
 	get executable(): Promise<tg.Command.Executable> {
 		return (async () => {
 			return (await this.object()).executable;
 		})();
 	}
 
+	/** Get this command's host. */
 	get host(): Promise<string> {
 		return (async () => {
 			return (await this.object()).host;
@@ -246,24 +260,29 @@ export class Command<
 		})();
 	}
 
+	/** Get this command's user. */
 	get user(): Promise<string | undefined> {
 		return (async () => {
 			return (await this.object()).user;
 		})();
 	}
 
+	/** Build this command and return the process's output. */
 	build(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"run", [], O> {
 		return tg.build(this, { args }) as tg.Process.Builder<"run", [], O>;
 	}
 
+	/** Run this command and return the process's output. */
 	run(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"run", [], O> {
 		return tg.run(this, { args }) as tg.Process.Builder<"run", [], O>;
 	}
 
+	/** Spawn this command and return the process. */
 	spawn(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"spawn", [], O> {
 		return tg.spawn(this, { args }) as tg.Process.Builder<"spawn", [], O>;
 	}
 
+	/** Exec this command. */
 	exec(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"exec", [], never> {
 		return tg.exec(this, { args }) as tg.Process.Builder<"exec", [], never>;
 	}
@@ -282,12 +301,25 @@ export namespace Command {
 
 	export namespace Arg {
 		export type Object = {
+			/** The command's arguments. */
 			args?: Array<tg.Value> | undefined;
+
+			/** The command's working directory. */
 			cwd?: string | undefined;
+
+			/** The command's environment. */
 			env?: tg.MaybeMutationMap | undefined;
+
+			/** The command's executable. */
 			executable?: tg.Command.Arg.Executable | undefined;
+
+			/** The command's host. */
 			host?: string | undefined;
+
+			/** The command's stdin. */
 			stdin?: tg.Blob.Arg | undefined;
+
+			/** The command's user. */
 			user?: string | undefined;
 		};
 
@@ -612,6 +644,7 @@ export namespace Command {
 			return this;
 		}
 
+		/** Build this command and return the process's output. */
 		build(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"run", [], O> {
 			return tg.build(...this.#args, { args }) as tg.Process.Builder<
 				"run",
@@ -620,6 +653,7 @@ export namespace Command {
 			>;
 		}
 
+		/** Run this command and return the process's output. */
 		run(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"run", [], O> {
 			return tg.run(...this.#args, { args }) as tg.Process.Builder<
 				"run",
@@ -628,6 +662,7 @@ export namespace Command {
 			>;
 		}
 
+		/** Spawn this command and return the process. */
 		spawn(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"spawn", [], O> {
 			return tg.spawn(...this.#args, { args }) as tg.Process.Builder<
 				"spawn",
@@ -636,6 +671,7 @@ export namespace Command {
 			>;
 		}
 
+		/** Exec this command. */
 		exec(...args: tg.UnresolvedArgs<A>): tg.Process.Builder<"exec", [], never> {
 			return tg.exec(...this.#args, { args }) as tg.Process.Builder<
 				"exec",

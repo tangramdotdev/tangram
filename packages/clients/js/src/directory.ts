@@ -1,11 +1,13 @@
 import * as tg from "./index.ts";
 
+/** Create a directory. */
 export let directory = async (
 	...args: Array<tg.Unresolved<tg.Directory.Arg>>
 ) => {
 	return await tg.Directory.new(...args);
 };
 
+/** A directory. */
 export class Directory {
 	#state: tg.Object.State;
 
@@ -29,6 +31,7 @@ export class Directory {
 		return this.#state;
 	}
 
+	/** Get a directory with an ID. */
 	static withId(id: tg.Directory.Id): tg.Directory {
 		return new tg.Directory({ id, stored: true });
 	}
@@ -45,6 +48,7 @@ export class Directory {
 		return tg.Directory.withObject(tg.Directory.Object.fromData(data));
 	}
 
+	/** Create a directory. */
 	static async new(
 		...args: Array<tg.Unresolved<tg.Directory.Arg>>
 	): Promise<tg.Directory> {
@@ -160,15 +164,18 @@ export class Directory {
 		return tg.Directory.withObject({ entries });
 	}
 
+	/** Expect that a value is a `tg.Directory`. */
 	static expect(value: unknown): tg.Directory {
 		tg.assert(value instanceof tg.Directory);
 		return value;
 	}
 
+	/** Assert that a value is a `tg.Directory`. */
 	static assert(value: unknown): asserts value is tg.Directory {
 		tg.assert(value instanceof tg.Directory);
 	}
 
+	/** Get this directory's ID. */
 	get id(): tg.Directory.Id {
 		let id = this.#state.id;
 		tg.assert(tg.Object.Id.kind(id) === "directory");
@@ -191,6 +198,7 @@ export class Directory {
 		this.#state.unload();
 	}
 
+	/** Store this directory. */
 	async store(): Promise<tg.Directory.Id> {
 		await tg.Value.store(this);
 		return this.id;
@@ -200,12 +208,14 @@ export class Directory {
 		return this.#state.children;
 	}
 
+	/** Get the child at the specified path. This method throws an error if the path does not exist. */
 	async get(arg: string): Promise<tg.Artifact> {
 		let artifact = await this.tryGet(arg);
 		tg.assert(artifact, `Failed to get the directory entry "${arg}".`);
 		return artifact;
 	}
 
+	/** Try to get the child at the specified path. This method returns `undefined` if the path does not exist. */
 	async tryGet(arg: string): Promise<tg.Artifact | undefined> {
 		let components = tg.path.components(arg);
 		let artifact: tg.Artifact = this;
@@ -258,6 +268,7 @@ export class Directory {
 		return artifact;
 	}
 
+	/** Get this directory's entries. */
 	get entries(): Promise<{ [key: string]: tg.Artifact }> {
 		return (async () => {
 			let entries: { [key: string]: tg.Artifact } = {};
@@ -268,6 +279,7 @@ export class Directory {
 		})();
 	}
 
+	/** Get an async iterator of this directory's recursive entries. */
 	async *walk(): AsyncIterableIterator<[string, tg.Artifact]> {
 		for await (let [name, artifact] of this) {
 			yield [name, artifact];
@@ -279,6 +291,7 @@ export class Directory {
 		}
 	}
 
+	/** Get an async iterator of this directory's entries. */
 	async *[Symbol.asyncIterator](): AsyncIterator<[string, tg.Artifact]> {
 		let object = await this.object();
 		if (tg.Graph.Pointer.is(object)) {

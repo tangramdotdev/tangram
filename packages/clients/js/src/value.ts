@@ -1,5 +1,6 @@
 import * as tg from "./index.ts";
 
+/** The union of all types that can be used as the input or output of Tangram commands. */
 export type Value =
 	| undefined
 	| boolean
@@ -14,10 +15,12 @@ export type Value =
 	| tg.Placeholder;
 
 export namespace Value {
+	/** Parse TGON to a value. */
 	export let parse = (value: string): tg.Value => {
 		return fromData(tg.handle.parseValue(value));
 	};
 
+	/** Serialize a value to TGON. */
 	export let stringify = (value: tg.Value): string => {
 		return tg.handle.stringifyValue(toData(value));
 	};
@@ -86,6 +89,7 @@ export namespace Value {
 		}
 	};
 
+	/** Check if a value is a `tg.Value`. */
 	export let is = (value: unknown): value is Value => {
 		return (
 			value === undefined ||
@@ -102,11 +106,13 @@ export namespace Value {
 		);
 	};
 
+	/** Expect that a value is a `tg.Value`. */
 	export let expect = (value: unknown): Value => {
 		tg.assert(is(value));
 		return value;
 	};
 
+	/** Assert that a value is a `tg.Value`. */
 	export let assert = (value: unknown): asserts value is Value => {
 		tg.assert(is(value));
 	};
@@ -118,6 +124,7 @@ export namespace Value {
 		return value.every((value) => Value.is(value));
 	};
 
+	/** Assert that a value is a valid map. */
 	export let isMap = (value: unknown): value is { [key: string]: Value } => {
 		if (
 			!(typeof value === "object" && value !== null) ||

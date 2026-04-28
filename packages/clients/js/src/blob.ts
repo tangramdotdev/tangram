@@ -1,6 +1,7 @@
 import * as tg from "./index.ts";
 import { unindent } from "./template.ts";
 
+/** Create a blob. */
 export async function blob(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<string>
@@ -66,6 +67,7 @@ export class Blob {
 		return this.#state;
 	}
 
+	/** Get a blob with an ID. */
 	static withId(id: tg.Blob.Id): tg.Blob {
 		return new tg.Blob({ id, stored: true });
 	}
@@ -78,6 +80,7 @@ export class Blob {
 		return tg.Blob.withObject(tg.Blob.Object.fromData(data));
 	}
 
+	/** Create a blob. */
 	static async new(...args: tg.Args<tg.Blob.Arg>): Promise<tg.Blob> {
 		let arg = await tg.Blob.arg(...args);
 		let blob: tg.Blob;
@@ -159,15 +162,18 @@ export class Blob {
 		});
 	}
 
+	/** Expect that a value is a `tg.Blob`. */
 	static expect(value: unknown): tg.Blob {
 		tg.assert(value instanceof tg.Blob);
 		return value;
 	}
 
+	/** Assert that a value is a `tg.Blob`. */
 	static assert(value: unknown): asserts value is tg.Blob {
 		tg.assert(value instanceof tg.Blob);
 	}
 
+	/** Get this blob's ID. */
 	get id(): tg.Blob.Id {
 		let id = this.#state.id;
 		tg.assert(tg.Object.Id.kind(id) === "blob");
@@ -190,6 +196,7 @@ export class Blob {
 		this.#state.unload();
 	}
 
+	/** Store this blob. */
 	async store(): Promise<tg.Blob.Id> {
 		await tg.Value.store(this);
 		return this.id;
@@ -199,6 +206,7 @@ export class Blob {
 		return this.#state.children;
 	}
 
+	/** Get this blob's length. */
 	get length(): Promise<number> {
 		return (async () => {
 			let object = await this.object();
@@ -212,16 +220,19 @@ export class Blob {
 		})();
 	}
 
+	/** Read from this blob. */
 	async read(options?: tg.Blob.ReadOptions): Promise<Uint8Array> {
 		let id = await this.store();
 		const arg = { blob: id, ...options };
 		return await tg.handle.read(arg);
 	}
 
+	/** Read this entire blob to a `Uint8Array`. */
 	get bytes(): Promise<Uint8Array> {
 		return this.read();
 	}
 
+	/** Read this entire blob to a string. */
 	get text(): Promise<string> {
 		return (async () => {
 			return tg.encoding.utf8.decode(await this.bytes);

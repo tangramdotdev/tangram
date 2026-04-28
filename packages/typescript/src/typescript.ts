@@ -4,6 +4,8 @@ import type { Diagnostic, Severity } from "./diagnostics.ts";
 import { log } from "./log.ts";
 import { Module } from "./module.ts";
 
+let libraryRoot = "/__library__";
+
 // Create the TypeScript compiler options.
 export let compilerOptions: ts.CompilerOptions = {
 	allowJs: true,
@@ -36,11 +38,11 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 	},
 
 	getCurrentDirectory: () => {
-		return "";
+		return "/";
 	},
 
 	getDefaultLibFileName: () => {
-		return "lib:/tangram.d.ts";
+		return `${libraryRoot}/tangram.d.ts`;
 	},
 
 	getNewLine: () => {
@@ -110,20 +112,24 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 			let resolvedFileName: string;
 			let extension: string;
 			let module = moduleFromFileName(fileName);
-			let resolvedModule: Module;
-			try {
-				resolvedModule = syscall(
-					"module_resolve",
-					module,
-					specifier,
-					attributes,
-				);
-			} catch (error) {
-				log(error);
-				return { resolvedModule: undefined };
+			let resolvedModule = resolveLibraryModule(module, specifier);
+			if (resolvedModule === undefined) {
+				try {
+					resolvedModule = syscall(
+						"module_resolve",
+						module,
+						specifier,
+						attributes,
+					);
+				} catch (error) {
+					log(error);
+					return { resolvedModule: undefined };
+				}
 			}
 			resolvedFileName = fileNameFromModule(resolvedModule);
-			if (resolvedModule.kind === "js") {
+			if (resolvedModule.kind === "dts") {
+				extension = ".d.ts";
+			} else if (resolvedModule.kind === "js") {
 				extension = ".js";
 			} else if (resolvedModule.kind === "ts") {
 				extension = ".ts";
@@ -139,7 +145,9 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 		});
 		try {
 			let module = moduleFromFileName(fileName);
-			syscall("module_validate_resolutions", module);
+			if (module.kind !== "dts") {
+				syscall("module_validate_resolutions", module);
+			}
 		} catch (error) {
 			log(error);
 		}
@@ -153,6 +161,67 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 	writeFile: () => {
 		throw new Error();
 	},
+};
+
+let resolveLibraryModule = (
+	referrer: Module,
+	specifier: string,
+): Module | undefined => {
+	if (referrer.kind !== "dts") {
+		return undefined;
+	}
+	if (
+		!(
+			specifier.startsWith("./") ||
+			specifier.startsWith("../") ||
+			specifier === "." ||
+			specifier === ".."
+		)
+	) {
+		return undefined;
+	}
+	let item = referrer.referent.item;
+	if (typeof item !== "string") {
+		return undefined;
+	}
+	let referrerPath = item.startsWith("./") ? item.slice(2) : item;
+	let referrerDirectory = referrerPath.includes("/")
+		? referrerPath.slice(0, referrerPath.lastIndexOf("/"))
+		: "";
+	let path = normalizeLibraryPath(`${referrerDirectory}/${specifier}`);
+	if (path === undefined) {
+		return undefined;
+	}
+	if (path.endsWith(".d.ts")) {
+	} else if (path.endsWith(".ts") || path.endsWith(".js")) {
+		path = `${path.slice(0, -3)}.d.ts`;
+	} else {
+		path = `${path}.d.ts`;
+	}
+	return {
+		kind: "dts",
+		referent: {
+			item: `./${path}`,
+		},
+	};
+};
+
+let normalizeLibraryPath = (path: string): string | undefined => {
+	let components = [];
+	for (let component of path.split("/")) {
+		if (component === "" || component === ".") {
+			continue;
+		}
+		if (component === "..") {
+			if (components.length === 0) {
+				return undefined;
+			}
+			components.pop();
+		} else {
+			components.push(component);
+		}
+	}
+	return components.join("/");
 };
 
 let getImportAttributesFromImportDeclaration = (
@@ -228,7 +297,8 @@ export let fileNameFromModule = (module: Module): string => {
 	if (module.kind === "dts") {
 		let item = module.referent.item;
 		assert(typeof item === "string");
-		return `lib:/${item.slice(2)}`;
+		let path = item.startsWith("./") ? item.slice(2) : item;
+		return `${libraryRoot}/${path}`;
 	}
 	let string = Module.toDataString(module);
 	let extension: string;
@@ -245,8 +315,8 @@ export let fileNameFromModule = (module: Module): string => {
 
 /** Convert a TypeScript file name to a module. */
 export let moduleFromFileName = (fileName: string): Module => {
-	if (fileName.startsWith("lib:/")) {
-		let path = fileName.slice(5);
+	if (fileName.startsWith(`${libraryRoot}/`)) {
+		let path = fileName.slice(libraryRoot.length + 1);
 		let item = `./${path}`;
 		return {
 			kind: "dts",

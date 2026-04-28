@@ -9,6 +9,7 @@ export let setHost = (newHost: Host) => {
 export type Host = {
 	close(fd: number): Promise<void>;
 
+	/** The current host for this runtime, if one was provided. */
 	current: string | undefined;
 
 	disableRawMode(fd: number): Promise<void>;
@@ -33,6 +34,7 @@ export type Host = {
 
 	mkdtemp(): Promise<string>;
 
+	/** The host's available parallelism. */
 	parallelism: number;
 
 	read(

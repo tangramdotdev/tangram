@@ -762,15 +762,18 @@ export class Process<O extends tg.Value = tg.Value> {
 		return this.#state;
 	}
 
+	/** Expect that a value is a `tg.Process`. */
 	static expect(value: unknown): tg.Process {
 		tg.assert(value instanceof Process);
 		return value;
 	}
 
+	/** Assert that a value is a `tg.Process`. */
 	static assert(value: unknown): asserts value is tg.Process {
 		tg.assert(value instanceof Process);
 	}
 
+	/** Load the process's state. */
 	async load(): Promise<void> {
 		if (typeof this.#id === "number") {
 			throw new Error("loading unsandboxed process state is not supported");
@@ -784,6 +787,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		this.#state = tg.Process.State.fromData(output.data);
 	}
 
+	/** Reload the process's state. */
 	async reload(): Promise<void> {
 		await this.load();
 	}
@@ -800,14 +804,17 @@ export class Process<O extends tg.Value = tg.Value> {
 		return await tg.handle.getSandbox(sandbox);
 	}
 
+	/** Get this process's ID. */
 	get id(): number | tg.Process.Id {
 		return this.#id;
 	}
 
+	/** Get this process's location arg. */
 	get location(): tg.Location.Arg | undefined {
 		return this.#location;
 	}
 
+	/** Get this process's command. */
 	get command(): Promise<tg.Command> {
 		return (async () => {
 			await this.load();
@@ -815,6 +822,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		})();
 	}
 
+	/** Get this process's command's args. */
 	get args(): Promise<Array<tg.Value>> {
 		return (async () => {
 			return await (
@@ -823,6 +831,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		})();
 	}
 
+	/** Get this process's command's cwd. */
 	get cwd(): Promise<string | undefined> {
 		return (async () => {
 			return await (
@@ -831,6 +840,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		})();
 	}
 
+	/** Get this process's command's environment. */
 	async env(): Promise<{ [key: string]: tg.Value }>;
 	async env(name: string): Promise<tg.Value | undefined>;
 	async env(
@@ -844,6 +854,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		}
 	}
 
+	/** Get this process's command's executable. */
 	get executable(): Promise<tg.Command.Executable> {
 		return (async () => {
 			return await (
@@ -866,6 +877,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		})();
 	}
 
+	/** Get this process's sandbox. */
 	get sandbox(): Promise<string | undefined> {
 		return (async () => {
 			if (typeof this.#id === "number") {
@@ -876,6 +888,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		})();
 	}
 
+	/** Get this process's command's user. */
 	get user(): Promise<string | undefined> {
 		return (async () => {
 			return await (
@@ -884,18 +897,22 @@ export class Process<O extends tg.Value = tg.Value> {
 		})();
 	}
 
+	/** Get this process's stdin writer. */
 	get stdin(): tg.Process.Stdio.Writer {
 		return this.#stdin;
 	}
 
+	/** Get this process's stdout reader. */
 	get stdout(): tg.Process.Stdio.Reader {
 		return this.#stdout;
 	}
 
+	/** Get this process's stderr reader. */
 	get stderr(): tg.Process.Stdio.Reader {
 		return this.#stderr;
 	}
 
+	/** Send a signal to this process. */
 	async signal(signal: tg.Process.Signal): Promise<void> {
 		if (typeof this.#id === "number") {
 			await tg.host.signal(this.#id, signal);
@@ -913,6 +930,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		await tg.handle.signalProcess(this.#id, arg);
 	}
 
+	/** Wait for this process to exit. */
 	async wait(): Promise<tg.Process.Wait> {
 		if (this.#stdioPromise !== undefined) {
 			await this.#stdioPromise;
@@ -936,6 +954,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		return wait;
 	}
 
+	/** Wait for this process to exit and return the output. */
 	async output(): Promise<O> {
 		let wait = await this.wait();
 
@@ -999,6 +1018,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		return output as O;
 	}
 
+	/** Set this process's tty size. */
 	async setTtySize(size: tg.Process.Tty.Size): Promise<void> {
 		if (typeof this.#id === "number") {
 			throw new Error(
@@ -1291,26 +1311,61 @@ export namespace Process {
 		| ArgObject;
 
 	export type ArgObject = {
+		/** The command's arguments. */
 		args?: Array<tg.Value> | undefined;
+
+		/** The cache location arg. */
 		cache_location?: tg.Location.Arg | undefined;
+
+		/** If a checksum of the process's output is provided, then the process can be cached even if it is not sandboxed. */
 		checksum?: tg.Checksum | undefined;
+
+		/** The base command. */
 		command?: tg.MaybeReferent<tg.Command> | undefined;
+
+		/** The sandbox's CPU allocation. */
 		cpu?: number | undefined;
+
+		/** The command's working directory. */
 		cwd?: string | undefined;
 		debug?: boolean | tg.Process.Debug | undefined;
+
+		/** The command's environment. */
 		env?: tg.MaybeMutationMap | undefined;
+
+		/** The command's executable. */
 		executable?: tg.Command.Arg.Executable | undefined;
+
+		/** The command's host. */
 		host?: string | undefined;
+
+		/** The process location arg. */
 		location?: tg.Location.Arg | undefined;
+
+		/** The sandbox's memory allocation. */
 		memory?: number | undefined;
 		mounts?: Array<tg.Sandbox.Mount> | undefined;
+
+		/** The process's name. */
 		name?: string | undefined;
 		network?: boolean | undefined;
+
+		/** Configure or select the sandbox for this process. */
 		sandbox?: boolean | tg.Sandbox.Arg | tg.Sandbox.Id | undefined;
+
+		/** Configure stderr. */
 		stderr?: tg.Process.Stdio | undefined;
+
+		/** Configure stdin, or set it to a blob. */
 		stdin?: tg.Blob.Arg | tg.Process.Stdio | undefined;
+
+		/** Configure stdout. */
 		stdout?: tg.Process.Stdio | undefined;
+
+		/** Configure whether the process should allocate a tty. */
 		tty?: boolean | tg.Process.Tty | undefined;
+
+		/** The command's user. */
 		user?: string | undefined;
 	};
 
@@ -1526,6 +1581,7 @@ export namespace Process {
 		};
 	}
 
+	/** A mount. */
 	export type Mount = tg.Sandbox.Mount;
 
 	export type Tty = {
@@ -1644,6 +1700,7 @@ export namespace Process {
 				this.#process = process;
 			}
 
+			/** Close the stream without reading it. */
 			async close(): Promise<void> {
 				let fd = this.#fd;
 				let input = this.#input;
@@ -1661,6 +1718,7 @@ export namespace Process {
 				}
 			}
 
+			/** Read one chunk from the stream. */
 			async read(): Promise<Uint8Array | undefined> {
 				if (!this.#available) {
 					throw new Error(`${this.#stream} is not available`);
@@ -1720,6 +1778,7 @@ export namespace Process {
 				return undefined;
 			}
 
+			/** Read all remaining bytes from the stream. */
 			async readAll(): Promise<Uint8Array> {
 				let chunks: Array<Uint8Array> = [];
 				let length = 0;
@@ -1740,6 +1799,7 @@ export namespace Process {
 				return output;
 			}
 
+			/** Read all remaining bytes as UTF-8 text. */
 			async text(): Promise<string> {
 				return tg.encoding.utf8.decode(await this.readAll());
 			}
@@ -1766,6 +1826,7 @@ export namespace Process {
 				this.#process = process;
 			}
 
+			/** Close the stream without writing additional input. */
 			async close(): Promise<void> {
 				let fd = this.#fd;
 				let process = this.#process;
@@ -1810,6 +1871,7 @@ export namespace Process {
 				}
 			}
 
+			/** Write one chunk to the stream and return the number of bytes written. */
 			async write(input: Uint8Array): Promise<number> {
 				if (!(input instanceof Uint8Array)) {
 					throw new Error("expected stdio bytes");
@@ -1857,6 +1919,7 @@ export namespace Process {
 				return input.length;
 			}
 
+			/** Write all input bytes to the stream and then close it. */
 			async writeAll(input: Uint8Array): Promise<void> {
 				if (!(input instanceof Uint8Array)) {
 					throw new Error("expected stdio bytes");

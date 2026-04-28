@@ -1,5 +1,6 @@
 import * as tg from "./index.ts";
 
+/** Compute a checksum. */
 export let checksum = (
 	input: string | Uint8Array | tg.Blob | tg.Artifact,
 	algorithm: Checksum.Algorithm,
@@ -7,6 +8,7 @@ export let checksum = (
 	return Checksum.new(input, algorithm);
 };
 
+/** A checksum. */
 export type Checksum = `${tg.Checksum.Algorithm}${":" | "-"}${string}`;
 
 export declare namespace Checksum {
@@ -58,6 +60,7 @@ export namespace Checksum {
 		}
 	};
 
+	/** Check if a value is a `tg.Checksum`. */
 	export let is = (value: unknown): value is Checksum => {
 		if (typeof value !== "string") {
 			return false;
@@ -66,11 +69,13 @@ export namespace Checksum {
 		return pattern.test(value);
 	};
 
+	/** Expect that a value is a `tg.Checksum`. */
 	export let expect = (value: unknown): Checksum => {
 		tg.assert(is(value));
 		return value;
 	};
 
+	/** Assert that a value is a `tg.Checksum`. */
 	export let assert = (value: unknown): asserts value is Checksum => {
 		tg.assert(is(value));
 	};

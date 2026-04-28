@@ -1,5 +1,6 @@
 import * as tg from "./index.ts";
 
+/** Create an error. */
 export function error(): tg.Error;
 export function error(message: string, arg?: tg.Error.Arg): tg.Error;
 export function error(arg: tg.Error.Arg): tg.Error;
@@ -63,6 +64,7 @@ export function error(
 	return tg.Error.withObject(object);
 }
 
+/** An error. */
 export class Error {
 	#state: tg.Object.State;
 
@@ -86,64 +88,77 @@ export class Error {
 		return this.#state;
 	}
 
+	/** Get an error with an ID. */
 	static withId(id: tg.Error.Id): tg.Error {
 		return new tg.Error({ id, stored: true });
 	}
 
+	/** Get an error with an object. */
 	static withObject(object: tg.Error.Object): tg.Error {
 		return new tg.Error({ object, stored: false });
 	}
 
+	/** Create an error from data. */
 	static fromData(data: tg.Error.Data): tg.Error {
 		return tg.Error.withObject(tg.Error.Object.fromData(data));
 	}
 
+	/** Convert an error to data. */
 	static toData(value: tg.Error): tg.Error.Data {
 		let object = value.state.object;
 		tg.assert(object?.kind === "error");
 		return tg.Error.Object.toData(object.value);
 	}
 
+	/** Expect that a value is a `tg.Error`. */
 	static expect(value: unknown): tg.Error {
 		tg.assert(value instanceof tg.Error);
 		return value;
 	}
 
+	/** Assert that a value is a `tg.Error`. */
 	static assert(value: unknown): asserts value is tg.Error {
 		tg.assert(value instanceof tg.Error);
 	}
 
+	/** Get this error's ID. */
 	get id(): tg.Error.Id {
 		let id = this.#state.id;
 		tg.assert(tg.Object.Id.kind(id) === "error");
 		return id;
 	}
 
+	/** Get this error's object. */
 	async object(): Promise<tg.Error.Object> {
 		let object = await this.#state.load();
 		tg.assert(object.kind === "error");
 		return object.value;
 	}
 
+	/** Load this error's object. */
 	async load(): Promise<tg.Error.Object> {
 		let object = await this.#state.load();
 		tg.assert(object.kind === "error");
 		return object.value;
 	}
 
+	/** Unload this error's object. */
 	unload(): void {
 		this.#state.unload();
 	}
 
+	/** Store this error. */
 	async store(): Promise<tg.Error.Id> {
 		await tg.Value.store(this);
 		return this.id;
 	}
 
+	/** Get this error's children. */
 	get children(): Promise<Array<tg.Object>> {
 		return this.#state.children;
 	}
 
+	/** Get this error's code. */
 	get code(): Promise<string | undefined> {
 		return (async () => {
 			let object = await this.object();
@@ -151,6 +166,7 @@ export class Error {
 		})();
 	}
 
+	/** Get this error's diagnostics. */
 	get diagnostics(): Promise<Array<tg.Diagnostic> | undefined> {
 		return (async () => {
 			let object = await this.object();
@@ -158,6 +174,7 @@ export class Error {
 		})();
 	}
 
+	/** Get this error's location. */
 	get location(): Promise<tg.Error.Location | undefined> {
 		return (async () => {
 			let object = await this.object();
@@ -165,6 +182,7 @@ export class Error {
 		})();
 	}
 
+	/** Get this error's message. */
 	get message(): Promise<string | undefined> {
 		return (async () => {
 			let object = await this.object();
@@ -172,6 +190,7 @@ export class Error {
 		})();
 	}
 
+	/** Get this error's source. */
 	get source(): Promise<tg.Referent<tg.Error> | undefined> {
 		return (async () => {
 			let object = await this.object();
@@ -189,6 +208,7 @@ export class Error {
 		})();
 	}
 
+	/** Get this error's stack. */
 	get stack(): Promise<Array<tg.Error.Location> | undefined> {
 		return (async () => {
 			let object = await this.object();
@@ -196,6 +216,7 @@ export class Error {
 		})();
 	}
 
+	/** Get this error's values. */
 	get values(): Promise<{ [key: string]: string }> {
 		return (async () => {
 			let object = await this.object();

@@ -1,11 +1,13 @@
 import * as tg from "./index.ts";
 
+/** Create a graph. */
 export let graph = async (
 	...args: tg.Args<tg.Graph.Arg>
 ): Promise<tg.Graph> => {
 	return await tg.Graph.new(...args);
 };
 
+/** A graph. */
 export class Graph {
 	#state: tg.Object.State;
 
@@ -29,6 +31,7 @@ export class Graph {
 		return this.#state;
 	}
 
+	/** Get a graph with an ID. */
 	static withId(id: tg.Graph.Id): tg.Graph {
 		return new tg.Graph({ id, stored: true });
 	}
@@ -41,6 +44,7 @@ export class Graph {
 		return tg.Graph.withObject(tg.Graph.Object.fromData(data));
 	}
 
+	/** Create a graph. */
 	static async new(...args: tg.Args<tg.Graph.Arg>): Promise<tg.Graph> {
 		let arg = await tg.Graph.arg(...args);
 		let nodes = await Promise.all(
@@ -225,15 +229,18 @@ export class Graph {
 		return { nodes };
 	}
 
+	/** Expect that a value is a `tg.Graph`. */
 	static expect(value: unknown): tg.Graph {
 		tg.assert(value instanceof tg.Graph);
 		return value;
 	}
 
+	/** Assert that a value is a `tg.Graph`. */
 	static assert(value: unknown): asserts value is tg.Graph {
 		tg.assert(value instanceof tg.Graph);
 	}
 
+	/** Get this graph's id. */
 	get id(): tg.Graph.Id {
 		let id = this.#state.id;
 		tg.assert(tg.Object.Id.kind(id) === "graph");
@@ -256,6 +263,7 @@ export class Graph {
 		this.#state.unload();
 	}
 
+	/** Store this graph. */
 	async store(): Promise<tg.Graph.Id> {
 		await tg.Value.store(this);
 		return this.id;
@@ -265,6 +273,7 @@ export class Graph {
 		return this.#state.children;
 	}
 
+	/** Get this graph's nodes. */
 	get nodes(): Promise<Array<tg.Graph.Node>> {
 		return (async () => {
 			return (await this.object()).nodes;

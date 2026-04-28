@@ -1,5 +1,6 @@
 import * as tg from "./index.ts";
 
+/** Create a mutation. */
 export async function mutation<T extends tg.Value = tg.Value>(
 	arg: tg.Unresolved<tg.Mutation.Arg<T>>,
 ): Promise<tg.Mutation<T>> {
@@ -13,6 +14,7 @@ export class Mutation<T extends tg.Value = tg.Value> {
 		this.#inner = inner;
 	}
 
+	/** Create a mutation. */
 	static async new<T extends tg.Value = tg.Value>(
 		arg_: tg.Unresolved<tg.Mutation.Arg<T>>,
 	): Promise<tg.Mutation<T>> {
@@ -50,6 +52,7 @@ export class Mutation<T extends tg.Value = tg.Value> {
 		}
 	}
 
+	/** Create a set mutation. */
 	static async set<T extends tg.Value = tg.Value>(
 		value: tg.Unresolved<T>,
 	): Promise<tg.Mutation<T>> {
@@ -59,10 +62,12 @@ export class Mutation<T extends tg.Value = tg.Value> {
 		}) as tg.Mutation<T>;
 	}
 
+	/** Create an unset mutation. */
 	static unset<T extends tg.Value = tg.Value>(): tg.Mutation<T> {
 		return new tg.Mutation({ kind: "unset" }) as tg.Mutation<T>;
 	}
 
+	/** Create a set if unset mutation. */
 	static async setIfUnset<T extends tg.Value = tg.Value>(
 		value: tg.Unresolved<T>,
 	): Promise<tg.Mutation<T>> {
@@ -72,6 +77,7 @@ export class Mutation<T extends tg.Value = tg.Value> {
 		}) as tg.Mutation<T>;
 	}
 
+	/** Create an prepend mutation. */
 	static async prepend<T extends Array<tg.Value> = Array<tg.Value>>(
 		values: tg.Unresolved<T>,
 	): Promise<tg.Mutation<T>> {
@@ -81,6 +87,7 @@ export class Mutation<T extends tg.Value = tg.Value> {
 		}) as tg.Mutation<T>;
 	}
 
+	/** Create an append mutation. */
 	static async append<T extends Array<tg.Value> = Array<tg.Value>>(
 		values: tg.Unresolved<T>,
 	): Promise<tg.Mutation<T>> {
@@ -90,6 +97,7 @@ export class Mutation<T extends tg.Value = tg.Value> {
 		}) as tg.Mutation<T>;
 	}
 
+	/** Create a prefix mutation. */
 	static async prefix<T extends tg.Template.Arg = tg.Template.Arg>(
 		template: tg.Unresolved<T>,
 		separator?: string | undefined,
@@ -101,6 +109,7 @@ export class Mutation<T extends tg.Value = tg.Value> {
 		});
 	}
 
+	/** Create a suffix mutation. */
 	static async suffix<T extends tg.Template.Arg = tg.Template.Arg>(
 		template: tg.Unresolved<T>,
 		separator?: string | undefined,
@@ -112,6 +121,7 @@ export class Mutation<T extends tg.Value = tg.Value> {
 		});
 	}
 
+	/** Create a merge mutation. */
 	static async merge<
 		T extends { [key: string]: tg.Value } = { [key: string]: tg.Value },
 	>(value: tg.Unresolved<T>): Promise<tg.Mutation<T>> {

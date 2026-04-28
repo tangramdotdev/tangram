@@ -1,6 +1,7 @@
 import * as tg from "./index.ts";
 import { unindent } from "./template.ts";
 
+/** Create a file. */
 export async function file(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<string>
@@ -43,6 +44,7 @@ async function inner(
 	}
 }
 
+/** A file. */
 export class File {
 	#state: tg.Object.State;
 
@@ -66,6 +68,7 @@ export class File {
 		return this.#state;
 	}
 
+	/** Get a file with an ID. */
 	static withId(id: tg.File.Id): tg.File {
 		return new tg.File({ id, stored: true });
 	}
@@ -82,6 +85,7 @@ export class File {
 		return tg.File.withObject(tg.File.Object.fromData(data));
 	}
 
+	/** Create a file. */
 	static async new(...args: tg.Args<tg.File.Arg>): Promise<tg.File> {
 		if (args.length === 1) {
 			let arg = await tg.resolve(args[0]);
@@ -148,15 +152,18 @@ export class File {
 		});
 	}
 
+	/** Expect that a value is a `tg.File`. */
 	static expect(value: unknown): tg.File {
 		tg.assert(value instanceof tg.File);
 		return value;
 	}
 
+	/** Assert that a value is a `tg.File`. */
 	static assert(value: unknown): asserts value is tg.File {
 		tg.assert(value instanceof tg.File);
 	}
 
+	/** Get this file's ID. */
 	get id(): tg.File.Id {
 		let id = this.#state.id;
 		tg.assert(tg.Object.Id.kind(id) === "file");
@@ -179,6 +186,7 @@ export class File {
 		this.#state.unload();
 	}
 
+	/** Store this file. */
 	async store(): Promise<tg.File.Id> {
 		await tg.Value.store(this);
 		return this.id;
@@ -188,6 +196,7 @@ export class File {
 		return this.#state.children;
 	}
 
+	/** Get this file's contents. */
 	get contents(): Promise<tg.Blob> {
 		return (async () => {
 			let object = await this.object();
@@ -206,6 +215,7 @@ export class File {
 		})();
 	}
 
+	/** Get this file's dependencies. */
 	get dependencies(): Promise<{
 		[reference: tg.Reference]: tg.Referent<tg.Object> | undefined;
 	}> {
@@ -279,6 +289,7 @@ export class File {
 		})();
 	}
 
+	/** Get this file's dependencies as an array. */
 	get dependencyObjects(): Promise<Array<tg.Object>> {
 		return (async () => {
 			let dependencies = await this.dependencies;
@@ -296,6 +307,7 @@ export class File {
 		})();
 	}
 
+	/** Get this file's executable bit. */
 	get executable(): Promise<boolean> {
 		return (async () => {
 			let object = await this.object();
@@ -313,6 +325,7 @@ export class File {
 		})();
 	}
 
+	/** Get this file's module kind. */
 	get module(): Promise<string | undefined> {
 		return (async () => {
 			let object = await this.object();
@@ -330,22 +343,26 @@ export class File {
 		})();
 	}
 
+	/** Get the length of this file's contents. */
 	get length(): Promise<number> {
 		return (async () => {
 			return (await this.contents).length;
 		})();
 	}
 
+	/** Read from this file. */
 	async read(options?: tg.Blob.ReadOptions): Promise<Uint8Array> {
 		return (await this.contents).read(options);
 	}
 
+	/** Get this file's contents as a `Uint8Array`. */
 	get bytes(): Promise<Uint8Array> {
 		return (async () => {
 			return (await this.contents).bytes;
 		})();
 	}
 
+	/** Get this file's contents as a string. This method throws an error if the contents are not valid UTF-8. */
 	get text(): Promise<string> {
 		return (async () => {
 			return (await this.contents).text;

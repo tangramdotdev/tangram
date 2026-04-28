@@ -1,6 +1,15 @@
 import im from "immutable";
 import * as tg from "./index.ts";
 
+/**
+ * This computed type takes a type `T` and returns the union of all possible types that will return `T` by calling `resolve`. Here are some examples:
+ *
+ * ```
+ * Unresolved<string> = MaybePromise<string>
+ * Unresolved<{ key: string }> = MaybePromise<{ key: MaybePromise<string> }>
+ * Unresolved<Array<{ key: string }>> = MaybePromise<Array<MaybePromise<{ key: MaybePromise<string> }>>>
+ * ```
+ */
 export type Unresolved<T extends tg.Value> = tg.MaybePromise<
 	T extends tg.Command<
 		infer A extends Array<tg.Value>,
@@ -53,6 +62,18 @@ type UnresolvedWithoutCommand<T extends tg.Value> = tg.MaybePromise<
 				: never
 >;
 
+/**
+ * This computed type performs the inverse of `tg.Unresolved`. It takes a type and returns the output of calling `tg.resolve` on a value of that type. Here are some examples:
+ *
+ * ```
+ * Resolved<string> = string
+ * Resolved<() => string> = string
+ * Resolved<Promise<string>> = string
+ * Resolved<Array<Promise<string>>> = Array<string>
+ * Resolved<() => Promise<Array<Promise<string>>>> = Array<string>
+ * Resolved<Promise<Array<Promise<string>>>> = Array<string>
+ * ```
+ */
 export type Resolved<T extends tg.Unresolved<tg.Value>> =
 	T extends PromiseLike<infer U extends tg.Unresolved<tg.Value>>
 		? tg.Resolved<U>
@@ -75,6 +96,7 @@ export type Resolved<T extends tg.Unresolved<tg.Value>> =
 						? { [K in keyof T]: tg.Resolved<T[K]> }
 						: never;
 
+/** Resolve all deeply nested promises in an unresolved value. */
 export let resolve = async <T extends tg.Unresolved<tg.Value>>(
 	value: T,
 ): Promise<tg.Resolved<T>> => {

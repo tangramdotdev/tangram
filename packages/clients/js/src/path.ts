@@ -1,4 +1,5 @@
 export namespace path {
+	/** A path component. */
 	export type Component =
 		| Component.Current
 		| Component.Normal
@@ -27,6 +28,7 @@ export namespace path {
 		};
 	}
 
+	/** Split a path into its components */
 	export let components = (arg: string): Array<Component> => {
 		let components = arg.split("/");
 		if (components.at(0)?.length === 0) {
@@ -44,6 +46,7 @@ export namespace path {
 		return components;
 	};
 
+	/** Create a path from an array of path components. */
 	export let fromComponents = (components: Array<Component>): string => {
 		if (components[0] === Component.Root) {
 			return `/${components.slice(1).join("/")}`;
@@ -52,10 +55,12 @@ export namespace path {
 		}
 	};
 
+	/** Return true if the path is absolute. */
 	export let isAbsolute = (arg: string): boolean => {
 		return arg.startsWith("/");
 	};
 
+	/** Join paths. */
 	export let join = (...args: Array<string | undefined>): string => {
 		let components: Array<string> = [];
 		for (let arg of args) {
@@ -71,6 +76,7 @@ export namespace path {
 		return fromComponents(components);
 	};
 
+	/** Return the path with its last component removed. */
 	export let parent = (arg: string): string | undefined => {
 		let components = path.components(arg);
 		if (components.length === 0) {

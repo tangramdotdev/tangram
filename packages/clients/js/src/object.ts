@@ -264,6 +264,7 @@ export namespace Object {
 		};
 	}
 
+	/** Get an object with an ID. */
 	export let withId = (id: tg.Object.Id): tg.Object => {
 		let prefix = id.substring(0, 3);
 		if (prefix === "blb") {
@@ -285,6 +286,7 @@ export namespace Object {
 		}
 	};
 
+	/** Check if a value is a `tg.Object`. */
 	export let is = (value: unknown): value is tg.Object => {
 		return (
 			value instanceof tg.Blob ||
@@ -297,11 +299,13 @@ export namespace Object {
 		);
 	};
 
+	/** Expect that a value is a `tg.Object`. */
 	export let expect = (value: unknown): tg.Object => {
 		tg.assert(tg.Object.is(value));
 		return value;
 	};
 
+	/** Assert that a value is a `tg.Object`. */
 	export let assert = (value: unknown): asserts value is tg.Object => {
 		tg.assert(tg.Object.is(value));
 	};
