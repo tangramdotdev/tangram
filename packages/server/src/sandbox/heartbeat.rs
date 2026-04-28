@@ -63,7 +63,10 @@ impl Server {
 	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
 		let connection = self
 			.process_store
-			.write_connection()
+			.connection_with_options(db::ConnectionOptions {
+				kind: db::ConnectionKind::Write,
+				priority: db::Priority::High,
+			})
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 		let p = connection.p();
