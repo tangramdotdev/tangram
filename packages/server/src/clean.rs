@@ -249,7 +249,7 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to delete objects"))?;
 
-		// Delete the processes.
+		// Delete processes.
 		self.clean_processes(&output.processes, max_touched_at)
 			.await?;
 

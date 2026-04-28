@@ -47,7 +47,7 @@ create table processes (
 	stdout text,
 	stdout_open boolean,
 	token_count int8 not null,
-	touched_at int8,
+	touched_at int8 not null,
 	tty text
 );
 

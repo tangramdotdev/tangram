@@ -4,19 +4,26 @@ use {
 		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
 		stream::{BoxStream, FuturesUnordered},
 	},
-	indoc::{formatdoc, indoc},
+	indoc::formatdoc,
 	std::{fmt::Write, pin::pin},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_index::prelude::*,
 	tangram_messenger::prelude::*,
 };
+
+#[cfg(feature = "postgres")]
+mod postgres;
+#[cfg(feature = "sqlite")]
+mod sqlite;
 
 #[derive(derive_more::Debug)]
 struct LocalOutput {
 	cached: bool,
 	id: tg::process::Id,
+	index_touches: Vec<(tg::process::Id, i64)>,
 	#[debug(ignore)]
 	permit: Option<SandboxPermit>,
 	sandbox: tg::sandbox::Id,
@@ -195,6 +202,13 @@ impl Server {
 			.commit()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
+
+		// Spawn index touches after the process store transaction commits.
+		if let Some(output) = &output {
+			for (id, touched_at) in &output.index_touches {
+				self.spawn_touch_process_index_task(id, *touched_at);
+			}
+		}
 
 		// Drop the connection.
 		drop(connection);
@@ -788,9 +802,15 @@ impl Server {
 			Some(token)
 		};
 
+		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
+		Self::touch_process_with_transaction(transaction, &id, touched_at)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to touch the cached process"))?;
+
 		Ok(Some(LocalOutput {
 			cached: true,
-			id,
+			id: id.clone(),
+			index_touches: vec![(id, touched_at)],
 			permit: None,
 			sandbox,
 			sandbox_status,
@@ -1054,6 +1074,10 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
+		Self::touch_process_with_transaction(transaction, &source, now)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to touch the source process"))?;
+
 		// Copy the process children.
 		let statement = formatdoc!(
 			"
@@ -1086,6 +1110,7 @@ impl Server {
 		Ok(Some(LocalOutput {
 			cached: true,
 			id,
+			index_touches: vec![(source, now)],
 			permit: None,
 			sandbox,
 			sandbox_status,
@@ -1302,6 +1327,7 @@ impl Server {
 		Ok(LocalOutput {
 			cached: false,
 			id,
+			index_touches: Vec::new(),
 			permit,
 			sandbox,
 			sandbox_status: Some(sandbox_status),
@@ -1387,6 +1413,33 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		Ok(id)
+	}
+
+	async fn touch_process_with_transaction(
+		transaction: &database::Transaction<'_>,
+		id: &tg::process::Id,
+		touched_at: i64,
+	) -> tg::Result<()> {
+		let p = transaction.p();
+		let max = match transaction {
+			#[cfg(feature = "postgres")]
+			database::Transaction::Postgres(_) => "greatest",
+			#[cfg(feature = "sqlite")]
+			database::Transaction::Sqlite(_) => "max",
+		};
+		let statement = formatdoc!(
+			"
+				update processes
+				set touched_at = {max}(touched_at, {p}2)
+				where id = {p}1;
+			"
+		);
+		let params = db::params![id.to_string(), touched_at];
+		transaction
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		Ok(())
 	}
 
 	async fn try_get_sandbox_status_with_transaction(
@@ -1610,17 +1663,10 @@ impl Server {
 		// Update parent depths.
 		match &transaction {
 			#[cfg(feature = "postgres")]
-			database::Transaction::Postgres(_) => {
-				let statement = formatdoc!(
-					"
-						call update_parent_depths(array[{p}1]::text[]);
-					"
-				);
-				let params = db::params![child.to_string()];
-				transaction
-					.execute(statement.into(), params)
+			database::Transaction::Postgres(transaction) => {
+				Self::update_parent_depths_postgres(transaction, child.to_string())
 					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+					.map_err(|source| tg::error!(!source, "failed to update parent depths"))?;
 			},
 			#[cfg(feature = "sqlite")]
 			database::Transaction::Sqlite(transaction) => {
@@ -1628,78 +1674,6 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to update parent depths"))?;
 			},
-		}
-
-		Ok(())
-	}
-
-	#[cfg(feature = "sqlite")]
-	pub(crate) async fn update_parent_depths_sqlite(
-		transaction: &db::sqlite::Transaction<'_>,
-		child_ids: Vec<String>,
-	) -> tg::Result<()> {
-		let mut current_ids = child_ids;
-
-		while !current_ids.is_empty() {
-			let mut updated_ids = Vec::new();
-
-			// Process each child to find and update its parents.
-			for child_id in &current_ids {
-				// Find parents of this child and their max child depth.
-				#[derive(db::row::Deserialize)]
-				struct Parent {
-					process: String,
-					max_child_depth: Option<i64>,
-				}
-				let statement = indoc!(
-					"
-						select process_children.process, max(processes.depth) as max_child_depth
-						from process_children
-						join processes on processes.id = process_children.child
-						where process_children.child = ?1
-						group by process_children.process;
-					"
-				);
-				let params = db::params![child_id.clone()];
-				let parents: Vec<Parent> = transaction
-					.query_all_into::<Parent>(statement.into(), params)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to query parent depths"))?;
-
-				// Update each parent's depth if needed.
-				for parent in parents {
-					if let Some(max_child_depth) = parent.max_child_depth {
-						let statement = indoc!(
-							"
-								update processes
-								set depth = max(depth, ?1)
-								where id = ?2 and depth < ?1;
-							"
-						);
-						let new_depth = max_child_depth + 1;
-						let params = db::params![new_depth, parent.process.clone()];
-						let rows = transaction
-							.execute(statement.into(), params)
-							.await
-							.map_err(|source| {
-								tg::error!(!source, "failed to update parent depth")
-							})?;
-
-						// If we updated this parent, track it for next iteration.
-						if rows > 0 {
-							updated_ids.push(parent.process);
-						}
-					}
-				}
-			}
-
-			// Exit if no parents were updated.
-			if updated_ids.is_empty() {
-				break;
-			}
-
-			// Continue with the updated parents.
-			current_ids = updated_ids;
 		}
 
 		Ok(())
@@ -1774,6 +1748,26 @@ impl Server {
 				);
 			}
 		});
+	}
+
+	fn spawn_touch_process_index_task(&self, id: &tg::process::Id, touched_at: i64) {
+		let server = self.clone();
+		let id = id.clone();
+		self.index_tasks
+			.spawn(move |_| {
+				let server = server.clone();
+				let id = id.clone();
+				async move {
+					if let Err(error) = server.index.touch_process(&id, touched_at).await {
+						tracing::error!(
+							error = %error.trace(),
+							%id,
+							"failed to touch the cached process in the index"
+						);
+					}
+				}
+			})
+			.detach();
 	}
 
 	fn create_process_token() -> String {
