@@ -12,26 +12,18 @@ impl Server {
 		_context: &Context,
 		arg: tg::module::resolve::Arg,
 	) -> tg::Result<tg::module::resolve::Output> {
-		let tg::module::resolve::Arg { referrer, import } = arg;
+		let tg::module::resolve::Arg {
+			referrer,
+			cwd,
+			import,
+		} = arg;
 
 		// Get the referent.
-		let referent = match referrer.referent.item() {
-			tg::module::data::Item::Edge(edge) => {
-				let referrer = referrer.referent.clone().map(|_| edge);
-				self.resolve_module_with_edge_referrer(&referrer, &import)
-					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to resolve module with edge referrer")
-					})?
-			},
-			tg::module::data::Item::Path(path) => {
-				let referrer = referrer.referent.clone().map(|_| path.as_ref());
-				self.resolve_module_with_path_referrer(&referrer, &import)
-					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to resolve module with path referrer")
-					})?
-			},
+		let referent = if let Some(referrer) = referrer {
+			self.resolve_module_with_referrer(referrer, &import).await?
+		} else {
+			let cwd = cwd.ok_or_else(|| tg::error!("expected a cwd"))?;
+			self.resolve_module_without_referrer(&cwd, &import).await?
 		};
 
 		// If the kind is not known, then try to infer it from the path extension.
@@ -94,6 +86,102 @@ impl Server {
 		let output = tg::module::resolve::Output { module };
 
 		Ok(output)
+	}
+
+	async fn resolve_module_with_referrer(
+		&self,
+		referrer: tg::module::Data,
+		import: &tg::module::Import,
+	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
+		match referrer.referent.item() {
+			tg::module::data::Item::Edge(edge) => {
+				let referrer = referrer.referent.clone().map(|_| edge);
+				self.resolve_module_with_edge_referrer(&referrer, import)
+					.await
+					.map_err(|source| {
+						tg::error!(!source, "failed to resolve module with edge referrer")
+					})
+			},
+			tg::module::data::Item::Path(path) => {
+				let referrer = referrer.referent.clone().map(|_| path.as_ref());
+				self.resolve_module_with_path_referrer(&referrer, import)
+					.await
+					.map_err(|source| {
+						tg::error!(!source, "failed to resolve module with path referrer")
+					})
+			},
+		}
+	}
+
+	async fn resolve_module_without_referrer(
+		&self,
+		cwd: &Path,
+		import: &tg::module::Import,
+	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
+		if import.reference.options().source.is_some()
+			|| import.reference.item().try_unwrap_path_ref().is_ok()
+		{
+			let referrer_path = cwd.join("<repl>");
+			let referrer = tg::Referent::with_item(referrer_path.as_path());
+			return self
+				.resolve_module_with_path_referrer(&referrer, import)
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to resolve module with path referrer")
+				});
+		}
+
+		let referent = import.reference.get_with_handle(self).await?;
+		let options = referent.options;
+		let tg::Either::Left(object) = referent.item else {
+			return Err(tg::error!("expected an object"));
+		};
+
+		if let tg::Object::Directory(directory) = &object
+			&& matches!(
+				import.kind,
+				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts)
+			) && let Some(root_module_name) =
+			tg::module::try_get_root_module_file_name_with_handle(self, tg::Either::Left(directory))
+				.await?
+		{
+			let edge = directory
+				.get_entry_edge_with_handle(self, root_module_name)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the entry edge"))?;
+			let edge: tg::graph::Edge<tg::Object> = match edge {
+				tg::graph::Edge::Pointer(pointer) => {
+					if pointer.kind != tg::artifact::Kind::File {
+						return Err(tg::error!("expected a file"));
+					}
+					tg::graph::Edge::Pointer(pointer)
+				},
+				tg::graph::Edge::Object(artifact) => {
+					let file = artifact
+						.try_unwrap_file()
+						.ok()
+						.ok_or_else(|| tg::error!("expected a file"))?;
+					tg::graph::Edge::Object(file.into())
+				},
+			};
+			let path = options.path.as_ref().map_or_else(
+				|| root_module_name.into(),
+				|path| path.join(root_module_name),
+			);
+			let options = tg::referent::Options {
+				path: Some(path),
+				..options
+			};
+			return Ok(tg::Referent {
+				item: tg::module::data::Item::Edge(edge.to_data()),
+				options,
+			});
+		}
+
+		Ok(tg::Referent {
+			item: tg::module::data::Item::Edge(tg::graph::data::Edge::Object(object.id())),
+			options,
+		})
 	}
 
 	async fn resolve_module_with_edge_referrer(

@@ -19,20 +19,13 @@ impl qjs::loader::Resolver for Resolver {
 		let state = ctx.userdata::<StateHandle>().unwrap().clone();
 
 		// Get the referrer.
-		let referrer = if base.is_empty() || base == "main" {
+		let referrer = if base.is_empty() || base == "main" || base == "<repl>" {
 			None
 		} else {
 			Some(
 				base.parse::<tg::module::Data>()
 					.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?,
 			)
-		};
-
-		let Some(referrer) = referrer else {
-			let module = name
-				.parse::<tg::module::Data>()
-				.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
-			return Ok(module.to_string());
 		};
 
 		// Parse the import attributes.
@@ -52,6 +45,10 @@ impl qjs::loader::Resolver for Resolver {
 			None
 		};
 
+		if let Ok(module) = name.parse::<tg::module::Data>() {
+			return Ok(module.to_string());
+		}
+
 		// Parse the import specifier with attributes.
 		let import = tg::module::Import::with_specifier_and_attributes(name, attributes)
 			.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
@@ -61,9 +58,14 @@ impl qjs::loader::Resolver for Resolver {
 		state.main_runtime_handle.spawn({
 			let handle = state.handle.clone();
 			let referrer = referrer.clone();
+			let cwd = state.arg.cwd.clone();
 			let import = import.clone();
 			async move {
-				let arg = tg::module::resolve::Arg { referrer, import };
+				let arg = tg::module::resolve::Arg {
+					referrer: referrer.clone(),
+					cwd: referrer.is_none().then_some(cwd),
+					import,
+				};
 				let result = handle.resolve_module(arg).await.map(|output| output.module);
 				sender.send(result).unwrap();
 			}

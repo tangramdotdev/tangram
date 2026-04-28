@@ -50,19 +50,8 @@ pub fn host_import_module_dynamically_callback<'s>(
 	};
 
 	// Parse the import.
-	let import = if referrer.is_none() {
-		let specifier = specifier.to_rust_string_lossy(scope);
-		let module = match specifier
-			.parse()
-			.map_err(|source| tg::error!(!source, %specifier, "failed to parse the specifier"))
-		{
-			Ok(module) => module,
-			Err(error) => {
-				let exception = error::to_exception(scope, &error)?;
-				scope.throw_exception(exception);
-				return None;
-			},
-		};
+	let specifier_string = specifier.to_rust_string_lossy(scope);
+	let import = if let Ok(module) = specifier_string.parse() {
 		tg::Either::Left(module)
 	} else {
 		let import = parse_import(scope, specifier, attributes, ImportKind::Dynamic)?;
@@ -72,14 +61,15 @@ pub fn host_import_module_dynamically_callback<'s>(
 	// Resolve the module.
 	let promise = state.create_promise(scope, {
 		let handle = state.handle.clone();
+		let cwd = state.arg.cwd.clone();
 		let import = import.clone();
 		async move {
-			let module = match referrer {
-				None => import.unwrap_left(),
-				Some(referrer) => {
-					let import = import.unwrap_right();
+			let module = match import {
+				tg::Either::Left(module) => module,
+				tg::Either::Right(import) => {
 					let arg = tg::module::resolve::Arg {
 						referrer: referrer.clone(),
+						cwd: referrer.is_none().then_some(cwd),
 						import: import.clone(),
 					};
 					let output = handle.resolve_module(arg).await.map_err(|source| {
@@ -287,7 +277,11 @@ fn resolve_module_sync(
 		let referrer = referrer.clone();
 		let import = import.clone();
 		async move {
-			let arg = tg::module::resolve::Arg { referrer, import };
+			let arg = tg::module::resolve::Arg {
+				referrer: Some(referrer),
+				cwd: None,
+				import,
+			};
 			let result = handle.resolve_module(arg).await.map(|output| output.module);
 			sender.send(result).unwrap();
 		}
