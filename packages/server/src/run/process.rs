@@ -410,18 +410,14 @@ impl Server {
 		let arg = tg::process::status::Arg {
 			location: location.clone().map(Into::into),
 		};
-		let status = self
-			.try_get_process_status_stream(id, arg)
-			.await
-			.map_err(|source| tg::error!(!source, %id, "failed to get the process status stream"))?
-			.ok_or_else(|| tg::error!(%id, "expected the process status stream to exist"))?;
+		let status = self.get_process_status(id, arg).await.map_err(
+			|source| tg::error!(!source, %id, "failed to get the process status stream"),
+		)?;
 		let status = async move {
 			let mut status = std::pin::pin!(status);
-			while let Some(event) = status.try_next().await? {
-				match event {
-					tg::process::status::Event::Status(status) if status.is_finished() => break,
-					tg::process::status::Event::Status(_) => (),
-					tg::process::status::Event::End => break,
+			while let Some(status) = status.try_next().await? {
+				if status.is_finished() {
+					break;
 				}
 			}
 			Ok::<_, tg::Error>(())
