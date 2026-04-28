@@ -33,7 +33,7 @@ pub fn host_import_module_dynamically_callback<'s>(
 		.to_string(scope)
 		.map(|resource_name| resource_name.to_rust_string_lossy(scope));
 	let referrer = match resource_name.as_deref() {
-		None | Some("main") => None,
+		None | Some("" | "main") => None,
 		Some(resource_name) => {
 			let module: tg::module::Data = match resource_name.parse().map_err(
 				|source| tg::error!(!source, %resource_name, "failed to parse the resource name"),
