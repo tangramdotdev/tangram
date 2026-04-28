@@ -1,7 +1,6 @@
 use {
-	crate::{Context, Server, temp::Temp},
+	crate::{Context, Server, database::Database, temp::Temp},
 	futures::{FutureExt as _, Stream, StreamExt as _, future},
-	indoc::formatdoc,
 	num::ToPrimitive as _,
 	std::{panic::AssertUnwindSafe, time::Duration},
 	tangram_client::prelude::*,
@@ -11,6 +10,11 @@ use {
 	tangram_index::prelude::*,
 	tangram_object_store::prelude::*,
 };
+
+#[cfg(feature = "postgres")]
+mod postgres;
+#[cfg(feature = "sqlite")]
+mod sqlite;
 
 impl Server {
 	pub(crate) async fn clean_with_context(
@@ -245,112 +249,30 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to delete objects"))?;
 
-		// Get a process store connection.
-		let mut connection = self
-			.process_store
-			.write_connection()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
-
 		// Delete the processes.
-		let p = connection.p();
-		for id in &output.processes {
-			let transaction = connection
-				.transaction()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to acquire a transaction"))?;
-
-			// Delete the process.
-			let statement = formatdoc!(
-				"
-					delete from processes
-					where id = {p}1 and touched_at <= {p}2;
-				"
-			);
-			let params = db::params![id.to_string(), max_touched_at];
-			let n = transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to delete the process"))?;
-			if n == 0 {
-				continue;
-			}
-
-			// Delete the process children.
-			let statement = formatdoc!(
-				"
-					delete from process_children
-					where process = {p}1;
-				"
-			);
-			let params = db::params![id.to_string()];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to delete process_children"))?;
-
-			// Delete the process tokens.
-			let statement = formatdoc!(
-				"
-					delete from process_tokens
-					where process = {p}1;
-				"
-			);
-			let params = db::params![id.to_string()];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to delete process_tokens"))?;
-
-			// Delete the entry from the finalize queue if it exists.
-			let statement = formatdoc!(
-				"
-					delete from process_finalize_queue
-					where process = {p}1;
-				"
-			);
-			let params = db::params![id.to_string()];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to delete process_finalize_queue"))?;
-
-			// Delete the process signals.
-			let statement = formatdoc!(
-				"
-					delete from process_signals
-					where process = {p}1;
-				"
-			);
-			let params = db::params![id.to_string()];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to delete process_signals"))?;
-
-			// Delete the process stdio.
-			let statement = formatdoc!(
-				"
-					delete from process_stdio
-					where process = {p}1;
-				"
-			);
-			let params = db::params![id.to_string()];
-			transaction
-				.execute(statement.into(), params)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to delete process_stdio"))?;
-
-			transaction
-				.commit()
-				.await
-				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
-		}
-
-		// Drop the connection.
-		drop(connection);
+		self.clean_processes(&output.processes, max_touched_at)
+			.await?;
 
 		Ok(output)
+	}
+
+	async fn clean_processes(
+		&self,
+		processes: &[tg::process::Id],
+		max_touched_at: i64,
+	) -> tg::Result<()> {
+		match &self.process_store {
+			#[cfg(feature = "postgres")]
+			Database::Postgres(process_store) => {
+				self.clean_processes_postgres(process_store, processes, max_touched_at)
+					.await
+			},
+			#[cfg(feature = "sqlite")]
+			Database::Sqlite(process_store) => {
+				self.clean_processes_sqlite(process_store, processes, max_touched_at)
+					.await
+			},
+		}
 	}
 
 	pub(crate) async fn handle_server_clean_request(
