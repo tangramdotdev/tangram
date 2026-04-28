@@ -9,13 +9,15 @@ declare global {
 		module: tg.Module;
 	}
 
-	let console: {
+	interface Console {
 		/** Write to stdout. */
-		log: (...args: Array<unknown>) => void;
+		log(...args: Array<unknown>): void;
 
 		/** Write to stderr. */
-		error: (...args: Array<unknown>) => void;
-	};
+		error(...args: Array<unknown>): void;
+	}
+
+	var console: Console;
 
 	function Tangram(
 		strings: TemplateStringsArray,
