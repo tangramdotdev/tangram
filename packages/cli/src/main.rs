@@ -49,6 +49,7 @@ mod push;
 mod put;
 mod read;
 mod remote;
+mod repl;
 mod sandbox;
 mod server;
 mod shell;
@@ -142,7 +143,16 @@ fn version() -> String {
 	version
 }
 
-#[derive(Clone, Copy, Debug, Default, clap::ValueEnum, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Default,
+	derive_more::IsVariant,
+	clap::ValueEnum,
+	serde::Deserialize,
+	serde::Serialize,
+)]
 #[serde(rename_all = "snake_case")]
 enum Mode {
 	#[default]
@@ -247,6 +257,8 @@ enum Command {
 
 	Remote(self::remote::Args),
 
+	Repl(self::repl::Args),
+
 	#[command(alias = "r")]
 	Run(self::process::run::Args),
 
@@ -299,7 +311,7 @@ fn main() -> std::process::ExitCode {
 		#[cfg(feature = "js")]
 		Command::Js(args) => {
 			#[cfg(feature = "v8")]
-			if matches!(args.engine, crate::js::Engine::Auto | crate::js::Engine::V8) {
+			if args.engine.is_auto() || args.engine.is_v_8() {
 				Cli::initialize_v8(0);
 			}
 			return Cli::command_js(&matches, args);
@@ -397,7 +409,7 @@ fn main() -> std::process::ExitCode {
 	};
 
 	// Set the file descriptor limit.
-	if matches!(mode, Mode::Server) {
+	if mode.is_server() {
 		Cli::set_file_descriptor_limit()
 			.inspect_err(|_| {
 				if !args.quiet {
@@ -409,7 +421,7 @@ fn main() -> std::process::ExitCode {
 
 	// Initialize FoundationDB.
 	#[cfg(feature = "foundationdb")]
-	let _fdb = if matches!(mode, Mode::Server)
+	let _fdb = if mode.is_server()
 		&& config
 			.as_ref()
 			.is_some_and(|config| config.server.index.is_fdb())
@@ -424,7 +436,17 @@ fn main() -> std::process::ExitCode {
 
 	// Initialize V8.
 	#[cfg(feature = "v8")]
-	if matches!(mode, Mode::Server) {
+	let initialize_v8 = if mode.is_server() {
+		true
+	} else if let Command::Repl(args) = &args.command
+		&& (args.engine.is_auto() || args.engine.is_v_8())
+	{
+		true
+	} else {
+		false
+	};
+	#[cfg(feature = "v8")]
+	if initialize_v8 {
 		let thread_pool_size = config
 			.as_ref()
 			.and_then(|config| config.v8_thread_pool_size)
@@ -1048,6 +1070,7 @@ impl Cli {
 			Command::Put(args) => self.command_put(args).boxed(),
 			Command::Read(args) => self.command_read(args).boxed(),
 			Command::Remote(args) => self.command_remote(args).boxed(),
+			Command::Repl(args) => self.command_repl(args).boxed(),
 			Command::Run(args) => self.command_run(args).boxed(),
 			Command::Sandbox(args) => self.command_sandbox(args).boxed(),
 			Command::Self_(args) => self.command_tangram(args).boxed(),

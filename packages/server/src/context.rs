@@ -12,6 +12,7 @@ pub struct Context {
 
 #[derive(Clone, Debug)]
 pub struct Process {
+	pub debug: Option<tg::process::Debug>,
 	pub id: tg::process::Id,
 	pub location: Option<tg::location::Location>,
 	pub retry: bool,

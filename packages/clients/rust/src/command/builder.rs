@@ -89,9 +89,7 @@ impl Builder {
 		let executable = self
 			.executable
 			.ok_or_else(|| tg::error!("cannot create a command without an executable"))?;
-		let host = self
-			.host
-			.ok_or_else(|| tg::error!("cannot create a command without a host"))?;
+		let host = self.host.unwrap_or_else(|| tg::host::current().to_owned());
 		Ok(tg::Command::with_object(tg::command::Object {
 			args: self.args,
 			cwd: self.cwd,

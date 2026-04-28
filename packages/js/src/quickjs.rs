@@ -8,12 +8,7 @@ use {
 	futures::future,
 	rquickjs::{self as qjs, CatchResultExt as _},
 	sourcemap::SourceMap,
-	std::{
-		cell::RefCell,
-		path::{Path, PathBuf},
-		pin::pin,
-		rc::Rc,
-	},
+	std::{cell::RefCell, pin::pin, rc::Rc},
 	tangram_client::prelude::*,
 };
 
@@ -27,13 +22,16 @@ const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.bytecode"
 
 const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.js.map"));
 
-struct Runtime {
+pub struct Runtime {
 	context: qjs::AsyncContext,
-	_qjs: qjs::AsyncRuntime,
+	repl: Option<crate::repl::Receiver>,
+	#[expect(clippy::struct_field_names, dead_code)]
+	runtime: qjs::AsyncRuntime,
 	state: Rc<State>,
 }
 
 struct State {
+	arg: crate::Arg,
 	global_source_map: Option<SourceMap>,
 	handle: tg::handle::dynamic::Handle,
 	host: crate::host::Host,
@@ -52,15 +50,8 @@ struct Module {
 	source_map: Option<SourceMap>,
 }
 
-pub async fn run(
-	handle: tg::handle::dynamic::Handle,
-	main_runtime_handle: tokio::runtime::Handle,
-	args: tg::value::data::Array,
-	cwd: PathBuf,
-	env: tg::value::data::Map,
-	executable: tg::command::data::Executable,
-) -> tg::Result<Output> {
-	let runtime = Runtime::new(handle, &args, &cwd, &env, &executable, main_runtime_handle).await?;
+pub async fn run(arg: crate::Arg) -> tg::Result<Output> {
+	let runtime = Runtime::new(arg).await?;
 	let value = runtime.start().await?;
 	let result = runtime.resolve(&value).await;
 	let output = match result {
@@ -81,14 +72,9 @@ pub async fn run(
 }
 
 impl Runtime {
-	pub async fn new(
-		handle: tg::handle::dynamic::Handle,
-		args: &tg::value::data::Array,
-		cwd: &Path,
-		env: &tg::value::data::Map,
-		executable: &tg::command::data::Executable,
-		main_runtime_handle: tokio::runtime::Handle,
-	) -> tg::Result<Self> {
+	pub async fn new(mut arg: crate::Arg) -> tg::Result<Self> {
+		let repl = arg.repl.take();
+
 		// Create the runtime.
 		let runtime = qjs::AsyncRuntime::new()
 			.map_err(|source| tg::error!(!source, "failed to create the QuickJS runtime"))?;
@@ -117,36 +103,38 @@ impl Runtime {
 			.map_err(|source| tg::error!(!source, "failed to create the context"))?;
 
 		// Create the state.
+		let global_source_map = SourceMap::from_slice(SOURCE_MAP).ok();
+		let handle = arg.handle.clone();
+		let host = crate::host::Host::default();
+		let main_runtime_handle = arg.main_runtime_handle.clone();
+		let modules = RefCell::new(Vec::new());
+		let rejection = rejection.clone();
+		let stdio = crate::stdio::Stdio::new(arg.handle.clone(), arg.main_runtime_handle.clone());
 		let state = Rc::new(State {
-			global_source_map: SourceMap::from_slice(SOURCE_MAP).ok(),
-			handle: handle.clone(),
-			host: crate::host::Host::default(),
-			main_runtime_handle: main_runtime_handle.clone(),
-			modules: RefCell::new(Vec::new()),
-			rejection: rejection.clone(),
-			stdio: crate::stdio::Stdio::new(handle, main_runtime_handle),
+			arg,
+			global_source_map,
+			handle,
+			host,
+			main_runtime_handle,
+			modules,
+			rejection,
+			stdio,
 		});
 
 		// Init.
-		Self::init(&context, &state, args, cwd, env, executable).await?;
+		Self::init(&context, &state).await?;
 
 		let runtime = Self {
 			context,
-			_qjs: runtime,
+			repl,
+			runtime,
 			state,
 		};
 
 		Ok(runtime)
 	}
 
-	async fn init(
-		context: &qjs::AsyncContext,
-		state: &Rc<State>,
-		args: &tg::value::data::Array,
-		cwd: &Path,
-		env: &tg::value::data::Map,
-		executable: &tg::command::data::Executable,
-	) -> tg::Result<()> {
+	async fn init(context: &qjs::AsyncContext, state: &Rc<State>) -> tg::Result<()> {
 		let state = state.clone();
 		context
 			.with(move |ctx| {
@@ -193,19 +181,23 @@ impl Runtime {
 				let arg = qjs::Object::new(ctx.clone())
 					.catch(&ctx)
 					.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-				arg.set("args", Serde(&args))
+				arg.set("args", Serde(&state.arg.args))
 					.catch(&ctx)
 					.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
 				arg.set(
 					"cwd",
-					cwd.to_str().ok_or_else(|| tg::error!("invalid cwd"))?,
+					state
+						.arg
+						.cwd
+						.to_str()
+						.ok_or_else(|| tg::error!("invalid cwd"))?,
 				)
 				.catch(&ctx)
 				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-				arg.set("env", Serde(&env))
+				arg.set("env", Serde(&state.arg.env))
 					.catch(&ctx)
 					.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
-				arg.set("executable", Serde(&executable))
+				arg.set("executable", Serde(&state.arg.executable))
 					.catch(&ctx)
 					.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
 
@@ -294,6 +286,70 @@ impl Runtime {
 
 		let Serde(data) = result?;
 		tg::Value::try_from(data)
+	}
+
+	pub async fn run(&mut self) -> tg::Result<()> {
+		if let Some(mut repl) = self.repl.take() {
+			while let Some(command) = repl.recv().await {
+				let crate::repl::Command { source, response } = command;
+				let result = self.evaluate_repl(source).await;
+				let _ = response.send(result);
+			}
+		}
+		Ok(())
+	}
+
+	async fn evaluate_repl(&self, source: String) -> tg::Result<()> {
+		let state = self.state.clone();
+		self.context
+			.async_with(async move |ctx| {
+				let promise = {
+					let mut options = qjs::context::EvalOptions::default();
+					options.strict = false;
+					options.backtrace_barrier = true;
+					options.promise = true;
+					options.filename = Some("<repl>".to_owned());
+					ctx.eval_with_options::<qjs::Promise, _>(source, options)
+				}
+				.catch(&ctx)
+				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+				let value = promise
+					.into_future::<qjs::Value>()
+					.await
+					.catch(&ctx)
+					.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+				let value = if let Some(object) = value.as_object()
+					&& object
+						.contains_key("value")
+						.catch(&ctx)
+						.map_err(|error| self::error::from_catch(&state, &ctx, error))?
+				{
+					object
+						.get("value")
+						.catch(&ctx)
+						.map_err(|error| self::error::from_catch(&state, &ctx, error))?
+				} else {
+					value
+				};
+				let globals = ctx.globals();
+				globals
+					.set("_", value.clone())
+					.catch(&ctx)
+					.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+				let console = globals
+					.get::<_, qjs::Object>("console")
+					.catch(&ctx)
+					.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+				let log = console
+					.get::<_, qjs::Function>("log")
+					.catch(&ctx)
+					.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+				log.call::<_, ()>((value,))
+					.catch(&ctx)
+					.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
+				Ok(())
+			})
+			.await
 	}
 }
 

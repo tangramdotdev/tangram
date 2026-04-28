@@ -1,6 +1,6 @@
 use {
 	super::{Local, Location, Remote},
-	crate as tg,
+	crate::prelude::*,
 	winnow::{
 		combinator::{alt, cut_err, delimited, eof, opt, preceded, separated, terminated},
 		prelude::*,

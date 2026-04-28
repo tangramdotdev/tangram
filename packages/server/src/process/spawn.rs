@@ -36,6 +36,7 @@ impl Server {
 	> {
 		// If the process context is set, update the parent, location, and retry.
 		if let Some(process) = &context.process {
+			arg.debug = process.debug.clone();
 			arg.parent = Some(process.id.clone());
 			arg.location = process.location.clone().map(Into::into);
 			arg.retry = process.retry;
@@ -955,6 +956,7 @@ impl Server {
 					cacheable,
 					command,
 					created_at,
+					debug,
 					error,
 					error_code,
 					exit,
@@ -993,29 +995,31 @@ impl Server {
 					{p}18,
 					{p}19,
 					{p}20,
-					{p}21
+					{p}21,
+					{p}22
 				)
 				on conflict (id) do update set
 					actual_checksum = {p}2,
 					cacheable = {p}3,
 					command = {p}4,
 					created_at = {p}5,
-					error = {p}6,
-					error_code = {p}7,
-					exit = {p}8,
-					expected_checksum = {p}9,
-					finished_at = {p}10,
-					host = {p}11,
-					output = {p}12,
-					sandbox = {p}13,
-					tty = {p}14,
-					retry = {p}15,
-					status = {p}16,
-					stderr_open = {p}17,
-					stdin_open = {p}18,
-					stdout_open = {p}19,
-					token_count = {p}20,
-					touched_at = {p}21;
+					debug = {p}6,
+					error = {p}7,
+					error_code = {p}8,
+					exit = {p}9,
+					expected_checksum = {p}10,
+					finished_at = {p}11,
+					host = {p}12,
+					output = {p}13,
+					sandbox = {p}14,
+					tty = {p}15,
+					retry = {p}16,
+					status = {p}17,
+					stderr_open = {p}18,
+					stdin_open = {p}19,
+					stdout_open = {p}20,
+					token_count = {p}21,
+					touched_at = {p}22;
 			"
 		);
 		let now: i64 = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -1048,6 +1052,7 @@ impl Server {
 			true,
 			arg.command.item.to_string(),
 			now,
+			arg.debug.clone().map(db::value::Json),
 			error_data.map(|id| id.to_string()),
 			error_code,
 			exit,
@@ -1165,6 +1170,7 @@ impl Server {
 					cacheable,
 					command,
 					created_at,
+					debug,
 					depth,
 					expected_checksum,
 					host,
@@ -1202,28 +1208,30 @@ impl Server {
 						{p}17,
 						{p}18,
 						{p}19,
-						{p}20
+						{p}20,
+						{p}21
 					)
 					on conflict (id) do update set
 						cacheable = {p}2,
 						command = {p}3,
 						created_at = {p}4,
-						depth = {p}5,
-						expected_checksum = {p}6,
-						host = {p}7,
-						sandbox = {p}8,
-						started_at = {p}9,
-						tty = {p}10,
-						retry = {p}11,
-						status = {p}12,
-						stderr = {p}13,
-						stderr_open = {p}14,
-						stdin = {p}15,
-						stdin_open = {p}16,
-						stdout = {p}17,
-						stdout_open = {p}18,
-						token_count = {p}19,
-						touched_at = {p}20;
+						debug = {p}5,
+						depth = {p}6,
+						expected_checksum = {p}7,
+						host = {p}8,
+						sandbox = {p}9,
+						started_at = {p}10,
+						tty = {p}11,
+						retry = {p}12,
+						status = {p}13,
+						stderr = {p}14,
+						stderr_open = {p}15,
+						stdin = {p}16,
+						stdin_open = {p}17,
+						stdout = {p}18,
+						stdout_open = {p}19,
+						token_count = {p}20,
+						touched_at = {p}21;
 				"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -1242,6 +1250,7 @@ impl Server {
 			cacheable,
 			arg.command.item.to_string(),
 			now,
+			arg.debug.clone().map(db::value::Json),
 			1,
 			arg.checksum.as_ref().map(ToString::to_string),
 			host,

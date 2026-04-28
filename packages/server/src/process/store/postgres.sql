@@ -25,6 +25,7 @@ create table processes (
 	cacheable boolean not null,
 	command text not null,
 	created_at int8 not null,
+	debug text,
 	depth int8,
 	error text,
 	error_code text,

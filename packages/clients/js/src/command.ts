@@ -85,7 +85,7 @@ export class Command<
 				path: arg.executable.path,
 			};
 		}
-		let host = arg.host ?? (tg.process.env.TANGRAM_HOST as string);
+		let host = arg.host ?? defaultHost();
 		if (executable === undefined) {
 			throw new Error("cannot create a command without an executable");
 		}
@@ -119,8 +119,7 @@ export class Command<
 					tg.Artifact.is(arg) ||
 					arg instanceof tg.Template
 				) {
-					let host = tg.process.env.TANGRAM_HOST;
-					tg.assert(host !== undefined, "TANGRAM_HOST must be set");
+					let host = defaultHost();
 					return {
 						args: ["-c", arg],
 						executable: "sh",
@@ -661,3 +660,7 @@ export namespace Command {
 		}
 	}
 }
+
+let defaultHost = (): string | undefined => {
+	return (tg.process.env.TANGRAM_HOST as string | undefined) ?? tg.host.current;
+};

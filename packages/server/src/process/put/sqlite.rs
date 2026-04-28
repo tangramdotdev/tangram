@@ -67,6 +67,7 @@ impl Server {
 					cacheable,
 					command,
 					created_at,
+					debug,
 					error,
 					error_code,
 					exit,
@@ -115,34 +116,36 @@ impl Server {
 					?23,
 					?24,
 					?25,
-					?26
+					?26,
+					?27
 				)
 				on conflict (id) do update set
 					actual_checksum = ?2,
 					cacheable = ?3,
 					command = ?4,
 					created_at = ?5,
-					error = ?6,
-					error_code = ?7,
-					exit = ?8,
-					expected_checksum = ?9,
-					finished_at = ?10,
-					host = ?11,
-					log = ?12,
-					output = ?13,
-					sandbox = ?14,
-					tty = ?15,
-					retry = ?16,
-					started_at = ?17,
-					status = ?18,
-					stderr = ?19,
-					stderr_open = ?20,
-					stdin = ?21,
-					stdin_open = ?22,
-					stdout = ?23,
-					stdout_open = ?24,
-					token_count = ?25,
-					touched_at = ?26
+					debug = ?6,
+					error = ?7,
+					error_code = ?8,
+					exit = ?9,
+					expected_checksum = ?10,
+					finished_at = ?11,
+					host = ?12,
+					log = ?13,
+					output = ?14,
+					sandbox = ?15,
+					tty = ?16,
+					retry = ?17,
+					started_at = ?18,
+					status = ?19,
+					stderr = ?20,
+					stderr_open = ?21,
+					stdin = ?22,
+					stdin_open = ?23,
+					stdout = ?24,
+					stdout_open = ?25,
+					token_count = ?26,
+					touched_at = ?27
 			"
 		);
 		let mut process_stmt = cache
@@ -175,6 +178,10 @@ impl Server {
 				.output
 				.as_ref()
 				.map(|output| serde_json::to_string(output).unwrap());
+			let debug_json = data
+				.debug
+				.as_ref()
+				.map(|debug| serde_json::to_string(debug).unwrap());
 			let tty_json = data
 				.tty
 				.as_ref()
@@ -213,6 +220,7 @@ impl Server {
 				data.cacheable,
 				data.command.to_string(),
 				data.created_at,
+				debug_json,
 				error_string,
 				error_code,
 				data.exit,

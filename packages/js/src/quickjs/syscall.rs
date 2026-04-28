@@ -81,6 +81,7 @@ pub fn syscall<'js>(
 		"handle_value_stringify" => qjs::Function::new(ctx.clone(), self::handle::value_stringify),
 		"handle_write" => qjs::Function::new(ctx.clone(), Async(self::handle::write)),
 		"host_close" => qjs::Function::new(ctx.clone(), Async(self::host::close)),
+		"host_current" => qjs::Function::new(ctx.clone(), self::host::current),
 		"host_disable_raw_mode" => {
 			qjs::Function::new(ctx.clone(), Async(self::host::disable_raw_mode))
 		},

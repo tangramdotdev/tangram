@@ -246,19 +246,23 @@ impl Server {
 			},
 
 			"js" => {
-				args.insert(0, "js".to_owned());
+				let mut js_args = Vec::new();
+				js_args.push("js".to_owned());
 				match &self.config.runner.as_ref().unwrap().js.engine {
 					crate::config::JsEngine::Auto => {
-						args.insert(1, "--engine=auto".into());
+						js_args.push("--engine=auto".into());
 					},
 					crate::config::JsEngine::QuickJs => {
-						args.insert(1, "--engine=quickjs".into());
+						js_args.push("--engine=quickjs".into());
 					},
 					crate::config::JsEngine::V8 => {
-						args.insert(1, "--engine=v8".into());
+						js_args.push("--engine=v8".into());
 					},
 				}
-				args.insert(1, command.executable.to_string());
+				push_js_debug_args(&mut js_args, state.debug.as_ref());
+				js_args.push(command.executable.to_string());
+				js_args.extend(args);
+				args = js_args;
 
 				sandbox.guest_tangram_path()
 			},
@@ -314,14 +318,15 @@ impl Server {
 			stderr,
 		};
 		let sandbox_process = sandbox
-			.spawn(
-				sandbox_command,
-				id.clone(),
-				state.tty,
-				location.clone(),
-				state.retry,
-				guest_uri.clone(),
-			)
+			.spawn(tangram_sandbox::SpawnArg {
+				command: sandbox_command,
+				debug: state.debug.clone(),
+				id: id.clone(),
+				location: location.clone(),
+				retry: state.retry,
+				tty: state.tty,
+				url: guest_uri.clone(),
+			})
 			.await
 			.map_err(
 				|source| tg::error!(!source, %id, "failed to spawn the process in the sandbox"),
@@ -472,6 +477,7 @@ impl Server {
 		}
 		let mut context = Context::default();
 		context.process = Some(Arc::new(crate::context::Process {
+			debug: state.debug.clone(),
 			id: id.clone(),
 			location: location.clone(),
 			retry: state.retry,
@@ -630,6 +636,21 @@ fn render_args_dash_a(args: &[tg::value::Data]) -> Vec<String> {
 			["-A".to_owned(), value]
 		})
 		.collect::<Vec<_>>()
+}
+
+fn push_js_debug_args(args: &mut Vec<String>, debug: Option<&tg::process::Debug>) {
+	let Some(debug) = debug else {
+		return;
+	};
+	args.push("--debug".to_owned());
+	if let Some(addr) = debug.addr {
+		args.push("--debug-addr".to_owned());
+		args.push(addr.to_string());
+	}
+	if debug.mode != tg::process::debug::Mode::Normal {
+		args.push("--debug-mode".to_owned());
+		args.push(debug.mode.to_string());
+	}
 }
 
 fn render_env(

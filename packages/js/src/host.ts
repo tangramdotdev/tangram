@@ -5,6 +5,10 @@ export let host: tg.Host = {
 		return syscall("host_close", fd);
 	},
 
+	get current(): string | undefined {
+		return syscall("host_current");
+	},
+
 	disableRawMode(fd: number): Promise<void> {
 		return syscall("host_disable_raw_mode", fd);
 	},

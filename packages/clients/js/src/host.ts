@@ -9,6 +9,8 @@ export let setHost = (newHost: Host) => {
 export type Host = {
 	close(fd: number): Promise<void>;
 
+	current: string | undefined;
+
 	disableRawMode(fd: number): Promise<void>;
 
 	enableRawMode(fd: number): Promise<void>;

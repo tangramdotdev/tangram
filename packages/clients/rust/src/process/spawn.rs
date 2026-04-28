@@ -32,6 +32,9 @@ pub struct Arg {
 	pub command: tg::Referent<tg::command::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub debug: Option<tg::process::Debug>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -104,9 +107,7 @@ where
 	let sandbox = super::normalize_sandbox_arg(arg.sandbox.clone(), arg.cpu, arg.memory)?;
 	let sandboxed = sandbox.is_some();
 
-	let host = arg
-		.host
-		.ok_or_else(|| tg::error!("expected the host to be set"))?;
+	let host = arg.host.unwrap_or_else(|| tg::host::current().to_owned());
 
 	let executable = arg
 		.executable
@@ -174,6 +175,7 @@ where
 		cache_location: None,
 		checksum,
 		command,
+		debug: arg.debug,
 		location: arg.location,
 		parent: arg.parent,
 		retry: arg.retry,
@@ -481,7 +483,8 @@ impl<O: 'static> tg::Process<O> {
 		let output_path = output_path.unwrap_or_else(|| temp.path().join("output"));
 		let artifacts = checkout_artifacts(handle, &command).await?;
 		let env = render_env(handle, &command.env, &artifacts, &output_path)?;
-		let (executable, args) = render_command(&command, &artifacts, &output_path)?;
+		let (executable, args) =
+			render_command(&command, &artifacts, &output_path, arg.debug.as_ref())?;
 		let cwd = command.cwd.clone();
 
 		let output = PrepareUnsandboxedCommandOutput {
@@ -766,6 +769,7 @@ fn render_command(
 	command: &tg::command::Data,
 	artifacts: &BTreeMap<tg::artifact::Id, PathBuf>,
 	output_path: &Path,
+	debug: Option<&tg::process::Debug>,
 ) -> tg::Result<(PathBuf, Vec<String>)> {
 	match command.host.as_str() {
 		"builtin" => {
@@ -775,9 +779,11 @@ fn render_command(
 			Ok(("tangram".into(), args))
 		},
 		"js" => {
-			let mut args = render_args_dash_a(&command.args);
-			args.insert(0, "js".to_owned());
-			args.insert(1, command.executable.to_string());
+			let mut args = Vec::new();
+			args.push("js".to_owned());
+			push_js_debug_args(&mut args, debug);
+			args.push(command.executable.to_string());
+			args.extend(render_args_dash_a(&command.args));
 			Ok(("tangram".into(), args))
 		},
 		_ => {
@@ -785,6 +791,21 @@ fn render_command(
 			let args = render_args_string(&command.args, artifacts, output_path)?;
 			Ok((executable, args))
 		},
+	}
+}
+
+fn push_js_debug_args(args: &mut Vec<String>, debug: Option<&tg::process::Debug>) {
+	let Some(debug) = debug else {
+		return;
+	};
+	args.push("--debug".to_owned());
+	if let Some(addr) = debug.addr {
+		args.push("--debug-addr".to_owned());
+		args.push(addr.to_string());
+	}
+	if debug.mode != tg::process::debug::Mode::Normal {
+		args.push("--debug-mode".to_owned());
+		args.push(debug.mode.to_string());
 	}
 }
 

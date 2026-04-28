@@ -12,6 +12,7 @@ use {
 pub use self::{
 	build::{build, build_with_handle},
 	data::Data,
+	debug::Debug,
 	env::env,
 	exec::{exec, exec_with_handle},
 	id::Id,
@@ -30,6 +31,7 @@ pub mod build;
 pub mod cancel;
 pub mod children;
 pub mod data;
+pub mod debug;
 pub mod env;
 pub mod exec;
 pub mod finish;
@@ -76,6 +78,7 @@ pub struct Arg {
 	pub checksum: Option<tg::Checksum>,
 	pub cpu: Option<u64>,
 	pub cwd: Option<PathBuf>,
+	pub debug: Option<tg::process::Debug>,
 	pub env: tg::value::Map,
 	pub executable: Option<tg::command::Executable>,
 	pub host: Option<String>,

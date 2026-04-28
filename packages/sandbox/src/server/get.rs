@@ -16,6 +16,7 @@ impl Server {
 			return Ok(None);
 		};
 		let output = crate::client::get::Output {
+			debug: process.debug.clone(),
 			id: id.clone(),
 			location: process.location.clone(),
 			retry: process.retry,

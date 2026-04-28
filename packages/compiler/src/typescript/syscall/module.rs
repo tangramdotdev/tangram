@@ -89,7 +89,8 @@ pub fn resolve(
 		.map_err(|source| tg::error!(!source, "failed to create the import"))?;
 	compiler.main_runtime_handle.clone().block_on(async move {
 		let arg = tg::module::resolve::Arg {
-			referrer: referrer.clone(),
+			referrer: Some(referrer.clone()),
+			cwd: None,
 			import: import.clone(),
 		};
 		let output = compiler.handle.resolve_module(arg).await.map_err(|error| {

@@ -45,6 +45,17 @@ pub struct Process {
 }
 
 #[derive(Clone, Debug)]
+pub struct SpawnArg {
+	pub command: Command,
+	pub debug: Option<tg::process::Debug>,
+	pub id: tg::process::Id,
+	pub location: Option<tg::location::Location>,
+	pub retry: bool,
+	pub tty: Option<tg::process::Tty>,
+	pub url: tangram_uri::Uri,
+}
+
+#[derive(Clone, Debug)]
 pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub cpu: Option<u64>,
@@ -318,22 +329,16 @@ impl Sandbox {
 		}
 	}
 
-	pub async fn spawn(
-		&self,
-		command: Command,
-		id: tg::process::Id,
-		tty: Option<tg::process::Tty>,
-		location: Option<tg::location::Location>,
-		retry: bool,
-		url: tangram_uri::Uri,
-	) -> tg::Result<Process> {
+	pub async fn spawn(&self, arg: SpawnArg) -> tg::Result<Process> {
+		let id = arg.id;
 		let arg = crate::client::spawn::Arg {
-			command,
+			command: arg.command,
+			debug: arg.debug,
 			id: id.clone(),
-			location,
-			retry,
-			tty,
-			url,
+			location: arg.location,
+			retry: arg.retry,
+			tty: arg.tty,
+			url: arg.url,
 		};
 		self.0.client.spawn(arg).await?;
 		Ok(Process { id })

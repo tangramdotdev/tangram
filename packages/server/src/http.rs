@@ -728,6 +728,7 @@ impl Server {
 			},
 		};
 		context.process = Some(Arc::new(crate::context::Process {
+			debug: process.debug,
 			id: process.id,
 			location: process.location,
 			retry: process.retry,

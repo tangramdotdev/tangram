@@ -7,6 +7,7 @@ pub struct State {
 	pub children: Option<Vec<Child>>,
 	pub command: tg::Command,
 	pub created_at: i64,
+	pub debug: Option<tg::process::Debug>,
 	pub error: Option<tg::Error>,
 	pub exit: Option<u8>,
 	pub expected_checksum: Option<tg::Checksum>,
@@ -41,6 +42,7 @@ impl State {
 			.map(|children| children.iter().map(Child::to_data).collect());
 		let command = self.command.id().clone();
 		let created_at = self.created_at;
+		let debug = self.debug.clone();
 		let error = self.error.as_ref().map(tg::Error::to_data_or_id);
 		let exit = self.exit;
 		let expected_checksum = self.expected_checksum.clone();
@@ -62,6 +64,7 @@ impl State {
 			children,
 			command,
 			created_at,
+			debug,
 			error,
 			exit,
 			expected_checksum,
@@ -94,6 +97,7 @@ impl State {
 			.transpose()?;
 		let command = tg::Command::with_id(value.command);
 		let created_at = value.created_at;
+		let debug = value.debug;
 		let error = value
 			.error
 			.map(|either| match either {
@@ -124,6 +128,7 @@ impl State {
 			children,
 			command,
 			created_at,
+			debug,
 			error,
 			exit,
 			expected_checksum,

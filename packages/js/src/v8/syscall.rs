@@ -64,6 +64,7 @@ pub fn syscall<'s>(
 		"handle_value_stringify" => sync(scope, &args, self::handle::value_stringify),
 		"handle_write" => async_(scope, &args, self::handle::write),
 		"host_close" => async_(scope, &args, self::host::close),
+		"host_current" => sync(scope, &args, self::host::current),
 		"host_disable_raw_mode" => async_(scope, &args, self::host::disable_raw_mode),
 		"host_enable_raw_mode" => async_(scope, &args, self::host::enable_raw_mode),
 		"host_exec" => async_(scope, &args, self::host::exec),

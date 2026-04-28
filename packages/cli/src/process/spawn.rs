@@ -2,7 +2,7 @@ use {
 	crate::Cli,
 	crossterm as ct,
 	futures::prelude::*,
-	std::{fmt::Write as _, path::PathBuf},
+	std::{fmt::Write as _, net::ToSocketAddrs as _, path::PathBuf},
 	tangram_client::{Client, prelude::*},
 	tangram_server::Shared as Server,
 };
@@ -74,6 +74,9 @@ pub struct Options {
 	#[arg(long, short = 'C')]
 	pub cwd: Option<PathBuf>,
 
+	#[command(flatten)]
+	pub debug: Debug,
+
 	/// Set environment variables as strings.
 	#[arg(
 		action = clap::ArgAction::Append,
@@ -128,6 +131,89 @@ pub struct Options {
 
 	#[command(flatten)]
 	pub tty: Tty,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct Debug {
+	#[arg(long = "debug")]
+	enabled: bool,
+
+	#[arg(long = "debug-addr")]
+	addr: Option<std::net::SocketAddr>,
+
+	#[arg(long = "debug-mode")]
+	mode: Option<tg::process::debug::Mode>,
+
+	#[arg(
+		long,
+		default_missing_value = "127.0.0.1:9229",
+		num_args = 0..=1,
+		require_equals = true,
+		value_parser = parse_inspect_addr,
+	)]
+	inspect: Option<std::net::SocketAddr>,
+
+	#[arg(
+		long,
+		default_missing_value = "127.0.0.1:9229",
+		num_args = 0..=1,
+		require_equals = true,
+		value_parser = parse_inspect_addr,
+	)]
+	inspect_brk: Option<std::net::SocketAddr>,
+
+	#[arg(
+		long,
+		default_missing_value = "127.0.0.1:9229",
+		num_args = 0..=1,
+		require_equals = true,
+		value_parser = parse_inspect_addr,
+	)]
+	inspect_wait: Option<std::net::SocketAddr>,
+}
+
+impl Debug {
+	pub fn get(&self) -> Option<tg::process::Debug> {
+		let mut debug = self.enabled.then(tg::process::Debug::default);
+		if let Some(addr) = self.addr {
+			debug.get_or_insert_with(tg::process::Debug::default).addr = Some(addr);
+		}
+		if let Some(mode) = self.mode {
+			debug.get_or_insert_with(tg::process::Debug::default).mode = mode;
+		}
+		if let Some(addr) = self.inspect {
+			let debug = debug.get_or_insert_with(tg::process::Debug::default);
+			debug.addr = Some(addr);
+			debug.mode = tg::process::debug::Mode::Normal;
+		}
+		if let Some(addr) = self.inspect_brk {
+			let debug = debug.get_or_insert_with(tg::process::Debug::default);
+			debug.addr = Some(addr);
+			debug.mode = tg::process::debug::Mode::Break;
+		}
+		if let Some(addr) = self.inspect_wait {
+			let debug = debug.get_or_insert_with(tg::process::Debug::default);
+			debug.addr = Some(addr);
+			debug.mode = tg::process::debug::Mode::Wait;
+		}
+		debug
+	}
+}
+
+fn parse_inspect_addr(s: &str) -> Result<std::net::SocketAddr, String> {
+	if let Ok(addr) = s.parse() {
+		return Ok(addr);
+	}
+	if let Ok(port) = s.parse() {
+		return Ok(std::net::SocketAddr::new(
+			std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+			port,
+		));
+	}
+	s.to_socket_addrs()
+		.map_err(|_| format!("invalid inspect address `{s}`"))?
+		.next()
+		.ok_or_else(|| format!("invalid inspect address `{s}`"))
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -346,6 +432,7 @@ impl Cli {
 	) -> tg::Result<InnerOutput> {
 		let handle = self.handle().await?;
 		let location = options.location.get();
+		let debug = options.debug.get();
 
 		// Handle the build flag.
 		let reference = if options.build {
@@ -505,7 +592,7 @@ impl Cli {
 						});
 					tg::Command::builder().host(host).executable(executable)
 				} else {
-					let host = tg::host().to_owned();
+					let host = tg::host::current().to_owned();
 					let executable =
 						tg::command::Executable::Artifact(tg::command::ArtifactExecutable {
 							artifact: file.clone().into(),
@@ -623,7 +710,7 @@ impl Cli {
 			let host = if let Some(host) = options.host {
 				host
 			} else {
-				tg::host().to_owned()
+				tg::host::current().to_owned()
 			};
 			env.insert("TANGRAM_HOST".to_owned(), host.into());
 		}
@@ -714,6 +801,7 @@ impl Cli {
 			cached: options.cached,
 			checksum: options.checksum,
 			cwd: command.cwd.clone(),
+			debug,
 			env: command.env.clone(),
 			executable: Some(command.executable.clone()),
 			host: Some(command.host.clone()),

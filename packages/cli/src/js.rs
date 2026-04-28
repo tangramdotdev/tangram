@@ -21,6 +21,9 @@ pub struct Args {
 	)]
 	pub arg_values: Vec<String>,
 
+	#[command(flatten)]
+	pub debug: crate::process::spawn::Debug,
+
 	/// The JS engine to use.
 	#[arg(long, default_value = "auto")]
 	pub engine: Engine,
@@ -32,7 +35,7 @@ pub struct Args {
 	pub trailing: Vec<String>,
 }
 
-#[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, derive_more::IsVariant, clap::ValueEnum)]
 #[value(rename_all = "lowercase")]
 pub enum Engine {
 	#[default]
@@ -107,29 +110,36 @@ impl Cli {
 			.map_err(|error| tg::error!(source = error, "failed to create the tokio runtime"))?;
 		runtime.block_on(client.connect())?;
 
+		// Create the arg.
+		let handle = tg::handle::dynamic::Handle::new(client);
+		let main_runtime_handle = runtime.handle().clone();
+		let arg = tangram_js::Arg {
+			args: args_,
+			cwd,
+			env,
+			executable,
+			handle,
+			host: None,
+			inspect: args.debug.get().map(|debug| tangram_js::inspect::Options {
+				addr: debug.addr,
+				mode: match debug.mode {
+					tg::process::debug::Mode::Normal => tangram_js::inspect::Mode::Normal,
+					tg::process::debug::Mode::Break => tangram_js::inspect::Mode::Break,
+					tg::process::debug::Mode::Wait => tangram_js::inspect::Mode::Wait,
+				},
+			}),
+			main_runtime_handle,
+			repl: None,
+		};
+
 		// Run.
 		let future = match args.engine {
-			#[cfg(feature = "v8")]
-			Engine::Auto | Engine::V8 => tangram_js::v8::run(
-				tg::handle::dynamic::Handle::new(client),
-				runtime.handle().clone(),
-				args_,
-				cwd,
-				env,
-				executable,
-			)
-			.boxed_local(),
-			#[cfg(feature = "quickjs")]
 			#[allow(unreachable_patterns)]
-			Engine::Auto | Engine::QuickJs => tangram_js::quickjs::run(
-				tg::handle::dynamic::Handle::new(client),
-				runtime.handle().clone(),
-				args_,
-				cwd,
-				env,
-				executable,
-			)
-			.boxed_local(),
+			#[cfg(feature = "v8")]
+			Engine::Auto | Engine::V8 => tangram_js::v8::run(arg).boxed_local(),
+			#[allow(unreachable_patterns)]
+			#[cfg(feature = "quickjs")]
+			Engine::Auto | Engine::QuickJs => tangram_js::quickjs::run(arg).boxed_local(),
 			#[allow(unreachable_patterns)]
 			_ => return Err(tg::error!("the requested JS engine is not available")),
 		};

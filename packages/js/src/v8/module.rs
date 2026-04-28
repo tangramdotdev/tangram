@@ -1,5 +1,6 @@
 use {
 	super::{Module, State, error},
+	data_encoding::BASE64,
 	num::ToPrimitive as _,
 	sourcemap::SourceMap,
 	std::collections::BTreeMap,
@@ -32,7 +33,7 @@ pub fn host_import_module_dynamically_callback<'s>(
 		.to_string(scope)
 		.map(|resource_name| resource_name.to_rust_string_lossy(scope));
 	let referrer = match resource_name.as_deref() {
-		None | Some("main") => None,
+		None | Some("" | "main") => None,
 		Some(resource_name) => {
 			let module: tg::module::Data = match resource_name.parse().map_err(
 				|source| tg::error!(!source, %resource_name, "failed to parse the resource name"),
@@ -49,19 +50,8 @@ pub fn host_import_module_dynamically_callback<'s>(
 	};
 
 	// Parse the import.
-	let import = if referrer.is_none() {
-		let specifier = specifier.to_rust_string_lossy(scope);
-		let module = match specifier
-			.parse()
-			.map_err(|source| tg::error!(!source, %specifier, "failed to parse the specifier"))
-		{
-			Ok(module) => module,
-			Err(error) => {
-				let exception = error::to_exception(scope, &error)?;
-				scope.throw_exception(exception);
-				return None;
-			},
-		};
+	let specifier_string = specifier.to_rust_string_lossy(scope);
+	let import = if let Ok(module) = specifier_string.parse() {
 		tg::Either::Left(module)
 	} else {
 		let import = parse_import(scope, specifier, attributes, ImportKind::Dynamic)?;
@@ -71,14 +61,15 @@ pub fn host_import_module_dynamically_callback<'s>(
 	// Resolve the module.
 	let promise = state.create_promise(scope, {
 		let handle = state.handle.clone();
+		let cwd = state.arg.cwd.clone();
 		let import = import.clone();
 		async move {
-			let module = match referrer {
-				None => import.unwrap_left(),
-				Some(referrer) => {
-					let import = import.unwrap_right();
+			let module = match import {
+				tg::Either::Left(module) => module,
+				tg::Either::Right(import) => {
 					let arg = tg::module::resolve::Arg {
 						referrer: referrer.clone(),
+						cwd: referrer.is_none().then_some(cwd),
 						import: import.clone(),
 					};
 					let output = handle.resolve_module(arg).await.map_err(|source| {
@@ -286,7 +277,11 @@ fn resolve_module_sync(
 		let referrer = referrer.clone();
 		let import = import.clone();
 		async move {
-			let arg = tg::module::resolve::Arg { referrer, import };
+			let arg = tg::module::resolve::Arg {
+				referrer: Some(referrer),
+				cwd: None,
+				import,
+			};
 			let result = handle.resolve_module(arg).await.map(|output| output.module);
 			sender.send(result).unwrap();
 		}
@@ -388,8 +383,16 @@ fn compile_module<'s>(
 	let resource_column_offset = 0;
 	let resource_is_shared_cross_origin = false;
 	let script_id = id.to_i32().unwrap();
-	let source_map_url = None;
-	let resource_is_opaque = true;
+	let source_map_url = if output.text == text {
+		None
+	} else {
+		let source_map_url = format!(
+			"data:application/json;charset=utf-8;base64,{}",
+			BASE64.encode(output.source_map.as_bytes())
+		);
+		v8::String::new(scope, &source_map_url).map(Into::into)
+	};
+	let resource_is_opaque = false;
 	let is_wasm = false;
 	let is_module = true;
 	let host_defined_options = None;
