@@ -757,7 +757,7 @@ impl Server {
 			}
 
 			let status = self
-				.try_lock_process_for_token_mutation_with_transaction(transaction, &id)
+				.try_lock_process_with_transaction(transaction, &id)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to lock the process"))?;
 			let Some(status) = status else {
@@ -818,6 +818,9 @@ impl Server {
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
 			actual_checksum: tg::Checksum,
+			depth: Option<i64>,
+			#[tangram_database(as = "db::value::FromStr")]
+			id: tg::process::Id,
 			#[tangram_database(as = "Option<db::value::Json<tg::value::Data>>")]
 			output: Option<tg::value::Data>,
 			#[tangram_database(as = "db::value::FromStr")]
@@ -842,7 +845,13 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				{params}
-				select actual_checksum, output, processes.sandbox, sandboxes.status as sandbox_status
+				select
+					actual_checksum,
+					processes.depth,
+					processes.id,
+					output,
+					processes.sandbox,
+					sandboxes.status as sandbox_status
 				from processes
 				left join sandboxes on sandboxes.id = processes.sandbox,
 				params
@@ -859,6 +868,8 @@ impl Server {
 		let params = db::params![arg.command.item.to_string(), expected_checksum.to_string()];
 		let Some(Row {
 			actual_checksum,
+			depth,
+			id: source,
 			output,
 			sandbox,
 			sandbox_status,
@@ -887,42 +898,6 @@ impl Server {
 
 		// Create an ID.
 		let id = tg::process::Id::new();
-
-		// Insert the process children.
-		let statement = formatdoc!(
-			"
-				insert into process_children (process, position, cached, child, options)
-				select process, position, cached, child, options from process_children where process = {p}1;
-			"
-		);
-		let params = db::params![id.to_string()];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		// Update parent depths.
-		match &transaction {
-			#[cfg(feature = "postgres")]
-			database::Transaction::Postgres(_) => {
-				let statement = formatdoc!(
-					"
-						call update_parent_depths(array[{p}1]::text[]);
-					"
-				);
-				let params = db::params![id.to_string()];
-				transaction
-					.execute(statement.into(), params)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-			},
-			#[cfg(feature = "sqlite")]
-			database::Transaction::Sqlite(transaction) => {
-				Self::update_parent_depths_sqlite(transaction, vec![id.to_string()])
-					.await
-					.map_err(|source| tg::error!(!source, "failed to update parent depths"))?;
-			},
-		}
 
 		let status = tg::process::Status::Finished;
 		let stderr_open = match &arg.stderr {
@@ -957,6 +932,7 @@ impl Server {
 					command,
 					created_at,
 					debug,
+					depth,
 					error,
 					error_code,
 					exit,
@@ -996,7 +972,8 @@ impl Server {
 					{p}19,
 					{p}20,
 					{p}21,
-					{p}22
+					{p}22,
+					{p}23
 				)
 				on conflict (id) do update set
 					actual_checksum = {p}2,
@@ -1004,22 +981,23 @@ impl Server {
 					command = {p}4,
 					created_at = {p}5,
 					debug = {p}6,
-					error = {p}7,
-					error_code = {p}8,
-					exit = {p}9,
-					expected_checksum = {p}10,
-					finished_at = {p}11,
-					host = {p}12,
-					output = {p}13,
-					sandbox = {p}14,
-					tty = {p}15,
-					retry = {p}16,
-					status = {p}17,
-					stderr_open = {p}18,
-					stdin_open = {p}19,
-					stdout_open = {p}20,
-					token_count = {p}21,
-					touched_at = {p}22;
+					depth = {p}7,
+					error = {p}8,
+					error_code = {p}9,
+					exit = {p}10,
+					expected_checksum = {p}11,
+					finished_at = {p}12,
+					host = {p}13,
+					output = {p}14,
+					sandbox = {p}15,
+					tty = {p}16,
+					retry = {p}17,
+					status = {p}18,
+					stderr_open = {p}19,
+					stdin_open = {p}20,
+					stdout_open = {p}21,
+					token_count = {p}22,
+					touched_at = {p}23;
 			"
 		);
 		let now: i64 = time::OffsetDateTime::now_utc().unix_timestamp();
@@ -1053,6 +1031,7 @@ impl Server {
 			arg.command.item.to_string(),
 			now,
 			arg.debug.clone().map(db::value::Json),
+			depth,
 			error_data.map(|id| id.to_string()),
 			error_code,
 			exit,
@@ -1070,6 +1049,35 @@ impl Server {
 			0,
 			now,
 		];
+		transaction
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+
+		// Copy the process children.
+		let statement = formatdoc!(
+			"
+				insert into process_children (
+					process,
+					position,
+					cached,
+					child,
+					options,
+					token
+				)
+				select
+					{p}1,
+					position,
+					cached,
+					child,
+					options,
+					token
+				from process_children
+				where process = {p}2
+				on conflict (process, child) do nothing;
+			"
+		);
+		let params = db::params![id.to_string(), source.to_string()];
 		transaction
 			.execute(statement.into(), params)
 			.await
@@ -1489,6 +1497,18 @@ impl Server {
 	) -> tg::Result<()> {
 		let p = transaction.p();
 
+		// Lock the parent and ensure that it is not finished.
+		let status = self
+			.try_lock_process_with_transaction(transaction, parent)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to lock the parent process"))?;
+		let Some(status) = status else {
+			return Err(tg::error!("the parent process was not found"));
+		};
+		if status.is_finished() {
+			return Err(tg::error!("the parent process was finished"));
+		}
+
 		// Determine if adding this child process creates a cycle.
 		let statement = formatdoc!(
 			"
@@ -1512,8 +1532,7 @@ impl Server {
 
 		// If adding this child creates a cycle, return an error.
 		if cycle {
-			// Try to reconstruct the cycle path by walking from the child through its
-			// descendants until we find a path back to the parent.
+			// Try to reconstruct the cycle path by walking from the child through its descendants until we find a path back to the parent.
 			let statement = formatdoc!(
 				"
 					with recursive reachable (current_process, path) as (
@@ -1558,8 +1577,21 @@ impl Server {
 		// Add the child to the process store.
 		let statement = formatdoc!(
 			"
-				insert into process_children (process, position, cached, child, options, token)
-				values ({p}1, (select coalesce(max(position) + 1, 0) from process_children where process = {p}1), {p}2, {p}3, {p}4, {p}5)
+				insert into process_children (
+					process,
+					position,
+					cached,
+					child,
+					options,
+					token
+				) values (
+					{p}1,
+					(select coalesce(max(position) + 1, 0) from process_children where process = {p}1),
+					{p}2,
+					{p}3,
+					{p}4,
+					{p}5
+				)
 				on conflict (process, child) do nothing;
 			"
 		);

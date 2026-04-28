@@ -72,7 +72,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		let status = self
-			.try_lock_process_for_token_mutation_with_transaction(&transaction, id)
+			.try_lock_process_with_transaction(&transaction, id)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to lock the process"))?;
 		let Some(status) = status else {
