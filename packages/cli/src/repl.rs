@@ -209,7 +209,7 @@ impl reedline::Prompt for Prompt {
 	}
 
 	fn get_indicator_color(&self) -> Color {
-		Color::Grey
+		Color::AnsiValue(244)
 	}
 }
 
