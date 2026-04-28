@@ -246,16 +246,37 @@ impl Server {
 			.map_err(|error| tg::error!(!error, "failed to delete objects"))?;
 
 		// Get a process store connection.
-		let connection = self
+		let mut connection = self
 			.process_store
 			.write_connection()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 
-		// Delete processes.
+		// Delete the processes.
 		let p = connection.p();
 		for id in &output.processes {
-			// Delete process_children.
+			let transaction = connection
+				.transaction()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to acquire a transaction"))?;
+
+			// Delete the process.
+			let statement = formatdoc!(
+				"
+					delete from processes
+					where id = {p}1 and touched_at <= {p}2;
+				"
+			);
+			let params = db::params![id.to_string(), max_touched_at];
+			let n = transaction
+				.execute(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to delete the process"))?;
+			if n == 0 {
+				continue;
+			}
+
+			// Delete the process children.
 			let statement = formatdoc!(
 				"
 					delete from process_children
@@ -263,12 +284,12 @@ impl Server {
 				"
 			);
 			let params = db::params![id.to_string()];
-			connection
+			transaction
 				.execute(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to delete process_children"))?;
 
-			// Delete process_tokens.
+			// Delete the process tokens.
 			let statement = formatdoc!(
 				"
 					delete from process_tokens
@@ -276,7 +297,7 @@ impl Server {
 				"
 			);
 			let params = db::params![id.to_string()];
-			connection
+			transaction
 				.execute(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to delete process_tokens"))?;
@@ -289,7 +310,7 @@ impl Server {
 				"
 			);
 			let params = db::params![id.to_string()];
-			connection
+			transaction
 				.execute(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to delete process_finalize_queue"))?;
@@ -302,7 +323,7 @@ impl Server {
 				"
 			);
 			let params = db::params![id.to_string()];
-			connection
+			transaction
 				.execute(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to delete process_signals"))?;
@@ -315,23 +336,15 @@ impl Server {
 				"
 			);
 			let params = db::params![id.to_string()];
-			connection
+			transaction
 				.execute(statement.into(), params)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to delete process_stdio"))?;
 
-			// Delete the process.
-			let statement = formatdoc!(
-				"
-					delete from processes
-					where id = {p}1 and touched_at <= {p}2;
-				"
-			);
-			let params = db::params![id.to_string(), max_touched_at];
-			connection
-				.execute(statement.into(), params)
+			transaction
+				.commit()
 				.await
-				.map_err(|source| tg::error!(!source, "failed to delete the process"))?;
+				.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 		}
 
 		// Drop the connection.
