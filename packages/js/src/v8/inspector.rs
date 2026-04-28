@@ -22,6 +22,35 @@ const CONTEXT_GROUP_ID: i32 = 1;
 const DEFAULT_INSPECTOR_ADDRESS: std::net::SocketAddr =
 	std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), 9229);
 
+const EXCEPTION_TO_ERROR_DATA_FUNCTION: &str = r#"
+function(exception) {
+	function format(value) {
+		if (value === undefined) {
+			return "undefined";
+		}
+		if (value && typeof value === "object" && typeof value.message === "string") {
+			return value.message;
+		}
+		try {
+			return String(value);
+		} catch (_) {
+			return "an exception occurred";
+		}
+	}
+	let Tangram = globalThis.Tangram;
+	if (Tangram && Tangram.Error && exception instanceof Tangram.Error) {
+		try {
+			return Tangram.Error.toData(exception);
+		} catch (_) {}
+	}
+	let Error = globalThis.Error;
+	if (typeof Error === "function" && exception instanceof Error) {
+		return { message: format(exception) };
+	}
+	return { message: format(exception) };
+}
+"#;
+
 pub struct Inspector {
 	channel: InspectorChannel,
 	context_id: Option<u64>,
@@ -102,6 +131,10 @@ struct PendingCommand {
 
 enum PendingCommandKind {
 	Evaluate {
+		response: oneshot::Sender<tg::Result<()>>,
+	},
+	Exception {
+		fallback: String,
 		response: oneshot::Sender<tg::Result<()>>,
 	},
 	Log {
@@ -212,6 +245,7 @@ struct RuntimeCallFunctionOnParams<'a> {
 	function_declaration: &'a str,
 	arguments: Vec<CallArgument<'a>>,
 	await_promise: bool,
+	return_by_value: bool,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	execution_context_id: Option<u64>,
 }
@@ -224,7 +258,7 @@ struct CallArgument<'a> {
 	#[serde(skip_serializing_if = "Option::is_none")]
 	unserializable_value: Option<&'a str>,
 	#[serde(skip_serializing_if = "Option::is_none")]
-	value: Option<RemoteValue>,
+	value: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -259,19 +293,10 @@ struct RemoteObject {
 	#[serde(rename = "type")]
 	kind: Option<String>,
 	subtype: Option<String>,
-	value: Option<RemoteValue>,
+	value: Option<serde_json::Value>,
 	unserializable_value: Option<String>,
 	description: Option<String>,
 	object_id: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(untagged)]
-enum RemoteValue {
-	Null,
-	Bool(bool),
-	Number(f64),
-	String(String),
 }
 
 #[derive(Debug, Deserialize)]
@@ -287,6 +312,11 @@ struct ExecutionContextCreatedParams {
 #[derive(Debug, Deserialize)]
 struct ExecutionContextDescription {
 	id: u64,
+}
+
+enum ResponseResult<'a> {
+	Value(&'a RemoteObject),
+	Exception(&'a ExceptionDetails),
 }
 
 impl Inspector {
@@ -481,10 +511,12 @@ impl Inspector {
 		let pending = self.pending.take().unwrap();
 		match pending.kind {
 			PendingCommandKind::Evaluate { response: sender } => {
-				let result = response_remote_object(&response);
-				match result {
-					Ok(remote) => {
+				match response_result(&response) {
+					Ok(ResponseResult::Value(remote)) => {
 						self.start_log(isolate, context, remote, sender);
+					},
+					Ok(ResponseResult::Exception(details)) => {
+						self.start_exception(isolate, context, details, sender);
 					},
 					Err(message) => {
 						let _ = sender.send(Err(tg::error!("{message}")));
@@ -492,11 +524,26 @@ impl Inspector {
 				}
 				Some(true)
 			},
+			PendingCommandKind::Exception {
+				fallback,
+				response: sender,
+			} => {
+				let error = response_error(&response, &fallback);
+				let _ = sender.send(Err(error));
+				Some(true)
+			},
 			PendingCommandKind::Log { response: sender } => {
-				let result = response_remote_object(&response)
-					.map(|_| ())
-					.map_err(|message| tg::error!("{message}"));
-				let _ = sender.send(result);
+				match response_result(&response) {
+					Ok(ResponseResult::Value(_)) => {
+						let _ = sender.send(Ok(()));
+					},
+					Ok(ResponseResult::Exception(details)) => {
+						self.start_exception(isolate, context, details, sender);
+					},
+					Err(message) => {
+						let _ = sender.send(Err(tg::error!("{message}")));
+					},
+				}
 				Some(true)
 			},
 		}
@@ -540,11 +587,56 @@ impl Inspector {
 		}
 	}
 
+	fn start_exception(
+		&mut self,
+		isolate: &mut v8::OwnedIsolate,
+		context: &v8::Global<v8::Context>,
+		details: &ExceptionDetails,
+		response: oneshot::Sender<tg::Result<()>>,
+	) {
+		let fallback = format_exception_details(details);
+		let Some(exception) = details.exception.as_ref() else {
+			let _ = response.send(Err(tg::error!("{fallback}")));
+			return;
+		};
+		unsafe { isolate.enter() };
+		let result = {
+			v8::scope!(scope, isolate);
+			let context = v8::Local::new(scope, context.clone());
+			let scope = &mut v8::ContextScope::new(scope, context);
+			self.exception(scope, exception)
+		};
+		unsafe { isolate.exit() };
+		match result {
+			Ok(id) => {
+				self.pending = Some(PendingCommand {
+					id,
+					kind: PendingCommandKind::Exception { fallback, response },
+				});
+			},
+			Err(error) => {
+				let _ = response.send(Err(error));
+			},
+		}
+	}
+
+	fn exception(&mut self, scope: &mut v8::PinScope, remote: &RemoteObject) -> tg::Result<i32> {
+		let params = RuntimeCallFunctionOnParams {
+			function_declaration: EXCEPTION_TO_ERROR_DATA_FUNCTION,
+			arguments: vec![CallArgument::new(remote)],
+			await_promise: true,
+			return_by_value: true,
+			execution_context_id: self.context_id,
+		};
+		self.post(scope, "Runtime.callFunctionOn", Some(params))
+	}
+
 	fn log(&mut self, scope: &mut v8::PinScope, remote: &RemoteObject) -> tg::Result<i32> {
 		let params = RuntimeCallFunctionOnParams {
 			function_declaration: "function(value) { globalThis._ = value; console.log(value); }",
 			arguments: vec![CallArgument::new(remote)],
 			await_promise: true,
+			return_by_value: false,
 			execution_context_id: self.context_id,
 		};
 		self.post(scope, "Runtime.callFunctionOn", Some(params))
@@ -826,7 +918,7 @@ impl<'a> CallArgument<'a> {
 				object_id: None,
 				unserializable_value: None,
 				value: if remote.subtype.as_deref() == Some("null") {
-					Some(RemoteValue::Null)
+					Some(serde_json::Value::Null)
 				} else {
 					remote.value.clone()
 				},
@@ -1119,7 +1211,7 @@ fn debugger_command_channel() -> (DebuggerCommandSender, DebuggerCommandReceiver
 	)
 }
 
-fn response_remote_object(response: &InspectorResponse) -> Result<&RemoteObject, String> {
+fn response_result(response: &InspectorResponse) -> Result<ResponseResult<'_>, String> {
 	if let Some(error) = &response.error {
 		return Err(format!("{}: {}", error.code, error.message));
 	}
@@ -1130,18 +1222,53 @@ fn response_remote_object(response: &InspectorResponse) -> Result<&RemoteObject,
 		.ok_or_else(|| "malformed evaluation response".to_owned())?;
 
 	if let Some(details) = &result.exception_details {
-		let text = details.text.as_deref().unwrap_or("exception");
-		let description = details
-			.exception
-			.as_ref()
-			.map_or_else(|| "unknown exception".to_owned(), format_remote_value);
-		return Err(format!("{text}: {description}"));
+		return Ok(ResponseResult::Exception(details));
 	}
 
 	result
 		.result
 		.as_ref()
+		.map(ResponseResult::Value)
 		.ok_or_else(|| "malformed evaluation result".to_owned())
+}
+
+fn response_error(response: &InspectorResponse, fallback: &str) -> tg::Error {
+	let Ok(ResponseResult::Value(remote)) = response_result(response) else {
+		return tg::error!("{fallback}");
+	};
+	let Some(value) = remote.value.as_ref() else {
+		return tg::error!("{fallback}");
+	};
+	serde_json::from_value::<tg::error::Data>(value.clone())
+		.ok()
+		.and_then(|data| tg::error::Object::try_from_data(data).ok())
+		.map_or_else(|| tg::error!("{fallback}"), tg::Error::with_object)
+}
+
+fn format_exception_details(details: &ExceptionDetails) -> String {
+	details.exception.as_ref().map_or_else(
+		|| {
+			details
+				.text
+				.clone()
+				.unwrap_or_else(|| "exception".to_owned())
+		},
+		format_exception_remote_object,
+	)
+}
+
+fn format_exception_remote_object(remote: &RemoteObject) -> String {
+	if remote.subtype.as_deref() == Some("error")
+		&& let Some(description) = remote.description.as_deref()
+		&& let Some(first_line) = description.lines().next()
+	{
+		let first_line = first_line.strip_prefix("Uncaught ").unwrap_or(first_line);
+		return first_line
+			.split_once(": ")
+			.map_or_else(|| first_line.to_owned(), |(_, message)| message.to_owned());
+	}
+
+	format_remote_value(remote)
 }
 
 fn format_remote_value(remote: &RemoteObject) -> String {
@@ -1155,10 +1282,11 @@ fn format_remote_value(remote: &RemoteObject) -> String {
 
 	if let Some(value) = &remote.value {
 		return match value {
-			RemoteValue::Null => "null".to_owned(),
-			RemoteValue::Bool(value) => value.to_string(),
-			RemoteValue::Number(value) => value.to_string(),
-			RemoteValue::String(value) => value.clone(),
+			serde_json::Value::Null => "null".to_owned(),
+			serde_json::Value::Bool(value) => value.to_string(),
+			serde_json::Value::Number(value) => value.to_string(),
+			serde_json::Value::String(value) => value.clone(),
+			value => value.to_string(),
 		};
 	}
 
