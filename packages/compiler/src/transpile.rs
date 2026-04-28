@@ -53,7 +53,7 @@ impl Compiler {
 			tg::module::data::Item::Path(path) => path.to_str().unwrap().to_owned(),
 		};
 		let options = oxc::codegen::CodegenOptions {
-			source_map_path: Some(PathBuf::from(format!("{name}.map"))),
+			source_map_path: Some(PathBuf::from(name)),
 			..Default::default()
 		};
 		let output = oxc::codegen::Codegen::new()

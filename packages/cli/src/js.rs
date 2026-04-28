@@ -35,7 +35,7 @@ pub struct Args {
 	pub trailing: Vec<String>,
 }
 
-#[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, derive_more::IsVariant, clap::ValueEnum)]
 #[value(rename_all = "lowercase")]
 pub enum Engine {
 	#[default]

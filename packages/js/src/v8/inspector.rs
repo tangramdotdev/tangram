@@ -9,6 +9,7 @@ use {
 		response::IntoResponse,
 		routing::get,
 	},
+	data_encoding::BASE64,
 	futures::{SinkExt as _, StreamExt as _, task::AtomicWaker},
 	serde::{Deserialize, Serialize},
 	std::{
@@ -30,8 +31,6 @@ const CONTEXT_GROUP_ID: i32 = 1;
 
 const DEFAULT_INSPECTOR_ADDRESS: std::net::SocketAddr =
 	std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), 9229);
-
-static TARGET_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 pub struct Inspector {
 	channel: InspectorChannel,
@@ -58,6 +57,7 @@ struct Debugger {
 
 struct DebuggerState {
 	active: RefCell<Option<ActiveConnection>>,
+	break_on_next_user_script: Cell<bool>,
 	commands: DebuggerCommandReceiver,
 	paused: Cell<bool>,
 	run_if_waiting_for_debugger: Cell<bool>,
@@ -122,6 +122,7 @@ enum PendingCommandKind {
 struct Server {
 	shutdown: Option<oneshot::Sender<()>>,
 	thread: Option<thread::JoinHandle<()>>,
+	url: String,
 }
 
 #[derive(Clone)]
@@ -148,6 +149,16 @@ struct BaseMessage {
 struct CdpCommandEnvelope {
 	id: Option<i64>,
 	method: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ScriptParsedNotification {
+	params: ScriptParsedParams,
+}
+
+#[derive(Debug, Deserialize)]
+struct ScriptParsedParams {
+	url: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -578,8 +589,14 @@ impl Debugger {
 	) -> tg::Result<Self> {
 		let (command, commands) = debugger_command_channel();
 		let server = Server::start(addr.unwrap_or(DEFAULT_INSPECTOR_ADDRESS), command)?;
+		eprintln!("Debugger listening on {}", server.url());
+		eprintln!("Visit chrome://inspect to connect to the debugger.");
+		if mode != crate::inspect::Mode::Normal {
+			eprintln!("Waiting for the debugger to connect.");
+		}
 		let state = Rc::new(DebuggerState {
 			active: RefCell::new(None),
+			break_on_next_user_script: Cell::new(false),
 			commands,
 			paused: Cell::new(false),
 			run_if_waiting_for_debugger: Cell::new(false),
@@ -617,11 +634,7 @@ impl Debugger {
 					}
 				}
 				self.state.waiting_for_debugger.set(false);
-				if let Some(session) = self.state.session.borrow_mut().as_mut() {
-					let reason = v8::inspector::StringView::from(&b"debugCommand"[..]);
-					let detail = v8::inspector::StringView::empty();
-					session.schedule_pause_on_next_statement(reason, detail);
-				}
+				self.state.break_on_next_user_script.set(true);
 			},
 		}
 	}
@@ -713,6 +726,30 @@ impl DebuggerState {
 				false
 			},
 			_ => false,
+		}
+	}
+
+	fn handle_inspector_message(&self, message: &str) {
+		if !self.break_on_next_user_script.get() {
+			return;
+		}
+		let Ok(base) = serde_json::from_str::<BaseMessage>(message) else {
+			return;
+		};
+		if base.method.as_deref() != Some("Debugger.scriptParsed") {
+			return;
+		}
+		let Ok(notification) = serde_json::from_str::<ScriptParsedNotification>(message) else {
+			return;
+		};
+		if notification.params.url.is_empty() || notification.params.url == "main" {
+			return;
+		}
+		self.break_on_next_user_script.set(false);
+		if let Some(session) = self.session.borrow_mut().as_mut() {
+			let reason = v8::inspector::StringView::from(&b"debugCommand"[..]);
+			let detail = v8::inspector::StringView::empty();
+			session.schedule_pause_on_next_statement(reason, detail);
 		}
 	}
 
@@ -810,10 +847,51 @@ impl InspectorChannel {
 	}
 
 	fn push_message(&self, message: v8::UniquePtr<v8::inspector::StringBuffer>) {
-		let message = message.unwrap().string().to_string();
+		let mut message = message.unwrap().string().to_string();
+		Self::add_snapshot_source_map(&mut message);
 		self.messages.borrow_mut().push_back(message.clone());
 		if let Some(debugger) = &self.debugger {
+			debugger.handle_inspector_message(&message);
 			debugger.send_inspector_message(message);
+		}
+	}
+
+	fn add_snapshot_source_map(message: &mut String) {
+		let Ok(base) = serde_json::from_str::<BaseMessage>(message) else {
+			return;
+		};
+		if base.method.as_deref() != Some("Debugger.scriptParsed") {
+			return;
+		}
+		let Ok(mut value) = serde_json::from_str::<serde_json::Value>(message) else {
+			return;
+		};
+		let Some(params) = value
+			.get_mut("params")
+			.and_then(serde_json::Value::as_object_mut)
+		else {
+			return;
+		};
+		if params.get("url").and_then(serde_json::Value::as_str) != Some("main") {
+			return;
+		}
+		if params
+			.get("sourceMapURL")
+			.and_then(serde_json::Value::as_str)
+			.is_some_and(|source_map_url| !source_map_url.is_empty())
+		{
+			return;
+		}
+		let source_map_url = format!(
+			"data:application/json;charset=utf-8;base64,{}",
+			BASE64.encode(super::SOURCE_MAP)
+		);
+		params.insert(
+			"sourceMapURL".to_owned(),
+			serde_json::Value::String(source_map_url),
+		);
+		if let Ok(value) = serde_json::to_string(&value) {
+			*message = value;
 		}
 	}
 
@@ -865,12 +943,13 @@ impl Server {
 		let host = listener
 			.local_addr()
 			.map_err(|source| tg::error!(!source, "failed to get the inspector server address"))?;
+		const ENCODING: data_encoding::Encoding = data_encoding_macro::new_encoding! {
+			symbols: "0123456789abcdefghjkmnpqrstvwxyz",
+		};
+		let id = uuid::Uuid::now_v7();
+		let id = ENCODING.encode(&id.into_bytes());
 		let target = Arc::new(Target {
-			id: format!(
-				"{}-{}",
-				std::process::id(),
-				TARGET_COUNTER.fetch_add(1, Ordering::SeqCst)
-			),
+			id,
 			title: format!("tangram js [pid: {}]", std::process::id()),
 			url: "tangram:js".to_owned(),
 		});
@@ -880,6 +959,7 @@ impl Server {
 			host,
 			target,
 		};
+		let url = state.websocket_debugger_url(&host.to_string());
 		let (shutdown_tx, shutdown_rx) = oneshot::channel();
 		let thread = thread::spawn(move || {
 			let runtime = tokio::runtime::Builder::new_current_thread()
@@ -906,7 +986,12 @@ impl Server {
 		Ok(Self {
 			shutdown: Some(shutdown_tx),
 			thread: Some(thread),
+			url,
 		})
+	}
+
+	fn url(&self) -> &str {
+		&self.url
 	}
 }
 

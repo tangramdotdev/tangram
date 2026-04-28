@@ -4,7 +4,7 @@ pub struct Options {
 	pub mode: Mode,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Mode {
 	#[default]
 	Normal,
