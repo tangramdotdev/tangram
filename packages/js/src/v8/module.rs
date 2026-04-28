@@ -389,11 +389,15 @@ fn compile_module<'s>(
 	let resource_column_offset = 0;
 	let resource_is_shared_cross_origin = false;
 	let script_id = id.to_i32().unwrap();
-	let source_map_url_text = format!(
-		"data:application/json;charset=utf-8;base64,{}",
-		BASE64.encode(output.source_map.as_bytes())
-	);
-	let source_map_url = v8::String::new(scope, &source_map_url_text).map(Into::into);
+	let source_map_url = if output.text == text {
+		None
+	} else {
+		let source_map_url = format!(
+			"data:application/json;charset=utf-8;base64,{}",
+			BASE64.encode(output.source_map.as_bytes())
+		);
+		v8::String::new(scope, &source_map_url).map(Into::into)
+	};
 	let resource_is_opaque = false;
 	let is_wasm = false;
 	let is_module = true;
@@ -413,11 +417,7 @@ fn compile_module<'s>(
 	);
 
 	// Compile the module.
-	let source = format!(
-		"{}\n//# sourceMappingURL={source_map_url_text}",
-		output.text
-	);
-	let source = v8::String::new(scope, &source).unwrap();
+	let source = v8::String::new(scope, &output.text).unwrap();
 	let mut source = v8::script_compiler::Source::new(source, Some(&origin));
 	let module = v8::script_compiler::compile_module(scope, &mut source)?;
 	let module_global = v8::Global::new(scope, module);

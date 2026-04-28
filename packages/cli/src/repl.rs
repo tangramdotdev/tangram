@@ -1,5 +1,6 @@
 use {
 	crate::js::Engine,
+	crossterm::style::Color,
 	std::{borrow::Cow, path::PathBuf, thread},
 	tangram_client::prelude::*,
 };
@@ -205,6 +206,10 @@ impl reedline::Prompt for Prompt {
 			"({prefix}reverse-search: {}) ",
 			history_search.term
 		))
+	}
+
+	fn get_indicator_color(&self) -> Color {
+		Color::Grey
 	}
 }
 

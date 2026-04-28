@@ -1,15 +1,5 @@
 use {
-	axum::{
-		Router,
-		extract::{
-			Path, State, WebSocketUpgrade,
-			ws::{Message, WebSocket},
-		},
-		http::{HeaderMap, StatusCode, header::HOST},
-		response::IntoResponse,
-		routing::get,
-	},
-	data_encoding::BASE64,
+	axum::response::IntoResponse as _,
 	futures::{SinkExt as _, StreamExt as _, task::AtomicWaker},
 	serde::{Deserialize, Serialize},
 	std::{
@@ -589,10 +579,9 @@ impl Debugger {
 	) -> tg::Result<Self> {
 		let (command, commands) = debugger_command_channel();
 		let server = Server::start(addr.unwrap_or(DEFAULT_INSPECTOR_ADDRESS), command)?;
-		eprintln!("Debugger listening on {}", server.url());
-		eprintln!("Visit chrome://inspect to connect to the debugger.");
+		eprintln!("debugger listening on {}", server.url());
 		if mode != crate::inspect::Mode::Normal {
-			eprintln!("Waiting for the debugger to connect.");
+			eprintln!("waiting for the debugger to connect");
 		}
 		let state = Rc::new(DebuggerState {
 			active: RefCell::new(None),
@@ -621,7 +610,15 @@ impl Debugger {
 			},
 			crate::inspect::Mode::Wait => {
 				self.state.wait_for_session();
-				self.state.drain_commands();
+				self.state.waiting_for_debugger.set(true);
+				while !self.state.run_if_waiting_for_debugger.get() {
+					if let Some(command) = self.state.recv_command() {
+						self.state.handle_command(command);
+					} else {
+						break;
+					}
+				}
+				self.state.waiting_for_debugger.set(false);
 			},
 			crate::inspect::Mode::Break => {
 				self.state.wait_for_session();
@@ -848,15 +845,33 @@ impl InspectorChannel {
 
 	fn push_message(&self, message: v8::UniquePtr<v8::inspector::StringBuffer>) {
 		let mut message = message.unwrap().string().to_string();
-		Self::add_snapshot_source_map(&mut message);
-		self.messages.borrow_mut().push_back(message.clone());
+		if Self::is_snapshot_script_parsed(&message) {
+			return;
+		}
 		if let Some(debugger) = &self.debugger {
 			debugger.handle_inspector_message(&message);
+		}
+		Self::hide_generated_script_url(&mut message);
+		self.messages.borrow_mut().push_back(message.clone());
+		if let Some(debugger) = &self.debugger {
 			debugger.send_inspector_message(message);
 		}
 	}
 
-	fn add_snapshot_source_map(message: &mut String) {
+	fn is_snapshot_script_parsed(message: &str) -> bool {
+		let Ok(base) = serde_json::from_str::<BaseMessage>(message) else {
+			return false;
+		};
+		if base.method.as_deref() != Some("Debugger.scriptParsed") {
+			return false;
+		}
+		let Ok(notification) = serde_json::from_str::<ScriptParsedNotification>(message) else {
+			return false;
+		};
+		notification.params.url == "main"
+	}
+
+	fn hide_generated_script_url(message: &mut String) {
 		let Ok(base) = serde_json::from_str::<BaseMessage>(message) else {
 			return;
 		};
@@ -872,23 +887,17 @@ impl InspectorChannel {
 		else {
 			return;
 		};
-		if params.get("url").and_then(serde_json::Value::as_str) != Some("main") {
-			return;
-		}
 		if params
 			.get("sourceMapURL")
 			.and_then(serde_json::Value::as_str)
-			.is_some_and(|source_map_url| !source_map_url.is_empty())
+			.is_none_or(str::is_empty)
 		{
 			return;
 		}
-		let source_map_url = format!(
-			"data:application/json;charset=utf-8;base64,{}",
-			BASE64.encode(super::SOURCE_MAP)
-		);
+		params.insert("url".to_owned(), serde_json::Value::String(String::new()));
 		params.insert(
-			"sourceMapURL".to_owned(),
-			serde_json::Value::String(source_map_url),
+			"embedderName".to_owned(),
+			serde_json::Value::String(String::new()),
 		);
 		if let Ok(value) = serde_json::to_string(&value) {
 			*message = value;
@@ -969,11 +978,11 @@ impl Server {
 			runtime.block_on(async move {
 				let listener = tokio::net::TcpListener::from_std(listener)
 					.expect("failed to create the inspector listener");
-				let app = Router::new()
-					.route("/json", get(json_list))
-					.route("/json/list", get(json_list))
-					.route("/json/version", get(json_version))
-					.route("/ws/{id}", get(ws))
+				let app = axum::Router::new()
+					.route("/json", axum::routing::get(json_list))
+					.route("/json/list", axum::routing::get(json_list))
+					.route("/json/version", axum::routing::get(json_version))
+					.route("/ws/{id}", axum::routing::get(ws))
 					.with_state(state);
 				let shutdown = async {
 					let _ = shutdown_rx.await;
@@ -1032,8 +1041,8 @@ impl ServerState {
 }
 
 async fn json_list(
-	State(state): State<ServerState>,
-	headers: HeaderMap,
+	axum::extract::State(state): axum::extract::State<ServerState>,
+	headers: axum::http::HeaderMap,
 ) -> axum::Json<Vec<TargetMetadata>> {
 	let host = request_host(&headers).unwrap_or_else(|| state.host.to_string());
 	axum::Json(vec![state.target_metadata(&host)])
@@ -1048,19 +1057,19 @@ async fn json_version() -> axum::Json<VersionMetadata> {
 }
 
 async fn ws(
-	Path(id): Path<String>,
-	State(state): State<ServerState>,
-	upgrade: WebSocketUpgrade,
-) -> impl IntoResponse {
+	axum::extract::Path(id): axum::extract::Path<String>,
+	axum::extract::State(state): axum::extract::State<ServerState>,
+	upgrade: axum::extract::ws::WebSocketUpgrade,
+) -> impl axum::response::IntoResponse {
 	if id != state.target.id {
-		return StatusCode::NOT_FOUND.into_response();
+		return axum::http::StatusCode::NOT_FOUND.into_response();
 	}
 	upgrade
 		.on_upgrade(move |socket| websocket(socket, state))
 		.into_response()
 }
 
-async fn websocket(socket: WebSocket, state: ServerState) {
+async fn websocket(socket: axum::extract::ws::WebSocket, state: ServerState) {
 	let id = state.connection_counter.fetch_add(1, Ordering::SeqCst);
 	let (outgoing, mut outgoing_rx) = tokio_mpsc::unbounded_channel::<String>();
 	let _ = state
@@ -1070,19 +1079,19 @@ async fn websocket(socket: WebSocket, state: ServerState) {
 	loop {
 		tokio::select! {
 			Some(message) = outgoing_rx.recv() => {
-				if sender.send(Message::Text(message.into())).await.is_err() {
+				if sender.send(axum::extract::ws::Message::Text(message.into())).await.is_err() {
 					break;
 				}
 			},
 			message = receiver.next() => {
 				match message {
-					Some(Ok(Message::Text(message))) => {
+					Some(Ok(axum::extract::ws::Message::Text(message))) => {
 						let _ = state.command.send(DebuggerCommand::Message {
 							id,
 							message: message.to_string(),
 						});
 					},
-					Some(Ok(Message::Close(_)) | Err(_)) | None => break,
+					Some(Ok(axum::extract::ws::Message::Close(_)) | Err(_)) | None => break,
 					Some(Ok(_)) => {},
 				}
 			},
@@ -1091,9 +1100,9 @@ async fn websocket(socket: WebSocket, state: ServerState) {
 	let _ = state.command.send(DebuggerCommand::Disconnected { id });
 }
 
-fn request_host(headers: &HeaderMap) -> Option<String> {
+fn request_host(headers: &axum::http::HeaderMap) -> Option<String> {
 	headers
-		.get(HOST)
+		.get(axum::http::header::HOST)
 		.and_then(|host| host.to_str().ok())
 		.map(ToOwned::to_owned)
 }

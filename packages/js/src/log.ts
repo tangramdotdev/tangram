@@ -20,7 +20,7 @@ export let error = (...args: Array<unknown>) => {
 
 let colors = {
 	reset: "\x1b[0m",
-	gray: "\x1b[90m",
+	gray: "\x1b[37m",
 	cyan: "\x1b[96m",
 	yellow: "\x1b[93m",
 	green: "\x1b[32m",
