@@ -43,7 +43,7 @@ impl Server {
 		Ok(output)
 	}
 
-	async fn list_sandboxes_local(&self) -> tg::Result<Vec<tg::sandbox::list::Item>> {
+	pub(crate) async fn list_sandboxes_local(&self) -> tg::Result<Vec<tg::sandbox::list::Item>> {
 		#[derive(db::row::Deserialize)]
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]

@@ -621,11 +621,11 @@ impl Server {
 				.map_err(|source| tg::error!(!source, "failed to migrate the process store"))?;
 		}
 
-		// Finish unfinished processes if single process mode is enabled.
+		// Finish unfinished sandboxes if single process mode is enabled.
 		if server.config().advanced.single_process {
-			let result = server.finish_unfinished_processes().await;
+			let result = server.finish_unfinished_sandboxes().await;
 			if let Err(error) = result {
-				tracing::error!(error = %error.trace(), "failed to finish unfinished processes");
+				tracing::error!(error = %error.trace(), "failed to finish unfinished sandboxes");
 			}
 		}
 
@@ -1119,14 +1119,13 @@ impl Server {
 		Ok(handle)
 	}
 
-	async fn finish_unfinished_processes(&self) -> tg::Result<()> {
+	async fn finish_unfinished_sandboxes(&self) -> tg::Result<()> {
 		let outputs = self
-			.list_processes_local()
+			.list_sandboxes_local()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to list processes"))?;
+			.map_err(|source| tg::error!(!source, "failed to list sandboxes"))?;
 		outputs
 			.into_iter()
-			.filter(|output| !matches!(output.data.status, tg::process::Status::Finished))
 			.map(|output| {
 				let server = self.clone();
 				async move {
@@ -1136,15 +1135,11 @@ impl Server {
 						..Default::default()
 					};
 					let error = Some(tg::Either::Left(error));
-					let arg = tg::process::finish::Arg {
-						checksum: None,
-						error,
-						exit: 1,
-						location: None,
-						output: None,
-					};
-					if let Err(error) = server.finish_process(&output.id, arg).await {
-						tracing::error!(process = %output.id, error = %error.trace(), "failed to finish the process");
+					if let Err(error) = server
+						.try_finish_sandbox_local(&output.id, error, None)
+						.await
+					{
+						tracing::error!(sandbox = %output.id, error = %error.trace(), "failed to finish the sandbox");
 					}
 				}
 			})
