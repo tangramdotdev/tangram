@@ -26,6 +26,7 @@ pub struct Arg {
 	pub gid: libc::gid_t,
 	pub hostname: Option<String>,
 	pub new_session: bool,
+	pub nice: u8,
 	pub overlay_sources: Vec<PathBuf>,
 	pub overlays: Vec<Overlay>,
 	pub procs: Vec<PathBuf>,
@@ -127,6 +128,19 @@ fn child_main(
 	cgroup: Option<&cgroup::Cgroup>,
 	root: Option<&PathBuf>,
 ) -> tg::Result<()> {
+	unsafe {
+		*libc::__errno_location() = 0;
+	}
+	let result = unsafe { libc::nice(libc::c_int::from(arg.nice)) };
+	if result == -1 {
+		let source = std::io::Error::last_os_error();
+		if source.raw_os_error() != Some(0) {
+			return Err(tg::error!(
+				!source,
+				"failed to lower the sandbox cpu priority"
+			));
+		}
+	}
 	if arg.die_with_parent {
 		set_parent_death_signal(libc::SIGKILL)?;
 	}

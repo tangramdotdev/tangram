@@ -116,6 +116,7 @@ impl Server {
 			memory: state.memory,
 			mounts,
 			network: state.network,
+			nice: self.config.sandbox.nice,
 			path: temp.path().to_owned(),
 			rootfs_path: self.sandbox_rootfs.clone(),
 			tangram_path: self.tangram_path.clone(),

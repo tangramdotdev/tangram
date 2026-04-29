@@ -64,6 +64,7 @@ pub struct Arg {
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: bool,
+	pub nice: u8,
 	pub path: PathBuf,
 	pub rootfs_path: PathBuf,
 	pub tangram_path: PathBuf,

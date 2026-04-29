@@ -36,6 +36,9 @@ pub fn validate(arg: &Arg) -> tg::Result<()> {
 	if arg.cgroup_memory == Some(0) {
 		return Err(tg::error!("--cgroup-memory must be greater than zero"));
 	}
+	if arg.nice > 19 {
+		return Err(tg::error!("--nice must be between zero and 19"));
+	}
 	if !arg.overlays.is_empty() && arg.overlay_sources.is_empty() {
 		return Err(tg::error!(
 			"an overlay requires at least one overlay source"

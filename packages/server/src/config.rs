@@ -474,6 +474,8 @@ pub struct Sandbox {
 	pub finalizer: Option<Finalizer>,
 
 	pub isolation: SandboxIsolation,
+
+	pub nice: u8,
 }
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
@@ -933,6 +935,7 @@ impl Default for Sandbox {
 					SandboxIsolation::Seatbelt(SeatbeltSandboxIsolation::default())
 				}
 			},
+			nice: 5,
 		}
 	}
 }

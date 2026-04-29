@@ -46,6 +46,9 @@ pub struct Args {
 	#[arg(long)]
 	pub new_session: bool,
 
+	#[arg(default_value_t = 0, long)]
+	pub nice: u8,
+
 	#[arg(action = clap::ArgAction::Append, long = "overlay-src", num_args = 1)]
 	pub overlay_sources: Vec<PathBuf>,
 
@@ -112,6 +115,7 @@ impl Args {
 			gid: self.gid,
 			hostname: self.hostname,
 			new_session: self.new_session,
+			nice: self.nice,
 			overlay_sources: self.overlay_sources,
 			overlays,
 			procs: self.procs,

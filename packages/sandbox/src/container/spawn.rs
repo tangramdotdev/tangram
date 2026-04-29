@@ -41,6 +41,8 @@ pub(crate) fn spawn(
 		.arg(user.uid.to_string())
 		.arg("--gid")
 		.arg(user.gid.to_string())
+		.arg("--nice")
+		.arg(arg.nice.to_string())
 		.arg("--chdir")
 		.arg("/")
 		.arg("--overlay-src")
