@@ -191,6 +191,7 @@ impl Server {
 		// Start dequeueing a process.
 		let mut dequeue = self.dequeue_sandbox_process(id, &location).boxed();
 
+		let mut timer_fired = false;
 		loop {
 			let timer_future = timer.as_mut().map_or_else(
 				|| future::pending().left_future(),
@@ -234,16 +235,23 @@ impl Server {
 					}
 				},
 
-				// If the timer fires, then finish the sandbox and break.
+				// If the timer fires, prepare to finish the sandbox and break.
 				() = timer_future => {
-					let arg = tg::sandbox::finish::Arg {
-						error: None,
-						location: Some(location.clone().into()),
-					};
-					self.finish_sandbox(id, arg).await?;
+					timer_fired = true;
 					break;
 				},
 			}
+		}
+
+		drop(dequeue);
+
+		// If the timer fired, finish the sandbox.
+		if timer_fired {
+			let arg = tg::sandbox::finish::Arg {
+				error: None,
+				location: Some(location.clone().into()),
+			};
+			self.finish_sandbox(id, arg).await?;
 		}
 
 		// Stop and await the process tasks.
