@@ -199,6 +199,9 @@ export class Graph {
 					if ("executable" in argNode) {
 						node.executable = argNode.executable;
 					}
+					if ("module" in argNode) {
+						node.module = argNode.module;
+					}
 					nodes.push(node);
 				} else if (argNode.kind === "symlink") {
 					let artifact: tg.Graph.Arg.Edge<tg.Artifact> | undefined;
@@ -589,6 +592,9 @@ export namespace Graph {
 			}
 			if (object.executable !== false) {
 				data.executable = object.executable;
+			}
+			if (object.module !== undefined) {
+				data.module = object.module;
 			}
 			return data;
 		};
