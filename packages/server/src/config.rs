@@ -98,9 +98,13 @@ pub struct Config {
 #[serde(deny_unknown_fields, default)]
 pub struct Advanced {
 	pub disable_version_check: bool,
+
 	pub internal_error_locations: bool,
+
 	pub preserve_temp_directories: bool,
+
 	pub single_directory: bool,
+
 	pub single_process: bool,
 }
 
@@ -122,9 +126,13 @@ pub struct AuthenticationProviders {
 #[serde(deny_unknown_fields)]
 pub struct Oauth {
 	pub auth_url: String,
+
 	pub client_id: String,
+
 	pub client_secret: String,
+
 	pub redirect_url: String,
+
 	pub token_url: String,
 }
 
@@ -132,7 +140,9 @@ pub struct Oauth {
 #[serde(deny_unknown_fields, default)]
 pub struct Checkin {
 	pub blob: CheckinBlob,
+
 	pub cache: CheckinCache,
+
 	pub directory: CheckinDirectory,
 }
 
@@ -146,6 +156,7 @@ pub struct CheckinBlob {
 #[serde(deny_unknown_fields, default)]
 pub struct CheckinCache {
 	pub batch_size: usize,
+
 	pub concurrency: usize,
 }
 
@@ -153,6 +164,7 @@ pub struct CheckinCache {
 #[serde(deny_unknown_fields, default)]
 pub struct CheckinDirectory {
 	pub max_branch_children: usize,
+
 	pub max_leaf_entries: usize,
 }
 
@@ -160,8 +172,11 @@ pub struct CheckinDirectory {
 #[serde(deny_unknown_fields, default)]
 pub struct Cleaner {
 	pub batch_size: usize,
+
 	pub concurrency: usize,
+
 	pub partition_count: u64,
+
 	pub partition_start: u64,
 }
 
@@ -169,6 +184,7 @@ pub struct Cleaner {
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum Database {
 	Postgres(PostgresDatabase),
+
 	Sqlite(SqliteDatabase),
 }
 
@@ -177,6 +193,7 @@ pub enum Database {
 pub struct PostgresDatabase {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub connections: Option<usize>,
+
 	pub url: Uri,
 }
 
@@ -185,6 +202,7 @@ pub struct PostgresDatabase {
 pub struct SqliteDatabase {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub connections: Option<usize>,
+
 	pub path: PathBuf,
 }
 
@@ -193,6 +211,7 @@ pub struct SqliteDatabase {
 #[serde(deny_unknown_fields, default)]
 pub struct Finalizer {
 	pub message_batch_size: usize,
+
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub message_batch_timeout: Duration,
 }
@@ -208,6 +227,7 @@ pub struct Http {
 #[serde(deny_unknown_fields)]
 pub struct HttpListener {
 	pub url: Uri,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tls: Option<HttpTls>,
 }
@@ -216,6 +236,7 @@ pub struct HttpListener {
 #[serde(deny_unknown_fields)]
 pub struct HttpTls {
 	pub certificate: PathBuf,
+
 	pub key: PathBuf,
 }
 
@@ -223,6 +244,7 @@ pub struct HttpTls {
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum Index {
 	Fdb(FdbIndex),
+
 	Lmdb(LmdbIndex),
 }
 
@@ -230,9 +252,13 @@ pub enum Index {
 #[serde(deny_unknown_fields, default)]
 pub struct FdbIndex {
 	pub cluster: PathBuf,
+
 	pub concurrency: usize,
+
 	pub max_items_per_transaction: usize,
+
 	pub partition_total: u64,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub prefix: Option<String>,
 }
@@ -241,7 +267,9 @@ pub struct FdbIndex {
 #[serde(deny_unknown_fields, default)]
 pub struct LmdbIndex {
 	pub map_size: usize,
+
 	pub max_items_per_transaction: usize,
+
 	pub path: PathBuf,
 }
 
@@ -249,8 +277,11 @@ pub struct LmdbIndex {
 #[serde(deny_unknown_fields, default)]
 pub struct Indexer {
 	pub batch_size: usize,
+
 	pub concurrency: usize,
+
 	pub partition_count: u64,
+
 	pub partition_start: u64,
 }
 
@@ -264,7 +295,9 @@ pub struct Logs {
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum LogStore {
 	Fdb(FdbLogStore),
+
 	Lmdb(LmdbLogStore),
+
 	Memory,
 }
 
@@ -280,6 +313,7 @@ pub struct FdbLogStore {
 #[serde(deny_unknown_fields, default)]
 pub struct LmdbLogStore {
 	pub map_size: usize,
+
 	pub path: PathBuf,
 }
 
@@ -288,6 +322,7 @@ pub struct LmdbLogStore {
 pub enum Messenger {
 	#[default]
 	Memory,
+
 	Nats(NatsMessenger),
 }
 
@@ -298,6 +333,7 @@ pub struct NatsMessenger {
 	pub credentials: Option<PathBuf>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub id: Option<String>,
+
 	pub url: Uri,
 }
 
@@ -307,12 +343,15 @@ pub struct NatsMessenger {
 pub struct Object {
 	#[serde(default)]
 	pub store: ObjectStore,
+
 	#[serde(default = "default_time_to_index", alias = "tti")]
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_index: Duration,
+
 	#[serde(default = "default_time_to_live", alias = "ttl")]
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_live: Duration,
+
 	#[serde(default = "default_time_to_touch", alias = "ttt")]
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_touch: Duration,
@@ -322,7 +361,9 @@ pub struct Object {
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum ObjectStore {
 	Lmdb(LmdbObjectStore),
+
 	Memory,
+
 	Scylla(ScyllaObjectStore),
 }
 
@@ -330,6 +371,7 @@ pub enum ObjectStore {
 #[serde(deny_unknown_fields, default)]
 pub struct LmdbObjectStore {
 	pub map_size: usize,
+
 	pub path: PathBuf,
 }
 
@@ -337,13 +379,18 @@ pub struct LmdbObjectStore {
 #[serde(deny_unknown_fields)]
 pub struct ScyllaObjectStore {
 	pub addr: String,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub connections: Option<usize>,
+
 	pub keyspace: String,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub password: Option<String>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub speculative_execution: Option<ScyllaObjectStoreSpeculativeExecution>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub username: Option<String>,
 }
@@ -352,6 +399,7 @@ pub struct ScyllaObjectStore {
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum ScyllaObjectStoreSpeculativeExecution {
 	Percentile(ScyllaObjectStorePercentileSpeculativeExecution),
+
 	Simple(ScyllaObjectStoreSimpleSpeculativeExecution),
 }
 
@@ -359,6 +407,7 @@ pub enum ScyllaObjectStoreSpeculativeExecution {
 #[serde(deny_unknown_fields)]
 pub struct ScyllaObjectStorePercentileSpeculativeExecution {
 	pub max_retry_count: usize,
+
 	pub percentile: f64,
 }
 
@@ -366,6 +415,7 @@ pub struct ScyllaObjectStorePercentileSpeculativeExecution {
 #[serde(deny_unknown_fields)]
 pub struct ScyllaObjectStoreSimpleSpeculativeExecution {
 	pub max_retry_count: usize,
+
 	pub retry_interval: u64,
 }
 
@@ -397,11 +447,15 @@ pub struct Process {
 #[serde(deny_unknown_fields)]
 pub struct Region {
 	pub name: String,
+
 	pub url: Uri,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub reconnect: Option<Reconnect>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
 }
@@ -410,11 +464,15 @@ pub struct Region {
 #[serde(deny_unknown_fields)]
 pub struct Remote {
 	pub name: String,
+
 	pub url: Uri,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub reconnect: Option<Reconnect>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
 }
@@ -437,10 +495,13 @@ pub struct Client {
 pub struct Reconnect {
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub backoff: Duration,
+
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub jitter: Duration,
+
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub max_delay: Duration,
+
 	pub max_retries: u64,
 }
 
@@ -450,10 +511,13 @@ pub struct Reconnect {
 pub struct Retry {
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub backoff: Duration,
+
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub jitter: Duration,
+
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub max_delay: Duration,
+
 	pub max_retries: u64,
 }
 
@@ -463,10 +527,13 @@ pub struct Retry {
 pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub concurrency: Option<usize>,
+
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub heartbeat_interval: Duration,
+
 	#[serde(default)]
 	pub js: Js,
+
 	pub remotes: Vec<String>,
 }
 
@@ -482,8 +549,10 @@ pub struct Js {
 pub enum JsEngine {
 	#[default]
 	Auto,
+
 	#[serde(rename = "quickjs", alias = "quick_js")]
 	QuickJs,
+
 	V8,
 }
 
@@ -504,7 +573,9 @@ pub struct Sandbox {
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum SandboxIsolation {
 	Container(ContainerSandboxIsolation),
+
 	Seatbelt(SeatbeltSandboxIsolation),
+
 	Vm(VmSandboxIsolation),
 }
 
@@ -548,12 +619,17 @@ pub struct SyncGet {
 #[serde(deny_unknown_fields, default)]
 pub struct SyncGetIndex {
 	pub object_batch_size: usize,
+
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub object_batch_timeout: Duration,
+
 	pub object_concurrency: usize,
+
 	pub process_batch_size: usize,
+
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub process_batch_timeout: Duration,
+
 	pub process_concurrency: usize,
 }
 
@@ -562,12 +638,17 @@ pub struct SyncGetIndex {
 #[serde(deny_unknown_fields, default)]
 pub struct SyncGetQueue {
 	pub object_batch_size: usize,
+
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub object_batch_timeout: Duration,
+
 	pub object_concurrency: usize,
+
 	pub process_batch_size: usize,
+
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub process_batch_timeout: Duration,
+
 	pub process_concurrency: usize,
 }
 
@@ -576,11 +657,16 @@ pub struct SyncGetQueue {
 #[serde(deny_unknown_fields, default)]
 pub struct SyncGetStore {
 	pub lmdb: SyncGetStoreObject,
+
 	pub memory: SyncGetStoreObject,
+
 	pub process_batch_size: usize,
+
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub process_batch_timeout: Duration,
+
 	pub process_concurrency: usize,
+
 	pub scylla: SyncGetStoreObject,
 }
 
@@ -588,7 +674,9 @@ pub struct SyncGetStore {
 #[serde(deny_unknown_fields, default)]
 pub struct SyncGetStoreObject {
 	pub object_concurrency: usize,
+
 	pub object_max_batch: usize,
+
 	pub object_max_bytes: u64,
 }
 
@@ -596,7 +684,9 @@ pub struct SyncGetStoreObject {
 #[serde(deny_unknown_fields, default)]
 pub struct SyncPut {
 	pub index: SyncPutIndex,
+
 	pub queue: SyncPutQueue,
+
 	pub store: SyncPutStore,
 }
 
@@ -605,12 +695,17 @@ pub struct SyncPut {
 #[serde(deny_unknown_fields, default)]
 pub struct SyncPutIndex {
 	pub object_batch_size: usize,
+
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub object_batch_timeout: Duration,
+
 	pub object_concurrency: usize,
+
 	pub process_batch_size: usize,
+
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub process_batch_timeout: Duration,
+
 	pub process_concurrency: usize,
 }
 
@@ -619,12 +714,17 @@ pub struct SyncPutIndex {
 #[serde(deny_unknown_fields, default)]
 pub struct SyncPutQueue {
 	pub object_batch_size: usize,
+
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub object_batch_timeout: Duration,
+
 	pub object_concurrency: usize,
+
 	pub process_batch_size: usize,
+
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub process_batch_timeout: Duration,
+
 	pub process_concurrency: usize,
 }
 
@@ -635,10 +735,14 @@ pub struct SyncPutStore {
 	pub object_batch_size: usize,
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub object_batch_timeout: Duration,
+
 	pub object_concurrency: usize,
+
 	pub process_batch_size: usize,
+
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub process_batch_timeout: Duration,
+
 	pub process_concurrency: usize,
 }
 
@@ -647,6 +751,7 @@ pub struct SyncPutStore {
 #[serde(deny_unknown_fields, default)]
 pub struct Vfs {
 	pub io: VfsIo,
+
 	pub passthrough: VfsPassthrough,
 }
 
@@ -655,7 +760,9 @@ pub struct Vfs {
 pub enum VfsIo {
 	#[default]
 	Auto,
+
 	IoUring,
+
 	ReadWrite,
 }
 
@@ -664,7 +771,9 @@ pub enum VfsIo {
 pub enum VfsPassthrough {
 	#[default]
 	Auto,
+
 	Disabled,
+
 	Required,
 }
 
@@ -680,9 +789,12 @@ pub struct Watch {
 #[serde(deny_unknown_fields, default)]
 pub struct Watchdog {
 	pub batch_size: usize,
+
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub interval: Duration,
+
 	pub max_depth: usize,
+
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub ttl: Duration,
 }
@@ -691,9 +803,13 @@ pub struct Watchdog {
 #[serde(deny_unknown_fields, default)]
 pub struct Write {
 	pub avg_leaf_size: usize,
+
 	pub cache_pointers: bool,
+
 	pub max_branch_children: usize,
+
 	pub max_leaf_size: usize,
+
 	pub min_leaf_size: usize,
 }
 
