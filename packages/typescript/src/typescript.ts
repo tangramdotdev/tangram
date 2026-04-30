@@ -5,6 +5,7 @@ import { log } from "./log.ts";
 import { Module } from "./module.ts";
 
 let libraryRoot = "/__library__";
+let moduleRoot = "/__module__";
 
 // Create the TypeScript compiler options.
 export let compilerOptions: ts.CompilerOptions = {
@@ -310,7 +311,7 @@ export let fileNameFromModule = (module: Module): string => {
 		extension = ".ts";
 	}
 	string += `&extension=${extension}`;
-	return string;
+	return `${moduleRoot}${string}`;
 };
 
 /** Convert a TypeScript file name to a module. */
@@ -323,7 +324,10 @@ export let moduleFromFileName = (fileName: string): Module => {
 			referent: { item },
 		};
 	}
-	return Module.fromDataString(fileName);
+	if (fileName.startsWith(moduleRoot)) {
+		return Module.fromDataString(fileName.slice(moduleRoot.length));
+	}
+	throw new Error("invalid module file name");
 };
 
 /** Convert a diagnostic. */
