@@ -177,14 +177,14 @@ impl Server {
 								} else {
 									chunk.stream
 								};
-							let arg = tangram_log_store::PutProcessLogArg {
+							let arg = tangram_log_store::PutArg {
 								bytes: chunk.bytes,
 								process: id.clone(),
 								stream,
 								timestamp,
 							};
 							self.log_store
-								.put_process_log(arg)
+								.put(arg)
 								.await
 								.map_err(|source| tg::error!(!source, "failed to store the log"))?;
 							tokio::spawn({

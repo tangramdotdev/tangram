@@ -1,5 +1,5 @@
 use {
-	crate::{DeleteProcessLogArg, ProcessLogEntry, PutProcessLogArg, ReadProcessLogArg},
+	crate::{DeleteArg, Entry, PutArg, ReadArg},
 	bytes::Bytes,
 	foundationdb_tuple::TuplePack as _,
 	heed as lmdb,
@@ -28,29 +28,25 @@ type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<()>>;
 type _ResponseReceiver = tokio::sync::oneshot::Receiver<tg::Result<()>>;
 
 enum Request {
-	ProcessLog(ProcessLogRequest),
+	Put(Put),
+	Delete(Delete),
 }
 
-enum ProcessLogRequest {
-	Put(PutProcessLog),
-	Delete(DeleteProcessLog),
-}
-
-struct PutProcessLog {
+struct Put {
 	bytes: Bytes,
 	id: tg::process::Id,
 	stream: tg::process::stdio::Stream,
 	timestamp: i64,
 }
 
-struct DeleteProcessLog {
+struct Delete {
 	id: tg::process::Id,
 }
 
 #[derive(Debug)]
 enum Key<'a> {
-	ProcessLogEntry(&'a tg::process::Id, u64),
-	ProcessLogStreamPosition(&'a tg::process::Id, tg::process::stdio::Stream, u64),
+	Entry(&'a tg::process::Id, u64),
+	StreamPosition(&'a tg::process::Id, tg::process::stdio::Stream, u64),
 }
 
 impl Store {
@@ -130,13 +126,12 @@ impl Store {
 			let mut responses = vec![];
 			for request in requests {
 				match request {
-					Request::ProcessLog(ProcessLogRequest::Put(request)) => {
-						let result = Self::task_put_process_log(env, db, &mut transaction, request);
+					Request::Put(request) => {
+						let result = Self::task_put(env, db, &mut transaction, request);
 						responses.push(result);
 					},
-					Request::ProcessLog(ProcessLogRequest::Delete(request)) => {
-						let result =
-							Self::task_delete_process_log(env, db, &mut transaction, request);
+					Request::Delete(request) => {
+						let result = Self::task_delete(env, db, &mut transaction, request);
 						responses.push(result);
 					},
 				}
@@ -157,30 +152,30 @@ impl Store {
 	}
 
 	#[allow(clippy::needless_pass_by_value)]
-	fn task_put_process_log(
+	fn task_put(
 		_env: &lmdb::Env,
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
-		request: PutProcessLog,
+		request: Put,
 	) -> tg::Result<()> {
 		let id = &request.id;
 
 		// Get the current combined position by finding the last entry.
-		let key = Key::ProcessLogEntry(id, u64::MAX);
+		let key = Key::Entry(id, u64::MAX);
 		let position = db
 			.get_lower_than_or_equal_to(transaction, &key.pack_to_vec())
 			.map_err(|source| tg::error!(!source, "failed to get the last combined entry"))?
 			.and_then(|(_, value)| {
-				tangram_serialize::from_slice::<ProcessLogEntry>(value)
+				tangram_serialize::from_slice::<Entry>(value)
 					.ok()
 					.map(|entry| entry.position + entry.bytes.len().to_u64().unwrap())
 			})
 			.unwrap_or(0);
 
 		// Get the current stream position by finding the last stream entry.
-		let stream_start_key = Key::ProcessLogStreamPosition(id, request.stream, 0);
+		let stream_start_key = Key::StreamPosition(id, request.stream, 0);
 		let stream_start = stream_start_key.pack_to_vec();
-		let key = Key::ProcessLogStreamPosition(id, request.stream, u64::MAX);
+		let key = Key::StreamPosition(id, request.stream, u64::MAX);
 		let stream_position = db
 			.get_lower_than_or_equal_to(transaction, &key.pack_to_vec())
 			.map_err(|source| tg::error!(!source, "failed to get the last stream entry"))?
@@ -193,18 +188,18 @@ impl Store {
 			})
 			.map_or(0, |combined_pos| {
 				// Read the entry at this combined position to get stream_position.
-				let key = Key::ProcessLogEntry(id, combined_pos);
+				let key = Key::Entry(id, combined_pos);
 				db.get(transaction, &key.pack_to_vec())
 					.ok()
 					.flatten()
-					.and_then(|value| tangram_serialize::from_slice::<ProcessLogEntry>(value).ok())
+					.and_then(|value| tangram_serialize::from_slice::<Entry>(value).ok())
 					.map_or(0, |entry| {
 						entry.stream_position + entry.bytes.len().to_u64().unwrap()
 					})
 			});
 
 		// Create the log entry.
-		let entry = ProcessLogEntry {
+		let entry = Entry {
 			bytes: Cow::Owned(request.bytes.to_vec()),
 			position,
 			stream_position,
@@ -213,13 +208,13 @@ impl Store {
 		};
 
 		// Store the primary entry keyed by combined position.
-		let key = Key::ProcessLogEntry(id, position);
+		let key = Key::Entry(id, position);
 		let val = tangram_serialize::to_vec(&entry).unwrap();
 		db.put(transaction, &key.pack_to_vec(), &val)
 			.map_err(|source| tg::error!(!source, "failed to store the log entry"))?;
 
 		// Store the stream index pointer.
-		let key = Key::ProcessLogStreamPosition(id, request.stream, stream_position);
+		let key = Key::StreamPosition(id, request.stream, stream_position);
 		let val = position.to_le_bytes();
 		db.put(transaction, &key.pack_to_vec(), &val)
 			.map_err(|source| tg::error!(!source, "failed to store the stream index"))?;
@@ -228,11 +223,11 @@ impl Store {
 	}
 
 	#[expect(clippy::needless_pass_by_value)]
-	fn task_delete_process_log(
+	fn task_delete(
 		_env: &lmdb::Env,
 		db: &Db,
 		transaction: &mut lmdb::RwTxn<'_>,
-		request: DeleteProcessLog,
+		request: Delete,
 	) -> tg::Result<()> {
 		let id = &request.id;
 
@@ -266,8 +261,8 @@ impl Store {
 		};
 
 		// Delete all log entries.
-		let start_key = Key::ProcessLogEntry(id, 0);
-		let end_key = Key::ProcessLogEntry(id, u64::MAX);
+		let start_key = Key::Entry(id, 0);
+		let end_key = Key::Entry(id, u64::MAX);
 		delete_range(
 			db,
 			transaction,
@@ -280,8 +275,8 @@ impl Store {
 			tg::process::stdio::Stream::Stdout,
 			tg::process::stdio::Stream::Stderr,
 		] {
-			let start_key = Key::ProcessLogStreamPosition(id, stream, 0);
-			let end_key = Key::ProcessLogStreamPosition(id, stream, u64::MAX);
+			let start_key = Key::StreamPosition(id, stream, 0);
+			let end_key = Key::StreamPosition(id, stream, u64::MAX);
 			delete_range(
 				db,
 				transaction,
@@ -295,10 +290,7 @@ impl Store {
 }
 
 impl crate::Store for Store {
-	async fn try_read_process_log(
-		&self,
-		arg: ReadProcessLogArg,
-	) -> tg::Result<Vec<ProcessLogEntry<'static>>> {
+	async fn try_read(&self, arg: ReadArg) -> tg::Result<Vec<Entry<'static>>> {
 		tokio::task::spawn_blocking({
 			let db = self.db;
 			let env = self.env.clone();
@@ -324,9 +316,9 @@ impl crate::Store for Store {
 				} else {
 					let stream = arg.streams.iter().next().copied().unwrap();
 					// For stream-specific reads, look up the stream index.
-					let stream_start_key = Key::ProcessLogStreamPosition(id, stream, 0);
+					let stream_start_key = Key::StreamPosition(id, stream, 0);
 					let stream_start = stream_start_key.pack_to_vec();
-					let key = Key::ProcessLogStreamPosition(id, stream, arg.position);
+					let key = Key::StreamPosition(id, stream, arg.position);
 					let key = key.pack_to_vec();
 					let result = if arg.position == 0 {
 						db.get(&transaction, &key).map_err(|source| {
@@ -356,7 +348,7 @@ impl crate::Store for Store {
 				};
 
 				// Seek to the starting entry.
-				let key = Key::ProcessLogEntry(id, start_position);
+				let key = Key::Entry(id, start_position);
 				let key = key.pack_to_vec();
 				let result = if start_position == 0 {
 					db.get(&transaction, &key)
@@ -372,12 +364,12 @@ impl crate::Store for Store {
 				};
 
 				// Create an end key to bound iteration within combined entries.
-				let end_key = Key::ProcessLogEntry(id, u64::MAX);
+				let end_key = Key::Entry(id, u64::MAX);
 				let end_key = end_key.pack_to_vec();
 
 				let mut remaining = arg.length;
 				let mut output = Vec::new();
-				let mut current: Option<ProcessLogEntry> = None;
+				let mut current: Option<Entry> = None;
 
 				// Process the first entry.
 				let mut value = Some(first_value);
@@ -403,9 +395,9 @@ impl crate::Store for Store {
 						result.1
 					};
 
-					let chunk = tangram_serialize::from_slice::<ProcessLogEntry>(val).map_err(
-						|source| tg::error!(!source, "failed to deserialize the log entry"),
-					)?;
+					let chunk = tangram_serialize::from_slice::<Entry>(val).map_err(|source| {
+						tg::error!(!source, "failed to deserialize the log entry")
+					})?;
 
 					// Skip chunks that do not match the stream filter.
 					if !arg.streams.contains(&chunk.stream) {
@@ -441,7 +433,7 @@ impl crate::Store for Store {
 							entry.bytes = Cow::Owned(combined);
 						} else {
 							output.push(current.take().unwrap());
-							current = Some(ProcessLogEntry {
+							current = Some(Entry {
 								bytes,
 								position: chunk.position + offset,
 								stream_position: chunk.stream_position + offset,
@@ -450,7 +442,7 @@ impl crate::Store for Store {
 							});
 						}
 					} else {
-						current = Some(ProcessLogEntry {
+						current = Some(Entry {
 							bytes,
 							position: chunk.position + offset,
 							stream_position: chunk.stream_position + offset,
@@ -468,10 +460,7 @@ impl crate::Store for Store {
 				}
 
 				// Convert all entries to owned.
-				let output = output
-					.into_iter()
-					.map(ProcessLogEntry::into_static)
-					.collect();
+				let output = output.into_iter().map(Entry::into_static).collect();
 				Ok(output)
 			}
 		})
@@ -479,7 +468,7 @@ impl crate::Store for Store {
 		.map_err(|source| tg::error!(!source, "failed to join the task"))?
 	}
 
-	async fn try_get_process_log_length(
+	async fn try_get_length(
 		&self,
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
@@ -506,9 +495,9 @@ impl crate::Store for Store {
 				let length = if streams.len() == 1 {
 					let stream = streams.iter().next().copied().unwrap();
 					// For stream-specific queries, find the last stream position entry.
-					let start_key = Key::ProcessLogStreamPosition(&id, stream, 0);
+					let start_key = Key::StreamPosition(&id, stream, 0);
 					let start = start_key.pack_to_vec();
-					let key = Key::ProcessLogStreamPosition(&id, stream, u64::MAX);
+					let key = Key::StreamPosition(&id, stream, u64::MAX);
 					let Some((found_key, value)) = db
 						.get_lower_than_or_equal_to(&transaction, &key.pack_to_vec())
 						.map_err(|source| tg::error!(!source, "failed to get the last entry"))?
@@ -527,21 +516,21 @@ impl crate::Store for Store {
 							.try_into()
 							.map_err(|_| tg::error!("expected 8 bytes"))?,
 					);
-					let entry_key = Key::ProcessLogEntry(&id, position);
+					let entry_key = Key::Entry(&id, position);
 					let Some(entry_bytes) = db
 						.get(&transaction, &entry_key.pack_to_vec())
 						.map_err(|source| tg::error!(!source, "failed to get the log entry"))?
 					else {
 						return Ok(None);
 					};
-					let entry = tangram_serialize::from_slice::<ProcessLogEntry>(entry_bytes)
+					let entry = tangram_serialize::from_slice::<Entry>(entry_bytes)
 						.map_err(|source| tg::error!(!source, "failed to deserialize entry"))?;
 					entry.stream_position + entry.bytes.len().to_u64().unwrap()
 				} else {
 					// For combined queries, find the last log entry.
-					let start_key = Key::ProcessLogEntry(&id, 0);
+					let start_key = Key::Entry(&id, 0);
 					let start = start_key.pack_to_vec();
-					let key = Key::ProcessLogEntry(&id, u64::MAX);
+					let key = Key::Entry(&id, u64::MAX);
 					let Some((found_key, value)) = db
 						.get_lower_than_or_equal_to(&transaction, &key.pack_to_vec())
 						.map_err(|source| tg::error!(!source, "failed to get the last entry"))?
@@ -554,7 +543,7 @@ impl crate::Store for Store {
 						return Ok(None);
 					}
 
-					let entry = tangram_serialize::from_slice::<ProcessLogEntry>(value)
+					let entry = tangram_serialize::from_slice::<Entry>(value)
 						.map_err(|source| tg::error!(!source, "failed to deserialize entry"))?;
 					entry.position + entry.bytes.len().to_u64().unwrap()
 				};
@@ -566,17 +555,17 @@ impl crate::Store for Store {
 		.map_err(|source| tg::error!(!source, "failed to join the task"))?
 	}
 
-	async fn put_process_log(&self, arg: PutProcessLogArg) -> tg::Result<()> {
+	async fn put(&self, arg: PutArg) -> tg::Result<()> {
 		if arg.bytes.is_empty() {
 			return Ok(());
 		}
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::ProcessLog(ProcessLogRequest::Put(PutProcessLog {
+		let request = Request::Put(Put {
 			bytes: arg.bytes,
 			id: arg.process,
 			stream: arg.stream,
 			timestamp: arg.timestamp,
-		}));
+		});
 		self.sender
 			.send((request, sender))
 			.await
@@ -586,11 +575,9 @@ impl crate::Store for Store {
 			.map_err(|_| tg::error!("the task panicked"))?
 	}
 
-	async fn delete_process_log(&self, arg: DeleteProcessLogArg) -> tg::Result<()> {
+	async fn delete(&self, arg: DeleteArg) -> tg::Result<()> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::ProcessLog(ProcessLogRequest::Delete(DeleteProcessLog {
-			id: arg.process,
-		}));
+		let request = Request::Delete(Delete { id: arg.process });
 		self.sender
 			.send((request, sender))
 			.await
@@ -608,20 +595,18 @@ impl foundationdb_tuple::TuplePack for Key<'_> {
 		tuple_depth: foundationdb_tuple::TupleDepth,
 	) -> std::io::Result<foundationdb_tuple::VersionstampOffset> {
 		match self {
-			Key::ProcessLogEntry(id, position) => {
-				(id.to_bytes().as_ref(), 0, *position).pack(w, tuple_depth)
-			},
-			Key::ProcessLogStreamPosition(id, tg::process::stdio::Stream::Stdin, position) => {
+			Key::Entry(id, position) => (id.to_bytes().as_ref(), 0, *position).pack(w, tuple_depth),
+			Key::StreamPosition(id, tg::process::stdio::Stream::Stdin, position) => {
 				let _ = (id, position);
 				Err(std::io::Error::new(
 					std::io::ErrorKind::InvalidInput,
 					"invalid stdio stream",
 				))
 			},
-			Key::ProcessLogStreamPosition(id, tg::process::stdio::Stream::Stdout, position) => {
+			Key::StreamPosition(id, tg::process::stdio::Stream::Stdout, position) => {
 				(id.to_bytes().as_ref(), 1, *position).pack(w, tuple_depth)
 			},
-			Key::ProcessLogStreamPosition(id, tg::process::stdio::Stream::Stderr, position) => {
+			Key::StreamPosition(id, tg::process::stdio::Stream::Stderr, position) => {
 				(id.to_bytes().as_ref(), 2, *position).pack(w, tuple_depth)
 			},
 		}
@@ -633,7 +618,7 @@ mod tests {
 	use super::*;
 	use crate::Store as _;
 
-	fn collect_bytes(entries: Vec<ProcessLogEntry>) -> Bytes {
+	fn collect_bytes(entries: Vec<Entry>) -> Bytes {
 		entries
 			.into_iter()
 			.flat_map(|entry| entry.bytes.to_vec())
@@ -654,7 +639,7 @@ mod tests {
 
 		// Insert a single chunk.
 		store
-			.put_process_log(PutProcessLogArg {
+			.put(PutArg {
 				bytes: Bytes::from("hello world"),
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
@@ -665,7 +650,7 @@ mod tests {
 
 		// Read the entire chunk.
 		let result = store
-			.try_read_process_log(ReadProcessLogArg {
+			.try_read(ReadArg {
 				process: process.clone(),
 				position: 0,
 				length: 11,
@@ -677,7 +662,7 @@ mod tests {
 
 		// Read a subset of the chunk.
 		let result = store
-			.try_read_process_log(ReadProcessLogArg {
+			.try_read(ReadArg {
 				process: process.clone(),
 				position: 6,
 				length: 5,
@@ -701,7 +686,7 @@ mod tests {
 
 		// Insert multiple chunks.
 		store
-			.put_process_log(PutProcessLogArg {
+			.put(PutArg {
 				bytes: Bytes::from("hello"),
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
@@ -710,7 +695,7 @@ mod tests {
 			.await
 			.unwrap();
 		store
-			.put_process_log(PutProcessLogArg {
+			.put(PutArg {
 				bytes: Bytes::from(" "),
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
@@ -719,7 +704,7 @@ mod tests {
 			.await
 			.unwrap();
 		store
-			.put_process_log(PutProcessLogArg {
+			.put(PutArg {
 				bytes: Bytes::from("world"),
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
@@ -730,7 +715,7 @@ mod tests {
 
 		// Read across all chunks.
 		let result = store
-			.try_read_process_log(ReadProcessLogArg {
+			.try_read(ReadArg {
 				process: process.clone(),
 				position: 0,
 				length: 11,
@@ -754,7 +739,7 @@ mod tests {
 
 		// Insert chunks: "AAAA" (0-3), "BBBB" (4-7), "CCCC" (8-11).
 		store
-			.put_process_log(PutProcessLogArg {
+			.put(PutArg {
 				bytes: Bytes::from("AAAA"),
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
@@ -763,7 +748,7 @@ mod tests {
 			.await
 			.unwrap();
 		store
-			.put_process_log(PutProcessLogArg {
+			.put(PutArg {
 				bytes: Bytes::from("BBBB"),
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
@@ -772,7 +757,7 @@ mod tests {
 			.await
 			.unwrap();
 		store
-			.put_process_log(PutProcessLogArg {
+			.put(PutArg {
 				bytes: Bytes::from("CCCC"),
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
@@ -783,7 +768,7 @@ mod tests {
 
 		// Read starting in the middle of the first chunk, across into the second.
 		let result = store
-			.try_read_process_log(ReadProcessLogArg {
+			.try_read(ReadArg {
 				process: process.clone(),
 				position: 2,
 				length: 4,
@@ -795,7 +780,7 @@ mod tests {
 
 		// Read starting in the middle of the second chunk, across into the third.
 		let result = store
-			.try_read_process_log(ReadProcessLogArg {
+			.try_read(ReadArg {
 				process: process.clone(),
 				position: 6,
 				length: 4,
@@ -807,7 +792,7 @@ mod tests {
 
 		// Read spanning all three chunks.
 		let result = store
-			.try_read_process_log(ReadProcessLogArg {
+			.try_read(ReadArg {
 				process: process.clone(),
 				position: 2,
 				length: 8,
@@ -831,7 +816,7 @@ mod tests {
 
 		// Insert interleaved stdout and stderr chunks.
 		store
-			.put_process_log(PutProcessLogArg {
+			.put(PutArg {
 				bytes: Bytes::from("out1"),
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
@@ -840,7 +825,7 @@ mod tests {
 			.await
 			.unwrap();
 		store
-			.put_process_log(PutProcessLogArg {
+			.put(PutArg {
 				bytes: Bytes::from("err1"),
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stderr,
@@ -849,7 +834,7 @@ mod tests {
 			.await
 			.unwrap();
 		store
-			.put_process_log(PutProcessLogArg {
+			.put(PutArg {
 				bytes: Bytes::from("out2"),
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
@@ -860,7 +845,7 @@ mod tests {
 
 		// Read the combined stream.
 		let result = store
-			.try_read_process_log(ReadProcessLogArg {
+			.try_read(ReadArg {
 				process: process.clone(),
 				position: 0,
 				length: 12,
@@ -875,7 +860,7 @@ mod tests {
 
 		// Read only stdout.
 		let result = store
-			.try_read_process_log(ReadProcessLogArg {
+			.try_read(ReadArg {
 				process: process.clone(),
 				position: 0,
 				length: 8,
@@ -887,7 +872,7 @@ mod tests {
 
 		// Read only stderr.
 		let result = store
-			.try_read_process_log(ReadProcessLogArg {
+			.try_read(ReadArg {
 				process: process.clone(),
 				position: 0,
 				length: 4,
@@ -911,7 +896,7 @@ mod tests {
 
 		// Insert some chunks.
 		store
-			.put_process_log(PutProcessLogArg {
+			.put(PutArg {
 				bytes: Bytes::from("hello"),
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
@@ -920,7 +905,7 @@ mod tests {
 			.await
 			.unwrap();
 		store
-			.put_process_log(PutProcessLogArg {
+			.put(PutArg {
 				bytes: Bytes::from("world"),
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stderr,
@@ -931,7 +916,7 @@ mod tests {
 
 		// Verify the log exists.
 		let result = store
-			.try_read_process_log(ReadProcessLogArg {
+			.try_read(ReadArg {
 				process: process.clone(),
 				position: 0,
 				length: 10,
@@ -946,7 +931,7 @@ mod tests {
 
 		// Delete the log.
 		store
-			.delete_process_log(DeleteProcessLogArg {
+			.delete(DeleteArg {
 				process: process.clone(),
 			})
 			.await
@@ -954,7 +939,7 @@ mod tests {
 
 		// Verify the log no longer exists.
 		let result = store
-			.try_read_process_log(ReadProcessLogArg {
+			.try_read(ReadArg {
 				process: process.clone(),
 				position: 0,
 				length: 10,
@@ -981,7 +966,7 @@ mod tests {
 
 		// Insert chunks.
 		store
-			.put_process_log(PutProcessLogArg {
+			.put(PutArg {
 				bytes: Bytes::from("hello"),
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
@@ -990,7 +975,7 @@ mod tests {
 			.await
 			.unwrap();
 		store
-			.put_process_log(PutProcessLogArg {
+			.put(PutArg {
 				bytes: Bytes::from("err"),
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stderr,
@@ -999,7 +984,7 @@ mod tests {
 			.await
 			.unwrap();
 		store
-			.put_process_log(PutProcessLogArg {
+			.put(PutArg {
 				bytes: Bytes::from("world"),
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
@@ -1011,7 +996,7 @@ mod tests {
 		// Check lengths.
 		assert_eq!(
 			store
-				.try_get_process_log_length(
+				.try_get_length(
 					&process,
 					&BTreeSet::from([
 						tg::process::stdio::Stream::Stdout,
@@ -1024,7 +1009,7 @@ mod tests {
 		); // 5 + 3 + 5
 		assert_eq!(
 			store
-				.try_get_process_log_length(
+				.try_get_length(
 					&process,
 					&BTreeSet::from([tg::process::stdio::Stream::Stdout]),
 				)
@@ -1034,7 +1019,7 @@ mod tests {
 		); // 5 + 5
 		assert_eq!(
 			store
-				.try_get_process_log_length(
+				.try_get_length(
 					&process,
 					&BTreeSet::from([tg::process::stdio::Stream::Stderr]),
 				)
@@ -1057,7 +1042,7 @@ mod tests {
 
 		// Insert a chunk.
 		store
-			.put_process_log(PutProcessLogArg {
+			.put(PutArg {
 				bytes: Bytes::from("hello"),
 				process: process.clone(),
 				stream: tg::process::stdio::Stream::Stdout,
@@ -1068,7 +1053,7 @@ mod tests {
 
 		// Read at the end position.
 		let result = store
-			.try_read_process_log(ReadProcessLogArg {
+			.try_read(ReadArg {
 				process: process.clone(),
 				position: 5,
 				length: 10,
@@ -1092,7 +1077,7 @@ mod tests {
 
 		// Try to read from a process that does not exist.
 		let result = store
-			.try_read_process_log(ReadProcessLogArg {
+			.try_read(ReadArg {
 				process,
 				position: 0,
 				length: 10,

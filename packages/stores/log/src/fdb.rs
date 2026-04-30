@@ -1,5 +1,5 @@
 use {
-	crate::{DeleteProcessLogArg, ProcessLogEntry, PutProcessLogArg, ReadProcessLogArg},
+	crate::{DeleteArg, Entry, PutArg, ReadArg},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	futures::StreamExt as _,
 	num::ToPrimitive as _,
@@ -25,14 +25,14 @@ type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<()>>;
 
 #[derive(Clone)]
 enum Request {
-	Delete(DeleteProcessLogArg),
-	Put(PutProcessLogArg),
+	Delete(DeleteArg),
+	Put(PutArg),
 }
 
 #[derive(Debug)]
 enum Key<'a> {
-	ProcessLogEntry(&'a tg::process::Id, u64),
-	ProcessLogStreamPosition(&'a tg::process::Id, tg::process::stdio::Stream, u64),
+	Entry(&'a tg::process::Id, u64),
+	StreamPosition(&'a tg::process::Id, tg::process::stdio::Stream, u64),
 }
 
 impl Store {
@@ -66,16 +66,13 @@ impl Store {
 		subspace.pack(key)
 	}
 
-	fn process_log_entries_subspace(
-		subspace: &fdbt::Subspace,
-		id: &tg::process::Id,
-	) -> fdbt::Subspace {
+	fn entries_subspace(subspace: &fdbt::Subspace, id: &tg::process::Id) -> fdbt::Subspace {
 		let id_bytes = id.to_bytes();
 		let prefix = Self::pack(subspace, &(id_bytes.as_ref(), 0));
 		fdbt::Subspace::from_bytes(prefix)
 	}
 
-	fn process_log_stream_positions_subspace(
+	fn stream_positions_subspace(
 		subspace: &fdbt::Subspace,
 		id: &tg::process::Id,
 		stream: tg::process::stdio::Stream,
@@ -92,15 +89,11 @@ impl Store {
 		Ok(fdbt::Subspace::from_bytes(prefix))
 	}
 
-	fn process_log_entry_key(
-		subspace: &fdbt::Subspace,
-		id: &tg::process::Id,
-		position: u64,
-	) -> Vec<u8> {
-		Self::pack(subspace, &Key::ProcessLogEntry(id, position))
+	fn entry_key(subspace: &fdbt::Subspace, id: &tg::process::Id, position: u64) -> Vec<u8> {
+		Self::pack(subspace, &Key::Entry(id, position))
 	}
 
-	fn process_log_stream_position_key(
+	fn stream_position_key(
 		subspace: &fdbt::Subspace,
 		id: &tg::process::Id,
 		stream: tg::process::stdio::Stream,
@@ -111,7 +104,7 @@ impl Store {
 		}
 		Ok(Self::pack(
 			subspace,
-			&Key::ProcessLogStreamPosition(id, stream, position),
+			&Key::StreamPosition(id, stream, position),
 		))
 	}
 
@@ -134,14 +127,14 @@ impl Store {
 	async fn execute_delete_request(
 		database: &fdb::Database,
 		subspace: &fdbt::Subspace,
-		arg: DeleteProcessLogArg,
+		arg: DeleteArg,
 	) -> tg::Result<()> {
 		database
 			.run(|txn, _maybe_committed| {
 				let arg = arg.clone();
 				let subspace = subspace.clone();
 				async move {
-					Self::task_delete_process_log(&txn, &subspace, &arg)
+					Self::task_delete(&txn, &subspace, &arg)
 						.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))?;
 					Ok(())
 				}
@@ -154,14 +147,14 @@ impl Store {
 	async fn execute_put_request(
 		database: &fdb::Database,
 		subspace: &fdbt::Subspace,
-		arg: PutProcessLogArg,
+		arg: PutArg,
 	) -> tg::Result<()> {
 		database
 			.run(|txn, _maybe_committed| {
 				let arg = arg.clone();
 				let subspace = subspace.clone();
 				async move {
-					Self::task_put_process_log(&txn, &subspace, &arg)
+					Self::task_put(&txn, &subspace, &arg)
 						.await
 						.map_err(|source| fdb::FdbBindingError::CustomError(source.into()))?;
 					Ok(())
@@ -172,13 +165,13 @@ impl Store {
 		Ok(())
 	}
 
-	async fn get_process_log_entry_with_transaction(
+	async fn get_entry_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		id: &tg::process::Id,
 		position: u64,
-	) -> tg::Result<Option<ProcessLogEntry<'static>>> {
-		let key = Self::process_log_entry_key(subspace, id, position);
+	) -> tg::Result<Option<Entry<'static>>> {
+		let key = Self::entry_key(subspace, id, position);
 		let bytes = txn
 			.get(&key, false)
 			.await
@@ -186,17 +179,17 @@ impl Store {
 		let Some(bytes) = bytes else {
 			return Ok(None);
 		};
-		let entry = tangram_serialize::from_slice::<ProcessLogEntry>(&bytes)
+		let entry = tangram_serialize::from_slice::<Entry>(&bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the log entry"))?;
 		Ok(Some(entry.into_static()))
 	}
 
-	async fn get_last_process_log_entry_with_transaction(
+	async fn get_last_entry_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		id: &tg::process::Id,
-	) -> tg::Result<Option<ProcessLogEntry<'static>>> {
-		let range_subspace = Self::process_log_entries_subspace(subspace, id);
+	) -> tg::Result<Option<Entry<'static>>> {
+		let range_subspace = Self::entries_subspace(subspace, id);
 		let range = fdb::RangeOption {
 			limit: Some(1),
 			mode: fdb::options::StreamingMode::WantAll,
@@ -211,20 +204,20 @@ impl Store {
 		else {
 			return Ok(None);
 		};
-		let entry = tangram_serialize::from_slice::<ProcessLogEntry>(entry.value())
+		let entry = tangram_serialize::from_slice::<Entry>(entry.value())
 			.map_err(|source| tg::error!(!source, "failed to deserialize the log entry"))?;
 		Ok(Some(entry.into_static()))
 	}
 
-	async fn get_process_log_entry_at_or_before_with_transaction(
+	async fn get_entry_at_or_before_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		id: &tg::process::Id,
 		position: u64,
-	) -> tg::Result<Option<ProcessLogEntry<'static>>> {
-		let range_subspace = Self::process_log_entries_subspace(subspace, id);
+	) -> tg::Result<Option<Entry<'static>>> {
+		let range_subspace = Self::entries_subspace(subspace, id);
 		let (begin, _) = range_subspace.range();
-		let end = Self::process_log_entry_key(subspace, id, position);
+		let end = Self::entry_key(subspace, id, position);
 		let range = fdb::RangeOption {
 			begin: fdb::KeySelector::first_greater_or_equal(begin),
 			end: fdb::KeySelector::first_greater_than(end),
@@ -242,21 +235,21 @@ impl Store {
 		else {
 			return Ok(None);
 		};
-		let entry = tangram_serialize::from_slice::<ProcessLogEntry>(entry.value())
+		let entry = tangram_serialize::from_slice::<Entry>(entry.value())
 			.map_err(|source| tg::error!(!source, "failed to deserialize the log entry"))?;
 		Ok(Some(entry.into_static()))
 	}
 
-	async fn get_stream_combined_position_at_or_before_with_transaction(
+	async fn get_stream_position_at_or_before_with_transaction(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		id: &tg::process::Id,
 		stream: tg::process::stdio::Stream,
 		position: u64,
 	) -> tg::Result<Option<u64>> {
-		let range_subspace = Self::process_log_stream_positions_subspace(subspace, id, stream)?;
+		let range_subspace = Self::stream_positions_subspace(subspace, id, stream)?;
 		let (begin, _) = range_subspace.range();
-		let end = Self::process_log_stream_position_key(subspace, id, stream, position)?;
+		let end = Self::stream_position_key(subspace, id, stream, position)?;
 		let range = fdb::RangeOption {
 			begin: fdb::KeySelector::first_greater_or_equal(begin),
 			end: fdb::KeySelector::first_greater_than(end),
@@ -283,10 +276,7 @@ impl Store {
 		Ok(Some(position))
 	}
 
-	pub async fn try_read_process_log(
-		&self,
-		arg: ReadProcessLogArg,
-	) -> tg::Result<Vec<ProcessLogEntry<'static>>> {
+	pub async fn try_read(&self, arg: ReadArg) -> tg::Result<Vec<Entry<'static>>> {
 		if arg.streams.is_empty() {
 			return Err(tg::error!("expected at least one log stream"));
 		}
@@ -307,7 +297,7 @@ impl Store {
 			arg.position
 		} else {
 			let stream = arg.streams.iter().next().copied().unwrap();
-			let Some(position) = Self::get_stream_combined_position_at_or_before_with_transaction(
+			let Some(position) = Self::get_stream_position_at_or_before_with_transaction(
 				&txn,
 				&self.subspace,
 				&arg.process,
@@ -321,7 +311,7 @@ impl Store {
 			position
 		};
 
-		let Some(start_entry) = Self::get_process_log_entry_at_or_before_with_transaction(
+		let Some(start_entry) = Self::get_entry_at_or_before_with_transaction(
 			&txn,
 			&self.subspace,
 			&arg.process,
@@ -331,9 +321,8 @@ impl Store {
 		else {
 			return Ok(Vec::new());
 		};
-		let start_key =
-			Self::process_log_entry_key(&self.subspace, &arg.process, start_entry.position);
-		let range_subspace = Self::process_log_entries_subspace(&self.subspace, &arg.process);
+		let start_key = Self::entry_key(&self.subspace, &arg.process, start_entry.position);
+		let range_subspace = Self::entries_subspace(&self.subspace, &arg.process);
 		let (_, end) = range_subspace.range();
 		let range = fdb::RangeOption {
 			begin: fdb::KeySelector::first_greater_or_equal(start_key),
@@ -345,7 +334,7 @@ impl Store {
 
 		let mut remaining = arg.length;
 		let mut output = Vec::new();
-		let mut current: Option<ProcessLogEntry<'static>> = None;
+		let mut current: Option<Entry<'static>> = None;
 
 		while remaining > 0 {
 			let Some(entry) = entries
@@ -357,7 +346,7 @@ impl Store {
 				break;
 			};
 
-			let chunk = tangram_serialize::from_slice::<ProcessLogEntry>(entry.value())
+			let chunk = tangram_serialize::from_slice::<Entry>(entry.value())
 				.map_err(|source| tg::error!(!source, "failed to deserialize the log entry"))?;
 
 			if !arg.streams.contains(&chunk.stream) {
@@ -390,7 +379,7 @@ impl Store {
 					entry.bytes = Cow::Owned(combined);
 				} else {
 					output.push(current.take().unwrap());
-					current = Some(ProcessLogEntry {
+					current = Some(Entry {
 						bytes,
 						position: chunk.position + offset,
 						stream_position: chunk.stream_position + offset,
@@ -399,7 +388,7 @@ impl Store {
 					});
 				}
 			} else {
-				current = Some(ProcessLogEntry {
+				current = Some(Entry {
 					bytes,
 					position: chunk.position + offset,
 					stream_position: chunk.stream_position + offset,
@@ -418,7 +407,7 @@ impl Store {
 		Ok(output)
 	}
 
-	pub async fn try_get_process_log_length(
+	pub async fn try_get_length(
 		&self,
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
@@ -440,7 +429,7 @@ impl Store {
 
 		let length = if streams.len() == 1 {
 			let stream = streams.iter().next().copied().unwrap();
-			let Some(position) = Self::get_stream_combined_position_at_or_before_with_transaction(
+			let Some(position) = Self::get_stream_position_at_or_before_with_transaction(
 				&txn,
 				&self.subspace,
 				id,
@@ -452,15 +441,14 @@ impl Store {
 				return Ok(None);
 			};
 			let Some(entry) =
-				Self::get_process_log_entry_with_transaction(&txn, &self.subspace, id, position)
-					.await?
+				Self::get_entry_with_transaction(&txn, &self.subspace, id, position).await?
 			else {
 				return Ok(None);
 			};
 			entry.stream_position + entry.bytes.len().to_u64().unwrap()
 		} else {
 			let Some(entry) =
-				Self::get_last_process_log_entry_with_transaction(&txn, &self.subspace, id).await?
+				Self::get_last_entry_with_transaction(&txn, &self.subspace, id).await?
 			else {
 				return Ok(None);
 			};
@@ -470,7 +458,7 @@ impl Store {
 		Ok(Some(length))
 	}
 
-	pub async fn put_process_log(&self, arg: PutProcessLogArg) -> tg::Result<()> {
+	pub async fn put(&self, arg: PutArg) -> tg::Result<()> {
 		if arg.bytes.is_empty() {
 			return Ok(());
 		}
@@ -483,7 +471,7 @@ impl Store {
 			.map_err(|_| tg::error!("the task panicked"))?
 	}
 
-	pub async fn delete_process_log(&self, arg: DeleteProcessLogArg) -> tg::Result<()> {
+	pub async fn delete(&self, arg: DeleteArg) -> tg::Result<()> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		self.sender
 			.send((Request::Delete(arg), sender))
@@ -493,41 +481,38 @@ impl Store {
 			.map_err(|_| tg::error!("the task panicked"))?
 	}
 
-	async fn task_put_process_log(
+	async fn task_put(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		arg: &PutProcessLogArg,
+		arg: &PutArg,
 	) -> tg::Result<()> {
 		let id = &arg.process;
 
-		let position = Self::get_last_process_log_entry_with_transaction(txn, subspace, id)
+		let position = Self::get_last_entry_with_transaction(txn, subspace, id)
 			.await?
 			.map_or(0, |entry| {
 				entry.position + entry.bytes.len().to_u64().unwrap()
 			});
 
-		let stream_position =
-			match Self::get_stream_combined_position_at_or_before_with_transaction(
-				txn,
-				subspace,
-				id,
-				arg.stream,
-				u64::MAX,
-			)
-			.await?
-			{
-				Some(position) => {
-					match Self::get_process_log_entry_with_transaction(txn, subspace, id, position)
-						.await?
-					{
-						Some(entry) => entry.stream_position + entry.bytes.len().to_u64().unwrap(),
-						None => 0,
-					}
-				},
-				None => 0,
-			};
+		let stream_position = match Self::get_stream_position_at_or_before_with_transaction(
+			txn,
+			subspace,
+			id,
+			arg.stream,
+			u64::MAX,
+		)
+		.await?
+		{
+			Some(position) => {
+				match Self::get_entry_with_transaction(txn, subspace, id, position).await? {
+					Some(entry) => entry.stream_position + entry.bytes.len().to_u64().unwrap(),
+					None => 0,
+				}
+			},
+			None => 0,
+		};
 
-		let entry = ProcessLogEntry {
+		let entry = Entry {
 			bytes: Cow::Owned(arg.bytes.to_vec()),
 			position,
 			stream_position,
@@ -535,31 +520,30 @@ impl Store {
 			timestamp: arg.timestamp,
 		};
 
-		let key = Self::process_log_entry_key(subspace, id, position);
+		let key = Self::entry_key(subspace, id, position);
 		let value = tangram_serialize::to_vec(&entry).unwrap();
 		txn.set(&key, &value);
 
-		let key = Self::process_log_stream_position_key(subspace, id, arg.stream, stream_position)?;
+		let key = Self::stream_position_key(subspace, id, arg.stream, stream_position)?;
 		let value = position.to_le_bytes();
 		txn.set(&key, &value);
 
 		Ok(())
 	}
 
-	fn task_delete_process_log(
+	fn task_delete(
 		txn: &fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		arg: &DeleteProcessLogArg,
+		arg: &DeleteArg,
 	) -> tg::Result<()> {
-		let entries = Self::process_log_entries_subspace(subspace, &arg.process);
+		let entries = Self::entries_subspace(subspace, &arg.process);
 		txn.clear_subspace_range(&entries);
 
 		for stream in [
 			tg::process::stdio::Stream::Stdout,
 			tg::process::stdio::Stream::Stderr,
 		] {
-			let pointers =
-				Self::process_log_stream_positions_subspace(subspace, &arg.process, stream)?;
+			let pointers = Self::stream_positions_subspace(subspace, &arg.process, stream)?;
 			txn.clear_subspace_range(&pointers);
 		}
 
@@ -568,27 +552,24 @@ impl Store {
 }
 
 impl crate::Store for Store {
-	async fn try_read_process_log(
-		&self,
-		arg: ReadProcessLogArg,
-	) -> tg::Result<Vec<ProcessLogEntry<'static>>> {
-		self.try_read_process_log(arg).await
+	async fn try_read(&self, arg: ReadArg) -> tg::Result<Vec<Entry<'static>>> {
+		self.try_read(arg).await
 	}
 
-	async fn try_get_process_log_length(
+	async fn try_get_length(
 		&self,
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<u64>> {
-		self.try_get_process_log_length(id, streams).await
+		self.try_get_length(id, streams).await
 	}
 
-	async fn put_process_log(&self, arg: PutProcessLogArg) -> tg::Result<()> {
-		self.put_process_log(arg).await
+	async fn put(&self, arg: PutArg) -> tg::Result<()> {
+		self.put(arg).await
 	}
 
-	async fn delete_process_log(&self, arg: DeleteProcessLogArg) -> tg::Result<()> {
-		self.delete_process_log(arg).await
+	async fn delete(&self, arg: DeleteArg) -> tg::Result<()> {
+		self.delete(arg).await
 	}
 }
 
@@ -599,20 +580,18 @@ impl fdbt::TuplePack for Key<'_> {
 		tuple_depth: fdbt::TupleDepth,
 	) -> std::io::Result<fdbt::VersionstampOffset> {
 		match self {
-			Key::ProcessLogEntry(id, position) => {
-				(id.to_bytes().as_ref(), 0, *position).pack(w, tuple_depth)
-			},
-			Key::ProcessLogStreamPosition(id, tg::process::stdio::Stream::Stdin, position) => {
+			Key::Entry(id, position) => (id.to_bytes().as_ref(), 0, *position).pack(w, tuple_depth),
+			Key::StreamPosition(id, tg::process::stdio::Stream::Stdin, position) => {
 				let _ = (id, position);
 				Err(std::io::Error::new(
 					std::io::ErrorKind::InvalidInput,
 					"invalid stdio stream",
 				))
 			},
-			Key::ProcessLogStreamPosition(id, tg::process::stdio::Stream::Stdout, position) => {
+			Key::StreamPosition(id, tg::process::stdio::Stream::Stdout, position) => {
 				(id.to_bytes().as_ref(), 1, *position).pack(w, tuple_depth)
 			},
-			Key::ProcessLogStreamPosition(id, tg::process::stdio::Stream::Stderr, position) => {
+			Key::StreamPosition(id, tg::process::stdio::Stream::Stderr, position) => {
 				(id.to_bytes().as_ref(), 2, *position).pack(w, tuple_depth)
 			},
 		}
@@ -631,20 +610,20 @@ mod tests {
 		let id_bytes = id.to_bytes();
 
 		assert_eq!(
-			Store::pack(&subspace, &Key::ProcessLogEntry(&id, 42)),
+			Store::pack(&subspace, &Key::Entry(&id, 42)),
 			(id_bytes.as_ref(), 0, 42u64).pack_to_vec(),
 		);
 		assert_eq!(
 			Store::pack(
 				&subspace,
-				&Key::ProcessLogStreamPosition(&id, tg::process::stdio::Stream::Stdout, 7),
+				&Key::StreamPosition(&id, tg::process::stdio::Stream::Stdout, 7),
 			),
 			(id_bytes.as_ref(), 1, 7u64).pack_to_vec(),
 		);
 		assert_eq!(
 			Store::pack(
 				&subspace,
-				&Key::ProcessLogStreamPosition(&id, tg::process::stdio::Stream::Stderr, 9),
+				&Key::StreamPosition(&id, tg::process::stdio::Stream::Stderr, 9),
 			),
 			(id_bytes.as_ref(), 2, 9u64).pack_to_vec(),
 		);
@@ -659,9 +638,6 @@ mod tests {
 		let mut expected = b"logs_".to_vec();
 		expected.extend((id_bytes.as_ref(), 0, 1u64).pack_to_vec());
 
-		assert_eq!(
-			Store::pack(&subspace, &Key::ProcessLogEntry(&id, 1)),
-			expected,
-		);
+		assert_eq!(Store::pack(&subspace, &Key::Entry(&id, 1)), expected,);
 	}
 }

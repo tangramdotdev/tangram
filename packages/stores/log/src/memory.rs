@@ -1,5 +1,5 @@
 use {
-	crate::{DeleteProcessLogArg, ProcessLogEntry, PutProcessLogArg, ReadProcessLogArg},
+	crate::{DeleteArg, Entry, PutArg, ReadArg},
 	dashmap::DashMap,
 	num::ToPrimitive as _,
 	std::{
@@ -10,12 +10,12 @@ use {
 };
 
 pub struct Store {
-	process_logs: DashMap<tg::process::Id, ProcessLogs, tg::id::BuildHasher>,
+	processes: DashMap<tg::process::Id, Process, tg::id::BuildHasher>,
 }
 
 #[derive(Default)]
-struct ProcessLogs {
-	entries: BTreeMap<u64, ProcessLogEntry<'static>>,
+struct Process {
+	entries: BTreeMap<u64, Entry<'static>>,
 	stream_positions: BTreeMap<(tg::process::stdio::Stream, u64), u64>,
 }
 
@@ -23,14 +23,14 @@ impl Store {
 	#[must_use]
 	pub fn new() -> Self {
 		Self {
-			process_logs: DashMap::default(),
+			processes: DashMap::default(),
 		}
 	}
 
 	#[must_use]
 	#[expect(clippy::needless_pass_by_value)]
-	fn try_read_process_log(&self, arg: ReadProcessLogArg) -> Vec<ProcessLogEntry<'static>> {
-		let Some(logs) = self.process_logs.get(&arg.process) else {
+	fn try_read(&self, arg: ReadArg) -> Vec<Entry<'static>> {
+		let Some(logs) = self.processes.get(&arg.process) else {
 			return Vec::new();
 		};
 		if arg.streams.is_empty() {
@@ -66,7 +66,7 @@ impl Store {
 
 		let mut remaining = arg.length;
 		let mut output = Vec::new();
-		let mut current: Option<ProcessLogEntry<'static>> = None;
+		let mut current: Option<Entry<'static>> = None;
 
 		for chunk in entries {
 			if remaining == 0 {
@@ -106,7 +106,7 @@ impl Store {
 					entry.bytes = Cow::Owned(combined);
 				} else {
 					output.push(current.take().unwrap());
-					current = Some(ProcessLogEntry {
+					current = Some(Entry {
 						bytes,
 						position: chunk.position + offset,
 						stream_position: chunk.stream_position + offset,
@@ -115,7 +115,7 @@ impl Store {
 					});
 				}
 			} else {
-				current = Some(ProcessLogEntry {
+				current = Some(Entry {
 					bytes,
 					position: chunk.position + offset,
 					stream_position: chunk.stream_position + offset,
@@ -136,7 +136,7 @@ impl Store {
 	}
 
 	#[must_use]
-	pub fn try_get_process_log_length(
+	pub fn try_get_length(
 		&self,
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
@@ -144,28 +144,28 @@ impl Store {
 		if streams.is_empty() {
 			return None;
 		}
-		let process_logs = self.process_logs.get(id)?;
+		let processes = self.processes.get(id)?;
 		if streams.len() == 1 {
 			let stream = streams.iter().next().copied()?;
-			let last_position = process_logs
+			let last_position = processes
 				.stream_positions
 				.range((stream, 0)..(stream, u64::MAX))
 				.next_back()
 				.map(|(_, &v)| v)?;
-			let entry = process_logs.entries.get(&last_position)?;
+			let entry = processes.entries.get(&last_position)?;
 			Some(entry.stream_position + entry.bytes.len().to_u64().unwrap())
 		} else {
-			let entry = process_logs.entries.values().next_back()?;
+			let entry = processes.entries.values().next_back()?;
 			Some(entry.position + entry.bytes.len().to_u64().unwrap())
 		}
 	}
 
-	pub fn put_process_log(&self, arg: PutProcessLogArg) {
+	pub fn put(&self, arg: PutArg) {
 		if arg.bytes.is_empty() {
 			return;
 		}
 
-		let mut logs = self.process_logs.entry(arg.process).or_default();
+		let mut logs = self.processes.entry(arg.process).or_default();
 
 		// Get the current position.
 		let position = logs.entries.values().next_back().map_or(0, |entry| {
@@ -183,7 +183,7 @@ impl Store {
 			});
 
 		// Create the entry.
-		let entry = ProcessLogEntry {
+		let entry = Entry {
 			bytes: Cow::Owned(arg.bytes.to_vec()),
 			position,
 			stream_position,
@@ -199,20 +199,20 @@ impl Store {
 			.insert((arg.stream, stream_position), position);
 	}
 
-	pub fn put_process_log_batch(&self, args: Vec<PutProcessLogArg>) {
+	pub fn put_batch(&self, args: Vec<PutArg>) {
 		for arg in args {
-			self.put_process_log(arg);
+			self.put(arg);
 		}
 	}
 
 	#[expect(clippy::needless_pass_by_value)]
-	pub fn delete_process_log(&self, arg: DeleteProcessLogArg) {
-		self.process_logs.remove(&arg.process);
+	pub fn delete(&self, arg: DeleteArg) {
+		self.processes.remove(&arg.process);
 	}
 
-	pub fn delete_process_log_batch(&self, args: Vec<DeleteProcessLogArg>) {
+	pub fn delete_batch(&self, args: Vec<DeleteArg>) {
 		for arg in args {
-			self.delete_process_log(arg);
+			self.delete(arg);
 		}
 	}
 }
@@ -224,28 +224,25 @@ impl Default for Store {
 }
 
 impl crate::Store for Store {
-	async fn try_read_process_log(
-		&self,
-		arg: ReadProcessLogArg,
-	) -> tg::Result<Vec<ProcessLogEntry<'static>>> {
-		Ok(self.try_read_process_log(arg))
+	async fn try_read(&self, arg: ReadArg) -> tg::Result<Vec<Entry<'static>>> {
+		Ok(self.try_read(arg))
 	}
 
-	async fn try_get_process_log_length(
+	async fn try_get_length(
 		&self,
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<u64>> {
-		Ok(self.try_get_process_log_length(id, streams))
+		Ok(self.try_get_length(id, streams))
 	}
 
-	async fn put_process_log(&self, arg: PutProcessLogArg) -> tg::Result<()> {
-		self.put_process_log(arg);
+	async fn put(&self, arg: PutArg) -> tg::Result<()> {
+		self.put(arg);
 		Ok(())
 	}
 
-	async fn delete_process_log(&self, arg: DeleteProcessLogArg) -> tg::Result<()> {
-		self.delete_process_log(arg);
+	async fn delete(&self, arg: DeleteArg) -> tg::Result<()> {
+		self.delete(arg);
 		Ok(())
 	}
 }
@@ -255,7 +252,7 @@ mod tests {
 	use super::*;
 	use bytes::Bytes;
 
-	fn collect_bytes(entries: Vec<ProcessLogEntry>) -> Bytes {
+	fn collect_bytes(entries: Vec<Entry>) -> Bytes {
 		entries
 			.into_iter()
 			.flat_map(|entry| entry.bytes.to_vec())
@@ -269,7 +266,7 @@ mod tests {
 		let process = tg::process::Id::new();
 
 		// Insert a single chunk.
-		store.put_process_log(PutProcessLogArg {
+		store.put(PutArg {
 			bytes: Bytes::from("hello world"),
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
@@ -277,7 +274,7 @@ mod tests {
 		});
 
 		// Read the entire chunk.
-		let result = store.try_read_process_log(ReadProcessLogArg {
+		let result = store.try_read(ReadArg {
 			process: process.clone(),
 			position: 0,
 			length: 11,
@@ -286,7 +283,7 @@ mod tests {
 		assert_eq!(collect_bytes(result), Bytes::from("hello world"));
 
 		// Read a subset of the chunk.
-		let result = store.try_read_process_log(ReadProcessLogArg {
+		let result = store.try_read(ReadArg {
 			process: process.clone(),
 			position: 6,
 			length: 5,
@@ -301,19 +298,19 @@ mod tests {
 		let process = tg::process::Id::new();
 
 		// Insert multiple chunks.
-		store.put_process_log(PutProcessLogArg {
+		store.put(PutArg {
 			bytes: Bytes::from("hello"),
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
 			timestamp: 1000,
 		});
-		store.put_process_log(PutProcessLogArg {
+		store.put(PutArg {
 			bytes: Bytes::from(" "),
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
 			timestamp: 1001,
 		});
-		store.put_process_log(PutProcessLogArg {
+		store.put(PutArg {
 			bytes: Bytes::from("world"),
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
@@ -321,7 +318,7 @@ mod tests {
 		});
 
 		// Read across all chunks.
-		let result = store.try_read_process_log(ReadProcessLogArg {
+		let result = store.try_read(ReadArg {
 			process: process.clone(),
 			position: 0,
 			length: 11,
@@ -336,19 +333,19 @@ mod tests {
 		let process = tg::process::Id::new();
 
 		// Insert chunks: "AAAA" (0-3), "BBBB" (4-7), "CCCC" (8-11).
-		store.put_process_log(PutProcessLogArg {
+		store.put(PutArg {
 			bytes: Bytes::from("AAAA"),
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
 			timestamp: 1000,
 		});
-		store.put_process_log(PutProcessLogArg {
+		store.put(PutArg {
 			bytes: Bytes::from("BBBB"),
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
 			timestamp: 1001,
 		});
-		store.put_process_log(PutProcessLogArg {
+		store.put(PutArg {
 			bytes: Bytes::from("CCCC"),
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
@@ -356,7 +353,7 @@ mod tests {
 		});
 
 		// Read starting in the middle of the first chunk, across into the second.
-		let result = store.try_read_process_log(ReadProcessLogArg {
+		let result = store.try_read(ReadArg {
 			process: process.clone(),
 			position: 2,
 			length: 4,
@@ -365,7 +362,7 @@ mod tests {
 		assert_eq!(collect_bytes(result), Bytes::from("AABB"));
 
 		// Read starting in the middle of the second chunk, across into the third.
-		let result = store.try_read_process_log(ReadProcessLogArg {
+		let result = store.try_read(ReadArg {
 			process: process.clone(),
 			position: 6,
 			length: 4,
@@ -374,7 +371,7 @@ mod tests {
 		assert_eq!(collect_bytes(result), Bytes::from("BBCC"));
 
 		// Read spanning all three chunks.
-		let result = store.try_read_process_log(ReadProcessLogArg {
+		let result = store.try_read(ReadArg {
 			process: process.clone(),
 			position: 2,
 			length: 8,
@@ -389,19 +386,19 @@ mod tests {
 		let process = tg::process::Id::new();
 
 		// Insert interleaved stdout and stderr chunks.
-		store.put_process_log(PutProcessLogArg {
+		store.put(PutArg {
 			bytes: Bytes::from("out1"),
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
 			timestamp: 1000,
 		});
-		store.put_process_log(PutProcessLogArg {
+		store.put(PutArg {
 			bytes: Bytes::from("err1"),
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stderr,
 			timestamp: 1001,
 		});
-		store.put_process_log(PutProcessLogArg {
+		store.put(PutArg {
 			bytes: Bytes::from("out2"),
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
@@ -409,7 +406,7 @@ mod tests {
 		});
 
 		// Read the combined stream.
-		let result = store.try_read_process_log(ReadProcessLogArg {
+		let result = store.try_read(ReadArg {
 			process: process.clone(),
 			position: 0,
 			length: 12,
@@ -421,7 +418,7 @@ mod tests {
 		assert_eq!(collect_bytes(result), Bytes::from("out1err1out2"));
 
 		// Read only stdout.
-		let result = store.try_read_process_log(ReadProcessLogArg {
+		let result = store.try_read(ReadArg {
 			process: process.clone(),
 			position: 0,
 			length: 8,
@@ -430,7 +427,7 @@ mod tests {
 		assert_eq!(collect_bytes(result), Bytes::from("out1out2"));
 
 		// Read only stderr.
-		let result = store.try_read_process_log(ReadProcessLogArg {
+		let result = store.try_read(ReadArg {
 			process: process.clone(),
 			position: 0,
 			length: 4,
@@ -445,13 +442,13 @@ mod tests {
 		let process = tg::process::Id::new();
 
 		// Insert some chunks.
-		store.put_process_log(PutProcessLogArg {
+		store.put(PutArg {
 			bytes: Bytes::from("hello"),
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
 			timestamp: 1000,
 		});
-		store.put_process_log(PutProcessLogArg {
+		store.put(PutArg {
 			bytes: Bytes::from("world"),
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stderr,
@@ -459,7 +456,7 @@ mod tests {
 		});
 
 		// Verify the log exists.
-		let result = store.try_read_process_log(ReadProcessLogArg {
+		let result = store.try_read(ReadArg {
 			process: process.clone(),
 			position: 0,
 			length: 10,
@@ -471,12 +468,12 @@ mod tests {
 		assert_eq!(collect_bytes(result), Bytes::from("helloworld"));
 
 		// Delete the log.
-		store.delete_process_log(DeleteProcessLogArg {
+		store.delete(DeleteArg {
 			process: process.clone(),
 		});
 
 		// Verify the log no longer exists.
-		let result = store.try_read_process_log(ReadProcessLogArg {
+		let result = store.try_read(ReadArg {
 			process: process.clone(),
 			position: 0,
 			length: 10,
@@ -494,19 +491,19 @@ mod tests {
 		let process = tg::process::Id::new();
 
 		// Insert chunks.
-		store.put_process_log(PutProcessLogArg {
+		store.put(PutArg {
 			bytes: Bytes::from("hello"),
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
 			timestamp: 1000,
 		});
-		store.put_process_log(PutProcessLogArg {
+		store.put(PutArg {
 			bytes: Bytes::from("err"),
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stderr,
 			timestamp: 1001,
 		});
-		store.put_process_log(PutProcessLogArg {
+		store.put(PutArg {
 			bytes: Bytes::from("world"),
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
@@ -515,7 +512,7 @@ mod tests {
 
 		// Check lengths.
 		assert_eq!(
-			store.try_get_process_log_length(
+			store.try_get_length(
 				&process,
 				&BTreeSet::from([
 					tg::process::stdio::Stream::Stdout,
@@ -525,14 +522,14 @@ mod tests {
 			Some(13)
 		);
 		assert_eq!(
-			store.try_get_process_log_length(
+			store.try_get_length(
 				&process,
 				&BTreeSet::from([tg::process::stdio::Stream::Stdout])
 			),
 			Some(10)
 		);
 		assert_eq!(
-			store.try_get_process_log_length(
+			store.try_get_length(
 				&process,
 				&BTreeSet::from([tg::process::stdio::Stream::Stderr])
 			),
@@ -546,7 +543,7 @@ mod tests {
 		let process = tg::process::Id::new();
 
 		// Insert a chunk.
-		store.put_process_log(PutProcessLogArg {
+		store.put(PutArg {
 			bytes: Bytes::from("hello"),
 			process: process.clone(),
 			stream: tg::process::stdio::Stream::Stdout,
@@ -554,7 +551,7 @@ mod tests {
 		});
 
 		// Read at the end position.
-		let result = store.try_read_process_log(ReadProcessLogArg {
+		let result = store.try_read(ReadArg {
 			process: process.clone(),
 			position: 5,
 			length: 10,
@@ -569,7 +566,7 @@ mod tests {
 		let process = tg::process::Id::new();
 
 		// Try to read from a process that does not exist.
-		let result = store.try_read_process_log(ReadProcessLogArg {
+		let result = store.try_read(ReadArg {
 			process,
 			position: 0,
 			length: 10,

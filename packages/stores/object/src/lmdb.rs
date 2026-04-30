@@ -28,10 +28,6 @@ type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<()>>;
 type _ResponseReceiver = tokio::sync::oneshot::Receiver<tg::Result<()>>;
 
 enum Request {
-	Object(ObjectRequest),
-}
-
-enum ObjectRequest {
 	Put(PutObject),
 	PutBatch(Vec<PutObject>),
 	Delete(DeleteObject),
@@ -217,21 +213,21 @@ impl Store {
 			let mut responses = vec![];
 			for request in requests {
 				match request {
-					Request::Object(ObjectRequest::Put(request)) => {
+					Request::Put(request) => {
 						let result = Self::task_put_object(env, db, &mut transaction, request);
 						responses.push(result);
 					},
-					Request::Object(ObjectRequest::PutBatch(requests)) => {
+					Request::PutBatch(requests) => {
 						for request in requests {
 							let result = Self::task_put_object(env, db, &mut transaction, request);
 							responses.push(result);
 						}
 					},
-					Request::Object(ObjectRequest::Delete(request)) => {
+					Request::Delete(request) => {
 						let result = Self::task_delete_object(env, db, &mut transaction, request);
 						responses.push(result);
 					},
-					Request::Object(ObjectRequest::DeleteBatch(requests)) => {
+					Request::DeleteBatch(requests) => {
 						for request in requests {
 							let result =
 								Self::task_delete_object(env, db, &mut transaction, request);
@@ -469,12 +465,12 @@ impl crate::Store for Store {
 	async fn put(&self, arg: PutArg) -> tg::Result<()> {
 		let id = arg.id.clone();
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::Object(ObjectRequest::Put(PutObject {
+		let request = Request::Put(PutObject {
 			bytes: arg.bytes,
 			cache_pointer: arg.cache_pointer,
 			id: arg.id,
 			touched_at: arg.touched_at,
-		}));
+		});
 		self.sender
 			.send((request, sender))
 			.await
@@ -489,7 +485,7 @@ impl crate::Store for Store {
 			return Ok(());
 		}
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::Object(ObjectRequest::PutBatch(
+		let request = Request::PutBatch(
 			args.into_iter()
 				.map(|arg| PutObject {
 					bytes: arg.bytes,
@@ -498,7 +494,7 @@ impl crate::Store for Store {
 					touched_at: arg.touched_at,
 				})
 				.collect(),
-		));
+		);
 		self.sender
 			.send((request, sender))
 			.await
@@ -511,11 +507,11 @@ impl crate::Store for Store {
 	async fn delete(&self, arg: DeleteArg) -> tg::Result<()> {
 		let id = arg.id.clone();
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::Object(ObjectRequest::Delete(DeleteObject {
+		let request = Request::Delete(DeleteObject {
 			id: arg.id,
 			now: arg.now,
 			ttl: arg.ttl,
-		}));
+		});
 		self.sender
 			.send((request, sender))
 			.await
@@ -530,7 +526,7 @@ impl crate::Store for Store {
 			return Ok(());
 		}
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let request = Request::Object(ObjectRequest::DeleteBatch(
+		let request = Request::DeleteBatch(
 			args.into_iter()
 				.map(|arg| DeleteObject {
 					id: arg.id,
@@ -538,7 +534,7 @@ impl crate::Store for Store {
 					ttl: arg.ttl,
 				})
 				.collect(),
-		));
+		);
 		self.sender
 			.send((request, sender))
 			.await

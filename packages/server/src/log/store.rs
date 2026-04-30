@@ -2,7 +2,7 @@
 use std::path::Path;
 use {std::collections::BTreeSet, tangram_client::prelude::*, tangram_log_store as log_store};
 
-pub use log_store::{DeleteProcessLogArg, PutProcessLogArg, ReadProcessLogArg};
+pub use log_store::{DeleteArg, PutArg, ReadArg};
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
@@ -48,54 +48,51 @@ impl Store {
 }
 
 impl log_store::Store for Store {
-	async fn try_read_process_log(
-		&self,
-		arg: ReadProcessLogArg,
-	) -> tg::Result<Vec<log_store::ProcessLogEntry<'static>>> {
+	async fn try_read(&self, arg: ReadArg) -> tg::Result<Vec<log_store::Entry<'static>>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(fdb) => fdb.try_read_process_log(arg).await,
+			Self::Fdb(fdb) => fdb.try_read(arg).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.try_read_process_log(arg).await,
-			Self::Memory(memory) => memory.try_read_process_log(arg).await,
+			Self::Lmdb(lmdb) => lmdb.try_read(arg).await,
+			Self::Memory(memory) => memory.try_read(arg).await,
 		}
 	}
 
-	async fn try_get_process_log_length(
+	async fn try_get_length(
 		&self,
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<u64>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(fdb) => fdb.try_get_process_log_length(id, streams).await,
+			Self::Fdb(fdb) => fdb.try_get_length(id, streams).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.try_get_process_log_length(id, streams).await,
-			Self::Memory(memory) => Ok(memory.try_get_process_log_length(id, streams)),
+			Self::Lmdb(lmdb) => lmdb.try_get_length(id, streams).await,
+			Self::Memory(memory) => Ok(memory.try_get_length(id, streams)),
 		}
 	}
 
-	async fn put_process_log(&self, arg: PutProcessLogArg) -> tg::Result<()> {
+	async fn put(&self, arg: PutArg) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(fdb) => fdb.put_process_log(arg).await,
+			Self::Fdb(fdb) => fdb.put(arg).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.put_process_log(arg).await,
+			Self::Lmdb(lmdb) => lmdb.put(arg).await,
 			Self::Memory(memory) => {
-				memory.put_process_log(arg);
+				memory.put(arg);
 				Ok(())
 			},
 		}
 	}
 
-	async fn delete_process_log(&self, arg: DeleteProcessLogArg) -> tg::Result<()> {
+	async fn delete(&self, arg: DeleteArg) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(fdb) => fdb.delete_process_log(arg).await,
+			Self::Fdb(fdb) => fdb.delete(arg).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(lmdb) => lmdb.delete_process_log(arg).await,
+			Self::Lmdb(lmdb) => lmdb.delete(arg).await,
 			Self::Memory(memory) => {
-				memory.delete_process_log(arg);
+				memory.delete(arg);
 				Ok(())
 			},
 		}
