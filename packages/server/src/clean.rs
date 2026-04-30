@@ -91,7 +91,8 @@ impl Server {
 			.as_ref()
 			.map_or(1024, |config| config.batch_size);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let ttl = Duration::from_secs(0);
+		let object_time_to_live = Duration::from_secs(0);
+		let process_time_to_live = Duration::from_secs(0);
 		progress.start(
 			"cache_entries".into(),
 			"cache entries".into(),
@@ -118,7 +119,14 @@ impl Server {
 		let partition_total = self.index.partition_total();
 		loop {
 			let inner_output = match self
-				.cleaner_task_inner(now, ttl, batch_size, 0, partition_total)
+				.cleaner_task_inner(
+					now,
+					object_time_to_live,
+					process_time_to_live,
+					batch_size,
+					0,
+					partition_total,
+				)
 				.await
 			{
 				Ok(inner_output) => inner_output,
@@ -167,7 +175,8 @@ impl Server {
 		let concurrency = config.concurrency.to_u64().unwrap();
 		loop {
 			let now = time::OffsetDateTime::now_utc().unix_timestamp();
-			let ttl = config.ttl;
+			let object_time_to_live = self.config.object.time_to_live;
+			let process_time_to_live = self.config.process.time_to_live;
 			let n = config.batch_size;
 
 			let futures = (0..config.concurrency).map(|task_index| {
@@ -177,7 +186,14 @@ impl Server {
 				let task_start =
 					partition_start + task_index * partitions_per_task + task_index.min(extra);
 				let task_count = partitions_per_task + u64::from(task_index < extra);
-				self.cleaner_task_inner(now, ttl, n, task_start, task_count)
+				self.cleaner_task_inner(
+					now,
+					object_time_to_live,
+					process_time_to_live,
+					n,
+					task_start,
+					task_count,
+				)
 			});
 
 			match future::try_join_all(futures).await {
@@ -197,17 +213,25 @@ impl Server {
 	async fn cleaner_task_inner(
 		&self,
 		now: i64,
-		ttl: Duration,
+		object_time_to_live: Duration,
+		process_time_to_live: Duration,
 		n: usize,
 		partition_start: u64,
 		partition_count: u64,
 	) -> tg::Result<tangram_index::CleanOutput> {
-		let max_touched_at = now - ttl.as_secs().to_i64().unwrap();
+		let max_object_touched_at = now - object_time_to_live.as_secs().to_i64().unwrap();
+		let max_process_touched_at = now - process_time_to_live.as_secs().to_i64().unwrap();
 
 		// Clean.
 		let output = self
 			.index
-			.clean(max_touched_at, n, partition_start, partition_count)
+			.clean(
+				max_object_touched_at,
+				max_process_touched_at,
+				n,
+				partition_start,
+				partition_count,
+			)
 			.await?;
 
 		// Delete cache entries.
@@ -237,7 +261,7 @@ impl Server {
 		.map_err(|source| tg::error!(!source, "the clean task panicked"))??;
 
 		// Delete objects.
-		let ttl = ttl.as_secs();
+		let ttl = object_time_to_live.as_secs();
 		let args = output
 			.objects
 			.iter()
@@ -250,7 +274,7 @@ impl Server {
 			.map_err(|error| tg::error!(!error, "failed to delete objects"))?;
 
 		// Delete processes.
-		self.clean_processes(&output.processes, max_touched_at)
+		self.clean_processes(&output.processes, max_process_touched_at)
 			.await?;
 
 		Ok(output)
@@ -259,17 +283,17 @@ impl Server {
 	async fn clean_processes(
 		&self,
 		processes: &[tg::process::Id],
-		max_touched_at: i64,
+		max_stored_at: i64,
 	) -> tg::Result<()> {
 		match &self.process_store {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(process_store) => {
-				self.clean_processes_postgres(process_store, processes, max_touched_at)
+				self.clean_processes_postgres(process_store, processes, max_stored_at)
 					.await
 			},
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(process_store) => {
-				self.clean_processes_sqlite(process_store, processes, max_touched_at)
+				self.clean_processes_sqlite(process_store, processes, max_stored_at)
 					.await
 			},
 		}

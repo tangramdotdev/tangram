@@ -44,7 +44,7 @@ pub struct Config {
 	pub indexer: Option<Indexer>,
 
 	#[serde(default)]
-	pub log_store: LogStore,
+	pub logs: Logs,
 
 	#[serde(default)]
 	pub messenger: Messenger,
@@ -156,7 +156,6 @@ pub struct CheckinDirectory {
 	pub max_leaf_entries: usize,
 }
 
-#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Cleaner {
@@ -164,8 +163,6 @@ pub struct Cleaner {
 	pub concurrency: usize,
 	pub partition_count: u64,
 	pub partition_start: u64,
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub ttl: Duration,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -257,6 +254,12 @@ pub struct Indexer {
 	pub partition_start: u64,
 }
 
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct Logs {
+	pub store: LogStore,
+}
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum LogStore {
@@ -298,11 +301,21 @@ pub struct NatsMessenger {
 	pub url: Uri,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde_as]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Object {
 	#[serde(default)]
 	pub store: ObjectStore,
+	#[serde(default = "default_time_to_index", alias = "tti")]
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub time_to_index: Duration,
+	#[serde(default = "default_time_to_live", alias = "ttl")]
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub time_to_live: Duration,
+	#[serde(default = "default_time_to_touch", alias = "ttt")]
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub time_to_touch: Duration,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -366,6 +379,18 @@ pub struct Process {
 
 	#[serde(default = "default_process_store")]
 	pub store: Database,
+
+	#[serde(default = "default_time_to_index", alias = "tti")]
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub time_to_index: Duration,
+
+	#[serde(default = "default_time_to_live", alias = "ttl")]
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub time_to_live: Duration,
+
+	#[serde(default = "default_time_to_touch", alias = "ttt")]
+	#[serde_as(as = "DurationSecondsWithFrac")]
+	pub time_to_touch: Duration,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -695,7 +720,7 @@ impl Default for Config {
 			http: Some(Http::default()),
 			index: Index::default(),
 			indexer: Some(Indexer::default()),
-			log_store: LogStore::default(),
+			logs: Logs::default(),
 			messenger: Messenger::default(),
 			object: Object::default(),
 			process: Process::default(),
@@ -757,7 +782,6 @@ impl Default for Cleaner {
 			concurrency: 1,
 			partition_count: 256,
 			partition_start: 0,
-			ttl: Duration::from_hours(24),
 		}
 	}
 }
@@ -869,6 +893,17 @@ impl Default for NatsMessenger {
 	}
 }
 
+impl Default for Object {
+	fn default() -> Self {
+		Self {
+			store: ObjectStore::default(),
+			time_to_index: default_time_to_index(),
+			time_to_live: default_time_to_live(),
+			time_to_touch: default_time_to_touch(),
+		}
+	}
+}
+
 impl Default for ObjectStore {
 	fn default() -> Self {
 		Self::Lmdb(LmdbObjectStore::default())
@@ -889,6 +924,9 @@ impl Default for Process {
 		Self {
 			finalizer: Some(Finalizer::default()),
 			store: default_process_store(),
+			time_to_index: default_time_to_index(),
+			time_to_live: default_time_to_live(),
+			time_to_touch: default_time_to_touch(),
 		}
 	}
 }
@@ -1063,6 +1101,18 @@ fn default_process_store() -> Database {
 		connections: None,
 		path: PathBuf::from("processes"),
 	})
+}
+
+fn default_time_to_index() -> Duration {
+	Duration::from_mins(10)
+}
+
+fn default_time_to_live() -> Duration {
+	Duration::from_hours(24)
+}
+
+fn default_time_to_touch() -> Duration {
+	Duration::from_hours(1)
 }
 
 #[expect(clippy::unnecessary_wraps)]

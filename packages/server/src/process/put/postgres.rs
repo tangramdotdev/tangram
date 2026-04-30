@@ -11,15 +11,15 @@ impl Server {
 		id: &tg::process::Id,
 		arg: &tg::process::put::Arg,
 		process_store: &db::postgres::Database,
-		touched_at: i64,
+		stored_at: i64,
 	) -> tg::Result<()> {
-		Self::put_process_batch_postgres(&[(id, &arg.data)], process_store, touched_at).await
+		Self::put_process_batch_postgres(&[(id, &arg.data)], process_store, stored_at).await
 	}
 
 	pub(crate) async fn put_process_batch_postgres(
 		items: &[(&tg::process::Id, &tg::process::Data)],
 		process_store: &db::postgres::Database,
-		touched_at: i64,
+		stored_at: i64,
 	) -> tg::Result<()> {
 		if items.is_empty() {
 			return Ok(());
@@ -39,7 +39,6 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		// Collect all process data into column arrays.
-		let mut ids = Vec::with_capacity(items.len());
 		let mut actual_checksums: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut cacheables: Vec<bool> = Vec::with_capacity(items.len());
 		let mut commands = Vec::with_capacity(items.len());
@@ -51,6 +50,7 @@ impl Server {
 		let mut expected_checksums: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut finished_ats: Vec<Option<i64>> = Vec::with_capacity(items.len());
 		let mut hosts: Vec<String> = Vec::with_capacity(items.len());
+		let mut ids = Vec::with_capacity(items.len());
 		let mut logs: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut outputs: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut retries: Vec<bool> = Vec::with_capacity(items.len());
@@ -63,12 +63,11 @@ impl Server {
 		let mut stdin_opens: Vec<Option<bool>> = Vec::with_capacity(items.len());
 		let mut stdouts: Vec<Option<String>> = Vec::with_capacity(items.len());
 		let mut stdout_opens: Vec<Option<bool>> = Vec::with_capacity(items.len());
-		let mut ttys: Vec<Option<String>> = Vec::with_capacity(items.len());
+		let mut stored_ats = Vec::with_capacity(items.len());
 		let mut token_counts = Vec::with_capacity(items.len());
-		let mut touched_ats = Vec::with_capacity(items.len());
+		let mut ttys: Vec<Option<String>> = Vec::with_capacity(items.len());
 
 		for (id, data) in items {
-			ids.push(id.to_string());
 			actual_checksums.push(data.actual_checksum.as_ref().map(ToString::to_string));
 			cacheables.push(data.cacheable);
 			commands.push(data.command.to_string());
@@ -96,6 +95,7 @@ impl Server {
 			expected_checksums.push(data.expected_checksum.as_ref().map(ToString::to_string));
 			finished_ats.push(data.finished_at);
 			hosts.push(data.host.clone());
+			ids.push(id.to_string());
 			logs.push(data.log.as_ref().map(ToString::to_string));
 			outputs.push(
 				data.output
@@ -139,20 +139,19 @@ impl Server {
 			stdin_opens.push(stdin_open);
 			stdouts.push((!data.stdout.is_null()).then(|| data.stdout.to_string()));
 			stdout_opens.push(stdout_open);
+			stored_ats.push(stored_at);
+			token_counts.push(0i64);
 			ttys.push(
 				data.tty
 					.as_ref()
 					.map(|tty| serde_json::to_string(tty).unwrap()),
 			);
-			token_counts.push(0i64);
-			touched_ats.push(touched_at);
 		}
 
 		// Insert all processes with UNNEST.
 		let statement = indoc!(
 			"
 				insert into processes (
-					id,
 					actual_checksum,
 					cacheable,
 					command,
@@ -164,6 +163,7 @@ impl Server {
 					expected_checksum,
 					finished_at,
 					host,
+					id,
 					log,
 					output,
 					retry,
@@ -176,22 +176,22 @@ impl Server {
 					stdin_open,
 					stdout,
 					stdout_open,
-					tty,
+					stored_at,
 					token_count,
-					touched_at
+					tty
 				)
 				select
 					unnest($1::text[]),
-					unnest($2::text[]),
-					unnest($3::bool[]),
-					unnest($4::text[]),
-					unnest($5::int8[]),
+					unnest($2::bool[]),
+					unnest($3::text[]),
+					unnest($4::int8[]),
+					unnest($5::text[]),
 					unnest($6::text[]),
 					unnest($7::text[]),
-					unnest($8::text[]),
-					unnest($9::int8[]),
-					unnest($10::text[]),
-					unnest($11::int8[]),
+					unnest($8::int8[]),
+					unnest($9::text[]),
+					unnest($10::int8[]),
+					unnest($11::text[]),
 					unnest($12::text[]),
 					unnest($13::text[]),
 					unnest($14::text[]),
@@ -205,9 +205,9 @@ impl Server {
 					unnest($22::bool[]),
 					unnest($23::text[]),
 					unnest($24::bool[]),
-					unnest($25::text[]),
+					unnest($25::int8[]),
 					unnest($26::int8[]),
-					unnest($27::int8[])
+					unnest($27::text[])
 				on conflict (id) do update set
 					actual_checksum = excluded.actual_checksum,
 					cacheable = excluded.cacheable,
@@ -232,16 +232,15 @@ impl Server {
 					stdin_open = excluded.stdin_open,
 					stdout = excluded.stdout,
 					stdout_open = excluded.stdout_open,
-					tty = excluded.tty,
+					stored_at = excluded.stored_at,
 					token_count = excluded.token_count,
-					touched_at = excluded.touched_at;
+					tty = excluded.tty;
 			"
 		);
 		transaction
 			.execute(
 				statement,
 				&[
-					&ids,
 					&actual_checksums,
 					&cacheables,
 					&commands,
@@ -253,6 +252,7 @@ impl Server {
 					&expected_checksums,
 					&finished_ats,
 					&hosts,
+					&ids,
 					&logs,
 					&outputs,
 					&retries,
@@ -265,9 +265,9 @@ impl Server {
 					&stdin_opens,
 					&stdouts,
 					&stdout_opens,
-					&ttys,
+					&stored_ats,
 					&token_counts,
-					&touched_ats,
+					&ttys,
 				],
 			)
 			.await

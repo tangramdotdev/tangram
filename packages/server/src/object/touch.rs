@@ -55,7 +55,7 @@ impl Server {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let Some(_) = self
 			.index
-			.touch_object(id, touched_at)
+			.touch_object(id, touched_at, self.config.object.time_to_touch)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to touch the object"))?
 		else {

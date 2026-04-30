@@ -1,6 +1,6 @@
 use {
 	futures::FutureExt as _,
-	std::collections::BTreeSet,
+	std::{collections::BTreeSet, time::Duration},
 	tangram_client::prelude::*,
 	tangram_util::serde::{is_default, is_false},
 };
@@ -58,14 +58,16 @@ pub trait Index {
 		&self,
 		ids: &[tg::artifact::Id],
 		touched_at: i64,
+		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Vec<Option<CacheEntry>>>> + Send;
 
 	fn touch_cache_entry(
 		&self,
 		id: &tg::artifact::Id,
 		touched_at: i64,
+		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Option<CacheEntry>>> + Send {
-		self.touch_cache_entries(std::slice::from_ref(id), touched_at)
+		self.touch_cache_entries(std::slice::from_ref(id), touched_at, time_to_touch)
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 
@@ -73,14 +75,16 @@ pub trait Index {
 		&self,
 		ids: &[tg::object::Id],
 		touched_at: i64,
+		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Vec<Option<Object>>>> + Send;
 
 	fn touch_object(
 		&self,
 		id: &tg::object::Id,
 		touched_at: i64,
+		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Option<Object>>> + Send {
-		self.touch_objects(std::slice::from_ref(id), touched_at)
+		self.touch_objects(std::slice::from_ref(id), touched_at, time_to_touch)
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 
@@ -88,14 +92,16 @@ pub trait Index {
 		&self,
 		ids: &[tg::process::Id],
 		touched_at: i64,
+		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Vec<Option<Process>>>> + Send;
 
 	fn touch_process(
 		&self,
 		id: &tg::process::Id,
 		touched_at: i64,
+		time_to_touch: Duration,
 	) -> impl Future<Output = tg::Result<Option<Process>>> + Send {
-		self.touch_processes(std::slice::from_ref(id), touched_at)
+		self.touch_processes(std::slice::from_ref(id), touched_at, time_to_touch)
 			.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 
@@ -119,7 +125,8 @@ pub trait Index {
 
 	fn clean(
 		&self,
-		max_touched_at: i64,
+		max_object_touched_at: i64,
+		max_process_touched_at: i64,
 		batch_size: usize,
 		partition_start: u64,
 		partition_count: u64,

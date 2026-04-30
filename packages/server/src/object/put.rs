@@ -47,10 +47,10 @@ impl Server {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		let put_arg = crate::object::store::PutArg {
-			id: id.clone(),
 			bytes: Some(arg.bytes.clone()),
-			touched_at: now,
 			cache_pointer: None,
+			id: id.clone(),
+			stored_at: now,
 		};
 		self.object_store
 			.put(put_arg)

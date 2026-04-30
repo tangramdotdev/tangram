@@ -10,7 +10,7 @@ impl Server {
 		&self,
 		process_store: &db::postgres::Database,
 		processes: &[tg::process::Id],
-		max_touched_at: i64,
+		max_stored_at: i64,
 	) -> tg::Result<()> {
 		if processes.is_empty() {
 			return Ok(());
@@ -28,7 +28,7 @@ impl Server {
 			"
 				with deleted_processes as (
 					delete from processes
-					where id = any($1::text[]) and touched_at <= $2
+					where id = any($1::text[]) and stored_at <= $2
 					returning id
 				),
 				deleted_process_children as (
@@ -62,7 +62,7 @@ impl Server {
 		);
 		connection
 			.inner()
-			.query(statement, &[&processes, &max_touched_at])
+			.query(statement, &[&processes, &max_stored_at])
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		Ok(())

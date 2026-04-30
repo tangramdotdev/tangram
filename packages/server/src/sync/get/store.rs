@@ -108,10 +108,10 @@ impl Server {
 			.iter()
 			.map(|item| {
 				Ok(crate::object::store::PutArg {
-					id: item.id.clone(),
 					bytes: Some(item.bytes.clone()),
 					cache_pointer: None,
-					touched_at,
+					id: item.id.clone(),
+					stored_at: touched_at,
 				})
 			})
 			.collect::<tg::Result<_>>()?;

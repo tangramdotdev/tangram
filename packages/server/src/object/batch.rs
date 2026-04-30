@@ -50,10 +50,10 @@ impl Server {
 			.objects
 			.iter()
 			.map(|object| crate::object::store::PutArg {
-				id: object.id.clone(),
 				bytes: Some(object.bytes.clone()),
-				touched_at: now,
 				cache_pointer: None,
+				id: object.id.clone(),
+				stored_at: now,
 			})
 			.collect();
 		self.object_store

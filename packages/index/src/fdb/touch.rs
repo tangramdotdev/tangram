@@ -4,6 +4,7 @@ use {
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
 	futures::future,
+	std::time::Duration,
 	tangram_client::prelude::*,
 };
 
@@ -12,6 +13,7 @@ impl Index {
 		&self,
 		ids: &[tg::artifact::Id],
 		touched_at: i64,
+		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<CacheEntry>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
@@ -19,6 +21,7 @@ impl Index {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::TouchCacheEntries {
 			ids: ids.to_vec(),
+			time_to_touch,
 			touched_at,
 		};
 		self.sender_high
@@ -37,6 +40,7 @@ impl Index {
 		&self,
 		ids: &[tg::object::Id],
 		touched_at: i64,
+		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<Object>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
@@ -44,6 +48,7 @@ impl Index {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::TouchObjects {
 			ids: ids.to_vec(),
+			time_to_touch,
 			touched_at,
 		};
 		self.sender_high
@@ -62,6 +67,7 @@ impl Index {
 		&self,
 		ids: &[tg::process::Id],
 		touched_at: i64,
+		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<Process>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
@@ -69,6 +75,7 @@ impl Index {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::TouchProcesses {
 			ids: ids.to_vec(),
+			time_to_touch,
 			touched_at,
 		};
 		self.sender_high
@@ -88,6 +95,7 @@ impl Index {
 		subspace: &Subspace,
 		ids: &[tg::artifact::Id],
 		touched_at: i64,
+		time_to_touch: Duration,
 		partition_total: u64,
 	) -> tg::Result<Vec<Option<CacheEntry>>> {
 		future::try_join_all(ids.iter().map(|id| {
@@ -98,6 +106,7 @@ impl Index {
 					&subspace,
 					id,
 					touched_at,
+					time_to_touch,
 					partition_total,
 				)
 				.await
@@ -111,13 +120,21 @@ impl Index {
 		subspace: &Subspace,
 		ids: &[tg::object::Id],
 		touched_at: i64,
+		time_to_touch: Duration,
 		partition_total: u64,
 	) -> tg::Result<Vec<Option<Object>>> {
 		future::try_join_all(ids.iter().map(|id| {
 			let subspace = subspace.clone();
 			async move {
-				Self::touch_object_with_transaction(txn, &subspace, id, touched_at, partition_total)
-					.await
+				Self::touch_object_with_transaction(
+					txn,
+					&subspace,
+					id,
+					touched_at,
+					time_to_touch,
+					partition_total,
+				)
+				.await
 			}
 		}))
 		.await
@@ -128,6 +145,7 @@ impl Index {
 		subspace: &Subspace,
 		ids: &[tg::process::Id],
 		touched_at: i64,
+		time_to_touch: Duration,
 		partition_total: u64,
 	) -> tg::Result<Vec<Option<Process>>> {
 		future::try_join_all(ids.iter().map(|id| {
@@ -138,6 +156,7 @@ impl Index {
 					&subspace,
 					id,
 					touched_at,
+					time_to_touch,
 					partition_total,
 				)
 				.await
@@ -151,6 +170,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::artifact::Id,
 		touched_at: i64,
+		time_to_touch: Duration,
 		partition_total: u64,
 	) -> tg::Result<Option<CacheEntry>> {
 		let key = Key::CacheEntry(id.clone());
@@ -166,6 +186,10 @@ impl Index {
 		let Some(mut cache_entry) = existing else {
 			return Ok(None);
 		};
+		let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap();
+		if touched_at - cache_entry.touched_at < time_to_touch {
+			return Ok(Some(cache_entry));
+		}
 
 		let mut key_end = key.clone();
 		key_end.push(0x00);
@@ -200,6 +224,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::object::Id,
 		touched_at: i64,
+		time_to_touch: Duration,
 		partition_total: u64,
 	) -> tg::Result<Option<Object>> {
 		let key = Key::Object(id.clone());
@@ -215,6 +240,10 @@ impl Index {
 		let Some(mut object) = existing else {
 			return Ok(None);
 		};
+		let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap();
+		if touched_at - object.touched_at < time_to_touch {
+			return Ok(Some(object));
+		}
 
 		let mut key_end = key.clone();
 		key_end.push(0x00);
@@ -249,6 +278,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		touched_at: i64,
+		time_to_touch: Duration,
 		partition_total: u64,
 	) -> tg::Result<Option<Process>> {
 		let key = Key::Process(id.clone());
@@ -264,6 +294,10 @@ impl Index {
 		let Some(mut process) = existing else {
 			return Ok(None);
 		};
+		let time_to_touch = i64::try_from(time_to_touch.as_secs()).unwrap();
+		if touched_at - process.touched_at < time_to_touch {
+			return Ok(Some(process));
+		}
 
 		let mut key_end = key.clone();
 		key_end.push(0x00);

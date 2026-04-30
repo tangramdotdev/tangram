@@ -79,7 +79,7 @@ impl Server {
 			vec![None; ids.len()]
 		} else {
 			self.index
-				.touch_objects(&ids, touched_at)
+				.touch_objects(&ids, touched_at, self.config.object.time_to_touch)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to touch the objects"))?
 		};
@@ -205,7 +205,7 @@ impl Server {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let outputs = self
 			.index
-			.touch_processes(&ids, touched_at)
+			.touch_processes(&ids, touched_at, self.config.process.time_to_touch)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to touch the processes"))?;
 

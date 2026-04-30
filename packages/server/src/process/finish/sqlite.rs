@@ -56,22 +56,22 @@ impl Server {
 					depth = null,
 					error = ?2,
 					error_code = ?3,
-					finished_at = ?4,
-					output = ?5,
-					exit = ?6,
+					exit = ?4,
+					finished_at = ?5,
+					output = ?6,
 					status = ?7,
 					stderr_open = case when stderr_open is null then null else false end,
 					stdin_open = case when stdin_open is null then null else false end,
 					stdout_open = case when stdout_open is null then null else false end,
-					token_count = 0,
-					touched_at = ?8
+					stored_at = ?5,
+					token_count = 0
 				where
-					id = ?9 and
+					id = ?8 and
 					status != 'finished' and
 					(
-						?10 is null or
-						(?10 = 'depth_exceeded' and depth > ?11) or
-						(?10 = 'token_count_zero' and token_count = 0)
+						?9 is null or
+						(?9 = 'depth_exceeded' and depth > ?10) or
+						(?9 = 'token_count_zero' and token_count = 0)
 					);
 			"
 		);
@@ -82,11 +82,10 @@ impl Server {
 					checksum.as_deref(),
 					error.as_deref(),
 					error_code.as_deref(),
+					i64::from(arg.exit),
 					arg.now,
 					output.as_deref(),
-					i64::from(arg.exit),
 					tg::process::Status::Finished.to_string(),
-					arg.now,
 					id.to_string(),
 					condition,
 					max_depth,

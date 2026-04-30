@@ -757,9 +757,11 @@ export def --env spawn [
 			kind: 'lmdb',
 			map_size: 10_485_760,
 		},
-		log_store: {
-			kind: 'lmdb',
-			map_size: 10_485_760,
+		logs: {
+			store: {
+				kind: 'lmdb',
+				map_size: 10_485_760,
+			},
 		},
 		object: {
 			store: {
@@ -813,10 +815,12 @@ export def --env spawn [
 				kind: 'fdb',
 				prefix: $'index_($id)',
 			},
-			log_store: {
-				cluster: $cluster,
-				kind: 'fdb',
-				prefix: $'logs_($id)',
+			logs: {
+				store: {
+					cluster: $cluster,
+					kind: 'fdb',
+					prefix: $'logs_($id)',
+				},
 			},
 			messenger: {
 				id: $id,

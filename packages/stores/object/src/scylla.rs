@@ -92,7 +92,7 @@ impl Store {
 		let statement = indoc!(
 			"
 				delete from objects
-				where id = ? if touched_at < ?;
+				where id = ? if stored_at < ?;
 			"
 		);
 		let mut delete_object = session
@@ -141,7 +141,7 @@ impl Store {
 
 		let statement = indoc!(
 			"
-				insert into objects (id, bytes, cache_pointer, touched_at)
+				insert into objects (bytes, cache_pointer, id, stored_at)
 				values (?, ?, ?, ?);
 			"
 		);
@@ -284,8 +284,8 @@ impl crate::Store for Store {
 				.await?;
 			return Ok(Some(crate::Object {
 				bytes: Some(Cow::Owned(bytes.to_vec())),
-				touched_at: 0,
 				cache_pointer,
+				stored_at: 0,
 			}));
 		}
 
@@ -302,8 +302,8 @@ impl crate::Store for Store {
 				.await?;
 			return Ok(Some(crate::Object {
 				bytes: Some(Cow::Owned(bytes.to_vec())),
-				touched_at: 0,
 				cache_pointer,
+				stored_at: 0,
 			}));
 		}
 
@@ -337,8 +337,8 @@ impl crate::Store for Store {
 			.map(|id| {
 				map.get(id).cloned().map(|bytes| crate::Object {
 					bytes: Some(Cow::Owned(bytes.to_vec())),
-					touched_at: 0,
 					cache_pointer: None,
+					stored_at: 0,
 				})
 			})
 			.collect();
@@ -348,7 +348,6 @@ impl crate::Store for Store {
 
 	async fn put(&self, arg: PutArg) -> tg::Result<()> {
 		let id = &arg.id;
-		let id_bytes = id.to_bytes().to_vec();
 		let bytes = arg.bytes;
 		let cache_pointer = if let Some(cache_pointer) = &arg.cache_pointer {
 			let cache_pointer = cache_pointer.serialize().map_err(
@@ -358,8 +357,9 @@ impl crate::Store for Store {
 		} else {
 			None
 		};
-		let touched_at = arg.touched_at;
-		let params = (id_bytes, bytes, cache_pointer, touched_at);
+		let id_bytes = id.to_bytes().to_vec();
+		let stored_at = arg.stored_at;
+		let params = (bytes, cache_pointer, id_bytes, stored_at);
 		self.session
 			.execute_unpaged(&self.statements.put_object, params)
 			.await
@@ -383,7 +383,6 @@ impl crate::Store for Store {
 			.iter()
 			.map(|arg| {
 				let id = &arg.id;
-				let id_bytes = id.to_bytes().to_vec();
 				let bytes = arg.bytes.clone();
 				let cache_pointer = if let Some(cache_pointer) = &arg.cache_pointer {
 					let cache_pointer = cache_pointer.serialize().map_err(
@@ -393,8 +392,9 @@ impl crate::Store for Store {
 				} else {
 					None
 				};
-				let touched_at = arg.touched_at;
-				let params = (id_bytes, bytes, cache_pointer, touched_at);
+				let id_bytes = id.to_bytes().to_vec();
+				let stored_at = arg.stored_at;
+				let params = (bytes, cache_pointer, id_bytes, stored_at);
 				Ok(params)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
@@ -408,8 +408,8 @@ impl crate::Store for Store {
 	async fn delete(&self, arg: DeleteArg) -> tg::Result<()> {
 		let id = &arg.id;
 		let id_bytes = id.to_bytes().to_vec();
-		let max_touched_at = arg.now - arg.ttl.to_i64().unwrap();
-		let params = (id_bytes, max_touched_at);
+		let max_stored_at = arg.now - arg.ttl.to_i64().unwrap();
+		let params = (id_bytes, max_stored_at);
 		self.session
 			.execute_unpaged(&self.statements.delete_object, params)
 			.await

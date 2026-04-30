@@ -21,15 +21,17 @@ enum Item {
 impl Index {
 	pub async fn clean(
 		&self,
-		max_touched_at: i64,
+		max_object_touched_at: i64,
+		max_process_touched_at: i64,
 		batch_size: usize,
 		_partition_start: u64,
 		_partition_count: u64,
 	) -> tg::Result<CleanOutput> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Clean {
-			max_touched_at,
 			batch_size,
+			max_object_touched_at,
+			max_process_touched_at,
 		};
 		self.sender_low
 			.send((request, sender))
@@ -47,7 +49,8 @@ impl Index {
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
-		max_touched_at: i64,
+		max_object_touched_at: i64,
+		max_process_touched_at: i64,
 		batch_size: usize,
 	) -> tg::Result<CleanOutput> {
 		let mut output = CleanOutput::default();
@@ -72,6 +75,10 @@ impl Index {
 			} = key
 			else {
 				return Err(tg::error!("expected clean key"));
+			};
+			let max_touched_at = match kind {
+				ItemKind::CacheEntry | ItemKind::Object => max_object_touched_at,
+				ItemKind::Process => max_process_touched_at,
 			};
 			if touched_at > max_touched_at {
 				continue;

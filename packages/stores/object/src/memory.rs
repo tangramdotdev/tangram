@@ -47,7 +47,7 @@ impl Store {
 		let object = Object {
 			bytes: arg.bytes.map(|bytes| Cow::Owned(bytes.to_vec())),
 			cache_pointer: arg.cache_pointer,
-			touched_at: arg.touched_at,
+			stored_at: arg.stored_at,
 		};
 		self.objects.insert(arg.id, object);
 	}
@@ -61,7 +61,7 @@ impl Store {
 	#[expect(clippy::needless_pass_by_value)]
 	pub fn delete(&self, arg: DeleteArg) {
 		self.objects.remove_if(&arg.id, |_, entry| {
-			entry.touched_at >= arg.now - arg.ttl.to_i64().unwrap()
+			entry.stored_at <= arg.now - arg.ttl.to_i64().unwrap()
 		});
 	}
 

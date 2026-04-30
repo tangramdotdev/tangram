@@ -20,13 +20,25 @@ enum RequestItem {
 }
 
 enum RequestKind {
-	Clean { max_touched_at: i64 },
+	Clean {
+		max_object_touched_at: i64,
+		max_process_touched_at: i64,
+	},
 	DeleteTags,
 	Put,
 	PutTags,
-	TouchCacheEntries { touched_at: i64 },
-	TouchObjects { touched_at: i64 },
-	TouchProcesses { touched_at: i64 },
+	TouchCacheEntries {
+		time_to_touch: std::time::Duration,
+		touched_at: i64,
+	},
+	TouchObjects {
+		time_to_touch: std::time::Duration,
+		touched_at: i64,
+	},
+	TouchProcesses {
+		time_to_touch: std::time::Duration,
+		touched_at: i64,
+	},
 	Update,
 }
 
@@ -160,12 +172,18 @@ impl Index {
 			for request in batch.requests {
 				let result = match request {
 					Request::Clean {
-						max_touched_at,
 						batch_size,
-					} => {
-						Self::task_clean(db, subspace, &mut transaction, max_touched_at, batch_size)
-							.map(Response::CleanOutput)
-					},
+						max_object_touched_at,
+						max_process_touched_at,
+					} => Self::task_clean(
+						db,
+						subspace,
+						&mut transaction,
+						max_object_touched_at,
+						max_process_touched_at,
+						batch_size,
+					)
+					.map(Response::CleanOutput),
 					Request::DeleteTags(tags) => {
 						Self::task_delete_tags(db, subspace, &mut transaction, &tags)
 							.map(|()| Response::Unit)
@@ -177,24 +195,45 @@ impl Index {
 						Self::task_put_tags(db, subspace, &mut transaction, &tags)
 							.map(|()| Response::Unit)
 					},
-					Request::TouchCacheEntries { ids, touched_at } => {
-						Self::task_touch_cache_entries(
-							db,
-							subspace,
-							&mut transaction,
-							&ids,
-							touched_at,
-						)
-						.map(Response::CacheEntries)
-					},
-					Request::TouchObjects { ids, touched_at } => {
-						Self::task_touch_objects(db, subspace, &mut transaction, &ids, touched_at)
-							.map(Response::Objects)
-					},
-					Request::TouchProcesses { ids, touched_at } => {
-						Self::task_touch_processes(db, subspace, &mut transaction, &ids, touched_at)
-							.map(Response::Processes)
-					},
+					Request::TouchCacheEntries {
+						ids,
+						time_to_touch,
+						touched_at,
+					} => Self::task_touch_cache_entries(
+						db,
+						subspace,
+						&mut transaction,
+						&ids,
+						touched_at,
+						time_to_touch,
+					)
+					.map(Response::CacheEntries),
+					Request::TouchObjects {
+						ids,
+						time_to_touch,
+						touched_at,
+					} => Self::task_touch_objects(
+						db,
+						subspace,
+						&mut transaction,
+						&ids,
+						touched_at,
+						time_to_touch,
+					)
+					.map(Response::Objects),
+					Request::TouchProcesses {
+						ids,
+						time_to_touch,
+						touched_at,
+					} => Self::task_touch_processes(
+						db,
+						subspace,
+						&mut transaction,
+						&ids,
+						touched_at,
+						time_to_touch,
+					)
+					.map(Response::Processes),
 					Request::Update { batch_size } => {
 						Self::task_update_batch(db, subspace, &mut transaction, batch_size)
 							.map(Response::UpdateCount)
@@ -319,11 +358,18 @@ impl Index {
 	fn request_into_items(request: Request) -> (Vec<RequestItem>, RequestKind) {
 		match request {
 			Request::Clean {
-				max_touched_at,
 				batch_size,
+				max_object_touched_at,
+				max_process_touched_at,
 			} => {
 				let items = (0..batch_size).map(|_| RequestItem::Clean).collect();
-				(items, RequestKind::Clean { max_touched_at })
+				(
+					items,
+					RequestKind::Clean {
+						max_object_touched_at,
+						max_process_touched_at,
+					},
+				)
 			},
 			Request::DeleteTags(tags) => {
 				let items = tags.into_iter().map(RequestItem::DeleteTag).collect();
@@ -346,17 +392,47 @@ impl Index {
 				let items = tags.into_iter().map(RequestItem::PutTag).collect();
 				(items, RequestKind::PutTags)
 			},
-			Request::TouchCacheEntries { ids, touched_at } => {
+			Request::TouchCacheEntries {
+				ids,
+				time_to_touch,
+				touched_at,
+			} => {
 				let items = ids.into_iter().map(RequestItem::TouchCacheEntry).collect();
-				(items, RequestKind::TouchCacheEntries { touched_at })
+				(
+					items,
+					RequestKind::TouchCacheEntries {
+						time_to_touch,
+						touched_at,
+					},
+				)
 			},
-			Request::TouchObjects { ids, touched_at } => {
+			Request::TouchObjects {
+				ids,
+				time_to_touch,
+				touched_at,
+			} => {
 				let items = ids.into_iter().map(RequestItem::TouchObject).collect();
-				(items, RequestKind::TouchObjects { touched_at })
+				(
+					items,
+					RequestKind::TouchObjects {
+						time_to_touch,
+						touched_at,
+					},
+				)
 			},
-			Request::TouchProcesses { ids, touched_at } => {
+			Request::TouchProcesses {
+				ids,
+				time_to_touch,
+				touched_at,
+			} => {
 				let items = ids.into_iter().map(RequestItem::TouchProcess).collect();
-				(items, RequestKind::TouchProcesses { touched_at })
+				(
+					items,
+					RequestKind::TouchProcesses {
+						time_to_touch,
+						touched_at,
+					},
+				)
 			},
 			Request::Update { batch_size } => {
 				let items = (0..batch_size).map(|_| RequestItem::Update).collect();
@@ -367,9 +443,13 @@ impl Index {
 
 	fn request_from_items(items: Vec<RequestItem>, kind: &RequestKind) -> Request {
 		match kind {
-			RequestKind::Clean { max_touched_at } => Request::Clean {
-				max_touched_at: *max_touched_at,
+			RequestKind::Clean {
+				max_object_touched_at,
+				max_process_touched_at,
+			} => Request::Clean {
 				batch_size: items.len(),
+				max_object_touched_at: *max_object_touched_at,
+				max_process_touched_at: *max_process_touched_at,
 			},
 			RequestKind::DeleteTags => {
 				let tags = items
@@ -403,7 +483,10 @@ impl Index {
 					.collect();
 				Request::PutTags(tags)
 			},
-			RequestKind::TouchCacheEntries { touched_at } => {
+			RequestKind::TouchCacheEntries {
+				time_to_touch,
+				touched_at,
+			} => {
 				let ids = items
 					.into_iter()
 					.map(|item| match item {
@@ -413,10 +496,14 @@ impl Index {
 					.collect();
 				Request::TouchCacheEntries {
 					ids,
+					time_to_touch: *time_to_touch,
 					touched_at: *touched_at,
 				}
 			},
-			RequestKind::TouchObjects { touched_at } => {
+			RequestKind::TouchObjects {
+				time_to_touch,
+				touched_at,
+			} => {
 				let ids = items
 					.into_iter()
 					.map(|item| match item {
@@ -426,10 +513,14 @@ impl Index {
 					.collect();
 				Request::TouchObjects {
 					ids,
+					time_to_touch: *time_to_touch,
 					touched_at: *touched_at,
 				}
 			},
-			RequestKind::TouchProcesses { touched_at } => {
+			RequestKind::TouchProcesses {
+				time_to_touch,
+				touched_at,
+			} => {
 				let ids = items
 					.into_iter()
 					.map(|item| match item {
@@ -439,6 +530,7 @@ impl Index {
 					.collect();
 				Request::TouchProcesses {
 					ids,
+					time_to_touch: *time_to_touch,
 					touched_at: *touched_at,
 				}
 			},

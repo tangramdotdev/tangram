@@ -31,7 +31,7 @@ pub struct Output {
 
 pub enum Destination {
 	Temp(Temp),
-	Store { touched_at: i64 },
+	Store { stored_at: i64 },
 }
 
 impl Server {
@@ -48,7 +48,9 @@ impl Server {
 		let destination = if self.config.advanced.single_directory {
 			Destination::Temp(Temp::new(self))
 		} else {
-			Destination::Store { touched_at }
+			Destination::Store {
+				stored_at: touched_at,
+			}
 		};
 
 		// Create the blob.
@@ -159,14 +161,14 @@ impl Server {
 						.await
 						.map_err(|source| tg::error!(!source, "failed to write to the file"))?;
 				},
-				Some(Destination::Store { touched_at }) => {
+				Some(Destination::Store { stored_at }) => {
 					let mut bytes = vec![0];
 					bytes.extend_from_slice(&chunk.data);
 					let arg = crate::object::store::PutArg {
 						bytes: Some(bytes.into()),
 						cache_pointer: None,
 						id: blob.id.clone().into(),
-						touched_at: *touched_at,
+						stored_at: *stored_at,
 					};
 					self.object_store
 						.put(arg)
@@ -253,14 +255,14 @@ impl Server {
 						.write_all(&chunk.data)
 						.map_err(|source| tg::error!(!source, "failed to write to the file"))?;
 				},
-				Some(Destination::Store { touched_at }) => {
+				Some(Destination::Store { stored_at }) => {
 					let mut bytes = vec![0];
 					bytes.extend_from_slice(&chunk.data);
 					let arg = crate::object::store::PutArg {
 						bytes: Some(bytes.into()),
 						cache_pointer: None,
 						id: blob.id.clone().into(),
-						touched_at: *touched_at,
+						stored_at: *stored_at,
 					};
 					self.object_store
 						.put_sync(arg)
@@ -433,9 +435,9 @@ impl Server {
 		&self,
 		blob: &Output,
 		cache_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
-		touched_at: i64,
+		stored_at: i64,
 	) -> tg::Result<()> {
-		let arg = Self::write_store_args(blob, cache_pointer.as_ref(), touched_at);
+		let arg = Self::write_store_args(blob, cache_pointer.as_ref(), stored_at);
 		self.object_store
 			.put_batch(arg)
 			.await
@@ -446,7 +448,7 @@ impl Server {
 	pub(crate) fn write_store_args(
 		blob: &Output,
 		cache_pointer: Option<&(tg::artifact::Id, Option<PathBuf>)>,
-		touched_at: i64,
+		stored_at: i64,
 	) -> Vec<crate::object::store::PutArg> {
 		let mut args = Vec::new();
 		let mut stack = vec![blob];
@@ -460,15 +462,15 @@ impl Server {
 					.as_ref()
 					.map(|(artifact, path)| crate::object::store::CachePointer {
 						artifact: artifact.clone(),
+						length: blob.length,
 						path: path.clone(),
 						position: blob.position,
-						length: blob.length,
 					});
 			args.push(crate::object::store::PutArg {
 				bytes: blob.bytes.clone(),
 				cache_pointer,
 				id: blob.id.clone().into(),
-				touched_at,
+				stored_at,
 			});
 			stack.extend(&blob.children);
 		}
