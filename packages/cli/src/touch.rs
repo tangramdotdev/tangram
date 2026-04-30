@@ -16,10 +16,20 @@ impl Cli {
 		let locations = args.locations;
 
 		let referent = self.get_reference(&args.reference).await?;
-		let item = referent
-			.item
-			.map_left(|object| object.id().clone())
-			.map_right(|process| process.id().unwrap_right().clone());
+		let item = match referent.item {
+			tg::Either::Left(tg::graph::Edge::Object(object)) => tg::Either::Left(object.id()),
+			tg::Either::Left(tg::graph::Edge::Pointer(_)) => {
+				return Err(tg::error!("expected an object, got a pointer"));
+			},
+			tg::Either::Right(process) => {
+				let id = process
+					.id()
+					.right()
+					.ok_or_else(|| tg::error!("expected a process id"))?
+					.clone();
+				tg::Either::Right(id)
+			},
+		};
 
 		match item {
 			tg::Either::Left(object) => {

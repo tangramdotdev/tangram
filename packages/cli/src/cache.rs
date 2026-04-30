@@ -17,8 +17,11 @@ impl Cli {
 		let artifacts = referents
 			.into_iter()
 			.map(|referent| {
-				let tg::Either::Left(object) = referent.item else {
+				let tg::Either::Left(edge) = referent.item else {
 					return Err(tg::error!("expected an object"));
+				};
+				let tg::graph::Edge::Object(object) = edge else {
+					return Err(tg::error!("caching graph artifacts is unsupported"));
 				};
 				let artifact = tg::Artifact::try_from(object)?;
 				Ok(artifact.id())

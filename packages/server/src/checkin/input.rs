@@ -410,11 +410,20 @@ impl Server {
 						parent: Some(parent),
 					});
 					dependencies.insert(reference, None);
-				} else if let Ok(id) = reference.item().try_unwrap_object_ref() {
+				} else if let Ok(edge) = reference.item().try_unwrap_object_ref() {
+					if let tg::graph::data::Edge::Pointer(p) = edge
+						&& p.graph.is_none()
+					{
+						return Err(tg::error!(%reference, "expected a graph"));
+					}
 					let path = reference.options().path.clone();
 					let options = if path.is_some() {
+						let id = match edge {
+							tg::graph::data::Edge::Object(id) => Some(id.clone()),
+							tg::graph::data::Edge::Pointer(_) => None,
+						};
 						tg::referent::Options {
-							id: Some(id.clone()),
+							id,
 							path,
 							..Default::default()
 						}
@@ -422,7 +431,7 @@ impl Server {
 						tg::referent::Options::default()
 					};
 					let dependency = tg::graph::data::Dependency(tg::Referent {
-						item: Some(tg::graph::data::Edge::Object(id.clone())),
+						item: Some(edge.clone()),
 						options,
 					});
 					dependencies.insert(reference, Some(dependency));
@@ -501,11 +510,20 @@ impl Server {
 						path: referent,
 						parent: Some(parent),
 					});
-				} else if let Ok(id) = reference.item().try_unwrap_object_ref() {
+				} else if let Ok(edge) = reference.item().try_unwrap_object_ref() {
+					if let tg::graph::data::Edge::Pointer(p) = edge
+						&& p.graph.is_none()
+					{
+						return Err(tg::error!(%reference, "expected a graph"));
+					}
 					let path = reference.options().path.clone();
 					let options = if path.is_some() {
+						let id = match edge {
+							tg::graph::data::Edge::Object(id) => Some(id.clone()),
+							tg::graph::data::Edge::Pointer(_) => None,
+						};
 						tg::referent::Options {
-							id: Some(id.clone()),
+							id,
 							path,
 							..Default::default()
 						}
@@ -513,7 +531,7 @@ impl Server {
 						tg::referent::Options::default()
 					};
 					let dependency = tg::graph::data::Dependency(tg::Referent {
-						item: Some(tg::graph::data::Edge::Object(id.clone())),
+						item: Some(edge.clone()),
 						options,
 					});
 					dependencies.insert(reference, Some(dependency));

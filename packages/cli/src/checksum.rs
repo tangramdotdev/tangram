@@ -20,8 +20,11 @@ impl Cli {
 	pub async fn command_checksum(&mut self, args: Args) -> tg::Result<()> {
 		let handle = self.handle().await?;
 		let referent = self.get_reference(&args.reference).await?;
-		let tg::Either::Left(object) = referent.item else {
+		let tg::Either::Left(edge) = referent.item else {
 			return Err(tg::error!("expected an object"));
+		};
+		let tg::graph::Edge::Object(object) = edge else {
+			return Err(tg::error!("checksumming graph pointers is unsupported"));
 		};
 		if let Ok(blob) = tg::Blob::try_from(object.clone()) {
 			let algorithm = args.algorithm;

@@ -22,10 +22,16 @@ impl Cli {
 
 		let referent = self.get_reference(&args.reference).await?;
 		match referent.item {
-			tg::Either::Left(object) => {
+			tg::Either::Left(edge) => {
+				let object = match edge {
+					tg::graph::Edge::Object(object) => object.id(),
+					tg::graph::Edge::Pointer(_) => {
+						return Err(tg::error!("expected an object, got a pointer"));
+					},
+				};
 				let args = crate::object::children::Args {
 					locations: locations.clone(),
-					object: object.id(),
+					object,
 					print,
 				};
 				self.command_object_children(args).await?;

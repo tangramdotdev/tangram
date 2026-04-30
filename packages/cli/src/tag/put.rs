@@ -30,10 +30,19 @@ impl Cli {
 			..Default::default()
 		};
 		let referent = self.get_reference_with_arg(&args.reference, arg).await?;
-		let item = referent
-			.item
-			.map_left(|object| object.id().clone())
-			.map_right(|process| process.id().unwrap_right().clone());
+		let item = match referent.item {
+			tg::Either::Left(tg::graph::Edge::Object(object)) => tg::Either::Left(object.id()),
+			tg::Either::Left(tg::graph::Edge::Pointer(_)) => {
+				return Err(tg::error!("cannot tag a graph pointer"));
+			},
+			tg::Either::Right(process) => tg::Either::Right(
+				process
+					.id()
+					.right()
+					.ok_or_else(|| tg::error!("expected a process id"))?
+					.clone(),
+			),
+		};
 
 		// Put the tag.
 		let arg = tg::tag::put::Arg {

@@ -137,49 +137,114 @@ impl Server {
 			return Err(tg::error!("expected an object"));
 		};
 
-		if let tg::Object::Directory(directory) = &object
-			&& matches!(
-				import.kind,
-				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts)
-			) && let Some(root_module_name) =
-			tg::module::try_get_root_module_file_name_with_handle(self, tg::Either::Left(directory))
-				.await?
-		{
-			let edge = directory
-				.get_entry_edge_with_handle(self, root_module_name)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the entry edge"))?;
-			let edge: tg::graph::Edge<tg::Object> = match edge {
-				tg::graph::Edge::Pointer(pointer) => {
-					if pointer.kind != tg::artifact::Kind::File {
-						return Err(tg::error!("expected a file"));
-					}
-					tg::graph::Edge::Pointer(pointer)
-				},
-				tg::graph::Edge::Object(artifact) => {
-					let file = artifact
-						.try_unwrap_file()
-						.ok()
-						.ok_or_else(|| tg::error!("expected a file"))?;
-					tg::graph::Edge::Object(file.into())
-				},
-			};
-			let path = options.path.as_ref().map_or_else(
-				|| root_module_name.into(),
-				|path| path.join(root_module_name),
-			);
-			let options = tg::referent::Options {
-				path: Some(path),
-				..options
-			};
-			return Ok(tg::Referent {
-				item: tg::module::data::Item::Edge(edge.to_data()),
-				options,
-			});
+		match &object {
+			tg::graph::Edge::Object(tg::Object::Directory(directory))
+				if matches!(
+					import.kind,
+					None | Some(tg::module::Kind::Js | tg::module::Kind::Ts)
+				) && let Some(root_module_name) =
+					tg::module::try_get_root_module_file_name_with_handle(
+						self,
+						tg::Either::Left(directory),
+					)
+					.await? =>
+			{
+				let edge = directory
+					.get_entry_edge_with_handle(self, root_module_name)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the entry edge"))?;
+				let edge: tg::graph::Edge<tg::Object> = match edge {
+					tg::graph::Edge::Pointer(pointer) => {
+						if pointer.kind != tg::artifact::Kind::File {
+							return Err(tg::error!("expected a file"));
+						}
+						tg::graph::Edge::Pointer(pointer)
+					},
+					tg::graph::Edge::Object(artifact) => {
+						let file = artifact
+							.try_unwrap_file()
+							.ok()
+							.ok_or_else(|| tg::error!("expected a file"))?;
+						tg::graph::Edge::Object(file.into())
+					},
+				};
+				let path = options.path.as_ref().map_or_else(
+					|| root_module_name.into(),
+					|path| path.join(root_module_name),
+				);
+				let options = tg::referent::Options {
+					path: Some(path),
+					..options
+				};
+				return Ok(tg::Referent {
+					item: tg::module::data::Item::Edge(edge.to_data()),
+					options,
+				});
+			},
+			tg::graph::Edge::Pointer(pointer)
+				if matches!(pointer.kind, tg::artifact::Kind::Directory)
+					&& matches!(
+						import.kind,
+						None | Some(tg::module::Kind::Js | tg::module::Kind::Ts)
+					) =>
+			{
+				let directory =
+					tg::Directory::with_object(tg::directory::Object::Pointer(pointer.clone()));
+				if let Some(root_module_name) =
+					tg::module::try_get_root_module_file_name_with_handle(
+						self,
+						tg::Either::Left(&directory),
+					)
+					.await?
+				{
+					let edge = directory
+						.get_entry_edge_with_handle(self, root_module_name)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to get the entry edge"))?;
+					let edge = match edge {
+						tg::graph::Edge::Pointer(pointer) => {
+							if pointer.kind != tg::artifact::Kind::File {
+								return Err(tg::error!("expected a file"));
+							}
+							tg::graph::Edge::Pointer(pointer)
+						},
+						tg::graph::Edge::Object(artifact) => {
+							let file = artifact
+								.try_unwrap_file()
+								.ok()
+								.ok_or_else(|| tg::error!("expected a file"))?;
+							tg::graph::Edge::Object(file.into())
+						},
+					};
+					let path = options.path.as_ref().map_or_else(
+						|| root_module_name.into(),
+						|path| path.join(root_module_name),
+					);
+					let options = tg::referent::Options {
+						path: Some(path),
+						..options
+					};
+					return Ok(tg::Referent {
+						item: tg::module::data::Item::Edge(edge.to_data()),
+						options,
+					});
+				}
+			},
+			_ => (),
 		}
 
+		let edge = match object {
+			tg::graph::Edge::Object(object) => tg::graph::data::Edge::Object(object.id()),
+			tg::graph::Edge::Pointer(pointer) => {
+				tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
+					graph: pointer.graph.as_ref().map(tg::Graph::id),
+					index: pointer.index,
+					kind: pointer.kind,
+				})
+			},
+		};
 		Ok(tg::Referent {
-			item: tg::module::data::Item::Edge(tg::graph::data::Edge::Object(object.id())),
+			item: tg::module::data::Item::Edge(edge),
 			options,
 		})
 	}

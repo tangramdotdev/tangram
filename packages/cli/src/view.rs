@@ -120,7 +120,21 @@ impl Cli {
 			},
 			Kind::Value | Kind::Package => {
 				let referent = self.get_reference(&args.reference).await?;
-				let item = match (referent.item(), args.kind) {
+				let item = match referent.item() {
+					tg::Either::Left(tg::graph::Edge::Object(object)) => {
+						tg::Either::Left(object.clone())
+					},
+					tg::Either::Left(tg::graph::Edge::Pointer(pointer)) => {
+						let graph = pointer
+							.graph
+							.clone()
+							.ok_or_else(|| tg::error!("expected a graph"))?
+							.into();
+						tg::Either::Left(graph)
+					},
+					tg::Either::Right(process) => tg::Either::Right(process.clone()),
+				};
+				let item = match (&item, args.kind) {
 					(tg::Either::Left(object), Kind::Package) => {
 						crate::viewer::Item::Package(crate::viewer::Package(object.clone()))
 					},
@@ -135,7 +149,7 @@ impl Cli {
 					},
 					(_, Kind::Tag) => unreachable!(),
 				};
-				referent.map(|_| item)
+				referent.map(|_| item.clone())
 			},
 		};
 

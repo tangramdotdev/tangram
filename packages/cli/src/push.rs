@@ -1,4 +1,4 @@
-use {crate::Cli, futures::future, tangram_client::prelude::*};
+use {crate::Cli, futures::future, itertools::Itertools as _, tangram_client::prelude::*};
 
 /// Push processes and objects.
 #[derive(Clone, Debug, clap::Args)]
@@ -104,15 +104,25 @@ impl Cli {
 
 		// Get the references.
 		let referents = self.get_references(&args.references).await?;
-		let items = referents
+		let items: Vec<_> = referents
 			.into_iter()
-			.map(|referent| {
-				referent
-					.item
-					.map_left(|object| object.id().clone())
-					.map_right(|process| process.id().unwrap_right().clone())
+			.map(|referent| match referent.item {
+				tg::Either::Left(tg::graph::Edge::Object(object)) => {
+					Ok::<_, tg::Error>(tg::Either::Left(object.id()))
+				},
+				tg::Either::Left(tg::graph::Edge::Pointer(_)) => {
+					Err(tg::error!("expected an object, got a pointer"))
+				},
+				tg::Either::Right(process) => {
+					let id = process
+						.id()
+						.right()
+						.ok_or_else(|| tg::error!("expected a process id"))?
+						.clone();
+					Ok(tg::Either::Right(id))
+				},
 			})
-			.collect::<Vec<_>>();
+			.try_collect()?;
 
 		// Push the items.
 		let arg = tg::push::Arg {

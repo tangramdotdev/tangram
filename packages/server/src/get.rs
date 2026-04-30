@@ -19,9 +19,8 @@ impl Server {
 			return Err(tg::error!("forbidden"));
 		}
 		let stream = match reference.item() {
-			tg::reference::Item::Object(object) => {
-				self.try_get_with_object(object, reference.options())
-					.await?
+			tg::reference::Item::Object(edge) => {
+				self.try_get_with_edge(edge, reference.options()).await?
 			},
 			tg::reference::Item::Path(path) => {
 				self.try_get_with_path(path, reference.options(), arg)
@@ -38,12 +37,12 @@ impl Server {
 		Ok(stream)
 	}
 
-	async fn try_get_with_object(
+	async fn try_get_with_edge(
 		&self,
-		object: &tg::object::Id,
+		edge: &tg::graph::data::Edge<tg::object::Id>,
 		options: &tg::reference::Options,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
-		let referent = tg::Referent::with_item(tg::Either::Left(object.clone()));
+		let referent = tg::Referent::with_item(tg::Either::Left(edge.clone()));
 		let output = tg::get::Output { referent };
 		let output = self
 			.try_get_apply_path(output, options.path.as_deref())
@@ -84,8 +83,10 @@ impl Server {
 								Ok(tg::progress::Event::Indicators(indicators))
 							},
 							tg::progress::Event::Output(checkin_output) => {
+								let id = checkin_output.artifact.item.into();
+								let item = tg::graph::data::Edge::Object(id);
 								let referent = tg::Referent::new(
-									tg::Either::Left(checkin_output.artifact.item.into()),
+									tg::Either::Left(item),
 									checkin_output.artifact.options,
 								);
 								let output = tg::get::Output { referent };
@@ -141,6 +142,7 @@ impl Server {
 		let output = match item {
 			Some(item) => {
 				let id = item.as_ref().left().cloned();
+				let item = item.map_left(tg::graph::data::Edge::Object);
 				let referent = tg::Referent {
 					item,
 					options: tg::referent::Options {
@@ -168,21 +170,31 @@ impl Server {
 		let Some(path) = path else {
 			return Ok(Some(output));
 		};
-		let tg::Either::Left(tg::object::Id::Directory(directory)) = &output.referent.item else {
-			return Err(tg::error!("unexpected reference path option"));
-		};
-		let directory = tg::Directory::with_id(directory.clone());
-		let Some(artifact) = directory.try_get_with_handle(self, path).await? else {
-			return Ok(None);
-		};
-		let id = artifact
-			.store_with_handle(self)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to store the artifact"))?;
-		output.referent.item = tg::Either::Left(id.into());
-		output.referent.options.id = Some(directory.id().into());
-		output.referent.options.path = Some(path.to_owned());
-		Ok(Some(output))
+		match &output.referent.item {
+			tg::Either::Left(tg::graph::data::Edge::Object(tg::object::Id::Directory(
+				directory,
+			))) => {
+				let directory = tg::Directory::with_id(directory.clone());
+				let Some(artifact) = directory.try_get_with_handle(self, path).await? else {
+					return Ok(None);
+				};
+				let id = artifact
+					.store_with_handle(self)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to store the artifact"))?;
+				output.referent.item = tg::Either::Left(tg::graph::data::Edge::Object(id.into()));
+				output.referent.options.id = Some(directory.id().into());
+				output.referent.options.path = Some(path.to_owned());
+				Ok(Some(output))
+			},
+			tg::Either::Left(tg::graph::data::Edge::Pointer(pointer)) => {
+				output.referent.item =
+					tg::Either::Left(tg::graph::data::Edge::Pointer(pointer.clone()));
+				output.referent.options.path = Some(path.to_owned());
+				Ok(Some(output))
+			},
+			_ => Err(tg::error!("unexpected reference path option")),
+		}
 	}
 
 	pub(crate) async fn handle_get_request(

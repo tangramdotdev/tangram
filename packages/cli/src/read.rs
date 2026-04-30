@@ -17,61 +17,88 @@ impl Cli {
 		for reference in &args.references {
 			let arg = tg::get::Arg::default();
 			let referent = self.get_reference_with_arg(reference, arg).await?;
-			let tg::Either::Left(object) = referent.item() else {
+			let tg::Either::Left(edge) = referent.item() else {
 				return Err(tg::error!("expected an object"));
 			};
-			if let Ok(blob) = tg::Blob::try_from(object.clone()) {
-				let reader = blob
-					.read_with_handle(&handle, tg::read::Options::default())
-					.await?;
-				tokio::io::copy(&mut pin!(reader), &mut stdout)
+
+			let blob = match edge {
+				tg::graph::Edge::Object(tg::Object::Blob(blob)) => blob.clone(),
+				tg::graph::Edge::Object(tg::Object::File(file)) => file
+					.contents_with_handle(&handle)
 					.await
-					.map_err(|source| tg::error!(!source, "failed to write the blob to stdout"))?;
-			} else if let Ok(artifact) = tg::Artifact::try_from(object.clone()) {
-				// Get the blob.
-				let blob = match artifact {
-					tg::Artifact::Directory(_) => {
-						return Err(tg::error!("cannot read a directory"));
-					},
-					tg::Artifact::File(file) => file
-						.contents_with_handle(&handle)
+					.map_err(|source| tg::error!(!source, "failed to get file contents"))?,
+				tg::graph::Edge::Object(tg::Object::Symlink(symlink)) => {
+					let artifact = symlink.try_resolve_with_handle(&handle).await?;
+					match artifact {
+						None | Some(tg::Artifact::Symlink(_)) => {
+							return Err(tg::error!("failed to resolve the symlink"));
+						},
+						Some(tg::Artifact::Directory(_)) => {
+							return Err(tg::error!("cannot read a directory"));
+						},
+						Some(tg::Artifact::File(file)) => file
+							.contents_with_handle(&handle)
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to get the file contents")
+							})?
+							.clone(),
+					}
+				},
+				tg::graph::Edge::Pointer(pointer)
+					if matches!(pointer.kind, tg::artifact::Kind::Directory) =>
+				{
+					return Err(tg::error!("cannot read a directory"));
+				},
+
+				tg::graph::Edge::Pointer(pointer)
+					if matches!(pointer.kind, tg::artifact::Kind::File) =>
+				{
+					let file = tg::File::with_object(tg::file::Object::Pointer(pointer.clone()));
+					file.contents_with_handle(&handle)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to get file contents"))?
-						.clone(),
-					tg::Artifact::Symlink(symlink) => {
-						let artifact = symlink.try_resolve_with_handle(&handle).await?;
-						match artifact {
-							None | Some(tg::Artifact::Symlink(_)) => {
-								return Err(tg::error!("failed to resolve the symlink"));
-							},
-							Some(tg::Artifact::Directory(_)) => {
-								return Err(tg::error!("cannot read a directory"));
-							},
-							Some(tg::Artifact::File(file)) => file
-								.contents_with_handle(&handle)
-								.await
-								.map_err(|source| {
-									tg::error!(!source, "failed to get the file contents")
-								})?
-								.clone(),
-						}
-					},
-				};
+				},
 
-				// Create a reader.
-				let reader = blob
-					.read_with_handle(&handle, tg::read::Options::default())
-					.await?;
+				tg::graph::Edge::Pointer(pointer)
+					if matches!(pointer.kind, tg::artifact::Kind::Symlink) =>
+				{
+					let symlink =
+						tg::Symlink::with_object(tg::symlink::Object::Pointer(pointer.clone()));
+					let artifact = symlink.try_resolve_with_handle(&handle).await?;
+					match artifact {
+						None | Some(tg::Artifact::Symlink(_)) => {
+							return Err(tg::error!("failed to resolve the symlink"));
+						},
+						Some(tg::Artifact::Directory(_)) => {
+							return Err(tg::error!("cannot read a directory"));
+						},
+						Some(tg::Artifact::File(file)) => file
+							.contents_with_handle(&handle)
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to get the file contents")
+							})?
+							.clone(),
+					}
+				},
 
-				// Copy from the reader to stdout.
-				tokio::io::copy(&mut pin!(reader), &mut stdout)
-					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to write the blob contents to stdout")
-					})?;
-			} else {
-				return Err(tg::error!("expected an artifact or a blob"));
-			}
+				tg::graph::Edge::Pointer(_) => {
+					return Err(tg::error!("expected a file or symlink"));
+				},
+				tg::graph::Edge::Object(_) => {
+					return Err(tg::error!(
+						"expected a blob, file, or symlink that points to a file"
+					));
+				},
+			};
+
+			let reader = blob
+				.read_with_handle(&handle, tg::read::Options::default())
+				.await?;
+			tokio::io::copy(&mut pin!(reader), &mut stdout)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to write the blob to stdout"))?;
 		}
 
 		// Flush.
