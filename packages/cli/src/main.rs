@@ -49,6 +49,7 @@ mod push;
 mod put;
 mod read;
 mod remote;
+#[cfg(feature = "js")]
 mod repl;
 mod sandbox;
 mod server;
@@ -257,6 +258,7 @@ enum Command {
 
 	Remote(self::remote::Args),
 
+	#[cfg(feature = "js")]
 	Repl(self::repl::Args),
 
 	#[command(alias = "r")]
@@ -1070,6 +1072,7 @@ impl Cli {
 			Command::Put(args) => self.command_put(args).boxed(),
 			Command::Read(args) => self.command_read(args).boxed(),
 			Command::Remote(args) => self.command_remote(args).boxed(),
+			#[cfg(feature = "js")]
 			Command::Repl(args) => self.command_repl(args).boxed(),
 			Command::Run(args) => self.command_run(args).boxed(),
 			Command::Sandbox(args) => self.command_sandbox(args).boxed(),
