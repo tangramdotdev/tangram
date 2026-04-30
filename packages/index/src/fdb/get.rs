@@ -1,6 +1,6 @@
 use {
 	super::{Index, Key, KeyKind},
-	crate::{Object, Process, ProcessObjectKind},
+	crate::{CacheEntry, Object, Process, ProcessObjectKind},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
 	num_traits::ToPrimitive as _,
@@ -8,6 +8,28 @@ use {
 };
 
 impl Index {
+	pub async fn try_get_cache_entries(
+		&self,
+		ids: &[tg::artifact::Id],
+	) -> tg::Result<Vec<Option<CacheEntry>>> {
+		if ids.is_empty() {
+			return Ok(vec![]);
+		}
+
+		let txn = self
+			.database
+			.create_trx()
+			.map_err(|source| tg::error!(!source, "failed to create the transaction"))?;
+
+		let outputs = futures::future::try_join_all(
+			ids.iter()
+				.map(|id| Self::try_get_cache_entry_with_transaction(&txn, &self.subspace, id)),
+		)
+		.await?;
+
+		Ok(outputs)
+	}
+
 	pub async fn try_get_objects(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Object>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
@@ -47,6 +69,23 @@ impl Index {
 		.await?;
 
 		Ok(outputs)
+	}
+
+	pub(super) async fn try_get_cache_entry_with_transaction(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::artifact::Id,
+	) -> tg::Result<Option<CacheEntry>> {
+		let key = Key::CacheEntry(id.clone());
+		let key = Self::pack(subspace, &key);
+		let bytes = txn
+			.get(&key, false)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the cache entry"))?;
+		let Some(bytes) = bytes else {
+			return Ok(None);
+		};
+		Ok(Some(CacheEntry::deserialize(&bytes)?))
 	}
 
 	pub(super) async fn try_get_object_with_transaction(

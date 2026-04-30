@@ -607,17 +607,17 @@ impl Index {
 				.await
 				.map(|()| Response::Unit),
 			Request::TouchCacheEntries { ids, touched_at } => {
-				Self::task_touch_cache_entries(txn, subspace, ids, *touched_at)
+				Self::task_touch_cache_entries(txn, subspace, ids, *touched_at, partition_total)
 					.await
 					.map(Response::CacheEntries)
 			},
 			Request::TouchObjects { ids, touched_at } => {
-				Self::task_touch_objects(txn, subspace, ids, *touched_at)
+				Self::task_touch_objects(txn, subspace, ids, *touched_at, partition_total)
 					.await
 					.map(Response::Objects)
 			},
 			Request::TouchProcesses { ids, touched_at } => {
-				Self::task_touch_processes(txn, subspace, ids, *touched_at)
+				Self::task_touch_processes(txn, subspace, ids, *touched_at, partition_total)
 					.await
 					.map(Response::Processes)
 			},

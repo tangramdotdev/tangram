@@ -34,6 +34,18 @@ impl Index {
 }
 
 impl index::Index for Index {
+	async fn try_get_cache_entries(
+		&self,
+		ids: &[tg::artifact::Id],
+	) -> tg::Result<Vec<Option<index::CacheEntry>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_cache_entries(ids).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_cache_entries(ids).await,
+		}
+	}
+
 	async fn try_get_objects(
 		&self,
 		ids: &[tg::object::Id],

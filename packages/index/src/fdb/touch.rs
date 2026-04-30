@@ -1,5 +1,5 @@
 use {
-	super::{Index, Key, Request, Response},
+	super::{Index, ItemKind, Key, Request, Response},
 	crate::{CacheEntry, Object, Process},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
@@ -88,10 +88,20 @@ impl Index {
 		subspace: &Subspace,
 		ids: &[tg::artifact::Id],
 		touched_at: i64,
+		partition_total: u64,
 	) -> tg::Result<Vec<Option<CacheEntry>>> {
 		future::try_join_all(ids.iter().map(|id| {
 			let subspace = subspace.clone();
-			async move { Self::touch_cache_entry_with_transaction(txn, &subspace, id, touched_at).await }
+			async move {
+				Self::touch_cache_entry_with_transaction(
+					txn,
+					&subspace,
+					id,
+					touched_at,
+					partition_total,
+				)
+				.await
+			}
 		}))
 		.await
 	}
@@ -101,10 +111,14 @@ impl Index {
 		subspace: &Subspace,
 		ids: &[tg::object::Id],
 		touched_at: i64,
+		partition_total: u64,
 	) -> tg::Result<Vec<Option<Object>>> {
 		future::try_join_all(ids.iter().map(|id| {
 			let subspace = subspace.clone();
-			async move { Self::touch_object_with_transaction(txn, &subspace, id, touched_at).await }
+			async move {
+				Self::touch_object_with_transaction(txn, &subspace, id, touched_at, partition_total)
+					.await
+			}
 		}))
 		.await
 	}
@@ -114,10 +128,20 @@ impl Index {
 		subspace: &Subspace,
 		ids: &[tg::process::Id],
 		touched_at: i64,
+		partition_total: u64,
 	) -> tg::Result<Vec<Option<Process>>> {
 		future::try_join_all(ids.iter().map(|id| {
 			let subspace = subspace.clone();
-			async move { Self::touch_process_with_transaction(txn, &subspace, id, touched_at).await }
+			async move {
+				Self::touch_process_with_transaction(
+					txn,
+					&subspace,
+					id,
+					touched_at,
+					partition_total,
+				)
+				.await
+			}
 		}))
 		.await
 	}
@@ -127,6 +151,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::artifact::Id,
 		touched_at: i64,
+		partition_total: u64,
 	) -> tg::Result<Option<CacheEntry>> {
 		let key = Key::CacheEntry(id.clone());
 		let key = Self::pack(subspace, &key);
@@ -152,6 +177,20 @@ impl Index {
 			.serialize()
 			.map_err(|source| tg::error!(!source, "failed to serialize the cache entry"))?;
 		txn.set(&key, &value);
+		if cache_entry.reference_count == 0 {
+			let id_bytes = id.to_bytes();
+			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
+			let key = Key::Clean {
+				partition,
+				touched_at: cache_entry.touched_at,
+				kind: ItemKind::CacheEntry,
+				id: tg::Either::Left(id.clone().into()),
+			};
+			let key = Self::pack(subspace, &key);
+			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+				.unwrap();
+			txn.set(&key, &[]);
+		}
 
 		Ok(Some(cache_entry))
 	}
@@ -161,6 +200,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::object::Id,
 		touched_at: i64,
+		partition_total: u64,
 	) -> tg::Result<Option<Object>> {
 		let key = Key::Object(id.clone());
 		let key = Self::pack(subspace, &key);
@@ -186,6 +226,20 @@ impl Index {
 			.serialize()
 			.map_err(|source| tg::error!(!source, "failed to serialize the object"))?;
 		txn.set(&key, &value);
+		if object.reference_count == 0 {
+			let id_bytes = id.to_bytes();
+			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
+			let key = Key::Clean {
+				partition,
+				touched_at: object.touched_at,
+				kind: ItemKind::Object,
+				id: tg::Either::Left(id.clone()),
+			};
+			let key = Self::pack(subspace, &key);
+			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+				.unwrap();
+			txn.set(&key, &[]);
+		}
 
 		Ok(Some(object))
 	}
@@ -195,6 +249,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::process::Id,
 		touched_at: i64,
+		partition_total: u64,
 	) -> tg::Result<Option<Process>> {
 		let key = Key::Process(id.clone());
 		let key = Self::pack(subspace, &key);
@@ -220,6 +275,20 @@ impl Index {
 			.serialize()
 			.map_err(|source| tg::error!(!source, "failed to serialize the process"))?;
 		txn.set(&key, &value);
+		if process.reference_count == 0 {
+			let id_bytes = id.to_bytes();
+			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
+			let key = Key::Clean {
+				partition,
+				touched_at: process.touched_at,
+				kind: ItemKind::Process,
+				id: tg::Either::Right(id.clone()),
+			};
+			let key = Self::pack(subspace, &key);
+			txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
+				.unwrap();
+			txn.set(&key, &[]);
+		}
 
 		Ok(Some(process))
 	}

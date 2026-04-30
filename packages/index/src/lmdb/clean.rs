@@ -102,6 +102,12 @@ impl Index {
 		}
 
 		for candidate in &candidates {
+			let touched_at = Self::get_touched_at(db, subspace, transaction, &candidate.item)?;
+			if touched_at != candidate.touched_at {
+				Self::delete_clean_key(db, subspace, transaction, candidate)?;
+				continue;
+			}
+
 			let reference_count = match &candidate.item {
 				Item::CacheEntry(id) => {
 					Self::compute_cache_entry_reference_count(db, subspace, transaction, id)?
@@ -128,19 +134,7 @@ impl Index {
 				Some(candidate.item.clone())
 			};
 
-			let (kind, id) = match &candidate.item {
-				Item::CacheEntry(id) => (ItemKind::CacheEntry, tg::Either::Left(id.clone().into())),
-				Item::Object(id) => (ItemKind::Object, tg::Either::Left(id.clone())),
-				Item::Process(id) => (ItemKind::Process, tg::Either::Right(id.clone())),
-			};
-			let key = Key::Clean {
-				touched_at: candidate.touched_at,
-				kind,
-				id,
-			};
-			let key = Self::pack(subspace, &key);
-			db.delete(transaction, &key)
-				.map_err(|source| tg::error!(!source, "failed to delete clean key"))?;
+			Self::delete_clean_key(db, subspace, transaction, candidate)?;
 
 			if let Some(item) = item {
 				match item {
@@ -154,6 +148,66 @@ impl Index {
 		output.done = candidates.is_empty();
 
 		Ok(output)
+	}
+
+	fn get_touched_at(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		item: &Item,
+	) -> tg::Result<i64> {
+		match item {
+			Item::CacheEntry(id) => {
+				let entry =
+					Self::try_get_cache_entry_with_transaction(db, subspace, transaction, id)?
+						.ok_or_else(
+							|| tg::error!(%id, "the clean key referenced a missing cache entry"),
+						)?;
+				Ok(entry.touched_at)
+			},
+			Item::Object(id) => {
+				let object = Self::try_get_object_with_transaction(db, subspace, transaction, id)?
+					.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing object"))?;
+				Ok(object.touched_at)
+			},
+			Item::Process(id) => {
+				let process =
+					Self::try_get_process_with_transaction(db, subspace, transaction, id)?
+						.ok_or_else(
+							|| tg::error!(%id, "the clean key referenced a missing process"),
+						)?;
+				Ok(process.touched_at)
+			},
+		}
+	}
+
+	fn delete_clean_key(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		candidate: &Candidate,
+	) -> tg::Result<()> {
+		let key = match &candidate.item {
+			Item::CacheEntry(id) => Key::Clean {
+				touched_at: candidate.touched_at,
+				kind: ItemKind::CacheEntry,
+				id: tg::Either::Left(id.clone().into()),
+			},
+			Item::Object(id) => Key::Clean {
+				touched_at: candidate.touched_at,
+				kind: ItemKind::Object,
+				id: tg::Either::Left(id.clone()),
+			},
+			Item::Process(id) => Key::Clean {
+				touched_at: candidate.touched_at,
+				kind: ItemKind::Process,
+				id: tg::Either::Right(id.clone()),
+			},
+		};
+		let key = Self::pack(subspace, &key);
+		db.delete(transaction, &key)
+			.map_err(|source| tg::error!(!source, "failed to delete clean key"))?;
+		Ok(())
 	}
 
 	fn compute_cache_entry_reference_count(
