@@ -74,9 +74,6 @@ pub struct Config {
 	#[serde(default)]
 	pub sync: Sync,
 
-	#[serde(default)]
-	pub tag: Tag,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub version: Option<String>,
 
@@ -525,7 +522,6 @@ pub struct SyncGet {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct SyncGetIndex {
-	pub message_max_bytes: usize,
 	pub object_batch_size: usize,
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub object_batch_timeout: Duration,
@@ -622,21 +618,9 @@ pub struct SyncPutStore {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
-pub struct Tag {
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub cache_ttl: Duration,
-}
-
-#[serde_as]
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Vfs {
-	pub cache_size: usize,
-	#[serde_as(as = "DurationSecondsWithFrac")]
-	pub cache_ttl: Duration,
-	pub database_connections: usize,
 	pub io: VfsIo,
 	pub passthrough: VfsPassthrough,
 }
@@ -721,7 +705,6 @@ impl Default for Config {
 			runner: Some(Runner::default()),
 			sandbox: Sandbox::default(),
 			sync: Sync::default(),
-			tag: Tag::default(),
 			version: None,
 			vfs: None,
 			watch: Some(Watch::default()),
@@ -943,7 +926,6 @@ impl Default for Sandbox {
 impl Default for SyncGetIndex {
 	fn default() -> Self {
 		Self {
-			message_max_bytes: 1_000_000,
 			object_batch_size: 16,
 			object_batch_timeout: Duration::ZERO,
 			object_concurrency: 8,
@@ -1031,20 +1013,9 @@ impl Default for SyncPutStore {
 	}
 }
 
-impl Default for Tag {
-	fn default() -> Self {
-		Self {
-			cache_ttl: Duration::from_mins(10),
-		}
-	}
-}
-
 impl Default for Vfs {
 	fn default() -> Self {
 		Self {
-			cache_size: 4096,
-			cache_ttl: Duration::from_hours(1),
-			database_connections: 4,
 			io: VfsIo::Auto,
 			passthrough: VfsPassthrough::Auto,
 		}

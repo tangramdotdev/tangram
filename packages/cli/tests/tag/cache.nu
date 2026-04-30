@@ -4,7 +4,6 @@ use ../../test.nu *
 let remote = spawn --cloud -n remote
 let local = spawn -n local -c {
 	remotes: [{ name: default, url: $remote.url }]
-	tag: { cache_ttl: 100 }
 }
 
 # Create an artifact on the remote.
@@ -117,11 +116,9 @@ let q = tg -u $local.url tag get "a/q"
 let s2 = tg -u $local.url tag get --remote --cached "a/q/r/s"
 assert ($s1 == $s2)
 
-# Test cleaning of expired remote tags.
-# Spawn a local server with cache_ttl: 0 so tags expire immediately.
+# Test cleaning of cached remote tags.
 let clean_local = spawn -n clean_local -c {
 	remotes: [{ name: default, url: $remote.url }]
-	tag: { cache_ttl: 0 }
 }
 
 # Cache a remote tag tree by fetching from the remote.
@@ -134,7 +131,7 @@ assert ($before_b.exit_code == 0) "tag a/b should be in the cache before clean"
 let before_d = tg -u $clean_local.url tag get --remote --cached --ttl 999999 "a/c/d" | complete
 assert ($before_d.exit_code == 0) "tag a/c/d should be in the cache before clean"
 
-# Clean. With cache_ttl: 0, all cached remote tags are expired.
+# Clean. All cached remote tags are deleted.
 tg -u $clean_local.url clean
 
 # The cached remote leaf tags should be deleted from the database.
