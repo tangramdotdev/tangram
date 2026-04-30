@@ -90,7 +90,6 @@ pub fn resolve(
 	compiler.main_runtime_handle.clone().block_on(async move {
 		let arg = tg::module::resolve::Arg {
 			referrer: Some(referrer.clone()),
-			cwd: None,
 			import: import.clone(),
 		};
 		let output = compiler.handle.resolve_module(arg).await.map_err(|error| {

@@ -1,6 +1,5 @@
 use {
 	crate::prelude::*,
-	std::path::PathBuf,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
 
@@ -8,8 +7,6 @@ use {
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub referrer: Option<tg::module::Data>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub cwd: Option<PathBuf>,
 	pub import: tg::module::Import,
 }
 

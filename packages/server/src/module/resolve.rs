@@ -14,7 +14,6 @@ impl Server {
 	) -> tg::Result<tg::module::resolve::Output> {
 		let tg::module::resolve::Arg {
 			referrer,
-			cwd,
 			import,
 		} = arg;
 
@@ -22,8 +21,7 @@ impl Server {
 		let referent = if let Some(referrer) = referrer {
 			self.resolve_module_with_referrer(referrer, &import).await?
 		} else {
-			let cwd = cwd.ok_or_else(|| tg::error!("expected a cwd"))?;
-			self.resolve_module_without_referrer(&cwd, &import).await?
+			self.resolve_module_without_referrer(&import).await?
 		};
 
 		// If the kind is not known, then try to infer it from the path extension.
@@ -115,22 +113,8 @@ impl Server {
 
 	async fn resolve_module_without_referrer(
 		&self,
-		cwd: &Path,
 		import: &tg::module::Import,
 	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
-		if import.reference.options().source.is_some()
-			|| import.reference.item().try_unwrap_path_ref().is_ok()
-		{
-			let referrer_path = cwd.join("<repl>");
-			let referrer = tg::Referent::with_item(referrer_path.as_path());
-			return self
-				.resolve_module_with_path_referrer(&referrer, import)
-				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to resolve module with path referrer")
-				});
-		}
-
 		let referent = import.reference.get_with_handle(self).await?;
 		let options = referent.options;
 		let tg::Either::Left(object) = referent.item else {
