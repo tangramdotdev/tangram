@@ -46,14 +46,14 @@ impl Server {
 	) -> tg::Result<()> {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
-		let put_arg = crate::object::store::PutObjectArg {
+		let put_arg = crate::object::store::PutArg {
 			id: id.clone(),
 			bytes: Some(arg.bytes.clone()),
 			touched_at: now,
 			cache_pointer: None,
 		};
 		self.object_store
-			.put_object(put_arg)
+			.put(put_arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the object"))?;
 

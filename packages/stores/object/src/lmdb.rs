@@ -1,5 +1,5 @@
 use {
-	crate::{CachePointer, DeleteObjectArg, Object, PutObjectArg},
+	crate::{CachePointer, DeleteArg, Object, PutArg},
 	bytes::Bytes,
 	foundationdb_tuple::TuplePack as _,
 	heed as lmdb,
@@ -110,7 +110,7 @@ impl Store {
 		&self.env
 	}
 
-	pub fn try_get_object_sync(&self, id: &tg::object::Id) -> tg::Result<Option<Object<'static>>> {
+	pub fn try_get_sync(&self, id: &tg::object::Id) -> tg::Result<Option<Object<'static>>> {
 		let transaction = self
 			.env
 			.read_txn()
@@ -118,7 +118,7 @@ impl Store {
 		self.try_get_object_with_transaction(&transaction, id)
 	}
 
-	pub fn try_get_object_batch_sync(
+	pub fn try_get_batch_sync(
 		&self,
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<Object<'static>>>> {
@@ -320,7 +320,7 @@ impl Store {
 		Ok(())
 	}
 
-	pub fn put_object_sync(&self, arg: PutObjectArg) -> tg::Result<()> {
+	pub fn put_sync(&self, arg: PutArg) -> tg::Result<()> {
 		let mut transaction = self
 			.env
 			.write_txn()
@@ -338,7 +338,7 @@ impl Store {
 		Ok(())
 	}
 
-	pub fn put_object_batch_sync(&self, args: Vec<PutObjectArg>) -> tg::Result<()> {
+	pub fn put_batch_sync(&self, args: Vec<PutArg>) -> tg::Result<()> {
 		if args.is_empty() {
 			return Ok(());
 		}
@@ -361,7 +361,7 @@ impl Store {
 		Ok(())
 	}
 
-	pub fn delete_object_sync(&self, arg: DeleteObjectArg) -> tg::Result<()> {
+	pub fn delete_sync(&self, arg: DeleteArg) -> tg::Result<()> {
 		let mut transaction = self
 			.env
 			.write_txn()
@@ -378,7 +378,7 @@ impl Store {
 		Ok(())
 	}
 
-	pub fn delete_object_batch_sync(&self, args: Vec<DeleteObjectArg>) -> tg::Result<()> {
+	pub fn delete_batch_sync(&self, args: Vec<DeleteArg>) -> tg::Result<()> {
 		if args.is_empty() {
 			return Ok(());
 		}
@@ -409,7 +409,7 @@ impl Store {
 }
 
 impl crate::Store for Store {
-	async fn try_get_object(&self, id: &tg::object::Id) -> tg::Result<Option<Object<'static>>> {
+	async fn try_get(&self, id: &tg::object::Id) -> tg::Result<Option<Object<'static>>> {
 		tokio::task::spawn_blocking({
 			let db = self.db;
 			let env = self.env.clone();
@@ -435,7 +435,7 @@ impl crate::Store for Store {
 		.map_err(|source| tg::error!(!source, "failed to join the task"))?
 	}
 
-	async fn try_get_object_batch(
+	async fn try_get_batch(
 		&self,
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<Object<'static>>>> {
@@ -466,7 +466,7 @@ impl crate::Store for Store {
 		.map_err(|source| tg::error!(!source, "failed to join the task"))?
 	}
 
-	async fn put_object(&self, arg: PutObjectArg) -> tg::Result<()> {
+	async fn put(&self, arg: PutArg) -> tg::Result<()> {
 		let id = arg.id.clone();
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Object(ObjectRequest::Put(PutObject {
@@ -484,7 +484,7 @@ impl crate::Store for Store {
 			.map_err(|_| tg::error!(%id, "the task panicked"))?
 	}
 
-	async fn put_object_batch(&self, args: Vec<PutObjectArg>) -> tg::Result<()> {
+	async fn put_batch(&self, args: Vec<PutArg>) -> tg::Result<()> {
 		if args.is_empty() {
 			return Ok(());
 		}
@@ -508,7 +508,7 @@ impl crate::Store for Store {
 			.map_err(|_| tg::error!("the task panicked"))?
 	}
 
-	async fn delete_object(&self, arg: DeleteObjectArg) -> tg::Result<()> {
+	async fn delete(&self, arg: DeleteArg) -> tg::Result<()> {
 		let id = arg.id.clone();
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Object(ObjectRequest::Delete(DeleteObject {
@@ -525,7 +525,7 @@ impl crate::Store for Store {
 			.map_err(|_| tg::error!(%id, "the task panicked"))?
 	}
 
-	async fn delete_object_batch(&self, args: Vec<DeleteObjectArg>) -> tg::Result<()> {
+	async fn delete_batch(&self, args: Vec<DeleteArg>) -> tg::Result<()> {
 		if args.is_empty() {
 			return Ok(());
 		}
@@ -598,7 +598,7 @@ mod tests {
 
 		// Put the object.
 		store
-			.put_object(crate::PutObjectArg {
+			.put(crate::PutArg {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
@@ -608,7 +608,7 @@ mod tests {
 			.unwrap();
 
 		// Get the object.
-		let result = store.try_get_object(&id).await.unwrap();
+		let result = store.try_get(&id).await.unwrap();
 		assert_eq!(
 			result.and_then(|object| object.bytes),
 			Some(Cow::Owned(bytes.to_vec()))
@@ -635,7 +635,7 @@ mod tests {
 
 		// Put without bytes first (should not store anything).
 		store
-			.put_object(crate::PutObjectArg {
+			.put(crate::PutArg {
 				bytes: None,
 				cache_pointer: None,
 				id: id.clone(),
@@ -645,7 +645,7 @@ mod tests {
 			.unwrap();
 
 		// Verify object bytes do not exist (object may exist with bytes=None).
-		let result = store.try_get_object(&id).await.unwrap();
+		let result = store.try_get(&id).await.unwrap();
 		assert!(
 			result.is_none()
 				|| result
@@ -656,7 +656,7 @@ mod tests {
 
 		// Put with bytes.
 		store
-			.put_object(crate::PutObjectArg {
+			.put(crate::PutArg {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
@@ -666,7 +666,7 @@ mod tests {
 			.unwrap();
 
 		// Verify object now exists.
-		let result = store.try_get_object(&id).await.unwrap();
+		let result = store.try_get(&id).await.unwrap();
 		assert_eq!(
 			result.and_then(|object| object.bytes),
 			Some(Cow::Owned(bytes.to_vec()))
@@ -694,7 +694,7 @@ mod tests {
 
 		// Put the object using sync function (like server does).
 		store
-			.put_object_sync(crate::PutObjectArg {
+			.put_sync(crate::PutArg {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
@@ -703,7 +703,7 @@ mod tests {
 			.unwrap();
 
 		// Get the object using sync function.
-		let result = store.try_get_object_sync(&id).unwrap();
+		let result = store.try_get_sync(&id).unwrap();
 		assert_eq!(
 			result.and_then(|object| object.bytes),
 			Some(Cow::Owned(bytes.to_vec()))
@@ -728,7 +728,7 @@ mod tests {
 		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
 
 		store
-			.put_object_batch(vec![crate::PutObjectArg {
+			.put_batch(vec![crate::PutArg {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
@@ -737,7 +737,7 @@ mod tests {
 			.await
 			.unwrap();
 
-		let result = store.try_get_object(&id).await.unwrap();
+		let result = store.try_get(&id).await.unwrap();
 		assert_eq!(
 			result.and_then(|object| object.bytes),
 			Some(Cow::Owned(bytes.to_vec()))

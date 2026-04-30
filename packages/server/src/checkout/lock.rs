@@ -132,7 +132,7 @@ impl Server {
 					// Load the graph data.
 					let (_size, data) = self
 						.object_store
-						.try_get_object_data_sync(&graph_id.clone().into())
+						.try_get_data_sync(&graph_id.clone().into())
 						.map_err(
 							|source| tg::error!(!source, %graph_id, "failed to get the graph object"),
 						)?
@@ -175,7 +175,7 @@ impl Server {
 				// Load the object.
 				let (_size, data) = self
 					.object_store
-					.try_get_object_data_sync(&id.clone().into())
+					.try_get_data_sync(&id.clone().into())
 					.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
 					.ok_or_else(|| tg::error!(%id, "failed to find the object"))?;
 				let data = data

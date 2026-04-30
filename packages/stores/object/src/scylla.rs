@@ -1,5 +1,5 @@
 use {
-	crate::{CachePointer, DeleteObjectArg, PutObjectArg},
+	crate::{CachePointer, DeleteArg, PutArg},
 	bytes::Bytes,
 	futures::FutureExt as _,
 	indoc::indoc,
@@ -31,14 +31,16 @@ pub enum SpeculativeExecution {
 }
 
 pub struct Store {
-	// Objects
-	delete_object_statement: scylla::statement::prepared::PreparedStatement,
-	get_object_batch_statement: scylla::statement::prepared::PreparedStatement,
-	get_object_cache_pointer_statement: scylla::statement::prepared::PreparedStatement,
-	get_object_statement: scylla::statement::prepared::PreparedStatement,
-	put_object_statement: scylla::statement::prepared::PreparedStatement,
-
+	statements: Statements,
 	session: scylla::client::session::Session,
+}
+
+struct Statements {
+	delete_object: scylla::statement::prepared::PreparedStatement,
+	get_object_batch: scylla::statement::prepared::PreparedStatement,
+	get_object_cache_pointer: scylla::statement::prepared::PreparedStatement,
+	get_object: scylla::statement::prepared::PreparedStatement,
+	put_object: scylla::statement::prepared::PreparedStatement,
 }
 
 impl Store {
@@ -93,11 +95,11 @@ impl Store {
 				where id = ? if touched_at < ?;
 			"
 		);
-		let mut delete_object_statement = session
+		let mut delete_object = session
 			.prepare(statement)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to prepare the delete statement"))?;
-		delete_object_statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		delete_object.set_consistency(scylla::statement::Consistency::LocalQuorum);
 
 		let statement = indoc!(
 			"
@@ -106,11 +108,11 @@ impl Store {
 				where id in ?;
 			"
 		);
-		let mut get_object_batch_statement = session
+		let mut get_object_batch = session
 			.prepare(statement)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to prepare the get batch statement"))?;
-		get_object_batch_statement.set_consistency(scylla::statement::Consistency::One);
+		get_object_batch.set_consistency(scylla::statement::Consistency::One);
 
 		let statement = indoc!(
 			"
@@ -119,11 +121,10 @@ impl Store {
 				where id = ?;
 			"
 		);
-		let mut get_object_cache_pointer_statement =
-			session.prepare(statement).await.map_err(|source| {
-				tg::error!(!source, "failed to prepare the get cache pointer statement")
-			})?;
-		get_object_cache_pointer_statement.set_consistency(scylla::statement::Consistency::One);
+		let mut get_object_cache_pointer = session.prepare(statement).await.map_err(|source| {
+			tg::error!(!source, "failed to prepare the get cache pointer statement")
+		})?;
+		get_object_cache_pointer.set_consistency(scylla::statement::Consistency::One);
 
 		let statement = indoc!(
 			"
@@ -132,11 +133,11 @@ impl Store {
 				where id = ?;
 			"
 		);
-		let mut get_object_statement = session
+		let mut get_object = session
 			.prepare(statement)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to prepare the get statement"))?;
-		get_object_statement.set_consistency(scylla::statement::Consistency::One);
+		get_object.set_consistency(scylla::statement::Consistency::One);
 
 		let statement = indoc!(
 			"
@@ -144,18 +145,20 @@ impl Store {
 				values (?, ?, ?, ?);
 			"
 		);
-		let mut put_object_statement = session
+		let mut put_object = session
 			.prepare(statement)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to prepare the put statement"))?;
-		put_object_statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		put_object.set_consistency(scylla::statement::Consistency::LocalQuorum);
 
 		let scylla = Self {
-			delete_object_statement,
-			get_object_batch_statement,
-			get_object_cache_pointer_statement,
-			get_object_statement,
-			put_object_statement,
+			statements: Statements {
+				delete_object,
+				get_object_batch,
+				get_object_cache_pointer,
+				get_object,
+				put_object,
+			},
 			session,
 		};
 
@@ -271,16 +274,13 @@ impl Store {
 }
 
 impl crate::Store for Store {
-	async fn try_get_object(
-		&self,
-		id: &tg::object::Id,
-	) -> tg::Result<Option<crate::Object<'static>>> {
+	async fn try_get(&self, id: &tg::object::Id) -> tg::Result<Option<crate::Object<'static>>> {
 		// Attempt to get the object with the default consistency.
-		let bytes = self.try_get_inner(id, &self.get_object_statement).await?;
+		let bytes = self.try_get_inner(id, &self.statements.get_object).await?;
 		if let Some(bytes) = bytes {
 			// Get the cache pointer.
 			let cache_pointer = self
-				.try_get_cache_pointer_inner(id, &self.get_object_cache_pointer_statement)
+				.try_get_cache_pointer_inner(id, &self.statements.get_object_cache_pointer)
 				.await?;
 			return Ok(Some(crate::Object {
 				bytes: Some(Cow::Owned(bytes.to_vec())),
@@ -290,12 +290,12 @@ impl crate::Store for Store {
 		}
 
 		// Attempt to get the object with local quorum consistency.
-		let mut statement = self.get_object_statement.clone();
+		let mut statement = self.statements.get_object.clone();
 		statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
 		let bytes = self.try_get_inner(id, &statement).await?;
 		if let Some(bytes) = bytes {
 			// Get the cache pointer with local quorum consistency.
-			let mut cache_pointer_statement = self.get_object_cache_pointer_statement.clone();
+			let mut cache_pointer_statement = self.statements.get_object_cache_pointer.clone();
 			cache_pointer_statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
 			let cache_pointer = self
 				.try_get_cache_pointer_inner(id, &cache_pointer_statement)
@@ -310,13 +310,13 @@ impl crate::Store for Store {
 		Ok(None)
 	}
 
-	async fn try_get_object_batch(
+	async fn try_get_batch(
 		&self,
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<crate::Object<'static>>>> {
 		// Attempt to get the objects with the default consistency.
 		let mut map = self
-			.get_batch_inner(ids, &self.get_object_batch_statement)
+			.get_batch_inner(ids, &self.statements.get_object_batch)
 			.await?;
 
 		// Attempt to get missing objects with local quorum consistency.
@@ -325,7 +325,7 @@ impl crate::Store for Store {
 			.filter(|id| !map.contains_key(id))
 			.collect::<Vec<_>>();
 		if !missing.is_empty() {
-			let mut statement = self.get_object_batch_statement.clone();
+			let mut statement = self.statements.get_object_batch.clone();
 			statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
 			let missing_map = self.get_batch_inner(ids, &statement).await?;
 			map.extend(missing_map);
@@ -346,7 +346,7 @@ impl crate::Store for Store {
 		Ok(output)
 	}
 
-	async fn put_object(&self, arg: PutObjectArg) -> tg::Result<()> {
+	async fn put(&self, arg: PutArg) -> tg::Result<()> {
 		let id = &arg.id;
 		let id_bytes = id.to_bytes().to_vec();
 		let bytes = arg.bytes;
@@ -361,22 +361,22 @@ impl crate::Store for Store {
 		let touched_at = arg.touched_at;
 		let params = (id_bytes, bytes, cache_pointer, touched_at);
 		self.session
-			.execute_unpaged(&self.put_object_statement, params)
+			.execute_unpaged(&self.statements.put_object, params)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to execute the query"))?;
 		Ok(())
 	}
 
-	async fn put_object_batch(&self, args: Vec<PutObjectArg>) -> tg::Result<()> {
+	async fn put_batch(&self, args: Vec<PutArg>) -> tg::Result<()> {
 		if args.is_empty() {
 			return Ok(());
 		}
 		let mut batch =
 			scylla::statement::batch::Batch::new(scylla::statement::batch::BatchType::Unlogged);
-		batch.set_consistency(self.put_object_statement.get_consistency().unwrap());
+		batch.set_consistency(self.statements.put_object.get_consistency().unwrap());
 		for _ in &args {
 			batch.append_statement(scylla::statement::batch::BatchStatement::PreparedStatement(
-				self.put_object_statement.clone(),
+				self.statements.put_object.clone(),
 			));
 		}
 		let params = args
@@ -405,20 +405,20 @@ impl crate::Store for Store {
 		Ok(())
 	}
 
-	async fn delete_object(&self, arg: DeleteObjectArg) -> tg::Result<()> {
+	async fn delete(&self, arg: DeleteArg) -> tg::Result<()> {
 		let id = &arg.id;
 		let id_bytes = id.to_bytes().to_vec();
 		let max_touched_at = arg.now - arg.ttl.to_i64().unwrap();
 		let params = (id_bytes, max_touched_at);
 		self.session
-			.execute_unpaged(&self.delete_object_statement, params)
+			.execute_unpaged(&self.statements.delete_object, params)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to execute the query"))?;
 		Ok(())
 	}
 
-	async fn delete_object_batch(&self, args: Vec<DeleteObjectArg>) -> tg::Result<()> {
-		futures::future::try_join_all(args.into_iter().map(|arg| self.delete_object(arg))).await?;
+	async fn delete_batch(&self, args: Vec<DeleteArg>) -> tg::Result<()> {
+		futures::future::try_join_all(args.into_iter().map(|arg| self.delete(arg))).await?;
 		Ok(())
 	}
 

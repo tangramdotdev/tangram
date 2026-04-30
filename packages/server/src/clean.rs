@@ -242,10 +242,10 @@ impl Server {
 			.objects
 			.iter()
 			.cloned()
-			.map(|id| crate::object::store::DeleteObjectArg { id, now, ttl })
+			.map(|id| crate::object::store::DeleteArg { id, now, ttl })
 			.collect();
 		self.object_store
-			.delete_object_batch(args)
+			.delete_batch(args)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to delete objects"))?;
 

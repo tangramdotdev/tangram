@@ -1352,7 +1352,7 @@ impl Provider {
 		let object = self
 			.server
 			.object_store
-			.try_get_object(&id)
+			.try_get(&id)
 			.await
 			.map_err(|error| {
 				tracing::error!(error = %error.trace(), %id, "failed to get the object");
@@ -1817,7 +1817,7 @@ impl Provider {
 
 		self.server
 			.object_store
-			.try_get_object_sync(id)
+			.try_get_sync(id)
 			.map_err(|error| Self::map_store_sync_error(&error))
 	}
 
@@ -1840,7 +1840,7 @@ impl Provider {
 
 		self.server
 			.object_store
-			.try_get_object_data_sync(id)
+			.try_get_data_sync(id)
 			.map_err(|error| Self::map_store_sync_error(&error))
 	}
 

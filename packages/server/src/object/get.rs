@@ -104,7 +104,7 @@ impl Server {
 	async fn try_get_object_bytes_local(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
 		let object = self
 			.object_store
-			.try_get_object(id)
+			.try_get(id)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
 		let Some(object) = object else {
@@ -124,7 +124,7 @@ impl Server {
 		id: &tg::object::Id,
 		cache_file: &mut Option<CacheFile>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		let object = self.object_store.try_get_object_sync(id)?;
+		let object = self.object_store.try_get_sync(id)?;
 		let Some(object) = object else {
 			return Ok(None);
 		};
@@ -224,7 +224,7 @@ impl Server {
 	) -> tg::Result<Vec<Option<Bytes>>> {
 		let output = self
 			.object_store
-			.try_get_object_batch(ids)
+			.try_get_batch(ids)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get objects"))?;
 		let output = output

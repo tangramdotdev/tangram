@@ -162,14 +162,14 @@ impl Server {
 				Some(Destination::Store { touched_at }) => {
 					let mut bytes = vec![0];
 					bytes.extend_from_slice(&chunk.data);
-					let arg = crate::object::store::PutObjectArg {
+					let arg = crate::object::store::PutArg {
 						bytes: Some(bytes.into()),
 						cache_pointer: None,
 						id: blob.id.clone().into(),
 						touched_at: *touched_at,
 					};
 					self.object_store
-						.put_object(arg)
+						.put(arg)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to store the leaf"))?;
 				},
@@ -256,14 +256,14 @@ impl Server {
 				Some(Destination::Store { touched_at }) => {
 					let mut bytes = vec![0];
 					bytes.extend_from_slice(&chunk.data);
-					let arg = crate::object::store::PutObjectArg {
+					let arg = crate::object::store::PutArg {
 						bytes: Some(bytes.into()),
 						cache_pointer: None,
 						id: blob.id.clone().into(),
 						touched_at: *touched_at,
 					};
 					self.object_store
-						.put_object_sync(arg)
+						.put_sync(arg)
 						.map_err(|source| tg::error!(!source, "failed to store the leaf"))?;
 				},
 			}
@@ -437,7 +437,7 @@ impl Server {
 	) -> tg::Result<()> {
 		let arg = Self::write_store_args(blob, cache_pointer.as_ref(), touched_at);
 		self.object_store
-			.put_object_batch(arg)
+			.put_batch(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the objects"))?;
 		Ok(())
@@ -447,7 +447,7 @@ impl Server {
 		blob: &Output,
 		cache_pointer: Option<&(tg::artifact::Id, Option<PathBuf>)>,
 		touched_at: i64,
-	) -> Vec<crate::object::store::PutObjectArg> {
+	) -> Vec<crate::object::store::PutArg> {
 		let mut args = Vec::new();
 		let mut stack = vec![blob];
 		while let Some(blob) = stack.pop() {
@@ -464,7 +464,7 @@ impl Server {
 						position: blob.position,
 						length: blob.length,
 					});
-			args.push(crate::object::store::PutObjectArg {
+			args.push(crate::object::store::PutArg {
 				bytes: blob.bytes.clone(),
 				cache_pointer,
 				id: blob.id.clone().into(),

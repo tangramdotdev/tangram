@@ -4,12 +4,12 @@ impl Server {
 	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) async fn checkin_store(
 		&self,
-		args: Vec<crate::object::store::PutObjectArg>,
+		args: Vec<crate::object::store::PutArg>,
 		progress: &crate::progress::Handle<super::TaskOutput>,
 	) -> tg::Result<()> {
 		progress.spinner("storing", "storing");
 		self.object_store
-			.put_object_batch(args)
+			.put_batch(args)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the objects"))?;
 		progress.finish("storing");

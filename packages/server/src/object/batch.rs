@@ -49,7 +49,7 @@ impl Server {
 		let put_args: Vec<_> = arg
 			.objects
 			.iter()
-			.map(|object| crate::object::store::PutObjectArg {
+			.map(|object| crate::object::store::PutArg {
 				id: object.id.clone(),
 				bytes: Some(object.bytes.clone()),
 				touched_at: now,
@@ -57,7 +57,7 @@ impl Server {
 			})
 			.collect();
 		self.object_store
-			.put_object_batch(put_args)
+			.put_batch(put_args)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
 

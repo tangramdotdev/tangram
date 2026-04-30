@@ -15,7 +15,7 @@ pub mod prelude {
 }
 
 #[derive(Clone, Debug)]
-pub struct PutObjectArg {
+pub struct PutArg {
 	pub bytes: Option<Bytes>,
 	pub cache_pointer: Option<CachePointer>,
 	pub id: tg::object::Id,
@@ -23,7 +23,7 @@ pub struct PutObjectArg {
 }
 
 #[derive(Clone, Debug)]
-pub struct DeleteObjectArg {
+pub struct DeleteArg {
 	pub id: tg::object::Id,
 	pub now: i64,
 	pub ttl: u64,
@@ -65,34 +65,28 @@ pub struct CachePointer {
 }
 
 pub trait Store {
-	fn try_get_object(
+	fn try_get(
 		&self,
 		id: &tg::object::Id,
 	) -> impl std::future::Future<Output = tg::Result<Option<Object<'static>>>> + Send;
 
-	fn try_get_object_batch(
+	fn try_get_batch(
 		&self,
 		ids: &[tg::object::Id],
 	) -> impl std::future::Future<Output = tg::Result<Vec<Option<Object<'static>>>>> + Send;
 
-	fn put_object(
+	fn put(&self, arg: PutArg) -> impl std::future::Future<Output = tg::Result<()>> + Send;
+
+	fn put_batch(
 		&self,
-		arg: PutObjectArg,
+		args: Vec<PutArg>,
 	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
-	fn put_object_batch(
-		&self,
-		args: Vec<PutObjectArg>,
-	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
+	fn delete(&self, arg: DeleteArg) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
-	fn delete_object(
+	fn delete_batch(
 		&self,
-		arg: DeleteObjectArg,
-	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
-
-	fn delete_object_batch(
-		&self,
-		args: Vec<DeleteObjectArg>,
+		args: Vec<DeleteArg>,
 	) -> impl std::future::Future<Output = tg::Result<()>> + Send;
 
 	fn flush(&self) -> impl std::future::Future<Output = tg::Result<()>> + Send;
