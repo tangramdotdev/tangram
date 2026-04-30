@@ -200,7 +200,7 @@ export const nodeModules = async (hostArg?: string) => {
 			cp -R ${workspaceSource}/. ${tg.output}
 			chmod -R u+w ${tg.output}
 			cd ${tg.output}
-			bun install --frozen-lockfile || true
+			bun install --frozen-lockfile --linker=hoisted || true
 			mkdir -p packages/js/node_modules/@tangramdotdev
 			ln -sf ../../../../clients/js packages/js/node_modules/@tangramdotdev/client
 		`
