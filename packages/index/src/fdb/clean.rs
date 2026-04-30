@@ -123,6 +123,12 @@ impl Index {
 		}
 
 		for candidate in &candidates {
+			let touched_at = Self::get_touched_at(txn, subspace, &candidate.item).await?;
+			if touched_at != candidate.touched_at {
+				Self::delete_clean_key(txn, subspace, candidate);
+				continue;
+			}
+
 			let reference_count = match &candidate.item {
 				Item::CacheEntry(id) => {
 					Self::compute_cache_entry_reference_count(txn, subspace, id).await?
@@ -133,35 +139,82 @@ impl Index {
 				},
 			};
 
-			if reference_count > 0 {
+			let item = if reference_count > 0 {
 				Self::set_reference_count(txn, subspace, &candidate.item, reference_count).await?;
+				None
 			} else {
 				Self::delete_item(txn, subspace, &candidate.item, partition_total).await?;
-				match &candidate.item {
-					Item::CacheEntry(id) => output.cache_entries.push(id.clone()),
-					Item::Object(id) => output.objects.push(id.clone()),
-					Item::Process(id) => output.processes.push(id.clone()),
+				Some(candidate.item.clone())
+			};
+
+			Self::delete_clean_key(txn, subspace, candidate);
+
+			if let Some(item) = item {
+				match item {
+					Item::CacheEntry(id) => output.cache_entries.push(id),
+					Item::Object(id) => output.objects.push(id),
+					Item::Process(id) => output.processes.push(id),
 				}
 			}
-
-			let (kind, id) = match &candidate.item {
-				Item::CacheEntry(id) => (ItemKind::CacheEntry, tg::Either::Left(id.clone().into())),
-				Item::Object(id) => (ItemKind::Object, tg::Either::Left(id.clone())),
-				Item::Process(id) => (ItemKind::Process, tg::Either::Right(id.clone())),
-			};
-			let key = Key::Clean {
-				partition: candidate.partition,
-				touched_at: candidate.touched_at,
-				kind,
-				id,
-			};
-			let key = Self::pack(subspace, &key);
-			txn.clear(&key);
 		}
 
 		output.done = candidates.is_empty();
 
 		Ok(output)
+	}
+
+	async fn get_touched_at(
+		txn: &fdb::Transaction,
+		subspace: &Subspace,
+		item: &Item,
+	) -> tg::Result<i64> {
+		match item {
+			Item::CacheEntry(id) => {
+				let entry = Self::try_get_cache_entry_with_transaction(txn, subspace, id)
+					.await?
+					.ok_or_else(
+						|| tg::error!(%id, "the clean key referenced a missing cache entry"),
+					)?;
+				Ok(entry.touched_at)
+			},
+			Item::Object(id) => {
+				let object = Self::try_get_object_with_transaction(txn, subspace, id)
+					.await?
+					.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing object"))?;
+				Ok(object.touched_at)
+			},
+			Item::Process(id) => {
+				let process = Self::try_get_process_with_transaction(txn, subspace, id)
+					.await?
+					.ok_or_else(|| tg::error!(%id, "the clean key referenced a missing process"))?;
+				Ok(process.touched_at)
+			},
+		}
+	}
+
+	fn delete_clean_key(txn: &fdb::Transaction, subspace: &Subspace, candidate: &Candidate) {
+		let key = match &candidate.item {
+			Item::CacheEntry(id) => Key::Clean {
+				partition: candidate.partition,
+				touched_at: candidate.touched_at,
+				kind: ItemKind::CacheEntry,
+				id: tg::Either::Left(id.clone().into()),
+			},
+			Item::Object(id) => Key::Clean {
+				partition: candidate.partition,
+				touched_at: candidate.touched_at,
+				kind: ItemKind::Object,
+				id: tg::Either::Left(id.clone()),
+			},
+			Item::Process(id) => Key::Clean {
+				partition: candidate.partition,
+				touched_at: candidate.touched_at,
+				kind: ItemKind::Process,
+				id: tg::Either::Right(id.clone()),
+			},
+		};
+		let key = Self::pack(subspace, &key);
+		txn.clear(&key);
 	}
 
 	async fn compute_cache_entry_reference_count(

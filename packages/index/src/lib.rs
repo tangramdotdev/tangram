@@ -15,6 +15,19 @@ pub mod prelude {
 }
 
 pub trait Index {
+	fn try_get_cache_entries(
+		&self,
+		ids: &[tg::artifact::Id],
+	) -> impl Future<Output = tg::Result<Vec<Option<CacheEntry>>>> + Send;
+
+	fn try_get_cache_entry(
+		&self,
+		id: &tg::artifact::Id,
+	) -> impl Future<Output = tg::Result<Option<CacheEntry>>> + Send {
+		self.try_get_cache_entries(std::slice::from_ref(id))
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
 	fn try_get_objects(
 		&self,
 		ids: &[tg::object::Id],

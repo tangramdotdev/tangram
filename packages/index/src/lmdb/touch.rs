@@ -1,5 +1,5 @@
 use {
-	super::{Db, Index, Key, Request, Response},
+	super::{Db, Index, ItemKind, Key, Request, Response},
 	crate::{CacheEntry, Object, Process},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	tangram_client::prelude::*,
@@ -104,6 +104,16 @@ impl Index {
 			let value = cache_entry.serialize()?;
 			db.put(transaction, &key, &value)
 				.map_err(|source| tg::error!(!source, %id, "failed to put the cache entry"))?;
+			if cache_entry.reference_count == 0 {
+				let key = Key::Clean {
+					touched_at: cache_entry.touched_at,
+					kind: ItemKind::CacheEntry,
+					id: tg::Either::Left(id.clone().into()),
+				};
+				let key = Self::pack(subspace, &key);
+				db.put(transaction, &key, &[])
+					.map_err(|source| tg::error!(!source, "failed to put the clean key"))?;
+			}
 			outputs.push(Some(cache_entry));
 		}
 		Ok(outputs)
@@ -132,6 +142,16 @@ impl Index {
 			let value = object.serialize()?;
 			db.put(transaction, &key, &value)
 				.map_err(|source| tg::error!(!source, %id, "failed to put the object"))?;
+			if object.reference_count == 0 {
+				let key = Key::Clean {
+					touched_at: object.touched_at,
+					kind: ItemKind::Object,
+					id: tg::Either::Left(id.clone()),
+				};
+				let key = Self::pack(subspace, &key);
+				db.put(transaction, &key, &[])
+					.map_err(|source| tg::error!(!source, "failed to put the clean key"))?;
+			}
 			outputs.push(Some(object));
 		}
 		Ok(outputs)
@@ -160,6 +180,16 @@ impl Index {
 			let value = process.serialize()?;
 			db.put(transaction, &key, &value)
 				.map_err(|source| tg::error!(!source, %id, "failed to put the process"))?;
+			if process.reference_count == 0 {
+				let key = Key::Clean {
+					touched_at: process.touched_at,
+					kind: ItemKind::Process,
+					id: tg::Either::Right(id.clone()),
+				};
+				let key = Self::pack(subspace, &key);
+				db.put(transaction, &key, &[])
+					.map_err(|source| tg::error!(!source, "failed to put the clean key"))?;
+			}
 
 			outputs.push(Some(process));
 		}

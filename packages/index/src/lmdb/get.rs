@@ -1,12 +1,45 @@
 use {
 	super::{Db, Index, Key, KeyKind},
-	crate::{Object, Process, ProcessObjectKind},
+	crate::{CacheEntry, Object, Process, ProcessObjectKind},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
 };
 
 impl Index {
+	pub async fn try_get_cache_entries(
+		&self,
+		ids: &[tg::artifact::Id],
+	) -> tg::Result<Vec<Option<CacheEntry>>> {
+		if ids.is_empty() {
+			return Ok(vec![]);
+		}
+		tokio::task::spawn_blocking({
+			let db = self.db;
+			let env = self.env.clone();
+			let subspace = self.subspace.clone();
+			let ids = ids.to_owned();
+			move || {
+				let transaction = env
+					.read_txn()
+					.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
+				let mut outputs = Vec::with_capacity(ids.len());
+				for id in &ids {
+					let option = Self::try_get_cache_entry_with_transaction(
+						&db,
+						&subspace,
+						&transaction,
+						id,
+					)?;
+					outputs.push(option);
+				}
+				Ok(outputs)
+			}
+		})
+		.await
+		.map_err(|source| tg::error!(!source, "failed to join the task"))?
+	}
+
 	pub async fn try_get_objects(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Object>>> {
 		if ids.is_empty() {
 			return Ok(vec![]);
@@ -60,6 +93,23 @@ impl Index {
 		})
 		.await
 		.map_err(|source| tg::error!(!source, "failed to join the task"))?
+	}
+
+	pub(super) fn try_get_cache_entry_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		id: &tg::artifact::Id,
+	) -> tg::Result<Option<CacheEntry>> {
+		let key = Key::CacheEntry(id.clone());
+		let key = Self::pack(subspace, &key);
+		let bytes = db
+			.get(transaction, &key)
+			.map_err(|source| tg::error!(!source, %id, "failed to get the cache entry"))?;
+		let Some(bytes) = bytes else {
+			return Ok(None);
+		};
+		Ok(Some(CacheEntry::deserialize(bytes)?))
 	}
 
 	pub(super) fn try_get_object_with_transaction(

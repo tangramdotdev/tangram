@@ -283,6 +283,13 @@ impl Index {
 }
 
 impl crate::Index for Index {
+	async fn try_get_cache_entries(
+		&self,
+		ids: &[tg::artifact::Id],
+	) -> tg::Result<Vec<Option<crate::CacheEntry>>> {
+		self.try_get_cache_entries(ids).await
+	}
+
 	async fn try_get_objects(&self, ids: &[tg::object::Id]) -> tg::Result<Vec<Option<Object>>> {
 		self.try_get_objects(ids).await
 	}
