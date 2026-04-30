@@ -55,18 +55,24 @@ impl Server {
 		guest_uri: tangram_uri::Uri,
 		stopper: Stopper,
 	) -> tg::Result<()> {
-		let output = match self
+		let result = self
 			.run_process(process, sandbox, &guest_uri, stopper)
-			.await
-			.map_err(
-				|source| tg::error!(!source, process = %process.id(), "failed to run the process"),
-			) {
+			.await;
+		let output = match result {
 			Ok(output) => output,
-			Err(error) => Output {
-				error: Some(error),
-				checksum: None,
-				exit: 1,
-				value: None,
+			Err(error) => {
+				let error = tg::error!(
+					!error,
+					code = tg::error::Code::Internal,
+					process = %process.id(),
+					"failed to run the process"
+				);
+				Output {
+					error: Some(error),
+					checksum: None,
+					exit: 1,
+					value: None,
+				}
 			},
 		};
 

@@ -688,7 +688,8 @@ impl Server {
 					processes.cacheable = true and
 					processes.expected_checksum {is} params.checksum and
 					processes.error_code {isnt} 'cancellation' and
-					processes.error_code {isnt} 'heartbeat_expiration'
+					processes.error_code {isnt} 'heartbeat_expiration' and
+					processes.error_code {isnt} 'internal'
 				order by processes.created_at desc
 				limit 1;
 			"

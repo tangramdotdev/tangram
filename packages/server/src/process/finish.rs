@@ -124,10 +124,18 @@ impl Server {
 			}
 		}
 
-		let error_code = error.as_ref().and_then(|error| match error {
-			tg::Either::Left(data) => data.code,
-			tg::Either::Right(_) => None,
-		});
+		let error_code = match error.as_ref() {
+			Some(tg::Either::Left(data)) => data.code,
+			Some(tg::Either::Right(id)) => {
+				let error = tg::Error::with_id(id.clone());
+				error
+					.data_with_handle(self)
+					.await
+					.ok()
+					.and_then(|data| data.code)
+			},
+			None => None,
+		};
 
 		// Store the error if necessary.
 		error = match error {

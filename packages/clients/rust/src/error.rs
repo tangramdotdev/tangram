@@ -29,6 +29,7 @@ pub enum Code {
 	Cancellation,
 	ChecksumMismatch,
 	HeartbeatExpiration,
+	Internal,
 }
 
 /// An error location.
