@@ -67,7 +67,9 @@ def main [
 		$filters | each { '(' + $in + ')' } | str join '|'
 	}
 	let tests_path = ($repository_path | path join 'packages/cli/tests')
-	let tests = fd -e nu -p $filter $tests_path | lines | each { |path|
+	let tests = fd -e nu -p $filter $tests_path | lines | where { |path|
+		not (($path | path relative-to $tests_path) | str starts-with 'lib/')
+	} | each { |path|
 		{
 			path: $path,
 			name: ($path | path relative-to $tests_path)
@@ -409,11 +411,15 @@ def run_test [test: record, cloud: bool, quickjs: bool, no_capture: bool, preser
 		clean_databases $id
 	}
 
-	# Kill any background jobs started by the test, such as server processes.
-	for job in (job list | where { ($in.description? | default '') == 'server' }) {
+	# Kill any background jobs started by the test, such as server and LSP processes.
+	for job in (job list | where { ($in.description? | default '') in ['server', 'lsp'] }) {
 		let exit_path = server_exit_path $temp_path $job.id
 		for pid in ($job.pids? | default []) {
-			try { ^kill -KILL $pid }
+			if (($job.description? | default '') == 'lsp') {
+				try { ^bash -c 'kill -KILL -- -"$1" 2>/dev/null || true; kill -KILL "$1" 2>/dev/null || true' _ $pid }
+			} else {
+				try { ^kill -KILL $pid }
+			}
 		}
 		if not (wait_for_server_exit $exit_path) {
 			try { job kill $job.id }

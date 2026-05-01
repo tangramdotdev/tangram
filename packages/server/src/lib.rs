@@ -1152,6 +1152,7 @@ impl Server {
 	fn create_compiler(&self) -> tangram_compiler::Shared {
 		tangram_compiler::Compiler::start(
 			tg::handle::dynamic::Handle::new(self.clone()),
+			self.artifacts_path(),
 			self.cache_path(),
 			self.tags_path(),
 			self.library_path(),

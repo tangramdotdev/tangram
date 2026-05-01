@@ -66,6 +66,9 @@ pub struct Owned {
 pub struct Compiler(Arc<State>);
 
 pub struct State {
+	/// The artifacts path.
+	artifacts_path: PathBuf,
+
 	/// The cache path.
 	cache_path: PathBuf,
 
@@ -190,6 +193,7 @@ impl Compiler {
 	#[must_use]
 	pub fn start(
 		handle: tg::handle::dynamic::Handle,
+		artifacts_path: PathBuf,
 		cache_path: PathBuf,
 		tags_path: PathBuf,
 		library_path: PathBuf,
@@ -207,6 +211,7 @@ impl Compiler {
 
 		// Create the compiler.
 		let compiler = Self(Arc::new(State {
+			artifacts_path,
 			cache_path,
 			documents,
 			handle,
@@ -893,9 +898,10 @@ impl Compiler {
 		}
 		let path = Path::new(uri.path().as_str());
 
-		// Handle a path in the cache directory.
-		if let Ok(path) = path.strip_prefix(&self.cache_path) {
-			let kind = self.module_kind_for_path(path).await?;
+		// Handle a path in the materialized artifact directories.
+		let absolute_path = path;
+		if let Some(path) = self.artifact_or_cache_path(path) {
+			let kind = self.module_kind_for_path(absolute_path).await?;
 
 			// Parse the id.
 			let id = path
@@ -1007,9 +1013,11 @@ impl Compiler {
 				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
 
 			// Extract the directory ID from the artifact path.
-			let id = artifact_path
-				.strip_prefix(&self.cache_path)
-				.map_err(|_| tg::error!("the artifact path is not in the cache directory"))?
+			let id = self
+				.artifact_or_cache_path(&artifact_path)
+				.ok_or_else(|| {
+					tg::error!("the artifact path is not in the artifacts or cache directory")
+				})?
 				.components()
 				.next()
 				.ok_or_else(|| tg::error!("invalid artifact path"))?
@@ -1093,6 +1101,12 @@ impl Compiler {
 		};
 
 		Ok(module)
+	}
+
+	fn artifact_or_cache_path<'a>(&self, path: &'a Path) -> Option<&'a Path> {
+		path.strip_prefix(&self.artifacts_path)
+			.or_else(|_| path.strip_prefix(&self.cache_path))
+			.ok()
 	}
 
 	async fn lsp_uri_for_module(&self, module: &tg::module::Data) -> tg::Result<lsp::Uri> {

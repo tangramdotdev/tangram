@@ -354,9 +354,8 @@ impl Server {
 				path,
 				updates,
 			};
-			let context = Context::default();
 			let stream = self
-				.checkin_with_context(&context, arg)
+				.checkin(arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to check in the path"))?;
 			let stream = pin!(stream);
