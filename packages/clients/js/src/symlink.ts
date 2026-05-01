@@ -1,7 +1,9 @@
 import * as tg from "./index.ts";
 
 /** Create a symlink. */
-export let symlink = async (arg: tg.Symlink.Arg): Promise<tg.Symlink> => {
+export let symlink = async (
+	arg: tg.Unresolved<tg.Symlink.Arg>,
+): Promise<tg.Symlink> => {
 	return await tg.Symlink.new(arg);
 };
 

@@ -98,8 +98,8 @@ export class Mutation<T extends tg.Value = tg.Value> {
 	}
 
 	/** Create a prefix mutation. */
-	static async prefix<T extends tg.Template.Arg = tg.Template.Arg>(
-		template: tg.Unresolved<T>,
+	static async prefix(
+		template: tg.Unresolved<tg.Template.Arg>,
 		separator?: string | undefined,
 	): Promise<tg.Mutation<tg.Template>> {
 		return new tg.Mutation({
@@ -110,8 +110,8 @@ export class Mutation<T extends tg.Value = tg.Value> {
 	}
 
 	/** Create a suffix mutation. */
-	static async suffix<T extends tg.Template.Arg = tg.Template.Arg>(
-		template: tg.Unresolved<T>,
+	static async suffix(
+		template: tg.Unresolved<tg.Template.Arg>,
 		separator?: string | undefined,
 	): Promise<tg.Mutation<tg.Template>> {
 		return new tg.Mutation({
