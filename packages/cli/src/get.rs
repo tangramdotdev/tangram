@@ -27,10 +27,22 @@ impl Cli {
 		let locations = args.locations;
 		let print = args.print;
 		let referent = self.get_reference(&args.reference).await?;
-		let referent = referent.map(|item| {
-			item.map_left(|object| object.id().clone())
-				.map_right(|process| process.id().unwrap_right().clone())
-		});
+		let item = match referent.item() {
+			tg::Either::Left(edge) => tg::Either::Left(
+				edge.try_unwrap_object_ref()
+					.map_err(|_| tg::error!("expected an object"))?
+					.id(),
+			),
+			tg::Either::Right(process) => {
+				let id = process
+					.id()
+					.right()
+					.ok_or_else(|| tg::error!("expected a process id"))?
+					.clone();
+				tg::Either::Right(id)
+			},
+		};
+		let referent = referent.map(|_| item);
 		Self::print_info_message(&referent.to_string());
 		match referent.item {
 			tg::Either::Left(object) => {

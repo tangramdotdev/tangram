@@ -232,7 +232,8 @@ where
 		let exists = match package {
 			tg::Either::Left(directory) => directory
 				.try_get_entry_with_handle(handle, name_)
-				.await?
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the entry"))?
 				.is_some(),
 			tg::Either::Right(path) => tokio::fs::try_exists(path.join(*name_)).await.map_err(
 				|source| tg::error!(!source, path = %path.display(), "failed to get the metadata"),

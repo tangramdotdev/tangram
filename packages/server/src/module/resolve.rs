@@ -9,21 +9,34 @@ use {
 impl Server {
 	pub async fn resolve_module_with_context(
 		&self,
-		_context: &Context,
+		context: &Context,
 		arg: tg::module::resolve::Arg,
 	) -> tg::Result<tg::module::resolve::Output> {
-		let tg::module::resolve::Arg {
-			referrer,
-			cwd,
-			import,
-		} = arg;
+		let tg::module::resolve::Arg { referrer, import } = arg;
 
 		// Get the referent.
-		let referent = if let Some(referrer) = referrer {
-			self.resolve_module_with_referrer(referrer, &import).await?
-		} else {
-			let cwd = cwd.ok_or_else(|| tg::error!("expected a cwd"))?;
-			self.resolve_module_without_referrer(&cwd, &import).await?
+		let referent = match referrer {
+			None => Self::resolve_module_without_referrer(&import).map_err(|source| {
+				tg::error!(!source, "failed to resolve module without referrer")
+			})?,
+			Some(referrer) => match referrer.referent.item() {
+				tg::module::data::Item::Edge(edge) => {
+					let referrer = referrer.referent.clone().map(|_| edge);
+					self.resolve_module_with_edge_referrer(&referrer, &import)
+						.await
+						.map_err(|source| {
+							tg::error!(!source, "failed to resolve module with edge referrer")
+						})?
+				},
+				tg::module::data::Item::Path(path) => {
+					let referrer = referrer.referent.clone().map(|_| path.as_ref());
+					self.resolve_module_with_path_referrer(context, &referrer, &import)
+						.await
+						.map_err(|source| {
+							tg::error!(!source, "failed to resolve module with path referrer")
+						})?
+				},
+			},
 		};
 
 		// If the kind is not known, then try to infer it from the path extension.
@@ -88,100 +101,31 @@ impl Server {
 		Ok(output)
 	}
 
-	async fn resolve_module_with_referrer(
-		&self,
-		referrer: tg::module::Data,
+	fn resolve_module_without_referrer(
 		import: &tg::module::Import,
 	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
-		match referrer.referent.item() {
-			tg::module::data::Item::Edge(edge) => {
-				let referrer = referrer.referent.clone().map(|_| edge);
-				self.resolve_module_with_edge_referrer(&referrer, import)
-					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to resolve module with edge referrer")
-					})
-			},
-			tg::module::data::Item::Path(path) => {
-				let referrer = referrer.referent.clone().map(|_| path.as_ref());
-				self.resolve_module_with_path_referrer(&referrer, import)
-					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to resolve module with path referrer")
-					})
-			},
+		let edge = import
+			.reference
+			.item()
+			.try_unwrap_object_ref()
+			.map_err(|_| tg::error!("expected a fully specified import"))?;
+		if import.reference.options().get.is_some() {
+			return Err(tg::error!("expected a fully specified import"));
 		}
-	}
-
-	async fn resolve_module_without_referrer(
-		&self,
-		cwd: &Path,
-		import: &tg::module::Import,
-	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
-		if import.reference.options().source.is_some()
-			|| import.reference.item().try_unwrap_path_ref().is_ok()
-		{
-			let referrer_path = cwd.join("<repl>");
-			let referrer = tg::Referent::with_item(referrer_path.as_path());
-			return self
-				.resolve_module_with_path_referrer(&referrer, import)
-				.await
-				.map_err(|source| {
-					tg::error!(!source, "failed to resolve module with path referrer")
-				});
+		if import.reference.options().source.is_some() {
+			return Err(tg::error!("expected a fully specified import"));
 		}
-
-		let referent = import.reference.get_with_handle(self).await?;
-		let options = referent.options;
-		let tg::Either::Left(object) = referent.item else {
-			return Err(tg::error!("expected an object"));
+		let item = tg::module::data::Item::Edge(edge.clone());
+		let reference_options = import.reference.options();
+		let options = tg::referent::Options {
+			artifact: reference_options.artifact.clone(),
+			id: reference_options.id.clone(),
+			name: reference_options.name.clone(),
+			path: reference_options.path.clone(),
+			tag: reference_options.tag.clone(),
 		};
-
-		if let tg::Object::Directory(directory) = &object
-			&& matches!(
-				import.kind,
-				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts)
-			) && let Some(root_module_name) =
-			tg::module::try_get_root_module_file_name_with_handle(self, tg::Either::Left(directory))
-				.await?
-		{
-			let edge = directory
-				.get_entry_edge_with_handle(self, root_module_name)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the entry edge"))?;
-			let edge: tg::graph::Edge<tg::Object> = match edge {
-				tg::graph::Edge::Pointer(pointer) => {
-					if pointer.kind != tg::artifact::Kind::File {
-						return Err(tg::error!("expected a file"));
-					}
-					tg::graph::Edge::Pointer(pointer)
-				},
-				tg::graph::Edge::Object(artifact) => {
-					let file = artifact
-						.try_unwrap_file()
-						.ok()
-						.ok_or_else(|| tg::error!("expected a file"))?;
-					tg::graph::Edge::Object(file.into())
-				},
-			};
-			let path = options.path.as_ref().map_or_else(
-				|| root_module_name.into(),
-				|path| path.join(root_module_name),
-			);
-			let options = tg::referent::Options {
-				path: Some(path),
-				..options
-			};
-			return Ok(tg::Referent {
-				item: tg::module::data::Item::Edge(edge.to_data()),
-				options,
-			});
-		}
-
-		Ok(tg::Referent {
-			item: tg::module::data::Item::Edge(tg::graph::data::Edge::Object(object.id())),
-			options,
-		})
+		let referent = tg::Referent { item, options };
+		Ok(referent)
 	}
 
 	async fn resolve_module_with_edge_referrer(
@@ -200,13 +144,20 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the dependency edge"))?;
 
-		let object = match &dependency.0.item {
-			Some(tg::graph::Edge::Pointer(pointer)) => {
-				tg::Artifact::with_pointer(pointer.clone()).into()
+		let edge = dependency
+			.0
+			.item
+			.as_ref()
+			.ok_or_else(|| tg::error!("dependency has no resolved item"))?;
+		let object = edge.try_unwrap_object_ref().map_or_else(
+			|_| {
+				let pointer = edge
+					.try_unwrap_pointer_ref()
+					.map_err(|_| tg::error!("dependency has no resolved item"))?;
+				Ok::<_, tg::Error>(tg::Artifact::with_pointer(pointer.clone()).into())
 			},
-			Some(tg::graph::Edge::Object(object)) => object.clone(),
-			None => return Err(tg::error!("dependency has no resolved item")),
-		};
+			|object| Ok(object.clone()),
+		)?;
 
 		let referent = match (import.kind, &object) {
 			(
@@ -337,6 +288,7 @@ impl Server {
 
 	async fn resolve_module_with_path_referrer(
 		&self,
+		context: &Context,
 		referrer: &tg::Referent<&Path>,
 		import: &tg::module::Import,
 	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
@@ -346,8 +298,8 @@ impl Server {
 			.try_unwrap_path_ref()
 			.ok());
 		if let Some(path) = path {
-			let path = if let Some(p) = import.reference.options().path.as_ref() {
-				path.join(p)
+			let path = if let Some(get) = import.reference.options().get.as_ref() {
+				path.join(get)
 			} else {
 				path.to_owned()
 			};
@@ -377,6 +329,12 @@ impl Server {
 			let item = tg::module::data::Item::Path(path);
 			let referent = tg::Referent::with_item(item);
 			Ok(referent)
+		} else if referrer
+			.item()
+			.file_name()
+			.is_some_and(|name| name == "<repl>.tg.js")
+		{
+			self.resolve_module_with_repl_referrer(context, import).await
 		} else {
 			// Perform a checkin to ensure the watch is available.
 			let options = tg::checkin::Options {
@@ -384,8 +342,8 @@ impl Server {
 				watch: true,
 				..Default::default()
 			};
-			let path = if let Some(p) = import.reference.options().path.as_ref() {
-				referrer.item().parent().unwrap().join(p)
+			let path = if let Some(get) = import.reference.options().get.as_ref() {
+				referrer.item().parent().unwrap().join(get)
 			} else {
 				referrer.item().to_path_buf()
 			};
@@ -432,6 +390,162 @@ impl Server {
 
 			Ok(referent)
 		}
+	}
+
+	async fn resolve_module_with_repl_referrer(
+		&self,
+		context: &Context,
+		import: &tg::module::Import,
+	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
+		let stream = self
+			.try_get_with_context(context, &import.reference, tg::get::Arg::default())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get the reference"))?;
+		let stream = pin!(stream);
+		let output = stream
+			.try_last()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to complete the get"))?
+			.ok_or_else(|| tg::error!("expected an event"))?
+			.try_unwrap_output()
+			.ok()
+			.ok_or_else(|| tg::error!("expected the output"))?
+			.ok_or_else(|| tg::error!("expected the reference to exist"))?;
+		let tg::Referent { item, options } = output.referent;
+		let edge = item.left().ok_or_else(|| tg::error!("expected an object"))?;
+		let object = edge.try_unwrap_object_ref().map_or_else(
+			|_| {
+				let pointer = edge
+					.try_unwrap_pointer_ref()
+					.map_err(|_| tg::error!("expected an object"))?;
+				let graph = pointer
+					.graph
+					.clone()
+					.map(tg::Graph::with_id)
+					.ok_or_else(|| tg::error!("missing graph"))?;
+				Ok::<_, tg::Error>(tg::Artifact::with_pointer(tg::graph::Pointer {
+					graph: Some(graph),
+					index: pointer.index,
+					kind: pointer.kind,
+				})
+				.into())
+			},
+			|id| Ok(tg::Object::with_id(id.clone())),
+		)?;
+		let referent = match (import.kind, &object) {
+			(
+				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts),
+				tg::Object::Directory(directory),
+			) => {
+				let path =
+					tg::module::try_get_root_module_file_name_with_handle(self, tg::Either::Left(directory))
+						.await
+						.map_err(|source| {
+							tg::error!(!source, "failed to get the root module file name")
+						})?;
+				if let Some(path) = path {
+					let edge = directory.get_entry_edge_with_handle(self, path).await.map_err(
+						|source| tg::error!(!source, "failed to get the entry edge"),
+					)?;
+					let edge = match edge {
+						tg::graph::Edge::Pointer(pointer) => {
+							if pointer.kind != tg::artifact::Kind::File {
+								return Err(tg::error!("expected a file"));
+							}
+							tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
+								graph: pointer.graph.as_ref().map(tg::Graph::id),
+								index: pointer.index,
+								kind: pointer.kind,
+							})
+						},
+						tg::graph::Edge::Object(artifact) => {
+							let file = artifact
+								.try_unwrap_file()
+								.ok()
+								.ok_or_else(|| tg::error!("expected a file"))?;
+							tg::graph::data::Edge::Object(file.id().into())
+						},
+					};
+					let path = options
+						.path
+						.as_ref()
+						.map_or_else(|| path.into(), |p| p.join(path));
+					let options = tg::referent::Options {
+						artifact: options.artifact.clone(),
+						id: options.id.clone(),
+						name: options.name.clone(),
+						path: Some(path),
+						tag: options.tag.clone(),
+					};
+					tg::Referent {
+						item: tg::module::data::Item::Edge(edge),
+						options,
+					}
+				} else if import.kind.is_none() {
+					tg::Referent {
+						item: tg::module::data::Item::Edge(edge),
+						options,
+					}
+				} else {
+					return Err(tg::error!("expected a root module"));
+				}
+			},
+			(
+				None
+				| Some(
+					tg::module::Kind::Js
+					| tg::module::Kind::Ts
+					| tg::module::Kind::Dts
+					| tg::module::Kind::File,
+				),
+				tg::Object::File(_),
+			)
+			| (Some(tg::module::Kind::Object), _)
+			| (Some(tg::module::Kind::Blob), tg::Object::Blob(_))
+			| (Some(tg::module::Kind::Directory), tg::Object::Directory(_))
+			| (Some(tg::module::Kind::Symlink), tg::Object::Symlink(_))
+			| (Some(tg::module::Kind::Graph), tg::Object::Graph(_))
+			| (Some(tg::module::Kind::Command), tg::Object::Command(_))
+			| (Some(tg::module::Kind::Error), tg::Object::Error(_))
+			| (
+				Some(tg::module::Kind::Artifact),
+				tg::Object::Directory(_) | tg::Object::File(_) | tg::Object::Symlink(_),
+			) => tg::Referent {
+				item: tg::module::data::Item::Edge(edge),
+				options,
+			},
+			(
+				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts | tg::module::Kind::Dts),
+				_,
+			) => {
+				return Err(tg::error!("expected a file"));
+			},
+			(Some(tg::module::Kind::Artifact), _) => {
+				return Err(tg::error!("expected an artifact"));
+			},
+			(Some(tg::module::Kind::Blob), _) => {
+				return Err(tg::error!("expected a blob"));
+			},
+			(Some(tg::module::Kind::Directory), _) => {
+				return Err(tg::error!("expected a directory"));
+			},
+			(Some(tg::module::Kind::File), _) => {
+				return Err(tg::error!("expected a file"));
+			},
+			(Some(tg::module::Kind::Symlink), _) => {
+				return Err(tg::error!("expected a symlink"));
+			},
+			(Some(tg::module::Kind::Graph), _) => {
+				return Err(tg::error!("expected a graph"));
+			},
+			(Some(tg::module::Kind::Command), _) => {
+				return Err(tg::error!("expected a command"));
+			},
+			(Some(tg::module::Kind::Error), _) => {
+				return Err(tg::error!("expected an error"));
+			},
+		};
+		Ok(referent)
 	}
 
 	pub(crate) async fn handle_resolve_module_request(

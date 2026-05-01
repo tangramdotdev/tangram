@@ -15,7 +15,7 @@ tg tag my-lib $dep_path
 let path = artifact {
 	inner: {
 		tangram.ts: '
-			import { helper } from "my-lib" with { path: "lib/utils.tg.ts" };
+			import { helper } from "my-lib" with { get: "lib/utils.tg.ts" };
 		'
 	}
 	outer: {
@@ -37,9 +37,9 @@ snapshot $object '
 	      "../inner": {
 	        "item": tg.directory({
 	          "tangram.ts": tg.file({
-	            "contents": tg.blob("import { helper } from \"my-lib\" with { path: \"lib/utils.tg.ts\" };"),
+	            "contents": tg.blob("import { helper } from \"my-lib\" with { get: \"lib/utils.tg.ts\" };"),
 	            "dependencies": {
-	              "my-lib?path=lib/utils.tg.ts": {
+	              "my-lib?get=lib/utils.tg.ts": {
 	                "item": tg.file({
 	                  "contents": tg.blob("export const helper = () => \"helper\";"),
 	                  "module": "ts",

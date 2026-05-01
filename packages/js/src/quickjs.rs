@@ -308,7 +308,13 @@ impl Runtime {
 					options.strict = false;
 					options.backtrace_barrier = true;
 					options.promise = true;
-					options.filename = Some("<repl>".to_owned());
+					let module = tg::module::Data {
+						kind: tg::module::Kind::Js,
+						referent: tg::Referent::with_item(tg::module::data::Item::Path(
+							state.arg.cwd.join("<repl>.tg.js"),
+						)),
+					};
+					options.filename = Some(module.to_string());
 					ctx.eval_with_options::<qjs::Promise, _>(source, options)
 				}
 				.catch(&ctx)

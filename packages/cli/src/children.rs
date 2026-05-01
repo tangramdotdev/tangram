@@ -22,10 +22,14 @@ impl Cli {
 
 		let referent = self.get_reference(&args.reference).await?;
 		match referent.item {
-			tg::Either::Left(object) => {
+			tg::Either::Left(edge) => {
+				let object = edge
+					.try_unwrap_object()
+					.map_err(|_| tg::error!("expected an object"))?
+					.id();
 				let args = crate::object::children::Args {
 					locations: locations.clone(),
-					object: object.id(),
+					object,
 					print,
 				};
 				self.command_object_children(args).await?;

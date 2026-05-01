@@ -12,7 +12,7 @@ let path = artifact {
 	}
 	inner: {
 		tangram.ts: '
-			import { helper } from "../sibling" with { path: "lib/utils.tg.ts" };
+			import { helper } from "../sibling" with { get: "lib/utils.tg.ts" };
 		'
 	}
 	outer: {
@@ -34,9 +34,9 @@ snapshot $object '
 	      "../inner": {
 	        "item": tg.directory({
 	          "tangram.ts": tg.file({
-	            "contents": tg.blob("import { helper } from \"../sibling\" with { path: \"lib/utils.tg.ts\" };"),
+	            "contents": tg.blob("import { helper } from \"../sibling\" with { get: \"lib/utils.tg.ts\" };"),
 	            "dependencies": {
-	              "../sibling?path=lib/utils.tg.ts": {
+	              "../sibling?get=lib/utils.tg.ts": {
 	                "item": tg.file({
 	                  "contents": tg.blob("export const helper = () => \"helper\";"),
 	                  "module": "ts",

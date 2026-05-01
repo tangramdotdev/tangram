@@ -410,19 +410,28 @@ impl Server {
 						parent: Some(parent),
 					});
 					dependencies.insert(reference, None);
-				} else if let Ok(id) = reference.item().try_unwrap_object_ref() {
-					let path = reference.options().path.clone();
-					let options = if path.is_some() {
+				} else if let Ok(edge) = reference.item().try_unwrap_object_ref() {
+					if let tg::graph::data::Edge::Pointer(p) = edge
+						&& p.graph.is_none()
+					{
+						return Err(tg::error!(%reference, "expected a graph"));
+					}
+					let get = reference.options().get.clone();
+					let options = if get.is_some() {
+						let id = match edge {
+							tg::graph::data::Edge::Object(id) => Some(id.clone()),
+							tg::graph::data::Edge::Pointer(_) => None,
+						};
 						tg::referent::Options {
-							id: Some(id.clone()),
-							path,
+							id,
+							path: get,
 							..Default::default()
 						}
 					} else {
 						tg::referent::Options::default()
 					};
 					let dependency = tg::graph::data::Dependency(tg::Referent {
-						item: Some(tg::graph::data::Edge::Object(id.clone())),
+						item: Some(edge.clone()),
 						options,
 					});
 					dependencies.insert(reference, Some(dependency));
@@ -501,19 +510,28 @@ impl Server {
 						path: referent,
 						parent: Some(parent),
 					});
-				} else if let Ok(id) = reference.item().try_unwrap_object_ref() {
-					let path = reference.options().path.clone();
-					let options = if path.is_some() {
+				} else if let Ok(edge) = reference.item().try_unwrap_object_ref() {
+					if let tg::graph::data::Edge::Pointer(p) = edge
+						&& p.graph.is_none()
+					{
+						return Err(tg::error!(%reference, "expected a graph"));
+					}
+					let get = reference.options().get.clone();
+					let options = if get.is_some() {
+						let id = match edge {
+							tg::graph::data::Edge::Object(id) => Some(id.clone()),
+							tg::graph::data::Edge::Pointer(_) => None,
+						};
 						tg::referent::Options {
-							id: Some(id.clone()),
-							path,
+							id,
+							path: get,
 							..Default::default()
 						}
 					} else {
 						tg::referent::Options::default()
 					};
 					let dependency = tg::graph::data::Dependency(tg::Referent {
-						item: Some(tg::graph::data::Edge::Object(id.clone())),
+						item: Some(edge.clone()),
 						options,
 					});
 					dependencies.insert(reference, Some(dependency));
@@ -806,8 +824,8 @@ impl Server {
 				let path = tangram_util::path::diff(parent_path.parent().unwrap(), path)
 					.map_err(|source| tg::error!(!source, "failed to diff the paths"))?
 					.unwrap_or_else(|| ".".into());
-				let path = if let Some(reference_path) = reference.options().path.as_ref() {
-					path.join(reference_path)
+				let path = if let Some(get) = reference.options().get.as_ref() {
+					path.join(get)
 				} else {
 					path
 				};

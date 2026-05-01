@@ -14,7 +14,7 @@ tg tag my-lib $dep_path
 # Create a package that imports the tag with a path to access the nested file.
 let test_path = artifact {
 	tangram.ts: '
-		import { helper } from "my-lib" with { path: "lib/utils.tg.ts" };
+		import { helper } from "my-lib" with { get: "lib/utils.tg.ts" };
 		export default () => helper();
 	'
 }
@@ -26,9 +26,9 @@ let object = tg object get --blobs --depth=inf --pretty $id
 snapshot $object '
 	tg.directory({
 	  "tangram.ts": tg.file({
-	    "contents": tg.blob("import { helper } from \"my-lib\" with { path: \"lib/utils.tg.ts\" };\nexport default () => helper();"),
+	    "contents": tg.blob("import { helper } from \"my-lib\" with { get: \"lib/utils.tg.ts\" };\nexport default () => helper();"),
 	    "dependencies": {
-	      "my-lib?path=lib/utils.tg.ts": {
+	      "my-lib?get=lib/utils.tg.ts": {
 	        "item": tg.file({
 	          "contents": tg.blob("export const helper = () => \"helper\";"),
 	          "module": "ts",

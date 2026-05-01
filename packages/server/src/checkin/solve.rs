@@ -533,14 +533,14 @@ impl Server {
 				.await?
 		};
 
-		let path = item
+		let get = item
 			.variant
 			.try_unwrap_file_dependency_ref()
 			.ok()
-			.and_then(|reference| reference.options().path.clone());
+			.and_then(|reference| reference.options().get.clone());
 		let options = tg::referent::Options {
 			id: Some(candidate.object),
-			path,
+			path: get,
 			tag: Some(candidate.tag),
 			..Default::default()
 		};
@@ -1353,25 +1353,25 @@ impl Server {
 			current = parent;
 		}
 		components.reverse();
-		let path = components.join("/");
-		let path = if path.is_empty() { None } else { Some(path) };
+		let get = components.join("/");
+		let get = if get.is_empty() { None } else { Some(get) };
 
 		if let Some(tag) = tag {
 			let mut reference = tag.to_string();
-			if let Some(path) = path {
-				write!(reference, "?path={path}").unwrap();
+			if let Some(get) = get {
+				write!(reference, "?get={get}").unwrap();
 			}
 			reference
 		} else if let Some(id) = id {
 			let mut reference = id.to_string();
-			if let Some(path) = path {
-				write!(reference, "?path={path}").unwrap();
+			if let Some(get) = get {
+				write!(reference, "?get={get}").unwrap();
 			}
 			reference
 		} else {
 			let mut reference = state.root.clone();
-			if let Some(path) = path {
-				reference.push(path);
+			if let Some(get) = get {
+				reference.push(get);
 			}
 			reference.to_string_lossy().into_owned()
 		}

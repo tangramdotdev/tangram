@@ -7050,6 +7050,7 @@ dependencies = [
  "futures",
  "indexmap 2.14.0",
  "indoc",
+ "itertools 0.14.0",
  "libc",
  "miette",
  "nu-ansi-term",

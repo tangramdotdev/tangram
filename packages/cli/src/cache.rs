@@ -17,9 +17,10 @@ impl Cli {
 		let artifacts = referents
 			.into_iter()
 			.map(|referent| {
-				let tg::Either::Left(object) = referent.item else {
-					return Err(tg::error!("expected an object"));
-				};
+				let edge = referent.item.left().ok_or_else(|| tg::error!("expected an object"))?;
+				let object = edge
+					.try_unwrap_object()
+					.map_err(|_| tg::error!("expected an object"))?;
 				let artifact = tg::Artifact::try_from(object)?;
 				Ok(artifact.id())
 			})

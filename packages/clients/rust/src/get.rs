@@ -20,7 +20,7 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub referent: tg::Referent<tg::Either<tg::object::Id, tg::process::Id>>,
+	pub referent: tg::Referent<tg::Either<tg::graph::data::Edge<tg::object::Id>, tg::process::Id>>,
 }
 
 impl tg::Client {

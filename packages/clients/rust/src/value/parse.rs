@@ -1448,13 +1448,8 @@ fn parse_graph_node(map: &tg::value::Map) -> tg::Result<tg::graph::Node> {
 					.try_unwrap_map_ref()
 					.map_err(|_| tg::error!("expected map for entries"))?;
 				for (key, value) in value {
-					let value = value
-						.try_unwrap_object_ref()
-						.map_err(|_| tg::error!("expected object for entry value"))?;
-					let artifact = tg::Artifact::try_from(value.clone()).map_err(|error| {
-						tg::error!(!error, "expected artifact object for entry")
-					})?;
-					entries.insert(key.clone(), tg::graph::Edge::Object(artifact));
+					let edge = parse_graph_edge_artifact(value)?;
+					entries.insert(key.clone(), edge);
 				}
 			},
 			"contents" => {
@@ -1492,13 +1487,7 @@ fn parse_graph_node(map: &tg::value::Map) -> tg::Result<tg::graph::Node> {
 				executable = *value;
 			},
 			"artifact" => {
-				let value = value
-					.try_unwrap_object_ref()
-					.map_err(|_| tg::error!("expected object for artifact"))?;
-				let artifact_value = tg::Artifact::try_from(value.clone()).map_err(|error| {
-					tg::error!(!error, "expected artifact object for artifact field")
-				})?;
-				artifact = Some(tg::graph::Edge::Object(artifact_value));
+				artifact = Some(parse_graph_edge_artifact(value)?);
 			},
 			"path" => {
 				let value = value
@@ -1541,6 +1530,63 @@ fn parse_graph_node(map: &tg::value::Map) -> tg::Result<tg::graph::Node> {
 		})),
 		_ => Err(tg::error!("unknown graph node kind: {}", kind)),
 	}
+}
+
+fn parse_graph_edge_artifact(value: &tg::Value) -> tg::Result<tg::graph::Edge<tg::Artifact>> {
+	match value {
+		tg::Value::Object(object) => {
+			let artifact = tg::Artifact::try_from(object.clone())
+				.map_err(|error| tg::error!(!error, "expected artifact object"))?;
+			Ok(tg::graph::Edge::Object(artifact))
+		},
+		tg::Value::Map(map) => {
+			let pointer = parse_graph_pointer(map)?;
+			Ok(tg::graph::Edge::Pointer(pointer))
+		},
+		_ => Err(tg::error!("expected object or map for graph edge")),
+	}
+}
+
+fn parse_graph_pointer(map: &tg::value::Map) -> tg::Result<tg::graph::Pointer> {
+	let mut graph = None;
+	let mut index = None;
+	let mut kind = None;
+	for (key, value) in map {
+		match key.as_str() {
+			"graph" => {
+				let value = value
+					.try_unwrap_object_ref()
+					.map_err(|_| tg::error!("expected object for graph"))?;
+				let value = value
+					.try_unwrap_graph_ref()
+					.map_err(|_| tg::error!("expected graph object for graph field"))?;
+				graph = Some(value.clone());
+			},
+			"index" => {
+				let value = value
+					.try_unwrap_number_ref()
+					.map_err(|_| tg::error!("expected number for index"))?;
+				let n = value
+					.to_usize()
+					.ok_or_else(|| tg::error!("index must be a non-negative integer"))?;
+				index = Some(n);
+			},
+			"kind" => {
+				let value = value
+					.try_unwrap_string_ref()
+					.map_err(|_| tg::error!("expected string for kind"))?
+					.parse()
+					.map_err(|_| tg::error!("invalid kind"))?;
+				kind = Some(value);
+			},
+			_ => {
+				return Err(tg::error!("unexpected field in graph pointer: {}", key));
+			},
+		}
+	}
+	let index = index.ok_or_else(|| tg::error!("missing index field"))?;
+	let kind = kind.ok_or_else(|| tg::error!("missing kind field"))?;
+	Ok(tg::graph::Pointer { graph, index, kind })
 }
 
 fn parse_executable(value: &tg::Value) -> tg::Result<tg::command::Executable> {

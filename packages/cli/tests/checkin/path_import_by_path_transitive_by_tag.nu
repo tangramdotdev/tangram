@@ -12,7 +12,7 @@ let inner_root = artifact {
 	}
 	package: {
 		tangram.ts: '
-			import { helper } from "../sibling" with { path: "lib/utils.tg.ts" };
+			import { helper } from "../sibling" with { get: "lib/utils.tg.ts" };
 		'
 	}
 }
@@ -37,9 +37,9 @@ snapshot $object '
 	      "inner-pkg": {
 	        "item": tg.directory({
 	          "tangram.ts": tg.file({
-	            "contents": tg.blob("import { helper } from \"../sibling\" with { path: \"lib/utils.tg.ts\" };"),
+	            "contents": tg.blob("import { helper } from \"../sibling\" with { get: \"lib/utils.tg.ts\" };"),
 	            "dependencies": {
-	              "../sibling?path=lib/utils.tg.ts": {
+	              "../sibling?get=lib/utils.tg.ts": {
 	                "item": tg.file({
 	                  "contents": tg.blob("export const helper = () => \"helper\";"),
 	                  "module": "ts",
@@ -53,7 +53,7 @@ snapshot $object '
 	          }),
 	        }),
 	        "options": {
-	          "id": "dir_019kh7jnxz71er60sktvsaqfyy3n9s87cfxrekhnyaqebb7r1vazt0",
+	          "id": "dir_01zypehfmdr6szhj3kqpvebwgknjc202yhv21j9h1j5zsjp8e6kjhg",
 	          "tag": "inner-pkg",
 	        },
 	      },

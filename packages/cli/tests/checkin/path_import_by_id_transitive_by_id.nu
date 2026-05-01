@@ -14,7 +14,7 @@ let dep_id = tg checkin $dep_path
 # Create inner package that imports by ID with path option.
 let inner_path = artifact {
 	tangram.ts: $'
-		import { helper } from "($dep_id)" with { path: "lib/utils.tg.ts" };
+		import { helper } from "($dep_id)" with { get: "lib/utils.tg.ts" };
 	'
 }
 let inner_id = tg checkin $inner_path
@@ -33,14 +33,14 @@ let object = tg object get --blobs --depth=inf --pretty $id
 snapshot $object '
 	tg.directory({
 	  "tangram.ts": tg.file({
-	    "contents": tg.blob("import * as inner from \"dir_01m5p1nhzytngtxrhrass4kzejycet3y1hpbhgvcywcy26by9szeng\";"),
+	    "contents": tg.blob("import * as inner from \"dir_01h763syc1epfrv015gtb2ktfqbgvfbz23s807cpsh4rsngsq282zg\";"),
 	    "dependencies": {
-	      "dir_01m5p1nhzytngtxrhrass4kzejycet3y1hpbhgvcywcy26by9szeng": {
+	      "dir_01h763syc1epfrv015gtb2ktfqbgvfbz23s807cpsh4rsngsq282zg": {
 	        "item": tg.directory({
 	          "tangram.ts": tg.file({
-	            "contents": tg.blob("import { helper } from \"dir_01sqqe6wh137xnctptzwprcm7pp9bye8nbqw79701ph4b63bhdzsr0\" with { path: \"lib/utils.tg.ts\" };"),
+	            "contents": tg.blob("import { helper } from \"dir_01sqqe6wh137xnctptzwprcm7pp9bye8nbqw79701ph4b63bhdzsr0\" with { get: \"lib/utils.tg.ts\" };"),
 	            "dependencies": {
-	              "dir_01sqqe6wh137xnctptzwprcm7pp9bye8nbqw79701ph4b63bhdzsr0?path=lib/utils.tg.ts": {
+	              "dir_01sqqe6wh137xnctptzwprcm7pp9bye8nbqw79701ph4b63bhdzsr0?get=lib/utils.tg.ts": {
 	                "item": tg.file({
 	                  "contents": tg.blob("export const helper = () => \"helper\";"),
 	                  "module": "ts",

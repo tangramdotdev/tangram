@@ -3,21 +3,26 @@ import * as tg from "@tangramdotdev/client";
 export let start = async (): Promise<tg.Value.Data> => {
 	// Import the module.
 	let specifier: string;
+	let attributes: { [key: string]: string } = {};
 	let export_: string | undefined;
 	if ("artifact" in tg.process.executable) {
 		specifier = tg.process.executable.artifact.id;
 		if (tg.process.executable.path !== undefined) {
-			specifier += `?path=${encodeURIComponent(tg.process.executable.path)}`;
+			specifier += `?get=${encodeURIComponent(tg.process.executable.path)}`;
 		}
 	} else if ("module" in tg.process.executable) {
-		specifier = tg.Module.toDataString(tg.process.executable.module);
+		specifier = tg.Referent.toDataString(
+			tg.process.executable.module.referent,
+			tg.Module.Item.toDataString,
+		);
+		attributes.kind = tg.process.executable.module.kind;
 		export_ = tg.process.executable.export;
 	} else if ("path" in tg.process.executable) {
 		specifier = tg.process.executable.path;
 	} else {
 		return tg.unreachable();
 	}
-	let namespace = await import(specifier);
+	let namespace = await import(specifier, { with: attributes });
 
 	// If there is no export, then return undefined.
 	if (export_ === undefined) {

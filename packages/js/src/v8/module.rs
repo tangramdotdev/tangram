@@ -32,52 +32,61 @@ pub fn host_import_module_dynamically_callback<'s>(
 	let resource_name = resource_name
 		.to_string(scope)
 		.map(|resource_name| resource_name.to_rust_string_lossy(scope));
-	let referrer = match resource_name.as_deref() {
-		None | Some("" | "main") => None,
-		Some(resource_name) => {
-			let module: tg::module::Data = match resource_name.parse().map_err(
-				|source| tg::error!(!source, %resource_name, "failed to parse the resource name"),
-			) {
-				Ok(module) => module,
-				Err(error) => {
-					let exception = error::to_exception(scope, &error)?;
-					scope.throw_exception(exception);
-					return None;
-				},
-			};
-			Some(module)
-		},
+	let Some(resource_name) = resource_name else {
+		let error = tg::error!("failed to get the resource name");
+		let exception = error::to_exception(scope, &error)?;
+		scope.throw_exception(exception);
+		return None;
+	};
+	let referrer = if resource_name == "main" {
+		None
+	} else if resource_name.is_empty() {
+		if !matches!(
+			&state.arg.executable,
+			tg::command::data::Executable::Path(executable)
+				if executable.path == std::path::Path::new("<repl>")
+		) {
+			let error = tg::error!("expected the REPL executable");
+			let exception = error::to_exception(scope, &error)?;
+			scope.throw_exception(exception);
+			return None;
+		}
+		Some(tg::module::Data {
+			kind: tg::module::Kind::Js,
+			referent: tg::Referent::with_item(tg::module::data::Item::Path(
+				state.arg.cwd.join("<repl>.tg.js"),
+			)),
+		})
+	} else {
+		let module: tg::module::Data = match resource_name.parse().map_err(
+			|source| tg::error!(!source, %resource_name, "failed to parse the resource name"),
+		) {
+			Ok(module) => module,
+			Err(error) => {
+				let exception = error::to_exception(scope, &error)?;
+				scope.throw_exception(exception);
+				return None;
+			},
+		};
+		Some(module)
 	};
 
 	// Parse the import.
-	let specifier_string = specifier.to_rust_string_lossy(scope);
-	let import = if let Ok(module) = specifier_string.parse() {
-		tg::Either::Left(module)
-	} else {
-		let import = parse_import(scope, specifier, attributes, ImportKind::Dynamic)?;
-		tg::Either::Right(import)
-	};
+	let import = parse_import(scope, specifier, attributes, ImportKind::Dynamic)?;
 
 	// Resolve the module.
 	let promise = state.create_promise(scope, {
 		let handle = state.handle.clone();
-		let cwd = state.arg.cwd.clone();
 		let import = import.clone();
 		async move {
-			let module = match import {
-				tg::Either::Left(module) => module,
-				tg::Either::Right(import) => {
-					let arg = tg::module::resolve::Arg {
-						referrer: referrer.clone(),
-						cwd: referrer.is_none().then_some(cwd),
-						import: import.clone(),
-					};
-					let output = handle.resolve_module(arg).await.map_err(|source| {
-						tg::error!(!source, ?referrer, ?import, "failed to resolve the module")
-					})?;
-					output.module
-				},
+			let arg = tg::module::resolve::Arg {
+				referrer: referrer.clone(),
+				import: import.clone(),
 			};
+			let output = handle.resolve_module(arg).await.map_err(|source| {
+				tg::error!(!source, ?referrer, ?import, "failed to resolve the module")
+			})?;
+			let module = output.module;
 			Ok(Serde(module))
 		}
 	});
@@ -279,7 +288,6 @@ fn resolve_module_sync(
 		async move {
 			let arg = tg::module::resolve::Arg {
 				referrer: Some(referrer),
-				cwd: None,
 				import,
 			};
 			let result = handle.resolve_module(arg).await.map(|output| output.module);

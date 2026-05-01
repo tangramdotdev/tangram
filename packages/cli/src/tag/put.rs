@@ -30,10 +30,20 @@ impl Cli {
 			..Default::default()
 		};
 		let referent = self.get_reference_with_arg(&args.reference, arg).await?;
-		let item = referent
-			.item
-			.map_left(|object| object.id().clone())
-			.map_right(|process| process.id().unwrap_right().clone());
+		let item = match referent.item {
+			tg::Either::Left(edge) => tg::Either::Left(
+				edge.try_unwrap_object()
+					.map_err(|_| tg::error!("expected an object"))?
+					.id(),
+			),
+			tg::Either::Right(process) => tg::Either::Right(
+				process
+					.id()
+					.right()
+					.ok_or_else(|| tg::error!("expected a process id"))?
+					.clone(),
+			),
+		};
 
 		// Put the tag.
 		let arg = tg::tag::put::Arg {

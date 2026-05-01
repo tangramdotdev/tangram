@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Test building from a file with ?path= when there's a cyclical import.
+# Test building from a file with ?get= when there's a cyclical import.
 
 let server = spawn
 
@@ -16,7 +16,7 @@ let path = artifact {
 	',
 }
 let id = tg checkin $path
-let output = tg build $"($id)?path=./file.tg.ts" | complete
+let output = tg build $"($id)?get=./file.tg.ts" | complete
 success $output
 snapshot $output.stdout '
 	42

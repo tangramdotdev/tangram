@@ -21,13 +21,12 @@ impl Cli {
 
 		// Get the reference.
 		let referent = self.get_reference(&args.reference).await?;
-		let item = referent
-			.item
-			.map_left(|object| object.id().clone())
-			.map_right(|process| process.id().unwrap_right().clone());
-
-		match item {
-			tg::Either::Left(object) => {
+		match referent.item {
+			tg::Either::Left(edge) => {
+				let object = edge
+					.try_unwrap_object()
+					.map_err(|_| tg::error!("expected an object"))?
+					.id();
 				let args = crate::object::metadata::Args {
 					locations: locations.clone(),
 					object,
@@ -36,6 +35,11 @@ impl Cli {
 				self.command_object_metadata(args).await?;
 			},
 			tg::Either::Right(process) => {
+				let process = process
+					.id()
+					.right()
+					.ok_or_else(|| tg::error!("expected a process id"))?
+					.clone();
 				let args = crate::process::metadata::Args {
 					locations,
 					print,

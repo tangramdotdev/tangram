@@ -163,7 +163,9 @@ pub trait Handle:
 		Output = tg::Result<
 			impl Stream<
 				Item = tg::Result<
-					tg::progress::Event<tg::Referent<tg::Either<tg::Object, tg::Process>>>,
+					tg::progress::Event<
+						tg::Referent<tg::Either<tg::graph::Edge<tg::Object>, tg::Process>>,
+					>,
 				>,
 			> + Send
 			+ 'static,
@@ -184,9 +186,19 @@ pub trait Handle:
 					tg::progress::Event::Output(output) => output
 						.map(|output| {
 							let referent = output.referent.map(|item| {
-								item.map_left(tg::Object::with_id).map_right(|id| {
-									tg::Process::new(id, None, None, None, None, None)
+								item.map_left(|edge| match edge {
+									tg::graph::data::Edge::Object(id) => {
+										tg::graph::Edge::Object(tg::Object::with_id(id))
+									},
+									tg::graph::data::Edge::Pointer(pointer) => {
+										tg::graph::Edge::Pointer(tg::graph::Pointer {
+											graph: pointer.graph.map(tg::Graph::with_id),
+											index: pointer.index,
+											kind: pointer.kind,
+										})
+									},
 								})
+								.map_right(|id| tg::Process::new(id, None, None, None, None, None))
 							});
 							tg::progress::Event::Output(referent)
 						})

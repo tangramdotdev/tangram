@@ -15,7 +15,7 @@ let dep_id = tg checkin $dep_path
 let path = artifact {
 	inner: {
 		tangram.ts: $'
-			import { helper } from "($dep_id)" with { path: "lib/utils.tg.ts" };
+			import { helper } from "($dep_id)" with { get: "lib/utils.tg.ts" };
 		'
 	}
 	outer: {
@@ -37,9 +37,9 @@ snapshot $object '
 	      "../inner": {
 	        "item": tg.directory({
 	          "tangram.ts": tg.file({
-	            "contents": tg.blob("import { helper } from \"dir_01sqqe6wh137xnctptzwprcm7pp9bye8nbqw79701ph4b63bhdzsr0\" with { path: \"lib/utils.tg.ts\" };"),
+	            "contents": tg.blob("import { helper } from \"dir_01sqqe6wh137xnctptzwprcm7pp9bye8nbqw79701ph4b63bhdzsr0\" with { get: \"lib/utils.tg.ts\" };"),
 	            "dependencies": {
-	              "dir_01sqqe6wh137xnctptzwprcm7pp9bye8nbqw79701ph4b63bhdzsr0?path=lib/utils.tg.ts": {
+	              "dir_01sqqe6wh137xnctptzwprcm7pp9bye8nbqw79701ph4b63bhdzsr0?get=lib/utils.tg.ts": {
 	                "item": tg.file({
 	                  "contents": tg.blob("export const helper = () => \"helper\";"),
 	                  "module": "ts",

@@ -42,7 +42,7 @@ pub struct Reference {
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Item {
-	Object(tg::object::Id),
+	Object(tg::graph::data::Edge<tg::object::Id>),
 	Path(PathBuf),
 	Process(tg::process::Id),
 	Tag(tg::tag::Pattern),
@@ -62,13 +62,28 @@ pub enum Item {
 )]
 pub struct Options {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub artifact: Option<tg::artifact::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub get: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub id: Option<tg::object::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub name: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub source: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub tag: Option<tg::Tag>,
 }
 
 impl Reference {
@@ -101,7 +116,12 @@ impl Reference {
 
 	#[must_use]
 	pub fn with_object(object: tg::object::Id) -> Self {
-		Self::with_item(Item::Object(object))
+		Self::with_item(Item::Object(tg::graph::data::Edge::Object(object)))
+	}
+
+	#[must_use]
+	pub fn with_pointer(pointer: tg::graph::data::Pointer) -> Self {
+		Self::with_item(Item::Object(tg::graph::data::Edge::Pointer(pointer)))
 	}
 
 	#[must_use]
@@ -169,7 +189,9 @@ impl Reference {
 		builder.build().unwrap()
 	}
 
-	pub async fn get(&self) -> tg::Result<tg::Referent<tg::Either<tg::Object, tg::Process>>> {
+	pub async fn get(
+		&self,
+	) -> tg::Result<tg::Referent<tg::Either<tg::graph::Edge<tg::Object>, tg::Process>>> {
 		let handle = tg::handle()?;
 		self.get_with_handle(handle).await
 	}
@@ -177,7 +199,7 @@ impl Reference {
 	pub async fn get_with_handle<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<tg::Referent<tg::Either<tg::Object, tg::Process>>>
+	) -> tg::Result<tg::Referent<tg::Either<tg::graph::Edge<tg::Object>, tg::Process>>>
 	where
 		H: tg::Handle,
 	{
@@ -269,7 +291,11 @@ impl std::str::FromStr for Item {
 
 #[cfg(test)]
 mod tests {
-	use {crate::prelude::*, insta::assert_snapshot, std::path::PathBuf};
+	use {
+		crate::prelude::*,
+		insta::assert_snapshot,
+		std::path::{Path, PathBuf},
+	};
 
 	#[test]
 	fn test() {
@@ -286,5 +312,26 @@ mod tests {
 		let tag = "std/<0.0.1".parse().unwrap();
 		let reference = tg::Reference::with_tag(tag).to_string();
 		assert_snapshot!(reference, @"std/<0.0.1");
+	}
+
+	#[test]
+	fn options() {
+		let reference = "dir_010000000000000000000000000000000000000000000000000000?id=dir_020000000000000000000000000000000000000000000000000000&name=main&path=lib/main.tg.ts&tag=foo&get=src/util.tg.ts"
+			.parse::<tg::Reference>()
+			.unwrap();
+		assert_eq!(
+			reference.options().id.as_ref().unwrap().to_string(),
+			"dir_020000000000000000000000000000000000000000000000000000"
+		);
+		assert_eq!(reference.options().name.as_deref(), Some("main"));
+		assert_eq!(
+			reference.options().path.as_deref(),
+			Some(Path::new("lib/main.tg.ts"))
+		);
+		assert_eq!(reference.options().tag.as_ref().unwrap().to_string(), "foo");
+		assert_eq!(
+			reference.options().get.as_deref(),
+			Some(Path::new("src/util.tg.ts"))
+		);
 	}
 }

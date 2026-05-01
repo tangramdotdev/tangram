@@ -67,6 +67,7 @@ pub struct Dependency(pub tg::Referent<Option<Edge<tg::Object>>>);
 	derive_more::TryUnwrap,
 	derive_more::Unwrap,
 )]
+#[try_unwrap(ref)]
 pub enum Edge<T> {
 	Pointer(Pointer),
 	Object(T),

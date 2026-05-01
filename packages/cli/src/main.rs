@@ -1169,7 +1169,7 @@ impl Cli {
 	async fn get_reference(
 		&mut self,
 		reference: &tg::Reference,
-	) -> tg::Result<tg::Referent<tg::Either<tg::Object, tg::Process>>> {
+	) -> tg::Result<tg::Referent<tg::Either<tg::graph::Edge<tg::Object>, tg::Process>>> {
 		self.get_reference_with_arg(reference, tg::get::Arg::default())
 			.boxed()
 			.await
@@ -1179,12 +1179,23 @@ impl Cli {
 		&mut self,
 		reference: &tg::Reference,
 		arg: tg::get::Arg,
-	) -> tg::Result<tg::Referent<tg::Either<tg::Object, tg::Process>>> {
+	) -> tg::Result<tg::Referent<tg::Either<tg::graph::Edge<tg::Object>, tg::Process>>> {
 		if reference.options() == &tg::reference::Options::default() {
 			match reference.item() {
-				tg::reference::Item::Object(id) => {
-					let object = tg::Object::with_id(id.clone());
-					let referent = tg::Referent::with_item(tg::Either::Left(object));
+				tg::reference::Item::Object(edge) => {
+					let edge = match edge {
+						tg::graph::data::Edge::Object(id) => {
+							tg::graph::Edge::Object(tg::Object::with_id(id.clone()))
+						},
+						tg::graph::data::Edge::Pointer(pointer) => {
+							tg::graph::Edge::Pointer(tg::graph::Pointer {
+								graph: pointer.graph.clone().map(tg::Graph::with_id),
+								index: pointer.index,
+								kind: pointer.kind,
+							})
+						},
+					};
+					let referent = tg::Referent::with_item(tg::Either::Left(edge));
 					return Ok(referent);
 				},
 				tg::reference::Item::Process(id) => {
@@ -1240,7 +1251,7 @@ impl Cli {
 	async fn get_references(
 		&mut self,
 		references: &[tg::Reference],
-	) -> tg::Result<Vec<tg::Referent<tg::Either<tg::Object, tg::Process>>>> {
+	) -> tg::Result<Vec<tg::Referent<tg::Either<tg::graph::Edge<tg::Object>, tg::Process>>>> {
 		let mut referents = Vec::with_capacity(references.len());
 		for reference in references {
 			let referent = self.get_reference(reference).await?;
@@ -1270,7 +1281,7 @@ impl Cli {
 			.ok_or_else(|| tg::error!("expected an object"))?;
 		let mut referent = referent.map(|_| item);
 		let module = match referent.item.clone() {
-			tg::Object::Directory(directory) => {
+			tg::graph::Edge::Object(tg::Object::Directory(directory)) => {
 				let root_module_name = tg::module::try_get_root_module_file_name_with_handle(
 					&handle,
 					tg::Either::Left(&directory),
@@ -1287,13 +1298,14 @@ impl Cli {
 				let kind = tg::module::module_kind_for_path(root_module_name).unwrap();
 				let item = directory
 					.get_entry_edge_with_handle(&handle, root_module_name)
-					.await?;
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the root module"))?;
 				let item = tg::module::Item::Edge(item.into());
 				let referent = referent.map(|_| item);
 				tg::Module { kind, referent }
 			},
 
-			tg::Object::File(file) => {
+			tg::graph::Edge::Object(tg::Object::File(file)) => {
 				let path = referent
 					.path()
 					.ok_or_else(|| tg::error!("expected a path"))?;
@@ -1308,7 +1320,49 @@ impl Cli {
 				tg::Module { kind, referent }
 			},
 
-			tg::Object::Symlink(_) => {
+			tg::graph::Edge::Object(tg::Object::Symlink(_)) => {
+				return Err(tg::error!("unimplemented"));
+			},
+
+			tg::graph::Edge::Pointer(pointer) if pointer.kind == tg::artifact::Kind::Directory => {
+				let directory = tg::Directory::with_object(tg::directory::Object::Pointer(pointer));
+				let root_module_name = tg::module::try_get_root_module_file_name_with_handle(
+					&handle,
+					tg::Either::Left(&directory),
+				)
+				.await?
+				.ok_or_else(
+					|| tg::error!(directory = %directory.id(), "failed to find a root module"),
+				)?;
+				if let Some(path) = &mut referent.options.path {
+					*path = path.join(root_module_name);
+				} else {
+					referent.options.path.replace(root_module_name.into());
+				}
+				let kind = tg::module::module_kind_for_path(root_module_name).unwrap();
+				let item = directory
+					.get_entry_edge_with_handle(&handle, root_module_name)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to get the root module"))?;
+				let item = tg::module::Item::Edge(item.into());
+				let referent = referent.map(|_| item);
+				tg::Module { kind, referent }
+			},
+
+			tg::graph::Edge::Pointer(pointer) if pointer.kind == tg::artifact::Kind::File => {
+				let path = referent
+					.path()
+					.ok_or_else(|| tg::error!("expected a path"))?;
+				if !tg::module::is_module_path(path) {
+					return Err(tg::error!("expected a module path"));
+				}
+				let kind = tg::module::module_kind_for_path(path).unwrap();
+				let item = tg::module::Item::Edge(tg::graph::Edge::Pointer(pointer.clone()));
+				let referent = referent.map(|_| item);
+				tg::Module { kind, referent }
+			},
+
+			tg::graph::Edge::Pointer(pointer) if pointer.kind == tg::artifact::Kind::Symlink => {
 				return Err(tg::error!("unimplemented"));
 			},
 
