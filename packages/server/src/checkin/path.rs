@@ -19,7 +19,7 @@ impl Server {
 			let node = graph.nodes.get(&index).unwrap();
 			if let Variant::File(file) = &node.variant {
 				for (reference, dependency) in &file.dependencies {
-					if let Some(path) = reference.options().path.as_ref()
+					if let Some(get) = reference.options().get.as_ref()
 						&& let Some(dependency) = dependency
 						&& let Some(edge) = dependency.item()
 					{
@@ -29,7 +29,7 @@ impl Server {
 							Self::checkin_path_edge_is_directory(graph, edge)
 						};
 						if visit {
-							let target = self.checkin_path_visit(graph, edge.clone(), path).await?;
+							let target = self.checkin_path_visit(graph, edge.clone(), get).await?;
 							paths.insert((index, reference.clone()), target);
 						}
 					}

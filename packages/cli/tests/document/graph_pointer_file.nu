@@ -12,7 +12,7 @@ let artifact = '
 	})
 '
 let graph_id = tg put $artifact | str trim
-let output = tg document $"graph=($graph_id)&index=0&kind=file?path=tangram.ts" | complete
+let output = tg document $"graph=($graph_id)&index=0&kind=file?get=tangram.ts" | complete
 success $output
 
 let json = $output.stdout | from json

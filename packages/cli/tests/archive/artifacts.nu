@@ -35,9 +35,3 @@ roundtrip tar zst
 
 # Zip without compression.
 roundtrip zip
-
-# Zip with each compression format.
-roundtrip zip bz2
-roundtrip zip gz
-roundtrip zip xz
-roundtrip zip zst

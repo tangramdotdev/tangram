@@ -32,31 +32,43 @@ pub fn host_import_module_dynamically_callback<'s>(
 	let resource_name = resource_name
 		.to_string(scope)
 		.map(|resource_name| resource_name.to_rust_string_lossy(scope));
-	let referrer = if resource_name.as_deref() == Some("<repl>") {
+	let Some(resource_name) = resource_name else {
+		let error = tg::error!("failed to get the resource name");
+		let exception = error::to_exception(scope, &error)?;
+		scope.throw_exception(exception);
+		return None;
+	};
+	let referrer = if resource_name == "main" {
+		None
+	} else if resource_name.is_empty() {
+		if !matches!(
+			&state.arg.executable,
+			tg::command::data::Executable::Path(executable)
+				if executable.path == std::path::Path::new("<repl>")
+		) {
+			let error = tg::error!("expected the REPL executable");
+			let exception = error::to_exception(scope, &error)?;
+			scope.throw_exception(exception);
+			return None;
+		}
 		Some(tg::module::Data {
 			kind: tg::module::Kind::Js,
 			referent: tg::Referent::with_item(tg::module::data::Item::Path(
-				state.arg.cwd.join("repl.js"),
+				state.arg.cwd.join("<repl>.tg.js"),
 			)),
 		})
-	} else if let Some(resource_name) = resource_name.as_deref() {
-		if resource_name == "main" || resource_name.is_empty() {
-			None
-		} else {
-			let module: tg::module::Data = match resource_name.parse().map_err(
-				|source| tg::error!(!source, %resource_name, "failed to parse the resource name"),
-			) {
-				Ok(module) => module,
-				Err(error) => {
-					let exception = error::to_exception(scope, &error)?;
-					scope.throw_exception(exception);
-					return None;
-				},
-			};
-			Some(module)
-		}
 	} else {
-		None
+		let module: tg::module::Data = match resource_name.parse().map_err(
+			|source| tg::error!(!source, %resource_name, "failed to parse the resource name"),
+		) {
+			Ok(module) => module,
+			Err(error) => {
+				let exception = error::to_exception(scope, &error)?;
+				scope.throw_exception(exception);
+				return None;
+			},
+		};
+		Some(module)
 	};
 
 	// Parse the import.

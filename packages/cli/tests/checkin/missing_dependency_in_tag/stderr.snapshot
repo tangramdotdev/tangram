@@ -2,4 +2,4 @@ error an error occurred
 -> failed to solve dependencies
 -> no matching tags were found
    pattern = bar
-   referrer = foo?path=tangram.ts
+   referrer = foo?get=tangram.ts

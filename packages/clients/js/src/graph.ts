@@ -339,7 +339,7 @@ export namespace Graph {
 			contents?: tg.Blob.Arg | undefined;
 			dependencies?:
 				| {
-						[reference: tg.Reference]: tg.Graph.Arg.Dependency | undefined;
+						[reference: tg.Reference.String]: tg.Graph.Arg.Dependency | undefined;
 				  }
 				| undefined;
 			executable?: boolean | undefined;
@@ -568,7 +568,7 @@ export namespace Graph {
 	export type File = {
 		contents: tg.Blob;
 		dependencies: {
-			[reference: tg.Reference]: tg.Graph.Dependency | undefined;
+			[reference: tg.Reference.String]: tg.Graph.Dependency | undefined;
 		};
 		executable: boolean;
 		module: string | undefined;
@@ -1059,7 +1059,7 @@ export namespace Graph {
 		export type File = {
 			contents?: tg.Blob.Id;
 			dependencies?: {
-				[reference: tg.Reference]: tg.Graph.Dependency.Data | undefined;
+				[reference: tg.Reference.String]: tg.Graph.Dependency.Data | undefined;
 			};
 			executable?: boolean;
 			module?: string;

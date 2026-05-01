@@ -57,5 +57,5 @@ snapshot $object2 '
 '
 
 # Verify we can read the file contents using tg read.
-let contents = tg read $"($id2)?path=tangram.ts"
+let contents = tg read $"($id2)?get=tangram.ts"
 snapshot $contents 'import * as a from "a/^1";'

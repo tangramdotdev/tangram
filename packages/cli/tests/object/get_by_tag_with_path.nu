@@ -16,7 +16,7 @@ let dir_id = tg checkin $path
 tg tag test $dir_id
 
 # Get the nested file using the path option with a tag reference.
-let output = tg get --pretty "test?path=foo/bar/file.txt" | complete
+let output = tg get --pretty "test?get=foo/bar/file.txt" | complete
 
 # Verify the output is a file ID.
 snapshot $output.stdout '

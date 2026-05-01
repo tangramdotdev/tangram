@@ -416,15 +416,15 @@ impl Server {
 					{
 						return Err(tg::error!(%reference, "expected a graph"));
 					}
-					let path = reference.options().path.clone();
-					let options = if path.is_some() {
+					let get = reference.options().get.clone();
+					let options = if get.is_some() {
 						let id = match edge {
 							tg::graph::data::Edge::Object(id) => Some(id.clone()),
 							tg::graph::data::Edge::Pointer(_) => None,
 						};
 						tg::referent::Options {
 							id,
-							path,
+							path: get,
 							..Default::default()
 						}
 					} else {
@@ -516,15 +516,15 @@ impl Server {
 					{
 						return Err(tg::error!(%reference, "expected a graph"));
 					}
-					let path = reference.options().path.clone();
-					let options = if path.is_some() {
+					let get = reference.options().get.clone();
+					let options = if get.is_some() {
 						let id = match edge {
 							tg::graph::data::Edge::Object(id) => Some(id.clone()),
 							tg::graph::data::Edge::Pointer(_) => None,
 						};
 						tg::referent::Options {
 							id,
-							path,
+							path: get,
 							..Default::default()
 						}
 					} else {
@@ -824,8 +824,8 @@ impl Server {
 				let path = tangram_util::path::diff(parent_path.parent().unwrap(), path)
 					.map_err(|source| tg::error!(!source, "failed to diff the paths"))?
 					.unwrap_or_else(|| ".".into());
-				let path = if let Some(reference_path) = reference.options().path.as_ref() {
-					path.join(reference_path)
+				let path = if let Some(get) = reference.options().get.as_ref() {
+					path.join(get)
 				} else {
 					path
 				};

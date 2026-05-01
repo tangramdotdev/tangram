@@ -1,5 +1,5 @@
 use {
-	async_zip::base::read::stream::ZipFileReader,
+	async_zip::{base::read::stream::ZipFileReader, error::ZipError},
 	futures::{AsyncReadExt as _, StreamExt as _},
 	std::{
 		os::unix::fs::PermissionsExt as _,
@@ -12,7 +12,7 @@ use {
 		stream::{Ext as _, TryExt as _},
 		task::Task,
 	},
-	tokio::io::AsyncBufReadExt as _,
+	tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _},
 	tokio_util::compat::FuturesAsyncReadCompatExt as _,
 };
 
@@ -272,18 +272,21 @@ pub(crate) async fn extract_zip(
 	temp: &Path,
 	reader: &mut (impl tokio::io::AsyncBufRead + Send + Unpin + 'static),
 ) -> tg::Result<()> {
-	// Create the reader.
-	let mut reader = Some(ZipFileReader::with_tokio(reader));
-
-	// Extract.
+	let mut entries = Vec::new();
+	let mut central_directory = Vec::new();
+	let mut zip_reader = Some(ZipFileReader::with_tokio(&mut *reader));
 	loop {
-		let Some(mut entry) = reader
-			.take()
-			.unwrap()
-			.next_with_entry()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read first entry"))?
-		else {
+		let Some(mut entry) = (match zip_reader.take().unwrap().next_with_entry().await {
+			Ok(entry) => entry,
+			Err(ZipError::UnexpectedHeaderError(0x0605_4b50, _)) if entries.is_empty() => {
+				central_directory.extend_from_slice(&0x0605_4b50_u32.to_le_bytes());
+				break;
+			},
+			Err(source) => {
+				return Err(tg::error!(!source, "failed to read first entry"));
+			},
+		}) else {
+			central_directory.extend_from_slice(&0x0201_4b50_u32.to_le_bytes());
 			break;
 		};
 
@@ -353,12 +356,87 @@ pub(crate) async fn extract_zip(
 			}
 		}
 
+		entries.push(path);
+
 		// Advance the reader.
 		let value = entry
 			.done()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to advance the reader"))?;
-		reader.replace(value);
+		zip_reader.replace(value);
+	}
+
+	reader
+		.read_to_end(&mut central_directory)
+		.await
+		.map_err(|source| tg::error!(!source, "failed to read zip central directory"))?;
+
+	// Get symlinks.
+	let central_directory: &[u8] = &central_directory;
+	let entry_count = entries.len();
+	let mut symlinks = Vec::new();
+	let mut position = 0;
+	while position + 4 <= central_directory.len() {
+		let signature = u32::from_le_bytes(
+			central_directory[position..position + 4]
+				.try_into()
+				.expect("expected a four byte signature"),
+		);
+		if signature != 0x0201_4b50 {
+			break;
+		}
+		if position + 46 > central_directory.len() {
+			return Err(tg::error!("invalid zip central directory"));
+		}
+		let filename_length = u16::from_le_bytes(
+			central_directory[position + 28..position + 30]
+				.try_into()
+				.expect("expected a two byte filename length"),
+		) as usize;
+		let extra_field_length = u16::from_le_bytes(
+			central_directory[position + 30..position + 32]
+				.try_into()
+				.expect("expected a two byte extra field length"),
+		) as usize;
+		let comment_length = u16::from_le_bytes(
+			central_directory[position + 32..position + 34]
+				.try_into()
+				.expect("expected a two byte comment length"),
+		) as usize;
+		let external_file_attribute = u32::from_le_bytes(
+			central_directory[position + 38..position + 42]
+				.try_into()
+				.expect("expected a four byte external file attribute"),
+		);
+		let permissions = (external_file_attribute >> 16) as u16;
+		symlinks.push(permissions & 0o120_000 == 0o120_000);
+		position = position
+			.checked_add(46)
+			.and_then(|position| position.checked_add(filename_length))
+			.and_then(|position| position.checked_add(extra_field_length))
+			.and_then(|position| position.checked_add(comment_length))
+			.ok_or_else(|| tg::error!("invalid zip central directory"))?;
+	}
+	if symlinks.len() != entry_count {
+		return Err(tg::error!("invalid zip central directory"));
+	}
+
+	// Apply symlinks.
+	for (path, is_symlink) in entries.iter().zip(symlinks) {
+		if !is_symlink {
+			continue;
+		}
+		let buffer = tokio::fs::read(path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to read symlink target"))?;
+		let target = std::str::from_utf8(&buffer)
+			.map_err(|source| tg::error!(!source, "symlink target not valid UTF-8"))?;
+		tokio::fs::remove_file(path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to remove the symlink placeholder"))?;
+		tokio::fs::symlink(target, path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the symlink"))?;
 	}
 
 	Ok(())

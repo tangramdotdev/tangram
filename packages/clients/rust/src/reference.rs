@@ -62,13 +62,28 @@ pub enum Item {
 )]
 pub struct Options {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub artifact: Option<tg::artifact::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub get: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub id: Option<tg::object::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub name: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub source: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub tag: Option<tg::Tag>,
 }
 
 impl Reference {
@@ -100,13 +115,13 @@ impl Reference {
 	}
 
 	#[must_use]
-	pub fn with_pointer(pointer: tg::graph::data::Pointer) -> Self {
-		Self::with_item(Item::Object(tg::graph::data::Edge::Pointer(pointer)))
+	pub fn with_object(object: tg::object::Id) -> Self {
+		Self::with_item(Item::Object(tg::graph::data::Edge::Object(object)))
 	}
 
 	#[must_use]
-	pub fn with_object(object: tg::object::Id) -> Self {
-		Self::with_item(Item::Object(tg::graph::data::Edge::Object(object)))
+	pub fn with_pointer(pointer: tg::graph::data::Pointer) -> Self {
+		Self::with_item(Item::Object(tg::graph::data::Edge::Pointer(pointer)))
 	}
 
 	#[must_use]
@@ -276,7 +291,11 @@ impl std::str::FromStr for Item {
 
 #[cfg(test)]
 mod tests {
-	use {crate::prelude::*, insta::assert_snapshot, std::path::PathBuf};
+	use {
+		crate::prelude::*,
+		insta::assert_snapshot,
+		std::path::{Path, PathBuf},
+	};
 
 	#[test]
 	fn test() {
@@ -293,5 +312,26 @@ mod tests {
 		let tag = "std/<0.0.1".parse().unwrap();
 		let reference = tg::Reference::with_tag(tag).to_string();
 		assert_snapshot!(reference, @"std/<0.0.1");
+	}
+
+	#[test]
+	fn options() {
+		let reference = "dir_010000000000000000000000000000000000000000000000000000?id=dir_020000000000000000000000000000000000000000000000000000&name=main&path=lib/main.tg.ts&tag=foo&get=src/util.tg.ts"
+			.parse::<tg::Reference>()
+			.unwrap();
+		assert_eq!(
+			reference.options().id.as_ref().unwrap().to_string(),
+			"dir_020000000000000000000000000000000000000000000000000000"
+		);
+		assert_eq!(reference.options().name.as_deref(), Some("main"));
+		assert_eq!(
+			reference.options().path.as_deref(),
+			Some(Path::new("lib/main.tg.ts"))
+		);
+		assert_eq!(reference.options().tag.as_ref().unwrap().to_string(), "foo");
+		assert_eq!(
+			reference.options().get.as_deref(),
+			Some(Path::new("src/util.tg.ts"))
+		);
 	}
 }

@@ -217,7 +217,7 @@ export class File {
 
 	/** Get this file's dependencies. */
 	get dependencies(): Promise<{
-		[reference: tg.Reference]: tg.Referent<tg.Object> | undefined;
+		[reference: tg.Reference.String]: tg.Referent<tg.Object> | undefined;
 	}> {
 		return (async () => {
 			let object = await this.object();

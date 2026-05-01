@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Test getting from an object with ?path= when there's a cyclical import.
+# Test getting from an object with ?get= when there's a cyclical import.
 
 let server = spawn
 
@@ -9,7 +9,7 @@ let path = artifact {
 	file.tg.ts: 'import * as root from "./tangram.ts";',
 }
 let id = tg checkin $path
-let output = tg get $"($id)?path=./file.tg.ts" --depth=inf --pretty | complete
+let output = tg get $"($id)?get=./file.tg.ts" --depth=inf --pretty | complete
 success $output
 snapshot $output.stdout '
 	tg.file({
