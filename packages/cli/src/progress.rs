@@ -21,7 +21,7 @@ impl Cli {
 		&mut self,
 		stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>>,
 	) -> tg::Result<T> {
-		self.render_progress_stream_with_output(stream, |_| {})
+		self.render_progress_stream_with_output(stream, |_, _| {})
 			.await
 	}
 
@@ -31,7 +31,7 @@ impl Cli {
 		mut f: F,
 	) -> tg::Result<T>
 	where
-		F: FnMut(&T),
+		F: FnMut(&mut Self, &T),
 	{
 		if self.args.quiet {
 			let output = pin!(stream)
@@ -41,7 +41,7 @@ impl Cli {
 				.try_unwrap_output()
 				.ok()
 				.ok_or_else(|| tg::error!("expected the output"))?;
-			f(&output);
+			f(self, &output);
 			return Ok(output);
 		}
 
@@ -54,7 +54,7 @@ impl Cli {
 				.await?
 				.and_then(|event| event.try_unwrap_output().ok())
 				.ok_or_else(|| tg::error!("stream ended without output"))?;
-			f(&output);
+			f(self, &output);
 			return Ok(output);
 		}
 
@@ -109,7 +109,7 @@ impl Cli {
 		f: &mut F,
 	) -> bool
 	where
-		F: FnMut(&T),
+		F: FnMut(&mut Self, &T),
 	{
 		match event {
 			tg::progress::Event::Diagnostic(diagnostic) => {
@@ -151,7 +151,7 @@ impl Cli {
 			tg::progress::Event::Output(output) => {
 				state.clear();
 				state.indicators.clear();
-				f(&output);
+				f(self, &output);
 				state.output.replace(output);
 				false
 			},

@@ -41,7 +41,7 @@ impl Cli {
 			if let Some(metadata) = metadata {
 				let metadata = serde_json::to_string(&metadata)
 					.map_err(|source| tg::error!(!source, "failed to serialize the metadata"))?;
-				Self::print_info_message(&metadata);
+				self.print_info_message(&metadata);
 			}
 			tokio::io::stdout()
 				.write_all(&bytes)
@@ -68,7 +68,7 @@ impl Cli {
 			if let Some(metadata) = output.metadata {
 				let metadata = serde_json::to_string(&metadata)
 					.map_err(|source| tg::error!(!source, "failed to serialize the metadata"))?;
-				Self::print_info_message(&metadata);
+				self.print_info_message(&metadata);
 			}
 		}
 		self.print_value(&value, args.print, arg).await?;

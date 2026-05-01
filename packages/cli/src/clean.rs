@@ -39,7 +39,7 @@ impl Cli {
 			"cleaned {} processes, {} objects, {} tags, {bytes:#.1}",
 			output.processes, output.objects, output.tags,
 		);
-		Self::print_info_message(&message);
+		self.print_info_message(&message);
 
 		Ok(())
 	}

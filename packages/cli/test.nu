@@ -362,6 +362,7 @@ def run_test [test: record, cloud: bool, quickjs: bool, no_capture: bool, preser
 		DYLD_FALLBACK_LIBRARY_PATH: $dyld_fallback_library_path,
 		TANGRAM_CONFIG: ($temp_path | path join "config.json"),
 		TANGRAM_MODE: client,
+		TANGRAM_QUIET: true,
 		TANGRAM_TEST_CLOUD: (if $cloud { "1" } else { "" }),
 		TANGRAM_TEST_QUICKJS: (if $quickjs { "1" } else { "" }),
 		TMPDIR: $temp_path,

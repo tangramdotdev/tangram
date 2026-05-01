@@ -339,7 +339,9 @@ export namespace Graph {
 			contents?: tg.Blob.Arg | undefined;
 			dependencies?:
 				| {
-						[reference: tg.Reference.String]: tg.Graph.Arg.Dependency | undefined;
+						[reference: tg.Reference.String]:
+							| tg.Graph.Arg.Dependency
+							| undefined;
 				  }
 				| undefined;
 			executable?: boolean | undefined;

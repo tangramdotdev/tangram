@@ -33,7 +33,7 @@ impl Cli {
 		if let Some(metadata) = output.metadata {
 			let metadata = serde_json::to_string(&metadata)
 				.map_err(|source| tg::error!(!source, "failed to serialize the metadata"))?;
-			Self::print_info_message(&metadata);
+			self.print_info_message(&metadata);
 		}
 		self.print_serde(output.data, args.print).await?;
 		Ok(())

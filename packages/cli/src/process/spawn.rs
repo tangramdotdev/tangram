@@ -384,15 +384,14 @@ impl Cli {
 			tag,
 		} = self.spawn_inner(options, reference, trailing).await?;
 
-		let quiet = self.args.quiet;
 		let process = tg::Process::spawn_with_progress_with_handle(&handle, arg, |stream| {
-			self.render_progress_stream_with_output(stream, |output| {
-				if print && sandboxed && !quiet {
+			self.render_progress_stream_with_output(stream, |cli, output| {
+				if print && sandboxed {
 					let mut message = output.process.to_string();
 					if let Some(token) = &output.token {
 						write!(message, " {token}").unwrap();
 					}
-					Self::print_info_message(&message);
+					cli.print_info_message(&message);
 				}
 			})
 		})

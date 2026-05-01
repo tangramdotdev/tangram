@@ -55,10 +55,10 @@ impl qjs::loader::Resolver for Resolver {
 			let handle = state.handle.clone();
 			let referrer = referrer.clone();
 			let import = import.clone();
-				async move {
-					let arg = tg::module::resolve::Arg {
-						referrer: referrer.clone(),
-						import,
+			async move {
+				let arg = tg::module::resolve::Arg {
+					referrer: referrer.clone(),
+					import,
 				};
 				let result = handle.resolve_module(arg).await.map(|output| output.module);
 				sender.send(result).unwrap();

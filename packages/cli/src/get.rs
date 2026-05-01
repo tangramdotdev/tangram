@@ -43,7 +43,7 @@ impl Cli {
 			},
 		};
 		let referent = referent.map(|_| item);
-		Self::print_info_message(&referent.to_string());
+		self.print_info_message(&referent.to_string());
 		match referent.item {
 			tg::Either::Left(object) => {
 				let args = crate::object::get::Args {

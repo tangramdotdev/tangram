@@ -114,7 +114,7 @@ struct Args {
 	remotes: Option<Vec<String>>,
 
 	/// Whether to show progress and other helpful information.
-	#[arg(long, short)]
+	#[arg(env = "TANGRAM_QUIET", long, short)]
 	quiet: bool,
 
 	#[arg(env = "TANGRAM_TOKEN", long)]

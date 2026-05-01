@@ -221,13 +221,13 @@ impl Cli {
 		let bytes = byte_unit::Byte::from_u64(output.skipped.bytes)
 			.get_appropriate_unit(byte_unit::UnitType::Decimal);
 		let message = format!("skipped {processes} processes, {objects} objects, {bytes:#.1}");
-		Self::print_info_message(&message);
+		self.print_info_message(&message);
 		let processes = output.transferred.processes;
 		let objects = output.transferred.objects;
 		let bytes = byte_unit::Byte::from_u64(output.transferred.bytes)
 			.get_appropriate_unit(byte_unit::UnitType::Decimal);
 		let message = format!("transferred {processes} processes, {objects} objects, {bytes:#.1}");
-		Self::print_info_message(&message);
+		self.print_info_message(&message);
 
 		// Put tags on the remote.
 		let tags = tags
@@ -248,7 +248,7 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to publish tags to remote"))?;
 		for item in &tags {
 			let message = format!("tagged {} {}", item.tag, item.item);
-			Self::print_info_message(&message);
+			self.print_info_message(&message);
 		}
 
 		Ok(())

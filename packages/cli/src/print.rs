@@ -185,7 +185,10 @@ impl Cli {
 		Ok(())
 	}
 
-	pub fn print_info_message(string: &str) {
+	pub fn print_info_message(&self, string: &str) {
+		if self.args.quiet {
+			return;
+		}
 		eprintln!("{} {string}", "info".blue().bold());
 	}
 

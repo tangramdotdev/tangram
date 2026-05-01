@@ -41,7 +41,7 @@ impl Cli {
 				let code = Self::create_shell_state_code(args.shell, None);
 				output.push_str(&code);
 				print!("{output}");
-				Self::print_info_message(&format!("deactivated {}", deactivate.reference));
+				self.print_info_message(&format!("deactivated {}", deactivate.reference));
 				Self::print_shell_preserved_variable_messages(&deactivate.preserved);
 			}
 			return Ok(());
@@ -88,7 +88,7 @@ impl Cli {
 		let code = Self::create_shell_state_code(args.shell, Some(&state_path));
 		output.push_str(&code);
 		print!("{output}");
-		Self::print_info_message(&format!("activated {directory}"));
+		self.print_info_message(&format!("activated {directory}"));
 
 		Ok(())
 	}

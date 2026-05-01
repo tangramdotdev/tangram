@@ -58,7 +58,7 @@ impl Cli {
 		output.push_str(&code);
 		print!("{output}");
 
-		Self::print_info_message(&format!("deactivated {}", deactivate_output.reference));
+		self.print_info_message(&format!("deactivated {}", deactivate_output.reference));
 		Self::print_shell_preserved_variable_messages(&deactivate_output.preserved);
 
 		Ok(())

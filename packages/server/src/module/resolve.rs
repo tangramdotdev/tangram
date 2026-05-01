@@ -334,7 +334,8 @@ impl Server {
 			.file_name()
 			.is_some_and(|name| name == "<repl>.tg.js")
 		{
-			self.resolve_module_with_repl_referrer(context, import).await
+			self.resolve_module_with_repl_referrer(context, import)
+				.await
 		} else {
 			// Perform a checkin to ensure the watch is available.
 			let options = tg::checkin::Options {
@@ -412,7 +413,9 @@ impl Server {
 			.ok_or_else(|| tg::error!("expected the output"))?
 			.ok_or_else(|| tg::error!("expected the reference to exist"))?;
 		let tg::Referent { item, options } = output.referent;
-		let edge = item.left().ok_or_else(|| tg::error!("expected an object"))?;
+		let edge = item
+			.left()
+			.ok_or_else(|| tg::error!("expected an object"))?;
 		let object = edge.try_unwrap_object_ref().map_or_else(
 			|_| {
 				let pointer = edge
@@ -423,12 +426,14 @@ impl Server {
 					.clone()
 					.map(tg::Graph::with_id)
 					.ok_or_else(|| tg::error!("missing graph"))?;
-				Ok::<_, tg::Error>(tg::Artifact::with_pointer(tg::graph::Pointer {
-					graph: Some(graph),
-					index: pointer.index,
-					kind: pointer.kind,
-				})
-				.into())
+				Ok::<_, tg::Error>(
+					tg::Artifact::with_pointer(tg::graph::Pointer {
+						graph: Some(graph),
+						index: pointer.index,
+						kind: pointer.kind,
+					})
+					.into(),
+				)
 			},
 			|id| Ok(tg::Object::with_id(id.clone())),
 		)?;
@@ -437,16 +442,17 @@ impl Server {
 				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts),
 				tg::Object::Directory(directory),
 			) => {
-				let path =
-					tg::module::try_get_root_module_file_name_with_handle(self, tg::Either::Left(directory))
-						.await
-						.map_err(|source| {
-							tg::error!(!source, "failed to get the root module file name")
-						})?;
+				let path = tg::module::try_get_root_module_file_name_with_handle(
+					self,
+					tg::Either::Left(directory),
+				)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the root module file name"))?;
 				if let Some(path) = path {
-					let edge = directory.get_entry_edge_with_handle(self, path).await.map_err(
-						|source| tg::error!(!source, "failed to get the entry edge"),
-					)?;
+					let edge = directory
+						.get_entry_edge_with_handle(self, path)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to get the entry edge"))?;
 					let edge = match edge {
 						tg::graph::Edge::Pointer(pointer) => {
 							if pointer.kind != tg::artifact::Kind::File {
