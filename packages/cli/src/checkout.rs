@@ -101,12 +101,10 @@ impl Cli {
 
 		// Get the artifact.
 		let referent = self.get_reference(&args.reference).await?;
-		let tg::Either::Left(edge) = referent.item else {
-			return Err(tg::error!("expected an object"));
-		};
-		let tg::graph::Edge::Object(object) = edge else {
-			return Err(tg::error!("checking out graph pointers is unsupported"));
-		};
+		let edge = referent.item.left().ok_or_else(|| tg::error!("expected an object"))?;
+		let object = edge
+			.try_unwrap_object()
+			.map_err(|_| tg::error!("expected an object"))?;
 		let artifact = tg::Artifact::try_from(object)?;
 		let artifact = artifact.id();
 

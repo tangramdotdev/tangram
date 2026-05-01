@@ -17,9 +17,11 @@ impl Cli {
 		for reference in &args.references {
 			let arg = tg::get::Arg::default();
 			let referent = self.get_reference_with_arg(reference, arg).await?;
-			let tg::Either::Left(edge) = referent.item() else {
-				return Err(tg::error!("expected an object"));
-			};
+			let edge = referent
+				.item()
+				.as_ref()
+				.left()
+				.ok_or_else(|| tg::error!("expected an object"))?;
 
 			let blob = match edge {
 				tg::graph::Edge::Object(tg::Object::Blob(blob)) => blob.clone(),

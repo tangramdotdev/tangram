@@ -28,10 +28,11 @@ impl Cli {
 		let print = args.print;
 		let referent = self.get_reference(&args.reference).await?;
 		let item = match referent.item() {
-			tg::Either::Left(tg::graph::Edge::Object(object)) => tg::Either::Left(object.id()),
-			tg::Either::Left(tg::graph::Edge::Pointer(_)) => {
-				return Err(tg::error!("expected an object, got a pointer"));
-			},
+			tg::Either::Left(edge) => tg::Either::Left(
+				edge.try_unwrap_object_ref()
+					.map_err(|_| tg::error!("expected an object"))?
+					.id(),
+			),
 			tg::Either::Right(process) => {
 				let id = process
 					.id()

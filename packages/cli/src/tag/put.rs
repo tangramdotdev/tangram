@@ -31,10 +31,11 @@ impl Cli {
 		};
 		let referent = self.get_reference_with_arg(&args.reference, arg).await?;
 		let item = match referent.item {
-			tg::Either::Left(tg::graph::Edge::Object(object)) => tg::Either::Left(object.id()),
-			tg::Either::Left(tg::graph::Edge::Pointer(_)) => {
-				return Err(tg::error!("cannot tag a graph pointer"));
-			},
+			tg::Either::Left(edge) => tg::Either::Left(
+				edge.try_unwrap_object()
+					.map_err(|_| tg::error!("expected an object"))?
+					.id(),
+			),
 			tg::Either::Right(process) => tg::Either::Right(
 				process
 					.id()

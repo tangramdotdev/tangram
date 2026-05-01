@@ -55,13 +55,16 @@ impl Server {
 					},
 				..
 			} => {
-				let object = match edge {
-					tg::graph::data::Edge::Pointer(pointer) => {
+				let object = edge.try_unwrap_object_ref().map_or_else(
+					|_| {
+						let pointer = edge
+							.try_unwrap_pointer_ref()
+							.map_err(|_| tg::error!("expected a file"))?;
 						let pointer = tg::graph::Pointer::try_from_data(pointer.clone())?;
-						tg::Artifact::with_pointer(pointer).into()
+						Ok::<_, tg::Error>(tg::Artifact::with_pointer(pointer).into())
 					},
-					tg::graph::data::Edge::Object(object) => tg::Object::with_id(object.clone()),
-				};
+					|object| Ok(tg::Object::with_id(object.clone())),
+				)?;
 				let file = object
 					.try_unwrap_file()
 					.ok()

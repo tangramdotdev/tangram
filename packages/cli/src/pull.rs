@@ -46,12 +46,11 @@ impl Cli {
 		let items: Vec<_> = referents
 			.into_iter()
 			.map(|referent| match referent.item {
-				tg::Either::Left(tg::graph::Edge::Object(object)) => {
-					Ok::<_, tg::Error>(tg::Either::Left(object.id()))
-				},
-				tg::Either::Left(tg::graph::Edge::Pointer(_)) => {
-					Err(tg::error!("expected an object, got a pointer"))
-				},
+				tg::Either::Left(edge) => Ok::<_, tg::Error>(tg::Either::Left(
+					edge.try_unwrap_object()
+						.map_err(|_| tg::error!("expected an object"))?
+						.id(),
+				)),
 				tg::Either::Right(process) => {
 					let id = process
 						.id()
