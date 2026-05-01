@@ -13,12 +13,7 @@ use {
 	tokio::io::{AsyncRead, AsyncWrite},
 };
 
-mod get;
-mod kill;
-mod spawn;
-mod stdio;
-mod tty;
-mod wait;
+mod process;
 
 pub struct Arg {
 	pub library_paths: Vec<std::path::PathBuf>,

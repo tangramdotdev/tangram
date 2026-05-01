@@ -54,6 +54,7 @@ impl Server {
 		let id: tg::process::Id = id
 			.parse()
 			.map_err(|source| tg::error!(!source, "failed to parse the process id"))?;
+
 		// Get the arg.
 		let arg = request
 			.json()
