@@ -140,64 +140,16 @@ impl Reference {
 	}
 
 	pub fn with_uri(uri: &Uri) -> tg::Result<Self> {
-		#[derive(Default, Debug, serde::Deserialize)]
-		struct RawOptions {
-			#[serde(default, skip_serializing_if = "Option::is_none")]
-			pub graph: Option<tg::graph::Id>,
-
-			#[serde(default, skip_serializing_if = "Option::is_none")]
-			pub index: Option<usize>,
-
-			#[serde(default, skip_serializing_if = "Option::is_none")]
-			pub kind: Option<tg::artifact::Kind>,
-
-			#[serde(default, skip_serializing_if = "Option::is_none")]
-			pub location: Option<tg::location::Arg>,
-
-			#[serde(default, skip_serializing_if = "Option::is_none")]
-			pub path: Option<PathBuf>,
-
-			#[serde(default, skip_serializing_if = "Option::is_none")]
-			pub source: Option<PathBuf>,
-		}
-		let raw_options = uri
+		let path = uri.path();
+		let item = path
+			.parse()
+			.map_err(|source| tg::error!(!source, "failed to parse the reference item"))?;
+		let options = uri
 			.query_raw()
-			.map(serde_qs::from_str::<RawOptions>)
+			.map(serde_qs::from_str::<Options>)
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to deserialize the query params"))?
 			.unwrap_or_default();
-		let options = Options {
-			path: raw_options.path,
-			location: raw_options.location,
-			source: raw_options.source,
-		};
-		let path = uri.path();
-		let item = if path.is_empty() {
-			let graph = raw_options
-				.graph
-				.ok_or_else(|| tg::error!("expected a graph id"))?;
-			let index = raw_options
-				.index
-				.ok_or_else(|| tg::error!("expected an index"))?;
-			let kind = raw_options
-				.kind
-				.ok_or_else(|| tg::error!("expected a node kind"))?;
-			let pointer = tg::graph::data::Pointer {
-				graph: Some(graph),
-				index,
-				kind,
-			};
-			Item::Object(tg::graph::data::Edge::Pointer(pointer))
-		} else {
-			if raw_options.graph.is_some()
-				|| raw_options.index.is_some()
-				|| raw_options.kind.is_some()
-			{
-				return Err(tg::error!(%uri, "invalid reference uri"));
-			}
-			path.parse()
-				.map_err(|source| tg::error!(!source, "failed to parse the reference item"))?
-		};
 		let export = uri.fragment().map(ToOwned::to_owned);
 		Ok(Self {
 			item,

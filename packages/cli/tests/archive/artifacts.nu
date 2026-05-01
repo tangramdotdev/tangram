@@ -31,7 +31,7 @@ roundtrip tar
 roundtrip tar bz2
 roundtrip tar gz
 roundtrip tar xz
-roundtrip tar zstd
+roundtrip tar zst
 
 # Zip without compression.
 roundtrip zip
@@ -40,4 +40,4 @@ roundtrip zip
 roundtrip zip bz2
 roundtrip zip gz
 roundtrip zip xz
-roundtrip zip zstd
+roundtrip zip zst
