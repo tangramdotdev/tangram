@@ -58,7 +58,7 @@ export namespace Args {
 										tg.Artifact.is(value) ||
 										typeof value === "string",
 								);
-								mutation = await tg.Mutation.prefix<tg.Template.Arg>(value);
+								mutation = await tg.Mutation.prefix(value);
 								break;
 							case "suffix":
 								tg.assert(
@@ -66,7 +66,7 @@ export namespace Args {
 										tg.Artifact.is(value) ||
 										typeof value === "string",
 								);
-								mutation = await tg.Mutation.suffix<tg.Template.Arg>(value);
+								mutation = await tg.Mutation.suffix(value);
 								break;
 							case "merge":
 								mutation = await tg.Mutation.merge(value);
