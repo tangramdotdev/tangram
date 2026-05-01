@@ -19,7 +19,7 @@ pub struct PutArg {
 	pub bytes: Option<Bytes>,
 	pub cache_pointer: Option<CachePointer>,
 	pub id: tg::object::Id,
-	pub touched_at: i64,
+	pub stored_at: i64,
 }
 
 #[derive(Clone, Debug)]
@@ -38,7 +38,7 @@ pub struct Object<'a> {
 	pub cache_pointer: Option<CachePointer>,
 
 	#[tangram_serialize(id = 2)]
-	pub touched_at: i64,
+	pub stored_at: i64,
 }
 
 #[derive(
@@ -129,7 +129,7 @@ impl Object<'_> {
 		Object {
 			bytes: self.bytes.map(|bytes| Cow::Owned(bytes.into_owned())),
 			cache_pointer: self.cache_pointer,
-			touched_at: self.touched_at,
+			stored_at: self.stored_at,
 		}
 	}
 }

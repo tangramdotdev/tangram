@@ -12,15 +12,15 @@ impl Server {
 		id: &tg::process::Id,
 		arg: &tg::process::put::Arg,
 		process_store: &db::sqlite::Database,
-		touched_at: i64,
+		stored_at: i64,
 	) -> tg::Result<()> {
-		Self::put_process_batch_sqlite(&[(id, &arg.data)], process_store, touched_at).await
+		Self::put_process_batch_sqlite(&[(id, &arg.data)], process_store, stored_at).await
 	}
 
 	pub(crate) async fn put_process_batch_sqlite(
 		items: &[(&tg::process::Id, &tg::process::Data)],
 		process_store: &db::sqlite::Database,
-		touched_at: i64,
+		stored_at: i64,
 	) -> tg::Result<()> {
 		if items.is_empty() {
 			return Ok(());
@@ -40,7 +40,7 @@ impl Server {
 
 		connection
 			.with(move |connection, cache| {
-				Self::put_process_batch_sqlite_sync(connection, cache, &items, touched_at)
+				Self::put_process_batch_sqlite_sync(connection, cache, &items, stored_at)
 			})
 			.await?;
 
@@ -51,7 +51,7 @@ impl Server {
 		connection: &mut sqlite::Connection,
 		cache: &db::sqlite::Cache,
 		items: &[(tg::process::Id, tg::process::Data)],
-		touched_at: i64,
+		stored_at: i64,
 	) -> tg::Result<()> {
 		// Begin a transaction.
 		let transaction = connection
@@ -62,7 +62,6 @@ impl Server {
 		let process_statement = indoc!(
 			"
 				insert into processes (
-					id,
 					actual_checksum,
 					cacheable,
 					command,
@@ -74,11 +73,11 @@ impl Server {
 					expected_checksum,
 					finished_at,
 					host,
+					id,
 					log,
 					output,
-					sandbox,
-					tty,
 					retry,
+					sandbox,
 					started_at,
 					status,
 					stderr,
@@ -87,8 +86,9 @@ impl Server {
 					stdin_open,
 					stdout,
 					stdout_open,
+					stored_at,
 					token_count,
-					touched_at
+					tty
 				)
 				values (
 					?1,
@@ -120,32 +120,32 @@ impl Server {
 					?27
 				)
 				on conflict (id) do update set
-					actual_checksum = ?2,
-					cacheable = ?3,
-					command = ?4,
-					created_at = ?5,
-					debug = ?6,
-					error = ?7,
-					error_code = ?8,
-					exit = ?9,
-					expected_checksum = ?10,
-					finished_at = ?11,
-					host = ?12,
+					actual_checksum = ?1,
+					cacheable = ?2,
+					command = ?3,
+					created_at = ?4,
+					debug = ?5,
+					error = ?6,
+					error_code = ?7,
+					exit = ?8,
+					expected_checksum = ?9,
+					finished_at = ?10,
+					host = ?11,
 					log = ?13,
 					output = ?14,
-					sandbox = ?15,
-					tty = ?16,
-					retry = ?17,
-					started_at = ?18,
-					status = ?19,
-					stderr = ?20,
-					stderr_open = ?21,
-					stdin = ?22,
-					stdin_open = ?23,
-					stdout = ?24,
-					stdout_open = ?25,
+					retry = ?15,
+					sandbox = ?16,
+					started_at = ?17,
+					status = ?18,
+					stderr = ?19,
+					stderr_open = ?20,
+					stdin = ?21,
+					stdin_open = ?22,
+					stdout = ?23,
+					stdout_open = ?24,
+					stored_at = ?25,
 					token_count = ?26,
-					touched_at = ?27
+					tty = ?27
 			"
 		);
 		let mut process_stmt = cache
@@ -215,7 +215,6 @@ impl Server {
 			};
 
 			let params = sqlite::params![
-				id.to_string(),
 				data.actual_checksum.as_ref().map(ToString::to_string),
 				data.cacheable,
 				data.command.to_string(),
@@ -227,11 +226,11 @@ impl Server {
 				data.expected_checksum.as_ref().map(ToString::to_string),
 				data.finished_at,
 				data.host,
+				id.to_string(),
 				data.log.as_ref().map(ToString::to_string),
 				output_json,
-				data.sandbox.to_string(),
-				tty_json,
 				data.retry,
+				data.sandbox.to_string(),
 				data.started_at,
 				data.status.to_string(),
 				(!data.stderr.is_null()).then(|| data.stderr.to_string()),
@@ -240,8 +239,9 @@ impl Server {
 				stdin_open,
 				(!data.stdout.is_null()).then(|| data.stdout.to_string()),
 				stdout_open,
+				stored_at,
 				0,
-				touched_at
+				tty_json
 			];
 			process_stmt
 				.execute(params)

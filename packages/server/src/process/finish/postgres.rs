@@ -42,22 +42,22 @@ impl Server {
 						depth = null,
 						error = $2,
 						error_code = $3,
-						finished_at = $4,
-						output = $5,
-						exit = $6,
+						exit = $4,
+						finished_at = $5,
+						output = $6,
 						status = $7,
 						stderr_open = case when stderr_open is null then null else false end,
 						stdin_open = case when stdin_open is null then null else false end,
 						stdout_open = case when stdout_open is null then null else false end,
-						token_count = 0,
-						touched_at = $8
+						stored_at = $5,
+						token_count = 0
 					where
-						id = $9 and
+						id = $8 and
 						status != 'finished' and
 						(
-							$11::text is null or
-							($11 = 'depth_exceeded' and depth > $12) or
-							($11 = 'token_count_zero' and token_count = 0)
+							$10::text is null or
+							($10 = 'depth_exceeded' and depth > $11) or
+							($10 = 'token_count_zero' and token_count = 0)
 						)
 					returning id
 				),
@@ -68,7 +68,7 @@ impl Server {
 				),
 				enqueued as (
 					insert into process_finalize_queue (created_at, process, status)
-					select $4, id, $10
+					select $5, id, $9
 					from updated
 					returning process
 				)
@@ -82,11 +82,10 @@ impl Server {
 					arg.checksum.as_ref().map(ToString::to_string),
 					error,
 					error_code,
+					i64::from(arg.exit),
 					arg.now,
 					output,
-					i64::from(arg.exit),
 					tg::process::Status::Finished.to_string(),
-					arg.now,
 					id.to_string(),
 					"created",
 					condition,

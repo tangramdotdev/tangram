@@ -109,7 +109,7 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				update processes
-				set touched_at = touched_at
+				set stored_at = stored_at
 				where id = {p}1
 				returning status;
 			"

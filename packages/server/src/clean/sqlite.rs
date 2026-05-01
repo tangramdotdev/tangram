@@ -11,7 +11,7 @@ impl Server {
 		&self,
 		process_store: &db::sqlite::Database,
 		processes: &[tg::process::Id],
-		max_touched_at: i64,
+		max_stored_at: i64,
 	) -> tg::Result<()> {
 		if processes.is_empty() {
 			return Ok(());
@@ -27,7 +27,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 		connection
 			.with(move |connection, _cache| {
-				Self::clean_processes_sqlite_sync(connection, &processes, max_touched_at)
+				Self::clean_processes_sqlite_sync(connection, &processes, max_stored_at)
 			})
 			.await
 	}
@@ -35,7 +35,7 @@ impl Server {
 	fn clean_processes_sqlite_sync(
 		connection: &mut sqlite::Connection,
 		processes: &[String],
-		max_touched_at: i64,
+		max_stored_at: i64,
 	) -> tg::Result<()> {
 		for process in processes {
 			let transaction = connection
@@ -45,11 +45,11 @@ impl Server {
 			let statement = indoc!(
 				"
 					delete from processes
-					where id = ?1 and touched_at <= ?2;
+					where id = ?1 and stored_at <= ?2;
 				"
 			);
 			let n = transaction
-				.execute(statement, sqlite::params![process, max_touched_at])
+				.execute(statement, sqlite::params![process, max_stored_at])
 				.map_err(|source| tg::error!(!source, "failed to delete the process"))?;
 			if n == 0 {
 				continue;

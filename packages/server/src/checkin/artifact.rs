@@ -706,7 +706,7 @@ impl Server {
 			bytes: Some(bytes),
 			cache_pointer: None,
 			id: id.clone(),
-			touched_at,
+			stored_at: touched_at,
 		};
 
 		// Create the index message.
@@ -799,9 +799,9 @@ impl Server {
 					// Create and set the cache pointer.
 					let cache_pointer = crate::object::store::CachePointer {
 						artifact: artifact.clone(),
+						length: output.length,
 						path: path.clone(),
 						position: output.position,
-						length: output.length,
 					};
 					store_args.get_mut(&id).unwrap().cache_pointer = Some(cache_pointer);
 					index_object_args.get_mut(&id).unwrap().cache_entry = Some(artifact.clone());
@@ -837,7 +837,7 @@ impl Server {
 			bytes: Some(bytes),
 			cache_pointer: None,
 			id: id.clone(),
-			touched_at,
+			stored_at: touched_at,
 		};
 		self.object_store
 			.put(store_arg)
@@ -1257,7 +1257,7 @@ impl Server {
 			bytes: Some(bytes),
 			cache_pointer: None,
 			id: id.clone(),
-			touched_at,
+			stored_at: touched_at,
 		};
 
 		// Create the index message.

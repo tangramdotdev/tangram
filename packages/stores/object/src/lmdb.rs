@@ -38,7 +38,7 @@ struct PutObject {
 	bytes: Option<Bytes>,
 	cache_pointer: Option<CachePointer>,
 	id: tg::object::Id,
-	touched_at: i64,
+	stored_at: i64,
 }
 
 struct DeleteObject {
@@ -261,31 +261,29 @@ impl Store {
 		let key = Key::Object(id);
 		let key_bytes = key.pack_to_vec();
 
-		// Read existing value if any.
 		let existing = db
 			.get(transaction, &key_bytes)
 			.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
 			.and_then(|bytes| Object::deserialize(bytes).ok());
 
-		// Determine bytes: use existing if present (NO_OVERWRITE semantics), otherwise use request.
 		let bytes = existing
 			.as_ref()
 			.and_then(|entry| entry.bytes.clone())
 			.or(request.bytes.map(|bytes| Cow::Owned(bytes.to_vec())));
 
-		// Merge cache_pointer: use request if provided, otherwise keep existing.
 		let cache_pointer = request
 			.cache_pointer
 			.or_else(|| existing.and_then(|entry| entry.cache_pointer));
 
 		let value = Object {
 			bytes,
-			touched_at: request.touched_at,
+			stored_at: request.stored_at,
 			cache_pointer,
 		};
 		let value_bytes = value.serialize().unwrap();
 		db.put(transaction, &key_bytes, &value_bytes)
 			.map_err(|source| tg::error!(!source, %id, "failed to put the object"))?;
+
 		Ok(())
 	}
 
@@ -309,10 +307,11 @@ impl Store {
 		let value = Object::deserialize(bytes)
 			.map_err(|source| tg::error!(!source, %id, "failed to deserialize the object"))?;
 
-		if request.now - value.touched_at >= request.ttl.to_i64().unwrap() {
+		if request.now - value.stored_at >= request.ttl.to_i64().unwrap() {
 			db.delete(transaction, &key_bytes)
 				.map_err(|source| tg::error!(!source, %id, "failed to delete the object"))?;
 		}
+
 		Ok(())
 	}
 
@@ -325,7 +324,7 @@ impl Store {
 			bytes: arg.bytes,
 			cache_pointer: arg.cache_pointer,
 			id: arg.id,
-			touched_at: arg.touched_at,
+			stored_at: arg.stored_at,
 		};
 		Self::task_put_object(&self.env, &self.db, &mut transaction, request)?;
 		transaction
@@ -347,7 +346,7 @@ impl Store {
 				bytes: arg.bytes,
 				cache_pointer: arg.cache_pointer,
 				id: arg.id,
-				touched_at: arg.touched_at,
+				stored_at: arg.stored_at,
 			};
 			Self::task_put_object(&self.env, &self.db, &mut transaction, request)?;
 		}
@@ -469,7 +468,7 @@ impl crate::Store for Store {
 			bytes: arg.bytes,
 			cache_pointer: arg.cache_pointer,
 			id: arg.id,
-			touched_at: arg.touched_at,
+			stored_at: arg.stored_at,
 		});
 		self.sender
 			.send((request, sender))
@@ -491,7 +490,7 @@ impl crate::Store for Store {
 					bytes: arg.bytes,
 					cache_pointer: arg.cache_pointer,
 					id: arg.id,
-					touched_at: arg.touched_at,
+					stored_at: arg.stored_at,
 				})
 				.collect(),
 		);
@@ -598,7 +597,7 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
-				touched_at: 12345,
+				stored_at: 12345,
 			})
 			.await
 			.unwrap();
@@ -635,7 +634,7 @@ mod tests {
 				bytes: None,
 				cache_pointer: None,
 				id: id.clone(),
-				touched_at: 12345,
+				stored_at: 12345,
 			})
 			.await
 			.unwrap();
@@ -656,7 +655,7 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
-				touched_at: 12346,
+				stored_at: 12346,
 			})
 			.await
 			.unwrap();
@@ -694,7 +693,7 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
-				touched_at: 12345,
+				stored_at: 12345,
 			})
 			.unwrap();
 
@@ -728,7 +727,7 @@ mod tests {
 				bytes: Some(bytes.clone()),
 				cache_pointer: None,
 				id: id.clone(),
-				touched_at: 12345,
+				stored_at: 12345,
 			}])
 			.await
 			.unwrap();

@@ -40,24 +40,28 @@ type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
 #[derive(Clone)]
 enum Request {
 	Clean {
-		max_touched_at: i64,
 		batch_size: usize,
-		partition_start: u64,
+		max_object_touched_at: i64,
+		max_process_touched_at: i64,
 		partition_count: u64,
+		partition_start: u64,
 	},
 	DeleteTags(Vec<String>),
 	Put(PutArg),
 	PutTags(Vec<PutTagArg>),
 	TouchCacheEntries {
 		ids: Vec<tg::artifact::Id>,
+		time_to_touch: std::time::Duration,
 		touched_at: i64,
 	},
 	TouchObjects {
 		ids: Vec<tg::object::Id>,
+		time_to_touch: std::time::Duration,
 		touched_at: i64,
 	},
 	TouchProcesses {
 		ids: Vec<tg::process::Id>,
+		time_to_touch: std::time::Duration,
 		touched_at: i64,
 	},
 	Update {
@@ -305,24 +309,28 @@ impl crate::Index for Index {
 		&self,
 		ids: &[tg::artifact::Id],
 		touched_at: i64,
+		time_to_touch: std::time::Duration,
 	) -> tg::Result<Vec<Option<crate::CacheEntry>>> {
-		self.touch_cache_entries(ids, touched_at).await
+		self.touch_cache_entries(ids, touched_at, time_to_touch)
+			.await
 	}
 
 	async fn touch_objects(
 		&self,
 		ids: &[tg::object::Id],
 		touched_at: i64,
+		time_to_touch: std::time::Duration,
 	) -> tg::Result<Vec<Option<crate::Object>>> {
-		self.touch_objects(ids, touched_at).await
+		self.touch_objects(ids, touched_at, time_to_touch).await
 	}
 
 	async fn touch_processes(
 		&self,
 		ids: &[tg::process::Id],
 		touched_at: i64,
+		time_to_touch: std::time::Duration,
 	) -> tg::Result<Vec<Option<crate::Process>>> {
-		self.touch_processes(ids, touched_at).await
+		self.touch_processes(ids, touched_at, time_to_touch).await
 	}
 
 	async fn put(&self, arg: crate::PutArg) -> tg::Result<()> {
@@ -353,13 +361,20 @@ impl crate::Index for Index {
 
 	async fn clean(
 		&self,
-		max_touched_at: i64,
+		max_object_touched_at: i64,
+		max_process_touched_at: i64,
 		batch_size: usize,
 		partition_start: u64,
 		partition_count: u64,
 	) -> tg::Result<CleanOutput> {
-		self.clean(max_touched_at, batch_size, partition_start, partition_count)
-			.await
+		self.clean(
+			max_object_touched_at,
+			max_process_touched_at,
+			batch_size,
+			partition_start,
+			partition_count,
+		)
+		.await
 	}
 
 	fn partition_total(&self) -> u64 {

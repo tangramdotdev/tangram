@@ -59,13 +59,13 @@ impl Server {
 			.collect::<Vec<_>>();
 		let touch_objects_future = async {
 			self.index
-				.touch_objects(&object_ids, touched_at)
+				.touch_objects(&object_ids, touched_at, self.config.object.time_to_touch)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to touch the objects"))
 		};
 		let touch_processes_future = async {
 			self.index
-				.touch_processes(&process_ids, touched_at)
+				.touch_processes(&process_ids, touched_at, self.config.process.time_to_touch)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to touch the processes"))
 		};

@@ -3,6 +3,7 @@ use {
 	crate::{CacheEntry, CleanOutput, Object, Process},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
+	futures::StreamExt as _,
 	num_traits::ToPrimitive as _,
 	tangram_client::prelude::*,
 };
@@ -23,17 +24,19 @@ enum Item {
 impl Index {
 	pub async fn clean(
 		&self,
-		max_touched_at: i64,
+		max_object_touched_at: i64,
+		max_process_touched_at: i64,
 		batch_size: usize,
 		partition_start: u64,
 		partition_count: u64,
 	) -> tg::Result<CleanOutput> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request::Clean {
-			max_touched_at,
 			batch_size,
-			partition_start,
+			max_object_touched_at,
+			max_process_touched_at,
 			partition_count,
+			partition_start,
 		};
 		self.sender_low
 			.send((request, sender))
@@ -51,7 +54,8 @@ impl Index {
 	pub(super) async fn task_clean(
 		txn: &fdb::Transaction,
 		subspace: &Subspace,
-		max_touched_at: i64,
+		max_object_touched_at: i64,
+		max_process_touched_at: i64,
 		batch_size: usize,
 		partition_start: u64,
 		partition_count: u64,
@@ -61,26 +65,30 @@ impl Index {
 		let mut candidates = Vec::new();
 
 		let key_kind = KeyKind::Clean.to_i32().unwrap();
+		let max_touched_at = max_object_touched_at.max(max_process_touched_at);
 		let partition_end = partition_start.saturating_add(partition_count);
 		for partition in partition_start..partition_end {
 			let begin = Self::pack(subspace, &(key_kind, partition, 0i64));
 			let end = Self::pack(subspace, &(key_kind, partition, max_touched_at + 1));
-			let remaining = batch_size.saturating_sub(candidates.len());
-			if remaining == 0 {
+			if candidates.len() >= batch_size {
 				break;
 			}
 			let range = fdb::RangeOption {
 				begin: fdb::KeySelector::first_greater_or_equal(&begin),
 				end: fdb::KeySelector::first_greater_or_equal(&end),
-				limit: Some(remaining),
-				mode: fdb::options::StreamingMode::WantAll,
+				mode: fdb::options::StreamingMode::Iterator,
 				..Default::default()
 			};
-			let entries = txn
-				.get_range(&range, 1, false)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get range"))?;
-			for entry in &entries {
+			let mut entries = txn.get_ranges_keyvalues(range, false);
+			while candidates.len() < batch_size {
+				let Some(entry) = entries
+					.next()
+					.await
+					.transpose()
+					.map_err(|source| tg::error!(!source, "failed to get the next entry"))?
+				else {
+					break;
+				};
 				let key = Self::unpack(subspace, entry.key())
 					.map_err(|source| tg::error!(!source, "failed to unpack key"))?;
 				let Key::Clean {
@@ -92,6 +100,13 @@ impl Index {
 				else {
 					return Err(tg::error!("expected clean key"));
 				};
+				let max_touched_at = match kind {
+					ItemKind::CacheEntry | ItemKind::Object => max_object_touched_at,
+					ItemKind::Process => max_process_touched_at,
+				};
+				if touched_at > max_touched_at {
+					continue;
+				}
 				let item = match kind {
 					ItemKind::CacheEntry => {
 						let tg::Either::Left(object_id) = id else {

@@ -74,12 +74,21 @@ impl index::Index for Index {
 		&self,
 		ids: &[tg::artifact::Id],
 		touched_at: i64,
+		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<index::CacheEntry>>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.touch_cache_entries(ids, touched_at).await,
+			Self::Fdb(index) => {
+				index
+					.touch_cache_entries(ids, touched_at, time_to_touch)
+					.await
+			},
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.touch_cache_entries(ids, touched_at).await,
+			Self::Lmdb(index) => {
+				index
+					.touch_cache_entries(ids, touched_at, time_to_touch)
+					.await
+			},
 		}
 	}
 
@@ -87,12 +96,13 @@ impl index::Index for Index {
 		&self,
 		ids: &[tg::object::Id],
 		touched_at: i64,
+		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<index::Object>>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.touch_objects(ids, touched_at).await,
+			Self::Fdb(index) => index.touch_objects(ids, touched_at, time_to_touch).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.touch_objects(ids, touched_at).await,
+			Self::Lmdb(index) => index.touch_objects(ids, touched_at, time_to_touch).await,
 		}
 	}
 
@@ -100,12 +110,13 @@ impl index::Index for Index {
 		&self,
 		ids: &[tg::process::Id],
 		touched_at: i64,
+		time_to_touch: Duration,
 	) -> tg::Result<Vec<Option<index::Process>>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.touch_processes(ids, touched_at).await,
+			Self::Fdb(index) => index.touch_processes(ids, touched_at, time_to_touch).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.touch_processes(ids, touched_at).await,
+			Self::Lmdb(index) => index.touch_processes(ids, touched_at, time_to_touch).await,
 		}
 	}
 
@@ -169,7 +180,8 @@ impl index::Index for Index {
 
 	async fn clean(
 		&self,
-		max_touched_at: i64,
+		max_object_touched_at: i64,
+		max_process_touched_at: i64,
 		batch_size: usize,
 		partition_start: u64,
 		partition_count: u64,
@@ -178,13 +190,25 @@ impl index::Index for Index {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => {
 				index
-					.clean(max_touched_at, batch_size, partition_start, partition_count)
+					.clean(
+						max_object_touched_at,
+						max_process_touched_at,
+						batch_size,
+						partition_start,
+						partition_count,
+					)
 					.await
 			},
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => {
 				index
-					.clean(max_touched_at, batch_size, partition_start, partition_count)
+					.clean(
+						max_object_touched_at,
+						max_process_touched_at,
+						batch_size,
+						partition_start,
+						partition_count,
+					)
 					.await
 			},
 		}

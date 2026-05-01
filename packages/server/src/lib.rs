@@ -489,7 +489,7 @@ impl Server {
 		})?;
 
 		// Create the log store.
-		let log_store = match &config.log_store {
+		let log_store = match &config.logs.store {
 			config::LogStore::Fdb(options) => {
 				#[cfg(not(feature = "foundationdb"))]
 				{

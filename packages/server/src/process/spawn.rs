@@ -5,6 +5,7 @@ use {
 		stream::{BoxStream, FuturesUnordered},
 	},
 	indoc::formatdoc,
+	num::ToPrimitive as _,
 	std::{fmt::Write, pin::pin},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -23,7 +24,6 @@ mod sqlite;
 struct LocalOutput {
 	cached: bool,
 	id: tg::process::Id,
-	index_touches: Vec<(tg::process::Id, i64)>,
 	#[debug(ignore)]
 	permit: Option<SandboxPermit>,
 	sandbox: tg::sandbox::Id,
@@ -202,13 +202,6 @@ impl Server {
 			.commit()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
-
-		// Spawn index touches after the process store transaction commits.
-		if let Some(output) = &output {
-			for (id, touched_at) in &output.index_touches {
-				self.spawn_touch_process_index_task(id, *touched_at);
-			}
-		}
 
 		// Drop the connection.
 		drop(connection);
@@ -655,6 +648,7 @@ impl Server {
 			sandbox_status: Option<tg::sandbox::Status>,
 			#[tangram_database(as = "db::value::FromStr")]
 			status: tg::process::Status,
+			stored_at: i64,
 		}
 		let params = match &transaction {
 			#[cfg(feature = "postgres")]
@@ -679,7 +673,15 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				{params}
-				select processes.id, error, exit, output, processes.sandbox, sandboxes.status as sandbox_status, processes.status
+				select
+					processes.id,
+					error,
+					exit,
+					output,
+					processes.sandbox,
+					sandboxes.status as sandbox_status,
+					processes.status,
+					processes.stored_at
 				from processes
 				left join sandboxes on sandboxes.id = processes.sandbox,
 				params
@@ -706,6 +708,7 @@ impl Server {
 			sandbox,
 			sandbox_status,
 			status,
+			stored_at,
 		}) = transaction
 			.query_optional_into::<Row>(statement.into(), params)
 			.await
@@ -718,6 +721,26 @@ impl Server {
 		let failed = error.is_some() || exit.is_some_and(|exit| exit != 0);
 		if failed && arg.retry {
 			return Ok(None);
+		}
+
+		let now = time::OffsetDateTime::now_utc().unix_timestamp();
+		let tti = self
+			.config
+			.process
+			.time_to_index
+			.as_secs()
+			.to_i64()
+			.unwrap();
+		let max_stored_at = now - tti;
+		if status.is_finished() && stored_at <= max_stored_at {
+			let process = self
+				.index
+				.touch_process(&id, now, self.config.process.time_to_touch)
+				.await
+				.map_err(|source| tg::error!(!source, %id, "failed to touch the process"))?;
+			if process.is_none() {
+				return Ok(None);
+			}
 		}
 
 		let wait =
@@ -803,15 +826,9 @@ impl Server {
 			Some(token)
 		};
 
-		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
-		Self::touch_process_with_transaction(transaction, &id, touched_at)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to touch the cached process"))?;
-
 		Ok(Some(LocalOutput {
 			cached: true,
 			id: id.clone(),
-			index_touches: vec![(id, touched_at)],
 			permit: None,
 			sandbox,
 			sandbox_status,
@@ -848,6 +865,9 @@ impl Server {
 			sandbox: tg::sandbox::Id,
 			#[tangram_database(as = "Option<db::value::FromStr>")]
 			sandbox_status: Option<tg::sandbox::Status>,
+			#[tangram_database(as = "db::value::FromStr")]
+			status: tg::process::Status,
+			stored_at: i64,
 		}
 		let params = match &transaction {
 			#[cfg(feature = "postgres")]
@@ -872,7 +892,9 @@ impl Server {
 					processes.id,
 					output,
 					processes.sandbox,
-					sandboxes.status as sandbox_status
+					sandboxes.status as sandbox_status,
+					processes.status,
+					processes.stored_at
 				from processes
 				left join sandboxes on sandboxes.id = processes.sandbox,
 				params
@@ -894,6 +916,8 @@ impl Server {
 			output,
 			sandbox,
 			sandbox_status,
+			status: source_status,
+			stored_at: source_stored_at,
 		}) = transaction
 			.query_optional_into::<Row>(statement.into(), params)
 			.await
@@ -901,6 +925,26 @@ impl Server {
 		else {
 			return Ok(None);
 		};
+
+		let now: i64 = time::OffsetDateTime::now_utc().unix_timestamp();
+		let tti = self
+			.config
+			.process
+			.time_to_index
+			.as_secs()
+			.to_i64()
+			.unwrap();
+		let max_stored_at = now - tti;
+		if source_status.is_finished() && source_stored_at <= max_stored_at {
+			let process = self
+				.index
+				.touch_process(&source, now, self.config.process.time_to_touch)
+				.await
+				.map_err(|error| tg::error!(!error, id = %source, "failed to touch the process"))?;
+			if process.is_none() {
+				return Ok(None);
+			}
+		}
 
 		// Set the exit, output, and error.
 		let (exit, error) = if expected_checksum == actual_checksum {
@@ -947,7 +991,6 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				insert into processes (
-					id,
 					actual_checksum,
 					cacheable,
 					command,
@@ -960,16 +1003,17 @@ impl Server {
 					expected_checksum,
 					finished_at,
 					host,
+					id,
 					output,
-					sandbox,
-					tty,
 					retry,
+					sandbox,
 					status,
 					stderr_open,
 					stdin_open,
 					stdout_open,
+					stored_at,
 					token_count,
-					touched_at
+					tty
 				)
 				values (
 					{p}1,
@@ -995,33 +1039,9 @@ impl Server {
 					{p}21,
 					{p}22,
 					{p}23
-				)
-				on conflict (id) do update set
-					actual_checksum = {p}2,
-					cacheable = {p}3,
-					command = {p}4,
-					created_at = {p}5,
-					debug = {p}6,
-					depth = {p}7,
-					error = {p}8,
-					error_code = {p}9,
-					exit = {p}10,
-					expected_checksum = {p}11,
-					finished_at = {p}12,
-					host = {p}13,
-					output = {p}14,
-					sandbox = {p}15,
-					tty = {p}16,
-					retry = {p}17,
-					status = {p}18,
-					stderr_open = {p}19,
-					stdin_open = {p}20,
-					stdout_open = {p}21,
-					token_count = {p}22,
-					touched_at = {p}23;
+				);
 			"
 		);
-		let now: i64 = time::OffsetDateTime::now_utc().unix_timestamp();
 		let (error_data, error_code) = if let Some(error) = &error {
 			error
 				.store_with_handle(self)
@@ -1046,7 +1066,6 @@ impl Server {
 			),
 		};
 		let params = db::params![
-			id.to_string(),
 			actual_checksum.to_string(),
 			true,
 			arg.command.item.to_string(),
@@ -1059,25 +1078,22 @@ impl Server {
 			expected_checksum.to_string(),
 			now,
 			host,
+			id.to_string(),
 			output.clone().map(db::value::Json),
-			sandbox.to_string(),
-			tty.map(db::value::Json),
 			arg.retry,
+			sandbox.to_string(),
 			status.to_string(),
 			stderr_open,
 			stdin_open,
 			stdout_open,
-			0,
 			now,
+			0,
+			tty.map(db::value::Json),
 		];
 		transaction
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-
-		Self::touch_process_with_transaction(transaction, &source, now)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to touch the source process"))?;
 
 		// Copy the process children.
 		let statement = formatdoc!(
@@ -1111,7 +1127,6 @@ impl Server {
 		Ok(Some(LocalOutput {
 			cached: true,
 			id,
-			index_touches: vec![(source, now)],
 			permit: None,
 			sandbox,
 			sandbox_status,
@@ -1200,7 +1215,6 @@ impl Server {
 		let statement = formatdoc!(
 			"
 				insert into processes (
-					id,
 					cacheable,
 					command,
 					created_at,
@@ -1208,10 +1222,10 @@ impl Server {
 					depth,
 					expected_checksum,
 					host,
+					id,
+					retry,
 					sandbox,
 					started_at,
-					tty,
-					retry,
 					status,
 					stderr,
 					stderr_open,
@@ -1219,54 +1233,34 @@ impl Server {
 					stdin_open,
 					stdout,
 					stdout_open,
+					stored_at,
 					token_count,
-					touched_at
+					tty
 				)
-					values (
-						{p}1,
-						{p}2,
-						{p}3,
-						{p}4,
-						{p}5,
-						{p}6,
-						{p}7,
-						{p}8,
-						{p}9,
-						{p}10,
-						{p}11,
-						{p}12,
-						{p}13,
-						{p}14,
-						{p}15,
-						{p}16,
-						{p}17,
-						{p}18,
-						{p}19,
-						{p}20,
-						{p}21
-					)
-					on conflict (id) do update set
-						cacheable = {p}2,
-						command = {p}3,
-						created_at = {p}4,
-						debug = {p}5,
-						depth = {p}6,
-						expected_checksum = {p}7,
-						host = {p}8,
-						sandbox = {p}9,
-						started_at = {p}10,
-						tty = {p}11,
-						retry = {p}12,
-						status = {p}13,
-						stderr = {p}14,
-						stderr_open = {p}15,
-						stdin = {p}16,
-						stdin_open = {p}17,
-						stdout = {p}18,
-						stdout_open = {p}19,
-						token_count = {p}20,
-						touched_at = {p}21;
-				"
+				values (
+					{p}1,
+					{p}2,
+					{p}3,
+					{p}4,
+					{p}5,
+					{p}6,
+					{p}7,
+					{p}8,
+					{p}9,
+					{p}10,
+					{p}11,
+					{p}12,
+					{p}13,
+					{p}14,
+					{p}15,
+					{p}16,
+					{p}17,
+					{p}18,
+					{p}19,
+					{p}20,
+					{p}21
+				);
+			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let started_at = (status == tg::process::Status::Started).then_some(now);
@@ -1280,7 +1274,6 @@ impl Server {
 			),
 		};
 		let params = db::params![
-			id.to_string(),
 			cacheable,
 			arg.command.item.to_string(),
 			now,
@@ -1288,10 +1281,10 @@ impl Server {
 			1,
 			arg.checksum.as_ref().map(ToString::to_string),
 			host,
+			id.to_string(),
+			arg.retry,
 			sandbox.to_string(),
 			started_at,
-			tty.map(db::value::Json),
-			arg.retry,
 			status.to_string(),
 			(!arg.stderr.is_null()).then(|| arg.stderr.to_string()),
 			stderr_open,
@@ -1299,8 +1292,9 @@ impl Server {
 			stdin_open,
 			(!arg.stdout.is_null()).then(|| arg.stdout.to_string()),
 			stdout_open,
-			0,
 			now,
+			0,
+			tty.map(db::value::Json),
 		];
 		transaction
 			.execute(statement.into(), params)
@@ -1328,7 +1322,6 @@ impl Server {
 		Ok(LocalOutput {
 			cached: false,
 			id,
-			index_touches: Vec::new(),
 			permit,
 			sandbox,
 			sandbox_status: Some(sandbox_status),
@@ -1414,33 +1407,6 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		Ok(id)
-	}
-
-	async fn touch_process_with_transaction(
-		transaction: &database::Transaction<'_>,
-		id: &tg::process::Id,
-		touched_at: i64,
-	) -> tg::Result<()> {
-		let p = transaction.p();
-		let max = match transaction {
-			#[cfg(feature = "postgres")]
-			database::Transaction::Postgres(_) => "greatest",
-			#[cfg(feature = "sqlite")]
-			database::Transaction::Sqlite(_) => "max",
-		};
-		let statement = formatdoc!(
-			"
-				update processes
-				set touched_at = {max}(touched_at, {p}2)
-				where id = {p}1;
-			"
-		);
-		let params = db::params![id.to_string(), touched_at];
-		transaction
-			.execute(statement.into(), params)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		Ok(())
 	}
 
 	async fn try_get_sandbox_status_with_transaction(
@@ -1749,26 +1715,6 @@ impl Server {
 				);
 			}
 		});
-	}
-
-	fn spawn_touch_process_index_task(&self, id: &tg::process::Id, touched_at: i64) {
-		let server = self.clone();
-		let id = id.clone();
-		self.index_tasks
-			.spawn(move |_| {
-				let server = server.clone();
-				let id = id.clone();
-				async move {
-					if let Err(error) = server.index.touch_process(&id, touched_at).await {
-						tracing::error!(
-							error = %error.trace(),
-							%id,
-							"failed to touch the cached process in the index"
-						);
-					}
-				}
-			})
-			.detach();
 	}
 
 	fn create_process_token() -> String {

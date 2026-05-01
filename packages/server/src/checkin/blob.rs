@@ -61,7 +61,9 @@ impl Server {
 							let destination = if cache_pointers {
 								None
 							} else {
-								Some(Destination::Store { touched_at })
+								Some(Destination::Store {
+									stored_at: touched_at,
+								})
 							};
 							server.write_inner_sync(file, destination.as_ref()).map_err(
 								|source| tg::error!(!source, path = %path.display(), "failed to create the blob"),
@@ -105,7 +107,7 @@ impl Server {
 						bytes,
 						cache_pointer: None,
 						id: id.clone(),
-						touched_at,
+						stored_at: touched_at,
 					})
 				} else {
 					None
