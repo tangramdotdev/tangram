@@ -105,16 +105,11 @@ struct Args {
 	#[arg(env = "TANGRAM_MODE", long, short)]
 	mode: Option<Mode>,
 
-	/// Override the `remotes` key in the config.
-	#[arg(long, conflicts_with = "remotes")]
-	no_remotes: bool,
-
-	/// Override the `remotes` key in the config.
-	#[arg(long, short, value_delimiter = ',', conflicts_with = "no_remotes")]
-	remotes: Option<Vec<String>>,
-
 	#[clap(flatten)]
 	quiet: Quiet,
+
+	#[command(flatten)]
+	remotes: Remotes,
 
 	#[arg(env = "TANGRAM_TOKEN", long)]
 	token: Option<String>,
@@ -126,6 +121,28 @@ struct Args {
 	/// Override the HTTP listener URL in the config.
 	#[arg(env = "TANGRAM_URL", long, short)]
 	url: Option<Uri>,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct Remotes {
+	/// Override the `remotes` key in the config.
+	#[arg(long, short, value_delimiter = ',', conflicts_with = "no_remotes")]
+	remotes: Option<Vec<String>>,
+
+	/// Override the `remotes` key in the config.
+	#[arg(long, conflicts_with = "remotes")]
+	no_remotes: bool,
+}
+
+impl Remotes {
+	#[must_use]
+	pub fn get(&self) -> Option<&[String]> {
+		if self.no_remotes {
+			Some(&[])
+		} else {
+			self.remotes.as_deref()
+		}
+	}
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -396,14 +413,8 @@ fn main() -> std::process::ExitCode {
 		if let Some(directory) = serve_args.directory.clone() {
 			args.directory = Some(directory);
 		}
-		if serve_args.no_remotes {
-			args.no_remotes = true;
-		}
-		if let Some(remotes) = serve_args.remotes.clone() {
-			args.remotes = Some(remotes);
-		}
-		if let Some(token) = serve_args.token.clone() {
-			args.token = Some(token);
+		if serve_args.remotes.get().is_some() {
+			args.remotes = serve_args.remotes.clone();
 		}
 		if let Some(tracing) = serve_args.tracing.clone() {
 			args.tracing = Some(tracing);
@@ -786,9 +797,7 @@ impl Cli {
 		}
 
 		// Set the remotes.
-		if self.args.no_remotes {
-			config.remotes = Some(vec![]);
-		} else if let Some(remotes) = &self.args.remotes {
+		if let Some(remotes) = self.args.remotes.get() {
 			config.remotes = Some(
 				remotes
 					.iter()
@@ -917,11 +926,13 @@ impl Cli {
 			args.push("-d".to_owned());
 			args.push(directory.to_string_lossy().into_owned());
 		}
-		if self.args.no_remotes {
-			args.push("--no-remotes".to_owned());
-		} else if let Some(remotes) = &self.args.remotes {
-			args.push("-r".to_owned());
-			args.push(remotes.join(","));
+		if let Some(remotes) = self.args.remotes.get() {
+			if remotes.is_empty() {
+				args.push("--no-remotes".to_owned());
+			} else {
+				args.push("-r".to_owned());
+				args.push(remotes.join(","));
+			}
 		}
 		if let Some(url) = &self.args.url {
 			args.push("-u".to_owned());

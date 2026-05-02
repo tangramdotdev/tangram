@@ -1,5 +1,5 @@
 use {
-	crate::Cli,
+	crate::{Cli, Remotes},
 	std::{
 		io::Write as _,
 		os::fd::{FromRawFd as _, RawFd},
@@ -21,13 +21,11 @@ pub struct Args {
 	#[arg(long, short)]
 	pub directory: Option<PathBuf>,
 
-	/// Override the `remotes` key in the config.
-	#[arg(long, conflicts_with = "remotes")]
-	pub no_remotes: bool,
+	#[arg(hide = true, long)]
+	pub ready_fd: Option<RawFd>,
 
-	/// Override the `remotes` key in the config.
-	#[arg(long, short, value_delimiter = ',', conflicts_with = "no_remotes")]
-	pub remotes: Option<Vec<String>>,
+	#[command(flatten)]
+	pub remotes: Remotes,
 
 	/// The token.
 	pub token: Option<String>,
@@ -39,9 +37,6 @@ pub struct Args {
 	/// Override the HTTP listener URL in the config.
 	#[arg(long, short)]
 	pub url: Option<Uri>,
-
-	#[arg(hide = true, long)]
-	pub ready_fd: Option<RawFd>,
 }
 
 impl Cli {
