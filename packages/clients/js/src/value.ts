@@ -1,4 +1,8 @@
 import * as tg from "./index.ts";
+import {
+	Printer as Printer_,
+	type Options as PrintOptions_,
+} from "./value/print.ts";
 
 /** The union of all types that can be used as the input or output of Tangram commands. */
 export type Value =
@@ -22,7 +26,16 @@ export namespace Value {
 
 	/** Serialize a value to TGON. */
 	export let stringify = (value: tg.Value): string => {
-		return tg.handle.stringifyValue(toData(value));
+		return tg.handle.stringifyValue(tg.Value.toData(value));
+	};
+
+	export type PrintOptions = PrintOptions_;
+
+	export let print = (
+		value: tg.Value,
+		options?: PrintOptions | undefined,
+	): string => {
+		return new Printer_(options).print(value);
 	};
 
 	export let toData = (value: Value): Data => {

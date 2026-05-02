@@ -62,8 +62,8 @@ impl Cli {
 	{
 		let handle = self.handle().await?;
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
-		let pretty =
-			options.pretty || tangram_util::tty::is_foreground_controlling_tty(libc::STDOUT_FILENO);
+		let tty = tangram_util::tty::is_foreground_controlling_tty(libc::STDOUT_FILENO);
+		let pretty = options.pretty || tty;
 		stdout
 			.write_all(b"[")
 			.await
@@ -100,7 +100,7 @@ impl Cli {
 				indent,
 			)
 			.await?;
-			if tangram_util::tty::is_foreground_controlling_tty(libc::STDOUT_FILENO) {
+			if tty {
 				stdout
 					.flush()
 					.await
@@ -162,20 +162,14 @@ impl Cli {
 		};
 		let blobs = options.blobs;
 		value.load_with_handle(handle, arg, depth, blobs).await?;
-		let pretty =
-			options.pretty || tangram_util::tty::is_foreground_controlling_tty(libc::STDOUT_FILENO);
-		let style = if pretty {
-			tg::value::print::Style::Pretty {
-				indentation: INDENTATION,
-			}
-		} else {
-			tg::value::print::Style::Compact
-		};
+		let tty = tangram_util::tty::is_foreground_controlling_tty(libc::STDOUT_FILENO);
+		let indentation = (options.pretty || tty).then_some(INDENTATION);
 		let options = tg::value::print::Options {
-			depth,
-			style,
 			blobs,
+			color: tty,
+			depth,
 			indent,
+			indentation,
 		};
 		let output = value.print(options);
 		stdout
@@ -186,7 +180,7 @@ impl Cli {
 	}
 
 	pub fn print_info_message(&self, string: &str) {
-		if self.args.quiet {
+		if self.args.quiet.get() {
 			return;
 		}
 		eprintln!("{} {string}", "info".blue().bold());

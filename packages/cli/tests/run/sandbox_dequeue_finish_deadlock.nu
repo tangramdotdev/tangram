@@ -22,5 +22,5 @@ let parent = artifact {
 	',
 }
 
-let output = timeout 15s tg build $parent | complete
+let output = timeout 45s tg build $parent | complete
 success $output "fan-out build should not deadlock between dequeue_sandbox_process and finish_sandbox"

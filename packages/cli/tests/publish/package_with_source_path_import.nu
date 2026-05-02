@@ -42,7 +42,7 @@ tg checkin .
 
 # Publish the main package without having created tags beforehand.
 # This should discover the source dep, create its tag, publish it, then publish main.
-let output = tg publish . | complete
+let output = tg --no-quiet publish . | complete
 success $output
 
 # Extract the published artifact IDs from the stderr output.

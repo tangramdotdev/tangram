@@ -30,7 +30,7 @@ let shared_path = artifact {
 
 let b_path = $shared_path | path join b
 cd $b_path
-let output = tg publish . | complete
+let output = tg --no-quiet publish . | complete
 success $output
 
 # Extract the published IDs from the stderr.

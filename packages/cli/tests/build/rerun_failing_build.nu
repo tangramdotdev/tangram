@@ -13,9 +13,7 @@ let output = tg build | complete
 assert equal $output.exit_code 1
 let first_output = $output.stderr 
 	| str replace --regex --all 'pcs_[a-z0-9]+' "PROCESS"
-	| str replace --regex --all '\s06[a-z0-9]+' ""
 snapshot $first_output '
-	info PROCESS
 	error an error occurred
 	-> the process failed
 	   id = PROCESS

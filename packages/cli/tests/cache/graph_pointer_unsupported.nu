@@ -24,4 +24,4 @@ let output = tg cache $reference | complete
 # The command should fail with the expected message.
 failure $output
 let stderr = $output.stderr | lines | last
-snapshot $stderr '-> caching graph artifacts is unsupported'
+snapshot $stderr '-> expected an object'

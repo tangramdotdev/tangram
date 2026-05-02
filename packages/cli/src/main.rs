@@ -113,9 +113,8 @@ struct Args {
 	#[arg(long, short, value_delimiter = ',', conflicts_with = "no_remotes")]
 	remotes: Option<Vec<String>>,
 
-	/// Whether to show progress and other helpful information.
-	#[arg(env = "TANGRAM_QUIET", long, short)]
-	quiet: bool,
+	#[clap(flatten)]
+	quiet: Quiet,
 
 	#[arg(env = "TANGRAM_TOKEN", long)]
 	token: Option<String>,
@@ -127,6 +126,42 @@ struct Args {
 	/// Override the HTTP listener URL in the config.
 	#[arg(env = "TANGRAM_URL", long, short)]
 	url: Option<Uri>,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+struct Quiet {
+	/// Whether to show progress and other helpful information.
+	#[arg(
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		overrides_with = "no_quiet",
+		require_equals = true,
+		short,
+	)]
+	quiet: Option<bool>,
+
+	#[arg(
+		default_missing_value = "true",
+		long,
+		num_args = 0..=1,
+		overrides_with = "quiet",
+		require_equals = true,
+	)]
+	no_quiet: Option<bool>,
+}
+
+impl Quiet {
+	fn get(&self) -> bool {
+		self.quiet
+			.or(self.no_quiet.map(|value| !value))
+			.or_else(|| {
+				std::env::var("TANGRAM_QUIET")
+					.ok()
+					.and_then(|value| value.parse().ok())
+			})
+			.unwrap_or(false)
+	}
 }
 
 fn before_help() -> String {
@@ -414,7 +449,7 @@ fn main() -> std::process::ExitCode {
 	if mode.is_server() {
 		Cli::set_file_descriptor_limit()
 			.inspect_err(|_| {
-				if !args.quiet {
+				if !args.quiet.get() {
 					Cli::print_warning_message("failed to set the file descriptor limit");
 				}
 			})
@@ -559,7 +594,7 @@ impl Cli {
 				.map_err(|source| tg::error!(!source, "failed to get the health"))?;
 			self.health.replace(health);
 		}
-		if !self.args.quiet
+		if !self.args.quiet.get()
 			&& let Some(diagnostics) = self
 				.health
 				.as_ref()

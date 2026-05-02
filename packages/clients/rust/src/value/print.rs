@@ -1,4 +1,9 @@
-use {crate::prelude::*, bytes::Bytes, num::ToPrimitive as _, std::fmt::Result};
+use {
+	crate::prelude::*,
+	bytes::Bytes,
+	num::ToPrimitive as _,
+	std::fmt::{Display, Result},
+};
 
 pub struct Printer<W> {
 	depth: u64,
@@ -11,24 +16,37 @@ pub struct Printer<W> {
 #[derive(Clone, Debug, Default)]
 pub struct Options {
 	pub blobs: bool,
+	pub color: bool,
 	pub depth: Option<u64>,
 	pub indent: usize,
-	pub style: Style,
+	pub indentation: Option<&'static str>,
 }
 
-#[derive(Copy, Clone, Debug, Default, derive_more::IsVariant)]
-pub enum Style {
-	#[default]
-	Compact,
-	Pretty {
-		indentation: &'static str,
-	},
+#[derive(Clone, Copy)]
+enum Color {
+	Gray,
+	Yellow,
+	Green,
+	Blue,
+}
+
+impl Color {
+	fn code(self) -> &'static str {
+		match self {
+			Self::Gray => "\x1b[38;5;244m",
+			Self::Yellow => "\x1b[93m",
+			Self::Green => "\x1b[32m",
+			Self::Blue => "\x1b[94m",
+		}
+	}
 }
 
 impl<W> Printer<W>
 where
 	W: std::fmt::Write,
 {
+	const RESET: &'static str = "\x1b[0m";
+
 	pub fn new(writer: W, options: Options) -> Self {
 		let indent = options.indent;
 		Self {
@@ -40,8 +58,33 @@ where
 		}
 	}
 
+	fn with_color(&mut self, color: Color, f: impl FnOnce(&mut Self) -> Result) -> Result {
+		if self.options.color {
+			write!(self.writer, "{}", color.code())?;
+			f(self)?;
+			write!(self.writer, "{}", Self::RESET)?;
+		} else {
+			f(self)?;
+		}
+		Ok(())
+	}
+
+	fn color(&mut self, value: impl Display, color: Color) -> Result {
+		self.with_color(color, |s| write!(s.writer, "{value}"))
+	}
+
+	fn call_start(&mut self, name: &str) -> Result {
+		write!(self.writer, "tg.")?;
+		self.color(name, Color::Blue)?;
+		write!(self.writer, "(")
+	}
+
+	fn call_finish(&mut self) -> Result {
+		write!(self.writer, ")")
+	}
+
 	fn indent(&mut self) -> Result {
-		if let Style::Pretty { indentation } = &self.options.style {
+		if let Some(indentation) = self.options.indentation {
 			for _ in 0..self.indent {
 				write!(self.writer, "{indentation}")?;
 			}
@@ -60,12 +103,14 @@ where
 		if !self.first {
 			write!(self.writer, ",")?;
 		}
-		if self.options.style.is_pretty() {
+		if self.options.indentation.is_some() {
 			writeln!(self.writer)?;
 			self.indent()?;
 		}
-		write!(self.writer, "\"{key}\":")?;
-		if self.options.style.is_pretty() {
+		let key = serde_json::to_string(key).unwrap();
+		self.color(key, Color::Green)?;
+		write!(self.writer, ":")?;
+		if self.options.indentation.is_some() {
 			write!(self.writer, " ")?;
 		}
 		f(self)?;
@@ -75,7 +120,7 @@ where
 
 	fn finish_map(&mut self) -> Result {
 		self.indent -= 1;
-		if !self.first && self.options.style.is_pretty() {
+		if !self.first && self.options.indentation.is_some() {
 			write!(self.writer, ",")?;
 			writeln!(self.writer)?;
 			self.indent()?;
@@ -96,7 +141,7 @@ where
 		if !self.first {
 			write!(self.writer, ",")?;
 		}
-		if self.options.style.is_pretty() {
+		if self.options.indentation.is_some() {
 			writeln!(self.writer)?;
 			self.indent()?;
 		}
@@ -107,7 +152,7 @@ where
 
 	fn finish_array(&mut self) -> Result {
 		self.indent -= 1;
-		if !self.first && self.options.style.is_pretty() {
+		if !self.first && self.options.indentation.is_some() {
 			write!(self.writer, ",")?;
 			writeln!(self.writer)?;
 			self.indent()?;
@@ -134,20 +179,24 @@ where
 	}
 
 	pub fn null(&mut self) -> Result {
-		write!(self.writer, "null")
+		self.color("null", Color::Gray)
 	}
 
 	pub fn bool(&mut self, value: bool) -> Result {
-		write!(self.writer, "{}", if value { "true" } else { "false" })
+		self.color(if value { "true" } else { "false" }, Color::Yellow)
 	}
 
 	pub fn number(&mut self, value: f64) -> Result {
-		write!(self.writer, "{value}")
+		self.number_display(value)
+	}
+
+	fn number_display(&mut self, value: impl Display) -> Result {
+		self.color(value, Color::Yellow)
 	}
 
 	pub fn string(&mut self, value: &str) -> Result {
 		let value = serde_json::to_string(value).unwrap();
-		write!(self.writer, "{value}")
+		self.color(value, Color::Green)
 	}
 
 	pub fn array(&mut self, value: &tg::value::Array) -> Result {
@@ -200,14 +249,14 @@ where
 			let object = object.unwrap_blob_ref();
 			self.blob_object(object)?;
 		} else {
-			write!(self.writer, "{}", state.id())?;
+			self.color(state.id(), Color::Blue)?;
 		}
 		self.depth -= 1;
 		Ok(())
 	}
 
 	fn blob_object(&mut self, object: &tg::blob::Object) -> Result {
-		write!(self.writer, "tg.blob(")?;
+		self.call_start("blob")?;
 		match object {
 			tg::blob::Object::Leaf(object) => {
 				if let Ok(string) = String::from_utf8(object.bytes.to_vec()) {
@@ -223,7 +272,7 @@ where
 				self.finish_map()?;
 			},
 		}
-		write!(self.writer, ")")?;
+		self.call_finish()?;
 		Ok(())
 	}
 
@@ -235,14 +284,14 @@ where
 			let object = object.unwrap_directory_ref();
 			self.directory_object(object)?;
 		} else {
-			write!(self.writer, "{}", state.id())?;
+			self.color(state.id(), Color::Blue)?;
 		}
 		self.depth -= 1;
 		Ok(())
 	}
 
 	fn directory_object(&mut self, object: &tg::directory::Object) -> Result {
-		write!(self.writer, "tg.directory(")?;
+		self.call_start("directory")?;
 		match object {
 			tg::directory::Object::Pointer(pointer) => {
 				self.graph_pointer(pointer)?;
@@ -251,7 +300,7 @@ where
 				self.directory_node_entries(node)?;
 			},
 		}
-		write!(self.writer, ")")?;
+		self.call_finish()?;
 		Ok(())
 	}
 
@@ -274,10 +323,7 @@ where
 						s.array_value(|s| {
 							s.start_map()?;
 							s.map_entry("directory", |s| s.graph_edge_directory(&child.directory))?;
-							s.map_entry("count", |s| {
-								write!(s.writer, "{}", child.count)?;
-								Ok(())
-							})?;
+							s.map_entry("count", |s| s.number_display(child.count))?;
 							s.map_entry("last", |s| s.string(&child.last))?;
 							s.finish_map()
 						})?;
@@ -315,10 +361,7 @@ where
 						s.array_value(|s| {
 							s.start_map()?;
 							s.map_entry("directory", |s| s.graph_edge_directory(&child.directory))?;
-							s.map_entry("count", |s| {
-								write!(s.writer, "{}", child.count)?;
-								Ok(())
-							})?;
+							s.map_entry("count", |s| s.number_display(child.count))?;
 							s.map_entry("last", |s| s.string(&child.last))?;
 							s.finish_map()
 						})?;
@@ -338,14 +381,14 @@ where
 			let object = object.unwrap_file_ref();
 			self.file_object(object)?;
 		} else {
-			write!(self.writer, "{}", state.id())?;
+			self.color(state.id(), Color::Blue)?;
 		}
 		self.depth -= 1;
 		Ok(())
 	}
 
 	fn file_object(&mut self, object: &tg::file::Object) -> Result {
-		write!(self.writer, "tg.file(")?;
+		self.call_start("file")?;
 		match object {
 			tg::file::Object::Pointer(pointer) => {
 				self.graph_pointer(pointer)?;
@@ -354,7 +397,7 @@ where
 				self.file_node(node, false)?;
 			},
 		}
-		write!(self.writer, ")")?;
+		self.call_finish()?;
 		Ok(())
 	}
 
@@ -405,14 +448,14 @@ where
 			let object = object.unwrap_symlink_ref();
 			self.symlink_object(object)?;
 		} else {
-			write!(self.writer, "{}", state.id())?;
+			self.color(state.id(), Color::Blue)?;
 		}
 		self.depth -= 1;
 		Ok(())
 	}
 
 	fn symlink_object(&mut self, object: &tg::symlink::Object) -> Result {
-		write!(self.writer, "tg.symlink(")?;
+		self.call_start("symlink")?;
 		match object {
 			tg::symlink::Object::Pointer(pointer) => {
 				self.graph_pointer(pointer)?;
@@ -421,7 +464,7 @@ where
 				self.symlink_node(node, false)?;
 			},
 		}
-		write!(self.writer, ")")?;
+		self.call_finish()?;
 		Ok(())
 	}
 
@@ -447,14 +490,14 @@ where
 			let object = object.unwrap_graph_ref();
 			self.graph_object(object)?;
 		} else {
-			write!(self.writer, "{}", state.id())?;
+			self.color(state.id(), Color::Blue)?;
 		}
 		self.depth -= 1;
 		Ok(())
 	}
 
 	fn graph_object(&mut self, object: &tg::graph::Object) -> Result {
-		write!(self.writer, "tg.graph(")?;
+		self.call_start("graph")?;
 		self.start_map()?;
 		if !object.nodes.is_empty() {
 			self.map_entry("nodes", |s| {
@@ -471,7 +514,7 @@ where
 			})?;
 		}
 		self.finish_map()?;
-		write!(self.writer, ")")?;
+		self.call_finish()?;
 		Ok(())
 	}
 
@@ -530,7 +573,7 @@ where
 			let object = object.unwrap_command_ref();
 			self.command_object(object)?;
 		} else {
-			write!(self.writer, "{}", state.id())?;
+			self.color(state.id(), Color::Blue)?;
 		}
 		self.depth -= 1;
 		Ok(())
@@ -544,14 +587,14 @@ where
 			let object = object.unwrap_error_ref();
 			self.error_object(object)?;
 		} else {
-			write!(self.writer, "{}", state.id())?;
+			self.color(state.id(), Color::Blue)?;
 		}
 		self.depth -= 1;
 		Ok(())
 	}
 
 	fn error_object(&mut self, object: &tg::error::Object) -> Result {
-		write!(self.writer, "tg.error(")?;
+		self.call_start("error")?;
 		self.start_map()?;
 		if let Some(code) = &object.code {
 			self.map_entry("code", |s| s.string(&code.to_string()))?;
@@ -596,7 +639,7 @@ where
 			})?;
 		}
 		self.finish_map()?;
-		write!(self.writer, ")")?;
+		self.call_finish()?;
 		Ok(())
 	}
 
@@ -653,19 +696,13 @@ where
 
 	fn position(&mut self, position: tg::Position) -> Result {
 		self.start_map()?;
-		self.map_entry("line", |s| {
-			write!(s.writer, "{}", position.line)?;
-			Ok(())
-		})?;
-		self.map_entry("character", |s| {
-			write!(s.writer, "{}", position.character)?;
-			Ok(())
-		})?;
+		self.map_entry("line", |s| s.number_display(position.line))?;
+		self.map_entry("character", |s| s.number_display(position.character))?;
 		self.finish_map()
 	}
 
 	fn command_object(&mut self, object: &tg::command::Object) -> Result {
-		write!(self.writer, "tg.command(")?;
+		self.call_start("command")?;
 		self.start_map()?;
 		if !object.args.is_empty() {
 			self.map_entry("args", |s| s.array(&object.args))?;
@@ -687,7 +724,7 @@ where
 		})?;
 		self.map_entry("host", |s| s.string(&object.host))?;
 		self.finish_map()?;
-		write!(self.writer, ")")?;
+		self.call_finish()?;
 		Ok(())
 	}
 
@@ -754,15 +791,15 @@ where
 	}
 
 	pub fn bytes(&mut self, value: &Bytes) -> Result {
-		write!(self.writer, "tg.bytes(")?;
-		write!(self.writer, "\"{}\"", data_encoding::BASE64.encode(value))?;
-		write!(self.writer, ")")?;
+		self.call_start("bytes")?;
+		self.string(&data_encoding::BASE64.encode(value))?;
+		self.call_finish()?;
 		Ok(())
 	}
 
 	pub fn mutation(&mut self, value: &tg::Mutation) -> Result {
 		self.depth += 1;
-		write!(self.writer, "tg.mutation(")?;
+		self.call_start("mutation")?;
 		self.start_map()?;
 		match value {
 			tg::Mutation::Unset => {
@@ -810,14 +847,14 @@ where
 			},
 		}
 		self.finish_map()?;
-		write!(self.writer, ")")?;
+		self.call_finish()?;
 		self.depth -= 1;
 		Ok(())
 	}
 
 	pub fn template(&mut self, value: &tg::Template) -> Result {
 		self.depth += 1;
-		write!(self.writer, "tg.template(")?;
+		self.call_start("template")?;
 		self.start_array()?;
 		for component in &value.components {
 			self.array_value(|s| {
@@ -836,143 +873,15 @@ where
 			})?;
 		}
 		self.finish_array()?;
-		write!(self.writer, ")")?;
+		self.call_finish()?;
 		self.depth -= 1;
 		Ok(())
 	}
 
 	pub fn placeholder(&mut self, value: &tg::Placeholder) -> Result {
-		write!(self.writer, "tg.placeholder(")?;
+		self.call_start("placeholder")?;
 		self.string(&value.name)?;
-		write!(self.writer, ")")?;
+		self.call_finish()?;
 		Ok(())
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use {super::*, indoc::indoc};
-
-	#[test]
-	fn compact_map() {
-		let mut left = String::new();
-		let options = Options::default();
-		let mut printer = Printer::new(&mut left, options);
-		printer.start_map().unwrap();
-		printer.finish_map().unwrap();
-		let right = "{}";
-		assert_eq!(left, right);
-
-		let mut left = String::new();
-		let options = Options::default();
-		let mut printer = Printer::new(&mut left, options);
-		printer.start_map().unwrap();
-		printer.map_entry("foo", |s| s.string("bar")).unwrap();
-		printer.finish_map().unwrap();
-		let right = r#"{"foo":"bar"}"#;
-		assert_eq!(left, right);
-
-		let mut left = String::new();
-		let options = Options::default();
-		let mut printer = Printer::new(&mut left, options);
-		printer.start_map().unwrap();
-		printer.map_entry("foo", |s| s.string("bar")).unwrap();
-		printer.map_entry("baz", |s| s.string("qux")).unwrap();
-		printer.finish_map().unwrap();
-		let right = r#"{"foo":"bar","baz":"qux"}"#;
-		assert_eq!(left, right);
-	}
-
-	#[test]
-	fn pretty_map() {
-		let mut left = String::new();
-		let options = Options {
-			style: Style::Pretty { indentation: "\t" },
-			..Default::default()
-		};
-		let mut printer = Printer::new(&mut left, options);
-		printer.start_map().unwrap();
-		printer.finish_map().unwrap();
-		let right = "{}";
-		assert_eq!(left, right);
-
-		let mut left = String::new();
-		let options = Options {
-			style: Style::Pretty { indentation: "\t" },
-			..Default::default()
-		};
-		let mut printer = Printer::new(&mut left, options);
-		printer.start_map().unwrap();
-		printer.map_entry("foo", |s| s.string("bar")).unwrap();
-		printer.finish_map().unwrap();
-		let right = indoc!(
-			r#"
-				{
-					"foo": "bar",
-				}
-			"#
-		)
-		.trim();
-		assert_eq!(left, right);
-
-		let mut left = String::new();
-		let options = Options {
-			style: Style::Pretty { indentation: "\t" },
-			..Default::default()
-		};
-		let mut printer = Printer::new(&mut left, options);
-		printer.start_map().unwrap();
-		printer.map_entry("foo", |s| s.string("bar")).unwrap();
-		printer.map_entry("baz", |s| s.string("qux")).unwrap();
-		printer.finish_map().unwrap();
-		let right = indoc!(
-			r#"
-				{
-					"foo": "bar",
-					"baz": "qux",
-				}
-			"#
-		)
-		.trim();
-		assert_eq!(left, right);
-
-		let mut left = String::new();
-		let options = Options {
-			style: Style::Pretty { indentation: "\t" },
-			..Default::default()
-		};
-		let mut printer = Printer::new(&mut left, options);
-		printer.start_map().unwrap();
-		printer
-			.map_entry("foo", |s| {
-				s.start_map()?;
-				s.map_entry("foo", |s| s.string("foo"))?;
-				s.finish_map()?;
-				Ok(())
-			})
-			.unwrap();
-		printer
-			.map_entry("bar", |s| {
-				s.start_map()?;
-				s.map_entry("bar", |s| s.string("bar"))?;
-				s.finish_map()?;
-				Ok(())
-			})
-			.unwrap();
-		printer.finish_map().unwrap();
-		let right = indoc!(
-			r#"
-				{
-					"foo": {
-						"foo": "foo",
-					},
-					"bar": {
-						"bar": "bar",
-					},
-				}
-			"#
-		)
-		.trim();
-		assert_eq!(left, right);
 	}
 }

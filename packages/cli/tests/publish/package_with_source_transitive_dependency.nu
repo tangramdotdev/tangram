@@ -44,7 +44,7 @@ let main_path = $shared_path | path join main
 
 # Publish the main package - this should publish C, then B, then A.
 cd $main_path
-let output = tg publish . | complete
+let output = tg --no-quiet publish . | complete
 success $output
 
 # Extract the published artifact IDs from the stderr output.

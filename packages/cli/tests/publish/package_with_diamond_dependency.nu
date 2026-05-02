@@ -74,7 +74,7 @@ let main_path = artifact {
 let main_id = tg checkin $main_path
 
 # Publish the main package - this should publish bottom, then left and right, then main.
-let output = tg publish $main_path | complete
+let output = tg --no-quiet publish $main_path | complete
 success $output
 
 # Verify all packages are mentioned in stderr output.

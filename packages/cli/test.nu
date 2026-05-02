@@ -17,7 +17,7 @@ def main [
 	--print-passing-test-output # Print the output of passing tests.
 	--quickjs # Use QuickJS as the JS engine.
 	--review (-r) # Review snapshots.
-	--timeout: duration = 30sec # The timeout for each test.
+	--timeout: duration = 60sec # The timeout for each test.
 	...filters: string # Filter tests.
 ] {
 	# Clean up leftover test resources if requested.

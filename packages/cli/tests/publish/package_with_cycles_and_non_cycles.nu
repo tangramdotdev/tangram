@@ -87,7 +87,7 @@ let main_path = $shared_path | path join main
 
 # Publish the main package - this should handle both cycles and non-cycles.
 cd $main_path
-let output = tg publish . | complete
+let output = tg --no-quiet publish . | complete
 success $output
 
 # Extract IDs from stderr.

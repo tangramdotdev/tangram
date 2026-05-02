@@ -63,7 +63,7 @@ let main_path = artifact {
 let main_id = tg checkin $main_path
 
 # Publish and capture the output to check what gets published.
-let output = tg publish $main_path | complete
+let output = tg --no-quiet publish $main_path | complete
 success $output
 
 # Count how many packages are being published.

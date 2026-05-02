@@ -43,7 +43,7 @@ let main_path = $shared_path | path join main
 
 # Publish the main package - this should also publish the dependency.
 cd $main_path
-let output = tg publish . | complete
+let output = tg --no-quiet publish . | complete
 success $output
 
 # Verify that only 2 packages are published (test-main and test-dep), not util.tg.ts.

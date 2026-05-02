@@ -2420,10 +2420,11 @@ where
 									value => value,
 								};
 								let options = tg::value::print::Options {
-									depth: Some(2),
-									style: tg::value::print::Style::Pretty { indentation: "  " },
 									blobs: false,
+									color: false,
+									depth: Some(2),
 									indent: 0,
+									indentation: Some("  "),
 								};
 								value.print(options)
 							},
@@ -2443,10 +2444,11 @@ where
 								.collect();
 								let value = tg::Value::Map(value);
 								let options = tg::value::print::Options {
-									depth: Some(1),
-									style: tg::value::print::Style::Pretty { indentation: "  " },
 									blobs: false,
+									color: false,
+									depth: Some(1),
 									indent: 0,
+									indentation: Some("  "),
 								};
 								value.print(options)
 							},
@@ -2537,10 +2539,11 @@ where
 					Self::object_id(object)
 				} else {
 					let options = tg::value::print::Options {
-						depth: Some(0),
-						style: tg::value::print::Style::Compact,
 						blobs: false,
+						color: false,
+						depth: Some(0),
 						indent: 0,
+						indentation: None,
 					};
 					value.print(options)
 				}

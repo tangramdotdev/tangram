@@ -33,7 +33,7 @@ impl Cli {
 	where
 		F: FnMut(&mut Self, &T),
 	{
-		if self.args.quiet {
+		if self.args.quiet.get() {
 			let output = pin!(stream)
 				.try_last()
 				.await?
