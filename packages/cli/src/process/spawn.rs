@@ -17,8 +17,9 @@ pub struct Args {
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
-	#[arg(default_value = ".", index = 1)]
-	pub reference: tg::Reference,
+	/// The reference to the command.
+	#[arg(index = 1)]
+	pub reference: Option<tg::Reference>,
 
 	/// Set arguments.
 	#[arg(index = 2, trailing_var_arg = true)]
@@ -95,9 +96,9 @@ pub struct Options {
 	)]
 	pub env_values: Vec<String>,
 
-	/// Set the path to use for the executable.
+	/// The executable to run.
 	#[arg(long, short = 'x')]
-	pub executable_path: Option<PathBuf>,
+	pub executable: Option<tg::command::data::Executable>,
 
 	/// Set the host.
 	#[arg(long)]
@@ -371,7 +372,7 @@ impl Cli {
 	pub(crate) async fn spawn(
 		&mut self,
 		options: Options,
-		reference: tg::Reference,
+		reference: Option<tg::Reference>,
 		trailing: Vec<String>,
 		print: bool,
 	) -> tg::Result<tg::Referent<tg::Process>> {
@@ -426,7 +427,7 @@ impl Cli {
 	pub(crate) async fn spawn_inner(
 		&mut self,
 		options: Options,
-		reference: tg::Reference,
+		reference: Option<tg::Reference>,
 		trailing: Vec<String>,
 	) -> tg::Result<InnerOutput> {
 		let handle = self.handle().await?;
@@ -451,10 +452,41 @@ impl Cli {
 				.try_unwrap_object()
 				.ok()
 				.ok_or_else(|| tg::error!("expected the build to output an object"))?;
-			let id = object.id();
-			tg::Reference::with_object(id)
+			Some(tg::Reference::with_object(object.id()))
 		} else {
 			reference
+		};
+
+		let mut executable = options.executable;
+		let executable_path = match (&reference, &executable) {
+			(Some(_), Some(tg::command::data::Executable::Path(executable))) => {
+				Some(executable.path.clone())
+			},
+			_ => None,
+		};
+		if executable_path.is_some() {
+			executable = None;
+		}
+
+		let reference = if let Some(reference) = reference {
+			reference
+		} else if let Some(executable) = executable.take() {
+			let host = options.host.clone().unwrap_or_else(|| match executable {
+				tg::command::data::Executable::Module(_) => "js".to_owned(),
+				_ => tg::host::current().to_owned(),
+			});
+			let executable = tg::command::Executable::try_from_data(executable)?;
+			let command = tg::Command::builder()
+				.host(host)
+				.executable(executable)
+				.finish()?;
+			let command = command
+				.store_with_handle(&handle)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to store the command"))?;
+			tg::Reference::with_object(command.into())
+		} else {
+			tg::Reference::with_path(".".into())
 		};
 
 		// Determine whether to sandbox.
@@ -482,12 +514,12 @@ impl Cli {
 		}
 
 		// Handle the executable path.
-		let reference = if let Some(path) = &options.executable_path {
+		let reference = if let Some(path) = &executable_path {
 			let mut options = reference.options().clone();
-			if let Some(reference_path) = &mut options.path {
-				*reference_path = reference_path.join(path);
+			if let Some(reference_get) = &mut options.get {
+				*reference_get = reference_get.join(path);
 			} else {
-				options.path = Some(path.clone());
+				options.get = Some(path.clone());
 			}
 			tg::Reference::new(
 				reference.item().clone(),
@@ -514,6 +546,19 @@ impl Cli {
 		// Create the command builder.
 		let mut command_env = None;
 		let mut command = match referent.item.clone() {
+			tg::graph::Edge::Object(tg::Object::Command(command)) => {
+				let object = command.object_with_handle(&handle).await?;
+				command_env = Some(object.env.clone());
+				tg::Command::builder()
+					.host(object.host.clone())
+					.executable(object.executable.clone())
+					.args(object.args.clone())
+					.cwd(object.cwd.clone())
+					.stdin(object.stdin.clone())
+			},
+
+			_ if executable.is_some() => tg::Command::builder(),
+
 			tg::graph::Edge::Pointer(pointer)
 				if matches!(pointer.kind, tg::artifact::Kind::Directory) =>
 			{
@@ -598,17 +643,6 @@ impl Cli {
 
 			tg::graph::Edge::Pointer(_) => {
 				return Err(tg::error!("unimplemented"));
-			},
-
-			tg::graph::Edge::Object(tg::Object::Command(command)) => {
-				let object = command.object_with_handle(&handle).await?;
-				command_env = Some(object.env.clone());
-				tg::Command::builder()
-					.host(object.host.clone())
-					.executable(object.executable.clone())
-					.args(object.args.clone())
-					.cwd(object.cwd.clone())
-					.stdin(object.stdin.clone())
 			},
 
 			tg::graph::Edge::Object(tg::Object::Directory(directory)) => {
@@ -696,6 +730,17 @@ impl Cli {
 				return Err(tg::error!("expected a command or an artifact"));
 			},
 		};
+		if let Some(executable) = executable {
+			let host = options.host.clone().unwrap_or_else(|| match &executable {
+				tg::command::data::Executable::Module(_) => "js".to_owned(),
+				_ => tg::host::current().to_owned(),
+			});
+			command = command
+				.host(host)
+				.executable(tg::command::Executable::try_from_data(executable)?);
+		} else if let Some(host) = options.host.clone() {
+			command = command.host(host);
+		}
 		if let Some(tg::process::Stdio::Blob(blob)) = &options.stdin {
 			command = command.stdin(Some(tg::Blob::with_id(blob.clone())));
 		}

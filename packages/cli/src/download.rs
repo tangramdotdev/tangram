@@ -44,7 +44,7 @@ impl Cli {
 		options.spawn.sandbox.arg.network = crate::sandbox::Network::new(true);
 		let args = crate::process::build::Args {
 			options,
-			reference,
+			reference: Some(reference),
 			trailing: Vec::new(),
 		};
 		self.command_build(args).await?;

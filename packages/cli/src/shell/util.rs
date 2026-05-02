@@ -295,7 +295,7 @@ impl Cli {
 		};
 		let args = crate::process::build::Args {
 			options,
-			reference: reference.clone(),
+			reference: Some(reference.clone()),
 			trailing: Vec::new(),
 		};
 		let output = self.build(args).boxed().await?;

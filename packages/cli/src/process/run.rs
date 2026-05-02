@@ -8,8 +8,8 @@ pub struct Args {
 	pub options: Options,
 
 	/// The reference to the command.
-	#[arg(default_value = ".", index = 1)]
-	pub reference: tg::Reference,
+	#[arg(index = 1)]
+	pub reference: Option<tg::Reference>,
 
 	/// Set arguments.
 	#[arg(index = 2, trailing_var_arg = true)]

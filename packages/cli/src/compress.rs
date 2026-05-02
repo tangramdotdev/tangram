@@ -27,7 +27,7 @@ impl Cli {
 		let reference = tg::Reference::with_object(command.into());
 		let args = crate::process::build::Args {
 			options: args.build,
-			reference,
+			reference: Some(reference),
 			trailing: Vec::new(),
 		};
 		self.command_build(args).await?;
