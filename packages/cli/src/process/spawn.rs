@@ -559,175 +559,105 @@ impl Cli {
 
 			_ if executable.is_some() => tg::Command::builder(),
 
-			tg::graph::Edge::Pointer(pointer)
-				if matches!(pointer.kind, tg::artifact::Kind::Directory) =>
-			{
-				let directory = tg::Directory::with_object(tg::directory::Object::Pointer(pointer));
-				let root_module_file_name = tg::module::try_get_root_module_file_name_with_handle(
-					&handle,
-					tg::Either::Left(&directory),
-				)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the root module name"))?
-				.ok_or_else(
-					|| tg::error!(directory = %directory.id(), "failed to find a root module"),
-				)?;
-				if let Some(path) = &mut referent.options.path {
-					*path = path.join(root_module_file_name);
-				} else {
-					referent.options.path.replace(root_module_file_name.into());
-				}
-				let kind = tg::module::module_kind_for_path(root_module_file_name).unwrap();
-				let item = directory
-					.get_entry_edge_with_handle(&handle, root_module_file_name)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the root module"))?;
-				let item = tg::module::Item::Edge(item.into());
-				let referent = tg::Referent::with_item(item);
-				let module = tg::Module { kind, referent };
-				let export = reference.export().unwrap_or("default").to_owned();
-				let host = "js".to_owned();
-				let executable = tg::command::Executable::Module(tg::command::ModuleExecutable {
-					module,
-					export: Some(export),
-				});
-				tg::Command::builder().host(host).executable(executable)
-			},
-
-			tg::graph::Edge::Pointer(pointer)
-				if matches!(pointer.kind, tg::artifact::Kind::File) =>
-			{
-				let file = tg::File::with_object(tg::file::Object::Pointer(pointer.clone()));
-				let kind = referent.path().and_then(|path| {
-					tg::module::module_kind_for_path(path).ok().or_else(|| {
-						if let Ok(Some(xattr)) = xattr::get(path, tg::file::MODULE_XATTR_NAME)
-							&& let Some(kind) = String::from_utf8(xattr)
-								.ok()
-								.and_then(|s| s.parse::<tg::module::Kind>().ok())
-						{
-							Some(kind)
-						} else {
-							None
-						}
-					})
-				});
-				let kind = if kind.is_some() {
-					kind
-				} else {
-					file.module_with_handle(&handle)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to get the module kind"))?
+			item => {
+				let artifact = match item.clone() {
+					tg::graph::Edge::Pointer(pointer) => tg::Artifact::with_pointer(pointer),
+					tg::graph::Edge::Object(tg::Object::Directory(directory)) => directory.into(),
+					tg::graph::Edge::Object(tg::Object::File(file)) => file.into(),
+					tg::graph::Edge::Object(tg::Object::Symlink(symlink)) => symlink.into(),
+					tg::graph::Edge::Object(_) => {
+						return Err(tg::error!("expected a command or an artifact"));
+					},
 				};
-				if let Some(kind) = kind {
-					let item = tg::module::Item::Edge(tg::graph::Edge::Pointer(pointer.clone()));
-					let referent = tg::Referent::with_item(item);
-					let module = tg::Module { kind, referent };
-					let export = reference.export().unwrap_or("default").to_owned();
-					let host = "js".to_owned();
-					let executable =
-						tg::command::Executable::Module(tg::command::ModuleExecutable {
-							module,
-							export: Some(export),
-						});
-					tg::Command::builder().host(host).executable(executable)
-				} else {
-					let host = tg::host::current().to_owned();
-					let executable =
-						tg::command::Executable::Artifact(tg::command::ArtifactExecutable {
-							artifact: file.clone().into(),
-							path: None,
-						});
-					tg::Command::builder().host(host).executable(executable)
-				}
-			},
-
-			tg::graph::Edge::Pointer(_) => {
-				return Err(tg::error!("unimplemented"));
-			},
-
-			tg::graph::Edge::Object(tg::Object::Directory(directory)) => {
-				let root_module_file_name = tg::module::try_get_root_module_file_name_with_handle(
-					&handle,
-					tg::Either::Left(&directory),
-				)
-				.await?
-				.ok_or_else(
-					|| tg::error!(directory = %directory.id(), "failed to find a root module"),
-				)?;
-				if let Some(path) = &mut referent.options.path {
-					*path = path.join(root_module_file_name);
-				} else {
-					referent.options.path.replace(root_module_file_name.into());
-				}
-				let kind = tg::module::module_kind_for_path(root_module_file_name).unwrap();
-				let item = directory
-					.get_entry_edge_with_handle(&handle, root_module_file_name)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the root module"))?;
-				let item = tg::module::Item::Edge(item.into());
-				let referent = tg::Referent::with_item(item);
-				let module = tg::Module { kind, referent };
-				let export = reference.export().unwrap_or("default").to_owned();
-				let host = "js".to_owned();
-				let executable = tg::command::Executable::Module(tg::command::ModuleExecutable {
-					module,
-					export: Some(export),
-				});
-				tg::Command::builder().host(host).executable(executable)
-			},
-
-			tg::graph::Edge::Object(tg::Object::File(file)) => {
-				let kind = referent.path().and_then(|path| {
-					tg::module::module_kind_for_path(path).ok().or_else(|| {
-						if let Ok(Some(xattr)) = xattr::get(path, tg::file::MODULE_XATTR_NAME)
-							&& let Some(kind) = String::from_utf8(xattr)
-								.ok()
-								.and_then(|s| s.parse::<tg::module::Kind>().ok())
-						{
-							Some(kind)
+				match artifact {
+					tg::Artifact::Directory(directory) => {
+						let root_module_file_name =
+							tg::module::try_get_root_module_file_name_with_handle(
+								&handle,
+								tg::Either::Left(&directory),
+							)
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to get the root module name")
+							})?
+							.ok_or_else(
+								|| tg::error!(directory = %directory.id(), "failed to find a root module"),
+							)?;
+						if let Some(path) = &mut referent.options.path {
+							*path = path.join(root_module_file_name);
 						} else {
-							None
+							referent.options.path.replace(root_module_file_name.into());
 						}
-					})
-				});
-				let kind = if kind.is_some() {
-					kind
-				} else {
-					file.module_with_handle(&handle)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to get the module kind"))?
-				};
-				if let Some(kind) = kind {
-					let item = file.clone().into();
-					let item = tg::graph::Edge::Object(item);
-					let item = tg::module::Item::Edge(item);
-					let referent = tg::Referent::with_item(item);
-					let module = tg::Module { kind, referent };
-					let export = reference.export().unwrap_or("default").to_owned();
-					let host = "js".to_owned();
-					let executable =
-						tg::command::Executable::Module(tg::command::ModuleExecutable {
-							module,
-							export: Some(export),
+						let kind = tg::module::module_kind_for_path(root_module_file_name).unwrap();
+						let item = directory
+							.get_entry_edge_with_handle(&handle, root_module_file_name)
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to get the root module")
+							})?;
+						let item = tg::module::Item::Edge(item.into());
+						let referent = tg::Referent::with_item(item);
+						let module = tg::Module { kind, referent };
+						let export = reference.export().unwrap_or("default").to_owned();
+						let host = "js".to_owned();
+						let executable =
+							tg::command::Executable::Module(tg::command::ModuleExecutable {
+								module,
+								export: Some(export),
+							});
+						tg::Command::builder().host(host).executable(executable)
+					},
+
+					tg::Artifact::File(file) => {
+						let kind = referent.path().and_then(|path| {
+							tg::module::module_kind_for_path(path).ok().or_else(|| {
+								if let Ok(Some(xattr)) =
+									xattr::get(path, tg::file::MODULE_XATTR_NAME)
+									&& let Some(kind) = String::from_utf8(xattr)
+										.ok()
+										.and_then(|s| s.parse::<tg::module::Kind>().ok())
+								{
+									Some(kind)
+								} else {
+									None
+								}
+							})
 						});
-					tg::Command::builder().host(host).executable(executable)
-				} else {
-					let host = tg::host::current().to_owned();
-					let executable =
-						tg::command::Executable::Artifact(tg::command::ArtifactExecutable {
-							artifact: file.clone().into(),
-							path: None,
-						});
-					tg::Command::builder().host(host).executable(executable)
+						let kind = if kind.is_some() {
+							kind
+						} else {
+							file.module_with_handle(&handle).await.map_err(|source| {
+								tg::error!(!source, "failed to get the module kind")
+							})?
+						};
+						if let Some(kind) = kind {
+							let item = tg::module::Item::Edge(item);
+							let referent = tg::Referent::with_item(item);
+							let module = tg::Module { kind, referent };
+							let export = reference.export().unwrap_or("default").to_owned();
+							let host = "js".to_owned();
+							let executable =
+								tg::command::Executable::Module(tg::command::ModuleExecutable {
+									module,
+									export: Some(export),
+								});
+							tg::Command::builder().host(host).executable(executable)
+						} else {
+							let host = tg::host::current().to_owned();
+							let executable = tg::command::Executable::Artifact(
+								tg::command::ArtifactExecutable {
+									artifact: file.clone().into(),
+									path: None,
+								},
+							);
+							tg::Command::builder().host(host).executable(executable)
+						}
+					},
+
+					tg::Artifact::Symlink(_) => {
+						return Err(tg::error!("unimplemented"));
+					},
 				}
-			},
-
-			tg::graph::Edge::Object(tg::Object::Symlink(_)) => {
-				return Err(tg::error!("unimplemented"));
-			},
-
-			tg::graph::Edge::Object(_) => {
-				return Err(tg::error!("expected a command or an artifact"));
 			},
 		};
 		if let Some(executable) = executable {
