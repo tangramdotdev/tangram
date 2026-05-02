@@ -1,5 +1,5 @@
 use {
-	crate::{Error, Message, Payload},
+	crate::{Delivery, Error, Message, Payload},
 	async_broadcast as broadcast,
 	bytes::Bytes,
 	futures::{StreamExt as _, future},
@@ -49,7 +49,17 @@ impl crate::Messenger for Messenger {
 	async fn subscribe<T>(
 		&self,
 		subject: String,
-		_group: Option<String>,
+	) -> Result<impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static, Error>
+	where
+		T: Payload,
+	{
+		self.subscribe_with_delivery(subject, Delivery::All).await
+	}
+
+	async fn subscribe_with_delivery<T>(
+		&self,
+		subject: String,
+		_delivery: Delivery,
 	) -> Result<impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static, Error>
 	where
 		T: Payload,
@@ -87,7 +97,7 @@ mod tests {
 	async fn subscribes_only_to_matching_subject() {
 		let messenger = Messenger::new();
 		let mut stream = messenger
-			.subscribe::<Bytes>("subject1".into(), None)
+			.subscribe::<Bytes>("subject1".into())
 			.await
 			.unwrap();
 
@@ -113,7 +123,7 @@ mod tests {
 	async fn subscribes_with_typed_payloads() {
 		let messenger = Messenger::new();
 		let mut stream = messenger
-			.subscribe::<crate::payload::Json<Event>>("subject".into(), None)
+			.subscribe::<crate::payload::Json<Event>>("subject".into())
 			.await
 			.unwrap();
 

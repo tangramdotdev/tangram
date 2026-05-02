@@ -27,10 +27,9 @@ impl Server {
 	) -> tg::Result<()> {
 		let batch_size = config.message_batch_size.max(1);
 		let subject = "sandboxes.finalize.queue";
-		let group = "sandboxes.finalize";
 		let stream = self
 			.messenger
-			.subscribe::<()>(subject.into(), Some(group.into()))
+			.subscribe_with_delivery::<()>(subject.into(), Delivery::One)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ());

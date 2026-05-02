@@ -1,5 +1,5 @@
 use {
-	crate::{Error, Message, Payload},
+	crate::{Delivery, Error, Message, Payload},
 	async_nats as nats,
 	futures::StreamExt as _,
 };
@@ -41,22 +41,32 @@ impl crate::Messenger for Messenger {
 	async fn subscribe<T>(
 		&self,
 		subject: String,
-		group: Option<String>,
+	) -> Result<impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static, Error>
+	where
+		T: Payload,
+	{
+		self.subscribe_with_delivery(subject, Delivery::All).await
+	}
+
+	async fn subscribe_with_delivery<T>(
+		&self,
+		subject: String,
+		delivery: Delivery,
 	) -> Result<impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static, Error>
 	where
 		T: Payload,
 	{
 		let subject = self.subject_name(subject);
-		let subscriber = match group {
-			None => self
+		let subscriber = match delivery {
+			Delivery::All => self
 				.client
 				.subscribe(subject)
 				.await
 				.map_err(Error::other)?
 				.left_stream(),
-			Some(group) => self
+			Delivery::One => self
 				.client
-				.queue_subscribe(subject, group)
+				.queue_subscribe(subject.clone(), subject)
 				.await
 				.map_err(Error::other)?
 				.right_stream(),

@@ -22,7 +22,6 @@ impl messenger::Messenger for Messenger {
 	async fn subscribe<T>(
 		&self,
 		subject: String,
-		group: Option<String>,
 	) -> Result<
 		impl futures::Stream<Item = Result<messenger::Message<T>, messenger::Error>> + Send + 'static,
 		messenger::Error,
@@ -32,12 +31,36 @@ impl messenger::Messenger for Messenger {
 	{
 		match self {
 			Self::Memory(messenger) => messenger
-				.subscribe(subject, group)
+				.subscribe(subject)
 				.await
 				.map(futures::StreamExt::boxed),
 			#[cfg(feature = "nats")]
 			Self::Nats(messenger) => messenger
-				.subscribe(subject, group)
+				.subscribe(subject)
+				.await
+				.map(futures::StreamExt::boxed),
+		}
+	}
+
+	async fn subscribe_with_delivery<T>(
+		&self,
+		subject: String,
+		delivery: messenger::Delivery,
+	) -> Result<
+		impl futures::Stream<Item = Result<messenger::Message<T>, messenger::Error>> + Send + 'static,
+		messenger::Error,
+	>
+	where
+		T: messenger::Payload,
+	{
+		match self {
+			Self::Memory(messenger) => messenger
+				.subscribe_with_delivery(subject, delivery)
+				.await
+				.map(futures::StreamExt::boxed),
+			#[cfg(feature = "nats")]
+			Self::Nats(messenger) => messenger
+				.subscribe_with_delivery(subject, delivery)
 				.await
 				.map(futures::StreamExt::boxed),
 		}

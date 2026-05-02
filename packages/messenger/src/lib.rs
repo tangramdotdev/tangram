@@ -9,7 +9,14 @@ pub mod nats;
 pub mod payload;
 
 pub mod prelude {
-	pub use super::Messenger as _;
+	pub use super::{Delivery, Messenger as _};
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Delivery {
+	One,
+	#[default]
+	All,
 }
 
 pub struct Message<T> {
@@ -38,7 +45,19 @@ pub trait Messenger {
 	fn subscribe<T>(
 		&self,
 		subject: String,
-		group: Option<String>,
+	) -> impl Future<
+		Output = Result<
+			impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static,
+			Error,
+		>,
+	> + Send
+	where
+		T: Payload;
+
+	fn subscribe_with_delivery<T>(
+		&self,
+		subject: String,
+		delivery: Delivery,
 	) -> impl Future<
 		Output = Result<
 			impl futures::Stream<Item = Result<Message<T>, Error>> + Send + 'static,

@@ -64,7 +64,7 @@ impl Server {
 		// Create the update stream.
 		let created = self
 			.messenger
-			.subscribe::<()>("sandboxes.created".into(), Some("sandboxes.dequeue".into()))
+			.subscribe_with_delivery::<()>("sandboxes.created".into(), Delivery::One)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ());

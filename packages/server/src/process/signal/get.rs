@@ -117,10 +117,9 @@ impl Server {
 		stopper: Option<Stopper>,
 	) -> tg::Result<()> {
 		let subject = format!("processes.{id}.signal");
-		let group = "processes.signal.dequeue";
 		let stream = self
 			.messenger
-			.subscribe::<()>(subject, Some(group.into()))
+			.subscribe_with_delivery::<()>(subject, Delivery::One)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ());

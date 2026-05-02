@@ -25,10 +25,9 @@ impl Server {
 	pub(crate) async fn finalizer_task(&self, config: &crate::config::Finalizer) -> tg::Result<()> {
 		let batch_size = config.message_batch_size.max(1);
 		let subject = "processes.finalize.queue";
-		let group = "processes.finalize";
 		let stream = self
 			.messenger
-			.subscribe::<()>(subject.into(), Some(group.into()))
+			.subscribe_with_delivery::<()>(subject.into(), Delivery::One)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ());

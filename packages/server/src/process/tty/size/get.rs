@@ -81,7 +81,6 @@ impl Server {
 			.messenger
 			.subscribe::<tangram_messenger::payload::Json<tg::process::tty::size::get::Event>>(
 				format!("processes.{id}.tty"),
-				None,
 			)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the stream"))?

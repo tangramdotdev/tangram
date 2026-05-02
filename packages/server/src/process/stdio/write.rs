@@ -260,14 +260,14 @@ impl Server {
 		let subject = format!("processes.{id}.{stream}.read");
 		let read = self
 			.messenger
-			.subscribe::<()>(subject, Some("processes.stdio.write".into()))
+			.subscribe_with_delivery::<()>(subject, Delivery::One)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ());
 		let subject = format!("processes.{id}.{stream}.close");
 		let close = self
 			.messenger
-			.subscribe::<()>(subject, Some("processes.stdio.write".into()))
+			.subscribe_with_delivery::<()>(subject, Delivery::One)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ());

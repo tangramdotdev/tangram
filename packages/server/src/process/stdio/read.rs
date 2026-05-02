@@ -139,7 +139,7 @@ impl Server {
 		let subject = format!("processes.{id}.log");
 		let log = self
 			.messenger
-			.subscribe::<()>(subject, None)
+			.subscribe::<()>(subject)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ())
@@ -148,7 +148,7 @@ impl Server {
 		let subject = format!("processes.{id}.status");
 		let status = self
 			.messenger
-			.subscribe::<()>(subject, None)
+			.subscribe::<()>(subject)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ())
@@ -249,7 +249,7 @@ impl Server {
 			let subject = format!("processes.{id}.{stream}.write");
 			let wakeup = self
 				.messenger
-				.subscribe::<()>(subject, Some("processes.stdio.read".into()))
+				.subscribe_with_delivery::<()>(subject, Delivery::One)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 				.map(|_| ())
@@ -258,7 +258,7 @@ impl Server {
 			let subject = format!("processes.{id}.{stream}.close");
 			let wakeup = self
 				.messenger
-				.subscribe::<()>(subject, Some("processes.stdio.read".into()))
+				.subscribe_with_delivery::<()>(subject, Delivery::One)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 				.map(|_| ())

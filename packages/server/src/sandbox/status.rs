@@ -81,7 +81,7 @@ impl Server {
 		let subject = format!("sandboxes.{id}.status");
 		let status = self
 			.messenger
-			.subscribe::<()>(subject, None)
+			.subscribe::<()>(subject)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ());
