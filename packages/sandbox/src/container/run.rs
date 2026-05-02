@@ -161,19 +161,14 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		.transpose()
 		.map_err(|source| tg::error!(!source, "failed to create the cgroup"))?;
 
-	let child = if let Some(cgroup) = &cgroup {
-		let cgroup_fd = cgroup.open_fd()?;
-		fork_into_cgroup(cgroup_fd.as_raw_fd())?
+	let (child, move_child_to_cgroup) = if let Some(cgroup) = &cgroup {
+		fork_with_cgroup(cgroup)?
 	} else {
-		let pid = unsafe { libc::fork() };
-		if pid < 0 {
-			let source = std::io::Error::last_os_error();
-			return Err(tg::error!(!source, "failed to fork the sandbox child"));
-		}
-		pid
+		(fork()?, false)
 	};
 	if child == 0 {
-		match child_main(arg, root_path.as_ref()) {
+		let child_cgroup = move_child_to_cgroup.then(|| cgroup.as_ref().unwrap());
+		match child_main(arg, child_cgroup, root_path.as_ref()) {
 			Ok(()) => std::process::exit(0),
 			Err(error) => {
 				eprintln!("{error}");
@@ -189,7 +184,25 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	Ok(ExitCode::from(status))
 }
 
-fn fork_into_cgroup(cgroup_fd: RawFd) -> tg::Result<libc::pid_t> {
+fn fork() -> tg::Result<libc::pid_t> {
+	let pid = unsafe { libc::fork() };
+	if pid < 0 {
+		let source = std::io::Error::last_os_error();
+		return Err(tg::error!(!source, "failed to fork the sandbox child"));
+	}
+	Ok(pid)
+}
+
+fn fork_with_cgroup(cgroup: &cgroup::Cgroup) -> tg::Result<(libc::pid_t, bool)> {
+	let cgroup_fd = cgroup.open_fd()?;
+	match fork_into_cgroup(cgroup_fd.as_raw_fd()) {
+		Ok(pid) => Ok((pid, false)),
+		Err(source) if clone3_cgroup_should_fallback(&source) => fork().map(|pid| (pid, true)),
+		Err(source) => Err(tg::error!(!source, "failed to clone3 into the cgroup")),
+	}
+}
+
+fn fork_into_cgroup(cgroup_fd: RawFd) -> std::io::Result<libc::pid_t> {
 	let mut args: libc::clone_args = unsafe { std::mem::zeroed() };
 	args.flags = libc::CLONE_INTO_CGROUP.try_into().unwrap();
 	args.exit_signal = libc::SIGCHLD as u64;
@@ -202,13 +215,23 @@ fn fork_into_cgroup(cgroup_fd: RawFd) -> tg::Result<libc::pid_t> {
 		)
 	};
 	if ret < 0 {
-		let source = std::io::Error::last_os_error();
-		return Err(tg::error!(!source, "failed to clone3 into the cgroup"));
+		return Err(std::io::Error::last_os_error());
 	}
 	Ok(ret.try_into().unwrap())
 }
 
-fn child_main(arg: &Arg, root: Option<&PathBuf>) -> tg::Result<()> {
+fn clone3_cgroup_should_fallback(source: &std::io::Error) -> bool {
+	matches!(
+		source.raw_os_error(),
+		Some(libc::ENOSYS | libc::EINVAL | libc::EPERM)
+	)
+}
+
+fn child_main(
+	arg: &Arg,
+	cgroup: Option<&cgroup::Cgroup>,
+	root: Option<&PathBuf>,
+) -> tg::Result<()> {
 	unsafe {
 		*libc::__errno_location() = 0;
 	}
@@ -224,6 +247,9 @@ fn child_main(arg: &Arg, root: Option<&PathBuf>) -> tg::Result<()> {
 	}
 	if arg.die_with_parent {
 		set_parent_death_signal(libc::SIGKILL)?;
+	}
+	if let Some(cgroup) = cgroup {
+		cgroup.move_self()?;
 	}
 	if arg.new_session {
 		start_session()?;
