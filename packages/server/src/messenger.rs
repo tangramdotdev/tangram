@@ -2,9 +2,9 @@ use tangram_messenger as messenger;
 
 #[derive(derive_more::IsVariant)]
 pub enum Messenger {
-	Memory(messenger::memory::Messenger),
 	#[cfg(feature = "nats")]
 	Nats(messenger::nats::Messenger),
+	Unix(messenger::unix::Messenger),
 }
 
 impl messenger::Messenger for Messenger {
@@ -13,9 +13,9 @@ impl messenger::Messenger for Messenger {
 		T: messenger::Payload,
 	{
 		match self {
-			Self::Memory(messenger) => messenger.publish(subject, payload).await,
 			#[cfg(feature = "nats")]
 			Self::Nats(messenger) => messenger.publish(subject, payload).await,
+			Self::Unix(messenger) => messenger.publish(subject, payload).await,
 		}
 	}
 
@@ -30,12 +30,12 @@ impl messenger::Messenger for Messenger {
 		T: messenger::Payload,
 	{
 		match self {
-			Self::Memory(messenger) => messenger
+			#[cfg(feature = "nats")]
+			Self::Nats(messenger) => messenger
 				.subscribe(subject)
 				.await
 				.map(futures::StreamExt::boxed),
-			#[cfg(feature = "nats")]
-			Self::Nats(messenger) => messenger
+			Self::Unix(messenger) => messenger
 				.subscribe(subject)
 				.await
 				.map(futures::StreamExt::boxed),
@@ -54,12 +54,12 @@ impl messenger::Messenger for Messenger {
 		T: messenger::Payload,
 	{
 		match self {
-			Self::Memory(messenger) => messenger
+			#[cfg(feature = "nats")]
+			Self::Nats(messenger) => messenger
 				.subscribe_with_delivery(subject, delivery)
 				.await
 				.map(futures::StreamExt::boxed),
-			#[cfg(feature = "nats")]
-			Self::Nats(messenger) => messenger
+			Self::Unix(messenger) => messenger
 				.subscribe_with_delivery(subject, delivery)
 				.await
 				.map(futures::StreamExt::boxed),

@@ -317,13 +317,12 @@ pub struct LmdbLogStore {
 	pub path: PathBuf,
 }
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum Messenger {
-	#[default]
-	Memory,
-
 	Nats(NatsMessenger),
+
+	Unix(UnixMessenger),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -335,6 +334,13 @@ pub struct NatsMessenger {
 	pub id: Option<String>,
 
 	pub url: Uri,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct UnixMessenger {
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
 }
 
 #[serde_as]
@@ -995,6 +1001,12 @@ impl Default for LmdbLogStore {
 			map_size: 1_099_511_627_776,
 			path: PathBuf::from("logs"),
 		}
+	}
+}
+
+impl Default for Messenger {
+	fn default() -> Self {
+		Self::Unix(UnixMessenger::default())
 	}
 }
 

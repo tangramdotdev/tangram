@@ -7362,9 +7362,12 @@ dependencies = [
  "bytes",
  "derive_more",
  "futures",
+ "rand 0.10.1",
+ "rustix 1.1.4",
  "serde",
  "serde_json",
  "tangram_either",
+ "tangram_futures",
  "tokio",
 ]
 

@@ -429,9 +429,6 @@ impl Server {
 
 		// Create the messenger.
 		let messenger = match &config.messenger {
-			self::config::Messenger::Memory => {
-				Messenger::Memory(tangram_messenger::memory::Messenger::new())
-			},
 			self::config::Messenger::Nats(nats) => {
 				#[cfg(not(feature = "nats"))]
 				{
@@ -463,6 +460,22 @@ impl Server {
 						nats.id.clone(),
 					))
 				}
+			},
+			self::config::Messenger::Unix(unix) => {
+				let messenger_path = unix.path.as_ref().map_or_else(
+					|| path.join("messenger"),
+					|messenger_path| {
+						if messenger_path.is_absolute() {
+							messenger_path.clone()
+						} else {
+							path.join(messenger_path)
+						}
+					},
+				);
+				let messenger = tangram_messenger::unix::Messenger::new(messenger_path)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to create the messenger"))?;
+				Messenger::Unix(messenger)
 			},
 		};
 

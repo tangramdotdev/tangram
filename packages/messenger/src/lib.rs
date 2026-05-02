@@ -3,10 +3,10 @@ use std::future::Future;
 pub use self::payload::Payload;
 
 pub mod either;
-pub mod memory;
 #[cfg(feature = "nats")]
 pub mod nats;
 pub mod payload;
+pub mod unix;
 
 pub mod prelude {
 	pub use super::{Delivery, Messenger as _};
