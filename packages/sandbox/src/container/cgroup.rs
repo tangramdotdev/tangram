@@ -98,6 +98,17 @@ impl Cgroup {
 			})?;
 		Ok(OwnedFd::from(file))
 	}
+
+	pub fn move_self(&self) -> tg::Result<()> {
+		let path = self.path.join("cgroup.procs");
+		write_file(&path, b"0\n").map_err(|source| {
+			tg::error!(
+				!source,
+				path = %path.display(),
+				"failed to move the process into the cgroup"
+			)
+		})
+	}
 }
 
 impl Drop for Cgroup {

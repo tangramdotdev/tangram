@@ -4,7 +4,7 @@ impl Server {
 	#[cfg(target_os = "macos")]
 	pub(super) async fn run_create_listener(
 		root_path: &Path,
-		isolation: tangram_sandbox::Isolation,
+		isolation: &tangram_sandbox::Isolation,
 	) -> tg::Result<(crate::http::Listener, tangram_uri::Uri)> {
 		match isolation {
 			tangram_sandbox::Isolation::Container(_) => {
