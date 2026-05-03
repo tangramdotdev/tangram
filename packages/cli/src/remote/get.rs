@@ -13,8 +13,8 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_remote_get(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
-		let output = handle
+		let client = self.client().await?;
+		let output = client
 			.try_get_remote(&args.name)
 			.await
 			.map_err(|source| tg::error!(!source, name = %args.name, "failed to get the remote"))?

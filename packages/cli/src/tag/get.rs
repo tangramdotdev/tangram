@@ -24,7 +24,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_tag_get(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let arg = tg::tag::list::Arg {
 			cached: args.cached,
 			length: Some(1),
@@ -34,7 +34,7 @@ impl Cli {
 			reverse: true,
 			ttl: args.ttl,
 		};
-		let output = handle.list_tags(arg).await.map_err(
+		let output = client.list_tags(arg).await.map_err(
 			|source| tg::error!(!source, pattern = %args.pattern, "failed to get the tag"),
 		)?;
 		let entry = output

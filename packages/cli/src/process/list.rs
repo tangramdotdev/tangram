@@ -13,11 +13,11 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_process_list(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let arg = tg::process::list::Arg {
 			location: args.locations.get(),
 		};
-		let output = handle
+		let output = client
 			.list_processes(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to list the processes"))?;

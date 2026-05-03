@@ -19,6 +19,6 @@ impl Cli {
 			return Err(tg::error!("a tag is not supported for an exec"));
 		}
 
-		tg::Process::<tg::Value>::exec_with_handle(&output.handle, output.arg).await
+		tg::Process::<tg::Value>::exec_with_handle(&output.client, output.arg).await
 	}
 }

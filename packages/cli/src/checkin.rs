@@ -246,7 +246,7 @@ impl CachePointers {
 
 impl Cli {
 	pub async fn command_checkin(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 
 		// Get the updates.
 		let updates = args.updates.unwrap_or_default();
@@ -262,7 +262,7 @@ impl Cli {
 			path,
 			updates,
 		};
-		let stream = handle
+		let stream = client
 			.checkin(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check in the artifact"))?;

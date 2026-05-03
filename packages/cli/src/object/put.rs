@@ -29,7 +29,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_object_put(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let location = args.location.get();
 		let concrete_location = args.location.to_location()?;
 
@@ -67,7 +67,7 @@ impl Cli {
 				location,
 				metadata: None,
 			};
-			handle
+			client
 				.put_object(&id, arg)
 				.await
 				.map_err(|source| tg::error!(!source, %id, "failed to put the object"))?;
@@ -82,7 +82,7 @@ impl Cli {
 
 			// Store the value.
 			value
-				.store_with_location_with_handle(&handle, concrete_location)
+				.store_with_location_with_handle(&client, concrete_location)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to store the value"))?;
 

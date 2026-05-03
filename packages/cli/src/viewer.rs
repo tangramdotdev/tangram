@@ -24,23 +24,23 @@ mod log;
 mod tree;
 mod util;
 
-pub struct Viewer<H> {
+pub struct Viewer {
 	data: Data,
 	exit: tokio::sync::oneshot::Receiver<()>,
 	exited: bool,
 	focus: Focus,
 	help: Help,
-	log: Option<Log<H>>,
+	log: Option<Log>,
 	split: Split,
 	quit: bool,
-	tree: Tree<H>,
-	update_receiver: UpdateReceiver<H>,
-	_update_sender: UpdateSender<H>,
+	tree: Tree,
+	update_receiver: UpdateReceiver,
+	_update_sender: UpdateSender,
 }
 
-pub type UpdateSender<H> = std::sync::mpsc::Sender<Box<dyn FnOnce(&mut Viewer<H>)>>;
+pub type UpdateSender = std::sync::mpsc::Sender<Box<dyn FnOnce(&mut Viewer)>>;
 
-pub type UpdateReceiver<H> = std::sync::mpsc::Receiver<Box<dyn FnOnce(&mut Viewer<H>)>>;
+pub type UpdateReceiver = std::sync::mpsc::Receiver<Box<dyn FnOnce(&mut Viewer)>>;
 
 #[derive(Clone, Debug, derive_more::TryUnwrap)]
 pub enum Item {
@@ -78,10 +78,7 @@ enum Split {
 	Vertical,
 }
 
-impl<H> Viewer<H>
-where
-	H: tg::Handle,
-{
+impl Viewer {
 	pub fn handle(&mut self, event: &ct::event::Event) {
 		if let ct::event::Event::Key(event) = event {
 			match (event.code, event.modifiers) {
@@ -184,7 +181,7 @@ where
 	}
 
 	pub fn new(
-		handle: &H,
+		client: &tg::Client,
 		root: tg::Referent<Item>,
 		exit: tokio::sync::oneshot::Receiver<()>,
 		options: Options,
@@ -192,7 +189,7 @@ where
 		let (update_sender, update_receiver) = std::sync::mpsc::channel();
 		let data = Data::new();
 		let tree = Tree::new(
-			handle,
+			client,
 			root,
 			options,
 			data.update_sender(),

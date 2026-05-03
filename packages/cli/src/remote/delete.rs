@@ -10,8 +10,8 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_remote_delete(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
-		handle.delete_remote(&args.name).await.map_err(
+		let client = self.client().await?;
+		client.delete_remote(&args.name).await.map_err(
 			|source| tg::error!(!source, name = %args.name, "failed to delete the remote"),
 		)?;
 		Ok(())

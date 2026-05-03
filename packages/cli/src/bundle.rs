@@ -13,11 +13,11 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_bundle(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let artifact = tg::Artifact::with_id(args.artifact);
 		let command = tg::builtin::bundle_command(&artifact);
 		let command = command
-			.store_with_handle(&handle)
+			.store_with_handle(&client)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 		let reference = tg::Reference::with_object(command.into());

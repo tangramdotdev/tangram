@@ -93,7 +93,7 @@ impl Outputs {
 
 impl Cli {
 	pub async fn command_push(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let destination = args.destination.to_location()?;
 		let location = destination.clone().or_else(|| {
 			Some(tg::Location::Remote(tg::location::Remote {
@@ -137,7 +137,7 @@ impl Cli {
 			recursive: args.recursive,
 			source: None,
 		};
-		let stream = handle
+		let stream = client
 			.push(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to push"))?;
@@ -168,7 +168,7 @@ impl Cli {
 						location: location.clone().map(Into::into),
 						replicate: false,
 					};
-					handle
+					client
 						.put_tag(&tag, arg)
 						.await
 						.map_err(|source| tg::error!(!source, %tag, "failed to put the tag"))?;

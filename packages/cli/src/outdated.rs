@@ -51,7 +51,7 @@ struct Entry {
 
 impl Cli {
 	pub async fn command_outdated(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 
 		// Find the root.
 		let root = find_root(args.path.clone())
@@ -86,7 +86,7 @@ impl Cli {
 					},
 					Edge::Tag(tag) => tag.clone(),
 				};
-				let compatible = handle
+				let compatible = client
 					.list_tags(tg::tag::list::Arg {
 						cached: false,
 						length: Some(1),
@@ -106,7 +106,7 @@ impl Cli {
 				components.pop();
 				components.push("*");
 				let pattern = tg::tag::Pattern::new(components.join("/"));
-				let latest = handle
+				let latest = client
 					.list_tags(tg::tag::list::Arg {
 						cached: false,
 						length: Some(1),

@@ -16,12 +16,12 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_object_children(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let arg = tg::object::get::Arg {
 			location: args.locations.get(),
 			metadata: false,
 		};
-		let output = handle
+		let output = client
 			.try_get_object(&args.object, arg)
 			.await
 			.map_err(|source| tg::error!(!source, id = %args.object, "failed to get the object"))?

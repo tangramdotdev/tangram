@@ -19,7 +19,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_download(&mut self, mut args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		if args.build.spawn.checksum.is_none() {
 			args.build.spawn.checksum.replace(tg::Checksum::default());
 		}
@@ -36,7 +36,7 @@ impl Cli {
 		};
 		let command = tg::builtin::download_command(&args.url, Some(options));
 		let command = command
-			.store_with_handle(&handle)
+			.store_with_handle(&client)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 		let reference = tg::Reference::with_object(command.into());

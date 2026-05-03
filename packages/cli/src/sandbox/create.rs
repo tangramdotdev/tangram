@@ -13,7 +13,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_sandbox_create(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let arg = tg::sandbox::create::Arg {
 			cpu: args.arg.cpu,
 			hostname: args.arg.hostname,
@@ -24,7 +24,7 @@ impl Cli {
 			ttl: args.arg.ttl.unwrap_or(i64::MAX as u64),
 			user: args.arg.user,
 		};
-		let output = handle
+		let output = client
 			.create_sandbox(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the sandbox"))?;

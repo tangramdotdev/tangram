@@ -37,7 +37,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_pull(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let source = args.source.to_location()?;
 		let location = Some(tg::Location::Local(tg::location::Local::default()));
 
@@ -76,7 +76,7 @@ impl Cli {
 			recursive: args.recursive,
 			source,
 		};
-		let stream = handle
+		let stream = client
 			.pull(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to pull"))?;
@@ -107,7 +107,7 @@ impl Cli {
 						location: location.clone().map(Into::into),
 						replicate: false,
 					};
-					handle
+					client
 						.put_tag(&tag, arg)
 						.await
 						.map_err(|source| tg::error!(!source, %tag, "failed to put the tag"))?;

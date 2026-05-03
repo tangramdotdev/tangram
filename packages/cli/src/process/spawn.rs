@@ -298,7 +298,7 @@ impl Tty {
 
 pub(crate) struct InnerOutput {
 	pub arg: tg::process::Arg,
-	pub handle: Client,
+	pub client: Client,
 	pub location: Option<tg::location::Arg>,
 	pub referent: tg::Referent<tg::graph::Edge<tg::Object>>,
 	pub sandboxed: bool,
@@ -377,14 +377,14 @@ impl Cli {
 	) -> tg::Result<tg::Referent<tg::Process>> {
 		let InnerOutput {
 			arg,
-			handle,
+			client,
 			location,
 			referent,
 			sandboxed,
 			tag,
 		} = self.spawn_inner(options, reference, trailing).await?;
 
-		let process = tg::Process::spawn_with_progress_with_handle(&handle, arg, |stream| {
+		let process = tg::Process::spawn_with_progress_with_handle(&client, arg, |stream| {
 			self.render_progress_stream_with_output(stream, |cli, output| {
 				if print && sandboxed {
 					let mut message = output.process.to_string();
@@ -412,7 +412,7 @@ impl Cli {
 				location: location.clone(),
 				replicate: false,
 			};
-			handle
+			client
 				.put_tag(&tag, arg)
 				.await
 				.map_err(|source| tg::error!(!source, %tag, "failed to tag the process"))?;
@@ -429,7 +429,7 @@ impl Cli {
 		reference: Option<tg::Reference>,
 		trailing: Vec<String>,
 	) -> tg::Result<InnerOutput> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let location = options.location.get();
 		let debug = options.debug.get();
 
@@ -480,7 +480,7 @@ impl Cli {
 				.executable(executable)
 				.finish()?;
 			let command = command
-				.store_with_handle(&handle)
+				.store_with_handle(&client)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 			tg::Reference::with_object(command.into())
@@ -546,7 +546,7 @@ impl Cli {
 		let mut command_env = None;
 		let mut command = match referent.item.clone() {
 			tg::graph::Edge::Object(tg::Object::Command(command)) => {
-				let object = command.object_with_handle(&handle).await?;
+				let object = command.object_with_handle(&client).await?;
 				command_env = Some(object.env.clone());
 				tg::Command::builder()
 					.host(object.host.clone())
@@ -572,7 +572,7 @@ impl Cli {
 					tg::Artifact::Directory(directory) => {
 						let root_module_file_name =
 							tg::module::try_get_root_module_file_name_with_handle(
-								&handle,
+								&client,
 								tg::Either::Left(&directory),
 							)
 							.await
@@ -589,7 +589,7 @@ impl Cli {
 						}
 						let kind = tg::module::module_kind_for_path(root_module_file_name).unwrap();
 						let item = directory
-							.get_entry_edge_with_handle(&handle, root_module_file_name)
+							.get_entry_edge_with_handle(&client, root_module_file_name)
 							.await
 							.map_err(|source| {
 								tg::error!(!source, "failed to get the root module")
@@ -625,7 +625,7 @@ impl Cli {
 						let kind = if kind.is_some() {
 							kind
 						} else {
-							file.module_with_handle(&handle).await.map_err(|source| {
+							file.module_with_handle(&client).await.map_err(|source| {
 								tg::error!(!source, "failed to get the module kind")
 							})?
 						};
@@ -778,7 +778,7 @@ impl Cli {
 
 		// Create the command.
 		let command = command.finish()?;
-		let command = command.object_with_handle(&handle).await?;
+		let command = command.object_with_handle(&client).await?;
 
 		// Determine if the network is enabled.
 		let sandboxed = sandbox;
@@ -881,7 +881,7 @@ impl Cli {
 
 		Ok(InnerOutput {
 			arg,
-			handle,
+			client,
 			location,
 			referent,
 			sandboxed,

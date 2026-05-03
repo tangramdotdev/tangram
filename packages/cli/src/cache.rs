@@ -10,7 +10,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_cache(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 
 		// Resolve the references to artifact IDs.
 		let referents = self.get_references(&args.references).await?;
@@ -30,7 +30,7 @@ impl Cli {
 			.collect::<tg::Result<Vec<_>>>()?;
 
 		let arg = tg::cache::Arg { artifacts };
-		let stream = handle
+		let stream = client
 			.cache(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the cache stream"))?;

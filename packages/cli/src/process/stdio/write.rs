@@ -20,7 +20,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_process_stdio_write(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let process = tg::Process::<tg::Value>::new(
 			args.process.clone(),
 			args.location.get(),
@@ -56,7 +56,7 @@ impl Cli {
 				tg::process::stdio::read::Event::End,
 			)))
 			.boxed();
-		process.write_stdio_all(&handle, arg, input).await.map_err(
+		process.write_stdio_all(&client, arg, input).await.map_err(
 			|source| tg::error!(!source, id = %args.process, "failed to write process stdio"),
 		)?;
 		Ok(())

@@ -16,7 +16,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_process_wait(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let locations = args.locations.get();
 		let process = tg::Process::<tg::Value>::new(
 			args.process.clone(),
@@ -30,7 +30,7 @@ impl Cli {
 			location: locations,
 			token: None,
 		};
-		let output = process.wait_with_handle(&handle, arg).await.map_err(
+		let output = process.wait_with_handle(&client, arg).await.map_err(
 			|source| tg::error!(!source, id = %args.process, "failed to wait for the process"),
 		)?;
 		self.print_serde(output.to_data(), args.print).await?;

@@ -35,7 +35,7 @@ struct PositionArg {
 
 impl Cli {
 	pub async fn command_process_stdio_read(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let locations = args.locations.get();
 		let process = tg::Process::<tg::Value>::new(
 			args.process.clone(),
@@ -61,7 +61,7 @@ impl Cli {
 			streams,
 		};
 		let mut stdio = process
-			.try_read_stdio_all(&handle, arg)
+			.try_read_stdio_all(&client, arg)
 			.await
 			.map_err(
 				|source| tg::error!(!source, id = %args.process, "failed to get the process stdio"),

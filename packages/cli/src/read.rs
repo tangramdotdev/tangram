@@ -10,7 +10,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_read(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
 
@@ -26,11 +26,11 @@ impl Cli {
 			let blob = match edge {
 				tg::graph::Edge::Object(tg::Object::Blob(blob)) => blob.clone(),
 				tg::graph::Edge::Object(tg::Object::File(file)) => file
-					.contents_with_handle(&handle)
+					.contents_with_handle(&client)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get file contents"))?,
 				tg::graph::Edge::Object(tg::Object::Symlink(symlink)) => {
-					let artifact = symlink.try_resolve_with_handle(&handle).await?;
+					let artifact = symlink.try_resolve_with_handle(&client).await?;
 					match artifact {
 						None | Some(tg::Artifact::Symlink(_)) => {
 							return Err(tg::error!("failed to resolve the symlink"));
@@ -39,7 +39,7 @@ impl Cli {
 							return Err(tg::error!("cannot read a directory"));
 						},
 						Some(tg::Artifact::File(file)) => file
-							.contents_with_handle(&handle)
+							.contents_with_handle(&client)
 							.await
 							.map_err(|source| {
 								tg::error!(!source, "failed to get the file contents")
@@ -57,7 +57,7 @@ impl Cli {
 					if matches!(pointer.kind, tg::artifact::Kind::File) =>
 				{
 					let file = tg::File::with_object(tg::file::Object::Pointer(pointer.clone()));
-					file.contents_with_handle(&handle)
+					file.contents_with_handle(&client)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to get file contents"))?
 				},
@@ -67,7 +67,7 @@ impl Cli {
 				{
 					let symlink =
 						tg::Symlink::with_object(tg::symlink::Object::Pointer(pointer.clone()));
-					let artifact = symlink.try_resolve_with_handle(&handle).await?;
+					let artifact = symlink.try_resolve_with_handle(&client).await?;
 					match artifact {
 						None | Some(tg::Artifact::Symlink(_)) => {
 							return Err(tg::error!("failed to resolve the symlink"));
@@ -76,7 +76,7 @@ impl Cli {
 							return Err(tg::error!("cannot read a directory"));
 						},
 						Some(tg::Artifact::File(file)) => file
-							.contents_with_handle(&handle)
+							.contents_with_handle(&client)
 							.await
 							.map_err(|source| {
 								tg::error!(!source, "failed to get the file contents")
@@ -96,7 +96,7 @@ impl Cli {
 			};
 
 			let reader = blob
-				.read_with_handle(&handle, tg::read::Options::default())
+				.read_with_handle(&client, tg::read::Options::default())
 				.await?;
 			tokio::io::copy(&mut pin!(reader), &mut stdout)
 				.await

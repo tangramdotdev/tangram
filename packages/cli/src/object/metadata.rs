@@ -16,11 +16,11 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_object_metadata(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let arg = tg::object::metadata::Arg {
 			location: args.locations.get(),
 		};
-		let output = handle
+		let output = client
 			.try_get_object_metadata(&args.object, arg)
 			.await
 			.map_err(

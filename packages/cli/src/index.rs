@@ -7,8 +7,8 @@ pub struct Args {}
 
 impl Cli {
 	pub async fn command_index(&mut self, _args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
-		let stream = handle
+		let client = self.client().await?;
+		let stream = client
 			.index()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to index"))?;

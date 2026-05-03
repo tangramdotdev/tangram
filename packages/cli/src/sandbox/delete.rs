@@ -10,8 +10,8 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_sandbox_delete(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
-		handle.delete_sandbox(&args.sandbox).await.map_err(
+		let client = self.client().await?;
+		client.delete_sandbox(&args.sandbox).await.map_err(
 			|source| tg::error!(!source, sandbox = %args.sandbox, "failed to delete the sandbox"),
 		)?;
 		Ok(())

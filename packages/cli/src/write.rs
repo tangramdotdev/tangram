@@ -16,13 +16,13 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_write(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let arg = tg::write::Arg {
 			cache_pointers: args.cache_pointers.get_option(),
 		};
 		let output = if let Some(bytes) = args.bytes {
 			let reader = std::io::Cursor::new(bytes);
-			handle
+			client
 				.write(arg, reader)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write the blob"))?
@@ -31,7 +31,7 @@ impl Cli {
 				tangram_util::io::stdin()
 					.map_err(|source| tg::error!(!source, "failed to open stdin"))?,
 			);
-			handle
+			client
 				.write(arg, reader)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write the blob"))?

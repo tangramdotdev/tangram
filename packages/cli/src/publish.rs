@@ -64,7 +64,7 @@ struct Item {
 
 impl Cli {
 	pub async fn command_publish(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 
 		// Check in the root package.
 		let absolute_path = tangram_util::fs::canonicalize_parent(&args.path)
@@ -75,7 +75,7 @@ impl Cli {
 			path: absolute_path.clone(),
 			updates: Vec::new(),
 		};
-		let artifact = tg::checkin::checkin_with_handle(&handle, arg).await.map_err(
+		let artifact = tg::checkin::checkin_with_handle(&client, arg).await.map_err(
 			|source| tg::error!(!source, path = %absolute_path.display(), "failed to check in the root package"),
 		)?;
 		let referent = tg::Referent::new(
@@ -88,19 +88,19 @@ impl Cli {
 
 		// Visit the objects.
 		state
-			.visit_objects(&handle, &referent)
+			.visit_objects(&client, &referent)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to analyze objects"))?;
 
 		// Create the graph.
 		state
-			.create_graph(&handle)
+			.create_graph(&client)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create package graph"))?;
 
 		// Create the plan.
 		let plan = state
-			.create_plan(&handle, args.tag.map(tg::Tag::new))
+			.create_plan(&client, args.tag.map(tg::Tag::new))
 			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create publishing plan"))?;
@@ -131,7 +131,7 @@ impl Cli {
 						tag,
 					} = item;
 					let id = if let Some(path) = path {
-						publish_checkin(&handle, path, true).await?
+						publish_checkin(&client, path, true).await?
 					} else {
 						referent.item
 					};
@@ -143,7 +143,7 @@ impl Cli {
 						location: None,
 						replicate: false,
 					};
-					handle.put_tag(&tag, arg).await.map_err(
+					client.put_tag(&tag, arg).await.map_err(
 						|source| tg::error!(!source, tag = %tag, "failed to put local tag"),
 					)?;
 				},
@@ -154,14 +154,14 @@ impl Cli {
 							.path
 							.clone()
 							.ok_or_else(|| tg::error!("cycle items must have paths"))?;
-						let id = publish_checkin(&handle, path, false).await?;
+						let id = publish_checkin(&client, path, false).await?;
 						let arg = tg::tag::put::Arg {
 							force: true,
 							item: tg::Either::Left(id),
 							location: None,
 							replicate: false,
 						};
-						handle.put_tag(&item.tag, arg).await.map_err(
+						client.put_tag(&item.tag, arg).await.map_err(
 							|source| tg::error!(!source, tag = %item.tag, "failed to put local tag"),
 						)?;
 					}
@@ -169,7 +169,7 @@ impl Cli {
 					for item in cycle_items {
 						let Item { path, tag, .. } = item;
 						let path = path.ok_or_else(|| tg::error!("cycle items must have paths"))?;
-						let id = publish_checkin(&handle, path, true).await?;
+						let id = publish_checkin(&client, path, true).await?;
 						items.push(tg::Either::Left(id.clone()));
 						tags.push((tag.clone(), id.clone()));
 						let arg = tg::tag::put::Arg {
@@ -178,7 +178,7 @@ impl Cli {
 							location: None,
 							replicate: false,
 						};
-						handle.put_tag(&tag, arg).await.map_err(
+						client.put_tag(&tag, arg).await.map_err(
 							|source| tg::error!(!source, tag = %tag, "failed to put local tag"),
 						)?;
 					}
@@ -195,7 +195,7 @@ impl Cli {
 		});
 
 		// Push.
-		let stream = handle
+		let stream = client
 			.push(tg::push::Arg {
 				commands: false,
 				destination: Some(location.clone()),
@@ -238,7 +238,7 @@ impl Cli {
 				force: false,
 			})
 			.collect::<Vec<_>>();
-		handle
+		client
 			.post_tag_batch(tg::tag::batch::Arg {
 				location: Some(location.into()),
 				replicate: false,
@@ -257,19 +257,19 @@ impl Cli {
 
 /// Given an object, get the tag from its internal metadata by statically parsing the module.
 async fn try_get_package_tag(
-	handle: &impl tg::Handle,
+	client: &impl tg::Handle,
 	object: &tg::Object,
 	package_path: Option<&Path>,
 ) -> tg::Result<Option<tg::Tag>> {
 	// Get the file text and module file name from the object.
 	let (text, module_name) = match object {
 		tg::Object::File(file) => {
-			let text = file.text_with_handle(handle).await?;
+			let text = file.text_with_handle(client).await?;
 			(text, None)
 		},
 		tg::Object::Directory(directory) => {
 			let Some(name) = tg::module::try_get_root_module_file_name_with_handle(
-				handle,
+				client,
 				tg::Either::Left(directory),
 			)
 			.await?
@@ -277,11 +277,11 @@ async fn try_get_package_tag(
 				return Ok(None);
 			};
 			let file = directory
-				.get_with_handle(handle, name)
+				.get_with_handle(client, name)
 				.await?
 				.try_unwrap_file()
 				.map_err(|_| tg::error!("expected a file"))?;
-			let text = file.text_with_handle(handle).await?;
+			let text = file.text_with_handle(client).await?;
 			(text, Some(name.to_owned()))
 		},
 		_ => return Ok(None),
@@ -335,7 +335,7 @@ async fn try_get_package_tag(
 impl State {
 	async fn visit_objects(
 		&mut self,
-		handle: &impl tg::Handle,
+		client: &impl tg::Handle,
 		root: &tg::Referent<tg::Object>,
 	) -> tg::Result<()> {
 		// Make sure the root is added if it is on the local file system.
@@ -345,10 +345,10 @@ impl State {
 		}
 
 		// Visit all the objects.
-		tg::object::visit(handle, self, root, false).await
+		tg::object::visit(client, self, root, false).await
 	}
 
-	async fn create_graph(&mut self, handle: &impl tg::Handle) -> tg::Result<()> {
+	async fn create_graph(&mut self, client: &impl tg::Handle) -> tg::Result<()> {
 		for package in self.all_packages.clone() {
 			let Self {
 				file_tree,
@@ -367,7 +367,7 @@ impl State {
 			while let Some(subtrie) = stack.pop() {
 				if let Some(tg::Artifact::File(file)) = subtrie.value() {
 					let dependencies = file
-						.dependencies_with_handle(handle)
+						.dependencies_with_handle(client)
 						.await?
 						.values()
 						.filter_map(|option| {
@@ -391,7 +391,7 @@ impl State {
 
 	async fn create_plan(
 		&mut self,
-		handle: &impl tg::Handle,
+		client: &impl tg::Handle,
 		mut tag: Option<tg::Tag>,
 	) -> tg::Result<Vec<Step>> {
 		// Fetch all package tags in parallel with limited concurrency.
@@ -409,7 +409,7 @@ impl State {
 			.collect();
 		let tags: HashMap<tg::object::Id, Option<tg::Tag>> = futures::stream::iter(packages)
 			.map(|(id, object, path)| async move {
-				let tag = try_get_package_tag(handle, &object, path.as_deref()).await?;
+				let tag = try_get_package_tag(client, &object, path.as_deref()).await?;
 				Ok::<_, tg::Error>((id, tag))
 			})
 			.buffer_unordered(16)
@@ -547,7 +547,7 @@ where
 
 	async fn visit_directory(
 		&mut self,
-		handle: &H,
+		client: &H,
 		directory: tg::Referent<&tg::Directory>,
 	) -> tg::Result<bool> {
 		if directory
@@ -570,7 +570,7 @@ where
 
 		// Keep track of files.
 		if tg::module::try_get_root_module_file_name_with_handle(
-			handle,
+			client,
 			tg::Either::Left(directory.item()),
 		)
 		.await?
@@ -582,7 +582,7 @@ where
 		Ok(true)
 	}
 
-	async fn visit_file(&mut self, handle: &H, file: tg::Referent<&tg::File>) -> tg::Result<bool> {
+	async fn visit_file(&mut self, client: &H, file: tg::Referent<&tg::File>) -> tg::Result<bool> {
 		if file
 			.options
 			.path
@@ -603,7 +603,7 @@ where
 			.insert(path.to_owned(), file.item.clone().into());
 
 		// Mark the packages that come from source overrides.
-		for (reference, option) in file.item.dependencies_with_handle(handle).await? {
+		for (reference, option) in file.item.dependencies_with_handle(client).await? {
 			let Some(mut dependency) = option else {
 				continue;
 			};
@@ -703,7 +703,7 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a Graph {
 }
 
 async fn publish_checkin(
-	handle: &impl tg::Handle,
+	client: &impl tg::Handle,
 	path: PathBuf,
 	solve: bool,
 ) -> tg::Result<tg::object::Id> {
@@ -719,7 +719,7 @@ async fn publish_checkin(
 		options,
 		updates: Vec::new(),
 	};
-	let artifact = tg::checkin::checkin_with_handle(handle, args)
+	let artifact = tg::checkin::checkin_with_handle(client, args)
 		.await
 		.map_err(|source| tg::error!(!source, path = %path_display, "failed to checkin"))?;
 	Ok(artifact.id().into())

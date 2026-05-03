@@ -6,8 +6,8 @@ use {
 
 const BLOB_LENGTH_LIMIT: u64 = 1 << 20;
 
-pub async fn format_blob<H: tg::Handle>(handle: &H, blob: &tg::Blob) -> tg::Result<String> {
-	let length = blob.length_with_handle(handle).await?;
+pub async fn format_blob(client: &tg::Client, blob: &tg::Blob) -> tg::Result<String> {
+	let length = blob.length_with_handle(client).await?;
 	if length > BLOB_LENGTH_LIMIT {
 		return Err(tg::error!("cannot view blobs larger than 1Mib"));
 	}
@@ -19,7 +19,7 @@ pub async fn format_blob<H: tg::Handle>(handle: &H, blob: &tg::Blob) -> tg::Resu
 			..tg::read::Options::default()
 		},
 	};
-	let stream = handle
+	let stream = client
 		.try_read(arg)
 		.await
 		.map_err(|source| tg::error!(!source, "failed to read the blob"))?

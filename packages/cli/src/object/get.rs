@@ -25,13 +25,13 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_object_get(&mut self, mut args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		if args.bytes {
 			let arg = tg::object::get::Arg {
 				location: args.locations.get(),
 				metadata: args.metadata,
 			};
-			let tg::object::get::Output { bytes, metadata } = handle
+			let tg::object::get::Output { bytes, metadata } = client
 				.try_get_object(&args.object, arg)
 				.await
 				.map_err(
@@ -58,7 +58,7 @@ impl Cli {
 			metadata: args.metadata,
 		};
 		if args.metadata {
-			let output = handle
+			let output = client
 				.try_get_object(&args.object, arg.clone())
 				.await
 				.map_err(

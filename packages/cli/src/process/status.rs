@@ -16,11 +16,11 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_process_status(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let locations = args.locations.get();
 		let process =
 			tg::Process::<tg::Value>::new(args.process.clone(), locations, None, None, None, None);
-		let stream = process.status_with_handle(&handle).await.map_err(
+		let stream = process.status_with_handle(&client).await.map_err(
 			|source| tg::error!(!source, id = %args.process, "failed to get the process status"),
 		)?;
 		self.print_serde_stream(stream.boxed(), args.print).await?;

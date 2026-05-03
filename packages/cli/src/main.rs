@@ -530,7 +530,7 @@ fn main() -> std::process::ExitCode {
 }
 
 impl Cli {
-	async fn handle(&mut self) -> tg::Result<Client> {
+	async fn client(&mut self) -> tg::Result<Client> {
 		// If the client has already been created, then return it.
 		if let Some(client) = self.client.clone() {
 			return Ok(client);
@@ -944,7 +944,7 @@ impl Cli {
 			}
 		}
 
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 
 		// Determine if the path is relative.
 		let relative = reference
@@ -963,7 +963,7 @@ impl Cli {
 		let reference = tg::Reference::with_item_and_options(item, options);
 
 		// Get the reference
-		let stream = handle
+		let stream = client
 			.get(&reference, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %reference, "failed to get the reference"))?;
@@ -1007,7 +1007,7 @@ impl Cli {
 	}
 
 	async fn get_module(&mut self, reference: &tg::Reference) -> tg::Result<tg::Module> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 
 		// Get the reference.
 		let referent = self.get_reference(reference).await?;
@@ -1020,7 +1020,7 @@ impl Cli {
 		let module = match referent.item.clone() {
 			tg::graph::Edge::Object(tg::Object::Directory(directory)) => {
 				let root_module_name = tg::module::try_get_root_module_file_name_with_handle(
-					&handle,
+					&client,
 					tg::Either::Left(&directory),
 				)
 				.await?
@@ -1034,7 +1034,7 @@ impl Cli {
 				}
 				let kind = tg::module::module_kind_for_path(root_module_name).unwrap();
 				let item = directory
-					.get_entry_edge_with_handle(&handle, root_module_name)
+					.get_entry_edge_with_handle(&client, root_module_name)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get the root module"))?;
 				let item = tg::module::Item::Edge(item.into());
@@ -1064,7 +1064,7 @@ impl Cli {
 			tg::graph::Edge::Pointer(pointer) if pointer.kind == tg::artifact::Kind::Directory => {
 				let directory = tg::Directory::with_object(tg::directory::Object::Pointer(pointer));
 				let root_module_name = tg::module::try_get_root_module_file_name_with_handle(
-					&handle,
+					&client,
 					tg::Either::Left(&directory),
 				)
 				.await?
@@ -1078,7 +1078,7 @@ impl Cli {
 				}
 				let kind = tg::module::module_kind_for_path(root_module_name).unwrap();
 				let item = directory
-					.get_entry_edge_with_handle(&handle, root_module_name)
+					.get_entry_edge_with_handle(&client, root_module_name)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get the root module"))?;
 				let item = tg::module::Item::Edge(item.into());

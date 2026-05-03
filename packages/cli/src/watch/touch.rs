@@ -19,7 +19,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_watch_touch(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let path = tangram_util::fs::canonicalize_parent(&args.path)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
@@ -32,7 +32,7 @@ impl Cli {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to canonicalize the paths"))?;
 		let arg = tg::watch::touch::Arg { path, items };
-		handle
+		client
 			.touch_watch(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to touch the watch"))?;

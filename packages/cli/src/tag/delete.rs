@@ -19,14 +19,14 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_tag_delete(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let arg = tg::tag::delete::Arg {
 			location: args.location.get(),
 			pattern: args.pattern.clone(),
 			recursive: args.recursive,
 			replicate: None,
 		};
-		let output = handle.delete_tags(arg).await.map_err(
+		let output = client.delete_tags(arg).await.map_err(
 			|source| tg::error!(!source, pattern = %args.pattern, "failed to delete the tag"),
 		)?;
 		self.print_serde(output, args.print).await?;

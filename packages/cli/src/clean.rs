@@ -18,17 +18,17 @@ impl Cli {
 			return Ok(());
 		}
 
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 
 		// Index.
-		let stream = handle
+		let stream = client
 			.index()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to index"))?;
 		self.render_progress_stream(stream).await?;
 
 		// Clean.
-		let stream = handle
+		let stream = client
 			.clean()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to clean"))?;

@@ -13,11 +13,11 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_process_touch(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let arg = tg::process::touch::Arg {
 			location: args.locations.get(),
 		};
-		handle.touch_process(&args.process, arg).await.map_err(
+		client.touch_process(&args.process, arg).await.map_err(
 			|source| tg::error!(!source, id = %args.process, "failed to touch the process"),
 		)?;
 		Ok(())

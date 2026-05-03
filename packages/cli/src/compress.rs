@@ -16,12 +16,12 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_compress(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let blob = tg::Blob::with_id(args.blob);
 		let format = args.format;
 		let command = tg::builtin::compress_command(&blob, format);
 		let command = command
-			.store_with_handle(&handle)
+			.store_with_handle(&client)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 		let reference = tg::Reference::with_object(command.into());

@@ -29,7 +29,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_process_children(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let locations = args.locations.get();
 		let process = tg::Process::<tg::Value>::new(
 			args.process.clone(),
@@ -46,7 +46,7 @@ impl Cli {
 			size: args.size,
 		};
 		let stream = process
-			.children_with_handle(&handle, arg)
+			.children_with_handle(&client, arg)
 			.await
 			.map_err(
 				|source| tg::error!(!source, id = %args.process, "failed to get the process children"),
