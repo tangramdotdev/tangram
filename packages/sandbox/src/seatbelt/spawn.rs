@@ -68,9 +68,8 @@ pub(crate) fn spawn(
 	}
 	command
 		.kill_on_drop(true)
-		.stdin(std::process::Stdio::null())
-		.stdout(std::process::Stdio::inherit())
-		.stderr(std::process::Stdio::inherit());
+		.stdin(std::process::Stdio::piped())
+		.stdout(std::process::Stdio::piped());
 	command
 		.spawn()
 		.map_err(|source| tg::error!(!source, "failed to spawn sandbox seatbelt"))

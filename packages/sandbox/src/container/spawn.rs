@@ -27,6 +27,7 @@ pub(crate) fn spawn(
 	for mount in &arg.mounts {
 		crate::root::ensure_mount_target(&arg.rootfs_path, &upper_path, mount)?;
 	}
+	let stdio = matches!(serve_arg.url.scheme(), Some("http+stdio"));
 	let init_arg = super::init::Arg {
 		serve: serve_arg.clone(),
 	};
@@ -92,14 +93,17 @@ pub(crate) fn spawn(
 		.arg(&arg.tangram_path)
 		.arg(Sandbox::guest_libexec_tangram_path())
 		.arg("--bind")
-		.arg(Sandbox::host_listen_path_from_root(&arg.path))
-		.arg(Sandbox::guest_listen_path_from_root(&arg.path))
-		.arg("--bind")
 		.arg(Sandbox::host_tangram_socket_path_from_root(&arg.path))
 		.arg(Sandbox::guest_tangram_socket_path_from_root(&arg.path))
 		.arg("--bind")
 		.arg(Sandbox::host_output_path_from_root(&arg.path))
 		.arg(Sandbox::guest_output_path_from_root(&arg.path));
+	if !stdio {
+		command
+			.arg("--bind")
+			.arg(Sandbox::host_listen_path_from_root(&arg.path))
+			.arg(Sandbox::guest_listen_path_from_root(&arg.path));
+	}
 	if arg.network && Sandbox::host_resolv_conf_path_from_root(&arg.path).exists() {
 		command
 			.arg("--ro-bind")
@@ -143,9 +147,8 @@ pub(crate) fn spawn(
 	}
 	command
 		.kill_on_drop(true)
-		.stdin(std::process::Stdio::null())
-		.stdout(std::process::Stdio::inherit())
-		.stderr(std::process::Stdio::inherit());
+		.stdin(std::process::Stdio::piped())
+		.stdout(std::process::Stdio::piped());
 	command
 		.spawn()
 		.map_err(|source| tg::error!(!source, "failed to spawn sandbox container"))

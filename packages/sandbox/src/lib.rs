@@ -1,6 +1,6 @@
 use {
 	crate::client::Client,
-	futures::Stream,
+	futures::{FutureExt as _, Stream},
 	std::{
 		collections::{BTreeMap, BTreeSet},
 		path::{Path, PathBuf},
@@ -139,7 +139,20 @@ impl Sandbox {
 			}
 		};
 
-		let (listener, url) = Self::listen(arg.isolation, &arg.path).await?;
+		let (listener, url) = match arg.isolation {
+			Isolation::Container(_) | Isolation::Seatbelt(_) => {
+				let uri = Uri::builder()
+					.scheme("http+stdio")
+					.path("")
+					.build()
+					.map_err(|source| tg::error!(source = source, "failed to build the URL"))?;
+				(None, uri)
+			},
+			Isolation::Vm(_) => {
+				let (listener, uri) = Self::listen(arg.isolation, &arg.path).await?;
+				(Some(listener), uri)
+			},
+		};
 		let serve_arg = self::serve::Arg {
 			library_paths,
 			listen: false,
@@ -169,14 +182,29 @@ impl Sandbox {
 			},
 		};
 
+		let connect = if let Some(listener) = listener.as_ref() {
+			Client::with_listener(listener).left_future()
+		} else {
+			let stdin = process
+				.stdin
+				.take()
+				.ok_or_else(|| tg::error!("failed to take the sandbox stdin"))?;
+			let stdout = process
+				.stdout
+				.take()
+				.ok_or_else(|| tg::error!("failed to take the sandbox stdout"))?;
+			let stream = tokio::io::join(stdout, stdin);
+			Client::with_stream(stream).right_future()
+		};
+
 		let client = match tokio::time::timeout(Duration::from_secs(5), async {
 			tokio::select! {
-				result = Client::with_listener(&listener) => result,
+				result = connect => result,
 				result = process.wait() => {
 					let status = result
 						.map_err(|source| tg::error!(!source, "failed to wait for the sandbox process"))?;
 					Err(tg::error!(status = %status, "the sandbox process exited before connecting"))
-				},
+				}
 			}
 		})
 		.await

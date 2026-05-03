@@ -1,5 +1,25 @@
 use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*};
 
+/// Serve sandbox requests.
+#[derive(Clone, Debug, clap::Args)]
+#[group(skip)]
+pub struct Args {
+	#[arg(action = clap::ArgAction::Append, long = "library-path", num_args = 1)]
+	pub library_paths: Vec<PathBuf>,
+
+	#[command(flatten)]
+	pub listen: Listen,
+
+	#[arg(long)]
+	pub output_path: PathBuf,
+
+	#[arg(long)]
+	pub url: tangram_uri::Uri,
+
+	#[arg(long)]
+	pub tangram_path: PathBuf,
+}
+
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Listen {
 	#[arg(
@@ -19,26 +39,6 @@ pub struct Listen {
 		require_equals = true,
 	)]
 	listen: Option<bool>,
-}
-
-/// Serve sandbox requests.
-#[derive(Clone, Debug, clap::Args)]
-#[group(skip)]
-pub struct Args {
-	#[arg(action = clap::ArgAction::Append, long = "library-path", num_args = 1)]
-	pub library_paths: Vec<PathBuf>,
-
-	#[command(flatten)]
-	pub listen: Listen,
-
-	#[arg(long)]
-	pub output_path: PathBuf,
-
-	#[arg(long)]
-	pub url: tangram_uri::Uri,
-
-	#[arg(long)]
-	pub tangram_path: PathBuf,
 }
 
 impl Listen {

@@ -73,27 +73,20 @@ impl Client {
 	}
 
 	pub async fn with_listener(listener: &crate::server::Listener) -> tg::Result<Self> {
-		let sender = Arc::new(tokio::sync::Mutex::new(None));
-		let service = Self::service(sender.clone(), None);
-		let client = Self(Arc::new(State { sender, service }));
 		match listener {
 			crate::server::Listener::Unix(listener) => {
 				let (stream, _) = listener
 					.accept()
 					.await
 					.map_err(|source| tg::error!(!source, "failed to accept the connection"))?;
-				let sender = Self::handshake_h2(stream).await?;
-				let mut guard = client.sender.lock().await;
-				guard.replace(sender);
+				Self::with_stream(stream).await
 			},
 			crate::server::Listener::Tcp(listener) => {
 				let (stream, _) = listener
 					.accept()
 					.await
 					.map_err(|source| tg::error!(!source, "failed to accept the connection"))?;
-				let sender = Self::handshake_h2(stream).await?;
-				let mut guard = client.sender.lock().await;
-				guard.replace(sender);
+				Self::with_stream(stream).await
 			},
 			#[cfg(feature = "vsock")]
 			crate::server::Listener::Vsock(listener) => {
@@ -101,11 +94,22 @@ impl Client {
 					.accept()
 					.await
 					.map_err(|source| tg::error!(!source, "failed to accept the connection"))?;
-				let sender = Self::handshake_h2(stream).await?;
-				let mut guard = client.sender.lock().await;
-				guard.replace(sender);
+				Self::with_stream(stream).await
 			},
 		}
+	}
+
+	pub async fn with_stream<S>(stream: S) -> tg::Result<Self>
+	where
+		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+	{
+		let sender = Arc::new(tokio::sync::Mutex::new(None));
+		let service = Self::service(sender.clone(), None);
+		let client = Self(Arc::new(State { sender, service }));
+		let sender = Self::handshake_h2(stream).await?;
+		let mut guard = client.sender.lock().await;
+		guard.replace(sender);
+		drop(guard);
 		Ok(client)
 	}
 

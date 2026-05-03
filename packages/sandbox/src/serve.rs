@@ -25,7 +25,8 @@ pub fn run(arg: &Arg) -> tg::Result<()> {
 			let listener = crate::server::Server::listen(&arg.url).await?;
 			server.serve(listener).await;
 		} else {
-			server.serve_url(&arg.url).await?;
+			let stream = crate::server::Server::connect(&arg.url).await?;
+			server.serve_stream(stream).await;
 		}
 		Ok::<_, tg::Error>(())
 	})?;
