@@ -2493,6 +2493,7 @@ let normalizeSandbox = (
 	let hasNetwork = "network" in arg;
 	let network = arg.network ?? false;
 	let sandbox = arg.sandbox;
+	let defaultTtl = typeof sandbox !== "string";
 	if (typeof sandbox === "string") {
 		if (hasCpu || hasMemory || mounts.length > 0 || hasNetwork) {
 			throw new Error(
@@ -2525,8 +2526,10 @@ let normalizeSandbox = (
 			output.mounts = sandbox.mounts.map(tg.Sandbox.Mount.toDataString);
 		}
 		output.network = sandbox.network ?? false;
-		if (sandbox.ttl !== undefined) {
+		if ("ttl" in sandbox) {
 			output.ttl = sandbox.ttl;
+		} else if (defaultTtl) {
+			output.ttl = 0;
 		}
 		if (sandbox.user !== undefined) {
 			output.user = sandbox.user;

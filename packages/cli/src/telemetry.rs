@@ -1,5 +1,5 @@
 use {
-	crate::config::Telemetry as TelemetryConfig,
+	crate::{Cli, Config, config::Telemetry as TelemetryConfig},
 	opentelemetry as otel, opentelemetry_otlp as otel_otlp, opentelemetry_sdk as otel_sdk,
 	otel_otlp::{WithExportConfig as _, WithTonicConfig as _},
 };
@@ -9,6 +9,15 @@ pub struct Telemetry {
 	pub tracer_provider: otel_sdk::trace::SdkTracerProvider,
 	pub meter_provider: otel_sdk::metrics::SdkMeterProvider,
 	pub logger_provider: otel_sdk::logs::SdkLoggerProvider,
+}
+
+impl Cli {
+	/// Initialize telemetry.
+	pub(crate) fn initialize_telemetry(config: Option<&Config>) -> Option<Telemetry> {
+		config
+			.and_then(|config| config.telemetry.as_ref())
+			.map(Telemetry::new)
+	}
 }
 
 impl Telemetry {

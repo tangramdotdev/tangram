@@ -24,7 +24,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_document(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 
 		// Get the module.
 		let module = if args.runtime {
@@ -43,7 +43,7 @@ impl Cli {
 			location: args.location.get(),
 			module,
 		};
-		let output = handle
+		let output = client
 			.document(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the document"))?;

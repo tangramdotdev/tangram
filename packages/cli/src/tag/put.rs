@@ -22,7 +22,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_tag_put(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 
 		// Get the reference.
 		let arg = tg::get::Arg {
@@ -53,7 +53,7 @@ impl Cli {
 			replicate: false,
 		};
 		let tag = args.tag.unwrap();
-		handle
+		client
 			.put_tag(&tag, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %tag, "failed to put the tag"))?;

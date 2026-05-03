@@ -10,7 +10,7 @@ create table sandboxes (
 	network boolean not null,
 	started_at int8,
 	status text not null,
-	ttl int8 not null,
+	ttl int8,
 	"user" text
 );
 

@@ -60,7 +60,7 @@ impl Cli {
 		T: serde::Serialize + Send + 'static,
 		S: Stream<Item = tg::Result<T>> + Send + 'static,
 	{
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
 		let tty = tangram_util::tty::is_foreground_controlling_tty(libc::STDOUT_FILENO);
 		let pretty = options.pretty || tty;
@@ -92,7 +92,7 @@ impl Cli {
 				.map_err(|source| tg::error!(!source, "failed to serialize the value"))?;
 			let indent = if pretty { 1 } else { 0 };
 			Self::print_value_inner(
-				&handle,
+				&client,
 				&mut stdout,
 				&value.into(),
 				options.clone(),
@@ -134,9 +134,9 @@ impl Cli {
 		options: Options,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
-		Self::print_value_inner(&handle, &mut stdout, value, options, arg, 0).await?;
+		Self::print_value_inner(&client, &mut stdout, value, options, arg, 0).await?;
 		stdout
 			.write_all(b"\n")
 			.await
@@ -149,7 +149,7 @@ impl Cli {
 	}
 
 	pub(crate) async fn print_value_inner(
-		handle: &impl tg::Handle,
+		client: &impl tg::Handle,
 		stdout: &mut tokio::io::BufWriter<tokio::io::Stdout>,
 		value: &tg::Value,
 		options: Options,
@@ -161,7 +161,7 @@ impl Cli {
 			Depth::Infinite => None,
 		};
 		let blobs = options.blobs;
-		value.load_with_handle(handle, arg, depth, blobs).await?;
+		value.load_with_handle(client, arg, depth, blobs).await?;
 		let tty = tangram_util::tty::is_foreground_controlling_tty(libc::STDOUT_FILENO);
 		let indentation = (options.pretty || tty).then_some(INDENTATION);
 		let options = tg::value::print::Options {

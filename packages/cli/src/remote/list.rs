@@ -10,9 +10,9 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_remote_list(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let arg = tg::remote::list::Arg::default();
-		let output = handle
+		let output = client
 			.list_remotes(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to list the remotes"))?;

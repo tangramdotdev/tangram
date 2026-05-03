@@ -10,7 +10,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_format(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 
 		// Canonicalize the path's parent.
 		let path = tangram_util::fs::canonicalize_parent(&args.path)
@@ -19,7 +19,7 @@ impl Cli {
 
 		// Format.
 		let arg = tg::format::Arg { path };
-		handle
+		client
 			.format(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to format"))?;

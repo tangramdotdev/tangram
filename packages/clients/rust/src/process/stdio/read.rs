@@ -5,7 +5,8 @@ use {
 		StreamExt as _, TryStreamExt as _, future,
 		stream::{self, BoxStream},
 	},
-	serde_with::serde_as,
+	serde_with::{DurationSecondsWithFrac, serde_as},
+	std::time::Duration,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 	tangram_util::serde::{CommaSeparatedString, SeekFromNumberOrString},
@@ -30,6 +31,10 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[serde_as(as = "CommaSeparatedString")]
 	pub streams: Vec<Stream>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	pub timeout: Option<Duration>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

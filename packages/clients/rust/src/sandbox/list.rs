@@ -1,5 +1,7 @@
 use {
 	crate::prelude::*,
+	serde_with::{DurationSecondsWithFrac, serde_as},
+	std::time::Duration,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 };
@@ -16,6 +18,7 @@ pub struct Output {
 	pub data: Vec<Item>,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Item {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -36,7 +39,9 @@ pub struct Item {
 
 	pub status: tg::sandbox::Status,
 
-	pub ttl: u64,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	pub ttl: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub user: Option<String>,

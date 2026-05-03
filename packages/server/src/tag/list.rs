@@ -2,6 +2,7 @@ use {
 	crate::{Context, Database, Server},
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	num::ToPrimitive as _,
+	std::time::Duration,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	time::OffsetDateTime,
@@ -92,16 +93,18 @@ impl Server {
 		};
 		let key_json = serde_json::to_string(&key).unwrap();
 
-		// Check the cache unless ttl is Some(0).
-		if arg.ttl != Some(0)
+		// Check the cache unless ttl is zero.
+		if arg.ttl != Some(Duration::ZERO)
 			&& let Some((cached_output, timestamp)) = self
 				.list_tags_cache_get(&key_json)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the tag list cache"))?
 		{
 			let now = OffsetDateTime::now_utc().unix_timestamp();
-			let ttl = arg.ttl.map_or(i64::MAX, u64::cast_signed);
-			if now - timestamp < ttl {
+			let age = u64::try_from((now - timestamp).max(0))
+				.map(Duration::from_secs)
+				.map_err(|source| tg::error!(!source, "invalid tag list cache age"))?;
+			if arg.ttl.is_none_or(|ttl| age < ttl) {
 				let mut entries: Vec<tg::tag::list::Entry> = serde_json::from_str(&cached_output)
 					.map_err(|source| {
 					tg::error!(!source, "failed to deserialize the cached tag list")

@@ -1,19 +1,22 @@
 use {
 	crate::{Context, Server},
 	futures::{
-		StreamExt as _, TryStreamExt as _, future,
+		StreamExt as _,
 		stream::{self, BoxStream, FuturesUnordered},
 	},
 	indoc::formatdoc,
 	std::time::Duration,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_futures::stream::Ext as _,
+	tangram_futures::{
+		stream::Ext as _,
+		task::{Stopper, Task},
+	},
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 	tangram_messenger::prelude::*,
-	tokio_stream::wrappers::IntervalStream,
+	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
 
 impl Server {
@@ -34,14 +37,17 @@ impl Server {
 
 		if let Some(local) = &locations.local {
 			if local.current
-				&& let Some(status) = self.try_get_sandbox_status_stream_local(id).await.map_err(
-					|source| tg::error!(!source, %id, "failed to get the sandbox status stream"),
-				)? {
-				return Ok(Some(status.with_stopper(context.stopper.clone())));
+				&& let Some(status) = self
+					.try_get_sandbox_status_stream_local(id, context.stopper.clone(), arg.timeout)
+					.await
+					.map_err(
+						|source| tg::error!(!source, %id, "failed to get the sandbox status stream"),
+					)? {
+				return Ok(Some(status));
 			}
 
 			if let Some(status) = self
-				.try_get_sandbox_status_stream_regions(id, &local.regions)
+				.try_get_sandbox_status_stream_regions(id, &local.regions, arg.timeout)
 				.await
 				.map_err(
 					|source| tg::error!(!source, %id, "failed to get the sandbox status from another region"),
@@ -51,7 +57,7 @@ impl Server {
 		}
 
 		if let Some(status) = self
-			.try_get_sandbox_status_stream_remotes(id, &locations.remotes)
+			.try_get_sandbox_status_stream_remotes(id, &locations.remotes, arg.timeout)
 			.await
 			.map_err(
 				|source| tg::error!(!source, %id, "failed to get the sandbox status from a remote"),
@@ -62,14 +68,12 @@ impl Server {
 		Ok(None)
 	}
 
-	pub(crate) async fn try_get_sandbox_status_stream_local(
+	async fn try_get_sandbox_status_stream_local(
 		&self,
 		id: &tg::sandbox::Id,
-	) -> tg::Result<
-		Option<
-			impl futures::Stream<Item = tg::Result<tg::sandbox::status::Event>> + Send + 'static + use<>,
-		>,
-	> {
+		stopper: Option<Stopper>,
+		timeout: Option<Duration>,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
 		if !self
 			.get_sandbox_exists_local(id)
 			.await
@@ -78,56 +82,76 @@ impl Server {
 			return Ok(None);
 		}
 
-		let subject = format!("sandboxes.{id}.status");
-		let status = self
-			.messenger
-			.subscribe::<()>(subject)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
-			.map(|_| ());
+		let wakeups = if timeout == Some(Duration::ZERO) {
+			None
+		} else {
+			let subject = format!("sandboxes.{id}.status");
+			let wakeups = self
+				.messenger
+				.subscribe::<()>(subject)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+				.map(|_| ());
+			let interval = IntervalStream::new(tokio::time::interval(Duration::from_mins(1)))
+				.skip(1)
+				.map(|_| ());
+			let wakeups = stream::select(wakeups, interval);
+			let wakeups = match timeout {
+				Some(timeout) => wakeups.take_until(tokio::time::sleep(timeout)).boxed(),
+				None => wakeups.boxed(),
+			};
+			Some(wakeups.with_stopper(stopper))
+		};
 
-		let interval =
-			IntervalStream::new(tokio::time::interval(Duration::from_mins(1))).map(|_| ());
+		let (sender, receiver) = tokio::sync::mpsc::channel(1);
 
 		let server = self.clone();
 		let id = id.clone();
-		let mut previous: Option<tg::sandbox::Status> = None;
-		let stream = stream::select(status, interval)
-			.boxed()
-			.then(move |()| {
-				let server = server.clone();
-				let id = id.clone();
-				async move {
-					server
-						.try_get_sandbox_status_local(&id)
-						.await
-						.map(|option| option.unwrap_or(tg::sandbox::Status::Finished))
-				}
-			})
-			.try_filter(move |status| {
-				future::ready(match (previous.as_mut(), *status) {
-					(None, status) => {
-						previous.replace(status);
-						true
-					},
-					(Some(previous), status) if *previous == status => false,
-					(Some(previous), status) => {
-						*previous = status;
-						true
-					},
-				})
-			})
-			.take_while_inclusive(move |result| {
-				if let Ok(status) = result {
-					future::ready(!status.is_finished())
-				} else {
-					future::ready(false)
-				}
-			})
-			.map_ok(tg::sandbox::status::Event::Status)
-			.chain(stream::once(future::ok(tg::sandbox::status::Event::End)));
+		let task = Task::spawn(|_| async move {
+			let result = server
+				.try_get_sandbox_status_stream_local_task(&id, sender.clone(), wakeups)
+				.await;
+			if let Err(error) = result {
+				sender.send(Err(error)).await.ok();
+			}
+		});
+
+		let stream = ReceiverStream::new(receiver).attach(task).boxed();
 
 		Ok(Some(stream))
+	}
+
+	async fn try_get_sandbox_status_stream_local_task(
+		&self,
+		id: &tg::sandbox::Id,
+		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sandbox::status::Event>>,
+		mut wakeups: Option<BoxStream<'static, ()>>,
+	) -> tg::Result<()> {
+		let mut previous: Option<tg::sandbox::Status> = None;
+		loop {
+			let status = self
+				.try_get_sandbox_status_local(id)
+				.await?
+				.unwrap_or(tg::sandbox::Status::Finished);
+			if previous != Some(status) {
+				previous.replace(status);
+				let event = tg::sandbox::status::Event::Status(status);
+				if sender.send(Ok(event)).await.is_err() {
+					return Ok(());
+				}
+			}
+			if status.is_finished() {
+				sender.send(Ok(tg::sandbox::status::Event::End)).await.ok();
+				return Ok(());
+			}
+			let Some(wakeups) = &mut wakeups else {
+				sender.send(Ok(tg::sandbox::status::Event::End)).await.ok();
+				return Ok(());
+			};
+			if wakeups.next().await.is_none() {
+				return Ok(());
+			}
+		}
 	}
 
 	pub(crate) async fn get_sandbox_status_local(
@@ -175,10 +199,11 @@ impl Server {
 		&self,
 		id: &tg::sandbox::Id,
 		regions: &[String],
+		timeout: Option<Duration>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_sandbox_status_stream_region(id, region))
+			.map(|region| self.try_get_sandbox_status_stream_region(id, region, timeout))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -203,6 +228,7 @@ impl Server {
 		&self,
 		id: &tg::sandbox::Id,
 		region: &str,
+		timeout: Option<Duration>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
 		let client = self.get_region_client(region.to_owned()).await.map_err(
 			|source| tg::error!(!source, region = %region, "failed to get the region client"),
@@ -212,6 +238,7 @@ impl Server {
 		});
 		let arg = tg::sandbox::status::Arg {
 			location: Some(location.into()),
+			timeout,
 		};
 		let Some(stream) = client
 			.try_get_sandbox_status_stream(id, arg)
@@ -229,10 +256,11 @@ impl Server {
 		&self,
 		id: &tg::sandbox::Id,
 		remotes: &[crate::location::Remote],
+		timeout: Option<Duration>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_get_sandbox_status_stream_remote(id, remote))
+			.map(|remote| self.try_get_sandbox_status_stream_remote(id, remote, timeout))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -257,6 +285,7 @@ impl Server {
 		&self,
 		id: &tg::sandbox::Id,
 		remote: &crate::location::Remote,
+		timeout: Option<Duration>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
 		let client = self.get_remote_client(remote.name.clone()).await.map_err(
 			|source| tg::error!(!source, %id, remote = %remote.name, "failed to get the remote client"),
@@ -267,6 +296,7 @@ impl Server {
 					regions: remote.regions.clone(),
 				}),
 			])),
+			timeout,
 		};
 		let Some(stream) = client
 			.try_get_sandbox_status_stream(id, arg)

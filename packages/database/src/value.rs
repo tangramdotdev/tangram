@@ -2,12 +2,14 @@ use bytes::Bytes;
 
 pub use self::{
 	deserialize::{Deserialize, DeserializeAs, FromStr},
+	duration::DurationSeconds,
 	json::Json,
 	serde::Serde,
 	serialize::Serialize,
 };
 
 pub mod deserialize;
+pub mod duration;
 pub mod json;
 pub mod serde;
 pub mod serialize;

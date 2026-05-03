@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client::prelude::*};
+use {crate::Cli, futures::FutureExt as _, tangram_client::prelude::*};
 
 /// Compute a checksum.
 #[derive(Clone, Debug, clap::Args)]
@@ -18,7 +18,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_checksum(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let referent = self.get_reference(&args.reference).await?;
 		let edge = referent
 			.item
@@ -31,7 +31,7 @@ impl Cli {
 			let algorithm = args.algorithm;
 			let command = tg::builtin::checksum_command(tg::Either::Left(blob), algorithm);
 			let command = command
-				.store_with_handle(&handle)
+				.store_with_handle(&client)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 			let reference = tg::Reference::with_object(command.into());
@@ -40,12 +40,12 @@ impl Cli {
 				reference: Some(reference),
 				trailing: Vec::new(),
 			};
-			self.command_build(args).await?;
+			self.command_build(args).boxed().await?;
 		} else if let Ok(artifact) = tg::Artifact::try_from(object.clone()) {
 			let algorithm = args.algorithm;
 			let command = tg::builtin::checksum_command(tg::Either::Right(artifact), algorithm);
 			let command = command
-				.store_with_handle(&handle)
+				.store_with_handle(&client)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 			let reference = tg::Reference::with_object(command.into());
@@ -54,7 +54,7 @@ impl Cli {
 				reference: Some(reference),
 				trailing: Vec::new(),
 			};
-			self.command_build(args).await?;
+			self.command_build(args).boxed().await?;
 		} else {
 			return Err(tg::error!("expected an artifact or a blob"));
 		}

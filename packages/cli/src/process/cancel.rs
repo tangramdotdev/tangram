@@ -16,7 +16,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_process_cancel(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let process = tg::Process::<tg::Value>::new(
 			args.process.clone(),
 			args.location.get(),
@@ -25,7 +25,7 @@ impl Cli {
 			Some(args.token),
 			None,
 		);
-		process.cancel_with_handle(&handle).await.map_err(
+		process.cancel_with_handle(&client).await.map_err(
 			|source| tg::error!(!source, id = %process.id(), "failed to cancel the process"),
 		)?;
 		Ok(())

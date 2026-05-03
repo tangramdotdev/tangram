@@ -32,7 +32,7 @@ impl<O> tg::Process<O> {
 			.unwrap_or_else(|| {
 				tg::Either::Left(tg::sandbox::create::Arg {
 					network: false,
-					ttl: 0,
+					ttl: Some(std::time::Duration::ZERO),
 					..Default::default()
 				})
 			});

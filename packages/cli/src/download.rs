@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client::prelude::*, tangram_uri::Uri};
+use {crate::Cli, futures::FutureExt as _, tangram_client::prelude::*, tangram_uri::Uri};
 
 /// Download a blob or an artifact.
 #[derive(Clone, Debug, clap::Args)]
@@ -19,7 +19,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_download(&mut self, mut args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		if args.build.spawn.checksum.is_none() {
 			args.build.spawn.checksum.replace(tg::Checksum::default());
 		}
@@ -36,7 +36,7 @@ impl Cli {
 		};
 		let command = tg::builtin::download_command(&args.url, Some(options));
 		let command = command
-			.store_with_handle(&handle)
+			.store_with_handle(&client)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 		let reference = tg::Reference::with_object(command.into());
@@ -47,7 +47,7 @@ impl Cli {
 			reference: Some(reference),
 			trailing: Vec::new(),
 		};
-		self.command_build(args).await?;
+		self.command_build(args).boxed().await?;
 		Ok(())
 	}
 }

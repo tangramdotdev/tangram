@@ -1,7 +1,7 @@
 use {
 	crate::{SandboxPermit, Server, temp::Temp},
 	futures::{FutureExt as _, TryStreamExt as _, future},
-	std::{pin::pin, sync::Arc, time::Duration},
+	std::{pin::pin, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
 	tokio::task::JoinSet,
@@ -158,6 +158,7 @@ impl Server {
 				id,
 				tg::sandbox::status::Arg {
 					location: Some(location.clone().into()),
+					timeout: None,
 				},
 			)
 			.await
@@ -172,7 +173,7 @@ impl Server {
 
 		// Create the timer.
 		let mut timer = None;
-		let ttl = (state.ttl != i64::MAX as u64).then(|| Duration::from_secs(state.ttl));
+		let ttl = state.ttl;
 
 		// If the sandbox was created with a process, then start it. Otherwise, start the timer.
 		if let Some(process) = process {
@@ -289,6 +290,7 @@ impl Server {
 		loop {
 			let arg = tg::sandbox::process::queue::Arg {
 				location: Some(location.clone().into()),
+				timeout: None,
 			};
 			match self.try_dequeue_sandbox_process(id, arg).await {
 				Ok(Some(output)) => return Ok(output),

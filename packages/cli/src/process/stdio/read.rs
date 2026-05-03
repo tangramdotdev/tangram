@@ -1,6 +1,7 @@
 use {
-	crate::Cli, futures::TryStreamExt as _, serde_with::serde_as, tangram_client::prelude::*,
-	tangram_util::serde::SeekFromNumberOrString, tokio::io::AsyncWriteExt as _,
+	crate::Cli, futures::TryStreamExt as _, serde_with::serde_as, std::time::Duration,
+	tangram_client::prelude::*, tangram_util::serde::SeekFromNumberOrString,
+	tokio::io::AsyncWriteExt as _,
 };
 
 /// Read a process's stdio.
@@ -24,6 +25,28 @@ pub struct Args {
 
 	#[arg(long, value_delimiter = ',', visible_alias = "stream")]
 	pub streams: Vec<tg::process::stdio::Stream>,
+
+	#[command(flatten)]
+	pub timeout: Timeout,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct Timeout {
+	#[arg(long, value_parser = humantime::parse_duration, overrides_with = "no_timeout")]
+	pub timeout: Option<Duration>,
+
+	#[arg(long, overrides_with = "timeout")]
+	pub no_timeout: bool,
+}
+
+impl Timeout {
+	fn get(&self) -> Option<Duration> {
+		if self.no_timeout {
+			None
+		} else {
+			self.timeout.or(Some(Duration::ZERO))
+		}
+	}
 }
 
 #[serde_as]
@@ -35,7 +58,7 @@ struct PositionArg {
 
 impl Cli {
 	pub async fn command_process_stdio_read(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let locations = args.locations.get();
 		let process = tg::Process::<tg::Value>::new(
 			args.process.clone(),
@@ -59,9 +82,10 @@ impl Cli {
 			position: args.position,
 			size: args.size,
 			streams,
+			timeout: args.timeout.get(),
 		};
 		let mut stdio = process
-			.try_read_stdio_all(&handle, arg)
+			.try_read_stdio_all(&client, arg)
 			.await
 			.map_err(
 				|source| tg::error!(!source, id = %args.process, "failed to get the process stdio"),

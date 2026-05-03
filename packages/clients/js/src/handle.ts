@@ -143,6 +143,7 @@ export namespace Handle {
 		position?: number | string | undefined;
 		size?: number | undefined;
 		streams: Array<tg.Process.Stdio.Stream>;
+		timeout?: number | undefined;
 	};
 
 	export type ProcessStdioWriteArg = {

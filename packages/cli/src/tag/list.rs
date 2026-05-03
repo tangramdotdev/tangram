@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client::prelude::*};
+use {crate::Cli, std::time::Duration, tangram_client::prelude::*};
 
 /// List tags.
 #[derive(Clone, Debug, clap::Args)]
@@ -23,14 +23,28 @@ pub struct Args {
 	#[arg(long)]
 	pub reverse: bool,
 
-	/// Set the cache TTL in seconds. Use 0 to bypass the cache.
-	#[arg(long)]
-	pub ttl: Option<u64>,
+	#[command(flatten)]
+	pub ttl: Ttl,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct Ttl {
+	#[arg(long, value_parser = humantime::parse_duration, overrides_with = "no_ttl")]
+	pub ttl: Option<Duration>,
+
+	#[arg(long, overrides_with = "ttl")]
+	pub no_ttl: bool,
+}
+
+impl Ttl {
+	fn get(&self) -> Option<Duration> {
+		if self.no_ttl { None } else { self.ttl }
+	}
 }
 
 impl Cli {
 	pub async fn command_tag_list(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let arg = tg::tag::list::Arg {
 			cached: args.cached,
 			length: None,
@@ -38,9 +52,9 @@ impl Cli {
 			pattern: args.pattern.clone(),
 			recursive: args.recursive,
 			reverse: args.reverse,
-			ttl: args.ttl,
+			ttl: args.ttl.get(),
 		};
-		let output = handle.list_tags(arg).await.map_err(
+		let output = client.list_tags(arg).await.map_err(
 			|source| tg::error!(!source, pattern = %args.pattern, "failed to list the tags"),
 		)?;
 		self.print_serde(output.data, args.print).await?;

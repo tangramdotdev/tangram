@@ -107,7 +107,7 @@ impl AlternateScreen {
 
 impl Cli {
 	pub async fn command_view(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 
 		// Get the reference.
 		let root = match args.kind {
@@ -192,7 +192,7 @@ impl Cli {
 						show_process_commands: true,
 					};
 					let mut viewer =
-						crate::viewer::Viewer::new(&handle, root, exit_receiver, options);
+						crate::viewer::Viewer::new(&client, root, exit_receiver, options);
 					match mode {
 						Mode::Inline => {
 							viewer.run_inline(stop, true).await?;

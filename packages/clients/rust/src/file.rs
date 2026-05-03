@@ -12,11 +12,11 @@ pub mod handle;
 pub mod id;
 pub mod object;
 
-/// The extended attribute name of a lockattr.
-pub const LOCKATTR_XATTR_NAME: &str = "user.tangram.lock";
-
-/// The extended attribute name for dependencies.
+/// The extended attribute name for the file's dependencies.
 pub const DEPENDENCIES_XATTR_NAME: &str = "user.tangram.dependencies";
 
-/// The extended attribute name for module kind.
+/// The extended attribute name for the file's lock.
+pub const LOCK_XATTR_NAME: &str = "user.tangram.lock";
+
+/// The extended attribute name for the file's module kind.
 pub const MODULE_XATTR_NAME: &str = "user.tangram.module";

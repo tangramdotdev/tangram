@@ -335,16 +335,3 @@ impl std::fmt::Display for Symlink {
 		Ok(())
 	}
 }
-
-#[macro_export]
-macro_rules! symlink {
-	(artifact = $artifact:expr, path = $path:expr) => {
-		$crate::Symlink::with_artifact_and_path($artifact.into(), $path.into())
-	};
-	(artifact = $artifact:expr) => {
-		$crate::Symlink::with_artifact($artifact.into())
-	};
-	($path:expr) => {
-		$crate::Symlink::with_path($path.into())
-	};
-}

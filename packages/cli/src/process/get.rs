@@ -20,12 +20,12 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_process_get(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let arg = tg::process::get::Arg {
 			location: args.locations.get(),
 			metadata: args.metadata,
 		};
-		let output = handle
+		let output = client
 			.try_get_process(&args.process, arg)
 			.await
 			.map_err(|source| tg::error!(!source, id = %args.process, "failed to get the process"))?

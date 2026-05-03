@@ -60,9 +60,6 @@ pub struct Options {
 	pub network: Network,
 
 	#[arg(long)]
-	pub ttl: Option<u64>,
-
-	#[arg(long)]
 	pub user: Option<String>,
 }
 
@@ -114,7 +111,6 @@ impl Options {
 			&& self.memory.is_none()
 			&& self.mounts.is_empty()
 			&& self.network.try_get().is_none()
-			&& self.ttl.is_none()
 			&& self.user.is_none()
 	}
 }

@@ -95,7 +95,7 @@ impl Cli {
 	}
 
 	pub(crate) async fn run(&mut self, args: Args) -> tg::Result<tg::Value> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 
 		let Args {
 			mut options,
@@ -162,7 +162,7 @@ impl Cli {
 		// Spawn the view task if necessary.
 		let (_exit_sender, exit_receiver) = tokio::sync::oneshot::channel();
 		let view_task = if let Some(view) = options.view {
-			let handle = handle.clone();
+			let client = client.clone();
 			let root = process.clone().map(crate::viewer::Item::Process);
 			let task = Task::spawn_blocking(move |stop| -> tg::Result<()> {
 				let local_set = tokio::task::LocalSet::new();
@@ -183,7 +183,7 @@ impl Cli {
 						show_process_commands: false,
 					};
 					let mut viewer =
-						crate::viewer::Viewer::new(&handle, root, exit_receiver, viewer_options);
+						crate::viewer::Viewer::new(&client, root, exit_receiver, viewer_options);
 					match view {
 						View::None => (),
 						View::Inline => {
@@ -204,14 +204,14 @@ impl Cli {
 		// Spawn a task to attempt to cancel the process on the first interrupt signal and exit the process on the second.
 		let cancel_task = if view_task.is_some() {
 			Some(Task::spawn({
-				let handle = handle.clone();
+				let client = client.clone();
 				let process = process.clone();
 				|_| async move {
 					tokio::signal::ctrl_c().await.unwrap();
 					tokio::spawn(async move {
 						process
 							.item()
-							.cancel_with_handle(&handle)
+							.cancel_with_handle(&client)
 							.await
 							.inspect_err(|error| {
 								tracing::error!(?error, "failed to cancel the process");
@@ -233,7 +233,7 @@ impl Cli {
 		};
 		let wait = process
 			.item()
-			.wait_with_handle(&handle, arg)
+			.wait_with_handle(&client, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to await the process"))?;
 
@@ -334,7 +334,7 @@ impl Cli {
 				lock: None,
 				path,
 			};
-			let stream = handle.checkout(arg).await.map_err(
+			let stream = client.checkout(arg).await.map_err(
 				|source| tg::error!(!source, %artifact, "failed to check out the artifact"),
 			)?;
 			let tg::checkout::Output { path, .. } =

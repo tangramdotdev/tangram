@@ -30,15 +30,12 @@ pub(crate) enum Error {
 }
 
 impl tg::Client {
-	pub(crate) fn service(arg: &tg::Arg) -> (Sender, Service) {
+	pub(crate) fn service(arg: &tg::Arg, sender: &Sender) -> Service {
 		let url = arg.url.clone().unwrap();
 		let version = arg.version.clone().unwrap();
 		let token = arg.token.clone();
 		let process = arg.process.clone();
 		let reconnect = arg.reconnect.as_ref().unwrap();
-		let sender = Arc::new(tokio::sync::Mutex::new(
-			None::<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>>,
-		));
 		let service = tower::service_fn({
 			let sender = sender.clone();
 			let reconnect = reconnect.clone();
@@ -51,10 +48,13 @@ impl tg::Client {
 					let mut sender = match guard.as_ref() {
 						Some(sender) if sender.is_ready() => sender.clone(),
 						_ => {
-							let sender = tangram_futures::retry(&reconnect, || async {
-								match Self::connect_h2(&url).await {
-									Ok(sender) => Ok(ControlFlow::Break(sender)),
-									Err(error) => Ok(ControlFlow::Continue(error)),
+							let sender = tangram_futures::retry(&reconnect, || {
+								let url = url.clone();
+								async move {
+									match Self::connect_h2(&url).await {
+										Ok(sender) => Ok(ControlFlow::Break(sender)),
+										Err(error) => Ok(ControlFlow::Continue(error)),
+									}
 								}
 							})
 							.await
@@ -127,8 +127,7 @@ impl tg::Client {
 			)
 			.layer(tangram_http::layer::compression::ResponseDecompressionLayer)
 			.service(service);
-		let service = Service::new(service);
-		(sender, service)
+		Service::new(service)
 	}
 
 	pub async fn connect(&self) -> tg::Result<()> {
@@ -160,7 +159,7 @@ impl tg::Client {
 		match url.scheme() {
 			Some("http+stdio") => {
 				let stream = tokio::io::join(tokio::io::stdin(), tokio::io::stdout());
-				Self::handshake_v1(stream).await
+				Self::handshake_h1(stream).await
 			},
 			Some("http") => {
 				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
@@ -168,7 +167,7 @@ impl tg::Client {
 					.port_or_known_default()
 					.ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let stream = Self::connect_tcp(host, port).await?;
-				Self::handshake_v1(stream).await
+				Self::handshake_h1(stream).await
 			},
 			Some("https") => {
 				#[cfg(not(feature = "tls"))]
@@ -186,13 +185,13 @@ impl tg::Client {
 					let stream =
 						Self::connect_tcp_tls(host, port, vec![b"http/1.1".into()]).await?;
 					Self::verify_alpn_protocol(&stream, b"http/1.1")?;
-					Self::handshake_v1(stream).await
+					Self::handshake_h1(stream).await
 				}
 			},
 			Some("http+unix") => {
 				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let stream = Self::connect_unix(Path::new(path)).await?;
-				Self::handshake_v1(stream).await
+				Self::handshake_h1(stream).await
 			},
 			Some("http+vsock") => {
 				#[cfg(not(feature = "vsock"))]
@@ -209,7 +208,7 @@ impl tg::Client {
 					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 					let addr = tokio_vsock::VsockAddr::new(cid, u32::from(port));
 					let stream = Self::connect_vsock(addr).await?;
-					Self::handshake_v1(stream).await
+					Self::handshake_h1(stream).await
 				}
 			},
 			_ => Err(tg::error!(%url, "invalid url")),
@@ -222,7 +221,7 @@ impl tg::Client {
 		match url.scheme() {
 			Some("http+stdio") => {
 				let stream = tokio::io::join(tokio::io::stdin(), tokio::io::stdout());
-				Self::handshake_v2(stream).await
+				Self::handshake_h2(stream).await
 			},
 			Some("http") => {
 				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
@@ -230,7 +229,7 @@ impl tg::Client {
 					.port_or_known_default()
 					.ok_or_else(|| tg::error!("invalid url"))?;
 				let stream = Self::connect_tcp(host, port).await?;
-				Self::handshake_v2(stream).await
+				Self::handshake_h2(stream).await
 			},
 			Some("https") => {
 				#[cfg(not(feature = "tls"))]
@@ -247,13 +246,13 @@ impl tg::Client {
 						.ok_or_else(|| tg::error!(%url, "invalid url"))?;
 					let stream = Self::connect_tcp_tls(host, port, vec![b"h2".into()]).await?;
 					Self::verify_alpn_protocol(&stream, b"h2")?;
-					Self::handshake_v2(stream).await
+					Self::handshake_h2(stream).await
 				}
 			},
 			Some("http+unix") => {
 				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let stream = Self::connect_unix(Path::new(path)).await?;
-				Self::handshake_v2(stream).await
+				Self::handshake_h2(stream).await
 			},
 			Some("http+vsock") => {
 				#[cfg(not(feature = "vsock"))]
@@ -270,14 +269,14 @@ impl tg::Client {
 					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 					let addr = tokio_vsock::VsockAddr::new(cid, u32::from(port));
 					let stream = Self::connect_vsock(addr).await?;
-					Self::handshake_v2(stream).await
+					Self::handshake_h2(stream).await
 				}
 			},
 			_ => Err(tg::error!(%url, "invalid url")),
 		}
 	}
 
-	async fn handshake_v1<S>(
+	async fn handshake_h1<S>(
 		stream: S,
 	) -> tg::Result<hyper::client::conn::http1::SendRequest<tangram_http::body::Boxed>>
 	where
@@ -309,7 +308,7 @@ impl tg::Client {
 		Ok(sender)
 	}
 
-	async fn handshake_v2<S>(
+	pub(crate) async fn handshake_h2<S>(
 		stream: S,
 	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>>
 	where

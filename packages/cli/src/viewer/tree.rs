@@ -26,8 +26,8 @@ use {
 
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
-pub struct Tree<H> {
-	handle: H,
+pub struct Tree {
+	client: tg::Client,
 	counter: UpdateCounter,
 	data: data::UpdateSender,
 	num_rendered_columns: usize,
@@ -36,7 +36,7 @@ pub struct Tree<H> {
 	selected: Rc<RefCell<Node>>,
 	selected_task: Option<Task<()>>,
 	scroll: (usize, usize),
-	viewer: super::UpdateSender<H>,
+	viewer: super::UpdateSender,
 }
 
 struct Node {
@@ -136,10 +136,7 @@ pub struct Display {
 	children: Vec<Self>,
 }
 
-impl<H> Tree<H>
-where
-	H: tg::Handle,
-{
+impl Tree {
 	pub fn changed(&self) -> impl Future<Output = ()> + Send + Sync {
 		self.counter.changed()
 	}
@@ -190,14 +187,11 @@ where
 	}
 
 	fn create_node(
-		handle: &H,
+		client: &tg::Client,
 		parent: &Rc<RefCell<Node>>,
 		label: Option<String>,
 		referent: Option<tg::Referent<Item>>,
-	) -> Rc<RefCell<Node>>
-	where
-		H: tg::Handle,
-	{
+	) -> Rc<RefCell<Node>> {
 		let counter = parent.borrow().counter.clone();
 		let depth = parent.borrow().depth + 1;
 		let expanded_nodes = parent.borrow().expanded_nodes.clone();
@@ -228,12 +222,12 @@ where
 		let expand_task = match (&referent, expand) {
 			(Some(referent), true) => {
 				let counter = counter.clone();
-				let handle = handle.clone();
+				let client = client.clone();
 				let referent = referent.clone();
 				let update_sender = update_sender.clone();
 				let guard = counter.guard();
 				let task = Task::spawn_local(|_| async move {
-					Self::expand_task(&handle, counter.clone(), referent, update_sender).await;
+					Self::expand_task(&client, counter.clone(), referent, update_sender).await;
 					drop(guard);
 				});
 				Some(task)
@@ -401,11 +395,11 @@ where
 		let children_task = Task::spawn_local({
 			let counter = self.counter.clone();
 			let guard = counter.guard();
-			let handle = self.handle.clone();
+			let client = self.client.clone();
 			let update_sender = node.update_sender.clone();
 			let referent = referent.clone();
 			move |_| async move {
-				Self::expand_task(&handle, counter, referent, update_sender).await;
+				Self::expand_task(&client, counter, referent, update_sender).await;
 				drop(guard);
 			}
 		});
@@ -414,16 +408,16 @@ where
 	}
 
 	async fn expand_array(
-		handle: &H,
+		client: &tg::Client,
 		array: tg::value::Array,
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
-		let handle = handle.clone();
+		let client = client.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			for value in array {
 				let item = tg::Referent::with_item(Item::Value(value));
-				let child = Self::create_node(&handle, &node, None, Some(item));
+				let child = Self::create_node(&client, &node, None, Some(item));
 				node.borrow_mut().children.push(child);
 			}
 			node.borrow_mut().guard.replace(guard);
@@ -433,12 +427,12 @@ where
 	}
 
 	async fn expand_blob(
-		handle: &H,
+		client: &tg::Client,
 		blob: tg::Blob,
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
-		let children = match blob.load_with_handle(handle).await?.as_ref() {
+		let children = match blob.load_with_handle(client).await?.as_ref() {
 			tg::blob::Object::Leaf(_) => {
 				return Ok(());
 			},
@@ -448,18 +442,18 @@ where
 				.map(|child| child.blob.clone().into())
 				.collect(),
 		};
-		let metadata = get_object_metadata_as_value(handle, blob.id()).await?;
+		let metadata = get_object_metadata_as_value(client, blob.id()).await?;
 
 		blob.unload();
-		let handle = handle.clone();
+		let client = client.clone();
 		let value = tg::Value::Array(children);
 		let update = move |node: Rc<RefCell<Node>>| {
 			let item = tg::Referent::with_item(Item::Value(value));
-			let child = Self::create_node(&handle, &node, Some("children".to_owned()), Some(item));
+			let child = Self::create_node(&client, &node, Some("children".to_owned()), Some(item));
 			node.borrow_mut().children.push(child);
 			if node.borrow().options.expand_metadata {
 				let metadata = Self::create_node(
-					&handle,
+					&client,
 					&node,
 					Some("metadata".to_owned()),
 					Some(tg::Referent::with_item(Item::Value(metadata))),
@@ -474,12 +468,12 @@ where
 	}
 
 	async fn expand_command(
-		handle: &H,
+		client: &tg::Client,
 		command: tg::Command,
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
-		let object = command.object_with_handle(handle).await?;
+		let object = command.object_with_handle(client).await?;
 		let mut children = Vec::new();
 		children.push(("args".to_owned(), tg::Value::Array(object.args.clone())));
 		children.push(("env".to_owned(), tg::Value::Map(object.env.clone())));
@@ -509,7 +503,7 @@ where
 						tg::module::Item::Edge(edge) => {
 							let object = match edge {
 								tg::graph::Edge::Pointer(pointer) => {
-									pointer.get_with_handle(handle).await?.into()
+									pointer.get_with_handle(client).await?.into()
 								},
 								tg::graph::Edge::Object(object) => object,
 							};
@@ -536,20 +530,20 @@ where
 		};
 		children.push(("executable".to_owned(), value));
 		children.push(("host".to_owned(), tg::Value::String(object.host.clone())));
-		let metadata = get_object_metadata_as_value(handle, command.id()).await?;
+		let metadata = get_object_metadata_as_value(client, command.id()).await?;
 		command.unload();
 
 		// Send the update.
-		let handle = handle.clone();
+		let client = client.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			for (name, child) in children {
 				let item = tg::Referent::with_item(Item::Value(child));
-				let child = Self::create_node(&handle, &node, Some(name), Some(item));
+				let child = Self::create_node(&client, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
 			if node.borrow().options.expand_metadata {
 				let metadata = Self::create_node(
-					&handle,
+					&client,
 					&node,
 					Some("metadata".to_owned()),
 					Some(tg::Referent::with_item(Item::Value(metadata))),
@@ -563,12 +557,12 @@ where
 	}
 
 	async fn expand_error(
-		handle: &H,
+		client: &tg::Client,
 		error: tg::Error,
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
-		let object = error.object_with_handle(handle).await?;
+		let object = error.object_with_handle(client).await?;
 		let mut children = Vec::new();
 
 		// Add message if present.
@@ -585,7 +579,7 @@ where
 		if let Some(source) = &object.source {
 			let source_error: tg::Error = match &source.item {
 				tg::Either::Left(object) => tg::Error::with_object(object.as_ref().clone()),
-				tg::Either::Right(handle) => handle.as_ref().clone(),
+				tg::Either::Right(client) => client.as_ref().clone(),
 			};
 			children.push(("source".to_owned(), tg::Value::Object(source_error.into())));
 		}
@@ -609,7 +603,7 @@ where
 						tg::module::Item::Edge(edge) => {
 							let object = match edge {
 								tg::graph::Edge::Pointer(pointer) => {
-									pointer.get_with_handle(handle).await?.into()
+									pointer.get_with_handle(client).await?.into()
 								},
 								tg::graph::Edge::Object(object) => object,
 							};
@@ -735,20 +729,20 @@ where
 			));
 		}
 
-		let metadata = get_object_metadata_as_value(handle, error.id()).await?;
+		let metadata = get_object_metadata_as_value(client, error.id()).await?;
 		error.unload();
 
 		// Send the update.
-		let handle = handle.clone();
+		let client = client.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			for (name, child) in children {
 				let item = tg::Referent::with_item(Item::Value(child));
-				let child = Self::create_node(&handle, &node, Some(name), Some(item));
+				let child = Self::create_node(&client, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
 			if node.borrow().options.expand_metadata {
 				let metadata = Self::create_node(
-					&handle,
+					&client,
 					&node,
 					Some("metadata".to_owned()),
 					Some(tg::Referent::with_item(Item::Value(metadata))),
@@ -762,12 +756,12 @@ where
 	}
 
 	async fn expand_directory(
-		handle: &H,
+		client: &tg::Client,
 		directory: tg::Directory,
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
-		let object = directory.object_with_handle(handle).await?;
+		let object = directory.object_with_handle(client).await?;
 		let children: Vec<_> = match object.as_ref() {
 			tg::directory::Object::Pointer(pointer) => [
 				(
@@ -794,7 +788,7 @@ where
 						.map(async |(name, artifact)| {
 							let artifact = match artifact {
 								tg::graph::Edge::Pointer(pointer) => {
-									pointer.get_with_handle(handle).await?
+									pointer.get_with_handle(client).await?
 								},
 								tg::graph::Edge::Object(artifact) => artifact,
 							};
@@ -816,7 +810,7 @@ where
 						.map(async |(i, child)| {
 							let directory: tg::Object = match child.directory {
 								tg::graph::Edge::Pointer(pointer) => {
-									pointer.get_with_handle(handle).await?.into()
+									pointer.get_with_handle(client).await?.into()
 								},
 								tg::graph::Edge::Object(directory) => directory.into(),
 							};
@@ -841,20 +835,20 @@ where
 				},
 			},
 		};
-		let metadata = get_object_metadata_as_value(handle, directory.id()).await?;
+		let metadata = get_object_metadata_as_value(client, directory.id()).await?;
 		directory.unload();
 
 		// Send the update.
-		let handle = handle.clone();
+		let client = client.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			for (name, child) in children {
 				let item = tg::Referent::with_item(Item::Value(child));
-				let child = Self::create_node(&handle, &node, Some(name), Some(item));
+				let child = Self::create_node(&client, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
 			if node.borrow().options.expand_metadata {
 				let metadata = Self::create_node(
-					&handle,
+					&client,
 					&node,
 					Some("metadata".to_owned()),
 					Some(tg::Referent::with_item(Item::Value(metadata))),
@@ -868,12 +862,12 @@ where
 	}
 
 	async fn expand_file(
-		handle: &H,
+		client: &tg::Client,
 		file: tg::File,
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
-		let object = file.object_with_handle(handle).await?;
+		let object = file.object_with_handle(client).await?;
 
 		let children = match object.as_ref() {
 			tg::file::Object::Pointer(pointer) => [
@@ -913,7 +907,7 @@ where
 						if let Some(edge) = dependency.0.item() {
 							let item = match edge {
 								tg::graph::Edge::Pointer(pointer) => {
-									pointer.get_with_handle(handle).await?.into()
+									pointer.get_with_handle(client).await?.into()
 								},
 								tg::graph::Edge::Object(object) => object.clone(),
 							};
@@ -953,21 +947,21 @@ where
 				children
 			},
 		};
-		let metadata = get_object_metadata_as_value(handle, file.id()).await?;
+		let metadata = get_object_metadata_as_value(client, file.id()).await?;
 		file.unload();
 
 		// Send the update.
-		let handle = handle.clone();
+		let client = client.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			node.borrow_mut().guard.replace(guard);
 			for (name, child) in children {
 				let item = tg::Referent::with_item(Item::Value(child));
-				let child = Self::create_node(&handle, &node, Some(name), Some(item));
+				let child = Self::create_node(&client, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
 			if node.borrow().options.expand_metadata {
 				let metadata = Self::create_node(
-					&handle,
+					&client,
 					&node,
 					Some("metadata".to_owned()),
 					Some(tg::Referent::with_item(Item::Value(metadata))),
@@ -980,14 +974,14 @@ where
 	}
 
 	async fn expand_graph(
-		handle: &H,
+		client: &tg::Client,
 		graph: tg::Graph,
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
 		// Get the graph nodes and metadata, then unload the object immediately.
-		let nodes = graph.nodes_with_handle(handle).await?;
-		let metadata = get_object_metadata_as_value(handle, graph.id()).await?;
+		let nodes = graph.nodes_with_handle(client).await?;
+		let metadata = get_object_metadata_as_value(client, graph.id()).await?;
 		graph.unload();
 
 		// Convert nodes to tg::Value::Maps
@@ -1011,7 +1005,7 @@ where
 											if pointer.graph.is_none() {
 												pointer.graph.replace(graph.clone());
 											}
-											pointer.get_with_handle(handle).await?.into()
+											pointer.get_with_handle(client).await?.into()
 										},
 										tg::graph::Edge::Object(artifact) => artifact.into(),
 									};
@@ -1033,7 +1027,7 @@ where
 											if pointer.graph.is_none() {
 												pointer.graph.replace(graph.clone());
 											}
-											pointer.get_with_handle(handle).await?.into()
+											pointer.get_with_handle(client).await?.into()
 										},
 										tg::graph::Edge::Object(directory) => directory.into(),
 									};
@@ -1078,7 +1072,7 @@ where
 											if pointer.graph.is_none() {
 												pointer.graph.replace(graph.clone());
 											}
-											pointer.get_with_handle(handle).await?.into()
+											pointer.get_with_handle(client).await?.into()
 										},
 										tg::graph::Edge::Object(object) => object.clone(),
 									};
@@ -1126,7 +1120,7 @@ where
 									if pointer.graph.is_none() {
 										pointer.graph.replace(graph.clone());
 									}
-									pointer.get_with_handle(handle).await?.into()
+									pointer.get_with_handle(client).await?.into()
 								},
 								tg::graph::Edge::Object(object) => object.into(),
 							};
@@ -1145,16 +1139,16 @@ where
 			.await?;
 
 		// Convert to a value and send the update.
-		let handle = handle.clone();
+		let client = client.clone();
 		let value = tg::Value::Array(nodes);
 		let update = move |node: Rc<RefCell<Node>>| {
 			node.borrow_mut().guard.replace(guard);
 			let item = tg::Referent::with_item(Item::Value(value));
-			let child = Self::create_node(&handle, &node, Some("nodes".to_owned()), Some(item));
+			let child = Self::create_node(&client, &node, Some("nodes".to_owned()), Some(item));
 			node.borrow_mut().children.push(child);
 			if node.borrow().options.expand_metadata {
 				let metadata = Self::create_node(
-					&handle,
+					&client,
 					&node,
 					Some("metadata".to_owned()),
 					Some(tg::Referent::with_item(Item::Value(metadata))),
@@ -1167,17 +1161,17 @@ where
 	}
 
 	async fn expand_map(
-		handle: &H,
+		client: &tg::Client,
 		map: tg::value::Map,
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
-		let handle = handle.clone();
+		let client = client.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			node.borrow_mut().guard.replace(guard);
 			for (name, value) in map {
 				let item = tg::Referent::with_item(Item::Value(value));
-				let child = Self::create_node(&handle, &node, Some(name), Some(item));
+				let child = Self::create_node(&client, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
 		};
@@ -1186,7 +1180,7 @@ where
 	}
 
 	async fn expand_mutation(
-		handle: &H,
+		client: &tg::Client,
 		value: tg::Mutation,
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
@@ -1254,12 +1248,12 @@ where
 				.collect(),
 		};
 
-		let handle = handle.clone();
+		let client = client.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			node.borrow_mut().guard.replace(guard);
 			for (name, child) in children {
 				let item = tg::Referent::with_item(Item::Value(child));
-				let child = Self::create_node(&handle, &node, Some(name), Some(item));
+				let child = Self::create_node(&client, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
 		};
@@ -1268,39 +1262,39 @@ where
 	}
 
 	async fn expand_object(
-		handle: &H,
+		client: &tg::Client,
 		object: tg::Object,
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
 		match object {
 			tg::Object::Blob(blob) => {
-				Self::expand_blob(handle, blob, update_sender, guard).await?;
+				Self::expand_blob(client, blob, update_sender, guard).await?;
 			},
 			tg::Object::Directory(directory) => {
-				Self::expand_directory(handle, directory, update_sender, guard).await?;
+				Self::expand_directory(client, directory, update_sender, guard).await?;
 			},
 			tg::Object::File(file) => {
-				Self::expand_file(handle, file, update_sender, guard).await?;
+				Self::expand_file(client, file, update_sender, guard).await?;
 			},
 			tg::Object::Symlink(symlink) => {
-				Self::expand_symlink(handle, symlink, update_sender, guard).await?;
+				Self::expand_symlink(client, symlink, update_sender, guard).await?;
 			},
 			tg::Object::Graph(graph) => {
-				Self::expand_graph(handle, graph, update_sender, guard).await?;
+				Self::expand_graph(client, graph, update_sender, guard).await?;
 			},
 			tg::Object::Command(command) => {
-				Self::expand_command(handle, command, update_sender, guard).await?;
+				Self::expand_command(client, command, update_sender, guard).await?;
 			},
 			tg::Object::Error(error) => {
-				Self::expand_error(handle, error, update_sender, guard).await?;
+				Self::expand_error(client, error, update_sender, guard).await?;
 			},
 		}
 		Ok(())
 	}
 
 	async fn expand_package(
-		handle: &H,
+		client: &tg::Client,
 		counter: UpdateCounter,
 		package: tg::Referent<tg::Object>,
 		update_sender: NodeUpdateSender,
@@ -1309,7 +1303,7 @@ where
 			dependencies: BTreeMap::new(),
 			package: package.clone(),
 		};
-		tg::object::visit(handle, &mut visitor, &package, true).await?;
+		tg::object::visit(client, &mut visitor, &package, true).await?;
 		let dependencies = visitor
 			.dependencies
 			.into_iter()
@@ -1324,7 +1318,7 @@ where
 			})
 			.collect::<Vec<_>>();
 		let guard = counter.guard();
-		let handle = handle.clone();
+		let client = client.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			node.borrow_mut().guard.replace(guard);
 
@@ -1332,10 +1326,10 @@ where
 			for (label, item) in dependencies {
 				let child = if let Some(item) = item {
 					let label = Self::item_label(&item);
-					Self::create_node(&handle, &node, label, Some(item))
+					Self::create_node(&client, &node, label, Some(item))
 				} else {
 					Self::create_node(
-						&handle,
+						&client,
 						&node,
 						Some(label),
 						Some(tg::Referent::with_item(Item::Value(tg::Value::Null))),
@@ -1350,13 +1344,13 @@ where
 	}
 
 	async fn expand_tag(
-		handle: &H,
+		client: &tg::Client,
 		counter: UpdateCounter,
 		pattern: &tg::tag::Pattern,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
 		// List the tag.
-		let output = handle
+		let output = client
 			.list_tags(tg::tag::list::Arg {
 				cached: false,
 				length: None,
@@ -1395,11 +1389,11 @@ where
 			})
 			.collect::<Vec<_>>();
 		let guard = counter.guard();
-		let handle = handle.clone();
+		let client = client.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			let children = children
 				.into_iter()
-				.map(|(label, referent)| Self::create_node(&handle, &node, label, Some(referent)))
+				.map(|(label, referent)| Self::create_node(&client, &node, label, Some(referent)))
 				.collect();
 			node.borrow_mut().children = children;
 			node.borrow_mut().guard.replace(guard);
@@ -1409,7 +1403,7 @@ where
 	}
 
 	async fn expand_process(
-		handle: &H,
+		client: &tg::Client,
 		counter: UpdateCounter,
 		referent: tg::Referent<tg::Process>,
 		update_sender: NodeUpdateSender,
@@ -1419,11 +1413,11 @@ where
 		// Create the log task.
 		let log_task = Task::spawn_local({
 			let process = process.clone();
-			let handle = handle.clone();
+			let client = client.clone();
 			let guard = counter.guard();
 			let update_sender = update_sender.clone();
 			|_| async move {
-				Self::process_log_task(&handle, process, update_sender)
+				Self::process_log_task(&client, process, update_sender)
 					.await
 					.ok();
 				drop(guard);
@@ -1434,18 +1428,18 @@ where
 		};
 		update_sender.send(Box::new(update)).ok();
 
-		let command = process.command_with_handle(handle).await?;
+		let command = process.command_with_handle(client).await?;
 		let value = tg::Value::Object(command.clone().into());
-		let metadata = get_process_metadata_as_value(handle, process.id().unwrap_right()).await?;
+		let metadata = get_process_metadata_as_value(client, process.id().unwrap_right()).await?;
 		update_sender
 			.send({
-				let handle = handle.clone();
+				let client = client.clone();
 				let guard = counter.guard();
 				Box::new(move |node| {
 					node.borrow_mut().guard.replace(guard);
 					if node.borrow().options.show_process_commands {
 						let command = Self::create_node(
-							&handle,
+							&client,
 							&node,
 							Some("command".to_owned()),
 							Some(tg::Referent::with_item(Item::Value(value))),
@@ -1453,7 +1447,7 @@ where
 						node.borrow_mut().children.push(command);
 						if node.borrow().options.expand_metadata {
 							let metadata = Self::create_node(
-								&handle,
+								&client,
 								&node,
 								Some("metadata".to_owned()),
 								Some(tg::Referent::with_item(Item::Value(metadata))),
@@ -1466,21 +1460,21 @@ where
 			.unwrap();
 
 		tokio::task::spawn({
-			let handle = handle.clone();
+			let client = client.clone();
 			let process = process.clone();
 			let update_sender = update_sender.clone();
 			async move {
 				let Ok(wait) = process
-					.wait_with_handle(&handle, tg::process::wait::Arg::default())
+					.wait_with_handle(&client, tg::process::wait::Arg::default())
 					.await
 				else {
 					return;
 				};
 				if let Some(output) = wait.output {
-					let handle = handle.clone();
+					let client = client.clone();
 					let update = move |node: Rc<RefCell<Node>>| {
 						let output = Self::create_node(
-							&handle,
+							&client,
 							&node,
 							Some("output".into()),
 							Some(tg::Referent::with_item(Item::Value(output))),
@@ -1494,7 +1488,7 @@ where
 
 		// Create the children stream.
 		let mut children = process
-			.children_with_handle(handle, tg::process::children::get::Arg::default())
+			.children_with_handle(client, tg::process::children::get::Arg::default())
 			.await?;
 		while let Some(child) = children.try_next().await? {
 			let mut child = tg::Referent::new(child.process, child.options);
@@ -1505,14 +1499,14 @@ where
 			// Check the status of the process.
 			let finished = child
 				.item
-				.status_with_handle(handle)
+				.status_with_handle(client)
 				.await?
 				.try_next()
 				.await?
 				.is_none_or(|status| matches!(status, tg::process::Status::Finished));
 
 			// Post the update.
-			let handle = handle.clone();
+			let client = client.clone();
 			let guard = counter.guard();
 			let update = move |node: Rc<RefCell<Node>>| {
 				if node.borrow().options.collapse_process_children && finished {
@@ -1520,7 +1514,7 @@ where
 				}
 				let child = child.clone();
 				let child_node =
-					Self::create_node(&handle, &node, None, Some(child.clone().map(Item::Process)));
+					Self::create_node(&client, &node, None, Some(child.clone().map(Item::Process)));
 
 				// Create the update task.
 				let update_task = Task::spawn_local({
@@ -1531,7 +1525,7 @@ where
 					let update_sender = child_node.borrow().update_sender.clone();
 					|_| async move {
 						Self::process_update_task(
-							&handle,
+							&client,
 							counter,
 							&child,
 							options.as_ref(),
@@ -1572,12 +1566,12 @@ where
 	}
 
 	async fn expand_symlink(
-		handle: &H,
+		client: &tg::Client,
 		symlink: tg::Symlink,
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
-		let object = symlink.object_with_handle(handle).await?;
+		let object = symlink.object_with_handle(client).await?;
 		let children = match object.as_ref() {
 			tg::symlink::Object::Pointer(pointer) => [
 				(
@@ -1600,7 +1594,7 @@ where
 				if let Some(artifact) = &node.artifact {
 					let artifact = match artifact {
 						tg::graph::Edge::Pointer(pointer) => {
-							pointer.get_with_handle(handle).await?.into()
+							pointer.get_with_handle(client).await?.into()
 						},
 						tg::graph::Edge::Object(artifact) => artifact.clone().into(),
 					};
@@ -1613,21 +1607,21 @@ where
 				children
 			},
 		};
-		let metadata = get_object_metadata_as_value(handle, symlink.id()).await?;
+		let metadata = get_object_metadata_as_value(client, symlink.id()).await?;
 		symlink.unload();
 
 		// Send the update.
-		let handle = handle.clone();
+		let client = client.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			node.borrow_mut().guard.replace(guard);
 			for (name, child) in children {
 				let item = tg::Referent::with_item(Item::Value(child));
-				let child = Self::create_node(&handle, &node, Some(name), Some(item));
+				let child = Self::create_node(&client, &node, Some(name), Some(item));
 				node.borrow_mut().children.push(child);
 			}
 			if node.borrow().options.expand_metadata {
 				let metadata = Self::create_node(
-					&handle,
+					&client,
 					&node,
 					Some("metadata".to_owned()),
 					Some(tg::Referent::with_item(Item::Value(metadata))),
@@ -1641,7 +1635,7 @@ where
 	}
 
 	async fn expand_task(
-		handle: &H,
+		client: &tg::Client,
 		counter: UpdateCounter,
 		referent: tg::Referent<Item>,
 		update_sender: NodeUpdateSender,
@@ -1649,11 +1643,11 @@ where
 		let result = match referent.item() {
 			Item::Process(process) => {
 				let referent = referent.clone().map(|_| process.clone());
-				Self::expand_process(handle, counter.clone(), referent, update_sender.clone()).await
+				Self::expand_process(client, counter.clone(), referent, update_sender.clone()).await
 			},
 			Item::Value(value) => {
 				Self::expand_value(
-					handle,
+					client,
 					counter.clone(),
 					value.clone(),
 					update_sender.clone(),
@@ -1662,10 +1656,10 @@ where
 			},
 			Item::Package(package) => {
 				let referent = referent.clone().map(|_| package.0.clone());
-				Self::expand_package(handle, counter.clone(), referent, update_sender.clone()).await
+				Self::expand_package(client, counter.clone(), referent, update_sender.clone()).await
 			},
 			Item::Tag(tag) => {
-				Self::expand_tag(handle, counter.clone(), tag, update_sender.clone()).await
+				Self::expand_tag(client, counter.clone(), tag, update_sender.clone()).await
 			},
 		};
 		if let Err(error) = result {
@@ -1680,7 +1674,7 @@ where
 	}
 
 	async fn expand_template(
-		handle: &H,
+		client: &tg::Client,
 		template: tg::Template,
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
@@ -1711,12 +1705,12 @@ where
 			})
 			.collect();
 		let value = tg::Value::Array(array);
-		let handle = handle.clone();
+		let client = client.clone();
 		let update = move |node: Rc<RefCell<Node>>| {
 			node.borrow_mut().guard.replace(guard);
 			let item = tg::Referent::with_item(Item::Value(value));
 			let child =
-				Self::create_node(&handle, &node, Some("components".to_owned()), Some(item));
+				Self::create_node(&client, &node, Some("components".to_owned()), Some(item));
 			node.borrow_mut().children.push(child);
 		};
 		update_sender.send(Box::new(update)).ok();
@@ -1724,7 +1718,7 @@ where
 	}
 
 	async fn expand_value(
-		handle: &H,
+		client: &tg::Client,
 		counter: UpdateCounter,
 		value: tg::Value,
 		update_sender: NodeUpdateSender,
@@ -1732,19 +1726,19 @@ where
 		let guard = counter.guard();
 		match value {
 			tg::Value::Array(array) => {
-				Self::expand_array(handle, array, update_sender, guard).await?;
+				Self::expand_array(client, array, update_sender, guard).await?;
 			},
 			tg::Value::Map(map) => {
-				Self::expand_map(handle, map, update_sender, guard).await?;
+				Self::expand_map(client, map, update_sender, guard).await?;
 			},
 			tg::Value::Object(object) => {
-				Self::expand_object(handle, object, update_sender, guard).await?;
+				Self::expand_object(client, object, update_sender, guard).await?;
 			},
 			tg::Value::Mutation(mutation) => {
-				Self::expand_mutation(handle, mutation, update_sender, guard).await?;
+				Self::expand_mutation(client, mutation, update_sender, guard).await?;
 			},
 			tg::Value::Template(template) => {
-				Self::expand_template(handle, template, update_sender, guard).await?;
+				Self::expand_template(client, template, update_sender, guard).await?;
 			},
 			_ => (),
 		}
@@ -1881,11 +1875,11 @@ where
 	}
 
 	pub fn new(
-		handle: &H,
+		client: &tg::Client,
 		referent: tg::Referent<Item>,
 		options: Options,
 		data: data::UpdateSender,
-		viewer: super::UpdateSender<H>,
+		viewer: super::UpdateSender,
 	) -> Self {
 		let counter = UpdateCounter::new();
 		let expanded_nodes = Rc::new(RefCell::new(HashSet::new()));
@@ -1913,11 +1907,11 @@ where
 		let expand_task = if expand {
 			let counter = counter.clone();
 			let guard = counter.guard();
-			let handle = handle.clone();
+			let client = client.clone();
 			let referent = referent.clone();
 			let update_sender = update_sender.clone();
 			let task: Task<()> = Task::spawn_local(|_| async move {
-				Self::expand_task(&handle, counter, referent, update_sender).await;
+				Self::expand_task(&client, counter, referent, update_sender).await;
 				drop(guard);
 			});
 			Some(task)
@@ -1931,12 +1925,12 @@ where
 				let counter = counter.clone();
 				let guard = counter.guard();
 				let process = referent.clone().map(|_| process.clone());
-				let handle = handle.clone();
+				let client = client.clone();
 				let options = options.clone();
 				let update_sender = update_sender.clone();
 				|_| async move {
 					Self::process_update_task(
-						&handle,
+						&client,
 						counter,
 						&process,
 						options.as_ref(),
@@ -1974,7 +1968,7 @@ where
 		}));
 		let roots = vec![(root.clone(), (0, 0))];
 		Self {
-			handle: handle.clone(),
+			client: client.clone(),
 			counter,
 			data,
 			num_rendered_columns: 0,
@@ -2017,7 +2011,7 @@ where
 	}
 
 	async fn process_log_task(
-		handle: &H,
+		client: &tg::Client,
 		process: tg::Process,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
@@ -2029,7 +2023,7 @@ where
 			..Default::default()
 		};
 		let mut log = process
-			.try_read_stdio_all(handle, arg)
+			.try_read_stdio_all(client, arg)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the process log"))?;
 		while let Some(event) = log.try_next().await? {
@@ -2039,7 +2033,7 @@ where
 			let chunk = String::from_utf8_lossy(&chunk.bytes);
 			for line in chunk.lines() {
 				let line = line.to_owned();
-				let handle = handle.clone();
+				let client = client.clone();
 				let update = move |node: Rc<RefCell<Node>>| {
 					// Create the log node if necessary.
 					let log_node = node
@@ -2049,7 +2043,7 @@ where
 						.position(|node| node.borrow().label.as_deref() == Some("log"));
 					let log_node = log_node.unwrap_or_else(|| {
 						// Create the log node.
-						let child = Self::create_node(&handle, &node, Some("log".to_owned()), None);
+						let child = Self::create_node(&client, &node, Some("log".to_owned()), None);
 
 						// Find where to insert it.
 						let has_children_node =
@@ -2072,15 +2066,18 @@ where
 		Ok(())
 	}
 
-	async fn process_title(handle: &H, process: &tg::Referent<tg::Process>) -> Option<String> {
+	async fn process_title(
+		client: &tg::Client,
+		process: &tg::Referent<tg::Process>,
+	) -> Option<String> {
 		// Use the name if provided.
 		if let Some(name) = process.name() {
 			return Some(name.to_owned());
 		}
 
 		// Get the original commands' executable.
-		let command = process.item.command_with_handle(handle).await.ok()?.clone();
-		let executable = command.executable_with_handle(handle).await.ok()?.clone();
+		let command = process.item.command_with_handle(client).await.ok()?.clone();
+		let executable = command.executable_with_handle(client).await.ok()?.clone();
 
 		// Handle paths.
 		if let Ok(path) = executable.try_unwrap_path_ref() {
@@ -2114,16 +2111,13 @@ where
 	}
 
 	async fn process_update_task(
-		handle: &H,
+		client: &tg::Client,
 		counter: UpdateCounter,
 		process: &tg::Referent<tg::Process>,
 		options: &Options,
 		update_sender: NodeUpdateSender,
-	) -> tg::Result<()>
-	where
-		H: tg::Handle,
-	{
-		if let Some(title) = Self::process_title(handle, process).await {
+	) -> tg::Result<()> {
+		if let Some(title) = Self::process_title(client, process).await {
 			let guard = counter.guard();
 			update_sender
 				.send(Box::new(|node| {
@@ -2134,7 +2128,7 @@ where
 		}
 
 		// Create the status stream.
-		let mut status = process.item.status_with_handle(handle).await?;
+		let mut status = process.item.status_with_handle(client).await?;
 		while let Some(status) = status.try_next().await? {
 			let guard = counter.guard();
 			let indicator = match (process.item.cached(), status) {
@@ -2172,7 +2166,7 @@ where
 						return Ok(());
 					}
 
-					let state = process.item.load_with_handle(handle).await?;
+					let state = process.item.load_with_handle(client).await?;
 					let failed =
 						state.error.is_some() || state.exit.as_ref().is_some_and(|code| *code != 0);
 					if failed {
@@ -2190,7 +2184,7 @@ where
 
 		// Check if the process was canceled.
 		let arg = tg::process::get::Arg::default();
-		if handle
+		if client
 			.try_get_process(process.item.id().unwrap_right(), arg)
 			.await?
 			.and_then(|output| output.data.error)
@@ -2335,7 +2329,7 @@ where
 		let Some(referent) = node.borrow().referent.clone() else {
 			return;
 		};
-		let handle = self.handle.clone();
+		let client = self.client.clone();
 		let data = self.data.clone();
 		let viewer = self.viewer.clone();
 		let task = Task::spawn_local(|_| {
@@ -2350,17 +2344,17 @@ where
 							_ => None,
 						});
 				if let Some(process) = process.clone()
-					&& let Ok(state) = process.load_with_handle(&handle).await
+					&& let Ok(state) = process.load_with_handle(&client).await
 					&& (state.log.is_some() || state.stdout.is_log() || state.stderr.is_log())
 				{
-					let handle = handle.clone();
-					let update = move |viewer: &mut super::Viewer<H>| {
-						let log = Log::new(&handle, &process);
+					let client = client.clone();
+					let update = move |viewer: &mut super::Viewer| {
+						let log = Log::new(&client, &process);
 						viewer.log.replace(log);
 					};
 					viewer.send(Box::new(update)).unwrap();
 				} else {
-					let update = move |viewer: &mut super::Viewer<H>| {
+					let update = move |viewer: &mut super::Viewer| {
 						viewer.log.take();
 					};
 					viewer.send(Box::new(update)).unwrap();
@@ -2368,10 +2362,10 @@ where
 
 				// Update the data view.
 				let content_future = {
-					let handle = handle.clone();
+					let client = client.clone();
 					async move {
 						match referent.item {
-							Item::Process(process) => handle
+							Item::Process(process) => client
 								.get_process(process.id().unwrap_right())
 								.and_then(async |output: tg::process::get::Output| {
 									#[derive(serde::Serialize)]
@@ -2379,7 +2373,7 @@ where
 										data: tg::process::get::Output,
 										metadata: Option<tg::process::Metadata>,
 									}
-									let metadata = handle
+									let metadata = client
 										.try_get_process_metadata(
 											process.id().unwrap_right(),
 											tg::process::metadata::Arg::default(),
@@ -2395,16 +2389,16 @@ where
 								.await
 								.unwrap_or_else(|error| error.to_string()),
 							Item::Value(tg::Value::Object(tg::Object::Blob(blob))) => {
-								super::util::format_blob(&handle, &blob)
+								super::util::format_blob(&client, &blob)
 									.await
 									.unwrap_or_else(|error| error.to_string())
 							},
 							Item::Value(value) => {
 								let value = match value {
 									tg::Value::Object(object) => {
-										object.load_with_handle(&handle).await.ok();
+										object.load_with_handle(&client).await.ok();
 										let metadata =
-											get_object_metadata_as_value(&handle, object.id())
+											get_object_metadata_as_value(&client, object.id())
 												.await
 												.unwrap_or_else(|error| {
 													tg::Value::String(error.to_string())
@@ -2429,9 +2423,9 @@ where
 								value.print(options)
 							},
 							Item::Package(package) => {
-								package.0.load_with_handle(&handle).await.ok();
+								package.0.load_with_handle(&client).await.ok();
 								let metadata =
-									get_object_metadata_as_value(&handle, package.0.id())
+									get_object_metadata_as_value(&client, package.0.id())
 										.await
 										.unwrap_or_else(|error| {
 											tg::Value::String(error.to_string())
@@ -2562,7 +2556,7 @@ where
 	}
 }
 
-impl<H> Drop for Tree<H> {
+impl Drop for Tree {
 	fn drop(&mut self) {
 		if let Some(task) = self.selected_task.take() {
 			task.abort();
@@ -2614,25 +2608,26 @@ struct PackageVisitor {
 	package: tg::Referent<tg::Object>,
 }
 
-impl<H> tg::object::Visitor<H> for PackageVisitor
-where
-	H: tg::Handle,
-{
+impl tg::object::Visitor<tg::Client> for PackageVisitor {
 	async fn visit_directory(
 		&mut self,
-		_handle: &H,
+		_client: &tg::Client,
 		_directory: tg::Referent<&tg::Directory>,
 	) -> tg::Result<bool> {
 		Ok(true)
 	}
-	async fn visit_file(&mut self, handle: &H, file: tg::Referent<&tg::File>) -> tg::Result<bool> {
+	async fn visit_file(
+		&mut self,
+		client: &tg::Client,
+		file: tg::Referent<&tg::File>,
+	) -> tg::Result<bool> {
 		if file.path().is_some()
 			&& ((file.tag().is_some() && file.tag() != self.package.tag())
 				|| (file.id().is_some() && file.id() != self.package.id()))
 		{
 			return Ok(false);
 		}
-		let dependencies = file.item().dependencies_with_handle(handle).await?;
+		let dependencies = file.item().dependencies_with_handle(client).await?;
 		self.dependencies.extend(
 			dependencies
 				.into_iter()
@@ -2642,7 +2637,7 @@ where
 	}
 	async fn visit_symlink(
 		&mut self,
-		_handle: &H,
+		_client: &tg::Client,
 		_symlink: tg::Referent<&tg::Symlink>,
 	) -> tg::Result<bool> {
 		Ok(false)
@@ -2650,10 +2645,10 @@ where
 }
 
 async fn get_process_metadata_as_value(
-	handle: &impl tg::Handle,
+	client: &impl tg::Handle,
 	id: &tg::process::Id,
 ) -> tg::Result<tg::Value> {
-	let Some(metadata) = handle
+	let Some(metadata) = client
 		.try_get_process_metadata(id, tg::process::metadata::Arg::default())
 		.await?
 	else {
@@ -2694,10 +2689,10 @@ async fn get_process_metadata_as_value(
 }
 
 async fn get_object_metadata_as_value(
-	handle: &impl tg::Handle,
+	client: &impl tg::Handle,
 	id: impl Into<tg::object::Id>,
 ) -> tg::Result<tg::Value> {
-	let Some(metadata) = handle
+	let Some(metadata) = client
 		.try_get_object_metadata(&id.into(), tg::object::metadata::Arg::default())
 		.await?
 	else {

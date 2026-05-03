@@ -68,7 +68,8 @@ impl Server {
 			network: bool,
 			#[tangram_database(as = "db::value::FromStr")]
 			status: tg::sandbox::Status,
-			ttl: i64,
+			#[tangram_database(as = "Option<db::value::DurationSeconds>")]
+			ttl: Option<std::time::Duration>,
 			user: Option<String>,
 		}
 		let connection = self
@@ -123,7 +124,7 @@ impl Server {
 					mounts: row.mounts.unwrap_or_default(),
 					network: row.network,
 					status: row.status,
-					ttl: u64::try_from(row.ttl).unwrap(),
+					ttl: row.ttl,
 					user: row.user,
 				})
 			})

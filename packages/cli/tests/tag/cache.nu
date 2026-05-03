@@ -126,24 +126,24 @@ tg -u $clean_local.url tag get "a/b"
 tg -u $clean_local.url tag get "a/c/d"
 
 # Verify the tags are cached. Use a large ttl to bypass the expiry check.
-let before_b = tg -u $clean_local.url tag get --remote --cached --ttl 999999 "a/b" | complete
+let before_b = tg -u $clean_local.url tag get --remote --cached --no-ttl "a/b" | complete
 assert ($before_b.exit_code == 0) "tag a/b should be in the cache before clean"
-let before_d = tg -u $clean_local.url tag get --remote --cached --ttl 999999 "a/c/d" | complete
+let before_d = tg -u $clean_local.url tag get --remote --cached --no-ttl "a/c/d" | complete
 assert ($before_d.exit_code == 0) "tag a/c/d should be in the cache before clean"
 
 # Clean. All cached remote tags are deleted.
 tg -u $clean_local.url clean
 
 # The cached remote leaf tags should be deleted from the database.
-let after_b = tg -u $clean_local.url tag get --remote --cached --ttl 999999 "a/b" | complete
+let after_b = tg -u $clean_local.url tag get --remote --cached --no-ttl "a/b" | complete
 assert ($after_b.exit_code != 0) "leaf tag a/b should be cleaned"
-let after_d = tg -u $clean_local.url tag get --remote --cached --ttl 999999 "a/c/d" | complete
+let after_d = tg -u $clean_local.url tag get --remote --cached --no-ttl "a/c/d" | complete
 assert ($after_d.exit_code != 0) "leaf tag a/c/d should be cleaned"
 
 # Branch tags should also be cleaned since they became childless.
-let after_a = tg -u $clean_local.url tag get --remote --cached --ttl 999999 "a" | complete
+let after_a = tg -u $clean_local.url tag get --remote --cached --no-ttl "a" | complete
 assert ($after_a.exit_code != 0) "branch tag a should be cleaned"
-let after_c = tg -u $clean_local.url tag get --remote --cached --ttl 999999 "a/c" | complete
+let after_c = tg -u $clean_local.url tag get --remote --cached --no-ttl "a/c" | complete
 assert ($after_c.exit_code != 0) "branch tag a/c should be cleaned"
 
 # Tags are still available from the remote. Fetching should work after clean.

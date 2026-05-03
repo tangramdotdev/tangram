@@ -1079,6 +1079,15 @@ def force_unmount_vfs [path: string] {
 	if $nu.os-info.name != 'linux' {
 		return
 	}
+	let mounted_artifacts_paths = (
+		try {
+			^findmnt -rn -o TARGET | lines | where { |target|
+				($target == ($path | path join 'artifacts')) or (($target | str starts-with ($path + '/')) and (($target | path basename) == 'artifacts'))
+			}
+		} catch {
+			[]
+		}
+	)
 	let artifacts_paths = (
 		[
 			($path | path join 'artifacts')
@@ -1088,7 +1097,9 @@ def force_unmount_vfs [path: string] {
 			} catch {
 				[]
 			}
-		) | uniq | where { |path| $path | path exists }
+		) | append $mounted_artifacts_paths | uniq | each { |path|
+			{ path: $path, length: ($path | str length) }
+		} | sort-by length --reverse | get path
 	)
 	for artifacts_path in $artifacts_paths {
 		try {

@@ -5,6 +5,7 @@ use {
 		ops::Deref,
 		path::PathBuf,
 		sync::{Arc, Mutex, RwLock},
+		time::Duration,
 	},
 	tangram_util::arc::Ext as _,
 };
@@ -348,6 +349,9 @@ impl<O> Process<O> {
 		if let Some(wait) = self.wait.lock().unwrap().take() {
 			return Ok(wait);
 		}
+		if arg.location.is_none() {
+			arg.location = self.location();
+		}
 		if arg.token.is_none() {
 			arg.token = self.token().cloned();
 		}
@@ -427,7 +431,7 @@ pub(crate) fn normalize_sandbox_arg(
 				cpu,
 				memory,
 				network: false,
-				ttl: 0,
+				ttl: Some(Duration::ZERO),
 				..Default::default()
 			})))
 		},

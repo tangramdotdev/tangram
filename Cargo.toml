@@ -96,6 +96,7 @@ heed = "0.22"
 http = "1"
 http-body = "1"
 http-body-util = "0.1"
+humantime = "2"
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["server-auto", "service", "tokio"] }
 im = "15"

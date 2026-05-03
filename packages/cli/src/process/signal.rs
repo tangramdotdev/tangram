@@ -16,7 +16,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_process_signal(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let process = tg::Process::<tg::Value>::new(
 			args.process.clone(),
 			args.location.get(),
@@ -28,7 +28,7 @@ impl Cli {
 
 		// Signal the process.
 		process
-			.signal_with_handle(&handle, args.signal)
+			.signal_with_handle(&client, args.signal)
 			.await
 			.map_err(
 				|source| tg::error!(!source, id = %process.id(), "failed to signal the process"),

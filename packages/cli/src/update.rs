@@ -60,7 +60,7 @@ struct Update {
 
 impl Cli {
 	pub async fn command_update(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 
 		// Canonicalize the path's parent.
 		let path = tangram_util::fs::canonicalize_parent(&args.path)
@@ -89,7 +89,7 @@ impl Cli {
 			path: path.clone(),
 			updates,
 		};
-		let stream = handle
+		let stream = client
 			.checkin(arg)
 			.await
 			.map_err(|source| tg::error!(!source, path = %path.display(), "failed to check in"))?;
@@ -174,9 +174,7 @@ pub(crate) async fn try_read_lock(path: PathBuf) -> tg::Result<Option<tg::graph:
 				contents
 			} else {
 				// Fall back to xattr.
-				xattr::get(&path, tg::file::LOCKATTR_XATTR_NAME)
-					.ok()
-					.flatten()
+				xattr::get(&path, tg::file::LOCK_XATTR_NAME).ok().flatten()
 			}
 		} else {
 			None

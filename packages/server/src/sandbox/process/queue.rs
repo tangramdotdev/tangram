@@ -1,7 +1,7 @@
 use {
 	crate::{Context, Server, database::Database},
 	futures::{StreamExt as _, future, stream},
-	std::{pin::pin, time::Duration},
+	std::time::Duration,
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Stopper},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -29,20 +29,24 @@ impl Server {
 
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.try_dequeue_sandbox_process_local(sandbox, context.stopper.clone())
-					.await?
+				self.try_dequeue_sandbox_process_local(
+					sandbox,
+					context.stopper.clone(),
+					arg.timeout,
+				)
+				.await?
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
 			}) => {
-				self.try_dequeue_sandbox_process_region(sandbox, region)
+				self.try_dequeue_sandbox_process_region(sandbox, region, arg.timeout)
 					.await?
 			},
 			tg::Location::Remote(tg::location::Remote {
 				name: remote,
 				region,
 			}) => {
-				self.try_dequeue_sandbox_process_remote(sandbox, remote, region)
+				self.try_dequeue_sandbox_process_remote(sandbox, remote, region, arg.timeout)
 					.await?
 			},
 		};
@@ -72,6 +76,7 @@ impl Server {
 		&self,
 		sandbox: &tg::sandbox::Id,
 		stopper: Option<Stopper>,
+		timeout: Option<Duration>,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
 		// Verify the sandbox exists.
 		if !self.get_sandbox_exists_local(sandbox).await.map_err(
@@ -80,21 +85,30 @@ impl Server {
 			return Ok(None);
 		}
 
-		// Create the update stream.
-		let subject = format!("sandboxes.{sandbox}.processes.created");
-		let created = self
-			.messenger
-			.subscribe_with_delivery::<()>(subject, Delivery::One)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
-			.map(|_| ());
-		let interval = Duration::from_secs(1);
-		let interval = IntervalStream::new(tokio::time::interval(interval)).map(|_| ());
-		let stream = stream::select(created, interval).with_stopper(stopper);
+		let mut wakeups = if timeout == Some(Duration::ZERO) {
+			None
+		} else {
+			let subject = format!("sandboxes.{sandbox}.processes.created");
+			let wakeups = self
+				.messenger
+				.subscribe_with_delivery::<()>(subject, Delivery::One)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+				.map(|_| ());
+			let interval = Duration::from_secs(1);
+			let interval = IntervalStream::new(tokio::time::interval(interval))
+				.skip(1)
+				.map(|_| ());
+			let wakeups = stream::select(wakeups, interval);
+			let wakeups = match timeout {
+				Some(timeout) => wakeups.take_until(tokio::time::sleep(timeout)).boxed(),
+				None => wakeups.boxed(),
+			};
+			Some(wakeups.with_stopper(stopper))
+		};
 
 		// Dequeue.
-		let mut stream = pin!(stream);
-		while let Some(()) = stream.next().await {
+		loop {
 			let output = match &self.process_store {
 				#[cfg(feature = "postgres")]
 				Database::Postgres(process_store) => {
@@ -114,6 +128,12 @@ impl Server {
 					.ok();
 				return Ok(Some(output));
 			}
+			let Some(wakeups) = &mut wakeups else {
+				break;
+			};
+			if wakeups.next().await.is_none() {
+				break;
+			}
 		}
 
 		Ok(None)
@@ -123,6 +143,7 @@ impl Server {
 		&self,
 		sandbox: &tg::sandbox::Id,
 		region: String,
+		timeout: Option<Duration>,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
 		let client = self.get_region_client(region.clone()).await.map_err(
 			|source| tg::error!(!source, region = %region, "failed to get the region client"),
@@ -132,6 +153,7 @@ impl Server {
 		});
 		let arg = tg::sandbox::process::queue::Arg {
 			location: Some(location.into()),
+			timeout,
 		};
 		let output = client
 			.try_dequeue_sandbox_process(sandbox, arg)
@@ -147,12 +169,14 @@ impl Server {
 		sandbox: &tg::sandbox::Id,
 		remote: String,
 		region: Option<String>,
+		timeout: Option<Duration>,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
 		let client = self.get_remote_client(remote.clone()).await.map_err(
 			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::sandbox::process::queue::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
+			timeout,
 		};
 		let output = client
 			.try_dequeue_sandbox_process(sandbox, arg)

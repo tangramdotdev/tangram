@@ -11,7 +11,7 @@ impl Cli {
 			Self::print_warning_message(&format!("failed to stop existing server. {error}"));
 		}
 		let client = self.create_client()?;
-		self.start_server(&client).await?;
+		self.spawn_server(&client).await?;
 		Ok(())
 	}
 }

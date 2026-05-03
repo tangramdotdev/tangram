@@ -1,4 +1,8 @@
-use {crate::Cli, std::path::PathBuf, tangram_client::prelude::*};
+use {
+	crate::Cli,
+	std::{path::PathBuf, time::Duration},
+	tangram_client::prelude::*,
+};
 
 /// Check in an artifact.
 #[derive(Clone, Debug, clap::Args)]
@@ -56,15 +60,29 @@ pub struct Options {
 	#[command(flatten)]
 	pub source_dependencies: SourceDependencies,
 
-	/// Set the cache TTL in seconds for tag resolution. Use 0 to bypass the cache.
-	#[arg(long)]
-	pub tag_ttl: Option<u64>,
+	#[command(flatten)]
+	pub tag_ttl: TagTtl,
 
 	#[command(flatten)]
 	pub unsolved_dependencies: UnsolvedDependencies,
 
 	#[arg(long)]
 	pub watch: bool,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct TagTtl {
+	#[arg(long = "tag-ttl", value_parser = humantime::parse_duration, overrides_with = "no_tag_ttl")]
+	pub tag_ttl: Option<Duration>,
+
+	#[arg(long = "no-tag-ttl", overrides_with = "tag_ttl")]
+	pub no_tag_ttl: bool,
+}
+
+impl TagTtl {
+	fn get(&self) -> Option<Duration> {
+		if self.no_tag_ttl { None } else { self.tag_ttl }
+	}
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -246,7 +264,7 @@ impl CachePointers {
 
 impl Cli {
 	pub async fn command_checkin(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 
 		// Get the updates.
 		let updates = args.updates.unwrap_or_default();
@@ -262,7 +280,7 @@ impl Cli {
 			path,
 			updates,
 		};
-		let stream = handle
+		let stream = client
 			.checkin(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check in the artifact"))?;
@@ -287,7 +305,7 @@ impl Options {
 			root: self.root,
 			solve: self.solve.get(),
 			source_dependencies: self.source_dependencies.get(),
-			tag_ttl: self.tag_ttl,
+			tag_ttl: self.tag_ttl.get(),
 			unsolved_dependencies: self.unsolved_dependencies.get(),
 			watch: self.watch,
 		}

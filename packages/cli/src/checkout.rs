@@ -87,7 +87,7 @@ impl Lock {
 
 impl Cli {
 	pub async fn command_checkout(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 
 		// Get the absolute path.
 		let path = if let Some(path) = args.path {
@@ -123,7 +123,7 @@ impl Cli {
 			lock,
 			path,
 		};
-		let stream = handle.checkout(arg).await.map_err(
+		let stream = client.checkout(arg).await.map_err(
 			|source| tg::error!(!source, %artifact, "failed to create the checkout stream"),
 		)?;
 		let output = self

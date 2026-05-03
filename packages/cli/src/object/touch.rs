@@ -13,11 +13,11 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_object_touch(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let arg = tg::object::touch::Arg {
 			location: args.locations.get(),
 		};
-		handle.touch_object(&args.object, arg).await.map_err(
+		client.touch_object(&args.object, arg).await.map_err(
 			|source| tg::error!(!source, id = %args.object, "failed to touch the object"),
 		)?;
 		Ok(())

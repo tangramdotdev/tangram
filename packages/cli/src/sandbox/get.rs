@@ -16,8 +16,8 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_sandbox_get(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
-		let output = handle
+		let client = self.client().await?;
+		let output = client
 			.try_get_sandbox(
 				&args.sandbox,
 				tg::sandbox::get::Arg {

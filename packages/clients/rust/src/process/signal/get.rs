@@ -1,7 +1,8 @@
 use {
 	crate::prelude::*,
 	futures::{Stream, TryStreamExt as _},
-	std::future,
+	serde_with::{DurationSecondsWithFrac, serde_as},
+	std::{future, time::Duration},
 	tangram_http::{request::builder::Ext as _, response::Ext as _, sse},
 	tangram_uri::Uri,
 };
@@ -13,10 +14,15 @@ pub enum Event {
 	End,
 }
 
+#[serde_as]
 #[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	pub timeout: Option<Duration>,
 }
 
 impl tg::Client {

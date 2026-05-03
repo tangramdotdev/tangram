@@ -19,7 +19,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_process_put(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let bytes = if let Some(bytes) = args.bytes {
 			bytes
 		} else {
@@ -39,7 +39,7 @@ impl Cli {
 			data,
 			location: args.location.get(),
 		};
-		handle
+		client
 			.put_process(&args.id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, id = %args.id, "failed to put the process"))?;

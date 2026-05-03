@@ -144,7 +144,7 @@ impl Cli {
 	}
 
 	pub(crate) async fn print_error(&mut self, error: tg::Referent<tg::Error>) {
-		let handle = self.handle().await.ok();
+		let client = self.client().await.ok();
 		let internal = self
 			.config
 			.as_ref()
@@ -159,8 +159,8 @@ impl Cli {
 				.map(|object| object.unwrap_error())
 			{
 				error
-			} else if let Some(error) = match &handle {
-				Some(handle) => error_referent.item().load_with_handle(handle).await.ok(),
+			} else if let Some(error) = match &client {
+				Some(client) => error_referent.item().load_with_handle(client).await.ok(),
 				None => None,
 			} {
 				error
@@ -324,12 +324,12 @@ impl Cli {
 		message: &str,
 		edge: &tg::graph::Edge<tg::Object>,
 	) {
-		let Ok(handle) = self.handle().await else {
+		let Ok(client) = self.client().await else {
 			return;
 		};
 		let file = match edge {
 			tg::graph::Edge::Pointer(pointer) => {
-				let Ok(artifact) = pointer.get_with_handle(&handle).await else {
+				let Ok(artifact) = pointer.get_with_handle(&client).await else {
 					return;
 				};
 				let Ok(file) = artifact.try_unwrap_file() else {
@@ -344,7 +344,7 @@ impl Cli {
 				file
 			},
 		};
-		let Ok(text) = file.text_with_handle(&handle).await else {
+		let Ok(text) = file.text_with_handle(&client).await else {
 			return;
 		};
 		Self::print_code(title, range, message, text);

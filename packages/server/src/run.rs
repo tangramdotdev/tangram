@@ -31,6 +31,7 @@ impl Server {
 			let location = tg::Location::Local(tg::location::Local::default());
 			let arg = tg::sandbox::queue::Arg {
 				location: Some(location.clone().into()),
+				timeout: None,
 			};
 			let futures = std::iter::once(
 				self.dequeue_sandbox(arg)
@@ -47,6 +48,7 @@ impl Server {
 					async move {
 						let arg = tg::sandbox::queue::Arg {
 							location: Some(location.clone().into()),
+							timeout: None,
 						};
 						let output = server.dequeue_sandbox(arg).await?;
 						Ok::<_, tg::Error>((output, location))

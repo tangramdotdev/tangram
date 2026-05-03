@@ -10,9 +10,9 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_watch_list(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let arg = tg::watch::list::Arg::default();
-		let output = handle
+		let output = client
 			.list_watches(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to list the watches"))?;

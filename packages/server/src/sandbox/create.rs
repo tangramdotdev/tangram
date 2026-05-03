@@ -86,8 +86,8 @@ impl Server {
 			.map(i64::try_from)
 			.transpose()
 			.map_err(|source| tg::error!(!source, "invalid sandbox memory"))?;
-		let ttl =
-			i64::try_from(arg.ttl).map_err(|source| tg::error!(!source, "invalid sandbox ttl"))?;
+		let ttl = arg.ttl;
+		db::value::DurationSeconds::validate(ttl).map_err(|_| tg::error!("invalid sandbox ttl"))?;
 		let params = db::params![
 			id.to_string(),
 			cpu,
@@ -97,7 +97,7 @@ impl Server {
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
 			arg.network,
 			tg::sandbox::Status::Created.to_string(),
-			ttl,
+			db::value::DurationSeconds(ttl),
 			arg.user.clone(),
 		];
 		connection

@@ -17,7 +17,7 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_check(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 
 		// Get the modules.
 		let modules = self.get_modules(&args.references).await?;
@@ -32,7 +32,7 @@ impl Cli {
 			location: args.location.get(),
 			modules,
 		};
-		let output = handle
+		let output = client
 			.check(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check"))?;

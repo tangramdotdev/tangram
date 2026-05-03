@@ -39,7 +39,7 @@ impl crate::Cli {
 		let executable = tg::command::data::Executable::Path(tg::command::data::PathExecutable {
 			path: PathBuf::from("<repl>"),
 		});
-		let handle = tg::handle::dynamic::Handle::new(self.handle().await?);
+		let client = tg::handle::dynamic::Handle::new(self.client().await?);
 		let host = tg::host::current().to_owned();
 		let main_runtime_handle = tokio::runtime::Handle::current();
 		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
@@ -48,7 +48,7 @@ impl crate::Cli {
 			cwd,
 			env,
 			executable,
-			handle,
+			handle: client,
 			host: Some(host),
 			main_runtime_handle,
 			inspect: None,

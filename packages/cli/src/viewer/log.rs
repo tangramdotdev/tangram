@@ -20,19 +20,19 @@ pub(super) struct Chunk {
 	stream: tg::process::stdio::Stream,
 }
 
-pub struct Log<H> {
-	state: Arc<State<H>>,
+pub struct Log {
+	state: Arc<State>,
 	task: JoinHandle<()>,
 }
 
-impl<H> Drop for Log<H> {
+impl Drop for Log {
 	fn drop(&mut self) {
 		self.task.abort();
 	}
 }
 
-struct State<H> {
-	handle: H,
+struct State {
+	client: tg::Client,
 	sender: mpsc::UnboundedSender<Event>,
 	process: tg::Process,
 	stream: tokio::sync::Mutex<StreamState>,
@@ -81,16 +81,13 @@ enum Event {
 	Update,
 }
 
-impl<H> Log<H>
-where
-	H: tg::Handle,
-{
-	pub fn new(handle: &H, process: &tg::Process) -> Self {
+impl Log {
+	pub fn new(client: &tg::Client, process: &tg::Process) -> Self {
 		let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
 		let stream = StreamState::Scrolling(Scrolling::default());
 		let view = ViewState::default();
 		let state = Arc::new(State {
-			handle: handle.clone(),
+			client: client.clone(),
 			sender,
 			process: process.clone(),
 			stream: tokio::sync::Mutex::new(stream),
@@ -168,10 +165,7 @@ where
 	}
 }
 
-impl<H> State<H>
-where
-	H: tg::Handle,
-{
+impl State {
 	async fn read_log(
 		&self,
 		position: Option<std::io::SeekFrom>,
@@ -190,7 +184,7 @@ where
 		};
 		let stream = self
 			.process
-			.try_read_stdio_all(&self.handle, arg)
+			.try_read_stdio_all(&self.client, arg)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the log stream"))?;
 		let stream = stream

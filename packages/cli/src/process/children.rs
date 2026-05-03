@@ -1,6 +1,7 @@
 use {
 	crate::Cli,
 	futures::{StreamExt as _, TryStreamExt as _},
+	std::time::Duration,
 	tangram_client::prelude::*,
 };
 
@@ -25,11 +26,33 @@ pub struct Args {
 
 	#[arg(long)]
 	pub size: Option<u64>,
+
+	#[command(flatten)]
+	pub timeout: Timeout,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct Timeout {
+	#[arg(long, value_parser = humantime::parse_duration, overrides_with = "no_timeout")]
+	pub timeout: Option<Duration>,
+
+	#[arg(long, overrides_with = "timeout")]
+	pub no_timeout: bool,
+}
+
+impl Timeout {
+	fn get(&self) -> Option<Duration> {
+		if self.no_timeout {
+			None
+		} else {
+			self.timeout.or(Some(Duration::ZERO))
+		}
+	}
 }
 
 impl Cli {
 	pub async fn command_process_children(&mut self, args: Args) -> tg::Result<()> {
-		let handle = self.handle().await?;
+		let client = self.client().await?;
 		let locations = args.locations.get();
 		let process = tg::Process::<tg::Value>::new(
 			args.process.clone(),
@@ -44,9 +67,10 @@ impl Cli {
 			location: locations,
 			position: args.position.map(std::io::SeekFrom::Start),
 			size: args.size,
+			timeout: args.timeout.get(),
 		};
 		let stream = process
-			.children_with_handle(&handle, arg)
+			.children_with_handle(&client, arg)
 			.await
 			.map_err(
 				|source| tg::error!(!source, id = %args.process, "failed to get the process children"),
