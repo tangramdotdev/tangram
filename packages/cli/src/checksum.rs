@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client::prelude::*};
+use {crate::Cli, futures::FutureExt as _, tangram_client::prelude::*};
 
 /// Compute a checksum.
 #[derive(Clone, Debug, clap::Args)]
@@ -40,7 +40,7 @@ impl Cli {
 				reference: Some(reference),
 				trailing: Vec::new(),
 			};
-			self.command_build(args).await?;
+			self.command_build(args).boxed().await?;
 		} else if let Ok(artifact) = tg::Artifact::try_from(object.clone()) {
 			let algorithm = args.algorithm;
 			let command = tg::builtin::checksum_command(tg::Either::Right(artifact), algorithm);
@@ -54,7 +54,7 @@ impl Cli {
 				reference: Some(reference),
 				trailing: Vec::new(),
 			};
-			self.command_build(args).await?;
+			self.command_build(args).boxed().await?;
 		} else {
 			return Err(tg::error!("expected an artifact or a blob"));
 		}

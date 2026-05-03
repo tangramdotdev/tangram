@@ -4,7 +4,6 @@ use {
 	futures::prelude::*,
 	std::{fmt::Write as _, net::ToSocketAddrs as _, path::PathBuf},
 	tangram_client::{Client, prelude::*},
-	tangram_server::Shared as Server,
 };
 
 /// Spawn a process.
@@ -299,7 +298,7 @@ impl Tty {
 
 pub(crate) struct InnerOutput {
 	pub arg: tg::process::Arg,
-	pub handle: tg::Either<Client, Server>,
+	pub handle: Client,
 	pub location: Option<tg::location::Arg>,
 	pub referent: tg::Referent<tg::graph::Edge<tg::Object>>,
 	pub sandboxed: bool,

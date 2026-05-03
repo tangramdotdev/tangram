@@ -686,32 +686,26 @@ impl Server {
 
 		// Spawn the indexer task.
 		let indexer_task = server.config.indexer.clone().map(|config| {
-			tokio::spawn({
+			Task::spawn({
 				let server = server.clone();
-				async move {
-					server
-						.indexer_task(&config)
-						.await
-						.inspect_err(|error| {
-							tracing::error!(error = %error.trace());
-						})
-						.ok();
+				|_| async move {
+					let result = server.indexer_task(&config).await;
+					if let Err(error) = result {
+						tracing::error!(error = %error.trace());
+					}
 				}
 			})
 		});
 
 		// Spawn the cleaner task.
 		let cleaner_task = server.config.cleaner.clone().map(|config| {
-			tokio::spawn({
+			Task::spawn({
 				let server = server.clone();
-				async move {
-					server
-						.cleaner_task(&config)
-						.await
-						.inspect_err(|error| {
-							tracing::error!(error = %error.trace());
-						})
-						.ok();
+				|_| async move {
+					let result = server.cleaner_task(&config).await;
+					if let Err(error) = result {
+						tracing::error!(error = %error.trace());
+					}
 				}
 			})
 		});
@@ -871,22 +865,21 @@ impl Server {
 		};
 
 		// Spawn the diagnostics task.
-		let diagnostics_task = Some(tokio::spawn({
+		let diagnostics_task = Some(Task::spawn({
 			let server = server.clone();
-			async move {
-				server
-					.diagnostics_task()
-					.await
-					.inspect_err(|error| tracing::error!(error = %error.trace()))
-					.ok();
+			|_| async move {
+				let result = server.diagnostics_task().await;
+				if let Err(error) = result {
+					tracing::error!(error = %error.trace());
+				}
 			}
 		}));
 
 		// Spawn the process finalizer task.
 		let process_finalizer_task = server.config.process.finalizer.clone().map(|config| {
-			tokio::spawn({
+			Task::spawn({
 				let server = server.clone();
-				async move {
+				|_| async move {
 					server
 						.finalizer_task(&config)
 						.await
@@ -900,9 +893,9 @@ impl Server {
 
 		// Spawn the sandbox finalizer task.
 		let sandbox_finalizer_task = server.config.sandbox.finalizer.clone().map(|config| {
-			tokio::spawn({
+			Task::spawn({
 				let server = server.clone();
-				async move {
+				|_| async move {
 					server
 						.sandbox_finalizer_task(&config)
 						.await
@@ -916,10 +909,10 @@ impl Server {
 
 		// Spawn the watchdog task.
 		let watchdog_task = server.config.watchdog.as_ref().map(|config| {
-			tokio::spawn({
+			Task::spawn({
 				let server = server.clone();
 				let config = config.clone();
-				async move {
+				|_| async move {
 					server
 						.watchdog_task(&config)
 						.await
@@ -933,9 +926,9 @@ impl Server {
 
 		// Spawn the runner task.
 		let runner_task = if server.config.runner.is_some() {
-			Some(tokio::spawn({
+			Some(Task::spawn({
 				let server = server.clone();
-				async move {
+				|_| async move {
 					server.runner_task().await;
 				}
 			}))
@@ -948,31 +941,7 @@ impl Server {
 			async move {
 				tracing::trace!("started");
 
-				// Abort the runner task.
-				if let Some(task) = runner_task {
-					task.abort();
-					let result = task.await;
-					if let Err(error) = result
-						&& !error.is_cancelled()
-					{
-						tracing::error!(?error, "the runner task panicked");
-					}
-					tracing::trace!("runner task");
-				}
-
-				// Abort the sandbox tasks.
-				server.sandbox_tasks.abort_all();
-				let results = server.sandbox_tasks.wait().await;
-				for result in results {
-					if let Err(error) = result
-						&& !error.is_cancelled()
-					{
-						tracing::error!(?error, "a sandbox task panicked");
-					}
-				}
-				tracing::trace!("sandbox tasks");
-
-				// Stop the HTTP task.
+				// Stop and await the HTTP task.
 				if let Some(task) = http_task {
 					task.stop();
 					let result = task.wait().await;
@@ -983,6 +952,29 @@ impl Server {
 					}
 					tracing::trace!("http task");
 				}
+
+				// Stop and await the runner task.
+				if let Some(task) = runner_task {
+					task.stop();
+					let result = task.wait().await;
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "the runner task panicked");
+					}
+					tracing::trace!("runner task");
+				}
+
+				// Await the sandbox tasks.
+				let results = server.sandbox_tasks.wait().await;
+				for result in results {
+					if let Err(error) = result
+						&& !error.is_cancelled()
+					{
+						tracing::error!(?error, "a sandbox task panicked");
+					}
+				}
+				tracing::trace!("sandbox tasks");
 
 				// Stop the VFS.
 				let vfs = server.vfs.lock().unwrap().take();
@@ -1000,7 +992,7 @@ impl Server {
 				// Abort the process finalizer task.
 				if let Some(task) = process_finalizer_task {
 					task.abort();
-					let result = task.await;
+					let result = task.wait().await;
 					if let Err(error) = result
 						&& !error.is_cancelled()
 					{
@@ -1012,7 +1004,7 @@ impl Server {
 				// Abort the sandbox finalizer task.
 				if let Some(task) = sandbox_finalizer_task {
 					task.abort();
-					let result = task.await;
+					let result = task.wait().await;
 					if let Err(error) = result
 						&& !error.is_cancelled()
 					{
@@ -1024,7 +1016,7 @@ impl Server {
 				// Abort the watchdog task.
 				if let Some(task) = watchdog_task {
 					task.abort();
-					let result = task.await;
+					let result = task.wait().await;
 					if let Err(error) = result
 						&& !error.is_cancelled()
 					{
@@ -1103,7 +1095,7 @@ impl Server {
 				// Abort the cleaner task.
 				if let Some(task) = cleaner_task {
 					task.abort();
-					let result = task.await;
+					let result = task.wait().await;
 					if let Err(error) = result
 						&& !error.is_cancelled()
 					{
@@ -1115,7 +1107,7 @@ impl Server {
 				// Abort the indexer task.
 				if let Some(task) = indexer_task {
 					task.abort();
-					let result = task.await;
+					let result = task.wait().await;
 					if let Err(error) = result
 						&& !error.is_cancelled()
 					{

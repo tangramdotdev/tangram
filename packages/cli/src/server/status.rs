@@ -10,7 +10,8 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_server_status(&mut self, args: Args) -> tg::Result<()> {
-		let status = if self.client().await.is_ok() {
+		let client = self.create_client()?;
+		let status = if client.connect().await.is_ok() {
 			"started"
 		} else {
 			"stopped"

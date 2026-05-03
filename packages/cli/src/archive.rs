@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client::prelude::*};
+use {crate::Cli, futures::FutureExt as _, tangram_client::prelude::*};
 
 /// Archive an artifact.
 #[derive(Clone, Debug, clap::Args)]
@@ -34,7 +34,7 @@ impl Cli {
 			reference: Some(reference),
 			trailing: Vec::new(),
 		};
-		self.command_build(args).await?;
+		self.command_build(args).boxed().await?;
 		Ok(())
 	}
 }

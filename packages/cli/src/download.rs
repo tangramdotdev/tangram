@@ -1,4 +1,4 @@
-use {crate::Cli, tangram_client::prelude::*, tangram_uri::Uri};
+use {crate::Cli, futures::FutureExt as _, tangram_client::prelude::*, tangram_uri::Uri};
 
 /// Download a blob or an artifact.
 #[derive(Clone, Debug, clap::Args)]
@@ -47,7 +47,7 @@ impl Cli {
 			reference: Some(reference),
 			trailing: Vec::new(),
 		};
-		self.command_build(args).await?;
+		self.command_build(args).boxed().await?;
 		Ok(())
 	}
 }

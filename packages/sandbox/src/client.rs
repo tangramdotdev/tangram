@@ -18,7 +18,6 @@ pub mod wait;
 pub struct Client(Arc<State>);
 
 pub struct State {
-	sender: Sender,
 	service: Service,
 }
 
@@ -40,36 +39,10 @@ enum Error {
 
 impl Client {
 	#[expect(dead_code)]
-	pub fn new(url: &Uri) -> tg::Result<Self> {
-		match url.scheme() {
-			Some("http") => {
-				url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-				url.port_or_known_default()
-					.ok_or_else(|| tg::error!(%url, "invalid url"))?;
-			},
-			Some("http+unix") => {
-				url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-			},
-			Some("http+vsock") => {
-				#[cfg(not(feature = "vsock"))]
-				{
-					return Err(tg::error!("vsock is not enabled"));
-				}
-				#[cfg(feature = "vsock")]
-				{
-					url.host()
-						.ok_or_else(|| tg::error!(%url, "invalid url"))?
-						.parse::<u32>()
-						.map_err(|source| tg::error!(!source, %url, "invalid url"))?;
-					url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-				}
-			},
-			_ => return Err(tg::error!(%url, "invalid url")),
-		}
+	pub fn new(url: &Uri) -> Self {
 		let sender = Arc::new(tokio::sync::Mutex::new(None));
-		let url = Some(url.clone());
-		let service = Self::service(sender.clone(), url.clone());
-		Ok(Self(Arc::new(State { sender, service })))
+		let service = Self::service(url.clone(), sender);
+		Self(Arc::new(State { service }))
 	}
 
 	pub async fn with_listener(listener: &crate::server::Listener) -> tg::Result<Self> {
@@ -103,17 +76,19 @@ impl Client {
 	where
 		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 	{
-		let sender = Arc::new(tokio::sync::Mutex::new(None));
-		let service = Self::service(sender.clone(), None);
-		let client = Self(Arc::new(State { sender, service }));
 		let sender = Self::handshake_h2(stream).await?;
-		let mut guard = client.sender.lock().await;
-		guard.replace(sender);
-		drop(guard);
+		let sender = Arc::new(tokio::sync::Mutex::new(Some(sender)));
+		let url = Uri::builder()
+			.scheme("http+stdio")
+			.path("")
+			.build()
+			.map_err(|source| tg::error!(!source, "failed to build the URL"))?;
+		let service = Self::service(url, sender);
+		let client = Self(Arc::new(State { service }));
 		Ok(client)
 	}
 
-	fn service(sender: Sender, url: Option<Uri>) -> Service {
+	fn service(url: Uri, sender: Sender) -> Service {
 		let service = tower::service_fn(move |request| {
 			let sender = sender.clone();
 			let url = url.clone();
@@ -122,10 +97,7 @@ impl Client {
 				let mut sender = match guard.as_ref() {
 					Some(sender) if sender.is_ready() => sender.clone(),
 					_ => {
-						let url = url.as_ref().ok_or_else(|| {
-							Error::Other(tg::error!("failed to send the request"))
-						})?;
-						let sender = Self::connect_h2(url).await.map_err(Error::Other)?;
+						let sender = Self::connect_h2(&url).await.map_err(Error::Other)?;
 						guard.replace(sender.clone());
 						sender
 					},

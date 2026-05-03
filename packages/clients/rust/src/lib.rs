@@ -2,6 +2,7 @@ use {
 	crate::prelude::*,
 	std::{ops::Deref, sync::Arc},
 	tangram_uri::Uri,
+	tokio::io::{AsyncRead, AsyncWrite},
 };
 
 mod http;
@@ -139,12 +140,46 @@ impl Client {
 		};
 		arg.reconnect.get_or_insert_default();
 		arg.retry.get_or_insert_default();
-		let (sender, service) = Self::service(&arg);
-		Ok(Self(Arc::new(State {
+		let sender = Arc::new(tokio::sync::Mutex::new(None));
+		let service = Self::service(&arg, &sender);
+		let client = Self(Arc::new(State {
 			arg,
 			sender,
 			service,
-		})))
+		}));
+		Ok(client)
+	}
+
+	pub async fn with_stream<S>(mut arg: tg::Arg, stream: S) -> tg::Result<Self>
+	where
+		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+	{
+		arg.url = Some(match arg.url {
+			Some(url) => url,
+			None => Uri::builder()
+				.scheme("http+stdio")
+				.path("")
+				.build()
+				.map_err(|source| tg::error!(!source, "failed to build the URL"))?,
+		});
+		arg.version
+			.get_or_insert_with(|| env!("CARGO_PKG_VERSION").to_owned());
+		arg.token = arg.token.or_else(|| std::env::var("TANGRAM_TOKEN").ok());
+		arg.process = match arg.process {
+			Some(process) => Some(process),
+			None => Self::default_process()?,
+		};
+		arg.reconnect.get_or_insert_default();
+		arg.retry.get_or_insert_default();
+		let sender = Self::handshake_h2(stream).await?;
+		let sender = Arc::new(tokio::sync::Mutex::new(Some(sender)));
+		let service = Self::service(&arg, &sender);
+		let client = Self(Arc::new(crate::State {
+			arg,
+			sender,
+			service,
+		}));
+		Ok(client)
 	}
 
 	fn default_url() -> tg::Result<Uri> {

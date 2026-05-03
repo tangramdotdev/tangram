@@ -1,11 +1,12 @@
 use {
 	self::telemetry::Telemetry,
-	byteorder::ReadBytesExt as _,
 	clap::{CommandFactory as _, FromArgMatches as _},
 	futures::FutureExt as _,
-	std::{os::fd::AsRawFd as _, path::PathBuf, time::Duration},
+	std::{
+		path::{Path, PathBuf},
+		time::Duration,
+	},
 	tangram_client::{Client, prelude::*},
-	tangram_server::Shared as Server,
 	tangram_uri::Uri,
 	tracing_subscriber::prelude::*,
 };
@@ -72,12 +73,12 @@ pub mod config;
 
 pub struct Cli {
 	args: Args,
+	child: Option<tokio::process::Child>,
+	client: Option<Client>,
 	config: Option<Config>,
 	exit: Option<u8>,
-	handle: Option<tg::Either<Client, Server>>,
 	health: Option<tg::Health>,
 	matches: clap::ArgMatches,
-	mode: Mode,
 }
 
 #[derive(Clone, Debug, clap::Parser)]
@@ -100,10 +101,6 @@ struct Args {
 	/// Override the `directory` key in the config.
 	#[arg(env = "TANGRAM_DIRECTORY", long, short)]
 	directory: Option<PathBuf>,
-
-	/// The mode.
-	#[arg(env = "TANGRAM_MODE", long, short)]
-	mode: Option<Mode>,
 
 	#[clap(flatten)]
 	quiet: Quiet,
@@ -194,24 +191,6 @@ fn version() -> String {
 		version.push_str(commit);
 	}
 	version
-}
-
-#[derive(
-	Clone,
-	Copy,
-	Debug,
-	Default,
-	derive_more::IsVariant,
-	clap::ValueEnum,
-	serde::Deserialize,
-	serde::Serialize,
-)]
-#[serde(rename_all = "snake_case")]
-enum Mode {
-	#[default]
-	Auto,
-	Client,
-	Server,
 }
 
 #[derive(Clone, Debug, clap::Subcommand)]
@@ -434,30 +413,17 @@ fn main() -> std::process::ExitCode {
 		},
 	};
 
-	// Get the mode.
-	let mode = match &args {
-		// If the command is `tg serve` or `tg server run`, then set the mode to `server`.
-		Args {
-			command:
-				Command::Serve(_)
-				| Command::Server(self::server::Args {
-					command: self::server::Command::Run(_),
-					..
-				}),
-			..
-		} => Mode::Server,
-
-		// If the command is anything else under `tg server`, then set the mode to `client`.
-		Args {
-			command: Command::Server(_),
-			..
-		} => Mode::Client,
-
-		_ => args.mode.unwrap_or_default(),
-	};
+	let server = matches!(
+		&args.command,
+		Command::Serve(_)
+			| Command::Server(self::server::Args {
+				command: self::server::Command::Run(_),
+				..
+			})
+	);
 
 	// Set the file descriptor limit.
-	if mode.is_server() {
+	if server {
 		Cli::set_file_descriptor_limit()
 			.inspect_err(|_| {
 				if !args.quiet.get() {
@@ -469,7 +435,7 @@ fn main() -> std::process::ExitCode {
 
 	// Initialize FoundationDB.
 	#[cfg(feature = "foundationdb")]
-	let _fdb = if mode.is_server()
+	let _fdb = if server
 		&& config
 			.as_ref()
 			.is_some_and(|config| config.server.index.is_fdb())
@@ -484,7 +450,7 @@ fn main() -> std::process::ExitCode {
 
 	// Initialize V8.
 	#[cfg(feature = "v8")]
-	let initialize_v8 = if mode.is_server() {
+	let initialize_v8 = if server {
 		true
 	} else if let Command::Repl(args) = &args.command
 		&& (args.engine.is_auto() || args.engine.is_v_8())
@@ -503,20 +469,10 @@ fn main() -> std::process::ExitCode {
 	}
 
 	// Create the tokio runtime.
-	let runtime = if config
-		.as_ref()
-		.is_some_and(|config| config.tokio_single_threaded)
-	{
-		tokio::runtime::Builder::new_current_thread()
-			.enable_all()
-			.build()
-			.unwrap()
-	} else {
-		tokio::runtime::Builder::new_multi_thread()
-			.enable_all()
-			.build()
-			.unwrap()
-	};
+	let runtime = tokio::runtime::Builder::new_current_thread()
+		.enable_all()
+		.build()
+		.unwrap();
 
 	// Initialize telemetry and tracing.
 	let runtime_guard = runtime.enter();
@@ -527,12 +483,12 @@ fn main() -> std::process::ExitCode {
 	// Create the CLI.
 	let mut cli = Cli {
 		args,
+		child: None,
+		client: None,
 		config,
 		exit: None,
-		handle: None,
 		health: None,
 		matches,
-		mode,
 	};
 
 	// Run the command.
@@ -551,18 +507,14 @@ fn main() -> std::process::ExitCode {
 		},
 	};
 
-	// Drop the handle.
+	// Drop the client and child.
 	runtime.block_on(async {
-		let handle = cli.handle.take();
-		match handle {
-			Some(tg::Either::Left(client)) => {
-				client.disconnect().await;
-			},
-			Some(tg::Either::Right(server)) => {
-				server.stop();
-				server.wait().await.unwrap();
-			},
-			None => (),
+		if let Some(client) = cli.client.take() {
+			client.disconnect().await;
+		}
+		if let Some(mut child) = cli.child.take() {
+			child.start_kill().ok();
+			child.wait().await.ok();
 		}
 	});
 
@@ -578,28 +530,32 @@ fn main() -> std::process::ExitCode {
 }
 
 impl Cli {
-	async fn handle(&mut self) -> tg::Result<tg::Either<Client, Server>> {
-		// If the handle has already been created, then return it.
-		if let Some(handle) = self.handle.clone() {
-			return Ok(handle);
+	async fn handle(&mut self) -> tg::Result<Client> {
+		// If the client has already been created, then return it.
+		if let Some(client) = self.client.clone() {
+			return Ok(client);
 		}
 
-		// Create the handle.
-		let handle = match self.mode {
-			Mode::Auto => tg::Either::Left(self.auto().boxed().await?),
-			Mode::Client => tg::Either::Left(self.client().boxed().await?),
-			Mode::Server => tg::Either::Right(self.server().boxed().await?),
+		// Create and connect the client.
+		let client = self.create_client()?;
+		let client = if let Err(source) = client.connect().await {
+			let arg = client.arg();
+			let url = client.url().clone();
+			if client.process().is_some() || url.scheme() != Some("http+unix") {
+				return Err(tg::error!(!source, url = %url, "failed to connect to the server"));
+			}
+			self.spawn_child(arg)
+				.await
+				.map_err(|source| tg::error!(!source, url = %url, "failed to start the server"))?
+		} else {
+			client
 		};
 
-		if self.health.is_none()
-			&& match &handle {
-				tg::Either::Left(client) => client.process().is_none(),
-				tg::Either::Right(_) => true,
-			} {
+		if self.health.is_none() && client.process().is_none() {
 			let arg = tg::health::Arg {
 				fields: Some(vec!["diagnostics".to_owned()]),
 			};
-			let health = handle
+			let health = client
 				.health(arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the health"))?;
@@ -618,80 +574,8 @@ impl Cli {
 			}
 		}
 
-		// Set the handle.
-		self.handle.replace(handle.clone());
-
-		Ok(handle)
-	}
-
-	async fn auto(&mut self) -> tg::Result<Client> {
-		// Create the client.
-		let client = self.create_client()?;
-
-		// Attempt to connect to the server.
-		let connected = client.connect().await.is_ok();
-
-		// If the client has a process, then expect it to be connected.
-		if client.process().is_some() {
-			if !connected {
-				return Err(tg::error!(url = %client.url(), "failed to connect to the server"));
-			}
-			return Ok(client);
-		}
-
-		// If the client is not connected and the URL is local, then start the server and attempt to connect.
-		let local = client.url().scheme() == Some("http+unix")
-			|| matches!(client.url().host_raw(), Some("localhost" | "0.0.0.0"));
-		if !connected && local {
-			// Start the server.
-			self.start_server(&client).await?;
-		}
-
-		// If the URL is local and the server's version is different from the client, then disconnect and restart the server.
-		'a: {
-			if !local {
-				break 'a;
-			}
-
-			let arg = tg::health::Arg {
-				fields: Some(vec!["version".to_owned(), "diagnostics".to_owned()]),
-			};
-			let health = client
-				.health(arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the health"))?;
-			let server_version = health.version.clone();
-			self.health.replace(health);
-			let Some(server_version) = server_version else {
-				break 'a;
-			};
-
-			if version() == server_version {
-				break 'a;
-			}
-
-			// Disconnect.
-			client.disconnect().await;
-
-			// Stop the server.
-			self.stop_server().await?;
-
-			// Start the server.
-			self.start_server(&client).await?;
-		}
-
-		Ok(client)
-	}
-
-	async fn client(&self) -> tg::Result<Client> {
-		// Create the client.
-		let client = self.create_client()?;
-
-		// Try to connect. If the client is not connected, then return an error.
-		let connected = client.connect().await.is_ok();
-		if !connected {
-			return Err(tg::error!(url = %client.url(), "failed to connect to the server"));
-		}
+		// Set the client.
+		self.client.replace(client.clone());
 
 		Ok(client)
 	}
@@ -758,120 +642,32 @@ impl Cli {
 			})
 			.transpose()?;
 
-		// Create the client.
-		let client = tg::Client::new(tg::Arg {
+		let arg = tg::Arg {
 			url: Some(url),
 			version: Some(version()),
 			token,
 			process,
 			reconnect,
 			retry,
-		})?;
+		};
+
+		let client = tg::Client::new(arg)?;
 
 		Ok(client)
 	}
 
-	async fn server(&self) -> tg::Result<Server> {
-		// Get the server config.
-		let mut config = self
-			.config
-			.as_ref()
-			.map(|config| config.server.clone())
-			.unwrap_or_default();
-
-		// Get the directory.
-		let directory = self.directory_path();
-
-		// Set the directory and version.
-		config.directory = Some(directory.clone());
-		config.version = Some(version());
-
-		// Set the URL.
-		if let Some(url) = &self.args.url {
-			config.http = Some(tangram_server::config::Http {
-				listeners: vec![tangram_server::config::HttpListener {
-					url: url.clone(),
-					tls: None,
-				}],
-			});
-		}
-
-		// Set the remotes.
-		if let Some(remotes) = self.args.remotes.get() {
-			config.remotes = Some(
-				remotes
-					.iter()
-					.filter_map(|remote_str| {
-						let (name, url_str) = remote_str.split_once('=')?;
-						let url = url_str.parse().ok()?;
-						Some(tangram_server::config::Remote {
-							name: name.to_owned(),
-							url,
-							reconnect: None,
-							retry: None,
-							token: None,
-						})
-					})
-					.collect(),
-			);
-		}
-
-		// Start the server.
-		let server = tangram_server::Server::start(config)
-			.boxed()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to start the server"))?;
-
-		Ok(server.into())
-	}
-
-	/// Start the server.
-	async fn start_server(&self, client: &tg::Client) -> tg::Result<()> {
-		// Ensure the directory exists.
-		let directory = self.directory_path();
+	async fn spawn_child(&mut self, mut arg: tg::Arg) -> tg::Result<Client> {
+		let url = arg.url.as_ref().unwrap();
+		let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+		let directory = Path::new(path)
+			.parent()
+			.ok_or_else(|| tg::error!(%url, "invalid url"))?
+			.to_owned();
 		tokio::fs::create_dir_all(&directory)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
 
-		// Acquire an exclusive lock on the start file.
-		let start_path = directory.join("start");
-		let start_file = tokio::fs::OpenOptions::new()
-			.create(true)
-			.read(true)
-			.write(true)
-			.truncate(false)
-			.open(&start_path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to open the start lock file"))?
-			.into_std()
-			.await;
-		let _start_file = tokio::task::spawn_blocking(move || {
-			start_file.lock()?;
-			Ok::<_, std::io::Error>(start_file)
-		})
-		.await
-		.map_err(|source| tg::error!(!source, "the start lock task panicked"))?
-		.map_err(|source| tg::error!(!source, "failed to lock the start lock file"))?;
-
-		// Attempt to connect.
-		if client.connect().await.is_ok() {
-			return Ok(());
-		}
-
-		// Get the log file path.
 		let log_path = directory.join("log");
-
-		// Create files for stdout and stderr.
-		let stdout = tokio::fs::OpenOptions::new()
-			.create(true)
-			.write(true)
-			.append(true)
-			.truncate(false)
-			.open(&log_path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to open the log file"))?
-			.into_std()
-			.await;
 		let stderr = tokio::fs::OpenOptions::new()
 			.create(true)
 			.write(true)
@@ -883,49 +679,16 @@ impl Cli {
 			.into_std()
 			.await;
 
-		// Get the path to the current executable.
 		let executable = tangram_util::env::current_exe()
 			.map_err(|source| tg::error!(!source, "failed to get the current executable path"))?;
-
-		// Spawn the server.
 		let mut command = tokio::process::Command::new(executable);
-
-		// Create the ready pipe.
-		let (mut ready_reader, ready_writer) = std::io::pipe()
-			.map_err(|source| tg::error!(!source, "failed to create the server ready pipe"))?;
-
-		// Unset FD_CLOEXEC on the ready writer.
-		let flags = unsafe { libc::fcntl(ready_writer.as_raw_fd(), libc::F_GETFD) };
-		if flags < 0 {
-			return Err(tg::error!(
-				source = std::io::Error::last_os_error(),
-				"failed to get the ready pipe flags"
-			));
-		}
-		let ret = unsafe {
-			libc::fcntl(
-				ready_writer.as_raw_fd(),
-				libc::F_SETFD,
-				flags & !libc::FD_CLOEXEC,
-			)
-		};
-		if ret < 0 {
-			return Err(tg::error!(
-				source = std::io::Error::last_os_error(),
-				"failed to set the ready pipe flags"
-			));
-		}
-		let ready_fd = ready_writer.as_raw_fd();
-
 		let mut args = vec![];
 		if let Some(config) = &self.args.config {
 			args.push("-c".to_owned());
 			args.push(config.to_string_lossy().into_owned());
 		}
-		if let Some(directory) = &self.args.directory {
-			args.push("-d".to_owned());
-			args.push(directory.to_string_lossy().into_owned());
-		}
+		args.push("-d".to_owned());
+		args.push(directory.to_string_lossy().into_owned());
 		if let Some(remotes) = self.args.remotes.get() {
 			if remotes.is_empty() {
 				args.push("--no-remotes".to_owned());
@@ -934,153 +697,79 @@ impl Cli {
 				args.push(remotes.join(","));
 			}
 		}
-		if let Some(url) = &self.args.url {
-			args.push("-u".to_owned());
-			args.push(url.to_string());
-		}
 		if let Some(tracing) = &self.args.tracing {
 			args.push("--tracing".to_owned());
 			args.push(tracing.clone());
 		}
-		args.push("serve".to_owned());
-		args.push("--ready-fd".to_owned());
-		args.push(ready_fd.to_string());
+		args.push("server".to_owned());
+		args.push("run".to_owned());
+		args.push("--url".to_owned());
+		args.push("http+stdio:".to_owned());
 		command
 			.args(args)
 			.current_dir(PathBuf::from(std::env::var("HOME").unwrap()))
-			.stdin(std::process::Stdio::null())
-			.stdout(stdout)
+			.kill_on_drop(true)
+			.stdin(std::process::Stdio::piped())
+			.stdout(std::process::Stdio::piped())
 			.stderr(stderr);
-		unsafe {
-			command.pre_exec(|| {
-				let id = libc::setsid();
-				if id < 0 {
-					return Err(std::io::Error::last_os_error());
-				}
-				Ok(())
-			});
-		}
 
 		let mut child = command
 			.spawn()
 			.map_err(|source| tg::error!(!source, "failed to spawn the server"))?;
-		drop(ready_writer);
+		let stdin = child
+			.stdin
+			.take()
+			.ok_or_else(|| tg::error!("failed to take the server stdin"))?;
+		let stdout = child
+			.stdout
+			.take()
+			.ok_or_else(|| tg::error!("failed to take the server stdout"))?;
+		let stream = tokio::io::join(stdout, stdin);
 
-		// Wait for the server to be ready.
-		let task = tokio::task::spawn_blocking(move || ready_reader.read_u8());
-		let ready = tokio::time::timeout(Duration::from_secs(5), task)
-			.await
-			.map_err(|source| tg::error!(!source, "timed out waiting for the server ready signal"))
-			.and_then(|output| {
-				output.map_err(|source| tg::error!(!source, "the server ready task panicked"))
-			})
-			.and_then(|output| {
-				output
-					.map_err(|source| tg::error!(!source, "failed to read the server ready signal"))
-			})
-			.and_then(|byte| {
-				if byte != 0x00 {
-					return Err(tg::error!("received an invalid ready byte {byte}"));
-				}
-				Ok(())
-			});
-		if let Err(source) = ready {
-			child.start_kill().ok();
-			child.wait().await.ok();
-			if client.connect().await.is_ok() {
-				return Ok(());
+		arg.url = Some(
+			Uri::builder()
+				.scheme("http+stdio")
+				.path("")
+				.build()
+				.map_err(|source| tg::error!(!source, "failed to build the URL"))?,
+		);
+		let connect = tg::Client::with_stream(arg, stream);
+		let client = match tokio::time::timeout(Duration::from_secs(5), async {
+			tokio::select! {
+				result = connect => result,
+				result = child.wait() => {
+					let status = result
+						.map_err(|source| tg::error!(!source, "failed to wait for the server"))?;
+					Err(tg::error!(status = %status, "the server exited before connecting"))
+				},
 			}
-			return Err(tg::error!(!source, "failed to start the server"));
-		}
-		if client.connect().await.is_err() {
-			return Err(tg::error!(url = %client.url(), "failed to connect to the server"));
-		}
-
-		Ok(())
-	}
-
-	/// Stop the server.
-	async fn stop_server(&self) -> tg::Result<()> {
-		// Read the PID from the lock file.
-		let lock_path = self.directory_path().join("lock");
-		let pid = tokio::fs::read_to_string(&lock_path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to read the pid from the lock file"))?
-			.parse::<i32>()
-			.map_err(|source| tg::error!(!source, "invalid lock file"))?;
-
-		// Open a wait handle for the process.
-		let handle = match waitpid_any::WaitHandle::open(pid) {
-			Ok(handle) => handle,
-			Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {
-				return Ok(());
+		})
+		.await
+		{
+			Ok(Ok(client)) => client,
+			Ok(Err(error)) => {
+				child.start_kill().ok();
+				child.wait().await.ok();
+				return Err(error);
 			},
-			Err(error) => {
-				return Err(tg::error!(
-					!error,
-					"failed to open a handle to the server process"
-				));
+			Err(source) => {
+				child.start_kill().ok();
+				child.wait().await.ok();
+				return Err(tg::error!(!source, "timed out connecting to the server"));
 			},
 		};
 
-		// Send SIGINT to the server.
-		let ret = unsafe { libc::kill(pid, libc::SIGINT) };
-		if ret != 0 {
-			let error = std::io::Error::last_os_error();
-			if error.raw_os_error() == Some(libc::ESRCH) {
-				return Ok(());
-			}
-			return Err(tg::error!(!error, "failed to send SIGINT to the server"));
-		}
+		self.child.replace(child);
 
-		// Wait up to one second for the server to exit.
-		let (mut handle, wait) = tokio::task::spawn_blocking(move || {
-			let mut handle = handle;
-			let wait = handle.wait_timeout(Duration::from_secs(1))?;
-			Ok::<_, std::io::Error>((handle, wait))
-		})
-		.await
-		.map_err(|source| tg::error!(!source, "the server wait task panicked"))?
-		.map_err(|source| tg::error!(!source, "failed to wait for the server process"))?;
-		if wait.is_some() {
-			return Ok(());
-		}
-
-		// If the server has still not exited, then send SIGTERM to the server.
-		let ret = unsafe { libc::kill(pid, libc::SIGTERM) };
-		if ret != 0 {
-			let error = std::io::Error::last_os_error();
-			if error.raw_os_error() == Some(libc::ESRCH) {
-				return Ok(());
-			}
-			return Err(tg::error!(!error, "failed to send SIGTERM to the server"));
-		}
-
-		// Wait up to one second for the server to exit.
-		let wait = tokio::task::spawn_blocking(move || handle.wait_timeout(Duration::from_secs(1)))
-			.await
-			.map_err(|source| tg::error!(!source, "the server wait task panicked"))?
-			.map_err(|source| tg::error!(!source, "failed to wait for the server process"))?;
-		if wait.is_some() {
-			return Ok(());
-		}
-
-		// If the server has still not exited, then return an error.
-		Err(tg::error!("failed to terminate the server"))
+		Ok(client)
 	}
 
 	// Run the command.
 	async fn command(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
-			#[cfg(feature = "js")]
-			Command::Js(_) => {
-				unreachable!()
-			},
-			Command::Builtin(_) => {
-				unreachable!()
-			},
 			Command::Archive(args) => self.command_archive(args).boxed(),
 			Command::Build(args) => self.command_build(args).boxed(),
+			Command::Builtin(_) => unreachable!(),
 			Command::Bundle(args) => self.command_bundle(args).boxed(),
 			Command::Cache(args) => self.command_cache(args).boxed(),
 			Command::Cancel(args) => self.command_process_cancel(args).boxed(),
@@ -1102,6 +791,8 @@ impl Cli {
 			Command::Id(args) => self.command_id(args).boxed(),
 			Command::Index(args) => self.command_index(args).boxed(),
 			Command::Init(args) => self.command_init(args).boxed(),
+			#[cfg(feature = "js")]
+			Command::Js(_) => unreachable!(),
 			Command::List(args) => self.command_tag_list(args).boxed(),
 			Command::Log(args) => self.command_process_stdio_read(args).boxed(),
 			Command::Lsp(args) => self.command_lsp(args).boxed(),
