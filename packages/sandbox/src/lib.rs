@@ -182,19 +182,20 @@ impl Sandbox {
 			},
 		};
 
-		let connect = if let Some(listener) = listener.as_ref() {
-			Client::with_listener(listener).left_future()
-		} else {
-			let stdin = process
-				.stdin
-				.take()
-				.ok_or_else(|| tg::error!("failed to take the sandbox stdin"))?;
-			let stdout = process
-				.stdout
-				.take()
-				.ok_or_else(|| tg::error!("failed to take the sandbox stdout"))?;
-			let stream = tokio::io::join(stdout, stdin);
-			Client::with_stream(stream).right_future()
+		let connect = match listener.as_ref() {
+			None => {
+				let stdin = process
+					.stdin
+					.take()
+					.ok_or_else(|| tg::error!("failed to take the sandbox stdin"))?;
+				let stdout = process
+					.stdout
+					.take()
+					.ok_or_else(|| tg::error!("failed to take the sandbox stdout"))?;
+				let stream = tokio::io::join(stdout, stdin);
+				Client::with_stream(stream).left_future()
+			},
+			Some(listener) => Client::with_listener(listener).right_future(),
 		};
 
 		let client = match tokio::time::timeout(Duration::from_secs(5), async {

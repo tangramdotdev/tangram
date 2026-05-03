@@ -42,13 +42,13 @@ impl Client {
 	#[expect(dead_code)]
 	pub fn new(url: &Uri) -> tg::Result<Self> {
 		match url.scheme() {
-			Some("http+unix") => {
-				url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-			},
 			Some("http") => {
 				url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				url.port_or_known_default()
 					.ok_or_else(|| tg::error!(%url, "invalid url"))?;
+			},
+			Some("http+unix") => {
+				url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 			},
 			Some("http+vsock") => {
 				#[cfg(not(feature = "vsock"))]
@@ -74,14 +74,14 @@ impl Client {
 
 	pub async fn with_listener(listener: &crate::server::Listener) -> tg::Result<Self> {
 		match listener {
-			crate::server::Listener::Unix(listener) => {
+			crate::server::Listener::Tcp(listener) => {
 				let (stream, _) = listener
 					.accept()
 					.await
 					.map_err(|source| tg::error!(!source, "failed to accept the connection"))?;
 				Self::with_stream(stream).await
 			},
-			crate::server::Listener::Tcp(listener) => {
+			crate::server::Listener::Unix(listener) => {
 				let (stream, _) = listener
 					.accept()
 					.await
@@ -160,16 +160,18 @@ impl Client {
 		url: &Uri,
 	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>> {
 		match url.scheme() {
-			Some("http+unix") => {
-				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-				Self::connect_unix_h2(Path::new(path)).await
-			},
 			Some("http") => {
 				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let port = url
 					.port_or_known_default()
 					.ok_or_else(|| tg::error!(%url, "invalid url"))?;
-				Self::connect_tcp_h2(host, port).await
+				let stream = Self::connect_tcp(host, port).await?;
+				Self::handshake_h2(stream).await
+			},
+			Some("http+unix") => {
+				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+				let stream = Self::connect_unix(Path::new(path)).await?;
+				Self::handshake_h2(stream).await
 			},
 			Some("http+vsock") => {
 				#[cfg(not(feature = "vsock"))]
@@ -184,41 +186,31 @@ impl Client {
 						.parse::<u32>()
 						.map_err(|source| tg::error!(!source, %url, "invalid url"))?;
 					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-					Self::connect_vsock_h2(cid, u32::from(port)).await
+					let stream = Self::connect_vsock(cid, u32::from(port)).await?;
+					Self::handshake_h2(stream).await
 				}
 			},
 			_ => Err(tg::error!(%url, "invalid url")),
 		}
 	}
 
-	async fn connect_unix_h2(
-		path: &Path,
-	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>> {
-		let stream = tokio::net::UnixStream::connect(path)
+	async fn connect_unix(path: &Path) -> tg::Result<tokio::net::UnixStream> {
+		tokio::net::UnixStream::connect(path)
 			.await
-			.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?;
-		Self::handshake_h2(stream).await
+			.map_err(|source| tg::error!(!source, "failed to connect to the socket"))
 	}
 
-	async fn connect_tcp_h2(
-		host: &str,
-		port: u16,
-	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>> {
-		let stream = tokio::net::TcpStream::connect((host, port))
+	async fn connect_tcp(host: &str, port: u16) -> tg::Result<tokio::net::TcpStream> {
+		tokio::net::TcpStream::connect((host, port))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?;
-		Self::handshake_h2(stream).await
+			.map_err(|source| tg::error!(!source, "failed to connect to the socket"))
 	}
 
 	#[cfg(feature = "vsock")]
-	async fn connect_vsock_h2(
-		cid: u32,
-		port: u32,
-	) -> tg::Result<hyper::client::conn::http2::SendRequest<tangram_http::body::Boxed>> {
-		let stream = tokio_vsock::VsockStream::connect(tokio_vsock::VsockAddr::new(cid, port))
+	async fn connect_vsock(cid: u32, port: u32) -> tg::Result<tokio_vsock::VsockStream> {
+		tokio_vsock::VsockStream::connect(tokio_vsock::VsockAddr::new(cid, port))
 			.await
-			.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?;
-		Self::handshake_h2(stream).await
+			.map_err(|source| tg::error!(!source, "failed to connect to the socket"))
 	}
 
 	async fn handshake_h2<S>(

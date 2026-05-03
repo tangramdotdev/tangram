@@ -811,34 +811,59 @@ impl Server {
 		let http_task = if let Some(http_listeners) = http_listeners {
 			let http_server = server.clone();
 			let mut listeners = Vec::with_capacity(http_listeners.len());
+			let mut streams = Vec::new();
 			for listener_config in &http_listeners {
-				let listener = Self::listen(&listener_config.url).await.map_err(|source| {
-					tg::error!(
-						!source,
-						url = %listener_config.url,
-						"failed to listen on the http url"
-					)
-				})?;
-				tracing::info!("listening on {}", listener_config.url);
-				listeners.push((listener, listener_config.clone()));
+				if matches!(listener_config.url.scheme(), Some("http+stdio")) {
+					let stream = Self::connect(&listener_config.url)
+						.await
+						.map_err(|source| {
+							tg::error!(
+								!source,
+								url = %listener_config.url,
+								"failed to connect to the http url"
+							)
+						})?;
+					tracing::info!("serving on {}", listener_config.url);
+					streams.push(stream);
+				} else {
+					let listener = Self::listen(&listener_config.url).await.map_err(|source| {
+						tg::error!(
+							!source,
+							url = %listener_config.url,
+							"failed to listen on the http url"
+						)
+					})?;
+					tracing::info!("listening on {}", listener_config.url);
+					listeners.push((listener, listener_config.clone()));
+				}
 			}
 			Some(Task::spawn(move |stop| {
 				let server = http_server.clone();
 				async move {
-					listeners
-						.into_iter()
-						.map(|(listener, listener_config)| {
-							let server = server.clone();
-							let stop = stop.clone();
+					let tasks = FuturesUnordered::new();
+					for (listener, listener_config) in listeners {
+						let server = server.clone();
+						let stop = stop.clone();
+						tasks.push(
 							async move {
 								server
 									.serve(listener, listener_config, None, None, stop)
 									.await;
 							}
-						})
-						.collect::<FuturesUnordered<_>>()
-						.collect::<Vec<_>>()
-						.await;
+							.boxed(),
+						);
+					}
+					for stream in streams {
+						let server = server.clone();
+						let stop = stop.clone();
+						tasks.push(
+							async move {
+								server.serve_stream(stream, None, None, stop).await;
+							}
+							.boxed(),
+						);
+					}
+					tasks.collect::<Vec<_>>().await;
 				}
 			}))
 		} else {
@@ -1176,26 +1201,27 @@ impl Server {
 
 	#[must_use]
 	pub fn arg(&self) -> tg::Arg {
-		let url = self
-			.config()
-			.http
-			.as_ref()
-			.and_then(|http| http.listeners.first())
-			.map_or_else(
-				|| {
-					let path = self.path.join("socket");
-					let path = path.to_str().unwrap();
-					Uri::builder()
-						.scheme("http+unix")
-						.authority(path)
-						.path("")
-						.build()
-						.unwrap()
-				},
-				|listener| listener.url.clone(),
-			);
+		let default_url = || {
+			let path = self.path.join("socket");
+			let path = path.to_str().unwrap();
+			Uri::builder()
+				.scheme("http+unix")
+				.authority(path)
+				.path("")
+				.build()
+				.unwrap()
+		};
+		let url = match self.config().http.as_ref() {
+			Some(http) if http.listeners.is_empty() => Some(default_url()),
+			Some(http) => http
+				.listeners
+				.iter()
+				.find(|listener| !matches!(listener.url.scheme(), Some("http+stdio")))
+				.map(|listener| listener.url.clone()),
+			None => Some(default_url()),
+		};
 		tg::Arg {
-			url: Some(url),
+			url,
 			version: Some(self.version.clone()),
 			..Default::default()
 		}

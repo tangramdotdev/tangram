@@ -1,7 +1,14 @@
 use {
 	crate::{Context, Server},
 	futures::{FutureExt as _, future},
-	std::{convert::Infallible, path::Path, pin::pin, sync::Arc, time::Duration},
+	std::{
+		convert::Infallible,
+		path::Path,
+		pin::{Pin, pin},
+		sync::Arc,
+		task::Poll,
+		time::Duration,
+	},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 	tangram_http::{
@@ -9,35 +16,85 @@ use {
 		response::builder::Ext as _,
 	},
 	tangram_uri::Uri,
+	tokio::io::{AsyncRead, AsyncWrite, ReadBuf},
 	tower::ServiceExt as _,
 };
 
 pub(crate) enum Listener {
-	Unix(tokio::net::UnixListener),
 	Tcp(tokio::net::TcpListener),
+	Unix(tokio::net::UnixListener),
 	#[cfg(feature = "vsock")]
 	Vsock(tokio_vsock::VsockListener),
 }
 
-enum Stream {
-	Unix(tokio::net::UnixStream),
+pub(crate) enum Stream {
+	Stdio(tokio::io::Join<tokio::io::Stdin, tokio::io::Stdout>),
 	Tcp(tokio::net::TcpStream),
+	Unix(tokio::net::UnixStream),
 	#[cfg(feature = "vsock")]
 	Vsock(tokio_vsock::VsockStream),
 }
 
+type Service =
+	tower::util::BoxCloneSyncService<http::Request<BoxBody>, http::Response<BoxBody>, Infallible>;
+
 impl Server {
-	pub(crate) async fn listen(url: &Uri) -> tg::Result<Listener> {
-		let listener = match url.scheme() {
+	pub(crate) async fn connect(url: &Uri) -> tg::Result<Stream> {
+		let stream = match url.scheme() {
+			Some("http+stdio") => {
+				Stream::Stdio(tokio::io::join(tokio::io::stdin(), tokio::io::stdout()))
+			},
+			Some("http") => {
+				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+				let port = url
+					.port_or_known_default()
+					.ok_or_else(|| tg::error!(%url, "invalid url"))?;
+				Stream::Tcp(
+					tokio::net::TcpStream::connect((host, port))
+						.await
+						.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?,
+				)
+			},
 			Some("http+unix") => {
 				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-				let path = Path::new(path);
-				let listener = tokio::net::UnixListener::bind(path).map_err(
-					|source| tg::error!(!source, path = %path.display(), "failed to bind"),
-				)?;
-				Listener::Unix(listener)
+				Stream::Unix(
+					tokio::net::UnixStream::connect(path)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?,
+				)
 			},
-			Some("http" | "https") => {
+			Some("http+vsock") => {
+				#[cfg(not(feature = "vsock"))]
+				{
+					return Err(tg::error!("vsock is not enabled"));
+				}
+				#[cfg(feature = "vsock")]
+				{
+					let cid = url
+						.host()
+						.ok_or_else(|| tg::error!(%url, "invalid url"))?
+						.parse::<u32>()
+						.map_err(|source| tg::error!(!source, %url, "invalid url"))?;
+					let port = url.port().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+					let addr = tokio_vsock::VsockAddr::new(cid, u32::from(port));
+					Stream::Vsock(
+						tokio_vsock::VsockStream::connect(addr)
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to connect to the socket")
+							})?,
+					)
+				}
+			},
+			_ => return Err(tg::error!(%url, "invalid url")),
+		};
+		Ok(stream)
+	}
+
+	pub(crate) async fn listen(url: &Uri) -> tg::Result<Listener> {
+		let listener = match url.scheme() {
+			Some("http+stdio") => return Err(tg::error!(%url, "cannot listen on stdio")),
+			Some("http") => {
 				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let port = url
 					.port_or_known_default()
@@ -46,6 +103,24 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to bind"))?;
 				Listener::Tcp(listener)
+			},
+			Some("https") => {
+				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+				let port = url
+					.port_or_known_default()
+					.ok_or_else(|| tg::error!(%url, "invalid url"))?;
+				let listener = tokio::net::TcpListener::bind(format!("{host}:{port}"))
+					.await
+					.map_err(|source| tg::error!(!source, "failed to bind"))?;
+				Listener::Tcp(listener)
+			},
+			Some("http+unix") => {
+				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+				let path = Path::new(path);
+				let listener = tokio::net::UnixListener::bind(path).map_err(
+					|source| tg::error!(!source, path = %path.display(), "failed to bind"),
+				)?;
+				Listener::Unix(listener)
 			},
 			Some("http+vsock") => {
 				#[cfg(not(feature = "vsock"))]
@@ -111,63 +186,14 @@ impl Server {
 			.with_description("Number of active HTTP connections")
 			.build();
 
-		// Create the service builder.
-		let builder = tower::ServiceBuilder::new()
-			.layer(tangram_http::layer::metrics::MetricsLayer::new())
-			.layer(tangram_http::layer::tracing::TracingLayer::new())
-			.layer(tower_http::timeout::TimeoutLayer::with_status_code(
-				http::StatusCode::REQUEST_TIMEOUT,
-				Duration::from_mins(1),
-			))
-			.layer(tangram_http::layer::compression::RequestDecompressionLayer)
-			.layer(
-				tangram_http::layer::compression::ResponseCompressionLayer::new(
-					|accept_encoding, parts, _| {
-						let has_content_length =
-							parts.headers.get(http::header::CONTENT_LENGTH).is_some();
-						let is_sync = parts.headers.get(http::header::CONTENT_TYPE).is_some_and(
-							|content_type| {
-								matches!(content_type.to_str(), Ok(tg::sync::CONTENT_TYPE))
-							},
-						);
-						if (has_content_length || is_sync)
-							&& accept_encoding.is_some_and(|accept_encoding| {
-								accept_encoding.preferences.iter().any(|preference| {
-									preference.encoding == tangram_http::header::content_encoding::ContentEncoding::Zstd
-								})
-							}) {
-							Some((tangram_http::body::compression::Algorithm::Zstd, 3))
-						} else {
-							None
-						}
-					},
-				),
-			);
-
-		let service = builder.service_fn({
-			let handle = self.clone();
-			let stopper = stopper.clone();
-			move |request| {
-				let handle = handle.clone();
-				let context = Context {
-					process: process.clone(),
-					sandbox: sandbox.clone(),
-					stopper: Some(stopper.clone()),
-					..Default::default()
-				};
-				async move {
-					let response = handle.handle_request(request, context).await;
-					Ok::<_, Infallible>(response)
-				}
-			}
-		});
+		let service = self.service(process, sandbox, stopper.clone());
 
 		loop {
 			// Accept a new connection.
 			let accept = async {
 				let stream = match &listener {
-					Listener::Unix(listener) => Stream::Unix(listener.accept().await?.0),
 					Listener::Tcp(listener) => Stream::Tcp(listener.accept().await?.0),
+					Listener::Unix(listener) => Stream::Unix(listener.accept().await?.0),
 					#[cfg(feature = "vsock")]
 					Listener::Vsock(listener) => Stream::Vsock(listener.accept().await?.0),
 				};
@@ -201,7 +227,7 @@ impl Server {
 				let tls = tls.clone();
 				async move {
 					match stream {
-						Stream::Unix(stream) => {
+						Stream::Stdio(stream) => {
 							Server::serve_connection(stream, service, stopper).await;
 						},
 						Stream::Tcp(stream) => {
@@ -224,6 +250,9 @@ impl Server {
 							#[cfg(not(feature = "tls"))]
 							Server::serve_connection(stream, service, stopper).await;
 						},
+						Stream::Unix(stream) => {
+							Server::serve_connection(stream, service, stopper).await;
+						},
 						#[cfg(feature = "vsock")]
 						Stream::Vsock(stream) => {
 							Server::serve_connection(stream, service, stopper).await;
@@ -239,9 +268,78 @@ impl Server {
 		task_tracker.wait().await;
 	}
 
+	fn service(
+		&self,
+		process: Option<Arc<crate::context::Process>>,
+		sandbox: Option<tg::sandbox::Id>,
+		stopper: Stopper,
+	) -> Service {
+		let builder = tower::ServiceBuilder::new()
+			.layer(tangram_http::layer::metrics::MetricsLayer::new())
+			.layer(tangram_http::layer::tracing::TracingLayer::new())
+			.layer(tower_http::timeout::TimeoutLayer::with_status_code(
+				http::StatusCode::REQUEST_TIMEOUT,
+				Duration::from_mins(1),
+			))
+			.layer(tangram_http::layer::compression::RequestDecompressionLayer)
+			.layer(
+				tangram_http::layer::compression::ResponseCompressionLayer::new(
+					|accept_encoding, parts, _| {
+						let has_content_length =
+							parts.headers.get(http::header::CONTENT_LENGTH).is_some();
+						let is_sync = parts.headers.get(http::header::CONTENT_TYPE).is_some_and(
+							|content_type| {
+								matches!(content_type.to_str(), Ok(tg::sync::CONTENT_TYPE))
+							},
+						);
+						if (has_content_length || is_sync)
+							&& accept_encoding.is_some_and(|accept_encoding| {
+								accept_encoding.preferences.iter().any(|preference| {
+									preference.encoding == tangram_http::header::content_encoding::ContentEncoding::Zstd
+								})
+							}) {
+							Some((tangram_http::body::compression::Algorithm::Zstd, 3))
+						} else {
+							None
+						}
+					},
+				),
+			);
+
+		Service::new(builder.service_fn({
+			let handle = self.clone();
+			move |request| {
+				let handle = handle.clone();
+				let context = Context {
+					process: process.clone(),
+					sandbox: sandbox.clone(),
+					stopper: Some(stopper.clone()),
+					..Default::default()
+				};
+				async move {
+					let response = handle.handle_request(request, context).await;
+					Ok::<_, Infallible>(response)
+				}
+			}
+		}))
+	}
+
+	pub(crate) async fn serve_stream<S>(
+		&self,
+		stream: S,
+		process: Option<Arc<crate::context::Process>>,
+		sandbox: Option<tg::sandbox::Id>,
+		stopper: Stopper,
+	) where
+		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+	{
+		let service = self.service(process, sandbox, stopper.clone());
+		Server::serve_connection(stream, service, stopper).await;
+	}
+
 	async fn serve_connection<S, T>(stream: S, service: T, stopper: Stopper)
 	where
-		S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin + 'static,
+		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 		T: tower::Service<
 				http::Request<BoxBody>,
 				Response = http::Response<BoxBody>,
@@ -734,5 +832,63 @@ impl Server {
 			retry: process.retry,
 		}));
 		Ok(())
+	}
+}
+
+impl AsyncRead for Stream {
+	fn poll_read(
+		mut self: Pin<&mut Self>,
+		cx: &mut std::task::Context<'_>,
+		buf: &mut ReadBuf<'_>,
+	) -> Poll<std::io::Result<()>> {
+		match self.as_mut().get_mut() {
+			Self::Stdio(stream) => Pin::new(stream).poll_read(cx, buf),
+			Self::Tcp(stream) => Pin::new(stream).poll_read(cx, buf),
+			Self::Unix(stream) => Pin::new(stream).poll_read(cx, buf),
+			#[cfg(feature = "vsock")]
+			Self::Vsock(stream) => Pin::new(stream).poll_read(cx, buf),
+		}
+	}
+}
+
+impl AsyncWrite for Stream {
+	fn poll_write(
+		mut self: Pin<&mut Self>,
+		cx: &mut std::task::Context<'_>,
+		buf: &[u8],
+	) -> Poll<std::io::Result<usize>> {
+		match self.as_mut().get_mut() {
+			Self::Stdio(stream) => Pin::new(stream).poll_write(cx, buf),
+			Self::Tcp(stream) => Pin::new(stream).poll_write(cx, buf),
+			Self::Unix(stream) => Pin::new(stream).poll_write(cx, buf),
+			#[cfg(feature = "vsock")]
+			Self::Vsock(stream) => Pin::new(stream).poll_write(cx, buf),
+		}
+	}
+
+	fn poll_flush(
+		mut self: Pin<&mut Self>,
+		cx: &mut std::task::Context<'_>,
+	) -> Poll<std::io::Result<()>> {
+		match self.as_mut().get_mut() {
+			Self::Stdio(stream) => Pin::new(stream).poll_flush(cx),
+			Self::Tcp(stream) => Pin::new(stream).poll_flush(cx),
+			Self::Unix(stream) => Pin::new(stream).poll_flush(cx),
+			#[cfg(feature = "vsock")]
+			Self::Vsock(stream) => Pin::new(stream).poll_flush(cx),
+		}
+	}
+
+	fn poll_shutdown(
+		mut self: Pin<&mut Self>,
+		cx: &mut std::task::Context<'_>,
+	) -> Poll<std::io::Result<()>> {
+		match self.as_mut().get_mut() {
+			Self::Stdio(stream) => Pin::new(stream).poll_shutdown(cx),
+			Self::Tcp(stream) => Pin::new(stream).poll_shutdown(cx),
+			Self::Unix(stream) => Pin::new(stream).poll_shutdown(cx),
+			#[cfg(feature = "vsock")]
+			Self::Vsock(stream) => Pin::new(stream).poll_shutdown(cx),
+		}
 	}
 }

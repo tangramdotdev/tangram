@@ -102,12 +102,6 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to listen"))?;
 		let guest_uri = match &listener {
-			crate::http::Listener::Unix(_) => tangram_uri::Uri::builder()
-				.scheme("http+unix")
-				.authority(guest_socket_path_string)
-				.path("")
-				.build()
-				.map_err(|source| tg::error!(source = source, "failed to build the guest URL"))?,
 			crate::http::Listener::Tcp(tcp) => {
 				let port = tcp
 					.local_addr()
@@ -117,6 +111,12 @@ impl Server {
 					.parse::<tangram_uri::Uri>()
 					.map_err(|source| tg::error!(source = source, "failed to parse the URL"))?
 			},
+			crate::http::Listener::Unix(_) => tangram_uri::Uri::builder()
+				.scheme("http+unix")
+				.authority(guest_socket_path_string)
+				.path("")
+				.build()
+				.map_err(|source| tg::error!(source = source, "failed to build the guest URL"))?,
 			#[cfg(feature = "vsock")]
 			crate::http::Listener::Vsock(vsock) => {
 				let addr = vsock

@@ -2,14 +2,7 @@ use {
 	crate::{Command, pty},
 	dashmap::DashMap,
 	futures::{FutureExt as _, future},
-	std::{
-		convert::Infallible,
-		ops::Deref,
-		path::Path,
-		pin::Pin,
-		sync::Arc,
-		task::{Context, Poll},
-	},
+	std::{convert::Infallible, ops::Deref, path::Path, pin::Pin, sync::Arc, task::Poll},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody,
@@ -52,16 +45,16 @@ struct Process {
 }
 
 pub enum Listener {
-	Unix(tokio::net::UnixListener),
 	Tcp(tokio::net::TcpListener),
+	Unix(tokio::net::UnixListener),
 	#[cfg(feature = "vsock")]
 	Vsock(tokio_vsock::VsockListener),
 }
 
 pub(crate) enum Stream {
 	Stdio(tokio::io::Join<tokio::io::Stdin, tokio::io::Stdout>),
-	Unix(tokio::net::UnixStream),
 	Tcp(tokio::net::TcpStream),
+	Unix(tokio::net::UnixStream),
 	#[cfg(feature = "vsock")]
 	Vsock(tokio_vsock::VsockStream),
 }
@@ -81,14 +74,6 @@ impl Server {
 			Some("http+stdio") => {
 				Stream::Stdio(tokio::io::join(tokio::io::stdin(), tokio::io::stdout()))
 			},
-			Some("http+unix") => {
-				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-				Stream::Unix(
-					tokio::net::UnixStream::connect(path)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?,
-				)
-			},
 			Some("http") => {
 				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let port = url
@@ -96,6 +81,14 @@ impl Server {
 					.ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				Stream::Tcp(
 					tokio::net::TcpStream::connect((host, port))
+						.await
+						.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?,
+				)
+			},
+			Some("http+unix") => {
+				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+				Stream::Unix(
+					tokio::net::UnixStream::connect(path)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to connect to the socket"))?,
 				)
@@ -131,14 +124,6 @@ impl Server {
 	pub async fn listen(url: &Uri) -> tg::Result<Listener> {
 		let listener = match url.scheme() {
 			Some("http+stdio") => return Err(tg::error!(%url, "cannot listen on stdio")),
-			Some("http+unix") => {
-				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-				let path = Path::new(path);
-				let listener = tokio::net::UnixListener::bind(path).map_err(
-					|source| tg::error!(!source, path = %path.display(), "failed to bind"),
-				)?;
-				Listener::Unix(listener)
-			},
 			Some("http") => {
 				let host = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
 				let port = url
@@ -148,6 +133,14 @@ impl Server {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to bind"))?;
 				Listener::Tcp(listener)
+			},
+			Some("http+unix") => {
+				let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+				let path = Path::new(path);
+				let listener = tokio::net::UnixListener::bind(path).map_err(
+					|source| tg::error!(!source, path = %path.display(), "failed to bind"),
+				)?;
+				Listener::Unix(listener)
 			},
 			Some("http+vsock") => {
 				#[cfg(not(feature = "vsock"))]
@@ -176,17 +169,17 @@ impl Server {
 	pub async fn serve(&self, listener: Listener) {
 		loop {
 			let stream = match &listener {
-				Listener::Unix(listener) => {
-					let Ok((stream, _)) = listener.accept().await else {
-						continue;
-					};
-					Stream::Unix(stream)
-				},
 				Listener::Tcp(listener) => {
 					let Ok((stream, _)) = listener.accept().await else {
 						continue;
 					};
 					Stream::Tcp(stream)
+				},
+				Listener::Unix(listener) => {
+					let Ok((stream, _)) = listener.accept().await else {
+						continue;
+					};
+					Stream::Unix(stream)
 				},
 				#[cfg(feature = "vsock")]
 				Listener::Vsock(listener) => {
@@ -292,13 +285,13 @@ impl Server {
 impl AsyncRead for Stream {
 	fn poll_read(
 		mut self: Pin<&mut Self>,
-		cx: &mut Context<'_>,
+		cx: &mut std::task::Context<'_>,
 		buf: &mut ReadBuf<'_>,
 	) -> Poll<std::io::Result<()>> {
 		match self.as_mut().get_mut() {
 			Self::Stdio(stream) => Pin::new(stream).poll_read(cx, buf),
-			Self::Unix(stream) => Pin::new(stream).poll_read(cx, buf),
 			Self::Tcp(stream) => Pin::new(stream).poll_read(cx, buf),
+			Self::Unix(stream) => Pin::new(stream).poll_read(cx, buf),
 			#[cfg(feature = "vsock")]
 			Self::Vsock(stream) => Pin::new(stream).poll_read(cx, buf),
 		}
@@ -308,33 +301,39 @@ impl AsyncRead for Stream {
 impl AsyncWrite for Stream {
 	fn poll_write(
 		mut self: Pin<&mut Self>,
-		cx: &mut Context<'_>,
+		cx: &mut std::task::Context<'_>,
 		buf: &[u8],
 	) -> Poll<std::io::Result<usize>> {
 		match self.as_mut().get_mut() {
 			Self::Stdio(stream) => Pin::new(stream).poll_write(cx, buf),
-			Self::Unix(stream) => Pin::new(stream).poll_write(cx, buf),
 			Self::Tcp(stream) => Pin::new(stream).poll_write(cx, buf),
+			Self::Unix(stream) => Pin::new(stream).poll_write(cx, buf),
 			#[cfg(feature = "vsock")]
 			Self::Vsock(stream) => Pin::new(stream).poll_write(cx, buf),
 		}
 	}
 
-	fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+	fn poll_flush(
+		mut self: Pin<&mut Self>,
+		cx: &mut std::task::Context<'_>,
+	) -> Poll<std::io::Result<()>> {
 		match self.as_mut().get_mut() {
 			Self::Stdio(stream) => Pin::new(stream).poll_flush(cx),
-			Self::Unix(stream) => Pin::new(stream).poll_flush(cx),
 			Self::Tcp(stream) => Pin::new(stream).poll_flush(cx),
+			Self::Unix(stream) => Pin::new(stream).poll_flush(cx),
 			#[cfg(feature = "vsock")]
 			Self::Vsock(stream) => Pin::new(stream).poll_flush(cx),
 		}
 	}
 
-	fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+	fn poll_shutdown(
+		mut self: Pin<&mut Self>,
+		cx: &mut std::task::Context<'_>,
+	) -> Poll<std::io::Result<()>> {
 		match self.as_mut().get_mut() {
 			Self::Stdio(stream) => Pin::new(stream).poll_shutdown(cx),
-			Self::Unix(stream) => Pin::new(stream).poll_shutdown(cx),
 			Self::Tcp(stream) => Pin::new(stream).poll_shutdown(cx),
+			Self::Unix(stream) => Pin::new(stream).poll_shutdown(cx),
 			#[cfg(feature = "vsock")]
 			Self::Vsock(stream) => Pin::new(stream).poll_shutdown(cx),
 		}
