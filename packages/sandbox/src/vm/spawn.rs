@@ -27,7 +27,10 @@ pub(crate) fn spawn(arg: &crate::Arg, serve_arg: &serve::Arg) -> tg::Result<toki
 		.arg(&arg.tangram_path)
 		.arg("--url")
 		.arg(serve_arg.url.to_string());
-	if arg.network {
+	if let Some(network) = &arg.network {
+		if !network.is_tap() {
+			return Err(tg::error!("vm isolation requires --network=tap"));
+		}
 		let host_ip = arg
 			.host_ip
 			.ok_or_else(|| tg::error!("expected a host IP"))?;

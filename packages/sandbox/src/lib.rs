@@ -75,7 +75,7 @@ pub struct Arg {
 	pub isolation: Isolation,
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
-	pub network: bool,
+	pub network: Option<Network>,
 	pub nice: u8,
 	pub path: PathBuf,
 	pub rootfs_path: PathBuf,
@@ -124,13 +124,13 @@ pub enum Network {
 	#[default]
 	Host,
 	Bridge(Bridge),
+	Tap,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Bridge {
 	pub ip: Ipv4Addr,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub name: Option<String>,
+	pub name: String,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -192,7 +192,7 @@ impl Sandbox {
 				(None, uri)
 			},
 			Isolation::Vm(_) => {
-				let (listener, uri) = Self::listen(arg.isolation, &arg.path).await?;
+				let (listener, uri) = Self::listen(&arg.isolation, &arg.path).await?;
 				(Some(listener), uri)
 			},
 		};

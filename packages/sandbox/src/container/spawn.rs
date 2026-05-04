@@ -25,25 +25,21 @@ pub(crate) async fn spawn(
 	let crate::Isolation::Container(container) = &arg.isolation else {
 		unreachable!()
 	};
-	let network_arg = if arg.network {
-		match &container.network {
-			None => None,
-			Some(crate::Network::Host) => Some("host".to_owned()),
-			Some(crate::Network::Bridge(bridge)) => {
-				let name = bridge.name.as_deref().unwrap_or("tangram0");
-				Some(format!("bridge={name}"))
-			},
-		}
-	} else {
-		None
+	let network_arg = match &arg.network {
+		None => None,
+		Some(crate::Network::Bridge(bridge)) => Some(format!("bridge={}", bridge.name)),
+		Some(crate::Network::Host) => Some("host".to_owned()),
+		Some(crate::Network::Tap) => {
+			return Err(tg::error!(
+				"tap networking is not supported for container isolation"
+			));
+		},
 	};
-	let mut bridge = if arg.network
-		&& let Some(crate::Network::Bridge(bridge)) = &container.network
-	{
+	let mut bridge = if let Some(crate::Network::Bridge(bridge)) = &arg.network {
 		let id = arg.id.clone();
-		let bridge_name = bridge.name.as_deref().unwrap_or("tangram0").to_owned();
+		let bridge = bridge.name.clone();
 		Some(
-			tokio::task::spawn_blocking(move || crate::network::Bridge::new(&id, &bridge_name))
+			tokio::task::spawn_blocking(move || crate::network::Bridge::new(&id, &bridge))
 				.await
 				.map_err(|source| tg::error!(!source, "the bridge creation task panicked"))??,
 		)
@@ -103,9 +99,7 @@ pub(crate) async fn spawn(
 			.arg("--bridge-fd")
 			.arg(bridge.guest_pipe.as_ref().unwrap().as_raw_fd().to_string());
 	}
-	if arg.network
-		&& let Some(crate::Network::Bridge(bridge)) = &container.network
-	{
+	if let Some(crate::Network::Bridge(bridge)) = &arg.network {
 		command.arg("--bridge-ip").arg(bridge.ip.to_string());
 	}
 	if let Some(guest_ip) = arg.guest_ip {
