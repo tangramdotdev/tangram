@@ -292,7 +292,7 @@ impl Server {
 			.subscribe::<()>("processes.finalizer.progress".to_owned())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to finalizer progress"))?;
-		let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(1)));
+		let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(1))).skip(1);
 		let mut wakeups = stream::select(wakeups.map(|_| ()), interval.map(|_| ()));
 
 		// Wait for the existing finalize queue entries to be handled.
@@ -332,7 +332,7 @@ impl Server {
 			.subscribe::<()>("indexer_progress".to_owned())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to indexer progress"))?;
-		let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(1)));
+		let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(1))).skip(1);
 		let mut wakeups = stream::select(wakeups.map(|_| ()), interval.map(|_| ()));
 
 		// Wait until the index no longer has updates whose transaction id is less than or equal to the current transaction id.

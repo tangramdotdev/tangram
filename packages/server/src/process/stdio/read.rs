@@ -155,6 +155,7 @@ impl Server {
 			.boxed();
 
 		let interval = IntervalStream::new(tokio::time::interval(Duration::from_mins(1)))
+			.skip(1)
 			.map(|_| ())
 			.boxed();
 
@@ -272,6 +273,7 @@ impl Server {
 		}
 		let interval = Duration::from_secs(1);
 		let interval = IntervalStream::new(tokio::time::interval(interval))
+			.skip(1)
 			.map(|_| ())
 			.boxed();
 		wakeups.push(interval);

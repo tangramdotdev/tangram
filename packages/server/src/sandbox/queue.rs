@@ -69,7 +69,9 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ());
 		let interval = Duration::from_secs(1);
-		let interval = IntervalStream::new(tokio::time::interval(interval)).map(|_| ());
+		let interval = IntervalStream::new(tokio::time::interval(interval))
+			.skip(1)
+			.map(|_| ());
 		let wakeups = stream::select(wakeups, interval).with_stopper(stopper);
 
 		// Dequeue.

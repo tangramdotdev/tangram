@@ -88,8 +88,9 @@ impl Server {
 			.map(|_| ());
 
 		// Create the interval.
-		let interval =
-			IntervalStream::new(tokio::time::interval(Duration::from_mins(1))).map(|_| ());
+		let interval = IntervalStream::new(tokio::time::interval(Duration::from_mins(1)))
+			.skip(1)
+			.map(|_| ());
 
 		// Create the wakeups stream.
 		let wakeups = stream::select(wakeups, interval).with_stopper(stopper);
