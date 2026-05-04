@@ -22,14 +22,14 @@ declare global {
 	function Tangram(
 		strings: TemplateStringsArray,
 		...placeholders: Tangram.Args<Tangram.Template.Arg>
-	): Promise<Tangram.Template>;
+	): Tangram.Template.Builder;
 	function Tangram(
 		...args: Tangram.Args<Tangram.Template.Arg>
-	): Promise<Tangram.Template>;
+	): Tangram.Template.Builder;
 
 	function tg(
 		strings: TemplateStringsArray,
 		...placeholders: tg.Args<tg.Template.Arg>
-	): Promise<tg.Template>;
-	function tg(...args: tg.Args<tg.Template.Arg>): Promise<tg.Template>;
+	): tg.Template.Builder;
+	function tg(...args: tg.Args<tg.Template.Arg>): tg.Template.Builder;
 }

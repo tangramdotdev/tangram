@@ -1,47 +1,39 @@
 import * as tg from "./index.ts";
 
 /** Create a template. */
-export async function template(
+export function template(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<tg.Template.Arg>
-): Promise<tg.Template>;
-export async function template(
+): tg.Template.Builder;
+export function template(
 	...args: tg.Args<tg.Template.Arg>
-): Promise<tg.Template>;
-export async function template(
+): tg.Template.Builder;
+export function template(
 	firstArg:
 		| TemplateStringsArray
 		| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.Template.Arg>>,
 	...args: tg.Args<tg.Template.Arg>
-): Promise<tg.Template> {
-	return await inner(false, firstArg, ...args);
+): tg.Template.Builder {
+	return new tg.Template.Builder(firstArg, ...args);
 }
 
-async function inner(
-	raw: boolean,
-	firstArg:
-		| TemplateStringsArray
-		| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.Template.Arg>>,
+async function joinTemplate(
+	separator: tg.Unresolved<tg.Template.Arg>,
 	...args: tg.Args<tg.Template.Arg>
 ): Promise<tg.Template> {
-	if (Array.isArray(firstArg) && "raw" in firstArg) {
-		let strings = !raw ? unindent(firstArg) : firstArg;
-		let placeholders = args as tg.Args<tg.Template>;
-		let components = [];
-		for (let i = 0; i < strings.length - 1; i++) {
-			let string = strings[i]!;
-			components.push(string);
-			let placeholder = placeholders[i]!;
-			components.push(placeholder);
+	let separatorTemplate = await template(separator);
+	let argTemplates = await Promise.all(args.map((arg) => template(arg)));
+	argTemplates = argTemplates.filter((arg) => arg.components.length > 0);
+	let templates = [];
+	for (let i = 0; i < argTemplates.length; i++) {
+		if (i > 0) {
+			templates.push(separatorTemplate);
 		}
-		components.push(strings[strings.length - 1]!);
-		return await tg.Template.new(...components);
-	} else {
-		return await tg.Template.new(
-			firstArg as tg.Unresolved<tg.Template.Arg>,
-			...args,
-		);
+		let argTemplate = argTemplates[i];
+		tg.assert(argTemplate);
+		templates.push(argTemplate);
 	}
+	return await template(...templates);
 }
 
 /** A template. */
@@ -148,23 +140,11 @@ export class Template {
 	}
 
 	/** Join an array of templates with a separator. */
-	static async join(
+	static join(
 		separator: tg.Unresolved<tg.Template.Arg>,
 		...args: tg.Args<tg.Template.Arg>
-	): Promise<tg.Template> {
-		let separatorTemplate = await template(separator);
-		let argTemplates = await Promise.all(args.map((arg) => template(arg)));
-		argTemplates = argTemplates.filter((arg) => arg.components.length > 0);
-		let templates = [];
-		for (let i = 0; i < argTemplates.length; i++) {
-			if (i > 0) {
-				templates.push(separatorTemplate);
-			}
-			let argTemplate = argTemplates[i];
-			tg.assert(argTemplate);
-			templates.push(argTemplate);
-		}
-		return template(...templates);
+	): tg.Template.Builder {
+		return tg.Template.Builder.join(separator, ...args);
 	}
 
 	/** Get this template's components. */
@@ -174,6 +154,76 @@ export class Template {
 }
 
 export namespace Template {
+	export class Builder {
+		#args: tg.Args<tg.Template.Arg>;
+		#create: (...args: Array<any>) => Promise<tg.Template>;
+
+		constructor(
+			raw: boolean,
+			strings: TemplateStringsArray,
+			...placeholders: tg.Args<tg.Template.Arg>
+		);
+		constructor(
+			strings: TemplateStringsArray,
+			...placeholders: tg.Args<tg.Template.Arg>
+		);
+		constructor(
+			firstArg:
+				| TemplateStringsArray
+				| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.Template.Arg>>,
+			...args: tg.Args<tg.Template.Arg>
+		);
+		constructor(...args: tg.Args<tg.Template.Arg>);
+		constructor(...args: any[]) {
+			let raw = false;
+			if (typeof args[0] === "boolean") {
+				raw = args[0];
+				args = args.slice(1);
+			}
+			let firstArg = args[0];
+			if (Array.isArray(firstArg) && "raw" in firstArg) {
+				let strings = firstArg as TemplateStringsArray;
+				let strings_ = !raw ? unindent([...strings]) : strings;
+				let placeholders = args.slice(1) as tg.Args<tg.Template.Arg>;
+				let components = [];
+				for (let i = 0; i < strings_.length - 1; i++) {
+					let string = strings_[i]!;
+					components.push(string);
+					let placeholder = placeholders[i]!;
+					components.push(placeholder);
+				}
+				components.push(strings_[strings_.length - 1]!);
+				this.#args = components;
+			} else {
+				this.#args = args;
+			}
+			this.#create = tg.Template.new;
+		}
+
+		static join(
+			separator: tg.Unresolved<tg.Template.Arg>,
+			...args: tg.Args<tg.Template.Arg>
+		): tg.Template.Builder {
+			let builder = new tg.Template.Builder();
+			builder.#args = [separator, ...args];
+			builder.#create = joinTemplate;
+			return builder;
+		}
+
+		then<TResult1 = tg.Template, TResult2 = never>(
+			onfulfilled?:
+				| ((value: tg.Template) => TResult1 | PromiseLike<TResult1>)
+				| undefined
+				| null,
+			onrejected?:
+				| ((reason: any) => TResult2 | PromiseLike<TResult2>)
+				| undefined
+				| null,
+		): PromiseLike<TResult1 | TResult2> {
+			return this.#create(...this.#args).then(onfulfilled, onrejected);
+		}
+	}
+
 	export type Arg = undefined | tg.Template.Component | tg.Template;
 
 	export type Component = string | tg.Artifact | tg.Placeholder;
@@ -200,11 +250,11 @@ export namespace Template {
 	}
 
 	/** A tagged template function that behaves identically to `tg.template` except that it does not trim leading whitespace. */
-	export let raw = async (
+	export let raw = (
 		strings: TemplateStringsArray,
 		...placeholders: tg.Args<tg.Template.Arg>
-	): Promise<tg.Template> => {
-		return await inner(true, strings, ...placeholders);
+	): tg.Template.Builder => {
+		return new tg.Template.Builder(true, strings, ...placeholders);
 	};
 }
 
