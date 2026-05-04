@@ -201,8 +201,8 @@ fn version() -> String {
 	Copy,
 	Debug,
 	Default,
-	derive_more::IsVariant,
 	clap::ValueEnum,
+	derive_more::IsVariant,
 	serde::Deserialize,
 	serde::Serialize,
 )]

@@ -1,6 +1,6 @@
 use {
 	self::{context::Context, database::Database, index::Index, messenger::Messenger},
-	crate::{temp::Temp, watch::Watch},
+	crate::{network::Network, temp::Temp, watch::Watch},
 	dashmap::{DashMap, DashSet},
 	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	indoc::{formatdoc, indoc},
@@ -40,6 +40,7 @@ mod log;
 mod lsp;
 mod messenger;
 mod module;
+mod network;
 mod object;
 mod process;
 mod pull;
@@ -87,18 +88,19 @@ pub struct State {
 	lock: Mutex<Option<tokio::fs::File>>,
 	log_store: self::log::Store,
 	messenger: Messenger,
+	networks: Vec<Network>,
 	object_get_tasks: ObjectGetTasks,
 	object_store: self::object::Store,
 	path: PathBuf,
+	process_store: Database,
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	remote_list_tags_tasks: RemoteListTagsTasks,
 	remotes: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
 	sandbox_permits: SandboxPermits,
 	sandbox_rootfs: PathBuf,
 	sandbox_semaphore: Arc<tokio::sync::Semaphore>,
-	process_store: Database,
-	sandboxes: Sandboxes,
 	sandbox_tasks: SandboxTasks,
+	sandboxes: Sandboxes,
 	tangram_path: PathBuf,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
@@ -479,6 +481,29 @@ impl Server {
 			},
 		};
 
+		// Create the networks
+		let ignored_ifaces: Vec<String> = match &config.sandbox.isolation {
+			crate::config::SandboxIsolation::Container(container) => match &container.network {
+				Some(crate::config::ContainerNetwork::Bridge(bridge)) => {
+					vec![bridge.name.as_deref().unwrap_or("tangram0").to_owned()]
+				},
+				_ => Vec::new(),
+			},
+			_ => Vec::new(),
+		};
+		let networks = config
+			.sandbox
+			.networks
+			.iter()
+			.map(|network| {
+				Network::new(
+					network.ip.min.to_bits(),
+					network.ip.max.to_bits(),
+					ignored_ifaces.clone(),
+				)
+			})
+			.collect();
+
 		// Create the regions.
 		let regions = DashMap::default();
 
@@ -599,18 +624,19 @@ impl Server {
 			lock,
 			log_store,
 			messenger,
+			networks,
 			object_get_tasks,
 			object_store,
 			path,
+			process_store,
 			regions,
 			remote_list_tags_tasks,
 			remotes,
 			sandbox_permits,
 			sandbox_rootfs,
 			sandbox_semaphore,
-			process_store,
-			sandboxes,
 			sandbox_tasks,
+			sandboxes,
 			tangram_path,
 			temps,
 			version,
@@ -930,6 +956,30 @@ impl Server {
 				}
 			})
 		});
+
+		// Remove host-wide iptables rules left behind by previous runs of the server,
+		// then re-create the bridge if the runner is using bridge networking.
+		#[cfg(target_os = "linux")]
+		if server.config.runner.is_some() {
+			let bridge = if let crate::config::SandboxIsolation::Container(container) =
+				&server.config.sandbox.isolation
+				&& let Some(crate::config::ContainerNetwork::Bridge(bridge)) = &container.network
+			{
+				let name = bridge.name.as_deref().unwrap_or("tangram0").to_owned();
+				let ip = bridge.ip.unwrap_or_else(crate::config::default_bridge_ip);
+				Some((name, ip))
+			} else {
+				None
+			};
+			let bridge_name = bridge.as_ref().map(|(name, _)| name.as_str());
+			if let Err(error) = tangram_sandbox::cleanup_persistent_rules(bridge_name) {
+				tracing::warn!(%error, "failed to clean up persistent sandbox rules");
+			}
+			if let Some((name, ip)) = bridge {
+				tangram_sandbox::create_bridge(&name, ip)
+					.map_err(|source| tg::error!(!source, "failed to create the bridge"))?;
+			}
+		}
 
 		// Spawn the runner task.
 		let runner_task = if server.config.runner.is_some() {
