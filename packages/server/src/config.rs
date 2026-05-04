@@ -566,6 +566,9 @@ pub enum JsEngine {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Sandbox {
+	#[serde(default = "default_dns", skip_serializing_if = "Vec::is_empty")]
+	pub dns: Vec<Ipv4Addr>,
+
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default = "default_finalizer")]
 	pub finalizer: Option<Finalizer>,
@@ -1120,6 +1123,7 @@ impl Default for ContainerSandboxIsolation {
 impl Default for Sandbox {
 	fn default() -> Self {
 		Self {
+			dns: default_dns(),
 			finalizer: Some(Finalizer::default()),
 			isolation: {
 				#[cfg(target_os = "linux")]
@@ -1327,6 +1331,10 @@ fn default_networks() -> Vec<SandboxNetwork> {
 	vec![SandboxNetwork {
 		ip: "172.18.0.4-172.31.255.255".parse().unwrap(),
 	}]
+}
+
+fn default_dns() -> Vec<Ipv4Addr> {
+	vec![Ipv4Addr::new(1, 1, 1, 1), Ipv4Addr::new(8, 8, 8, 8)]
 }
 
 pub(crate) fn default_bridge_ip() -> Ipv4Addr {

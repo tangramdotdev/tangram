@@ -30,6 +30,7 @@ const VIRTIOFSD_SOCKET_NAME: &str = "virtiofsd.sock";
 pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub cpu: Option<u64>,
+	pub dns: Vec<Ipv4Addr>,
 	pub guest_ip: Option<Ipv4Addr>,
 	pub host_ip: Option<Ipv4Addr>,
 	pub hostname: Option<String>,
@@ -93,10 +94,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		None
 	};
 	let network = tap.as_ref().map(|t| crate::vm::Network {
-		dns_servers: vec![
-			std::net::Ipv4Addr::new(1, 1, 1, 1),
-			std::net::Ipv4Addr::new(8, 8, 8, 8),
-		],
+		dns_servers: arg.dns.clone(),
 		gateway_ip: t.host_ip,
 		guest_ip: t.guest_ip,
 		netmask: t.netmask,

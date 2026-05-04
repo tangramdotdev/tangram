@@ -13,6 +13,9 @@ pub struct Args {
 	#[arg(long)]
 	pub cpu: Option<u64>,
 
+	#[arg(action = clap::ArgAction::Append, long = "dns", num_args = 1)]
+	pub dns: Vec<Ipv4Addr>,
+
 	#[arg(long)]
 	pub host_ip: Option<Ipv4Addr>,
 
@@ -59,6 +62,7 @@ impl Cli {
 		let arg = tangram_sandbox::vm::run::Arg {
 			artifacts_path: args.artifacts_path,
 			cpu: args.cpu,
+			dns: args.dns,
 			host_ip: args.host_ip,
 			guest_ip: args.guest_ip,
 			hostname: args.hostname,

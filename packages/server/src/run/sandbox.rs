@@ -127,6 +127,7 @@ impl Server {
 		let arg = tangram_sandbox::Arg {
 			artifacts_path,
 			cpu: state.cpu,
+			dns: self.config.sandbox.dns.clone(),
 			host_ip: host_ip.as_ref().map(|ip| ip.addr),
 			guest_ip: guest_ip.as_ref().map(|ip| ip.addr),
 			hostname: state.hostname.clone(),
