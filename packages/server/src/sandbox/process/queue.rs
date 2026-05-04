@@ -80,9 +80,9 @@ impl Server {
 			return Ok(None);
 		}
 
-		// Create the update stream.
+		// Create the wakeups stream.
 		let subject = format!("sandboxes.{sandbox}.processes.created");
-		let created = self
+		let wakeups = self
 			.messenger
 			.subscribe_with_delivery::<()>(subject, Delivery::One)
 			.await
@@ -90,11 +90,11 @@ impl Server {
 			.map(|_| ());
 		let interval = Duration::from_secs(1);
 		let interval = IntervalStream::new(tokio::time::interval(interval)).map(|_| ());
-		let stream = stream::select(created, interval).with_stopper(stopper);
+		let wakeups = stream::select(wakeups, interval).with_stopper(stopper);
 
 		// Dequeue.
-		let mut stream = pin!(stream);
-		while let Some(()) = stream.next().await {
+		let mut wakeups = pin!(wakeups);
+		loop {
 			let output = match &self.process_store {
 				#[cfg(feature = "postgres")]
 				Database::Postgres(process_store) => {
@@ -113,6 +113,9 @@ impl Server {
 					.await
 					.ok();
 				return Ok(Some(output));
+			}
+			if wakeups.next().await.is_none() {
+				break;
 			}
 		}
 

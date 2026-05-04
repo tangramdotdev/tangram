@@ -61,8 +61,8 @@ impl Server {
 		&self,
 		stopper: Option<Stopper>,
 	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
-		// Create the update stream.
-		let created = self
+		// Create the wakeups stream.
+		let wakeups = self
 			.messenger
 			.subscribe_with_delivery::<()>("sandboxes.created".into(), Delivery::One)
 			.await
@@ -70,11 +70,11 @@ impl Server {
 			.map(|_| ());
 		let interval = Duration::from_secs(1);
 		let interval = IntervalStream::new(tokio::time::interval(interval)).map(|_| ());
-		let stream = stream::select(created, interval).with_stopper(stopper);
+		let wakeups = stream::select(wakeups, interval).with_stopper(stopper);
 
 		// Dequeue.
-		let mut stream = pin!(stream);
-		while let Some(()) = stream.next().await {
+		let mut wakeups = pin!(wakeups);
+		loop {
 			let output = match &self.process_store {
 				#[cfg(feature = "postgres")]
 				Database::Postgres(process_store) => self.try_dequeue_sandbox_postgres(process_store).await?,
@@ -90,6 +90,9 @@ impl Server {
 						.ok();
 				}
 				return Ok(Some(output));
+			}
+			if wakeups.next().await.is_none() {
+				break;
 			}
 		}
 

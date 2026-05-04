@@ -137,7 +137,7 @@ impl Server {
 		stopper: Option<Stopper>,
 	) -> tg::Result<()> {
 		let subject = format!("processes.{id}.log");
-		let log = self
+		let log_wakeups = self
 			.messenger
 			.subscribe::<()>(subject)
 			.await
@@ -146,7 +146,7 @@ impl Server {
 			.boxed();
 
 		let subject = format!("processes.{id}.status");
-		let status = self
+		let status_wakeups = self
 			.messenger
 			.subscribe::<()>(subject)
 			.await
@@ -158,9 +158,10 @@ impl Server {
 			.map(|_| ())
 			.boxed();
 
-		let mut wakeups = stream::select_all([log, status, interval]).with_stopper(stopper);
+		let mut wakeups =
+			stream::select_all([log_wakeups, status_wakeups, interval]).with_stopper(stopper);
 
-		'outer: while wakeups.next().await.is_some() {
+		'outer: loop {
 			let status = self
 				.get_process_status_local(id)
 				.await
@@ -207,6 +208,10 @@ impl Server {
 					.send(Ok(tg::process::stdio::read::Event::End))
 					.await
 					.ok();
+				break;
+			}
+
+			if wakeups.next().await.is_none() {
 				break;
 			}
 		}
@@ -272,7 +277,7 @@ impl Server {
 		wakeups.push(interval);
 		let wakeups = stream::select_all(wakeups).with_stopper(stopper);
 		let mut wakeups = pin!(wakeups);
-		while wakeups.next().await.is_some() {
+		loop {
 			loop {
 				match self.try_read_process_stdio_pipe_event(id, &streams).await {
 					Ok(Some(event)) => {
@@ -298,6 +303,9 @@ impl Server {
 						break;
 					},
 				}
+			}
+			if wakeups.next().await.is_none() {
+				break;
 			}
 		}
 		Ok(())

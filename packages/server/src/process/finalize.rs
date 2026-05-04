@@ -5,6 +5,7 @@ use {
 	std::{collections::BTreeSet, pin::pin, time::Duration},
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
+	tangram_futures::{stream::Ext as _, task::Stopper},
 	tangram_index::prelude::*,
 	tangram_messenger::prelude::*,
 	tokio_stream::wrappers::IntervalStream,
@@ -22,10 +23,14 @@ pub(crate) struct Entry {
 }
 
 impl Server {
-	pub(crate) async fn finalizer_task(&self, config: &crate::config::Finalizer) -> tg::Result<()> {
+	pub(crate) async fn finalizer_task(
+		&self,
+		config: &crate::config::Finalizer,
+		stopper: Stopper,
+	) -> tg::Result<()> {
 		let batch_size = config.message_batch_size.max(1);
 		let subject = "processes.finalize.queue";
-		let stream = self
+		let wakeups = self
 			.messenger
 			.subscribe_with_delivery::<()>(subject.into(), Delivery::One)
 			.await
@@ -33,9 +38,9 @@ impl Server {
 			.map(|_| ());
 		let interval = config.message_batch_timeout.max(Duration::from_millis(1));
 		let interval = IntervalStream::new(tokio::time::interval(interval)).map(|_| ());
-		let stream = stream::select(stream, interval);
-		let mut stream = pin!(stream);
-		while let Some(()) = stream.next().await {
+		let wakeups = stream::select(wakeups, interval).with_stopper(Some(stopper));
+		let mut wakeups = pin!(wakeups);
+		loop {
 			loop {
 				let entries = match self.try_finalizer_dequeue_batch(batch_size).await {
 					Ok(Some(entries)) => entries,
@@ -56,6 +61,9 @@ impl Server {
 					.publish("processes.finalizer.progress".to_owned(), ())
 					.await
 					.ok();
+			}
+			if wakeups.next().await.is_none() {
+				break;
 			}
 		}
 		Ok(())

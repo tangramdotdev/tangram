@@ -57,10 +57,12 @@ impl Server {
 				}
 			}
 		});
+
 		let stream = progress
 			.stream()
 			.attach(task)
 			.with_stopper(context.stopper.clone());
+
 		Ok(stream)
 	}
 

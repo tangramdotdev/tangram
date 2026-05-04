@@ -35,7 +35,7 @@ impl Server {
 
 			// If an error occurred or no processes were finished, wait to be signaled or for the timeout to expire.
 			if matches!(result, Err(_) | Ok(0)) {
-				let stream = self
+				let wakeups = self
 					.messenger
 					.subscribe::<()>("watchdog".into())
 					.await
@@ -45,8 +45,8 @@ impl Server {
 							"failed to subscribe to the cancellation message stream"
 						)
 					})?;
-				let mut stream = pin!(stream);
-				tokio::time::timeout(config.interval, stream.next())
+				let mut wakeups = pin!(wakeups);
+				tokio::time::timeout(config.interval, wakeups.next())
 					.await
 					.ok();
 			}

@@ -17,7 +17,7 @@ use {
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 	tangram_messenger::prelude::*,
-	tokio_stream::wrappers::IntervalStream,
+	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
 
 impl Server {
@@ -83,7 +83,7 @@ impl Server {
 		}
 
 		// Create the channel.
-		let (sender, receiver) = async_channel::unbounded();
+		let (sender, receiver) = tokio::sync::mpsc::channel(1);
 
 		// Spawn the task.
 		let server = self.clone();
@@ -94,11 +94,11 @@ impl Server {
 				.try_get_process_children_local_task(&id, arg, sender.clone(), stopper)
 				.await;
 			if let Err(error) = result {
-				sender.try_send(Err(error)).ok();
+				sender.send(Err(error)).await.ok();
 			}
 		});
 
-		let stream = receiver.attach(task).boxed();
+		let stream = ReceiverStream::new(receiver).attach(task).boxed();
 
 		Ok(Some(stream))
 	}
@@ -107,7 +107,7 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
-		sender: async_channel::Sender<tg::Result<tg::process::children::get::Event>>,
+		sender: tokio::sync::mpsc::Sender<tg::Result<tg::process::children::get::Event>>,
 		stopper: Option<Stopper>,
 	) -> tg::Result<()> {
 		// Get the position.
@@ -128,7 +128,7 @@ impl Server {
 
 		// Subscribe to children events.
 		let subject = format!("processes.{id}.children");
-		let children = self
+		let children_wakeups = self
 			.messenger
 			.subscribe::<()>(subject)
 			.await
@@ -138,7 +138,7 @@ impl Server {
 
 		// Subscribe to status events.
 		let subject = format!("processes.{id}.status");
-		let status = self
+		let status_wakeups = self
 			.messenger
 			.subscribe::<()>(subject)
 			.await
@@ -151,8 +151,9 @@ impl Server {
 			.map(|_| ())
 			.boxed();
 
-		// Create the events stream.
-		let mut events = stream::select_all([children, status, interval]).with_stopper(stopper);
+		// Create the wakeups stream.
+		let mut wakeups =
+			stream::select_all([children_wakeups, status_wakeups, interval]).with_stopper(stopper);
 
 		// Create the state.
 		let size = arg.size.unwrap_or(10);
@@ -190,7 +191,9 @@ impl Server {
 				read += chunk.data.len().to_u64().unwrap();
 
 				// Send the data.
-				let result = sender.try_send(Ok(tg::process::children::get::Event::Chunk(chunk)));
+				let result = sender
+					.send(Ok(tg::process::children::get::Event::Chunk(chunk)))
+					.await;
 				if result.is_err() {
 					return Ok(());
 				}
@@ -199,7 +202,9 @@ impl Server {
 			// If the process is finished or the length is reached, then send the end event and break.
 			let end = arg.length.is_some_and(|length| read >= length);
 			if end || status.is_finished() {
-				let result = sender.try_send(Ok(tg::process::children::get::Event::End));
+				let result = sender
+					.send(Ok(tg::process::children::get::Event::End))
+					.await;
 				if result.is_err() {
 					return Ok(());
 				}
@@ -207,7 +212,7 @@ impl Server {
 			}
 
 			// Wait for an event before returning to the top of the loop.
-			if events.next().await.is_none() {
+			if wakeups.next().await.is_none() {
 				break;
 			}
 		}

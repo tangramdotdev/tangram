@@ -1,19 +1,22 @@
 use {
 	crate::{Context, Server},
 	futures::{
-		StreamExt as _, TryStreamExt as _, future,
+		StreamExt as _,
 		stream::{self, BoxStream, FuturesUnordered},
 	},
 	indoc::formatdoc,
 	std::time::Duration,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
-	tangram_futures::stream::Ext as _,
+	tangram_futures::{
+		stream::Ext as _,
+		task::{Stopper, Task},
+	},
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 	tangram_messenger::prelude::*,
-	tokio_stream::wrappers::IntervalStream,
+	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
 
 impl Server {
@@ -30,10 +33,13 @@ impl Server {
 
 		if let Some(local) = &locations.local {
 			if local.current
-				&& let Some(status) = self.try_get_process_status_stream_local(id).await.map_err(
-					|source| tg::error!(!source, %id, "failed to get the process status stream"),
-				)? {
-				return Ok(Some(status.with_stopper(context.stopper.clone())));
+				&& let Some(status) = self
+					.try_get_process_status_stream_local(id, context.stopper.clone())
+					.await
+					.map_err(
+						|source| tg::error!(!source, %id, "failed to get the process status stream"),
+					)? {
+				return Ok(Some(status));
 			}
 
 			if let Some(status) = self
@@ -61,6 +67,7 @@ impl Server {
 	pub(crate) async fn try_get_process_status_stream_local(
 		&self,
 		id: &tg::process::Id,
+		stopper: Option<Stopper>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		// Verify the process is local.
 		if !self
@@ -73,7 +80,7 @@ impl Server {
 
 		// Subscribe to status events.
 		let subject = format!("processes.{id}.status");
-		let status = self
+		let wakeups = self
 			.messenger
 			.subscribe::<()>(subject)
 			.await
@@ -84,46 +91,56 @@ impl Server {
 		let interval =
 			IntervalStream::new(tokio::time::interval(Duration::from_mins(1))).map(|_| ());
 
-		// Create the stream.
+		// Create the wakeups stream.
+		let wakeups = stream::select(wakeups, interval).with_stopper(stopper);
+
+		// Create the channel.
+		let (sender, receiver) = tokio::sync::mpsc::channel(1);
+
+		// Spawn the task.
 		let server = self.clone();
 		let id = id.clone();
-		let mut previous: Option<tg::process::Status> = None;
-		let stream = stream::select(status, interval)
-			.boxed()
-			.then(move |()| {
-				let server = server.clone();
-				let id = id.clone();
-				async move {
-					server
-						.try_get_process_status_local(&id)
-						.await
-						.map(|option| option.unwrap_or(tg::process::Status::Finished))
-				}
-			})
-			.try_filter(move |status| {
-				future::ready(match (previous.as_mut(), *status) {
-					(None, status) => {
-						previous.replace(status);
-						true
-					},
-					(Some(previous), status) if *previous == status => false,
-					(Some(previous), status) => {
-						*previous = status;
-						true
-					},
-				})
-			})
-			.take_while_inclusive(move |result| {
-				if let Ok(status) = result {
-					future::ready(!status.is_finished())
-				} else {
-					future::ready(false)
-				}
-			})
-			.map_ok(tg::process::status::Event::Status)
-			.chain(stream::once(future::ok(tg::process::status::Event::End)));
+		let task = Task::spawn(|_| async move {
+			let result = server
+				.try_get_process_status_stream_local_task(&id, sender.clone(), wakeups)
+				.await;
+			if let Err(error) = result {
+				sender.send(Err(error)).await.ok();
+			}
+		});
 
-		Ok(Some(stream.boxed()))
+		let stream = ReceiverStream::new(receiver).attach(task).boxed();
+
+		Ok(Some(stream))
+	}
+
+	async fn try_get_process_status_stream_local_task(
+		&self,
+		id: &tg::process::Id,
+		sender: tokio::sync::mpsc::Sender<tg::Result<tg::process::status::Event>>,
+		mut wakeups: BoxStream<'static, ()>,
+	) -> tg::Result<()> {
+		let mut previous: Option<tg::process::Status> = None;
+		loop {
+			let status = self
+				.try_get_process_status_local(id)
+				.await?
+				.unwrap_or(tg::process::Status::Finished);
+			if previous != Some(status) {
+				previous.replace(status);
+				let event = tg::process::status::Event::Status(status);
+				if sender.send(Ok(event)).await.is_err() {
+					return Ok(());
+				}
+			}
+			if status.is_finished() {
+				sender.send(Ok(tg::process::status::Event::End)).await.ok();
+				return Ok(());
+			}
+			if wakeups.next().await.is_none() {
+				return Ok(());
+			}
+		}
 	}
 
 	pub(crate) async fn get_process_status_local(

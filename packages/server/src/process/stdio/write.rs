@@ -258,14 +258,14 @@ impl Server {
 		stream: tg::process::stdio::Stream,
 	) -> tg::Result<BoxStream<'static, ()>> {
 		let subject = format!("processes.{id}.{stream}.read");
-		let read = self
+		let read_wakeups = self
 			.messenger
 			.subscribe_with_delivery::<()>(subject, Delivery::One)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
 			.map(|_| ());
 		let subject = format!("processes.{id}.{stream}.close");
-		let close = self
+		let close_wakeups = self
 			.messenger
 			.subscribe_with_delivery::<()>(subject, Delivery::One)
 			.await
@@ -275,8 +275,13 @@ impl Server {
 		let interval = IntervalStream::new(tokio::time::interval(interval))
 			.skip(1)
 			.map(|_| ());
-		let stream = stream::select_all([read.boxed(), close.boxed(), interval.boxed()]).boxed();
-		Ok(stream)
+		let wakeups = stream::select_all([
+			read_wakeups.boxed(),
+			close_wakeups.boxed(),
+			interval.boxed(),
+		])
+		.boxed();
+		Ok(wakeups)
 	}
 
 	async fn try_write_process_stdio(

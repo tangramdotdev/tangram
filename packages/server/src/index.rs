@@ -287,14 +287,13 @@ impl Server {
 
 	async fn index_task(&self, progress: &crate::progress::Handle<()>) -> tg::Result<()> {
 		// Subscribe to process finalizer progress.
-		let finalizer_progress_stream = self
+		let wakeups = self
 			.messenger
 			.subscribe::<()>("processes.finalizer.progress".to_owned())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to finalizer progress"))?;
 		let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(1)));
-		let mut finalizer_progress_stream =
-			stream::select(finalizer_progress_stream.map(|_| ()), interval.map(|_| ()));
+		let mut wakeups = stream::select(wakeups.map(|_| ()), interval.map(|_| ()));
 
 		// Wait for the existing finalize queue entries to be handled.
 		if let Some(position) = self.try_get_process_finalize_queue_max_position().await? {
@@ -311,7 +310,7 @@ impl Server {
 					Some(total),
 				);
 				while remaining > 0 {
-					finalizer_progress_stream.next().await;
+					wakeups.next().await;
 					let next_remaining = self
 						.get_process_finalize_queue_count_until_position(position)
 						.await?;
@@ -328,14 +327,13 @@ impl Server {
 		progress.finish("tasks");
 
 		// Subscribe to indexer progress.
-		let indexer_progress_stream = self
+		let wakeups = self
 			.messenger
 			.subscribe::<()>("indexer_progress".to_owned())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to indexer progress"))?;
 		let interval = IntervalStream::new(tokio::time::interval(Duration::from_secs(1)));
-		let mut indexer_progress_stream =
-			stream::select(indexer_progress_stream.map(|_| ()), interval.map(|_| ()));
+		let mut wakeups = stream::select(wakeups.map(|_| ()), interval.map(|_| ()));
 
 		// Wait until the index no longer has updates whose transaction id is less than or equal to the current transaction id.
 		let transaction_id = self
@@ -353,7 +351,7 @@ impl Server {
 			if finished {
 				break;
 			}
-			indexer_progress_stream.next().await;
+			wakeups.next().await;
 		}
 		progress.finish("updates");
 

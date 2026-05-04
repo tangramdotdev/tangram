@@ -117,7 +117,7 @@ impl Server {
 		stopper: Option<Stopper>,
 	) -> tg::Result<()> {
 		let subject = format!("processes.{id}.signal");
-		let stream = self
+		let wakeups = self
 			.messenger
 			.subscribe_with_delivery::<()>(subject, Delivery::One)
 			.await
@@ -125,9 +125,9 @@ impl Server {
 			.map(|_| ());
 		let interval =
 			IntervalStream::new(tokio::time::interval(Duration::from_secs(1))).map(|_| ());
-		let stream = stream::select(stream, interval).with_stopper(stopper);
-		let mut stream = pin!(stream);
-		while let Some(()) = stream.next().await {
+		let wakeups = stream::select(wakeups, interval).with_stopper(stopper);
+		let mut wakeups = pin!(wakeups);
+		loop {
 			loop {
 				let signal = match self.try_dequeue_process_signal(id).await {
 					Ok(Some(signal)) => signal,
@@ -146,6 +146,9 @@ impl Server {
 				if result.is_err() {
 					return Ok(());
 				}
+			}
+			if wakeups.next().await.is_none() {
+				break;
 			}
 		}
 		Ok(())

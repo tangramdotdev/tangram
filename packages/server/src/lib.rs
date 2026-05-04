@@ -879,9 +879,9 @@ impl Server {
 		let process_finalizer_task = server.config.process.finalizer.clone().map(|config| {
 			Task::spawn({
 				let server = server.clone();
-				|_| async move {
+				|stopper| async move {
 					server
-						.finalizer_task(&config)
+						.finalizer_task(&config, stopper)
 						.await
 						.inspect_err(|error| {
 							tracing::error!(error = %error.trace(), "the process finalizer task failed");
@@ -895,9 +895,9 @@ impl Server {
 		let sandbox_finalizer_task = server.config.sandbox.finalizer.clone().map(|config| {
 			Task::spawn({
 				let server = server.clone();
-				|_| async move {
+				|stopper| async move {
 					server
-						.sandbox_finalizer_task(&config)
+						.sandbox_finalizer_task(&config, stopper)
 						.await
 						.inspect_err(|error| {
 							tracing::error!(error = %error.trace(), "the sandbox finalizer task failed");
