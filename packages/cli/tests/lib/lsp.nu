@@ -121,6 +121,8 @@ export def start [] {
 					done
 					kill -9 -$SELF_PID
 				\) &
+				export DYLD_LIBRARY_PATH=\"($env.DYLD_LIBRARY_PATH? | default '')\"
+				export DYLD_FALLBACK_LIBRARY_PATH=\"($env.DYLD_FALLBACK_LIBRARY_PATH? | default '')\"
 				exec 3<>\"($input)\"
 				cat <&3 | tg lsp > \"($output)\" 2> \"($stderr)\"
 			"
