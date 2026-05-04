@@ -31,7 +31,7 @@ pub mod serve;
 pub mod vm;
 
 #[cfg(target_os = "linux")]
-pub use self::network::create_bridge;
+pub use self::network::{cleanup_persistent_rules, create_bridge};
 
 #[derive(Clone)]
 pub struct Sandbox(Arc<State>);
@@ -67,6 +67,7 @@ pub struct SpawnArg {
 pub struct Arg {
 	pub artifacts_path: PathBuf,
 	pub cpu: Option<u64>,
+	pub dns: Vec<Ipv4Addr>,
 	pub host_ip: Option<Ipv4Addr>,
 	pub guest_ip: Option<Ipv4Addr>,
 	pub hostname: Option<String>,

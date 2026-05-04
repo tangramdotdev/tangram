@@ -177,6 +177,7 @@ fn host_used_ranges(ignored: &[String]) -> Vec<(u32, u32)> {
 					let addr = entry.ifa_addr.cast::<libc::sockaddr_in>();
 					if !addr.is_aligned() {
 						tracing::warn!("misaligned ifa_addr");
+						current = entry.ifa_next;
 						continue;
 					}
 					let addr = &*addr;
@@ -188,6 +189,7 @@ fn host_used_ranges(ignored: &[String]) -> Vec<(u32, u32)> {
 						let netmask = entry.ifa_netmask.cast::<libc::sockaddr_in>();
 						if !netmask.is_aligned() {
 							tracing::warn!("misaligned ifa_netmask");
+							current = entry.ifa_next;
 							continue;
 						}
 						let m = &*netmask;

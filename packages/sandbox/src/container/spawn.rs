@@ -4,6 +4,7 @@ use {
 	std::{
 		ffi::{CStr, CString, OsStr},
 		fmt::Write as _,
+		net::Ipv4Addr,
 		os::{fd::AsRawFd as _, unix::ffi::OsStrExt as _},
 		path::{Path, PathBuf},
 	},
@@ -50,7 +51,12 @@ pub(crate) async fn spawn(
 		None
 	};
 	prepare_sandbox_directory(&arg.path)?;
-	let user = prepare_etc_files(&arg.path, container.network.as_ref(), arg.user.as_deref())?;
+	let user = prepare_etc_files(
+		&arg.path,
+		container.network.as_ref(),
+		arg.user.as_deref(),
+		&arg.dns,
+	)?;
 	let upper_path = Sandbox::host_upper_path_from_root(&arg.path);
 	for mount in &arg.mounts {
 		crate::root::ensure_mount_target(&arg.rootfs_path, &upper_path, mount)?;
@@ -247,6 +253,7 @@ fn prepare_etc_files(
 	sandbox_path: &Path,
 	network: Option<&crate::Network>,
 	user: Option<&str>,
+	dns: &[Ipv4Addr],
 ) -> tg::Result<User> {
 	let user = resolve_user(user)?;
 	let passwd = render_passwd(&user);
@@ -266,8 +273,13 @@ fn prepare_etc_files(
 	.map_err(|source| tg::error!(!source, "failed to write /etc/nsswitch.conf"))?;
 	match network {
 		Some(crate::Network::Bridge(_)) => {
+			let mut contents = String::new();
+			for server in dns {
+				use std::fmt::Write as _;
+				writeln!(&mut contents, "nameserver {server}").unwrap();
+			}
 			let path = Sandbox::host_resolv_conf_path_from_root(sandbox_path);
-			std::fs::write(path, "nameserver 1.1.1.1\nnameserver 8.8.8.8\n")
+			std::fs::write(path, contents)
 				.map_err(|source| tg::error!(!source, "failed to stage /etc/resolv.conf"))?;
 		},
 		Some(crate::Network::Host) if Path::new("/etc/resolv.conf").exists() => {

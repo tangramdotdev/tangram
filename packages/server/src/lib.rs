@@ -957,17 +957,29 @@ impl Server {
 			})
 		});
 
-		// Create the bridge if the runner is using bridge networking.
+		// Remove host-wide iptables rules left behind by previous runs of the server,
+		// then re-create the bridge if the runner is using bridge networking.
 		#[cfg(target_os = "linux")]
-		if server.config.runner.is_some()
-			&& let crate::config::SandboxIsolation::Container(container) =
-				&server.config.sandbox.isolation
-			&& let Some(crate::config::ContainerNetwork::Bridge(bridge)) = &container.network
-		{
-			let name = bridge.name.as_deref().unwrap_or("tangram0").to_owned();
-			let ip = bridge.ip.unwrap_or_else(crate::config::default_bridge_ip);
-			tangram_sandbox::create_bridge(&name, ip)
-				.map_err(|source| tg::error!(!source, "failed to create the bridge"))?;
+		if server.config.runner.is_some() {
+			let bridge =
+				if let crate::config::SandboxIsolation::Container(container) =
+					&server.config.sandbox.isolation
+					&& let Some(crate::config::ContainerNetwork::Bridge(bridge)) = &container.network
+				{
+					let name = bridge.name.as_deref().unwrap_or("tangram0").to_owned();
+					let ip = bridge.ip.unwrap_or_else(crate::config::default_bridge_ip);
+					Some((name, ip))
+				} else {
+					None
+				};
+			let bridge_name = bridge.as_ref().map(|(name, _)| name.as_str());
+			if let Err(error) = tangram_sandbox::cleanup_persistent_rules(bridge_name) {
+				tracing::warn!(%error, "failed to clean up persistent sandbox rules");
+			}
+			if let Some((name, ip)) = bridge {
+				tangram_sandbox::create_bridge(&name, ip)
+					.map_err(|source| tg::error!(!source, "failed to create the bridge"))?;
+			}
 		}
 
 		// Spawn the runner task.

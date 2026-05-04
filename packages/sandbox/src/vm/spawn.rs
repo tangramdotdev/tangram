@@ -37,6 +37,9 @@ pub(crate) fn spawn(arg: &crate::Arg, serve_arg: &serve::Arg) -> tg::Result<toki
 		command.arg("--network");
 		command.arg("--host-ip").arg(host_ip.to_string());
 		command.arg("--guest-ip").arg(guest_ip.to_string());
+		for server in &arg.dns {
+			command.arg("--dns").arg(server.to_string());
+		}
 	}
 	if let Some(hostname) = &arg.hostname {
 		command.arg("--hostname").arg(hostname);
