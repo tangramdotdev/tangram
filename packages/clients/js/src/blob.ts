@@ -2,46 +2,18 @@ import * as tg from "./index.ts";
 import { unindent } from "./template.ts";
 
 /** Create a blob. */
-export async function blob(
+export function blob(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<string>
-): Promise<tg.Blob>;
-export async function blob(...args: tg.Args<tg.Blob.Arg>): Promise<tg.Blob>;
-export async function blob(
+): tg.Blob.Builder;
+export function blob(...args: tg.Args<tg.Blob.Arg>): tg.Blob.Builder;
+export function blob(
 	firstArg:
 		| TemplateStringsArray
 		| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.Blob.Arg>>,
 	...args: tg.Args<tg.Blob.Arg>
-): Promise<tg.Blob> {
-	return await inner(false, firstArg, ...args);
-}
-
-async function inner(
-	raw: boolean,
-	firstArg:
-		| TemplateStringsArray
-		| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.Blob.Arg>>,
-	...args: tg.Args<tg.Blob.Arg>
-): Promise<tg.Blob> {
-	if (Array.isArray(firstArg) && "raw" in firstArg) {
-		let strings = firstArg;
-		let placeholders = args as tg.Args<string>;
-		let components = [];
-		for (let i = 0; i < strings.length - 1; i++) {
-			let string = strings[i]!;
-			components.push(string);
-			let placeholder = placeholders[i]!;
-			components.push(placeholder);
-		}
-		components.push(strings[strings.length - 1]!);
-		let string = components.join("");
-		if (!raw) {
-			string = unindent([string]).join("");
-		}
-		return await tg.Blob.new(string);
-	} else {
-		return await tg.Blob.new(firstArg as tg.Blob.Arg, ...args);
-	}
+): tg.Blob.Builder {
+	return new tg.Blob.Builder(firstArg, ...args);
 }
 
 export class Blob {
@@ -94,40 +66,14 @@ export class Blob {
 		return blob;
 	}
 
-	static async leaf(
+	static leaf(
 		...args: tg.Args<undefined | string | Uint8Array | tg.Blob>
-	): Promise<tg.Blob> {
-		let resolved = await Promise.all(args.map(tg.resolve));
-		let objects = await Promise.all(
-			resolved.map(async (arg) => {
-				if (arg === undefined) {
-					return new Uint8Array();
-				} else if (typeof arg === "string") {
-					return tg.encoding.utf8.encode(arg);
-				} else if (arg instanceof Uint8Array) {
-					return arg;
-				} else {
-					return await arg.bytes;
-				}
-			}),
-		);
-		let length = objects.reduce(
-			(length, bytes) => length + bytes.byteLength,
-			0,
-		);
-		let bytes = new Uint8Array(length);
-		let offset = 0;
-		for (let entry of objects) {
-			bytes.set(entry, offset);
-			offset += entry.byteLength;
-		}
-		let object = { bytes };
-		return tg.Blob.withObject(object);
+	): tg.Blob.Builder {
+		return tg.Blob.Builder.leaf(...args);
 	}
 
-	static async branch(...args: tg.Args<tg.Blob.Arg>): Promise<tg.Blob> {
-		let arg = await tg.Blob.arg(...args);
-		return tg.Blob.withObject({ children: arg.children ?? [] });
+	static branch(...args: tg.Args<tg.Blob.Arg>): tg.Blob.Builder {
+		return tg.Blob.Builder.branch(...args);
 	}
 
 	static async arg(...args: tg.Args<tg.Blob.Arg>): Promise<tg.Blob.Arg.Object> {
@@ -243,6 +189,121 @@ export class Blob {
 export namespace Blob {
 	export type Id = string;
 
+	export class Builder {
+		#args: Array<any>;
+		#create: (...args: Array<any>) => Promise<tg.Blob>;
+
+		constructor(
+			raw: boolean,
+			strings: TemplateStringsArray,
+			...placeholders: tg.Args<string>
+		);
+		constructor(
+			strings: TemplateStringsArray,
+			...placeholders: tg.Args<string>
+		);
+		constructor(
+			firstArg:
+				| TemplateStringsArray
+				| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.Blob.Arg>>,
+			...args: tg.Args<tg.Blob.Arg>
+		);
+		constructor(...args: tg.Args<tg.Blob.Arg>);
+		constructor(...args: any[]) {
+			let raw = false;
+			if (typeof args[0] === "boolean") {
+				raw = args[0];
+				args = args.slice(1);
+			}
+			let firstArg = args[0];
+			if (Array.isArray(firstArg) && "raw" in firstArg) {
+				let strings = firstArg as TemplateStringsArray;
+				let placeholders = args.slice(1) as tg.Args<string>;
+				let components = [];
+				for (let i = 0; i < strings.length - 1; i++) {
+					let string = strings[i]!;
+					components.push(string);
+					let placeholder = placeholders[i]!;
+					components.push(placeholder);
+				}
+				components.push(strings[strings.length - 1]!);
+				let string = components.join("");
+				if (!raw) {
+					string = unindent([string]).join("");
+				}
+				this.#args = [string];
+			} else {
+				this.#args = args;
+			}
+			this.#create = tg.Blob.new;
+		}
+
+		static leaf(
+			...args: tg.Args<undefined | string | Uint8Array | tg.Blob>
+		): tg.Blob.Builder {
+			let builder = new tg.Blob.Builder();
+			builder.#args = args;
+			builder.#create = tg.Blob.Builder.createLeaf;
+			return builder;
+		}
+
+		static async createLeaf(
+			...args: tg.Args<undefined | string | Uint8Array | tg.Blob>
+		): Promise<tg.Blob> {
+			let resolved = await Promise.all(args.map(tg.resolve));
+			let objects = await Promise.all(
+				resolved.map(async (arg) => {
+					if (arg === undefined) {
+						return new Uint8Array();
+					} else if (typeof arg === "string") {
+						return tg.encoding.utf8.encode(arg);
+					} else if (arg instanceof Uint8Array) {
+						return arg;
+					} else {
+						return await arg.bytes;
+					}
+				}),
+			);
+			let length = objects.reduce(
+				(length, bytes) => length + bytes.byteLength,
+				0,
+			);
+			let bytes = new Uint8Array(length);
+			let offset = 0;
+			for (let entry of objects) {
+				bytes.set(entry, offset);
+				offset += entry.byteLength;
+			}
+			let object = { bytes };
+			return tg.Blob.withObject(object);
+		}
+
+		static branch(...args: tg.Args<tg.Blob.Arg>): tg.Blob.Builder {
+			let builder = new tg.Blob.Builder();
+			builder.#args = args;
+			builder.#create = tg.Blob.Builder.createBranch;
+			return builder;
+		}
+
+		static async createBranch(...args: tg.Args<tg.Blob.Arg>): Promise<tg.Blob> {
+			let arg = await tg.Blob.arg(...args);
+			return tg.Blob.withObject({ children: arg.children ?? [] });
+		}
+
+		then<TResult1 = tg.Blob, TResult2 = never>(
+			onfulfilled?:
+				| ((value: tg.Blob) => TResult1 | PromiseLike<TResult1>)
+				| undefined
+				| null,
+			onrejected?:
+				| ((reason: any) => TResult2 | PromiseLike<TResult2>)
+				| undefined
+				| null,
+		): PromiseLike<TResult1 | TResult2> {
+			return this.#create(...this.#args).then(onfulfilled, onrejected);
+		}
+	}
+
 	export type Arg =
 		| undefined
 		| string
@@ -342,10 +403,10 @@ export namespace Blob {
 		size?: number | undefined;
 	};
 
-	export let raw = async (
+	export let raw = (
 		strings: TemplateStringsArray,
 		...placeholders: tg.Args<string>
-	): Promise<tg.Blob> => {
-		return await inner(true, strings, ...placeholders);
+	): tg.Blob.Builder => {
+		return new tg.Blob.Builder(true, strings, ...placeholders);
 	};
 }

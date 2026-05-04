@@ -2,46 +2,18 @@ import * as tg from "./index.ts";
 import { unindent } from "./template.ts";
 
 /** Create a file. */
-export async function file(
+export function file(
 	strings: TemplateStringsArray,
 	...placeholders: tg.Args<string>
-): Promise<tg.File>;
-export async function file(...args: tg.Args<tg.File.Arg>): Promise<tg.File>;
-export async function file(
+): tg.File.Builder;
+export function file(...args: tg.Args<tg.File.Arg>): tg.File.Builder;
+export function file(
 	firstArg:
 		| TemplateStringsArray
 		| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.File.Arg>>,
 	...args: tg.Args<tg.File.Arg>
-): Promise<tg.File> {
-	return await inner(false, firstArg, ...args);
-}
-
-async function inner(
-	raw: boolean,
-	firstArg:
-		| TemplateStringsArray
-		| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.File.Arg>>,
-	...args: tg.Args<tg.File.Arg>
-): Promise<tg.File> {
-	if (Array.isArray(firstArg) && "raw" in firstArg) {
-		let strings = firstArg;
-		let placeholders = args as tg.Args<string>;
-		let components = [];
-		for (let i = 0; i < strings.length - 1; i++) {
-			let string = strings[i]!;
-			components.push(string);
-			let placeholder = placeholders[i]!;
-			components.push(placeholder);
-		}
-		components.push(strings[strings.length - 1]!);
-		let string = components.join("");
-		if (!raw) {
-			string = unindent([string]).join("");
-		}
-		return await tg.File.new(string);
-	} else {
-		return await tg.File.new(firstArg as tg.File.Arg, ...args);
-	}
+): tg.File.Builder {
+	return new tg.File.Builder(firstArg, ...args);
 }
 
 /** A file. */
@@ -373,6 +345,106 @@ export class File {
 export namespace File {
 	export type Id = string;
 
+	export class Builder {
+		#args: tg.Args<tg.File.Arg>;
+
+		constructor(
+			raw: boolean,
+			strings: TemplateStringsArray,
+			...placeholders: tg.Args<string>
+		);
+		constructor(
+			strings: TemplateStringsArray,
+			...placeholders: tg.Args<string>
+		);
+		constructor(
+			firstArg:
+				| TemplateStringsArray
+				| tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.File.Arg>>,
+			...args: tg.Args<tg.File.Arg>
+		);
+		constructor(...args: tg.Args<tg.File.Arg>);
+		constructor(...args: any[]) {
+			let raw = false;
+			if (typeof args[0] === "boolean") {
+				raw = args[0];
+				args = args.slice(1);
+			}
+			let firstArg = args[0];
+			if (Array.isArray(firstArg) && "raw" in firstArg) {
+				let strings = firstArg as TemplateStringsArray;
+				let placeholders = args.slice(1) as tg.Args<string>;
+				let components = [];
+				for (let i = 0; i < strings.length - 1; i++) {
+					let string = strings[i]!;
+					components.push(string);
+					let placeholder = placeholders[i]!;
+					components.push(placeholder);
+				}
+				components.push(strings[strings.length - 1]!);
+				let string = components.join("");
+				if (!raw) {
+					string = unindent([string]).join("");
+				}
+				this.#args = [string];
+			} else {
+				this.#args = args;
+			}
+		}
+
+		contents(
+			contents: tg.Unresolved<tg.MaybeMutation<tg.Blob.Arg | undefined>>,
+		): this {
+			this.#args.push({ contents });
+			return this;
+		}
+
+		dependencies(
+			dependencies: tg.Unresolved<
+				tg.MaybeMutation<tg.Graph.Arg.File["dependencies"]>
+			>,
+		): this {
+			this.#args.push({ dependencies });
+			return this;
+		}
+
+		dependency(
+			reference: tg.Reference.String,
+			value: tg.Unresolved<tg.Graph.Arg.Dependency | undefined>,
+		): this {
+			let dependencies: tg.Unresolved<tg.Graph.Arg.File["dependencies"]> = {
+				[reference]: value,
+			};
+			this.#args.push({ dependencies });
+			return this;
+		}
+
+		executable(
+			executable: tg.Unresolved<tg.MaybeMutation<boolean | undefined>> = true,
+		): this {
+			this.#args.push({ executable });
+			return this;
+		}
+
+		module(module: tg.Unresolved<tg.MaybeMutation<string | undefined>>): this {
+			this.#args.push({ module });
+			return this;
+		}
+
+		then<TResult1 = tg.File, TResult2 = never>(
+			onfulfilled?:
+				| ((value: tg.File) => TResult1 | PromiseLike<TResult1>)
+				| undefined
+				| null,
+			onrejected?:
+				| ((reason: any) => TResult2 | PromiseLike<TResult2>)
+				| undefined
+				| null,
+		): PromiseLike<TResult1 | TResult2> {
+			return tg.File.new(...this.#args).then(onfulfilled, onrejected);
+		}
+	}
+
 	export type Arg =
 		| undefined
 		| string
@@ -425,10 +497,10 @@ export namespace File {
 		};
 	}
 
-	export let raw = async (
+	export let raw = (
 		strings: TemplateStringsArray,
 		...placeholders: tg.Args<string>
-	): Promise<tg.File> => {
-		return await inner(true, strings, ...placeholders);
+	): tg.File.Builder => {
+		return new tg.File.Builder(true, strings, ...placeholders);
 	};
 }

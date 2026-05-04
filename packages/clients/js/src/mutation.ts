@@ -1,10 +1,10 @@
 import * as tg from "./index.ts";
 
 /** Create a mutation. */
-export async function mutation<T extends tg.Value = tg.Value>(
+export function mutation<T extends tg.Value = tg.Value>(
 	arg: tg.Unresolved<tg.Mutation.Arg<T>>,
-): Promise<tg.Mutation<T>> {
-	return await tg.Mutation.new(arg);
+): tg.Mutation.Builder<T> {
+	return new tg.Mutation.Builder(arg);
 }
 
 export class Mutation<T extends tg.Value = tg.Value> {
@@ -53,13 +53,13 @@ export class Mutation<T extends tg.Value = tg.Value> {
 	}
 
 	/** Create a set mutation. */
-	static async set<T extends tg.Value = tg.Value>(
-		value: tg.Unresolved<T>,
-	): Promise<tg.Mutation<T>> {
-		return new tg.Mutation({
+	static async set<T extends tg.Unresolved<tg.Value>>(
+		value: T,
+	): Promise<tg.Mutation<tg.Resolved<T>>> {
+		return new tg.Mutation<tg.Resolved<T>>({
 			kind: "set",
 			value: await tg.resolve(value),
-		}) as tg.Mutation<T>;
+		});
 	}
 
 	/** Create an unset mutation. */
@@ -68,13 +68,13 @@ export class Mutation<T extends tg.Value = tg.Value> {
 	}
 
 	/** Create a set if unset mutation. */
-	static async setIfUnset<T extends tg.Value = tg.Value>(
-		value: tg.Unresolved<T>,
-	): Promise<tg.Mutation<T>> {
-		return new tg.Mutation({
+	static async setIfUnset<T extends tg.Unresolved<tg.Value>>(
+		value: T,
+	): Promise<tg.Mutation<tg.Resolved<T>>> {
+		return new tg.Mutation<tg.Resolved<T>>({
 			kind: "set_if_unset",
 			value: await tg.resolve(value),
-		}) as tg.Mutation<T>;
+		});
 	}
 
 	/** Create an prepend mutation. */
@@ -328,6 +328,27 @@ export class Mutation<T extends tg.Value = tg.Value> {
 }
 
 export namespace Mutation {
+	export class Builder<T extends tg.Value = tg.Value> {
+		#arg: tg.Unresolved<tg.Mutation.Arg<T>>;
+
+		constructor(arg: tg.Unresolved<tg.Mutation.Arg<T>>) {
+			this.#arg = arg;
+		}
+
+		then<TResult1 = tg.Mutation<T>, TResult2 = never>(
+			onfulfilled?:
+				| ((value: tg.Mutation<T>) => TResult1 | PromiseLike<TResult1>)
+				| undefined
+				| null,
+			onrejected?:
+				| ((reason: any) => TResult2 | PromiseLike<TResult2>)
+				| undefined
+				| null,
+		): PromiseLike<TResult1 | TResult2> {
+			return tg.Mutation.new(this.#arg).then(onfulfilled, onrejected);
+		}
+	}
+
 	export type Kind =
 		| "set"
 		| "unset"

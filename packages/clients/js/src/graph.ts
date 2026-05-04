@@ -1,10 +1,8 @@
 import * as tg from "./index.ts";
 
 /** Create a graph. */
-export let graph = async (
-	...args: tg.Args<tg.Graph.Arg>
-): Promise<tg.Graph> => {
-	return await tg.Graph.new(...args);
+export let graph = (...args: tg.Args<tg.Graph.Arg>): tg.Graph.Builder => {
+	return new tg.Graph.Builder(...args);
 };
 
 /** A graph. */
@@ -311,6 +309,37 @@ export class Graph {
 
 export namespace Graph {
 	export type Id = string;
+
+	export class Builder {
+		#args: tg.Args<tg.Graph.Arg>;
+
+		constructor(...args: tg.Args<tg.Graph.Arg>) {
+			this.#args = args;
+		}
+
+		node(node: tg.Unresolved<tg.Graph.Arg.Node>): this {
+			this.#args.push({ nodes: [node] });
+			return this;
+		}
+
+		nodes(nodes: tg.Unresolved<Array<tg.Graph.Arg.Node>>): this {
+			this.#args.push({ nodes });
+			return this;
+		}
+
+		then<TResult1 = tg.Graph, TResult2 = never>(
+			onfulfilled?:
+				| ((value: tg.Graph) => TResult1 | PromiseLike<TResult1>)
+				| undefined
+				| null,
+			onrejected?:
+				| ((reason: any) => TResult2 | PromiseLike<TResult2>)
+				| undefined
+				| null,
+		): PromiseLike<TResult1 | TResult2> {
+			return tg.Graph.new(...this.#args).then(onfulfilled, onrejected);
+		}
+	}
 
 	export type Arg = tg.Graph | tg.Graph.Arg.Object;
 

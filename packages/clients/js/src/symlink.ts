@@ -1,10 +1,12 @@
 import * as tg from "./index.ts";
 
 /** Create a symlink. */
-export let symlink = async (
-	arg: tg.Unresolved<tg.Symlink.Arg>,
-): Promise<tg.Symlink> => {
-	return await tg.Symlink.new(arg);
+export let symlink = (
+	arg?: tg.Unresolved<tg.Symlink.Arg>,
+): tg.Symlink.Builder => {
+	return arg === undefined
+		? new tg.Symlink.Builder()
+		: new tg.Symlink.Builder(arg);
 };
 
 /** A symlink. */
@@ -49,8 +51,10 @@ export class Symlink {
 	}
 
 	/** Create a symlink. */
-	static async new(arg_: tg.Unresolved<tg.Symlink.Arg>): Promise<tg.Symlink> {
-		let arg = await tg.Symlink.arg(arg_);
+	static async new(
+		...args: Array<tg.Unresolved<tg.Symlink.Arg>>
+	): Promise<tg.Symlink> {
+		let arg = await tg.Symlink.arg(...args);
 		if (tg.Graph.Arg.Pointer.is(arg)) {
 			return tg.Symlink.withObject(tg.Graph.Pointer.fromArg(arg));
 		}
@@ -61,6 +65,23 @@ export class Symlink {
 	}
 
 	static async arg(
+		...args: Array<tg.Unresolved<tg.Symlink.Arg>>
+	): Promise<tg.Symlink.Arg.Object> {
+		let output: tg.Graph.Arg.Symlink = {};
+		for (let arg_ of args) {
+			let arg = await tg.Symlink.argInner(arg_);
+			if (tg.Graph.Arg.Pointer.is(arg)) {
+				if (args.length === 1) {
+					return arg;
+				}
+				throw new Error("cannot merge a graph pointer with symlink fields");
+			}
+			output = { ...output, ...arg };
+		}
+		return output;
+	}
+
+	static async argInner(
 		arg: tg.Unresolved<tg.Symlink.Arg>,
 	): Promise<tg.Symlink.Arg.Object> {
 		let resolved = await tg.resolve(arg);
@@ -212,6 +233,39 @@ export class Symlink {
 
 export namespace Symlink {
 	export type Id = string;
+
+	export class Builder {
+		#args: Array<tg.Unresolved<tg.Symlink.Arg>>;
+
+		constructor(...args: Array<tg.Unresolved<tg.Symlink.Arg>>) {
+			this.#args = args;
+		}
+
+		artifact(
+			artifact: tg.Unresolved<tg.Graph.Arg.Edge<tg.Artifact> | undefined>,
+		): this {
+			this.#args.push({ artifact });
+			return this;
+		}
+
+		path(path: tg.Unresolved<string | undefined>): this {
+			this.#args.push({ path });
+			return this;
+		}
+
+		then<TResult1 = tg.Symlink, TResult2 = never>(
+			onfulfilled?:
+				| ((value: tg.Symlink) => TResult1 | PromiseLike<TResult1>)
+				| undefined
+				| null,
+			onrejected?:
+				| ((reason: any) => TResult2 | PromiseLike<TResult2>)
+				| undefined
+				| null,
+		): PromiseLike<TResult1 | TResult2> {
+			return tg.Symlink.new(...this.#args).then(onfulfilled, onrejected);
+		}
+	}
 
 	export type Arg =
 		| string

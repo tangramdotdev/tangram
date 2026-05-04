@@ -1,10 +1,10 @@
 import * as tg from "./index.ts";
 
 /** Create a directory. */
-export let directory = async (
+export let directory = (
 	...args: Array<tg.Unresolved<tg.Directory.Arg>>
-) => {
-	return await tg.Directory.new(...args);
+): tg.Directory.Builder => {
+	return new tg.Directory.Builder(...args);
 };
 
 /** A directory. */
@@ -377,6 +377,40 @@ export class Directory {
 
 export namespace Directory {
 	export type Id = string;
+
+	export class Builder {
+		#args: Array<tg.Unresolved<tg.Directory.Arg>>;
+
+		constructor(...args: Array<tg.Unresolved<tg.Directory.Arg>>) {
+			this.#args = args;
+		}
+
+		entries(entries: tg.Unresolved<tg.Directory.Arg.Leaf>): this {
+			this.#args.push(entries);
+			return this;
+		}
+
+		entry(
+			path: string,
+			value: tg.Unresolved<tg.Directory.Arg.Leaf[string]>,
+		): this {
+			this.#args.push({ [path]: value });
+			return this;
+		}
+
+		then<TResult1 = tg.Directory, TResult2 = never>(
+			onfulfilled?:
+				| ((value: tg.Directory) => TResult1 | PromiseLike<TResult1>)
+				| undefined
+				| null,
+			onrejected?:
+				| ((reason: any) => TResult2 | PromiseLike<TResult2>)
+				| undefined
+				| null,
+		): PromiseLike<TResult1 | TResult2> {
+			return tg.Directory.new(...this.#args).then(onfulfilled, onrejected);
+		}
+	}
 
 	export type Arg = undefined | tg.Directory | tg.Directory.Arg.Object;
 
