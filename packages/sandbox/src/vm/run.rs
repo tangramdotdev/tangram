@@ -130,8 +130,6 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		))
 		.arg("--console")
 		.arg("off")
-		.arg("--serial")
-		.arg("file=/dev/fd/2")
 		.stdin(std::process::Stdio::null())
 		.stdout(std::process::Stdio::inherit())
 		.stderr(std::process::Stdio::inherit());

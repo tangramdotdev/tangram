@@ -135,7 +135,28 @@ impl Server {
 			isolation,
 			memory: state.memory,
 			mounts,
-			network: state.network,
+			network: state
+				.network
+				.then(|| match &self.config().sandbox.isolation {
+					crate::config::SandboxIsolation::Container(container) => {
+						match &container.network {
+							None | Some(crate::config::ContainerNetwork::Host) => {
+								tangram_sandbox::Network::Host
+							},
+							Some(crate::config::ContainerNetwork::Bridge(bridge)) => {
+								let name =
+									bridge.name.clone().unwrap_or_else(|| "tangram0".to_owned());
+								let ip = bridge.ip.unwrap_or_else(crate::config::default_bridge_ip);
+								tangram_sandbox::Network::Bridge(tangram_sandbox::Bridge {
+									name,
+									ip,
+								})
+							},
+						}
+					},
+					crate::config::SandboxIsolation::Seatbelt(_) => tangram_sandbox::Network::Host,
+					crate::config::SandboxIsolation::Vm(_) => tangram_sandbox::Network::Tap,
+				}),
 			nice: self.config.sandbox.nice,
 			path: temp.path().to_owned(),
 			rootfs_path: self.sandbox_rootfs.clone(),

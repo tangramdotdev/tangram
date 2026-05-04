@@ -166,10 +166,7 @@ pub fn create_bridge(name: &str, addr: Ipv4Addr) -> tg::Result<()> {
 	Ok(())
 }
 
-/// Best-effort removal of host-wide iptables rules that prior runs of the server
-/// may have left behind. If the `iptables` binary reports a permission error,
-/// log a warning and return Ok rather than failing — the server can still start
-/// without networking, and the operator may not have CAP_NET_ADMIN.
+/// Best-effort removal of host-wide iptables rules that prior runs of the server may have left behind. If the `iptables` binary reports a permission error, log a warning and return Ok rather than failing — the server can still start without networking, and the operator may not have `CAP_NET_ADMIN`.
 #[allow(dead_code)]
 pub fn cleanup_persistent_rules(bridge: Option<&str>) -> tg::Result<()> {
 	let tap_prefix = format!("{HOST_TAP_PREFIX}+");
@@ -260,9 +257,8 @@ fn ensure_bridge_iptables_rules(bridge: &str, addr: Ipv4Addr) -> tg::Result<()> 
 
 fn tap_name(id: &str) -> String {
 	let (_, id) = id.split_at(3);
-	format!(
-		"{HOST_TAP_PREFIX}{id}",
-	)
+	let (id, _) = id.split_at(12);
+	format!("{HOST_TAP_PREFIX}{id}",)
 }
 
 // TODO: simplify and remove unnecessary unsafe blocks

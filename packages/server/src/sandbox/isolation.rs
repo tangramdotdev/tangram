@@ -38,7 +38,7 @@ impl Server {
 					crate::config::ContainerNetwork::Bridge(bridge) => {
 						tangram_sandbox::Network::Bridge(tangram_sandbox::Bridge {
 							ip: bridge.ip.unwrap_or_else(crate::config::default_bridge_ip),
-							name: bridge.name.clone(),
+							name: bridge.name.clone().unwrap_or_else(|| "tangram0".into()),
 						})
 					},
 				});
