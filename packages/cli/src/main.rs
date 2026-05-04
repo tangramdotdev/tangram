@@ -2,10 +2,7 @@ use {
 	self::telemetry::Telemetry,
 	clap::{CommandFactory as _, FromArgMatches as _},
 	futures::FutureExt as _,
-	std::{
-		path::{Path, PathBuf},
-		time::Duration,
-	},
+	std::path::PathBuf,
 	tangram_client::{Client, prelude::*},
 	tangram_uri::Uri,
 	tracing_subscriber::prelude::*,
@@ -73,12 +70,12 @@ pub mod config;
 
 pub struct Cli {
 	args: Args,
-	child: Option<tokio::process::Child>,
 	client: Option<Client>,
 	config: Option<Config>,
 	exit: Option<u8>,
 	health: Option<tg::Health>,
 	matches: clap::ArgMatches,
+	server: Option<tokio::process::Child>,
 }
 
 #[derive(Clone, Debug, clap::Parser)]
@@ -101,6 +98,10 @@ struct Args {
 	/// Override the `directory` key in the config.
 	#[arg(env = "TANGRAM_DIRECTORY", long, short)]
 	directory: Option<PathBuf>,
+
+	/// The mode.
+	#[arg(env = "TANGRAM_MODE", long, short)]
+	mode: Option<Mode>,
 
 	#[clap(flatten)]
 	quiet: Quiet,
@@ -191,6 +192,15 @@ fn version() -> String {
 		version.push_str(commit);
 	}
 	version
+}
+
+#[derive(Clone, Copy, Debug, Default, clap::ValueEnum, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum Mode {
+	Client,
+	#[default]
+	Default,
+	Server,
 }
 
 #[derive(Clone, Debug, clap::Subcommand)]
@@ -483,12 +493,12 @@ fn main() -> std::process::ExitCode {
 	// Create the CLI.
 	let mut cli = Cli {
 		args,
-		child: None,
 		client: None,
 		config,
 		exit: None,
 		health: None,
 		matches,
+		server: None,
 	};
 
 	// Run the command.
@@ -507,14 +517,13 @@ fn main() -> std::process::ExitCode {
 		},
 	};
 
-	// Drop the client and child.
+	// Drop the server and client.
 	runtime.block_on(async {
+		if let Some(server) = cli.server.take() {
+			Cli::interrupt_server(&server).ok();
+		}
 		if let Some(client) = cli.client.take() {
 			client.disconnect().await;
-		}
-		if let Some(mut child) = cli.child.take() {
-			child.start_kill().ok();
-			child.wait().await.ok();
 		}
 	});
 
@@ -536,19 +545,10 @@ impl Cli {
 			return Ok(client);
 		}
 
-		// Create and connect the client.
-		let client = self.create_client()?;
-		let client = if let Err(source) = client.connect().await {
-			let arg = client.arg();
-			let url = client.url().clone();
-			if client.process().is_some() || url.scheme() != Some("http+unix") {
-				return Err(tg::error!(!source, url = %url, "failed to connect to the server"));
-			}
-			self.spawn_child(arg)
-				.await
-				.map_err(|source| tg::error!(!source, url = %url, "failed to start the server"))?
-		} else {
-			client
+		let client = match self.args.mode.unwrap_or_default() {
+			Mode::Client => self.client_with_client_mode().await?,
+			Mode::Default => self.client_with_default_mode().await?,
+			Mode::Server => self.client_with_server_mode().await?,
 		};
 
 		if self.health.is_none() && client.process().is_none() {
@@ -576,6 +576,71 @@ impl Cli {
 
 		// Set the client.
 		self.client.replace(client.clone());
+
+		Ok(client)
+	}
+
+	async fn client_with_client_mode(&mut self) -> tg::Result<Client> {
+		let client = self.create_client()?;
+		client.connect().await.map_err(
+			|source| tg::error!(!source, url = %client.url(), "failed to connect to the server"),
+		)?;
+		Ok(client)
+	}
+
+	async fn client_with_default_mode(&mut self) -> tg::Result<Client> {
+		let client = self.create_client()?;
+		match client.connect().await {
+			Ok(()) => Ok(client),
+			Err(source) => {
+				let url = client.url().clone();
+				if client.process().is_some() || url.scheme() != Some("http+unix") {
+					return Err(tg::error!(!source, url = %url, "failed to connect to the server"));
+				}
+				let arg = client.arg();
+				self.spawn_attached_server(arg)
+					.await
+					.map_err(|source| tg::error!(!source, url = %url, "failed to start the server"))
+			},
+		}
+	}
+
+	async fn client_with_server_mode(&mut self) -> tg::Result<Client> {
+		let client = self.create_client()?;
+		let local = client.url().scheme() == Some("http+unix")
+			|| matches!(client.url().host_raw(), Some("localhost" | "0.0.0.0"));
+		match client.connect().await {
+			Ok(()) => (),
+			Err(source) => {
+				if client.process().is_some() || !local {
+					return Err(
+						tg::error!(!source, url = %client.url(), "failed to connect to the server"),
+					);
+				}
+				self.spawn_detached_server(&client).await.map_err(
+					|source| tg::error!(!source, url = %client.url(), "failed to start the server"),
+				)?;
+			},
+		}
+
+		if local {
+			let arg = tg::health::Arg {
+				fields: Some(vec!["version".to_owned(), "diagnostics".to_owned()]),
+			};
+			let health = client
+				.health(arg)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to get the health"))?;
+			let server_version = health.version.clone();
+			self.health.replace(health);
+			if server_version.is_some_and(|server_version| version() != server_version) {
+				client.disconnect().await;
+				self.stop_server().await?;
+				self.spawn_detached_server(&client).await.map_err(
+					|source| tg::error!(!source, url = %client.url(), "failed to start the server"),
+				)?;
+			}
+		}
 
 		Ok(client)
 	}
@@ -652,114 +717,6 @@ impl Cli {
 		};
 
 		let client = tg::Client::new(arg)?;
-
-		Ok(client)
-	}
-
-	async fn spawn_child(&mut self, mut arg: tg::Arg) -> tg::Result<Client> {
-		let url = arg.url.as_ref().unwrap();
-		let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
-		let directory = Path::new(path)
-			.parent()
-			.ok_or_else(|| tg::error!(%url, "invalid url"))?
-			.to_owned();
-		tokio::fs::create_dir_all(&directory)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
-
-		let log_path = directory.join("log");
-		let stderr = tokio::fs::OpenOptions::new()
-			.create(true)
-			.write(true)
-			.append(true)
-			.truncate(false)
-			.open(&log_path)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to open the log file"))?
-			.into_std()
-			.await;
-
-		let executable = tangram_util::env::current_exe()
-			.map_err(|source| tg::error!(!source, "failed to get the current executable path"))?;
-		let mut command = tokio::process::Command::new(executable);
-		let mut args = vec![];
-		if let Some(config) = &self.args.config {
-			args.push("-c".to_owned());
-			args.push(config.to_string_lossy().into_owned());
-		}
-		args.push("-d".to_owned());
-		args.push(directory.to_string_lossy().into_owned());
-		if let Some(remotes) = self.args.remotes.get() {
-			if remotes.is_empty() {
-				args.push("--no-remotes".to_owned());
-			} else {
-				args.push("-r".to_owned());
-				args.push(remotes.join(","));
-			}
-		}
-		if let Some(tracing) = &self.args.tracing {
-			args.push("--tracing".to_owned());
-			args.push(tracing.clone());
-		}
-		args.push("server".to_owned());
-		args.push("run".to_owned());
-		args.push("--url".to_owned());
-		args.push("http+stdio:".to_owned());
-		command
-			.args(args)
-			.current_dir(PathBuf::from(std::env::var("HOME").unwrap()))
-			.kill_on_drop(true)
-			.stdin(std::process::Stdio::piped())
-			.stdout(std::process::Stdio::piped())
-			.stderr(stderr);
-
-		let mut child = command
-			.spawn()
-			.map_err(|source| tg::error!(!source, "failed to spawn the server"))?;
-		let stdin = child
-			.stdin
-			.take()
-			.ok_or_else(|| tg::error!("failed to take the server stdin"))?;
-		let stdout = child
-			.stdout
-			.take()
-			.ok_or_else(|| tg::error!("failed to take the server stdout"))?;
-		let stream = tokio::io::join(stdout, stdin);
-
-		arg.url = Some(
-			Uri::builder()
-				.scheme("http+stdio")
-				.path("")
-				.build()
-				.map_err(|source| tg::error!(!source, "failed to build the URL"))?,
-		);
-		let connect = tg::Client::with_stream(arg, stream);
-		let client = match tokio::time::timeout(Duration::from_secs(5), async {
-			tokio::select! {
-				result = connect => result,
-				result = child.wait() => {
-					let status = result
-						.map_err(|source| tg::error!(!source, "failed to wait for the server"))?;
-					Err(tg::error!(status = %status, "the server exited before connecting"))
-				},
-			}
-		})
-		.await
-		{
-			Ok(Ok(client)) => client,
-			Ok(Err(error)) => {
-				child.start_kill().ok();
-				child.wait().await.ok();
-				return Err(error);
-			},
-			Err(source) => {
-				child.start_kill().ok();
-				child.wait().await.ok();
-				return Err(tg::error!(!source, "timed out connecting to the server"));
-			},
-		};
-
-		self.child.replace(child);
 
 		Ok(client)
 	}
@@ -1237,5 +1194,13 @@ impl Cli {
 			));
 		}
 		Ok(())
+	}
+}
+
+impl Drop for Cli {
+	fn drop(&mut self) {
+		if let Some(server) = self.server.as_ref() {
+			Self::interrupt_server(server).ok();
+		}
 	}
 }

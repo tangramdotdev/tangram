@@ -8,7 +8,7 @@ pub struct Args {}
 impl Cli {
 	pub async fn command_server_start(&mut self, _args: Args) -> tg::Result<()> {
 		let client = self.create_client()?;
-		self.spawn_server(&client).await?;
+		self.spawn_detached_server(&client).await?;
 		Ok(())
 	}
 }

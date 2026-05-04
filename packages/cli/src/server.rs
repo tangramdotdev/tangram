@@ -1,8 +1,13 @@
 use {
 	crate::Cli,
 	byteorder::ReadBytesExt as _,
-	std::{os::fd::AsRawFd as _, path::PathBuf, time::Duration},
+	std::{
+		os::fd::AsRawFd as _,
+		path::{Path, PathBuf},
+		time::Duration,
+	},
 	tangram_client::prelude::*,
+	tangram_uri::Uri,
 };
 
 pub mod restart;
@@ -50,8 +55,119 @@ impl Cli {
 		Ok(())
 	}
 
-	/// Spawn the server.
-	pub(crate) async fn spawn_server(&self, client: &tg::Client) -> tg::Result<()> {
+	/// Spawn an attached server.
+	pub(crate) async fn spawn_attached_server(
+		&mut self,
+		mut arg: tg::Arg,
+	) -> tg::Result<tg::Client> {
+		let url = arg.url.as_ref().unwrap();
+		let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
+		let directory = Path::new(path)
+			.parent()
+			.ok_or_else(|| tg::error!(%url, "invalid url"))?
+			.to_owned();
+		tokio::fs::create_dir_all(&directory)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to create the directory"))?;
+
+		let log_path = directory.join("log");
+		let stderr = tokio::fs::OpenOptions::new()
+			.create(true)
+			.write(true)
+			.append(true)
+			.truncate(false)
+			.open(&log_path)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to open the log file"))?
+			.into_std()
+			.await;
+
+		let executable = tangram_util::env::current_exe()
+			.map_err(|source| tg::error!(!source, "failed to get the current executable path"))?;
+		let mut command = tokio::process::Command::new(executable);
+		let mut args = vec![];
+		if let Some(config) = &self.args.config {
+			args.push("-c".to_owned());
+			args.push(config.to_string_lossy().into_owned());
+		}
+		args.push("-d".to_owned());
+		args.push(directory.to_string_lossy().into_owned());
+		if let Some(remotes) = self.args.remotes.get() {
+			if remotes.is_empty() {
+				args.push("--no-remotes".to_owned());
+			} else {
+				args.push("-r".to_owned());
+				args.push(remotes.join(","));
+			}
+		}
+		if let Some(tracing) = &self.args.tracing {
+			args.push("--tracing".to_owned());
+			args.push(tracing.clone());
+		}
+		args.push("server".to_owned());
+		args.push("run".to_owned());
+		args.push("--url".to_owned());
+		args.push("http+stdio:".to_owned());
+		command
+			.args(args)
+			.current_dir(PathBuf::from(std::env::var("HOME").unwrap()))
+			.stdin(std::process::Stdio::piped())
+			.stdout(std::process::Stdio::piped())
+			.stderr(stderr);
+
+		let mut server = command
+			.spawn()
+			.map_err(|source| tg::error!(!source, "failed to spawn the server"))?;
+		let stdin = server
+			.stdin
+			.take()
+			.ok_or_else(|| tg::error!("failed to take the server stdin"))?;
+		let stdout = server
+			.stdout
+			.take()
+			.ok_or_else(|| tg::error!("failed to take the server stdout"))?;
+		let stream = tokio::io::join(stdout, stdin);
+
+		arg.url = Some(
+			Uri::builder()
+				.scheme("http+stdio")
+				.path("")
+				.build()
+				.map_err(|source| tg::error!(!source, "failed to build the URL"))?,
+		);
+		let connect = tg::Client::with_stream(arg, stream);
+		let client = match tokio::time::timeout(Duration::from_secs(5), async {
+			tokio::select! {
+				result = connect => result,
+				result = server.wait() => {
+					let status = result
+						.map_err(|source| tg::error!(!source, "failed to wait for the server"))?;
+					Err(tg::error!(status = %status, "the server exited before connecting"))
+				},
+			}
+		})
+		.await
+		{
+			Ok(Ok(client)) => client,
+			Ok(Err(error)) => {
+				server.start_kill().ok();
+				server.wait().await.ok();
+				return Err(error);
+			},
+			Err(source) => {
+				server.start_kill().ok();
+				server.wait().await.ok();
+				return Err(tg::error!(!source, "timed out connecting to the server"));
+			},
+		};
+
+		self.server.replace(server);
+
+		Ok(client)
+	}
+
+	/// Spawn a detached server.
+	pub(crate) async fn spawn_detached_server(&self, client: &tg::Client) -> tg::Result<()> {
 		// Ensure the directory exists.
 		let directory = self.directory_path();
 		tokio::fs::create_dir_all(&directory)
@@ -186,7 +302,7 @@ impl Cli {
 			});
 		}
 
-		let mut child = command
+		let mut server = command
 			.spawn()
 			.map_err(|source| tg::error!(!source, "failed to spawn the server"))?;
 		drop(ready_writer);
@@ -210,8 +326,8 @@ impl Cli {
 				Ok(())
 			});
 		if let Err(source) = ready {
-			child.start_kill().ok();
-			child.wait().await.ok();
+			server.start_kill().ok();
+			server.wait().await.ok();
 			if client.connect().await.is_ok() {
 				return Ok(());
 			}
@@ -292,5 +408,23 @@ impl Cli {
 
 		// If the server has still not exited, then return an error.
 		Err(tg::error!("failed to terminate the server"))
+	}
+
+	pub(crate) fn interrupt_server(server: &tokio::process::Child) -> tg::Result<()> {
+		let Some(pid) = server.id() else {
+			return Ok(());
+		};
+		let Ok(pid) = libc::pid_t::try_from(pid) else {
+			return Ok(());
+		};
+		let ret = unsafe { libc::kill(pid, libc::SIGINT) };
+		if ret != 0 {
+			let error = std::io::Error::last_os_error();
+			if error.raw_os_error() == Some(libc::ESRCH) {
+				return Ok(());
+			}
+			return Err(tg::error!(!error, "failed to send SIGINT to the server"));
+		}
+		Ok(())
 	}
 }
