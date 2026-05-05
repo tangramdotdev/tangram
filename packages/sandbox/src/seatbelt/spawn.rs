@@ -25,7 +25,7 @@ pub(crate) fn spawn(
 			|source| tg::error!(!source, path = %path.display(), "failed to create the sandbox path"),
 		)?;
 	}
-	let profile = create_sandbox_profile(arg);
+	let profile = create_sandbox_profile(arg).map_err(|source| tg::error!(!source, "failed to create the sandbox profile"))?;
 	std::fs::write(
 		Sandbox::host_profile_path_from_root(&arg.path),
 		profile.as_bytes(),
@@ -75,7 +75,7 @@ pub(crate) fn spawn(
 		.map_err(|source| tg::error!(!source, "failed to spawn sandbox seatbelt"))
 }
 
-fn create_sandbox_profile(arg: &crate::Arg) -> CString {
+fn create_sandbox_profile(arg: &crate::Arg) -> tg::Result<CString> {
 	let tangram_parent = arg.tangram_path.parent();
 	let home_path = std::env::var_os("HOME").map(std::path::PathBuf::from);
 	let mut profile = String::new();
@@ -303,7 +303,10 @@ fn create_sandbox_profile(arg: &crate::Arg) -> CString {
 		}
 	}
 
-	if arg.network {
+	if let Some(network) = &arg.network {
+		if network.is_bridge() {
+			return Err(tg::error!("seatbelt isolation requires host networking"));
+		}
 		writedoc!(
 			profile,
 			r#"
@@ -390,7 +393,7 @@ fn create_sandbox_profile(arg: &crate::Arg) -> CString {
 		}
 	}
 
-	CString::new(profile).unwrap()
+	Ok(CString::new(profile).unwrap())
 }
 
 fn escape(bytes: impl AsRef<[u8]>) -> String {
