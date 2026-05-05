@@ -624,14 +624,3 @@ impl std::fmt::Display for Directory {
 		Ok(())
 	}
 }
-
-#[macro_export]
-macro_rules! directory {
-	{ $($name:expr => $artifact:expr),* $(,)? } => {{
-		let mut entries = ::std::collections::BTreeMap::new();
-		$(
-			entries.insert($name.into(), $artifact.into());
-		)*
-		$crate::Directory::with_entries(entries)
-	}};
-}

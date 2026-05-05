@@ -1751,6 +1751,7 @@ export namespace Process {
 					let input = await tg.handle.readProcessStdio(this.#process.id, {
 						location: this.#process.location,
 						streams: [this.#stream],
+						wait: true,
 					});
 					if (input === undefined) {
 						throw new Error(`${this.#stream} is not available`);
@@ -2188,6 +2189,7 @@ async function stdoutStderrTask(
 	let iterator = await tg.handle.readProcessStdio(id, {
 		location,
 		streams,
+		wait: true,
 	});
 	if (iterator === undefined) {
 		return;

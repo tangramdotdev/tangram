@@ -22,9 +22,7 @@ impl Server {
 				contents
 			} else {
 				// Fall back to xattr.
-				xattr::get(path, tg::file::LOCKATTR_XATTR_NAME)
-					.ok()
-					.flatten()
+				xattr::get(path, tg::file::LOCK_XATTR_NAME).ok().flatten()
 			}
 		} else {
 			None
@@ -96,7 +94,7 @@ impl Server {
 				Variant::File(_) => {
 					let lockfile_path = root.with_extension("lock");
 					tangram_util::fs::remove(&lockfile_path).await.ok();
-					xattr::remove(root, tg::file::LOCKATTR_XATTR_NAME).ok();
+					xattr::remove(root, tg::file::LOCK_XATTR_NAME).ok();
 				},
 				Variant::Symlink(_) => (),
 			}
@@ -169,7 +167,7 @@ impl Server {
 						tangram_util::fs::remove(&lockfile_path).await.ok();
 
 						// Remove an existing lockattr.
-						xattr::remove(root, tg::file::LOCKATTR_XATTR_NAME).ok();
+						xattr::remove(root, tg::file::LOCK_XATTR_NAME).ok();
 
 						// Do not write an empty lock.
 						if lock.nodes.is_empty() {
@@ -182,14 +180,14 @@ impl Server {
 						})?;
 
 						// Write the lockattr.
-						xattr::set(root, tg::file::LOCKATTR_XATTR_NAME, &contents).map_err(
+						xattr::set(root, tg::file::LOCK_XATTR_NAME, &contents).map_err(
 							|source| tg::error!(!source, "failed to write the lockattr"),
 						)?;
 					},
 
 					tg::checkin::Lock::File => {
 						// Remove an existing lockattr.
-						xattr::remove(root, tg::file::LOCKATTR_XATTR_NAME).ok();
+						xattr::remove(root, tg::file::LOCK_XATTR_NAME).ok();
 
 						// Get the lockfile path.
 						let lockfile_path = root.with_extension("lock");

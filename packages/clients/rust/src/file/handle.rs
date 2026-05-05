@@ -631,21 +631,3 @@ impl std::fmt::Display for File {
 		Ok(())
 	}
 }
-
-#[macro_export]
-macro_rules! file {
-	(@$builder:ident dependencies = $dependencies:expr $(, $($arg:tt)*)?) => {
-		$builder = $builder.dependencies($dependencies);
-		$crate::file!(@$builder $($($arg)*)?)
-	};
-	(@$builder:ident executable = $executable:expr $(, $($arg:tt)*)?) => {
-		$builder = $builder.executable($executable);
-		$crate::file!(@$builder $($($arg)*)?)
-	};
-	(@$builder:ident) => {};
-	($contents:expr $(, $($arg:tt)*)?) => {{
-		let mut builder = $crate::file::Builder::new($contents);
-		$crate::file!(@builder $($($arg)*)?);
-		builder.build()
-	}};
-}

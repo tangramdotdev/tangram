@@ -53,14 +53,14 @@ impl Server {
 				tg::checkout::Lock::Attr => {
 					let lockfile_path = state.path.with_extension("lock");
 					std::fs::remove_file(&lockfile_path).ok();
-					xattr::remove(&state.path, tg::file::LOCKATTR_XATTR_NAME).ok();
+					xattr::remove(&state.path, tg::file::LOCK_XATTR_NAME).ok();
 					let contents = serde_json::to_vec(&lock)
 						.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
-					xattr::set(&state.path, tg::file::LOCKATTR_XATTR_NAME, &contents)
+					xattr::set(&state.path, tg::file::LOCK_XATTR_NAME, &contents)
 						.map_err(|source| tg::error!(!source, "failed to write the lockattr"))?;
 				},
 				tg::checkout::Lock::File => {
-					xattr::remove(&state.path, tg::file::LOCKATTR_XATTR_NAME).ok();
+					xattr::remove(&state.path, tg::file::LOCK_XATTR_NAME).ok();
 					let contents = serde_json::to_vec_pretty(&lock)
 						.map_err(|source| tg::error!(!source, "failed to serialize the lock"))?;
 					let lockfile_path = state.path.with_extension("lock");
