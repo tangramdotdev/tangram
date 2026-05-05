@@ -1,6 +1,8 @@
 use {
+	crate::Cli,
 	serde_with::serde_as,
-	std::collections::BTreeMap,
+	std::{collections::BTreeMap, path::PathBuf},
+	tangram_client::prelude::*,
 	tangram_server::config as server,
 	tangram_util::serde::{BoolOptionDefault, is_false},
 };
@@ -95,6 +97,62 @@ pub enum TracingFormat {
 	Json,
 	#[default]
 	Pretty,
+}
+
+impl Cli {
+	pub(crate) fn read_config_with_path(path: Option<PathBuf>) -> tg::Result<Option<Config>> {
+		let path = path.unwrap_or_else(|| {
+			PathBuf::from(std::env::var("HOME").unwrap()).join(".config/tangram/config.json")
+		});
+		let config = match std::fs::read_to_string(&path) {
+			Ok(config) => config,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+				return Ok(None);
+			},
+			Err(source) => {
+				return Err(
+					tg::error!(!source, directory = %path.display(), "failed to read the config file"),
+				);
+			},
+		};
+		let config = serde_json::from_str(&config).map_err(
+			|source| tg::error!(!source, directory = %path.display(), "failed to deserialize the config"),
+		)?;
+		Ok(Some(config))
+	}
+
+	pub(crate) fn read_config(&self) -> tg::Result<Config> {
+		let path = self.config_path();
+		let config = match std::fs::read_to_string(&path) {
+			Ok(config) => config,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+				return Ok(Config::default());
+			},
+			Err(source) => {
+				return Err(tg::error!(
+					!source,
+					path = %path.display(),
+					"failed to read the config file"
+				));
+			},
+		};
+		serde_json::from_str(&config).map_err(
+			|source| tg::error!(!source, path = %path.display(), "failed to deserialize the config"),
+		)
+	}
+
+	pub(crate) fn write_config(&self, config: &Config) -> tg::Result<()> {
+		let path = self.config_path();
+		let config = serde_json::to_string_pretty(config)
+			.map_err(|source| tg::error!(!source, "failed to serialize the config"))?;
+		if let Some(parent) = path.parent() {
+			std::fs::create_dir_all(parent)
+				.map_err(|source| tg::error!(!source, "failed to create the config directory"))?;
+		}
+		std::fs::write(path, config)
+			.map_err(|source| tg::error!(!source, "failed to save the config"))?;
+		Ok(())
+	}
 }
 
 impl Default for Tracing {

@@ -1,11 +1,9 @@
 use {
-	self::telemetry::Telemetry,
 	clap::{CommandFactory as _, FromArgMatches as _},
 	futures::FutureExt as _,
 	std::path::PathBuf,
-	tangram_client::{Client, prelude::*},
+	tangram_client::prelude::*,
 	tangram_uri::Uri,
-	tracing_subscriber::prelude::*,
 };
 
 mod archive;
@@ -18,6 +16,7 @@ mod checkout;
 mod checksum;
 mod children;
 mod clean;
+mod client;
 mod compress;
 mod decompress;
 mod document;
@@ -57,6 +56,7 @@ mod tangram;
 mod telemetry;
 mod theme;
 mod touch;
+mod tracing;
 mod tree;
 mod update;
 mod view;
@@ -70,7 +70,7 @@ pub mod config;
 
 pub struct Cli {
 	args: Args,
-	client: Option<Client>,
+	client: Option<tg::Client>,
 	config: Option<Config>,
 	exit: Option<u8>,
 	health: Option<tg::Health>,
@@ -424,7 +424,7 @@ fn main() -> std::process::ExitCode {
 	}
 
 	// Read the config.
-	let config = match Cli::read_cli_config(args.config.clone()) {
+	let config = match Cli::read_config_with_path(args.config.clone()) {
 		Ok(config) => config,
 		Err(error) => {
 			Cli::print_error_message("an error occurred");
@@ -545,170 +545,6 @@ fn main() -> std::process::ExitCode {
 }
 
 impl Cli {
-	async fn client(&mut self) -> tg::Result<Client> {
-		// If the client has already been created, then return it.
-		if let Some(client) = self.client.clone() {
-			return Ok(client);
-		}
-
-		let client = match self.args.mode {
-			Mode::Auto => self.client_with_auto_mode().await?,
-			Mode::Client => self.client_with_client_mode().await?,
-		};
-
-		if self.health.is_none() && client.process().is_none() {
-			let arg = tg::health::Arg {
-				fields: Some(vec!["diagnostics".to_owned()]),
-			};
-			let health = client
-				.health(arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the health"))?;
-			self.health.replace(health);
-		}
-		if !self.args.quiet.get()
-			&& let Some(diagnostics) = self
-				.health
-				.as_ref()
-				.and_then(|health| health.diagnostics.clone())
-		{
-			for diagnostic in diagnostics {
-				let diagnostic: tg::Diagnostic = diagnostic.try_into()?;
-				let diagnostic = tg::Referent::with_item(diagnostic);
-				self.print_diagnostic(diagnostic).await;
-			}
-		}
-
-		// Set the client.
-		self.client.replace(client.clone());
-
-		Ok(client)
-	}
-
-	async fn client_with_client_mode(&mut self) -> tg::Result<Client> {
-		let client = self.create_client()?;
-		client.connect().await.map_err(
-			|source| tg::error!(!source, url = %client.url(), "failed to connect to the server"),
-		)?;
-		Ok(client)
-	}
-
-	async fn client_with_auto_mode(&mut self) -> tg::Result<Client> {
-		let client = self.create_client()?;
-		let local = client.url().scheme() == Some("http+unix")
-			|| matches!(client.url().host_raw(), Some("localhost" | "0.0.0.0"));
-		match client.connect().await {
-			Ok(()) => (),
-			Err(source) => {
-				if client.process().is_some() || !local {
-					return Err(
-						tg::error!(!source, url = %client.url(), "failed to connect to the server"),
-					);
-				}
-				self.spawn_server(&client).await.map_err(
-					|source| tg::error!(!source, url = %client.url(), "failed to start the server"),
-				)?;
-			},
-		}
-
-		if local {
-			let arg = tg::health::Arg {
-				fields: Some(vec!["version".to_owned(), "diagnostics".to_owned()]),
-			};
-			let health = client
-				.health(arg)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to get the health"))?;
-			let server_version = health.version.clone();
-			self.health.replace(health);
-			if server_version.is_some_and(|server_version| version() != server_version) {
-				client.disconnect().await;
-				self.stop_server().await?;
-				self.spawn_server(&client).await.map_err(
-					|source| tg::error!(!source, url = %client.url(), "failed to start the server"),
-				)?;
-			}
-		}
-
-		Ok(client)
-	}
-
-	fn create_client(&self) -> tg::Result<Client> {
-		// Get the url.
-		let url = self
-			.args
-			.url
-			.clone()
-			.or(self
-				.config
-				.as_ref()
-				.and_then(|config| config.server.http.as_ref())
-				.and_then(|config| config.listeners.first())
-				.map(|listener| listener.url.clone()))
-			.unwrap_or_else(|| {
-				let path = self.directory_path().join("socket");
-				let path = path.to_str().unwrap();
-				tangram_uri::Uri::builder()
-					.scheme("http+unix")
-					.authority(path)
-					.path("")
-					.build()
-					.unwrap()
-			});
-
-		// Get the token.
-		let token = self.args.token.clone();
-
-		// Get the reconnect options.
-		let reconnect = self
-			.config
-			.as_ref()
-			.and_then(|config| config.client.as_ref())
-			.and_then(|client| client.reconnect.clone())
-			.map(|reconnect| tangram_futures::retry::Options {
-				backoff: reconnect.backoff,
-				jitter: reconnect.jitter,
-				max_delay: reconnect.max_delay,
-				max_retries: reconnect.max_retries,
-			});
-
-		// Get the retry options.
-		let retry = self
-			.config
-			.as_ref()
-			.and_then(|config| config.client.as_ref())
-			.and_then(|client| client.retry.clone())
-			.map(|retry| tangram_futures::retry::Options {
-				backoff: retry.backoff,
-				jitter: retry.jitter,
-				max_delay: retry.max_delay,
-				max_retries: retry.max_retries,
-			});
-
-		// Get the process.
-		let process = std::env::var("TANGRAM_PROCESS")
-			.ok()
-			.map(|value| {
-				value
-					.parse()
-					.map_err(|source| tg::error!(!source, "failed to parse TANGRAM_PROCESS"))
-			})
-			.transpose()?;
-
-		let arg = tg::Arg {
-			url: Some(url),
-			version: Some(version()),
-			token,
-			process,
-			reconnect,
-			retry,
-		};
-
-		let client = tg::Client::new(arg)?;
-
-		Ok(client)
-	}
-
 	// Run the command.
 	async fn command(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
@@ -794,268 +630,6 @@ impl Cli {
 			.unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".tangram"))
 	}
 
-	fn read_cli_config(directory: Option<PathBuf>) -> tg::Result<Option<Config>> {
-		let directory = directory.unwrap_or_else(|| {
-			PathBuf::from(std::env::var("HOME").unwrap()).join(".config/tangram/config.json")
-		});
-		let config = match std::fs::read_to_string(&directory) {
-			Ok(config) => config,
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-				return Ok(None);
-			},
-			Err(source) => {
-				return Err(
-					tg::error!(!source, directory = %directory.display(), "failed to read the config file"),
-				);
-			},
-		};
-		let config = serde_json::from_str(&config).map_err(
-			|source| tg::error!(!source, directory = %directory.display(), "failed to deserialize the config"),
-		)?;
-		Ok(Some(config))
-	}
-
-	fn read_config(&self) -> tg::Result<Config> {
-		let path = self.config_path();
-		let config = match std::fs::read_to_string(&path) {
-			Ok(config) => config,
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-				return Ok(Config::default());
-			},
-			Err(source) => {
-				return Err(tg::error!(
-					!source,
-					path = %path.display(),
-					"failed to read the config file"
-				));
-			},
-		};
-		serde_json::from_str(&config).map_err(
-			|source| tg::error!(!source, path = %path.display(), "failed to deserialize the config"),
-		)
-	}
-
-	fn write_config(&self, config: &Config) -> tg::Result<()> {
-		let path = self.config_path();
-		let config = serde_json::to_string_pretty(config)
-			.map_err(|source| tg::error!(!source, "failed to serialize the config"))?;
-		if let Some(parent) = path.parent() {
-			std::fs::create_dir_all(parent)
-				.map_err(|source| tg::error!(!source, "failed to create the config directory"))?;
-		}
-		std::fs::write(path, config)
-			.map_err(|source| tg::error!(!source, "failed to save the config"))?;
-		Ok(())
-	}
-
-	async fn get_reference(
-		&mut self,
-		reference: &tg::Reference,
-	) -> tg::Result<tg::Referent<tg::Either<tg::graph::Edge<tg::Object>, tg::Process>>> {
-		self.get_reference_with_arg(reference, tg::get::Arg::default())
-			.boxed()
-			.await
-	}
-
-	async fn get_reference_with_arg(
-		&mut self,
-		reference: &tg::Reference,
-		arg: tg::get::Arg,
-	) -> tg::Result<tg::Referent<tg::Either<tg::graph::Edge<tg::Object>, tg::Process>>> {
-		if reference.options() == &tg::reference::Options::default() {
-			match reference.item() {
-				tg::reference::Item::Object(edge) => {
-					let edge = match edge {
-						tg::graph::data::Edge::Object(id) => {
-							tg::graph::Edge::Object(tg::Object::with_id(id.clone()))
-						},
-						tg::graph::data::Edge::Pointer(pointer) => {
-							tg::graph::Edge::Pointer(tg::graph::Pointer {
-								graph: pointer.graph.clone().map(tg::Graph::with_id),
-								index: pointer.index,
-								kind: pointer.kind,
-							})
-						},
-					};
-					let referent = tg::Referent::with_item(tg::Either::Left(edge));
-					return Ok(referent);
-				},
-				tg::reference::Item::Process(id) => {
-					let process = tg::Process::new(id.clone(), None, None, None, None, None);
-					let referent = tg::Referent::with_item(tg::Either::Right(process));
-					return Ok(referent);
-				},
-				_ => (),
-			}
-		}
-
-		let client = self.client().await?;
-
-		// Determine if the path is relative.
-		let relative = reference
-			.item()
-			.try_unwrap_path_ref()
-			.is_ok_and(|path| path.is_relative());
-
-		// Make the path absolute.
-		let mut item = reference.item().clone();
-		let options = reference.options().clone();
-		if let tg::reference::Item::Path(path) = &mut item {
-			*path = tangram_util::fs::canonicalize_parent(&path)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
-		}
-		let reference = tg::Reference::with_item_and_options(item, options);
-
-		// Get the reference
-		let stream = client
-			.get(&reference, arg)
-			.await
-			.map_err(|source| tg::error!(!source, %reference, "failed to get the reference"))?;
-		let mut referent = self
-			.render_progress_stream(stream)
-			.await
-			.map_err(|source| tg::error!(!source, %reference, "failed to get the reference"))?;
-
-		// If the reference is a local relative path, then make the referent's path relative to the current working directory.
-		if relative && let Some(path) = referent.path() {
-			let current_dir = std::env::current_dir()
-				.map_err(|source| tg::error!(!source, "failed to get the working directory"))?;
-			let path = tangram_util::path::diff(&current_dir, path)
-				.map_err(|source| tg::error!(!source, "failed to diff the paths"))?
-				.unwrap_or_default();
-			referent.options.path = Some(path);
-		}
-
-		Ok(referent)
-	}
-
-	async fn get_references(
-		&mut self,
-		references: &[tg::Reference],
-	) -> tg::Result<Vec<tg::Referent<tg::Either<tg::graph::Edge<tg::Object>, tg::Process>>>> {
-		let mut referents = Vec::with_capacity(references.len());
-		for reference in references {
-			let referent = self.get_reference(reference).await?;
-			referents.push(referent);
-		}
-		Ok(referents)
-	}
-
-	async fn get_modules(&mut self, references: &[tg::Reference]) -> tg::Result<Vec<tg::Module>> {
-		let mut modules = Vec::with_capacity(references.len());
-		for reference in references {
-			let module = self.get_module(reference).await?;
-			modules.push(module);
-		}
-		Ok(modules)
-	}
-
-	async fn get_module(&mut self, reference: &tg::Reference) -> tg::Result<tg::Module> {
-		let client = self.client().await?;
-
-		// Get the reference.
-		let referent = self.get_reference(reference).await?;
-		let item = referent
-			.item
-			.clone()
-			.left()
-			.ok_or_else(|| tg::error!("expected an object"))?;
-		let mut referent = referent.map(|_| item);
-		let module = match referent.item.clone() {
-			tg::graph::Edge::Object(tg::Object::Directory(directory)) => {
-				let root_module_name = tg::module::try_get_root_module_file_name_with_handle(
-					&client,
-					tg::Either::Left(&directory),
-				)
-				.await?
-				.ok_or_else(
-					|| tg::error!(directory = %directory.id(), "failed to find a root module"),
-				)?;
-				if let Some(path) = &mut referent.options.path {
-					*path = path.join(root_module_name);
-				} else {
-					referent.options.path.replace(root_module_name.into());
-				}
-				let kind = tg::module::module_kind_for_path(root_module_name).unwrap();
-				let item = directory
-					.get_entry_edge_with_handle(&client, root_module_name)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the root module"))?;
-				let item = tg::module::Item::Edge(item.into());
-				let referent = referent.map(|_| item);
-				tg::Module { kind, referent }
-			},
-
-			tg::graph::Edge::Object(tg::Object::File(file)) => {
-				let path = referent
-					.path()
-					.ok_or_else(|| tg::error!("expected a path"))?;
-				if !tg::module::is_module_path(path) {
-					return Err(tg::error!("expected a module path"));
-				}
-				let kind = tg::module::module_kind_for_path(path).unwrap();
-				let item = file.clone().into();
-				let item = tg::graph::Edge::Object(item);
-				let item = tg::module::Item::Edge(item);
-				let referent = referent.map(|_| item);
-				tg::Module { kind, referent }
-			},
-
-			tg::graph::Edge::Object(tg::Object::Symlink(_)) => {
-				return Err(tg::error!("unimplemented"));
-			},
-
-			tg::graph::Edge::Pointer(pointer) if pointer.kind == tg::artifact::Kind::Directory => {
-				let directory = tg::Directory::with_object(tg::directory::Object::Pointer(pointer));
-				let root_module_name = tg::module::try_get_root_module_file_name_with_handle(
-					&client,
-					tg::Either::Left(&directory),
-				)
-				.await?
-				.ok_or_else(
-					|| tg::error!(directory = %directory.id(), "failed to find a root module"),
-				)?;
-				if let Some(path) = &mut referent.options.path {
-					*path = path.join(root_module_name);
-				} else {
-					referent.options.path.replace(root_module_name.into());
-				}
-				let kind = tg::module::module_kind_for_path(root_module_name).unwrap();
-				let item = directory
-					.get_entry_edge_with_handle(&client, root_module_name)
-					.await
-					.map_err(|source| tg::error!(!source, "failed to get the root module"))?;
-				let item = tg::module::Item::Edge(item.into());
-				let referent = referent.map(|_| item);
-				tg::Module { kind, referent }
-			},
-
-			tg::graph::Edge::Pointer(pointer) if pointer.kind == tg::artifact::Kind::File => {
-				let path = referent
-					.path()
-					.ok_or_else(|| tg::error!("expected a path"))?;
-				if !tg::module::is_module_path(path) {
-					return Err(tg::error!("expected a module path"));
-				}
-				let kind = tg::module::module_kind_for_path(path).unwrap();
-				let item = tg::module::Item::Edge(tg::graph::Edge::Pointer(pointer.clone()));
-				let referent = referent.map(|_| item);
-				tg::Module { kind, referent }
-			},
-
-			tg::graph::Edge::Pointer(pointer) if pointer.kind == tg::artifact::Kind::Symlink => {
-				return Err(tg::error!("unimplemented"));
-			},
-
-			_ => {
-				return Err(tg::error!("expected an artifact"));
-			},
-		};
-
-		Ok(module)
-	}
-
 	/// Initialize miette.
 	fn initialize_miette() {
 		let theme = miette::GraphicalTheme {
@@ -1089,76 +663,6 @@ impl Cli {
 
 		// Initialize V8.
 		v8::V8::initialize();
-	}
-
-	/// Initialize telemetry.
-	fn initialize_telemetry(config: Option<&Config>) -> Option<Telemetry> {
-		config
-			.and_then(|config| config.telemetry.as_ref())
-			.map(Telemetry::new)
-	}
-
-	/// Initialize tracing.
-	fn initialize_tracing(
-		config: Option<&Config>,
-		tracing_filter: Option<&String>,
-		telemetry: Option<&Telemetry>,
-	) {
-		let console_layer = if config.is_some_and(|config| config.tokio_console) {
-			Some(console_subscriber::spawn())
-		} else {
-			None
-		};
-		let config_tracing = config.and_then(|config| config.tracing.as_ref());
-		let filter_string = tracing_filter
-			.or(config_tracing.map(|t| &t.filter))
-			.cloned()
-			.unwrap_or_default();
-		let output_layer = if tracing_filter.is_some() || config_tracing.is_some() {
-			let filter = tracing_subscriber::filter::EnvFilter::try_new(&filter_string).unwrap();
-			let format = config_tracing
-				.and_then(|t| t.format)
-				.unwrap_or(self::config::TracingFormat::Pretty);
-			let output_layer = match format {
-				self::config::TracingFormat::Json => tracing_subscriber::fmt::layer()
-					.with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
-					.with_writer(std::io::stderr)
-					.json()
-					.boxed(),
-				self::config::TracingFormat::Pretty => tracing_tree::HierarchicalLayer::new(2)
-					.with_bracketed_fields(true)
-					.with_span_retrace(true)
-					.boxed(),
-			};
-			Some(output_layer.with_filter(filter))
-		} else {
-			None
-		};
-
-		let telemetry_tracing_layer = telemetry.map(|telemetry| {
-			let filter = tracing_subscriber::filter::EnvFilter::try_new(&filter_string).unwrap();
-			tracing_opentelemetry::layer()
-				.with_tracer(telemetry.tracer.clone())
-				.with_filter(filter)
-		});
-		let telemetry_logs_layer = telemetry.map(|telemetry| {
-			opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(
-				&telemetry.logger_provider,
-			)
-		});
-
-		tracing_subscriber::registry()
-			.with(console_layer)
-			.with(output_layer)
-			.with(telemetry_tracing_layer)
-			.with(telemetry_logs_layer)
-			.init();
-		std::panic::set_hook(Box::new(|info| {
-			let payload = info.payload_as_str();
-			let location = info.location().map(ToString::to_string);
-			let backtrace = std::backtrace::Backtrace::force_capture();
-			tracing::error!(payload, location, %backtrace, "panic");
-		}));
 	}
 
 	fn set_file_descriptor_limit() -> tg::Result<()> {
