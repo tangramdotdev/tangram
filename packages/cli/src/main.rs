@@ -75,7 +75,6 @@ pub struct Cli {
 	exit: Option<u8>,
 	health: Option<tg::Health>,
 	matches: clap::ArgMatches,
-	server: Option<tokio::process::Child>,
 }
 
 #[derive(Clone, Debug, clap::Parser)]
@@ -209,10 +208,9 @@ fn version() -> String {
 #[from_str(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 enum Mode {
-	Client,
 	#[default]
-	Default,
-	Server,
+	Auto,
+	Client,
 }
 
 #[derive(Clone, Debug, clap::Subcommand)]
@@ -510,7 +508,6 @@ fn main() -> std::process::ExitCode {
 		exit: None,
 		health: None,
 		matches,
-		server: None,
 	};
 
 	// Run the command.
@@ -529,11 +526,8 @@ fn main() -> std::process::ExitCode {
 		},
 	};
 
-	// Drop the server and client.
+	// Drop the client.
 	runtime.block_on(async {
-		if let Some(server) = cli.server.take() {
-			Cli::interrupt_server(&server).ok();
-		}
 		if let Some(client) = cli.client.take() {
 			client.disconnect().await;
 		}
@@ -558,9 +552,8 @@ impl Cli {
 		}
 
 		let client = match self.args.mode {
+			Mode::Auto => self.client_with_auto_mode().await?,
 			Mode::Client => self.client_with_client_mode().await?,
-			Mode::Default => self.client_with_default_mode().await?,
-			Mode::Server => self.client_with_server_mode().await?,
 		};
 
 		if self.health.is_none() && client.process().is_none() {
@@ -600,24 +593,7 @@ impl Cli {
 		Ok(client)
 	}
 
-	async fn client_with_default_mode(&mut self) -> tg::Result<Client> {
-		let client = self.create_client()?;
-		match client.connect().await {
-			Ok(()) => Ok(client),
-			Err(source) => {
-				let url = client.url().clone();
-				if client.process().is_some() || url.scheme() != Some("http+unix") {
-					return Err(tg::error!(!source, url = %url, "failed to connect to the server"));
-				}
-				let arg = client.arg();
-				self.spawn_attached_server(arg)
-					.await
-					.map_err(|source| tg::error!(!source, url = %url, "failed to start the server"))
-			},
-		}
-	}
-
-	async fn client_with_server_mode(&mut self) -> tg::Result<Client> {
+	async fn client_with_auto_mode(&mut self) -> tg::Result<Client> {
 		let client = self.create_client()?;
 		let local = client.url().scheme() == Some("http+unix")
 			|| matches!(client.url().host_raw(), Some("localhost" | "0.0.0.0"));
@@ -629,7 +605,7 @@ impl Cli {
 						tg::error!(!source, url = %client.url(), "failed to connect to the server"),
 					);
 				}
-				self.spawn_detached_server(&client).await.map_err(
+				self.spawn_server(&client).await.map_err(
 					|source| tg::error!(!source, url = %client.url(), "failed to start the server"),
 				)?;
 			},
@@ -648,7 +624,7 @@ impl Cli {
 			if server_version.is_some_and(|server_version| version() != server_version) {
 				client.disconnect().await;
 				self.stop_server().await?;
-				self.spawn_detached_server(&client).await.map_err(
+				self.spawn_server(&client).await.map_err(
 					|source| tg::error!(!source, url = %client.url(), "failed to start the server"),
 				)?;
 			}
@@ -1206,13 +1182,5 @@ impl Cli {
 			));
 		}
 		Ok(())
-	}
-}
-
-impl Drop for Cli {
-	fn drop(&mut self) {
-		if let Some(server) = self.server.as_ref() {
-			Self::interrupt_server(server).ok();
-		}
 	}
 }
