@@ -8,7 +8,7 @@ use {
 	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
-	tangram_util::serde::{CommaSeparatedString, SeekFromNumberOrString},
+	tangram_util::serde::{CommaSeparatedString, SeekFromNumberOrString, is_false},
 };
 
 #[serde_as]
@@ -30,6 +30,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[serde_as(as = "CommaSeparatedString")]
 	pub streams: Vec<Stream>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub wait: bool,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

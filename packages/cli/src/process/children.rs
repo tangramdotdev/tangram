@@ -25,6 +25,9 @@ pub struct Args {
 
 	#[arg(long)]
 	pub size: Option<u64>,
+
+	#[arg(long)]
+	pub wait: bool,
 }
 
 impl Cli {
@@ -44,6 +47,7 @@ impl Cli {
 			location: locations,
 			position: args.position.map(std::io::SeekFrom::Start),
 			size: args.size,
+			wait: args.wait,
 		};
 		let stream = process
 			.children_with_handle(&client, arg)

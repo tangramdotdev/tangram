@@ -128,7 +128,7 @@ impl Server {
 		let server = self.clone();
 		let id = id.clone();
 		let Some(stream) = server
-			.try_get_process_status_stream_local(&id, None)
+			.try_get_process_status_stream_local(&id, None, true)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to get the process status stream"))?
 			.map(futures::StreamExt::boxed)

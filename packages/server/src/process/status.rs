@@ -34,7 +34,7 @@ impl Server {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(status) = self
-					.try_get_process_status_stream_local(id, context.stopper.clone())
+					.try_get_process_status_stream_local(id, context.stopper.clone(), arg.wait)
 					.await
 					.map_err(
 						|source| tg::error!(!source, %id, "failed to get the process status stream"),
@@ -43,7 +43,7 @@ impl Server {
 			}
 
 			if let Some(status) = self
-				.try_get_process_status_stream_regions(id, &local.regions)
+				.try_get_process_status_stream_regions(id, &local.regions, arg.wait)
 				.await
 				.map_err(
 					|source| tg::error!(!source, %id, "failed to get the process status from another region"),
@@ -53,7 +53,7 @@ impl Server {
 		}
 
 		if let Some(status) = self
-			.try_get_process_status_stream_remotes(id, &locations.remotes)
+			.try_get_process_status_stream_remotes(id, &locations.remotes, arg.wait)
 			.await
 			.map_err(
 				|source| tg::error!(!source, %id, "failed to get the process status from a remote"),
@@ -68,6 +68,7 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 		stopper: Option<Stopper>,
+		wait: bool,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		// Verify the process is local.
 		if !self
@@ -78,22 +79,22 @@ impl Server {
 			return Ok(None);
 		}
 
-		// Subscribe to status events.
-		let subject = format!("processes.{id}.status");
-		let wakeups = self
-			.messenger
-			.subscribe::<()>(subject)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
-			.map(|_| ());
-
-		// Create the interval.
-		let interval = IntervalStream::new(tokio::time::interval(Duration::from_mins(1)))
-			.skip(1)
-			.map(|_| ());
-
 		// Create the wakeups stream.
-		let wakeups = stream::select(wakeups, interval).with_stopper(stopper);
+		let wakeups = if wait {
+			let subject = format!("processes.{id}.status");
+			let wakeups = self
+				.messenger
+				.subscribe::<()>(subject)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+				.map(|_| ());
+			let interval = IntervalStream::new(tokio::time::interval(Duration::from_mins(1)))
+				.skip(1)
+				.map(|_| ());
+			Some(stream::select(wakeups, interval).with_stopper(stopper))
+		} else {
+			None
+		};
 
 		// Create the channel.
 		let (sender, receiver) = tokio::sync::mpsc::channel(1);
@@ -119,7 +120,7 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::process::status::Event>>,
-		mut wakeups: BoxStream<'static, ()>,
+		mut wakeups: Option<BoxStream<'static, ()>>,
 	) -> tg::Result<()> {
 		let mut previous: Option<tg::process::Status> = None;
 		loop {
@@ -138,6 +139,10 @@ impl Server {
 				sender.send(Ok(tg::process::status::Event::End)).await.ok();
 				return Ok(());
 			}
+			let Some(wakeups) = &mut wakeups else {
+				sender.send(Ok(tg::process::status::Event::End)).await.ok();
+				return Ok(());
+			};
 			if wakeups.next().await.is_none() {
 				return Ok(());
 			}
@@ -195,10 +200,11 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 		regions: &[String],
+		wait: bool,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_process_status_stream_region(id, region))
+			.map(|region| self.try_get_process_status_stream_region(id, region, wait))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -223,6 +229,7 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 		region: &str,
+		wait: bool,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let client = self.get_region_client(region.to_owned()).await.map_err(
 			|source| tg::error!(!source, region = %region, "failed to get the region client"),
@@ -232,6 +239,7 @@ impl Server {
 		});
 		let arg = tg::process::status::Arg {
 			location: Some(location.into()),
+			wait,
 		};
 		let Some(stream) = client
 			.try_get_process_status_stream(id, arg)
@@ -249,10 +257,11 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 		remotes: &[crate::location::Remote],
+		wait: bool,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_get_process_status_stream_remote(id, remote))
+			.map(|remote| self.try_get_process_status_stream_remote(id, remote, wait))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -277,6 +286,7 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 		remote: &crate::location::Remote,
+		wait: bool,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let client = self.get_remote_client(remote.name.clone()).await.map_err(
 			|source| tg::error!(!source, remote = %remote.name, "failed to get the remote client"),
@@ -287,6 +297,7 @@ impl Server {
 					regions: remote.regions.clone(),
 				}),
 			])),
+			wait,
 		};
 		let Some(stream) = client
 			.try_get_process_status_stream(id, arg)

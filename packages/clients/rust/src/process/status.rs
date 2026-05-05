@@ -3,6 +3,7 @@ use {
 	futures::{Stream, TryStreamExt as _, future},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
+	tangram_util::serde::is_false,
 };
 
 #[derive(
@@ -30,6 +31,9 @@ pub enum Status {
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub wait: bool,
 }
 
 #[derive(Clone, Debug, derive_more::TryUnwrap)]
@@ -74,6 +78,7 @@ impl<O> tg::Process<O> {
 	{
 		let arg = tg::process::status::Arg {
 			location: self.location(),
+			wait: true,
 		};
 		let Some(id) = self.id().right() else {
 			return Err(tg::error!(

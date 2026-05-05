@@ -415,6 +415,7 @@ impl Server {
 		let mut wait = std::pin::pin!(wait);
 		let arg = tg::process::status::Arg {
 			location: location.clone().map(Into::into),
+			wait: true,
 		};
 		let status = self.get_process_status(id, arg).await.map_err(
 			|source| tg::error!(!source, %id, "failed to get the process status stream"),

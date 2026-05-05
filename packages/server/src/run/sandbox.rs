@@ -158,6 +158,7 @@ impl Server {
 				id,
 				tg::sandbox::status::Arg {
 					location: Some(location.clone().into()),
+					wait: true,
 				},
 			)
 			.await
@@ -289,6 +290,7 @@ impl Server {
 		loop {
 			let arg = tg::sandbox::process::queue::Arg {
 				location: Some(location.clone().into()),
+				wait: true,
 			};
 			match self.try_dequeue_sandbox_process(id, arg).await {
 				Ok(Some(output)) => return Ok(output),

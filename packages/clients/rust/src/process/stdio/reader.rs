@@ -114,6 +114,7 @@ impl Reader {
 			let arg = tg::process::stdio::read::Arg {
 				location,
 				streams: vec![stream],
+				wait: true,
 				..Default::default()
 			};
 			let Some(input) = handle.try_read_process_stdio(&process, arg).await? else {

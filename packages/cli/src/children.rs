@@ -7,18 +7,22 @@ pub struct Args {
 	#[command(flatten)]
 	pub locations: crate::location::Args,
 
+	#[command(flatten)]
+	pub print: crate::print::Options,
+
 	/// The object or process.
 	#[arg(default_value = ".", index = 1)]
 	pub reference: tg::Reference,
 
-	#[command(flatten)]
-	pub print: crate::print::Options,
+	#[arg(long)]
+	pub wait: bool,
 }
 
 impl Cli {
 	pub async fn command_children(&mut self, args: Args) -> tg::Result<()> {
 		let locations = args.locations;
 		let print = args.print;
+		let wait = args.wait;
 
 		let referent = self.get_reference(&args.reference).await?;
 		match referent.item {
@@ -42,6 +46,7 @@ impl Cli {
 					print,
 					process: process.id().unwrap_right().clone(),
 					size: None,
+					wait,
 				};
 				self.command_process_children(args).await?;
 			},

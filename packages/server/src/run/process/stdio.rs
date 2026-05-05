@@ -42,6 +42,7 @@ impl Server {
 			let arg = tg::process::stdio::read::Arg {
 				location: location.clone().map(Into::into),
 				streams: vec![tg::process::stdio::Stream::Stdin],
+				wait: true,
 				..Default::default()
 			};
 			let stream = self

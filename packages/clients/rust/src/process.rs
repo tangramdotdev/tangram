@@ -348,6 +348,9 @@ impl<O> Process<O> {
 		if let Some(wait) = self.wait.lock().unwrap().take() {
 			return Ok(wait);
 		}
+		if arg.location.is_none() {
+			arg.location = self.location();
+		}
 		if arg.token.is_none() {
 			arg.token = self.token().cloned();
 		}

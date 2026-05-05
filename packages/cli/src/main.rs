@@ -100,8 +100,8 @@ struct Args {
 	directory: Option<PathBuf>,
 
 	/// The mode.
-	#[arg(env = "TANGRAM_MODE", long, short)]
-	mode: Option<Mode>,
+	#[arg(env = "TANGRAM_MODE", default_value_t, long, short)]
+	mode: Mode,
 
 	#[clap(flatten)]
 	quiet: Quiet,
@@ -194,7 +194,19 @@ fn version() -> String {
 	version
 }
 
-#[derive(Clone, Copy, Debug, Default, clap::ValueEnum, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Default,
+	clap::ValueEnum,
+	derive_more::Display,
+	derive_more::FromStr,
+	serde::Deserialize,
+	serde::Serialize,
+)]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 enum Mode {
 	Client,
@@ -545,7 +557,7 @@ impl Cli {
 			return Ok(client);
 		}
 
-		let client = match self.args.mode.unwrap_or_default() {
+		let client = match self.args.mode {
 			Mode::Client => self.client_with_client_mode().await?,
 			Mode::Default => self.client_with_default_mode().await?,
 			Mode::Server => self.client_with_server_mode().await?,

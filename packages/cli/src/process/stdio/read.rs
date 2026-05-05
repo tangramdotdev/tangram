@@ -24,6 +24,9 @@ pub struct Args {
 
 	#[arg(long, value_delimiter = ',', visible_alias = "stream")]
 	pub streams: Vec<tg::process::stdio::Stream>,
+
+	#[arg(long)]
+	pub wait: bool,
 }
 
 #[serde_as]
@@ -59,6 +62,7 @@ impl Cli {
 			position: args.position,
 			size: args.size,
 			streams,
+			wait: args.wait,
 		};
 		let mut stdio = process
 			.try_read_stdio_all(&client, arg)

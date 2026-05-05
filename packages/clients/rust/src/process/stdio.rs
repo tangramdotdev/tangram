@@ -289,6 +289,7 @@ where
 	let arg = tg::process::stdio::read::Arg {
 		location: location.map(Into::into),
 		streams,
+		wait: true,
 		..Default::default()
 	};
 	let Some(stream) = handle.try_read_process_stdio_all(&id, arg).await? else {

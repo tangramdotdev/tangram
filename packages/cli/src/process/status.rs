@@ -12,17 +12,25 @@ pub struct Args {
 
 	#[arg(index = 1)]
 	pub process: tg::process::Id,
+
+	#[arg(long)]
+	pub wait: bool,
 }
 
 impl Cli {
 	pub async fn command_process_status(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let locations = args.locations.get();
-		let process =
-			tg::Process::<tg::Value>::new(args.process.clone(), locations, None, None, None, None);
-		let stream = process.status_with_handle(&client).await.map_err(
-			|source| tg::error!(!source, id = %args.process, "failed to get the process status"),
-		)?;
+		let arg = tg::process::status::Arg {
+			location: locations,
+			wait: args.wait,
+		};
+		let stream = client
+			.get_process_status(&args.process, arg)
+			.await
+			.map_err(
+				|source| tg::error!(!source, id = %args.process, "failed to get the process status"),
+			)?;
 		self.print_serde_stream(stream.boxed(), args.print).await?;
 		Ok(())
 	}

@@ -126,35 +126,35 @@ impl Server {
 			None => 0,
 		};
 
-		// Subscribe to children events.
-		let subject = format!("processes.{id}.children");
-		let children_wakeups = self
-			.messenger
-			.subscribe::<()>(subject)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
-			.map(|_| ())
-			.boxed();
-
-		// Subscribe to status events.
-		let subject = format!("processes.{id}.status");
-		let status_wakeups = self
-			.messenger
-			.subscribe::<()>(subject)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
-			.map(|_| ())
-			.boxed();
-
-		// Create the interval.
-		let interval = IntervalStream::new(tokio::time::interval(Duration::from_mins(1)))
-			.skip(1)
-			.map(|_| ())
-			.boxed();
-
 		// Create the wakeups stream.
-		let mut wakeups =
-			stream::select_all([children_wakeups, status_wakeups, interval]).with_stopper(stopper);
+		let mut wakeups = if arg.wait {
+			let subject = format!("processes.{id}.children");
+			let children_wakeups = self
+				.messenger
+				.subscribe::<()>(subject)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+				.map(|_| ())
+				.boxed();
+			let subject = format!("processes.{id}.status");
+			let status_wakeups = self
+				.messenger
+				.subscribe::<()>(subject)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+				.map(|_| ())
+				.boxed();
+			let interval = IntervalStream::new(tokio::time::interval(Duration::from_mins(1)))
+				.skip(1)
+				.map(|_| ())
+				.boxed();
+			Some(
+				stream::select_all([children_wakeups, status_wakeups, interval])
+					.with_stopper(stopper),
+			)
+		} else {
+			None
+		};
 
 		// Create the state.
 		let size = arg.size.unwrap_or(10);
@@ -213,6 +213,13 @@ impl Server {
 			}
 
 			// Wait for an event before returning to the top of the loop.
+			let Some(wakeups) = &mut wakeups else {
+				sender
+					.send(Ok(tg::process::children::get::Event::End))
+					.await
+					.ok();
+				break;
+			};
 			if wakeups.next().await.is_none() {
 				break;
 			}

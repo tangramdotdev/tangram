@@ -953,9 +953,9 @@ impl Server {
 					tracing::trace!("http task");
 				}
 
-				// Stop and await the runner task.
+				// Abort the runner task.
 				if let Some(task) = runner_task {
-					task.stop();
+					task.abort();
 					let result = task.wait().await;
 					if let Err(error) = result
 						&& !error.is_cancelled()
@@ -965,7 +965,8 @@ impl Server {
 					tracing::trace!("runner task");
 				}
 
-				// Await the sandbox tasks.
+				// Abort the sandbox tasks.
+				server.sandbox_tasks.abort_all();
 				let results = server.sandbox_tasks.wait().await;
 				for result in results {
 					if let Err(error) = result

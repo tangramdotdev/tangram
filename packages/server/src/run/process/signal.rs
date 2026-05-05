@@ -11,6 +11,7 @@ impl Server {
 		// Get the signal stream for the process.
 		let arg = tg::process::signal::get::Arg {
 			location: location.cloned().map(Into::into),
+			wait: true,
 		};
 		let mut stream = self
 			.try_get_process_signal_stream(id, arg)

@@ -4,7 +4,7 @@ use {
 	serde_with::serde_as,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
-	tangram_util::serde::SeekFromNumberOrString,
+	tangram_util::serde::{SeekFromNumberOrString, is_false},
 };
 
 #[serde_as]
@@ -22,6 +22,9 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub size: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub wait: bool,
 }
 
 #[derive(Clone, Debug)]

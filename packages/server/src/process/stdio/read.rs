@@ -5,7 +5,7 @@ use {
 		stream::{self, BoxStream, FuturesUnordered},
 	},
 	num::ToPrimitive as _,
-	std::{collections::BTreeSet, io::SeekFrom, pin::pin, time::Duration},
+	std::{collections::BTreeSet, io::SeekFrom, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::{
 		stream::Ext as _,
@@ -94,7 +94,7 @@ impl Server {
 		let source = Self::get_process_stdio_source(&output.data, &arg)?;
 		let stream = match source {
 			Source::Pipe(streams) => {
-				self.try_read_process_stdio_pipe_local(context, id, &streams)
+				self.try_read_process_stdio_pipe_local(context, id, &streams, arg.wait)
 					.await?
 			},
 			Source::Log(streams) => {
@@ -136,31 +136,34 @@ impl Server {
 		sender: async_channel::Sender<tg::Result<tg::process::stdio::read::Event>>,
 		stopper: Option<Stopper>,
 	) -> tg::Result<()> {
-		let subject = format!("processes.{id}.log");
-		let log_wakeups = self
-			.messenger
-			.subscribe::<()>(subject)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
-			.map(|_| ())
-			.boxed();
+		let mut wakeups = if arg.wait {
+			let subject = format!("processes.{id}.log");
+			let log_wakeups = self
+				.messenger
+				.subscribe::<()>(subject)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+				.map(|_| ())
+				.boxed();
 
-		let subject = format!("processes.{id}.status");
-		let status_wakeups = self
-			.messenger
-			.subscribe::<()>(subject)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to subscribe"))?
-			.map(|_| ())
-			.boxed();
+			let subject = format!("processes.{id}.status");
+			let status_wakeups = self
+				.messenger
+				.subscribe::<()>(subject)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+				.map(|_| ())
+				.boxed();
 
-		let interval = IntervalStream::new(tokio::time::interval(Duration::from_mins(1)))
-			.skip(1)
-			.map(|_| ())
-			.boxed();
+			let interval = IntervalStream::new(tokio::time::interval(Duration::from_mins(1)))
+				.skip(1)
+				.map(|_| ())
+				.boxed();
 
-		let mut wakeups =
-			stream::select_all([log_wakeups, status_wakeups, interval]).with_stopper(stopper);
+			Some(stream::select_all([log_wakeups, status_wakeups, interval]).with_stopper(stopper))
+		} else {
+			None
+		};
 
 		'outer: loop {
 			let status = self
@@ -212,6 +215,13 @@ impl Server {
 				break;
 			}
 
+			let Some(wakeups) = &mut wakeups else {
+				sender
+					.send(Ok(tg::process::stdio::read::Event::End))
+					.await
+					.ok();
+				break;
+			};
 			if wakeups.next().await.is_none() {
 				break;
 			}
@@ -225,6 +235,7 @@ impl Server {
 		context: &Context,
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
+		wait: bool,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>> {
 		let (sender, receiver) =
 			async_channel::unbounded::<tg::Result<tg::process::stdio::read::Event>>();
@@ -234,7 +245,7 @@ impl Server {
 		let stopper = context.stopper.clone();
 		let task = Task::spawn(move |_| async move {
 			let result = server
-				.try_read_process_stdio_pipe_local_task(&id, streams, sender.clone(), stopper)
+				.try_read_process_stdio_pipe_local_task(&id, streams, sender.clone(), stopper, wait)
 				.await;
 			if let Err(error) = result {
 				sender.try_send(Err(error)).ok();
@@ -249,36 +260,40 @@ impl Server {
 		streams: BTreeSet<tg::process::stdio::Stream>,
 		sender: async_channel::Sender<tg::Result<tg::process::stdio::read::Event>>,
 		stopper: Option<Stopper>,
+		wait: bool,
 	) -> tg::Result<()> {
-		let mut wakeups = Vec::with_capacity(streams.len() * 2 + 1);
-		for stream in &streams {
-			let subject = format!("processes.{id}.{stream}.write");
-			let wakeup = self
-				.messenger
-				.subscribe_with_delivery::<()>(subject, Delivery::One)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+		let mut wakeups = if wait {
+			let mut wakeups = Vec::with_capacity(streams.len() * 2 + 1);
+			for stream in &streams {
+				let subject = format!("processes.{id}.{stream}.write");
+				let wakeup = self
+					.messenger
+					.subscribe_with_delivery::<()>(subject, Delivery::One)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+					.map(|_| ())
+					.boxed();
+				wakeups.push(wakeup);
+				let subject = format!("processes.{id}.{stream}.close");
+				let wakeup = self
+					.messenger
+					.subscribe_with_delivery::<()>(subject, Delivery::One)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to subscribe"))?
+					.map(|_| ())
+					.boxed();
+				wakeups.push(wakeup);
+			}
+			let interval = Duration::from_secs(1);
+			let interval = IntervalStream::new(tokio::time::interval(interval))
+				.skip(1)
 				.map(|_| ())
 				.boxed();
-			wakeups.push(wakeup);
-			let subject = format!("processes.{id}.{stream}.close");
-			let wakeup = self
-				.messenger
-				.subscribe_with_delivery::<()>(subject, Delivery::One)
-				.await
-				.map_err(|source| tg::error!(!source, "failed to subscribe"))?
-				.map(|_| ())
-				.boxed();
-			wakeups.push(wakeup);
-		}
-		let interval = Duration::from_secs(1);
-		let interval = IntervalStream::new(tokio::time::interval(interval))
-			.skip(1)
-			.map(|_| ())
-			.boxed();
-		wakeups.push(interval);
-		let wakeups = stream::select_all(wakeups).with_stopper(stopper);
-		let mut wakeups = pin!(wakeups);
+			wakeups.push(interval);
+			Some(stream::select_all(wakeups).with_stopper(stopper))
+		} else {
+			None
+		};
 		loop {
 			loop {
 				match self.try_read_process_stdio_pipe_event(id, &streams).await {
@@ -306,6 +321,13 @@ impl Server {
 					},
 				}
 			}
+			let Some(wakeups) = &mut wakeups else {
+				sender
+					.send(Ok(tg::process::stdio::read::Event::End))
+					.await
+					.ok();
+				break;
+			};
 			if wakeups.next().await.is_none() {
 				break;
 			}
@@ -377,13 +399,17 @@ impl Server {
 			location: Some(location.into()),
 			..arg
 		};
-		let Some(stream) = client.try_read_process_stdio_all(id, arg).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to read the process stdio"),
-		)?
-		else {
+		let stream = client
+			.try_read_process_stdio_all(id, arg)
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to read the process stdio"),
+			)?
+			.map(futures::StreamExt::boxed);
+		let Some(stream) = stream else {
 			return Ok(None);
 		};
-		Ok(Some(stream.boxed()))
+		Ok(Some(stream))
 	}
 
 	async fn try_read_process_stdio_remotes(
@@ -432,13 +458,17 @@ impl Server {
 			])),
 			..arg
 		};
-		let Some(stream) = client.try_read_process_stdio_all(id, arg).await.map_err(
-			|source| tg::error!(!source, remote = %remote.name, "failed to read the process stdio"),
-		)?
-		else {
+		let stream = client
+			.try_read_process_stdio_all(id, arg)
+			.await
+			.map_err(
+				|source| tg::error!(!source, remote = %remote.name, "failed to read the process stdio"),
+			)?
+			.map(futures::StreamExt::boxed);
+		let Some(stream) = stream else {
 			return Ok(None);
 		};
-		Ok(Some(stream.boxed()))
+		Ok(Some(stream))
 	}
 
 	fn get_process_stdio_source(

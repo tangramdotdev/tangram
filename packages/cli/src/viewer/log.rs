@@ -180,6 +180,7 @@ impl State {
 				tg::process::stdio::Stream::Stdout,
 				tg::process::stdio::Stream::Stderr,
 			],
+			wait: true,
 			..Default::default()
 		};
 		let stream = self
