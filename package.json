@@ -18,10 +18,10 @@
 		"cloud:runner": "nu scripts/cloud/runner.nu",
 		"format": "cargo fmt --all && bun run --parallel --filter \"*\" format",
 		"test": "nu packages/cli/test.nu $@ && cargo nextest run --no-fail-fast --workspace && bun run --parallel --filter \"*\" test",
-		"tg": "PATH=\"$PWD/target/debug:$PATH\" cargo run --all-features -- -c .config/tangram/config.json -d .tangram",
-		"tgr": "PATH=\"$PWD/target/release:$PATH\" cargo run --all-features --release -- -c .config/tangram/config.json -d .tangram",
-		"tgrx": "PATH=\"$PWD/target/debug:$PATH\" cargo run --all-features -- -c .config/tangram/config.json -d .tangram run -b",
-		"tgx": "PATH=\"$PWD/target/debug:$PATH\" cargo run --all-features -- -c .config/tangram/config.json -d .tangram run -b"
+		"tg": "PATH=\"$PWD/target/debug:$PATH\" cargo run --all-features -- -c .config/tangram/config.json -d .tangram -m client",
+		"tgr": "PATH=\"$PWD/target/release:$PATH\" cargo run --all-features --release -- -c .config/tangram/config.json -d .tangram -m client",
+		"tgx": "PATH=\"$PWD/target/debug:$PATH\" cargo run --all-features -- -c .config/tangram/config.json -d .tangram  -m client run -b",
+		"tgxr": "PATH=\"$PWD/target/release:$PATH\" cargo run --all-features -- -c .config/tangram/config.json -d .tangram  -m client run -b"
 	},
 	"dependencies": {
 		"@types/bun": "^1.3.13",
