@@ -1,6 +1,7 @@
 use {
 	crate::task::{Shared, Stopper},
 	dashmap::DashMap,
+	futures::{StreamExt as _, stream::FuturesUnordered},
 	std::{
 		collections::hash_map::RandomState,
 		future::Future,
@@ -250,19 +251,17 @@ where
 	}
 
 	pub async fn wait(&self) -> Vec<Result<T, Arc<tokio::task::JoinError>>> {
-		let mut results = Vec::new();
-		while let Some((key, id, task)) = self.0.iter().next().map(|entry| {
-			(
-				entry.key().clone(),
-				entry.value().id(),
-				entry.value().clone(),
-			)
-		}) {
-			let result = task.wait().await;
-			self.0.remove_if(&key, |_, task| task.id() == id);
-			results.push(result);
-		}
-		results
+		let tasks = self
+			.0
+			.iter()
+			.map(|entry| entry.value().clone())
+			.collect::<Vec<_>>();
+		tasks
+			.into_iter()
+			.map(|task| async move { task.wait().await })
+			.collect::<FuturesUnordered<_>>()
+			.collect()
+			.await
 	}
 }
 

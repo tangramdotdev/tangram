@@ -72,7 +72,7 @@ let process = tg -u $local.url run -d $path --remote
 
 # In the background perform a long lived task.
 job spawn {
-	tg -u $local.url log $process | complete | job send 0
+	tg -u $local.url log --wait $process | complete | job send 0
 }
 
 # Kill the server after one second.
