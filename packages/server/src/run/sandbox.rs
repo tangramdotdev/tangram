@@ -96,7 +96,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
 
 		// Create the listener.
-		let (listener, guest_uri) = Self::run_create_listener(temp.path(), isolation)
+		let (listener, guest_uri) = Self::run_create_listener(temp.path(), &isolation)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to create the tangram listener"))?;
 
@@ -108,14 +108,55 @@ impl Server {
 			target: artifacts_path.clone(),
 			readonly: true,
 		});
+		let (host_ip, guest_ip) = match &isolation {
+			tangram_sandbox::Isolation::Container(container)
+				if state.network
+					&& container
+						.network
+						.as_ref()
+						.is_some_and(tangram_sandbox::Network::is_bridge) =>
+			{
+				(None, Some(self.allocate_guest_ip()?))
+			},
+			tangram_sandbox::Isolation::Vm(_) if state.network => {
+				let (host, guest) = self.allocate_guest_ip_pair()?;
+				(Some(host), Some(guest))
+			},
+			_ => (None, None),
+		};
 		let arg = tangram_sandbox::Arg {
 			artifacts_path,
 			cpu: state.cpu,
+			dns: self.config.sandbox.dns.clone(),
+			host_ip: host_ip.as_ref().map(|ip| ip.addr),
+			guest_ip: guest_ip.as_ref().map(|ip| ip.addr),
 			hostname: state.hostname.clone(),
+			id: id.clone(),
 			isolation,
 			memory: state.memory,
 			mounts,
-			network: state.network,
+			network: state
+				.network
+				.then(|| match &self.config().sandbox.isolation {
+					crate::config::SandboxIsolation::Container(container) => {
+						match &container.network {
+							None | Some(crate::config::ContainerNetwork::Host) => {
+								tangram_sandbox::Network::Host
+							},
+							Some(crate::config::ContainerNetwork::Bridge(bridge)) => {
+								let name =
+									bridge.name.clone().unwrap_or_else(|| "tangram0".to_owned());
+								let ip = bridge.ip.unwrap_or_else(crate::config::default_bridge_ip);
+								tangram_sandbox::Network::Bridge(tangram_sandbox::Bridge {
+									name,
+									ip,
+								})
+							},
+						}
+					},
+					crate::config::SandboxIsolation::Seatbelt(_) => tangram_sandbox::Network::Host,
+					crate::config::SandboxIsolation::Vm(_) => tangram_sandbox::Network::Tap,
+				}),
 			nice: self.config.sandbox.nice,
 			path: temp.path().to_owned(),
 			rootfs_path: self.sandbox_rootfs.clone(),
@@ -125,9 +166,14 @@ impl Server {
 		let sandbox = tangram_sandbox::Sandbox::new(arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to create the sandbox"))?;
+
+		let _temp = temp;
 		self.sandboxes.insert(id.clone(), sandbox.clone());
+		let server = self.clone();
 		scopeguard::defer! {
-			self.sandboxes.remove(id);
+			server.sandboxes.remove(id);
+			drop(host_ip);
+			drop(guest_ip);
 		}
 
 		// Spawn the serve task.
@@ -147,13 +193,13 @@ impl Server {
 
 		// Spawn the heartbeat task.
 		let heartbeat_task = Task::spawn({
-			let server = self.clone();
+			let server = server.clone();
 			let id = id.clone();
 			let location = location.clone();
 			move |stopper| async move { server.sandbox_heartbeat_task(&id, &location, stopper).await }
 		});
 
-		let status = self
+		let status = server
 			.get_sandbox_status(
 				id,
 				tg::sandbox::status::Arg {

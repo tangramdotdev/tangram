@@ -12,14 +12,27 @@ def main [
 	--clean # Clean up leftover test resources from cockroach, postgres, scylla, and nats.
 	--cloud # Enable cloud database backends (cockroach, postgres, scylla, nats) for spawn --cloud.
 	--jobs (-j): int # The number of concurrent tests to run.
+	--kernel-path: path # The path to the linux kernel image to use with --vm. Required when --vm is set.
 	--preserve-temps # Keep the temporary directories.
 	--no-capture # Do not capture the output of each test. This sets --jobs to 1.
 	--print-passing-test-output # Print the output of passing tests.
 	--quickjs # Use QuickJS as the JS engine.
 	--review (-r) # Review snapshots.
+	--tangram-path: path # Path to a prebuilt tangram binary to use instead of cargo build.
 	--timeout: duration = 60sec # The timeout for each test.
+	--vm # Use vm isolation as the default for the test harness.
 	...filters: string # Filter tests.
 ] {
+	# Validate the --vm/--kernel-path flag combination.
+	if $vm and $kernel_path == null {
+		error make { msg: '--kernel-path is required when --vm is set' }
+	}
+	if $kernel_path != null and not $vm {
+		error make { msg: '--kernel-path may only be set with --vm' }
+	}
+	if $kernel_path != null and not ($kernel_path | path exists) {
+		error make { msg: $'--kernel-path does not exist: ($kernel_path)' }
+	}
 	# Clean up leftover test resources if requested.
 	if $clean {
 		for entry in (ls ($nu.temp-dir? | default $nu.temp-path?) | where name =~ 'tangram_test_' and type == dir) {
@@ -55,10 +68,23 @@ def main [
 		return
 	}
 
-	# Add the debug build to the path.
-	cargo build --all-features
-	ln -sf tangram target/debug/tg
-	path add ($repository_path | path join 'target/debug')
+	# Add the tangram binary to the path. If --tangram-path was provided, use
+	# its parent directory directly and place the tg symlink in a temp dir;
+	# otherwise build from source.
+	if $tangram_path != null {
+		if not ($tangram_path | path exists) {
+			error make { msg: $'--tangram-path does not exist: ($tangram_path)' }
+		}
+		let tangram_path = $tangram_path | path expand
+		let tg_dir = mktemp -d -t tangram_test_tg_XXXXXX
+		ln -sf $tangram_path ($tg_dir | path join 'tg')
+		path add ($tangram_path | path dirname)
+		path add $tg_dir
+	} else {
+		cargo build --all-features
+		ln -sf tangram target/debug/tg
+		path add ($repository_path | path join 'target/debug')
+	}
 
 	# Get the matching tests.
 	let filter = if ($filters | is-empty) {
@@ -86,9 +112,10 @@ def main [
 		$jobs
 	}
 
+	let kernel_path_str = $kernel_path | default "" | into string
 	if $no_capture {
 		for test in $tests {
-			let result = run_test $test $cloud $quickjs $no_capture $preserve_temps $timeout
+			let result = run_test $test $cloud $quickjs $no_capture $preserve_temps $timeout $vm $kernel_path_str
 			print_test_result $result $print_passing_test_output
 			$results = $results | append $result
 		}
@@ -102,7 +129,7 @@ def main [
 
 		def spawn [test: record] {
 			job spawn {
-				let result = run_test $test $cloud $quickjs $no_capture $preserve_temps $timeout
+				let result = run_test $test $cloud $quickjs $no_capture $preserve_temps $timeout $vm $kernel_path_str
 				$result | job send 0
 			}
 		}
@@ -326,7 +353,7 @@ def main [
 	}
 }
 
-def run_test [test: record, cloud: bool, quickjs: bool, no_capture: bool, preserve_temps: bool, timeout: duration] {
+def run_test [test: record, cloud: bool, quickjs: bool, no_capture: bool, preserve_temps: bool, timeout: duration, vm: bool, kernel_path: string] {
 	# Create a temp directory for this test.
 	let temp_path = mktemp -d -t tangram_test_XXXXXX | path expand
 
@@ -339,12 +366,25 @@ def run_test [test: record, cloud: bool, quickjs: bool, no_capture: bool, preser
 	# Run the test.
 	let start = date now
 	let timeout = $timeout | into int | $in / 1_000_000_000
+	mut config = {}
 	if $preserve_temps {
-		let config = {
+		$config = $config | merge deep {
 			advanced: {
 				preserve_temp_directories: true,
 			},
 		}
+	}
+	if $vm {
+		$config = $config | merge deep {
+			sandbox: {
+				isolation: {
+					kind: 'vm',
+					kernel_path: $kernel_path,
+				},
+			},
+		}
+	}
+	if not ($config | is-empty) {
 		$config | to json | save -f ($temp_path | path join "config.json")
 	}
 	let dyld_fallback_library_path = if $nu.os-info.name == 'macos' {
@@ -367,6 +407,8 @@ def run_test [test: record, cloud: bool, quickjs: bool, no_capture: bool, preser
 		TANGRAM_QUIET: true,
 		TANGRAM_TEST_CLOUD: (if $cloud { "1" } else { "" }),
 		TANGRAM_TEST_QUICKJS: (if $quickjs { "1" } else { "" }),
+		TANGRAM_TEST_VM: (if $vm { "1" } else { "" }),
+		TANGRAM_TEST_KERNEL_PATH: $kernel_path,
 		TMPDIR: $temp_path,
 	} {
 		let command = $'$env.config.display_errors.exit_code = true; source ($test.path)';
@@ -787,6 +829,22 @@ export def --env spawn [
 			runner: {
 				js: {
 					engine: 'quickjs',
+				},
+			},
+		}
+	}
+
+	let use_vm = (($env.TANGRAM_TEST_VM? | default "") | str length) > 0
+	if $use_vm {
+		let kernel_path = $env.TANGRAM_TEST_KERNEL_PATH? | default ""
+		if ($kernel_path | str length) == 0 {
+			error make { msg: 'TANGRAM_TEST_VM is set but TANGRAM_TEST_KERNEL_PATH is empty' }
+		}
+		$default_config = $default_config | merge deep {
+			sandbox: {
+				isolation: {
+					kind: 'vm',
+					kernel_path: $kernel_path,
 				},
 			},
 		}

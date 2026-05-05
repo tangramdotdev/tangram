@@ -11,9 +11,9 @@ pub fn prepare_runtime_libraries(arg: &Arg) -> tg::Result<()> {
 	std::fs::create_dir_all(&arg.path)
 		.map_err(|source| tg::error!(!source, "failed to create the sandbox directory"))?;
 	let permissions = <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755);
-	ROOTFS
-		.extract(&arg.path)
-		.map_err(|source| tg::error!(!source, "failed to extract the sandbox rootfs"))?;
+	ROOTFS.extract(&arg.path).map_err(
+		|source| tg::error!(!source, path = %arg.path.display(), "failed to extract the sandbox rootfs"),
+	)?;
 	set_rootfs_permissions(&arg.path, &ROOTFS, &permissions)?;
 	restore_rootfs_symlinks(&arg.path)?;
 	prepare_rootfs_mountpoints(&arg.path)?;
@@ -158,7 +158,9 @@ fn set_rootfs_permissions(
 fn prepare_rootfs_mountpoints(rootfs_path: &Path) -> tg::Result<()> {
 	for path in [
 		Path::new("/dev"),
+		Path::new("/dev/pts"),
 		Path::new("/proc"),
+		Path::new("/sys"),
 		Path::new("/opt/tangram"),
 		Path::new("/tmp"),
 		Path::new("/opt/tangram/artifacts"),
@@ -180,6 +182,7 @@ fn prepare_rootfs_mountpoints(rootfs_path: &Path) -> tg::Result<()> {
 	Ok(())
 }
 
+#[allow(dead_code)]
 pub(crate) fn ensure_mount_target(
 	rootfs_path: &Path,
 	upper_path: &Path,
