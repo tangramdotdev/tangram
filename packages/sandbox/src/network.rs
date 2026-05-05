@@ -258,7 +258,7 @@ fn ensure_bridge_iptables_rules(bridge: &str, addr: Ipv4Addr) -> tg::Result<()> 
 fn tap_name(id: &str) -> String {
 	let (_, id) = id.split_at(3);
 	let (id, _) = id.split_at(12);
-	format!("{HOST_TAP_PREFIX}{id}",)
+	format!("{HOST_TAP_PREFIX}{id}")
 }
 
 // TODO: simplify and remove unnecessary unsafe blocks
