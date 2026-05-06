@@ -35,6 +35,9 @@ pub(crate) fn spawn(arg: &crate::Arg, serve_arg: &serve::Arg) -> tg::Result<toki
 		Some(crate::Network::Bridge(_)) => {
 			return Err(tg::error!("vm sandboxes do not support bridge networking"));
 		},
+		Some(crate::Network::Pasta) => {
+			todo!()
+		}
 		Some(crate::Network::Tap) => {
 			let host_ip = arg
 				.host_ip
