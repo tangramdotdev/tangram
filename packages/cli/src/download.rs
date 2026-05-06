@@ -41,8 +41,10 @@ impl Cli {
 			.map_err(|source| tg::error!(!source, "failed to store the command"))?;
 		let reference = tg::Reference::with_object(command.into());
 		let mut options = args.build;
-		options.spawn.sandbox.arg.network =
-			crate::sandbox::NetworkOptions::with_network(tg::sandbox::Network::default());
+		if options.spawn.sandbox.arg.network.get().is_none() {
+			options.spawn.sandbox.arg.network =
+				crate::sandbox::Network::with_network(tg::sandbox::Network::default());
+		}
 		let args = crate::process::build::Args {
 			options,
 			reference: Some(reference),

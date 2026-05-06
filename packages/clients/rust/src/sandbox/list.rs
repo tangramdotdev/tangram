@@ -48,10 +48,6 @@ pub struct Item {
 	pub user: Option<String>,
 }
 
-fn default_network() -> tg::Either<bool, tg::sandbox::Network> {
-	tg::Either::Left(false)
-}
-
 impl tg::Client {
 	pub async fn list_sandboxes(
 		&self,
@@ -86,4 +82,8 @@ impl tg::Client {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the response"))?;
 		Ok(output)
 	}
+}
+
+fn default_network() -> tg::Either<bool, tg::sandbox::Network> {
+	tg::Either::Left(false)
 }

@@ -1,4 +1,4 @@
-use {crate::prelude::*, std::str::FromStr};
+use crate::prelude::*;
 
 #[derive(
 	Clone,
@@ -17,7 +17,7 @@ pub enum Network {
 	Bridge,
 }
 
-impl FromStr for Network {
+impl std::str::FromStr for Network {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {

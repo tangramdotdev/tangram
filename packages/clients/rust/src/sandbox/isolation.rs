@@ -1,4 +1,4 @@
-use {crate::prelude::*, std::str::FromStr};
+use crate::prelude::*;
 
 #[derive(
 	Clone, Copy, Debug, derive_more::IsVariant, Eq, PartialEq, serde::Deserialize, serde::Serialize,
@@ -10,7 +10,7 @@ pub enum Isolation {
 	Vm,
 }
 
-impl FromStr for Isolation {
+impl std::str::FromStr for Isolation {
 	type Err = tg::Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {

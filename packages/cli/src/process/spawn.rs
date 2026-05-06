@@ -808,7 +808,12 @@ impl Cli {
 		let has_sandbox_arg = !options.sandbox.arg.is_empty()
 			|| options.sandbox.ttl.ttl.is_some()
 			|| options.sandbox.ttl.no_ttl;
-		let network = options.sandbox.arg.network.get();
+		let network = options
+			.sandbox
+			.arg
+			.network
+			.get()
+			.unwrap_or(tg::Either::Left(false));
 
 		// Get the mounts.
 		let mut mounts = Vec::new();
@@ -832,19 +837,19 @@ impl Cli {
 					}
 					Some(tg::process::SandboxArg::Id(id))
 				},
-					_ => Some(tg::process::SandboxArg::Arg(
-						tg::process::SandboxCreateArg {
-							cpu: options.sandbox.arg.cpu,
-							hostname: options.sandbox.arg.hostname.clone(),
-							isolation: options.sandbox.arg.isolation,
-							location: None,
-							memory: options.sandbox.arg.memory,
-							mounts,
-							network,
-							ttl: Some(options.sandbox.ttl.get()),
-							user: options.sandbox.arg.user.clone(),
-						},
-					)),
+				_ => Some(tg::process::SandboxArg::Arg(
+					tg::process::SandboxCreateArg {
+						cpu: options.sandbox.arg.cpu,
+						hostname: options.sandbox.arg.hostname.clone(),
+						isolation: options.sandbox.arg.isolation,
+						location: None,
+						memory: options.sandbox.arg.memory,
+						mounts,
+						network,
+						ttl: Some(options.sandbox.ttl.get()),
+						user: options.sandbox.arg.user.clone(),
+					},
+				)),
 			}
 		} else {
 			None

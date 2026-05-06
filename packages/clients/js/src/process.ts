@@ -1362,8 +1362,8 @@ export namespace Process {
 
 		/** The process's name. */
 		name?: string | undefined;
-			/** Configure network. */
-			network?: boolean | tg.Sandbox.Network | undefined;
+		/** Configure network. */
+		network?: boolean | tg.Sandbox.Network | undefined;
 
 		/** Configure or select the sandbox for this process. */
 		sandbox?: boolean | tg.Sandbox.Arg | tg.Sandbox.Id | undefined;

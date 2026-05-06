@@ -60,15 +60,15 @@ pub struct Options {
 	pub mounts: Vec<tg::sandbox::Mount>,
 
 	#[clap(flatten)]
-	pub network: NetworkOptions,
+	pub network: Network,
 
 	#[arg(long)]
 	pub user: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
-pub struct NetworkOptions {
-	/// Enable networking. Accepts `host`, `bridge`, or `bridge=NAME[@IP]`.
+pub struct Network {
+	/// Enable networking.
 	#[arg(
 		default_missing_value = "true",
 		long,
@@ -81,27 +81,19 @@ pub struct NetworkOptions {
 	no_network: bool,
 }
 
-impl NetworkOptions {
-	pub fn get(&self) -> tg::Either<bool, tg::sandbox::Network> {
-		if self.no_network {
-			tg::Either::Left(false)
-		} else {
-			self.network.clone().unwrap_or(tg::Either::Left(false))
-		}
-	}
-
-	pub fn is_enabled(&self) -> bool {
-		!matches!(self.get(), tg::Either::Left(false))
-	}
-
-	pub fn is_unset(&self) -> bool {
-		self.network.is_none() && !self.no_network
-	}
-
+impl Network {
 	pub fn with_network(network: tg::sandbox::Network) -> Self {
 		Self {
 			network: Some(tg::Either::Right(network)),
 			no_network: false,
+		}
+	}
+
+	pub fn get(&self) -> Option<tg::Either<bool, tg::sandbox::Network>> {
+		if self.no_network {
+			Some(tg::Either::Left(false))
+		} else {
+			self.network.clone()
 		}
 	}
 }
@@ -113,7 +105,7 @@ impl Options {
 			&& self.isolation.is_none()
 			&& self.memory.is_none()
 			&& self.mounts.is_empty()
-			&& self.network.is_unset()
+			&& self.network.get().is_none()
 			&& self.user.is_none()
 	}
 }
