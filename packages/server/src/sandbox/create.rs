@@ -1,18 +1,17 @@
 use {
-	crate::{Context, Server},
+	crate::{Handle, Server},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
-impl Server {
-	pub(crate) async fn create_sandbox_with_context(
+impl Handle {
+	pub(crate) async fn create_sandbox(
 		&self,
-		context: &Context,
 		arg: tg::sandbox::create::Arg,
 	) -> tg::Result<tg::sandbox::create::Output> {
-		if context.process.is_some() {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -77,7 +76,7 @@ impl Server {
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let isolation = self.resolve_sandbox_isolation()?;
-		Self::validate_sandbox_resources(&isolation, arg.cpu, arg.memory)?;
+		Server::validate_sandbox_resources(&isolation, arg.cpu, arg.memory)?;
 		let cpu = arg
 			.cpu
 			.map(i64::try_from)
@@ -157,10 +156,9 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_create_sandbox_request(
+	pub(crate) async fn create_sandbox_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
@@ -172,7 +170,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
-		let output = self.create_sandbox_with_context(context, arg).await?;
+		let output = self.create_sandbox(arg).await?;
 
 		let (content_type, body) = match accept
 			.as_ref()

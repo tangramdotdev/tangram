@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -8,13 +8,9 @@ use {
 	},
 };
 
-impl Server {
-	pub(crate) async fn try_delete_remote_with_context(
-		&self,
-		context: &Context,
-		name: &str,
-	) -> tg::Result<Option<()>> {
-		if context.process.is_some() {
+impl Handle {
+	pub(crate) async fn try_delete_remote(&self, name: &str) -> tg::Result<Option<()>> {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -45,10 +41,9 @@ impl Server {
 		Ok(Some(()))
 	}
 
-	pub(crate) async fn handle_delete_remote_request(
+	pub(crate) async fn try_delete_remote_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		name: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
@@ -59,7 +54,7 @@ impl Server {
 
 		// Delete the remote.
 		let Some(()) = self
-			.try_delete_remote_with_context(context, name)
+			.try_delete_remote(name)
 			.await
 			.map_err(|source| tg::error!(!source, %name, "failed to delete the remote"))?
 		else {

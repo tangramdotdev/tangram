@@ -1,6 +1,6 @@
 use {
 	crate::{
-		Server,
+		Handle,
 		sync::{
 			put::State,
 			queue::{ObjectItem, ProcessItem},
@@ -11,7 +11,7 @@ use {
 	tangram_client::prelude::*,
 };
 
-impl Server {
+impl Handle {
 	#[expect(clippy::too_many_arguments)]
 	#[tracing::instrument(err, level = "trace", name = "queue", ret, skip_all)]
 	pub(super) async fn sync_put_queue(
@@ -35,12 +35,12 @@ impl Server {
 		)
 		.map(Ok)
 		.try_for_each_concurrent(object_concurrency, |items| {
-			let server = self.clone();
+			let handle = self.clone();
 			let state = state.clone();
 			let index_object_sender = index_object_sender.clone();
 			let store_object_sender = store_object_sender.clone();
 			async move {
-				server
+				handle
 					.sync_put_queue_object_batch(
 						&state,
 						items,
@@ -62,12 +62,12 @@ impl Server {
 		)
 		.map(Ok)
 		.try_for_each_concurrent(process_concurrency, |items| {
-			let server = self.clone();
+			let handle = self.clone();
 			let state = state.clone();
 			let index_process_sender = index_process_sender.clone();
 			let store_process_sender = store_process_sender.clone();
 			async move {
-				server
+				handle
 					.sync_put_queue_process_batch(
 						&state,
 						items,

@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	futures::{prelude::*, stream::BoxStream, stream::FuturesUnordered},
 	std::{
 		panic::AssertUnwindSafe,
@@ -13,10 +13,9 @@ use {
 	tokio_stream::wrappers::ReceiverStream,
 };
 
-impl Server {
-	pub(crate) async fn push_with_context(
+impl Handle {
+	pub(crate) async fn push(
 		&self,
-		_context: &Context,
 		arg: tg::push::Arg,
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + use<>,
@@ -69,12 +68,12 @@ impl Server {
 
 		// Spawn a task to set the indicator totals as soon as they are ready.
 		let indicator_total_task = Task::spawn({
-			let server = self.clone();
+			let handle = self.clone();
 			let source = source.clone();
 			let progress = progress.clone();
 			let arg = arg.clone();
 			|_| async move {
-				server
+				handle
 					.push_or_pull_set_indicator_totals(source.clone(), progress, &arg)
 					.await
 			}
@@ -82,13 +81,13 @@ impl Server {
 
 		// Spawn the task.
 		let task = Task::spawn({
-			let server = self.clone();
+			let handle = self.clone();
 			let destination = destination.clone();
 			let progress = progress.clone();
 			let arg = arg.clone();
 			let source = source.clone();
 			|_| async move {
-				let result = AssertUnwindSafe(server.push_or_pull_task(
+				let result = AssertUnwindSafe(handle.push_or_pull_task(
 					arg,
 					progress.clone(),
 					source.clone(),
@@ -130,7 +129,7 @@ impl Server {
 			.items
 			.iter()
 			.map(|item| {
-				let server = self.clone();
+				let handle = self.clone();
 				let source = source.clone();
 				async move {
 					loop {
@@ -139,7 +138,7 @@ impl Server {
 								let metadata_arg = tg::object::metadata::Arg {
 									location: Some(source.clone().into()),
 								};
-								let metadata = server
+								let metadata = handle
 									.try_get_object_metadata(object, metadata_arg)
 									.await?
 									.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
@@ -153,7 +152,7 @@ impl Server {
 								let metadata_arg = tg::process::metadata::Arg {
 									location: Some(source.clone().into()),
 								};
-								let Some(metadata) = server
+								let Some(metadata) = handle
 									.try_get_process_metadata(process, metadata_arg)
 									.await
 									.map_err(|source| {
@@ -391,10 +390,9 @@ impl Server {
 		Ok(output.lock().unwrap().clone())
 	}
 
-	pub(crate) async fn handle_push_request(
+	pub(crate) async fn push_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -410,7 +408,7 @@ impl Server {
 
 		// Get the stream.
 		let stream = self
-			.push_with_context(context, arg)
+			.push(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to start the push"))?;
 

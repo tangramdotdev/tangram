@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server, sync::graph::Graph},
+	crate::{Handle, sync::graph::Graph},
 	futures::{prelude::*, stream::BoxStream},
 	num::ToPrimitive as _,
 	std::{
@@ -20,11 +20,10 @@ mod progress;
 mod put;
 mod queue;
 
-impl Server {
+impl Handle {
 	#[tracing::instrument(fields(get = ?arg.get, put = ?arg.put), level = "trace", name = "sync", skip_all)]
-	pub(crate) async fn sync_with_context(
+	pub(crate) async fn sync(
 		&self,
-		context: &Context,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
@@ -32,9 +31,9 @@ impl Server {
 
 		let stream = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => self
-				.sync_local(context, arg, stream)
+				.sync_local(arg, stream)
 				.await?
-				.with_stopper(context.stopper.clone()),
+				.with_stopper(self.context.stopper.clone()),
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
 			}) => self.sync_region(arg, stream, region).await?,
@@ -49,21 +48,18 @@ impl Server {
 
 	async fn sync_local(
 		&self,
-		context: &Context,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>> {
 		let (sender, receiver) = tokio::sync::mpsc::channel(4096);
 		let task = Task::spawn({
-			let server = self.clone();
-			let context = context.clone();
+			let handle = self.clone();
 			|_| {
 				async move {
-					let result =
-						AssertUnwindSafe(server.sync_task(&context, arg, stream, sender.clone()))
-							.catch_unwind()
-							.instrument(tracing::Span::current())
-							.await;
+					let result = AssertUnwindSafe(handle.sync_task(arg, stream, sender.clone()))
+						.catch_unwind()
+						.instrument(tracing::Span::current())
+						.await;
 					match result {
 						Ok(Ok(())) => (),
 						Ok(Err(error)) => {
@@ -150,7 +146,6 @@ impl Server {
 
 	async fn sync_task(
 		&self,
-		context: &Context,
 		arg: tg::sync::Arg,
 		mut stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::Message>>,
@@ -205,14 +200,13 @@ impl Server {
 
 		// Create the get future.
 		let get_future = {
-			let server = self.clone();
+			let handle = self.clone();
 			let arg = arg.clone();
-			let context = context.clone();
 			let graph = graph.clone();
 			let stream = ReceiverStream::new(get_input_receiver).boxed();
 			async move {
-				server
-					.sync_get(arg, context, graph, stream, get_output_sender)
+				handle
+					.sync_get(arg, graph, stream, get_output_sender)
 					.instrument(tracing::debug_span!("get"))
 					.await
 			}
@@ -220,12 +214,12 @@ impl Server {
 
 		// Create the put future.
 		let put_future = {
-			let server = self.clone();
+			let handle = self.clone();
 			let arg = arg.clone();
 			let graph = graph.clone();
 			let stream = ReceiverStream::new(put_input_receiver).boxed();
 			async move {
-				server
+				handle
 					.sync_put(arg, graph, stream, put_output_sender)
 					.instrument(tracing::debug_span!("put"))
 					.await
@@ -247,10 +241,9 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_sync_request(
+	pub(crate) async fn sync_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let arg_in_body = tangram_http::body::arg::get_header(request.headers())
 			.map_err(|source| tg::error!(!source, "failed to parse the x-tg-arg-in-body header"))?;
@@ -319,7 +312,7 @@ impl Server {
 		.boxed();
 
 		let stream = self
-			.sync_with_context(context, arg, stream)
+			.sync(arg, stream)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to start the sync"))?;
 

@@ -118,6 +118,7 @@ impl Server {
 			.map(|entry| {
 				let server = self.clone();
 				async move {
+					let handle = server.root();
 					let error = tg::error::Data {
 						code: entry.code,
 						message: Some(entry.message),
@@ -147,7 +148,7 @@ impl Server {
 								),
 								output: None,
 							};
-							let finished = server
+							let finished = handle
 								.try_finish_process_local(&id, arg, Some(condition))
 								.await
 								.map_err(
@@ -171,7 +172,7 @@ impl Server {
 							let condition = crate::sandbox::finish::Condition::HeartbeatExpired {
 								max_heartbeat_at,
 							};
-							let finished = server
+							let finished = handle
 								.try_finish_sandbox_local(
 									&id,
 									Some(tg::Either::Left(error)),

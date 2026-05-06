@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server, database::Database},
+	crate::{Handle, database::Database},
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -15,14 +15,9 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
-impl Server {
-	pub(crate) async fn put_tag_with_context(
-		&self,
-		context: &Context,
-		tag: &tg::Tag,
-		arg: tg::tag::put::Arg,
-	) -> tg::Result<()> {
-		if context.process.is_some() {
+impl Handle {
+	pub(crate) async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -32,7 +27,7 @@ impl Server {
 
 		match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.try_put_tag_local(context, tag, arg.clone())
+				self.try_put_tag_local(tag, arg.clone())
 					.await
 					.map_err(|source| tg::error!(!source, %tag, "failed to put the tag"))?;
 			},
@@ -52,14 +47,9 @@ impl Server {
 		Ok(())
 	}
 
-	async fn try_put_tag_local(
-		&self,
-		context: &Context,
-		tag: &tg::Tag,
-		arg: tg::tag::put::Arg,
-	) -> tg::Result<()> {
+	async fn try_put_tag_local(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
 		// Authorize.
-		self.authorize(context)
+		self.authorize()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to authorize"))?;
 
@@ -68,13 +58,13 @@ impl Server {
 			match &self.database {
 				#[cfg(feature = "postgres")]
 				Database::Postgres(database) => {
-					Self::put_tag_postgres(database, tag, &arg)
+					self.put_tag_postgres(database, tag, &arg)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to put the tag"))?;
 				},
 				#[cfg(feature = "sqlite")]
 				Database::Sqlite(database) => {
-					Self::put_tag_sqlite(database, tag, &arg)
+					self.put_tag_sqlite(database, tag, &arg)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to put the tag"))?;
 				},
@@ -165,10 +155,9 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_put_tag_request(
+	pub(crate) async fn put_tag_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		tag: &[&str],
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
@@ -190,7 +179,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Put the tag.
-		self.put_tag_with_context(context, &tag, arg).await?;
+		self.put_tag(&tag, arg).await?;
 
 		// Create the response.
 		match accept

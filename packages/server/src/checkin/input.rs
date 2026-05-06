@@ -1,6 +1,6 @@
 use {
 	super::graph::{Directory, File, Node, Symlink, Variant},
-	crate::{Server, checkin::Graph, context::Context},
+	crate::{Handle, checkin::Graph},
 	smallvec::SmallVec,
 	std::{
 		collections::BTreeMap,
@@ -14,7 +14,6 @@ use {
 struct State<'a> {
 	arg: &'a tg::checkin::Arg,
 	artifacts_path: Option<&'a Path>,
-	context: &'a Context,
 	fixup_sender: Option<std::sync::mpsc::Sender<super::fixup::Message>>,
 	graph: &'a mut Graph,
 	ignorer: Option<ignore::Ignorer>,
@@ -39,12 +38,11 @@ enum ParentVariant {
 	SymlinkArtifact,
 }
 
-impl Server {
+impl Handle {
 	#[expect(clippy::too_many_arguments)]
 	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) fn checkin_input(
 		&self,
-		context: &Context,
 		arg: &tg::checkin::Arg,
 		artifacts_path: Option<&Path>,
 		fixup_sender: Option<std::sync::mpsc::Sender<super::fixup::Message>>,
@@ -76,7 +74,6 @@ impl Server {
 		let mut state = State {
 			arg,
 			artifacts_path,
-			context,
 			fixup_sender,
 			graph,
 			ignorer,
@@ -545,11 +542,11 @@ impl Server {
 		for reference in dependencies.keys() {
 			if let Ok(pattern) = reference.item().try_unwrap_tag_ref() {
 				tokio::spawn({
-					let server = self.clone();
+					let handle = self.clone();
 					let pattern = pattern.clone();
 					let location = reference.options().location.clone();
 					async move {
-						server.pull_tag(pattern.clone(), location).await.ok();
+						handle.pull_tag(pattern.clone(), location).await.ok();
 					}
 				});
 			}
@@ -589,7 +586,7 @@ impl Server {
 
 		// If the target is absolute, then get the host path if necessary.
 		if target.is_absolute() {
-			target = self.host_path_for_guest_path(state.context, &target)?;
+			target = self.host_path_for_guest_path(&target)?;
 		}
 
 		// Canonicalize the target.

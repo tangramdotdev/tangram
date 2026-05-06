@@ -1,5 +1,5 @@
 use {
-	crate::Server,
+	crate::Handle,
 	bytes::Bytes,
 	crossterm::style::Stylize as _,
 	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future},
@@ -18,7 +18,7 @@ struct State {
 	sender: tokio::sync::mpsc::Sender<Bytes>,
 }
 
-impl Server {
+impl Handle {
 	pub(crate) async fn write_progress_stream<T: Send + std::fmt::Debug + 'static>(
 		&self,
 		process: &tg::Process,
@@ -148,7 +148,7 @@ impl Server {
 			}
 			output.ok_or_else(|| tg::error!("expected an output"))
 		});
-		let server = self.clone();
+		let handle = self.clone();
 		let id = id.clone();
 		let stderr_task = Task::spawn(|_| async move {
 			let arg = tg::process::stdio::write::Arg {
@@ -166,7 +166,7 @@ impl Server {
 					))
 				})
 				.boxed();
-			server
+			handle
 				.write_process_stdio_all(&id, arg, input)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to write the progress stream"))

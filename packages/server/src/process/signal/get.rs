@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server, database::Database},
+	crate::{Handle, database::Database},
 	futures::{
 		StreamExt as _,
 		stream::{self, BoxStream, FuturesUnordered},
@@ -24,10 +24,9 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
-impl Server {
-	pub(crate) async fn try_get_process_signal_stream_with_context(
+impl Handle {
+	pub(crate) async fn try_get_process_signal_stream(
 		&self,
-		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::signal::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::signal::get::Event>>>> {
@@ -39,7 +38,7 @@ impl Server {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(stream) = self
-					.try_get_process_signal_stream_local(context, id, arg.timeout)
+					.try_get_process_signal_stream_local(id, arg.timeout)
 					.await
 					.map_err(|source| {
 						tg::error!(!source, "failed to get the process signal stream")
@@ -77,7 +76,6 @@ impl Server {
 
 	async fn try_get_process_signal_stream_local(
 		&self,
-		context: &Context,
 		id: &tg::process::Id,
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::signal::get::Event>>>> {
@@ -94,11 +92,11 @@ impl Server {
 		let (sender, receiver) = async_channel::unbounded();
 
 		// Spawn the task.
-		let server = self.clone();
+		let handle = self.clone();
 		let id = id.clone();
-		let stopper = context.stopper.clone();
+		let stopper = self.context.stopper.clone();
 		let task = Task::spawn(|_| async move {
-			let result = server
+			let result = handle
 				.try_get_process_signal_stream_local_task(&id, sender.clone(), stopper, timeout)
 				.await;
 			if let Err(error) = result {
@@ -305,10 +303,9 @@ impl Server {
 		Ok(Some(stream.boxed()))
 	}
 
-	pub(crate) async fn handle_get_process_signal_request(
+	pub(crate) async fn try_get_process_signal_stream_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Parse the ID.
@@ -330,10 +327,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Get the stream.
-		let Some(stream) = self
-			.try_get_process_signal_stream_with_context(context, &id, arg)
-			.await?
-		else {
+		let Some(stream) = self.try_get_process_signal_stream(&id, arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()

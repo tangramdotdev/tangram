@@ -1,5 +1,5 @@
 use {
-	crate::{Server, process::stdio::MAX_UNREAD_PROCESS_STDIO_BYTES},
+	crate::{Handle, process::stdio::MAX_UNREAD_PROCESS_STDIO_BYTES},
 	bytes::Bytes,
 	rusqlite as sqlite,
 	tangram_client::prelude::*,
@@ -8,7 +8,7 @@ use {
 
 use super::WriteOutput;
 
-impl Server {
+impl Handle {
 	pub(crate) async fn try_write_process_stdio_sqlite(
 		&self,
 		process_store: &db::sqlite::Database,

@@ -1,6 +1,6 @@
-use {crate::Server, futures::TryStreamExt as _, tangram_client::prelude::*};
+use {crate::Handle, futures::TryStreamExt as _, tangram_client::prelude::*};
 
-impl Server {
+impl Handle {
 	pub(crate) async fn run_signal_task(
 		&self,
 		sandbox: &tangram_sandbox::Sandbox,

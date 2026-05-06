@@ -1,6 +1,6 @@
 use {
 	crate::{
-		Server,
+		Handle,
 		sync::{
 			put::State,
 			queue::{ObjectItem, ProcessItem},
@@ -10,7 +10,7 @@ use {
 	tangram_client::prelude::*,
 };
 
-impl Server {
+impl Handle {
 	#[tracing::instrument(level = "trace", name = "input", ret, skip_all)]
 	pub(super) async fn sync_put_input_task(
 		&self,

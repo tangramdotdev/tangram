@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server, database::Database},
+	crate::{Handle, database::Database},
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -13,14 +13,13 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
-impl Server {
-	pub(crate) async fn put_process_with_context(
+impl Handle {
+	pub(crate) async fn put_process(
 		&self,
-		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
 	) -> tg::Result<()> {
-		if context.process.is_some() {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -57,13 +56,13 @@ impl Server {
 		match &self.process_store {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(process_store) => {
-				Self::put_process_postgres(id, &arg, process_store, now)
+				self.put_process_postgres(id, &arg, process_store, now)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to put the process"))?;
 			},
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(process_store) => {
-				Self::put_process_sqlite(id, &arg, process_store, now)
+				self.put_process_sqlite(id, &arg, process_store, now)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to put the process"))?;
 			},
@@ -133,9 +132,9 @@ impl Server {
 		};
 		self.index_tasks
 			.spawn(|_| {
-				let server = self.clone();
+				let handle = self.clone();
 				async move {
-					if let Err(error) = server
+					if let Err(error) = handle
 						.index
 						.put(tangram_index::PutArg {
 							processes: vec![put_process_arg],
@@ -204,10 +203,9 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_put_process_request(
+	pub(crate) async fn put_process_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
@@ -228,7 +226,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Put the process.
-		self.put_process_with_context(context, &id, arg)
+		self.put_process(&id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to put the process"))?;
 

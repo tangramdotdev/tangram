@@ -1,6 +1,6 @@
 use {
 	self::store::{DeleteArg, ReadArg},
-	crate::Server,
+	crate::Handle,
 	futures::{
 		StreamExt as _,
 		stream::{self, BoxStream},
@@ -11,7 +11,7 @@ use {
 		collections::{BTreeSet, VecDeque},
 		io::{Cursor, SeekFrom},
 	},
-	tangram_client::{self as tg, Handle as _},
+	tangram_client::{self as tg},
 	tangram_database::{self as db, Database as _, Query as _},
 	tangram_futures::{read::Ext as _, write::Ext as _},
 	tangram_log_store::Store as _,
@@ -34,7 +34,7 @@ struct BlobInner {
 }
 
 struct StoreInner {
-	server: Server,
+	server: Handle,
 	process: tg::process::Id,
 }
 
@@ -68,7 +68,7 @@ pub struct Entry {
 	pub stream_position: u64,
 }
 
-impl Server {
+impl Handle {
 	pub(crate) async fn read_log_index_from_blob(
 		&self,
 		reader: &mut crate::read::Reader,

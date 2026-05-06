@@ -1,6 +1,6 @@
 use {
 	crate::{
-		Server,
+		Handle,
 		checkin::{Graph, GraphData, IndexCacheEntryArgs, graph::Variant},
 		temp::Temp,
 	},
@@ -15,7 +15,7 @@ use {
 	tangram_util::{iter::Ext as _, path},
 };
 
-impl Server {
+impl Handle {
 	#[tracing::instrument(level = "trace", skip_all)]
 	#[allow(clippy::too_many_arguments)]
 	pub(super) async fn checkin_cache(
@@ -73,14 +73,14 @@ impl Server {
 				.into_iter()
 				.batches(self.config.checkin.cache.batch_size)
 				.map(|batch| {
-					let server = self.clone();
+					let handle = self.clone();
 					let batch_bytes: u64 = batch.iter().map(|(_, _, _, size)| size).sum();
 					let batch: Vec<_> = batch
 						.into_iter()
 						.map(|(path, metadata, id, _)| (path, metadata, id))
 						.collect();
 					async move {
-						tokio::task::spawn_blocking(move || server.checkin_cache_inner(batch))
+						tokio::task::spawn_blocking(move || handle.checkin_cache_inner(batch))
 							.await
 							.map_err(|source| {
 								tg::error!(!source, "the checkin cache task panicked")

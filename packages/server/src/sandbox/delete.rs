@@ -1,26 +1,21 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 };
 
-impl Server {
-	pub(crate) async fn try_delete_sandbox_with_context(
-		&self,
-		context: &Context,
-		id: &tg::sandbox::Id,
-	) -> tg::Result<Option<()>> {
-		self.try_finish_sandbox_with_context(context, id, tg::sandbox::finish::Arg::default())
+impl Handle {
+	pub(crate) async fn try_delete_sandbox(&self, id: &tg::sandbox::Id) -> tg::Result<Option<()>> {
+		self.try_finish_sandbox(id, tg::sandbox::finish::Arg::default())
 			.await
 			.map(|option| option.map(|_| ()))
 	}
 
-	pub(crate) async fn handle_delete_sandbox_request(
+	pub(crate) async fn try_delete_sandbox_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
@@ -33,7 +28,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to parse the sandbox id"))?;
 
 		let Some(()) = self
-			.try_delete_sandbox_with_context(context, &id)
+			.try_delete_sandbox(&id)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to delete the sandbox"))?
 		else {

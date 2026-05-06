@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::{Handle, Server},
 	futures::{FutureExt as _, Stream, StreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	std::{panic::AssertUnwindSafe, time::Duration},
@@ -242,12 +242,11 @@ impl index::Index for Index {
 	}
 }
 
-impl Server {
-	pub(crate) async fn index_with_context(
+impl Handle {
+	pub(crate) async fn index(
 		&self,
-		context: &Context,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + use<>> {
-		if context.process.is_some() {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 		if !self.config.advanced.single_process {
@@ -256,9 +255,9 @@ impl Server {
 		let progress = crate::progress::Handle::new();
 		let task = Task::spawn({
 			let progress = progress.clone();
-			let server = self.clone();
+			let handle = self.clone();
 			|_| async move {
-				let result = AssertUnwindSafe(server.index_task(&progress))
+				let result = AssertUnwindSafe(handle.index_task(&progress))
 					.catch_unwind()
 					.await;
 				match result {
@@ -281,7 +280,7 @@ impl Server {
 		let stream = progress
 			.stream()
 			.attach(task)
-			.with_stopper(context.stopper.clone());
+			.with_stopper(self.context.stopper.clone());
 		Ok(stream)
 	}
 
@@ -357,7 +356,9 @@ impl Server {
 
 		Ok::<_, tg::Error>(())
 	}
+}
 
+impl Server {
 	pub(crate) async fn indexer_task(&self, config: &crate::config::Indexer) -> tg::Result<()> {
 		let partition_start = config.partition_start;
 		let partition_count = config.partition_count;
@@ -393,11 +394,12 @@ impl Server {
 			}
 		}
 	}
+}
 
-	pub(crate) async fn handle_index_request(
+impl Handle {
+	pub(crate) async fn index_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -407,7 +409,7 @@ impl Server {
 
 		// Get the stream.
 		let stream = self
-			.index_with_context(context)
+			.index()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to start the index task"))?;
 

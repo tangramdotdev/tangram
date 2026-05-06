@@ -1,22 +1,25 @@
 use {
-	crate::Server,
+	crate::Handle,
 	indoc::indoc,
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
 
-impl Server {
+impl Handle {
 	pub(crate) async fn put_process_postgres(
+		&self,
 		id: &tg::process::Id,
 		arg: &tg::process::put::Arg,
 		process_store: &db::postgres::Database,
 		stored_at: i64,
 	) -> tg::Result<()> {
-		Self::put_process_batch_postgres(&[(id, &arg.data)], process_store, stored_at).await
+		self.put_process_batch_postgres(&[(id, &arg.data)], process_store, stored_at)
+			.await
 	}
 
 	pub(crate) async fn put_process_batch_postgres(
+		&self,
 		items: &[(&tg::process::Id, &tg::process::Data)],
 		process_store: &db::postgres::Database,
 		stored_at: i64,

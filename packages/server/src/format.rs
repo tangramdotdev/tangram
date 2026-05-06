@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	std::path::Path,
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -8,13 +8,9 @@ use {
 	tangram_ignore as ignore,
 };
 
-impl Server {
-	pub(crate) async fn format_with_context(
-		&self,
-		context: &Context,
-		arg: tg::format::Arg,
-	) -> tg::Result<()> {
-		if context.process.is_some() {
+impl Handle {
+	pub(crate) async fn format(&self, arg: tg::format::Arg) -> tg::Result<()> {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -32,8 +28,8 @@ impl Server {
 
 		// Format.
 		tokio::task::spawn_blocking({
-			let server = self.clone();
-			move || server.format_inner(&path, &mut ignore)
+			let handle = self.clone();
+			move || handle.format_inner(&path, &mut ignore)
 		})
 		.await
 		.map_err(|source| tg::error!(!source, "the format task panicked"))??;
@@ -112,10 +108,9 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_format_request(
+	pub(crate) async fn format_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -130,7 +125,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Format.
-		self.format_with_context(context, arg)
+		self.format(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to format"))?;
 

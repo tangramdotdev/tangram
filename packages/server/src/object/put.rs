@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	num::ToPrimitive as _,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
@@ -10,10 +10,9 @@ use {
 	tangram_object_store::prelude::*,
 };
 
-impl Server {
-	pub async fn put_object_with_context(
+impl Handle {
+	pub async fn put_object(
 		&self,
-		_context: &Context,
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
 	) -> tg::Result<()> {
@@ -104,9 +103,9 @@ impl Server {
 		};
 		self.index_tasks
 			.spawn(|_| {
-				let server = self.clone();
+				let handle = self.clone();
 				async move {
-					if let Err(error) = server
+					if let Err(error) = handle
 						.index
 						.put(tangram_index::PutArg {
 							objects: vec![arg],
@@ -165,10 +164,9 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_put_object_request(
+	pub(crate) async fn put_object_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let id = id
@@ -205,7 +203,7 @@ impl Server {
 		}
 
 		let arg = tg::object::put::Arg { bytes, ..arg };
-		self.put_object_with_context(context, &id, arg)
+		self.put_object(&id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to put the object"))?;
 

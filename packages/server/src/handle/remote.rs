@@ -1,50 +1,22 @@
-use {
-	crate::{Context, Server, Shared},
-	tangram_client::prelude::*,
-};
+use {crate::Handle, tangram_client::prelude::*};
 
-impl tg::handle::Remote for Shared {
+impl tg::handle::Remote for Handle {
 	async fn list_remotes(
 		&self,
 		arg: tg::remote::list::Arg,
 	) -> tg::Result<tg::remote::list::Output> {
-		self.0.list_remotes(arg).await
+		self.list_remotes(arg).await
 	}
 
 	async fn try_get_remote(&self, name: &str) -> tg::Result<Option<tg::remote::get::Output>> {
-		self.0.try_get_remote(name).await
+		self.try_get_remote(name).await
 	}
 
 	async fn put_remote(&self, name: &str, arg: tg::remote::put::Arg) -> tg::Result<()> {
-		self.0.put_remote(name, arg).await
+		self.put_remote(name, arg).await
 	}
 
 	async fn try_delete_remote(&self, name: &str) -> tg::Result<Option<()>> {
-		self.0.try_delete_remote(name).await
-	}
-}
-
-impl tg::handle::Remote for Server {
-	async fn list_remotes(
-		&self,
-		arg: tg::remote::list::Arg,
-	) -> tg::Result<tg::remote::list::Output> {
-		self.list_remotes_with_context(&Context::default(), arg)
-			.await
-	}
-
-	async fn try_get_remote(&self, name: &str) -> tg::Result<Option<tg::remote::get::Output>> {
-		self.try_get_remote_with_context(&Context::default(), name)
-			.await
-	}
-
-	async fn put_remote(&self, name: &str, arg: tg::remote::put::Arg) -> tg::Result<()> {
-		self.put_remote_with_context(&Context::default(), name, arg)
-			.await
-	}
-
-	async fn try_delete_remote(&self, name: &str) -> tg::Result<Option<()>> {
-		self.try_delete_remote_with_context(&Context::default(), name)
-			.await
+		self.try_delete_remote(name).await
 	}
 }

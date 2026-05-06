@@ -1,18 +1,14 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 };
 
-impl Server {
-	pub(crate) async fn touch_watch_with_context(
-		&self,
-		context: &Context,
-		arg: tg::watch::touch::Arg,
-	) -> tg::Result<()> {
-		if context.process.is_some() {
+impl Handle {
+	pub(crate) async fn touch_watch(&self, arg: tg::watch::touch::Arg) -> tg::Result<()> {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -47,10 +43,9 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_touch_watch_request(
+	pub(crate) async fn touch_watch_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -65,7 +60,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the body"))?;
 
 		// Touch the watch.
-		self.touch_watch_with_context(context, arg)
+		self.touch_watch(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to delete the watch"))?;
 

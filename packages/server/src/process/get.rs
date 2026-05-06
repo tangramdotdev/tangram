@@ -1,8 +1,8 @@
 use {
-	crate::{Context, Server, database::Database},
+	crate::{Handle, database::Database},
 	futures::{
 		StreamExt as _, TryStreamExt as _, future,
-		stream::{self, FuturesOrdered, FuturesUnordered},
+		stream::{self, FuturesUnordered},
 	},
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -15,10 +15,9 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
-impl Server {
-	pub async fn try_get_process_with_context(
+impl Handle {
+	pub async fn try_get_process(
 		&self,
-		_context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::get::Arg,
 	) -> tg::Result<Option<tg::process::get::Output>> {
@@ -66,51 +65,6 @@ impl Server {
 		self.try_get_process_batch_local(std::slice::from_ref(id), metadata)
 			.await
 			.map(|outputs| outputs.into_iter().next().unwrap())
-	}
-
-	pub async fn try_get_process_batch(
-		&self,
-		ids: &[tg::process::Id],
-		metadata: bool,
-	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
-		let outputs = self
-			.try_get_process_batch_local(ids, metadata)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the processes locally"))?;
-		let locations = self
-			.locations(None)
-			.await
-			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
-		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
-		let remotes = locations.remotes;
-		let outputs = std::iter::zip(ids, outputs)
-			.map(|(id, output)| {
-				let regions = regions.clone();
-				let remotes = remotes.clone();
-				async move {
-					if let Some(output) = output {
-						return Ok(Some(output));
-					}
-
-					if let Some(output) =
-						self.try_get_process_regions(id, &regions, metadata).await?
-					{
-						return Ok(Some(output));
-					}
-
-					if let Some(output) =
-						self.try_get_process_remotes(id, &remotes, metadata).await?
-					{
-						return Ok(Some(output));
-					}
-
-					Ok::<_, tg::Error>(None)
-				}
-			})
-			.collect::<FuturesOrdered<_>>()
-			.try_collect::<Vec<_>>()
-			.await?;
-		Ok(outputs)
 	}
 
 	pub async fn try_get_process_batch_local(
@@ -253,12 +207,12 @@ impl Server {
 		// Spawn a task to put the process if it is finished.
 		if output.data.status.is_finished() {
 			tokio::spawn({
-				let server = self.clone();
+				let handle = self.clone();
 				let id = id.clone();
 				let mut data = output.data.clone();
 				async move {
 					let arg = tg::process::children::get::Arg::default();
-					let children = server
+					let children = handle
 						.try_get_process_children(&id, arg)
 						.await?
 						.ok_or_else(|| tg::error!("expected the process to exist"))?
@@ -271,7 +225,7 @@ impl Server {
 						data,
 						location: None,
 					};
-					server.put_process(&id, arg).await?;
+					handle.put_process(&id, arg).await?;
 					Ok::<_, tg::Error>(())
 				}
 			});
@@ -316,10 +270,9 @@ impl Server {
 		Ok(Some(output))
 	}
 
-	pub(crate) async fn handle_get_process_request(
+	pub(crate) async fn try_get_process_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
@@ -341,7 +294,7 @@ impl Server {
 			.unwrap_or_default();
 
 		// Get the process.
-		let Some(output) = self.try_get_process_with_context(context, &id, arg).await? else {
+		let Some(output) = self.try_get_process(&id, arg).await? else {
 			return Ok(http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)
 				.empty()

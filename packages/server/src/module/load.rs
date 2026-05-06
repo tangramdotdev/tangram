@@ -1,14 +1,13 @@
 use {
-	crate::{Server, context::Context},
+	crate::Handle,
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
-impl Server {
-	pub async fn load_module_with_context(
+impl Handle {
+	pub async fn load_module(
 		&self,
-		_context: &Context,
 		arg: tg::module::load::Arg,
 	) -> tg::Result<tg::module::load::Output> {
 		match &arg.module {
@@ -136,10 +135,9 @@ impl Server {
 		}
 	}
 
-	pub(crate) async fn handle_load_module_request(
+	pub(crate) async fn load_module_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -155,7 +153,7 @@ impl Server {
 
 		// Load the module.
 		let output = self
-			.load_module_with_context(context, arg)
+			.load_module(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to load the module"))?;
 

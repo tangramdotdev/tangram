@@ -1,12 +1,13 @@
 use {
-	crate::Server,
+	crate::Handle,
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
 
-impl Server {
+impl Handle {
 	pub(super) async fn update_parent_depths_postgres(
+		&self,
 		transaction: &db::postgres::Transaction<'_>,
 		child_id: String,
 	) -> tg::Result<()> {

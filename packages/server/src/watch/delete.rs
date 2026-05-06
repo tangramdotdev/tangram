@@ -1,18 +1,17 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 };
 
-impl Server {
-	pub(crate) async fn try_delete_watch_with_context(
+impl Handle {
+	pub(crate) async fn try_delete_watch(
 		&self,
-		context: &Context,
 		mut arg: tg::watch::delete::Arg,
 	) -> tg::Result<Option<()>> {
-		if context.process.is_some() {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -31,10 +30,9 @@ impl Server {
 		Ok(Some(()))
 	}
 
-	pub(crate) async fn handle_delete_watch_request(
+	pub(crate) async fn try_delete_watch_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -51,7 +49,7 @@ impl Server {
 
 		// Delete the watch.
 		let Some(()) = self
-			.try_delete_watch_with_context(context, arg)
+			.try_delete_watch(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to delete the watch"))?
 		else {

@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Database, Server},
+	crate::{Database, Handle},
 	futures::TryStreamExt as _,
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -15,13 +15,9 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
-impl Server {
-	pub(crate) async fn post_tag_batch_with_context(
-		&self,
-		context: &Context,
-		arg: tg::tag::batch::Arg,
-	) -> tg::Result<()> {
-		if context.process.is_some() {
+impl Handle {
+	pub(crate) async fn post_tag_batch(&self, arg: tg::tag::batch::Arg) -> tg::Result<()> {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -31,7 +27,7 @@ impl Server {
 
 		match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.post_tag_batch_local(context, &arg).await?;
+				self.post_tag_batch_local(&arg).await?;
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
@@ -49,13 +45,9 @@ impl Server {
 		Ok(())
 	}
 
-	async fn post_tag_batch_local(
-		&self,
-		context: &Context,
-		arg: &tg::tag::batch::Arg,
-	) -> tg::Result<()> {
+	async fn post_tag_batch_local(&self, arg: &tg::tag::batch::Arg) -> tg::Result<()> {
 		// Authorize.
-		self.authorize(context)
+		self.authorize()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to authorize"))?;
 
@@ -64,13 +56,13 @@ impl Server {
 			match &self.database {
 				#[cfg(feature = "postgres")]
 				Database::Postgres(database) => {
-					Self::post_tag_batch_postgres(database, arg)
+					self.post_tag_batch_postgres(database, arg)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to post the tag batch"))?;
 				},
 				#[cfg(feature = "sqlite")]
 				Database::Sqlite(database) => {
-					Self::post_tag_batch_sqlite(database, arg)
+					self.post_tag_batch_sqlite(database, arg)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to post the tag batch"))?;
 				},
@@ -166,16 +158,15 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_post_tag_batch_request(
+	pub(crate) async fn post_tag_batch_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let arg = request
 			.json()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
-		self.post_tag_batch_with_context(context, arg)
+		self.post_tag_batch(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to post the tag batch"))?;
 		let response = http::Response::builder().empty().unwrap().boxed_body();

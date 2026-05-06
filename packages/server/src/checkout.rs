@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	reflink_copy::reflink,
@@ -38,16 +38,15 @@ pub struct Item {
 	pub graph: Option<tg::graph::Id>,
 }
 
-impl Server {
-	pub(crate) async fn checkout_with_context(
+impl Handle {
+	pub(crate) async fn checkout(
 		&self,
-		context: &Context,
 		mut arg: tg::checkout::Arg,
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + use<>,
 	> {
 		if let Some(path) = &mut arg.path {
-			*path = self.host_path_for_guest_path(context, path)?;
+			*path = self.host_path_for_guest_path(path)?;
 		}
 
 		// If the path is not provided, then cache.
@@ -61,21 +60,20 @@ impl Server {
 					.cache(cache_arg)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to cache the artifact"))?;
-				let context = context.clone();
 				let extension = arg.extension.clone();
 				let stream = stream
 					.boxed()
 					.map({
-						let server = self.clone();
+						let handle = self.clone();
 						move |result| {
 							result.and_then(|event| match event {
 								tg::progress::Event::Output(()) => {
 									let path =
-										server.artifacts_path().join(arg.artifact.to_string());
+										handle.artifacts_path().join(arg.artifact.to_string());
 
 									// Add an extension if necessary.
 									let path = if let Some(extension) = &extension {
-										let path_with_extension = server
+										let path_with_extension = handle
 											.artifacts_path()
 											.join(format!("{}{extension}", arg.artifact));
 										std::fs::hard_link(&path, &path_with_extension).ok();
@@ -85,7 +83,7 @@ impl Server {
 									};
 
 									// Map the path if necessary.
-									let path = server.guest_path_for_host_path(&context, &path)?;
+									let path = handle.guest_path_for_host_path(&path)?;
 
 									let output =
 										tg::progress::Event::Output(tg::checkout::Output { path });
@@ -107,7 +105,7 @@ impl Server {
 				path
 			};
 
-			let path = self.guest_path_for_host_path(context, &path)?;
+			let path = self.guest_path_for_host_path(&path)?;
 
 			let output = tg::checkout::Output { path };
 			let event = tg::progress::Event::Output(output);
@@ -119,13 +117,13 @@ impl Server {
 
 		let progress = crate::progress::Handle::new();
 		let task = Task::spawn({
-			let server = self.clone();
+			let handle = self.clone();
 			let artifact = arg.artifact.clone();
 			let arg = arg.clone();
 			let progress = progress.clone();
 			move |_| async move {
 				// Ensure the artifact is stored.
-				let result = server
+				let result = handle
 					.checkout_ensure_stored(&artifact, &progress)
 					.await
 					.map_err(
@@ -155,7 +153,7 @@ impl Server {
 					None,
 				);
 
-				let result = AssertUnwindSafe(server.checkout_task(artifact, arg, &progress))
+				let result = AssertUnwindSafe(handle.checkout_task(artifact, arg, &progress))
 					.catch_unwind()
 					.await;
 
@@ -179,19 +177,15 @@ impl Server {
 			}
 		});
 
-		let context = context.clone();
 		let stream = progress
 			.stream()
 			.and_then({
-				let server = self.clone();
-				let context = context.clone();
+				let handle = self.clone();
 				move |event| {
-					let server = server.clone();
-					let context = context.clone();
+					let handle = handle.clone();
 					async move {
 						if let tg::progress::Event::Output(mut output) = event {
-							output.path =
-								server.host_path_for_guest_path(&context, &output.path)?;
+							output.path = handle.host_path_for_guest_path(&output.path)?;
 							Ok(tg::progress::Event::Output(output))
 						} else {
 							Ok(event)
@@ -319,7 +313,7 @@ impl Server {
 
 		// Checkout.
 		let result = Task::spawn_blocking({
-			let server = self.clone();
+			let handle = self.clone();
 			let path = path.clone();
 			let progress = progress.clone();
 			move |_| {
@@ -338,18 +332,18 @@ impl Server {
 
 				// Get the item.
 				let edge = tg::graph::data::Edge::Object(state.artifact.clone());
-				let item = server
+				let item = handle
 					.checkout_get_item(edge)
 					.map_err(|source| tg::error!(!source, "failed to get the item"))?;
 
 				// Check out the artifact.
 				let path = state.path.clone();
-				server
+				handle
 					.checkout_artifact(&mut state, &path, &item)
 					.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
 
 				// Write the lock if necessary.
-				server
+				handle
 					.checkout_write_lock(&mut state)
 					.map_err(|source| tg::error!(!source, "failed to write the lock"))?;
 
@@ -904,10 +898,9 @@ impl Server {
 		}
 	}
 
-	pub(crate) async fn handle_checkout_request(
+	pub(crate) async fn checkout_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -923,7 +916,7 @@ impl Server {
 
 		// Get the stream.
 		let stream = self
-			.checkout_with_context(context, arg)
+			.checkout(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to start the checkout"))?;
 

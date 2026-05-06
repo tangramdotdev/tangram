@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server, database::Database},
+	crate::{Handle, database::Database},
 	futures::{StreamExt as _, future, stream},
 	std::time::Duration,
 	tangram_client::prelude::*,
@@ -14,20 +14,19 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
-impl Server {
-	pub(crate) async fn try_dequeue_sandbox_with_context(
+impl Handle {
+	pub(crate) async fn try_dequeue_sandbox(
 		&self,
-		context: &Context,
 		arg: tg::sandbox::queue::Arg,
 	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
-		if context.process.is_some() {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
 		let location = self.location(arg.location.as_ref())?;
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.try_dequeue_sandbox_local(context.stopper.clone(), arg.timeout)
+				self.try_dequeue_sandbox_local(self.context.stopper.clone(), arg.timeout)
 					.await?
 			},
 			tg::Location::Local(tg::location::Local {
@@ -45,18 +44,12 @@ impl Server {
 		Ok(output)
 	}
 
-	fn try_dequeue_sandbox_stream_with_context(
+	fn try_dequeue_sandbox_stream(
 		&self,
-		context: &Context,
 		arg: tg::sandbox::queue::Arg,
 	) -> impl futures::Stream<Item = tg::Result<tg::sandbox::queue::Output>> + Send + use<> {
 		let handle = self.clone();
-		let task_context = context.clone();
-		let dequeue = async move {
-			handle
-				.try_dequeue_sandbox_with_context(&task_context, arg)
-				.await
-		};
+		let dequeue = async move { handle.try_dequeue_sandbox(arg).await };
 		stream::once(dequeue).filter_map(|output| future::ready(output.transpose()))
 	}
 
@@ -157,9 +150,9 @@ impl Server {
 
 	pub(crate) fn spawn_publish_sandboxes_created_message_task(&self) {
 		tokio::spawn({
-			let server = self.clone();
+			let handle = self.clone();
 			async move {
-				server
+				handle
 					.messenger
 					.publish("sandboxes.created".into(), ())
 					.await
@@ -171,10 +164,9 @@ impl Server {
 		});
 	}
 
-	pub(crate) async fn handle_dequeue_sandbox_request(
+	pub(crate) async fn try_dequeue_sandbox_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept: Option<mime::Mime> = request
 			.parse_header(http::header::ACCEPT)
@@ -184,7 +176,7 @@ impl Server {
 			.json_or_default()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
-		let stream = self.try_dequeue_sandbox_stream_with_context(context, arg);
+		let stream = self.try_dequeue_sandbox_stream(arg);
 		let (content_type, body) = match accept
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))

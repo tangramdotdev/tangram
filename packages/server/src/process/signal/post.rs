@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
@@ -10,10 +10,9 @@ use {
 	tangram_messenger::prelude::*,
 };
 
-impl Server {
-	pub(crate) async fn try_post_process_signal_with_context(
+impl Handle {
+	pub(crate) async fn try_post_process_signal(
 		&self,
-		_context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
 	) -> tg::Result<Option<()>> {
@@ -208,10 +207,9 @@ impl Server {
 		Ok(Some(()))
 	}
 
-	pub(crate) async fn handle_post_process_signal_request(
+	pub(crate) async fn try_signal_process_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
@@ -233,7 +231,7 @@ impl Server {
 
 		// Post the process signal.
 		let Some(()) = self
-			.try_post_process_signal_with_context(context, &id, arg)
+			.try_post_process_signal(&id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to post process signal"))?
 		else {
@@ -263,9 +261,9 @@ impl Server {
 		let id = id.clone();
 		let subject = format!("processes.{id}.signal");
 		tokio::spawn({
-			let server = self.clone();
+			let handle = self.clone();
 			async move {
-				server
+				handle
 					.messenger
 					.publish(subject, ())
 					.await

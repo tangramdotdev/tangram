@@ -1,6 +1,10 @@
 use {
-	crate::{Context, Server, Shared},
+	crate::{Context, Server},
 	futures::{Stream, stream::BoxStream},
+	std::{
+		ops::Deref,
+		path::{Path, PathBuf},
+	},
 	tangram_client::prelude::*,
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
@@ -14,140 +18,69 @@ mod tag;
 mod user;
 mod watch;
 
-impl tg::Handle for Shared {
-	fn arg(&self) -> tg::Arg {
-		self.0.server.arg()
+#[derive(Clone)]
+pub(crate) struct Handle {
+	pub server: Server,
+	pub context: Context,
+}
+
+impl Handle {
+	#[must_use]
+	pub(crate) fn new(server: Server, context: Context) -> Self {
+		Self { server, context }
 	}
 
-	async fn cache(
-		&self,
-		arg: tg::cache::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		self.0.cache(arg).await
+	pub(crate) fn host_path_for_guest_path(&self, path: &Path) -> tg::Result<PathBuf> {
+		let Some(id) = &self.context.sandbox else {
+			return Ok(path.to_owned());
+		};
+		let sandbox = self
+			.sandboxes
+			.get(id)
+			.map(|sandbox| sandbox.value().clone())
+			.ok_or_else(|| tg::error!(%id, "failed to get the sandbox"))?;
+		sandbox
+			.host_path_for_guest_path(path)
+			.ok_or_else(|| tg::error!(path = %path.display(), "no host path for guest path"))
 	}
 
-	async fn check(&self, arg: tg::check::Arg) -> tg::Result<tg::check::Output> {
-		self.0.check(arg).await
-	}
-
-	async fn checkin(
-		&self,
-		arg: tg::checkin::Arg,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>> + Send + 'static,
-	> {
-		self.0.checkin(arg).await
-	}
-
-	async fn checkout(
-		&self,
-		arg: tg::checkout::Arg,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + 'static,
-	> {
-		self.0.checkout(arg).await
-	}
-
-	async fn clean(
-		&self,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + 'static,
-	> {
-		self.0.clean().await
-	}
-
-	async fn document(&self, arg: tg::document::Arg) -> tg::Result<serde_json::Value> {
-		self.0.document(arg).await
-	}
-
-	async fn format(&self, arg: tg::format::Arg) -> tg::Result<()> {
-		self.0.format(arg).await
-	}
-
-	async fn health(&self, arg: tg::health::Arg) -> tg::Result<tg::Health> {
-		self.0.health(arg).await
-	}
-
-	async fn index(
-		&self,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		self.0.index().await
-	}
-
-	async fn lsp(
-		&self,
-		input: impl AsyncBufRead + Send + Unpin + 'static,
-		output: impl AsyncWrite + Send + Unpin + 'static,
-	) -> tg::Result<()> {
-		self.0.lsp(input, output).await
-	}
-
-	async fn pull(
-		&self,
-		arg: tg::pull::Arg,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + 'static,
-	> {
-		self.0.pull(arg).await
-	}
-
-	async fn push(
-		&self,
-		arg: tg::push::Arg,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + 'static,
-	> {
-		self.0.push(arg).await
-	}
-
-	async fn sync(
-		&self,
-		arg: tg::sync::Arg,
-		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static> {
-		self.0.sync(arg, stream).await
-	}
-
-	async fn try_get(
-		&self,
-		reference: &tg::Reference,
-		arg: tg::get::Arg,
-	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + 'static,
-	> {
-		self.0.try_get(reference, arg).await
-	}
-
-	async fn try_read_stream(
-		&self,
-		arg: tg::read::Arg,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::read::Event>> + Send + 'static>> {
-		self.0.try_read_stream(arg).await
-	}
-
-	async fn write(
-		&self,
-		arg: tg::write::Arg,
-		reader: impl AsyncRead + Send + 'static,
-	) -> tg::Result<tg::write::Output> {
-		self.0.write(arg, reader).await
+	pub(crate) fn guest_path_for_host_path(&self, path: &Path) -> tg::Result<PathBuf> {
+		let Some(id) = &self.context.sandbox else {
+			return Ok(path.to_owned());
+		};
+		let sandbox = self
+			.sandboxes
+			.get(id)
+			.map(|sandbox| sandbox.value().clone())
+			.ok_or_else(|| tg::error!(%id, "failed to get the sandbox"))?;
+		sandbox
+			.guest_path_for_host_path(path)
+			.ok_or_else(|| tg::error!(path = %path.display(), "no guest path for host path"))
 	}
 }
 
-impl tg::Handle for Server {
+impl Deref for Handle {
+	type Target = Server;
+
+	fn deref(&self) -> &Self::Target {
+		&self.server
+	}
+}
+
+impl tg::Handle for Handle {
 	fn arg(&self) -> tg::Arg {
-		self.arg()
+		self.server.arg()
 	}
 
 	async fn cache(
 		&self,
 		arg: tg::cache::Arg,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		self.cache_with_context(&Context::default(), arg).await
+		self.cache(arg).await
 	}
 
 	async fn check(&self, arg: tg::check::Arg) -> tg::Result<tg::check::Output> {
-		self.check_with_context(&Context::default(), arg).await
+		self.check(arg).await
 	}
 
 	async fn checkin(
@@ -156,7 +89,7 @@ impl tg::Handle for Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>> + Send + 'static,
 	> {
-		self.checkin_with_context(&Context::default(), arg).await
+		self.checkin(arg).await
 	}
 
 	async fn checkout(
@@ -165,7 +98,7 @@ impl tg::Handle for Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + 'static,
 	> {
-		self.checkout_with_context(&Context::default(), arg).await
+		self.checkout(arg).await
 	}
 
 	async fn clean(
@@ -173,25 +106,25 @@ impl tg::Handle for Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + 'static,
 	> {
-		self.clean_with_context(&Context::default()).await
+		self.clean().await
 	}
 
 	async fn document(&self, arg: tg::document::Arg) -> tg::Result<serde_json::Value> {
-		self.document_with_context(&Context::default(), arg).await
+		self.document(arg).await
 	}
 
 	async fn format(&self, arg: tg::format::Arg) -> tg::Result<()> {
-		self.format_with_context(&Context::default(), arg).await
+		self.format(arg).await
 	}
 
 	async fn health(&self, arg: tg::health::Arg) -> tg::Result<tg::Health> {
-		self.health_with_context(&Context::default(), arg).await
+		self.health(arg).await
 	}
 
 	async fn index(
 		&self,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
-		self.index_with_context(&Context::default()).await
+		self.index().await
 	}
 
 	async fn lsp(
@@ -199,8 +132,7 @@ impl tg::Handle for Server {
 		input: impl AsyncBufRead + Send + Unpin + 'static,
 		output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
-		self.lsp_with_context(&Context::default(), input, output)
-			.await
+		self.lsp(input, output).await
 	}
 
 	async fn pull(
@@ -209,7 +141,7 @@ impl tg::Handle for Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + 'static,
 	> {
-		self.pull_with_context(&Context::default(), arg).await
+		self.pull(arg).await
 	}
 
 	async fn push(
@@ -218,7 +150,7 @@ impl tg::Handle for Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + 'static,
 	> {
-		self.push_with_context(&Context::default(), arg).await
+		self.push(arg).await
 	}
 
 	async fn sync(
@@ -226,8 +158,7 @@ impl tg::Handle for Server {
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static> {
-		self.sync_with_context(&Context::default(), arg, stream)
-			.await
+		self.sync(arg, stream).await
 	}
 
 	async fn try_get(
@@ -237,16 +168,14 @@ impl tg::Handle for Server {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + 'static,
 	> {
-		self.try_get_with_context(&Context::default(), reference, arg)
-			.await
+		self.try_get(reference, arg).await
 	}
 
 	async fn try_read_stream(
 		&self,
 		arg: tg::read::Arg,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::read::Event>> + Send + 'static>> {
-		self.try_read_stream_with_context(&Context::default(), arg)
-			.await
+		self.try_read_stream(arg).await
 	}
 
 	async fn write(
@@ -254,7 +183,6 @@ impl tg::Handle for Server {
 		arg: tg::write::Arg,
 		reader: impl AsyncRead + Send + 'static,
 	) -> tg::Result<tg::write::Output> {
-		self.write_with_context(&Context::default(), arg, reader)
-			.await
+		self.write(arg, reader).await
 	}
 }

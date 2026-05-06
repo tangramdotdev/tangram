@@ -1,6 +1,6 @@
-use {crate::Server, tangram_client::prelude::*, tangram_object_store::prelude::*};
+use {crate::Handle, tangram_client::prelude::*, tangram_object_store::prelude::*};
 
-impl Server {
+impl Handle {
 	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) async fn checkin_store(
 		&self,

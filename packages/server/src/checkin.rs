@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server, watch::Watch},
+	crate::{Handle, watch::Watch},
 	futures::{FutureExt as _, Stream, StreamExt as _},
 	indexmap::IndexMap,
 	indoc::indoc,
@@ -50,21 +50,20 @@ type StoreArgs = IndexMap<tg::object::Id, crate::object::store::PutArg, tg::id::
 
 type GraphData = IndexMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>;
 
-impl Server {
+impl Handle {
 	#[tracing::instrument(
 		fields(path = ?arg.path, root = arg.options.root),
 		level = "trace",
 		name = "checkin",
 		skip_all
 	)]
-	pub(crate) async fn checkin_with_context(
+	pub(crate) async fn checkin(
 		&self,
-		context: &Context,
 		mut arg: tg::checkin::Arg,
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>> + Send + use<>,
 	> {
-		arg.path = self.host_path_for_guest_path(context, &arg.path)?;
+		arg.path = self.host_path_for_guest_path(&arg.path)?;
 
 		// Validate and canonicalize the path.
 		if !arg.path.is_absolute() {
@@ -110,16 +109,14 @@ impl Server {
 			key,
 			crate::progress::Handle::new,
 			|progress, _stop| {
-				let server = self.clone();
-				let context = context.clone();
+				let handle = self.clone();
 				let arg = arg.clone();
 				let root = root.clone();
 				async move {
-					let result = AssertUnwindSafe(
-						server.checkin_task(&context, arg, &root, ignorer, &progress),
-					)
-					.catch_unwind()
-					.await;
+					let result =
+						AssertUnwindSafe(handle.checkin_task(arg, &root, ignorer, &progress))
+							.catch_unwind()
+							.await;
 					match result {
 						Ok(Ok(output)) => {
 							progress.output(output);
@@ -150,7 +147,7 @@ impl Server {
 		// Spawn the task.
 		let path = arg.path.clone();
 		let task = Task::spawn({
-			let server = self.clone();
+			let handle = self.clone();
 			let progress = progress.clone();
 			move |_| async move {
 				// Forward events from the root progress stream.
@@ -180,7 +177,7 @@ impl Server {
 					&& let tg::graph::data::Edge::Pointer(pointer) = node.edge.as_ref().unwrap()
 				{
 					// If the path differs from the output path and the edge is a pointer, then store and index a pointer artifact for the path.
-					let result = server
+					let result = handle
 						.checkin_store_and_index_pointer_artifact(node, pointer)
 						.await;
 					match result {
@@ -249,7 +246,6 @@ impl Server {
 	// Check in the artifact.
 	async fn checkin_task(
 		&self,
-		context: &Context,
 		arg: tg::checkin::Arg,
 		root: &Path,
 		ignorer: Option<ignore::Ignorer>,
@@ -320,16 +316,14 @@ impl Server {
 
 		// Collect input.
 		let mut graph = tokio::task::spawn_blocking({
-			let server = self.clone();
-			let context = context.clone();
+			let handle = self.clone();
 			let arg = arg.clone();
 			let artifacts_path = artifacts_path.clone();
 			let lock = lock.clone();
 			let progress = progress.clone();
 			let root = root.to_owned();
 			move || {
-				server.checkin_input(
-					&context,
+				handle.checkin_input(
 					&arg,
 					artifacts_path.as_deref(),
 					fixup_sender,
@@ -473,11 +467,11 @@ impl Server {
 
 			// Spawn a task to clean nodes with no referrers.
 			tokio::task::spawn_blocking({
-				let server = self.clone();
+				let handle = self.clone();
 				let root = root.to_owned();
 				let next = graph.next;
 				move || {
-					if let Some(watch) = server.watches.get(&root) {
+					if let Some(watch) = handle.watches.get(&root) {
 						watch.clean(&root, next);
 					}
 				}
@@ -487,13 +481,13 @@ impl Server {
 		// Spawn the index task.
 		self.index_tasks
 			.spawn({
-				let server = self.clone();
+				let handle = self.clone();
 				let arg = arg.clone();
 				let graph = graph.clone();
 				let root = root.to_owned();
 				move |_| {
 					async move {
-						server
+						handle
 							.checkin_index(
 								&arg,
 								&graph,
@@ -569,10 +563,9 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create the matcher"))
 	}
 
-	pub(crate) async fn handle_checkin_request(
+	pub(crate) async fn checkin_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -588,7 +581,7 @@ impl Server {
 
 		// Get the stream.
 		let stream = self
-			.checkin_with_context(context, arg)
+			.checkin(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to start the checkin"))?;
 

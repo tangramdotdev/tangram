@@ -1,20 +1,15 @@
-use {crate::Server, std::collections::BTreeMap, tangram_client::prelude::*, tangram_uri::Uri};
+use {
+	crate::{Handle, Server},
+	tangram_client::prelude::*,
+	tangram_uri::Uri,
+};
 
 pub mod delete;
 pub mod get;
 pub mod list;
 pub mod put;
 
-impl Server {
-	pub async fn get_remote_clients(&self) -> tg::Result<BTreeMap<String, tg::Client>> {
-		let remotes = self
-			.remotes
-			.iter()
-			.map(|remote| (remote.key().clone(), remote.value().clone()))
-			.collect();
-		Ok(remotes)
-	}
-
+impl Handle {
 	pub async fn get_remote_client(&self, remote: String) -> tg::Result<tg::Client> {
 		self.try_get_remote_client(remote)
 			.await?
@@ -36,7 +31,9 @@ impl Server {
 		self.remotes.insert(remote, client.clone());
 		Ok(Some(client))
 	}
+}
 
+impl Server {
 	pub(crate) fn create_remote_client(&self, remote: &str, url: Uri) -> tg::Result<tg::Client> {
 		let remote_config = self
 			.config()

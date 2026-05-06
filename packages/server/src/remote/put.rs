@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -8,14 +8,9 @@ use {
 	},
 };
 
-impl Server {
-	pub(crate) async fn put_remote_with_context(
-		&self,
-		context: &Context,
-		name: &str,
-		arg: tg::remote::put::Arg,
-	) -> tg::Result<()> {
-		if context.process.is_some() {
+impl Handle {
+	pub(crate) async fn put_remote(&self, name: &str, arg: tg::remote::put::Arg) -> tg::Result<()> {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -43,10 +38,9 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_put_remote_request(
+	pub(crate) async fn put_remote_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		name: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
@@ -62,7 +56,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Put the remote.
-		self.put_remote_with_context(context, name, arg)
+		self.put_remote(name, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %name, "failed to put the remote"))?;
 

@@ -1,5 +1,5 @@
 use {
-	crate::Server,
+	crate::Handle,
 	futures::future,
 	std::{pin::pin, sync::atomic::AtomicU64, time::Duration},
 	tangram_client::prelude::*,
@@ -19,7 +19,7 @@ struct Amounts {
 	bytes: AtomicU64,
 }
 
-impl Server {
+impl Handle {
 	pub(super) async fn sync_get_progress_task(
 		&self,
 		progress: &Progress,

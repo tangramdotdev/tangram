@@ -1,10 +1,11 @@
 use {
-	crate::Server, indoc::indoc, num::ToPrimitive as _, tangram_client::prelude::*,
+	crate::Handle, indoc::indoc, num::ToPrimitive as _, tangram_client::prelude::*,
 	tangram_database::prelude::*,
 };
 
-impl Server {
+impl Handle {
 	pub(crate) async fn delete_tags_postgres(
+		&self,
 		database: &tangram_database::postgres::Database,
 		pattern: &tg::tag::Pattern,
 		recursive: bool,
@@ -25,7 +26,9 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		// Get all tags matching the pattern.
-		let mut matches = Self::match_tags_postgres(&transaction, pattern, recursive).await?;
+		let mut matches = self
+			.match_tags_postgres(&transaction, pattern, recursive)
+			.await?;
 
 		// Sort by tag length descending to delete leaves before branches.
 		matches.sort_by_key(|m| std::cmp::Reverse(m.tag.as_str().len()));

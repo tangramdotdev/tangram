@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server, database::Database, temp::Temp},
+	crate::{Handle, Server, database::Database, temp::Temp},
 	futures::{FutureExt as _, Stream, StreamExt as _, future},
 	num::ToPrimitive as _,
 	std::{panic::AssertUnwindSafe, time::Duration},
@@ -16,14 +16,13 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
-impl Server {
-	pub(crate) async fn clean_with_context(
+impl Handle {
+	pub(crate) async fn clean(
 		&self,
-		context: &Context,
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + use<>,
 	> {
-		if context.process.is_some() {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -34,10 +33,10 @@ impl Server {
 		let progress = crate::progress::Handle::new();
 
 		let task = Task::spawn({
-			let server = self.clone();
+			let handle = self.clone();
 			let progress = progress.clone();
 			|_| async move {
-				let result = AssertUnwindSafe(server.clean_task(&progress))
+				let result = AssertUnwindSafe(handle.clean_task(&progress))
 					.catch_unwind()
 					.await;
 				match result {
@@ -61,7 +60,7 @@ impl Server {
 		let stream = progress
 			.stream()
 			.attach(task)
-			.with_stopper(context.stopper.clone());
+			.with_stopper(self.context.stopper.clone());
 
 		Ok(stream)
 	}
@@ -170,7 +169,9 @@ impl Server {
 
 		Ok::<_, tg::Error>(output)
 	}
+}
 
+impl Server {
 	pub(crate) async fn cleaner_task(&self, config: &crate::config::Cleaner) -> tg::Result<()> {
 		let partition_start = config.partition_start;
 		let partition_count = config.partition_count;
@@ -300,11 +301,12 @@ impl Server {
 			},
 		}
 	}
+}
 
-	pub(crate) async fn handle_server_clean_request(
+impl Handle {
+	pub(crate) async fn clean_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -314,7 +316,7 @@ impl Server {
 
 		// Get the stream.
 		let stream = self
-			.clean_with_context(context)
+			.clean()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to start the clean task"))?;
 

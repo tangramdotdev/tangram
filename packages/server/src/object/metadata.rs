@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -8,10 +8,9 @@ use {
 	tangram_index::prelude::*,
 };
 
-impl Server {
-	pub async fn try_get_object_metadata_with_context(
+impl Handle {
+	pub async fn try_get_object_metadata(
 		&self,
-		_context: &Context,
 		id: &tg::object::Id,
 		arg: tg::object::metadata::Arg,
 	) -> tg::Result<Option<tg::object::Metadata>> {
@@ -189,10 +188,9 @@ impl Server {
 		Ok(Some(metadata))
 	}
 
-	pub(crate) async fn handle_get_object_metadata_request(
+	pub(crate) async fn try_get_object_metadata_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
@@ -214,10 +212,7 @@ impl Server {
 			.unwrap_or_default();
 
 		// Get the object metadata.
-		let Some(output) = self
-			.try_get_object_metadata_with_context(context, &id, arg)
-			.await?
-		else {
+		let Some(output) = self.try_get_object_metadata(&id, arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()

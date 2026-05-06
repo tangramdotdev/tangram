@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Database, Server},
+	crate::{Database, Handle},
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	num::ToPrimitive as _,
 	std::time::Duration,
@@ -19,14 +19,13 @@ pub(crate) struct RemoteTagListTaskKey {
 	pub arg: tg::tag::list::Arg,
 }
 
-impl Server {
+impl Handle {
 	#[tracing::instrument(level = "trace", name = "list_tags", skip_all, fields(pattern = %arg.pattern))]
-	pub(crate) async fn list_tags_with_context(
+	pub(crate) async fn list_tags(
 		&self,
-		context: &Context,
 		arg: tg::tag::list::Arg,
 	) -> tg::Result<tg::tag::list::Output> {
-		if context.process.is_some() {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -128,8 +127,8 @@ impl Server {
 		let task = self
 			.remote_list_tags_tasks
 			.get_or_spawn_detached(key.clone(), {
-				let server = self.clone();
-				move |_stop| async move { server.list_tags_remote_task(key).await }
+				let handle = self.clone();
+				move |_stop| async move { handle.list_tags_remote_task(key).await }
 			});
 		let entries = task
 			.wait()
@@ -222,10 +221,9 @@ impl Server {
 		}
 	}
 
-	pub(crate) async fn handle_list_tags_request(
+	pub(crate) async fn list_tags_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -241,7 +239,7 @@ impl Server {
 			.unwrap_or_default();
 
 		// List the tags.
-		let output = self.list_tags_with_context(context, arg).await?;
+		let output = self.list_tags(arg).await?;
 
 		// Create the response.
 		let (content_type, body) = match accept

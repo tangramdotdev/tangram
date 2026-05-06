@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server, database::Database},
+	crate::{Handle, database::Database},
 	futures::{StreamExt as _, future, stream},
 	std::time::Duration,
 	tangram_client::prelude::*,
@@ -14,14 +14,13 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
-impl Server {
-	pub(crate) async fn try_dequeue_sandbox_process_with_context(
+impl Handle {
+	pub(crate) async fn try_dequeue_sandbox_process(
 		&self,
-		context: &Context,
 		sandbox: &tg::sandbox::Id,
 		arg: tg::sandbox::process::queue::Arg,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
-		if context.process.is_some() {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -31,7 +30,7 @@ impl Server {
 			tg::Location::Local(tg::location::Local { region: None }) => {
 				self.try_dequeue_sandbox_process_local(
 					sandbox,
-					context.stopper.clone(),
+					self.context.stopper.clone(),
 					arg.timeout,
 				)
 				.await?
@@ -54,21 +53,15 @@ impl Server {
 		Ok(output)
 	}
 
-	fn try_dequeue_sandbox_process_stream_with_context(
+	fn try_dequeue_sandbox_process_stream(
 		&self,
-		context: &Context,
 		sandbox: &tg::sandbox::Id,
 		arg: tg::sandbox::process::queue::Arg,
 	) -> impl futures::Stream<Item = tg::Result<tg::sandbox::process::queue::Output>> + Send + use<>
 	{
 		let handle = self.clone();
 		let sandbox = sandbox.clone();
-		let task_context = context.clone();
-		let dequeue = async move {
-			handle
-				.try_dequeue_sandbox_process_with_context(&task_context, &sandbox, arg)
-				.await
-		};
+		let dequeue = async move { handle.try_dequeue_sandbox_process(&sandbox, arg).await };
 		stream::once(dequeue).filter_map(|output| future::ready(output.transpose()))
 	}
 
@@ -193,9 +186,9 @@ impl Server {
 	) {
 		let subject = format!("sandboxes.{sandbox}.processes.created");
 		tokio::spawn({
-			let server = self.clone();
+			let handle = self.clone();
 			async move {
-				server
+				handle
 					.messenger
 					.publish(subject, ())
 					.await
@@ -207,10 +200,9 @@ impl Server {
 		});
 	}
 
-	pub(crate) async fn handle_dequeue_sandbox_process_request(
+	pub(crate) async fn try_dequeue_sandbox_process_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		sandbox: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let sandbox = sandbox
@@ -230,7 +222,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Get the stream.
-		let stream = self.try_dequeue_sandbox_process_stream_with_context(context, &sandbox, arg);
+		let stream = self.try_dequeue_sandbox_process_stream(&sandbox, arg);
 
 		// Create the body.
 		let (content_type, body) = match accept

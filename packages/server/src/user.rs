@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -8,13 +8,9 @@ use {
 	},
 };
 
-impl Server {
-	pub(crate) async fn get_user_with_context(
-		&self,
-		context: &Context,
-		token: &str,
-	) -> tg::Result<Option<tg::user::User>> {
-		if context.process.is_some() {
+impl Handle {
+	pub(crate) async fn get_user(&self, token: &str) -> tg::Result<Option<tg::user::User>> {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -57,9 +53,9 @@ impl Server {
 		Ok(user)
 	}
 
-	pub(crate) async fn authorize(&self, context: &Context) -> tg::Result<Option<tg::User>> {
+	pub(crate) async fn authorize(&self) -> tg::Result<Option<tg::User>> {
 		let Some(user) = self
-			.try_authorize(context)
+			.try_authorize()
 			.await?
 			.ok_or_else(|| tg::error!("failed to authorize"))?
 		else {
@@ -68,18 +64,15 @@ impl Server {
 		Ok(Some(user))
 	}
 
-	pub(crate) async fn try_authorize(
-		&self,
-		context: &Context,
-	) -> tg::Result<Option<Option<tg::User>>> {
+	pub(crate) async fn try_authorize(&self) -> tg::Result<Option<Option<tg::User>>> {
 		if !self.config().authorization {
 			return Ok(Some(None));
 		}
-		let Some(token) = context.token.as_ref() else {
+		let Some(token) = self.context.token.as_ref() else {
 			return Ok(None);
 		};
 		let Some(user) = self
-			.get_user_with_context(context, token)
+			.get_user(token)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get user"))?
 		else {
@@ -88,10 +81,9 @@ impl Server {
 		Ok(Some(Some(user)))
 	}
 
-	pub(crate) async fn handle_get_user_request(
+	pub(crate) async fn get_user_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -110,7 +102,7 @@ impl Server {
 		};
 
 		// Get the user.
-		let Some(output) = self.get_user_with_context(context, token).await? else {
+		let Some(output) = self.get_user(token).await? else {
 			let response = http::Response::builder()
 				.status(http::StatusCode::UNAUTHORIZED)
 				.empty()

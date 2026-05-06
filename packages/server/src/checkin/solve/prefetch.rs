@@ -1,4 +1,4 @@
-use {crate::Server, dashmap::DashMap, std::sync::Arc, tangram_client::prelude::*};
+use {crate::Handle, dashmap::DashMap, std::sync::Arc, tangram_client::prelude::*};
 
 const PREFETCH_CONCURRENCY: usize = 16;
 
@@ -53,7 +53,7 @@ impl Prefetch {
 	}
 }
 
-impl Server {
+impl Handle {
 	pub(super) fn checkin_solve_prefetch_from_lock(
 		&self,
 		prefetch: &Prefetch,
@@ -93,7 +93,7 @@ impl Server {
 		id: &tg::object::Id,
 	) -> tangram_futures::task::Shared<tg::Result<tg::object::get::Output>, ()> {
 		prefetch.object_tasks.get_or_spawn(id.clone(), {
-			let server = self.clone();
+			let handle = self.clone();
 			let id = id.clone();
 			let prefetch = prefetch.clone();
 			move |_| async move {
@@ -106,7 +106,7 @@ impl Server {
 				let permit = prefetch.semaphore.acquire().await;
 
 				// Get the object.
-				let output = server.checkin_solve_fetch_object(&prefetch, &id).await;
+				let output = handle.checkin_solve_fetch_object(&prefetch, &id).await;
 
 				// Drop the permit.
 				drop(permit);
@@ -305,7 +305,7 @@ impl Server {
 		pattern: &tg::tag::Pattern,
 	) -> tangram_futures::task::Shared<tg::Result<tg::tag::list::Output>, ()> {
 		prefetch.tag_tasks.get_or_spawn(pattern.clone(), {
-			let server = self.clone();
+			let handle = self.clone();
 			let pattern = pattern.clone();
 			let prefetch = prefetch.clone();
 			move |_| async move {
@@ -318,7 +318,7 @@ impl Server {
 				let permit = prefetch.semaphore.acquire().await;
 
 				// List the tags.
-				let output = server.checkin_solve_fetch_tags(&prefetch, &pattern).await;
+				let output = handle.checkin_solve_fetch_tags(&prefetch, &pattern).await;
 
 				// Drop the permit.
 				drop(permit);

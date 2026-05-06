@@ -1,21 +1,20 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream, stream::BoxStream},
 	std::path::Path,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
-impl Server {
-	pub(crate) async fn try_get_with_context(
+impl Handle {
+	pub(crate) async fn try_get(
 		&self,
-		context: &Context,
 		reference: &tg::Reference,
 		arg: tg::get::Arg,
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + use<>,
 	> {
-		if context.process.is_some() {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 		let stream = match reference.item() {
@@ -30,8 +29,7 @@ impl Server {
 				Self::try_get_with_process(process, reference.options())?
 			},
 			tg::reference::Item::Tag(tag) => {
-				self.try_get_with_tag(context, tag, reference.options())
-					.await?
+				self.try_get_with_tag(tag, reference.options()).await?
 			},
 		};
 		Ok(stream)
@@ -69,9 +67,9 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check in the path"))?
 			.and_then({
-				let server = self.clone();
+				let handle = self.clone();
 				move |event| {
-					let server = server.clone();
+					let handle = handle.clone();
 					let options = options.clone();
 					async move {
 						match event {
@@ -90,7 +88,7 @@ impl Server {
 									checkin_output.artifact.options,
 								);
 								let output = tg::get::Output { referent };
-								let output = server
+								let output = handle
 									.try_get_apply_get(output, options.get.as_deref())
 									.await?;
 								Ok::<_, tg::Error>(tg::progress::Event::Output(output))
@@ -118,7 +116,6 @@ impl Server {
 
 	async fn try_get_with_tag(
 		&self,
-		context: &Context,
 		pattern: &tg::tag::Pattern,
 		options: &tg::reference::Options,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::get::Output>>>>> {
@@ -131,10 +128,10 @@ impl Server {
 			reverse: true,
 			ttl: None,
 		};
-		let tg::tag::list::Output { data } =
-			self.list_tags_with_context(context, list_arg)
-				.await
-				.map_err(|source| tg::error!(!source, %pattern, "failed to list tags"))?;
+		let tg::tag::list::Output { data } = self
+			.list_tags(list_arg)
+			.await
+			.map_err(|source| tg::error!(!source, %pattern, "failed to list tags"))?;
 		let Some(tg::tag::list::Entry { item, tag, .. }) = data.into_iter().next() else {
 			let stream = stream::once(future::ok(tg::progress::Event::Output(None)));
 			return Ok(stream.boxed());
@@ -229,10 +226,9 @@ impl Server {
 		}
 	}
 
-	pub(crate) async fn handle_get_request(
+	pub(crate) async fn try_get_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		path: &[&str],
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
@@ -255,7 +251,7 @@ impl Server {
 		let reference = tg::Reference::with_item_and_options(item, arg.options.clone());
 
 		let stream = self
-			.try_get_with_context(context, &reference, arg)
+			.try_get(&reference, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %reference, "failed to get the reference"))?;
 

@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server, database::Database},
+	crate::{Handle, database::Database},
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -10,13 +10,12 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
-impl Server {
-	pub(crate) async fn list_processes_with_context(
+impl Handle {
+	pub(crate) async fn list_processes(
 		&self,
-		context: &Context,
 		arg: tg::process::list::Arg,
 	) -> tg::Result<tg::process::list::Output> {
-		if context.process.is_some() {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -156,10 +155,9 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_list_processes_request(
+	pub(crate) async fn list_processes_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -176,7 +174,7 @@ impl Server {
 
 		// List the processes.
 		let output = self
-			.list_processes_with_context(context, arg)
+			.list_processes(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to list the processes"))?;
 		let output = output.data;

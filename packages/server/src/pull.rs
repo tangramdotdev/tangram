@@ -1,15 +1,14 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	futures::{Stream, StreamExt as _, future, stream},
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::prelude::*,
 };
 
-impl Server {
-	pub(crate) async fn pull_with_context(
+impl Handle {
+	pub(crate) async fn pull(
 		&self,
-		_context: &Context,
 		arg: tg::pull::Arg,
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + use<>,
@@ -96,10 +95,9 @@ impl Server {
 		Ok(stored)
 	}
 
-	pub(crate) async fn handle_pull_request(
+	pub(crate) async fn pull_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -115,7 +113,7 @@ impl Server {
 
 		// Get the stream.
 		let stream = self
-			.pull_with_context(context, arg)
+			.pull(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to start the pull"))?;
 

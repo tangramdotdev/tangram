@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server, temp::Temp},
+	crate::{Handle, temp::Temp},
 	bytes::Bytes,
 	futures::TryStreamExt as _,
 	itertools::Itertools as _,
@@ -34,10 +34,9 @@ pub enum Destination {
 	Store { stored_at: i64 },
 }
 
-impl Server {
-	pub(crate) async fn write_with_context(
+impl Handle {
+	pub(crate) async fn write(
 		&self,
-		_context: &Context,
 		arg: tg::write::Arg,
 		reader: impl AsyncRead,
 	) -> tg::Result<tg::write::Output> {
@@ -487,9 +486,9 @@ impl Server {
 			Self::write_index_args(blob, cache_pointer, touched_at);
 		self.index_tasks
 			.spawn(|_| {
-				let server = self.clone();
+				let handle = self.clone();
 				async move {
-					if let Err(error) = server
+					if let Err(error) = handle
 						.index
 						.put(tangram_index::PutArg {
 							cache_entries: put_cache_entry_args,
@@ -556,10 +555,9 @@ impl Server {
 		(put_cache_entry_args, put_object_args)
 	}
 
-	pub(crate) async fn handle_write_request(
+	pub(crate) async fn write_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -576,7 +574,7 @@ impl Server {
 
 		// Write.
 		let output = self
-			.write_with_context(context, arg, request.reader())
+			.write(arg, request.reader())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to write"))?;
 

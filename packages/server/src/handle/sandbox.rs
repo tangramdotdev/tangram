@@ -1,15 +1,11 @@
-use {
-	crate::{Context, Server, Shared},
-	futures::Stream,
-	tangram_client::prelude::*,
-};
+use {crate::Handle, futures::Stream, tangram_client::prelude::*};
 
-impl tg::handle::Sandbox for Shared {
+impl tg::handle::Sandbox for Handle {
 	async fn create_sandbox(
 		&self,
 		arg: tg::sandbox::create::Arg,
 	) -> tg::Result<tg::sandbox::create::Output> {
-		self.0.create_sandbox(arg).await
+		self.create_sandbox(arg).await
 	}
 
 	async fn try_get_sandbox(
@@ -17,25 +13,25 @@ impl tg::handle::Sandbox for Shared {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::get::Arg,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
-		self.0.try_get_sandbox(id, arg).await
+		self.try_get_sandbox(id, arg).await
 	}
 
 	async fn try_dequeue_sandbox(
 		&self,
 		arg: tg::sandbox::queue::Arg,
 	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
-		self.0.try_dequeue_sandbox(arg).await
+		self.try_dequeue_sandbox(arg).await
 	}
 
 	async fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,
 	) -> tg::Result<tg::sandbox::list::Output> {
-		self.0.list_sandboxes(arg).await
+		self.list_sandboxes(arg).await
 	}
 
 	async fn try_delete_sandbox(&self, id: &tg::sandbox::Id) -> tg::Result<Option<()>> {
-		self.0.try_delete_sandbox(id).await
+		self.try_delete_sandbox(id).await
 	}
 
 	async fn try_finish_sandbox(
@@ -43,7 +39,7 @@ impl tg::handle::Sandbox for Shared {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::finish::Arg,
 	) -> tg::Result<Option<bool>> {
-		self.0.try_finish_sandbox(id, arg).await
+		self.try_finish_sandbox(id, arg).await
 	}
 
 	async fn try_heartbeat_sandbox(
@@ -51,7 +47,7 @@ impl tg::handle::Sandbox for Shared {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::heartbeat::Arg,
 	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
-		self.0.try_heartbeat_sandbox(id, arg).await
+		self.try_heartbeat_sandbox(id, arg).await
 	}
 
 	async fn try_get_sandbox_status_stream(
@@ -61,7 +57,7 @@ impl tg::handle::Sandbox for Shared {
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::sandbox::status::Event>> + Send + 'static>,
 	> {
-		self.0.try_get_sandbox_status_stream(id, arg).await
+		self.try_get_sandbox_status_stream(id, arg).await
 	}
 
 	async fn try_dequeue_sandbox_process(
@@ -69,84 +65,6 @@ impl tg::handle::Sandbox for Shared {
 		sandbox: &tg::sandbox::Id,
 		arg: tg::sandbox::process::queue::Arg,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
-		self.0.try_dequeue_sandbox_process(sandbox, arg).await
-	}
-}
-
-impl tg::handle::Sandbox for Server {
-	async fn create_sandbox(
-		&self,
-		arg: tg::sandbox::create::Arg,
-	) -> tg::Result<tg::sandbox::create::Output> {
-		self.create_sandbox_with_context(&Context::default(), arg)
-			.await
-	}
-
-	async fn try_get_sandbox(
-		&self,
-		id: &tg::sandbox::Id,
-		arg: tg::sandbox::get::Arg,
-	) -> tg::Result<Option<tg::sandbox::get::Output>> {
-		self.try_get_sandbox_with_context(&Context::default(), id, arg)
-			.await
-	}
-
-	async fn try_dequeue_sandbox(
-		&self,
-		arg: tg::sandbox::queue::Arg,
-	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
-		self.try_dequeue_sandbox_with_context(&Context::default(), arg)
-			.await
-	}
-
-	async fn list_sandboxes(
-		&self,
-		arg: tg::sandbox::list::Arg,
-	) -> tg::Result<tg::sandbox::list::Output> {
-		self.list_sandboxes_with_context(&Context::default(), arg)
-			.await
-	}
-
-	async fn try_delete_sandbox(&self, id: &tg::sandbox::Id) -> tg::Result<Option<()>> {
-		self.try_delete_sandbox_with_context(&Context::default(), id)
-			.await
-	}
-
-	async fn try_finish_sandbox(
-		&self,
-		id: &tg::sandbox::Id,
-		arg: tg::sandbox::finish::Arg,
-	) -> tg::Result<Option<bool>> {
-		self.try_finish_sandbox_with_context(&Context::default(), id, arg)
-			.await
-	}
-
-	async fn try_heartbeat_sandbox(
-		&self,
-		id: &tg::sandbox::Id,
-		arg: tg::sandbox::heartbeat::Arg,
-	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
-		self.try_heartbeat_sandbox_with_context(&Context::default(), id, arg)
-			.await
-	}
-
-	async fn try_get_sandbox_status_stream(
-		&self,
-		id: &tg::sandbox::Id,
-		arg: tg::sandbox::status::Arg,
-	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::sandbox::status::Event>> + Send + 'static>,
-	> {
-		self.try_get_sandbox_status_stream_with_context(&Context::default(), id, arg)
-			.await
-	}
-
-	async fn try_dequeue_sandbox_process(
-		&self,
-		sandbox: &tg::sandbox::Id,
-		arg: tg::sandbox::process::queue::Arg,
-	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
-		self.try_dequeue_sandbox_process_with_context(&Context::default(), sandbox, arg)
-			.await
+		self.try_dequeue_sandbox_process(sandbox, arg).await
 	}
 }

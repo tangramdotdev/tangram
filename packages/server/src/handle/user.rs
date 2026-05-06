@@ -1,16 +1,7 @@
-use {
-	crate::{Context, Server, Shared},
-	tangram_client::prelude::*,
-};
+use {crate::Handle, tangram_client::prelude::*};
 
-impl tg::handle::User for Shared {
+impl tg::handle::User for Handle {
 	async fn get_user(&self, token: &str) -> tg::Result<Option<tg::User>> {
-		self.0.get_user(token).await
-	}
-}
-
-impl tg::handle::User for Server {
-	async fn get_user(&self, token: &str) -> tg::Result<Option<tg::User>> {
-		self.get_user_with_context(&Context::default(), token).await
+		self.get_user(token).await
 	}
 }

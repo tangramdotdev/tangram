@@ -1,12 +1,12 @@
 use {
-	crate::Server,
+	crate::Handle,
 	indoc::indoc,
 	std::collections::HashMap,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
 
-impl Server {
+impl Handle {
 	pub(crate) async fn try_get_process_batch_postgres(
 		&self,
 		process_store: &db::postgres::Database,

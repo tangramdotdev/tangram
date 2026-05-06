@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server, database::Database},
+	crate::{Handle, database::Database},
 	futures::TryStreamExt as _,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -11,13 +11,12 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
-impl Server {
-	pub(crate) async fn delete_tags_with_context(
+impl Handle {
+	pub(crate) async fn delete_tags(
 		&self,
-		context: &Context,
 		arg: tg::tag::delete::Arg,
 	) -> tg::Result<tg::tag::delete::Output> {
-		if context.process.is_some() {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -27,7 +26,7 @@ impl Server {
 
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.delete_tags_local(context, arg.clone()).await?
+				self.delete_tags_local(arg.clone()).await?
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
@@ -43,11 +42,10 @@ impl Server {
 
 	async fn delete_tags_local(
 		&self,
-		context: &Context,
 		arg: tg::tag::delete::Arg,
 	) -> tg::Result<tg::tag::delete::Output> {
 		// Authorize.
-		self.authorize(context)
+		self.authorize()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to authorize"))?;
 
@@ -55,13 +53,13 @@ impl Server {
 			// Delete the tags from the database.
 			match &self.database {
 				#[cfg(feature = "postgres")]
-				Database::Postgres(database) => {
-					Self::delete_tags_postgres(database, &arg.pattern, arg.recursive)
-						.await
-						.map_err(|source| tg::error!(!source, "failed to delete the tag"))?
-				},
+				Database::Postgres(database) => self
+					.delete_tags_postgres(database, &arg.pattern, arg.recursive)
+					.await
+					.map_err(|source| tg::error!(!source, "failed to delete the tag"))?,
 				#[cfg(feature = "sqlite")]
-				Database::Sqlite(database) => Self::delete_tags_sqlite(database, &arg.pattern, arg.recursive)
+				Database::Sqlite(database) => self
+					.delete_tags_sqlite(database, &arg.pattern, arg.recursive)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to delete the tag"))?,
 			}
@@ -166,10 +164,9 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_delete_tag_request(
+	pub(crate) async fn delete_tags_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		_tag: &[&str],
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
@@ -185,7 +182,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		// Delete the tag.
-		let output = self.delete_tags_with_context(context, arg).await?;
+		let output = self.delete_tags(arg).await?;
 
 		// Create the response.
 		let (content_type, body) = match accept

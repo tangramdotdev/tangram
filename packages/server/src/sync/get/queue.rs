@@ -1,6 +1,6 @@
 use {
 	crate::{
-		Server,
+		Handle,
 		sync::{
 			get::State,
 			graph::Requested,
@@ -13,7 +13,7 @@ use {
 	tangram_index::prelude::*,
 };
 
-impl Server {
+impl Handle {
 	pub(super) async fn sync_get_queue(
 		&self,
 		state: Arc<State>,
@@ -31,9 +31,9 @@ impl Server {
 		)
 		.map(Ok)
 		.try_for_each_concurrent(object_concurrency, |items| {
-			let server = self.clone();
+			let handle = self.clone();
 			let state = state.clone();
-			async move { server.sync_get_queue_object_batch(&state, items).await }
+			async move { handle.sync_get_queue_object_batch(&state, items).await }
 		});
 
 		// Create the processes future.
@@ -47,9 +47,9 @@ impl Server {
 		)
 		.map(Ok)
 		.try_for_each_concurrent(process_concurrency, |items| {
-			let server = self.clone();
+			let handle = self.clone();
 			let state = state.clone();
-			async move { server.sync_get_queue_process_batch(&state, items).await }
+			async move { handle.sync_get_queue_process_batch(&state, items).await }
 		});
 
 		// Join the objects and processes futures.

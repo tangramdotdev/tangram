@@ -1,6 +1,6 @@
 use {
 	crate::{
-		Server,
+		Handle,
 		sandbox::finish::{Condition, InnerArg, InnerOutput},
 	},
 	indoc::indoc,
@@ -9,7 +9,7 @@ use {
 	tangram_database as db,
 };
 
-impl Server {
+impl Handle {
 	pub(super) async fn try_finish_sandbox_inner_sqlite(
 		&self,
 		transaction: &db::sqlite::Transaction<'_>,

@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	futures::{
 		FutureExt as _, StreamExt as _,
 		future::{self, BoxFuture},
@@ -16,34 +16,24 @@ use {
 	},
 };
 
-impl Server {
-	pub async fn try_wait_process_future_with_context(
+impl Handle {
+	pub async fn try_wait_process_future(
 		&self,
-		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
-		self.try_wait_process_future_with_context_and_stopper(
-			context,
-			id,
-			arg,
-			context.stopper.clone(),
-		)
-		.await
+		self.try_wait_process_future_with_stopper(id, arg, self.context.stopper.clone())
+			.await
 	}
 
-	async fn try_wait_process_stream_with_context(
+	async fn try_wait_process_stream(
 		&self,
-		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
 	) -> tg::Result<
 		Option<impl futures::Stream<Item = tg::Result<tg::process::wait::Event>> + Send + use<>>,
 	> {
-		let Some(future) = self
-			.try_wait_process_future_with_context(context, id, arg)
-			.await?
-		else {
+		let Some(future) = self.try_wait_process_future(id, arg).await? else {
 			return Ok(None);
 		};
 		let stream = stream::once(future).filter_map(|result| async move {
@@ -56,9 +46,8 @@ impl Server {
 		Ok(Some(stream))
 	}
 
-	async fn try_wait_process_future_with_context_and_stopper(
+	async fn try_wait_process_future_with_stopper(
 		&self,
-		_context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
 		stopper: Option<Stopper>,
@@ -125,9 +114,9 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
-		let server = self.clone();
+		let handle = self.clone();
 		let id = id.clone();
-		let Some(stream) = server
+		let Some(stream) = handle
 			.try_get_process_status_stream_local(&id, None, None)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to get the process status stream"))?
@@ -152,7 +141,7 @@ impl Server {
 			if !status.is_finished() {
 				return Err(tg::error!("expected the process to be finished"));
 			}
-			let output = server
+			let output = handle
 				.try_get_process_local(&id, false)
 				.await
 				.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
@@ -317,7 +306,7 @@ impl Server {
 			}
 			.boxed();
 
-			let server = self.clone();
+			let handle = self.clone();
 			let id = id.clone();
 			let guard = scopeguard::guard((), move |()| {
 				if cancel.load(Ordering::SeqCst) && !stopper.as_ref().is_some_and(Stopper::stopped)
@@ -327,7 +316,7 @@ impl Server {
 						token,
 					};
 					tokio::spawn(async move {
-						server.cancel_process(&id, arg).await.ok();
+						handle.cancel_process(&id, arg).await.ok();
 					});
 				}
 			});
@@ -338,10 +327,9 @@ impl Server {
 		}
 	}
 
-	pub(crate) async fn handle_post_process_wait_request(
+	pub(crate) async fn try_wait_process_future_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Parse the ID.
@@ -363,10 +351,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Get the stream.
-		let Some(stream) = self
-			.try_wait_process_stream_with_context(context, &id, arg)
-			.await?
-		else {
+		let Some(stream) = self.try_wait_process_stream(&id, arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()

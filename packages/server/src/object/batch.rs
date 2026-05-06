@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	num::ToPrimitive as _,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
@@ -10,12 +10,8 @@ use {
 	tangram_object_store::prelude::*,
 };
 
-impl Server {
-	pub async fn post_object_batch_with_context(
-		&self,
-		_context: &Context,
-		arg: tg::object::batch::Arg,
-	) -> tg::Result<()> {
+impl Handle {
+	pub async fn post_object_batch(&self, arg: tg::object::batch::Arg) -> tg::Result<()> {
 		if arg.objects.is_empty() {
 			return Ok(());
 		}
@@ -97,9 +93,9 @@ impl Server {
 		// Spawn a task to index the objects.
 		self.index_tasks
 			.spawn(|_| {
-				let server = self.clone();
+				let handle = self.clone();
 				async move {
-					if let Err(error) = server
+					if let Err(error) = handle
 						.index
 						.put(tangram_index::PutArg {
 							objects: put_object_args,
@@ -156,10 +152,9 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn handle_post_object_batch_request(
+	pub(crate) async fn post_object_batch_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -190,7 +185,7 @@ impl Server {
 		}
 
 		// Post the object batch.
-		self.post_object_batch_with_context(context, arg)
+		self.post_object_batch(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to post the object batch"))?;
 

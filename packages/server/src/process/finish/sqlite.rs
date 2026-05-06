@@ -1,6 +1,6 @@
 use {
 	crate::{
-		Server,
+		Handle,
 		process::finish::{Condition, InnerArg},
 	},
 	indoc::indoc,
@@ -9,7 +9,7 @@ use {
 	tangram_database as db,
 };
 
-impl Server {
+impl Handle {
 	pub(super) async fn try_finish_process_inner_sqlite(
 		&self,
 		transaction: &db::sqlite::Transaction<'_>,

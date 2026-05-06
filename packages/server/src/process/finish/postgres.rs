@@ -1,6 +1,6 @@
 use {
 	crate::{
-		Server,
+		Handle,
 		process::finish::{Condition, InnerArg},
 	},
 	indoc::indoc,
@@ -8,7 +8,7 @@ use {
 	tangram_database::{self as db, prelude::*},
 };
 
-impl Server {
+impl Handle {
 	pub(super) async fn try_finish_process_inner_postgres(
 		&self,
 		transaction: &db::postgres::Transaction<'_>,

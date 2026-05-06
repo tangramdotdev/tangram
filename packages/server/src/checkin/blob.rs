@@ -1,6 +1,6 @@
 use {
 	crate::{
-		Server,
+		Handle,
 		checkin::{Graph, IndexObjectArgs, StoreArgs, graph::Contents},
 		write::Destination,
 	},
@@ -9,7 +9,7 @@ use {
 	tangram_client::prelude::*,
 };
 
-impl Server {
+impl Handle {
 	#[expect(clippy::too_many_arguments)]
 	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) async fn checkin_create_blobs(
@@ -50,7 +50,7 @@ impl Server {
 		let blobs = stream::iter(nodes)
 			.map(|(index, path, size)| {
 				let progress = progress.clone();
-				let server = self.clone();
+				let handle = self.clone();
 				async move {
 					let blob = tokio::task::spawn_blocking({
 						let path = path.clone();
@@ -65,7 +65,7 @@ impl Server {
 									stored_at: touched_at,
 								})
 							};
-							server.write_inner_sync(file, destination.as_ref()).map_err(
+							handle.write_inner_sync(file, destination.as_ref()).map_err(
 								|source| tg::error!(!source, path = %path.display(), "failed to create the blob"),
 							)
 						}

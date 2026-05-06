@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	bytes::Bytes,
 	futures::{
 		StreamExt as _, future,
@@ -31,10 +31,9 @@ pub(crate) struct ObjectGetTaskKey {
 	pub metadata: bool,
 }
 
-impl Server {
-	pub async fn try_get_object_with_context(
+impl Handle {
+	pub async fn try_get_object(
 		&self,
-		_context: &Context,
 		id: &tg::object::Id,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Option<tg::object::get::Output>> {
@@ -378,8 +377,8 @@ impl Server {
 		key: ObjectGetTaskKey,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let task = self.object_get_tasks.get_or_spawn_detached(key.clone(), {
-			let server = self.clone();
-			move |_stop| async move { server.try_get_object_from_location_task_inner(key).await }
+			let handle = self.clone();
+			move |_stop| async move { handle.try_get_object_from_location_task_inner(key).await }
 		});
 		task.wait()
 			.await
@@ -447,7 +446,7 @@ impl Server {
 
 	fn spawn_put_object_task(&self, id: &tg::object::Id, output: &tg::object::get::Output) {
 		tokio::spawn({
-			let server = self.clone();
+			let handle = self.clone();
 			let id = id.clone();
 			let output = output.clone();
 			async move {
@@ -456,7 +455,7 @@ impl Server {
 					location: None,
 					metadata: output.metadata.clone(),
 				};
-				server.put_object(&id, arg).await?;
+				handle.put_object(&id, arg).await?;
 				Ok::<_, tg::Error>(())
 			}
 		});
@@ -539,10 +538,9 @@ impl Server {
 		Ok(Some(buffer.into()))
 	}
 
-	pub(crate) async fn handle_get_object_request(
+	pub(crate) async fn try_get_object_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
@@ -564,7 +562,7 @@ impl Server {
 			.unwrap_or_default();
 
 		// Get the object.
-		let Some(output) = self.try_get_object_with_context(context, &id, arg).await? else {
+		let Some(output) = self.try_get_object(&id, arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()

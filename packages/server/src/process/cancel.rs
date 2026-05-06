@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
@@ -9,10 +9,9 @@ use {
 	},
 };
 
-impl Server {
-	pub async fn try_cancel_process_with_context(
+impl Handle {
+	pub async fn try_cancel_process(
 		&self,
-		_context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<()>> {
@@ -236,10 +235,9 @@ impl Server {
 		Ok(Some(()))
 	}
 
-	pub(crate) async fn handle_cancel_process_request(
+	pub(crate) async fn try_cancel_process_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
@@ -261,7 +259,7 @@ impl Server {
 			.ok_or_else(|| tg::error!("query parameters required"))?;
 
 		let Some(()) = self
-			.try_cancel_process_with_context(context, &id, arg)
+			.try_cancel_process(&id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to cancel the process"))?
 		else {

@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
@@ -7,13 +7,12 @@ use {
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
-impl Server {
-	pub(crate) async fn list_sandboxes_with_context(
+impl Handle {
+	pub(crate) async fn list_sandboxes(
 		&self,
-		context: &Context,
 		arg: tg::sandbox::list::Arg,
 	) -> tg::Result<tg::sandbox::list::Output> {
-		if context.process.is_some() {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -169,10 +168,9 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_list_sandboxes_request(
+	pub(crate) async fn list_sandboxes_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
@@ -186,7 +184,7 @@ impl Server {
 			.unwrap_or_default();
 
 		let output = self
-			.list_sandboxes_with_context(context, arg)
+			.list_sandboxes(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to list the sandboxes"))?;
 

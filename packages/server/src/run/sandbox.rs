@@ -1,5 +1,5 @@
 use {
-	crate::{SandboxPermit, Server, temp::Temp},
+	crate::{Handle, SandboxPermit, Server, temp::Temp},
 	futures::{FutureExt as _, TryStreamExt as _, future},
 	std::{pin::pin, sync::Arc},
 	tangram_client::prelude::*,
@@ -17,16 +17,14 @@ impl Server {
 		permit: SandboxPermit,
 		process: Option<tg::process::Id>,
 	) {
-		if self.sandbox_tasks.try_get_id(id).is_some() {
-			return;
-		}
+		let handle = self.root();
 		self.sandbox_tasks
 			.spawn(id.clone(), |_| {
-				let server = self.clone();
+				let handle = handle.clone();
 				let id = id.clone();
 				async move {
 					// Run the sandbox task.
-					let result = server
+					let result = handle
 						.sandbox_task(&id, location.clone(), permit, process)
 						.await;
 
@@ -34,7 +32,7 @@ impl Server {
 					if let Err(error) = result {
 						tracing::error!(error = %error.trace(), sandbox = %id, "the sandbox failed");
 						let mut error = error.to_data_or_id();
-						if !server.config.advanced.internal_error_locations
+						if !handle.config.advanced.internal_error_locations
 							&& let tg::Either::Left(error) = &mut error
 						{
 							error.remove_internal_locations();
@@ -43,7 +41,7 @@ impl Server {
 							error: Some(error),
 							location: Some(location.into()),
 						};
-						let result = server.finish_sandbox(&id, arg).await;
+						let result = handle.finish_sandbox(&id, arg).await;
 						if let Err(error) = result {
 							tracing::error!(
 								error = %error.trace(),
@@ -56,7 +54,9 @@ impl Server {
 			})
 			.detach();
 	}
+}
 
+impl Handle {
 	async fn sandbox_task(
 		&self,
 		id: &tg::sandbox::Id,
@@ -96,7 +96,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
 
 		// Create the listener.
-		let (listener, guest_uri) = Self::run_create_listener(temp.path(), &isolation)
+		let (listener, guest_uri) = Server::run_create_listener(temp.path(), &isolation)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to create the tangram listener"))?;
 
@@ -198,23 +198,23 @@ impl Server {
 
 		let _temp = temp;
 		self.sandboxes.insert(id.clone(), sandbox.clone());
-		let server = self.clone();
+		let handle = self.clone();
 		scopeguard::defer! {
-			server.sandboxes.remove(id);
+			handle.sandboxes.remove(id);
 			drop(host_ip);
 			drop(guest_ip);
 		}
 
 		// Spawn the serve task.
 		let serve_task = Task::spawn({
-			let server = self.clone();
+			let handle = self.clone();
 			let id = id.clone();
 			let config = crate::config::HttpListener {
 				url: guest_uri.clone(),
 				tls: None,
 			};
 			|stop| async move {
-				server
+				handle
 					.serve(listener, config, None, Some(id.clone()), stop)
 					.await;
 			}
@@ -222,13 +222,13 @@ impl Server {
 
 		// Spawn the heartbeat task.
 		let heartbeat_task = Task::spawn({
-			let server = server.clone();
+			let handle = handle.clone();
 			let id = id.clone();
 			let location = location.clone();
-			move |stopper| async move { server.sandbox_heartbeat_task(&id, &location, stopper).await }
+			move |stopper| async move { handle.sandbox_heartbeat_task(&id, &location, stopper).await }
 		});
 
-		let status = server
+		let status = handle
 			.get_sandbox_status(
 				id,
 				tg::sandbox::status::Arg {

@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
@@ -11,10 +11,9 @@ use {
 	},
 };
 
-impl Server {
-	pub(crate) async fn try_get_sandbox_with_context(
+impl Handle {
+	pub(crate) async fn try_get_sandbox(
 		&self,
-		_context: &Context,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::get::Arg,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
@@ -246,10 +245,9 @@ impl Server {
 		Ok(Some(output))
 	}
 
-	pub(crate) async fn handle_get_sandbox_request(
+	pub(crate) async fn try_get_sandbox_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
@@ -264,7 +262,7 @@ impl Server {
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
 			.unwrap_or_default();
-		let Some(output) = self.try_get_sandbox_with_context(context, &id, arg).await? else {
+		let Some(output) = self.try_get_sandbox(&id, arg).await? else {
 			return Ok(http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)
 				.empty()

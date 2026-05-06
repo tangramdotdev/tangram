@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	futures::{
 		StreamExt as _,
 		stream::{BoxStream, FuturesUnordered},
@@ -12,10 +12,9 @@ use {
 	tangram_messenger::prelude::*,
 };
 
-impl Server {
-	pub(crate) async fn try_get_process_tty_size_stream_with_context(
+impl Handle {
+	pub(crate) async fn try_get_process_tty_size_stream(
 		&self,
-		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::tty::size::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::tty::size::get::Event>>>> {
@@ -27,7 +26,7 @@ impl Server {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(stream) = self
-					.try_get_process_tty_size_stream_local(context, id)
+					.try_get_process_tty_size_stream_local(id)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to get the process tty stream"))?
 			{
@@ -64,7 +63,6 @@ impl Server {
 
 	async fn try_get_process_tty_size_stream_local(
 		&self,
-		context: &Context,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::tty::size::get::Event>>>> {
 		// Check if the process exists locally.
@@ -89,7 +87,7 @@ impl Server {
 					result.map_err(|source| tg::error!(!source, "failed to get message"))?;
 				Ok(message.payload.0)
 			})
-			.with_stopper(context.stopper.clone())
+			.with_stopper(self.context.stopper.clone())
 			.boxed();
 
 		Ok(Some(stream))
@@ -204,10 +202,9 @@ impl Server {
 		Ok(Some(stream.boxed()))
 	}
 
-	pub(crate) async fn handle_get_process_tty_size_request(
+	pub(crate) async fn try_get_process_tty_size_stream_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Parse the ID.
@@ -229,10 +226,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Get the stream.
-		let Some(stream) = self
-			.try_get_process_tty_size_stream_with_context(context, &id, arg)
-			.await?
-		else {
+		let Some(stream) = self.try_get_process_tty_size_stream(&id, arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()

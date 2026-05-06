@@ -1,5 +1,5 @@
 use {
-	crate::{Server, database::Database, sync::get::State},
+	crate::{Handle, database::Database, sync::get::State},
 	bytes::Bytes,
 	futures::{StreamExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
@@ -20,7 +20,7 @@ pub struct ProcessItem {
 	pub metadata: Option<tg::process::Metadata>,
 }
 
-impl Server {
+impl Handle {
 	pub(super) async fn sync_get_store(
 		&self,
 		state: &State,
@@ -239,13 +239,13 @@ impl Server {
 		match &self.process_store {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(database) => {
-				Self::put_process_batch_postgres(&batch_refs, database, now)
+				self.put_process_batch_postgres(&batch_refs, database, now)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to put the processes"))?;
 			},
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(database) => {
-				Self::put_process_batch_sqlite(&batch_refs, database, now)
+				self.put_process_batch_sqlite(&batch_refs, database, now)
 					.await
 					.map_err(|source| tg::error!(!source, "failed to put the processes"))?;
 			},

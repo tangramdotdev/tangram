@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	futures::{TryFutureExt as _, future},
 	std::pin::pin,
 	tangram_client::prelude::*,
@@ -7,18 +7,34 @@ use {
 	tokio::io::{AsyncBufRead, AsyncWrite},
 };
 
-impl Server {
-	pub(crate) async fn lsp_with_context(
+impl Handle {
+	pub(crate) fn create_compiler(&self) -> tangram_compiler::Shared {
+		let handle = tg::handle::dynamic::Handle::new(self.clone());
+		let artifacts_path = self.artifacts_path();
+		let tags_path = self.tags_path();
+		let library_path = self.library_path();
+		let main_runtime_handle = tokio::runtime::Handle::current();
+		let version = self.version.clone();
+		tangram_compiler::Compiler::start(
+			handle,
+			artifacts_path,
+			tags_path,
+			library_path,
+			main_runtime_handle,
+			version,
+		)
+	}
+
+	pub(crate) async fn lsp(
 		&self,
-		context: &Context,
 		input: impl AsyncBufRead + Send + Unpin + 'static,
 		output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
-		if context.process.is_some() {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 		let compiler = self.create_compiler();
-		let result = match context.stopper.clone() {
+		let result = match self.context.stopper.clone() {
 			Some(stopper) => {
 				let serve = compiler.serve(input, output);
 				match future::select(pin!(serve), pin!(stopper.wait())).await {
@@ -36,13 +52,10 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to wait for the compiler"))?;
 		Ok(())
 	}
-}
 
-impl Server {
-	pub(crate) async fn handle_lsp_request(
+	pub(crate) async fn lsp_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Ensure the connection header is set correctly.
 		if request
@@ -66,7 +79,6 @@ impl Server {
 
 		// Spawn the LSP.
 		let handle = self.clone();
-		let context = context.clone();
 		tokio::spawn(
 			async move {
 				let io = hyper::upgrade::on(request)
@@ -75,7 +87,7 @@ impl Server {
 				let io = hyper_util::rt::TokioIo::new(io);
 				let (input, output) = tokio::io::split(io);
 				let input = tokio::io::BufReader::new(input);
-				handle.lsp_with_context(&context, input, output).await?;
+				handle.lsp(input, output).await?;
 				Ok::<_, tg::Error>(())
 			}
 			.inspect_err(|error| tracing::error!(error = %error.trace())),

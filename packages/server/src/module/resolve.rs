@@ -1,15 +1,14 @@
 use {
-	crate::{Server, context::Context},
+	crate::Handle,
 	std::{path::Path, pin::pin},
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
-impl Server {
-	pub async fn resolve_module_with_context(
+impl Handle {
+	pub async fn resolve_module(
 		&self,
-		context: &Context,
 		arg: tg::module::resolve::Arg,
 	) -> tg::Result<tg::module::resolve::Output> {
 		let tg::module::resolve::Arg { referrer, import } = arg;
@@ -30,7 +29,7 @@ impl Server {
 				},
 				tg::module::data::Item::Path(path) => {
 					let referrer = referrer.referent.clone().map(|_| path.as_ref());
-					self.resolve_module_with_path_referrer(context, &referrer, &import)
+					self.resolve_module_with_path_referrer(&referrer, &import)
 						.await
 						.map_err(|source| {
 							tg::error!(!source, "failed to resolve module with path referrer")
@@ -288,7 +287,6 @@ impl Server {
 
 	async fn resolve_module_with_path_referrer(
 		&self,
-		context: &Context,
 		referrer: &tg::Referent<&Path>,
 		import: &tg::module::Import,
 	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
@@ -334,8 +332,7 @@ impl Server {
 			.file_name()
 			.is_some_and(|name| name == "<repl>.tg.js")
 		{
-			self.resolve_module_with_repl_referrer(context, import)
-				.await
+			self.resolve_module_with_repl_referrer(import).await
 		} else {
 			// Perform a checkin to ensure the watch is available.
 			let options = tg::checkin::Options {
@@ -394,11 +391,10 @@ impl Server {
 
 	async fn resolve_module_with_repl_referrer(
 		&self,
-		context: &Context,
 		import: &tg::module::Import,
 	) -> tg::Result<tg::Referent<tg::module::data::Item>> {
 		let stream = self
-			.try_get_with_context(context, &import.reference, tg::get::Arg::default())
+			.try_get(&import.reference, tg::get::Arg::default())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the reference"))?;
 		let stream = pin!(stream);
@@ -553,10 +549,9 @@ impl Server {
 		Ok(referent)
 	}
 
-	pub(crate) async fn handle_resolve_module_request(
+	pub(crate) async fn resolve_module_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -572,7 +567,7 @@ impl Server {
 
 		// Resolve the module.
 		let output = self
-			.resolve_module_with_context(context, arg)
+			.resolve_module(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the module"))?;
 

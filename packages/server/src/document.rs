@@ -1,28 +1,20 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
-impl Server {
+impl Handle {
 	#[cfg(not(feature = "typescript"))]
-	pub(crate) async fn document_with_context(
-		&self,
-		_context: &Context,
-		_arg: tg::document::Arg,
-	) -> tg::Result<serde_json::Value> {
+	pub(crate) async fn document(&self, _arg: tg::document::Arg) -> tg::Result<serde_json::Value> {
 		Err(tg::error!(
 			"this version of tangram was not compiled with typescript support"
 		))
 	}
 
 	#[cfg(feature = "typescript")]
-	pub(crate) async fn document_with_context(
-		&self,
-		context: &Context,
-		arg: tg::document::Arg,
-	) -> tg::Result<serde_json::Value> {
-		if context.process.is_some() {
+	pub(crate) async fn document(&self, arg: tg::document::Arg) -> tg::Result<serde_json::Value> {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -115,10 +107,9 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_document_request(
+	pub(crate) async fn document_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -134,7 +125,7 @@ impl Server {
 
 		// Document the module.
 		let output = self
-			.document_with_context(context, arg)
+			.document(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to document the module"))?;
 

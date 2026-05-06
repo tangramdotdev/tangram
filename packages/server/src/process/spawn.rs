@@ -1,5 +1,5 @@
 use {
-	crate::{Context, SandboxPermit, Server, database},
+	crate::{Handle, SandboxPermit, Server, database},
 	futures::{
 		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
 		stream::{BoxStream, FuturesUnordered},
@@ -33,22 +33,21 @@ struct LocalOutput {
 	wait: Option<tg::process::wait::Output>,
 }
 
-impl Server {
-	pub async fn try_spawn_process_with_context(
+impl Handle {
+	pub async fn try_spawn_process(
 		&self,
-		context: &Context,
 		mut arg: tg::process::spawn::Arg,
 	) -> tg::Result<
 		BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>,
 	> {
 		// If the process context is set, update the parent, location, and retry.
-		if let Some(process) = &context.process {
+		if let Some(process) = &self.context.process {
 			arg.debug = process.debug.clone();
 			arg.parent = Some(process.id.clone());
 			arg.location = process.location.clone().map(Into::into);
 			arg.retry = process.retry;
 		}
-		let parent_sandbox = context.sandbox.clone();
+		let parent_sandbox = self.context.sandbox.clone();
 
 		if arg.sandbox.is_none() {
 			return Err(tg::error!(
@@ -61,9 +60,9 @@ impl Server {
 
 		// Spawn the task.
 		let task = Task::spawn({
-			let server = self.clone();
+			let handle = self.clone();
 			let progress = progress.clone();
-			async move |_| match Box::pin(server.try_spawn_process_task(
+			async move |_| match Box::pin(handle.try_spawn_process_task(
 				arg,
 				parent_sandbox,
 				&progress,
@@ -220,7 +219,7 @@ impl Server {
 		{
 			let sandbox = &output.sandbox;
 			if let Some(permit) = output.permit.take() {
-				self.spawn_sandbox_task(
+				self.server.spawn_sandbox_task(
 					sandbox,
 					tg::Location::Local(tg::location::Local::default()),
 					permit,
@@ -329,7 +328,7 @@ impl Server {
 						&& let Some(token) = output.token
 					{
 						tokio::spawn({
-							let server = self.clone();
+							let handle = self.clone();
 							async move {
 								let arg = tg::process::cancel::Arg {
 									location: Some(
@@ -337,7 +336,7 @@ impl Server {
 									),
 									token,
 								};
-								server.cancel_process(&output.id, arg).boxed().await.ok();
+								handle.cancel_process(&output.id, arg).boxed().await.ok();
 							}
 						});
 					}
@@ -1377,7 +1376,7 @@ impl Server {
 		let heartbeat_at = (status == tg::sandbox::Status::Started).then_some(now);
 		let started_at = (status == tg::sandbox::Status::Started).then_some(now);
 		let isolation = self.resolve_sandbox_isolation()?;
-		Self::validate_sandbox_resources(&isolation, arg.cpu, arg.memory)?;
+		Server::validate_sandbox_resources(&isolation, arg.cpu, arg.memory)?;
 		let cpu = arg
 			.cpu
 			.map(i64::try_from)
@@ -1634,13 +1633,13 @@ impl Server {
 		match &transaction {
 			#[cfg(feature = "postgres")]
 			database::Transaction::Postgres(transaction) => {
-				Self::update_parent_depths_postgres(transaction, child.to_string())
+				self.update_parent_depths_postgres(transaction, child.to_string())
 					.await
 					.map_err(|source| tg::error!(!source, "failed to update parent depths"))?;
 			},
 			#[cfg(feature = "sqlite")]
 			database::Transaction::Sqlite(transaction) => {
-				Self::update_parent_depths_sqlite(transaction, vec![child.to_string()])
+				self.update_parent_depths_sqlite(transaction, vec![child.to_string()])
 					.await
 					.map_err(|source| tg::error!(!source, "failed to update parent depths"))?;
 			},
@@ -1651,10 +1650,10 @@ impl Server {
 
 	fn spawn_publish_process_child_message_task(&self, parent: &tg::process::Id) {
 		tokio::spawn({
-			let server = self.clone();
+			let handle = self.clone();
 			let id = parent.clone();
 			async move {
-				server
+				handle
 					.messenger
 					.publish(format!("processes.{id}.children"), ())
 					.await
@@ -1671,7 +1670,7 @@ impl Server {
 		process: &tg::process::Id,
 	) {
 		tokio::spawn({
-			let server = self.clone();
+			let handle = self.clone();
 			let parent_sandbox = parent_sandbox.cloned();
 			let sandbox = id.clone();
 			let process = process.clone();
@@ -1680,7 +1679,7 @@ impl Server {
 					return;
 				};
 
-				let Some(permit) = server
+				let Some(permit) = handle
 					.sandbox_permits
 					.get(parent_sandbox)
 					.map(|permit| permit.clone())
@@ -1692,7 +1691,7 @@ impl Server {
 					.map(|guard| SandboxPermit(tg::Either::Right(guard)))
 					.await;
 
-				let Ok(started) = server.try_start_sandbox_local(&sandbox).await.inspect_err(
+				let Ok(started) = handle.try_start_sandbox_local(&sandbox).await.inspect_err(
 					|error| tracing::trace!(error = %error.trace(), "failed to start the sandbox"),
 				) else {
 					return;
@@ -1701,7 +1700,7 @@ impl Server {
 					return;
 				}
 
-				let Ok(started) = server.try_start_process_local(&process).await.inspect_err(
+				let Ok(started) = handle.try_start_process_local(&process).await.inspect_err(
 					|error| tracing::trace!(error = %error.trace(), "failed to start the process"),
 				) else {
 					return;
@@ -1710,7 +1709,7 @@ impl Server {
 					return;
 				}
 
-				server.spawn_sandbox_task(
+				handle.server.spawn_sandbox_task(
 					&sandbox,
 					tg::Location::Local(tg::location::Local::default()),
 					permit,
@@ -1727,10 +1726,9 @@ impl Server {
 		ENCODING.encode(uuid::Uuid::now_v7().as_bytes())
 	}
 
-	pub(crate) async fn handle_spawn_process_request(
+	pub(crate) async fn try_spawn_process_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
@@ -1743,7 +1741,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		let stream = self
-			.try_spawn_process_with_context(context, arg)
+			.try_spawn_process(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;
 

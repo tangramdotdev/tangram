@@ -1,28 +1,20 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
-impl Server {
+impl Handle {
 	#[cfg(not(feature = "typescript"))]
-	pub(crate) async fn check_with_context(
-		&self,
-		_context: &Context,
-		_arg: tg::check::Arg,
-	) -> tg::Result<tg::check::Output> {
+	pub(crate) async fn check(&self, _arg: tg::check::Arg) -> tg::Result<tg::check::Output> {
 		Err(tg::error!(
 			"this version of tangram was not compiled with typescript support"
 		))
 	}
 
 	#[cfg(feature = "typescript")]
-	pub(crate) async fn check_with_context(
-		&self,
-		context: &Context,
-		arg: tg::check::Arg,
-	) -> tg::Result<tg::check::Output> {
-		if context.process.is_some() {
+	pub(crate) async fn check(&self, arg: tg::check::Arg) -> tg::Result<tg::check::Output> {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -121,10 +113,9 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_check_request(
+	pub(crate) async fn check_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -140,7 +131,7 @@ impl Server {
 
 		// Check the modules.
 		let output = self
-			.check_with_context(context, arg)
+			.check(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check the modules"))?;
 

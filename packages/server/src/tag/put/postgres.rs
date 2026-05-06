@@ -1,12 +1,13 @@
 use {
-	crate::Server,
+	crate::Handle,
 	indoc::indoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
 
-impl Server {
+impl Handle {
 	pub(crate) async fn put_tag_postgres(
+		&self,
 		database: &db::postgres::Database,
 		tag: &tg::Tag,
 		arg: &tg::tag::put::Arg,

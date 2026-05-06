@@ -1,11 +1,11 @@
 use {
-	crate::Server,
+	crate::Handle,
 	indoc::indoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
 
-impl Server {
+impl Handle {
 	pub(crate) async fn try_dequeue_sandbox_process_postgres(
 		&self,
 		process_store: &db::postgres::Database,

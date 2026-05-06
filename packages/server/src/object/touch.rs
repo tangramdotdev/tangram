@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -8,10 +8,9 @@ use {
 	tangram_index::prelude::*,
 };
 
-impl Server {
-	pub async fn try_touch_object_with_context(
+impl Handle {
+	pub async fn try_touch_object(
 		&self,
-		_context: &Context,
 		id: &tg::object::Id,
 		arg: tg::object::touch::Arg,
 	) -> tg::Result<Option<()>> {
@@ -167,10 +166,9 @@ impl Server {
 		Ok(Some(()))
 	}
 
-	pub(crate) async fn handle_touch_object_request(
+	pub(crate) async fn try_touch_object_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
@@ -192,7 +190,7 @@ impl Server {
 
 		// Touch the object.
 		let Some(()) = self
-			.try_touch_object_with_context(context, &id, arg)
+			.try_touch_object(&id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to touch the object"))?
 		else {

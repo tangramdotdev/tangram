@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	futures::{
 		StreamExt as _,
 		stream::{self, BoxStream, FuturesUnordered},
@@ -19,10 +19,9 @@ use {
 	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
 
-impl Server {
-	pub async fn try_get_process_status_stream_with_context(
+impl Handle {
+	pub async fn try_get_process_status_stream(
 		&self,
-		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::status::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
@@ -32,9 +31,10 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
 
 		if let Some(local) = &locations.local {
+			let stopper = self.context.stopper.clone();
 			if local.current
 				&& let Some(status) = self
-					.try_get_process_status_stream_local(id, context.stopper.clone(), arg.timeout)
+					.try_get_process_status_stream_local(id, stopper, arg.timeout)
 					.await
 					.map_err(
 						|source| tg::error!(!source, %id, "failed to get the process status stream"),
@@ -105,10 +105,10 @@ impl Server {
 		let (sender, receiver) = tokio::sync::mpsc::channel(1);
 
 		// Spawn the task.
-		let server = self.clone();
+		let handle = self.clone();
 		let id = id.clone();
 		let task = Task::spawn(|_| async move {
-			let result = server
+			let result = handle
 				.try_get_process_status_stream_local_task(&id, sender.clone(), wakeups)
 				.await;
 			if let Err(error) = result {
@@ -316,10 +316,9 @@ impl Server {
 		Ok(Some(stream.boxed()))
 	}
 
-	pub(crate) async fn handle_get_process_status_request(
+	pub(crate) async fn try_get_process_status_stream_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Parse the ID.
@@ -341,10 +340,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
 		// Get the stream.
-		let Some(stream) = self
-			.try_get_process_status_stream_with_context(context, &id, arg)
-			.await?
-		else {
+		let Some(stream) = self.try_get_process_status_stream(&id, arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()

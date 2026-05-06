@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	indoc::indoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -7,13 +7,12 @@ use {
 	tangram_uri::Uri,
 };
 
-impl Server {
-	pub(crate) async fn list_remotes_with_context(
+impl Handle {
+	pub(crate) async fn list_remotes(
 		&self,
-		context: &Context,
 		_arg: tg::remote::list::Arg,
 	) -> tg::Result<tg::remote::list::Output> {
-		if context.process.is_some() {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -54,10 +53,9 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_list_remotes_request(
+	pub(crate) async fn list_remotes_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -74,7 +72,7 @@ impl Server {
 
 		// List the remotes.
 		let output = self
-			.list_remotes_with_context(context, arg)
+			.list_remotes(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to list the remotes"))?;
 

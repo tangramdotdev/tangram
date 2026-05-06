@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -8,14 +8,13 @@ use {
 	tangram_index::prelude::*,
 };
 
-impl Server {
-	pub(crate) async fn try_touch_process_with_context(
+impl Handle {
+	pub(crate) async fn try_touch_process(
 		&self,
-		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::touch::Arg,
 	) -> tg::Result<Option<()>> {
-		if context.process.is_some() {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -171,10 +170,9 @@ impl Server {
 		Ok(Some(()))
 	}
 
-	pub(crate) async fn handle_touch_process_request(
+	pub(crate) async fn try_touch_process_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
@@ -196,7 +194,7 @@ impl Server {
 
 		// Touch the process.
 		let Some(()) = self
-			.try_touch_process_with_context(context, &id, arg)
+			.try_touch_process(&id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to touch the process"))?
 		else {

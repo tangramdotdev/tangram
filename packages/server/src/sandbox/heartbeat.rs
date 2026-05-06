@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
@@ -9,14 +9,13 @@ use {
 	},
 };
 
-impl Server {
-	pub(crate) async fn try_heartbeat_sandbox_with_context(
+impl Handle {
+	pub(crate) async fn try_heartbeat_sandbox(
 		&self,
-		context: &Context,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::heartbeat::Arg,
 	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
-		if context.process.is_some() {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -196,10 +195,9 @@ impl Server {
 		Ok(Some(output))
 	}
 
-	pub(crate) async fn handle_heartbeat_sandbox_request(
+	pub(crate) async fn try_heartbeat_sandbox_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
@@ -214,7 +212,7 @@ impl Server {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 		let Some(output) = self
-			.try_heartbeat_sandbox_with_context(context, &id, arg)
+			.try_heartbeat_sandbox(&id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to heartbeat the sandbox"))?
 		else {

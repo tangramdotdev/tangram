@@ -1,12 +1,12 @@
 use {
-	crate::Server,
+	crate::Handle,
 	indoc::indoc,
 	rusqlite as sqlite,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, Database as _},
 };
 
-impl Server {
+impl Handle {
 	pub(crate) async fn try_dequeue_process_signal_sqlite(
 		&self,
 		process_store: &db::sqlite::Database,

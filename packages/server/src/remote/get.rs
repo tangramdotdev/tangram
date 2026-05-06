@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -9,13 +9,12 @@ use {
 	tangram_uri::Uri,
 };
 
-impl Server {
-	pub(crate) async fn try_get_remote_with_context(
+impl Handle {
+	pub(crate) async fn try_get_remote(
 		&self,
-		context: &Context,
 		name: &str,
 	) -> tg::Result<Option<tg::remote::get::Output>> {
-		if context.process.is_some() {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -50,10 +49,9 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_get_remote_request(
+	pub(crate) async fn try_get_remote_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		name: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
@@ -64,7 +62,7 @@ impl Server {
 
 		// Get the remote.
 		let Some(output) = self
-			.try_get_remote_with_context(context, name)
+			.try_get_remote(name)
 			.await
 			.map_err(|source| tg::error!(!source, %name, "failed to get the remote"))?
 		else {

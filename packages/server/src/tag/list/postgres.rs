@@ -1,5 +1,5 @@
 use {
-	crate::Server,
+	crate::Handle,
 	indoc::indoc,
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
@@ -31,7 +31,7 @@ struct RowWithoutComponent {
 	item: Option<tg::Either<tg::object::Id, tg::process::Id>>,
 }
 
-impl Server {
+impl Handle {
 	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) async fn list_tags_postgres(
 		&self,
@@ -52,7 +52,9 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		// Get all tags matching the pattern.
-		let matches = Self::match_tags_postgres(&transaction, &arg.pattern, arg.recursive).await?;
+		let matches = self
+			.match_tags_postgres(&transaction, &arg.pattern, arg.recursive)
+			.await?;
 
 		let mut output = matches;
 
@@ -195,6 +197,7 @@ impl Server {
 
 	#[tracing::instrument(level = "trace", skip_all, fields(pattern = %pattern, recursive))]
 	pub async fn match_tags_postgres(
+		&self,
 		transaction: &tangram_database::postgres::Transaction<'_>,
 		pattern: &tg::tag::Pattern,
 		recursive: bool,

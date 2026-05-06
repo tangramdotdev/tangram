@@ -637,6 +637,7 @@ impl Provider {
 		};
 		let stream = self
 			.server
+			.root()
 			.try_read(arg)
 			.await
 			.map_err(|error| {
@@ -1331,6 +1332,7 @@ impl Provider {
 	) -> std::io::Result<Option<tg::object::Data>> {
 		let output = self
 			.server
+			.root()
 			.try_get_object(id, tg::object::get::Arg::default())
 			.await
 			.map_err(|error| {

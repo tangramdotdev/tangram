@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server, database::Database},
+	crate::{Handle, database::Database},
 	futures::{
 		StreamExt as _, future,
 		stream::{self, BoxStream, FuturesUnordered},
@@ -31,10 +31,9 @@ enum Source {
 	Null,
 }
 
-impl Server {
-	pub async fn try_read_process_stdio_with_context(
+impl Handle {
+	pub async fn try_read_process_stdio(
 		&self,
-		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
@@ -50,7 +49,7 @@ impl Server {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(stream) = self
-					.try_read_process_stdio_local(context, id, arg.clone())
+					.try_read_process_stdio_local(id, arg.clone())
 					.await
 					.map_err(|source| tg::error!(!source, "failed to read local process stdio"))?
 			{
@@ -80,7 +79,6 @@ impl Server {
 
 	async fn try_read_process_stdio_local(
 		&self,
-		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
@@ -94,11 +92,11 @@ impl Server {
 		let source = Self::get_process_stdio_source(&output.data, &arg)?;
 		let stream = match source {
 			Source::Pipe(streams) => {
-				self.try_read_process_stdio_pipe_local(context, id, &streams, arg.timeout)
+				self.try_read_process_stdio_pipe_local(id, &streams, arg.timeout)
 					.await?
 			},
 			Source::Log(streams) => {
-				self.try_read_process_stdio_log_local(context, id, arg, streams)
+				self.try_read_process_stdio_log_local(id, arg, streams)
 					.await?
 			},
 			Source::Null => stream::once(future::ok(tg::process::stdio::read::Event::End)).boxed(),
@@ -108,17 +106,16 @@ impl Server {
 
 	async fn try_read_process_stdio_log_local(
 		&self,
-		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 		streams: BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>> {
 		let (sender, receiver) = async_channel::unbounded();
-		let server = self.clone();
+		let handle = self.clone();
 		let id = id.clone();
-		let stopper = context.stopper.clone();
+		let stopper = self.context.stopper.clone();
 		let task = Task::spawn(move |_| async move {
-			let result = server
+			let result = handle
 				.try_read_process_stdio_log_local_task(&id, arg, streams, sender.clone(), stopper)
 				.await;
 			if let Err(error) = result {
@@ -238,19 +235,18 @@ impl Server {
 
 	pub(crate) async fn try_read_process_stdio_pipe_local(
 		&self,
-		context: &Context,
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
 		timeout: Option<Duration>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>> {
 		let (sender, receiver) =
 			async_channel::unbounded::<tg::Result<tg::process::stdio::read::Event>>();
-		let server = self.clone();
+		let handle = self.clone();
 		let id = id.clone();
 		let streams = streams.clone();
-		let stopper = context.stopper.clone();
+		let stopper = self.context.stopper.clone();
 		let task = Task::spawn(move |_| async move {
-			let result = server
+			let result = handle
 				.try_read_process_stdio_pipe_local_task(
 					&id,
 					streams,
@@ -535,10 +531,9 @@ impl Server {
 		Ok(Source::Log(log_streams))
 	}
 
-	pub(crate) async fn handle_post_process_stdio_read_request(
+	pub(crate) async fn try_read_process_stdio_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept: Option<mime::Mime> = request
@@ -564,10 +559,7 @@ impl Server {
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
 			.unwrap_or_default();
-		let Some(stream) = self
-			.try_read_process_stdio_with_context(context, &id, arg)
-			.await?
-		else {
+		let Some(stream) = self.try_read_process_stdio(&id, arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()

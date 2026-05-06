@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server, database::Database},
+	crate::{Handle, database::Database},
 	bytes::Bytes,
 	futures::{
 		StreamExt as _, TryStreamExt as _, future,
@@ -36,10 +36,9 @@ pub(crate) enum WriteOutput {
 	Closed,
 }
 
-impl Server {
-	pub async fn try_write_process_stdio_with_context(
+impl Handle {
+	pub async fn try_write_process_stdio(
 		&self,
-		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::write::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
@@ -52,8 +51,13 @@ impl Server {
 
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.try_write_process_stdio_local(id, &arg.streams, input, context.stopper.clone())
-					.await?
+				self.try_write_process_stdio_local(
+					id,
+					&arg.streams,
+					input,
+					self.context.stopper.clone(),
+				)
+				.await?
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
@@ -90,12 +94,12 @@ impl Server {
 		let data = output.data;
 		let (sender, receiver) = tokio::sync::mpsc::channel(4);
 		let task = Task::spawn({
-			let server = self.clone();
+			let handle = self.clone();
 			let data = data.clone();
 			let id = id.clone();
 			let streams = streams.to_owned();
 			move |_| async move {
-				let future = server.write_process_stdio_local_task(&id, data, &streams, input);
+				let future = handle.write_process_stdio_local_task(&id, data, &streams, input);
 				let result = if let Some(stopper) = stopper {
 					let future = pin!(future);
 					let stopper = pin!(stopper.wait());
@@ -188,10 +192,10 @@ impl Server {
 								.await
 								.map_err(|source| tg::error!(!source, "failed to store the log"))?;
 							tokio::spawn({
-								let server = self.clone();
+								let handle = self.clone();
 								let id = id.clone();
 								async move {
-									server
+									handle
 										.messenger
 										.publish(format!("processes.{id}.log"), ())
 										.await
@@ -234,7 +238,7 @@ impl Server {
 			.await?;
 		loop {
 			match self
-				.try_write_process_stdio(id, stream, bytes.clone())
+				.try_write_process_stdio_bytes(id, stream, bytes.clone())
 				.await?
 			{
 				WriteOutput::Written => {
@@ -284,7 +288,7 @@ impl Server {
 		Ok(wakeups)
 	}
 
-	async fn try_write_process_stdio(
+	async fn try_write_process_stdio_bytes(
 		&self,
 		id: &tg::process::Id,
 		stream: tg::process::stdio::Stream,
@@ -379,10 +383,9 @@ impl Server {
 		Ok(stream.map(futures::StreamExt::boxed))
 	}
 
-	pub(crate) async fn handle_post_process_stdio_write_request(
+	pub(crate) async fn try_write_process_stdio_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
@@ -424,10 +427,7 @@ impl Server {
 			})
 			.boxed();
 
-		let Some(output) = self
-			.try_write_process_stdio_with_context(context, &id, arg, input)
-			.await?
-		else {
+		let Some(output) = self.try_write_process_stdio(&id, arg, input).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()

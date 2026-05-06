@@ -1,6 +1,6 @@
 use {
 	super::graph::Variant,
-	crate::{Server, checkin::Graph},
+	crate::{Handle, checkin::Graph},
 	std::{
 		collections::{BTreeMap, HashSet, VecDeque},
 		path::Path,
@@ -9,7 +9,7 @@ use {
 	tangram_util::iter::Ext as _,
 };
 
-impl Server {
+impl Handle {
 	pub(crate) fn checkin_try_read_lock(path: &Path) -> tg::Result<Option<tg::graph::Data>> {
 		// Try to read the lock contents.
 		let contents = if path.is_dir() {

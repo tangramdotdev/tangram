@@ -7,7 +7,7 @@ use {
 	std::{
 		ops::Deref,
 		os::fd::AsRawFd as _,
-		path::{Path, PathBuf},
+		path::PathBuf,
 		sync::{Arc, Mutex},
 	},
 	tangram_client::prelude::*,
@@ -25,6 +25,7 @@ mod checkin;
 mod checkout;
 mod checksum;
 mod clean;
+mod compiler;
 mod context;
 mod database;
 mod directory;
@@ -37,7 +38,6 @@ mod http;
 mod index;
 mod location;
 mod log;
-mod lsp;
 mod messenger;
 mod module;
 mod network;
@@ -63,6 +63,8 @@ pub use self::config::Config;
 
 pub mod config;
 pub mod progress;
+
+pub(crate) use self::handle::Handle;
 
 #[derive(Clone)]
 pub struct Shared(Arc<Owned>);
@@ -699,6 +701,7 @@ impl Server {
 		}
 		server.remotes.clear();
 		let output = server
+			.root()
 			.list_remotes(tg::remote::list::Arg::default())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to list the remotes"))?;
@@ -1201,14 +1204,15 @@ impl Server {
 	}
 
 	async fn finish_unfinished_sandboxes(&self) -> tg::Result<()> {
-		let outputs = self
+		let handle = self.root();
+		let outputs = handle
 			.list_sandboxes_local()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to list sandboxes"))?;
 		outputs
 			.into_iter()
 			.map(|output| {
-				let server = self.clone();
+				let handle = handle.clone();
 				async move {
 					let error = tg::error::Data {
 						code: Some(tg::error::Code::HeartbeatExpiration),
@@ -1216,7 +1220,7 @@ impl Server {
 						..Default::default()
 					};
 					let error = Some(tg::Either::Left(error));
-					if let Err(error) = server
+					if let Err(error) = handle
 						.try_finish_sandbox_local(&output.id, error, None)
 						.await
 					{
@@ -1228,17 +1232,6 @@ impl Server {
 			.collect::<()>()
 			.await;
 		Ok(())
-	}
-
-	fn create_compiler(&self) -> tangram_compiler::Shared {
-		tangram_compiler::Compiler::start(
-			tg::handle::dynamic::Handle::new(self.clone()),
-			self.artifacts_path(),
-			self.tags_path(),
-			self.library_path(),
-			tokio::runtime::Handle::current(),
-			self.version.clone(),
-		)
 	}
 
 	#[must_use]
@@ -1270,36 +1263,18 @@ impl Server {
 	}
 
 	#[must_use]
+	pub(crate) fn root(&self) -> Handle {
+		self.handle(Context::default())
+	}
+
+	#[must_use]
+	pub(crate) fn handle(&self, context: Context) -> Handle {
+		Handle::new(self.clone(), context)
+	}
+
+	#[must_use]
 	pub fn config(&self) -> &Config {
 		&self.config
-	}
-
-	fn host_path_for_guest_path(&self, context: &Context, path: &Path) -> tg::Result<PathBuf> {
-		let Some(id) = &context.sandbox else {
-			return Ok(path.to_owned());
-		};
-		let sandbox = self
-			.sandboxes
-			.get(id)
-			.map(|sandbox| sandbox.value().clone())
-			.ok_or_else(|| tg::error!(%id, "failed to get the sandbox"))?;
-		sandbox
-			.host_path_for_guest_path(path)
-			.ok_or_else(|| tg::error!(path = %path.display(), "no host path for guest path"))
-	}
-
-	fn guest_path_for_host_path(&self, context: &Context, path: &Path) -> tg::Result<PathBuf> {
-		let Some(id) = &context.sandbox else {
-			return Ok(path.to_owned());
-		};
-		let sandbox = self
-			.sandboxes
-			.get(id)
-			.map(|sandbox| sandbox.value().clone())
-			.ok_or_else(|| tg::error!(%id, "failed to get the sandbox"))?;
-		sandbox
-			.guest_path_for_host_path(path)
-			.ok_or_else(|| tg::error!(path = %path.display(), "no guest path for host path"))
 	}
 
 	#[must_use]

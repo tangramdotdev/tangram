@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server, database::Transaction},
+	crate::{Handle, database::Transaction},
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_database::prelude::*,
@@ -30,14 +30,13 @@ struct InnerOutput {
 	unfinished_processes: Vec<tg::process::Id>,
 }
 
-impl Server {
-	pub(crate) async fn try_finish_sandbox_with_context(
+impl Handle {
+	pub(crate) async fn try_finish_sandbox(
 		&self,
-		context: &Context,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::finish::Arg,
 	) -> tg::Result<Option<bool>> {
-		if context.process.is_some() {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -319,10 +318,9 @@ impl Server {
 		Ok(Some(finished))
 	}
 
-	pub(crate) async fn handle_finish_sandbox_request(
+	pub(crate) async fn try_finish_sandbox_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		let accept = request
@@ -338,7 +336,7 @@ impl Server {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the request body"))?;
 
 		let Some(finished) = self
-			.try_finish_sandbox_with_context(context, &id, arg)
+			.try_finish_sandbox(&id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to finish the sandbox"))?
 		else {

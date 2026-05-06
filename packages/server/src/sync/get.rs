@@ -1,6 +1,6 @@
 use {
 	super::{graph::Graph, progress::Progress, queue::Queue},
-	crate::{Context, Server},
+	crate::{Context, Handle},
 	futures::{future, stream::BoxStream},
 	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
@@ -22,11 +22,10 @@ struct State {
 	sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::GetMessage>>,
 }
 
-impl Server {
+impl Handle {
 	pub(super) async fn sync_get(
 		&self,
 		arg: tg::sync::Arg,
-		context: Context,
 		graph: Arc<Mutex<Graph>>,
 		stream: BoxStream<'static, tg::sync::PutMessage>,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::GetMessage>>,
@@ -44,7 +43,7 @@ impl Server {
 		// Create the state.
 		let state = Arc::new(State {
 			arg,
-			context,
+			context: self.context.clone(),
 			graph,
 			progress,
 			queue,
@@ -91,10 +90,10 @@ impl Server {
 
 		// Create the input future.
 		let input_future = {
-			let server = self.clone();
+			let handle = self.clone();
 			let state = state.clone();
 			async move {
-				server
+				handle
 					.sync_get_input(
 						&state,
 						stream,
@@ -120,10 +119,10 @@ impl Server {
 
 		// Create the store future.
 		let store_future = {
-			let server = self.clone();
+			let handle = self.clone();
 			let state = state.clone();
 			async move {
-				server
+				handle
 					.sync_get_store(&state, store_object_receiver, store_process_receiver)
 					.await
 			}
@@ -132,11 +131,11 @@ impl Server {
 
 		// Spawn the progress task.
 		let progress_task = Task::spawn({
-			let server = self.clone();
+			let handle = self.clone();
 			let state = state.clone();
 			|stop| {
 				async move {
-					server
+					handle
 						.sync_get_progress_task(&state.progress, stop, &state.sender)
 						.await;
 				}
@@ -150,10 +149,10 @@ impl Server {
 			|()| {
 				self.index_tasks
 					.spawn({
-						let server = self.clone();
+						let handle = self.clone();
 						|_| {
 							async move {
-								let result = server.sync_get_index_put(graph).await;
+								let result = handle.sync_get_index_put(graph).await;
 								if let Err(error) = result {
 									tracing::error!(error = %error.trace());
 								}

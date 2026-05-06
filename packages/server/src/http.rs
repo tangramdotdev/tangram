@@ -310,14 +310,21 @@ impl Server {
 			let handle = self.clone();
 			move |request| {
 				let handle = handle.clone();
-				let context = Context {
-					process: process.clone(),
-					sandbox: sandbox.clone(),
-					stopper: Some(stopper.clone()),
-					..Default::default()
-				};
+				let process = process.clone();
+				let sandbox = sandbox.clone();
+				let stopper = stopper.clone();
 				async move {
-					let response = handle.handle_request(request, context).await;
+					let response = handle
+						.handle_request(
+							request,
+							Context {
+								process,
+								sandbox,
+								stopper: Some(stopper),
+								..Default::default()
+							},
+						)
+						.await;
 					Ok::<_, Infallible>(response)
 				}
 			}
@@ -493,189 +500,159 @@ impl Server {
 			return response;
 		}
 
+		let handle = self.handle(context);
+
 		let path_components = path.split('/').skip(1).collect::<Vec<_>>();
 		let response = match (method, path_components.as_slice()) {
-			(http::Method::POST, ["cache"]) => self.handle_cache_request(request, &context).boxed(),
-			(http::Method::POST, ["check"]) => self.handle_check_request(request, &context).boxed(),
-			(http::Method::POST, ["checkin"]) => {
-				self.handle_checkin_request(request, &context).boxed()
-			},
-			(http::Method::POST, ["checkout"]) => {
-				self.handle_checkout_request(request, &context).boxed()
-			},
-			(http::Method::POST, ["clean"]) => {
-				self.handle_server_clean_request(request, &context).boxed()
-			},
-			(http::Method::POST, ["document"]) => {
-				self.handle_document_request(request, &context).boxed()
-			},
-			(http::Method::POST, ["format"]) => {
-				self.handle_format_request(request, &context).boxed()
-			},
-			(http::Method::GET, ["health"]) => {
-				self.handle_server_health_request(request, &context).boxed()
-			},
-			(http::Method::POST, ["index"]) => self.handle_index_request(request, &context).boxed(),
-			(http::Method::POST, ["lsp"]) => self.handle_lsp_request(request, &context).boxed(),
-			(http::Method::POST, ["pull"]) => self.handle_pull_request(request, &context).boxed(),
-			(http::Method::POST, ["push"]) => self.handle_push_request(request, &context).boxed(),
-			(http::Method::GET, ["read"]) => self.handle_read_request(request, &context).boxed(),
-			(http::Method::POST, ["sync"]) => self.handle_sync_request(request, &context).boxed(),
-			(http::Method::POST, ["write"]) => self.handle_write_request(request, &context).boxed(),
-			(http::Method::GET, ["_", path @ ..]) => {
-				self.handle_get_request(request, &context, path).boxed()
-			},
+			(http::Method::POST, ["cache"]) => handle.cache_request(request).boxed(),
+			(http::Method::POST, ["check"]) => handle.check_request(request).boxed(),
+			(http::Method::POST, ["checkin"]) => handle.checkin_request(request).boxed(),
+			(http::Method::POST, ["checkout"]) => handle.checkout_request(request).boxed(),
+			(http::Method::POST, ["clean"]) => handle.clean_request(request).boxed(),
+			(http::Method::POST, ["document"]) => handle.document_request(request).boxed(),
+			(http::Method::POST, ["format"]) => handle.format_request(request).boxed(),
+			(http::Method::GET, ["health"]) => handle.health_request(request).boxed(),
+			(http::Method::POST, ["index"]) => handle.index_request(request).boxed(),
+			(http::Method::POST, ["lsp"]) => handle.lsp_request(request).boxed(),
+			(http::Method::POST, ["pull"]) => handle.pull_request(request).boxed(),
+			(http::Method::POST, ["push"]) => handle.push_request(request).boxed(),
+			(http::Method::GET, ["read"]) => handle.try_read_stream_request(request).boxed(),
+			(http::Method::POST, ["sync"]) => handle.sync_request(request).boxed(),
+			(http::Method::POST, ["write"]) => handle.write_request(request).boxed(),
+			(http::Method::GET, ["_", path @ ..]) => handle.try_get_request(request, path).boxed(),
 
 			// Modules.
 			(http::Method::POST, ["modules", "load"]) => {
-				self.handle_load_module_request(request, &context).boxed()
+				handle.load_module_request(request).boxed()
 			},
-			(http::Method::POST, ["modules", "resolve"]) => self
-				.handle_resolve_module_request(request, &context)
-				.boxed(),
+			(http::Method::POST, ["modules", "resolve"]) => {
+				handle.resolve_module_request(request).boxed()
+			},
 
 			// Objects.
-			(http::Method::GET, ["objects", object, "metadata"]) => self
-				.handle_get_object_metadata_request(request, &context, object)
+			(http::Method::GET, ["objects", object, "metadata"]) => handle
+				.try_get_object_metadata_request(request, object)
 				.boxed(),
-			(http::Method::GET, ["objects", object]) => self
-				.handle_get_object_request(request, &context, object)
-				.boxed(),
-			(http::Method::PUT, ["objects", object]) => self
-				.handle_put_object_request(request, &context, object)
-				.boxed(),
-			(http::Method::POST, ["objects", "batch"]) => self
-				.handle_post_object_batch_request(request, &context)
-				.boxed(),
-			(http::Method::POST, ["objects", object, "touch"]) => self
-				.handle_touch_object_request(request, &context, object)
-				.boxed(),
+			(http::Method::GET, ["objects", object]) => {
+				handle.try_get_object_request(request, object).boxed()
+			},
+			(http::Method::PUT, ["objects", object]) => {
+				handle.put_object_request(request, object).boxed()
+			},
+			(http::Method::POST, ["objects", "batch"]) => {
+				handle.post_object_batch_request(request).boxed()
+			},
+			(http::Method::POST, ["objects", object, "touch"]) => {
+				handle.try_touch_object_request(request, object).boxed()
+			},
 
 			// Processes.
-			(http::Method::GET, ["processes"]) => self
-				.handle_list_processes_request(request, &context)
-				.boxed(),
+			(http::Method::GET, ["processes"]) => handle.list_processes_request(request).boxed(),
 			(http::Method::POST, ["processes", "spawn"]) => {
-				self.handle_spawn_process_request(request, &context).boxed()
+				handle.try_spawn_process_request(request).boxed()
 			},
-			(http::Method::GET, ["processes", process, "metadata"]) => self
-				.handle_get_process_metadata_request(request, &context, process)
+			(http::Method::GET, ["processes", process, "metadata"]) => handle
+				.try_get_process_metadata_request(request, process)
 				.boxed(),
-			(http::Method::GET, ["processes", process]) => self
-				.handle_get_process_request(request, &context, process)
+			(http::Method::GET, ["processes", process]) => {
+				handle.try_get_process_request(request, process).boxed()
+			},
+			(http::Method::PUT, ["processes", process]) => {
+				handle.put_process_request(request, process).boxed()
+			},
+			(http::Method::POST, ["processes", process, "cancel"]) => {
+				handle.try_cancel_process_request(request, process).boxed()
+			},
+			(http::Method::POST, ["processes", process, "signal"]) => {
+				handle.try_signal_process_request(request, process).boxed()
+			},
+			(http::Method::GET, ["processes", process, "signal"]) => handle
+				.try_get_process_signal_stream_request(request, process)
 				.boxed(),
-			(http::Method::PUT, ["processes", process]) => self
-				.handle_put_process_request(request, &context, process)
+			(http::Method::GET, ["processes", process, "status"]) => handle
+				.try_get_process_status_stream_request(request, process)
 				.boxed(),
-			(http::Method::POST, ["processes", process, "cancel"]) => self
-				.handle_cancel_process_request(request, &context, process)
+			(http::Method::GET, ["processes", process, "children"]) => handle
+				.try_get_process_children_stream_request(request, process)
 				.boxed(),
-			(http::Method::POST, ["processes", process, "signal"]) => self
-				.handle_post_process_signal_request(request, &context, process)
+			(http::Method::GET, ["processes", process, "tty", "size"]) => handle
+				.try_get_process_tty_size_stream_request(request, process)
 				.boxed(),
-			(http::Method::GET, ["processes", process, "signal"]) => self
-				.handle_get_process_signal_request(request, &context, process)
+			(http::Method::PUT, ["processes", process, "tty", "size"]) => handle
+				.try_set_process_tty_size_request(request, process)
 				.boxed(),
-			(http::Method::GET, ["processes", process, "status"]) => self
-				.handle_get_process_status_request(request, &context, process)
+			(http::Method::GET, ["processes", process, "stdio"]) => handle
+				.try_read_process_stdio_request(request, process)
 				.boxed(),
-			(http::Method::GET, ["processes", process, "children"]) => self
-				.handle_get_process_children_request(request, &context, process)
+			(http::Method::POST, ["processes", process, "stdio"]) => handle
+				.try_write_process_stdio_request(request, process)
 				.boxed(),
-			(http::Method::GET, ["processes", process, "tty", "size"]) => self
-				.handle_get_process_tty_size_request(request, &context, process)
-				.boxed(),
-			(http::Method::PUT, ["processes", process, "tty", "size"]) => self
-				.handle_set_process_tty_size_request(request, &context, process)
-				.boxed(),
-			(http::Method::GET, ["processes", process, "stdio"]) => self
-				.handle_post_process_stdio_read_request(request, &context, process)
-				.boxed(),
-			(http::Method::POST, ["processes", process, "stdio"]) => self
-				.handle_post_process_stdio_write_request(request, &context, process)
-				.boxed(),
-			(http::Method::POST, ["processes", process, "touch"]) => self
-				.handle_touch_process_request(request, &context, process)
-				.boxed(),
-			(http::Method::POST, ["processes", process, "finish"]) => self
-				.handle_finish_process_request(request, &context, process)
-				.boxed(),
-			(http::Method::POST, ["processes", process, "wait"]) => self
-				.handle_post_process_wait_request(request, &context, process)
+			(http::Method::POST, ["processes", process, "touch"]) => {
+				handle.try_touch_process_request(request, process).boxed()
+			},
+			(http::Method::POST, ["processes", process, "finish"]) => {
+				handle.try_finish_process_request(request, process).boxed()
+			},
+			(http::Method::POST, ["processes", process, "wait"]) => handle
+				.try_wait_process_future_request(request, process)
 				.boxed(),
 
 			// Sandboxes.
-			(http::Method::POST, ["sandboxes"]) => self
-				.handle_create_sandbox_request(request, &context)
+			(http::Method::POST, ["sandboxes"]) => handle.create_sandbox_request(request).boxed(),
+			(http::Method::GET, ["sandboxes"]) => handle.list_sandboxes_request(request).boxed(),
+			(http::Method::POST, ["sandboxes", "dequeue"]) => {
+				handle.try_dequeue_sandbox_request(request).boxed()
+			},
+			(http::Method::GET, ["sandboxes", sandbox]) => {
+				handle.try_get_sandbox_request(request, sandbox).boxed()
+			},
+			(http::Method::DELETE, ["sandboxes", sandbox]) => {
+				handle.try_delete_sandbox_request(request, sandbox).boxed()
+			},
+			(http::Method::POST, ["sandboxes", sandbox, "processes", "dequeue"]) => handle
+				.try_dequeue_sandbox_process_request(request, sandbox)
 				.boxed(),
-			(http::Method::GET, ["sandboxes"]) => self
-				.handle_list_sandboxes_request(request, &context)
+			(http::Method::POST, ["sandboxes", sandbox, "finish"]) => {
+				handle.try_finish_sandbox_request(request, sandbox).boxed()
+			},
+			(http::Method::POST, ["sandboxes", sandbox, "heartbeat"]) => handle
+				.try_heartbeat_sandbox_request(request, sandbox)
 				.boxed(),
-			(http::Method::POST, ["sandboxes", "dequeue"]) => self
-				.handle_dequeue_sandbox_request(request, &context)
-				.boxed(),
-			(http::Method::GET, ["sandboxes", sandbox]) => self
-				.handle_get_sandbox_request(request, &context, sandbox)
-				.boxed(),
-			(http::Method::DELETE, ["sandboxes", sandbox]) => self
-				.handle_delete_sandbox_request(request, &context, sandbox)
-				.boxed(),
-			(http::Method::POST, ["sandboxes", sandbox, "processes", "dequeue"]) => self
-				.handle_dequeue_sandbox_process_request(request, &context, sandbox)
-				.boxed(),
-			(http::Method::POST, ["sandboxes", sandbox, "finish"]) => self
-				.handle_finish_sandbox_request(request, &context, sandbox)
-				.boxed(),
-			(http::Method::POST, ["sandboxes", sandbox, "heartbeat"]) => self
-				.handle_heartbeat_sandbox_request(request, &context, sandbox)
-				.boxed(),
-			(http::Method::GET, ["sandboxes", sandbox, "status"]) => self
-				.handle_get_sandbox_status_request(request, &context, sandbox)
+			(http::Method::GET, ["sandboxes", sandbox, "status"]) => handle
+				.try_get_sandbox_status_stream_request(request, sandbox)
 				.boxed(),
 
 			// Remotes.
-			(http::Method::GET, ["remotes"]) => {
-				self.handle_list_remotes_request(request, &context).boxed()
+			(http::Method::GET, ["remotes"]) => handle.list_remotes_request(request).boxed(),
+			(http::Method::GET, ["remotes", name]) => {
+				handle.try_get_remote_request(request, name).boxed()
 			},
-			(http::Method::GET, ["remotes", name]) => self
-				.handle_get_remote_request(request, &context, name)
-				.boxed(),
-			(http::Method::PUT, ["remotes", name]) => self
-				.handle_put_remote_request(request, &context, name)
-				.boxed(),
-			(http::Method::DELETE, ["remotes", name]) => self
-				.handle_delete_remote_request(request, &context, name)
-				.boxed(),
+			(http::Method::PUT, ["remotes", name]) => {
+				handle.put_remote_request(request, name).boxed()
+			},
+			(http::Method::DELETE, ["remotes", name]) => {
+				handle.try_delete_remote_request(request, name).boxed()
+			},
 
 			// Watches.
-			(http::Method::GET, ["watches"]) => {
-				self.handle_list_watches_request(request, &context).boxed()
-			},
-			(http::Method::DELETE, ["watches"]) => {
-				self.handle_delete_watch_request(request, &context).boxed()
-			},
+			(http::Method::GET, ["watches"]) => handle.list_watches_request(request).boxed(),
+			(http::Method::DELETE, ["watches"]) => handle.try_delete_watch_request(request).boxed(),
 			(http::Method::POST, ["watches", "touch"]) => {
-				self.handle_touch_watch_request(request, &context).boxed()
+				handle.touch_watch_request(request).boxed()
 			},
 
 			// Tags.
-			(http::Method::GET, ["tags"]) => {
-				self.handle_list_tags_request(request, &context).boxed()
+			(http::Method::GET, ["tags"]) => handle.list_tags_request(request).boxed(),
+			(http::Method::POST, ["tags", "batch"]) => {
+				handle.post_tag_batch_request(request).boxed()
 			},
-			(http::Method::POST, ["tags", "batch"]) => self
-				.handle_post_tag_batch_request(request, &context)
-				.boxed(),
-			(http::Method::PUT, ["tags", tag @ ..]) => {
-				self.handle_put_tag_request(request, &context, tag).boxed()
+			(http::Method::PUT, ["tags", tag @ ..]) => handle.put_tag_request(request, tag).boxed(),
+			(http::Method::DELETE, ["tags", tag @ ..]) => {
+				handle.delete_tags_request(request, tag).boxed()
 			},
-			(http::Method::DELETE, ["tags", tag @ ..]) => self
-				.handle_delete_tag_request(request, &context, tag)
-				.boxed(),
 
 			// Users.
-			(http::Method::GET, ["user"]) => {
-				self.handle_get_user_request(request, &context).boxed()
-			},
+			(http::Method::GET, ["user"]) => handle.get_user_request(request).boxed(),
 
 			(_, _) => future::ok(
 				http::Response::builder()

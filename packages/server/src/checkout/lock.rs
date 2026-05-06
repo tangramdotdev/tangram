@@ -1,5 +1,5 @@
 use {
-	crate::Server,
+	crate::Handle,
 	std::collections::{HashMap, HashSet},
 	tangram_client::prelude::*,
 };
@@ -12,7 +12,7 @@ struct State {
 	visited_graphs: HashSet<tg::graph::Id, tg::id::BuildHasher>,
 }
 
-impl Server {
+impl Handle {
 	pub(super) fn checkout_write_lock(&self, state: &mut super::State) -> tg::Result<()> {
 		// Do not write a lock if the lock arg is not set.
 		if state.arg.lock.is_none() {

@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
@@ -7,10 +7,9 @@ use {
 	tangram_messenger::Messenger,
 };
 
-impl Server {
-	pub(crate) async fn try_set_process_tty_size_with_context(
+impl Handle {
+	pub(crate) async fn try_set_process_tty_size(
 		&self,
-		_context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::tty::size::put::Arg,
 	) -> tg::Result<Option<()>> {
@@ -116,10 +115,9 @@ impl Server {
 		Ok(Some(()))
 	}
 
-	pub(crate) async fn handle_set_process_tty_size_request(
+	pub(crate) async fn try_set_process_tty_size_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
@@ -141,7 +139,7 @@ impl Server {
 
 		// Put the process tty.
 		let Some(()) = self
-			.try_set_process_tty_size_with_context(context, &id, arg)
+			.try_set_process_tty_size(&id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put the process tty"))?
 		else {

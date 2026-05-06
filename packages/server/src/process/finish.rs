@@ -1,5 +1,5 @@
 use {
-	crate::{Context, Server, database::Transaction},
+	crate::{Handle, database::Transaction},
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
@@ -30,14 +30,13 @@ pub(crate) struct InnerArg {
 	pub output: Option<tg::value::Data>,
 }
 
-impl Server {
-	pub(crate) async fn try_finish_process_with_context(
+impl Handle {
+	pub(crate) async fn try_finish_process(
 		&self,
-		context: &Context,
 		id: &tg::process::Id,
 		arg: tg::process::finish::Arg,
 	) -> tg::Result<Option<bool>> {
-		if context.process.is_some() {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 
@@ -262,10 +261,10 @@ impl Server {
 
 	fn spawn_cancel_process_children_task(&self, id: &tg::process::Id) {
 		tokio::spawn({
-			let server = self.clone();
+			let handle = self.clone();
 			let id = id.clone();
 			async move {
-				let result = server.cancel_process_children(&id).await;
+				let result = handle.cancel_process_children(&id).await;
 				if let Err(error) = result {
 					tracing::error!(error = %error.trace(), "failed to cancel the children");
 				}
@@ -437,10 +436,9 @@ impl Server {
 		Ok(Some(finished))
 	}
 
-	pub(crate) async fn handle_finish_process_request(
+	pub(crate) async fn try_finish_process_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
@@ -462,7 +460,7 @@ impl Server {
 
 		// Finish the process.
 		let Some(finished) = self
-			.try_finish_process_with_context(context, &id, arg)
+			.try_finish_process(&id, arg)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to finish the process"))?
 		else {

@@ -1,16 +1,15 @@
 use {
-	crate::{Context, Server},
+	crate::Handle,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
-impl Server {
-	pub(crate) async fn list_watches_with_context(
+impl Handle {
+	pub(crate) async fn list_watches(
 		&self,
-		context: &Context,
 		_arg: tg::watch::list::Arg,
 	) -> tg::Result<tg::watch::list::Output> {
-		if context.process.is_some() {
+		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
 		let data = self
@@ -24,10 +23,9 @@ impl Server {
 		Ok(output)
 	}
 
-	pub(crate) async fn handle_list_watches_request(
+	pub(crate) async fn list_watches_request(
 		&self,
 		request: http::Request<BoxBody>,
-		context: &Context,
 	) -> tg::Result<http::Response<BoxBody>> {
 		// Get the accept header.
 		let accept = request
@@ -44,7 +42,7 @@ impl Server {
 
 		// List the watches.
 		let output = self
-			.list_watches_with_context(context, arg)
+			.list_watches(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to list the watches"))?;
 
