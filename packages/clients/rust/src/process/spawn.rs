@@ -11,6 +11,7 @@ use {
 		os::unix::process::ExitStatusExt as _,
 		path::{Path, PathBuf},
 		sync::{Arc, Mutex, RwLock},
+		time::Duration,
 	},
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
@@ -104,28 +105,78 @@ pub(crate) async fn spawn_arg_with_handle<H>(
 where
 	H: tg::Handle,
 {
-	let sandbox = super::normalize_sandbox_arg(arg.sandbox.clone(), arg.cpu, arg.memory)?;
+	let sandbox = normalize_sandbox(&arg)?;
 	let sandboxed = sandbox.is_some();
 
-	let host = arg.host.unwrap_or_else(|| tg::host::current().to_owned());
+	let host = if let Some(host) = arg.host {
+		Some(host)
+	} else if sandboxed {
+		Some(tg::host::current().to_owned())
+	} else {
+		None
+	};
+	let mut command_ = None;
+	let mut options = tg::referent::Options::default();
+	if let Some(command) = arg.command {
+		options = command.options;
+		command_.replace(command.item);
+	}
+	if let Some(name) = arg.name {
+		options.name.replace(name);
+	}
+	let executable = if let Some(mut executable) = arg.executable {
+		if let tg::command::Executable::Module(executable) = &mut executable {
+			let mut module_options = std::mem::take(&mut executable.module.referent.options);
+			if options.artifact.is_some() {
+				module_options.artifact = options.artifact;
+			}
+			if options.id.is_some() {
+				module_options.id = options.id;
+			}
+			if options.name.is_some() {
+				module_options.name = options.name;
+			}
+			if options.path.is_some() {
+				module_options.path = options.path;
+			}
+			if options.tag.is_some() {
+				module_options.tag = options.tag;
+			}
+			options = module_options;
+		}
+		Some(executable)
+	} else {
+		None
+	};
+	let checksum = arg.checksum;
+	let (process_stdin, command_stdin) = match arg.stdin {
+		tg::process::Stdio::Blob(blob) => {
+			(tg::process::Stdio::Inherit, Some(tg::Blob::with_id(blob)))
+		},
+		stdin => (stdin, None),
+	};
+	let stdout = arg.stdout;
+	let stderr = arg.stderr;
+	let tty = arg.tty;
 
-	let executable = arg
-		.executable
-		.ok_or_else(|| tg::error!("expected the executable to be set"))?;
-
-	let mut builder = tg::Command::builder().host(host).executable(executable);
+	let mut command_has_cwd = false;
+	let mut builder = if let Some(command_) = command_ {
+		let object = command_.object_with_handle(handle).await?;
+		command_has_cwd = object.cwd.is_some();
+		tg::command::Builder::with_object(&object)
+	} else {
+		tg::Command::builder()
+	};
 
 	builder = builder.args(arg.args);
 
-	let cwd = if sandboxed {
-		None
-	} else {
+	if let Some(cwd) = arg.cwd {
+		builder = builder.cwd(cwd);
+	} else if !sandboxed && !command_has_cwd {
 		let cwd = std::env::current_dir()
 			.map_err(|source| tg::error!(!source, "failed to get the current directory"))?;
-		Some(cwd)
-	};
-	let cwd = arg.cwd.or(cwd);
-	builder = builder.cwd(cwd);
+		builder = builder.cwd(cwd);
+	}
 
 	let mut env = tg::value::Map::new();
 	if !sandboxed {
@@ -140,26 +191,23 @@ where
 	}
 	builder = builder.env(env);
 
-	let stdin = arg.stdin;
-	let command_stdin = if let tg::process::Stdio::Blob(blob) = &stdin {
-		Some(tg::Blob::with_id(blob.clone()))
-	} else {
-		None
-	};
-	builder = builder.stdin(command_stdin);
-	builder = builder.user(arg.user);
+	if let Some(executable) = executable {
+		builder = builder.executable(executable);
+	}
+	if let Some(host) = host {
+		builder = builder.host(host);
+	}
+	if let Some(user) = arg.user {
+		builder = builder.user(user);
+	}
+	if let Some(command_stdin) = command_stdin {
+		builder = builder.stdin(command_stdin);
+	}
 
 	let command = builder.finish()?;
 	let command_id = command.store_with_handle(handle).await?;
-	let mut command = tg::Referent::with_item(command_id);
-	if let Some(name) = arg.name {
-		command.options.name.replace(name);
-	}
+	let command = tg::Referent::new(command_id, options);
 
-	let checksum = arg.checksum;
-
-	let stdout = arg.stdout;
-	let stderr = arg.stderr;
 	let sandbox_arg = match sandbox.clone() {
 		Some(tg::Either::Left(arg)) => Some(arg),
 		Some(tg::Either::Right(_)) | None => None,
@@ -170,23 +218,23 @@ where
 		));
 	}
 
-	let arg = tg::process::spawn::Arg {
+	let spawn_arg = tg::process::spawn::Arg {
 		cached: arg.cached,
-		cache_location: None,
+		cache_location: arg.cache_location,
 		checksum,
 		command,
-		debug: arg.debug,
+		debug: normalize_debug(arg.debug),
 		location: arg.location,
-		parent: arg.parent,
+		parent: None,
 		retry: arg.retry,
 		sandbox,
 		stderr,
-		stdin,
+		stdin: process_stdin,
 		stdout,
-		tty: arg.tty,
+		tty,
 	};
 
-	Ok(arg)
+	Ok(spawn_arg)
 }
 
 impl<O: 'static> tg::Process<O> {
@@ -997,4 +1045,101 @@ fn exit_status_to_code(status: std::process::ExitStatus) -> tg::Result<u8> {
 			.map_err(|source| tg::error!(!source, "failed to convert the signal"));
 	}
 	Err(tg::error!("failed to determine the exit status"))
+}
+
+fn normalize_sandbox(
+	arg: &tg::process::Arg,
+) -> tg::Result<Option<tg::Either<tg::sandbox::create::Arg, tg::sandbox::Id>>> {
+	let has_cpu = arg.cpu.is_some();
+	let cpu = arg.cpu;
+	let has_memory = arg.memory.is_some();
+	let memory = arg.memory;
+	let mounts = arg.mounts.clone();
+	let has_network = arg.network.is_some();
+	let network = arg.network.unwrap_or(false);
+	let has_resource_fields = has_cpu || has_memory || !mounts.is_empty() || has_network;
+	match arg.sandbox.clone() {
+		Some(tg::process::SandboxArg::Bool(true)) => {
+			let mut sandbox = tg::process::SandboxCreateArg::default();
+			if let Some(cpu) = cpu {
+				sandbox.cpu = Some(cpu);
+			}
+			if let Some(memory) = memory {
+				sandbox.memory = Some(memory);
+			}
+			if !mounts.is_empty() {
+				sandbox.mounts.extend(mounts);
+			}
+			if has_network {
+				sandbox.network = network;
+			}
+			let sandbox = normalize_sandbox_create_arg(sandbox);
+			Ok(Some(tg::Either::Left(sandbox)))
+		},
+		Some(tg::process::SandboxArg::Arg(mut sandbox)) => {
+			if let Some(cpu) = cpu {
+				sandbox.cpu = Some(cpu);
+			}
+			if let Some(memory) = memory {
+				sandbox.memory = Some(memory);
+			}
+			if !mounts.is_empty() {
+				sandbox.mounts.extend(mounts);
+			}
+			if has_network {
+				sandbox.network = network;
+			}
+			let sandbox = normalize_sandbox_create_arg(sandbox);
+			Ok(Some(tg::Either::Left(sandbox)))
+		},
+		Some(tg::process::SandboxArg::Id(sandbox)) => {
+			if has_resource_fields {
+				return Err(tg::error!(
+					"cpu, memory, mounts, and network are not supported for existing sandboxes"
+				));
+			}
+			Ok(Some(tg::Either::Right(sandbox)))
+		},
+		None | Some(tg::process::SandboxArg::Bool(false)) => {
+			if !has_resource_fields {
+				return Ok(None);
+			}
+			let sandbox = tg::sandbox::create::Arg {
+				cpu,
+				hostname: None,
+				location: None,
+				memory,
+				mounts,
+				network,
+				ttl: Some(Duration::ZERO),
+				user: None,
+			};
+			Ok(Some(tg::Either::Left(sandbox)))
+		},
+	}
+}
+
+fn normalize_sandbox_create_arg(
+	sandbox: tg::process::SandboxCreateArg,
+) -> tg::sandbox::create::Arg {
+	tg::sandbox::create::Arg {
+		cpu: sandbox.cpu,
+		hostname: sandbox.hostname,
+		location: None,
+		memory: sandbox.memory,
+		mounts: sandbox.mounts,
+		network: sandbox.network,
+		ttl: sandbox.ttl.unwrap_or(Some(Duration::ZERO)),
+		user: sandbox.user,
+	}
+}
+
+fn normalize_debug(
+	debug: Option<tg::Either<bool, tg::process::Debug>>,
+) -> Option<tg::process::Debug> {
+	match debug {
+		None | Some(tg::Either::Left(false)) => None,
+		Some(tg::Either::Left(true)) => Some(tg::process::Debug::default()),
+		Some(tg::Either::Right(debug)) => Some(debug),
+	}
 }

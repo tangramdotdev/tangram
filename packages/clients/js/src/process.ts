@@ -49,12 +49,18 @@ export class Process<O extends tg.Value = tg.Value> {
 	): tg.Process.Builder<"run", Array<tg.Value>, tg.Value>;
 	static build(...args: any): any {
 		let validate = (arg: tg.Process.ArgObject): void => {
-			let sandbox = normalizeSandbox(arg);
+			let sandbox = arg.sandbox ?? true;
+			let sandboxArg = isSandboxArg(sandbox) ? sandbox : undefined;
+			let network =
+				"network" in arg
+					? (arg.network ?? false)
+					: (sandboxArg?.network ?? false);
 			let cacheable =
-				sandbox !== undefined &&
+				sandbox !== false &&
 				typeof sandbox !== "string" &&
-				(sandbox.mounts?.length ?? 0) === 0 &&
-				(sandbox.network ?? false) === false &&
+				(sandboxArg?.mounts?.length ?? 0) === 0 &&
+				(arg.mounts?.length ?? 0) === 0 &&
+				network === false &&
 				arg.stdin === "null" &&
 				arg.stdout === "log" &&
 				arg.stderr === "log" &&
@@ -339,7 +345,6 @@ export class Process<O extends tg.Value = tg.Value> {
 		}
 
 		let checksum = arg.checksum;
-		let debug = normalizeDebug(arg.debug);
 		let processStdin: tg.Process.Stdio | undefined;
 		let commandStdin: tg.Blob.Arg | undefined;
 		if ("stdin" in arg) {
@@ -380,7 +385,12 @@ export class Process<O extends tg.Value = tg.Value> {
 			cache_location: arg.cache_location,
 			checksum,
 			command: commandReferent,
-			debug,
+			debug:
+				arg.debug === undefined || arg.debug === false
+					? undefined
+					: arg.debug === true
+						? {}
+						: arg.debug,
 			location: arg.location,
 			retry: false,
 			sandbox,
@@ -1328,6 +1338,8 @@ export namespace Process {
 
 		/** The command's working directory. */
 		cwd?: string | undefined;
+
+		/** Configure debugging. */
 		debug?: boolean | tg.Process.Debug | undefined;
 
 		/** The command's environment. */
@@ -1344,10 +1356,14 @@ export namespace Process {
 
 		/** The sandbox's memory allocation. */
 		memory?: number | undefined;
+
+		/** Configure mounts. */
 		mounts?: Array<tg.Sandbox.Mount> | undefined;
 
 		/** The process's name. */
 		name?: string | undefined;
+
+		/** Configure network. */
 		network?: boolean | undefined;
 
 		/** Configure or select the sandbox for this process. */
@@ -2551,18 +2567,6 @@ let normalizeSandbox = (
 		output.network = network;
 	}
 	return output;
-};
-
-let normalizeDebug = (
-	debug: boolean | tg.Process.Debug | undefined,
-): tg.Process.Debug | undefined => {
-	if (debug === undefined || debug === false) {
-		return undefined;
-	}
-	if (debug === true) {
-		return {};
-	}
-	return debug;
 };
 
 let defaultHost = (): string | undefined => {

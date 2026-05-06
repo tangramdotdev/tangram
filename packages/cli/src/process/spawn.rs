@@ -830,18 +830,19 @@ impl Cli {
 							"sandbox options are not supported for existing sandboxes"
 						));
 					}
-					Some(tg::Either::Right(id))
+					Some(tg::process::SandboxArg::Id(id))
 				},
-				_ => Some(tg::Either::Left(tg::sandbox::create::Arg {
-					cpu: options.sandbox.arg.cpu,
-					hostname: options.sandbox.arg.hostname.clone(),
-					location: None,
-					memory: options.sandbox.arg.memory,
-					mounts,
-					network,
-					ttl: options.sandbox.ttl.get(),
-					user: options.sandbox.arg.user.clone(),
-				})),
+				_ => Some(tg::process::SandboxArg::Arg(
+					tg::process::SandboxCreateArg {
+						cpu: options.sandbox.arg.cpu,
+						hostname: options.sandbox.arg.hostname.clone(),
+						memory: options.sandbox.arg.memory,
+						mounts,
+						network,
+						ttl: Some(options.sandbox.ttl.get()),
+						user: options.sandbox.arg.user.clone(),
+					},
+				)),
 			}
 		} else {
 			None
@@ -886,14 +887,12 @@ impl Cli {
 			cached: options.cached,
 			checksum: options.checksum,
 			cwd: command.cwd.clone(),
-			debug,
+			debug: debug.map(tg::Either::Right),
 			env: command.env.clone(),
 			executable: Some(command.executable.clone()),
 			host: Some(command.host.clone()),
 			location: location.clone(),
 			name: None,
-			parent: None,
-			progress: false,
 			retry: options.retry,
 			sandbox,
 			stderr: options.stderr.unwrap_or_default(),

@@ -75,25 +75,45 @@ pub struct Inner {
 #[derive(Clone, Debug, Default)]
 pub struct Arg {
 	pub args: tg::value::Array,
+	pub cache_location: Option<tg::location::Arg>,
 	pub cached: Option<bool>,
 	pub checksum: Option<tg::Checksum>,
+	pub command: Option<tg::Referent<tg::Command>>,
 	pub cpu: Option<u64>,
 	pub cwd: Option<PathBuf>,
-	pub debug: Option<tg::process::Debug>,
+	pub debug: Option<tg::Either<bool, tg::process::Debug>>,
 	pub env: tg::value::Map,
 	pub executable: Option<tg::command::Executable>,
 	pub host: Option<String>,
 	pub location: Option<tg::location::Arg>,
 	pub memory: Option<u64>,
+	pub mounts: Vec<tg::sandbox::Mount>,
 	pub name: Option<String>,
-	pub parent: Option<tg::process::Id>,
-	pub progress: bool,
+	pub network: Option<bool>,
 	pub retry: bool,
-	pub sandbox: Option<tg::Either<tg::sandbox::create::Arg, tg::sandbox::Id>>,
+	pub sandbox: Option<tg::process::SandboxArg>,
 	pub stderr: tg::process::Stdio,
 	pub stdin: tg::process::Stdio,
 	pub stdout: tg::process::Stdio,
 	pub tty: Option<tg::Either<bool, tg::process::Tty>>,
+	pub user: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub enum SandboxArg {
+	Bool(bool),
+	Arg(tg::process::SandboxCreateArg),
+	Id(tg::sandbox::Id),
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SandboxCreateArg {
+	pub cpu: Option<u64>,
+	pub hostname: Option<String>,
+	pub memory: Option<u64>,
+	pub mounts: Vec<tg::sandbox::Mount>,
+	pub network: bool,
+	pub ttl: Option<Option<Duration>>,
 	pub user: Option<String>,
 }
 
@@ -396,44 +416,5 @@ impl<O> Deref for Process<O> {
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
-	}
-}
-
-pub(crate) fn normalize_sandbox_arg(
-	sandbox: Option<tg::Either<tg::sandbox::create::Arg, tg::sandbox::Id>>,
-	cpu: Option<u64>,
-	memory: Option<u64>,
-) -> tg::Result<Option<tg::Either<tg::sandbox::create::Arg, tg::sandbox::Id>>> {
-	let has_resource_fields = cpu.is_some() || memory.is_some();
-	match sandbox {
-		Some(tg::Either::Left(mut sandbox)) => {
-			if let Some(cpu) = cpu {
-				sandbox.cpu = Some(cpu);
-			}
-			if let Some(memory) = memory {
-				sandbox.memory = Some(memory);
-			}
-			Ok(Some(tg::Either::Left(sandbox)))
-		},
-		Some(tg::Either::Right(sandbox)) => {
-			if has_resource_fields {
-				return Err(tg::error!(
-					"cpu and memory are not supported for existing sandboxes"
-				));
-			}
-			Ok(Some(tg::Either::Right(sandbox)))
-		},
-		None => {
-			if !has_resource_fields {
-				return Ok(None);
-			}
-			Ok(Some(tg::Either::Left(tg::sandbox::create::Arg {
-				cpu,
-				memory,
-				network: false,
-				ttl: Some(Duration::ZERO),
-				..Default::default()
-			})))
-		},
 	}
 }

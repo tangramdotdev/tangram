@@ -28,12 +28,9 @@ impl<O> tg::Process<O> {
 		O: TryFrom<tg::Value> + 'static,
 		O::Error: std::error::Error + Send + Sync + 'static,
 	{
-		let progress = arg.progress;
 		let process = tg::Process::<O>::spawn_with_progress_with_handle(handle, arg, |stream| {
 			let writer = std::io::stderr();
-			let is_tty =
-				progress && tangram_util::tty::is_foreground_controlling_tty(libc::STDERR_FILENO);
-			tg::progress::write_progress_stream(handle, stream, writer, is_tty)
+			tg::progress::write_progress_stream(handle, stream, writer, false)
 		})
 		.await
 		.map_err(|source| tg::error!(!source, "failed to spawn the process"))?;

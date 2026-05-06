@@ -25,7 +25,8 @@ pub(crate) fn spawn(
 			|source| tg::error!(!source, path = %path.display(), "failed to create the sandbox path"),
 		)?;
 	}
-	let profile = create_sandbox_profile(arg).map_err(|source| tg::error!(!source, "failed to create the sandbox profile"))?;
+	let profile = create_sandbox_profile(arg)
+		.map_err(|source| tg::error!(!source, "failed to create the sandbox profile"))?;
 	std::fs::write(
 		Sandbox::host_profile_path_from_root(&arg.path),
 		profile.as_bytes(),

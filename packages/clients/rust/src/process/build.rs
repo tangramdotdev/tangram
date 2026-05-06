@@ -28,26 +28,27 @@ impl<O> tg::Process<O> {
 		O: TryFrom<tg::Value> + 'static,
 		O::Error: std::error::Error + Send + Sync + 'static,
 	{
-		let sandbox = super::normalize_sandbox_arg(arg.sandbox.clone(), arg.cpu, arg.memory)?
-			.unwrap_or_else(|| {
-				tg::Either::Left(tg::sandbox::create::Arg {
-					network: false,
-					ttl: Some(std::time::Duration::ZERO),
-					..Default::default()
-				})
-			});
-		let cacheable = matches!(
-			&sandbox,
-			tg::Either::Left(arg) if arg.mounts.is_empty() && !arg.network
-		) && arg.stdin.is_null()
+		let sandbox = arg
+			.sandbox
+			.clone()
+			.unwrap_or(tg::process::SandboxArg::Bool(true));
+		let cacheable = match &sandbox {
+			tg::process::SandboxArg::Bool(true) => {
+				arg.mounts.is_empty() && !arg.network.unwrap_or(false)
+			},
+			tg::process::SandboxArg::Arg(sandbox) => {
+				sandbox.mounts.is_empty()
+					&& arg.mounts.is_empty()
+					&& !arg.network.unwrap_or(sandbox.network)
+			},
+			tg::process::SandboxArg::Bool(false) | tg::process::SandboxArg::Id(_) => false,
+		} && arg.stdin.is_null()
 			&& arg.stdout.is_log()
-			&& arg.stderr.is_log();
+			&& arg.stderr.is_log()
+			&& matches!(&arg.tty, None | Some(tg::Either::Left(false)));
 		let cacheable = cacheable || arg.checksum.is_some();
 		if !cacheable {
 			return Err(tg::error!("a build must be cacheable"));
-		}
-		if matches!(sandbox, tg::Either::Right(_)) {
-			return Err(tg::error!("a build cannot use an existing sandbox"));
 		}
 		let arg = tg::process::Arg {
 			sandbox: Some(sandbox),
