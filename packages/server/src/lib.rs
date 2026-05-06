@@ -1234,7 +1234,6 @@ impl Server {
 		tangram_compiler::Compiler::start(
 			tg::handle::dynamic::Handle::new(self.clone()),
 			self.artifacts_path(),
-			self.cache_path(),
 			self.tags_path(),
 			self.library_path(),
 			tokio::runtime::Handle::current(),

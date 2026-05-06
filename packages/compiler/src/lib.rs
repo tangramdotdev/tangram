@@ -69,9 +69,6 @@ pub struct State {
 	/// The artifacts path.
 	artifacts_path: PathBuf,
 
-	/// The cache path.
-	cache_path: PathBuf,
-
 	/// The documents.
 	documents: DashMap<tg::module::Data, Document, fnv::FnvBuildHasher>,
 
@@ -194,7 +191,6 @@ impl Compiler {
 	pub fn start(
 		handle: tg::handle::dynamic::Handle,
 		artifacts_path: PathBuf,
-		cache_path: PathBuf,
 		tags_path: PathBuf,
 		library_path: PathBuf,
 		main_runtime_handle: tokio::runtime::Handle,
@@ -212,7 +208,6 @@ impl Compiler {
 		// Create the compiler.
 		let compiler = Self(Arc::new(State {
 			artifacts_path,
-			cache_path,
 			documents,
 			handle,
 			library_path,
@@ -900,7 +895,7 @@ impl Compiler {
 
 		// Handle a path in the materialized artifact directories.
 		let absolute_path = path;
-		if let Some(path) = self.artifact_or_cache_path(path) {
+		if let Ok(path) = path.strip_prefix(&self.artifacts_path) {
 			let kind = self.module_kind_for_path(absolute_path).await?;
 
 			// Parse the id.
@@ -1013,11 +1008,9 @@ impl Compiler {
 				.map_err(|source| tg::error!(!source, "failed to canonicalize the path"))?;
 
 			// Extract the directory ID from the artifact path.
-			let id = self
-				.artifact_or_cache_path(&artifact_path)
-				.ok_or_else(|| {
-					tg::error!("the artifact path is not in the artifacts or cache directory")
-				})?
+			let id = artifact_path
+				.strip_prefix(&self.artifacts_path)
+				.map_err(|_| tg::error!("the artifact path is not in the artifacts directory"))?
 				.components()
 				.next()
 				.ok_or_else(|| tg::error!("invalid artifact path"))?
@@ -1101,12 +1094,6 @@ impl Compiler {
 		};
 
 		Ok(module)
-	}
-
-	fn artifact_or_cache_path<'a>(&self, path: &'a Path) -> Option<&'a Path> {
-		path.strip_prefix(&self.artifacts_path)
-			.or_else(|_| path.strip_prefix(&self.cache_path))
-			.ok()
 	}
 
 	async fn lsp_uri_for_module(&self, module: &tg::module::Data) -> tg::Result<lsp::Uri> {
