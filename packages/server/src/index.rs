@@ -246,9 +246,6 @@ impl Handle {
 	pub(crate) async fn index(
 		&self,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + use<>> {
-		if self.context.process.is_some() {
-			return Err(tg::error!("forbidden"));
-		}
 		if !self.config.advanced.single_process {
 			return Err(tg::error!("cannot index in multi process mode"));
 		}
