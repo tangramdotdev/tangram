@@ -17,8 +17,7 @@ pub struct Args {
 }
 
 impl Cli {
-	#[must_use]
-	pub fn command_sandbox_container_init(args: Args) -> std::process::ExitCode {
+	pub fn command_sandbox_container_init(args: Args) -> tg::Result<std::process::ExitCode> {
 		let arg = tangram_sandbox::container::init::Arg {
 			serve: tangram_sandbox::serve::Arg {
 				library_paths: args.library_paths,
@@ -28,13 +27,6 @@ impl Cli {
 				url: args.url,
 			},
 		};
-		let result = tangram_sandbox::container::init::run(&arg);
-		match result {
-			Ok(code) => code,
-			Err(error) => {
-				Cli::print_error_basic(tg::Referent::with_item(error));
-				std::process::ExitCode::FAILURE
-			},
-		}
+		tangram_sandbox::container::init::run(&arg)
 	}
 }

@@ -273,7 +273,7 @@ impl Cli {
 
 		// Set the exit.
 		if wait.exit != 0 {
-			self.exit.replace(wait.exit);
+			self.exit.replace(wait.exit.into());
 		}
 
 		// Handle an error.

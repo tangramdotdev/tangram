@@ -1,4 +1,4 @@
-use crate::Cli;
+use {crate::Cli, tangram_client::prelude::*};
 
 pub mod run;
 
@@ -16,10 +16,11 @@ pub enum Command {
 }
 
 impl Cli {
-	#[must_use]
-	pub fn command_sandbox_seatbelt(args: Args) -> std::process::ExitCode {
-		match args.command {
-			Command::Run(args) => Self::command_sandbox_seatbelt_run(args),
-		}
+	pub async fn command_sandbox_seatbelt(&mut self, args: Args) -> tg::Result<()> {
+		let exit = match args.command {
+			Command::Run(args) => Self::command_sandbox_seatbelt_run(args)?,
+		};
+		self.exit.replace(exit);
+		Ok(())
 	}
 }

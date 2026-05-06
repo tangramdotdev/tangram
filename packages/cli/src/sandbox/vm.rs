@@ -1,4 +1,4 @@
-use crate::Cli;
+use {crate::Cli, tangram_client::prelude::*};
 
 pub mod init;
 pub mod run;
@@ -19,11 +19,12 @@ pub enum Command {
 }
 
 impl Cli {
-	#[must_use]
-	pub fn command_sandbox_vm(args: Args) -> std::process::ExitCode {
-		match args.command {
-			Command::Init(args) => Self::command_sandbox_vm_init(args),
-			Command::Run(args) => Self::command_sandbox_vm_run(args),
-		}
+	pub async fn command_sandbox_vm(&mut self, args: Args) -> tg::Result<()> {
+		let exit = match args.command {
+			Command::Init(args) => Self::command_sandbox_vm_init(args)?,
+			Command::Run(args) => Self::command_sandbox_vm_run(args)?,
+		};
+		self.exit.replace(exit);
+		Ok(())
 	}
 }

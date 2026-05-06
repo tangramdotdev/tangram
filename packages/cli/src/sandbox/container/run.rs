@@ -146,16 +146,8 @@ impl Args {
 }
 
 impl Cli {
-	#[must_use]
-	pub fn command_sandbox_container_run(args: Args) -> std::process::ExitCode {
+	pub fn command_sandbox_container_run(args: Args) -> tg::Result<std::process::ExitCode> {
 		let arg = args.into_arg();
-		let result = tangram_sandbox::container::run::run(&arg);
-		match result {
-			Ok(code) => code,
-			Err(error) => {
-				Cli::print_error_basic(tg::Referent::with_item(error));
-				std::process::ExitCode::FAILURE
-			},
-		}
+		tangram_sandbox::container::run::run(&arg)
 	}
 }

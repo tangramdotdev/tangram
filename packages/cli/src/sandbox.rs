@@ -114,8 +114,8 @@ impl Cli {
 	pub async fn command_sandbox(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
 			#[cfg(target_os = "linux")]
-			Command::Container(_) => {
-				unreachable!()
+			Command::Container(args) => {
+				self.command_sandbox_container(args).await?;
 			},
 			Command::Create(args) => {
 				self.command_sandbox_create(args).await?;
@@ -126,16 +126,16 @@ impl Cli {
 			Command::Get(args) => {
 				self.command_sandbox_get(args).await?;
 			},
-			Command::Serve(_) => {
-				unreachable!()
+			Command::Serve(args) => {
+				self.command_sandbox_serve(args).await?;
 			},
 			#[cfg(target_os = "macos")]
-			Command::Seatbelt(_) => {
-				unreachable!()
+			Command::Seatbelt(args) => {
+				self.command_sandbox_seatbelt(args).await?;
 			},
 			#[cfg(target_os = "linux")]
-			Command::Vm(_) => {
-				unreachable!()
+			Command::Vm(args) => {
+				self.command_sandbox_vm(args).await?;
 			},
 			Command::List(args) => {
 				self.command_sandbox_list(args).await?;

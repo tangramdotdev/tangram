@@ -51,8 +51,7 @@ impl Listen {
 }
 
 impl Cli {
-	#[must_use]
-	pub fn command_sandbox_serve(args: Args) -> std::process::ExitCode {
+	pub async fn command_sandbox_serve(&mut self, args: Args) -> tg::Result<()> {
 		let arg = tangram_sandbox::serve::Arg {
 			library_paths: args.library_paths,
 			listen: args.listen.get(),
@@ -60,11 +59,7 @@ impl Cli {
 			tangram_path: args.tangram_path,
 			url: args.url,
 		};
-		let result = tangram_sandbox::serve::run(&arg);
-		if let Err(error) = result {
-			Cli::print_error_basic(tg::Referent::with_item(error));
-			return std::process::ExitCode::FAILURE;
-		}
-		std::process::ExitCode::SUCCESS
+		tangram_sandbox::serve::run(&arg).await?;
+		Ok(())
 	}
 }

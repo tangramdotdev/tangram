@@ -72,7 +72,7 @@ pub struct Cli {
 	args: Args,
 	client: Option<tg::Client>,
 	config: Option<Config>,
-	exit: Option<u8>,
+	exit: Option<std::process::ExitCode>,
 	health: Option<tg::Health>,
 	matches: clap::ArgMatches,
 }
@@ -351,52 +351,62 @@ enum Command {
 	Write(self::write::Args),
 }
 
-fn main() -> std::process::ExitCode {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> std::process::ExitCode {
 	// Parse the args.
 	let matches = Args::command().get_matches();
-	let mut args = Args::from_arg_matches(&matches).unwrap();
+	let args = Args::from_arg_matches(&matches).unwrap();
+
+	// Create the CLI.
+	let mut cli = Cli {
+		args,
+		client: None,
+		config: None,
+		exit: None,
+		health: None,
+		matches,
+	};
 
 	// Handle internal commands.
-	match args.command {
-		Command::Builtin(args) => {
-			return Cli::command_builtin(&matches, args);
-		},
+	let result = match cli.args.command.clone() {
+		Command::Builtin(command_args) => Some(cli.command_builtin(command_args).await),
 		#[cfg(feature = "js")]
-		Command::Js(args) => {
+		Command::Js(command_args) => {
 			#[cfg(feature = "v8")]
-			if args.engine.is_auto() || args.engine.is_v_8() {
+			if command_args.engine.is_auto() || command_args.engine.is_v_8() {
 				Cli::initialize_v8(0);
 			}
-			return Cli::command_js(&matches, args);
+			Some(cli.command_js(command_args).await)
 		},
 		Command::Sandbox(self::sandbox::Args {
-			command: self::sandbox::Command::Serve(args),
+			command: self::sandbox::Command::Serve(command_args),
 			..
-		}) => {
-			return Cli::command_sandbox_serve(args);
-		},
+		}) => Some(cli.command_sandbox_serve(command_args).await),
 		#[cfg(target_os = "linux")]
 		Command::Sandbox(self::sandbox::Args {
-			command: self::sandbox::Command::Container(args),
+			command: self::sandbox::Command::Container(command_args),
 			..
-		}) => {
-			return Cli::command_sandbox_container(args);
-		},
+		}) => Some(cli.command_sandbox_container(command_args).await),
 		#[cfg(target_os = "macos")]
 		Command::Sandbox(self::sandbox::Args {
-			command: self::sandbox::Command::Seatbelt(args),
+			command: self::sandbox::Command::Seatbelt(command_args),
 			..
-		}) => {
-			return Cli::command_sandbox_seatbelt(args);
-		},
+		}) => Some(cli.command_sandbox_seatbelt(command_args).await),
 		#[cfg(target_os = "linux")]
 		Command::Sandbox(self::sandbox::Args {
-			command: self::sandbox::Command::Vm(args),
+			command: self::sandbox::Command::Vm(command_args),
 			..
-		}) => {
-			return Cli::command_sandbox_vm(args);
-		},
-		_ => (),
+		}) => Some(cli.command_sandbox_vm(command_args).await),
+		_ => None,
+	};
+	if let Some(result) = result {
+		return match result {
+			Ok(()) => cli.exit.unwrap_or_default(),
+			Err(error) => {
+				Cli::print_error_basic(tg::Referent::with_item(error));
+				std::process::ExitCode::FAILURE
+			},
+		};
 	}
 
 	// Override args from the serve args.
@@ -404,27 +414,27 @@ fn main() -> std::process::ExitCode {
 	| Command::Server(self::server::Args {
 		command: self::server::Command::Run(serve_args),
 		..
-	}) = &args.command
+	}) = &cli.args.command
 	{
 		if let Some(config) = serve_args.config.clone() {
-			args.config = Some(config);
+			cli.args.config = Some(config);
 		}
 		if let Some(directory) = serve_args.directory.clone() {
-			args.directory = Some(directory);
+			cli.args.directory = Some(directory);
 		}
 		if serve_args.remotes.get().is_some() {
-			args.remotes = serve_args.remotes.clone();
+			cli.args.remotes = serve_args.remotes.clone();
 		}
 		if let Some(tracing) = serve_args.tracing.clone() {
-			args.tracing = Some(tracing);
+			cli.args.tracing = Some(tracing);
 		}
 		if let Some(url) = serve_args.url.clone() {
-			args.url = Some(url);
+			cli.args.url = Some(url);
 		}
 	}
 
 	// Read the config.
-	let config = match Cli::read_config_with_path(args.config.clone()) {
+	cli.config = match Cli::read_config_with_path(cli.args.config.clone()).await {
 		Ok(config) => config,
 		Err(error) => {
 			Cli::print_error_message("an error occurred");
@@ -434,7 +444,7 @@ fn main() -> std::process::ExitCode {
 	};
 
 	let server = matches!(
-		&args.command,
+		&cli.args.command,
 		Command::Serve(_)
 			| Command::Server(self::server::Args {
 				command: self::server::Command::Run(_),
@@ -446,7 +456,7 @@ fn main() -> std::process::ExitCode {
 	if server {
 		Cli::set_file_descriptor_limit()
 			.inspect_err(|_| {
-				if !args.quiet.get() {
+				if !cli.args.quiet.get() {
 					Cli::print_warning_message("failed to set the file descriptor limit");
 				}
 			})
@@ -456,7 +466,8 @@ fn main() -> std::process::ExitCode {
 	// Initialize FoundationDB.
 	#[cfg(feature = "foundationdb")]
 	let _fdb = if server
-		&& config
+		&& cli
+			.config
 			.as_ref()
 			.is_some_and(|config| config.server.index.is_fdb())
 	{
@@ -472,7 +483,11 @@ fn main() -> std::process::ExitCode {
 	#[cfg(feature = "v8")]
 	let initialize_v8 = if server {
 		true
-	} else if let Command::Repl(args) = &args.command
+	} else if let Command::Js(args) = &cli.args.command
+		&& (args.engine.is_auto() || args.engine.is_v_8())
+	{
+		true
+	} else if let Command::Repl(args) = &cli.args.command
 		&& (args.engine.is_auto() || args.engine.is_v_8())
 	{
 		true
@@ -481,65 +496,45 @@ fn main() -> std::process::ExitCode {
 	};
 	#[cfg(feature = "v8")]
 	if initialize_v8 {
-		let thread_pool_size = config
+		let thread_pool_size = cli
+			.config
 			.as_ref()
 			.and_then(|config| config.v8_thread_pool_size)
 			.unwrap_or(0);
 		Cli::initialize_v8(thread_pool_size);
 	}
 
-	// Create the tokio runtime.
-	let runtime = tokio::runtime::Builder::new_current_thread()
-		.enable_all()
-		.build()
-		.unwrap();
-
 	// Initialize telemetry and tracing.
-	let runtime_guard = runtime.enter();
-	let telemetry = Cli::initialize_telemetry(config.as_ref());
-	Cli::initialize_tracing(config.as_ref(), args.tracing.as_ref(), telemetry.as_ref());
-	drop(runtime_guard);
-
-	// Create the CLI.
-	let mut cli = Cli {
-		args,
-		client: None,
-		config,
-		exit: None,
-		health: None,
-		matches,
-	};
+	let telemetry = Cli::initialize_telemetry(cli.config.as_ref());
+	Cli::initialize_tracing(
+		cli.config.as_ref(),
+		cli.args.tracing.as_ref(),
+		telemetry.as_ref(),
+	);
 
 	// Run the command.
-	let result = runtime.block_on(cli.command(cli.args.clone()).boxed());
+	let result = cli.command(cli.args.clone()).await;
 
 	// Handle the result.
 	let exit = match result {
-		Ok(()) => cli.exit.unwrap_or_default().into(),
+		Ok(()) => cli.exit.unwrap_or_default(),
 		Err(error) => {
 			Cli::print_error_message("an error occurred");
-			runtime.block_on(async {
-				let error = tg::Referent::with_item(error);
-				cli.print_error(error).await;
-			});
-			cli.exit.map_or(std::process::ExitCode::FAILURE, Into::into)
+			let error = tg::Referent::with_item(error);
+			cli.print_error(error).await;
+			cli.exit.unwrap_or(std::process::ExitCode::FAILURE)
 		},
 	};
 
 	// Drop the client.
-	runtime.block_on(async {
-		if let Some(client) = cli.client.take() {
-			client.disconnect().await;
-		}
-	});
+	if let Some(client) = cli.client.take() {
+		client.disconnect().await;
+	}
 
 	// Shutdown telemetry.
 	if let Some(telemetry) = telemetry {
 		telemetry.shutdown();
 	}
-
-	// Drop the runtime.
-	drop(runtime);
 
 	exit
 }
@@ -548,67 +543,67 @@ impl Cli {
 	// Run the command.
 	async fn command(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
-			Command::Archive(args) => self.command_archive(args).boxed(),
-			Command::Build(args) => self.command_build(args).boxed(),
-			Command::Builtin(_) => unreachable!(),
-			Command::Bundle(args) => self.command_bundle(args).boxed(),
-			Command::Cache(args) => self.command_cache(args).boxed(),
-			Command::Cancel(args) => self.command_process_cancel(args).boxed(),
-			Command::Check(args) => self.command_check(args).boxed(),
-			Command::Checkin(args) => self.command_checkin(args).boxed(),
-			Command::Checkout(args) => self.command_checkout(args).boxed(),
-			Command::Checksum(args) => self.command_checksum(args).boxed(),
-			Command::Children(args) => self.command_children(args).boxed(),
-			Command::Clean(args) => self.command_clean(args).boxed(),
-			Command::Compress(args) => self.command_compress(args).boxed(),
-			Command::Decompress(args) => self.command_decompress(args).boxed(),
-			Command::Document(args) => self.command_document(args).boxed(),
-			Command::Download(args) => self.command_download(args).boxed(),
-			Command::Exec(args) => self.command_process_exec(args).boxed(),
-			Command::Extract(args) => self.command_extract(args).boxed(),
-			Command::Format(args) => self.command_format(args).boxed(),
-			Command::Get(args) => self.command_get(args).boxed(),
-			Command::Health(args) => self.command_health(args).boxed(),
-			Command::Id(args) => self.command_id(args).boxed(),
-			Command::Index(args) => self.command_index(args).boxed(),
-			Command::Init(args) => self.command_init(args).boxed(),
+			Command::Archive(args) => self.command_archive(args).boxed_local(),
+			Command::Build(args) => self.command_build(args).boxed_local(),
+			Command::Builtin(args) => self.command_builtin(args).boxed_local(),
+			Command::Bundle(args) => self.command_bundle(args).boxed_local(),
+			Command::Cache(args) => self.command_cache(args).boxed_local(),
+			Command::Cancel(args) => self.command_process_cancel(args).boxed_local(),
+			Command::Check(args) => self.command_check(args).boxed_local(),
+			Command::Checkin(args) => self.command_checkin(args).boxed_local(),
+			Command::Checkout(args) => self.command_checkout(args).boxed_local(),
+			Command::Checksum(args) => self.command_checksum(args).boxed_local(),
+			Command::Children(args) => self.command_children(args).boxed_local(),
+			Command::Clean(args) => self.command_clean(args).boxed_local(),
+			Command::Compress(args) => self.command_compress(args).boxed_local(),
+			Command::Decompress(args) => self.command_decompress(args).boxed_local(),
+			Command::Document(args) => self.command_document(args).boxed_local(),
+			Command::Download(args) => self.command_download(args).boxed_local(),
+			Command::Exec(args) => self.command_process_exec(args).boxed_local(),
+			Command::Extract(args) => self.command_extract(args).boxed_local(),
+			Command::Format(args) => self.command_format(args).boxed_local(),
+			Command::Get(args) => self.command_get(args).boxed_local(),
+			Command::Health(args) => self.command_health(args).boxed_local(),
+			Command::Id(args) => self.command_id(args).boxed_local(),
+			Command::Index(args) => self.command_index(args).boxed_local(),
+			Command::Init(args) => self.command_init(args).boxed_local(),
 			#[cfg(feature = "js")]
-			Command::Js(_) => unreachable!(),
-			Command::List(args) => self.command_tag_list(args).boxed(),
-			Command::Log(args) => self.command_process_stdio_read(args).boxed(),
-			Command::Lsp(args) => self.command_lsp(args).boxed(),
-			Command::Metadata(args) => self.command_metadata(args).boxed(),
-			Command::New(args) => self.command_new(args).boxed(),
-			Command::Object(args) => self.command_object(args).boxed(),
-			Command::Outdated(args) => self.command_outdated(args).boxed(),
-			Command::Output(args) => self.command_process_output(args).boxed(),
-			Command::Process(args) => self.command_process(args).boxed(),
-			Command::Processes(args) => self.command_process_list(args).boxed(),
-			Command::Publish(args) => self.command_publish(args).boxed(),
-			Command::Pull(args) => self.command_pull(args).boxed(),
-			Command::Push(args) => self.command_push(args).boxed(),
-			Command::Put(args) => self.command_put(args).boxed(),
-			Command::Read(args) => self.command_read(args).boxed(),
-			Command::Remote(args) => self.command_remote(args).boxed(),
+			Command::Js(args) => self.command_js(args).boxed_local(),
+			Command::List(args) => self.command_tag_list(args).boxed_local(),
+			Command::Log(args) => self.command_process_stdio_read(args).boxed_local(),
+			Command::Lsp(args) => self.command_lsp(args).boxed_local(),
+			Command::Metadata(args) => self.command_metadata(args).boxed_local(),
+			Command::New(args) => self.command_new(args).boxed_local(),
+			Command::Object(args) => self.command_object(args).boxed_local(),
+			Command::Outdated(args) => self.command_outdated(args).boxed_local(),
+			Command::Output(args) => self.command_process_output(args).boxed_local(),
+			Command::Process(args) => self.command_process(args).boxed_local(),
+			Command::Processes(args) => self.command_process_list(args).boxed_local(),
+			Command::Publish(args) => self.command_publish(args).boxed_local(),
+			Command::Pull(args) => self.command_pull(args).boxed_local(),
+			Command::Push(args) => self.command_push(args).boxed_local(),
+			Command::Put(args) => self.command_put(args).boxed_local(),
+			Command::Read(args) => self.command_read(args).boxed_local(),
+			Command::Remote(args) => self.command_remote(args).boxed_local(),
 			#[cfg(feature = "js")]
-			Command::Repl(args) => self.command_repl(args).boxed(),
-			Command::Run(args) => self.command_run(args).boxed(),
-			Command::Sandbox(args) => self.command_sandbox(args).boxed(),
-			Command::Self_(args) => self.command_tangram(args).boxed(),
-			Command::Shell(args) => self.command_shell(args).boxed(),
-			Command::Serve(args) => self.command_server_run(args).boxed(),
-			Command::Server(args) => self.command_server(args).boxed(),
-			Command::Signal(args) => self.command_process_signal(args).boxed(),
-			Command::Spawn(args) => self.command_process_spawn(args).boxed(),
-			Command::Status(args) => self.command_process_status(args).boxed(),
-			Command::Tag(args) => self.command_tag(args).boxed(),
-			Command::Touch(args) => self.command_touch(args).boxed(),
-			Command::Tree(args) => self.command_tree(args).boxed(),
-			Command::Update(args) => self.command_update(args).boxed(),
-			Command::View(args) => self.command_view(args).boxed(),
-			Command::Wait(args) => self.command_process_wait(args).boxed(),
-			Command::Watch(args) => self.command_watch(args).boxed(),
-			Command::Write(args) => self.command_write(args).boxed(),
+			Command::Repl(args) => self.command_repl(args).boxed_local(),
+			Command::Run(args) => self.command_run(args).boxed_local(),
+			Command::Sandbox(args) => self.command_sandbox(args).boxed_local(),
+			Command::Self_(args) => self.command_tangram(args).boxed_local(),
+			Command::Shell(args) => self.command_shell(args).boxed_local(),
+			Command::Serve(args) => self.command_server_run(args).boxed_local(),
+			Command::Server(args) => self.command_server(args).boxed_local(),
+			Command::Signal(args) => self.command_process_signal(args).boxed_local(),
+			Command::Spawn(args) => self.command_process_spawn(args).boxed_local(),
+			Command::Status(args) => self.command_process_status(args).boxed_local(),
+			Command::Tag(args) => self.command_tag(args).boxed_local(),
+			Command::Touch(args) => self.command_touch(args).boxed_local(),
+			Command::Tree(args) => self.command_tree(args).boxed_local(),
+			Command::Update(args) => self.command_update(args).boxed_local(),
+			Command::View(args) => self.command_view(args).boxed_local(),
+			Command::Wait(args) => self.command_process_wait(args).boxed_local(),
+			Command::Watch(args) => self.command_watch(args).boxed_local(),
+			Command::Write(args) => self.command_write(args).boxed_local(),
 		}
 		.await
 	}
@@ -686,5 +681,28 @@ impl Cli {
 			));
 		}
 		Ok(())
+	}
+
+	async fn spawn_thread<F, T>(f: F) -> tg::Result<T>
+	where
+		F: FnOnce() -> tg::Result<T> + Send + 'static,
+		T: Send + 'static,
+	{
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		std::thread::spawn(move || {
+			let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
+				.map_err(|payload| {
+					let message = payload
+						.downcast_ref::<&str>()
+						.map(|message| (*message).to_owned())
+						.or_else(|| payload.downcast_ref::<String>().cloned());
+					tg::error!(?message, "the thread panicked")
+				})
+				.and_then(|result| result);
+			sender.send(result).ok();
+		});
+		receiver
+			.await
+			.map_err(|source| tg::error!(!source, "failed to receive the thread result"))?
 	}
 }

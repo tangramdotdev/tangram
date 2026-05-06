@@ -1,7 +1,7 @@
 use {
 	crate::js::Engine,
 	crossterm::style::Color,
-	std::{borrow::Cow, path::PathBuf, thread},
+	std::{borrow::Cow, path::PathBuf},
 	tangram_client::prelude::*,
 };
 
@@ -54,7 +54,7 @@ impl crate::Cli {
 			inspect: None,
 			repl: Some(receiver),
 		};
-		let thread = thread::spawn(move || {
+		let task = Self::spawn_thread(move || {
 			let runtime = tokio::runtime::Builder::new_current_thread()
 				.enable_all()
 				.build()
@@ -141,9 +141,8 @@ impl crate::Cli {
 		}
 
 		drop(sender);
-		thread
-			.join()
-			.map_err(|_| tg::error!("the REPL runtime panicked"))??;
+		task.await
+			.map_err(|source| tg::error!(!source, "the repl thread failed"))?;
 
 		Ok(())
 	}

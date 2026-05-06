@@ -45,24 +45,16 @@ pub enum Engine {
 }
 
 impl Cli {
-	#[must_use]
-	pub fn command_js(matches: &clap::ArgMatches, args: Args) -> std::process::ExitCode {
-		match Self::command_js_inner(matches, args) {
-			Ok(exit) => exit,
-			Err(error) => {
-				Cli::print_error_basic(tg::Referent::with_item(error));
-				std::process::ExitCode::FAILURE
-			},
-		}
+	pub async fn command_js(&mut self, args: Args) -> tg::Result<()> {
+		let exit = self.command_js_inner(args).await?;
+		self.exit.replace(exit.into());
+		Ok(())
 	}
 
-	fn command_js_inner(
-		matches: &clap::ArgMatches,
-		args: Args,
-	) -> tg::Result<std::process::ExitCode> {
+	async fn command_js_inner(&self, args: Args) -> tg::Result<u8> {
 		// Get the args.
 		let mut args_: Vec<tg::Value> = Vec::new();
-		let mut matches = matches;
+		let mut matches = &self.matches;
 		while let Some((_, matches_)) = matches.subcommand() {
 			matches = matches_;
 		}
@@ -102,17 +94,12 @@ impl Cli {
 		// Create the client.
 		let client = tg::Client::new(tg::Arg::default())?;
 
-		// Create the runtime and connect the client.
-		let runtime = tokio::runtime::Builder::new_multi_thread()
-			.enable_all()
-			.worker_threads(1)
-			.build()
-			.map_err(|error| tg::error!(source = error, "failed to create the tokio runtime"))?;
-		runtime.block_on(client.connect())?;
+		// Connect the client.
+		client.connect().await?;
 
 		// Create the arg.
 		let handle = tg::handle::dynamic::Handle::new(client);
-		let main_runtime_handle = runtime.handle().clone();
+		let main_runtime_handle = tokio::runtime::Handle::current();
 		let arg = tangram_js::Arg {
 			args: args_,
 			cwd,
@@ -133,26 +120,34 @@ impl Cli {
 		};
 
 		// Run.
-		let future = match args.engine {
-			#[allow(unreachable_patterns)]
-			#[cfg(feature = "v8")]
-			Engine::Auto | Engine::V8 => tangram_js::v8::run(arg).boxed_local(),
-			#[allow(unreachable_patterns)]
-			#[cfg(feature = "quickjs")]
-			Engine::Auto | Engine::QuickJs => tangram_js::quickjs::run(arg).boxed_local(),
-			#[allow(unreachable_patterns)]
-			_ => return Err(tg::error!("the requested JS engine is not available")),
-		};
 		let tangram_js::Output {
 			error,
 			exit,
 			output,
 			..
-		} = tokio::runtime::Builder::new_current_thread()
-			.enable_all()
-			.build()
-			.map_err(|error| tg::error!(source = error, "failed to create the tokio runtime"))?
-			.block_on(future)?;
+		} = Self::spawn_thread(move || {
+			let runtime = tokio::runtime::Builder::new_current_thread()
+				.enable_all()
+				.build()
+				.map_err(|source| tg::error!(!source, "failed to create the tokio runtime"))?;
+			let future = match args.engine {
+				#[allow(unreachable_patterns)]
+				#[cfg(feature = "v8")]
+				Engine::Auto | Engine::V8 => tangram_js::v8::run(arg).boxed_local(),
+
+				#[allow(unreachable_patterns)]
+				#[cfg(feature = "quickjs")]
+				Engine::Auto | Engine::QuickJs => tangram_js::quickjs::run(arg).boxed_local(),
+
+				#[allow(unreachable_patterns)]
+				_ => {
+					return Err(tg::error!("the requested JS engine is not available"));
+				},
+			};
+			runtime.block_on(future)
+		})
+		.await
+		.map_err(|source| tg::error!(!source, "the js thread failed"))?;
 
 		// Write the output.
 		if let Ok(output_path) = std::env::var("TANGRAM_OUTPUT")
@@ -187,6 +182,6 @@ impl Cli {
 			}
 		}
 
-		Ok(exit.into())
+		Ok(exit)
 	}
 }

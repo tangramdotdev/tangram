@@ -9,27 +9,18 @@ pub struct Arg {
 	pub url: Uri,
 }
 
-pub fn run(arg: &Arg) -> tg::Result<()> {
-	let runtime = tokio::runtime::Builder::new_current_thread()
-		.enable_all()
-		.build()
-		.map_err(|source| tg::error!(!source, "failed to create the runtime"))?;
-
-	runtime.block_on(async move {
-		let server = crate::server::Server::new(crate::server::Arg {
-			library_paths: arg.library_paths.clone(),
-			output_path: arg.output_path.clone(),
-			tangram_path: arg.tangram_path.clone(),
-		});
-		if arg.listen {
-			let listener = crate::server::Server::listen(&arg.url).await?;
-			server.serve(listener).await;
-		} else {
-			let stream = crate::server::Server::connect(&arg.url).await?;
-			server.serve_stream(stream).await;
-		}
-		Ok::<_, tg::Error>(())
-	})?;
-
+pub async fn run(arg: &Arg) -> tg::Result<()> {
+	let server = crate::server::Server::new(crate::server::Arg {
+		library_paths: arg.library_paths.clone(),
+		output_path: arg.output_path.clone(),
+		tangram_path: arg.tangram_path.clone(),
+	});
+	if arg.listen {
+		let listener = crate::server::Server::listen(&arg.url).await?;
+		server.serve(listener).await;
+	} else {
+		let stream = crate::server::Server::connect(&arg.url).await?;
+		server.serve_stream(stream).await;
+	}
 	Ok(())
 }

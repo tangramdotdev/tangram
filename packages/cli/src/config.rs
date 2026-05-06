@@ -100,11 +100,11 @@ pub enum TracingFormat {
 }
 
 impl Cli {
-	pub(crate) fn read_config_with_path(path: Option<PathBuf>) -> tg::Result<Option<Config>> {
+	pub(crate) async fn read_config_with_path(path: Option<PathBuf>) -> tg::Result<Option<Config>> {
 		let path = path.unwrap_or_else(|| {
 			PathBuf::from(std::env::var("HOME").unwrap()).join(".config/tangram/config.json")
 		});
-		let config = match std::fs::read_to_string(&path) {
+		let config = match tokio::fs::read_to_string(&path).await {
 			Ok(config) => config,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
 				return Ok(None);

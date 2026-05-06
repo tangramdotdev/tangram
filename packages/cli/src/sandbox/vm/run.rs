@@ -57,8 +57,7 @@ pub struct Args {
 }
 
 impl Cli {
-	#[must_use]
-	pub fn command_sandbox_vm_run(args: Args) -> std::process::ExitCode {
+	pub fn command_sandbox_vm_run(args: Args) -> tg::Result<std::process::ExitCode> {
 		let arg = tangram_sandbox::vm::run::Arg {
 			artifacts_path: args.artifacts_path,
 			cpu: args.cpu,
@@ -77,13 +76,6 @@ impl Cli {
 			url: args.url,
 			user: args.user,
 		};
-		let result = tangram_sandbox::vm::run::run(&arg);
-		match result {
-			Ok(code) => code,
-			Err(error) => {
-				Cli::print_error_basic(tg::Referent::with_item(error));
-				std::process::ExitCode::FAILURE
-			},
-		}
+		tangram_sandbox::vm::run::run(&arg)
 	}
 }

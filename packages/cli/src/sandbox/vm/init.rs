@@ -82,22 +82,8 @@ impl Args {
 }
 
 impl Cli {
-	#[must_use]
-	pub fn command_sandbox_vm_init(args: Args) -> std::process::ExitCode {
-		let arg = match args.into_arg() {
-			Ok(arg) => arg,
-			Err(error) => {
-				Cli::print_error_basic(tg::Referent::with_item(error));
-				return std::process::ExitCode::FAILURE;
-			},
-		};
-		let result = tangram_sandbox::vm::init::run(&arg);
-		match result {
-			Ok(code) => code,
-			Err(error) => {
-				Cli::print_error_basic(tg::Referent::with_item(error));
-				std::process::ExitCode::FAILURE
-			},
-		}
+	pub fn command_sandbox_vm_init(args: Args) -> tg::Result<std::process::ExitCode> {
+		let arg = args.into_arg()?;
+		tangram_sandbox::vm::init::run(&arg)
 	}
 }

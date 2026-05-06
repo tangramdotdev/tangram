@@ -31,24 +31,16 @@ pub struct Args {
 }
 
 impl Cli {
-	#[must_use]
-	pub fn command_builtin(matches: &clap::ArgMatches, args: Args) -> std::process::ExitCode {
-		match Self::command_builtin_inner(matches, args) {
-			Ok(exit) => exit,
-			Err(error) => {
-				Cli::print_error_basic(tg::Referent::with_item(error));
-				std::process::ExitCode::FAILURE
-			},
-		}
+	pub async fn command_builtin(&mut self, args: Args) -> tg::Result<()> {
+		let exit = self.command_builtin_inner(args).await?;
+		self.exit.replace(exit.into());
+		Ok(())
 	}
 
-	fn command_builtin_inner(
-		matches: &clap::ArgMatches,
-		args: Args,
-	) -> tg::Result<std::process::ExitCode> {
+	async fn command_builtin_inner(&self, args: Args) -> tg::Result<u8> {
 		// Get the args.
 		let mut args_: Vec<tg::Value> = Vec::new();
-		let mut matches = matches;
+		let mut matches = &self.matches;
 		while let Some((_, matches_)) = matches.subcommand() {
 			matches = matches_;
 		}
@@ -112,17 +104,12 @@ impl Cli {
 		let client = tg::Client::new(tg::Arg::default())?;
 
 		// Run.
-		let future = tangram_builtin::run(&client, args_, cwd, env, executable, logger, None);
 		let tangram_builtin::Output {
 			error,
 			exit,
 			output,
 			checksum,
-		} = tokio::runtime::Builder::new_current_thread()
-			.enable_all()
-			.build()
-			.map_err(|error| tg::error!(source = error, "failed to create the tokio runtime"))?
-			.block_on(future)?;
+		} = tangram_builtin::run(&client, args_, cwd, env, executable, logger, None).await?;
 
 		// Write the output.
 		if let Ok(output_path) = std::env::var("TANGRAM_OUTPUT")
@@ -161,6 +148,6 @@ impl Cli {
 			}
 		}
 
-		Ok(exit.into())
+		Ok(exit)
 	}
 }
