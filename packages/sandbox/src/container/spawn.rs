@@ -21,7 +21,10 @@ struct User {
 pub(crate) async fn spawn(
 	arg: &crate::Arg,
 	serve_arg: &crate::serve::Arg,
-) -> tg::Result<tokio::process::Child> {
+) -> tg::Result<(
+	tokio::process::Child,
+	Option<crate::network::pasta::Network>,
+)> {
 	let crate::Isolation::Container(_) = &arg.isolation else {
 		unreachable!()
 	};
@@ -29,6 +32,7 @@ pub(crate) async fn spawn(
 		None => None,
 		Some(crate::Network::Host) => Some("host".to_owned()),
 		Some(crate::Network::Bridge(bridge)) => Some(format!("bridge={}", bridge.name)),
+		Some(crate::Network::Pasta) => Some("pasta".to_owned()),
 		Some(crate::Network::Tap) => {
 			return Err(tg::error!(
 				"container sandboxes do not support tap networking"
@@ -43,6 +47,13 @@ pub(crate) async fn spawn(
 				.await
 				.map_err(|error| tg::error!(!error, "the bridge creation task panicked"))??,
 		)
+	} else {
+		None
+	};
+	let mut pasta = if matches!(&arg.network, Some(crate::Network::Pasta)) {
+		Some(crate::network::pasta::Network::new(
+			crate::network::pasta::Options::default(),
+		)?)
 	} else {
 		None
 	};
@@ -96,8 +107,13 @@ pub(crate) async fn spawn(
 	}
 	if let Some(bridge) = bridge.as_ref() {
 		command
-			.arg("--bridge-fd")
+			.arg("--network-fd")
 			.arg(bridge.guest_pipe.as_ref().unwrap().as_raw_fd().to_string());
+	}
+	if let Some(pasta) = pasta.as_ref() {
+		command
+			.arg("--network-fd")
+			.arg(pasta.guest_pipe.as_ref().unwrap().as_raw_fd().to_string());
 	}
 	if let Some(crate::Network::Bridge(bridge)) = &arg.network {
 		command.arg("--bridge-ip").arg(bridge.ip.to_string());
@@ -205,7 +221,15 @@ pub(crate) async fn spawn(
 		let pid = i32::try_from(pid).map_err(|error| tg::error!(!error, "invalid child pid"))?;
 		bridge.connect(pid).await?;
 	}
-	Ok(child)
+	if let Some(pasta) = pasta.as_mut() {
+		drop(pasta.guest_pipe.take());
+		let pid = child
+			.id()
+			.ok_or_else(|| tg::error!("no child pid available"))?;
+		let pid = i32::try_from(pid).map_err(|source| tg::error!(!source, "invalid child pid"))?;
+		pasta.connect(pid).await?;
+	}
+	Ok((child, pasta))
 }
 
 fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {

@@ -144,26 +144,25 @@ impl Session {
 				Some(tangram_sandbox::Network::Host)
 			},
 			(tg::Either::Right(tg::sandbox::Network::Bridge), _) => {
-				let ip = self
-					.server
-					.config
-					.sandbox
-					.bridge
-					.as_ref()
-					.and_then(|bridge| bridge.ip)
-					.unwrap_or_else(crate::config::default_bridge_ip);
-				let name = self
-					.server
-					.config()
-					.sandbox
-					.bridge
-					.as_ref()
-					.and_then(|bridge| bridge.name.clone())
-					.unwrap_or_else(|| "tangram0".to_owned());
-				Some(tangram_sandbox::Network::Bridge(tangram_sandbox::Bridge {
-					ip,
-					name,
-				}))
+				match self.config.sandbox.network.as_ref() {
+					Some(crate::config::Network::Pasta(_)) => Some(tangram_sandbox::Network::Pasta),
+					Some(crate::config::Network::Bridge(_)) | None => {
+						let bridge = match self.config.sandbox.network.as_ref() {
+							Some(crate::config::Network::Bridge(bridge)) => Some(bridge),
+							_ => None,
+						};
+						let ip = bridge
+							.and_then(|bridge| bridge.ip)
+							.unwrap_or_else(crate::config::default_bridge_ip);
+						let name = bridge
+							.and_then(|bridge| bridge.name.clone())
+							.unwrap_or_else(|| "tangram0".to_owned());
+						Some(tangram_sandbox::Network::Bridge(tangram_sandbox::Bridge {
+							ip,
+							name,
+						}))
+					},
+				}
 			},
 		};
 		let (host_ip, guest_ip) = match (&isolation, network.as_ref()) {

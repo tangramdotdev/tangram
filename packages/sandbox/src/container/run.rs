@@ -20,7 +20,6 @@ use {
 pub struct Arg {
 	pub as_pid_1: bool,
 	pub binds: Vec<Bind>,
-	pub bridge_fd: Option<i32>,
 	pub bridge_ip: Option<Ipv4Addr>,
 	pub cgroup: Option<String>,
 	pub cgroup_cpu: Option<u64>,
@@ -35,6 +34,7 @@ pub struct Arg {
 	pub hostname: Option<String>,
 	pub id: tg::sandbox::Id,
 	pub network: Option<Network>,
+	pub network_fd: Option<i32>,
 	pub new_session: bool,
 	pub nice: u8,
 	pub overlay_sources: Vec<PathBuf>,
@@ -57,6 +57,7 @@ pub struct Bind {
 pub enum Network {
 	Host,
 	Bridge(String),
+	Pasta,
 }
 
 #[derive(Clone, Debug)]
@@ -108,17 +109,17 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 					libc::CLONE_NEWNET,
 					"failed to unshare the network namespace",
 				)?;
-				let bridge_fd = arg
-					.bridge_fd
+				let network_fd = arg
+					.network_fd
 					.ok_or_else(|| tg::error!("bridge networking requires a sync fd"))?;
-				if bridge_fd < 0 {
+				if network_fd < 0 {
 					return Err(tg::error!(
-						fd = %bridge_fd,
+						fd = %network_fd,
 						"bridge networking requires a valid sync fd"
 					));
 				}
-				let bridge_fd = unsafe { OwnedFd::from_raw_fd(bridge_fd) };
-				let mut socket = UnixStream::from(bridge_fd);
+				let network_fd = unsafe { OwnedFd::from_raw_fd(network_fd) };
+				let mut socket = UnixStream::from(network_fd);
 				socket
 					.write_all(&[0u8])
 					.map_err(|error| tg::error!(!error, "failed to signal ready to the host"))?;
@@ -141,6 +142,36 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 				nl.link_set_up("eth0")?;
 				nl.link_set_up("lo")?;
 				nl.route_add_default_v4(bridge_ip)?;
+			},
+			Some(Network::Pasta) => {
+				// Unshare the netns first, then synchronize with the host:
+				// signal ready so the parent can spawn pasta against this
+				// process's pid, then wait for go once pasta has finished
+				// configuring the namespace. Pasta installs eth0, the
+				// addresses, and the default route, so no netlink work is
+				// required here.
+				unshare(
+					libc::CLONE_NEWNET,
+					"failed to unshare the network namespace",
+				)?;
+				let network_fd = arg
+					.network_fd
+					.ok_or_else(|| tg::error!("pasta networking requires a sync fd"))?;
+				if network_fd < 0 {
+					return Err(tg::error!(
+						fd = %network_fd,
+						"pasta networking requires a valid sync fd"
+					));
+				}
+				let network_fd = unsafe { OwnedFd::from_raw_fd(network_fd) };
+				let mut socket = UnixStream::from(network_fd);
+				socket
+					.write_all(&[0u8])
+					.map_err(|source| tg::error!(!source, "failed to signal ready to the host"))?;
+				let mut buf = [0u8; 1];
+				socket
+					.read_exact(&mut buf)
+					.map_err(|source| tg::error!(!source, "failed to wait for go from the host"))?;
 			},
 		}
 		let mut flags = libc::CLONE_NEWNS | libc::CLONE_NEWIPC;
@@ -570,6 +601,7 @@ impl std::str::FromStr for Network {
 		match s {
 			"host" => Ok(Self::Host),
 			"bridge" => Ok(Self::Bridge("tangram0".to_owned())),
+			"pasta" => Ok(Self::Pasta),
 			s => {
 				if let Some(name) = s.strip_prefix("bridge=") {
 					if name.is_empty() {

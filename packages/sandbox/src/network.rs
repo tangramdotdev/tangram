@@ -3,6 +3,8 @@ use {std::net::Ipv4Addr, tangram_client::prelude::*};
 #[cfg(target_os = "linux")]
 mod linux;
 
+pub mod pasta;
+
 #[cfg(target_os = "linux")]
 pub(crate) use self::linux::{Bridge, Tap};
 

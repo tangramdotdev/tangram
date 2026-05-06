@@ -222,7 +222,6 @@ fn build_mount_arg(arg: &Arg) -> container::run::Arg {
 	container::run::Arg {
 		as_pid_1: false,
 		binds,
-		bridge_fd: None,
 		bridge_ip: None,
 		cgroup: None,
 		cgroup_cpu: None,
@@ -237,6 +236,7 @@ fn build_mount_arg(arg: &Arg) -> container::run::Arg {
 		hostname: None,
 		id: arg.id.clone(),
 		network: None,
+		network_fd: None,
 		new_session: false,
 		nice: 0,
 		overlay_sources: vec![arg.rootfs_path.clone()],

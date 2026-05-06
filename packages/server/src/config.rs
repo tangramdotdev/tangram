@@ -564,7 +564,7 @@ pub enum JsEngine {
 #[serde(default, deny_unknown_fields)]
 pub struct Sandbox {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub bridge: Option<Bridge>,
+	pub network: Option<Network>,
 
 	#[serde(default = "default_dns", skip_serializing_if = "Vec::is_empty")]
 	pub dns: Vec<Ipv4Addr>,
@@ -616,6 +616,13 @@ pub enum ContainerNetwork {
 	Bridge(Bridge),
 }
 
+#[derive(Clone, Debug, derive_more::IsVariant, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum Network {
+	Bridge(Bridge),
+	Pasta(Pasta),
+}
+
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Bridge {
@@ -624,6 +631,10 @@ pub struct Bridge {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub name: Option<String>,
 }
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct Pasta {}
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -1111,7 +1122,7 @@ impl Default for Runner {
 impl Default for Sandbox {
 	fn default() -> Self {
 		Self {
-			bridge: None,
+			network: None,
 			dns: default_dns(),
 			finalizer: Some(Finalizer::default()),
 			isolation: SandboxIsolation::default(),

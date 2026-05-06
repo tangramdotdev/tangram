@@ -38,6 +38,8 @@ pub struct State {
 	isolation: Isolation,
 	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	mounts: Vec<tg::sandbox::Mount>,
+	#[expect(dead_code)]
+	pasta: Option<crate::network::pasta::Network>,
 	path: PathBuf,
 	#[expect(dead_code)]
 	process: tokio::process::Child,
@@ -116,6 +118,7 @@ pub enum Network {
 	#[default]
 	Host,
 	Bridge(Bridge),
+	Pasta,
 	Tap,
 }
 
@@ -206,7 +209,7 @@ impl Sandbox {
 			url,
 		};
 
-		let mut process = match arg.isolation {
+		let (mut process, pasta) = match arg.isolation {
 			#[cfg(target_os = "linux")]
 			Isolation::Container(_) => self::container::spawn(&arg, &serve_arg).await?,
 			#[cfg(target_os = "linux")]
@@ -218,9 +221,9 @@ impl Sandbox {
 				return Err(tg::error!("container isolation is not supported on macos"));
 			},
 			#[cfg(target_os = "macos")]
-			Isolation::Seatbelt(_) => self::seatbelt::spawn(&arg, &serve_arg)?,
+			Isolation::Seatbelt(_) => (self::seatbelt::spawn(&arg, &serve_arg)?, None),
 			#[cfg(target_os = "linux")]
-			Isolation::Vm(_) => self::vm::spawn(&arg, &serve_arg)?,
+			Isolation::Vm(_) => (self::vm::spawn(&arg, &serve_arg)?, None),
 			#[cfg(target_os = "macos")]
 			Isolation::Vm(_) => {
 				return Err(tg::error!("vm isolation is not supported on macos"));
@@ -276,6 +279,7 @@ impl Sandbox {
 			client,
 			isolation: arg.isolation,
 			mounts: arg.mounts,
+			pasta,
 			path: arg.path,
 			process,
 			tangram_path: arg.tangram_path,
