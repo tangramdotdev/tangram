@@ -1,7 +1,9 @@
 mod id;
+mod isolation;
 mod mount;
+mod network;
 
-pub use self::{id::Id, mount::Mount, status::Status};
+pub use self::{id::Id, isolation::Isolation, mount::Mount, network::Network, status::Status};
 
 pub mod create;
 pub mod delete;

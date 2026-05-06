@@ -52,6 +52,7 @@ impl Server {
 					cpu,
 					created_at,
 					hostname,
+					isolation,
 					memory,
 					mounts,
 					network,
@@ -69,7 +70,8 @@ impl Server {
 					{p}7,
 					{p}8,
 					{p}9,
-					{p}10
+					{p}10,
+					{p}11
 				);
 			"
 		);
@@ -93,9 +95,10 @@ impl Server {
 			cpu,
 			now,
 			arg.hostname.clone(),
+			arg.isolation.map(db::value::Json),
 			memory,
 			(!arg.mounts.is_empty()).then(|| db::value::Json(arg.mounts.clone())),
-			arg.network,
+			db::value::Json(arg.network.clone()),
 			tg::sandbox::Status::Created.to_string(),
 			db::value::DurationSeconds(ttl),
 			arg.user.clone(),

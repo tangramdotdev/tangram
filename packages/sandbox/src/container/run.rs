@@ -78,6 +78,21 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		set_parent_death_signal(libc::SIGKILL)?;
 	}
 
+	let cgroup = arg
+		.cgroup
+		.as_deref()
+		.map(|name| {
+			cgroup::Cgroup::new(
+				name,
+				cgroup::Options {
+					cpu: arg.cgroup_cpu,
+					memory: arg.cgroup_memory,
+					memory_oom_group: arg.cgroup_memory_oom_group,
+				},
+			)
+		})
+		.transpose()
+		.map_err(|source| tg::error!(!source, "failed to create the cgroup"))?;
 	if arg.unshare_all {
 		enter_user_namespace(arg.uid, arg.gid)?;
 		match &arg.network {
@@ -144,22 +159,6 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 
 	let root = prepare_root(arg)?;
 	let root_path = root.as_ref().map(|root| root.path().join("root"));
-
-	let cgroup = arg
-		.cgroup
-		.as_deref()
-		.map(|name| {
-			cgroup::Cgroup::new(
-				name,
-				cgroup::Options {
-					cpu: arg.cgroup_cpu,
-					memory: arg.cgroup_memory,
-					memory_oom_group: arg.cgroup_memory_oom_group,
-				},
-			)
-		})
-		.transpose()
-		.map_err(|source| tg::error!(!source, "failed to create the cgroup"))?;
 
 	let (child, move_child_to_cgroup) = if let Some(cgroup) = &cgroup {
 		fork_with_cgroup(cgroup)?

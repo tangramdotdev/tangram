@@ -566,6 +566,9 @@ pub enum JsEngine {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Sandbox {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub bridge: Option<Bridge>,
+
 	#[serde(default = "default_dns", skip_serializing_if = "Vec::is_empty")]
 	pub dns: Vec<Ipv4Addr>,
 
@@ -582,13 +585,12 @@ pub struct Sandbox {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
-pub enum SandboxIsolation {
-	Container(ContainerSandboxIsolation),
-
-	Seatbelt(SeatbeltSandboxIsolation),
-
-	Vm(VmSandboxIsolation),
+#[serde(deny_unknown_fields)]
+pub struct SandboxIsolation {
+	pub container: Option<ContainerSandboxIsolation>,
+	pub seatbelt: Option<SeatbeltSandboxIsolation>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub vm: Option<VmSandboxIsolation>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -605,12 +607,9 @@ pub struct IpRange {
 	pub max: Ipv4Addr,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Default, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, default)]
-pub struct ContainerSandboxIsolation {
-	#[serde(skip_serializing_if = "Option::is_none")]
-	pub network: Option<ContainerNetwork>,
-}
+pub struct ContainerSandboxIsolation {}
 
 #[derive(Clone, Debug, Default, derive_more::IsVariant, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
@@ -1112,31 +1111,39 @@ impl Default for Runner {
 	}
 }
 
-impl Default for ContainerSandboxIsolation {
+impl Default for Sandbox {
 	fn default() -> Self {
 		Self {
-			network: Some(ContainerNetwork::Host),
+			bridge: None,
+			dns: default_dns(),
+			finalizer: Some(Finalizer::default()),
+			isolation: SandboxIsolation::default(),
+			networks: default_networks(),
+			nice: 5,
 		}
 	}
 }
 
-impl Default for Sandbox {
+impl Default for SandboxIsolation {
 	fn default() -> Self {
-		Self {
-			dns: default_dns(),
-			finalizer: Some(Finalizer::default()),
-			isolation: {
-				#[cfg(target_os = "linux")]
-				{
-					SandboxIsolation::Container(ContainerSandboxIsolation::default())
-				}
-				#[cfg(target_os = "macos")]
-				{
-					SandboxIsolation::Seatbelt(SeatbeltSandboxIsolation::default())
-				}
-			},
-			networks: default_networks(),
-			nice: 5,
+		if cfg!(target_os = "linux") {
+			Self {
+				container: Some(ContainerSandboxIsolation {}),
+				seatbelt: None,
+				vm: None,
+			}
+		} else if cfg!(target_os = "macos") {
+			Self {
+				container: None,
+				seatbelt: Some(SeatbeltSandboxIsolation {}),
+				vm: None,
+			}
+		} else {
+			Self {
+				container: None,
+				seatbelt: None,
+				vm: None,
+			}
 		}
 	}
 }

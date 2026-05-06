@@ -12,12 +12,50 @@ export namespace Sandbox {
 	export type Arg = {
 		cpu?: number | undefined;
 		hostname?: string | undefined;
+		isolation?: tg.Sandbox.Isolation | undefined;
+		location?: tg.Location.Arg | undefined;
 		memory?: number | undefined;
 		mounts?: Array<tg.Sandbox.Mount> | undefined;
-		network?: boolean | undefined;
+		network?: boolean | tg.Sandbox.Network | undefined;
 		ttl?: number | undefined;
 		user?: string | undefined;
 	};
+
+	export type Isolation = "container" | "seatbelt" | "vm";
+
+	export namespace Isolation {
+		export type Data = { kind: tg.Sandbox.Isolation };
+
+		export let toData = (
+			value: tg.Sandbox.Isolation,
+		): tg.Sandbox.Isolation.Data => {
+			return { kind: value };
+		};
+
+		export let fromData = (
+			data: tg.Sandbox.Isolation.Data,
+		): tg.Sandbox.Isolation => {
+			return data.kind;
+		};
+	}
+
+	export type Network = "host" | "bridge";
+
+	export namespace Network {
+		export type Data = { kind: tg.Sandbox.Network };
+
+		export let toData = (
+			value: tg.Sandbox.Network,
+		): tg.Sandbox.Network.Data => {
+			return { kind: value };
+		};
+
+		export let fromData = (
+			data: tg.Sandbox.Network.Data,
+		): tg.Sandbox.Network => {
+			return data.kind;
+		};
+	}
 
 	export type Status = "created" | "started" | "finished";
 

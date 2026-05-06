@@ -35,7 +35,8 @@ pub struct Item {
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub mounts: Vec<tg::sandbox::Mount>,
 
-	pub network: bool,
+	#[serde(default = "default_network")]
+	pub network: tg::Either<bool, tg::sandbox::Network>,
 
 	pub status: tg::sandbox::Status,
 
@@ -81,4 +82,8 @@ impl tg::Client {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the response"))?;
 		Ok(output)
 	}
+}
+
+fn default_network() -> tg::Either<bool, tg::sandbox::Network> {
+	tg::Either::Left(false)
 }

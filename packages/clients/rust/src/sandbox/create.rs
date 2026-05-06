@@ -6,13 +6,16 @@ use {
 };
 
 #[serde_as]
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cpu: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub hostname: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub isolation: Option<tg::sandbox::Isolation>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
@@ -23,7 +26,11 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub mounts: Vec<tg::sandbox::Mount>,
 
-	pub network: bool,
+	#[serde(
+		default = "default_network",
+		skip_serializing_if = "is_default_network"
+	)]
+	pub network: tg::Either<bool, tg::sandbox::Network>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -72,4 +79,12 @@ impl tg::Client {
 			.map_err(|source| tg::error!(!source, "failed to deserialize the response"))?;
 		Ok(output)
 	}
+}
+
+fn default_network() -> tg::Either<bool, tg::sandbox::Network> {
+	tg::Either::Left(false)
+}
+
+fn is_default_network(network: &tg::Either<bool, tg::sandbox::Network>) -> bool {
+	matches!(network, tg::Either::Left(false))
 }

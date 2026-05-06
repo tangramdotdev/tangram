@@ -51,6 +51,9 @@ pub struct Options {
 	pub hostname: Option<String>,
 
 	#[arg(long)]
+	pub isolation: Option<tg::sandbox::Isolation>,
+
+	#[arg(long)]
 	pub memory: Option<u64>,
 
 	#[arg(action = clap::ArgAction::Append, long = "mount", num_args = 1, short)]
@@ -65,42 +68,33 @@ pub struct Options {
 
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Network {
-	/// Whether to enable the network.
+	/// Enable networking.
 	#[arg(
 		default_missing_value = "true",
 		long,
 		num_args = 0..=1,
 		overrides_with = "no_network",
-		require_equals = true,
 	)]
-	network: Option<bool>,
+	network: Option<tg::Either<bool, tg::sandbox::Network>>,
 
-	#[arg(
-		default_missing_value = "true",
-		long,
-		num_args = 0..=1,
-		overrides_with = "network",
-		require_equals = true,
-	)]
-	no_network: Option<bool>,
+	#[arg(long, overrides_with = "network")]
+	no_network: bool,
 }
 
 impl Network {
-	pub fn get(&self) -> bool {
-		self.network
-			.or(self.no_network.map(|v| !v))
-			.unwrap_or(false)
-	}
-
-	pub fn new(network: bool) -> Self {
+	pub fn with_network(network: tg::sandbox::Network) -> Self {
 		Self {
-			network: Some(network),
-			no_network: None,
+			network: Some(tg::Either::Right(network)),
+			no_network: false,
 		}
 	}
 
-	pub fn try_get(&self) -> Option<bool> {
-		self.network.or(self.no_network.map(|v| !v))
+	pub fn get(&self) -> Option<tg::Either<bool, tg::sandbox::Network>> {
+		if self.no_network {
+			Some(tg::Either::Left(false))
+		} else {
+			self.network.clone()
+		}
 	}
 }
 
@@ -108,9 +102,10 @@ impl Options {
 	pub fn is_empty(&self) -> bool {
 		self.cpu.is_none()
 			&& self.hostname.is_none()
+			&& self.isolation.is_none()
 			&& self.memory.is_none()
 			&& self.mounts.is_empty()
-			&& self.network.try_get().is_none()
+			&& self.network.get().is_none()
 			&& self.user.is_none()
 	}
 }

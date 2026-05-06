@@ -31,9 +31,11 @@ export namespace Handle {
 	export type SandboxArg = {
 		cpu?: number | undefined;
 		hostname?: string | undefined;
+		isolation?: tg.Sandbox.Isolation.Data | undefined;
+		location?: tg.Location.Arg | undefined;
 		memory?: number | undefined;
 		mounts?: Array<tg.Sandbox.Mount.Data> | undefined;
-		network: boolean;
+		network: boolean | tg.Sandbox.Network.Data;
 		ttl?: number | undefined;
 		user?: string | undefined;
 	};

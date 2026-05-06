@@ -35,10 +35,11 @@ impl Cli {
 		let arg = tg::sandbox::create::Arg {
 			cpu: args.arg.cpu,
 			hostname: args.arg.hostname,
+			isolation: args.arg.isolation,
 			location: args.location.get(),
 			memory: args.arg.memory,
 			mounts: args.arg.mounts,
-			network: args.arg.network.get(),
+			network: args.arg.network.get().unwrap_or(tg::Either::Left(false)),
 			ttl: args.ttl.get(),
 			user: args.arg.user,
 		};

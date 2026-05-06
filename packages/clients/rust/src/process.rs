@@ -89,7 +89,7 @@ pub struct Arg {
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub name: Option<String>,
-	pub network: Option<bool>,
+	pub network: Option<tg::Either<bool, tg::sandbox::Network>>,
 	pub retry: bool,
 	pub sandbox: Option<tg::process::SandboxArg>,
 	pub stderr: tg::process::Stdio,
@@ -106,15 +106,33 @@ pub enum SandboxArg {
 	Id(tg::sandbox::Id),
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct SandboxCreateArg {
 	pub cpu: Option<u64>,
 	pub hostname: Option<String>,
+	pub isolation: Option<tg::sandbox::Isolation>,
+	pub location: Option<tg::location::Arg>,
 	pub memory: Option<u64>,
 	pub mounts: Vec<tg::sandbox::Mount>,
-	pub network: bool,
+	pub network: tg::Either<bool, tg::sandbox::Network>,
 	pub ttl: Option<Option<Duration>>,
 	pub user: Option<String>,
+}
+
+impl Default for SandboxCreateArg {
+	fn default() -> Self {
+		Self {
+			cpu: None,
+			hostname: None,
+			isolation: None,
+			location: None,
+			memory: None,
+			mounts: Vec::new(),
+			network: tg::Either::Left(false),
+			ttl: None,
+			user: None,
+		}
+	}
 }
 
 impl<O> Process<O> {

@@ -62,10 +62,13 @@ impl Server {
 		struct Row {
 			cpu: Option<i64>,
 			hostname: Option<String>,
+			#[tangram_database(as = "Option<db::value::Json<tg::sandbox::Isolation>>")]
+			isolation: Option<tg::sandbox::Isolation>,
 			memory: Option<i64>,
 			#[tangram_database(as = "Option<db::value::Json<Vec<tg::sandbox::Mount>>>")]
 			mounts: Option<Vec<tg::sandbox::Mount>>,
-			network: bool,
+			#[tangram_database(as = "db::value::Json<tg::Either<bool, tg::sandbox::Network>>")]
+			network: tg::Either<bool, tg::sandbox::Network>,
 			#[tangram_database(as = "db::value::FromStr")]
 			status: tg::sandbox::Status,
 			#[tangram_database(as = "Option<db::value::DurationSeconds>")]
@@ -83,6 +86,7 @@ impl Server {
 				select
 					cpu,
 					hostname,
+					isolation,
 					memory,
 					mounts,
 					network,
@@ -107,6 +111,7 @@ impl Server {
 						.transpose()
 						.map_err(|source| tg::error!(!source, "invalid sandbox cpu"))?,
 					id: id.clone(),
+					isolation: row.isolation,
 					location: Some(self.config().region.clone().map_or_else(
 						|| tg::Location::Local(tg::location::Local::default()),
 						|region| {

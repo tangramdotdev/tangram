@@ -15,23 +15,19 @@ use {
 mod client;
 #[cfg(target_os = "linux")]
 mod netlink;
-#[cfg(target_os = "linux")]
-mod network;
 mod pty;
 mod server;
 mod util;
 
 #[cfg(target_os = "linux")]
 pub mod container;
+pub mod network;
 pub mod root;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
 pub mod serve;
 #[cfg(target_os = "linux")]
 pub mod vm;
-
-#[cfg(target_os = "linux")]
-pub use self::network::{cleanup_persistent_rules, create_bridge};
 
 #[derive(Clone)]
 pub struct Sandbox(Arc<State>);
@@ -102,12 +98,8 @@ pub enum Isolation {
 	Vm(VmIsolation),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(default)]
-pub struct ContainerIsolation {
-	#[serde(skip_serializing_if = "Option::is_none")]
-	pub network: Option<Network>,
-}
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ContainerIsolation {}
 
 #[derive(
 	Clone,
@@ -512,14 +504,6 @@ fn validate_resources(
 		));
 	}
 	Ok(())
-}
-
-impl Default for ContainerIsolation {
-	fn default() -> Self {
-		Self {
-			network: Some(Network::Host),
-		}
-	}
 }
 
 impl std::ops::Deref for Sandbox {

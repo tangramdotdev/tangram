@@ -9,6 +9,7 @@ const server_exit_directory_name = 'server_jobs'
 
 def main [
 	--accept (-a) # Accept all new and updated snapshots.
+	--bridge # Use bridge networking as the default for the test harness.
 	--clean # Clean up leftover test resources from cockroach, postgres, scylla, and nats.
 	--cloud # Enable cloud database backends (cockroach, postgres, scylla, nats) for spawn --cloud.
 	--jobs (-j): int # The number of concurrent tests to run.
@@ -115,7 +116,7 @@ def main [
 	let kernel_path_str = $kernel_path | default "" | into string
 	if $no_capture {
 		for test in $tests {
-			let result = run_test $test $cloud $quickjs $no_capture $preserve_temps $timeout $vm $kernel_path_str
+			let result = run_test $test $bridge $cloud $quickjs $no_capture $preserve_temps $timeout $vm $kernel_path_str
 			print_test_result $result $print_passing_test_output
 			$results = $results | append $result
 		}
@@ -129,7 +130,7 @@ def main [
 
 		def spawn [test: record] {
 			job spawn {
-				let result = run_test $test $cloud $quickjs $no_capture $preserve_temps $timeout $vm $kernel_path_str
+				let result = run_test $test $bridge $cloud $quickjs $no_capture $preserve_temps $timeout $vm $kernel_path_str
 				$result | job send 0
 			}
 		}
@@ -353,7 +354,7 @@ def main [
 	}
 }
 
-def run_test [test: record, cloud: bool, quickjs: bool, no_capture: bool, preserve_temps: bool, timeout: duration, vm: bool, kernel_path: string] {
+def run_test [test: record, bridge: bool, cloud: bool, quickjs: bool, no_capture: bool, preserve_temps: bool, timeout: duration, vm: bool, kernel_path: string] {
 	# Create a temp directory for this test.
 	let temp_path = mktemp -d -t tangram_test_XXXXXX | path expand
 
@@ -405,6 +406,7 @@ def run_test [test: record, cloud: bool, quickjs: bool, no_capture: bool, preser
 		TANGRAM_CONFIG: ($temp_path | path join "config.json"),
 		TANGRAM_MODE: client,
 		TANGRAM_QUIET: true,
+		TANGRAM_TEST_BRIDGE: (if $bridge { "1" } else { "" }),
 		TANGRAM_TEST_CLOUD: (if $cloud { "1" } else { "" }),
 		TANGRAM_TEST_QUICKJS: (if $quickjs { "1" } else { "" }),
 		TANGRAM_TEST_VM: (if $vm { "1" } else { "" }),
@@ -834,6 +836,7 @@ export def --env spawn [
 		}
 	}
 
+
 	let use_vm = (($env.TANGRAM_TEST_VM? | default "") | str length) > 0
 	if $use_vm {
 		let kernel_path = $env.TANGRAM_TEST_KERNEL_PATH? | default ""
@@ -846,6 +849,15 @@ export def --env spawn [
 					kind: 'vm',
 					kernel_path: $kernel_path,
 				},
+			},
+		}
+	}
+
+	let use_bridge = (($env.TANGRAM_TEST_BRIDGE? | default "") | str length) > 0
+	if $use_bridge {
+		$default_config = $default_config | merge deep {
+			sandbox: {
+				bridge: {},
 			},
 		}
 	}
