@@ -102,9 +102,17 @@ impl crate::Cli {
 
 		// REPL it.
 		loop {
-			let signal = editor
-				.read_line(&prompt)
-				.map_err(|source| tg::error!(!source, "failed to read from the repl"))?;
+			let prompt = prompt.clone();
+			let result = tokio::task::spawn_blocking(move || {
+				let signal = editor
+					.read_line(&prompt)
+					.map_err(|source| tg::error!(!source, "failed to read from the repl"))?;
+				Ok::<_, tg::Error>((editor, signal))
+			})
+			.await
+			.map_err(|source| tg::error!(!source, "failed to join the repl reader task"))??;
+			let (editor_, signal) = result;
+			editor = editor_;
 			match signal {
 				reedline::Signal::Success(source) if !source.trim().is_empty() => {
 					if source.trim() == ".exit" {
