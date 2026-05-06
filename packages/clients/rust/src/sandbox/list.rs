@@ -35,8 +35,8 @@ pub struct Item {
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub mounts: Vec<tg::sandbox::Mount>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub network: Option<tg::sandbox::Network>,
+	#[serde(default = "default_network")]
+	pub network: tg::Either<bool, tg::sandbox::Network>,
 
 	pub status: tg::sandbox::Status,
 
@@ -46,6 +46,10 @@ pub struct Item {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub user: Option<String>,
+}
+
+fn default_network() -> tg::Either<bool, tg::sandbox::Network> {
+	tg::Either::Left(false)
 }
 
 impl tg::Client {

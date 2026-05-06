@@ -1,7 +1,4 @@
-use {
-	std::net::Ipv4Addr,
-	tangram_client::prelude::*
-};
+use {std::net::Ipv4Addr, tangram_client::prelude::*};
 
 #[cfg(target_os = "linux")]
 mod linux;

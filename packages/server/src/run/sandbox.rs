@@ -110,10 +110,22 @@ impl Server {
 		});
 
 		let isolation = match &state.isolation {
-			Some(tg::sandbox::Isolation::Container) => tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation::default()),
-			Some(tg::sandbox::Isolation::Seatbelt) => tangram_sandbox::Isolation::Seatbelt(tangram_sandbox::SeatbeltIsolation::default()),
+			Some(tg::sandbox::Isolation::Container) => {
+				tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation::default())
+			},
+			Some(tg::sandbox::Isolation::Seatbelt) => {
+				tangram_sandbox::Isolation::Seatbelt(tangram_sandbox::SeatbeltIsolation::default())
+			},
 			Some(tg::sandbox::Isolation::Vm) => {
-				let kernel_path = self.config().sandbox.isolation.vm.as_ref().ok_or_else(|| tg::error!("no vm image configured"))?.kernel_path.clone();
+				let kernel_path = self
+					.config()
+					.sandbox
+					.isolation
+					.vm
+					.as_ref()
+					.ok_or_else(|| tg::error!("no vm image configured"))?
+					.kernel_path
+					.clone();
 				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation { kernel_path })
 			},
 			None => self.resolve_sandbox_isolation()?,

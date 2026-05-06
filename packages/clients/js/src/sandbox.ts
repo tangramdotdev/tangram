@@ -26,11 +26,15 @@ export namespace Sandbox {
 	export namespace Isolation {
 		export type Data = { kind: tg.Sandbox.Isolation };
 
-		export let toData = (value: tg.Sandbox.Isolation): tg.Sandbox.Isolation.Data => {
+		export let toData = (
+			value: tg.Sandbox.Isolation,
+		): tg.Sandbox.Isolation.Data => {
 			return { kind: value };
 		};
 
-		export let fromData = (data: tg.Sandbox.Isolation.Data): tg.Sandbox.Isolation => {
+		export let fromData = (
+			data: tg.Sandbox.Isolation.Data,
+		): tg.Sandbox.Isolation => {
 			return data.kind;
 		};
 	}
@@ -40,11 +44,15 @@ export namespace Sandbox {
 	export namespace Network {
 		export type Data = { kind: tg.Sandbox.Network };
 
-		export let toData = (value: tg.Sandbox.Network): tg.Sandbox.Network.Data => {
+		export let toData = (
+			value: tg.Sandbox.Network,
+		): tg.Sandbox.Network.Data => {
 			return { kind: value };
 		};
 
-		export let fromData = (data: tg.Sandbox.Network.Data): tg.Sandbox.Network => {
+		export let fromData = (
+			data: tg.Sandbox.Network.Data,
+		): tg.Sandbox.Network => {
 			return data.kind;
 		};
 	}
