@@ -26,11 +26,15 @@ pub struct Module {
 	Ord,
 	PartialEq,
 	PartialOrd,
+	derive_more::Display,
+	derive_more::FromStr,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
 #[tangram_serialize(display, from_str)]
 pub enum Kind {
 	Js,
@@ -111,47 +115,6 @@ impl std::fmt::Display for Module {
 		let mut printer = tg::value::print::Printer::new(f, tg::value::print::Options::default());
 		printer.module(self)?;
 		Ok(())
-	}
-}
-
-impl std::fmt::Display for Kind {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Js => write!(f, "js"),
-			Self::Ts => write!(f, "ts"),
-			Self::Dts => write!(f, "dts"),
-			Self::Object => write!(f, "object"),
-			Self::Artifact => write!(f, "artifact"),
-			Self::Blob => write!(f, "blob"),
-			Self::Directory => write!(f, "directory"),
-			Self::File => write!(f, "file"),
-			Self::Symlink => write!(f, "symlink"),
-			Self::Graph => write!(f, "graph"),
-			Self::Command => write!(f, "command"),
-			Self::Error => write!(f, "error"),
-		}
-	}
-}
-
-impl std::str::FromStr for Kind {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		match s {
-			"js" => Ok(Self::Js),
-			"ts" => Ok(Self::Ts),
-			"dts" => Ok(Self::Dts),
-			"object" => Ok(Self::Object),
-			"artifact" => Ok(Self::Artifact),
-			"blob" => Ok(Self::Blob),
-			"directory" => Ok(Self::Directory),
-			"file" => Ok(Self::File),
-			"symlink" => Ok(Self::Symlink),
-			"graph" => Ok(Self::Graph),
-			"command" => Ok(Self::Command),
-			"error" => Ok(Self::Error),
-			_ => Err(tg::error!(kind = %s, "invalid kind")),
-		}
 	}
 }
 

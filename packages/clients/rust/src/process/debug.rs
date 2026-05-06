@@ -1,5 +1,4 @@
 use {
-	crate::prelude::*,
 	serde_with::{DisplayFromStr, serde_as},
 	tangram_util::serde::is_default,
 };
@@ -35,6 +34,8 @@ pub struct Debug {
 	Copy,
 	Debug,
 	Default,
+	derive_more::Display,
+	derive_more::FromStr,
 	Eq,
 	PartialEq,
 	serde_with::DeserializeFromStr,
@@ -42,6 +43,8 @@ pub struct Debug {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
 #[tangram_serialize(display, from_str)]
 pub enum Mode {
 	#[default]
@@ -66,27 +69,4 @@ fn deserialize_addr(
 		.deserialize::<Option<String>>()?
 		.map(|value| value.parse().map_err(std::io::Error::other))
 		.transpose()
-}
-
-impl std::fmt::Display for Mode {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Normal => write!(f, "normal"),
-			Self::Break => write!(f, "break"),
-			Self::Wait => write!(f, "wait"),
-		}
-	}
-}
-
-impl std::str::FromStr for Mode {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		match s {
-			"normal" => Ok(Self::Normal),
-			"break" => Ok(Self::Break),
-			"wait" => Ok(Self::Wait),
-			_ => Err(tg::error!(mode = %s, "invalid mode")),
-		}
-	}
 }

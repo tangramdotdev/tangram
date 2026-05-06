@@ -167,7 +167,7 @@ where
 			async_compression::tokio::bufread::XzEncoder::new(tokio::io::BufReader::new(reader))
 				.boxed()
 		},
-		Some(tg::CompressionFormat::Zstd) => {
+		Some(tg::CompressionFormat::Zst) => {
 			async_compression::tokio::bufread::ZstdEncoder::new(tokio::io::BufReader::new(reader))
 				.boxed()
 		},

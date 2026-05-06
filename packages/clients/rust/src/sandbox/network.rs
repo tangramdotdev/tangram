@@ -1,30 +1,20 @@
-use crate::prelude::*;
-
 #[derive(
 	Clone,
 	Debug,
 	Default,
+	derive_more::Display,
+	derive_more::FromStr,
 	derive_more::IsVariant,
 	Eq,
 	PartialEq,
 	serde::Deserialize,
 	serde::Serialize,
 )]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum Network {
 	#[default]
 	Host,
 	Bridge,
-}
-
-impl std::str::FromStr for Network {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		match s {
-			"host" => Ok(Self::Host),
-			"bridge" => Ok(Self::Bridge),
-			option => Err(tg::error!(%option, "unknown network option")),
-		}
-	}
 }

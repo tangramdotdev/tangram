@@ -72,7 +72,7 @@ pub(crate) fn detect_compression_format(bytes: &[u8]) -> tg::Result<Option<tg::C
 		.get(..4)
 		.ok_or_else(|| tg::error!("buffer is too small"))?;
 	if n == [0x28, 0xB5, 0x2F, 0xFD] {
-		return Ok(Some(tg::CompressionFormat::Zstd));
+		return Ok(Some(tg::CompressionFormat::Zst));
 	}
 
 	// Bz2

@@ -18,8 +18,18 @@ pub struct Checksum {
 }
 
 #[derive(
-	Clone, Copy, Debug, Eq, PartialEq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
+	Clone,
+	Copy,
+	Debug,
+	Eq,
+	PartialEq,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+	derive_more::Display,
+	derive_more::FromStr,
 )]
+#[display(rename_all = "lowercase")]
+#[from_str(rename_all = "lowercase")]
 pub enum Algorithm {
 	Blake3,
 	Sha256,
@@ -135,34 +145,6 @@ impl std::str::FromStr for Checksum {
 		let checksum = Self { algorithm, body };
 
 		Ok(checksum)
-	}
-}
-
-impl std::fmt::Display for Algorithm {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let algorithm = match self {
-			Self::Blake3 => "blake3",
-			Self::Sha256 => "sha256",
-			Self::Sha512 => "sha512",
-		};
-		write!(f, "{algorithm}")?;
-		Ok(())
-	}
-}
-
-impl std::str::FromStr for Algorithm {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		let algorithm = match s {
-			"sha256" => Self::Sha256,
-			"sha512" => Self::Sha512,
-			"blake3" => Self::Blake3,
-			algorithm => {
-				return Err(tg::error!(%algorithm, "invalid algorithm"));
-			},
-		};
-		Ok(algorithm)
 	}
 }
 

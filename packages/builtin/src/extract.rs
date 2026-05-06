@@ -170,7 +170,7 @@ pub(crate) async fn extract_tar(
 		Some(tg::CompressionFormat::Xz) => {
 			async_compression::tokio::bufread::XzDecoder::new(reader).boxed()
 		},
-		Some(tg::CompressionFormat::Zstd) => {
+		Some(tg::CompressionFormat::Zst) => {
 			async_compression::tokio::bufread::ZstdDecoder::new(reader).boxed()
 		},
 		None => reader.boxed(),

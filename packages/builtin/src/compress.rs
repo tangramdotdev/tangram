@@ -94,7 +94,7 @@ where
 		tg::CompressionFormat::Xz => {
 			async_compression::tokio::bufread::XzEncoder::new(reader).boxed()
 		},
-		tg::CompressionFormat::Zstd => {
+		tg::CompressionFormat::Zst => {
 			async_compression::tokio::bufread::ZstdEncoder::new(reader).boxed()
 		},
 	};

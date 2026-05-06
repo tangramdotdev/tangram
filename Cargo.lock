@@ -7380,6 +7380,7 @@ name = "tangram_index"
 version = "0.0.0"
 dependencies = [
  "crossbeam-channel",
+ "derive_more",
  "foundationdb",
  "foundationdb-tuple",
  "futures",

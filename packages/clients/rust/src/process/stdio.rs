@@ -46,6 +46,8 @@ pub enum Stdio {
 	Clone,
 	Copy,
 	Debug,
+	derive_more::Display,
+	derive_more::FromStr,
 	Eq,
 	Hash,
 	Ord,
@@ -56,6 +58,8 @@ pub enum Stdio {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
 pub enum Stream {
 	#[tangram_serialize(id = 0)]
 	Stdin,
@@ -106,29 +110,6 @@ impl std::str::FromStr for Stdio {
 				.parse()
 				.map(Self::Blob)
 				.map_err(|_| tg::error!(%value, "invalid stdio")),
-		}
-	}
-}
-
-impl std::fmt::Display for Stream {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Stdin => write!(f, "stdin"),
-			Self::Stdout => write!(f, "stdout"),
-			Self::Stderr => write!(f, "stderr"),
-		}
-	}
-}
-
-impl std::str::FromStr for Stream {
-	type Err = tg::Error;
-
-	fn from_str(value: &str) -> Result<Self, Self::Err> {
-		match value {
-			"stdin" => Ok(Self::Stdin),
-			"stdout" => Ok(Self::Stdout),
-			"stderr" => Ok(Self::Stderr),
-			_ => Err(tg::error!(%value, "invalid stream")),
 		}
 	}
 }

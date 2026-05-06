@@ -133,7 +133,17 @@ pub struct VmIsolation {
 	pub kernel_path: PathBuf,
 }
 
-#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	derive_more::Display,
+	derive_more::FromStr,
+	serde::Serialize,
+	serde::Deserialize,
+)]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
 pub enum Stdio {
 	Null,
 	Pipe,
@@ -511,28 +521,5 @@ impl std::ops::Deref for Sandbox {
 
 	fn deref(&self) -> &Self::Target {
 		&self.0
-	}
-}
-
-impl std::fmt::Display for Stdio {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Null => write!(f, "null"),
-			Self::Pipe => write!(f, "pipe"),
-			Self::Tty => write!(f, "tty"),
-		}
-	}
-}
-
-impl std::str::FromStr for Stdio {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		match s {
-			"null" => Ok(Stdio::Null),
-			"pipe" => Ok(Stdio::Pipe),
-			"tty" => Ok(Stdio::Tty),
-			s => Err(tg::error!(string = %s, "invalid stdio {s}")),
-		}
 	}
 }

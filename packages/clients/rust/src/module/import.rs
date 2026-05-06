@@ -19,7 +19,10 @@ impl Import {
 		let kind = attributes
 			.as_mut()
 			.and_then(|attributes| attributes.remove("type").or(attributes.remove("kind")))
-			.map(|kind| kind.parse())
+			.map(|kind| {
+				kind.parse::<tg::module::Kind>()
+					.map_err(|source| tg::error!(!source, "invalid module kind"))
+			})
 			.transpose()?;
 		let artifact = attributes
 			.as_mut()

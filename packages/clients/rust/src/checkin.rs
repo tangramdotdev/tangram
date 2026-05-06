@@ -16,9 +16,13 @@ use {
 	Eq,
 	Hash,
 	PartialEq,
+	derive_more::Display,
+	derive_more::FromStr,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 )]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
 pub enum Lock {
 	#[default]
 	Auto,
@@ -187,29 +191,6 @@ impl Default for Options {
 			tag_ttl: None,
 			unsolved_dependencies: false,
 			watch: false,
-		}
-	}
-}
-
-impl std::fmt::Display for Lock {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Auto => write!(f, "auto"),
-			Self::Attr => write!(f, "attr"),
-			Self::File => write!(f, "file"),
-		}
-	}
-}
-
-impl std::str::FromStr for Lock {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		match s {
-			"auto" => Ok(Self::Auto),
-			"attr" => Ok(Self::Attr),
-			"file" => Ok(Self::File),
-			_ => Err(tg::error!(%s, "invalid lock")),
 		}
 	}
 }

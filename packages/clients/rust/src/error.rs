@@ -22,9 +22,9 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-#[tangram_serialize(display, from_str)]
 #[display(rename_all = "snake_case")]
 #[from_str(rename_all = "snake_case")]
+#[tangram_serialize(display, from_str)]
 pub enum Code {
 	Cancellation,
 	ChecksumMismatch,

@@ -278,11 +278,15 @@ pub struct Tag {
 	Debug,
 	num_derive::FromPrimitive,
 	num_derive::ToPrimitive,
+	derive_more::Display,
+	derive_more::FromStr,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
 pub enum ProcessObjectKind {
 	#[tangram_serialize(id = 0)]
 	Command = 0,
@@ -439,30 +443,5 @@ impl Tag {
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
 		tangram_serialize::from_slice(bytes)
 			.map_err(|source| tg::error!(!source, "failed to deserialize the tag"))
-	}
-}
-
-impl std::fmt::Display for ProcessObjectKind {
-	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Command => write!(formatter, "command"),
-			Self::Error => write!(formatter, "error"),
-			Self::Log => write!(formatter, "log"),
-			Self::Output => write!(formatter, "output"),
-		}
-	}
-}
-
-impl std::str::FromStr for ProcessObjectKind {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		match s {
-			"command" => Ok(Self::Command),
-			"error" => Ok(Self::Error),
-			"log" => Ok(Self::Log),
-			"output" => Ok(Self::Output),
-			_ => Err(tg::error!("invalid kind")),
-		}
 	}
 }

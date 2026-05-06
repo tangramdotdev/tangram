@@ -13,6 +13,8 @@ use {
 	Debug,
 	Eq,
 	PartialEq,
+	derive_more::Display,
+	derive_more::FromStr,
 	derive_more::IsVariant,
 	derive_more::Unwrap,
 	derive_more::TryUnwrap,
@@ -21,6 +23,8 @@ use {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
 #[tangram_serialize(display, from_str)]
 pub enum Status {
 	Created,
@@ -106,29 +110,6 @@ impl tg::Client {
 				)
 			});
 		Ok(Some(stream))
-	}
-}
-
-impl std::fmt::Display for Status {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Created => write!(f, "created"),
-			Self::Started => write!(f, "started"),
-			Self::Finished => write!(f, "finished"),
-		}
-	}
-}
-
-impl std::str::FromStr for Status {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		match s {
-			"created" => Ok(Self::Created),
-			"started" => Ok(Self::Started),
-			"finished" => Ok(Self::Finished),
-			status => Err(tg::error!(%status, "invalid value")),
-		}
 	}
 }
 

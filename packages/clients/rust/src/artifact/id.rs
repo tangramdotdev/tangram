@@ -9,6 +9,7 @@ use {super::Kind, crate::prelude::*, bytes::Bytes};
 	PartialEq,
 	PartialOrd,
 	derive_more::Debug,
+	derive_more::Display,
 	derive_more::From,
 	derive_more::IsVariant,
 	derive_more::TryInto,
@@ -25,10 +26,13 @@ use {super::Kind, crate::prelude::*, bytes::Bytes};
 #[unwrap(ref)]
 pub enum Id {
 	#[debug("tg::artifact::Id(\"{_0}\")")]
+	#[display("{_0}")]
 	Directory(tg::directory::Id),
 	#[debug("tg::artifact::Id(\"{_0}\")")]
+	#[display("{_0}")]
 	File(tg::file::Id),
 	#[debug("tg::artifact::Id(\"{_0}\")")]
+	#[display("{_0}")]
 	Symlink(tg::symlink::Id),
 }
 
@@ -63,16 +67,6 @@ impl std::ops::Deref for tg::artifact::Id {
 			Self::Directory(id) => id,
 			Self::File(id) => id,
 			Self::Symlink(id) => id,
-		}
-	}
-}
-
-impl std::fmt::Display for tg::artifact::Id {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Directory(id) => write!(f, "{id}"),
-			Self::File(id) => write!(f, "{id}"),
-			Self::Symlink(id) => write!(f, "{id}"),
 		}
 	}
 }

@@ -1,17 +1,37 @@
 use {crate::prelude::*, std::collections::BTreeMap, tangram_uri::Uri};
 
-#[derive(Clone, Copy, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	derive_more::Display,
+	derive_more::FromStr,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+)]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
 pub enum ArchiveFormat {
 	Tar,
 	Zip,
 }
 
-#[derive(Clone, Copy, Debug, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	derive_more::Display,
+	derive_more::FromStr,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+)]
+#[display(rename_all = "lowercase")]
+#[from_str(rename_all = "lowercase")]
 pub enum CompressionFormat {
 	Bz2,
 	Gz,
 	Xz,
-	Zstd,
+	Zst,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -24,8 +44,17 @@ pub struct DownloadOptions {
 }
 
 #[derive(
-	Clone, Copy, Debug, Default, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
+	Clone,
+	Copy,
+	Debug,
+	Default,
+	derive_more::Display,
+	derive_more::FromStr,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
 )]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
 pub enum DownloadMode {
 	#[default]
 	Raw,
@@ -355,89 +384,6 @@ pub fn extract_command(input: &tg::Blob) -> tg::Command {
 		.args(args)
 		.finish()
 		.expect("the command builder should be complete")
-}
-
-impl std::fmt::Display for ArchiveFormat {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Tar => {
-				write!(f, "tar")?;
-			},
-			Self::Zip => {
-				write!(f, "zip")?;
-			},
-		}
-		Ok(())
-	}
-}
-
-impl std::str::FromStr for ArchiveFormat {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		match s {
-			"tar" => Ok(Self::Tar),
-			"zip" => Ok(Self::Zip),
-			format => Err(tg::error!(%format, "invalid format")),
-		}
-	}
-}
-
-impl std::fmt::Display for CompressionFormat {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let s = match self {
-			Self::Bz2 => "bz2",
-			Self::Gz => "gz",
-			Self::Xz => "xz",
-			Self::Zstd => "zst",
-		};
-		write!(f, "{s}")?;
-		Ok(())
-	}
-}
-
-impl std::str::FromStr for CompressionFormat {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		match s {
-			"bz2" => Ok(Self::Bz2),
-			"gz" => Ok(Self::Gz),
-			"xz" => Ok(Self::Xz),
-			"zst" => Ok(Self::Zstd),
-			format => Err(tg::error!(%format, "invalid compression format")),
-		}
-	}
-}
-
-impl std::fmt::Display for DownloadMode {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Raw => {
-				write!(f, "raw")?;
-			},
-			Self::Decompress => {
-				write!(f, "decompress")?;
-			},
-			Self::Extract => {
-				write!(f, "extract")?;
-			},
-		}
-		Ok(())
-	}
-}
-
-impl std::str::FromStr for DownloadMode {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> tg::Result<Self, Self::Err> {
-		match s {
-			"raw" => Ok(Self::Raw),
-			"decompress" => Ok(Self::Decompress),
-			"extract" => Ok(Self::Extract),
-			mode => Err(tg::error!(%mode, "invalid mode")),
-		}
-	}
 }
 
 impl From<DownloadOptions> for tg::Value {

@@ -17,7 +17,7 @@ pub enum FromStrError {
 	MissingEncoding,
 	#[display("invalid weight")]
 	InvalidWeight,
-	ContentEncoding(super::content_encoding::FromStrError),
+	ContentEncoding(derive_more::FromStrError),
 }
 
 impl std::fmt::Display for AcceptEncoding {

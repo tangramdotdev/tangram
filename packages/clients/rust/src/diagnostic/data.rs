@@ -25,11 +25,15 @@ pub struct Diagnostic {
 	Copy,
 	Debug,
 	derive_more::IsVariant,
+	derive_more::Display,
+	derive_more::FromStr,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
 #[tangram_serialize(display, from_str)]
 pub enum Severity {
 	Error,
@@ -58,31 +62,6 @@ impl std::fmt::Display for Diagnostic {
 			write!(f, " {location}")?;
 		}
 		Ok(())
-	}
-}
-
-impl std::fmt::Display for Severity {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Error => write!(f, "error"),
-			Self::Warning => write!(f, "warning"),
-			Self::Info => write!(f, "info"),
-			Self::Hint => write!(f, "hint"),
-		}
-	}
-}
-
-impl std::str::FromStr for Severity {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		match s {
-			"error" => Ok(Self::Error),
-			"warning" => Ok(Self::Warning),
-			"info" => Ok(Self::Info),
-			"hint" => Ok(Self::Hint),
-			_ => Err(tg::error!(kind = %s, "invalid severity")),
-		}
 	}
 }
 

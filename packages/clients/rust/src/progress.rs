@@ -49,7 +49,16 @@ pub struct Log {
 	pub message: String,
 }
 
-#[derive(Clone, Debug, serde_with::SerializeDisplay, serde_with::DeserializeFromStr)]
+#[derive(
+	Clone,
+	Debug,
+	derive_more::Display,
+	derive_more::FromStr,
+	serde_with::SerializeDisplay,
+	serde_with::DeserializeFromStr,
+)]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
 pub enum Level {
 	Success,
 	Info,
@@ -213,31 +222,6 @@ where
 				Ok(Self::Output(data))
 			},
 			_ => Err(tg::error!("invalid event")),
-		}
-	}
-}
-
-impl std::fmt::Display for Level {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Success => write!(f, "success"),
-			Self::Info => write!(f, "info"),
-			Self::Warning => write!(f, "warning"),
-			Self::Error => write!(f, "error"),
-		}
-	}
-}
-
-impl std::str::FromStr for Level {
-	type Err = tg::Error;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		match s {
-			"success" => Ok(Self::Success),
-			"info" => Ok(Self::Info),
-			"warning" => Ok(Self::Warning),
-			"error" => Ok(Self::Error),
-			_ => Err(tg::error!(kind = %s, "invalid value")),
 		}
 	}
 }
