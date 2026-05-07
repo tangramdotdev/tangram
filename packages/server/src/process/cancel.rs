@@ -16,6 +16,7 @@ impl Session {
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<()>> {
 		let locations = self
+			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -59,6 +60,7 @@ impl Session {
 	) -> tg::Result<Option<()>> {
 		// Get a process store connection.
 		let mut connection = self
+			.server
 			.process_store
 			.write_connection()
 			.await
@@ -71,6 +73,7 @@ impl Session {
 			.map_err(|source| tg::error!(!source, "failed to begin a transaction"))?;
 
 		let status = self
+			.server
 			.try_lock_process_with_transaction(&transaction, id)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to lock the process"))?;
@@ -106,7 +109,8 @@ impl Session {
 		}
 
 		// Update the token count.
-		self.update_process_token_count_with_transaction(&transaction, id)
+		self.server
+			.update_process_token_count_with_transaction(&transaction, id)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to update the token count"))?;
 
@@ -120,7 +124,7 @@ impl Session {
 
 		// Publish the watchdog message if a token was removed.
 		if deleted > 0 {
-			self.spawn_publish_watchdog_message_task();
+			self.server.spawn_publish_watchdog_message_task();
 		}
 
 		Ok(Some(()))
@@ -161,9 +165,13 @@ impl Session {
 		arg: tg::process::cancel::Arg,
 		region: &str,
 	) -> tg::Result<Option<()>> {
-		let client = self.get_region_client(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.to_owned())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});

@@ -23,7 +23,7 @@ impl Session {
 			return Err(tg::error!("forbidden"));
 		}
 
-		let location = self.location(arg.location.as_ref())?;
+		let location = self.server.location(arg.location.as_ref())?;
 
 		match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
@@ -53,7 +53,7 @@ impl Session {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Insert the process into the process store.
-		match &self.process_store {
+		match &self.server.process_store {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(process_store) => {
 				self.put_process_postgres(id, &arg, process_store, now)
@@ -130,11 +130,13 @@ impl Session {
 			objects,
 			touched_at: now,
 		};
-		self.index_tasks
+		self.server
+			.index_tasks
 			.spawn(|_| {
 				let session = self.clone();
 				async move {
 					if let Err(error) = session
+						.server
 						.index
 						.put(tangram_index::PutArg {
 							processes: vec![put_process_arg],
@@ -157,9 +159,13 @@ impl Session {
 		arg: tg::process::put::Arg,
 		region: String,
 	) -> tg::Result<()> {
-		let client = self.get_region_client(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});

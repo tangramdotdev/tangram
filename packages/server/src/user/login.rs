@@ -16,6 +16,7 @@ impl Session {
 		}
 
 		let mut connection = self
+			.server
 			.database
 			.write_connection()
 			.await

@@ -22,6 +22,7 @@ impl Session {
 		let mut output = tg::process::list::Output { data: Vec::new() };
 
 		let locations = self
+			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -58,13 +59,13 @@ impl Session {
 	}
 
 	pub(crate) async fn list_processes_local(&self) -> tg::Result<Vec<tg::process::get::Output>> {
-		let mut output = match &self.process_store {
+		let mut output = match &self.server.process_store {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(process_store) => self.list_processes_postgres(process_store).await,
 			#[cfg(feature = "sqlite")]
 			Database::Sqlite(process_store) => self.list_processes_sqlite(process_store).await,
 		}?;
-		let location = Some(self.config().region.clone().map_or_else(
+		let location = Some(self.server.config().region.clone().map_or_else(
 			|| tg::Location::Local(tg::location::Local::default()),
 			|region| {
 				tg::Location::Local(tg::location::Local {
@@ -92,9 +93,13 @@ impl Session {
 	}
 
 	async fn list_processes_region(&self, region: &str) -> tg::Result<tg::process::list::Output> {
-		let client = self.get_region_client(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.to_owned())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});

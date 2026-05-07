@@ -147,7 +147,8 @@ impl Session {
 		let _index_guard = scopeguard::guard((), {
 			let graph = state.graph.clone();
 			|()| {
-				self.index_tasks
+				self.server
+					.index_tasks
 					.spawn({
 						let session = self.clone();
 						|_| {

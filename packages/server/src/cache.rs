@@ -129,6 +129,7 @@ impl Session {
 			.map(|id| id.clone().into())
 			.collect::<Vec<_>>();
 		let stored = self
+			.server
 			.index
 			.try_get_objects(&ids)
 			.await?
@@ -158,6 +159,7 @@ impl Session {
 			.map(|id| id.clone().into())
 			.collect::<Vec<_>>();
 		let stored = self
+			.server
 			.index
 			.try_get_objects(&ids)
 			.await
@@ -219,7 +221,7 @@ impl Session {
 	) -> impl Future<Output = tg::Result<()>> + Send {
 		let session = self.clone();
 		async move {
-			let task = session.cache_tasks.get_or_spawn_with_context(
+			let task = session.server.cache_tasks.get_or_spawn_with_context(
 				item.id.clone(),
 				|| {
 					let progress = crate::progress::Handle::new();
@@ -288,7 +290,7 @@ impl Session {
 		let session = self.clone();
 		let graph_id = graph_id.clone();
 		async move {
-			let task = session.cache_graph_tasks.get_or_spawn_with_context(
+			let task = session.server.cache_graph_tasks.get_or_spawn_with_context(
 				graph_id.clone(),
 				|| {
 					let progress = crate::progress::Handle::new();
@@ -366,7 +368,7 @@ impl Session {
 		}
 
 		// Create the path.
-		let path = self.cache_path().join(item.id.to_string());
+		let path = self.server.cache_path().join(item.id.to_string());
 
 		// If the path exists, then return.
 		let exists = tokio::task::spawn_blocking({
@@ -386,7 +388,7 @@ impl Session {
 			let item = item.clone();
 			let progress = progress.clone();
 			move || {
-				let temp = Temp::new(&session);
+				let temp = Temp::new(&session.server);
 				let dependencies = session.cache_write(temp.path(), &item, &progress)?;
 				Ok::<_, tg::Error>((temp, dependencies))
 			}
@@ -430,6 +432,7 @@ impl Session {
 			let graph_id = graph_id.clone();
 			move || {
 				let (_size, data) = session
+					.server
 					.object_store
 					.try_get_data_sync(&graph_id.into())?
 					.ok_or_else(|| tg::error!("failed to load the graph"))?;
@@ -454,7 +457,7 @@ impl Session {
 			let items = items.clone();
 			move || {
 				for item in &items {
-					let path = session.cache_path().join(item.id.to_string());
+					let path = session.server.cache_path().join(item.id.to_string());
 					if !path.try_exists().unwrap_or(false) {
 						return false;
 					}
@@ -478,7 +481,7 @@ impl Session {
 				let mut outputs = Vec::new();
 				for item in items {
 					// Create a temp.
-					let temp = Temp::new(&session);
+					let temp = Temp::new(&session.server);
 
 					// Write the item.
 					let dependencies = session.cache_write(temp.path(), &item, &progress)?;
@@ -603,8 +606,11 @@ impl Session {
 		)?;
 
 		// Collect all entries, recursively flattening branches.
-		let entries =
-			crate::directory::collect_directory_entries(&self.object_store, node, graph.as_ref())?;
+		let entries = crate::directory::collect_directory_entries(
+			&self.server.object_store,
+			node,
+			graph.as_ref(),
+		)?;
 
 		// Recurse into the entries.
 		let mut dependencies = Vec::new();
@@ -703,7 +709,7 @@ impl Session {
 			.as_ref()
 			.ok_or_else(|| tg::error!("missing contents"))?;
 
-		let src = &self.cache_path().join(id.to_string());
+		let src = &self.server.cache_path().join(id.to_string());
 		let dst = path;
 
 		// Attempt to hard link the file.
@@ -852,7 +858,7 @@ impl Session {
 		dependencies: &[tg::artifact::Id],
 	) -> tg::Result<()> {
 		// Create the path.
-		let path = self.cache_path().join(item.id.to_string());
+		let path = self.server.cache_path().join(item.id.to_string());
 
 		// Rename the temp to the path.
 		let result = tangram_util::fs::rename_noreplace_sync(temp, &path);
@@ -899,11 +905,13 @@ impl Session {
 			touched_at,
 			dependencies: dependencies.to_vec(),
 		};
-		self.index_tasks
+		self.server
+			.index_tasks
 			.spawn(|_| {
 				let session = self.clone();
 				async move {
 					if let Err(error) = session
+						.server
 						.index
 						.put(tangram_index::PutArg {
 							cache_entries: vec![put_cache_entry_arg],
@@ -930,6 +938,7 @@ impl Session {
 					.ok_or_else(|| tg::error!("missing graph"))?
 					.clone();
 				let (_size, data) = self
+					.server
 					.object_store
 					.try_get_data_sync(&graph_id.clone().into())
 					.map_err(|source| tg::error!(!source, "failed to get the graph data"))?
@@ -970,6 +979,7 @@ impl Session {
 			tg::graph::data::Edge::Object(object_id) => {
 				// Load the object.
 				let (_size, data) = self
+					.server
 					.object_store
 					.try_get_data_sync(&object_id.clone().into())
 					.map_err(|source| tg::error!(!source, "failed to get the object data"))?
@@ -991,6 +1001,7 @@ impl Session {
 							.ok_or_else(|| tg::error!("missing graph"))?
 							.clone();
 						let (_size, data) = self
+							.server
 							.object_store
 							.try_get_data_sync(&graph_id.clone().into())
 							.map_err(|source| tg::error!(!source, "failed to get the graph data"))?

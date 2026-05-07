@@ -88,7 +88,7 @@ impl Session {
 		parent_sandbox: Option<tg::sandbox::Id>,
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		let location = self.location(arg.location.as_ref())?;
+		let location = self.server.location(arg.location.as_ref())?;
 
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
@@ -130,6 +130,7 @@ impl Session {
 
 		// Get a process store connection.
 		let mut connection = self
+			.server
 			.process_store
 			.write_connection()
 			.await
@@ -210,7 +211,7 @@ impl Session {
 			.as_ref()
 			.is_some_and(|output| !output.status.is_finished())
 		{
-			self.spawn_publish_watchdog_message_task();
+			self.server.spawn_publish_watchdog_message_task();
 		}
 
 		// If the process is unfinished, then enqueue it on its sandbox process queue.
@@ -273,12 +274,13 @@ impl Session {
 				return Ok::<_, tg::Error>(None);
 			}
 			if cacheable && matches!(arg.cached, None | Some(true)) {
-				let locations =
-					self.locations(arg.cache_location.as_ref())
-						.await
-						.map_err(|source| {
-							tg::error!(!source, "failed to resolve the cache locations")
-						})?;
+				let locations = self
+					.server
+					.locations(arg.cache_location.as_ref())
+					.await
+					.map_err(|source| {
+						tg::error!(!source, "failed to resolve the cache locations")
+					})?;
 				let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
 				if let Some(output) = self
 					.try_get_cached_process_regions(&arg, &regions)
@@ -380,9 +382,13 @@ impl Session {
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 		region: String,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		let client = self.get_region_client(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});
@@ -531,9 +537,13 @@ impl Session {
 		arg: &tg::process::spawn::Arg,
 		region: &str,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
-		let client = self.get_region_client(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.to_owned())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});
@@ -724,6 +734,7 @@ impl Session {
 
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let tti = self
+			.server
 			.config
 			.process
 			.time_to_index
@@ -733,8 +744,9 @@ impl Session {
 		let max_stored_at = now - tti;
 		if status.is_finished() && stored_at <= max_stored_at {
 			let process = self
+				.server
 				.index
-				.touch_process(&id, now, self.config.process.time_to_touch)
+				.touch_process(&id, now, self.server.config.process.time_to_touch)
 				.await
 				.map_err(|source| tg::error!(!source, %id, "failed to touch the process"))?;
 			if process.is_none() {
@@ -794,6 +806,7 @@ impl Session {
 			}
 
 			let status = self
+				.server
 				.try_lock_process_with_transaction(transaction, &id)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to lock the process"))?;
@@ -818,7 +831,8 @@ impl Session {
 				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 			// Update token count.
-			self.update_process_token_count_with_transaction(transaction, &id)
+			self.server
+				.update_process_token_count_with_transaction(transaction, &id)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to update the token count"))?;
 
@@ -927,6 +941,7 @@ impl Session {
 
 		let now: i64 = time::OffsetDateTime::now_utc().unix_timestamp();
 		let tti = self
+			.server
 			.config
 			.process
 			.time_to_index
@@ -936,8 +951,9 @@ impl Session {
 		let max_stored_at = now - tti;
 		if source_status.is_finished() && source_stored_at <= max_stored_at {
 			let process = self
+				.server
 				.index
-				.touch_process(&source, now, self.config.process.time_to_touch)
+				.touch_process(&source, now, self.server.config.process.time_to_touch)
 				.await
 				.map_err(|error| tg::error!(!error, id = %source, "failed to touch the process"))?;
 			if process.is_none() {
@@ -1314,7 +1330,8 @@ impl Session {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
 		// Update token count.
-		self.update_process_token_count_with_transaction(transaction, &id)
+		self.server
+			.update_process_token_count_with_transaction(transaction, &id)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to update the token count"))?;
 
@@ -1375,7 +1392,7 @@ impl Session {
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let heartbeat_at = (status == tg::sandbox::Status::Started).then_some(now);
 		let started_at = (status == tg::sandbox::Status::Started).then_some(now);
-		let isolation = self.resolve_sandbox_isolation()?;
+		let isolation = self.server.resolve_sandbox_isolation()?;
 		Server::validate_sandbox_resources(&isolation, arg.cpu, arg.memory)?;
 		let cpu = arg
 			.cpu
@@ -1441,14 +1458,15 @@ impl Session {
 		parent_sandbox: Option<&tg::sandbox::Id>,
 	) -> Option<SandboxPermit> {
 		if let Some(parent_sandbox) = parent_sandbox
-			&& let Some(parent_permit) = self.sandbox_permits.get(parent_sandbox)
+			&& let Some(parent_permit) = self.server.sandbox_permits.get(parent_sandbox)
 		{
 			let parent_permit = parent_permit.clone();
 			if let Ok(guard) = parent_permit.try_lock_owned() {
 				return Some(SandboxPermit(tg::Either::Right(guard)));
 			}
 		}
-		self.sandbox_semaphore
+		self.server
+			.sandbox_semaphore
 			.clone()
 			.try_acquire_owned()
 			.ok()
@@ -1465,6 +1483,7 @@ impl Session {
 	) -> tg::Result<()> {
 		// Get a process store connection.
 		let mut connection = self
+			.server
 			.process_store
 			.write_connection()
 			.await
@@ -1503,7 +1522,7 @@ impl Session {
 		self.spawn_publish_process_child_message_task(parent);
 
 		// Wake the watchdog so parent depth changes are observed promptly.
-		self.spawn_publish_watchdog_message_task();
+		self.server.spawn_publish_watchdog_message_task();
 
 		Ok(())
 	}
@@ -1521,6 +1540,7 @@ impl Session {
 
 		// Lock the parent and ensure that it is not finished.
 		let status = self
+			.server
 			.try_lock_process_with_transaction(transaction, parent)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to lock the parent process"))?;
@@ -1654,6 +1674,7 @@ impl Session {
 			let id = parent.clone();
 			async move {
 				session
+					.server
 					.messenger
 					.publish(format!("processes.{id}.children"), ())
 					.await
@@ -1680,6 +1701,7 @@ impl Session {
 				};
 
 				let Some(permit) = session
+					.server
 					.sandbox_permits
 					.get(parent_sandbox)
 					.map(|permit| permit.clone())
@@ -1691,18 +1713,28 @@ impl Session {
 					.map(|guard| SandboxPermit(tg::Either::Right(guard)))
 					.await;
 
-				let Ok(started) = session.try_start_sandbox_local(&sandbox).await.inspect_err(
-					|error| tracing::trace!(error = %error.trace(), "failed to start the sandbox"),
-				) else {
+				let Ok(started) = session
+					.server
+					.try_start_sandbox_local(&sandbox)
+					.await
+					.inspect_err(
+						|error| tracing::trace!(error = %error.trace(), "failed to start the sandbox"),
+					)
+				else {
 					return;
 				};
 				if !started {
 					return;
 				}
 
-				let Ok(started) = session.try_start_process_local(&process).await.inspect_err(
-					|error| tracing::trace!(error = %error.trace(), "failed to start the process"),
-				) else {
+				let Ok(started) = session
+					.server
+					.try_start_process_local(&process)
+					.await
+					.inspect_err(
+						|error| tracing::trace!(error = %error.trace(), "failed to start the process"),
+					)
+				else {
 					return;
 				};
 				if !started {

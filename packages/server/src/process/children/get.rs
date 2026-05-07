@@ -27,6 +27,7 @@ impl Session {
 		arg: tg::process::children::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
 		let locations = self
+			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -73,6 +74,7 @@ impl Session {
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
 		// Verify the process is local.
 		if !self
+			.server
 			.get_process_exists_local(id)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check if the process exists"))?
@@ -130,6 +132,7 @@ impl Session {
 		} else {
 			let subject = format!("processes.{id}.children");
 			let children_wakeups = self
+				.server
 				.messenger
 				.subscribe::<()>(subject)
 				.await
@@ -138,6 +141,7 @@ impl Session {
 				.boxed();
 			let subject = format!("processes.{id}.status");
 			let status_wakeups = self
+				.server
 				.messenger
 				.subscribe::<()>(subject)
 				.await
@@ -233,10 +237,12 @@ impl Session {
 		id: &tg::process::Id,
 	) -> tg::Result<u64> {
 		// Get a process store connection.
-		let connection =
-			self.process_store.connection().await.map_err(|source| {
-				tg::error!(!source, "failed to get a process store connection")
-			})?;
+		let connection = self
+			.server
+			.process_store
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 
 		// Get the position.
 		let p = connection.p();
@@ -266,10 +272,12 @@ impl Session {
 		length: u64,
 	) -> tg::Result<tg::process::children::get::Chunk> {
 		// Get a process store connection.
-		let connection =
-			self.process_store.connection().await.map_err(|source| {
-				tg::error!(!source, "failed to get a process store connection")
-			})?;
+		let connection = self
+			.server
+			.process_store
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 
 		// Get the children.
 		#[derive(db::row::Deserialize)]
@@ -351,9 +359,13 @@ impl Session {
 		arg: tg::process::children::get::Arg,
 		region: &str,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
-		let client = self.get_region_client(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.to_owned())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});

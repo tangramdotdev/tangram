@@ -15,6 +15,7 @@ impl Session {
 		arg: tg::object::metadata::Arg,
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		let locations = self
+			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -59,6 +60,7 @@ impl Session {
 		id: &tg::object::Id,
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		Ok(self
+			.server
 			.index
 			.try_get_object(id)
 			.await?
@@ -70,6 +72,7 @@ impl Session {
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<tg::object::Metadata>>> {
 		Ok(self
+			.server
 			.index
 			.try_get_objects(ids)
 			.await?
@@ -111,9 +114,13 @@ impl Session {
 		id: &tg::object::Id,
 		region: &str,
 	) -> tg::Result<Option<tg::object::Metadata>> {
-		let client = self.get_region_client(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.to_owned())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});

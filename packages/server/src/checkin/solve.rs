@@ -863,6 +863,7 @@ impl Session {
 			tg::artifact::Data::File(tg::file::Data::Node(file)) => {
 				let contents = if let Some(id) = file.contents {
 					let object = self
+						.server
 						.index
 						.try_get_object(&id.clone().into())
 						.await
@@ -1013,6 +1014,7 @@ impl Session {
 			tg::graph::data::Node::File(file) => {
 				let contents = if let Some(id) = file.contents.clone() {
 					let object = self
+						.server
 						.index
 						.try_get_object(&id.clone().into())
 						.await

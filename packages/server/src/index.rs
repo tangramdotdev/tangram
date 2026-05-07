@@ -246,7 +246,7 @@ impl Session {
 	pub(crate) async fn index(
 		&self,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + use<>> {
-		if !self.config.advanced.single_process {
+		if !self.server.config.advanced.single_process {
 			return Err(tg::error!("cannot index in multi process mode"));
 		}
 		let progress = crate::progress::Handle::new();
@@ -284,6 +284,7 @@ impl Session {
 	async fn index_task(&self, progress: &crate::progress::Handle<()>) -> tg::Result<()> {
 		// Subscribe to process finalizer progress.
 		let wakeups = self
+			.server
 			.messenger
 			.subscribe::<()>("processes.finalizer.progress".to_owned())
 			.await
@@ -292,8 +293,13 @@ impl Session {
 		let mut wakeups = stream::select(wakeups.map(|_| ()), interval.map(|_| ()));
 
 		// Wait for the existing finalize queue entries to be handled.
-		if let Some(position) = self.try_get_process_finalize_queue_max_position().await? {
+		if let Some(position) = self
+			.server
+			.try_get_process_finalize_queue_max_position()
+			.await?
+		{
 			let mut remaining = self
+				.server
 				.get_process_finalize_queue_count_until_position(position)
 				.await?;
 			if remaining > 0 {
@@ -308,6 +314,7 @@ impl Session {
 				while remaining > 0 {
 					wakeups.next().await;
 					let next_remaining = self
+						.server
 						.get_process_finalize_queue_count_until_position(position)
 						.await?;
 					progress.increment("finalize", remaining.saturating_sub(next_remaining));
@@ -319,11 +326,12 @@ impl Session {
 
 		// Wait for outstanding index tasks to finish.
 		progress.spinner("tasks", "waiting for tasks");
-		self.index_tasks.wait().await;
+		self.server.index_tasks.wait().await;
 		progress.finish("tasks");
 
 		// Subscribe to indexer progress.
 		let wakeups = self
+			.server
 			.messenger
 			.subscribe::<()>("indexer_progress".to_owned())
 			.await
@@ -333,6 +341,7 @@ impl Session {
 
 		// Wait until the index no longer has updates whose transaction id is less than or equal to the current transaction id.
 		let transaction_id = self
+			.server
 			.index
 			.get_transaction_id()
 			.await
@@ -340,6 +349,7 @@ impl Session {
 		progress.spinner("updates", "waiting for index updates");
 		loop {
 			let finished = self
+				.server
 				.index
 				.updates_finished(transaction_id)
 				.await

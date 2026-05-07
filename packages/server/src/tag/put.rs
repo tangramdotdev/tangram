@@ -22,6 +22,7 @@ impl Session {
 		}
 
 		let location = self
+			.server
 			.location(arg.location.as_ref())
 			.map_err(|source| tg::error!(!source, "failed to resolve the location"))?;
 
@@ -55,7 +56,7 @@ impl Session {
 
 		// Insert the tag into the database unless this is a replicated request.
 		if !arg.replicate {
-			match &self.database {
+			match &self.server.database {
 				#[cfg(feature = "postgres")]
 				Database::Postgres(database) => {
 					self.put_tag_postgres(database, tag, &arg)
@@ -72,7 +73,8 @@ impl Session {
 		}
 
 		// Insert the tag into the index.
-		self.index
+		self.server
+			.index
 			.put_tags(&[tangram_index::PutTagArg {
 				tag: tag.to_string(),
 				item: arg.item.clone(),
@@ -84,6 +86,7 @@ impl Session {
 		if !arg.replicate {
 			let location = tg::Location::Local(tg::location::Local::default()).into();
 			let locations = self
+				.server
 				.locations(Some(&location))
 				.await
 				.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -118,9 +121,13 @@ impl Session {
 		arg: tg::tag::put::Arg,
 		region: String,
 	) -> tg::Result<()> {
-		let client = self.get_region_client(region.clone()).await.map_err(
-			|source| tg::error!(!source, %tag, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, %tag, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});

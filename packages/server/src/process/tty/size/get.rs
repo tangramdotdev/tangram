@@ -19,6 +19,7 @@ impl Session {
 		arg: tg::process::tty::size::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::tty::size::get::Event>>>> {
 		let locations = self
+			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -76,6 +77,7 @@ impl Session {
 		}
 
 		let stream = self
+			.server
 			.messenger
 			.subscribe::<tangram_messenger::payload::Json<tg::process::tty::size::get::Event>>(
 				format!("processes.{id}.tty"),
@@ -126,9 +128,13 @@ impl Session {
 		id: &tg::process::Id,
 		region: &str,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::tty::size::get::Event>>>> {
-		let client = self.get_region_client(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.to_owned())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});

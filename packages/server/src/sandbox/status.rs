@@ -30,6 +30,7 @@ impl Session {
 		>,
 	> {
 		let locations = self
+			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -78,6 +79,7 @@ impl Session {
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
 		if !self
+			.server
 			.get_sandbox_exists_local(id)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to check if the sandbox exists"))?
@@ -90,6 +92,7 @@ impl Session {
 		} else {
 			let subject = format!("sandboxes.{id}.status");
 			let wakeups = self
+				.server
 				.messenger
 				.subscribe::<()>(subject)
 				.await
@@ -170,10 +173,12 @@ impl Session {
 		&self,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::Status>> {
-		let connection =
-			self.process_store.connection().await.map_err(|source| {
-				tg::error!(!source, "failed to get a process store connection")
-			})?;
+		let connection = self
+			.server
+			.process_store
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
@@ -233,9 +238,13 @@ impl Session {
 		region: &str,
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
-		let client = self.get_region_client(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.to_owned())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});

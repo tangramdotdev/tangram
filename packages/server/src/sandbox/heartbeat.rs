@@ -20,6 +20,7 @@ impl Session {
 		}
 
 		let locations = self
+			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -61,6 +62,7 @@ impl Session {
 		id: &tg::sandbox::Id,
 	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
 		let connection = self
+			.server
 			.process_store
 			.connection_with_options(db::ConnectionOptions {
 				kind: db::ConnectionKind::Write,
@@ -123,9 +125,13 @@ impl Session {
 		id: &tg::sandbox::Id,
 		region: &str,
 	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
-		let client = self.get_region_client(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.to_owned())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});

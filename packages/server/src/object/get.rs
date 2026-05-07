@@ -38,6 +38,7 @@ impl Session {
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let locations = self
+			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -102,6 +103,7 @@ impl Session {
 
 	async fn try_get_object_bytes_local(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
 		let object = self
+			.server
 			.object_store
 			.try_get(id)
 			.await
@@ -123,7 +125,7 @@ impl Session {
 		id: &tg::object::Id,
 		cache_file: &mut Option<CacheFile>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		let object = self.object_store.try_get_sync(id)?;
+		let object = self.server.object_store.try_get_sync(id)?;
 		let Some(object) = object else {
 			return Ok(None);
 		};
@@ -155,6 +157,7 @@ impl Session {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the objects locally"))?;
 		let locations = self
+			.server
 			.locations(None)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -222,6 +225,7 @@ impl Session {
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<Bytes>>> {
 		let output = self
+			.server
 			.object_store
 			.try_get_batch(ids)
 			.await
@@ -376,10 +380,13 @@ impl Session {
 		&self,
 		key: ObjectGetTaskKey,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		let task = self.object_get_tasks.get_or_spawn_detached(key.clone(), {
-			let session = self.clone();
-			move |_stop| async move { session.try_get_object_from_location_task_inner(key).await }
-		});
+		let task = self
+			.server
+			.object_get_tasks
+			.get_or_spawn_detached(key.clone(), {
+				let session = self.clone();
+				move |_stop| async move { session.try_get_object_from_location_task_inner(key).await }
+			});
 		task.wait()
 			.await
 			.map_err(|source| tg::error!(!source, "the get object task panicked"))?
@@ -400,9 +407,13 @@ impl Session {
 					.region
 					.as_ref()
 					.ok_or_else(|| tg::error!("expected the region to be set"))?;
-				let client = self.get_region_client(region.clone()).await.map_err(
-					|source| tg::error!(!source, region = %region, "failed to get the region client"),
-				)?;
+				let client = self
+					.server
+					.get_region_client(region.clone())
+					.await
+					.map_err(
+						|source| tg::error!(!source, region = %region, "failed to get the region client"),
+					)?;
 				let location = tg::Location::Local(tg::location::Local {
 					region: Some(region.to_owned()),
 				});
@@ -466,7 +477,10 @@ impl Session {
 		cache_pointer: &tangram_object_store::CachePointer,
 	) -> tg::Result<Option<Bytes>> {
 		// Read the leaf from the file.
-		let mut path = self.cache_path().join(cache_pointer.artifact.to_string());
+		let mut path = self
+			.server
+			.cache_path()
+			.join(cache_pointer.artifact.to_string());
 		if let Some(path_) = &cache_pointer.path {
 			path.push(path_);
 		}
@@ -508,7 +522,10 @@ impl Session {
 				if artifact == &cache_pointer.artifact && path == &cache_pointer.path => {},
 			_ => {
 				drop(cache_file.take());
-				let mut path = self.cache_path().join(cache_pointer.artifact.to_string());
+				let mut path = self
+					.server
+					.cache_path()
+					.join(cache_pointer.artifact.to_string());
 				if let Some(path_) = &cache_pointer.path {
 					path = path.join(path_);
 				}

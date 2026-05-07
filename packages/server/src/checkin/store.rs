@@ -8,7 +8,8 @@ impl Session {
 		progress: &crate::progress::Handle<super::TaskOutput>,
 	) -> tg::Result<()> {
 		progress.spinner("storing", "storing");
-		self.object_store
+		self.server
+			.object_store
 			.put_batch(args)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the objects"))?;

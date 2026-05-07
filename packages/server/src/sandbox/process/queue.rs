@@ -24,7 +24,7 @@ impl Session {
 			return Err(tg::error!("forbidden"));
 		}
 
-		let location = self.location(arg.location.as_ref())?;
+		let location = self.server.location(arg.location.as_ref())?;
 
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
@@ -72,9 +72,13 @@ impl Session {
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
 		// Verify the sandbox exists.
-		if !self.get_sandbox_exists_local(sandbox).await.map_err(
-			|source| tg::error!(!source, %sandbox, "failed to check if the sandbox exists"),
-		)? {
+		if !self
+			.server
+			.get_sandbox_exists_local(sandbox)
+			.await
+			.map_err(
+				|source| tg::error!(!source, %sandbox, "failed to check if the sandbox exists"),
+			)? {
 			return Ok(None);
 		}
 
@@ -83,6 +87,7 @@ impl Session {
 		} else {
 			let subject = format!("sandboxes.{sandbox}.processes.created");
 			let wakeups = self
+				.server
 				.messenger
 				.subscribe_with_delivery::<()>(subject, Delivery::One)
 				.await
@@ -102,7 +107,7 @@ impl Session {
 
 		// Dequeue.
 		loop {
-			let output = match &self.process_store {
+			let output = match &self.server.process_store {
 				#[cfg(feature = "postgres")]
 				Database::Postgres(process_store) => {
 					self.try_dequeue_sandbox_process_postgres(process_store, sandbox)
@@ -115,7 +120,8 @@ impl Session {
 				},
 			};
 			if let Some(output) = output {
-				self.messenger
+				self.server
+					.messenger
 					.publish(format!("processes.{}.status", output.process), ())
 					.await
 					.ok();
@@ -138,9 +144,13 @@ impl Session {
 		region: String,
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
-		let client = self.get_region_client(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});
@@ -189,6 +199,7 @@ impl Session {
 			let session = self.clone();
 			async move {
 				session
+					.server
 					.messenger
 					.publish(subject, ())
 					.await

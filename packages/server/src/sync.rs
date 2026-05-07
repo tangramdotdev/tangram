@@ -27,7 +27,7 @@ impl Session {
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
-		let location = self.location(arg.location.as_ref())?;
+		let location = self.server.location(arg.location.as_ref())?;
 
 		let stream = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => self
@@ -106,9 +106,13 @@ impl Session {
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		region: String,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>> {
-		let client = self.get_region_client(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});

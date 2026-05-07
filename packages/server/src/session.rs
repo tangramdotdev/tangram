@@ -1,10 +1,7 @@
 use {
 	crate::{Context, Server},
 	futures::{Stream, stream::BoxStream},
-	std::{
-		ops::Deref,
-		path::{Path, PathBuf},
-	},
+	std::path::{Path, PathBuf},
 	tangram_client::prelude::*,
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
@@ -35,6 +32,7 @@ impl Session {
 			return Ok(path.to_owned());
 		};
 		let sandbox = self
+			.server
 			.sandboxes
 			.get(id)
 			.map(|sandbox| sandbox.value().clone())
@@ -49,6 +47,7 @@ impl Session {
 			return Ok(path.to_owned());
 		};
 		let sandbox = self
+			.server
 			.sandboxes
 			.get(id)
 			.map(|sandbox| sandbox.value().clone())
@@ -56,14 +55,6 @@ impl Session {
 		sandbox
 			.guest_path_for_host_path(path)
 			.ok_or_else(|| tg::error!(path = %path.display(), "no guest path for host path"))
-	}
-}
-
-impl Deref for Session {
-	type Target = Server;
-
-	fn deref(&self) -> &Self::Target {
-		&self.server
 	}
 }
 

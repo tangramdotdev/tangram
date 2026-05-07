@@ -25,9 +25,9 @@ impl Session {
 		store_process_sender: tokio::sync::mpsc::Sender<super::store::ProcessItem>,
 	) -> tg::Result<()> {
 		// Create the objects future.
-		let object_batch_size = self.config.sync.put.queue.object_batch_size;
-		let object_batch_timeout = self.config.sync.put.queue.object_batch_timeout;
-		let object_concurrency = self.config.sync.put.queue.object_concurrency;
+		let object_batch_size = self.server.config.sync.put.queue.object_batch_size;
+		let object_batch_timeout = self.server.config.sync.put.queue.object_batch_timeout;
+		let object_concurrency = self.server.config.sync.put.queue.object_concurrency;
 		let objects_future = tokio_stream::StreamExt::chunks_timeout(
 			queue_object_receiver,
 			object_batch_size,
@@ -52,9 +52,9 @@ impl Session {
 		});
 
 		// Create the processes future.
-		let process_batch_size = self.config.sync.put.queue.process_batch_size;
-		let process_batch_timeout = self.config.sync.put.queue.process_batch_timeout;
-		let process_concurrency = self.config.sync.put.queue.process_concurrency;
+		let process_batch_size = self.server.config.sync.put.queue.process_batch_size;
+		let process_batch_timeout = self.server.config.sync.put.queue.process_batch_timeout;
+		let process_concurrency = self.server.config.sync.put.queue.process_concurrency;
 		let processes_future = tokio_stream::StreamExt::chunks_timeout(
 			queue_process_receiver,
 			process_batch_size,

@@ -118,6 +118,7 @@ impl Session {
 		}
 
 		let entries = self
+			.server
 			.log_store
 			.try_read(ReadArg {
 				process: process.clone(),
@@ -176,6 +177,7 @@ impl Session {
 		let blob = self.write(arg, Cursor::new(blob_bytes)).await?.blob;
 
 		let connection = self
+			.server
 			.process_store
 			.write_connection()
 			.await
@@ -194,7 +196,8 @@ impl Session {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 
-		self.log_store
+		self.server
+			.log_store
 			.delete(DeleteArg {
 				process: process.clone(),
 			})
@@ -546,6 +549,7 @@ impl StoreInner {
 			streams: streams.clone(),
 		};
 		self.session
+			.server
 			.log_store
 			.try_read(arg)
 			.await
@@ -557,6 +561,7 @@ impl StoreInner {
 		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<u64>> {
 		self.session
+			.server
 			.log_store
 			.try_get_length(&self.process, streams)
 			.await

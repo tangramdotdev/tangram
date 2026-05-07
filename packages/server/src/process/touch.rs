@@ -19,6 +19,7 @@ impl Session {
 		}
 
 		let locations = self
+			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -57,8 +58,9 @@ impl Session {
 	async fn try_touch_process_local(&self, id: &tg::process::Id) -> tg::Result<Option<()>> {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let Some(_) = self
+			.server
 			.index
-			.touch_process(id, touched_at, self.config.process.time_to_touch)
+			.touch_process(id, touched_at, self.server.config.process.time_to_touch)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to touch the process"))?
 		else {
@@ -100,9 +102,13 @@ impl Session {
 		id: &tg::process::Id,
 		region: &str,
 	) -> tg::Result<Option<()>> {
-		let client = self.get_region_client(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.to_owned())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});

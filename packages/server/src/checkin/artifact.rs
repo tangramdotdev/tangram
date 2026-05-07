@@ -839,7 +839,8 @@ impl Session {
 			id: id.clone(),
 			stored_at: touched_at,
 		};
-		self.object_store
+		self.server
+			.object_store
 			.put(store_arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the reference artifact"))?;
@@ -855,7 +856,8 @@ impl Session {
 			stored: node.stored.clone(),
 			touched_at,
 		};
-		self.index
+		self.server
+			.index
 			.put(tangram_index::PutArg {
 				objects: vec![put_object_arg],
 				..Default::default()

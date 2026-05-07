@@ -57,14 +57,24 @@ impl Session {
 			})
 			.collect::<Vec<_>>();
 		let touch_objects_future = async {
-			self.index
-				.touch_objects(&object_ids, touched_at, self.config.object.time_to_touch)
+			self.server
+				.index
+				.touch_objects(
+					&object_ids,
+					touched_at,
+					self.server.config.object.time_to_touch,
+				)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to touch the objects"))
 		};
 		let touch_processes_future = async {
-			self.index
-				.touch_processes(&process_ids, touched_at, self.config.process.time_to_touch)
+			self.server
+				.index
+				.touch_processes(
+					&process_ids,
+					touched_at,
+					self.server.config.process.time_to_touch,
+				)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to touch the processes"))
 		};

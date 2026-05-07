@@ -27,9 +27,9 @@ impl Session {
 		index_process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
 	) -> tg::Result<()> {
 		// Create the objects future.
-		let object_batch_size = self.config.sync.get.index.object_batch_size;
-		let object_batch_timeout = self.config.sync.get.index.object_batch_timeout;
-		let object_concurrency = self.config.sync.get.index.object_concurrency;
+		let object_batch_size = self.server.config.sync.get.index.object_batch_size;
+		let object_batch_timeout = self.server.config.sync.get.index.object_batch_timeout;
+		let object_concurrency = self.server.config.sync.get.index.object_concurrency;
 		let objects_future = tokio_stream::StreamExt::chunks_timeout(
 			ReceiverStream::new(index_object_receiver),
 			object_batch_size,
@@ -43,9 +43,9 @@ impl Session {
 		});
 
 		// Create the processes future.
-		let process_batch_size = self.config.sync.get.index.process_batch_size;
-		let process_batch_timeout = self.config.sync.get.index.process_batch_timeout;
-		let process_concurrency = self.config.sync.get.index.process_concurrency;
+		let process_batch_size = self.server.config.sync.get.index.process_batch_size;
+		let process_batch_timeout = self.server.config.sync.get.index.process_batch_timeout;
+		let process_concurrency = self.server.config.sync.get.index.process_concurrency;
 		let processes_future = tokio_stream::StreamExt::chunks_timeout(
 			ReceiverStream::new(index_process_receiver),
 			process_batch_size,
@@ -75,8 +75,9 @@ impl Session {
 		// Touch the objects and get stored and metadata.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let outputs = self
+			.server
 			.index
-			.touch_objects(&ids, touched_at, self.config.object.time_to_touch)
+			.touch_objects(&ids, touched_at, self.server.config.object.time_to_touch)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to touch and get object metadata"))?;
 
@@ -162,8 +163,9 @@ impl Session {
 		// Touch the processes and get stored and metadata.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let outputs = self
+			.server
 			.index
-			.touch_processes(&ids, touched_at, self.config.process.time_to_touch)
+			.touch_processes(&ids, touched_at, self.server.config.process.time_to_touch)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to touch and get process metadata"))?;
 
@@ -247,7 +249,8 @@ impl Session {
 
 	pub(super) async fn sync_get_index_put(&self, graph: Arc<Mutex<Graph>>) -> tg::Result<()> {
 		// Flush the store.
-		self.object_store
+		self.server
+			.object_store
 			.flush()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to flush the store"))?;
@@ -258,7 +261,8 @@ impl Session {
 				.map_err(|source| tg::error!(!source, "failed to create the index args"))?;
 
 		// Index the objects and processes.
-		self.index
+		self.server
+			.index
 			.put(tangram_index::PutArg {
 				objects: put_object_args,
 				processes: put_process_args,

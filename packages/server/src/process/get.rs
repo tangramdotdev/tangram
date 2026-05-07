@@ -22,6 +22,7 @@ impl Session {
 		arg: tg::process::get::Arg,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let locations = self
+			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -74,7 +75,7 @@ impl Session {
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
 		// Get the process from the process store.
 		let data_future = async {
-			match &self.process_store {
+			match &self.server.process_store {
 				#[cfg(feature = "postgres")]
 				Database::Postgres(process_store) => {
 					self.try_get_process_batch_postgres(process_store, ids)
@@ -99,7 +100,7 @@ impl Session {
 		// Fetch the data and metadata concurrently.
 		let (data, metadata) = future::join(data_future, metadata_future).await;
 		let data = data?;
-		let location = self.config().region.clone().map_or_else(
+		let location = self.server.config().region.clone().map_or_else(
 			|| tg::Location::Local(tg::location::Local::default()),
 			|region| {
 				tg::Location::Local(tg::location::Local {
@@ -157,9 +158,13 @@ impl Session {
 		region: &str,
 		metadata: bool,
 	) -> tg::Result<Option<tg::process::get::Output>> {
-		let client = self.get_region_client(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.to_owned())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});

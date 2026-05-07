@@ -19,6 +19,7 @@ impl Session {
 		let mut output = tg::sandbox::list::Output { data: Vec::new() };
 
 		let locations = self
+			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -62,10 +63,12 @@ impl Session {
 			ttl: Option<std::time::Duration>,
 			user: Option<String>,
 		}
-		let connection =
-			self.process_store.connection().await.map_err(|source| {
-				tg::error!(!source, "failed to get a process store connection")
-			})?;
+		let connection = self
+			.server
+			.process_store
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 		let statement = formatdoc!(
 			"
 				select id, cpu, hostname, memory, mounts, network, status, ttl, \"user\" as user
@@ -120,9 +123,13 @@ impl Session {
 	}
 
 	async fn list_sandboxes_region(&self, region: &str) -> tg::Result<tg::sandbox::list::Output> {
-		let client = self.get_region_client(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.to_owned())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});

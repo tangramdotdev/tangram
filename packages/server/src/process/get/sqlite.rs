@@ -29,7 +29,7 @@ impl Session {
 			.into_iter()
 			.map(|output| {
 				output.map(|mut output| {
-					output.location = Some(self.config().region.clone().map_or_else(
+					output.location = Some(self.server.config().region.clone().map_or_else(
 						|| tg::Location::Local(tg::location::Local::default()),
 						|region| {
 							tg::Location::Local(tg::location::Local {

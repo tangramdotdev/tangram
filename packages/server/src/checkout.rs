@@ -51,8 +51,8 @@ impl Session {
 
 		// If the path is not provided, then cache.
 		if arg.path.is_none() {
-			let path = self.artifacts_path().join(arg.artifact.to_string());
-			if self.vfs.lock().unwrap().is_none() {
+			let path = self.server.artifacts_path().join(arg.artifact.to_string());
+			if self.server.vfs.lock().unwrap().is_none() {
 				let cache_arg = tg::cache::Arg {
 					artifacts: vec![arg.artifact.clone()],
 				};
@@ -68,12 +68,15 @@ impl Session {
 						move |result| {
 							result.and_then(|event| match event {
 								tg::progress::Event::Output(()) => {
-									let path =
-										session.artifacts_path().join(arg.artifact.to_string());
+									let path = session
+										.server
+										.artifacts_path()
+										.join(arg.artifact.to_string());
 
 									// Add an extension if necessary.
 									let path = if let Some(extension) = &extension {
 										let path_with_extension = session
+											.server
 											.artifacts_path()
 											.join(format!("{}{extension}", arg.artifact));
 										std::fs::hard_link(&path, &path_with_extension).ok();
@@ -100,7 +103,9 @@ impl Session {
 			}
 
 			let path = if let Some(ext) = &arg.extension {
-				self.artifacts_path().join(format!("{}{ext}", arg.artifact))
+				self.server
+					.artifacts_path()
+					.join(format!("{}{ext}", arg.artifact))
 			} else {
 				path
 			};
@@ -206,6 +211,7 @@ impl Session {
 	) -> tg::Result<()> {
 		// Check if the artifact's subtree is stored.
 		let stored = self
+			.server
 			.index
 			.try_get_object(&artifact.clone().into())
 			.await
@@ -234,6 +240,7 @@ impl Session {
 
 		// Check if the artifact's subtree is stored.
 		let stored = self
+			.server
 			.index
 			.try_get_object(&artifact.clone().into())
 			.await
@@ -406,6 +413,7 @@ impl Session {
 
 		// Load the graph data.
 		let (_size, data) = self
+			.server
 			.object_store
 			.try_get_data_sync(&graph_id.clone().into())
 			.map_err(|source| tg::error!(!source, "failed to get the graph data"))?
@@ -548,8 +556,11 @@ impl Session {
 		)?;
 
 		// Collect all entries, recursively flattening branches.
-		let entries =
-			crate::directory::collect_directory_entries(&self.object_store, node, graph.as_ref())?;
+		let entries = crate::directory::collect_directory_entries(
+			&self.server.object_store,
+			node,
+			graph.as_ref(),
+		)?;
 
 		// Recurse into the entries.
 		for (name, mut edge) in entries {
@@ -625,7 +636,7 @@ impl Session {
 			.as_ref()
 			.ok_or_else(|| tg::error!("missing contents"))?;
 
-		let src = &self.cache_path().join(id.to_string());
+		let src = &self.server.cache_path().join(id.to_string());
 		let dst = path;
 
 		// Attempt to reflink the file.
@@ -795,6 +806,7 @@ impl Session {
 					.ok_or_else(|| tg::error!("missing graph"))?
 					.clone();
 				let (_size, data) = self
+					.server
 					.object_store
 					.try_get_data_sync(&graph_id.clone().into())
 					.map_err(|source| tg::error!(!source, "failed to get the graph data"))?
@@ -832,6 +844,7 @@ impl Session {
 			tg::graph::data::Edge::Object(id) => {
 				// Load the object.
 				let (_size, data) = self
+					.server
 					.object_store
 					.try_get_data_sync(&id.clone().into())
 					.map_err(|source| tg::error!(!source, "failed to get the object data"))?
@@ -853,6 +866,7 @@ impl Session {
 							.ok_or_else(|| tg::error!("missing graph"))?
 							.clone();
 						let (_size, data) = self
+							.server
 							.object_store
 							.try_get_data_sync(&graph_id.clone().into())
 							.map_err(|source| tg::error!(!source, "failed to get the graph data"))?

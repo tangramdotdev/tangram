@@ -13,6 +13,7 @@ impl Session {
 			return Err(tg::error!("forbidden"));
 		}
 		let data = self
+			.server
 			.watches
 			.iter()
 			.map(|entry| tg::watch::list::Item {

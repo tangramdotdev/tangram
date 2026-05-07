@@ -17,7 +17,7 @@ impl Session {
 	}
 
 	pub async fn try_get_remote_client(&self, remote: String) -> tg::Result<Option<tg::Client>> {
-		if let Some(client) = self.remotes.get(&remote) {
+		if let Some(client) = self.server.remotes.get(&remote) {
 			return Ok(Some(client.clone()));
 		}
 		let Some(output) = self
@@ -27,8 +27,8 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let client = self.create_remote_client(&remote, output.url)?;
-		self.remotes.insert(remote, client.clone());
+		let client = self.server.create_remote_client(&remote, output.url)?;
+		self.server.remotes.insert(remote, client.clone());
 		Ok(Some(client))
 	}
 }

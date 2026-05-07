@@ -17,6 +17,7 @@ impl Session {
 		arg: tg::process::signal::post::Arg,
 	) -> tg::Result<Option<()>> {
 		let locations = self
+			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -74,6 +75,7 @@ impl Session {
 
 		// Insert the signal into the process store.
 		let connection = self
+			.server
 			.process_store
 			.write_connection()
 			.await
@@ -133,9 +135,13 @@ impl Session {
 		signal: tg::process::Signal,
 		region: &str,
 	) -> tg::Result<Option<()>> {
-		let client = self.get_region_client(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.to_owned())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});
@@ -264,6 +270,7 @@ impl Session {
 			let session = self.clone();
 			async move {
 				session
+					.server
 					.messenger
 					.publish(subject, ())
 					.await

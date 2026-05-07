@@ -31,6 +31,7 @@ impl Session {
 		arg: tg::process::signal::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::signal::get::Event>>>> {
 		let locations = self
+			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -81,6 +82,7 @@ impl Session {
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::signal::get::Event>>>> {
 		// Verify the process is local.
 		if !self
+			.server
 			.get_process_exists_local(id)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check if the process exists"))?
@@ -121,6 +123,7 @@ impl Session {
 		} else {
 			let subject = format!("processes.{id}.signal");
 			let wakeups = self
+				.server
 				.messenger
 				.subscribe_with_delivery::<()>(subject, Delivery::One)
 				.await
@@ -174,7 +177,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Signal>> {
-		match &self.process_store {
+		match &self.server.process_store {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(process_store) => {
 				self.try_dequeue_process_signal_postgres(process_store, id)
@@ -223,9 +226,13 @@ impl Session {
 		region: &str,
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::signal::get::Event>>>> {
-		let client = self.get_region_client(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.to_owned())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});

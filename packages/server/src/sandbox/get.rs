@@ -18,6 +18,7 @@ impl Session {
 		arg: tg::sandbox::get::Arg,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
 		let locations = self
+			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -75,6 +76,7 @@ impl Session {
 			user: Option<String>,
 		}
 		let connection = self
+			.server
 			.process_store
 			.connection()
 			.await
@@ -111,7 +113,7 @@ impl Session {
 						.map_err(|source| tg::error!(!source, "invalid sandbox cpu"))?,
 					id: id.clone(),
 					isolation: row.isolation,
-					location: Some(self.config().region.clone().map_or_else(
+					location: Some(self.server.config().region.clone().map_or_else(
 						|| tg::Location::Local(tg::location::Local::default()),
 						|region| {
 							tg::Location::Local(tg::location::Local {
@@ -169,9 +171,13 @@ impl Session {
 		id: &tg::sandbox::Id,
 		region: &str,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
-		let client = self.get_region_client(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.to_owned())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});

@@ -47,7 +47,7 @@ impl Session {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
 
-		let location = self.location(arg.location.as_ref())?;
+		let location = self.server.location(arg.location.as_ref())?;
 
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
@@ -187,7 +187,8 @@ impl Session {
 								stream,
 								timestamp,
 							};
-							self.log_store
+							self.server
+								.log_store
 								.put(arg)
 								.await
 								.map_err(|source| tg::error!(!source, "failed to store the log"))?;
@@ -196,6 +197,7 @@ impl Session {
 								let id = id.clone();
 								async move {
 									session
+										.server
 										.messenger
 										.publish(format!("processes.{id}.log"), ())
 										.await
@@ -242,7 +244,8 @@ impl Session {
 				.await?
 			{
 				WriteOutput::Written => {
-					self.spawn_publish_process_stdio_write_message_task(id, stream);
+					self.server
+						.spawn_publish_process_stdio_write_message_task(id, stream);
 					return Ok(());
 				},
 				WriteOutput::Full => {
@@ -263,6 +266,7 @@ impl Session {
 	) -> tg::Result<BoxStream<'static, ()>> {
 		let subject = format!("processes.{id}.{stream}.read");
 		let read_wakeups = self
+			.server
 			.messenger
 			.subscribe_with_delivery::<()>(subject, Delivery::One)
 			.await
@@ -270,6 +274,7 @@ impl Session {
 			.map(|_| ());
 		let subject = format!("processes.{id}.{stream}.close");
 		let close_wakeups = self
+			.server
 			.messenger
 			.subscribe_with_delivery::<()>(subject, Delivery::One)
 			.await
@@ -294,7 +299,7 @@ impl Session {
 		stream: tg::process::stdio::Stream,
 		bytes: Bytes,
 	) -> tg::Result<WriteOutput> {
-		match &self.process_store {
+		match &self.server.process_store {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(process_store) => {
 				self.try_write_process_stdio_postgres(process_store, id, stream, bytes)
@@ -314,7 +319,8 @@ impl Session {
 		stream: tg::process::stdio::Stream,
 	) -> tg::Result<()> {
 		self.try_close_process_stdio(id, stream).await?;
-		self.spawn_publish_process_stdio_close_message_task(id, stream);
+		self.server
+			.spawn_publish_process_stdio_close_message_task(id, stream);
 		Ok(())
 	}
 
@@ -323,7 +329,7 @@ impl Session {
 		id: &tg::process::Id,
 		stream: tg::process::stdio::Stream,
 	) -> tg::Result<()> {
-		match &self.process_store {
+		match &self.server.process_store {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(process_store) => {
 				self.try_close_process_stdio_postgres(process_store, id, stream)
@@ -344,9 +350,13 @@ impl Session {
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 		region: String,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::Event>>>> {
-		let client = self.get_region_client(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});

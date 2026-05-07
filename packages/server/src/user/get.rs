@@ -16,6 +16,7 @@ impl Session {
 
 		// Get a database connection.
 		let connection = self
+			.server
 			.database
 			.connection()
 			.await

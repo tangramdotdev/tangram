@@ -21,6 +21,7 @@ impl Session {
 		}
 
 		let location = self
+			.server
 			.location(arg.location.as_ref())
 			.map_err(|source| tg::error!(!source, "failed to resolve the location"))?;
 
@@ -51,7 +52,7 @@ impl Session {
 
 		let output = if arg.replicate.is_none() {
 			// Delete the tags from the database.
-			match &self.database {
+			match &self.server.database {
 				#[cfg(feature = "postgres")]
 				Database::Postgres(database) => self
 					.delete_tags_postgres(database, &arg.pattern, arg.recursive)
@@ -78,7 +79,8 @@ impl Session {
 			.map(ToString::to_string)
 			.collect::<Vec<_>>();
 		if !tags.is_empty() {
-			self.index
+			self.server
+				.index
 				.delete_tags(&tags)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to index the deleted tags"))?;
@@ -88,6 +90,7 @@ impl Session {
 		if arg.replicate.is_none() {
 			let location = tg::Location::Local(tg::location::Local::default()).into();
 			let locations = self
+				.server
 				.locations(Some(&location))
 				.await
 				.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -125,9 +128,13 @@ impl Session {
 		arg: tg::tag::delete::Arg,
 		region: String,
 	) -> tg::Result<tg::tag::delete::Output> {
-		let client = self.get_region_client(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});

@@ -18,7 +18,7 @@ impl Session {
 			return Err(tg::error!("forbidden"));
 		}
 
-		let location = self.location(arg.location.as_ref())?;
+		let location = self.server.location(arg.location.as_ref())?;
 
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
@@ -67,9 +67,13 @@ impl Session {
 		arg: tg::check::Arg,
 		region: String,
 	) -> tg::Result<tg::check::Output> {
-		let client = self.get_region_client(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});

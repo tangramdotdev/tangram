@@ -16,7 +16,7 @@ impl Session {
 			return Ok(());
 		}
 
-		let location = self.location(arg.location.as_ref())?;
+		let location = self.server.location(arg.location.as_ref())?;
 
 		match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
@@ -52,7 +52,8 @@ impl Session {
 				stored_at: now,
 			})
 			.collect();
-		self.object_store
+		self.server
+			.object_store
 			.put_batch(put_args)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
@@ -91,11 +92,13 @@ impl Session {
 		}
 
 		// Spawn a task to index the objects.
-		self.index_tasks
+		self.server
+			.index_tasks
 			.spawn(|_| {
 				let session = self.clone();
 				async move {
 					if let Err(error) = session
+						.server
 						.index
 						.put(tangram_index::PutArg {
 							objects: put_object_args,
@@ -117,9 +120,13 @@ impl Session {
 		arg: tg::object::batch::Arg,
 		region: String,
 	) -> tg::Result<()> {
-		let client = self.get_region_client(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});

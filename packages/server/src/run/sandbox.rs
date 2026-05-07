@@ -32,7 +32,7 @@ impl Server {
 					if let Err(error) = result {
 						tracing::error!(error = %error.trace(), sandbox = %id, "the sandbox failed");
 						let mut error = error.to_data_or_id();
-						if !session.config.advanced.internal_error_locations
+						if !session.server.config.advanced.internal_error_locations
 							&& let tg::Either::Left(error) = &mut error
 						{
 							error.remove_internal_locations();
@@ -80,17 +80,17 @@ impl Session {
 		if state.status.is_finished() {
 			return Ok(());
 		}
-		let isolation = self.resolve_sandbox_isolation()?;
+		let isolation = self.server.resolve_sandbox_isolation()?;
 
 		// Associate the permit with the sandbox.
 		let permit = Arc::new(tokio::sync::Mutex::new(Some(permit)));
-		self.sandbox_permits.insert(id.clone(), permit);
+		self.server.sandbox_permits.insert(id.clone(), permit);
 		scopeguard::defer! {
-			self.sandbox_permits.remove(id);
+			self.server.sandbox_permits.remove(id);
 		}
 
 		// Create the temp.
-		let temp = Temp::new(self);
+		let temp = Temp::new(&self.server);
 		tokio::fs::create_dir_all(temp.path())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the temp directory"))?;
@@ -101,7 +101,7 @@ impl Session {
 			.map_err(|source| tg::error!(!source, %id, "failed to create the tangram listener"))?;
 
 		// Create the sandbox. Include the artifacts directory as a readonly mount.
-		let artifacts_path = self.artifacts_path();
+		let artifacts_path = self.server.artifacts_path();
 		let mut mounts = state.mounts.clone();
 		mounts.push(tg::sandbox::Mount {
 			source: artifacts_path.clone(),
@@ -118,6 +118,7 @@ impl Session {
 			},
 			Some(tg::sandbox::Isolation::Vm) => {
 				let kernel_path = self
+					.server
 					.config()
 					.sandbox
 					.isolation
@@ -128,7 +129,7 @@ impl Session {
 					.clone();
 				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation { kernel_path })
 			},
-			None => self.resolve_sandbox_isolation()?,
+			None => self.server.resolve_sandbox_isolation()?,
 		};
 		let network = match (state.network.as_ref(), &isolation) {
 			(tg::Either::Left(false), _) => None,
@@ -144,6 +145,7 @@ impl Session {
 			},
 			(tg::Either::Right(tg::sandbox::Network::Bridge), _) => {
 				let ip = self
+					.server
 					.config
 					.sandbox
 					.bridge
@@ -151,6 +153,7 @@ impl Session {
 					.and_then(|bridge| bridge.ip)
 					.unwrap_or_else(crate::config::default_bridge_ip);
 				let name = self
+					.server
 					.config()
 					.sandbox
 					.bridge
@@ -167,9 +170,9 @@ impl Session {
 			(
 				tangram_sandbox::Isolation::Container(_),
 				Some(tangram_sandbox::Network::Bridge(_)),
-			) => (None, Some(self.allocate_guest_ip()?)),
+			) => (None, Some(self.server.allocate_guest_ip()?)),
 			(tangram_sandbox::Isolation::Vm(_), Some(_)) => {
-				let (host, guest) = self.allocate_guest_ip_pair()?;
+				let (host, guest) = self.server.allocate_guest_ip_pair()?;
 				(Some(host), Some(guest))
 			},
 			_ => (None, None),
@@ -177,7 +180,7 @@ impl Session {
 		let arg = tangram_sandbox::Arg {
 			artifacts_path,
 			cpu: state.cpu,
-			dns: self.config.sandbox.dns.clone(),
+			dns: self.server.config.sandbox.dns.clone(),
 			host_ip: host_ip.as_ref().map(|ip| ip.addr),
 			guest_ip: guest_ip.as_ref().map(|ip| ip.addr),
 			hostname: state.hostname.clone(),
@@ -186,10 +189,10 @@ impl Session {
 			memory: state.memory,
 			mounts,
 			network,
-			nice: self.config.sandbox.nice,
+			nice: self.server.config.sandbox.nice,
 			path: temp.path().to_owned(),
-			rootfs_path: self.sandbox_rootfs.clone(),
-			tangram_path: self.tangram_path.clone(),
+			rootfs_path: self.server.sandbox_rootfs.clone(),
+			tangram_path: self.server.tangram_path.clone(),
 			user: state.user.clone(),
 		};
 		let sandbox = tangram_sandbox::Sandbox::new(arg)
@@ -197,10 +200,10 @@ impl Session {
 			.map_err(|source| tg::error!(!source, %id, "failed to create the sandbox"))?;
 
 		let _temp = temp;
-		self.sandboxes.insert(id.clone(), sandbox.clone());
+		self.server.sandboxes.insert(id.clone(), sandbox.clone());
 		let session = self.clone();
 		scopeguard::defer! {
-			session.sandboxes.remove(id);
+			session.server.sandboxes.remove(id);
 			drop(host_ip);
 			drop(guest_ip);
 		}
@@ -215,6 +218,7 @@ impl Session {
 			};
 			|stop| async move {
 				session
+					.server
 					.serve(listener, config, None, Some(id.clone()), stop)
 					.await;
 			}
@@ -387,7 +391,7 @@ impl Session {
 		location: &tg::location::Location,
 		stopper: Stopper,
 	) -> tg::Result<()> {
-		let config = self.config.runner.clone().unwrap_or_default();
+		let config = self.server.config.runner.clone().unwrap_or_default();
 		loop {
 			let arg = tg::sandbox::heartbeat::Arg {
 				location: Some(location.clone().into()),

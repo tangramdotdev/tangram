@@ -363,6 +363,7 @@ impl Session {
 
 			// Get the watch and retrieve the edge from the graph.
 			let entry = self
+				.server
 				.watches
 				.iter()
 				.find(|entry| referrer.item().starts_with(entry.key()))

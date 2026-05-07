@@ -31,6 +31,7 @@ impl Session {
 
 		let mut data = Vec::new();
 		let locations = self
+			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -125,6 +126,7 @@ impl Session {
 
 		// Fetch from the remote with deduplication.
 		let task = self
+			.server
 			.remote_list_tags_tasks
 			.get_or_spawn_detached(key.clone(), {
 				let session = self.clone();
@@ -189,7 +191,7 @@ impl Session {
 	}
 
 	async fn list_tags_local(&self, arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
-		match &self.database {
+		match &self.server.database {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(database) => self.list_tags_postgres(database, arg).await,
 			#[cfg(feature = "sqlite")]
@@ -198,7 +200,7 @@ impl Session {
 	}
 
 	async fn list_tags_cache_get(&self, arg: &str) -> tg::Result<Option<(String, i64)>> {
-		match &self.database {
+		match &self.server.database {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(database) => self.list_tags_cache_get_postgres(database, arg).await,
 			#[cfg(feature = "sqlite")]
@@ -207,7 +209,7 @@ impl Session {
 	}
 
 	async fn list_tags_cache_put(&self, arg: &str, output: &str, timestamp: i64) -> tg::Result<()> {
-		match &self.database {
+		match &self.server.database {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(database) => {
 				self.list_tags_cache_put_postgres(database, arg, output, timestamp)

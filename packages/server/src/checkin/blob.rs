@@ -80,7 +80,7 @@ impl Session {
 					Ok::<_, tg::Error>((index, blob))
 				}
 			})
-			.buffer_unordered(self.config.checkin.blob.concurrency)
+			.buffer_unordered(self.server.config.checkin.blob.concurrency)
 			.try_collect::<Vec<_>>()
 			.await?;
 

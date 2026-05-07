@@ -15,6 +15,7 @@ impl Session {
 		arg: tg::process::metadata::Arg,
 	) -> tg::Result<Option<tg::process::Metadata>> {
 		let locations = self
+			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -58,7 +59,12 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Metadata>> {
-		Ok(self.index.try_get_process(id).await?.map(|p| p.metadata))
+		Ok(self
+			.server
+			.index
+			.try_get_process(id)
+			.await?
+			.map(|p| p.metadata))
 	}
 
 	pub(crate) async fn try_get_process_metadata_batch_local(
@@ -66,6 +72,7 @@ impl Session {
 		ids: &[tg::process::Id],
 	) -> tg::Result<Vec<Option<tg::process::Metadata>>> {
 		Ok(self
+			.server
 			.index
 			.try_get_processes(ids)
 			.await?
@@ -107,9 +114,13 @@ impl Session {
 		id: &tg::process::Id,
 		region: &str,
 	) -> tg::Result<Option<tg::process::Metadata>> {
-		let client = self.get_region_client(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.to_owned())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});

@@ -44,8 +44,8 @@ impl Session {
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 
 		// Create the destination.
-		let destination = if self.config.advanced.single_directory {
-			Destination::Temp(Temp::new(self))
+		let destination = if self.server.config.advanced.single_directory {
+			Destination::Temp(Temp::new(&self.server))
 		} else {
 			Destination::Store {
 				stored_at: touched_at,
@@ -62,7 +62,7 @@ impl Session {
 		// Rename the temp file to the cache directory if necessary.
 		let cache_pointers = arg
 			.cache_pointers
-			.unwrap_or(self.config.write.cache_pointers);
+			.unwrap_or(self.server.config.write.cache_pointers);
 		let cache_pointer = if let Destination::Temp(temp) = destination
 			&& cache_pointers
 		{
@@ -73,7 +73,7 @@ impl Session {
 				module: None,
 			});
 			let id = tg::file::Id::new(&data.serialize()?);
-			let path = self.cache_path().join(id.to_string());
+			let path = self.server.cache_path().join(id.to_string());
 			match tangram_util::fs::rename_noreplace(temp.path(), path).await {
 				Ok(()) => (),
 				Err(error)
@@ -122,9 +122,9 @@ impl Session {
 		let reader = pin!(reader);
 		let mut reader = fastcdc::v2020::AsyncStreamCDC::new(
 			reader,
-			self.config.write.min_leaf_size,
-			self.config.write.avg_leaf_size,
-			self.config.write.max_leaf_size,
+			self.server.config.write.min_leaf_size,
+			self.server.config.write.avg_leaf_size,
+			self.server.config.write.max_leaf_size,
 		);
 		let stream = reader.as_stream();
 		let mut stream = pin!(stream);
@@ -169,7 +169,8 @@ impl Session {
 						id: blob.id.clone().into(),
 						stored_at: *stored_at,
 					};
-					self.object_store
+					self.server
+						.object_store
 						.put(arg)
 						.await
 						.map_err(|source| tg::error!(!source, "failed to store the leaf"))?;
@@ -188,7 +189,7 @@ impl Session {
 		}
 
 		// Create the tree.
-		let max_branch_children = self.config.write.max_branch_children;
+		let max_branch_children = self.server.config.write.max_branch_children;
 		while blobs.len() > max_branch_children {
 			blobs = blobs
 				.chunks(max_branch_children)
@@ -218,7 +219,7 @@ impl Session {
 		destination: Option<&Destination>,
 	) -> tg::Result<Output> {
 		// Create the chunker.
-		let config = &self.config.write;
+		let config = &self.server.config.write;
 		let mut chunker = fastcdc::v2020::StreamCDC::new(
 			&mut reader,
 			config.min_leaf_size,
@@ -263,7 +264,8 @@ impl Session {
 						id: blob.id.clone().into(),
 						stored_at: *stored_at,
 					};
-					self.object_store
+					self.server
+						.object_store
 						.put_sync(arg)
 						.map_err(|source| tg::error!(!source, "failed to store the leaf"))?;
 				},
@@ -437,7 +439,8 @@ impl Session {
 		stored_at: i64,
 	) -> tg::Result<()> {
 		let arg = Self::write_store_args(blob, cache_pointer.as_ref(), stored_at);
-		self.object_store
+		self.server
+			.object_store
 			.put_batch(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to store the objects"))?;
@@ -484,11 +487,13 @@ impl Session {
 	) -> tg::Result<()> {
 		let (put_cache_entry_args, put_object_args) =
 			Self::write_index_args(blob, cache_pointer, touched_at);
-		self.index_tasks
+		self.server
+			.index_tasks
 			.spawn(|_| {
 				let session = self.clone();
 				async move {
 					if let Err(error) = session
+						.server
 						.index
 						.put(tangram_index::PutArg {
 							cache_entries: put_cache_entry_args,

@@ -21,9 +21,9 @@ impl Session {
 		queue_process_receiver: async_channel::Receiver<ProcessItem>,
 	) -> tg::Result<()> {
 		// Create the objects future.
-		let object_batch_size = self.config.sync.get.queue.object_batch_size;
-		let object_batch_timeout = self.config.sync.get.queue.object_batch_timeout;
-		let object_concurrency = self.config.sync.get.queue.object_concurrency;
+		let object_batch_size = self.server.config.sync.get.queue.object_batch_size;
+		let object_batch_timeout = self.server.config.sync.get.queue.object_batch_timeout;
+		let object_concurrency = self.server.config.sync.get.queue.object_concurrency;
 		let objects_future = tokio_stream::StreamExt::chunks_timeout(
 			queue_object_receiver,
 			object_batch_size,
@@ -37,9 +37,9 @@ impl Session {
 		});
 
 		// Create the processes future.
-		let process_batch_size = self.config.sync.get.queue.process_batch_size;
-		let process_batch_timeout = self.config.sync.get.queue.process_batch_timeout;
-		let process_concurrency = self.config.sync.get.queue.process_concurrency;
+		let process_batch_size = self.server.config.sync.get.queue.process_batch_size;
+		let process_batch_timeout = self.server.config.sync.get.queue.process_batch_timeout;
+		let process_concurrency = self.server.config.sync.get.queue.process_concurrency;
 		let processes_future = tokio_stream::StreamExt::chunks_timeout(
 			queue_process_receiver,
 			process_batch_size,
@@ -78,8 +78,9 @@ impl Session {
 		let outputs = if state.arg.force {
 			vec![None; ids.len()]
 		} else {
-			self.index
-				.touch_objects(&ids, touched_at, self.config.object.time_to_touch)
+			self.server
+				.index
+				.touch_objects(&ids, touched_at, self.server.config.object.time_to_touch)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to touch the objects"))?
 		};
@@ -204,8 +205,9 @@ impl Session {
 		// Touch the processes and get stored and metadata.
 		let touched_at = time::OffsetDateTime::now_utc().unix_timestamp();
 		let outputs = self
+			.server
 			.index
-			.touch_processes(&ids, touched_at, self.config.process.time_to_touch)
+			.touch_processes(&ids, touched_at, self.server.config.process.time_to_touch)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to touch the processes"))?;
 

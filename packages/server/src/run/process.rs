@@ -251,7 +251,7 @@ impl Session {
 				js_args.push("js".to_owned());
 				js_args.push("--host".to_owned());
 				js_args.push(command.host.clone());
-				match &self.config.runner.as_ref().unwrap().js.engine {
+				match &self.server.config.runner.as_ref().unwrap().js.engine {
 					crate::config::JsEngine::Auto => {
 						js_args.push("--engine=auto".into());
 					},
@@ -593,7 +593,7 @@ impl Session {
 
 	async fn checkout_process_artifacts(&self, process: &tg::Process) -> tg::Result<()> {
 		// Do nothing if the VFS is enabled.
-		if self.vfs.lock().unwrap().is_some() {
+		if self.server.vfs.lock().unwrap().is_some() {
 			return Ok(());
 		}
 

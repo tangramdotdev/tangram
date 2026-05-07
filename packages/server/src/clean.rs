@@ -26,7 +26,7 @@ impl Session {
 			return Err(tg::error!("forbidden"));
 		}
 
-		if !self.config.advanced.single_process {
+		if !self.server.config.advanced.single_process {
 			return Err(tg::error!("cannot clean in multi-process mode"));
 		}
 
@@ -70,10 +70,10 @@ impl Session {
 		progress: &crate::progress::Handle<tg::clean::Output>,
 	) -> tg::Result<tg::clean::Output> {
 		// Clean the temporary directory.
-		tangram_util::fs::remove(self.temp_path())
+		tangram_util::fs::remove(self.server.temp_path())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to remove the temporary directory"))?;
-		tokio::fs::create_dir_all(self.temp_path())
+		tokio::fs::create_dir_all(self.server.temp_path())
 			.await
 			.map_err(|error| {
 				tg::error!(source = error, "failed to recreate the temporary directory")
@@ -87,6 +87,7 @@ impl Session {
 			tags: 0,
 		};
 		let batch_size = self
+			.server
 			.config
 			.cleaner
 			.as_ref()
@@ -117,9 +118,10 @@ impl Session {
 		);
 
 		// For manual cleaning, process all partitions.
-		let partition_total = self.index.partition_total();
+		let partition_total = self.server.index.partition_total();
 		loop {
 			let inner_output = match self
+				.server
 				.cleaner_task_inner(
 					now,
 					object_time_to_live,
@@ -156,6 +158,7 @@ impl Session {
 
 		// Delete the remote tag list cache.
 		let connection = self
+			.server
 			.database
 			.write_connection()
 			.await

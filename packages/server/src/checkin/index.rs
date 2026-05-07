@@ -55,7 +55,8 @@ impl Session {
 		let put_index_object_args: Vec<_> = index_object_args.into_values().rev().collect();
 
 		// Index.
-		self.index
+		self.server
+			.index
 			.put(tangram_index::PutArg {
 				cache_entries: put_index_cache_entry_args,
 				objects: put_index_object_args,

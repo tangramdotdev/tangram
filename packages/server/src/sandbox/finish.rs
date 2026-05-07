@@ -41,6 +41,7 @@ impl Session {
 		}
 
 		let locations = self
+			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -85,6 +86,7 @@ impl Session {
 	) -> tg::Result<Option<bool>> {
 		// Verify the sandbox is local.
 		if !self
+			.server
 			.get_sandbox_exists_local(id)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the sandbox"))?
@@ -94,6 +96,7 @@ impl Session {
 
 		// Get a process store connection.
 		let mut connection = self
+			.server
 			.process_store
 			.write_connection()
 			.await
@@ -177,10 +180,10 @@ impl Session {
 		drop(connection);
 
 		// Spawn a task to publish the status message.
-		self.spawn_publish_sandbox_status_task(id);
+		self.server.spawn_publish_sandbox_status_task(id);
 
 		// Spawn a task to publish the finalize message.
-		self.spawn_publish_sandbox_finalize_message_task();
+		self.server.spawn_publish_sandbox_finalize_message_task();
 
 		for process in &finished_processes {
 			self.spawn_process_finish_tasks(process);
@@ -244,9 +247,13 @@ impl Session {
 		arg: &tg::sandbox::finish::Arg,
 		region: &str,
 	) -> tg::Result<Option<bool>> {
-		let client = self.get_region_client(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.to_owned())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});

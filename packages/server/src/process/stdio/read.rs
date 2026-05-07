@@ -42,6 +42,7 @@ impl Session {
 		}
 
 		let locations = self
+			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -138,6 +139,7 @@ impl Session {
 		} else {
 			let subject = format!("processes.{id}.log");
 			let log_wakeups = self
+				.server
 				.messenger
 				.subscribe::<()>(subject)
 				.await
@@ -147,6 +149,7 @@ impl Session {
 
 			let subject = format!("processes.{id}.status");
 			let status_wakeups = self
+				.server
 				.messenger
 				.subscribe::<()>(subject)
 				.await
@@ -277,6 +280,7 @@ impl Session {
 			for stream in &streams {
 				let subject = format!("processes.{id}.{stream}.write");
 				let wakeup = self
+					.server
 					.messenger
 					.subscribe_with_delivery::<()>(subject, Delivery::One)
 					.await
@@ -286,6 +290,7 @@ impl Session {
 				wakeups.push(wakeup);
 				let subject = format!("processes.{id}.{stream}.close");
 				let wakeup = self
+					.server
 					.messenger
 					.subscribe_with_delivery::<()>(subject, Delivery::One)
 					.await
@@ -313,7 +318,8 @@ impl Session {
 					Ok(Some(event)) => {
 						let end = matches!(event, tg::process::stdio::read::Event::End);
 						if let tg::process::stdio::read::Event::Chunk(chunk) = &event {
-							self.spawn_publish_process_stdio_read_message_task(id, chunk.stream);
+							self.server
+								.spawn_publish_process_stdio_read_message_task(id, chunk.stream);
 						}
 						if sender.try_send(Ok(event)).is_err() {
 							return Ok(());
@@ -353,7 +359,7 @@ impl Session {
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<tg::process::stdio::read::Event>> {
-		match &self.process_store {
+		match &self.server.process_store {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(process_store) => {
 				self.try_read_process_stdio_pipe_event_postgres(process_store, id, streams)
@@ -402,9 +408,13 @@ impl Session {
 		arg: tg::process::stdio::read::Arg,
 		region: &str,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>>> {
-		let client = self.get_region_client(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.to_owned())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});

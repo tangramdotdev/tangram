@@ -15,7 +15,7 @@ impl Session {
 			return Err(tg::error!("forbidden"));
 		}
 
-		let location = self.location(arg.location.as_ref())?;
+		let location = self.server.location(arg.location.as_ref())?;
 
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
@@ -39,6 +39,7 @@ impl Session {
 	) -> tg::Result<tg::sandbox::create::Output> {
 		let id = tg::sandbox::Id::new();
 		let connection = self
+			.server
 			.process_store
 			.write_connection()
 			.await
@@ -75,7 +76,7 @@ impl Session {
 			"
 		);
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		let isolation = self.resolve_sandbox_isolation()?;
+		let isolation = self.server.resolve_sandbox_isolation()?;
 		Server::validate_sandbox_resources(&isolation, arg.cpu, arg.memory)?;
 		let cpu = arg
 			.cpu
@@ -108,7 +109,7 @@ impl Session {
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
 		drop(connection);
 
-		self.spawn_publish_sandbox_status_task(&id);
+		self.server.spawn_publish_sandbox_status_task(&id);
 		self.spawn_publish_sandboxes_created_message_task();
 
 		let output = tg::sandbox::create::Output { id };
@@ -121,9 +122,13 @@ impl Session {
 		arg: tg::sandbox::create::Arg,
 		region: String,
 	) -> tg::Result<tg::sandbox::create::Output> {
-		let client = self.get_region_client(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});

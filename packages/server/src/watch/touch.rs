@@ -14,6 +14,7 @@ impl Session {
 
 		// Get the event sender.
 		let watch = self
+			.server
 			.watches
 			.get(&arg.path)
 			.ok_or_else(|| tg::error!(path = %arg.path.display(), "expected a watch"))?;

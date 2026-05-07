@@ -23,7 +23,7 @@ impl Session {
 			return Err(tg::error!("forbidden"));
 		}
 
-		let location = self.location(arg.location.as_ref())?;
+		let location = self.server.location(arg.location.as_ref())?;
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
 				self.try_dequeue_sandbox_local(self.context.stopper.clone(), arg.timeout)
@@ -62,6 +62,7 @@ impl Session {
 			None
 		} else {
 			let wakeups = self
+				.server
 				.messenger
 				.subscribe_with_delivery::<()>("sandboxes.created".into(), Delivery::One)
 				.await
@@ -81,16 +82,18 @@ impl Session {
 
 		// Dequeue.
 		loop {
-			let output = match &self.process_store {
+			let output = match &self.server.process_store {
 				#[cfg(feature = "postgres")]
 				Database::Postgres(process_store) => self.try_dequeue_sandbox_postgres(process_store).await?,
 				#[cfg(feature = "sqlite")]
 				Database::Sqlite(process_store) => self.try_dequeue_sandbox_sqlite(process_store).await?,
 			};
 			if let Some(output) = output {
-				self.spawn_publish_sandbox_status_task(&output.sandbox);
+				self.server
+					.spawn_publish_sandbox_status_task(&output.sandbox);
 				if let Some(process) = &output.process {
-					self.messenger
+					self.server
+						.messenger
 						.publish(format!("processes.{process}.status"), ())
 						.await
 						.ok();
@@ -113,9 +116,13 @@ impl Session {
 		region: String,
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
-		let client = self.get_region_client(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});
@@ -153,6 +160,7 @@ impl Session {
 			let session = self.clone();
 			async move {
 				session
+					.server
 					.messenger
 					.publish("sandboxes.created".into(), ())
 					.await

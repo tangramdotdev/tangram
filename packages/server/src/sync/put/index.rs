@@ -24,9 +24,9 @@ impl Session {
 		process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
 	) -> tg::Result<()> {
 		// Create the objects future.
-		let object_batch_size = self.config.sync.put.index.object_batch_size;
-		let object_batch_timeout = self.config.sync.put.index.object_batch_timeout;
-		let object_concurrency = self.config.sync.put.index.object_concurrency;
+		let object_batch_size = self.server.config.sync.put.index.object_batch_size;
+		let object_batch_timeout = self.server.config.sync.put.index.object_batch_timeout;
+		let object_concurrency = self.server.config.sync.put.index.object_concurrency;
 		let objects_future = tokio_stream::StreamExt::chunks_timeout(
 			ReceiverStream::new(object_receiver),
 			object_batch_size,
@@ -40,9 +40,9 @@ impl Session {
 		});
 
 		// Create the processes future.
-		let process_batch_size = self.config.sync.put.index.process_batch_size;
-		let process_batch_timeout = self.config.sync.put.index.process_batch_timeout;
-		let process_concurrency = self.config.sync.put.index.process_concurrency;
+		let process_batch_size = self.server.config.sync.put.index.process_batch_size;
+		let process_batch_timeout = self.server.config.sync.put.index.process_batch_timeout;
+		let process_concurrency = self.server.config.sync.put.index.process_concurrency;
 		let processes_future = tokio_stream::StreamExt::chunks_timeout(
 			ReceiverStream::new(process_receiver),
 			process_batch_size,
@@ -67,9 +67,14 @@ impl Session {
 		items: Vec<ObjectItem>,
 	) -> tg::Result<()> {
 		let ids = items.into_iter().map(|item| item.id).collect::<Vec<_>>();
-		let outputs = self.index.try_get_objects(&ids).await.map_err(|source| {
-			tg::error!(!source, "failed to get the object stored and metadata")
-		})?;
+		let outputs = self
+			.server
+			.index
+			.try_get_objects(&ids)
+			.await
+			.map_err(|source| {
+				tg::error!(!source, "failed to get the object stored and metadata")
+			})?;
 		for output in outputs {
 			let Some(object) = output else {
 				continue;
@@ -94,9 +99,14 @@ impl Session {
 		items: Vec<ProcessItem>,
 	) -> tg::Result<()> {
 		let ids = items.into_iter().map(|item| item.id).collect::<Vec<_>>();
-		let outputs = self.index.try_get_processes(&ids).await.map_err(|source| {
-			tg::error!(!source, "failed to get the process stored and metadata")
-		})?;
+		let outputs = self
+			.server
+			.index
+			.try_get_processes(&ids)
+			.await
+			.map_err(|source| {
+				tg::error!(!source, "failed to get the process stored and metadata")
+			})?;
 		for output in outputs {
 			let Some(process) = output else {
 				continue;

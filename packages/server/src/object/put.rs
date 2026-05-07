@@ -16,7 +16,7 @@ impl Session {
 		id: &tg::object::Id,
 		arg: tg::object::put::Arg,
 	) -> tg::Result<()> {
-		let location = self.location(arg.location.as_ref())?;
+		let location = self.server.location(arg.location.as_ref())?;
 
 		match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
@@ -51,7 +51,8 @@ impl Session {
 			id: id.clone(),
 			stored_at: now,
 		};
-		self.object_store
+		self.server
+			.object_store
 			.put(put_arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the object"))?;
@@ -101,11 +102,13 @@ impl Session {
 			stored: tangram_index::ObjectStored::default(),
 			touched_at: now,
 		};
-		self.index_tasks
+		self.server
+			.index_tasks
 			.spawn(|_| {
 				let session = self.clone();
 				async move {
 					if let Err(error) = session
+						.server
 						.index
 						.put(tangram_index::PutArg {
 							objects: vec![arg],
@@ -128,9 +131,13 @@ impl Session {
 		arg: tg::object::put::Arg,
 		region: String,
 	) -> tg::Result<()> {
-		let client = self.get_region_client(region.clone()).await.map_err(
-			|source| tg::error!(!source, %id, region = %region, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, %id, region = %region, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});

@@ -71,7 +71,7 @@ impl Session {
 
 			let batches = files
 				.into_iter()
-				.batches(self.config.checkin.cache.batch_size)
+				.batches(self.server.config.checkin.cache.batch_size)
 				.map(|batch| {
 					let session = self.clone();
 					let batch_bytes: u64 = batch.iter().map(|(_, _, _, size)| size).sum();
@@ -92,7 +92,7 @@ impl Session {
 				.collect::<Vec<_>>();
 
 			stream::iter(batches)
-				.buffer_unordered(self.config.checkin.cache.concurrency)
+				.buffer_unordered(self.server.config.checkin.cache.concurrency)
 				.try_collect::<()>()
 				.await
 				.map_err(|source| tg::error!(!source, "the checkin cache task failed"))?;
@@ -108,7 +108,7 @@ impl Session {
 		let node = graph.nodes.get(index).unwrap();
 		let id = node.id.as_ref().unwrap();
 		let src = node.path.as_ref().unwrap();
-		let dst = self.cache_path().join(id.to_string());
+		let dst = self.server.cache_path().join(id.to_string());
 		if id.is_directory() {
 			let permissions = std::fs::Permissions::from_mode(0o755);
 			std::fs::set_permissions(src, permissions).map_err(
@@ -154,7 +154,7 @@ impl Session {
 	async fn checkin_cache_destructive_copy(&self, src: &Path, dst: &Path) -> tg::Result<bool> {
 		let src = src.to_owned();
 		let dst = dst.to_owned();
-		let temp = Temp::new(self);
+		let temp = Temp::new(&self.server);
 		let temp_path = temp.path().to_owned();
 		tokio::task::spawn_blocking(move || {
 			Self::checkin_cache_destructive_copy_inner(&src, &temp_path)?;
@@ -226,14 +226,14 @@ impl Session {
 	) -> tg::Result<()> {
 		for (path, metadata, id) in batch {
 			// If the file is already cached, then continue.
-			let cache_path = self.cache_path().join(id.to_string());
+			let cache_path = self.server.cache_path().join(id.to_string());
 			if cache_path.exists() {
 				continue;
 			}
 
 			// Copy the file to a temp.
 			let src = &path;
-			let temp = Temp::new(self);
+			let temp = Temp::new(&self.server);
 			let dst = temp.path();
 			std::fs::copy(src, dst)
 				.map_err(|source| tg::error!(!source, "failed to copy the file"))?;

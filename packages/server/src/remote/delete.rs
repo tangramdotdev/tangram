@@ -15,6 +15,7 @@ impl Session {
 		}
 
 		let connection = self
+			.server
 			.database
 			.write_connection()
 			.await
@@ -36,7 +37,7 @@ impl Session {
 			return Ok(None);
 		}
 
-		self.remotes.remove(name);
+		self.server.remotes.remove(name);
 
 		Ok(Some(()))
 	}

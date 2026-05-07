@@ -40,12 +40,12 @@ impl Session {
 		object_receiver: tokio::sync::mpsc::Receiver<ObjectItem>,
 	) -> tg::Result<()> {
 		// Choose the batch parameters.
-		let store_config = match &self.object_store {
+		let store_config = match &self.server.object_store {
 			#[cfg(feature = "lmdb")]
-			crate::object::Store::Lmdb(_) => &self.config.sync.get.store.lmdb,
-			crate::object::Store::Memory(_) => &self.config.sync.get.store.memory,
+			crate::object::Store::Lmdb(_) => &self.server.config.sync.get.store.lmdb,
+			crate::object::Store::Memory(_) => &self.server.config.sync.get.store.memory,
 			#[cfg(feature = "scylla")]
-			crate::object::Store::Scylla(_) => &self.config.sync.get.store.scylla,
+			crate::object::Store::Scylla(_) => &self.server.config.sync.get.store.scylla,
 		};
 		let concurrency = store_config.object_concurrency;
 		let max_objects_per_batch = store_config.object_max_batch;
@@ -115,7 +115,8 @@ impl Session {
 				})
 			})
 			.collect::<tg::Result<_>>()?;
-		self.object_store
+		self.server
+			.object_store
 			.put_batch(args)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put objects"))?;
@@ -197,9 +198,9 @@ impl Session {
 		state: &State,
 		process_receiver: tokio::sync::mpsc::Receiver<ProcessItem>,
 	) -> tg::Result<()> {
-		let process_batch_size = self.config.sync.get.store.process_batch_size;
-		let process_batch_timeout = self.config.sync.get.store.process_batch_timeout;
-		let process_concurrency = self.config.sync.get.store.process_concurrency;
+		let process_batch_size = self.server.config.sync.get.store.process_batch_size;
+		let process_batch_timeout = self.server.config.sync.get.store.process_batch_timeout;
+		let process_concurrency = self.server.config.sync.get.store.process_concurrency;
 		tokio_stream::StreamExt::chunks_timeout(
 			ReceiverStream::new(process_receiver),
 			process_batch_size,
@@ -236,7 +237,7 @@ impl Session {
 		// Write the processes to the database.
 		let now = time::OffsetDateTime::now_utc().unix_timestamp();
 		let batch_refs: Vec<_> = batch.iter().map(|(id, data, _)| (id, data)).collect();
-		match &self.process_store {
+		match &self.server.process_store {
 			#[cfg(feature = "postgres")]
 			Database::Postgres(database) => {
 				self.put_process_batch_postgres(&batch_refs, database, now)

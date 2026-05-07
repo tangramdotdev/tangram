@@ -41,6 +41,7 @@ impl Session {
 		}
 
 		let locations = self
+			.server
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to resolve the locations"))?;
@@ -147,6 +148,7 @@ impl Session {
 
 		// Get a process store connection.
 		let mut connection = self
+			.server
 			.process_store
 			.write_connection()
 			.await
@@ -195,7 +197,7 @@ impl Session {
 		let tg::Either::Left(mut data) = error else {
 			return error;
 		};
-		if !self.config.advanced.internal_error_locations {
+		if !self.server.config.advanced.internal_error_locations {
 			data.remove_internal_locations();
 		}
 
@@ -246,14 +248,15 @@ impl Session {
 			tg::process::stdio::Stream::Stdout,
 			tg::process::stdio::Stream::Stderr,
 		] {
-			self.spawn_publish_process_stdio_close_message_task(id, stream);
+			self.server
+				.spawn_publish_process_stdio_close_message_task(id, stream);
 		}
 
 		// Spawn a task to publish the status.
-		self.spawn_publish_process_status_task(id);
+		self.server.spawn_publish_process_status_task(id);
 
 		// Spawn a task to publish the finalize message.
-		self.spawn_publish_process_finalize_message_task();
+		self.server.spawn_publish_process_finalize_message_task();
 
 		// Spawn a task to cancel the children.
 		self.spawn_cancel_process_children_task(id);
@@ -273,10 +276,12 @@ impl Session {
 	}
 
 	async fn cancel_process_children(&self, id: &tg::process::Id) -> tg::Result<()> {
-		let connection =
-			self.process_store.connection().await.map_err(|source| {
-				tg::error!(!source, "failed to get a process store connection")
-			})?;
+		let connection = self
+			.server
+			.process_store
+			.connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a process store connection"))?;
 		let p = connection.p();
 
 		#[derive(db::row::Deserialize)]
@@ -361,9 +366,13 @@ impl Session {
 		arg: tg::process::finish::Arg,
 		region: &str,
 	) -> tg::Result<Option<bool>> {
-		let client = self.get_region_client(region.to_owned()).await.map_err(
-			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.to_owned())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});

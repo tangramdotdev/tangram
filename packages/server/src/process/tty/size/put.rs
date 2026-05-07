@@ -13,7 +13,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::tty::size::put::Arg,
 	) -> tg::Result<Option<()>> {
-		let location = self.location(arg.location.as_ref())?;
+		let location = self.server.location(arg.location.as_ref())?;
 
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
@@ -59,7 +59,8 @@ impl Session {
 		// Publish the message.
 		let event = tg::process::tty::size::get::Event::Size(size);
 		let payload = tangram_messenger::payload::Json(event);
-		self.messenger
+		self.server
+			.messenger
 			.publish(format!("processes.{id}.tty"), payload)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to update the tty size"))?;
@@ -73,9 +74,13 @@ impl Session {
 		size: tg::process::tty::Size,
 		region: String,
 	) -> tg::Result<Option<()>> {
-		let client = self.get_region_client(region.clone()).await.map_err(
-			|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
-		)?;
+		let client = self
+			.server
+			.get_region_client(region.clone())
+			.await
+			.map_err(
+				|source| tg::error!(!source, region = %region, %id, "failed to get the region client"),
+			)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});

@@ -240,6 +240,7 @@ impl Reader {
 	pub async fn new(session: &Session, blob: tg::Blob) -> tg::Result<Self> {
 		let id = blob.id();
 		let object = session
+			.server
 			.object_store
 			.try_get(&id.clone().into())
 			.await
@@ -247,6 +248,7 @@ impl Reader {
 		let cache_pointer = object.and_then(|object| object.cache_pointer);
 		let reader = if let Some(cache_pointer) = cache_pointer {
 			let mut path = session
+				.server
 				.cache_path()
 				.join(cache_pointer.artifact.to_string());
 			if let Some(path_) = &cache_pointer.path {
@@ -271,12 +273,14 @@ impl Reader {
 	pub fn new_sync(session: &Session, blob: tg::Blob) -> tg::Result<Self> {
 		let id = blob.id();
 		let object = session
+			.server
 			.object_store
 			.try_get_sync(&id.clone().into())
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
 		let cache_pointer = object.and_then(|object| object.cache_pointer);
 		let reader = if let Some(cache_pointer) = cache_pointer {
 			let mut path = session
+				.server
 				.cache_path()
 				.join(cache_pointer.artifact.to_string());
 			if let Some(path_) = &cache_pointer.path {

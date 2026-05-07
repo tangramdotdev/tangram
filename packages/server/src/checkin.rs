@@ -74,7 +74,7 @@ impl Session {
 			.map_err(|source| tg::error!(!source, path = %&arg.path.display(), "failed to canonicalize the path's parent"))?;
 
 		// Handle paths in the cache directory.
-		if let Ok(path) = arg.path.strip_prefix(self.cache_path()) {
+		if let Ok(path) = arg.path.strip_prefix(self.server.cache_path()) {
 			let progress = crate::progress::Handle::new();
 			let output = self
 				.checkin_cache_path(path)
@@ -105,7 +105,7 @@ impl Session {
 			root: root.clone(),
 			updates: arg.updates.clone(),
 		};
-		let root_task = self.checkin_tasks.get_or_spawn_with_context(
+		let root_task = self.server.checkin_tasks.get_or_spawn_with_context(
 			key,
 			crate::progress::Handle::new,
 			|progress, _stop| {
@@ -269,7 +269,7 @@ impl Session {
 
 		// Attempt to get the graph, lock, and solutions from a watcher.
 		let (mut graph, lock, mut solutions, version) = if arg.options.watch
-			&& let Some(watch) = self.watches.get(root)
+			&& let Some(watch) = self.server.watches.get(root)
 			&& watch.value().options() == &arg.options
 		{
 			let snapshot = watch.value().get();
@@ -385,7 +385,7 @@ impl Session {
 
 		// Create artifacts.
 		Self::checkin_create_artifacts(
-			&self.config.checkin,
+			&self.server.config.checkin,
 			&arg,
 			&mut graph,
 			&paths,
@@ -429,21 +429,29 @@ impl Session {
 
 		// If the watch option is enabled, then create or update the watcher, verify the version, and then spawn a task to clean nodes with no referrers.
 		if self
+			.server
 			.config()
 			.watch
 			.as_ref()
 			.is_some_and(|_| arg.options.watch)
 		{
 			// Create or update the watcher.
-			let entry = self.watches.entry(root.to_owned());
+			let entry = self.server.watches.entry(root.to_owned());
 			match entry {
 				dashmap::Entry::Occupied(entry) => {
 					// Verify the version.
 					let watch = entry.get();
 
 					// Update the watch.
-					let success =
-						watch.update(self, root, graph.clone(), lock, solutions, version, next);
+					let success = watch.update(
+						&self.server,
+						root,
+						graph.clone(),
+						lock,
+						solutions,
+						version,
+						next,
+					);
 
 					// If the update was not successful, then files were modified during checkin.
 					if !success {
@@ -452,7 +460,7 @@ impl Session {
 				},
 				dashmap::Entry::Vacant(entry) => {
 					let watch = Watch::new(
-						self,
+						&self.server,
 						root,
 						graph.clone(),
 						lock,
@@ -471,7 +479,7 @@ impl Session {
 				let root = root.to_owned();
 				let next = graph.next;
 				move || {
-					if let Some(watch) = session.watches.get(&root) {
+					if let Some(watch) = session.server.watches.get(&root) {
 						watch.clean(&root, next);
 					}
 				}
@@ -479,7 +487,8 @@ impl Session {
 		}
 
 		// Spawn the index task.
-		self.index_tasks
+		self.server
+			.index_tasks
 			.spawn({
 				let session = self.clone();
 				let arg = arg.clone();

@@ -85,13 +85,24 @@ impl Session {
 
 		let processes = if include_processes {
 			// Get a process store connection.
-			let connection = self.process_store.connection().await.map_err(|source| {
-				tg::error!(!source, "failed to get a process store connection")
-			})?;
+			let connection = self
+				.server
+				.process_store
+				.connection()
+				.await
+				.map_err(|source| {
+					tg::error!(!source, "failed to get a process store connection")
+				})?;
 
 			// Get the process health.
-			let permits = if self.config.runner.is_some() {
-				Some(self.sandbox_semaphore.available_permits().to_u64().unwrap())
+			let permits = if self.server.config.runner.is_some() {
+				Some(
+					self.server
+						.sandbox_semaphore
+						.available_permits()
+						.to_u64()
+						.unwrap(),
+				)
 			} else {
 				None
 			};
@@ -123,7 +134,7 @@ impl Session {
 		};
 
 		let database = if include_database {
-			let available_connections = match &self.database {
+			let available_connections = match &self.server.database {
 				#[cfg(feature = "postgres")]
 				Database::Postgres(database) => database.pool().available().to_u64().unwrap(),
 				#[cfg(feature = "sqlite")]
@@ -131,7 +142,7 @@ impl Session {
 					database.read_pool().available().to_u64().unwrap()
 						+ database.write_pool().available().to_u64().unwrap()
 				},
-			} + match &self.process_store {
+			} + match &self.server.process_store {
 				#[cfg(feature = "postgres")]
 				Database::Postgres(database) => database.pool().available().to_u64().unwrap(),
 				#[cfg(feature = "sqlite")]
@@ -151,7 +162,8 @@ impl Session {
 		let health = tg::Health {
 			database,
 			diagnostics: include_diagnostics.then(|| {
-				self.diagnostics
+				self.server
+					.diagnostics
 					.lock()
 					.unwrap()
 					.iter()
@@ -159,7 +171,7 @@ impl Session {
 					.collect()
 			}),
 			processes,
-			version: include_version.then(|| self.version.clone()),
+			version: include_version.then(|| self.server.version.clone()),
 		};
 
 		Ok(health)

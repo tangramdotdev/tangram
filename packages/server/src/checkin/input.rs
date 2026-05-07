@@ -597,7 +597,7 @@ impl Session {
 		};
 
 		// If the target is in the cache directory, then treat it as an artifact symlink.
-		if let Ok(path_in_cache_path) = absolute_target.strip_prefix(self.cache_path()) {
+		if let Ok(path_in_cache_path) = absolute_target.strip_prefix(self.server.cache_path()) {
 			// Get the artifact.
 			let mut components = path_in_cache_path.components();
 			let Some(artifact) = components.next().and_then(|component| {
@@ -620,7 +620,7 @@ impl Session {
 
 			// If this is a destructive checkin and the target is absolute, make it relative.
 			if state.arg.options.destructive && target.is_absolute() {
-				let mut source = self.cache_path().join("_");
+				let mut source = self.server.cache_path().join("_");
 				if let Ok(path) = path.strip_prefix(state.root) {
 					source.push(path);
 				}

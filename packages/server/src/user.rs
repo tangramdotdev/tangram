@@ -16,7 +16,7 @@ impl Session {
 	}
 
 	pub(crate) async fn try_authorize(&self) -> tg::Result<Option<Option<tg::User>>> {
-		if !self.config().authorization {
+		if !self.server.config().authorization {
 			return Ok(Some(None));
 		}
 		let Some(token) = self.context.token.as_ref() else {
