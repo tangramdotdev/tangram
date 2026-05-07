@@ -7,7 +7,7 @@ pub struct Args {}
 
 impl Cli {
 	pub async fn command_user_logout(&mut self, _args: Args) -> tg::Result<()> {
-		self.delete_user()?;
+		self.delete_token()?;
 		Ok(())
 	}
 }

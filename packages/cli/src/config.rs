@@ -26,6 +26,11 @@ pub struct Config {
 	/// Configure telemetry export via OpenTelemetry.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub telemetry: Option<Telemetry>,
+
+	/// The token.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub token: Option<String>,
+
 	/// Enable tokio console.
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub tokio_console: bool,
@@ -38,10 +43,6 @@ pub struct Config {
 	#[serde_as(as = "BoolOptionDefault")]
 	#[serde(default = "default_tracing")]
 	pub tracing: Option<Tracing>,
-
-	/// Configure the user.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub user: Option<crate::user::User>,
 
 	/// Set the V8 thread pool size.
 	#[serde(default, skip_serializing_if = "Option::is_none")]

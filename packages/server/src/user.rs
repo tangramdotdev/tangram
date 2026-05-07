@@ -23,7 +23,7 @@ impl Session {
 			return Ok(None);
 		};
 		let Some(user) = self
-			.get_user(token)
+			.get_user_local(token)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the user"))?
 		else {

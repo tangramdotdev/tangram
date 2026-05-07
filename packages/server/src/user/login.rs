@@ -15,6 +15,21 @@ impl Session {
 			return Err(tg::error!("forbidden"));
 		}
 
+		let location = self
+			.server
+			.location(arg.location.as_ref())
+			.map_err(|source| tg::error!(!source, "failed to resolve the location"))?;
+		match location {
+			tg::Location::Local(_) => self.login_user_local(arg.email).await,
+			tg::Location::Remote(remote) => self.login_user_remote(arg, remote).await,
+		}
+	}
+
+	async fn login_user_local(&self, email: String) -> tg::Result<tg::user::login::Output> {
+		if self.context.process.is_some() {
+			return Err(tg::error!("forbidden"));
+		}
+
 		let mut connection = self
 			.server
 			.database
@@ -40,7 +55,7 @@ impl Session {
 				where user_emails.email = {p}1;
 			"
 		);
-		let params = db::params![arg.email.clone()];
+		let params = db::params![email.clone()];
 		let user = transaction
 			.query_optional_into::<UserRow>(statement.into(), params)
 			.await
@@ -67,7 +82,7 @@ impl Session {
 					values ({p}1, {p}2);
 				"
 			);
-			let params = db::params![id.to_string(), arg.email.clone()];
+			let params = db::params![id.to_string(), email];
 			transaction
 				.execute(statement.into(), params)
 				.await
@@ -116,9 +131,55 @@ impl Session {
 			.map_err(|source| tg::error!(!source, "failed to commit the transaction"))?;
 		drop(connection);
 
-		let user = tg::User { id, emails };
+		let user = tg::User {
+			id,
+			emails,
+			location: None,
+		};
 		let output = tg::user::login::Output { token, user };
 
+		Ok(output)
+	}
+
+	async fn login_user_remote(
+		&self,
+		arg: tg::user::login::Arg,
+		remote: tg::location::Remote,
+	) -> tg::Result<tg::user::login::Output> {
+		let client = self
+			.get_remote_session(remote.name.clone())
+			.await
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					remote = %remote.name,
+					"failed to get the remote client"
+				)
+			})?;
+		let arg = tg::user::login::Arg {
+			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+			..arg
+		};
+		let mut output = client.login_user(arg).await.map_err(|source| {
+			tg::error!(
+				!source,
+				remote = %remote.name,
+				"failed to log in the user"
+			)
+		})?;
+		self.put_remote_token(&remote.name, output.token.clone())
+			.await
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					remote = %remote.name,
+					"failed to update the remote"
+				)
+			})?;
+		output.user.location = Some(tg::Location::Remote(tg::location::Remote {
+			name: remote.name,
+			region: None,
+		}));
 		Ok(output)
 	}
 

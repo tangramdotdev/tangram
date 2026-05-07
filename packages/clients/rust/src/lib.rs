@@ -136,17 +136,13 @@ pub struct Context {
 
 impl Client {
 	pub fn new(mut arg: tg::Arg) -> tg::Result<Self> {
-		arg.url = Some(match arg.url {
+		let url = match arg.url {
 			Some(url) => url,
 			None => Self::default_url()?,
-		});
+		};
+		arg.url = Some(url.clone());
 		arg.version
 			.get_or_insert_with(|| env!("CARGO_PKG_VERSION").to_owned());
-		arg.token = arg.token.or_else(|| std::env::var("TANGRAM_TOKEN").ok());
-		arg.process = match arg.process {
-			Some(process) => Some(process),
-			None => Self::default_process()?,
-		};
 		arg.reconnect.get_or_insert_default();
 		arg.retry.get_or_insert_default();
 		let context = Context {
@@ -154,7 +150,7 @@ impl Client {
 			token: arg.token.clone(),
 		};
 		let sender = Arc::new(tokio::sync::Mutex::new(None));
-		let service = Self::service(&arg, &sender);
+		let service = Self::service(&arg, &url, &sender);
 		let client = Self(Arc::new(State {
 			arg,
 			context,
@@ -164,25 +160,32 @@ impl Client {
 		Ok(client)
 	}
 
+	pub fn with_env(mut arg: tg::Arg) -> tg::Result<Self> {
+		if arg.url.is_none() {
+			arg.url = Self::url_from_env()?;
+		}
+		arg.token = arg.token.or_else(Self::token_from_env);
+		if arg.process.is_none() {
+			arg.process = Self::process_from_env()?;
+		}
+		Self::new(arg)
+	}
+
 	pub async fn with_stream<S>(mut arg: tg::Arg, stream: S) -> tg::Result<Self>
 	where
 		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 	{
-		arg.url = Some(match arg.url {
+		let url = match arg.url {
 			Some(url) => url,
 			None => Uri::builder()
 				.scheme("http+stdio")
 				.path("")
 				.build()
 				.map_err(|source| tg::error!(!source, "failed to build the URL"))?,
-		});
+		};
+		arg.url = Some(url.clone());
 		arg.version
 			.get_or_insert_with(|| env!("CARGO_PKG_VERSION").to_owned());
-		arg.token = arg.token.or_else(|| std::env::var("TANGRAM_TOKEN").ok());
-		arg.process = match arg.process {
-			Some(process) => Some(process),
-			None => Self::default_process()?,
-		};
 		arg.reconnect.get_or_insert_default();
 		arg.retry.get_or_insert_default();
 		let context = Context {
@@ -191,7 +194,7 @@ impl Client {
 		};
 		let sender = Self::handshake_h2(stream).await?;
 		let sender = Arc::new(tokio::sync::Mutex::new(Some(sender)));
-		let service = Self::service(&arg, &sender);
+		let service = Self::service(&arg, &url, &sender);
 		let client = Self(Arc::new(crate::State {
 			arg,
 			context,
@@ -202,30 +205,39 @@ impl Client {
 	}
 
 	fn default_url() -> tg::Result<Uri> {
-		if let Ok(url) = std::env::var("TANGRAM_URL") {
-			url.parse()
-				.map_err(|error| tg::error!(source = error, "failed to parse the URL"))
-		} else {
-			let path = std::env::home_dir()
-				.ok_or_else(|| tg::error!("failed to get the home directory"))?;
-			let path = path.join(".tangram/socket");
-			let path = path.to_str().ok_or_else(|| tg::error!("invalid path"))?;
-			Uri::builder()
-				.scheme("http+unix")
-				.authority(path)
-				.path("")
-				.build()
-				.map_err(|error| tg::error!(source = error, "failed to build the URL"))
-		}
+		let path =
+			std::env::home_dir().ok_or_else(|| tg::error!("failed to get the home directory"))?;
+		let path = path.join(".tangram/socket");
+		let path = path.to_str().ok_or_else(|| tg::error!("invalid path"))?;
+		Uri::builder()
+			.scheme("http+unix")
+			.authority(path)
+			.path("")
+			.build()
+			.map_err(|error| tg::error!(source = error, "failed to build the URL"))
 	}
 
-	fn default_process() -> tg::Result<Option<tg::process::Id>> {
+	fn process_from_env() -> tg::Result<Option<tg::process::Id>> {
 		std::env::var("TANGRAM_PROCESS")
 			.ok()
 			.map(|value| {
 				value
 					.parse()
 					.map_err(|source| tg::error!(!source, "failed to parse TANGRAM_PROCESS"))
+			})
+			.transpose()
+	}
+
+	fn token_from_env() -> Option<String> {
+		std::env::var("TANGRAM_TOKEN").ok()
+	}
+
+	fn url_from_env() -> tg::Result<Option<Uri>> {
+		std::env::var("TANGRAM_URL")
+			.ok()
+			.map(|url| {
+				url.parse()
+					.map_err(|error| tg::error!(source = error, "failed to parse the URL"))
 			})
 			.transpose()
 	}

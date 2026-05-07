@@ -95,7 +95,7 @@ impl Cli {
 		let executable = args.executable;
 
 		// Create the client.
-		let client = tg::Client::new(tg::Arg::default())?;
+		let client = tg::Client::with_env(tg::Arg::default())?;
 
 		// Connect the client.
 		client.connect().await?;

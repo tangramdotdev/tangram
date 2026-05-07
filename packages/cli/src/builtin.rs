@@ -101,7 +101,7 @@ impl Cli {
 		});
 
 		// Create the client.
-		let client = tg::Client::new(tg::Arg::default())?;
+		let client = tg::Client::with_env(tg::Arg::default())?;
 
 		// Run.
 		let tangram_builtin::Output {

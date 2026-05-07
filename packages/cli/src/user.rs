@@ -4,12 +4,6 @@ pub mod login;
 pub mod logout;
 pub mod whoami;
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct User {
-	pub id: tg::user::Id,
-	pub token: String,
-}
-
 /// Manage the user.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
@@ -48,23 +42,20 @@ impl Cli {
 		if let Ok(token) = std::env::var("TANGRAM_TOKEN") {
 			return Some(token);
 		}
-		self.config
-			.as_ref()
-			.and_then(|config| config.user.as_ref())
-			.map(|user| user.token.clone())
+		self.config.as_ref().and_then(|config| config.token.clone())
 	}
 
-	pub(crate) fn write_user(&mut self, user: User) -> tg::Result<()> {
+	pub(crate) fn write_token(&mut self, token: String) -> tg::Result<()> {
 		let mut config = self.config.clone().unwrap_or_default();
-		config.user = Some(user);
+		config.token = Some(token);
 		self.write_config(&config)?;
 		self.config = Some(config);
 		Ok(())
 	}
 
-	pub(crate) fn delete_user(&mut self) -> tg::Result<()> {
+	pub(crate) fn delete_token(&mut self) -> tg::Result<()> {
 		if let Some(mut config) = self.config.clone() {
-			config.user = None;
+			config.token = None;
 			self.write_config(&config)?;
 			self.config = Some(config);
 		}

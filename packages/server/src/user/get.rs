@@ -9,7 +9,30 @@ use {
 };
 
 impl Session {
-	pub(crate) async fn get_user(&self, token: &str) -> tg::Result<Option<tg::user::User>> {
+	pub(crate) async fn get_user(
+		&self,
+		arg: tg::user::get::Arg,
+	) -> tg::Result<Option<tg::user::User>> {
+		if self.context.process.is_some() {
+			return Err(tg::error!("forbidden"));
+		}
+
+		let location = self
+			.server
+			.location(arg.location.as_ref())
+			.map_err(|source| tg::error!(!source, "failed to resolve the location"))?;
+		match location {
+			tg::Location::Local(_) => {
+				let Some(token) = self.context.token.as_deref() else {
+					return Ok(None);
+				};
+				self.get_user_local(token).await
+			},
+			tg::Location::Remote(remote) => self.get_user_remote(remote).await,
+		}
+	}
+
+	pub(crate) async fn get_user_local(&self, token: &str) -> tg::Result<Option<tg::user::User>> {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
@@ -68,12 +91,46 @@ impl Session {
 		let user = tg::User {
 			id: user.id,
 			emails,
+			location: None,
 		};
 
 		// Drop the database connection.
 		drop(connection);
 
 		Ok(Some(user))
+	}
+
+	async fn get_user_remote(
+		&self,
+		remote: tg::location::Remote,
+	) -> tg::Result<Option<tg::user::User>> {
+		let client = self
+			.get_remote_session(remote.name.clone())
+			.await
+			.map_err(|source| {
+				tg::error!(
+					!source,
+					remote = %remote.name,
+					"failed to get the remote client"
+				)
+			})?;
+		let arg = tg::user::get::Arg {
+			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+		};
+		let mut user = client.get_user(arg).await.map_err(|source| {
+			tg::error!(
+				!source,
+				remote = %remote.name,
+				"failed to get the user"
+			)
+		})?;
+		if let Some(user) = &mut user {
+			user.location = Some(tg::Location::Remote(tg::location::Remote {
+				name: remote.name,
+				region: None,
+			}));
+		}
+		Ok(user)
 	}
 
 	pub(crate) async fn get_user_request(
@@ -86,18 +143,15 @@ impl Session {
 			.transpose()
 			.map_err(|source| tg::error!(!source, "failed to parse the accept header"))?;
 
-		// Get the token.
-		let Some(token) = request.token(None) else {
-			let response = http::Response::builder()
-				.status(http::StatusCode::UNAUTHORIZED)
-				.empty()
-				.unwrap()
-				.boxed_body();
-			return Ok(response);
-		};
+		// Get the arg.
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|source| tg::error!(!source, "failed to parse the query params"))?
+			.unwrap_or_default();
 
 		// Get the user.
-		let Some(output) = self.get_user(token).await? else {
+		let Some(output) = self.get_user(arg).await? else {
 			let response = http::Response::builder()
 				.status(http::StatusCode::UNAUTHORIZED)
 				.empty()

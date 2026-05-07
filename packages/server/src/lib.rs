@@ -680,6 +680,25 @@ impl Server {
 				.write_connection()
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+			#[derive(db::row::Deserialize)]
+			struct RemoteTokenRow {
+				name: String,
+				token: Option<String>,
+			}
+			let statement = indoc!(
+				"
+					select name, token
+					from remotes;
+				",
+			);
+			let params = db::params![];
+			let tokens = connection
+				.query_all_into::<RemoteTokenRow>(statement.into(), params)
+				.await
+				.map_err(|source| tg::error!(!source, "failed to execute the statement"))?
+				.into_iter()
+				.map(|row| (row.name, row.token))
+				.collect::<std::collections::BTreeMap<_, _>>();
 			let statement = indoc!(
 				"
 					delete from remotes;
@@ -694,11 +713,15 @@ impl Server {
 				let p = connection.p();
 				let statement = formatdoc!(
 					"
-						insert into remotes (name, url)
-						values ({p}1, {p}2);
+						insert into remotes (name, url, token)
+						values ({p}1, {p}2, {p}3);
 					",
 				);
-				let params = db::params![&remote.name, &remote.url.to_string()];
+				let token = remote
+					.token
+					.clone()
+					.or_else(|| tokens.get(&remote.name).cloned().flatten());
+				let params = db::params![&remote.name, &remote.url.to_string(), token];
 				connection
 					.execute(statement.into(), params)
 					.await
@@ -706,12 +729,32 @@ impl Server {
 			}
 		}
 		server.remotes.clear();
-		let output = server
-			.list_remotes(tg::remote::list::Arg::default())
+		let connection = server
+			.database
+			.connection()
 			.await
-			.map_err(|source| tg::error!(!source, "failed to list the remotes"))?;
-		for remote in output.data {
-			let client = server.create_remote_client(&remote.name, remote.url)?;
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		#[derive(db::row::Deserialize)]
+		struct RemoteRow {
+			name: String,
+			#[tangram_database(as = "db::value::FromStr")]
+			url: Uri,
+			token: Option<String>,
+		}
+		let statement = indoc!(
+			"
+				select name, url, token
+				from remotes
+				order by name;
+			",
+		);
+		let params = db::params![];
+		let remotes = connection
+			.query_all_into::<RemoteRow>(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
+		for remote in remotes {
+			let client = server.create_remote_client(&remote.name, remote.url, remote.token)?;
 			server.remotes.insert(remote.name, client);
 		}
 

@@ -30,8 +30,8 @@ pub(crate) enum Error {
 }
 
 impl tg::Client {
-	pub(crate) fn service(arg: &tg::Arg, sender: &Sender) -> Service {
-		let url = arg.url.clone().unwrap();
+	pub(crate) fn service(arg: &tg::Arg, url: &Uri, sender: &Sender) -> Service {
+		let url = url.clone();
 		let version = arg.version.clone().unwrap();
 		let reconnect = arg.reconnect.as_ref().unwrap();
 		let service = tower::service_fn({

@@ -1,6 +1,7 @@
 create table remotes (
 	name text primary key,
-	url text not null
+	url text not null,
+	token text
 );
 
 create table tags (

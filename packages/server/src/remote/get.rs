@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::{Session, remote::Remote},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -10,10 +10,7 @@ use {
 };
 
 impl Session {
-	pub(crate) async fn try_get_remote(
-		&self,
-		name: &str,
-	) -> tg::Result<Option<tg::remote::get::Output>> {
+	pub(crate) async fn try_get_remote_config(&self, name: &str) -> tg::Result<Option<Remote>> {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
 		}
@@ -29,11 +26,12 @@ impl Session {
 			name: String,
 			#[tangram_database(as = "db::value::FromStr")]
 			url: Uri,
+			token: Option<String>,
 		}
 		let p = connection.p();
 		let statement = formatdoc!(
 			"
-				select name, url
+				select name, url, token
 				from remotes
 				where name = {p}1;
 			",
@@ -43,10 +41,25 @@ impl Session {
 			.query_optional_into::<Row>(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to execute the statement"))?;
-		let output = row.map(|row| tg::remote::get::Output {
+		let output = row.map(|row| Remote {
 			name: row.name,
 			url: row.url,
+			token: row.token,
 		});
+		Ok(output)
+	}
+
+	pub(crate) async fn try_get_remote(
+		&self,
+		name: &str,
+	) -> tg::Result<Option<tg::remote::get::Output>> {
+		let output =
+			self.try_get_remote_config(name)
+				.await?
+				.map(|remote| tg::remote::get::Output {
+					name: remote.name,
+					url: remote.url,
+				});
 		Ok(output)
 	}
 

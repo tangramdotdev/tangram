@@ -1,7 +1,10 @@
 use crate::prelude::*;
 
 pub trait User: Clone + Unpin + Send + Sync + 'static {
-	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> + Send;
+	fn get_user(
+		&self,
+		arg: tg::user::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::User>>> + Send;
 
 	fn login_user(
 		&self,
@@ -10,8 +13,8 @@ pub trait User: Clone + Unpin + Send + Sync + 'static {
 }
 
 impl tg::handle::User for tg::Client {
-	async fn get_user(&self, token: &str) -> tg::Result<Option<tg::User>> {
-		self.session(&self.context).get_user(token).await
+	async fn get_user(&self, arg: tg::user::get::Arg) -> tg::Result<Option<tg::User>> {
+		self.session(&self.context).get_user(arg).await
 	}
 
 	async fn login_user(&self, arg: tg::user::login::Arg) -> tg::Result<tg::user::login::Output> {

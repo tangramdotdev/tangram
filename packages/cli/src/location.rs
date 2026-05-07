@@ -22,6 +22,7 @@ pub struct Args {
 		long = "remotes",
 		num_args = 0..=1,
 		require_equals = true,
+		short = 'r',
 		value_delimiter = ',',
 		visible_alias = "remote",
 	)]

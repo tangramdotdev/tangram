@@ -23,6 +23,9 @@ pub struct Id(tg::Id);
 pub struct User {
 	pub id: Id,
 	pub emails: Vec<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::Location>,
 }
 
 impl tg::user::Id {

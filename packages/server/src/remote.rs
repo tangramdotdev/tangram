@@ -9,10 +9,17 @@ pub mod get;
 pub mod list;
 pub mod put;
 
+#[derive(Clone)]
+pub(crate) struct Remote {
+	pub name: String,
+	pub url: Uri,
+	pub token: Option<String>,
+}
+
 impl Session {
 	pub async fn get_remote_session(&self, remote: String) -> tg::Result<tg::Session> {
 		let client = self.get_remote_client(remote).await?;
-		Ok(self.client_session(&client))
+		Ok(client.session(client.context()))
 	}
 
 	pub async fn get_remote_client(&self, remote: String) -> tg::Result<tg::Client> {
@@ -26,20 +33,27 @@ impl Session {
 			return Ok(Some(client.clone()));
 		}
 		let Some(output) = self
-			.try_get_remote(&remote)
+			.try_get_remote_config(&remote)
 			.await
 			.map_err(|source| tg::error!(!source, %remote, "failed to get the remote"))?
 		else {
 			return Ok(None);
 		};
-		let client = self.server.create_remote_client(&remote, output.url)?;
-		self.server.remotes.insert(remote, client.clone());
+		let client =
+			self.server
+				.create_remote_client(&output.name, output.url.clone(), output.token)?;
+		self.server.remotes.insert(output.name, client.clone());
 		Ok(Some(client))
 	}
 }
 
 impl Server {
-	pub(crate) fn create_remote_client(&self, remote: &str, url: Uri) -> tg::Result<tg::Client> {
+	pub(crate) fn create_remote_client(
+		&self,
+		remote: &str,
+		url: Uri,
+		token: Option<String>,
+	) -> tg::Result<tg::Client> {
 		let remote_config = self
 			.config()
 			.remotes
@@ -64,7 +78,7 @@ impl Server {
 		tg::Client::new(tg::Arg {
 			url: Some(url),
 			version: Some(self.version.clone()),
-			token: None,
+			token,
 			process: None,
 			reconnect,
 			retry,

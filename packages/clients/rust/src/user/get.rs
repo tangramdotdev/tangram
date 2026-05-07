@@ -1,23 +1,37 @@
 use {
 	crate::prelude::*,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_uri::Uri,
 };
 
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
+}
+
 impl tg::Session {
-	pub async fn get_user(&self, token: &str) -> tg::Result<Option<tg::User>> {
+	pub async fn get_user(&self, arg: tg::user::get::Arg) -> tg::Result<Option<tg::User>> {
 		let method = http::Method::GET;
-		let uri = "/user";
+		let uri = Uri::builder()
+			.path("/user")
+			.query_params(&arg)
+			.map_err(|source| tg::error!(!source, "failed to serialize the arg"))?
+			.build()
+			.unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
-			.header(http::header::AUTHORIZATION, format!("Bearer {token}"))
 			.empty()
 			.unwrap();
 		let response = self
 			.send_with_retry(request)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to send the request"))?;
+		if response.status() == http::StatusCode::UNAUTHORIZED {
+			return Ok(None);
+		}
 		if !response.status().is_success() {
 			let error = response.json().await.map_err(|source| {
 				tg::error!(!source, "failed to deserialize the error response")

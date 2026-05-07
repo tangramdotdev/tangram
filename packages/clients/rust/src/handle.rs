@@ -27,7 +27,7 @@ pub mod erased;
 pub static HANDLE: OnceLock<tg::Client> = OnceLock::new();
 
 pub fn init() -> tg::Result<&'static tg::Client> {
-	let client = tg::Client::new(tg::Arg::default())?;
+	let client = tg::Client::with_env(tg::Arg::default())?;
 	init_with(client)
 }
 

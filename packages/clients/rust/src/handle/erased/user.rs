@@ -4,7 +4,7 @@ use {
 };
 
 pub trait User: Send + Sync + 'static {
-	fn get_user<'a>(&'a self, token: &'a str) -> BoxFuture<'a, tg::Result<Option<tg::User>>>;
+	fn get_user(&self, arg: tg::user::get::Arg) -> BoxFuture<'_, tg::Result<Option<tg::User>>>;
 
 	fn login_user(
 		&self,
@@ -16,8 +16,8 @@ impl<T> User for T
 where
 	T: tg::handle::User,
 {
-	fn get_user<'a>(&'a self, token: &'a str) -> BoxFuture<'a, tg::Result<Option<tg::User>>> {
-		self.get_user(token).boxed()
+	fn get_user(&self, arg: tg::user::get::Arg) -> BoxFuture<'_, tg::Result<Option<tg::User>>> {
+		self.get_user(arg).boxed()
 	}
 
 	fn login_user(

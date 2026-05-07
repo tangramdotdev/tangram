@@ -34,7 +34,50 @@ impl Session {
 			.execute(statement.into(), params)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to insert the remote"))?;
-		let client = self.server.create_remote_client(name, arg.url.clone())?;
+		drop(connection);
+		let remote = self
+			.try_get_remote_config(name)
+			.await?
+			.ok_or_else(|| tg::error!("failed to find the remote"))?;
+		let client =
+			self.server
+				.create_remote_client(&remote.name, remote.url.clone(), remote.token)?;
+		self.server.remotes.insert(name.to_owned(), client);
+		Ok(())
+	}
+
+	pub(crate) async fn put_remote_token(&self, name: &str, token: String) -> tg::Result<()> {
+		if self.context.process.is_some() {
+			return Err(tg::error!("forbidden"));
+		}
+
+		let connection = self
+			.server
+			.database
+			.write_connection()
+			.await
+			.map_err(|source| tg::error!(!source, "failed to get a database connection"))?;
+		let p = connection.p();
+		let statement = formatdoc!(
+			"
+				update remotes
+				set token = {p}2
+				where name = {p}1;
+			",
+		);
+		let params = db::params![&name, token];
+		connection
+			.execute(statement.into(), params)
+			.await
+			.map_err(|source| tg::error!(!source, "failed to update the remote"))?;
+		drop(connection);
+		let remote = self
+			.try_get_remote_config(name)
+			.await?
+			.ok_or_else(|| tg::error!("failed to find the remote"))?;
+		let client =
+			self.server
+				.create_remote_client(&remote.name, remote.url.clone(), remote.token)?;
 		self.server.remotes.insert(name.to_owned(), client);
 		Ok(())
 	}

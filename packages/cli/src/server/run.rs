@@ -83,6 +83,7 @@ impl Cli {
 						Some(tangram_server::config::Remote {
 							name: name.to_owned(),
 							url,
+							token: None,
 							reconnect: None,
 							retry: None,
 						})
