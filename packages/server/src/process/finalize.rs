@@ -105,7 +105,7 @@ impl Server {
 
 	async fn finalizer_handle_entry(&self, entry: &Entry) -> tg::Result<()> {
 		let process = &entry.process;
-		let session = self.root();
+		let session = self.session(&self.context);
 		session
 			.compact_process_log(process)
 			.await
@@ -220,7 +220,7 @@ impl Server {
 	}
 
 	async fn finalizer_spawn_index_task(&self, id: &tg::process::Id) -> tg::Result<()> {
-		let session = self.root();
+		let session = self.session(&self.context);
 		let tg::process::get::Output { data, .. } = session
 			.try_get_process_local(id, false)
 			.await?

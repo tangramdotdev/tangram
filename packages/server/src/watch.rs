@@ -309,7 +309,6 @@ impl Watch {
 				// Delete the watch.
 				let arg = tg::watch::delete::Arg { path };
 				server
-					.root()
 					.delete_watch(arg)
 					.await
 					.inspect_err(|error| tracing::error!(?error, "failed to delete the watch"))

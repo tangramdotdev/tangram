@@ -33,16 +33,16 @@ impl Server {
 				location: Some(location.clone().into()),
 				timeout: None,
 			};
-			let session = self.root();
+			let server = self.clone();
 			let futures = std::iter::once(
-				session
+				server
 					.dequeue_sandbox(arg)
 					.map_ok(move |output| (output, location.clone()))
 					.boxed(),
 			)
 			.chain(self.config.runner.iter().flat_map(|config| {
 				config.remotes.iter().map(|name| {
-					let session = self.root();
+					let server = self.clone();
 					let location = tg::Location::Remote(tg::location::Remote {
 						name: name.to_owned(),
 						region: None,
@@ -52,7 +52,7 @@ impl Server {
 							location: Some(location.clone().into()),
 							timeout: None,
 						};
-						let output = session.dequeue_sandbox(arg).await?;
+						let output = server.dequeue_sandbox(arg).await?;
 						Ok::<_, tg::Error>((output, location))
 					}
 					.boxed()

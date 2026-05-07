@@ -32,6 +32,7 @@ mod directory;
 mod document;
 mod format;
 mod get;
+mod handle;
 mod health;
 mod http;
 mod index;
@@ -82,6 +83,7 @@ pub struct State {
 	cache_tasks: CacheTasks,
 	checkin_tasks: CheckinTasks,
 	config: Config,
+	context: Context,
 	database: Database,
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
 	index: Index,
@@ -268,6 +270,9 @@ impl Server {
 
 		// Create the checkin tasks.
 		let checkin_tasks = tangram_futures::task::Map::default();
+
+		// Create the context.
+		let context = Context::default();
 
 		// Create the sandbox permits and semaphore.
 		let sandboxes = DashMap::default();
@@ -615,6 +620,7 @@ impl Server {
 			cache_tasks,
 			checkin_tasks,
 			config,
+			context,
 			database,
 			diagnostics,
 			index,
@@ -701,7 +707,6 @@ impl Server {
 		}
 		server.remotes.clear();
 		let output = server
-			.root()
 			.list_remotes(tg::remote::list::Arg::default())
 			.await
 			.map_err(|source| tg::error!(!source, "failed to list the remotes"))?;
@@ -1204,7 +1209,7 @@ impl Server {
 	}
 
 	async fn finish_unfinished_sandboxes(&self) -> tg::Result<()> {
-		let session = self.root();
+		let session = self.session(&self.context);
 		let outputs = session
 			.list_sandboxes_local()
 			.await
@@ -1263,13 +1268,8 @@ impl Server {
 	}
 
 	#[must_use]
-	pub(crate) fn root(&self) -> Session {
-		self.session(Context::default())
-	}
-
-	#[must_use]
-	pub(crate) fn session(&self, context: Context) -> Session {
-		Session::new(self.clone(), context)
+	pub(crate) fn session(&self, context: &Context) -> Session {
+		Session::new(self.clone(), context.clone())
 	}
 
 	#[must_use]

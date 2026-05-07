@@ -118,7 +118,7 @@ impl Server {
 			.map(|entry| {
 				let server = self.clone();
 				async move {
-					let session = server.root();
+					let session = server.session(&server.context);
 					let error = tg::error::Data {
 						code: entry.code,
 						message: Some(entry.message),

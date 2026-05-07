@@ -17,7 +17,7 @@ impl Server {
 		permit: SandboxPermit,
 		process: Option<tg::process::Id>,
 	) {
-		let session = self.root();
+		let session = self.session(&self.context);
 		self.sandbox_tasks
 			.spawn(id.clone(), |_| {
 				let session = session.clone();

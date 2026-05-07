@@ -500,7 +500,7 @@ impl Server {
 			return response;
 		}
 
-		let session = self.session(context);
+		let session = self.session(&context);
 
 		let path_components = path.split('/').skip(1).collect::<Vec<_>>();
 		let response = match (method, path_components.as_slice()) {

@@ -488,7 +488,7 @@ impl Session {
 			sandbox: Some(state.sandbox.clone()),
 			..self.context.clone()
 		};
-		let session = self.server.session(context);
+		let session = self.server.session(&context);
 
 		// Create the output.
 		let mut output = Output {
