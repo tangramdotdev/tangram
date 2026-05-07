@@ -17,7 +17,7 @@ pub struct Arg {
 	pub metadata: Option<tg::object::Metadata>,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn put_object(
 		&self,
 		id: &tg::object::Id,

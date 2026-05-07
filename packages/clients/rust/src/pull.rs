@@ -81,12 +81,12 @@ impl From<tg::pull::Arg> for tg::push::Arg {
 	}
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn pull(
 		&self,
 		arg: tg::pull::Arg,
 	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + 'static,
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + 'static + use<>,
 	> {
 		let method = http::Method::POST;
 		let uri = "/pull";

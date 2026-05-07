@@ -1,6 +1,9 @@
 use {
 	crate::prelude::*,
-	futures::{StreamExt as _, TryFutureExt as _, TryStreamExt as _, future},
+	futures::{
+		FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
+		future::{self, BoxFuture},
+	},
 	serde::Deserialize as _,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
@@ -43,16 +46,12 @@ pub struct Wait {
 	pub output: Option<tg::Value>,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_wait_process_future(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
-	) -> tg::Result<
-		Option<
-			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
-		>,
-	> {
+	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
 		let method = http::Method::POST;
 		let path = format!("/processes/{id}/wait");
 		let uri = Uri::builder()
@@ -112,7 +111,7 @@ impl tg::Client {
 				output
 			})
 		});
-		Ok(Some(future))
+		Ok(Some(future.boxed()))
 	}
 }
 

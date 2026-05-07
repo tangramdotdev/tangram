@@ -18,7 +18,7 @@ pub struct Arg {
 	pub replicate: bool,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
 		let method = http::Method::PUT;
 		let uri = format!("/tags/{tag}");

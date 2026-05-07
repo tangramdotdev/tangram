@@ -10,7 +10,7 @@ pub struct Output {
 	pub url: Uri,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_get_remote(&self, name: &str) -> tg::Result<Option<tg::remote::get::Output>> {
 		let method = http::Method::GET;
 		let path = format!("/remotes/{name}");

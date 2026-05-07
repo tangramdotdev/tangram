@@ -23,7 +23,7 @@ pub struct Item {
 	pub item: tg::Either<tg::object::Id, tg::process::Id>,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn post_tag_batch(&self, arg: Arg) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = "/tags/batch";

@@ -14,7 +14,7 @@ pub struct Output {
 	pub module: tg::module::Data,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn resolve_module(
 		&self,
 		arg: tg::module::resolve::Arg,

@@ -14,7 +14,7 @@ pub struct Output {
 	pub user: tg::User,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn login_user(
 		&self,
 		arg: tg::user::login::Arg,

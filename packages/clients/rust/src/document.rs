@@ -11,7 +11,7 @@ pub struct Arg {
 	pub module: tg::module::Data,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn document(&self, arg: Arg) -> tg::Result<serde_json::Value> {
 		let method = http::Method::POST;
 		let uri = "/document";

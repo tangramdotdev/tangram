@@ -27,6 +27,26 @@ impl Session {
 		Self { server, context }
 	}
 
+	pub(crate) fn client_context(&self) -> tg::Context {
+		tg::Context {
+			process: self
+				.context
+				.process
+				.as_ref()
+				.map(|process| process.id.clone()),
+			token: self.context.token.clone(),
+		}
+	}
+
+	pub(crate) fn client_session(&self, client: &tg::Client) -> tg::Session {
+		client.session(&self.client_context())
+	}
+
+	pub(crate) async fn get_region_session(&self, region: String) -> tg::Result<tg::Session> {
+		let client = self.server.get_region_client(region).await?;
+		Ok(self.client_session(&client))
+	}
+
 	pub(crate) fn host_path_for_guest_path(&self, path: &Path) -> tg::Result<PathBuf> {
 		let Some(id) = &self.context.sandbox else {
 			return Ok(path.to_owned());

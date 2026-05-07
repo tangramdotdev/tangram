@@ -124,7 +124,7 @@ impl Subtree {
 	}
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_get_process_metadata(
 		&self,
 		id: &tg::process::Id,

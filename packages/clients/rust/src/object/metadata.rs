@@ -128,7 +128,7 @@ impl Subtree {
 	}
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_get_object_metadata(
 		&self,
 		id: &tg::object::Id,

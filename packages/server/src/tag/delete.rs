@@ -128,13 +128,9 @@ impl Session {
 		arg: tg::tag::delete::Arg,
 		region: String,
 	) -> tg::Result<tg::tag::delete::Output> {
-		let client = self
-			.server
-			.get_region_client(region.clone())
-			.await
-			.map_err(
-				|source| tg::error!(!source, region = %region, "failed to get the region client"),
-			)?;
+		let client = self.get_region_session(region.clone()).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});
@@ -156,7 +152,7 @@ impl Session {
 		region: Option<String>,
 	) -> tg::Result<tg::tag::delete::Output> {
 		let client = self
-			.get_remote_client(remote)
+			.get_remote_session(remote)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the remote client"))?;
 		let arg = tg::tag::delete::Arg {

@@ -19,7 +19,7 @@ pub struct Output {
 	pub blob: tg::blob::Id,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn write(
 		&self,
 		arg: Arg,

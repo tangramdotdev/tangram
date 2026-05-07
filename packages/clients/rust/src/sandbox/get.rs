@@ -51,7 +51,7 @@ pub struct Output {
 	pub user: Option<String>,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_get_sandbox(
 		&self,
 		id: &tg::sandbox::Id,

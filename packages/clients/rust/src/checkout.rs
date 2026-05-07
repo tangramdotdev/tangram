@@ -55,12 +55,15 @@ where
 	Ok(output.path)
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn checkout(
 		&self,
 		arg: tg::checkout::Arg,
 	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + 'static,
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>>
+		+ Send
+		+ 'static
+		+ use<>,
 	> {
 		let method = http::Method::POST;
 		let uri = "/checkout";

@@ -33,8 +33,6 @@ impl tg::Client {
 	pub(crate) fn service(arg: &tg::Arg, sender: &Sender) -> Service {
 		let url = arg.url.clone().unwrap();
 		let version = arg.version.clone().unwrap();
-		let token = arg.token.clone();
-		let process = arg.process.clone();
 		let reconnect = arg.reconnect.as_ref().unwrap();
 		let service = tower::service_fn({
 			let sender = sender.clone();
@@ -95,18 +93,6 @@ impl tg::Client {
 				http::HeaderName::from_str("x-tg-version").unwrap(),
 				http::HeaderValue::from_str(&version).unwrap(),
 			)
-			.option_layer(token.map(|token| {
-				tower_http::set_header::SetRequestHeaderLayer::if_not_present(
-					http::header::AUTHORIZATION,
-					http::HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
-				)
-			}))
-			.option_layer(process.map(|process| {
-				tower_http::set_header::SetRequestHeaderLayer::if_not_present(
-					http::HeaderName::from_static("x-tg-process"),
-					http::HeaderValue::from_str(&process.to_string()).unwrap(),
-				)
-			}))
 			.layer(
 				tangram_http::layer::compression::RequestCompressionLayer::new(|parts, _| {
 					let has_content_length =
@@ -438,29 +424,60 @@ impl tg::Client {
 		let response = response.map(Into::into);
 		Ok(response)
 	}
+}
+
+impl tg::Session {
+	pub(crate) fn apply_context_headers<B>(&self, request: &mut http::Request<B>) {
+		let headers = request.headers_mut();
+		if let Some(token) = &self.context().token {
+			headers
+				.entry(http::header::AUTHORIZATION)
+				.or_insert_with(|| {
+					http::HeaderValue::from_str(&format!("Bearer {token}")).unwrap()
+				});
+		}
+		if let Some(process) = &self.context().process {
+			headers
+				.entry(http::HeaderName::from_static("x-tg-process"))
+				.or_insert_with(|| http::HeaderValue::from_str(&process.to_string()).unwrap());
+		}
+	}
+
+	pub(crate) async fn send<B>(
+		&self,
+		mut request: http::Request<B>,
+	) -> tg::Result<http::Response<tangram_http::body::Boxed>>
+	where
+		B: http_body::Body<Data = bytes::Bytes> + Send + Unpin + 'static,
+		B::Error: Into<tangram_http::Error> + Send,
+	{
+		self.apply_context_headers(&mut request);
+		self.client().send(request).await
+	}
 
 	pub(crate) async fn send_with_retry<B>(
 		&self,
-		request: http::Request<B>,
+		mut request: http::Request<B>,
 	) -> tg::Result<http::Response<tangram_http::body::Boxed>>
 	where
 		B: http_body::Body<Data = bytes::Bytes> + Clone + Send + Unpin + 'static,
 		B::Error: Into<tangram_http::Error> + Clone + Send,
 	{
-		let client = self.clone();
-		tangram_futures::retry(self.arg.retry.as_ref().unwrap(), || {
-			let client = client.clone();
+		self.apply_context_headers(&mut request);
+		let session = self.clone();
+		tangram_futures::retry(self.client().arg.retry.as_ref().unwrap(), || {
+			let session = session.clone();
 			let request = request.clone();
 			async move {
 				let request = request.boxed_body();
-				let future = self.service.clone().call(request);
+				let future = session.client().service.clone().call(request);
 				match future.await {
 					Ok(response) => {
 						let response = response.map(Into::into);
 						Ok(ControlFlow::Break(response))
 					},
 					Err(Error::Hyper(error)) if is_retryable_error(&error) => {
-						client.disconnect().await;
+						session.client().disconnect().await;
 						Ok(ControlFlow::Continue(tg::error!(
 							!error,
 							"failed to send the request"

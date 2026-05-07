@@ -13,7 +13,7 @@ pub struct Output {
 	pub data: Vec<tg::remote::get::Output>,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn list_remotes(
 		&self,
 		arg: tg::remote::list::Arg,

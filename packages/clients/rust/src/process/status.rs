@@ -99,13 +99,13 @@ impl<O> tg::Process<O> {
 	}
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_get_process_status_stream(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::status::Arg,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
+		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static + use<>>,
 	> {
 		let method = http::Method::GET;
 		let path = format!("/processes/{id}/status");

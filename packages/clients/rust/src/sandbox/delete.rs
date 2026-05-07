@@ -3,7 +3,7 @@ use {
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_delete_sandbox(&self, id: &tg::sandbox::Id) -> tg::Result<Option<()>> {
 		let method = http::Method::DELETE;
 		let uri = format!("/sandboxes/{id}");

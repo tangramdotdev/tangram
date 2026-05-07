@@ -98,13 +98,9 @@ impl Session {
 		id: &tg::object::Id,
 		region: &str,
 	) -> tg::Result<Option<()>> {
-		let client = self
-			.server
-			.get_region_client(region.to_owned())
-			.await
-			.map_err(
-				|source| tg::error!(!source, %id, region = %region, "failed to get the region client"),
-			)?;
+		let client = self.get_region_session(region.to_owned()).await.map_err(
+			|source| tg::error!(!source, %id, region = %region, "failed to get the region client"),
+		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});
@@ -153,7 +149,7 @@ impl Session {
 		id: &tg::object::Id,
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<()>> {
-		let client = self.get_remote_client(remote.name.clone()).await.map_err(
+		let client = self.get_remote_session(remote.name.clone()).await.map_err(
 			|source| tg::error!(!source, %id, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		let arg = tg::object::touch::Arg {

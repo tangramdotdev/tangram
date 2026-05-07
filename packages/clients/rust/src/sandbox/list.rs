@@ -48,7 +48,7 @@ pub struct Item {
 	pub user: Option<String>,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,

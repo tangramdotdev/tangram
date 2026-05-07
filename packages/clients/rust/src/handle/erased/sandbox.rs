@@ -1,6 +1,6 @@
 use {
 	crate::prelude::*,
-	futures::{future::BoxFuture, prelude::*},
+	futures::{future::BoxFuture, prelude::*, stream::BoxStream},
 };
 
 pub trait Sandbox: Send + Sync + 'static {
@@ -46,20 +46,7 @@ pub trait Sandbox: Send + Sync + 'static {
 		&'a self,
 		id: &'a tg::sandbox::Id,
 		arg: tg::sandbox::status::Arg,
-	) -> BoxFuture<
-		'a,
-		tg::Result<
-			Option<
-				std::pin::Pin<
-					Box<
-						dyn futures::Stream<Item = tg::Result<tg::sandbox::status::Event>>
-							+ Send
-							+ 'static,
-					>,
-				>,
-			>,
-		>,
-	>;
+	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>>>;
 
 	fn try_dequeue_sandbox_process<'a>(
 		&'a self,
@@ -128,25 +115,13 @@ where
 		&'a self,
 		id: &'a tg::sandbox::Id,
 		arg: tg::sandbox::status::Arg,
-	) -> BoxFuture<
-		'a,
-		tg::Result<
-			Option<
-				std::pin::Pin<
-					Box<
-						dyn futures::Stream<Item = tg::Result<tg::sandbox::status::Event>>
-							+ Send
-							+ 'static,
-					>,
-				>,
-			>,
-		>,
-	> {
+	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>>>
+	{
 		async move {
 			Ok(self
 				.try_get_sandbox_status_stream(id, arg)
 				.await?
-				.map(|stream| Box::pin(stream) as _))
+				.map(futures::StreamExt::boxed))
 		}
 		.boxed()
 	}

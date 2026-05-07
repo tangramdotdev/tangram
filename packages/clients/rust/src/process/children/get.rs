@@ -107,13 +107,15 @@ impl<O> tg::Process<O> {
 	}
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_get_process_children_stream(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static>,
+		Option<
+			impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static + use<>,
+		>,
 	> {
 		let method = http::Method::GET;
 		let path = format!("/processes/{id}/children");

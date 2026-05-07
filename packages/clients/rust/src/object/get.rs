@@ -26,7 +26,7 @@ pub struct Output {
 	pub metadata: Option<tg::object::Metadata>,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_get_object(
 		&self,
 		id: &tg::object::Id,

@@ -24,32 +24,19 @@ pub trait Tag: Clone + Unpin + Send + Sync + 'static {
 }
 
 impl tg::handle::Tag for tg::Client {
-	fn list_tags(
-		&self,
-		arg: tg::tag::list::Arg,
-	) -> impl Future<Output = tg::Result<tg::tag::list::Output>> {
-		self.list_tags(arg)
+	async fn list_tags(&self, arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
+		self.session(&self.context).list_tags(arg).await
 	}
 
-	fn put_tag(
-		&self,
-		tag: &tg::Tag,
-		arg: tg::tag::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.put_tag(tag, arg)
+	async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
+		self.session(&self.context).put_tag(tag, arg).await
 	}
 
-	fn post_tag_batch(
-		&self,
-		arg: tg::tag::batch::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send {
-		self.post_tag_batch(arg)
+	async fn post_tag_batch(&self, arg: tg::tag::batch::Arg) -> tg::Result<()> {
+		self.session(&self.context).post_tag_batch(arg).await
 	}
 
-	fn delete_tags(
-		&self,
-		arg: tg::tag::delete::Arg,
-	) -> impl Future<Output = tg::Result<tg::tag::delete::Output>> {
-		self.delete_tags(arg)
+	async fn delete_tags(&self, arg: tg::tag::delete::Arg) -> tg::Result<tg::tag::delete::Output> {
+		self.session(&self.context).delete_tags(arg).await
 	}
 }

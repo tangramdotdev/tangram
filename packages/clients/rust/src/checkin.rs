@@ -117,12 +117,15 @@ where
 	Ok(artifact)
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn checkin(
 		&self,
 		arg: tg::checkin::Arg,
 	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>> + Send + 'static,
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>>
+		+ Send
+		+ 'static
+		+ use<>,
 	> {
 		let method = http::Method::POST;
 		let uri = "/checkin";

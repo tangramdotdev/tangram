@@ -171,7 +171,7 @@ impl Session {
 
 		// Fetch from the remote.
 		let client = self
-			.get_remote_client(remote.clone())
+			.get_remote_session(remote.clone())
 			.await
 			.map_err(|source| tg::error!(!source, %remote, "failed to get the remote client"))?;
 		let output = client

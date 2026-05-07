@@ -13,17 +13,17 @@ pub trait Module: Clone + Unpin + Send + Sync + 'static {
 }
 
 impl tg::handle::Module for tg::Client {
-	fn resolve_module(
+	async fn resolve_module(
 		&self,
 		arg: tg::module::resolve::Arg,
-	) -> impl Future<Output = tg::Result<tg::module::resolve::Output>> {
-		self.resolve_module(arg)
+	) -> tg::Result<tg::module::resolve::Output> {
+		self.session(&self.context).resolve_module(arg).await
 	}
 
-	fn load_module(
+	async fn load_module(
 		&self,
 		arg: tg::module::load::Arg,
-	) -> impl Future<Output = tg::Result<tg::module::load::Output>> {
-		self.load_module(arg)
+	) -> tg::Result<tg::module::load::Output> {
+		self.session(&self.context).load_module(arg).await
 	}
 }

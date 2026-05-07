@@ -1,6 +1,6 @@
 use {
 	crate::prelude::*,
-	futures::{Stream, stream::BoxStream},
+	futures::{Stream, future::BoxFuture, stream::BoxStream},
 	std::sync::Arc,
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
@@ -152,7 +152,7 @@ impl tg::Handle for Handle {
 		>,
 	> {
 		unsafe {
-			std::mem::transmute::<_, futures::future::BoxFuture<'_, tg::Result<BoxStream<_>>>>(
+			std::mem::transmute::<_, BoxFuture<'_, tg::Result<BoxStream<_>>>>(
 				self.0.try_get(reference, arg),
 			)
 		}
@@ -167,7 +167,7 @@ impl tg::Handle for Handle {
 		>,
 	> {
 		unsafe {
-			std::mem::transmute::<_, futures::future::BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
+			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
 				self.0.try_read_stream(arg),
 			)
 		}

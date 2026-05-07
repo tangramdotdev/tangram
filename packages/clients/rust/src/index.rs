@@ -4,10 +4,11 @@ use {
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn index(
 		&self,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static + use<>>
+	{
 		let method = http::Method::POST;
 		let uri = "/index";
 		let request = http::request::Builder::default()

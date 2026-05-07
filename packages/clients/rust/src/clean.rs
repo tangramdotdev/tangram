@@ -13,11 +13,11 @@ pub struct Output {
 	pub tags: u64,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn clean(
 		&self,
 	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + 'static,
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + 'static + use<>,
 	> {
 		let method = http::Method::POST;
 		let uri = "/clean";

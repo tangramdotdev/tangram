@@ -16,7 +16,7 @@ pub struct Output {
 	pub data: Vec<tg::process::get::Output>,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn list_processes(
 		&self,
 		arg: tg::process::list::Arg,

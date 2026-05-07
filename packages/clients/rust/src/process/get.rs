@@ -32,7 +32,7 @@ pub struct Output {
 	pub metadata: Option<tg::process::Metadata>,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_get_process(
 		&self,
 		id: &tg::process::Id,

@@ -10,7 +10,7 @@ pub struct Arg {
 	pub path: PathBuf,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn touch_watch(&self, arg: tg::watch::touch::Arg) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = "/watches/touch";

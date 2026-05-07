@@ -45,7 +45,7 @@ pub struct Output {
 	pub id: tg::sandbox::Id,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn create_sandbox(
 		&self,
 		arg: tg::sandbox::create::Arg,

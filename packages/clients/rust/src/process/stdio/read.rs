@@ -44,14 +44,17 @@ pub enum Event {
 	End,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_read_process_stdio(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 	) -> tg::Result<
 		Option<
-			impl futures::Stream<Item = tg::Result<tg::process::stdio::read::Event>> + Send + 'static,
+			impl futures::Stream<Item = tg::Result<tg::process::stdio::read::Event>>
+			+ Send
+			+ 'static
+			+ use<>,
 		>,
 	> {
 		if arg.streams.is_empty() {

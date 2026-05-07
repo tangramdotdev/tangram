@@ -39,7 +39,7 @@ impl<O> tg::Process<O> {
 	}
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_cancel_process(
 		&self,
 		id: &tg::process::Id,

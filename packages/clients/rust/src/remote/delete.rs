@@ -4,7 +4,7 @@ use {
 	tangram_uri::Uri,
 };
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_delete_remote(&self, name: &str) -> tg::Result<Option<()>> {
 		let method = http::Method::DELETE;
 		let path = format!("/remotes/{name}");

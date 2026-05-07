@@ -50,11 +50,12 @@ pub struct Chunk {
 	pub position: u64,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_read_blob_stream(
 		&self,
 		arg: Arg,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::read::Event>> + Send + 'static>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::read::Event>> + Send + 'static + use<>>>
+	{
 		let method = http::Method::GET;
 		let uri = Uri::builder()
 			.path("/read")

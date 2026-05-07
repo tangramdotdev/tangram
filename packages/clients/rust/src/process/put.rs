@@ -11,7 +11,7 @@ pub struct Arg {
 	pub location: Option<tg::location::Arg>,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn put_process(
 		&self,
 		id: &tg::process::Id,

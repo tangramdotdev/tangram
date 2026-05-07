@@ -19,7 +19,7 @@ pub struct Item {
 	pub path: PathBuf,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn list_watches(
 		&self,
 		arg: tg::watch::list::Arg,

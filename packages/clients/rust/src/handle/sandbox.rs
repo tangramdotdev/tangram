@@ -126,75 +126,78 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 }
 
 impl tg::handle::Sandbox for tg::Client {
-	fn create_sandbox(
+	async fn create_sandbox(
 		&self,
 		arg: tg::sandbox::create::Arg,
-	) -> impl Future<Output = tg::Result<tg::sandbox::create::Output>> {
-		self.create_sandbox(arg)
+	) -> tg::Result<tg::sandbox::create::Output> {
+		self.session(&self.context).create_sandbox(arg).await
 	}
 
-	fn try_get_sandbox(
+	async fn try_get_sandbox(
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::sandbox::get::Output>>> {
-		self.try_get_sandbox(id, arg)
+	) -> tg::Result<Option<tg::sandbox::get::Output>> {
+		self.session(&self.context).try_get_sandbox(id, arg).await
 	}
 
-	fn try_dequeue_sandbox(
+	async fn try_dequeue_sandbox(
 		&self,
 		arg: tg::sandbox::queue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::sandbox::queue::Output>>> {
-		self.try_dequeue_sandbox(arg)
+	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
+		self.session(&self.context).try_dequeue_sandbox(arg).await
 	}
 
-	fn list_sandboxes(
+	async fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,
-	) -> impl Future<Output = tg::Result<tg::sandbox::list::Output>> {
-		self.list_sandboxes(arg)
+	) -> tg::Result<tg::sandbox::list::Output> {
+		self.session(&self.context).list_sandboxes(arg).await
 	}
 
-	fn try_delete_sandbox(
-		&self,
-		id: &tg::sandbox::Id,
-	) -> impl Future<Output = tg::Result<Option<()>>> {
-		self.try_delete_sandbox(id)
+	async fn try_delete_sandbox(&self, id: &tg::sandbox::Id) -> tg::Result<Option<()>> {
+		self.session(&self.context).try_delete_sandbox(id).await
 	}
 
-	fn try_finish_sandbox(
+	async fn try_finish_sandbox(
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::finish::Arg,
-	) -> impl Future<Output = tg::Result<Option<bool>>> {
-		self.try_finish_sandbox(id, arg)
+	) -> tg::Result<Option<bool>> {
+		self.session(&self.context)
+			.try_finish_sandbox(id, arg)
+			.await
 	}
 
-	fn try_heartbeat_sandbox(
+	async fn try_heartbeat_sandbox(
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::heartbeat::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::sandbox::heartbeat::Output>>> {
-		self.try_heartbeat_sandbox(id, arg)
+	) -> tg::Result<Option<tg::sandbox::heartbeat::Output>> {
+		self.session(&self.context)
+			.try_heartbeat_sandbox(id, arg)
+			.await
 	}
 
-	fn try_get_sandbox_status_stream(
+	async fn try_get_sandbox_status_stream(
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::status::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::sandbox::status::Event>> + Send + 'static>,
-		>,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::sandbox::status::Event>> + Send + 'static>,
 	> {
-		self.try_get_sandbox_status_stream(id, arg)
+		self.session(&self.context)
+			.try_get_sandbox_status_stream(id, arg)
+			.await
 	}
 
-	fn try_dequeue_sandbox_process(
+	async fn try_dequeue_sandbox_process(
 		&self,
 		sandbox: &tg::sandbox::Id,
 		arg: tg::sandbox::process::queue::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::sandbox::process::queue::Output>>> {
-		self.try_dequeue_sandbox_process(sandbox, arg)
+	) -> tg::Result<Option<tg::sandbox::process::queue::Output>> {
+		self.session(&self.context)
+			.try_dequeue_sandbox_process(sandbox, arg)
+			.await
 	}
 }

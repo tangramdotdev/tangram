@@ -25,7 +25,7 @@ pub enum Event {
 	Stop,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_write_process_stdio(
 		&self,
 		id: &tg::process::Id,
@@ -33,7 +33,10 @@ impl tg::Client {
 		stream: BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>,
 	) -> tg::Result<
 		Option<
-			impl futures::Stream<Item = tg::Result<tg::process::stdio::write::Event>> + Send + use<>,
+			impl futures::Stream<Item = tg::Result<tg::process::stdio::write::Event>>
+			+ Send
+			+ 'static
+			+ use<>,
 		>,
 	> {
 		if arg.streams.is_empty() {

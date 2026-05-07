@@ -9,7 +9,7 @@ pub struct Arg {
 	pub url: Uri,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn put_remote(&self, name: &str, arg: tg::remote::put::Arg) -> tg::Result<()> {
 		let method = http::Method::PUT;
 		let uri = format!("/remotes/{name}");

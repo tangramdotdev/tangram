@@ -29,24 +29,15 @@ pub trait Watch: Clone + Unpin + Send + Sync + 'static {
 }
 
 impl tg::handle::Watch for tg::Client {
-	fn list_watches(
-		&self,
-		arg: tg::watch::list::Arg,
-	) -> impl Future<Output = tg::Result<tg::watch::list::Output>> {
-		self.list_watches(arg)
+	async fn list_watches(&self, arg: tg::watch::list::Arg) -> tg::Result<tg::watch::list::Output> {
+		self.session(&self.context).list_watches(arg).await
 	}
 
-	fn try_delete_watch(
-		&self,
-		arg: tg::watch::delete::Arg,
-	) -> impl Future<Output = tg::Result<Option<()>>> {
-		self.try_delete_watch(arg)
+	async fn try_delete_watch(&self, arg: tg::watch::delete::Arg) -> tg::Result<Option<()>> {
+		self.session(&self.context).try_delete_watch(arg).await
 	}
 
-	fn touch_watch(
-		&self,
-		arg: crate::watch::touch::Arg,
-	) -> impl Future<Output = tg::Result<()>> + Send {
-		self.touch_watch(arg)
+	async fn touch_watch(&self, arg: crate::watch::touch::Arg) -> tg::Result<()> {
+		self.session(&self.context).touch_watch(arg).await
 	}
 }

@@ -49,13 +49,13 @@ pub enum Event {
 	End,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_get_sandbox_status_stream(
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::status::Arg,
 	) -> tg::Result<
-		Option<impl Stream<Item = tg::Result<tg::sandbox::status::Event>> + Send + 'static>,
+		Option<impl Stream<Item = tg::Result<tg::sandbox::status::Event>> + Send + 'static + use<>>,
 	> {
 		let method = http::Method::GET;
 		let path = format!("/sandboxes/{id}/status");

@@ -734,14 +734,15 @@ impl<O: 'static> tg::Process<O> {
 	}
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>
 		+ Send
-		+ 'static,
+		+ 'static
+		+ use<>,
 	> {
 		let method = http::Method::POST;
 		let uri = "/processes/spawn";

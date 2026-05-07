@@ -33,11 +33,12 @@ where
 	Ok(())
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn cache(
 		&self,
 		arg: tg::cache::Arg,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static + use<>>
+	{
 		let method = http::Method::POST;
 		let uri = "/cache";
 		let request = http::request::Builder::default()

@@ -68,42 +68,37 @@ pub trait Object: Clone + Unpin + Send + Sync + 'static {
 }
 
 impl tg::handle::Object for tg::Client {
-	fn try_get_object_metadata(
+	async fn try_get_object_metadata(
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::metadata::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::object::Metadata>>> {
-		self.try_get_object_metadata(id, arg)
+	) -> tg::Result<Option<tg::object::Metadata>> {
+		self.session(&self.context)
+			.try_get_object_metadata(id, arg)
+			.await
 	}
 
-	fn try_get_object(
+	async fn try_get_object(
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::get::Arg,
-	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> {
-		self.try_get_object(id, arg)
+	) -> tg::Result<Option<tg::object::get::Output>> {
+		self.session(&self.context).try_get_object(id, arg).await
 	}
 
-	fn put_object(
-		&self,
-		id: &tg::object::Id,
-		arg: tg::object::put::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.put_object(id, arg)
+	async fn put_object(&self, id: &tg::object::Id, arg: tg::object::put::Arg) -> tg::Result<()> {
+		self.session(&self.context).put_object(id, arg).await
 	}
 
-	fn post_object_batch(
-		&self,
-		arg: tg::object::batch::Arg,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.post_object_batch(arg)
+	async fn post_object_batch(&self, arg: tg::object::batch::Arg) -> tg::Result<()> {
+		self.session(&self.context).post_object_batch(arg).await
 	}
 
-	fn try_touch_object(
+	async fn try_touch_object(
 		&self,
 		id: &tg::object::Id,
 		arg: tg::object::touch::Arg,
-	) -> impl Future<Output = tg::Result<Option<()>>> {
-		self.try_touch_object(id, arg)
+	) -> tg::Result<Option<()>> {
+		self.session(&self.context).try_touch_object(id, arg).await
 	}
 }

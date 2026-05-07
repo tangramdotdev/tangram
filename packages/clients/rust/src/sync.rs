@@ -277,7 +277,7 @@ pub struct ProgressMessageAmounts {
 	pub bytes: u64,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn sync(
 		&self,
 		arg: tg::sync::Arg,

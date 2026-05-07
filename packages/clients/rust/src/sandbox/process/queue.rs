@@ -23,7 +23,7 @@ pub struct Output {
 	pub process: tg::process::Id,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_dequeue_sandbox_process(
 		&self,
 		sandbox: &tg::sandbox::Id,

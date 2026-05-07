@@ -239,151 +239,120 @@ pub trait Handle:
 
 impl tg::Handle for tg::Client {
 	fn arg(&self) -> tg::Arg {
-		self.0.arg.clone()
+		self.session(&self.context).arg()
 	}
 
-	fn cache(
+	async fn cache(
 		&self,
 		arg: tg::cache::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		self.cache(arg)
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+		self.session(&self.context).cache(arg).await
 	}
 
-	fn check(&self, arg: tg::check::Arg) -> impl Future<Output = tg::Result<tg::check::Output>> {
-		self.check(arg)
+	async fn check(&self, arg: tg::check::Arg) -> tg::Result<tg::check::Output> {
+		self.session(&self.context).check(arg).await
 	}
 
-	fn checkin(
+	async fn checkin(
 		&self,
 		arg: tg::checkin::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>> + Send + 'static,
-		>,
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkin::Output>>> + Send + 'static,
 	> {
-		self.checkin(arg)
+		self.session(&self.context).checkin(arg).await
 	}
 
-	fn checkout(
+	async fn checkout(
 		&self,
 		arg: tg::checkout::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + 'static,
-		>,
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::checkout::Output>>> + Send + 'static,
 	> {
-		self.checkout(arg)
+		self.session(&self.context).checkout(arg).await
 	}
 
-	fn clean(
+	async fn clean(
 		&self,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + 'static,
-		>,
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::clean::Output>>> + Send + 'static,
 	> {
-		self.clean()
+		self.session(&self.context).clean().await
 	}
 
-	fn document(
+	async fn document(&self, arg: tg::document::Arg) -> tg::Result<serde_json::Value> {
+		self.session(&self.context).document(arg).await
+	}
+
+	async fn format(&self, arg: tg::format::Arg) -> tg::Result<()> {
+		self.session(&self.context).format(arg).await
+	}
+
+	async fn health(&self, arg: tg::health::Arg) -> tg::Result<tg::Health> {
+		self.session(&self.context).health(arg).await
+	}
+
+	async fn index(
 		&self,
-		arg: tg::document::Arg,
-	) -> impl Future<Output = tg::Result<serde_json::Value>> {
-		self.document(arg)
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static> {
+		self.session(&self.context).index().await
 	}
 
-	fn format(&self, arg: tg::format::Arg) -> impl Future<Output = tg::Result<()>> {
-		self.format(arg)
-	}
-
-	fn health(&self, arg: tg::health::Arg) -> impl Future<Output = tg::Result<tg::Health>> {
-		self.health(arg)
-	}
-
-	fn index(
-		&self,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + 'static,
-		>,
-	> {
-		self.index()
-	}
-
-	fn lsp(
+	async fn lsp(
 		&self,
 		input: impl AsyncBufRead + Send + Unpin + 'static,
 		output: impl AsyncWrite + Send + Unpin + 'static,
-	) -> impl Future<Output = tg::Result<()>> {
-		self.lsp(input, output)
+	) -> tg::Result<()> {
+		self.session(&self.context).lsp(input, output).await
 	}
 
-	fn pull(
+	async fn pull(
 		&self,
 		arg: tg::pull::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + 'static,
-		>,
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + 'static,
 	> {
-		self.pull(arg)
+		self.session(&self.context).pull(arg).await
 	}
 
-	fn push(
+	async fn push(
 		&self,
 		arg: tg::push::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + 'static,
-		>,
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + 'static,
 	> {
-		self.push(arg)
+		self.session(&self.context).push(arg).await
 	}
 
-	fn sync(
+	async fn sync(
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
-	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
-	> {
-		self.sync(arg, stream)
+	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static> {
+		self.session(&self.context).sync(arg, stream).await
 	}
 
-	fn try_get(
+	async fn try_get(
 		&self,
 		reference: &tg::Reference,
 		arg: tg::get::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>>
-			+ Send
-			+ 'static,
-		>,
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + 'static,
 	> {
-		self.try_get(reference, arg)
+		self.session(&self.context).try_get(reference, arg).await
 	}
 
-	fn try_read_stream(
+	async fn try_read_stream(
 		&self,
 		arg: tg::read::Arg,
-	) -> impl Future<
-		Output = tg::Result<
-			Option<impl Stream<Item = tg::Result<tg::read::Event>> + Send + 'static>,
-		>,
-	> {
-		self.try_read_blob_stream(arg)
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::read::Event>> + Send + 'static>> {
+		self.session(&self.context).try_read_blob_stream(arg).await
 	}
 
-	fn write(
+	async fn write(
 		&self,
 		arg: tg::write::Arg,
 		reader: impl AsyncRead + Send + 'static,
-	) -> impl Future<Output = tg::Result<tg::write::Output>> {
-		self.write(arg, reader)
+	) -> tg::Result<tg::write::Output> {
+		self.session(&self.context).write(arg, reader).await
 	}
 }

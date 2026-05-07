@@ -10,14 +10,11 @@ pub trait User: Clone + Unpin + Send + Sync + 'static {
 }
 
 impl tg::handle::User for tg::Client {
-	fn get_user(&self, token: &str) -> impl Future<Output = tg::Result<Option<tg::User>>> {
-		self.get_user(token)
+	async fn get_user(&self, token: &str) -> tg::Result<Option<tg::User>> {
+		self.session(&self.context).get_user(token).await
 	}
 
-	fn login_user(
-		&self,
-		arg: tg::user::login::Arg,
-	) -> impl Future<Output = tg::Result<tg::user::login::Output>> {
-		self.login_user(arg)
+	async fn login_user(&self, arg: tg::user::login::Arg) -> tg::Result<tg::user::login::Output> {
+		self.session(&self.context).login_user(arg).await
 	}
 }

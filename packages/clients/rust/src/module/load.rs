@@ -13,7 +13,7 @@ pub struct Output {
 	pub text: String,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn load_module(
 		&self,
 		arg: tg::module::load::Arg,

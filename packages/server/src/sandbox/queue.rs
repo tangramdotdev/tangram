@@ -116,13 +116,9 @@ impl Session {
 		region: String,
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
-		let client = self
-			.server
-			.get_region_client(region.clone())
-			.await
-			.map_err(
-				|source| tg::error!(!source, region = %region, "failed to get the region client"),
-			)?;
+		let client = self.get_region_session(region.clone()).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});
@@ -142,7 +138,7 @@ impl Session {
 		region: Option<String>,
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<tg::sandbox::queue::Output>> {
-		let client = self.get_remote_client(remote.clone()).await.map_err(
+		let client = self.get_remote_session(remote.clone()).await.map_err(
 			|source| tg::error!(!source, remote = %remote, "failed to get the remote client"),
 		)?;
 		let arg = tg::sandbox::queue::Arg {

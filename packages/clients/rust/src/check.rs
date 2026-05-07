@@ -16,7 +16,7 @@ pub struct Output {
 	pub diagnostics: Vec<tg::diagnostic::Data>,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn check(&self, arg: Arg) -> tg::Result<tg::check::Output> {
 		let method = http::Method::POST;
 		let uri = "/check";

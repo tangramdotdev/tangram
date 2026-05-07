@@ -23,13 +23,16 @@ pub struct Output {
 	pub referent: tg::Referent<tg::Either<tg::graph::data::Edge<tg::object::Id>, tg::process::Id>>,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_get(
 		&self,
 		reference: &tg::Reference,
 		mut arg: tg::get::Arg,
 	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>> + Send + 'static,
+		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::get::Output>>>>
+		+ Send
+		+ 'static
+		+ use<>,
 	> {
 		let method = http::Method::GET;
 		arg.options = reference.options().clone();

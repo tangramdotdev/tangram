@@ -10,7 +10,7 @@ pub struct Arg {
 	pub path: PathBuf,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_delete_watch(&self, arg: tg::watch::delete::Arg) -> tg::Result<Option<()>> {
 		let method = http::Method::DELETE;
 		let uri = Uri::builder()

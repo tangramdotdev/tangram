@@ -241,13 +241,9 @@ impl Session {
 		region: &str,
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
-		let client = self
-			.server
-			.get_region_client(region.to_owned())
-			.await
-			.map_err(
-				|source| tg::error!(!source, region = %region, "failed to get the region client"),
-			)?;
+		let client = self.get_region_session(region.to_owned()).await.map_err(
+			|source| tg::error!(!source, region = %region, "failed to get the region client"),
+		)?;
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});
@@ -302,7 +298,7 @@ impl Session {
 		remote: &crate::location::Remote,
 		timeout: Option<Duration>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
-		let client = self.get_remote_client(remote.name.clone()).await.map_err(
+		let client = self.get_remote_session(remote.name.clone()).await.map_err(
 			|source| tg::error!(!source, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		let arg = tg::process::status::Arg {

@@ -9,7 +9,7 @@ pub struct Arg {
 	pub path: PathBuf,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn format(&self, arg: tg::format::Arg) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = "/format";

@@ -49,7 +49,7 @@ pub struct FileDescriptorSemaphore {
 	pub available_permits: u64,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn health(&self, arg: tg::health::Arg) -> tg::Result<Health> {
 		let method = http::Method::GET;
 		let uri = Uri::builder()

@@ -23,7 +23,7 @@ pub struct Output {
 	pub deleted: Vec<tg::Tag>,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn delete_tags(
 		&self,
 		arg: tg::tag::delete::Arg,

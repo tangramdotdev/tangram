@@ -25,12 +25,12 @@ pub struct Arg {
 	pub timeout: Option<Duration>,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_get_process_signal_stream(
 		&self,
 		id: &tg::process::Id,
 		arg: Arg,
-	) -> tg::Result<Option<impl Stream<Item = tg::Result<Event>> + Send + 'static>> {
+	) -> tg::Result<Option<impl Stream<Item = tg::Result<Event>> + Send + 'static + use<>>> {
 		let method = http::Method::GET;
 		let path = format!("/processes/{id}/signal");
 		let uri = Uri::builder()

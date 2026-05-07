@@ -68,7 +68,7 @@ impl Arg {
 	}
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn post_object_batch(&self, arg: tg::object::batch::Arg) -> tg::Result<()> {
 		let method = http::Method::POST;
 		let uri = "/objects/batch";

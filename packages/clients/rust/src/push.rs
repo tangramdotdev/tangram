@@ -54,12 +54,12 @@ pub struct Amounts {
 	pub bytes: u64,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn push(
 		&self,
 		arg: tg::push::Arg,
 	) -> tg::Result<
-		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + 'static,
+		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + 'static + use<>,
 	> {
 		let method = http::Method::POST;
 		let uri = "/push";

@@ -14,7 +14,7 @@ pub struct Output {
 	pub status: tg::sandbox::Status,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_heartbeat_sandbox(
 		&self,
 		id: &tg::sandbox::Id,

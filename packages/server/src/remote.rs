@@ -10,6 +10,11 @@ pub mod list;
 pub mod put;
 
 impl Session {
+	pub async fn get_remote_session(&self, remote: String) -> tg::Result<tg::Session> {
+		let client = self.get_remote_client(remote).await?;
+		Ok(self.client_session(&client))
+	}
+
 	pub async fn get_remote_client(&self, remote: String) -> tg::Result<tg::Client> {
 		self.try_get_remote_client(remote)
 			.await?

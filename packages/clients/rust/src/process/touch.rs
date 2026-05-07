@@ -9,7 +9,7 @@ pub struct Arg {
 	pub location: Option<tg::location::Arg>,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_touch_process(
 		&self,
 		id: &tg::process::Id,

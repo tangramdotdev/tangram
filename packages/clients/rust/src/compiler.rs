@@ -5,22 +5,23 @@ use {
 	tokio::io::{AsyncBufRead, AsyncWrite},
 };
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn lsp(
 		&self,
 		mut input: impl AsyncBufRead + Send + Unpin + 'static,
 		mut output: impl AsyncWrite + Send + Unpin + 'static,
 	) -> tg::Result<()> {
-		let mut sender = Self::connect_h1(self.url()).await?;
+		let mut sender = tg::Client::connect_h1(self.client().url()).await?;
 		let method = http::Method::POST;
 		let uri = "/lsp";
-		let request = http::request::Builder::default()
+		let mut request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.header(http::header::CONNECTION, "upgrade")
 			.header(http::header::UPGRADE, "lsp")
 			.empty()
 			.unwrap();
+		self.apply_context_headers(&mut request);
 		let response = sender
 			.send_request(request.boxed_body())
 			.await

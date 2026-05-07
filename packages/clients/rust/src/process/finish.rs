@@ -40,7 +40,7 @@ impl<O> tg::Process<O> {
 	}
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_finish_process(
 		&self,
 		id: &tg::process::Id,

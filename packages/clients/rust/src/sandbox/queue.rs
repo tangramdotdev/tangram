@@ -24,7 +24,7 @@ pub struct Output {
 	pub process: Option<tg::process::Id>,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn try_dequeue_sandbox(
 		&self,
 		arg: tg::sandbox::queue::Arg,

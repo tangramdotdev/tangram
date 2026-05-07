@@ -6,6 +6,7 @@ use {
 };
 
 mod http;
+mod session;
 
 pub use {
 	self::{
@@ -34,6 +35,7 @@ pub use {
 		range::Range,
 		reference::Reference,
 		referent::Referent,
+		session::Session,
 		symlink::Handle as Symlink,
 		tag::Tag,
 		template::Template,
@@ -121,8 +123,15 @@ pub struct Client(Arc<State>);
 #[derive(Debug)]
 pub struct State {
 	arg: tg::Arg,
+	context: Context,
 	sender: self::http::Sender,
 	service: self::http::Service,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Context {
+	pub process: Option<tg::process::Id>,
+	pub token: Option<String>,
 }
 
 impl Client {
@@ -140,10 +149,15 @@ impl Client {
 		};
 		arg.reconnect.get_or_insert_default();
 		arg.retry.get_or_insert_default();
+		let context = Context {
+			process: arg.process.clone(),
+			token: arg.token.clone(),
+		};
 		let sender = Arc::new(tokio::sync::Mutex::new(None));
 		let service = Self::service(&arg, &sender);
 		let client = Self(Arc::new(State {
 			arg,
+			context,
 			sender,
 			service,
 		}));
@@ -171,11 +185,16 @@ impl Client {
 		};
 		arg.reconnect.get_or_insert_default();
 		arg.retry.get_or_insert_default();
+		let context = Context {
+			process: arg.process.clone(),
+			token: arg.token.clone(),
+		};
 		let sender = Self::handshake_h2(stream).await?;
 		let sender = Arc::new(tokio::sync::Mutex::new(Some(sender)));
 		let service = Self::service(&arg, &sender);
 		let client = Self(Arc::new(crate::State {
 			arg,
+			context,
 			sender,
 			service,
 		}));
@@ -212,6 +231,16 @@ impl Client {
 	}
 
 	#[must_use]
+	pub fn context(&self) -> &Context {
+		&self.context
+	}
+
+	#[must_use]
+	pub fn session(&self, context: &Context) -> Session {
+		Session::new(self.clone(), context.clone())
+	}
+
+	#[must_use]
 	pub fn url(&self) -> &Uri {
 		self.0.arg.url.as_ref().unwrap()
 	}
@@ -224,7 +253,7 @@ impl Client {
 	#[must_use]
 	pub fn compatibility_date() -> time::OffsetDateTime {
 		time::OffsetDateTime::new_utc(
-			time::Date::from_calendar_date(2025, time::Month::January, 1).unwrap(),
+			time::Date::from_calendar_date(2026, time::Month::January, 1).unwrap(),
 			time::Time::MIDNIGHT,
 		)
 	}

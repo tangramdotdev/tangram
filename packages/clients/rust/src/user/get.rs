@@ -3,7 +3,7 @@ use {
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn get_user(&self, token: &str) -> tg::Result<Option<tg::User>> {
 		let method = http::Method::GET;
 		let uri = "/user";

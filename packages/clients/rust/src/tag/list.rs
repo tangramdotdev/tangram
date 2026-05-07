@@ -50,7 +50,7 @@ pub struct Entry {
 	pub tag: tg::Tag,
 }
 
-impl tg::Client {
+impl tg::Session {
 	pub async fn list_tags(&self, arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
 		let method = http::Method::GET;
 		let uri = Uri::builder()
