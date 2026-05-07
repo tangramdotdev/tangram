@@ -16,7 +16,7 @@ let path = artifact {
 						`,
 					],
 					executable: "sh",
-					host: tg.process.env.TANGRAM_HOST,
+					host: tg.host.current,
 					sandbox: true,
 					stdin: "inherit",
 					stdout: "inherit",

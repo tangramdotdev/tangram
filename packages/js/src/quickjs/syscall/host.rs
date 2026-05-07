@@ -163,6 +163,11 @@ pub async fn spawn(
 	arg: Serde<crate::host::SpawnArg>,
 ) -> Result<Serde<crate::host::SpawnOutput>> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	if state.arg.host.as_deref() == Some("js") {
+		return Result(Err(tg::error!(
+			"cannot spawn a host process when the host is js"
+		)));
+	}
 	let Serde(arg) = arg;
 	let result = state.host.spawn(arg).await.map(Serde);
 	Result(result)

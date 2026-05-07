@@ -216,8 +216,10 @@ impl Handle {
 		let host_output_path = sandbox.host_output_path_for_process(id);
 
 		// Render the args.
-		let mut args = match command.host.as_str() {
-			"builtin" | "js" => render_args_dash_a(&command.args),
+		let mut args = match (&command.executable, command.host.as_str()) {
+			(tg::command::data::Executable::Module(_), _) | (_, "builtin" | "js") => {
+				render_args_dash_a(&command.args)
+			},
 			_ => render_args_string(&command.args, &guest_artifacts_path, &guest_output_path)?,
 		};
 
@@ -243,17 +245,12 @@ impl Handle {
 		};
 
 		// Render the executable.
-		let executable = match command.host.as_str() {
-			"builtin" => {
-				args.insert(0, "builtin".to_owned());
-				args.insert(1, command.executable.to_string());
-
-				sandbox.guest_tangram_path()
-			},
-
-			"js" => {
+		let executable = match (&command.executable, command.host.as_str()) {
+			(tg::command::data::Executable::Module(_), _) | (_, "js") => {
 				let mut js_args = Vec::new();
 				js_args.push("js".to_owned());
+				js_args.push("--host".to_owned());
+				js_args.push(command.host.clone());
 				match &self.config.runner.as_ref().unwrap().js.engine {
 					crate::config::JsEngine::Auto => {
 						js_args.push("--engine=auto".into());
@@ -265,7 +262,7 @@ impl Handle {
 						js_args.push("--engine=v8".into());
 					},
 				}
-				push_js_debug_args(&mut js_args, state.debug.as_ref());
+				render_js_debug_args(&mut js_args, state.debug.as_ref());
 				js_args.push(command.executable.to_string());
 				js_args.extend(args);
 				args = js_args;
@@ -273,19 +270,22 @@ impl Handle {
 				sandbox.guest_tangram_path()
 			},
 
-			_ => match &command.executable {
-				tg::command::data::Executable::Artifact(executable) => {
-					let mut path = guest_artifacts_path.join(executable.artifact.to_string());
-					if let Some(executable_path) = &executable.path {
-						path.push(executable_path);
-					}
-					path
-				},
-				tg::command::data::Executable::Module(_) => {
-					return Err(tg::error!("invalid executable"));
-				},
-				tg::command::data::Executable::Path(executable) => executable.path.clone(),
+			(_, "builtin") => {
+				args.insert(0, "builtin".to_owned());
+				args.insert(1, command.executable.to_string());
+
+				sandbox.guest_tangram_path()
 			},
+
+			(tg::command::data::Executable::Artifact(executable), _) => {
+				let mut path = guest_artifacts_path.join(executable.artifact.to_string());
+				if let Some(executable_path) = &executable.path {
+					path.push(executable_path);
+				}
+				path
+			},
+
+			(tg::command::data::Executable::Path(executable), _) => executable.path.clone(),
 		};
 
 		let stdin = match state.stdin {
@@ -644,7 +644,7 @@ fn render_args_dash_a(args: &[tg::value::Data]) -> Vec<String> {
 		.collect::<Vec<_>>()
 }
 
-fn push_js_debug_args(args: &mut Vec<String>, debug: Option<&tg::process::Debug>) {
+fn render_js_debug_args(args: &mut Vec<String>, debug: Option<&tg::process::Debug>) {
 	let Some(debug) = debug else {
 		return;
 	};

@@ -493,10 +493,10 @@ impl Cli {
 		let reference = if let Some(reference) = reference {
 			reference
 		} else if let Some(executable) = executable.take() {
-			let host = options.host.clone().unwrap_or_else(|| match executable {
-				tg::command::data::Executable::Module(_) => "js".to_owned(),
-				_ => tg::host::current().to_owned(),
-			});
+			let host = options
+				.host
+				.clone()
+				.unwrap_or_else(|| tg::host::current().to_owned());
 			let executable = tg::command::Executable::try_from_data(executable)?;
 			let command = tg::Command::builder()
 				.host(host)
@@ -621,13 +621,15 @@ impl Cli {
 						let referent = tg::Referent::with_item(item);
 						let module = tg::Module { kind, referent };
 						let export = reference.export().unwrap_or("default").to_owned();
-						let host = "js".to_owned();
+						let host = tg::host::current().to_owned();
 						let executable =
 							tg::command::Executable::Module(tg::command::ModuleExecutable {
 								module,
 								export: Some(export),
 							});
-						tg::Command::builder().host(host).executable(executable)
+						tg::Command::builder()
+							.host(host.clone())
+							.executable(executable)
 					},
 
 					tg::Artifact::File(file) => {
@@ -657,13 +659,15 @@ impl Cli {
 							let referent = tg::Referent::with_item(item);
 							let module = tg::Module { kind, referent };
 							let export = reference.export().unwrap_or("default").to_owned();
-							let host = "js".to_owned();
+							let host = tg::host::current().to_owned();
 							let executable =
 								tg::command::Executable::Module(tg::command::ModuleExecutable {
 									module,
 									export: Some(export),
 								});
-							tg::Command::builder().host(host).executable(executable)
+							tg::Command::builder()
+								.host(host.clone())
+							.executable(executable)
 						} else {
 							let host = tg::host::current().to_owned();
 							let executable = tg::command::Executable::Artifact(
@@ -672,7 +676,9 @@ impl Cli {
 									path: None,
 								},
 							);
-							tg::Command::builder().host(host).executable(executable)
+							tg::Command::builder()
+								.host(host.clone())
+								.executable(executable)
 						}
 					},
 
@@ -683,10 +689,10 @@ impl Cli {
 			},
 		};
 		if let Some(executable) = executable {
-			let host = options.host.clone().unwrap_or_else(|| match &executable {
-				tg::command::data::Executable::Module(_) => "js".to_owned(),
-				_ => tg::host::current().to_owned(),
-			});
+			let host = options
+				.host
+				.clone()
+				.unwrap_or_else(|| tg::host::current().to_owned());
 			command = command
 				.host(host)
 				.executable(tg::command::Executable::try_from_data(executable)?);
@@ -788,14 +794,6 @@ impl Cli {
 			} else {
 				env.insert(key, value);
 			}
-		}
-		if !env.contains_key("TANGRAM_HOST") {
-			let host = if let Some(host) = options.host {
-				host
-			} else {
-				tg::host::current().to_owned()
-			};
-			env.insert("TANGRAM_HOST".to_owned(), host.into());
 		}
 		command = command.env(env);
 

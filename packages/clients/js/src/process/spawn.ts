@@ -4,7 +4,7 @@ import * as stdio from "./stdio.ts";
 export let builder = (...args: any): any => {
 	if (typeof args[0] === "function") {
 		return new tg.Process.Builder("spawn", {
-			host: "js",
+			host: tg.host.current,
 			executable: tg.Command.Executable.fromData(tg.host.magic(args[0])),
 			args: args.slice(1),
 		});
@@ -40,7 +40,7 @@ export let spawnArg = async (
 		arg = await tg.Process.arg({ cwd, env }, arg);
 	} else {
 		if (!("host" in arg)) {
-			arg.host = defaultHost();
+			arg.host = tg.host.current;
 		}
 		if (arg.executable === tg.process.env.SHELL) {
 			arg.executable = "sh";
@@ -495,28 +495,26 @@ function renderCommand(
 	outputPath: string,
 	debug: tg.Process.Debug | undefined,
 ): { args: Array<string>; executable: string } {
-	switch (command.host) {
-		case "builtin": {
-			let args = renderArgsDashA(command.args);
-			args.unshift("builtin", renderExecutableUri(command.executable));
-			return { args, executable: "tangram" };
-		}
-		case "js": {
-			let args = [
-				"js",
-				...renderJsDebugArgs(debug),
-				renderExecutableUri(command.executable),
-				...renderArgsDashA(command.args),
-			];
-			return { args, executable: "tangram" };
-		}
-		default: {
-			return {
-				args: renderArgsString(command.args, artifacts, outputPath),
-				executable: renderExecutable(command.executable, artifacts),
-			};
-		}
+	if (command.host === "builtin") {
+		let args = renderArgsDashA(command.args);
+		args.unshift("builtin", renderExecutableUri(command.executable));
+		return { args, executable: "tangram" };
 	}
+	if ("module" in command.executable || command.host === "js") {
+		let args = [
+			"js",
+			"--host",
+			command.host,
+			...renderJsDebugArgs(debug),
+			renderExecutableUri(command.executable),
+			...renderArgsDashA(command.args),
+		];
+		return { args, executable: "tangram" };
+	}
+	return {
+		args: renderArgsString(command.args, artifacts, outputPath),
+		executable: renderExecutable(command.executable, artifacts),
+	};
 }
 
 function renderJsDebugArgs(debug: tg.Process.Debug | undefined): Array<string> {
@@ -812,8 +810,4 @@ let normalizeNetwork = (
 		return value;
 	}
 	return tg.Sandbox.Network.toData(value);
-};
-
-export let defaultHost = (): string | undefined => {
-	return (tg.process.env.TANGRAM_HOST as string | undefined) ?? tg.host.current;
 };

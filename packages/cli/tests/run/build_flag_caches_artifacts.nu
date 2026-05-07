@@ -17,7 +17,7 @@ let path = artifact {
 			return tg.command({
 				args: ["-c", tg`${dir}/bin/run`],
 				executable: { path: "/bin/sh" },
-				host: tg.process.env.TANGRAM_HOST,
+				host: tg.host.current,
 			});
 		};
 	'

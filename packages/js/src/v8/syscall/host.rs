@@ -15,8 +15,13 @@ pub fn current(
 	state: Rc<State>,
 	_scope: &mut v8::PinScope<'_, '_>,
 	_args: (Option<String>,),
-) -> tg::Result<Option<String>> {
-	Ok(state.arg.host.clone())
+) -> tg::Result<String> {
+	let host = state
+		.arg
+		.host
+		.clone()
+		.unwrap_or_else(|| tg::host::current().to_owned());
+	Ok(host)
 }
 
 pub async fn disable_raw_mode(state: Rc<State>, args: (i32,)) -> tg::Result<()> {
@@ -163,6 +168,11 @@ pub async fn spawn(
 	args: (Serde<crate::host::SpawnArg>,),
 ) -> tg::Result<Serde<crate::host::SpawnOutput>> {
 	let (Serde(arg),) = args;
+	if state.arg.host.as_deref() == Some("js") {
+		return Err(tg::error!(
+			"cannot spawn a host process when the host is js"
+		));
+	}
 	let output = state.host.spawn(arg).await?;
 	Ok(Serde(output))
 }

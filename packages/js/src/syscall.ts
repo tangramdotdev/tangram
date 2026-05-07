@@ -37,7 +37,10 @@ type WaitArgWire = Omit<tg.Handle.WaitArg, "location"> & {
 	location?: LocationWire | undefined;
 };
 
-type ProcessStdioReadArgWire = Omit<tg.Handle.ProcessStdioReadArg, "location"> & {
+type ProcessStdioReadArgWire = Omit<
+	tg.Handle.ProcessStdioReadArg,
+	"location"
+> & {
 	location?: LocationWire | undefined;
 };
 
@@ -209,20 +212,19 @@ declare global {
 
 	function syscall(syscall: "host_close", fd: number): Promise<void>;
 
-	function syscall(syscall: "host_current"): string | undefined;
+	function syscall(syscall: "host_current"): string;
 
 	function syscall(syscall: "host_disable_raw_mode", fd: number): Promise<void>;
 
 	function syscall(syscall: "host_enable_raw_mode", fd: number): Promise<void>;
 
-	function syscall(
-		syscall: "host_exec",
-		arg: tg.Host.SpawnArg,
-	): Promise<never>;
+	function syscall(syscall: "host_exec", arg: tg.Host.SpawnArg): Promise<never>;
 
 	function syscall(syscall: "host_exists", path: string): Promise<boolean>;
 
-	function syscall(syscall: "host_get_tty_size"): tg.Process.Tty.Size | undefined;
+	function syscall(
+		syscall: "host_get_tty_size",
+	): tg.Process.Tty.Size | undefined;
 
 	function syscall(
 		syscall: "host_get_xattr",
@@ -230,7 +232,10 @@ declare global {
 		name: string,
 	): Promise<Uint8Array | undefined>;
 
-	function syscall(syscall: "host_is_foreground_controlling_tty", fd: number): boolean;
+	function syscall(
+		syscall: "host_is_foreground_controlling_tty",
+		fd: number,
+	): boolean;
 
 	function syscall(syscall: "host_is_tty", fd: number): boolean;
 
@@ -281,11 +286,17 @@ declare global {
 		arg: tg.Host.SpawnArg,
 	): Promise<tg.Host.SpawnOutput>;
 
-	function syscall(syscall: "host_stopper_close", stopper: number): Promise<void>;
+	function syscall(
+		syscall: "host_stopper_close",
+		stopper: number,
+	): Promise<void>;
 
 	function syscall(syscall: "host_stopper_open"): Promise<number>;
 
-	function syscall(syscall: "host_stopper_stop", stopper: number): Promise<void>;
+	function syscall(
+		syscall: "host_stopper_stop",
+		stopper: number,
+	): Promise<void>;
 
 	function syscall(
 		syscall: "host_wait",

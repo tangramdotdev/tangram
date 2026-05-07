@@ -30,13 +30,10 @@ export let builder = (...args: any): any => {
 		stdin: "null",
 		stdout: "log",
 		tty: false,
-		env: {
-			TANGRAM_HOST: spawn.defaultHost(),
-		},
 	};
 	if (typeof args[0] === "function") {
 		return new tg.Process.Builder("run", firstArg, {
-			host: "js",
+			host: tg.host.current,
 			executable: tg.Command.Executable.fromData(tg.host.magic(args[0])),
 			args: args.slice(1),
 		}).validate(validate);

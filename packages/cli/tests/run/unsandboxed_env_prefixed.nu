@@ -5,7 +5,7 @@ let server = spawn
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
-			const host = tg.process.env.TANGRAM_HOST;
+			const host = tg.host.current;
 			tg.assert(typeof host === "string");
 			return await tg.run({
 				args: ["-c", "printf \"%s\\n%s\\n\" \"$TEST_ENV_INHERIT\" \"$TANGRAM_ENV_TEST_ENV_INHERIT\""],

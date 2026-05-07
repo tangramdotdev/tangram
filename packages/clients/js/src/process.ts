@@ -139,7 +139,7 @@ export class Process<O extends tg.Value = tg.Value> {
 					tg.Artifact.is(arg) ||
 					arg instanceof tg.Template
 				) {
-					let host = spawn.defaultHost();
+					let host = tg.host.current;
 					let executable = tg.process.env.SHELL ?? "sh";
 					return {
 						args: ["-c", arg],

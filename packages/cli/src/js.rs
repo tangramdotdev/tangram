@@ -31,6 +31,9 @@ pub struct Args {
 	#[arg(index = 1)]
 	pub executable: tg::command::data::Executable,
 
+	#[arg(long)]
+	pub host: Option<String>,
+
 	#[arg(index = 2, trailing_var_arg = true)]
 	pub trailing: Vec<String>,
 }
@@ -106,7 +109,7 @@ impl Cli {
 			env,
 			executable,
 			handle,
-			host: None,
+			host: args.host,
 			inspect: args.debug.get().map(|debug| tangram_js::inspect::Options {
 				addr: debug.addr,
 				mode: match debug.mode {

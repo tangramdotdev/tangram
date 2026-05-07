@@ -1001,7 +1001,7 @@ export def --env spawn [
 			};
 
 			export const env = (host?: string) => {
-				const host_ = host ?? tg.process.env.TANGRAM_HOST;
+				const host_ = host ?? tg.host.current;
 				tg.assert(typeof host_ === "string");
 				const kv = Object.entries(SOURCES).find(([k, _]) => k === host_);
 				tg.assert(kv, `unknown host: ${host_}`);

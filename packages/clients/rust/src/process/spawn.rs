@@ -823,17 +823,19 @@ fn render_command(
 	output_path: &Path,
 	debug: Option<&tg::process::Debug>,
 ) -> tg::Result<(PathBuf, Vec<String>)> {
-	match command.host.as_str() {
-		"builtin" => {
+	match (&command.executable, command.host.as_str()) {
+		(_, "builtin") => {
 			let mut args = render_args_dash_a(&command.args);
 			args.insert(0, "builtin".to_owned());
 			args.insert(1, command.executable.to_string());
 			Ok(("tangram".into(), args))
 		},
-		"js" => {
+		(tg::command::data::Executable::Module(_), _) | (_, "js") => {
 			let mut args = Vec::new();
 			args.push("js".to_owned());
-			push_js_debug_args(&mut args, debug);
+			args.push("--host".to_owned());
+			args.push(command.host.clone());
+			args.extend(render_js_debug_args(debug));
 			args.push(command.executable.to_string());
 			args.extend(render_args_dash_a(&command.args));
 			Ok(("tangram".into(), args))
@@ -843,21 +845,6 @@ fn render_command(
 			let args = render_args_string(&command.args, artifacts, output_path)?;
 			Ok((executable, args))
 		},
-	}
-}
-
-fn push_js_debug_args(args: &mut Vec<String>, debug: Option<&tg::process::Debug>) {
-	let Some(debug) = debug else {
-		return;
-	};
-	args.push("--debug".to_owned());
-	if let Some(addr) = debug.addr {
-		args.push("--debug-addr".to_owned());
-		args.push(addr.to_string());
-	}
-	if debug.mode != tg::process::debug::Mode::Normal {
-		args.push("--debug-mode".to_owned());
-		args.push(debug.mode.to_string());
 	}
 }
 
@@ -898,6 +885,23 @@ fn render_args_dash_a(args: &[tg::value::Data]) -> Vec<String> {
 			["-A".to_owned(), value]
 		})
 		.collect()
+}
+
+fn render_js_debug_args(debug: Option<&tg::process::Debug>) -> Vec<String> {
+	let mut args = Vec::new();
+	let Some(debug) = debug else {
+		return args;
+	};
+	args.push("--debug".to_owned());
+	if let Some(addr) = debug.addr {
+		args.push("--debug-addr".to_owned());
+		args.push(addr.to_string());
+	}
+	if debug.mode != tg::process::debug::Mode::Normal {
+		args.push("--debug-mode".to_owned());
+		args.push(debug.mode.to_string());
+	}
+	args
 }
 
 fn render_env<H>(

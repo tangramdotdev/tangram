@@ -26,7 +26,7 @@ let output = tg view $id --mode inline --expand-processes --depth 2
 snapshot $output '
 	✓ fil_01g1t9dmfw9v9arvs2k8e3x6zt69gpx993gbw8tw5jgpzqzptxt8fg#default
 	├╴output: 42
-	├╴command: cmd_01vcrs5cx1wx85xj9yqa546kxq2h2w5td5p52dsscy745zgak3eycg
+	├╴command: cmd_01wpp1n9dh6nvk8h4m4jjsj7687dcn9wm12qm9dd2tqb5kfe2mkms0
 	├╴✓ ../b.tg.ts#default
 	└╴✓ fil_01sa3pyv7baf50x2ymmvy7p41zqnmmv8gp1fq5z3mq60ps8vcfxa30#default
 '

@@ -3,7 +3,7 @@ import * as tg from "../index.ts";
 export let builder = (...args: any): any => {
 	if (typeof args[0] === "function") {
 		return new tg.Process.Builder("run", {
-			host: "js",
+			host: tg.host.current,
 			executable: tg.Command.Executable.fromData(tg.host.magic(args[0])),
 			args: args.slice(1),
 		});

@@ -5,7 +5,7 @@ export let host: tg.Host = {
 		return syscall("host_close", fd);
 	},
 
-	get current(): string | undefined {
+	get current(): string {
 		return syscall("host_current");
 	},
 

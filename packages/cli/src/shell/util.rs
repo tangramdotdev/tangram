@@ -362,7 +362,6 @@ fn ignored(key: &str) -> bool {
 			| "SHLVL" | "TANGRAM_SHELL_STATE"
 			| "TANGRAM_CONFIG"
 			| "TANGRAM_DIRECTORY"
-			| "TANGRAM_HOST"
 			| "TANGRAM_MODE"
 			| "TANGRAM_OUTPUT"
 			| "TANGRAM_PROCESS"

@@ -32,7 +32,7 @@ export function command(...args: any): any {
 			}
 		}
 		return new tg.Command.Builder({
-			host: "js",
+			host: tg.host.current,
 			executable,
 			args: args.slice(1),
 		});
@@ -88,7 +88,7 @@ export class Command<
 				path: arg.executable.path,
 			};
 		}
-		let host = arg.host ?? defaultHost();
+		let host = arg.host ?? tg.host.current;
 		if (executable === undefined) {
 			throw new Error("cannot create a command without an executable");
 		}
@@ -122,7 +122,7 @@ export class Command<
 					tg.Artifact.is(arg) ||
 					arg instanceof tg.Template
 				) {
-					let host = defaultHost();
+					let host = tg.host.current;
 					return {
 						args: ["-c", arg],
 						executable: "sh",
@@ -696,7 +696,3 @@ export namespace Command {
 		}
 	}
 }
-
-let defaultHost = (): string | undefined => {
-	return (tg.process.env.TANGRAM_HOST as string | undefined) ?? tg.host.current;
-};
