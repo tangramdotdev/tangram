@@ -461,9 +461,6 @@ pub struct Region {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub token: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -478,9 +475,6 @@ pub struct Remote {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub token: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]

@@ -68,7 +68,7 @@ impl Server {
 		let client = tg::Client::new(tg::Arg {
 			url: Some(region_config.url.clone()),
 			version: Some(self.version.clone()),
-			token: region_config.token.clone(),
+			token: None,
 			process: None,
 			reconnect,
 			retry,

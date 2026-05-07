@@ -45,7 +45,6 @@ impl Server {
 			.remotes
 			.as_ref()
 			.and_then(|remotes| remotes.iter().find(|r| r.name == remote));
-		let token = remote_config.and_then(|r| r.token.clone());
 		let reconnect = remote_config
 			.and_then(|r| r.reconnect.clone())
 			.map(|reconnect| tangram_futures::retry::Options {
@@ -65,7 +64,7 @@ impl Server {
 		tg::Client::new(tg::Arg {
 			url: Some(url),
 			version: Some(self.version.clone()),
-			token,
+			token: None,
 			process: None,
 			reconnect,
 			retry,

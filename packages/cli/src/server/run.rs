@@ -85,7 +85,6 @@ impl Cli {
 							url,
 							reconnect: None,
 							retry: None,
-							token: None,
 						})
 					})
 					.collect(),
