@@ -667,7 +667,7 @@ impl Cli {
 								});
 							tg::Command::builder()
 								.host(host.clone())
-							.executable(executable)
+								.executable(executable)
 						} else {
 							let host = tg::host::current().to_owned();
 							let executable = tg::command::Executable::Artifact(

@@ -653,6 +653,7 @@ impl Server {
 
 			// Users.
 			(http::Method::GET, ["user"]) => handle.get_user_request(request).boxed(),
+			(http::Method::POST, ["user", "login"]) => handle.login_user_request(request).boxed(),
 
 			(_, _) => future::ok(
 				http::Response::builder()

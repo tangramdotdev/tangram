@@ -39,6 +39,10 @@ pub struct Config {
 	#[serde(default = "default_tracing")]
 	pub tracing: Option<Tracing>,
 
+	/// Configure the user.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub user: Option<crate::user::User>,
+
 	/// Set the V8 thread pool size.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub v8_thread_pool_size: Option<u32>,

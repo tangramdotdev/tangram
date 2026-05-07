@@ -116,7 +116,7 @@ impl Cli {
 			});
 
 		// Get the token.
-		let token = self.args.token.clone();
+		let token = self.user_token();
 
 		// Get the reconnect options.
 		let reconnect = self

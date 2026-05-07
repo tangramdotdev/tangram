@@ -24,8 +24,13 @@ create table remote_tag_list_cache (
 create unique index remote_tag_list_cache_arg_index on remote_tag_list_cache (arg);
 
 create table users (
-	id text primary key,
-	email text not null
+	id text primary key
+);
+
+create table user_emails (
+	"user" text not null,
+	email text not null unique,
+	primary key ("user", email)
 );
 
 create table tokens (

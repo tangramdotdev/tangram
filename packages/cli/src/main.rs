@@ -59,6 +59,7 @@ mod touch;
 mod tracing;
 mod tree;
 mod update;
+mod user;
 mod view;
 mod viewer;
 mod watch;
@@ -276,7 +277,11 @@ enum Command {
 	#[command(alias = "ls")]
 	List(self::tag::list::Args),
 
+	Login(self::user::login::Args),
+
 	Log(self::process::stdio::read::Args),
+
+	Logout(self::user::logout::Args),
 
 	Lsp(self::lsp::Args),
 
@@ -342,11 +347,15 @@ enum Command {
 
 	Update(self::update::Args),
 
+	User(self::user::Args),
+
 	View(self::view::Args),
 
 	Wait(self::process::wait::Args),
 
 	Watch(self::watch::Args),
+
+	Whoami(self::user::whoami::Args),
 
 	Write(self::write::Args),
 }
@@ -570,7 +579,9 @@ impl Cli {
 			#[cfg(feature = "js")]
 			Command::Js(args) => self.command_js(args).boxed_local(),
 			Command::List(args) => self.command_tag_list(args).boxed_local(),
+			Command::Login(args) => self.command_user_login(args).boxed_local(),
 			Command::Log(args) => self.command_process_stdio_read(args).boxed_local(),
+			Command::Logout(args) => self.command_user_logout(args).boxed_local(),
 			Command::Lsp(args) => self.command_lsp(args).boxed_local(),
 			Command::Metadata(args) => self.command_metadata(args).boxed_local(),
 			Command::New(args) => self.command_new(args).boxed_local(),
@@ -600,9 +611,11 @@ impl Cli {
 			Command::Touch(args) => self.command_touch(args).boxed_local(),
 			Command::Tree(args) => self.command_tree(args).boxed_local(),
 			Command::Update(args) => self.command_update(args).boxed_local(),
+			Command::User(args) => self.command_user(args).boxed_local(),
 			Command::View(args) => self.command_view(args).boxed_local(),
 			Command::Wait(args) => self.command_process_wait(args).boxed_local(),
 			Command::Watch(args) => self.command_watch(args).boxed_local(),
+			Command::Whoami(args) => self.command_user_whoami(args).boxed_local(),
 			Command::Write(args) => self.command_write(args).boxed_local(),
 		}
 		.await

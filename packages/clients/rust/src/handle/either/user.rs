@@ -11,4 +11,14 @@ where
 			tg::Either::Right(s) => s.get_user(token).right_future(),
 		}
 	}
+
+	fn login_user(
+		&self,
+		arg: tg::user::login::Arg,
+	) -> impl Future<Output = tg::Result<tg::user::login::Output>> {
+		match self {
+			tg::Either::Left(s) => s.login_user(arg).left_future(),
+			tg::Either::Right(s) => s.login_user(arg).right_future(),
+		}
+	}
 }
