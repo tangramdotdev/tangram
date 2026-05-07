@@ -1,5 +1,5 @@
 use {
-	crate::Handle,
+	crate::Session,
 	num::ToPrimitive as _,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
@@ -10,7 +10,7 @@ use {
 	tangram_object_store::prelude::*,
 };
 
-impl Handle {
+impl Session {
 	pub async fn post_object_batch(&self, arg: tg::object::batch::Arg) -> tg::Result<()> {
 		if arg.objects.is_empty() {
 			return Ok(());
@@ -93,9 +93,9 @@ impl Handle {
 		// Spawn a task to index the objects.
 		self.index_tasks
 			.spawn(|_| {
-				let handle = self.clone();
+				let session = self.clone();
 				async move {
-					if let Err(error) = handle
+					if let Err(error) = session
 						.index
 						.put(tangram_index::PutArg {
 							objects: put_object_args,

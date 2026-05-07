@@ -1,6 +1,6 @@
 use {
 	super::Output,
-	crate::Handle,
+	crate::Session,
 	futures::TryStreamExt as _,
 	std::{
 		collections::{BTreeMap, BTreeSet},
@@ -19,7 +19,7 @@ mod signal;
 mod stdio;
 mod tty;
 
-impl Handle {
+impl Session {
 	pub(crate) fn spawn_process_task(
 		&self,
 		process_tasks: &mut JoinSet<tg::Result<()>>,
@@ -29,7 +29,7 @@ impl Handle {
 		sandbox: &tangram_sandbox::Sandbox,
 		guest_uri: &tangram_uri::Uri,
 	) {
-		let handle = self.clone();
+		let session = self.clone();
 		let process = tg::Process::new(
 			process,
 			Some(location.clone().into()),
@@ -42,7 +42,7 @@ impl Handle {
 		let guest_uri = guest_uri.clone();
 		let stopper = process_stopper.clone();
 		process_tasks.spawn(async move {
-			handle
+			session
 				.process_task(&process, sandbox, guest_uri, stopper)
 				.await
 		});
@@ -343,14 +343,14 @@ impl Handle {
 		let stderr = state.stderr.clone();
 
 		let _stdin_task = Task::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			let sandbox = sandbox.clone();
 			let sandbox_process = sandbox_process.clone();
 			let id = id.clone();
 			let location = location.clone();
 			let stdin_blob = command.stdin.clone().map(tg::Blob::with_id);
 			|_| async move {
-				handle
+				session
 					.run_stdin_task(&sandbox, &sandbox_process, &id, location, stdin, stdin_blob)
 					.await
 			}
@@ -360,13 +360,13 @@ impl Handle {
 			None
 		} else {
 			Some(Task::spawn({
-				let handle = self.clone();
+				let session = self.clone();
 				let sandbox = sandbox.clone();
 				let sandbox_process = sandbox_process.clone();
 				let id = id.clone();
 				let location = location.clone();
 				|_| async move {
-					handle
+					session
 						.run_stdout_stderr_task(&sandbox, &sandbox_process, &id, location)
 						.await
 				}
@@ -376,13 +376,13 @@ impl Handle {
 		// Spawn the tty task.
 		let tty_task = if state.tty.is_some() {
 			Some(tokio::spawn({
-				let handle = self.clone();
+				let session = self.clone();
 				let sandbox = sandbox.clone();
 				let sandbox_process = sandbox_process.clone();
 				let id = id.clone();
 				let location = location.clone();
 				async move {
-					handle
+					session
 						.run_tty_task(&sandbox, &sandbox_process, &id, location.as_ref())
 						.await
 						.inspect_err(|source| tracing::error!(?source, "the tty task failed"))
@@ -395,13 +395,13 @@ impl Handle {
 
 		// Spawn the signal task.
 		let signal_task = tokio::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			let sandbox = sandbox.clone();
 			let sandbox_process = sandbox_process.clone();
 			let id = id.clone();
 			let location = location.clone();
 			async move {
-				handle
+				session
 					.run_signal_task(&sandbox, &sandbox_process, &id, location.as_ref())
 					.await
 					.inspect_err(|source| tracing::error!(?source, "the signal task failed"))
@@ -488,7 +488,7 @@ impl Handle {
 			sandbox: Some(state.sandbox.clone()),
 			..self.context.clone()
 		};
-		let handle = self.server.handle(context);
+		let session = self.server.session(context);
 
 		// Create the output.
 		let mut output = Output {
@@ -534,7 +534,7 @@ impl Handle {
 
 		// Check in the output.
 		if output.value.is_none() && exists {
-			let path = handle.guest_path_for_host_path(&path)?;
+			let path = session.guest_path_for_host_path(&path)?;
 			let arg = tg::checkin::Arg {
 				options: tg::checkin::Options {
 					destructive: true,
@@ -548,7 +548,7 @@ impl Handle {
 				path,
 				updates: Vec::new(),
 			};
-			let checkin_output = handle
+			let checkin_output = session
 				.checkin(arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to check in the output"))?

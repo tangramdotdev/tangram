@@ -1,6 +1,6 @@
 use {
 	super::{graph::Graph, progress::Progress, queue::Queue},
-	crate::{Context, Handle},
+	crate::{Context, Session},
 	futures::{future, stream::BoxStream},
 	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
@@ -22,7 +22,7 @@ struct State {
 	sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::GetMessage>>,
 }
 
-impl Handle {
+impl Session {
 	pub(super) async fn sync_get(
 		&self,
 		arg: tg::sync::Arg,
@@ -90,10 +90,10 @@ impl Handle {
 
 		// Create the input future.
 		let input_future = {
-			let handle = self.clone();
+			let session = self.clone();
 			let state = state.clone();
 			async move {
-				handle
+				session
 					.sync_get_input(
 						&state,
 						stream,
@@ -119,10 +119,10 @@ impl Handle {
 
 		// Create the store future.
 		let store_future = {
-			let handle = self.clone();
+			let session = self.clone();
 			let state = state.clone();
 			async move {
-				handle
+				session
 					.sync_get_store(&state, store_object_receiver, store_process_receiver)
 					.await
 			}
@@ -131,11 +131,11 @@ impl Handle {
 
 		// Spawn the progress task.
 		let progress_task = Task::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			let state = state.clone();
 			|stop| {
 				async move {
-					handle
+					session
 						.sync_get_progress_task(&state.progress, stop, &state.sender)
 						.await;
 				}
@@ -149,10 +149,10 @@ impl Handle {
 			|()| {
 				self.index_tasks
 					.spawn({
-						let handle = self.clone();
+						let session = self.clone();
 						|_| {
 							async move {
-								let result = handle.sync_get_index_put(graph).await;
+								let result = session.sync_get_index_put(graph).await;
 								if let Err(error) = result {
 									tracing::error!(error = %error.trace());
 								}

@@ -1,6 +1,6 @@
 use {
 	super::{graph::Graph, progress::Progress, queue::Queue},
-	crate::Handle,
+	crate::Session,
 	futures::{future, stream::BoxStream},
 	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
@@ -21,7 +21,7 @@ struct State {
 	sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::PutMessage>>,
 }
 
-impl Handle {
+impl Session {
 	pub(super) async fn sync_put(
 		&self,
 		arg: tg::sync::Arg,
@@ -83,10 +83,10 @@ impl Handle {
 
 		// Spawn the input task.
 		let input_task = Task::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			let state = state.clone();
 			|_| {
-				async move { handle.sync_put_input_task(&state, stream).await }
+				async move { session.sync_put_input_task(&state, stream).await }
 					.instrument(tracing::Span::current())
 			}
 		});
@@ -116,11 +116,11 @@ impl Handle {
 
 		// Spawn the progress task.
 		let progress_task = Task::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			let state = state.clone();
 			|stop| {
 				async move {
-					handle
+					session
 						.sync_put_progress_task(&state.progress, stop, &state.sender)
 						.await;
 				}

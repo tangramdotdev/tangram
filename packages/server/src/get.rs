@@ -1,12 +1,12 @@
 use {
-	crate::Handle,
+	crate::Session,
 	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream, stream::BoxStream},
 	std::path::Path,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn try_get(
 		&self,
 		reference: &tg::Reference,
@@ -67,9 +67,9 @@ impl Handle {
 			.await
 			.map_err(|source| tg::error!(!source, "failed to check in the path"))?
 			.and_then({
-				let handle = self.clone();
+				let session = self.clone();
 				move |event| {
-					let handle = handle.clone();
+					let session = session.clone();
 					let options = options.clone();
 					async move {
 						match event {
@@ -88,7 +88,7 @@ impl Handle {
 									checkin_output.artifact.options,
 								);
 								let output = tg::get::Output { referent };
-								let output = handle
+								let output = session
 									.try_get_apply_get(output, options.get.as_deref())
 									.await?;
 								Ok::<_, tg::Error>(tg::progress::Event::Output(output))

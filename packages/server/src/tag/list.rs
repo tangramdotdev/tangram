@@ -1,5 +1,5 @@
 use {
-	crate::{Database, Handle},
+	crate::{Database, Session},
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	num::ToPrimitive as _,
 	std::time::Duration,
@@ -19,7 +19,7 @@ pub(crate) struct RemoteTagListTaskKey {
 	pub arg: tg::tag::list::Arg,
 }
 
-impl Handle {
+impl Session {
 	#[tracing::instrument(level = "trace", name = "list_tags", skip_all, fields(pattern = %arg.pattern))]
 	pub(crate) async fn list_tags(
 		&self,
@@ -127,8 +127,8 @@ impl Handle {
 		let task = self
 			.remote_list_tags_tasks
 			.get_or_spawn_detached(key.clone(), {
-				let handle = self.clone();
-				move |_stop| async move { handle.list_tags_remote_task(key).await }
+				let session = self.clone();
+				move |_stop| async move { session.list_tags_remote_task(key).await }
 			});
 		let entries = task
 			.wait()

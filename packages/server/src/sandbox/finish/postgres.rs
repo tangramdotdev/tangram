@@ -1,6 +1,6 @@
 use {
 	crate::{
-		Handle,
+		Session,
 		sandbox::finish::{Condition, InnerArg, InnerOutput},
 	},
 	indoc::indoc,
@@ -8,7 +8,7 @@ use {
 	tangram_database::{self as db, prelude::*},
 };
 
-impl Handle {
+impl Session {
 	pub(super) async fn try_finish_sandbox_inner_postgres(
 		&self,
 		transaction: &db::postgres::Transaction<'_>,

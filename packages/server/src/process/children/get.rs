@@ -1,5 +1,5 @@
 use {
-	crate::Handle,
+	crate::Session,
 	futures::{
 		StreamExt as _,
 		stream::{self, BoxStream, FuturesUnordered},
@@ -20,7 +20,7 @@ use {
 	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
 
-impl Handle {
+impl Session {
 	pub async fn try_get_process_children_stream(
 		&self,
 		id: &tg::process::Id,
@@ -84,11 +84,11 @@ impl Handle {
 		let (sender, receiver) = tokio::sync::mpsc::channel(1);
 
 		// Spawn the task.
-		let handle = self.clone();
+		let session = self.clone();
 		let id = id.clone();
 		let stopper = self.context.stopper.clone();
 		let task = Task::spawn(|_| async move {
-			let result = handle
+			let result = session
 				.try_get_process_children_local_task(&id, arg, sender.clone(), stopper)
 				.await;
 			if let Err(error) = result {

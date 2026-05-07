@@ -1,9 +1,9 @@
 use {
-	crate::Handle, indoc::indoc, num::ToPrimitive as _, tangram_client::prelude::*,
+	crate::Session, indoc::indoc, num::ToPrimitive as _, tangram_client::prelude::*,
 	tangram_database::prelude::*,
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn delete_tags_postgres(
 		&self,
 		database: &tangram_database::postgres::Database,

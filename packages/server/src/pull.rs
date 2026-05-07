@@ -1,12 +1,12 @@
 use {
-	crate::Handle,
+	crate::Session,
 	futures::{Stream, StreamExt as _, future, stream},
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::prelude::*,
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn pull(
 		&self,
 		arg: tg::pull::Arg,

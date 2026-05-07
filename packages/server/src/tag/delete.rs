@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, database::Database},
+	crate::{Session, database::Database},
 	futures::TryStreamExt as _,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -11,7 +11,7 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
-impl Handle {
+impl Session {
 	pub(crate) async fn delete_tags(
 		&self,
 		arg: tg::tag::delete::Arg,

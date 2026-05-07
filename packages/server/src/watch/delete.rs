@@ -1,12 +1,12 @@
 use {
-	crate::Handle,
+	crate::Session,
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn try_delete_watch(
 		&self,
 		mut arg: tg::watch::delete::Arg,

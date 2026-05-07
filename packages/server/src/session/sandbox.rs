@@ -1,6 +1,6 @@
-use {crate::Handle, futures::Stream, tangram_client::prelude::*};
+use {crate::Session, futures::Stream, tangram_client::prelude::*};
 
-impl tg::handle::Sandbox for Handle {
+impl tg::handle::Sandbox for Session {
 	async fn create_sandbox(
 		&self,
 		arg: tg::sandbox::create::Arg,

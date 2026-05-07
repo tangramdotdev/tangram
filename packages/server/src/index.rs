@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, Server},
+	crate::{Server, Session},
 	futures::{FutureExt as _, Stream, StreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	std::{panic::AssertUnwindSafe, time::Duration},
@@ -242,7 +242,7 @@ impl index::Index for Index {
 	}
 }
 
-impl Handle {
+impl Session {
 	pub(crate) async fn index(
 		&self,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::progress::Event<()>>> + Send + use<>> {
@@ -252,9 +252,9 @@ impl Handle {
 		let progress = crate::progress::Handle::new();
 		let task = Task::spawn({
 			let progress = progress.clone();
-			let handle = self.clone();
+			let session = self.clone();
 			|_| async move {
-				let result = AssertUnwindSafe(handle.index_task(&progress))
+				let result = AssertUnwindSafe(session.index_task(&progress))
 					.catch_unwind()
 					.await;
 				match result {
@@ -393,7 +393,7 @@ impl Server {
 	}
 }
 
-impl Handle {
+impl Session {
 	pub(crate) async fn index_request(
 		&self,
 		request: http::Request<BoxBody>,

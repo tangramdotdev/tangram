@@ -1,11 +1,11 @@
 use {
-	crate::Handle,
+	crate::Session,
 	indoc::indoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
 
-impl Handle {
+impl Session {
 	pub(super) async fn update_parent_depths_sqlite(
 		&self,
 		transaction: &db::sqlite::Transaction<'_>,

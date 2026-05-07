@@ -1,12 +1,12 @@
 use {
-	crate::Handle,
+	crate::Session,
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn touch_watch(&self, arg: tg::watch::touch::Arg) -> tg::Result<()> {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));

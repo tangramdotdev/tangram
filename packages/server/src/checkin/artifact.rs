@@ -1,6 +1,6 @@
 use {
 	crate::{
-		Handle,
+		Session,
 		checkin::{
 			Graph, GraphData, IndexCacheEntryArgs, IndexObjectArgs, StoreArgs,
 			graph::{Contents, Node, Petgraph, Variant},
@@ -19,7 +19,7 @@ use {
 	tangram_object_store::prelude::*,
 };
 
-impl Handle {
+impl Session {
 	#[expect(clippy::too_many_arguments)]
 	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) fn checkin_create_artifacts(

@@ -1,6 +1,6 @@
-use {crate::Handle, tangram_client::prelude::*};
+use {crate::Session, tangram_client::prelude::*};
 
-impl tg::handle::Module for Handle {
+impl tg::handle::Module for Session {
 	async fn resolve_module(
 		&self,
 		arg: tg::module::resolve::Arg,

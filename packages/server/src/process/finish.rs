@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, database::Transaction},
+	crate::{Session, database::Transaction},
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
@@ -30,7 +30,7 @@ pub(crate) struct InnerArg {
 	pub output: Option<tg::value::Data>,
 }
 
-impl Handle {
+impl Session {
 	pub(crate) async fn try_finish_process(
 		&self,
 		id: &tg::process::Id,
@@ -261,10 +261,10 @@ impl Handle {
 
 	fn spawn_cancel_process_children_task(&self, id: &tg::process::Id) {
 		tokio::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			let id = id.clone();
 			async move {
-				let result = handle.cancel_process_children(&id).await;
+				let result = session.cancel_process_children(&id).await;
 				if let Err(error) = result {
 					tracing::error!(error = %error.trace(), "failed to cancel the children");
 				}

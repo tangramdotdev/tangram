@@ -1,5 +1,5 @@
 use {
-	crate::Handle,
+	crate::Session,
 	std::path::Path,
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -8,7 +8,7 @@ use {
 	tangram_ignore as ignore,
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn format(&self, arg: tg::format::Arg) -> tg::Result<()> {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));
@@ -28,8 +28,8 @@ impl Handle {
 
 		// Format.
 		tokio::task::spawn_blocking({
-			let handle = self.clone();
-			move || handle.format_inner(&path, &mut ignore)
+			let session = self.clone();
+			move || session.format_inner(&path, &mut ignore)
 		})
 		.await
 		.map_err(|source| tg::error!(!source, "the format task panicked"))??;

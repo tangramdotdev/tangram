@@ -1,5 +1,5 @@
 use {
-	crate::Handle,
+	crate::Session,
 	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	reflink_copy::reflink,
@@ -38,7 +38,7 @@ pub struct Item {
 	pub graph: Option<tg::graph::Id>,
 }
 
-impl Handle {
+impl Session {
 	pub(crate) async fn checkout(
 		&self,
 		mut arg: tg::checkout::Arg,
@@ -64,16 +64,16 @@ impl Handle {
 				let stream = stream
 					.boxed()
 					.map({
-						let handle = self.clone();
+						let session = self.clone();
 						move |result| {
 							result.and_then(|event| match event {
 								tg::progress::Event::Output(()) => {
 									let path =
-										handle.artifacts_path().join(arg.artifact.to_string());
+										session.artifacts_path().join(arg.artifact.to_string());
 
 									// Add an extension if necessary.
 									let path = if let Some(extension) = &extension {
-										let path_with_extension = handle
+										let path_with_extension = session
 											.artifacts_path()
 											.join(format!("{}{extension}", arg.artifact));
 										std::fs::hard_link(&path, &path_with_extension).ok();
@@ -83,7 +83,7 @@ impl Handle {
 									};
 
 									// Map the path if necessary.
-									let path = handle.guest_path_for_host_path(&path)?;
+									let path = session.guest_path_for_host_path(&path)?;
 
 									let output =
 										tg::progress::Event::Output(tg::checkout::Output { path });
@@ -117,13 +117,13 @@ impl Handle {
 
 		let progress = crate::progress::Handle::new();
 		let task = Task::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			let artifact = arg.artifact.clone();
 			let arg = arg.clone();
 			let progress = progress.clone();
 			move |_| async move {
 				// Ensure the artifact is stored.
-				let result = handle
+				let result = session
 					.checkout_ensure_stored(&artifact, &progress)
 					.await
 					.map_err(
@@ -153,7 +153,7 @@ impl Handle {
 					None,
 				);
 
-				let result = AssertUnwindSafe(handle.checkout_task(artifact, arg, &progress))
+				let result = AssertUnwindSafe(session.checkout_task(artifact, arg, &progress))
 					.catch_unwind()
 					.await;
 
@@ -180,12 +180,12 @@ impl Handle {
 		let stream = progress
 			.stream()
 			.and_then({
-				let handle = self.clone();
+				let session = self.clone();
 				move |event| {
-					let handle = handle.clone();
+					let session = session.clone();
 					async move {
 						if let tg::progress::Event::Output(mut output) = event {
-							output.path = handle.host_path_for_guest_path(&output.path)?;
+							output.path = session.host_path_for_guest_path(&output.path)?;
 							Ok(tg::progress::Event::Output(output))
 						} else {
 							Ok(event)
@@ -313,7 +313,7 @@ impl Handle {
 
 		// Checkout.
 		let result = Task::spawn_blocking({
-			let handle = self.clone();
+			let session = self.clone();
 			let path = path.clone();
 			let progress = progress.clone();
 			move |_| {
@@ -332,18 +332,18 @@ impl Handle {
 
 				// Get the item.
 				let edge = tg::graph::data::Edge::Object(state.artifact.clone());
-				let item = handle
+				let item = session
 					.checkout_get_item(edge)
 					.map_err(|source| tg::error!(!source, "failed to get the item"))?;
 
 				// Check out the artifact.
 				let path = state.path.clone();
-				handle
+				session
 					.checkout_artifact(&mut state, &path, &item)
 					.map_err(|source| tg::error!(!source, "failed to check out the artifact"))?;
 
 				// Write the lock if necessary.
-				handle
+				session
 					.checkout_write_lock(&mut state)
 					.map_err(|source| tg::error!(!source, "failed to write the lock"))?;
 

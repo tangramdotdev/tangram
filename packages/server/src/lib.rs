@@ -32,7 +32,6 @@ mod directory;
 mod document;
 mod format;
 mod get;
-mod handle;
 mod health;
 mod http;
 mod index;
@@ -50,6 +49,7 @@ mod region;
 mod remote;
 mod run;
 mod sandbox;
+mod session;
 mod sync;
 mod tag;
 mod temp;
@@ -64,7 +64,7 @@ pub use self::config::Config;
 pub mod config;
 pub mod progress;
 
-pub(crate) use self::handle::Handle;
+pub(crate) use self::session::Session;
 
 #[derive(Clone)]
 pub struct Shared(Arc<Owned>);
@@ -1198,21 +1198,21 @@ impl Server {
 			shutdown.await;
 		});
 
-		let handle = Owned { server, task };
+		let owned = Owned { server, task };
 
-		Ok(handle)
+		Ok(owned)
 	}
 
 	async fn finish_unfinished_sandboxes(&self) -> tg::Result<()> {
-		let handle = self.root();
-		let outputs = handle
+		let session = self.root();
+		let outputs = session
 			.list_sandboxes_local()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to list sandboxes"))?;
 		outputs
 			.into_iter()
 			.map(|output| {
-				let handle = handle.clone();
+				let session = session.clone();
 				async move {
 					let error = tg::error::Data {
 						code: Some(tg::error::Code::HeartbeatExpiration),
@@ -1220,7 +1220,7 @@ impl Server {
 						..Default::default()
 					};
 					let error = Some(tg::Either::Left(error));
-					if let Err(error) = handle
+					if let Err(error) = session
 						.try_finish_sandbox_local(&output.id, error, None)
 						.await
 					{
@@ -1263,13 +1263,13 @@ impl Server {
 	}
 
 	#[must_use]
-	pub(crate) fn root(&self) -> Handle {
-		self.handle(Context::default())
+	pub(crate) fn root(&self) -> Session {
+		self.session(Context::default())
 	}
 
 	#[must_use]
-	pub(crate) fn handle(&self, context: Context) -> Handle {
-		Handle::new(self.clone(), context)
+	pub(crate) fn session(&self, context: Context) -> Session {
+		Session::new(self.clone(), context)
 	}
 
 	#[must_use]

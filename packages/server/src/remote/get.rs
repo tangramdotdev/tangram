@@ -1,5 +1,5 @@
 use {
-	crate::Handle,
+	crate::Session,
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -9,7 +9,7 @@ use {
 	tangram_uri::Uri,
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn try_get_remote(
 		&self,
 		name: &str,

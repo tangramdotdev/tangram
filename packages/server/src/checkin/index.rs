@@ -1,6 +1,6 @@
 use {
 	crate::{
-		Handle,
+		Session,
 		checkin::{Graph, IndexCacheEntryArgs, IndexObjectArgs},
 	},
 	std::path::Path,
@@ -8,7 +8,7 @@ use {
 	tangram_index::prelude::*,
 };
 
-impl Handle {
+impl Session {
 	pub(super) async fn checkin_index(
 		&self,
 		arg: &tg::checkin::Arg,

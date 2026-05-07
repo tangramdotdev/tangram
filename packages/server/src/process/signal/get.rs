@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, database::Database},
+	crate::{Session, database::Database},
 	futures::{
 		StreamExt as _,
 		stream::{self, BoxStream, FuturesUnordered},
@@ -24,7 +24,7 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
-impl Handle {
+impl Session {
 	pub(crate) async fn try_get_process_signal_stream(
 		&self,
 		id: &tg::process::Id,
@@ -92,11 +92,11 @@ impl Handle {
 		let (sender, receiver) = async_channel::unbounded();
 
 		// Spawn the task.
-		let handle = self.clone();
+		let session = self.clone();
 		let id = id.clone();
 		let stopper = self.context.stopper.clone();
 		let task = Task::spawn(|_| async move {
-			let result = handle
+			let result = session
 				.try_get_process_signal_stream_local_task(&id, sender.clone(), stopper, timeout)
 				.await;
 			if let Err(error) = result {

@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, Server},
+	crate::{Server, Session},
 	tangram_client::prelude::*,
 	tangram_uri::Uri,
 };
@@ -9,7 +9,7 @@ pub mod get;
 pub mod list;
 pub mod put;
 
-impl Handle {
+impl Session {
 	pub async fn get_remote_client(&self, remote: String) -> tg::Result<tg::Client> {
 		self.try_get_remote_client(remote)
 			.await?

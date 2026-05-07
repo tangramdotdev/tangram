@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, database::Database, sync::get::State},
+	crate::{Session, database::Database, sync::get::State},
 	bytes::Bytes,
 	futures::{StreamExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
@@ -20,7 +20,7 @@ pub struct ProcessItem {
 	pub metadata: Option<tg::process::Metadata>,
 }
 
-impl Handle {
+impl Session {
 	pub(super) async fn sync_get_store(
 		&self,
 		state: &State,

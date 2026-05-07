@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, database::Database},
+	crate::{Session, database::Database},
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -15,7 +15,7 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
-impl Handle {
+impl Session {
 	pub(crate) async fn put_tag(&self, tag: &tg::Tag, arg: tg::tag::put::Arg) -> tg::Result<()> {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));

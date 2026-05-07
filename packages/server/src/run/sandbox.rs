@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, SandboxPermit, Server, temp::Temp},
+	crate::{SandboxPermit, Server, Session, temp::Temp},
 	futures::{FutureExt as _, TryStreamExt as _, future},
 	std::{pin::pin, sync::Arc},
 	tangram_client::prelude::*,
@@ -17,14 +17,14 @@ impl Server {
 		permit: SandboxPermit,
 		process: Option<tg::process::Id>,
 	) {
-		let handle = self.root();
+		let session = self.root();
 		self.sandbox_tasks
 			.spawn(id.clone(), |_| {
-				let handle = handle.clone();
+				let session = session.clone();
 				let id = id.clone();
 				async move {
 					// Run the sandbox task.
-					let result = handle
+					let result = session
 						.sandbox_task(&id, location.clone(), permit, process)
 						.await;
 
@@ -32,7 +32,7 @@ impl Server {
 					if let Err(error) = result {
 						tracing::error!(error = %error.trace(), sandbox = %id, "the sandbox failed");
 						let mut error = error.to_data_or_id();
-						if !handle.config.advanced.internal_error_locations
+						if !session.config.advanced.internal_error_locations
 							&& let tg::Either::Left(error) = &mut error
 						{
 							error.remove_internal_locations();
@@ -41,7 +41,7 @@ impl Server {
 							error: Some(error),
 							location: Some(location.into()),
 						};
-						let result = handle.finish_sandbox(&id, arg).await;
+						let result = session.finish_sandbox(&id, arg).await;
 						if let Err(error) = result {
 							tracing::error!(
 								error = %error.trace(),
@@ -56,7 +56,7 @@ impl Server {
 	}
 }
 
-impl Handle {
+impl Session {
 	async fn sandbox_task(
 		&self,
 		id: &tg::sandbox::Id,
@@ -198,23 +198,23 @@ impl Handle {
 
 		let _temp = temp;
 		self.sandboxes.insert(id.clone(), sandbox.clone());
-		let handle = self.clone();
+		let session = self.clone();
 		scopeguard::defer! {
-			handle.sandboxes.remove(id);
+			session.sandboxes.remove(id);
 			drop(host_ip);
 			drop(guest_ip);
 		}
 
 		// Spawn the serve task.
 		let serve_task = Task::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			let id = id.clone();
 			let config = crate::config::HttpListener {
 				url: guest_uri.clone(),
 				tls: None,
 			};
 			|stop| async move {
-				handle
+				session
 					.serve(listener, config, None, Some(id.clone()), stop)
 					.await;
 			}
@@ -222,13 +222,17 @@ impl Handle {
 
 		// Spawn the heartbeat task.
 		let heartbeat_task = Task::spawn({
-			let handle = handle.clone();
+			let session = session.clone();
 			let id = id.clone();
 			let location = location.clone();
-			move |stopper| async move { handle.sandbox_heartbeat_task(&id, &location, stopper).await }
+			move |stopper| async move {
+				session
+					.sandbox_heartbeat_task(&id, &location, stopper)
+					.await
+			}
 		});
 
-		let status = handle
+		let status = session
 			.get_sandbox_status(
 				id,
 				tg::sandbox::status::Arg {

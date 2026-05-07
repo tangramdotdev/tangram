@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, Server, database::Database},
+	crate::{Server, Session, database::Database},
 	indoc::indoc,
 	num::ToPrimitive as _,
 	std::time::Duration,
@@ -58,7 +58,7 @@ impl Server {
 	}
 }
 
-impl Handle {
+impl Session {
 	pub(crate) async fn health(&self, arg: tg::health::Arg) -> tg::Result<tg::Health> {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));

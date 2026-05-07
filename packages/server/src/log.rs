@@ -1,6 +1,6 @@
 use {
 	self::store::{DeleteArg, ReadArg},
-	crate::Handle,
+	crate::Session,
 	futures::{
 		StreamExt as _,
 		stream::{self, BoxStream},
@@ -34,7 +34,7 @@ struct BlobInner {
 }
 
 struct StoreInner {
-	server: Handle,
+	session: Session,
 	process: tg::process::Id,
 }
 
@@ -68,7 +68,7 @@ pub struct Entry {
 	pub stream_position: u64,
 }
 
-impl Handle {
+impl Session {
 	pub(crate) async fn read_log_index_from_blob(
 		&self,
 		reader: &mut crate::read::Reader,
@@ -237,7 +237,7 @@ impl Handle {
 			})
 		} else {
 			Inner::Store(StoreInner {
-				server: self.clone(),
+				session: self.clone(),
 				process: id.clone(),
 			})
 		};
@@ -328,13 +328,13 @@ impl Handle {
 						.is_some_and(|length| length > state.position)
 					&& let Inner::Store(inner) = &state.inner
 					&& let Some(output) = inner
-						.server
+						.session
 						.try_get_process_local(&inner.process, false)
 						.await? && let Some(blob_id) = output.data.log
 				{
 					let blob = tg::Blob::with_id(blob_id);
-					let mut reader = crate::read::Reader::new(&inner.server, blob).await?;
-					let index = inner.server.read_log_index_from_blob(&mut reader).await?;
+					let mut reader = crate::read::Reader::new(&inner.session, blob).await?;
+					let index = inner.session.read_log_index_from_blob(&mut reader).await?;
 					state.inner = Inner::Blob(BlobInner {
 						entry: 0,
 						reader,
@@ -545,7 +545,7 @@ impl StoreInner {
 			process: self.process.clone(),
 			streams: streams.clone(),
 		};
-		self.server
+		self.session
 			.log_store
 			.try_read(arg)
 			.await
@@ -556,7 +556,7 @@ impl StoreInner {
 		&self,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<Option<u64>> {
-		self.server
+		self.session
 			.log_store
 			.try_get_length(&self.process, streams)
 			.await

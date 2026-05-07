@@ -1,12 +1,12 @@
 use {
-	crate::Handle,
+	crate::Session,
 	std::{path::Path, pin::pin},
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
-impl Handle {
+impl Session {
 	pub async fn resolve_module(
 		&self,
 		arg: tg::module::resolve::Arg,

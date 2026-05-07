@@ -1,5 +1,5 @@
 use {
-	crate::Handle,
+	crate::Session,
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
@@ -7,7 +7,7 @@ use {
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,

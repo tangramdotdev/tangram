@@ -1,5 +1,5 @@
 use {
-	crate::Handle,
+	crate::Session,
 	bytes::Bytes,
 	rusqlite as sqlite,
 	std::collections::BTreeSet,
@@ -7,7 +7,7 @@ use {
 	tangram_database::{self as db, Database as _},
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn try_read_process_stdio_pipe_event_sqlite(
 		&self,
 		process_store: &db::sqlite::Database,

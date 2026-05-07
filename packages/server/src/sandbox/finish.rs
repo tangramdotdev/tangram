@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, database::Transaction},
+	crate::{Session, database::Transaction},
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_database::prelude::*,
@@ -30,7 +30,7 @@ struct InnerOutput {
 	unfinished_processes: Vec<tg::process::Id>,
 }
 
-impl Handle {
+impl Session {
 	pub(crate) async fn try_finish_sandbox(
 		&self,
 		id: &tg::sandbox::Id,

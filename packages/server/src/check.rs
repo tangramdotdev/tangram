@@ -1,10 +1,10 @@
 use {
-	crate::Handle,
+	crate::Session,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
-impl Handle {
+impl Session {
 	#[cfg(not(feature = "typescript"))]
 	pub(crate) async fn check(&self, _arg: tg::check::Arg) -> tg::Result<tg::check::Output> {
 		Err(tg::error!(

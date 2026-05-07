@@ -1,9 +1,9 @@
 use {
-	crate::Handle, num::ToPrimitive as _, tangram_client::prelude::*,
+	crate::Session, num::ToPrimitive as _, tangram_client::prelude::*,
 	tangram_futures::write::Ext as _, tokio::io::AsyncWriteExt as _,
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn checksum_blob(
 		&self,
 		blob: &tg::Blob,

@@ -1,5 +1,5 @@
 use {
-	crate::Handle,
+	crate::Session,
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
@@ -8,7 +8,7 @@ use {
 	},
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn try_delete_remote(&self, name: &str) -> tg::Result<Option<()>> {
 		if self.context.process.is_some() {
 			return Err(tg::error!("forbidden"));

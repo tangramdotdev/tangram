@@ -1,6 +1,6 @@
-use {crate::Handle, tangram_client::prelude::*};
+use {crate::Session, tangram_client::prelude::*};
 
-impl tg::handle::Tag for Handle {
+impl tg::handle::Tag for Session {
 	async fn list_tags(&self, arg: tg::tag::list::Arg) -> tg::Result<tg::tag::list::Output> {
 		self.list_tags(arg).await
 	}

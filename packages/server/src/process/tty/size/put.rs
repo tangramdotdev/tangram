@@ -1,5 +1,5 @@
 use {
-	crate::Handle,
+	crate::Session,
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
@@ -7,7 +7,7 @@ use {
 	tangram_messenger::Messenger,
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn try_set_process_tty_size(
 		&self,
 		id: &tg::process::Id,

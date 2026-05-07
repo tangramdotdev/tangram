@@ -1,5 +1,5 @@
 use {
-	crate::Handle,
+	crate::Session,
 	futures::{
 		FutureExt as _, StreamExt as _,
 		future::{self, BoxFuture},
@@ -16,7 +16,7 @@ use {
 	},
 };
 
-impl Handle {
+impl Session {
 	pub async fn try_wait_process_future(
 		&self,
 		id: &tg::process::Id,
@@ -114,9 +114,9 @@ impl Handle {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
-		let handle = self.clone();
+		let session = self.clone();
 		let id = id.clone();
-		let Some(stream) = handle
+		let Some(stream) = session
 			.try_get_process_status_stream_local(&id, None, None)
 			.await
 			.map_err(|source| tg::error!(!source, %id, "failed to get the process status stream"))?
@@ -141,7 +141,7 @@ impl Handle {
 			if !status.is_finished() {
 				return Err(tg::error!("expected the process to be finished"));
 			}
-			let output = handle
+			let output = session
 				.try_get_process_local(&id, false)
 				.await
 				.map_err(|source| tg::error!(!source, %id, "failed to get the process"))?
@@ -306,7 +306,7 @@ impl Handle {
 			}
 			.boxed();
 
-			let handle = self.clone();
+			let session = self.clone();
 			let id = id.clone();
 			let guard = scopeguard::guard((), move |()| {
 				if cancel.load(Ordering::SeqCst) && !stopper.as_ref().is_some_and(Stopper::stopped)
@@ -316,7 +316,7 @@ impl Handle {
 						token,
 					};
 					tokio::spawn(async move {
-						handle.cancel_process(&id, arg).await.ok();
+						session.cancel_process(&id, arg).await.ok();
 					});
 				}
 			});

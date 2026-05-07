@@ -1,11 +1,11 @@
 use {
-	crate::Handle,
+	crate::Session,
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
-impl Handle {
+impl Session {
 	pub async fn load_module(
 		&self,
 		arg: tg::module::load::Arg,

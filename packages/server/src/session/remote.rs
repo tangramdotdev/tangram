@@ -1,6 +1,6 @@
-use {crate::Handle, tangram_client::prelude::*};
+use {crate::Session, tangram_client::prelude::*};
 
-impl tg::handle::Remote for Handle {
+impl tg::handle::Remote for Session {
 	async fn list_remotes(
 		&self,
 		arg: tg::remote::list::Arg,

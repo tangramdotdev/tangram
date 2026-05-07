@@ -1,10 +1,10 @@
 use {
-	crate::{Handle, sync::get::State},
+	crate::{Session, sync::get::State},
 	futures::{StreamExt as _, stream::BoxStream},
 	tangram_client::prelude::*,
 };
 
-impl Handle {
+impl Session {
 	#[tracing::instrument(level = "trace", name = "input", skip_all)]
 	pub(super) async fn sync_get_input(
 		&self,

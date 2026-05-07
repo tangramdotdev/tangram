@@ -1,10 +1,10 @@
 use {
-	crate::Handle,
+	crate::Session,
 	futures::{Stream, stream::BoxStream},
 	tangram_client::prelude::*,
 };
 
-impl tg::handle::Process for Handle {
+impl tg::handle::Process for Session {
 	async fn list_processes(
 		&self,
 		arg: tg::process::list::Arg,

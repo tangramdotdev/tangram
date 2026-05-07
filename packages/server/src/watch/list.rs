@@ -1,10 +1,10 @@
 use {
-	crate::Handle,
+	crate::Session,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn list_watches(
 		&self,
 		_arg: tg::watch::list::Arg,

@@ -19,12 +19,12 @@ mod user;
 mod watch;
 
 #[derive(Clone)]
-pub(crate) struct Handle {
+pub(crate) struct Session {
 	pub server: Server,
 	pub context: Context,
 }
 
-impl Handle {
+impl Session {
 	#[must_use]
 	pub(crate) fn new(server: Server, context: Context) -> Self {
 		Self { server, context }
@@ -59,7 +59,7 @@ impl Handle {
 	}
 }
 
-impl Deref for Handle {
+impl Deref for Session {
 	type Target = Server;
 
 	fn deref(&self) -> &Self::Target {
@@ -67,7 +67,7 @@ impl Deref for Handle {
 	}
 }
 
-impl tg::Handle for Handle {
+impl tg::Handle for Session {
 	fn arg(&self) -> tg::Arg {
 		self.server.arg()
 	}

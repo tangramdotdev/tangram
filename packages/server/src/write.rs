@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, temp::Temp},
+	crate::{Session, temp::Temp},
 	bytes::Bytes,
 	futures::TryStreamExt as _,
 	itertools::Itertools as _,
@@ -34,7 +34,7 @@ pub enum Destination {
 	Store { stored_at: i64 },
 }
 
-impl Handle {
+impl Session {
 	pub(crate) async fn write(
 		&self,
 		arg: tg::write::Arg,
@@ -486,9 +486,9 @@ impl Handle {
 			Self::write_index_args(blob, cache_pointer, touched_at);
 		self.index_tasks
 			.spawn(|_| {
-				let handle = self.clone();
+				let session = self.clone();
 				async move {
-					if let Err(error) = handle
+					if let Err(error) = session
 						.index
 						.put(tangram_index::PutArg {
 							cache_entries: put_cache_entry_args,

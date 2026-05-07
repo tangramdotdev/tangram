@@ -1,5 +1,5 @@
 use {
-	crate::Handle,
+	crate::Session,
 	std::{
 		os::unix::fs::PermissionsExt as _,
 		path::{Path, PathBuf},
@@ -13,7 +13,7 @@ pub struct Message {
 	pub metadata: std::fs::Metadata,
 }
 
-impl Handle {
+impl Session {
 	pub(super) fn checkin_fixup_task(
 		receiver: &std::sync::mpsc::Receiver<Message>,
 	) -> tg::Result<()> {

@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, SandboxPermit, Server, database},
+	crate::{SandboxPermit, Server, Session, database},
 	futures::{
 		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
 		stream::{BoxStream, FuturesUnordered},
@@ -33,7 +33,7 @@ struct LocalOutput {
 	wait: Option<tg::process::wait::Output>,
 }
 
-impl Handle {
+impl Session {
 	pub async fn try_spawn_process(
 		&self,
 		mut arg: tg::process::spawn::Arg,
@@ -60,9 +60,9 @@ impl Handle {
 
 		// Spawn the task.
 		let task = Task::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			let progress = progress.clone();
-			async move |_| match Box::pin(handle.try_spawn_process_task(
+			async move |_| match Box::pin(session.try_spawn_process_task(
 				arg,
 				parent_sandbox,
 				&progress,
@@ -328,7 +328,7 @@ impl Handle {
 						&& let Some(token) = output.token
 					{
 						tokio::spawn({
-							let handle = self.clone();
+							let session = self.clone();
 							async move {
 								let arg = tg::process::cancel::Arg {
 									location: Some(
@@ -336,7 +336,7 @@ impl Handle {
 									),
 									token,
 								};
-								handle.cancel_process(&output.id, arg).boxed().await.ok();
+								session.cancel_process(&output.id, arg).boxed().await.ok();
 							}
 						});
 					}
@@ -1650,10 +1650,10 @@ impl Handle {
 
 	fn spawn_publish_process_child_message_task(&self, parent: &tg::process::Id) {
 		tokio::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			let id = parent.clone();
 			async move {
-				handle
+				session
 					.messenger
 					.publish(format!("processes.{id}.children"), ())
 					.await
@@ -1670,7 +1670,7 @@ impl Handle {
 		process: &tg::process::Id,
 	) {
 		tokio::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			let parent_sandbox = parent_sandbox.cloned();
 			let sandbox = id.clone();
 			let process = process.clone();
@@ -1679,7 +1679,7 @@ impl Handle {
 					return;
 				};
 
-				let Some(permit) = handle
+				let Some(permit) = session
 					.sandbox_permits
 					.get(parent_sandbox)
 					.map(|permit| permit.clone())
@@ -1691,7 +1691,7 @@ impl Handle {
 					.map(|guard| SandboxPermit(tg::Either::Right(guard)))
 					.await;
 
-				let Ok(started) = handle.try_start_sandbox_local(&sandbox).await.inspect_err(
+				let Ok(started) = session.try_start_sandbox_local(&sandbox).await.inspect_err(
 					|error| tracing::trace!(error = %error.trace(), "failed to start the sandbox"),
 				) else {
 					return;
@@ -1700,7 +1700,7 @@ impl Handle {
 					return;
 				}
 
-				let Ok(started) = handle.try_start_process_local(&process).await.inspect_err(
+				let Ok(started) = session.try_start_process_local(&process).await.inspect_err(
 					|error| tracing::trace!(error = %error.trace(), "failed to start the process"),
 				) else {
 					return;
@@ -1709,7 +1709,7 @@ impl Handle {
 					return;
 				}
 
-				handle.server.spawn_sandbox_task(
+				session.server.spawn_sandbox_task(
 					&sandbox,
 					tg::Location::Local(tg::location::Local::default()),
 					permit,

@@ -1,11 +1,11 @@
 use {
-	crate::Handle,
+	crate::Session,
 	futures::{TryStreamExt as _, stream::FuturesUnordered},
 	std::pin::pin,
 	tangram_client::prelude::*,
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn pull_tag(
 		&self,
 		pattern: tg::tag::Pattern,
@@ -27,7 +27,7 @@ impl Handle {
 		list.into_iter()
 			.filter_map(|output| {
 				let directory = output.item?.left()?.try_unwrap_directory().ok()?;
-				let handle = self.clone();
+				let session = self.clone();
 				let location = output.location?;
 				Some(async move {
 					let arg = tg::pull::Arg {
@@ -35,7 +35,7 @@ impl Handle {
 						items: vec![tg::Either::Left(directory.into())],
 						..Default::default()
 					};
-					let stream = handle.pull(arg).await?;
+					let stream = session.pull(arg).await?;
 					let mut stream = pin!(stream);
 					while stream.try_next().await?.is_some() {}
 					Ok::<_, tg::Error>(())

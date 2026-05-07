@@ -1,12 +1,12 @@
 use {
-	crate::Handle,
+	crate::Session,
 	indoc::indoc,
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn put_process_postgres(
 		&self,
 		id: &tg::process::Id,

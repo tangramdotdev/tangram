@@ -1,10 +1,10 @@
 use {
-	crate::Handle,
+	crate::Session,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn post_tag_batch_sqlite(
 		&self,
 		database: &db::sqlite::Database,

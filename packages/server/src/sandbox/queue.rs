@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, database::Database},
+	crate::{Session, database::Database},
 	futures::{StreamExt as _, future, stream},
 	std::time::Duration,
 	tangram_client::prelude::*,
@@ -14,7 +14,7 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
-impl Handle {
+impl Session {
 	pub(crate) async fn try_dequeue_sandbox(
 		&self,
 		arg: tg::sandbox::queue::Arg,
@@ -48,8 +48,8 @@ impl Handle {
 		&self,
 		arg: tg::sandbox::queue::Arg,
 	) -> impl futures::Stream<Item = tg::Result<tg::sandbox::queue::Output>> + Send + use<> {
-		let handle = self.clone();
-		let dequeue = async move { handle.try_dequeue_sandbox(arg).await };
+		let session = self.clone();
+		let dequeue = async move { session.try_dequeue_sandbox(arg).await };
 		stream::once(dequeue).filter_map(|output| future::ready(output.transpose()))
 	}
 
@@ -150,9 +150,9 @@ impl Handle {
 
 	pub(crate) fn spawn_publish_sandboxes_created_message_task(&self) {
 		tokio::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			async move {
-				handle
+				session
 					.messenger
 					.publish("sandboxes.created".into(), ())
 					.await

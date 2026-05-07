@@ -1,5 +1,5 @@
 use {
-	crate::Handle,
+	crate::Session,
 	futures::{prelude::*, stream::BoxStream, stream::FuturesUnordered},
 	std::{
 		panic::AssertUnwindSafe,
@@ -13,7 +13,7 @@ use {
 	tokio_stream::wrappers::ReceiverStream,
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn push(
 		&self,
 		arg: tg::push::Arg,
@@ -68,12 +68,12 @@ impl Handle {
 
 		// Spawn a task to set the indicator totals as soon as they are ready.
 		let indicator_total_task = Task::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			let source = source.clone();
 			let progress = progress.clone();
 			let arg = arg.clone();
 			|_| async move {
-				handle
+				session
 					.push_or_pull_set_indicator_totals(source.clone(), progress, &arg)
 					.await
 			}
@@ -81,13 +81,13 @@ impl Handle {
 
 		// Spawn the task.
 		let task = Task::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			let destination = destination.clone();
 			let progress = progress.clone();
 			let arg = arg.clone();
 			let source = source.clone();
 			|_| async move {
-				let result = AssertUnwindSafe(handle.push_or_pull_task(
+				let result = AssertUnwindSafe(session.push_or_pull_task(
 					arg,
 					progress.clone(),
 					source.clone(),
@@ -129,7 +129,7 @@ impl Handle {
 			.items
 			.iter()
 			.map(|item| {
-				let handle = self.clone();
+				let session = self.clone();
 				let source = source.clone();
 				async move {
 					loop {
@@ -138,7 +138,7 @@ impl Handle {
 								let metadata_arg = tg::object::metadata::Arg {
 									location: Some(source.clone().into()),
 								};
-								let metadata = handle
+								let metadata = session
 									.try_get_object_metadata(object, metadata_arg)
 									.await?
 									.ok_or_else(|| tg::error!("expected the metadata to be set"))?;
@@ -152,7 +152,7 @@ impl Handle {
 								let metadata_arg = tg::process::metadata::Arg {
 									location: Some(source.clone().into()),
 								};
-								let Some(metadata) = handle
+								let Some(metadata) = session
 									.try_get_process_metadata(process, metadata_arg)
 									.await
 									.map_err(|source| {

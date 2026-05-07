@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, database::Database},
+	crate::{Session, database::Database},
 	futures::{
 		StreamExt as _, TryStreamExt as _, future,
 		stream::{self, FuturesUnordered},
@@ -15,7 +15,7 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
-impl Handle {
+impl Session {
 	pub async fn try_get_process(
 		&self,
 		id: &tg::process::Id,
@@ -207,12 +207,12 @@ impl Handle {
 		// Spawn a task to put the process if it is finished.
 		if output.data.status.is_finished() {
 			tokio::spawn({
-				let handle = self.clone();
+				let session = self.clone();
 				let id = id.clone();
 				let mut data = output.data.clone();
 				async move {
 					let arg = tg::process::children::get::Arg::default();
-					let children = handle
+					let children = session
 						.try_get_process_children(&id, arg)
 						.await?
 						.ok_or_else(|| tg::error!("expected the process to exist"))?
@@ -225,7 +225,7 @@ impl Handle {
 						data,
 						location: None,
 					};
-					handle.put_process(&id, arg).await?;
+					session.put_process(&id, arg).await?;
 					Ok::<_, tg::Error>(())
 				}
 			});

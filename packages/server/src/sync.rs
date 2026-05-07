@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, sync::graph::Graph},
+	crate::{Session, sync::graph::Graph},
 	futures::{prelude::*, stream::BoxStream},
 	num::ToPrimitive as _,
 	std::{
@@ -20,7 +20,7 @@ mod progress;
 mod put;
 mod queue;
 
-impl Handle {
+impl Session {
 	#[tracing::instrument(fields(get = ?arg.get, put = ?arg.put), level = "trace", name = "sync", skip_all)]
 	pub(crate) async fn sync(
 		&self,
@@ -53,10 +53,10 @@ impl Handle {
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>> {
 		let (sender, receiver) = tokio::sync::mpsc::channel(4096);
 		let task = Task::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			|_| {
 				async move {
-					let result = AssertUnwindSafe(handle.sync_task(arg, stream, sender.clone()))
+					let result = AssertUnwindSafe(session.sync_task(arg, stream, sender.clone()))
 						.catch_unwind()
 						.instrument(tracing::Span::current())
 						.await;
@@ -200,12 +200,12 @@ impl Handle {
 
 		// Create the get future.
 		let get_future = {
-			let handle = self.clone();
+			let session = self.clone();
 			let arg = arg.clone();
 			let graph = graph.clone();
 			let stream = ReceiverStream::new(get_input_receiver).boxed();
 			async move {
-				handle
+				session
 					.sync_get(arg, graph, stream, get_output_sender)
 					.instrument(tracing::debug_span!("get"))
 					.await
@@ -214,12 +214,12 @@ impl Handle {
 
 		// Create the put future.
 		let put_future = {
-			let handle = self.clone();
+			let session = self.clone();
 			let arg = arg.clone();
 			let graph = graph.clone();
 			let stream = ReceiverStream::new(put_input_receiver).boxed();
 			async move {
-				handle
+				session
 					.sync_put(arg, graph, stream, put_output_sender)
 					.instrument(tracing::debug_span!("put"))
 					.await

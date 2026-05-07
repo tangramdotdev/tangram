@@ -1,7 +1,7 @@
 use {
 	self::prefetch::Prefetch,
 	crate::{
-		Handle,
+		Session,
 		checkin::graph::{Contents, Directory, File, Graph, Node, Symlink, Variant},
 	},
 	smallvec::SmallVec,
@@ -96,7 +96,7 @@ pub struct Referrer {
 	pub pattern: Option<tg::tag::Pattern>,
 }
 
-impl Handle {
+impl Session {
 	#[expect(clippy::too_many_arguments)]
 	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) async fn checkin_solve(

@@ -1,6 +1,6 @@
-use {crate::Handle, tangram_client::prelude::*};
+use {crate::Session, tangram_client::prelude::*};
 
-impl tg::handle::User for Handle {
+impl tg::handle::User for Session {
 	async fn get_user(&self, token: &str) -> tg::Result<Option<tg::User>> {
 		self.get_user(token).await
 	}

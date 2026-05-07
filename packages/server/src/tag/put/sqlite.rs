@@ -1,5 +1,5 @@
 use {
-	crate::Handle,
+	crate::Session,
 	indoc::indoc,
 	num::ToPrimitive as _,
 	rusqlite as sqlite,
@@ -7,7 +7,7 @@ use {
 	tangram_database::{self as db, prelude::*},
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn put_tag_sqlite(
 		&self,
 		database: &db::sqlite::Database,

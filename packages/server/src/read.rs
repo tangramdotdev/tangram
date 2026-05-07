@@ -1,5 +1,5 @@
 use {
-	crate::Handle,
+	crate::Session,
 	bytes::{Buf as _, Bytes},
 	futures::{FutureExt as _, Stream, StreamExt as _, future::BoxFuture},
 	num::ToPrimitive as _,
@@ -41,14 +41,14 @@ pub struct Object {
 	cursor: Option<Cursor<Bytes>>,
 	position: u64,
 	read: Option<SyncWrapper<ReadFuture>>,
-	handle: Handle,
+	session: Session,
 	length: u64,
 	cache_file: Option<crate::object::get::CacheFile>,
 }
 
 type ReadFuture = BoxFuture<'static, tg::Result<Option<Cursor<Bytes>>>>;
 
-impl Handle {
+impl Session {
 	pub(crate) async fn try_read_stream(
 		&self,
 		arg: tg::read::Arg,
@@ -64,10 +64,10 @@ impl Handle {
 
 		// Spawn the task.
 		let task = Task::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			|_| async move {
 				let result =
-					AssertUnwindSafe(handle.try_read_blob_task(arg, reader, sender.clone()))
+					AssertUnwindSafe(session.try_read_blob_task(arg, reader, sender.clone()))
 						.catch_unwind()
 						.await;
 				match result {
@@ -237,16 +237,18 @@ impl Handle {
 }
 
 impl Reader {
-	pub async fn new(handle: &Handle, blob: tg::Blob) -> tg::Result<Self> {
+	pub async fn new(session: &Session, blob: tg::Blob) -> tg::Result<Self> {
 		let id = blob.id();
-		let object = handle
+		let object = session
 			.object_store
 			.try_get(&id.clone().into())
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
 		let cache_pointer = object.and_then(|object| object.cache_pointer);
 		let reader = if let Some(cache_pointer) = cache_pointer {
-			let mut path = handle.cache_path().join(cache_pointer.artifact.to_string());
+			let mut path = session
+				.cache_path()
+				.join(cache_pointer.artifact.to_string());
 			if let Some(path_) = &cache_pointer.path {
 				path.push(path_);
 			}
@@ -258,7 +260,7 @@ impl Reader {
 				.map_err(|source| tg::error!(!source, %id, "failed to create the file reader"))?;
 			Self::File(reader)
 		} else {
-			let reader = Object::new(handle, blob)
+			let reader = Object::new(session, blob)
 				.await
 				.map_err(|source| tg::error!(!source, %id, "failed to create the object reader"))?;
 			Self::Object(reader)
@@ -266,15 +268,17 @@ impl Reader {
 		Ok(reader)
 	}
 
-	pub fn new_sync(handle: &Handle, blob: tg::Blob) -> tg::Result<Self> {
+	pub fn new_sync(session: &Session, blob: tg::Blob) -> tg::Result<Self> {
 		let id = blob.id();
-		let object = handle
+		let object = session
 			.object_store
 			.try_get_sync(&id.clone().into())
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
 		let cache_pointer = object.and_then(|object| object.cache_pointer);
 		let reader = if let Some(cache_pointer) = cache_pointer {
-			let mut path = handle.cache_path().join(cache_pointer.artifact.to_string());
+			let mut path = session
+				.cache_path()
+				.join(cache_pointer.artifact.to_string());
 			if let Some(path_) = &cache_pointer.path {
 				path.push(path_);
 			}
@@ -286,7 +290,7 @@ impl Reader {
 			Self::File(reader)
 		} else {
 			let mut file = None;
-			let Some(output) = handle
+			let Some(output) = session
 				.try_get_object_sync(&id.clone().into(), &mut file)
 				.map_err(|source| tg::error!(!source, %id, "failed to get the object"))?
 			else {
@@ -303,7 +307,7 @@ impl Reader {
 					branch.children.iter().map(|child| child.length).sum()
 				},
 			};
-			let reader = Object::new_sync(handle, blob, length);
+			let reader = Object::new_sync(session, blob, length);
 			Self::Object(reader)
 		};
 		Ok(reader)
@@ -573,37 +577,37 @@ impl Seek for File {
 }
 
 impl Object {
-	async fn new(handle: &Handle, blob: tg::Blob) -> tg::Result<Self> {
+	async fn new(session: &Session, blob: tg::Blob) -> tg::Result<Self> {
 		let cursor = None;
 		let position = 0;
 		let read = None;
 		let size = blob
-			.length_with_handle(handle)
+			.length_with_handle(session)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the blob length"))?;
-		let handle = handle.clone();
+		let session = session.clone();
 		Ok(Self {
 			blob,
 			cursor,
 			position,
 			read,
-			handle,
+			session,
 			length: size,
 			cache_file: None,
 		})
 	}
 
-	fn new_sync(handle: &Handle, blob: tg::Blob, length: u64) -> Self {
+	fn new_sync(session: &Session, blob: tg::Blob, length: u64) -> Self {
 		let cursor = None;
 		let position = 0;
 		let read = None;
-		let handle = handle.clone();
+		let session = session.clone();
 		Self {
 			blob,
 			cursor,
 			position,
 			read,
-			handle,
+			session,
 			length,
 			cache_file: None,
 		}
@@ -620,11 +624,11 @@ impl AsyncRead for Object {
 
 		// Create the read future if necessary.
 		if this.cursor.is_none() && this.read.is_none() {
-			let handle = this.handle.clone();
+			let session = this.session.clone();
 			let blob = this.blob.clone();
 			let position = this.position;
 			let read = SyncWrapper::new(
-				async move { poll_read_inner(&handle, blob, position).await }.boxed(),
+				async move { poll_read_inner(&session, blob, position).await }.boxed(),
 			);
 			this.read.replace(read);
 		}
@@ -676,11 +680,11 @@ impl AsyncBufRead for Object {
 
 		// Create the read future if necessary.
 		if this.cursor.is_none() && this.read.is_none() {
-			let handle = this.handle.clone();
+			let session = this.session.clone();
 			let blob = this.blob.clone();
 			let position = this.position;
 			let read = SyncWrapper::new(
-				async move { poll_read_inner(&handle, blob, position).await }.boxed(),
+				async move { poll_read_inner(&session, blob, position).await }.boxed(),
 			);
 			this.read.replace(read);
 		}
@@ -768,7 +772,7 @@ impl Read for Object {
 		// Create the cursor if necessary.
 		if self.cursor.is_none() && self.read.is_none() {
 			let cursor = read_inner_sync(
-				&self.handle,
+				&self.session,
 				&self.blob,
 				self.position,
 				&mut self.cache_file,
@@ -806,7 +810,7 @@ impl BufRead for Object {
 		// Create the cursor if necessary.
 		if self.cursor.is_none() && self.read.is_none() {
 			let cursor = read_inner_sync(
-				&self.handle,
+				&self.session,
 				&self.blob,
 				self.position,
 				&mut self.cache_file,
@@ -871,7 +875,7 @@ impl Seek for Object {
 }
 
 async fn poll_read_inner(
-	handle: &Handle,
+	session: &Session,
 	blob: tg::Blob,
 	position: u64,
 ) -> tg::Result<Option<Cursor<Bytes>>> {
@@ -887,7 +891,7 @@ async fn poll_read_inner(
 			object
 		} else {
 			let arg = tg::object::get::Arg::default();
-			let bytes = handle
+			let bytes = session
 				.get_object(&id.unwrap(), arg)
 				.await
 				.map_err(|source| tg::error!(!source, "failed to get the object"))?
@@ -926,7 +930,7 @@ async fn poll_read_inner(
 }
 
 fn read_inner_sync(
-	handle: &Handle,
+	session: &Session,
 	blob: &tg::Blob,
 	position: u64,
 	cache_file: &mut Option<crate::object::get::CacheFile>,
@@ -942,7 +946,7 @@ fn read_inner_sync(
 		let object = if let Some(object) = object {
 			object
 		} else {
-			let Some(output) = handle
+			let Some(output) = session
 				.try_get_object_sync(&id.unwrap(), cache_file)
 				.map_err(|source| tg::error!(!source, "failed to get the object"))?
 			else {

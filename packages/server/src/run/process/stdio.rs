@@ -1,12 +1,12 @@
 use {
-	crate::Handle,
+	crate::Session,
 	futures::{StreamExt as _, TryStreamExt as _, future, stream},
 	std::pin::pin,
 	tangram_client::prelude::*,
 	tokio_util::io::ReaderStream,
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn run_stdin_task(
 		&self,
 		sandbox: &tangram_sandbox::Sandbox,

@@ -1,12 +1,12 @@
 use {
-	crate::{Handle, Server},
+	crate::{Server, Session},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn create_sandbox(
 		&self,
 		arg: tg::sandbox::create::Arg,

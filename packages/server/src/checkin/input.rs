@@ -1,6 +1,6 @@
 use {
 	super::graph::{Directory, File, Node, Symlink, Variant},
-	crate::{Handle, checkin::Graph},
+	crate::{Session, checkin::Graph},
 	smallvec::SmallVec,
 	std::{
 		collections::BTreeMap,
@@ -38,7 +38,7 @@ enum ParentVariant {
 	SymlinkArtifact,
 }
 
-impl Handle {
+impl Session {
 	#[expect(clippy::too_many_arguments)]
 	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) fn checkin_input(
@@ -542,11 +542,11 @@ impl Handle {
 		for reference in dependencies.keys() {
 			if let Ok(pattern) = reference.item().try_unwrap_tag_ref() {
 				tokio::spawn({
-					let handle = self.clone();
+					let session = self.clone();
 					let pattern = pattern.clone();
 					let location = reference.options().location.clone();
 					async move {
-						handle.pull_tag(pattern.clone(), location).await.ok();
+						session.pull_tag(pattern.clone(), location).await.ok();
 					}
 				});
 			}

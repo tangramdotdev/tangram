@@ -1,5 +1,5 @@
 use {
-	crate::Handle,
+	crate::Session,
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -8,7 +8,7 @@ use {
 	tangram_index::prelude::*,
 };
 
-impl Handle {
+impl Session {
 	pub async fn try_touch_object(
 		&self,
 		id: &tg::object::Id,

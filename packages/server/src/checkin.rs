@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, watch::Watch},
+	crate::{Session, watch::Watch},
 	futures::{FutureExt as _, Stream, StreamExt as _},
 	indexmap::IndexMap,
 	indoc::indoc,
@@ -50,7 +50,7 @@ type StoreArgs = IndexMap<tg::object::Id, crate::object::store::PutArg, tg::id::
 
 type GraphData = IndexMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>;
 
-impl Handle {
+impl Session {
 	#[tracing::instrument(
 		fields(path = ?arg.path, root = arg.options.root),
 		level = "trace",
@@ -109,12 +109,12 @@ impl Handle {
 			key,
 			crate::progress::Handle::new,
 			|progress, _stop| {
-				let handle = self.clone();
+				let session = self.clone();
 				let arg = arg.clone();
 				let root = root.clone();
 				async move {
 					let result =
-						AssertUnwindSafe(handle.checkin_task(arg, &root, ignorer, &progress))
+						AssertUnwindSafe(session.checkin_task(arg, &root, ignorer, &progress))
 							.catch_unwind()
 							.await;
 					match result {
@@ -147,7 +147,7 @@ impl Handle {
 		// Spawn the task.
 		let path = arg.path.clone();
 		let task = Task::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			let progress = progress.clone();
 			move |_| async move {
 				// Forward events from the root progress stream.
@@ -177,7 +177,7 @@ impl Handle {
 					&& let tg::graph::data::Edge::Pointer(pointer) = node.edge.as_ref().unwrap()
 				{
 					// If the path differs from the output path and the edge is a pointer, then store and index a pointer artifact for the path.
-					let result = handle
+					let result = session
 						.checkin_store_and_index_pointer_artifact(node, pointer)
 						.await;
 					match result {
@@ -316,14 +316,14 @@ impl Handle {
 
 		// Collect input.
 		let mut graph = tokio::task::spawn_blocking({
-			let handle = self.clone();
+			let session = self.clone();
 			let arg = arg.clone();
 			let artifacts_path = artifacts_path.clone();
 			let lock = lock.clone();
 			let progress = progress.clone();
 			let root = root.to_owned();
 			move || {
-				handle.checkin_input(
+				session.checkin_input(
 					&arg,
 					artifacts_path.as_deref(),
 					fixup_sender,
@@ -467,11 +467,11 @@ impl Handle {
 
 			// Spawn a task to clean nodes with no referrers.
 			tokio::task::spawn_blocking({
-				let handle = self.clone();
+				let session = self.clone();
 				let root = root.to_owned();
 				let next = graph.next;
 				move || {
-					if let Some(watch) = handle.watches.get(&root) {
+					if let Some(watch) = session.watches.get(&root) {
 						watch.clean(&root, next);
 					}
 				}
@@ -481,13 +481,13 @@ impl Handle {
 		// Spawn the index task.
 		self.index_tasks
 			.spawn({
-				let handle = self.clone();
+				let session = self.clone();
 				let arg = arg.clone();
 				let graph = graph.clone();
 				let root = root.to_owned();
 				move |_| {
 					async move {
-						handle
+						session
 							.checkin_index(
 								&arg,
 								&graph,

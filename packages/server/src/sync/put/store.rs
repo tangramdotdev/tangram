@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, sync::put::State},
+	crate::{Session, sync::put::State},
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _},
 	std::{collections::BTreeSet, sync::Arc},
 	tangram_client::prelude::*,
@@ -17,7 +17,7 @@ pub struct ProcessItem {
 	pub eager: bool,
 }
 
-impl Handle {
+impl Session {
 	#[tracing::instrument(err, level = "trace", name = "store", ret, skip_all)]
 	pub(super) async fn sync_put_store(
 		&self,
@@ -36,9 +36,9 @@ impl Handle {
 		)
 		.map(Ok)
 		.try_for_each_concurrent(object_concurrency, |items| {
-			let handle = self.clone();
+			let session = self.clone();
 			let state = state.clone();
-			async move { handle.sync_put_store_object_batch(&state, items).await }
+			async move { session.sync_put_store_object_batch(&state, items).await }
 		});
 
 		// Create the processes future.
@@ -52,9 +52,9 @@ impl Handle {
 		)
 		.map(Ok)
 		.try_for_each_concurrent(process_concurrency, |items| {
-			let handle = self.clone();
+			let session = self.clone();
 			let state = state.clone();
-			async move { handle.sync_put_store_process_batch(&state, items).await }
+			async move { session.sync_put_store_process_batch(&state, items).await }
 		});
 
 		// Join the objects and processes futures.

@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, database::Database},
+	crate::{Session, database::Database},
 	futures::{
 		StreamExt as _, future,
 		stream::{self, BoxStream, FuturesUnordered},
@@ -31,7 +31,7 @@ enum Source {
 	Null,
 }
 
-impl Handle {
+impl Session {
 	pub async fn try_read_process_stdio(
 		&self,
 		id: &tg::process::Id,
@@ -111,11 +111,11 @@ impl Handle {
 		streams: BTreeSet<tg::process::stdio::Stream>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>> {
 		let (sender, receiver) = async_channel::unbounded();
-		let handle = self.clone();
+		let session = self.clone();
 		let id = id.clone();
 		let stopper = self.context.stopper.clone();
 		let task = Task::spawn(move |_| async move {
-			let result = handle
+			let result = session
 				.try_read_process_stdio_log_local_task(&id, arg, streams, sender.clone(), stopper)
 				.await;
 			if let Err(error) = result {
@@ -241,12 +241,12 @@ impl Handle {
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::read::Event>>> {
 		let (sender, receiver) =
 			async_channel::unbounded::<tg::Result<tg::process::stdio::read::Event>>();
-		let handle = self.clone();
+		let session = self.clone();
 		let id = id.clone();
 		let streams = streams.clone();
 		let stopper = self.context.stopper.clone();
 		let task = Task::spawn(move |_| async move {
-			let result = handle
+			let result = session
 				.try_read_process_stdio_pipe_local_task(
 					&id,
 					streams,

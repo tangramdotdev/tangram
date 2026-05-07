@@ -1,6 +1,6 @@
 use {
 	crate::sync::graph::{Graph, Node},
-	crate::{Handle, sync::get::State},
+	crate::{Session, sync::get::State},
 	futures::{StreamExt as _, TryStreamExt as _},
 	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
@@ -19,7 +19,7 @@ pub struct ProcessItem {
 	pub missing: bool,
 }
 
-impl Handle {
+impl Session {
 	pub(super) async fn sync_get_index(
 		&self,
 		state: Arc<State>,
@@ -37,9 +37,9 @@ impl Handle {
 		)
 		.map(Ok)
 		.try_for_each_concurrent(object_concurrency, |items| {
-			let handle = self.clone();
+			let session = self.clone();
 			let state = state.clone();
-			async move { handle.sync_get_index_object_batch(&state, items).await }
+			async move { session.sync_get_index_object_batch(&state, items).await }
 		});
 
 		// Create the processes future.
@@ -53,9 +53,9 @@ impl Handle {
 		)
 		.map(Ok)
 		.try_for_each_concurrent(process_concurrency, |items| {
-			let handle = self.clone();
+			let session = self.clone();
 			let state = state.clone();
-			async move { handle.sync_get_index_process_batch(&state, items).await }
+			async move { session.sync_get_index_process_batch(&state, items).await }
 		});
 
 		// Join the objects and processes futures.

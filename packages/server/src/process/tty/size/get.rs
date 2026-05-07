@@ -1,5 +1,5 @@
 use {
-	crate::Handle,
+	crate::Session,
 	futures::{
 		StreamExt as _,
 		stream::{BoxStream, FuturesUnordered},
@@ -12,7 +12,7 @@ use {
 	tangram_messenger::prelude::*,
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn try_get_process_tty_size_stream(
 		&self,
 		id: &tg::process::Id,

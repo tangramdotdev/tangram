@@ -1,5 +1,5 @@
 use {
-	crate::Handle,
+	crate::Session,
 	futures::{TryFutureExt as _, future},
 	std::pin::pin,
 	tangram_client::prelude::*,
@@ -7,7 +7,7 @@ use {
 	tokio::io::{AsyncBufRead, AsyncWrite},
 };
 
-impl Handle {
+impl Session {
 	pub(crate) fn create_compiler(&self) -> tangram_compiler::Shared {
 		let handle = tg::handle::dynamic::Handle::new(self.clone());
 		let artifacts_path = self.artifacts_path();
@@ -78,7 +78,7 @@ impl Handle {
 		}
 
 		// Spawn the LSP.
-		let handle = self.clone();
+		let session = self.clone();
 		tokio::spawn(
 			async move {
 				let io = hyper::upgrade::on(request)
@@ -87,7 +87,7 @@ impl Handle {
 				let io = hyper_util::rt::TokioIo::new(io);
 				let (input, output) = tokio::io::split(io);
 				let input = tokio::io::BufReader::new(input);
-				handle.lsp(input, output).await?;
+				session.lsp(input, output).await?;
 				Ok::<_, tg::Error>(())
 			}
 			.inspect_err(|error| tracing::error!(error = %error.trace())),

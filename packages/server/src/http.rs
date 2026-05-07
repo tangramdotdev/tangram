@@ -307,14 +307,14 @@ impl Server {
 			);
 
 		Service::new(builder.service_fn({
-			let handle = self.clone();
+			let server = self.clone();
 			move |request| {
-				let handle = handle.clone();
+				let server = server.clone();
 				let process = process.clone();
 				let sandbox = sandbox.clone();
 				let stopper = stopper.clone();
 				async move {
-					let response = handle
+					let response = server
 						.handle_request(
 							request,
 							Context {
@@ -500,160 +500,164 @@ impl Server {
 			return response;
 		}
 
-		let handle = self.handle(context);
+		let session = self.session(context);
 
 		let path_components = path.split('/').skip(1).collect::<Vec<_>>();
 		let response = match (method, path_components.as_slice()) {
-			(http::Method::POST, ["cache"]) => handle.cache_request(request).boxed(),
-			(http::Method::POST, ["check"]) => handle.check_request(request).boxed(),
-			(http::Method::POST, ["checkin"]) => handle.checkin_request(request).boxed(),
-			(http::Method::POST, ["checkout"]) => handle.checkout_request(request).boxed(),
-			(http::Method::POST, ["clean"]) => handle.clean_request(request).boxed(),
-			(http::Method::POST, ["document"]) => handle.document_request(request).boxed(),
-			(http::Method::POST, ["format"]) => handle.format_request(request).boxed(),
-			(http::Method::GET, ["health"]) => handle.health_request(request).boxed(),
-			(http::Method::POST, ["index"]) => handle.index_request(request).boxed(),
-			(http::Method::POST, ["lsp"]) => handle.lsp_request(request).boxed(),
-			(http::Method::POST, ["pull"]) => handle.pull_request(request).boxed(),
-			(http::Method::POST, ["push"]) => handle.push_request(request).boxed(),
-			(http::Method::GET, ["read"]) => handle.try_read_stream_request(request).boxed(),
-			(http::Method::POST, ["sync"]) => handle.sync_request(request).boxed(),
-			(http::Method::POST, ["write"]) => handle.write_request(request).boxed(),
-			(http::Method::GET, ["_", path @ ..]) => handle.try_get_request(request, path).boxed(),
+			(http::Method::POST, ["cache"]) => session.cache_request(request).boxed(),
+			(http::Method::POST, ["check"]) => session.check_request(request).boxed(),
+			(http::Method::POST, ["checkin"]) => session.checkin_request(request).boxed(),
+			(http::Method::POST, ["checkout"]) => session.checkout_request(request).boxed(),
+			(http::Method::POST, ["clean"]) => session.clean_request(request).boxed(),
+			(http::Method::POST, ["document"]) => session.document_request(request).boxed(),
+			(http::Method::POST, ["format"]) => session.format_request(request).boxed(),
+			(http::Method::GET, ["health"]) => session.health_request(request).boxed(),
+			(http::Method::POST, ["index"]) => session.index_request(request).boxed(),
+			(http::Method::POST, ["lsp"]) => session.lsp_request(request).boxed(),
+			(http::Method::POST, ["pull"]) => session.pull_request(request).boxed(),
+			(http::Method::POST, ["push"]) => session.push_request(request).boxed(),
+			(http::Method::GET, ["read"]) => session.try_read_stream_request(request).boxed(),
+			(http::Method::POST, ["sync"]) => session.sync_request(request).boxed(),
+			(http::Method::POST, ["write"]) => session.write_request(request).boxed(),
+			(http::Method::GET, ["_", path @ ..]) => session.try_get_request(request, path).boxed(),
 
 			// Modules.
 			(http::Method::POST, ["modules", "load"]) => {
-				handle.load_module_request(request).boxed()
+				session.load_module_request(request).boxed()
 			},
 			(http::Method::POST, ["modules", "resolve"]) => {
-				handle.resolve_module_request(request).boxed()
+				session.resolve_module_request(request).boxed()
 			},
 
 			// Objects.
-			(http::Method::GET, ["objects", object, "metadata"]) => handle
+			(http::Method::GET, ["objects", object, "metadata"]) => session
 				.try_get_object_metadata_request(request, object)
 				.boxed(),
 			(http::Method::GET, ["objects", object]) => {
-				handle.try_get_object_request(request, object).boxed()
+				session.try_get_object_request(request, object).boxed()
 			},
 			(http::Method::PUT, ["objects", object]) => {
-				handle.put_object_request(request, object).boxed()
+				session.put_object_request(request, object).boxed()
 			},
 			(http::Method::POST, ["objects", "batch"]) => {
-				handle.post_object_batch_request(request).boxed()
+				session.post_object_batch_request(request).boxed()
 			},
 			(http::Method::POST, ["objects", object, "touch"]) => {
-				handle.try_touch_object_request(request, object).boxed()
+				session.try_touch_object_request(request, object).boxed()
 			},
 
 			// Processes.
-			(http::Method::GET, ["processes"]) => handle.list_processes_request(request).boxed(),
+			(http::Method::GET, ["processes"]) => session.list_processes_request(request).boxed(),
 			(http::Method::POST, ["processes", "spawn"]) => {
-				handle.try_spawn_process_request(request).boxed()
+				session.try_spawn_process_request(request).boxed()
 			},
-			(http::Method::GET, ["processes", process, "metadata"]) => handle
+			(http::Method::GET, ["processes", process, "metadata"]) => session
 				.try_get_process_metadata_request(request, process)
 				.boxed(),
 			(http::Method::GET, ["processes", process]) => {
-				handle.try_get_process_request(request, process).boxed()
+				session.try_get_process_request(request, process).boxed()
 			},
 			(http::Method::PUT, ["processes", process]) => {
-				handle.put_process_request(request, process).boxed()
+				session.put_process_request(request, process).boxed()
 			},
 			(http::Method::POST, ["processes", process, "cancel"]) => {
-				handle.try_cancel_process_request(request, process).boxed()
+				session.try_cancel_process_request(request, process).boxed()
 			},
 			(http::Method::POST, ["processes", process, "signal"]) => {
-				handle.try_signal_process_request(request, process).boxed()
+				session.try_signal_process_request(request, process).boxed()
 			},
-			(http::Method::GET, ["processes", process, "signal"]) => handle
+			(http::Method::GET, ["processes", process, "signal"]) => session
 				.try_get_process_signal_stream_request(request, process)
 				.boxed(),
-			(http::Method::GET, ["processes", process, "status"]) => handle
+			(http::Method::GET, ["processes", process, "status"]) => session
 				.try_get_process_status_stream_request(request, process)
 				.boxed(),
-			(http::Method::GET, ["processes", process, "children"]) => handle
+			(http::Method::GET, ["processes", process, "children"]) => session
 				.try_get_process_children_stream_request(request, process)
 				.boxed(),
-			(http::Method::GET, ["processes", process, "tty", "size"]) => handle
+			(http::Method::GET, ["processes", process, "tty", "size"]) => session
 				.try_get_process_tty_size_stream_request(request, process)
 				.boxed(),
-			(http::Method::PUT, ["processes", process, "tty", "size"]) => handle
+			(http::Method::PUT, ["processes", process, "tty", "size"]) => session
 				.try_set_process_tty_size_request(request, process)
 				.boxed(),
-			(http::Method::GET, ["processes", process, "stdio"]) => handle
+			(http::Method::GET, ["processes", process, "stdio"]) => session
 				.try_read_process_stdio_request(request, process)
 				.boxed(),
-			(http::Method::POST, ["processes", process, "stdio"]) => handle
+			(http::Method::POST, ["processes", process, "stdio"]) => session
 				.try_write_process_stdio_request(request, process)
 				.boxed(),
 			(http::Method::POST, ["processes", process, "touch"]) => {
-				handle.try_touch_process_request(request, process).boxed()
+				session.try_touch_process_request(request, process).boxed()
 			},
 			(http::Method::POST, ["processes", process, "finish"]) => {
-				handle.try_finish_process_request(request, process).boxed()
+				session.try_finish_process_request(request, process).boxed()
 			},
-			(http::Method::POST, ["processes", process, "wait"]) => handle
+			(http::Method::POST, ["processes", process, "wait"]) => session
 				.try_wait_process_future_request(request, process)
 				.boxed(),
 
 			// Sandboxes.
-			(http::Method::POST, ["sandboxes"]) => handle.create_sandbox_request(request).boxed(),
-			(http::Method::GET, ["sandboxes"]) => handle.list_sandboxes_request(request).boxed(),
+			(http::Method::POST, ["sandboxes"]) => session.create_sandbox_request(request).boxed(),
+			(http::Method::GET, ["sandboxes"]) => session.list_sandboxes_request(request).boxed(),
 			(http::Method::POST, ["sandboxes", "dequeue"]) => {
-				handle.try_dequeue_sandbox_request(request).boxed()
+				session.try_dequeue_sandbox_request(request).boxed()
 			},
 			(http::Method::GET, ["sandboxes", sandbox]) => {
-				handle.try_get_sandbox_request(request, sandbox).boxed()
+				session.try_get_sandbox_request(request, sandbox).boxed()
 			},
 			(http::Method::DELETE, ["sandboxes", sandbox]) => {
-				handle.try_delete_sandbox_request(request, sandbox).boxed()
+				session.try_delete_sandbox_request(request, sandbox).boxed()
 			},
-			(http::Method::POST, ["sandboxes", sandbox, "processes", "dequeue"]) => handle
+			(http::Method::POST, ["sandboxes", sandbox, "processes", "dequeue"]) => session
 				.try_dequeue_sandbox_process_request(request, sandbox)
 				.boxed(),
 			(http::Method::POST, ["sandboxes", sandbox, "finish"]) => {
-				handle.try_finish_sandbox_request(request, sandbox).boxed()
+				session.try_finish_sandbox_request(request, sandbox).boxed()
 			},
-			(http::Method::POST, ["sandboxes", sandbox, "heartbeat"]) => handle
+			(http::Method::POST, ["sandboxes", sandbox, "heartbeat"]) => session
 				.try_heartbeat_sandbox_request(request, sandbox)
 				.boxed(),
-			(http::Method::GET, ["sandboxes", sandbox, "status"]) => handle
+			(http::Method::GET, ["sandboxes", sandbox, "status"]) => session
 				.try_get_sandbox_status_stream_request(request, sandbox)
 				.boxed(),
 
 			// Remotes.
-			(http::Method::GET, ["remotes"]) => handle.list_remotes_request(request).boxed(),
+			(http::Method::GET, ["remotes"]) => session.list_remotes_request(request).boxed(),
 			(http::Method::GET, ["remotes", name]) => {
-				handle.try_get_remote_request(request, name).boxed()
+				session.try_get_remote_request(request, name).boxed()
 			},
 			(http::Method::PUT, ["remotes", name]) => {
-				handle.put_remote_request(request, name).boxed()
+				session.put_remote_request(request, name).boxed()
 			},
 			(http::Method::DELETE, ["remotes", name]) => {
-				handle.try_delete_remote_request(request, name).boxed()
+				session.try_delete_remote_request(request, name).boxed()
 			},
 
 			// Watches.
-			(http::Method::GET, ["watches"]) => handle.list_watches_request(request).boxed(),
-			(http::Method::DELETE, ["watches"]) => handle.try_delete_watch_request(request).boxed(),
+			(http::Method::GET, ["watches"]) => session.list_watches_request(request).boxed(),
+			(http::Method::DELETE, ["watches"]) => {
+				session.try_delete_watch_request(request).boxed()
+			},
 			(http::Method::POST, ["watches", "touch"]) => {
-				handle.touch_watch_request(request).boxed()
+				session.touch_watch_request(request).boxed()
 			},
 
 			// Tags.
-			(http::Method::GET, ["tags"]) => handle.list_tags_request(request).boxed(),
+			(http::Method::GET, ["tags"]) => session.list_tags_request(request).boxed(),
 			(http::Method::POST, ["tags", "batch"]) => {
-				handle.post_tag_batch_request(request).boxed()
+				session.post_tag_batch_request(request).boxed()
 			},
-			(http::Method::PUT, ["tags", tag @ ..]) => handle.put_tag_request(request, tag).boxed(),
+			(http::Method::PUT, ["tags", tag @ ..]) => {
+				session.put_tag_request(request, tag).boxed()
+			},
 			(http::Method::DELETE, ["tags", tag @ ..]) => {
-				handle.delete_tags_request(request, tag).boxed()
+				session.delete_tags_request(request, tag).boxed()
 			},
 
 			// Users.
-			(http::Method::GET, ["user"]) => handle.get_user_request(request).boxed(),
-			(http::Method::POST, ["user", "login"]) => handle.login_user_request(request).boxed(),
+			(http::Method::GET, ["user"]) => session.get_user_request(request).boxed(),
+			(http::Method::POST, ["user", "login"]) => session.login_user_request(request).boxed(),
 
 			(_, _) => future::ok(
 				http::Response::builder()

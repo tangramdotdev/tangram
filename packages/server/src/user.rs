@@ -1,9 +1,9 @@
-use {crate::Handle, tangram_client::prelude::*};
+use {crate::Session, tangram_client::prelude::*};
 
 mod get;
 mod login;
 
-impl Handle {
+impl Session {
 	pub(crate) async fn authorize(&self) -> tg::Result<Option<tg::User>> {
 		let Some(user) = self
 			.try_authorize()

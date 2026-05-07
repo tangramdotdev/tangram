@@ -1,13 +1,13 @@
 use {
 	super::graph::{Graph, Variant},
-	crate::Handle,
+	crate::Session,
 	std::{collections::BTreeMap, path::Path},
 	tangram_client::prelude::*,
 };
 
 pub type Paths = BTreeMap<(usize, tg::Reference), tg::graph::data::Edge<tg::object::Id>>;
 
-impl Handle {
+impl Session {
 	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) async fn checkin_path_get_edges(
 		&self,

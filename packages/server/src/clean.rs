@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, Server, database::Database, temp::Temp},
+	crate::{Server, Session, database::Database, temp::Temp},
 	futures::{FutureExt as _, Stream, StreamExt as _, future},
 	num::ToPrimitive as _,
 	std::{panic::AssertUnwindSafe, time::Duration},
@@ -16,7 +16,7 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
-impl Handle {
+impl Session {
 	pub(crate) async fn clean(
 		&self,
 	) -> tg::Result<
@@ -33,10 +33,10 @@ impl Handle {
 		let progress = crate::progress::Handle::new();
 
 		let task = Task::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			let progress = progress.clone();
 			|_| async move {
-				let result = AssertUnwindSafe(handle.clean_task(&progress))
+				let result = AssertUnwindSafe(session.clean_task(&progress))
 					.catch_unwind()
 					.await;
 				match result {
@@ -303,7 +303,7 @@ impl Server {
 	}
 }
 
-impl Handle {
+impl Session {
 	pub(crate) async fn clean_request(
 		&self,
 		request: http::Request<BoxBody>,

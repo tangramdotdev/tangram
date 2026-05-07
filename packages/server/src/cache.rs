@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, temp::Temp},
+	crate::{Session, temp::Temp},
 	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future, stream},
 	itertools::Itertools as _,
 	num::ToPrimitive as _,
@@ -31,7 +31,7 @@ pub struct Item {
 	pub graph: Option<tg::graph::Id>,
 }
 
-impl Handle {
+impl Session {
 	pub(crate) async fn cache(
 		&self,
 		arg: tg::cache::Arg,
@@ -42,11 +42,11 @@ impl Handle {
 		}
 		let progress = crate::progress::Handle::new();
 		let task = Task::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			let progress = progress.clone();
 			|_| async move {
 				// Ensure the artifact is stored.
-				let result = handle
+				let result = session
 					.cache_ensure_stored(&artifacts, &progress)
 					.await
 					.map_err(|source| {
@@ -83,10 +83,10 @@ impl Handle {
 
 				let result = future::try_join_all(artifacts.into_iter().map({
 					|artifact| {
-						let handle = handle.clone();
+						let session = session.clone();
 						let progress = progress.clone();
 						async move {
-							AssertUnwindSafe(handle.cache_task(&artifact, &progress))
+							AssertUnwindSafe(session.cache_task(&artifact, &progress))
 								.catch_unwind()
 								.await
 						}
@@ -202,8 +202,8 @@ impl Handle {
 		// Get the item in a blocking task.
 		let edge = tg::graph::data::Edge::Object(id.clone());
 		let item = tokio::task::spawn_blocking({
-			let handle = self.clone();
-			move || handle.cache_get_item(edge)
+			let session = self.clone();
+			move || session.cache_get_item(edge)
 		})
 		.await
 		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
@@ -217,9 +217,9 @@ impl Handle {
 		item: Item,
 		progress: crate::progress::Handle<()>,
 	) -> impl Future<Output = tg::Result<()>> + Send {
-		let handle = self.clone();
+		let session = self.clone();
 		async move {
-			let task = handle.cache_tasks.get_or_spawn_with_context(
+			let task = session.cache_tasks.get_or_spawn_with_context(
 				item.id.clone(),
 				|| {
 					let progress = crate::progress::Handle::new();
@@ -240,12 +240,12 @@ impl Handle {
 					progress
 				},
 				{
-					let handle = handle.clone();
+					let session = session.clone();
 					move |dependency_progress, _| {
-						let handle = handle.clone();
+						let session = session.clone();
 						let item = item.clone();
 						let dependency_progress = dependency_progress.clone();
-						async move { handle.cache_artifact_task(item, dependency_progress).await }
+						async move { session.cache_artifact_task(item, dependency_progress).await }
 					}
 				},
 			);
@@ -285,10 +285,10 @@ impl Handle {
 		graph_id: &tg::graph::Id,
 		progress: crate::progress::Handle<()>,
 	) -> impl Future<Output = tg::Result<()>> + Send {
-		let handle = self.clone();
+		let session = self.clone();
 		let graph_id = graph_id.clone();
 		async move {
-			let task = handle.cache_graph_tasks.get_or_spawn_with_context(
+			let task = session.cache_graph_tasks.get_or_spawn_with_context(
 				graph_id.clone(),
 				|| {
 					let progress = crate::progress::Handle::new();
@@ -309,13 +309,13 @@ impl Handle {
 					progress
 				},
 				{
-					let handle = handle.clone();
+					let session = session.clone();
 					move |dependency_progress, _| {
-						let handle = handle.clone();
+						let session = session.clone();
 						let graph_id = graph_id.clone();
 						let dependency_progress = dependency_progress.clone();
 						async move {
-							handle
+							session
 								.cache_graph_task(&graph_id, dependency_progress)
 								.await
 						}
@@ -382,12 +382,12 @@ impl Handle {
 
 		// Create the temp and write the artifact.
 		let (temp, dependencies) = tokio::task::spawn_blocking({
-			let handle = self.clone();
+			let session = self.clone();
 			let item = item.clone();
 			let progress = progress.clone();
 			move || {
-				let temp = Temp::new(&handle);
-				let dependencies = handle.cache_write(temp.path(), &item, &progress)?;
+				let temp = Temp::new(&session);
+				let dependencies = session.cache_write(temp.path(), &item, &progress)?;
 				Ok::<_, tg::Error>((temp, dependencies))
 			}
 		})
@@ -410,8 +410,8 @@ impl Handle {
 
 		// Rename the temp to the cache directory.
 		tokio::task::spawn_blocking({
-			let handle = self.clone();
-			move || handle.cache_rename(item, &temp, &dependency_ids)
+			let session = self.clone();
+			move || session.cache_rename(item, &temp, &dependency_ids)
 		})
 		.await
 		.map_err(|source| tg::error!(!source, "failed to join the task"))??;
@@ -426,10 +426,10 @@ impl Handle {
 	) -> tg::Result<()> {
 		// Load the graph in a blocking task.
 		let graph_data = tokio::task::spawn_blocking({
-			let handle = self.clone();
+			let session = self.clone();
 			let graph_id = graph_id.clone();
 			move || {
-				let (_size, data) = handle
+				let (_size, data) = session
 					.object_store
 					.try_get_data_sync(&graph_id.into())?
 					.ok_or_else(|| tg::error!("failed to load the graph"))?;
@@ -450,11 +450,11 @@ impl Handle {
 
 		// Check if all items already exist in the cache.
 		let all_exist = tokio::task::spawn_blocking({
-			let handle = self.clone();
+			let session = self.clone();
 			let items = items.clone();
 			move || {
 				for item in &items {
-					let path = handle.cache_path().join(item.id.to_string());
+					let path = session.cache_path().join(item.id.to_string());
 					if !path.try_exists().unwrap_or(false) {
 						return false;
 					}
@@ -470,7 +470,7 @@ impl Handle {
 
 		// Write each item to a temp and collect dependencies.
 		let outputs = tokio::task::spawn_blocking({
-			let handle = self.clone();
+			let session = self.clone();
 			let items = items.clone();
 			let graph_id = graph_id.clone();
 			let progress = progress.clone();
@@ -478,10 +478,10 @@ impl Handle {
 				let mut outputs = Vec::new();
 				for item in items {
 					// Create a temp.
-					let temp = Temp::new(&handle);
+					let temp = Temp::new(&session);
 
 					// Write the item.
-					let dependencies = handle.cache_write(temp.path(), &item, &progress)?;
+					let dependencies = session.cache_write(temp.path(), &item, &progress)?;
 
 					// Filter out same-graph dependencies.
 					let dependencies: Vec<Item> = dependencies
@@ -513,14 +513,14 @@ impl Handle {
 
 		// Rename all entries to the cache directory.
 		tokio::task::spawn_blocking({
-			let handle = self.clone();
+			let session = self.clone();
 			move || {
 				for (item, temp, dependencies) in outputs {
 					let dependency_ids: Vec<tg::artifact::Id> = dependencies
 						.iter()
 						.map(|dependency| dependency.id.clone())
 						.collect();
-					handle.cache_rename(item, &temp, &dependency_ids)?;
+					session.cache_rename(item, &temp, &dependency_ids)?;
 				}
 				Ok::<_, tg::Error>(())
 			}
@@ -901,9 +901,9 @@ impl Handle {
 		};
 		self.index_tasks
 			.spawn(|_| {
-				let handle = self.clone();
+				let session = self.clone();
 				async move {
-					if let Err(error) = handle
+					if let Err(error) = session
 						.index
 						.put(tangram_index::PutArg {
 							cache_entries: vec![put_cache_entry_arg],

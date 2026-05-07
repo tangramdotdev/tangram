@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, database::Database},
+	crate::{Session, database::Database},
 	bytes::Bytes,
 	futures::{
 		StreamExt as _, TryStreamExt as _, future,
@@ -36,7 +36,7 @@ pub(crate) enum WriteOutput {
 	Closed,
 }
 
-impl Handle {
+impl Session {
 	pub async fn try_write_process_stdio(
 		&self,
 		id: &tg::process::Id,
@@ -94,12 +94,12 @@ impl Handle {
 		let data = output.data;
 		let (sender, receiver) = tokio::sync::mpsc::channel(4);
 		let task = Task::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			let data = data.clone();
 			let id = id.clone();
 			let streams = streams.to_owned();
 			move |_| async move {
-				let future = handle.write_process_stdio_local_task(&id, data, &streams, input);
+				let future = session.write_process_stdio_local_task(&id, data, &streams, input);
 				let result = if let Some(stopper) = stopper {
 					let future = pin!(future);
 					let stopper = pin!(stopper.wait());
@@ -192,10 +192,10 @@ impl Handle {
 								.await
 								.map_err(|source| tg::error!(!source, "failed to store the log"))?;
 							tokio::spawn({
-								let handle = self.clone();
+								let session = self.clone();
 								let id = id.clone();
 								async move {
-									handle
+									session
 										.messenger
 										.publish(format!("processes.{id}.log"), ())
 										.await

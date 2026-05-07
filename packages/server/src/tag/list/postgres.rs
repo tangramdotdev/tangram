@@ -1,5 +1,5 @@
 use {
-	crate::Handle,
+	crate::Session,
 	indoc::indoc,
 	num::ToPrimitive as _,
 	tangram_client::prelude::*,
@@ -31,7 +31,7 @@ struct RowWithoutComponent {
 	item: Option<tg::Either<tg::object::Id, tg::process::Id>>,
 }
 
-impl Handle {
+impl Session {
 	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) async fn list_tags_postgres(
 		&self,

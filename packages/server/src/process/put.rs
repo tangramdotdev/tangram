@@ -1,5 +1,5 @@
 use {
-	crate::{Handle, database::Database},
+	crate::{Session, database::Database},
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -13,7 +13,7 @@ mod postgres;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
-impl Handle {
+impl Session {
 	pub(crate) async fn put_process(
 		&self,
 		id: &tg::process::Id,
@@ -132,9 +132,9 @@ impl Handle {
 		};
 		self.index_tasks
 			.spawn(|_| {
-				let handle = self.clone();
+				let session = self.clone();
 				async move {
-					if let Err(error) = handle
+					if let Err(error) = session
 						.index
 						.put(tangram_index::PutArg {
 							processes: vec![put_process_arg],

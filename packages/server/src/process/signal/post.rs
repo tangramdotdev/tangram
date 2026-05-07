@@ -1,5 +1,5 @@
 use {
-	crate::Handle,
+	crate::Session,
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	indoc::formatdoc,
 	tangram_client::prelude::*,
@@ -10,7 +10,7 @@ use {
 	tangram_messenger::prelude::*,
 };
 
-impl Handle {
+impl Session {
 	pub(crate) async fn try_post_process_signal(
 		&self,
 		id: &tg::process::Id,
@@ -261,9 +261,9 @@ impl Handle {
 		let id = id.clone();
 		let subject = format!("processes.{id}.signal");
 		tokio::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			async move {
-				handle
+				session
 					.messenger
 					.publish(subject, ())
 					.await

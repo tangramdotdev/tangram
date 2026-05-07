@@ -1,5 +1,5 @@
 use {
-	crate::Handle,
+	crate::Session,
 	bytes::Bytes,
 	futures::{
 		StreamExt as _, future,
@@ -31,7 +31,7 @@ pub(crate) struct ObjectGetTaskKey {
 	pub metadata: bool,
 }
 
-impl Handle {
+impl Session {
 	pub async fn try_get_object(
 		&self,
 		id: &tg::object::Id,
@@ -377,8 +377,8 @@ impl Handle {
 		key: ObjectGetTaskKey,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let task = self.object_get_tasks.get_or_spawn_detached(key.clone(), {
-			let handle = self.clone();
-			move |_stop| async move { handle.try_get_object_from_location_task_inner(key).await }
+			let session = self.clone();
+			move |_stop| async move { session.try_get_object_from_location_task_inner(key).await }
 		});
 		task.wait()
 			.await
@@ -446,7 +446,7 @@ impl Handle {
 
 	fn spawn_put_object_task(&self, id: &tg::object::Id, output: &tg::object::get::Output) {
 		tokio::spawn({
-			let handle = self.clone();
+			let session = self.clone();
 			let id = id.clone();
 			let output = output.clone();
 			async move {
@@ -455,7 +455,7 @@ impl Handle {
 					location: None,
 					metadata: output.metadata.clone(),
 				};
-				handle.put_object(&id, arg).await?;
+				session.put_object(&id, arg).await?;
 				Ok::<_, tg::Error>(())
 			}
 		});
