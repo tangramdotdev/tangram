@@ -21,37 +21,37 @@ use {
 pub struct Error {
 	/// The error code.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub code: Option<tg::error::Code>,
 
 	/// Diagnostics associated with the error.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub diagnostics: Option<Vec<tg::diagnostic::Data>>,
 
 	/// The location where the error occurred.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub location: Option<Location>,
 
 	/// The error's message.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 3, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
 	pub message: Option<String>,
 
 	/// The error's source.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 4, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 4, skip_serializing_if = "Option::is_none")]
 	pub source: Option<tg::Referent<tg::Either<Box<tg::error::Data>, tg::error::Id>>>,
 
 	/// A stack trace associated with the error.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 5, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
 	pub stack: Option<Vec<Location>>,
 
 	/// Values associated with the error.
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	#[tangram_serialize(id = 6, default, skip_serializing_if = "BTreeMap::is_empty")]
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "BTreeMap::is_empty")]
 	pub values: BTreeMap<String, String>,
 }
 
@@ -66,7 +66,7 @@ pub struct Error {
 )]
 pub struct Location {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub symbol: Option<String>,
 	#[tangram_serialize(id = 1)]
 	pub file: File,
@@ -84,7 +84,7 @@ pub struct Location {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 #[try_unwrap(ref)]
 pub enum File {
 	#[tangram_serialize(id = 0)]

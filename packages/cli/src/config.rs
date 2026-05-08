@@ -50,7 +50,7 @@ pub struct Config {
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Shell {
 	/// Configure automatic shell directories.
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -77,7 +77,7 @@ pub struct Telemetry {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Tracing {
 	#[serde(skip_serializing_if = "String::is_empty")]
 	pub filter: String,

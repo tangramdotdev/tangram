@@ -474,7 +474,7 @@ impl Server {
 		Ok(acceptor)
 	}
 
-	#[tracing::instrument(level = "trace", name = "request", skip_all, fields(id, method, path))]
+	#[tracing::instrument(fields(id, method, path), level = "trace", name = "request", skip_all)]
 	async fn handle_request(
 		&self,
 		request: http::Request<BoxBody>,

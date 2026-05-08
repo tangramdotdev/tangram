@@ -216,7 +216,7 @@ impl Session {
 			.await
 	}
 
-	#[tracing::instrument(level = "trace", skip_all, fields(pattern = %pattern, recursive))]
+	#[tracing::instrument(fields(pattern = %pattern, recursive), level = "trace", skip_all)]
 	pub fn match_tags_sqlite_sync(
 		transaction: &sqlite::Transaction,
 		cache: &db::sqlite::Cache,

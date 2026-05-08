@@ -58,7 +58,7 @@ pub struct EntryDetails {
 	pub documentation: Option<String>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ResolveData {
 	module: tg::module::Data,

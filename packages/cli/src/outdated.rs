@@ -41,7 +41,7 @@ enum Edge {
 	Tag(tg::Tag),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize)]
 struct Entry {
 	current: tg::Tag,
 	compatible: Option<tg::Tag>,

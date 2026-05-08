@@ -35,7 +35,7 @@ pub enum nfs_ftype4 {
 	NF4NAMEDATTR = 9, /* Named Attribute */
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(i32)]
 pub enum nfsstat4 {
 	NFS4_OK = 0,         /* everything is okay       */
@@ -117,14 +117,14 @@ pub type length4 = uint64_t;
 pub type mode4 = uint32_t;
 pub type nfs_cookie4 = uint64_t;
 /// Note: this is an opaque type that is left up to the server to define. We use 64 bit integers.
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct nfs_fh4(pub u64);
 pub type nfs_lease4 = uint32_t;
 pub type offset4 = uint64_t;
 pub type qop4 = uint32_t;
 pub type sec_oid4 = Vec<u8>;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct seqid4(uint32_t);
 pub type utf8string = String;
 pub type utf8str_cis = utf8string;
@@ -483,7 +483,7 @@ pub struct change_info4 {
 	pub after: changeid4,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct clientaddr4 {
 	/* see struct rpcb in RFC 1833 */
 	pub r_netid: String, /* network id */
@@ -493,7 +493,7 @@ pub struct clientaddr4 {
 /*
  * Callback program info as provided by the client
  */
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct cb_client4 {
 	pub cb_program: u32,
 	pub cb_location: clientaddr4,
@@ -502,7 +502,7 @@ pub struct cb_client4 {
 /*
  * Stateid
  */
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct stateid4 {
 	pub seqid: seqid4,
 	other: [u8; NFS4_OTHER_SIZE],
@@ -533,7 +533,7 @@ pub struct open_owner4 {
 	pub owner: Vec<u8>,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct lock_owner4 {
 	pub clientid: clientid4,
 	pub owner: Vec<u8>,

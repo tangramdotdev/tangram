@@ -29,12 +29,12 @@ pub struct DeleteArg {
 	pub ttl: u64,
 }
 
-#[derive(Clone, Debug, tangram_serialize::Serialize, tangram_serialize::Deserialize)]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Object<'a> {
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub bytes: Option<Cow<'a, [u8]>>,
 
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub cache_pointer: Option<CachePointer>,
 
 	#[tangram_serialize(id = 2)]
@@ -57,7 +57,7 @@ pub struct CachePointer {
 	pub length: u64,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 
 	#[tangram_serialize(id = 3)]

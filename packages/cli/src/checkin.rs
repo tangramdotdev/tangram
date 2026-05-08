@@ -72,7 +72,7 @@ pub struct Options {
 
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct TagTtl {
-	#[arg(long = "tag-ttl", value_parser = humantime::parse_duration, overrides_with = "no_tag_ttl")]
+	#[arg(long = "tag-ttl", overrides_with = "no_tag_ttl", value_parser = humantime::parse_duration)]
 	pub tag_ttl: Option<Duration>,
 
 	#[arg(long = "no-tag-ttl", overrides_with = "tag_ttl")]

@@ -15,7 +15,7 @@ pub struct Args {
 
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
-	#[command(name = "remove", alias = "rm")]
+	#[command(alias = "rm", name = "remove")]
 	Delete(self::delete::Args),
 	#[command(alias = "ls")]
 	List(self::list::Args),

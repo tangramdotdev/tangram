@@ -35,7 +35,7 @@ pub struct Graph {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", tag = "kind")]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Node {
@@ -87,7 +87,7 @@ pub enum Directory {
 pub struct DirectoryLeaf {
 	#[serde_as(as = "BTreeMap<_, PickFirst<(_, DisplayFromStr)>>")]
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "BTreeMap::is_empty")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "BTreeMap::is_empty")]
 	pub entries: BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>,
 }
 
@@ -140,20 +140,20 @@ pub struct DirectoryChild {
 )]
 pub struct File {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub contents: Option<tg::blob::Id>,
 
 	#[serde_as(as = "BTreeMap<_, Option<PickFirst<(_, DisplayFromStr)>>>")]
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "BTreeMap::is_empty")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "BTreeMap::is_empty")]
 	pub dependencies: BTreeMap<tg::Reference, Option<Dependency>>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_false")]
 	pub executable: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 3, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
 	pub module: Option<tg::module::Kind>,
 }
 
@@ -171,11 +171,11 @@ pub struct File {
 pub struct Symlink {
 	#[serde_as(as = "Option<PickFirst<(_, DisplayFromStr)>>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub artifact: Option<tg::graph::data::Edge<tg::artifact::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 }
 
@@ -239,7 +239,7 @@ impl TryFrom<Edge<tg::object::Id>> for Edge<tg::artifact::Id> {
 )]
 pub struct Pointer {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub graph: Option<tg::graph::Id>,
 
 	#[tangram_serialize(id = 1)]

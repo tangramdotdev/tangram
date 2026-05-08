@@ -10,7 +10,7 @@ use {crate::prelude::*, lsp_types as lsp, std::collections::BTreeSet};
 )]
 pub struct Diagnostic {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::module::location::Data>,
 
 	#[tangram_serialize(id = 1)]

@@ -17,7 +17,7 @@ use {
 	serde::Deserialize,
 	serde::Serialize,
 )]
-#[serde(rename_all = "snake_case", tag = "kind", content = "value")]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Event<T> {
@@ -27,7 +27,7 @@ pub enum Event<T> {
 	Output(T),
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Indicator {
 	pub current: Option<u64>,
 	pub format: IndicatorFormat,
@@ -36,14 +36,14 @@ pub struct Indicator {
 	pub total: Option<u64>,
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IndicatorFormat {
 	Normal,
 	Bytes,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Log {
 	pub level: Option<Level>,
 	pub message: String,

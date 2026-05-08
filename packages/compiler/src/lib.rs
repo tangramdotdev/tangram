@@ -112,7 +112,7 @@ pub struct State {
 }
 
 #[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "snake_case", tag = "kind", content = "request")]
+#[serde(content = "request", rename_all = "snake_case", tag = "kind")]
 enum Request {
 	CallHierarchyIncoming(call_hierarchy::IncomingRequest),
 	CallHierarchyOutgoing(call_hierarchy::OutgoingRequest),
@@ -143,7 +143,7 @@ enum Request {
 }
 
 #[derive(Debug, derive_more::Unwrap, serde::Deserialize)]
-#[serde(rename_all = "snake_case", tag = "kind", content = "response")]
+#[serde(content = "response", rename_all = "snake_case", tag = "kind")]
 enum Response {
 	CallHierarchyIncoming(call_hierarchy::IncomingResponse),
 	CallHierarchyOutgoing(call_hierarchy::OutgoingResponse),

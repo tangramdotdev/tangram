@@ -10,7 +10,7 @@ use {super::Kind, crate::prelude::*, bytes::Bytes, std::collections::BTreeSet};
 	serde::Deserialize,
 	serde::Serialize,
 )]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum Object {
 	Blob(tg::blob::Data),
 	Directory(tg::directory::Data),

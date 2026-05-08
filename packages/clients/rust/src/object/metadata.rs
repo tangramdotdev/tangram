@@ -5,7 +5,7 @@ use {
 	tangram_util::serde::is_default,
 };
 
-#[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
@@ -26,11 +26,11 @@ pub struct Arg {
 )]
 pub struct Metadata {
 	#[serde(default, skip_serializing_if = "is_default")]
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_default")]
 	pub node: Node,
 
 	#[serde(default, skip_serializing_if = "is_default")]
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_default")]
 	pub subtree: Subtree,
 }
 
@@ -73,23 +73,23 @@ pub struct Node {
 )]
 pub struct Subtree {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub count: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub depth: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub size: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 3, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
 	pub solvable: Option<bool>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 4, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 4, skip_serializing_if = "Option::is_none")]
 	pub solved: Option<bool>,
 }
 

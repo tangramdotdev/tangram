@@ -110,7 +110,7 @@ pub struct GetItemObjectMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::object::Id,
 
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
 	pub eager: bool,
 }
 
@@ -119,7 +119,7 @@ pub struct GetItemProcessMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::process::Id,
 
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
 	pub eager: bool,
 }
 
@@ -143,31 +143,31 @@ pub struct GetStoredProcessMessage {
 	#[tangram_serialize(id = 0)]
 	pub id: tg::process::Id,
 
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
 	pub node_command_stored: bool,
 
-	#[tangram_serialize(id = 8, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 8, skip_serializing_if = "is_false")]
 	pub node_error_stored: bool,
 
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_false")]
 	pub node_log_stored: bool,
 
-	#[tangram_serialize(id = 3, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "is_false")]
 	pub node_output_stored: bool,
 
-	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 4, skip_serializing_if = "is_false")]
 	pub subtree_command_stored: bool,
 
-	#[tangram_serialize(id = 9, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 9, skip_serializing_if = "is_false")]
 	pub subtree_error_stored: bool,
 
-	#[tangram_serialize(id = 5, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "is_false")]
 	pub subtree_log_stored: bool,
 
-	#[tangram_serialize(id = 6, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "is_false")]
 	pub subtree_output_stored: bool,
 
-	#[tangram_serialize(id = 7, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 7, skip_serializing_if = "is_false")]
 	pub subtree_stored: bool,
 }
 
@@ -203,7 +203,7 @@ pub struct PutItemObjectMessage {
 	#[tangram_serialize(id = 1)]
 	pub bytes: Bytes,
 
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub metadata: Option<tg::object::Metadata>,
 }
 
@@ -215,7 +215,7 @@ pub struct PutItemProcessMessage {
 	#[tangram_serialize(id = 1)]
 	pub bytes: Bytes,
 
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub metadata: Option<tg::process::Metadata>,
 }
 
@@ -250,10 +250,10 @@ pub struct PutMissingProcessMessage {
 	tangram_serialize::Serialize,
 )]
 pub struct ProgressMessage {
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_default")]
 	pub skipped: ProgressMessageAmounts,
 
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_default")]
 	pub transferred: ProgressMessageAmounts,
 }
 
@@ -267,13 +267,13 @@ pub struct ProgressMessage {
 	tangram_serialize::Serialize,
 )]
 pub struct ProgressMessageAmounts {
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "num::Zero::is_zero")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "num::Zero::is_zero")]
 	pub processes: u64,
 
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "num::Zero::is_zero")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "num::Zero::is_zero")]
 	pub objects: u64,
 
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "num::Zero::is_zero")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "num::Zero::is_zero")]
 	pub bytes: u64,
 }
 

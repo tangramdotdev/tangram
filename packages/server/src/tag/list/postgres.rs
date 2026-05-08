@@ -195,7 +195,7 @@ impl Session {
 		Ok(())
 	}
 
-	#[tracing::instrument(level = "trace", skip_all, fields(pattern = %pattern, recursive))]
+	#[tracing::instrument(fields(pattern = %pattern, recursive), level = "trace", skip_all)]
 	pub async fn match_tags_postgres(
 		&self,
 		transaction: &tangram_database::postgres::Transaction<'_>,

@@ -41,7 +41,7 @@ pub enum Location {
 #[serde(deny_unknown_fields)]
 pub struct Local {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub region: Option<String>,
 }
 
@@ -64,7 +64,7 @@ pub struct Remote {
 	pub name: String,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub region: Option<String>,
 }
 

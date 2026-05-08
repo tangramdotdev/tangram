@@ -35,7 +35,7 @@ pub struct DeleteArg {
 	pub process: tg::process::Id,
 }
 
-#[derive(Clone, Debug, tangram_serialize::Serialize, tangram_serialize::Deserialize)]
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Entry<'a> {
 	#[tangram_serialize(id = 0)]
 	pub bytes: Cow<'a, [u8]>,

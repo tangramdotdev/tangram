@@ -20,7 +20,7 @@ pub(crate) struct RemoteTagListTaskKey {
 }
 
 impl Session {
-	#[tracing::instrument(level = "trace", name = "list_tags", skip_all, fields(pattern = %arg.pattern))]
+	#[tracing::instrument(fields(pattern = %arg.pattern), level = "trace", name = "list_tags", skip_all)]
 	pub(crate) async fn list_tags(
 		&self,
 		arg: tg::tag::list::Arg,

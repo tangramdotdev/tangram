@@ -25,7 +25,7 @@ pub struct Args {
 	pub debug: crate::process::spawn::Debug,
 
 	/// The JS engine to use.
-	#[arg(long, default_value = "auto")]
+	#[arg(default_value = "auto", long)]
 	pub engine: Engine,
 
 	#[arg(index = 1)]
@@ -38,7 +38,7 @@ pub struct Args {
 	pub trailing: Vec<String>,
 }
 
-#[derive(Clone, Copy, Debug, Default, derive_more::IsVariant, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, clap::ValueEnum, derive_more::IsVariant)]
 #[value(rename_all = "lowercase")]
 pub enum Engine {
 	#[default]

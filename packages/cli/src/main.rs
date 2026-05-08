@@ -100,7 +100,7 @@ struct Args {
 	directory: Option<PathBuf>,
 
 	/// The mode.
-	#[arg(env = "TANGRAM_MODE", default_value_t, long, short)]
+	#[arg(default_value_t, env = "TANGRAM_MODE", long, short)]
 	mode: Mode,
 
 	#[clap(flatten)]
@@ -124,11 +124,11 @@ struct Args {
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Remotes {
 	/// Override the `remotes` key in the config.
-	#[arg(long, short, value_delimiter = ',', conflicts_with = "no_remotes")]
+	#[arg(conflicts_with = "no_remotes", long, short, value_delimiter = ',')]
 	remotes: Option<Vec<String>>,
 
 	/// Override the `remotes` key in the config.
-	#[arg(long, conflicts_with = "remotes")]
+	#[arg(conflicts_with = "remotes", long)]
 	no_remotes: bool,
 }
 

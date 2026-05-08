@@ -12,7 +12,7 @@ pub struct Args {
 	pub depth: Option<u32>,
 
 	/// Whether to view the item as a tag, package, or value.
-	#[arg(long, default_value = "value")]
+	#[arg(default_value = "value", long)]
 	pub kind: crate::view::Kind,
 
 	/// The reference to display a tree for.

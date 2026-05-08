@@ -38,7 +38,7 @@ pub struct Args {
 	pub expand_tags: bool,
 
 	/// Whether to view the item as a tag, package, or value.
-	#[arg(long, default_value = "value")]
+	#[arg(default_value = "value", long)]
 	pub kind: Kind,
 
 	/// Choose the mode, either inline or fullscreen.
@@ -49,7 +49,7 @@ pub struct Args {
 	pub alternate_screen: AlternateScreen,
 
 	/// The reference to view.
-	#[arg(index = 1, default_value = ".")]
+	#[arg(default_value = ".", index = 1)]
 	pub reference: tg::Reference,
 }
 

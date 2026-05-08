@@ -12,7 +12,7 @@ const HISTORY_SIZE: usize = 10_000;
 #[group(skip)]
 pub struct Args {
 	/// The JS engine to use.
-	#[arg(long, default_value = "auto")]
+	#[arg(default_value = "auto", long)]
 	pub engine: Engine,
 }
 

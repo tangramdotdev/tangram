@@ -19,15 +19,15 @@ use {
 #[serde(deny_unknown_fields)]
 pub struct Command {
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
 	pub args: tg::value::data::Array,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub cwd: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "BTreeMap::is_empty")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "BTreeMap::is_empty")]
 	pub env: tg::value::data::Map,
 
 	#[tangram_serialize(id = 3)]
@@ -37,11 +37,11 @@ pub struct Command {
 	pub host: String,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 5, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
 	pub stdin: Option<tg::blob::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 6, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
 	pub user: Option<String>,
 }
 
@@ -78,7 +78,7 @@ pub struct ArtifactExecutable {
 	pub artifact: tg::artifact::Id,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
 }
 
@@ -95,7 +95,7 @@ pub struct ModuleExecutable {
 	pub module: tg::module::Data,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub export: Option<String>,
 }
 

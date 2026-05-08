@@ -38,7 +38,7 @@ pub struct Arg {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case", tag = "kind", content = "value")]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum Event {
 	Chunk(Chunk),
 	End,

@@ -4,7 +4,7 @@ use {
 	tangram_util::serde::is_false,
 };
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
@@ -15,7 +15,7 @@ pub struct Arg {
 	pub tags: Vec<Item>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Item {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub force: bool,

@@ -9,7 +9,7 @@ use {crate::prelude::*, itertools::Itertools as _, std::collections::BTreeSet};
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", tag = "kind")]
 pub enum Data {
 	#[tangram_serialize(id = 0)]
 	Unset,

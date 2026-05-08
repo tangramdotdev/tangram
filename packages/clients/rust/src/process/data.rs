@@ -14,15 +14,15 @@ use {
 )]
 pub struct Data {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub actual_checksum: Option<tg::Checksum>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
 	pub cacheable: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub children: Option<Vec<tg::process::data::Child>>,
 
 	#[tangram_serialize(id = 3)]
@@ -32,30 +32,30 @@ pub struct Data {
 	pub created_at: i64,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 20, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 20, skip_serializing_if = "Option::is_none")]
 	pub debug: Option<tg::process::Debug>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 5, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
 	pub error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 6, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
 	pub exit: Option<u8>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 7, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 7, skip_serializing_if = "Option::is_none")]
 	pub expected_checksum: Option<tg::Checksum>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 8, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 8, skip_serializing_if = "Option::is_none")]
 	pub finished_at: Option<i64>,
 
 	#[tangram_serialize(id = 9)]
 	pub host: String,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 10, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 10, skip_serializing_if = "Option::is_none")]
 	pub log: Option<tg::blob::Id>,
 
 	#[tangram_serialize(id = 11)]
@@ -66,34 +66,34 @@ pub struct Data {
 		deserialize_with = "deserialize_output",
 		skip_serializing_if = "Option::is_none"
 	)]
-	#[tangram_serialize(id = 12, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 12, skip_serializing_if = "Option::is_none")]
 	pub output: Option<tg::value::Data>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(id = 13, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 13, skip_serializing_if = "is_false")]
 	pub retry: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 14, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 14, skip_serializing_if = "Option::is_none")]
 	pub started_at: Option<i64>,
 
 	#[tangram_serialize(id = 15)]
 	pub status: tg::process::Status,
 
 	#[serde(default, skip_serializing_if = "is_default")]
-	#[tangram_serialize(id = 16, default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 16, skip_serializing_if = "is_default")]
 	pub stderr: tg::process::Stdio,
 
 	#[serde(default, skip_serializing_if = "is_default")]
-	#[tangram_serialize(id = 17, default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 17, skip_serializing_if = "is_default")]
 	pub stdin: tg::process::Stdio,
 
 	#[serde(default, skip_serializing_if = "is_default")]
-	#[tangram_serialize(id = 18, default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 18, skip_serializing_if = "is_default")]
 	pub stdout: tg::process::Stdio,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(id = 19, default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 19, skip_serializing_if = "Option::is_none")]
 	pub tty: Option<tg::process::Tty>,
 }
 

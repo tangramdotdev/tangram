@@ -79,7 +79,7 @@ pub struct Arg {
 	pub user: Option<String>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Command {
 	pub args: Vec<String>,
 	pub cwd: PathBuf,
@@ -98,7 +98,7 @@ pub enum Isolation {
 	Vm(VmIsolation),
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct ContainerIsolation {}
 
 #[derive(
@@ -119,16 +119,16 @@ pub enum Network {
 	Tap,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Bridge {
 	pub ip: Ipv4Addr,
 	pub name: String,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct SeatbeltIsolation {}
 
-#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct VmIsolation {
 	pub kernel_path: PathBuf,
 }

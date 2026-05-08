@@ -38,7 +38,7 @@ struct StoreInner {
 	process: tg::process::Id,
 }
 
-#[derive(Clone, Debug, Default, tangram_serialize::Serialize, tangram_serialize::Deserialize)]
+#[derive(Clone, Debug, Default, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Index {
 	#[tangram_serialize(id = 0)]
 	pub entries: Vec<Entry>,
@@ -50,7 +50,7 @@ pub struct Index {
 	pub stderr: Vec<u32>,
 }
 
-#[derive(Copy, Clone, Debug, tangram_serialize::Serialize, tangram_serialize::Deserialize)]
+#[derive(Clone, Copy, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Entry {
 	#[tangram_serialize(id = 0)]
 	pub blob_position: u64,

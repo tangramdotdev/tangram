@@ -24,7 +24,7 @@ use {
 	serde::Deserialize,
 	serde::Serialize,
 )]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", tag = "kind")]
 #[unwrap(ref)]
 pub enum Artifact {
 	Directory(Directory),
@@ -32,12 +32,12 @@ pub enum Artifact {
 	Symlink(Symlink),
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize)]
 pub struct Directory {
 	pub entries: BTreeMap<Cow<'static, str>, Artifact>,
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize)]
 pub struct File {
 	pub contents: Cow<'static, str>,
 
@@ -48,7 +48,7 @@ pub struct File {
 	pub xattrs: BTreeMap<Cow<'static, str>, Cow<'static, str>>,
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize)]
 pub struct Symlink {
 	pub path: Cow<'static, str>,
 }

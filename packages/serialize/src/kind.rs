@@ -1,4 +1,4 @@
-#[derive(Clone, Copy, Debug, PartialEq, Eq, num_derive::ToPrimitive, num_derive::FromPrimitive)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
 #[num_traits = "num"]
 pub enum Kind {
 	Null = 0,

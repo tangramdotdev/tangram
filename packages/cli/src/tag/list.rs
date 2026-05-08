@@ -11,7 +11,7 @@ pub struct Args {
 	#[command(flatten)]
 	pub locations: crate::location::Args,
 
-	#[arg(index = 1, default_value = "*")]
+	#[arg(default_value = "*", index = 1)]
 	pub pattern: tg::tag::Pattern,
 
 	#[command(flatten)]
@@ -29,7 +29,7 @@ pub struct Args {
 
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Ttl {
-	#[arg(long, value_parser = humantime::parse_duration, overrides_with = "no_ttl")]
+	#[arg(long, overrides_with = "no_ttl", value_parser = humantime::parse_duration)]
 	pub ttl: Option<Duration>,
 
 	#[arg(long, overrides_with = "ttl")]

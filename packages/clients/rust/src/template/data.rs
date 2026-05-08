@@ -29,7 +29,7 @@ pub struct Template {
 )]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum Component {
 	#[tangram_serialize(id = 0)]
 	String(String),

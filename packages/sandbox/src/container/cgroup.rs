@@ -10,7 +10,7 @@ pub struct Cgroup {
 	path: PathBuf,
 }
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Options {
 	pub cpu: Option<u64>,
 	pub memory: Option<u64>,

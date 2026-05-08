@@ -25,7 +25,7 @@ pub struct Debug {
 	pub addr: Option<std::net::SocketAddr>,
 
 	#[serde(default, skip_serializing_if = "is_default")]
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_default")]
 	pub mode: Mode,
 }
 

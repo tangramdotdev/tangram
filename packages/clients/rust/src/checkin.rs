@@ -203,7 +203,7 @@ pub(crate) fn default_lock() -> Option<Lock> {
 	Some(Lock::default())
 }
 
-#[expect(clippy::trivially_copy_pass_by_ref, clippy::ref_option)]
+#[expect(clippy::ref_option, clippy::trivially_copy_pass_by_ref)]
 pub(crate) fn is_default_lock(lock: &Option<Lock>) -> bool {
 	*lock == Some(Lock::Auto)
 }

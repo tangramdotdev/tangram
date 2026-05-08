@@ -66,13 +66,13 @@ pub struct Options {
 	pub show_process_commands: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum Focus {
 	Help,
 	Tree,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum Split {
 	Horizontal,
 	Vertical,

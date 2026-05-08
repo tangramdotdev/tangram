@@ -3,7 +3,7 @@ use {
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	pub signal: tg::process::Signal,
 

@@ -39,7 +39,7 @@ pub struct Output {
 	pub data: Vec<Entry>,
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Hash, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize)]
 pub struct Entry {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub item: Option<tg::Either<tg::object::Id, tg::process::Id>>,

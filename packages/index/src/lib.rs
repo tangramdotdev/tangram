@@ -143,10 +143,10 @@ pub trait Index {
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
 pub struct CacheEntry {
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_default")]
 	pub reference_count: u64,
 
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_default")]
 	pub touched_at: i64,
 }
 
@@ -154,16 +154,16 @@ pub struct CacheEntry {
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
 pub struct Object {
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_default")]
 	pub cache_entry: Option<tg::artifact::Id>,
 
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_default")]
 	pub metadata: tg::object::Metadata,
 
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_default")]
 	pub reference_count: u64,
 
-	#[tangram_serialize(id = 3, default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "is_default")]
 	pub stored: ObjectStored,
 
 	#[tangram_serialize(id = 4)]
@@ -184,7 +184,7 @@ pub struct Object {
 )]
 pub struct ObjectStored {
 	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_false")]
 	pub subtree: bool,
 }
 
@@ -192,13 +192,13 @@ pub struct ObjectStored {
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
 pub struct Process {
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_default")]
 	pub metadata: tg::process::Metadata,
 
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_default")]
 	pub reference_count: u64,
 
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_default")]
 	pub stored: ProcessStored,
 
 	#[tangram_serialize(id = 3)]
@@ -220,47 +220,47 @@ pub struct Process {
 pub struct ProcessStored {
 	/// Whether this node's command's subtree is stored.
 	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(id = 0, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_false")]
 	pub node_command: bool,
 
 	/// Whether this node's error's subtree is stored.
 	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(id = 7, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 7, skip_serializing_if = "is_false")]
 	pub node_error: bool,
 
 	/// Whether this node's log's subtree is stored.
 	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(id = 1, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
 	pub node_log: bool,
 
 	/// Whether this node's outputs' subtrees are stored.
 	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(id = 2, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_false")]
 	pub node_output: bool,
 
 	/// Whether this node's subtree is stored.
 	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(id = 3, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "is_false")]
 	pub subtree: bool,
 
 	/// Whether this node's subtree's commands' subtrees are stored.
 	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(id = 4, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 4, skip_serializing_if = "is_false")]
 	pub subtree_command: bool,
 
 	/// Whether this node's subtree's errors' subtrees are stored.
 	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(id = 8, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 8, skip_serializing_if = "is_false")]
 	pub subtree_error: bool,
 
 	/// Whether this node's subtree's logs' subtrees are stored.
 	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(id = 5, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "is_false")]
 	pub subtree_log: bool,
 
 	/// Whether this node's subtree's outputs' subtrees are stored.
 	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(id = 6, default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "is_false")]
 	pub subtree_output: bool,
 }
 

@@ -59,7 +59,7 @@ struct Node {
 	update_task: Option<Task<()>>,
 }
 
-#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum NodeID {
 	Object(tg::object::Id),
 	Package(tg::object::Id),

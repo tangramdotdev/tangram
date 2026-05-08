@@ -95,7 +95,7 @@ pub struct Config {
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Advanced {
 	pub disable_version_check: bool,
 
@@ -137,7 +137,7 @@ pub struct Oauth {
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Checkin {
 	pub blob: CheckinBlob,
 
@@ -147,13 +147,13 @@ pub struct Checkin {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct CheckinBlob {
 	pub concurrency: usize,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct CheckinCache {
 	pub batch_size: usize,
 
@@ -161,7 +161,7 @@ pub struct CheckinCache {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct CheckinDirectory {
 	pub max_branch_children: usize,
 
@@ -169,7 +169,7 @@ pub struct CheckinDirectory {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Cleaner {
 	pub batch_size: usize,
 
@@ -181,7 +181,7 @@ pub struct Cleaner {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
 pub enum Database {
 	Postgres(PostgresDatabase),
 
@@ -189,7 +189,7 @@ pub enum Database {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct PostgresDatabase {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub connections: Option<usize>,
@@ -198,7 +198,7 @@ pub struct PostgresDatabase {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct SqliteDatabase {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub connections: Option<usize>,
@@ -208,7 +208,7 @@ pub struct SqliteDatabase {
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Finalizer {
 	pub message_batch_size: usize,
 
@@ -241,7 +241,7 @@ pub struct HttpTls {
 }
 
 #[derive(Clone, Debug, derive_more::IsVariant, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
 pub enum Index {
 	Fdb(FdbIndex),
 
@@ -249,7 +249,7 @@ pub enum Index {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct FdbIndex {
 	pub cluster: PathBuf,
 
@@ -264,7 +264,7 @@ pub struct FdbIndex {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct LmdbIndex {
 	pub map_size: usize,
 
@@ -274,7 +274,7 @@ pub struct LmdbIndex {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Indexer {
 	pub batch_size: usize,
 
@@ -286,13 +286,13 @@ pub struct Indexer {
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Logs {
 	pub store: LogStore,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
 pub enum LogStore {
 	Fdb(FdbLogStore),
 
@@ -302,7 +302,7 @@ pub enum LogStore {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct FdbLogStore {
 	pub cluster: PathBuf,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -310,7 +310,7 @@ pub struct FdbLogStore {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct LmdbLogStore {
 	pub map_size: usize,
 
@@ -318,7 +318,7 @@ pub struct LmdbLogStore {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
 pub enum Messenger {
 	Nats(NatsMessenger),
 
@@ -326,7 +326,7 @@ pub enum Messenger {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct NatsMessenger {
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub credentials: Option<PathBuf>,
@@ -337,7 +337,7 @@ pub struct NatsMessenger {
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct UnixMessenger {
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
@@ -350,21 +350,21 @@ pub struct Object {
 	#[serde(default)]
 	pub store: ObjectStore,
 
-	#[serde(default = "default_time_to_index", alias = "tti")]
+	#[serde(alias = "tti", default = "default_time_to_index")]
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_index: Duration,
 
-	#[serde(default = "default_time_to_live", alias = "ttl")]
+	#[serde(alias = "ttl", default = "default_time_to_live")]
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_live: Duration,
 
-	#[serde(default = "default_time_to_touch", alias = "ttt")]
+	#[serde(alias = "ttt", default = "default_time_to_touch")]
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_touch: Duration,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
 pub enum ObjectStore {
 	Lmdb(LmdbObjectStore),
 
@@ -374,7 +374,7 @@ pub enum ObjectStore {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct LmdbObjectStore {
 	pub map_size: usize,
 
@@ -402,7 +402,7 @@ pub struct ScyllaObjectStore {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
+#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
 pub enum ScyllaObjectStoreSpeculativeExecution {
 	Percentile(ScyllaObjectStorePercentileSpeculativeExecution),
 
@@ -436,15 +436,15 @@ pub struct Process {
 	#[serde(default = "default_process_store")]
 	pub store: Database,
 
-	#[serde(default = "default_time_to_index", alias = "tti")]
+	#[serde(alias = "tti", default = "default_time_to_index")]
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_index: Duration,
 
-	#[serde(default = "default_time_to_live", alias = "ttl")]
+	#[serde(alias = "ttl", default = "default_time_to_live")]
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_live: Duration,
 
-	#[serde(default = "default_time_to_touch", alias = "ttt")]
+	#[serde(alias = "ttt", default = "default_time_to_touch")]
 	#[serde_as(as = "DurationSecondsWithFrac")]
 	pub time_to_touch: Duration,
 }
@@ -526,7 +526,7 @@ pub struct Retry {
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub concurrency: Option<usize>,
@@ -541,7 +541,7 @@ pub struct Runner {
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Js {
 	#[serde(default)]
 	pub engine: JsEngine,
@@ -553,7 +553,7 @@ pub enum JsEngine {
 	#[default]
 	Auto,
 
-	#[serde(rename = "quickjs", alias = "quick_js")]
+	#[serde(alias = "quick_js", rename = "quickjs")]
 	QuickJs,
 
 	V8,
@@ -561,7 +561,7 @@ pub enum JsEngine {
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Sandbox {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub bridge: Option<Bridge>,
@@ -604,8 +604,8 @@ pub struct IpRange {
 	pub max: Ipv4Addr,
 }
 
-#[derive(Clone, Default, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct ContainerSandboxIsolation {}
 
 #[derive(Clone, Debug, Default, derive_more::IsVariant, serde::Deserialize, serde::Serialize)]
@@ -617,7 +617,7 @@ pub enum ContainerNetwork {
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Bridge {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub ip: Option<Ipv4Addr>,
@@ -626,7 +626,7 @@ pub struct Bridge {
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct SeatbeltSandboxIsolation {}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -660,7 +660,7 @@ pub struct SyncGet {
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct SyncGetIndex {
 	pub object_batch_size: usize,
 
@@ -679,7 +679,7 @@ pub struct SyncGetIndex {
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct SyncGetQueue {
 	pub object_batch_size: usize,
 
@@ -698,7 +698,7 @@ pub struct SyncGetQueue {
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct SyncGetStore {
 	pub lmdb: SyncGetStoreObject,
 
@@ -715,7 +715,7 @@ pub struct SyncGetStore {
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct SyncGetStoreObject {
 	pub object_concurrency: usize,
 
@@ -725,7 +725,7 @@ pub struct SyncGetStoreObject {
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct SyncPut {
 	pub index: SyncPutIndex,
 
@@ -736,7 +736,7 @@ pub struct SyncPut {
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct SyncPutIndex {
 	pub object_batch_size: usize,
 
@@ -755,7 +755,7 @@ pub struct SyncPutIndex {
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct SyncPutQueue {
 	pub object_batch_size: usize,
 
@@ -774,7 +774,7 @@ pub struct SyncPutQueue {
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct SyncPutStore {
 	pub object_batch_size: usize,
 	#[serde_as(as = "DurationSecondsWithFrac")]
@@ -792,7 +792,7 @@ pub struct SyncPutStore {
 
 #[serde_as]
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Vfs {
 	pub io: VfsIo,
 
@@ -823,14 +823,14 @@ pub enum VfsPassthrough {
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Watch {
 	pub ttl: Duration,
 }
 
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Watchdog {
 	pub batch_size: usize,
 
@@ -844,7 +844,7 @@ pub struct Watchdog {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Write {
 	pub avg_leaf_size: usize,
 

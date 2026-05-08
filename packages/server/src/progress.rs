@@ -19,7 +19,7 @@ pub struct Handle<T> {
 	sender: async_broadcast::Sender<tg::Result<tg::progress::Event<T>>>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 struct Indicator {
 	current: Option<AtomicU64>,
 	format: tg::progress::IndicatorFormat,
