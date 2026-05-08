@@ -90,6 +90,7 @@ impl Session {
 			},
 			Some(tg::sandbox::Isolation::Vm) => {
 				let kernel_path = self
+					.server
 					.config()
 					.sandbox
 					.isolation
@@ -100,7 +101,7 @@ impl Session {
 					.clone();
 				tangram_sandbox::Isolation::Vm(tangram_sandbox::VmIsolation { kernel_path })
 			},
-			None => self.resolve_sandbox_isolation()?,
+			None => self.server.resolve_sandbox_isolation()?,
 		};
 
 		// Associate the permit with the sandbox.
@@ -137,7 +138,7 @@ impl Session {
 			) => Some(tangram_sandbox::Network::Host),
 			(tg::Either::Left(true), tangram_sandbox::Isolation::Vm(_)) => {
 				if matches!(
-					self.config().sandbox.network,
+					self.server.config().sandbox.network,
 					crate::config::Network::Pasta(_)
 				) {
 					Some(tangram_sandbox::Network::Pasta)
@@ -148,18 +149,19 @@ impl Session {
 			(tg::Either::Right(tg::sandbox::Network::Host), _) => {
 				Some(tangram_sandbox::Network::Host)
 			},
-			(tg::Either::Right(tg::sandbox::Network::Bridge), _) => {
-				match &self.config.sandbox.network {
-					crate::config::Network::Pasta(_) => Some(tangram_sandbox::Network::Pasta),
-					crate::config::Network::Bridge(bridge) => {
-						let ip = bridge.ip.unwrap_or_else(crate::config::default_bridge_ip);
-						let name = bridge.name.clone().unwrap_or_else(|| "tangram0".to_owned());
-						Some(tangram_sandbox::Network::Bridge(tangram_sandbox::Bridge {
-							ip,
-							name,
-						}))
-					},
-				}
+			(tg::Either::Right(tg::sandbox::Network::Bridge), _) => match &self.server.config().sandbox.network {
+				crate::config::Network::Pasta(_) => Some(tangram_sandbox::Network::Pasta),
+				crate::config::Network::Bridge(bridge) => {
+					let ip = bridge.ip.unwrap_or_else(crate::config::default_bridge_ip);
+					let name = bridge
+						.name
+						.clone()
+						.unwrap_or_else(|| "tangram0".to_owned());
+					Some(tangram_sandbox::Network::Bridge(tangram_sandbox::Bridge {
+						ip,
+						name,
+					}))
+				},
 			},
 		};
 		let (host_ip, guest_ip) = match (&isolation, network.as_ref()) {
